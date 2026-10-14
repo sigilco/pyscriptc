@@ -1,22 +1,71 @@
 """Typeshed stub reader: signatures and canonical argument expressions.
 
 The stubs shipped with mypy are the source of argument types. Version and platform branches are
-resolved for CPython 3.14 on Linux, so the chosen overloads match the oracle interpreter.
+resolved for the oracle CPython on Linux (`PYSC_ORACLE`, else the running interpreter), so the chosen
+overloads match the oracle. Modules are filtered by `stdlib/VERSIONS` for the same target.
+
+Workers may run on an interpreter without mypy: the orchestrator passes the stub directory in `PYSC_TYPESHED`.
 """
 
 from __future__ import annotations
 
 import ast
 import itertools
+import os
+import sys
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 
-import mypy
 
-STDLIB = Path(mypy.__file__).parent / "typeshed" / "stdlib"
-PY_VERSION = (3, 14)
+def stdlib_dir() -> Path:
+    if os.environ.get("PYSC_TYPESHED"):
+        return Path(os.environ["PYSC_TYPESHED"])
+    import mypy
+
+    return Path(mypy.__file__).parent / "typeshed" / "stdlib"
+
+
+def parse_version(text: str) -> tuple[int, int]:
+    major, _, minor = text.partition(".")
+    return int(major), int(minor)
+
+
+STDLIB = stdlib_dir()
+PY_VERSION = parse_version(os.environ["PYSC_ORACLE"]) if os.environ.get("PYSC_ORACLE") else sys.version_info[:2]
 PLATFORM = "linux"
+
+
+@cache
+def module_versions() -> dict[str, tuple[tuple[int, int], tuple[int, int] | None]]:
+    """`stdlib/VERSIONS`: module -> (first version, last version or None for still present)."""
+    out: dict[str, tuple[tuple[int, int], tuple[int, int] | None]] = {}
+    for line in (STDLIB / "VERSIONS").read_text(encoding="utf-8").splitlines():
+        line = line.split("#")[0].strip()
+        if not line:
+            continue
+        name, _, span = line.partition(":")
+        first, _, last = span.strip().partition("-")
+        out[name.strip()] = (parse_version(first), parse_version(last) if last else None)
+    return out
+
+
+def available(module: str, version: tuple[int, int] | None = None) -> bool:
+    """True when `module` and every parent package exist in `version` (default: the oracle) per VERSIONS."""
+    version = version or PY_VERSION
+    table = module_versions()
+    parts = module.split(".")
+    for end in range(1, len(parts) + 1):
+        span = table.get(".".join(parts[:end]))
+        if span is not None and not (span[0] <= version and (span[1] is None or version <= span[1])):
+            return False
+    return True
+
+
+def versioned_modules(version: tuple[int, int] | None = None) -> list[str]:
+    """Top-level public modules that exist in `version` per VERSIONS."""
+    return sorted(m for m in module_versions() if "." not in m and not m.startswith("_") and available(m, version))
+
 
 # Candidate expressions per simple type name, in preference order. Scalars (int, float, bool, str)
 # become probe parameters so the compiler cannot fold them away; the rest are inlined.
@@ -150,6 +199,8 @@ def _exception_like(node: ast.ClassDef) -> bool:
 
 @cache
 def load(module: str) -> Stub | None:
+    if not available(module):
+        return None
     base = STDLIB / Path(*module.split("."))
     path = base.with_suffix(".pyi")
     if not path.exists():
