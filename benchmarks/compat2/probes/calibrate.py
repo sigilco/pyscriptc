@@ -98,14 +98,29 @@ def main() -> int:
     parser.add_argument("--per-cell", type=int, default=12)
     parser.add_argument("--workers", type=int, default=2)
     parser.add_argument("--out", default="")
+    parser.add_argument("--cache", default="", help="jsonl of finished ids, so an interrupted run can resume")
     opts = parser.parse_args()
     if sys.platform != "linux":
         raise SystemExit("the compiler only runs on Linux, use the dev container")
     rows = load_all()
     lowered = v1_lowered_ids()
     chosen = sample(rows, opts.per_cell, lowered)
+    cache = Path(opts.cache) if opts.cache else None
+    done: dict[str, str] = {}
+    if cache and cache.exists():
+        done = {j["id"]: j["result"] for j in map(json.loads, cache.read_text(encoding="utf-8").splitlines())}
+
+    def cached(row: dict[str, object]) -> str:
+        pid = str(row["id"])
+        if pid not in done:
+            done[pid] = run_one(row)
+            if cache:
+                with cache.open("a", encoding="utf-8") as handle:
+                    handle.write(json.dumps({"id": pid, "result": done[pid]}) + "\n")
+        return done[pid]
+
     with ThreadPoolExecutor(max_workers=opts.workers) as pool:
-        results = list(pool.map(run_one, chosen))
+        results = list(pool.map(cached, chosen))
     cells: dict[str, Counter[str]] = {}
     for row, result in zip(chosen, results, strict=True):
         cells.setdefault(f"{row['area']}/{row['category']}/{row['kind']}", Counter())[result] += 1
