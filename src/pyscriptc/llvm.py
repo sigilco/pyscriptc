@@ -22,13 +22,19 @@ _FOP = {"+": "fadd", "-": "fsub", "*": "fmul"}
 _INT_HELPER = {"+": "iadd", "-": "isub", "*": "imul", "//": "floordiv"}
 
 
-def emit_llvm(module: dict[str, Any], call: str | None = None, args: list[Any] | None = None) -> str:
+def emit_llvm(
+    module: dict[str, Any],
+    call: str | None = None,
+    args: list[Any] | None = None,
+    standalone: bool = False,
+) -> str:
+    """With `standalone` and no `call`, main does nothing: module level code is not lowered."""
     assert_same_cpython(module)
     if module["fences"]:
         raise IRError("refusing to emit LLVM while fences are present")
     if not module["functions"]:
         raise IRError("module has no functions to emit")
-    return Emitter(module).emit(call, [] if args is None else args)
+    return Emitter(module).emit(call, [] if args is None else args, standalone)
 
 
 def link_binary(llvm_path: Path, output: Path) -> None:
@@ -84,7 +90,7 @@ class Emitter:
         self.atexit_n = 0
         self.abi_decls: dict[str, tuple[str, list[str]]] = {}
 
-    def emit(self, call: str | None, args: list[Any]) -> str:
+    def emit(self, call: str | None, args: list[Any], standalone: bool = False) -> str:
         self.class_index = {cls["name"]: cls for cls in self.module.get("classes", [])}
         for cls in self.module.get("classes", []):
             body = "i8" if not cls["fields"] else ", ".join(_llvm_type(field["type"]) for field in cls["fields"])
@@ -99,6 +105,8 @@ class Emitter:
                 self.emit_function(self.functions[f"cls.{cls['name']}.{method['name']}"])
         if call is not None:
             self.emit_main(call, args)
+        elif standalone:
+            self.out.extend(["define i32 @main() {", "entry:", "  ret i32 0", "}", ""])
         self.out.extend(self.outline_lines)
         header = ["%ps.str = type { i64, ptr }", ""]
         header.extend(self.globals)

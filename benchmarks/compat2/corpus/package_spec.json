@@ -1,0 +1,2450 @@
+{
+ "packages": {
+  "aiohappyeyeballs": {
+   "import_name": "aiohappyeyeballs",
+   "version": "2.7.1",
+   "closed_functions": [],
+   "oracles": {
+    "test_count": 16,
+    "files": [
+     {
+      "file": "tests/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/benchmarks/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/benchmarks/_data.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/benchmarks/test_interleave.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/benchmarks/test_reorder_utils.py",
+      "tests": 3
+     },
+     {
+      "file": "tests/conftest.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/test_impl.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_init.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_staggered.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_staggered_cpython.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_staggered_cpython_eager_task_factory.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_utils.py",
+      "tests": 5
+     }
+    ],
+    "functions_called_by_tests": {}
+   }
+  },
+  "annotated-doc": {
+   "import_name": "annotated_doc",
+   "version": "0.0.5",
+   "closed_functions": [],
+   "oracles": {
+    "test_count": 20,
+    "files": [
+     {
+      "file": "tests/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/test_main.py",
+      "tests": 6
+     },
+     {
+      "file": "tests/test_prepare_release.py",
+      "tests": 14
+     }
+    ],
+    "functions_called_by_tests": {}
+   }
+  },
+  "attrs": {
+   "import_name": "attr",
+   "version": "26.1.0",
+   "closed_functions": [],
+   "oracles": {
+    "test_count": 650,
+    "files": [
+     {
+      "file": "tests/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/attr_import_star.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/conftest.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/dataclass_transform_example.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/strategies.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/test_3rd_party.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_abc.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_annotations.py",
+      "tests": 35
+     },
+     {
+      "file": "tests/test_cmp.py",
+      "tests": 38
+     },
+     {
+      "file": "tests/test_compat.py",
+      "tests": 3
+     },
+     {
+      "file": "tests/test_config.py",
+      "tests": 4
+     },
+     {
+      "file": "tests/test_converters.py",
+      "tests": 26
+     },
+     {
+      "file": "tests/test_dunders.py",
+      "tests": 56
+     },
+     {
+      "file": "tests/test_filters.py",
+      "tests": 5
+     },
+     {
+      "file": "tests/test_forward_references.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_funcs.py",
+      "tests": 53
+     },
+     {
+      "file": "tests/test_functional.py",
+      "tests": 36
+     },
+     {
+      "file": "tests/test_hooks.py",
+      "tests": 20
+     },
+     {
+      "file": "tests/test_import.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_init_subclass.py",
+      "tests": 3
+     },
+     {
+      "file": "tests/test_make.py",
+      "tests": 150
+     },
+     {
+      "file": "tests/test_next_gen.py",
+      "tests": 30
+     },
+     {
+      "file": "tests/test_packaging.py",
+      "tests": 3
+     },
+     {
+      "file": "tests/test_pattern_matching.py",
+      "tests": 3
+     },
+     {
+      "file": "tests/test_pyright.py",
+      "tests": 3
+     },
+     {
+      "file": "tests/test_setattr.py",
+      "tests": 22
+     },
+     {
+      "file": "tests/test_slots.py",
+      "tests": 46
+     },
+     {
+      "file": "tests/test_utils.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_validators.py",
+      "tests": 101
+     },
+     {
+      "file": "tests/test_version_info.py",
+      "tests": 6
+     },
+     {
+      "file": "tests/utils.py",
+      "tests": 0
+     }
+    ],
+    "functions_called_by_tests": {}
+   }
+  },
+  "certifi": {
+   "import_name": "certifi",
+   "version": "2026.7.22",
+   "closed_functions": []
+  },
+  "click": {
+   "import_name": "click",
+   "version": "8.5.0",
+   "closed_functions": [
+    {
+     "module": "click.formatting",
+     "name": "wrap_text",
+     "qual": "click.formatting.wrap_text",
+     "params": [
+      {
+       "name": "text",
+       "kind": "str"
+      },
+      {
+       "name": "width",
+       "kind": "int"
+      },
+      {
+       "name": "initial_indent",
+       "kind": "str"
+      },
+      {
+       "name": "subsequent_indent",
+       "kind": "str"
+      },
+      {
+       "name": "preserve_paragraphs",
+       "kind": "bool"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "click.termui",
+     "name": "unstyle",
+     "qual": "click.termui.unstyle",
+     "params": [
+      {
+       "name": "text",
+       "kind": "str"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "click.termui",
+     "name": "launch",
+     "qual": "click.termui.launch",
+     "params": [
+      {
+       "name": "url",
+       "kind": "str"
+      },
+      {
+       "name": "wait",
+       "kind": "bool"
+      },
+      {
+       "name": "locate",
+       "kind": "bool"
+      }
+     ],
+     "returns": "int",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "click.utils",
+     "name": "get_app_dir",
+     "qual": "click.utils.get_app_dir",
+     "params": [
+      {
+       "name": "app_name",
+       "kind": "str"
+      },
+      {
+       "name": "roaming",
+       "kind": "bool"
+      },
+      {
+       "name": "force_posix",
+       "kind": "bool"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      "a"
+     ]
+    }
+   ],
+   "oracles": {
+    "test_count": 562,
+    "files": [
+     {
+      "file": "tests/conftest.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/test_arguments.py",
+      "tests": 38
+     },
+     {
+      "file": "tests/test_basic.py",
+      "tests": 41
+     },
+     {
+      "file": "tests/test_chain.py",
+      "tests": 9
+     },
+     {
+      "file": "tests/test_command_decorators.py",
+      "tests": 5
+     },
+     {
+      "file": "tests/test_commands.py",
+      "tests": 30
+     },
+     {
+      "file": "tests/test_compat.py",
+      "tests": 12
+     },
+     {
+      "file": "tests/test_context.py",
+      "tests": 32
+     },
+     {
+      "file": "tests/test_custom_classes.py",
+      "tests": 6
+     },
+     {
+      "file": "tests/test_defaults.py",
+      "tests": 17
+     },
+     {
+      "file": "tests/test_deprecations.py",
+      "tests": 4
+     },
+     {
+      "file": "tests/test_formatting.py",
+      "tests": 23
+     },
+     {
+      "file": "tests/test_imports.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_info_dict.py",
+      "tests": 7
+     },
+     {
+      "file": "tests/test_normalization.py",
+      "tests": 3
+     },
+     {
+      "file": "tests/test_options.py",
+      "tests": 100
+     },
+     {
+      "file": "tests/test_parser.py",
+      "tests": 3
+     },
+     {
+      "file": "tests/test_shell_completion.py",
+      "tests": 38
+     },
+     {
+      "file": "tests/test_stream_lifecycle.py",
+      "tests": 27
+     },
+     {
+      "file": "tests/test_termui.py",
+      "tests": 65
+     },
+     {
+      "file": "tests/test_testing.py",
+      "tests": 47
+     },
+     {
+      "file": "tests/test_types.py",
+      "tests": 15
+     },
+     {
+      "file": "tests/test_utils/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/test_utils/test_KeepOpenFile.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_utils/test_LazyFile.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_utils/test__detect_program_name.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_utils/test__expand_args.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_utils/test_confirm.py",
+      "tests": 4
+     },
+     {
+      "file": "tests/test_utils/test_echo.py",
+      "tests": 6
+     },
+     {
+      "file": "tests/test_utils/test_echo_via_pager.py",
+      "tests": 3
+     },
+     {
+      "file": "tests/test_utils/test_format_filename.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_utils/test_make_default_short_help.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_utils/test_open_file.py",
+      "tests": 8
+     },
+     {
+      "file": "tests/test_utils/test_prompt.py",
+      "tests": 6
+     },
+     {
+      "file": "tests/test_utils/test_sentinel.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_utils/test_style.py",
+      "tests": 3
+     },
+     {
+      "file": "tests/typing/typing_aliased_group.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/typing/typing_confirmation_option.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/typing/typing_edit.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/typing/typing_group_kw_options.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/typing/typing_help_option.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/typing/typing_options.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/typing/typing_password_option.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/typing/typing_progressbar.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/typing/typing_prompt.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/typing/typing_simple_example.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/typing/typing_version_option.py",
+      "tests": 0
+     }
+    ],
+    "functions_called_by_tests": {
+     "getchar": [
+      "test_termui.py",
+      "test_testing.py"
+     ],
+     "unstyle": [
+      "test_style.py"
+     ],
+     "wrap_text": [
+      "test_formatting.py"
+     ]
+    }
+   }
+  },
+  "colorama": {
+   "import_name": "colorama",
+   "version": "0.4.6",
+   "closed_functions": []
+  },
+  "filelock": {
+   "import_name": "filelock",
+   "version": "4.1.1",
+   "closed_functions": []
+  },
+  "h11": {
+   "import_name": "h11",
+   "version": "0.16.0",
+   "closed_functions": []
+  },
+  "idna": {
+   "import_name": "idna",
+   "version": "3.20",
+   "closed_functions": [
+    {
+     "module": "idna.core",
+     "name": "check_bidi",
+     "qual": "idna.core.check_bidi",
+     "params": [
+      {
+       "name": "label",
+       "kind": "str"
+      },
+      {
+       "name": "check_ltr",
+       "kind": "bool"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "idna.core",
+     "name": "check_initial_combiner",
+     "qual": "idna.core.check_initial_combiner",
+     "params": [
+      {
+       "name": "label",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "idna.core",
+     "name": "check_hyphen_ok",
+     "qual": "idna.core.check_hyphen_ok",
+     "params": [
+      {
+       "name": "label",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "idna.core",
+     "name": "valid_contextj",
+     "qual": "idna.core.valid_contextj",
+     "params": [
+      {
+       "name": "label",
+       "kind": "str"
+      },
+      {
+       "name": "pos",
+       "kind": "int"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a",
+      0
+     ]
+    },
+    {
+     "module": "idna.core",
+     "name": "valid_contexto",
+     "qual": "idna.core.valid_contexto",
+     "params": [
+      {
+       "name": "label",
+       "kind": "str"
+      },
+      {
+       "name": "pos",
+       "kind": "int"
+      },
+      {
+       "name": "exception",
+       "kind": "bool"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a",
+      0
+     ]
+    },
+    {
+     "module": "idna.core",
+     "name": "uts46_remap",
+     "qual": "idna.core.uts46_remap",
+     "params": [
+      {
+       "name": "domain",
+       "kind": "str"
+      },
+      {
+       "name": "std3_rules",
+       "kind": "bool"
+      },
+      {
+       "name": "transitional",
+       "kind": "bool"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      "a"
+     ]
+    }
+   ]
+  },
+  "importlib-metadata": {
+   "import_name": "importlib_metadata",
+   "version": "9.0.1",
+   "closed_functions": [],
+   "oracles": {
+    "test_count": 88,
+    "files": [
+     {
+      "file": "tests/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/_context.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/_path.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/compat/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/compat/py312.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/compat/py314.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/data/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/data/sources/example/example/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/data/sources/example/setup.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/data/sources/example2/example2/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/fixtures.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/test_api.py",
+      "tests": 37
+     },
+     {
+      "file": "tests/test_integration.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_main.py",
+      "tests": 39
+     },
+     {
+      "file": "tests/test_zip.py",
+      "tests": 10
+     }
+    ],
+    "functions_called_by_tests": {
+     "version": [
+      "test_api.py",
+      "test_integration.py",
+      "test_main.py",
+      "test_zip.py"
+     ]
+    }
+   }
+  },
+  "iniconfig": {
+   "import_name": "iniconfig",
+   "version": "2.3.1",
+   "closed_functions": []
+  },
+  "jmespath": {
+   "import_name": "jmespath",
+   "version": "1.1.0",
+   "closed_functions": []
+  },
+  "jsonschema-specifications": {
+   "import_name": "jsonschema_specifications",
+   "version": "2025.9.1",
+   "closed_functions": [],
+   "oracles": {
+    "test_count": 3,
+    "files": [
+     {
+      "file": "tests/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/test_jsonschema_specifications.py",
+      "tests": 3
+     }
+    ],
+    "functions_called_by_tests": {}
+   }
+  },
+  "markdown-it-py": {
+   "import_name": "markdown_it",
+   "version": "4.2.0",
+   "closed_functions": [
+    {
+     "module": "markdown_it.common.normalize_url",
+     "name": "normalizeLink",
+     "qual": "markdown_it.common.normalize_url.normalizeLink",
+     "params": [
+      {
+       "name": "url",
+       "kind": "str"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "markdown_it.common.normalize_url",
+     "name": "normalizeLinkText",
+     "qual": "markdown_it.common.normalize_url.normalizeLinkText",
+     "params": [
+      {
+       "name": "url",
+       "kind": "str"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "markdown_it.common.utils",
+     "name": "isValidEntityCode",
+     "qual": "markdown_it.common.utils.isValidEntityCode",
+     "params": [
+      {
+       "name": "c",
+       "kind": "int"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      1
+     ]
+    },
+    {
+     "module": "markdown_it.common.utils",
+     "name": "fromCodePoint",
+     "qual": "markdown_it.common.utils.fromCodePoint",
+     "params": [
+      {
+       "name": "c",
+       "kind": "int"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      1
+     ]
+    },
+    {
+     "module": "markdown_it.common.utils",
+     "name": "replaceEntityPattern",
+     "qual": "markdown_it.common.utils.replaceEntityPattern",
+     "params": [
+      {
+       "name": "match",
+       "kind": "str"
+      },
+      {
+       "name": "name",
+       "kind": "str"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      "a",
+      "a"
+     ]
+    },
+    {
+     "module": "markdown_it.common.utils",
+     "name": "unescapeAll",
+     "qual": "markdown_it.common.utils.unescapeAll",
+     "params": [
+      {
+       "name": "string",
+       "kind": "str"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "markdown_it.common.utils",
+     "name": "stripEscape",
+     "qual": "markdown_it.common.utils.stripEscape",
+     "params": [
+      {
+       "name": "string",
+       "kind": "str"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "markdown_it.common.utils",
+     "name": "escapeHtml",
+     "qual": "markdown_it.common.utils.escapeHtml",
+     "params": [
+      {
+       "name": "raw",
+       "kind": "str"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "markdown_it.common.utils",
+     "name": "escapeRE",
+     "qual": "markdown_it.common.utils.escapeRE",
+     "params": [
+      {
+       "name": "string",
+       "kind": "str"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "markdown_it.common.utils",
+     "name": "isWhiteSpace",
+     "qual": "markdown_it.common.utils.isWhiteSpace",
+     "params": [
+      {
+       "name": "code",
+       "kind": "int"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      1
+     ]
+    },
+    {
+     "module": "markdown_it.common.utils",
+     "name": "isPunctChar",
+     "qual": "markdown_it.common.utils.isPunctChar",
+     "params": [
+      {
+       "name": "ch",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "markdown_it.common.utils",
+     "name": "isMdAsciiPunct",
+     "qual": "markdown_it.common.utils.isMdAsciiPunct",
+     "params": [
+      {
+       "name": "ch",
+       "kind": "int"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      1
+     ]
+    },
+    {
+     "module": "markdown_it.common.utils",
+     "name": "normalizeReference",
+     "qual": "markdown_it.common.utils.normalizeReference",
+     "params": [
+      {
+       "name": "string",
+       "kind": "str"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "markdown_it.common.utils",
+     "name": "isLinkOpen",
+     "qual": "markdown_it.common.utils.isLinkOpen",
+     "params": [
+      {
+       "name": "string",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "markdown_it.common.utils",
+     "name": "isLinkClose",
+     "qual": "markdown_it.common.utils.isLinkClose",
+     "params": [
+      {
+       "name": "string",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "markdown_it.rules_core.smartquotes",
+     "name": "replaceAt",
+     "qual": "markdown_it.rules_core.smartquotes.replaceAt",
+     "params": [
+      {
+       "name": "string",
+       "kind": "str"
+      },
+      {
+       "name": "index",
+       "kind": "int"
+      },
+      {
+       "name": "ch",
+       "kind": "str"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      "a",
+      1,
+      "a"
+     ]
+    },
+    {
+     "module": "markdown_it.rules_inline.html_inline",
+     "name": "isLetter",
+     "qual": "markdown_it.rules_inline.html_inline.isLetter",
+     "params": [
+      {
+       "name": "ch",
+       "kind": "int"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      1
+     ]
+    }
+   ]
+  },
+  "markupsafe": {
+   "import_name": "markupsafe",
+   "version": "3.0.4",
+   "closed_functions": [],
+   "oracles": {
+    "test_count": 26,
+    "files": [
+     {
+      "file": "tests/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/conftest.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/test_escape.py",
+      "tests": 3
+     },
+     {
+      "file": "tests/test_exception_custom_html.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_ext_init.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_leak.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_markupsafe.py",
+      "tests": 20
+     }
+    ],
+    "functions_called_by_tests": {}
+   }
+  },
+  "mdurl": {
+   "import_name": "mdurl",
+   "version": "0.1.2",
+   "closed_functions": []
+  },
+  "packaging": {
+   "import_name": "packaging",
+   "version": "26.3",
+   "closed_functions": [
+    {
+     "module": "packaging.tags",
+     "name": "interpreter_name",
+     "qual": "packaging.tags.interpreter_name",
+     "params": [],
+     "returns": "str",
+     "call_args": []
+    },
+    {
+     "module": "packaging.utils",
+     "name": "is_normalized_name",
+     "qual": "packaging.utils.is_normalized_name",
+     "params": [
+      {
+       "name": "name",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a"
+     ]
+    }
+   ]
+  },
+  "pathspec": {
+   "import_name": "pathspec",
+   "version": "1.1.1",
+   "closed_functions": []
+  },
+  "platformdirs": {
+   "import_name": "platformdirs",
+   "version": "4.13.0",
+   "closed_functions": [
+    {
+     "module": "platformdirs",
+     "name": "user_documents_dir",
+     "qual": "platformdirs.user_documents_dir",
+     "params": [],
+     "returns": "str",
+     "call_args": []
+    },
+    {
+     "module": "platformdirs",
+     "name": "user_downloads_dir",
+     "qual": "platformdirs.user_downloads_dir",
+     "params": [],
+     "returns": "str",
+     "call_args": []
+    },
+    {
+     "module": "platformdirs",
+     "name": "user_pictures_dir",
+     "qual": "platformdirs.user_pictures_dir",
+     "params": [],
+     "returns": "str",
+     "call_args": []
+    },
+    {
+     "module": "platformdirs",
+     "name": "user_videos_dir",
+     "qual": "platformdirs.user_videos_dir",
+     "params": [],
+     "returns": "str",
+     "call_args": []
+    },
+    {
+     "module": "platformdirs",
+     "name": "user_music_dir",
+     "qual": "platformdirs.user_music_dir",
+     "params": [],
+     "returns": "str",
+     "call_args": []
+    },
+    {
+     "module": "platformdirs",
+     "name": "user_desktop_dir",
+     "qual": "platformdirs.user_desktop_dir",
+     "params": [],
+     "returns": "str",
+     "call_args": []
+    },
+    {
+     "module": "platformdirs",
+     "name": "user_projects_dir",
+     "qual": "platformdirs.user_projects_dir",
+     "params": [],
+     "returns": "str",
+     "call_args": []
+    },
+    {
+     "module": "platformdirs",
+     "name": "user_publicshare_dir",
+     "qual": "platformdirs.user_publicshare_dir",
+     "params": [],
+     "returns": "str",
+     "call_args": []
+    },
+    {
+     "module": "platformdirs",
+     "name": "user_templates_dir",
+     "qual": "platformdirs.user_templates_dir",
+     "params": [],
+     "returns": "str",
+     "call_args": []
+    },
+    {
+     "module": "platformdirs",
+     "name": "user_fonts_dir",
+     "qual": "platformdirs.user_fonts_dir",
+     "params": [],
+     "returns": "str",
+     "call_args": []
+    },
+    {
+     "module": "platformdirs",
+     "name": "site_bin_dir",
+     "qual": "platformdirs.site_bin_dir",
+     "params": [],
+     "returns": "str",
+     "call_args": []
+    }
+   ]
+  },
+  "pluggy": {
+   "import_name": "pluggy",
+   "version": "1.6.0",
+   "closed_functions": [],
+   "oracles": {
+    "test_count": 105,
+    "files": [
+     {
+      "file": "testing/benchmark.py",
+      "tests": 2
+     },
+     {
+      "file": "testing/conftest.py",
+      "tests": 0
+     },
+     {
+      "file": "testing/test_details.py",
+      "tests": 10
+     },
+     {
+      "file": "testing/test_helpers.py",
+      "tests": 6
+     },
+     {
+      "file": "testing/test_hookcaller.py",
+      "tests": 15
+     },
+     {
+      "file": "testing/test_invocations.py",
+      "tests": 13
+     },
+     {
+      "file": "testing/test_multicall.py",
+      "tests": 21
+     },
+     {
+      "file": "testing/test_pluginmanager.py",
+      "tests": 32
+     },
+     {
+      "file": "testing/test_result.py",
+      "tests": 1
+     },
+     {
+      "file": "testing/test_tracer.py",
+      "tests": 4
+     },
+     {
+      "file": "testing/test_warnings.py",
+      "tests": 1
+     }
+    ],
+    "functions_called_by_tests": {}
+   }
+  },
+  "pyasn1": {
+   "import_name": "pyasn1",
+   "version": "0.6.4",
+   "closed_functions": [],
+   "oracles": {
+    "test_count": 1118,
+    "files": [
+     {
+      "file": "tests/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/__main__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/base.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/codec/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/codec/__main__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/codec/ber/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/codec/ber/__main__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/codec/ber/test_decoder.py",
+      "tests": 267
+     },
+     {
+      "file": "tests/codec/ber/test_encoder.py",
+      "tests": 195
+     },
+     {
+      "file": "tests/codec/cer/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/codec/cer/__main__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/codec/cer/test_decoder.py",
+      "tests": 32
+     },
+     {
+      "file": "tests/codec/cer/test_encoder.py",
+      "tests": 85
+     },
+     {
+      "file": "tests/codec/der/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/codec/der/__main__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/codec/der/test_decoder.py",
+      "tests": 31
+     },
+     {
+      "file": "tests/codec/der/test_encoder.py",
+      "tests": 44
+     },
+     {
+      "file": "tests/codec/native/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/codec/native/__main__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/codec/native/test_decoder.py",
+      "tests": 13
+     },
+     {
+      "file": "tests/codec/native/test_encoder.py",
+      "tests": 16
+     },
+     {
+      "file": "tests/codec/test_streaming.py",
+      "tests": 5
+     },
+     {
+      "file": "tests/test_debug.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/type/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/type/__main__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/type/test_char.py",
+      "tests": 19
+     },
+     {
+      "file": "tests/type/test_constraint.py",
+      "tests": 39
+     },
+     {
+      "file": "tests/type/test_namedtype.py",
+      "tests": 17
+     },
+     {
+      "file": "tests/type/test_namedval.py",
+      "tests": 6
+     },
+     {
+      "file": "tests/type/test_opentype.py",
+      "tests": 3
+     },
+     {
+      "file": "tests/type/test_tag.py",
+      "tests": 18
+     },
+     {
+      "file": "tests/type/test_univ.py",
+      "tests": 298
+     },
+     {
+      "file": "tests/type/test_useful.py",
+      "tests": 28
+     }
+    ],
+    "functions_called_by_tests": {}
+   }
+  },
+  "pyjwt": {
+   "import_name": "jwt",
+   "version": "2.15.1",
+   "closed_functions": []
+  },
+  "pyparsing": {
+   "import_name": "pyparsing",
+   "version": "3.3.3",
+   "closed_functions": [
+    {
+     "module": "pyparsing.core",
+     "name": "srange",
+     "qual": "pyparsing.core.srange",
+     "params": [
+      {
+       "name": "s",
+       "kind": "str"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      "a"
+     ]
+    }
+   ],
+   "oracles": {
+    "test_count": 428,
+    "files": [
+     {
+      "file": "tests/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/json_parser_tests.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/mypy-ignore-cases/forward_methods.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/perf_pyparsing.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/test_diagram.py",
+      "tests": 11
+     },
+     {
+      "file": "tests/test_examples.py",
+      "tests": 19
+     },
+     {
+      "file": "tests/test_matplotlib_cases.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_pep8_converter.py",
+      "tests": 4
+     },
+     {
+      "file": "tests/test_pre_pep8_deprecation_warnings.py",
+      "tests": 45
+     },
+     {
+      "file": "tests/test_simple_unit.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/test_testing.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_unit.py",
+      "tests": 337
+     },
+     {
+      "file": "tests/test_util.py",
+      "tests": 9
+     }
+    ],
+    "functions_called_by_tests": {
+     "srange": [
+      "test_unit.py"
+     ]
+    }
+   }
+  },
+  "python-dateutil": {
+   "import_name": "dateutil",
+   "version": "2.9.0.post0",
+   "closed_functions": [],
+   "oracles": {
+    "test_count": 1042,
+    "files": [
+     {
+      "file": "tests/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/_common.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/conftest.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/property/test_isoparse_prop.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/property/test_parser_prop.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/property/test_tz_prop.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_easter.py",
+      "tests": 4
+     },
+     {
+      "file": "tests/test_import_star.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_imports.py",
+      "tests": 24
+     },
+     {
+      "file": "tests/test_internals.py",
+      "tests": 4
+     },
+     {
+      "file": "tests/test_isoparser.py",
+      "tests": 28
+     },
+     {
+      "file": "tests/test_parser.py",
+      "tests": 92
+     },
+     {
+      "file": "tests/test_relativedelta.py",
+      "tests": 87
+     },
+     {
+      "file": "tests/test_rrule.py",
+      "tests": 562
+     },
+     {
+      "file": "tests/test_tz.py",
+      "tests": 229
+     },
+     {
+      "file": "tests/test_utils.py",
+      "tests": 7
+     }
+    ],
+    "functions_called_by_tests": {}
+   }
+  },
+  "python-dotenv": {
+   "import_name": "dotenv",
+   "version": "1.2.4",
+   "closed_functions": [
+    {
+     "module": "dotenv.main",
+     "name": "find_dotenv",
+     "qual": "dotenv.main.find_dotenv",
+     "params": [
+      {
+       "name": "filename",
+       "kind": "str"
+      },
+      {
+       "name": "raise_error_if_not_found",
+       "kind": "bool"
+      },
+      {
+       "name": "usecwd",
+       "kind": "bool"
+      }
+     ],
+     "returns": "str",
+     "call_args": []
+    }
+   ]
+  },
+  "python-multipart": {
+   "import_name": "python_multipart",
+   "version": "0.0.32",
+   "closed_functions": [],
+   "oracles": {
+    "test_count": 118,
+    "files": [
+     {
+      "file": "tests/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/compat.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/test_benchmarks.py",
+      "tests": 5
+     },
+     {
+      "file": "tests/test_file.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_multipart.py",
+      "tests": 112
+     }
+    ],
+    "functions_called_by_tests": {}
+   }
+  },
+  "pytz": {
+   "import_name": "pytz",
+   "version": "2026.5",
+   "closed_functions": []
+  },
+  "referencing": {
+   "import_name": "referencing",
+   "version": "0.37.0",
+   "closed_functions": [],
+   "oracles": {
+    "test_count": 119,
+    "files": [
+     {
+      "file": "tests/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/test_core.py",
+      "tests": 94
+     },
+     {
+      "file": "tests/test_exceptions.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_jsonschema.py",
+      "tests": 18
+     },
+     {
+      "file": "tests/test_referencing_suite.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_retrieval.py",
+      "tests": 4
+     }
+    ],
+    "functions_called_by_tests": {}
+   }
+  },
+  "shellingham": {
+   "import_name": "shellingham",
+   "version": "1.5.4",
+   "closed_functions": []
+  },
+  "sniffio": {
+   "import_name": "sniffio",
+   "version": "1.3.1",
+   "closed_functions": [],
+   "oracles": {
+    "test_count": 4,
+    "files": [
+     {
+      "file": "_tests/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "_tests/test_sniffio.py",
+      "tests": 4
+     }
+    ],
+    "functions_called_by_tests": {}
+   }
+  },
+  "soupsieve": {
+   "import_name": "soupsieve",
+   "version": "3.0.3",
+   "closed_functions": [
+    {
+     "module": "soupsieve",
+     "name": "escape",
+     "qual": "soupsieve.escape",
+     "params": [
+      {
+       "name": "ident",
+       "kind": "str"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "soupsieve.css_parser",
+     "name": "css_unescape",
+     "qual": "soupsieve.css_parser.css_unescape",
+     "params": [
+      {
+       "name": "content",
+       "kind": "str"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "soupsieve.css_parser",
+     "name": "escape",
+     "qual": "soupsieve.css_parser.escape",
+     "params": [
+      {
+       "name": "ident",
+       "kind": "str"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      "a"
+     ]
+    }
+   ],
+   "oracles": {
+    "test_count": 415,
+    "files": [
+     {
+      "file": "tests/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/test_api.py",
+      "tests": 53
+     },
+     {
+      "file": "tests/test_bs4_cases.py",
+      "tests": 5
+     },
+     {
+      "file": "tests/test_extra/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/test_extra/test_attribute.py",
+      "tests": 6
+     },
+     {
+      "file": "tests/test_extra/test_custom.py",
+      "tests": 11
+     },
+     {
+      "file": "tests/test_extra/test_soup_contains.py",
+      "tests": 20
+     },
+     {
+      "file": "tests/test_extra/test_soup_contains_own.py",
+      "tests": 7
+     },
+     {
+      "file": "tests/test_level1/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/test_level1/test_active.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_level1/test_at_rule.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_level1/test_class.py",
+      "tests": 8
+     },
+     {
+      "file": "tests/test_level1/test_comments.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level1/test_descendant.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level1/test_escapes.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level1/test_id.py",
+      "tests": 3
+     },
+     {
+      "file": "tests/test_level1/test_link.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level1/test_list.py",
+      "tests": 4
+     },
+     {
+      "file": "tests/test_level1/test_pseudo_class.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level1/test_pseudo_element.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_level1/test_type.py",
+      "tests": 6
+     },
+     {
+      "file": "tests/test_level1/test_visited.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_level2/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/test_level2/test_attribute.py",
+      "tests": 27
+     },
+     {
+      "file": "tests/test_level2/test_child.py",
+      "tests": 6
+     },
+     {
+      "file": "tests/test_level2/test_first_child.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_level2/test_focus.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level2/test_hover.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_level2/test_lang.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level2/test_next_sibling.py",
+      "tests": 3
+     },
+     {
+      "file": "tests/test_level2/test_universal_type.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_level3/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/test_level3/test_attribute.py",
+      "tests": 11
+     },
+     {
+      "file": "tests/test_level3/test_checked.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_level3/test_disabled.py",
+      "tests": 7
+     },
+     {
+      "file": "tests/test_level3/test_empty.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_level3/test_enabled.py",
+      "tests": 6
+     },
+     {
+      "file": "tests/test_level3/test_first_of_type.py",
+      "tests": 3
+     },
+     {
+      "file": "tests/test_level3/test_last_child.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level3/test_last_of_type.py",
+      "tests": 3
+     },
+     {
+      "file": "tests/test_level3/test_namespace.py",
+      "tests": 14
+     },
+     {
+      "file": "tests/test_level3/test_not.py",
+      "tests": 8
+     },
+     {
+      "file": "tests/test_level3/test_nth_child.py",
+      "tests": 8
+     },
+     {
+      "file": "tests/test_level3/test_nth_last_child.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level3/test_nth_last_of_type.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level3/test_nth_of_type.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level3/test_only_child.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_level3/test_only_of_type.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_level3/test_root.py",
+      "tests": 11
+     },
+     {
+      "file": "tests/test_level3/test_subsequent_sibling.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level3/test_target.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level4/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/test_level4/test_any_link.py",
+      "tests": 4
+     },
+     {
+      "file": "tests/test_level4/test_attribute.py",
+      "tests": 6
+     },
+     {
+      "file": "tests/test_level4/test_current.py",
+      "tests": 4
+     },
+     {
+      "file": "tests/test_level4/test_default.py",
+      "tests": 5
+     },
+     {
+      "file": "tests/test_level4/test_defined.py",
+      "tests": 3
+     },
+     {
+      "file": "tests/test_level4/test_dir.py",
+      "tests": 11
+     },
+     {
+      "file": "tests/test_level4/test_focus_visible.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level4/test_focus_within.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level4/test_future.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level4/test_has.py",
+      "tests": 18
+     },
+     {
+      "file": "tests/test_level4/test_host.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level4/test_host_context.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_level4/test_in_range.py",
+      "tests": 7
+     },
+     {
+      "file": "tests/test_level4/test_indeterminate.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level4/test_is.py",
+      "tests": 11
+     },
+     {
+      "file": "tests/test_level4/test_lang.py",
+      "tests": 20
+     },
+     {
+      "file": "tests/test_level4/test_local_link.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level4/test_matches.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level4/test_muted.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level4/test_not.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_level4/test_nth_child.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level4/test_nth_last_child.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_level4/test_open.py",
+      "tests": 3
+     },
+     {
+      "file": "tests/test_level4/test_optional.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level4/test_out_of_range.py",
+      "tests": 7
+     },
+     {
+      "file": "tests/test_level4/test_past.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level4/test_paused.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level4/test_placeholder_shown.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_level4/test_playing.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level4/test_read_only.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_level4/test_read_write.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_level4/test_required.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level4/test_scope.py",
+      "tests": 3
+     },
+     {
+      "file": "tests/test_level4/test_target_within.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_level4/test_user_invalid.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_level4/test_where.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_nesting_1/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/test_nesting_1/test_amp.py",
+      "tests": 3
+     },
+     {
+      "file": "tests/test_versions.py",
+      "tests": 4
+     },
+     {
+      "file": "tests/util.py",
+      "tests": 0
+     }
+    ],
+    "functions_called_by_tests": {
+     "css_unescape": [
+      "test_escapes.py"
+     ],
+     "escape": [
+      "test_api.py"
+     ]
+    }
+   }
+  },
+  "tomlkit": {
+   "import_name": "tomlkit",
+   "version": "0.15.1",
+   "closed_functions": [],
+   "oracles": {
+    "test_count": 241,
+    "files": [
+     {
+      "file": "tests/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/conftest.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/test_api.py",
+      "tests": 48
+     },
+     {
+      "file": "tests/test_build.py",
+      "tests": 4
+     },
+     {
+      "file": "tests/test_items.py",
+      "tests": 83
+     },
+     {
+      "file": "tests/test_parser.py",
+      "tests": 17
+     },
+     {
+      "file": "tests/test_toml_document.py",
+      "tests": 71
+     },
+     {
+      "file": "tests/test_toml_file.py",
+      "tests": 8
+     },
+     {
+      "file": "tests/test_toml_tests.py",
+      "tests": 3
+     },
+     {
+      "file": "tests/test_utils.py",
+      "tests": 3
+     },
+     {
+      "file": "tests/test_write.py",
+      "tests": 4
+     },
+     {
+      "file": "tests/toml-test/gen.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/util.py",
+      "tests": 0
+     }
+    ],
+    "functions_called_by_tests": {}
+   }
+  },
+  "tqdm": {
+   "import_name": "tqdm",
+   "version": "4.70.1",
+   "closed_functions": [],
+   "oracles": {
+    "test_count": 156,
+    "files": [
+     {
+      "file": "tests/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/conftest.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/tests_asyncio.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/tests_concurrent.py",
+      "tests": 5
+     },
+     {
+      "file": "tests/tests_contrib.py",
+      "tests": 4
+     },
+     {
+      "file": "tests/tests_contrib_logging.py",
+      "tests": 18
+     },
+     {
+      "file": "tests/tests_dask.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/tests_gui.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/tests_itertools.py",
+      "tests": 6
+     },
+     {
+      "file": "tests/tests_keras.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/tests_main.py",
+      "tests": 8
+     },
+     {
+      "file": "tests/tests_notebook.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/tests_pandas.py",
+      "tests": 8
+     },
+     {
+      "file": "tests/tests_perf.py",
+      "tests": 8
+     },
+     {
+      "file": "tests/tests_rich.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/tests_rlock.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/tests_synchronisation.py",
+      "tests": 6
+     },
+     {
+      "file": "tests/tests_tk.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/tests_tqdm.py",
+      "tests": 80
+     },
+     {
+      "file": "tests/tests_utils.py",
+      "tests": 4
+     },
+     {
+      "file": "tests/tests_version.py",
+      "tests": 1
+     }
+    ],
+    "functions_called_by_tests": {}
+   }
+  },
+  "trove-classifiers": {
+   "import_name": "trove_classifiers",
+   "version": "2026.9.21.13",
+   "closed_functions": []
+  },
+  "typing-extensions": {
+   "import_name": "typing_extensions",
+   "version": "4.16.0",
+   "closed_functions": [],
+   "oracles": {
+    "test_count": 559,
+    "files": [
+     {
+      "file": "test_typing_extensions.py",
+      "tests": 559
+     }
+    ],
+    "functions_called_by_tests": {}
+   }
+  },
+  "typing-inspection": {
+   "import_name": "typing_inspection",
+   "version": "0.4.4",
+   "closed_functions": [],
+   "oracles": {
+    "test_count": 29,
+    "files": [
+     {
+      "file": "tests/conftest.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/introspection/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/introspection/test_inspect_annotation.py",
+      "tests": 9
+     },
+     {
+      "file": "tests/introspection/test_is_union_origin.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/introspection/test_literal_values.py",
+      "tests": 7
+     },
+     {
+      "file": "tests/typing_objects/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/typing_objects/test_member_checks.py",
+      "tests": 12
+     }
+    ],
+    "functions_called_by_tests": {}
+   }
+  },
+  "tzdata": {
+   "import_name": "tzdata",
+   "version": "2026.5",
+   "closed_functions": []
+  },
+  "wheel": {
+   "import_name": "wheel",
+   "version": "0.48.0",
+   "closed_functions": [
+    {
+     "module": "wheel._commands",
+     "name": "parse_build_tag",
+     "qual": "wheel._commands.parse_build_tag",
+     "params": [
+      {
+       "name": "build_tag",
+       "kind": "str"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      "1abc"
+     ]
+    },
+    {
+     "module": "wheel.macosx_libfile",
+     "name": "swap32",
+     "qual": "wheel.macosx_libfile.swap32",
+     "params": [
+      {
+       "name": "x",
+       "kind": "int"
+      }
+     ],
+     "returns": "int",
+     "call_args": [
+      1
+     ]
+    }
+   ],
+   "oracles": {
+    "test_count": 49,
+    "files": [
+     {
+      "file": "tests/commands/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/commands/test_convert.py",
+      "tests": 8
+     },
+     {
+      "file": "tests/commands/test_info.py",
+      "tests": 8
+     },
+     {
+      "file": "tests/commands/test_pack.py",
+      "tests": 4
+     },
+     {
+      "file": "tests/commands/test_tags.py",
+      "tests": 11
+     },
+     {
+      "file": "tests/commands/test_unpack.py",
+      "tests": 3
+     },
+     {
+      "file": "tests/commands/util.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/test_bdist_wheel.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_metadata.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_wheelfile.py",
+      "tests": 12
+     }
+    ],
+    "functions_called_by_tests": {
+     "main": [
+      "test_pack.py",
+      "util.py"
+     ]
+    }
+   }
+  },
+  "zipp": {
+   "import_name": "zipp",
+   "version": "4.1.1",
+   "closed_functions": []
+  }
+ }
+}

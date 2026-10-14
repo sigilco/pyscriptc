@@ -1,0 +1,168 @@
+import asyncio
+from functools import partial
+from sys import platform
+from time import time
+
+from pytest import mark
+
+from tqdm.asyncio import tarange, tqdm_asyncio
+
+tqdm = partial(tqdm_asyncio, miniters=0, mininterval=0)
+trange = partial(tarange, miniters=0, mininterval=0)
+as_completed = partial(tqdm_asyncio.as_completed, miniters=0, mininterval=0)
+gather = partial(tqdm_asyncio.gather, miniters=0, mininterval=0)
+
+
+def count(start=0, step=1):
+    i = start
+    while True:
+        new_start = yield i
+        if new_start is None:
+            i += step
+        else:
+            i = new_start
+
+
+async def acount(*args, **kwargs):
+    for i in count(*args, **kwargs):
+        yield i
+
+
+@mark.asyncio
+async def test_break():
+    pbar = tqdm(count())
+    async for _ in pbar:
+        break
+    pbar.close()
+
+
+@mark.asyncio
+async def test_generators(caperr):
+    with tqdm(count(), desc="counter") as pbar:
+        async for i in pbar:
+            if i >= 8:
+                break
+    assert '9it' in caperr()
+
+    acounter = acount()
+    try:
+        with tqdm(acounter, desc="async_counter") as pbar:
+            async for i in pbar:
+                if i >= 8:
+                    break
+    finally:
+        await acounter.aclose()
+    assert '9it' in caperr()
+
+
+@mark.asyncio
+async def test_range(caperr):
+    async for _ in tqdm(range(9), desc="range"):
+        pass
+    assert '9/9' in caperr()
+
+    async for _ in trange(9, desc="trange"):
+        pass
+    assert '9/9' in caperr()
+
+
+@mark.asyncio
+async def test_nested(caperr):
+    async for _ in tqdm(trange(9, desc="inner"), desc="outer"):
+        pass
+    err = caperr()
+    assert 'inner: 100%' in err
+    assert 'outer: 100%' in err
+
+
+@mark.asyncio
+async def test_coroutine_send(caperr):
+    with tqdm(count()) as pbar:
+        async for i in pbar:
+            if i == 9:
+                pbar.send(-10)
+            elif i < 0:
+                assert i == -9
+                break
+    assert '10it' in caperr()
+
+
+@mark.slow
+@mark.asyncio
+@mark.parametrize("tol", [0.2 if platform.startswith("darwin") else 0.1])
+async def test_as_completed(caperr, tol):
+    for retry in range(3):
+        t = time()
+        skew = time() - t
+        for i in as_completed([asyncio.sleep(0.01 * i) for i in range(30, 0, -1)]):
+            await i
+        t = time() - t - 2 * skew
+        try:
+            assert 0.3 * (1 - tol) < t < 0.3 * (1 + tol), t
+            err = caperr()
+            assert '30/30' in err
+        except AssertionError:
+            if retry == 2:
+                raise
+
+
+async def double(i):
+    return i * 2
+
+
+@mark.asyncio
+async def test_gather(caperr):
+    res = await gather(*map(double, range(30)))
+    err = caperr()
+    assert '30/30' in err
+    assert res == list(range(0, 30 * 2, 2))
+
+
+async def raise_exc(i):
+    if i == 1:
+        raise ValueError("test")
+    return i * 2
+
+
+@mark.asyncio
+async def test_gather_exceptions(caperr):
+    res = await gather(*map(raise_exc, range(3)), return_exceptions=True)
+    err = caperr()
+    assert '3/3' in err
+    assert isinstance(res[1], ValueError)
+    assert res[0] == 0
+    assert res[2] == 4
+
+
+class AIterable:
+    """Has `__aiter__` but not `__anext__`"""
+    def __init__(self, items):
+        self._items = items
+
+    def __aiter__(self):
+        return AIterator(self._items)
+
+
+class AIterator:
+    def __init__(self, items):
+        self._items = iter(items)
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            return next(self._items)
+        except StopIteration:
+            raise StopAsyncIteration
+
+
+@mark.asyncio
+async def test_async_iterable(caperr):
+    """Test asyncio with async iterable (only __aiter__, no __anext__)"""
+    result = []
+    async for i in tqdm(AIterable(range(9)), desc="aiterable"):
+        result.append(i)
+    assert result == list(range(9))
+    err = caperr()
+    assert '9it' in err
