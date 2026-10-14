@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from benchmarks.compat2 import headroom, ledger, verdict
 from benchmarks.compat2.loader import dump_probes, load_probes
-from benchmarks.compat2.outcomes import Probe, Row
+from benchmarks.compat2.outcomes import Probe, Row, probe_weight
 from benchmarks.compat2.score import Result, evaluate, score, weighted_pass
 
 OK = "def probe() -> int:\n    return 1\n"
@@ -159,12 +159,52 @@ def test_injected_wrong_output_is_soundness_fail(monkeypatch: pytest.MonkeyPatch
     assert out["verdict"] == "FAIL" and out["findings"][0]["area"] == "soundness:inject.floordiv"
 
 
+def test_probe_weight_follows_the_primary_metric() -> None:
+    for category in ("function", "class", "method", "exception", "module", "language"):
+        assert probe_weight(category) == 1.0
+    assert probe_weight("constant") == 0.1
+    assert probe_weight("program", area="scripts") == 3.0
+    assert probe_weight("function", area="top100") == 2.0
+    assert probe_weight("program", area="top100") == 5.0
+    for fold in ("handle", "recv-handle", "exec", "none", "shape"):
+        assert probe_weight("function", fold=fold) == 0.25
+        assert probe_weight("language", fold=fold) == 0.25
+    assert probe_weight("function", fold="int") == 1.0
+    assert probe_weight("function", fold="len") == 1.0
+    assert probe_weight("function", fold="recv-len") == 1.0
+    assert probe_weight("constant", fold="handle") == 0.1
+    assert probe_weight("function", kind="raises") == 0.0
+    assert probe_weight("exception", kind="raises", fold="raises") == 0.0
+    assert probe_weight("method", kind="mention") == 0.0
+    assert probe_weight("constant", kind="mention") == 0.0
+    assert probe_weight("function", kind="raises", area="top100") == 0.0
+    assert probe_weight("function", kind="mention", area="scripts") == 0.0
+
+
 def test_effective_weight_does_not_double_count() -> None:
     from benchmarks.compat2.score import effective_weight
 
     assert effective_weight(probe("a", category="constant")) == 0.1
-    prog = Probe(id="p", area="scripts", category="program", kind="value", source="", call="", weight=5.0)
-    assert effective_weight(prog) == 5.0
+    prog = Probe(
+        id="p",
+        area="scripts",
+        category="program",
+        kind="value",
+        source="",
+        call="",
+        weight=probe_weight("program", area="scripts"),
+    )
+    assert effective_weight(prog) == 3.0
+    package = Probe(
+        id="top100.pkg",
+        area="top100",
+        category="program",
+        kind="value",
+        source="",
+        call="",
+        weight=probe_weight("program", area="top100"),
+    )
+    assert effective_weight(package) == 5.0
 
 
 def test_program_probe_fences_or_matches() -> None:
@@ -176,7 +216,7 @@ def test_program_probe_fences_or_matches() -> None:
         source="print('hi')\n",
         call="",
         args=("hi\n",),
-        weight=5.0,
+        weight=probe_weight("program", area="scripts"),
     )
     assert evaluate(prog, 120.0).row.outcome in {"pass", "fence"}
 
