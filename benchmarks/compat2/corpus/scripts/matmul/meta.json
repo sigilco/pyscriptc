@@ -1,0 +1,8 @@
+{
+  "license": "MIT",
+  "author": "pyscriptc contributors",
+  "origin": "original implementation written for this corpus, no upstream code copied",
+  "inspired_by": "Codon style matmul example",
+  "generated_with": "CPython 3.14.8",
+  "deterministic": true
+}

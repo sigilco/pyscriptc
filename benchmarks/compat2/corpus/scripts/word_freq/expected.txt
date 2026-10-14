@@ -1,0 +1,13 @@
+the 5
+fox 3
+dog 2
+quick 2
+and 1
+away 1
+barks 1
+brown 1
+from 1
+jumps 1
+lazy 1
+over 1
+runs 1
