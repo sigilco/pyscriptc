@@ -1,0 +1,17 @@
+{
+  "files": {
+    "test_augassign.py.txt": "fa336b354cb98b5e290f71d9565cc0c1fc26d603450c9b96a2ee2a927ff99ea6",
+    "test_binop.py.txt": "996d2011b0f3a8e6fc12100de0595ec4a7bcfc554f249f6df061b30e652171e2",
+    "test_bool.py.txt": "02ccd047602471cb4f75ffe796155b08068230327cae3cd173a36dae1784b19f",
+    "test_compare.py.txt": "2e20846df813bba0eef6a62f47ba0d4a10d40e0feb76cd8a63118567464d165a",
+    "test_float.py.txt": "e74222668dabab1c5796c963ee55e0e088bf12f5edeb363ac7da0b53f3c6b04b",
+    "test_grammar.py.txt": "d5506a6a6a9ef7aa3e5bae712e9696cb8e190aa305446fc2eea034d55c4d174c",
+    "test_int.py.txt": "729765b11c8027cda64d26d320b9d860d9080c504e4355083cfd35e93f4f2f89",
+    "test_unary.py.txt": "867adb0ac3eddbe957c0137a84f2dbac75bfd09c0a8b51e3e75a7af9eaa3f8eb"
+  },
+  "license": "PSF-2.0",
+  "note": "stored as .txt so pytest does not collect them; sha256 is of the upstream file bytes",
+  "path": "Lib/test",
+  "repo": "https://github.com/python/cpython",
+  "tag": "v3.14.8"
+}
