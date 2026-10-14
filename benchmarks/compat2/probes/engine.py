@@ -189,7 +189,7 @@ def scalar_params(positional: list[str], keywords: dict[str, str], start: int = 
     def lift(text: str) -> str:
         try:
             value = ast.literal_eval(text)
-        except ValueError, SyntaxError:
+        except Exception:  # noqa: BLE001  # not a literal; also keeps this file parseable before 3.14
             return text
         if type(value) in (int, float, bool, str):
             name = f"p{start + len(params)}"
