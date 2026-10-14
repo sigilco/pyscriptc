@@ -10,7 +10,6 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
-
 from benchmarks.compat2.outcomes import CATEGORIES, WEIGHTS, Probe
 
 PROBES = Path(__file__).resolve().parents[1] / "benchmarks" / "compat2" / "probes"
