@@ -5,10 +5,28 @@ Real program corpus for scorer v2: pinned pure Python packages, per function sco
 | Piece | Where | Count (visible / holdout) |
 | --- | --- | --- |
 | Package pins (v1 plus new) | `pins.json`, `holdout/pins.json` | 18 v1 + 21 new / 5 new |
-| Closed signature functions | `package_spec.json` | 55 / 0 |
+| Closed signature functions | `package_spec.json` | 47 / 0 |
 | Scripts | `scripts/`, `holdout/scripts/` | 20 / 5 |
 
-Probes: 114 visible (20 script programs, 39 package programs, 55 package functions), 10 holdout.
+Probes: 106 visible (20 script programs, 39 package programs, 47 package functions), 10 holdout.
+
+Visible counts come from the files this table names. `package_spec.json` holds 47 `closed_functions`. `pins.json` holds 39 packages, one program probe each. `scripts/` holds 20 `main.py` programs. The loader reports the same split:
+
+```
+uv run python -m benchmarks.compat2.corpus.load
+```
+
+`{"holdout": false, "total": 106, "scripts/program": 20, "top100/program": 39, "top100/function": 47}`. The earlier 55 and 114 used this same split. `spec.py` then dropped 8 closed signatures listed in `DROPPED` (a TTY, Windows-only paths, installed metadata, and a CLI entry point). `package_spec.json` and the probe loader keep the remaining 47. The holdout column stays the committed holdout set.
+
+Pin dates are the `fetched` fields already stored in the pin files. The 18 v1 packages are `fetched` 2026-10-13 in `../../compat/top100/pins.json`. This directory's `pins.json` is `fetched` 2026-10-14 and lists those 18 plus 21 v2 packages. The v1 pin date stays on the v1 pin file.
+
+Fence counts per package are in `../census-snapshot.json`, generated 2026-10-14 by:
+
+```
+uv run python -m benchmarks.compat2.census --json benchmarks/compat2/census-snapshot.json
+```
+
+The file's `generated` field is that UTC date and changes when the command is rerun on a later UTC day. `src` is the absolute top100 source path of the checkout that ran it. Fence counts, `fencedDefinitions`, `definitions`, `rootFamilies`, and `ranking` are the census tool's output.
 
 ## Files
 
