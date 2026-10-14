@@ -40,4 +40,13 @@ Denominator is every concrete `ast` node type of the pinned CPython (abstract ba
 
 ## Calibration
 
-`calibrate.py` compiles a sample of probes with the current compiler and reports pass, fence and wrong-output per area, category and kind, plus the v1 lowered rows of the newest frozen iteration.
+`calibrate.py` compiles every probe row in the four JSONL files plus `../continuity/v1equiv.jsonl`. It records one outcome per id (`id`, `outcome`, `cell`) and the CPython version that actually ran the comparison.
+
+```
+uv run python -m benchmarks.compat2.probes.calibrate --shard 0/8 --workers 2 --out /tmp/pyscriptc-a2-cal/shard-0.json
+uv run python -m benchmarks.compat2.probes.calibrate --merge /tmp/pyscriptc-a2-cal --out CALIBRATION.json
+```
+
+`--shard I/N` keeps probes whose sorted-by-id index mod N equals I. A sibling cache jsonl lets an interrupted shard resume. `--merge` unions the shard files in id order and rebuilds the aggregates. `--oracle` selects the comparison interpreter. Until the A1 interpreter switch (`generate.interpreter` / `PYSC_ORACLE_DIR`) is on this branch, the only accepted value is the running interpreter; any other version exits non-zero and names that switch.
+
+`triage.py` classifies the v1-lowered fence rows from those per-id outcomes into `TRIAGE.md`. It does not run the compiler. Unclassified fence rows make it exit non-zero.

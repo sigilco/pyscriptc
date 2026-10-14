@@ -1,22 +1,22 @@
 """Classify the v1-lowered fence rows into ``probes/TRIAGE.md``.
 
-Reads the frozen calibration report, the probe JSONL, ``continuity/v1equiv.jsonl``, and the newest
-frozen v1 iteration. It does not run ``pyscriptc``.
+Reads the calibration report, the probe JSONL, ``continuity/v1equiv.jsonl``, and the newest frozen
+v1 iteration. It does not run ``pyscriptc``.
 
-The calibration file stores aggregate outcomes (189 ``fence``, 1 ``build-error``) and one combined
-not-passing id list. Per-id outcomes are not stored. Each not-passing row must match exactly one
-rule below. The ``out of scope`` rule is the build-error and is not one of the three fence buckets.
-Zero matches or two matches is unclassified, and the process exits non-zero.
+``CALIBRATION.json`` stores one outcome per probe id. A v1-lowered row whose outcome is ``fence``
+must match exactly one fence rule below. Zero matches or two matches is unclassified, and the
+process exits non-zero. A v1-lowered row whose outcome is ``build-error`` is out of scope because
+the file names that id. The getenv shape explains that row when it matches; it is not used to guess
+which id was the build-error, and it is not a fence bucket.
 
-Rules, in the order a reader should apply them. The predicates are disjoint; order is documentation.
+Rules, in the order a reader should apply them. The fence predicates are disjoint; order is documentation.
 
 out of scope
-    out-of-scope-getenv. A value probe whose body is ``os.getenv(<one parameter>)`` then ``return 1``.
-    The recorded argument is not a set variable, while the v1-equivalent probe reads ``PATH``.
-    ``calibrate.run_one`` records a non-zero exit other than 3 as ``build-error`` for a value probe.
-    The frozen file stores one ``build-error`` and does not name its id. The only cell that contains
-    that count is ``surface/function/value``. This rule is the unique not-passing row of that shape,
-    so the generator sets it aside. It is not a per-id outcome, and it is not a fence bucket.
+    named build-error. The per-id outcome is ``build-error``. The id comes from the calibration file.
+    out-of-scope-getenv. A named build-error whose body is ``os.getenv(<one parameter>)`` then
+    ``return 1``. The recorded argument is not a set variable, while the v1-equivalent probe reads
+    ``PATH``. ``calibrate.run_one`` records a non-zero exit other than 3 as ``build-error`` for a
+    value probe. This label applies only when the named id has that shape.
 
 probe wrong (a later generator change, not a probe edit in this task)
     raises-fallback. ``kind`` is ``raises`` and ``expect_exc`` is set. Argument search kept a call
@@ -86,6 +86,7 @@ PROBE_FILES = ("builtins", "surface", "modules", "language")
 FENCE_BUCKETS = ("probe wrong", "stricter than v1", "compiler gap")
 OUT_OF_SCOPE = "out of scope"
 UNCLASSIFIED = "unclassified"
+OTHER = "other"
 
 ZERO_ARG = frozenset({"bool", "dict", "float", "int", "list", "str", "hypot"})
 ITERATORS = frozenset({"enumerate", "range", "zip"})
@@ -140,6 +141,8 @@ class Report:
     build_error_cells: tuple[str, ...]
     decisions: tuple[Decision, ...]
     cell_samples: tuple[tuple[str, int], ...] = ()
+    oracle_version: str = ""
+    per_id_fences: int = 0
 
     @property
     def fences(self) -> tuple[Decision, ...]:
@@ -152,6 +155,10 @@ class Report:
     @property
     def unclassified(self) -> tuple[Decision, ...]:
         return tuple(item for item in self.decisions if item.bucket == UNCLASSIFIED)
+
+    @property
+    def others(self) -> tuple[Decision, ...]:
+        return tuple(item for item in self.decisions if item.bucket == OTHER)
 
 
 def _probe_function(source: str) -> ast.FunctionDef:
@@ -401,9 +408,9 @@ RULES: tuple[Rule, ...] = (
     Rule(
         "out-of-scope-getenv",
         OUT_OF_SCOPE,
-        "Value probe whose body is os.getenv of one parameter then return 1. The frozen calibration "
-        "stores one build-error and does not name its id. This is the unique row of that shape, and "
-        "its cell is the only cell with a build-error. Not a per-id outcome and not a fence bucket.",
+        "Named build-error whose body is os.getenv of one parameter then return 1. The id is the "
+        "per-id outcome in the calibration file. The shape explains that row. It does not choose "
+        "the id, and it is not a fence bucket.",
         match_getenv,
     ),
     Rule(
@@ -528,6 +535,8 @@ RULES: tuple[Rule, ...] = (
     ),
 )
 
+FENCE_RULES: tuple[Rule, ...] = tuple(rule for rule in RULES if rule.bucket in FENCE_BUCKETS)
+
 
 def _load_jsonl(path: Path) -> dict[str, dict[str, object]]:
     rows: dict[str, dict[str, object]] = {}
@@ -577,14 +586,36 @@ def _cell_samples(calibration: dict[str, object]) -> tuple[tuple[str, int], ...]
 CELL_SAMPLE_TARGET = 10
 
 
-def _decide(ctx: Ctx) -> Decision:
+def _blank(probe_id: str, row: dict[str, object] | None, bucket: str, rule: str, detail: str) -> Decision:
+    if row is None:
+        return Decision(probe_id, "", "", "", bucket, rule, detail)
+    return Decision(probe_id, str(row["area"]), str(row["kind"]), str(row["category"]), bucket, rule, detail)
+
+
+def _context(
+    probe_id: str,
+    probes: dict[str, dict[str, object]],
+    v1equiv: dict[str, dict[str, object]],
+    lowered: set[str],
+) -> tuple[dict[str, object] | None, Ctx | None, str]:
+    row = probes.get(probe_id)
+    if row is None:
+        return None, None, "probe record missing"
+    try:
+        fn = _probe_function(str(row["source"]))
+    except (SyntaxError, ValueError) as exc:
+        return row, None, str(exc)
+    return row, Ctx(row, v1equiv.get(probe_id + ".v1"), fn, probe_id in lowered), ""
+
+
+def _decide_fence(ctx: Ctx) -> Decision:
     area = str(ctx.row["area"])
     kind = str(ctx.row["kind"])
     category = str(ctx.row["category"])
     probe_id = str(ctx.row["id"])
     if not ctx.lowered:
         return Decision(probe_id, area, kind, category, UNCLASSIFIED, "", "v1 status is not lowered")
-    hits = [(rule, detail) for rule in RULES if (detail := rule.match(ctx)) is not None]
+    hits = [(rule, detail) for rule in FENCE_RULES if (detail := rule.match(ctx)) is not None]
     if len(hits) != 1:
         names = ", ".join(rule.id for rule, _detail in hits) or "none"
         return Decision(probe_id, area, kind, category, UNCLASSIFIED, "", f"matched {names}")
@@ -592,40 +623,94 @@ def _decide(ctx: Ctx) -> Decision:
     return Decision(probe_id, area, kind, category, rule.bucket, rule.id, detail)
 
 
+def _decide_build_error(ctx: Ctx) -> Decision:
+    """The calibration file already named this id. The getenv shape only explains it."""
+    area = str(ctx.row["area"])
+    kind = str(ctx.row["kind"])
+    category = str(ctx.row["category"])
+    probe_id = str(ctx.row["id"])
+    detail = match_getenv(ctx)
+    if detail is not None:
+        return Decision(probe_id, area, kind, category, OUT_OF_SCOPE, "out-of-scope-getenv", detail)
+    return Decision(
+        probe_id,
+        area,
+        kind,
+        category,
+        OUT_OF_SCOPE,
+        "named-build-error",
+        "calibration outcome is build-error",
+    )
+
+
+def _per_id_outcomes(calibration: dict[str, object]) -> dict[str, str]:
+    rows = calibration.get("outcomes")
+    if not isinstance(rows, list) or not rows:
+        raise SystemExit("CALIBRATION.json has no per-id outcomes; run probes.calibrate and merge the shards")
+    found: dict[str, str] = {}
+    for row in rows:
+        if not isinstance(row, dict) or "id" not in row or "outcome" not in row:
+            raise SystemExit("CALIBRATION.json outcomes must record id and outcome")
+        found[str(row["id"])] = str(row["outcome"])
+    return found
+
+
 def build_report() -> Report:
     calibration = json.loads((HERE / "CALIBRATION.json").read_text(encoding="utf-8"))
+    by_id = _per_id_outcomes(calibration)
     lowered_block = calibration["v1_lowered"]
     assert isinstance(lowered_block, dict)
-    outcomes = lowered_block["v2_probe_outcomes"]
-    assert isinstance(outcomes, dict)
-    not_passing = calibration["v1_lowered_v2_probe_not_passing"]
-    assert isinstance(not_passing, list)
+    aggregate = lowered_block["v2_probe_outcomes"]
+    assert isinstance(aggregate, dict)
     probes = _load_probes()
     v1equiv = _load_jsonl(HERE.parent / "continuity" / "v1equiv.jsonl")
     lowered = v1_lowered_ids()
     decisions: list[Decision] = []
-    for probe_id in not_passing:
-        pid = str(probe_id)
-        row = probes.get(pid)
-        if row is None:
-            decisions.append(Decision(pid, "", "", "", UNCLASSIFIED, "", "probe record missing"))
+    per_id_fences = 0
+    for probe_id in sorted(lowered):
+        outcome = by_id.get(probe_id, "absent")
+        if outcome == "pass":
             continue
-        try:
-            fn = _probe_function(str(row["source"]))
-        except (SyntaxError, ValueError) as exc:
+        row, ctx, error = _context(probe_id, probes, v1equiv, lowered)
+        if outcome == "fence":
+            per_id_fences += 1
+            if ctx is None:
+                decisions.append(_blank(probe_id, row, UNCLASSIFIED, "", error))
+            else:
+                decisions.append(_decide_fence(ctx))
+        elif outcome == "build-error":
+            if ctx is None:
+                detail = error or "calibration outcome is build-error"
+                decisions.append(_blank(probe_id, row, OUT_OF_SCOPE, "named-build-error", detail))
+            else:
+                decisions.append(_decide_build_error(ctx))
+        elif outcome == "absent" or ctx is None:
+            decisions.append(_blank(probe_id, row, UNCLASSIFIED, "", error or f"outcome {outcome}"))
+        else:
+            assert row is not None
             decisions.append(
-                Decision(pid, str(row["area"]), str(row["kind"]), str(row["category"]), UNCLASSIFIED, "", str(exc))
+                Decision(
+                    probe_id,
+                    str(row["area"]),
+                    str(row["kind"]),
+                    str(row["category"]),
+                    OTHER,
+                    "",
+                    f"outcome {outcome}",
+                )
             )
-            continue
-        decisions.append(_decide(Ctx(row, v1equiv.get(pid + ".v1"), fn, pid in lowered)))
+    oracle_meta = calibration.get("oracle")
+    oracle_version = str(oracle_meta["version"]) if isinstance(oracle_meta, dict) and oracle_meta.get("version") else ""
     return Report(
         iteration=_newest_iteration().name,
-        not_passing=len(not_passing),
-        fence_expected=int(outcomes["fence"]),
-        build_error_expected=int(outcomes.get("build-error", 0)),
+        not_passing=len(decisions),
+        fence_expected=int(aggregate.get("fence", 0)),
+        build_error_expected=int(aggregate.get("build-error", 0)),
         build_error_cells=_build_error_cells(calibration),
         decisions=tuple(decisions),
         cell_samples=_cell_samples(calibration),
+        oracle_version=oracle_version,
+        per_id_fences=per_id_fences,
     )
 
 
@@ -635,6 +720,8 @@ def problems(report: Report) -> list[str]:
     if report.unclassified:
         shown = ", ".join(f"{item.id} ({item.detail})" for item in report.unclassified)
         issues.append(f"{len(report.unclassified)} unclassified: {shown}")
+    if report.per_id_fences != report.fence_expected:
+        issues.append(f"per-id fences {report.per_id_fences} != calibration aggregate {report.fence_expected}")
     if len(report.fences) != report.fence_expected:
         issues.append(f"fence rows {len(report.fences)} != calibration {report.fence_expected}")
     if len(report.out_of_scope) != report.build_error_expected:
@@ -647,7 +734,7 @@ def problems(report: Report) -> list[str]:
     for item in report.out_of_scope:
         if item.cell not in report.build_error_cells:
             issues.append(f"{item.id} is {item.cell}, build-error cells are {list(report.build_error_cells)}")
-    accounted = len(report.fences) + len(report.out_of_scope) + len(report.unclassified)
+    accounted = len(report.fences) + len(report.out_of_scope) + len(report.unclassified) + len(report.others)
     if accounted != len(report.decisions) or len(report.decisions) != report.not_passing:
         issues.append(f"decisions {len(report.decisions)} not-passing {report.not_passing} accounted {accounted}")
     return issues
@@ -663,7 +750,7 @@ def render(report: Report) -> str:
     lines = [
         "# v1-lowered fence triage",
         "",
-        "Generated by `python -m benchmarks.compat2.probes.triage` from the frozen calibration report,",
+        "Generated by `python -m benchmarks.compat2.probes.triage` from the calibration report,",
         "the probe JSONL, `continuity/v1equiv.jsonl`, and the newest frozen v1 iteration.",
         "The script does not run the compiler. `probe wrong` is a label in this table, not a probe edit.",
         "",
@@ -671,11 +758,12 @@ def render(report: Report) -> str:
         "",
         f"- Newest frozen v1 iteration: `{report.iteration}`. v1 ids use the same spelling as",
         "  `calibrate.v1_lowered_ids` (`builtins.<id>`, `stdlib.<id>`).",
+        f"- Oracle recorded in `CALIBRATION.json`: `{report.oracle_version or 'unrecorded'}`.",
         f"- `CALIBRATION.json` `v1_lowered.v2_probe_outcomes`: fence {report.fence_expected},",
         f"  build-error {report.build_error_expected}.",
-        f"- `v1_lowered_v2_probe_not_passing` has {report.not_passing} ids. That list is the fence set",
-        "  plus every other non-pass. Only fence rows are classified.",
-        "- Cells with `build-error`: " + ", ".join(f"`{cell}`" for cell in report.build_error_cells) + ".",
+        f"- Per-id outcomes name {report.not_passing} v1-lowered rows that are not pass. Fence rows are",
+        "  classified from those outcomes. Build-error ids are out of scope because the file names them.",
+        "- Cells with `build-error`: " + (", ".join(f"`{cell}`" for cell in report.build_error_cells) or "none") + ".",
         "",
         "## Counts",
         "",
@@ -688,13 +776,18 @@ def render(report: Report) -> str:
         f"| fence total | {len(report.fences)} |",
         f"| unclassified | {len(report.unclassified)} |",
         f"| out of scope (build-error) | {len(report.out_of_scope)} |",
+    ]
+    if report.others:
+        lines.append(f"| other non-pass | {len(report.others)} |")
+    lines += [
         "",
         "Fence buckets sum to the calibration fence count. Unclassified rows make this script exit non-zero.",
         "",
         "## Rules",
         "",
-        "A not-passing row must match exactly one predicate. The predicates are disjoint. None or more",
-        "than one is unclassified. The out-of-scope rule is the build-error and is not given a fence bucket.",
+        "A v1-lowered fence row must match exactly one fence predicate. The predicates are disjoint. None",
+        "or more than one is unclassified. Build-error ids are taken from the per-id outcomes and are not",
+        "given a fence bucket.",
         "",
         "| rule | bucket | rows | why |",
         "| --- | --- | --- | --- |",
@@ -720,13 +813,16 @@ def render(report: Report) -> str:
         lines += [
             f"`{item.id}` is `{item.cell}` and matches `{item.rule}`. {_cell_text(item.detail)}",
             "",
-            "The frozen calibration stores one build-error and does not name its id. This row is set aside",
-            "because it is the unique not-passing probe that matches the getenv rule, and its cell is the",
-            "only cell that records a build-error. Other not-passing rows share that cell, so this is the",
-            "rule's choice, not a stored per-id outcome. `calibrate.run_one` returns `build-error` when a",
-            "value probe exits non-zero for a reason other than fence exit 3. The row is not a fence bucket.",
+            "The calibration file names this id with outcome `build-error`. It is set aside because of that",
+            "outcome, not because a shape rule guessed the id. `calibrate.run_one` returns `build-error`",
+            "when a value probe exits non-zero for a reason other than fence exit 3. The row is not a fence bucket.",
             "",
         ]
+    if report.others:
+        lines += ["## Other non-pass", "", "| id | kind | category | outcome |", "| --- | --- | --- | --- |"]
+        for item in sorted(report.others, key=lambda row: row.id):
+            lines.append(f"| `{item.id}` | {item.kind} | {item.category} | {_cell_text(item.detail)} |")
+        lines.append("")
     if report.unclassified:
         lines += ["## Unclassified", ""]
         for item in report.unclassified:
@@ -735,10 +831,9 @@ def render(report: Report) -> str:
     lines += [
         "## Calibration coverage per (area, category) cell",
         "",
-        f"Target: at least {CELL_SAMPLE_TARGET} sampled rows per cell (plan row A2). A cell with 0",
-        "has never been sampled. Cells below the target are what the next sharded calibration",
-        "run must fill; the row classifier above reads only the fence evidence and stays valid",
-        "as cells fill.",
+        f"Target: at least {CELL_SAMPLE_TARGET} rows per (area, category) cell (plan row A2). Counts are",
+        "every calibrated probe in `CALIBRATION.json`, summed across kinds. A cell under the target is",
+        "short when the probe set itself has fewer rows. The fence classifier above reads per-id outcomes.",
         "",
         "| cell | sampled | target | status |",
         "| --- | --- | --- | --- |",
