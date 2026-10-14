@@ -116,7 +116,11 @@ def test_every_row_carries_a_sorted_subset_of_the_version_axis() -> None:
     for area, counts in manifest["versions"]["by_area"].items():
         for version, n in counts.items():
             assert n == sum(1 for r in data if r["area"] == area and version in r["versions"])
-    skipped = set(manifest["versions"]["unverified_on_oracle"]) | set(manifest["versions"]["seed_dependent"])
+    skipped = (
+        set(manifest["versions"]["unverified_on_oracle"])
+        | set(manifest["versions"]["seed_dependent"])
+        | set(manifest["versions"]["process_dependent"])
+    )
     for row in data:
         assert ("3.12" in row["versions"]) != (row["id"] in skipped)
 

@@ -151,9 +151,20 @@ def compute_versions(oracle: str, rows: list[dict[str, object]]) -> tuple[dict[s
             results = dict(zip(jobs, pool.map(run, jobs), strict=True))
     reference = results[(oracle, HASH_SEEDS[0])]
     reseeded = results[(oracle, HASH_SEEDS[1])]
+    # A second oracle worker at the same seed decides whether the recorded value survives leaving
+    # the process that generated the row. getpriority, clock_gettime, getpgid and friends return
+    # values that vary per process, so their versions field would otherwise be a run-to-run lottery.
+    repeated = run_module(oracle, ["benchmarks.compat2.probes.versions", str(path)], HASH_SEEDS[0])
+    if repeated.returncode != 0:
+        raise SystemExit(f"version worker repeat failed: {repeated.stderr.strip()[-300:]}")
+    stable: dict[str, bool] = {}
+    for line in repeated.stdout.splitlines():
+        pid, status, value = json.loads(line)
+        stable[pid] = (status, value) == reference.get(pid)
     out: dict[str, list[str]] = {}
     unverified: list[str] = []
     seed_dependent: list[str] = []
+    process_dependent: list[str] = []
     for row in ordered:
         pid, ref = row["id"], reference.get(row["id"])  # type: ignore[index]
         valid = ref is not None and (
@@ -163,6 +174,9 @@ def compute_versions(oracle: str, rows: list[dict[str, object]]) -> tuple[dict[s
         )
         if not valid:
             unverified.append(pid)  # type: ignore[arg-type]
+            out[pid] = []  # type: ignore[index]
+        elif not stable.get(pid, False):
+            process_dependent.append(pid)  # type: ignore[arg-type]
             out[pid] = []  # type: ignore[index]
         elif reseeded.get(pid) != ref:  # type: ignore[arg-type]
             seed_dependent.append(pid)  # type: ignore[arg-type]
@@ -176,6 +190,7 @@ def compute_versions(oracle: str, rows: list[dict[str, object]]) -> tuple[dict[s
     return out, {
         "unverified_on_oracle": sorted(unverified),
         "seed_dependent": sorted(seed_dependent),
+        "process_dependent": sorted(process_dependent),
         "ast_nodes": nodes,
     }
 
@@ -265,6 +280,7 @@ def main(argv: list[str]) -> int:
             "by_area": by_version,
             "unverified_on_oracle": axis_info["unverified_on_oracle"],
             "seed_dependent": axis_info["seed_dependent"],
+            "process_dependent": axis_info["process_dependent"],
         },
         "absent_in_oracle": {
             "builtins": sorted(n for n in DENOM["builtins"] if f"builtins.{n}" not in ids),
