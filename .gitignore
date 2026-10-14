@@ -11,3 +11,4 @@ dist/
 *.ir.json
 *.so
 .agents/baseline-*.log
+benchmarks/compat2/.cache/
