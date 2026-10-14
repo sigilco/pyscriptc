@@ -13,10 +13,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
+import resource
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
@@ -25,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from benchmarks.compat2 import headroom
+from benchmarks.compat2.corpus import load as corpus
 from benchmarks.compat2.loader import load_probes
 from benchmarks.compat2.outcomes import WEIGHTS, Probe, Row
 
@@ -43,6 +47,22 @@ class Result:
 
 
 Evaluator = Callable[[Probe, float], Result]
+
+# Opened only by --holdout. The default run never reads the holdout corpus.
+USE_HOLDOUT = False
+
+
+def tree_for(probe: Probe) -> Path | None:
+    """The pinned package tree a top100 probe belongs to, or None."""
+
+    if probe.area != "top100":
+        return None
+    project = probe.id.split(".")[1]
+    for holdout in (False, True) if USE_HOLDOUT else (False,):
+        pin = corpus.package_pins(holdout).get(project)
+        if pin:
+            return corpus.package_root(pin, holdout)
+    return None
 
 
 def compiler_hash(modules: Iterable[str] | None = None) -> str:
@@ -84,7 +104,11 @@ def evaluate(probe: Probe, timeout: float) -> Result:
 
     if probe.kind == "mention":
         return Result(row("excluded", "mention probe is not scorable"))
-    oracle = _cpython(probe, timeout)
+    tree = tree_for(probe)
+    env = _tree_env(tree)
+    if probe.call == "":
+        return _program(probe, row, tree, env, timeout)
+    oracle = _cpython(probe, timeout, env)
     if oracle[0] == "timeout":
         return Result(row("excluded", "oracle timed out"))
     if probe.kind == "raises":
@@ -97,22 +121,15 @@ def evaluate(probe: Probe, timeout: float) -> Result:
         src = Path(tmp) / "probe.py"
         binary = Path(tmp) / "probe"
         src.write_text(probe.source, encoding="utf-8")
-        started = time.monotonic()
-        try:
-            build = subprocess.run(
-                [
-                    sys.executable, "-m", "pyscriptc", "compile", str(src),
-                    "--emit", "bin", "--skip-check", "--call", probe.call,
-                    "--args", repr(list(probe.args)), "-o", str(binary),
-                ],
-                cwd=ROOT, capture_output=True, text=True, timeout=timeout,
-            )  # fmt: skip
-        except subprocess.TimeoutExpired:
-            return Result(row("timeout", "compile timed out"), time.monotonic() - started)
-        spent = time.monotonic() - started
-        if build.returncode == 3:
-            match = PS_CODE.search(build.stderr)
-            return Result(row("fence", _tail(build.stderr), match.group(0) if match else ""), spent)
+        built = _build(
+            [str(src), "--emit", "bin", "--call", probe.call, "--args", repr(list(probe.args)), "-o", str(binary)],
+            env,
+            timeout,
+            row,
+        )
+        if isinstance(built, Result):
+            return built
+        build, spent = built
         if build.returncode != 0 or not binary.exists():
             return Result(row("build-error", _tail(build.stderr or build.stdout)), spent)
         try:
@@ -120,6 +137,68 @@ def evaluate(probe: Probe, timeout: float) -> Result:
         except subprocess.TimeoutExpired:
             return Result(row("timeout", "binary timed out"), spent)
     return Result(_judge(probe, row, oracle, ran), spent)
+
+
+def _tree_env(tree: Path | None) -> dict[str, str] | None:
+    """The pinned package's parent goes on the import path, where CPython finds it too."""
+
+    if tree is None:
+        return None
+    env = os.environ.copy()
+    parent = str(tree.parent)
+    env["PYTHONPATH"] = parent + os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else parent
+    return env
+
+
+def _build(args: list[str], env: dict[str, str] | None, timeout: float, row: Callable[..., Row]) -> Any:
+    """Run the compiler. Returns (proc, seconds), or a final Result for fence and timeout."""
+
+    started = time.monotonic()
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-m", "pyscriptc", "compile", *args, "--skip-check"],
+            cwd=ROOT, env=env, capture_output=True, text=True, timeout=timeout,
+        )  # fmt: skip
+    except subprocess.TimeoutExpired:
+        return Result(row("timeout", "compile timed out"), time.monotonic() - started)
+    spent = time.monotonic() - started
+    if proc.returncode == 3:
+        match = PS_CODE.search(proc.stderr)
+        return Result(row("fence", _tail(proc.stderr), match.group(0) if match else ""), spent)
+    return proc, spent
+
+
+def _program(
+    probe: Probe, row: Callable[..., Row], tree: Path | None, env: dict[str, str] | None, timeout: float
+) -> Result:
+    """Whole program: `args[0]` is the expected stdout. A package program expects "" and only must compile."""
+
+    expected = str(probe.args[0]) if probe.args else ""
+    with tempfile.TemporaryDirectory(prefix="compat2-") as tmp:
+        target = tree if tree is not None and probe.category == "program" else Path(tmp) / "main.py"
+        if target != tree:
+            target.write_text(probe.source, encoding="utf-8")
+        binary = Path(tmp) / "prog"
+        built = _build([str(target), "--emit", "ir", "-o", str(Path(tmp) / "prog.ir.json")], env, timeout, row)
+        if isinstance(built, Result):
+            return built
+        proc, spent = built
+        if proc.returncode != 0:
+            return Result(row("build-error", _tail(proc.stderr or proc.stdout)), spent)
+        if tree is not None:
+            return Result(row("pass", "tree compiles with no fences"), spent)
+        built = _build([str(target), "--run", "-o", str(binary)], env, timeout, row)
+        if isinstance(built, Result):
+            return built
+        proc, more = built
+    spent += more
+    if proc.returncode < 0 or proc.returncode >= 128:
+        return Result(row("crash", f"signal exit {proc.returncode}: {_tail(proc.stderr)}"), spent)
+    if proc.returncode != 0:
+        return Result(row("build-error", _tail(proc.stderr or proc.stdout)), spent)
+    if proc.stdout == expected:
+        return Result(row("pass"), spent)
+    return Result(row("wrong-output", f"native {proc.stdout[:80]!r} expected {expected[:80]!r}"), spent)
 
 
 def _judge(probe: Probe, row: Callable[..., Row], oracle: tuple[str, str], ran: Any) -> Row:
@@ -149,11 +228,11 @@ _ORACLE = (
 )
 
 
-def _cpython(probe: Probe, timeout: float) -> tuple[str, str]:
+def _cpython(probe: Probe, timeout: float, env: dict[str, str] | None = None) -> tuple[str, str]:
     code = _ORACLE.format(call=probe.call, args=list(probe.args))
     try:
         proc = subprocess.run(
-            [sys.executable, "-I", "-c", code], input=probe.source, capture_output=True, text=True, timeout=timeout
+            [sys.executable, "-c", code], input=probe.source, capture_output=True, text=True, timeout=timeout, env=env
         )
     except subprocess.TimeoutExpired:
         return "timeout", ""
@@ -185,11 +264,16 @@ def score(
     def one(probe: Probe) -> tuple[Result, bool]:
         path = cache_dir / (cache_key(probe, coverage, full) + ".json") if cache_dir else None
         if path is not None and path.exists():
-            data = json.loads(path.read_text(encoding="utf-8"))
-            return Result(Row(**data["row"]), data["compile_s"]), True
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                return Result(Row(**data["row"]), data["compile_s"]), True
+            except ValueError, KeyError, TypeError:
+                pass  # truncated by an interrupted run: recompute
         result = evaluator(probe, timeout)
         if path is not None:
-            path.write_text(json.dumps({"row": result.row.to_json(), "compile_s": result.compile_s}), encoding="utf-8")
+            tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
+            tmp.write_text(json.dumps({"row": result.row.to_json(), "compile_s": result.compile_s}), encoding="utf-8")
+            tmp.replace(path)
         return result, False
 
     started = time.monotonic()
@@ -201,10 +285,16 @@ def score(
         "wall_s": round(time.monotonic() - started, 3),
         "compile_s": round(sum(r.compile_s for r, _ in done), 3),
         "cache_hits": sum(1 for _, hit in done if hit),
-        "weights": {p.id: WEIGHTS[p.category] * p.weight for p in probes},
+        "weights": {p.id: effective_weight(p) for p in probes},
         "rows": [row.to_json() for row in rows],
         "counts": counts(rows),
     }
+
+
+def effective_weight(probe: Probe) -> float:
+    """The corpus loader already sets weight to the category weight; the default 1.0 means unset."""
+
+    return WEIGHTS[probe.category] if probe.weight == 1.0 else probe.weight
 
 
 def counts(rows: Iterable[Row]) -> dict[str, int]:
@@ -221,8 +311,12 @@ def weighted_pass(results: dict[str, Any]) -> float:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Score probes against CPython (scorer v2).")
-    parser.add_argument("probes", help="probe JSONL file or directory")
-    parser.add_argument("--out", required=True, help="write results JSON here")
+    parser.add_argument("probes", nargs="?", help="probe JSONL file or directory")
+    parser.add_argument("--corpus", action="store_true", help="also score the real program corpus")
+    parser.add_argument(
+        "--holdout", action="store_true", help="score the held out corpus instead (epic boundaries only)"
+    )
+    parser.add_argument("--out", help="write results JSON here")
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--shard", default="0/1", help="I/N: run probes whose index mod N equals I")
     parser.add_argument("--timeout", type=float, default=60.0)
@@ -231,9 +325,21 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--headroom", action="store_true", help="only run the headroom check")
     args = parser.parse_args(argv)
 
-    probes = list(load_probes(args.probes))
+    _, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (hard if hard != resource.RLIM_INFINITY else 65536, hard))
+    global USE_HOLDOUT
+    USE_HOLDOUT = args.holdout
+    probes = list(load_probes(args.probes)) if args.probes else []
+    if args.corpus or args.holdout:
+        probes += corpus.load(args.holdout)
+    if not probes:
+        parser.error("give a probes path, --corpus or --holdout")
+    if not args.out and not args.headroom:
+        parser.error("--out is required")
     if args.headroom:
-        return headroom.main([args.probes])
+        for row in headroom.capped(probes):
+            print(f"capped {row.id}: {row.evidence}", file=sys.stderr)
+        return 1 if headroom.capped(probes) else 0
     bad = headroom.capped(probes)
     if bad:
         for row in bad:

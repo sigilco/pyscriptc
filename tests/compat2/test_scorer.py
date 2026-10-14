@@ -150,10 +150,59 @@ def test_injected_wrong_output_is_soundness_fail(monkeypatch: pytest.MonkeyPatch
     )
     honest = evaluate(floordiv, 120.0)
     assert honest.row.outcome == "pass", honest.row
-    monkeypatch.setattr(score_mod, "_cpython", lambda p, t: ("ok", "-1"))  # truncating division
+    monkeypatch.setattr(score_mod, "_cpython", lambda p, t, env=None: ("ok", "-1"))  # truncating division
     broken = evaluate(floordiv, 120.0)
     assert broken.row.outcome == "wrong-output"
     base = score([floordiv], cache_dir=None, evaluator=fake({floordiv.id: "pass"}))
     cand = score([floordiv], cache_dir=None, evaluator=lambda p, t: broken)
     out = verdict.verdict(base, cand, skip_perf=True)
     assert out["verdict"] == "FAIL" and out["findings"][0]["area"] == "soundness:inject.floordiv"
+
+
+def test_effective_weight_does_not_double_count() -> None:
+    from benchmarks.compat2.score import effective_weight
+
+    assert effective_weight(probe("a", category="constant")) == 0.1
+    prog = Probe(id="p", area="scripts", category="program", kind="value", source="", call="", weight=5.0)
+    assert effective_weight(prog) == 5.0
+
+
+def test_program_probe_fences_or_matches() -> None:
+    prog = Probe(
+        id="scripts.tiny",
+        area="scripts",
+        category="program",
+        kind="value",
+        source="print('hi')\n",
+        call="",
+        args=("hi\n",),
+        weight=5.0,
+    )
+    assert evaluate(prog, 120.0).row.outcome in {"pass", "fence"}
+
+
+def test_holdout_closed_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    from benchmarks.compat2 import score as score_mod
+    from benchmarks.compat2.corpus import load as corpus
+
+    seen: list[bool] = []
+    real = corpus.package_pins
+    monkeypatch.setattr(corpus, "package_pins", lambda holdout=False: seen.append(holdout) or real(holdout))
+    p = Probe(id="top100.nonexistent.f", area="top100", category="function", kind="value", source=OK)
+    assert score_mod.tree_for(p) is None
+    assert seen == [False]
+
+
+def test_corpus_headroom_cli(capsys: pytest.CaptureFixture[str]) -> None:
+    from benchmarks.compat2.score import main
+
+    assert main(["--corpus", "--headroom"]) == 0
+
+
+def test_corrupt_cache_entry_is_recomputed(tmp_path: Path) -> None:
+    run = fake({"a": "pass"})
+    score([probe("a")], cache_dir=tmp_path, evaluator=run)
+    for entry in tmp_path.glob("*.json"):
+        entry.write_text("")
+    again = score([probe("a")], cache_dir=tmp_path, evaluator=run)
+    assert again["cache_hits"] == 0 and again["counts"] == {"pass": 1}
