@@ -1,0 +1,8 @@
+{
+  "license": "MIT",
+  "author": "pyscriptc contributors",
+  "origin": "original implementation written for this corpus, no upstream code copied",
+  "inspired_by": "classic Collatz kernel",
+  "generated_with": "CPython 3.14.8",
+  "deterministic": true
+}
