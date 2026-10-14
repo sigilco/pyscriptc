@@ -112,7 +112,7 @@ def evaluate(probe: Probe, timeout: float) -> Result:
     if oracle[0] == "timeout":
         return Result(row("excluded", "oracle timed out"))
     if probe.kind == "raises":
-        if oracle[0] != "raise" or oracle[1] != probe.expect_exc:
+        if oracle[0] != "raise" or oracle[1].split(":")[0] != probe.expect_exc:
             return Result(row("excluded", f"oracle did not raise {probe.expect_exc}: {oracle[1]}"))
     elif oracle[0] != "ok":
         return Result(row("excluded", f"oracle raised {oracle[1]}"))
@@ -222,7 +222,7 @@ _ORACLE = (
     "try:\n"
     "    value = ns[{call!r}](*{args!r})\n"
     "except Exception as exc:\n"
-    "    print('raise', type(exc).__name__)\n"
+    "    print('raise', type(exc).__name__ + ': ' + (str(exc).splitlines() or [''])[0])\n"
     "else:\n"
     "    print('ok', value)\n"
 )
