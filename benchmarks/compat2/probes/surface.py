@@ -33,7 +33,18 @@ for _qual in json.loads(
     V1_SURFACE.setdefault(_mod, []).append(_name)
 GUI_MODULES = frozenset({"idlelib", "tkinter", "turtle", "turtledemo"})
 UNSAFE_NAMES: frozenset[str] = frozenset()
-CALL_OVERRIDES: dict[str, list[list[str]]] = {"time.sleep": [["0"]], "exit": [["3"]], "quit": [["3"]]}
+# `kill` and `killpg` must never get pids 3 or 7: those can be live processes of the generator itself, which
+# made generation crash or differ between runs. Pid 0 and signal 0 only probe the child's own process group.
+SELF_ONLY = [["0", "0"]]
+CALL_OVERRIDES: dict[str, list[list[str]]] = {
+    "time.sleep": [["0"]],
+    "exit": [["3"]],
+    "quit": [["3"]],
+    "os.kill": SELF_ONLY,
+    "os.killpg": SELF_ONLY,
+    "posix.kill": SELF_ONLY,
+    "posix.killpg": SELF_ONLY,
+}
 EXC_ARGS: list[list[str]] = [
     [],
     ["'x'"],
