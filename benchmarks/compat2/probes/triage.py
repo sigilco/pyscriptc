@@ -139,6 +139,7 @@ class Report:
     build_error_expected: int
     build_error_cells: tuple[str, ...]
     decisions: tuple[Decision, ...]
+    cell_samples: tuple[tuple[str, int], ...] = ()
 
     @property
     def fences(self) -> tuple[Decision, ...]:
@@ -555,6 +556,27 @@ def _build_error_cells(calibration: dict[str, object]) -> tuple[str, ...]:
     return tuple(sorted(str(key) for key in found))
 
 
+def _cell_samples(calibration: dict[str, object]) -> tuple[tuple[str, int], ...]:
+    """Sampled probe count per (area, category) cell, against the plan's 10 row target.
+
+    Sums the per-kind outcome counts of each cell key, so the report tracks whatever the
+    calibration file holds and the orchestrator sees which cells the next sharded run
+    must fill.
+    """
+    cells = calibration.get("cells")
+    counts: dict[str, int] = {}
+    if isinstance(cells, dict):
+        for key, outcomes in cells.items():
+            area_category = "/".join(str(key).split("/")[:2])
+            counts[area_category] = counts.get(area_category, 0) + (
+                sum(outcomes.values()) if isinstance(outcomes, dict) else 0
+            )
+    return tuple(sorted(counts.items()))
+
+
+CELL_SAMPLE_TARGET = 10
+
+
 def _decide(ctx: Ctx) -> Decision:
     area = str(ctx.row["area"])
     kind = str(ctx.row["kind"])
@@ -603,6 +625,7 @@ def build_report() -> Report:
         build_error_expected=int(outcomes.get("build-error", 0)),
         build_error_cells=_build_error_cells(calibration),
         decisions=tuple(decisions),
+        cell_samples=_cell_samples(calibration),
     )
 
 
@@ -709,6 +732,26 @@ def render(report: Report) -> str:
         for item in report.unclassified:
             lines.append(f"- `{item.id}`: {_cell_text(item.detail)}")
         lines.append("")
+    lines += [
+        "## Calibration coverage per (area, category) cell",
+        "",
+        f"Target: at least {CELL_SAMPLE_TARGET} sampled rows per cell (plan row A2). A cell with 0",
+        "has never been sampled. Cells below the target are what the next sharded calibration",
+        "run must fill; the row classifier above reads only the fence evidence and stays valid",
+        "as cells fill.",
+        "",
+        "| cell | sampled | target | status |",
+        "| --- | --- | --- | --- |",
+    ]
+    for cell, sampled in report.cell_samples:
+        status = "ok" if sampled >= CELL_SAMPLE_TARGET else "SHORT"
+        lines.append(f"| {cell} | {sampled} | {CELL_SAMPLE_TARGET} | {status} |")
+    short = [cell for cell, sampled in report.cell_samples if sampled < CELL_SAMPLE_TARGET]
+    lines.append("")
+    if short:
+        lines.append(f"{len(short)} of {len(report.cell_samples)} cells are below the target.")
+    else:
+        lines.append("All sampled cells meet the target.")
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -730,6 +773,13 @@ def main(argv: list[str] | None = None) -> int:
     counts = Counter(item.bucket for item in report.fences)
     summary = ", ".join(f"{bucket} {counts[bucket]}" for bucket in FENCE_BUCKETS)
     print(f"{len(report.fences)} fence rows ({summary}); unclassified {len(report.unclassified)}")
+    short = [cell for cell, sampled in report.cell_samples if sampled < CELL_SAMPLE_TARGET]
+    if report.cell_samples:
+        print(f"cells below {CELL_SAMPLE_TARGET} samples: {len(short)} of {len(report.cell_samples)}")
+        for cell in short:
+            print(f"  SHORT {cell}")
+    else:
+        print("no cell sample data in the calibration report")
     if issues:
         print("\n".join(issues), file=sys.stderr)
         return 1

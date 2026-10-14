@@ -271,3 +271,28 @@ because it is the unique not-passing probe that matches the getenv rule, and its
 only cell that records a build-error. Other not-passing rows share that cell, so this is the
 rule's choice, not a stored per-id outcome. `calibrate.run_one` returns `build-error` when a
 value probe exits non-zero for a reason other than fence exit 3. The row is not a fence bucket.
+
+## Calibration coverage per (area, category) cell
+
+Target: at least 10 sampled rows per cell (plan row A2). A cell with 0
+has never been sampled. Cells below the target are what the next sharded calibration
+run must fill; the row classifier above reads only the fence evidence and stays valid
+as cells fill.
+
+| cell | sampled | target | status |
+| --- | --- | --- | --- |
+| builtins/class | 16 | 10 | ok |
+| builtins/constant | 13 | 10 | ok |
+| builtins/exception | 10 | 10 | ok |
+| builtins/function | 59 | 10 | ok |
+| builtins/method | 13 | 10 | ok |
+| language/language | 10 | 10 | ok |
+| modules/module | 45 | 10 | ok |
+| surface/class | 28 | 10 | ok |
+| surface/constant | 1112 | 10 | ok |
+| surface/exception | 16 | 10 | ok |
+| surface/function | 1326 | 10 | ok |
+| surface/method | 30 | 10 | ok |
+| surface/module | 10 | 10 | ok |
+
+All sampled cells meet the target.

@@ -5,7 +5,14 @@ from __future__ import annotations
 from collections import Counter
 from pathlib import Path
 
-from benchmarks.compat2.probes.triage import FENCE_BUCKETS, build_report, problems, render
+from benchmarks.compat2.probes.triage import (
+    CELL_SAMPLE_TARGET,
+    FENCE_BUCKETS,
+    _cell_samples,
+    build_report,
+    problems,
+    render,
+)
 
 PROBES = Path(__file__).resolve().parents[1] / "benchmarks" / "compat2" / "probes"
 
@@ -84,3 +91,38 @@ def test_frozen_fence_rows_are_classified() -> None:
     listed = [line for line in text.splitlines() if line.startswith("| `builtins.") or line.startswith("| `stdlib.")]
     assert len(listed) == 189
     assert "unclassified | 0" in text
+
+
+def test_cell_samples_sums_kinds_per_area_category() -> None:
+    calibration = {
+        "cells": {"a/f/value": {"pass": 3, "fence": 9}, "a/f/raises": {"fence": 1}, "b/g/value": {"pass": 2}}
+    }
+    assert _cell_samples(calibration) == (("a/f", 13), ("b/g", 2))
+
+
+def test_cell_samples_handles_missing_cells() -> None:
+    assert _cell_samples({}) == ()
+    assert _cell_samples({"cells": {}}) == ()
+
+
+def test_cell_samples_meets_the_frozen_target() -> None:
+    report = build_report()
+    assert report.cell_samples
+    assert all(sampled >= CELL_SAMPLE_TARGET for _cell, sampled in report.cell_samples)
+
+
+def test_render_flags_short_cells() -> None:
+    report = build_report()
+    trimmed = type(report)(
+        iteration=report.iteration,
+        not_passing=report.not_passing,
+        fence_expected=report.fence_expected,
+        build_error_expected=report.build_error_expected,
+        build_error_cells=report.build_error_cells,
+        decisions=report.decisions,
+        cell_samples=(("a/f", 3),),
+    )
+    text = render(trimmed)
+    assert "| a/f | 3 | 10 | SHORT |" in text
+    assert "1 of 1 cells are below the target." in text
+    assert problems(report) == []
