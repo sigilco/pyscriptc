@@ -321,3 +321,12 @@ def test_queued_import_without_use_still_lowers(tmp_path: Path) -> None:
     got = compile_run(tmp_path, path, "f")
     assert got.returncode == 0, got.stderr
     assert got.stdout == "1\n"
+
+
+def test_emit_bin_without_call_builds_a_noop_main(tmp_path: Path) -> None:
+    path = write_case(tmp_path, "lib.py", "def f() -> int:\n    return 1\n")
+    got = run_cli("compile", str(path), "--skip-check", "--emit", "bin", "-o", str(tmp_path / "lib"))
+    assert got.returncode == 0, got.stderr
+    ran = subprocess.run([str(tmp_path / "lib")], capture_output=True, text=True)
+    assert ran.returncode == 0
+    assert ran.stdout == ""

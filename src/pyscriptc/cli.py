@@ -89,8 +89,6 @@ def compile_cmd(args: argparse.Namespace) -> int:
         raise IRError(f"source not found: {source_path}")
     if args.run:
         args.emit = "bin"
-    if args.emit == "bin" and not args.call:
-        raise IRError("--emit bin requires --call")
     for note in module.pop("_notes", []):
         print(note, file=sys.stderr)
     if not args.skip_check:
@@ -106,7 +104,7 @@ def compile_cmd(args: argparse.Namespace) -> int:
         print(ir_path)
         return 0
     call_args = _parse_args(args.args) if args.call else None
-    llvm_text = emit_llvm(module, args.call, call_args)
+    llvm_text = emit_llvm(module, args.call, call_args, standalone=args.emit == "bin")
     ll_path = _output_path(args, source_path, ".ll")
     ll_path.write_text(llvm_text, encoding="utf-8")
     if args.emit == "llvm":
