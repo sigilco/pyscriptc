@@ -14,8 +14,9 @@ out of scope
     out-of-scope-getenv. A value probe whose body is ``os.getenv(<one parameter>)`` then ``return 1``.
     The recorded argument is not a set variable, while the v1-equivalent probe reads ``PATH``.
     ``calibrate.run_one`` records a non-zero exit other than 3 as ``build-error`` for a value probe.
-    The only calibration cell that contains ``build-error`` is ``surface/function/value``, this row's
-    area, category, and kind. Not placed in a fence bucket.
+    The frozen file stores one ``build-error`` and does not name its id. The only cell that contains
+    that count is ``surface/function/value``. This rule is the unique not-passing row of that shape,
+    so the generator sets it aside. It is not a per-id outcome, and it is not a fence bucket.
 
 probe wrong (a later generator change, not a probe edit in this task)
     raises-fallback. ``kind`` is ``raises`` and ``expect_exc`` is set. Argument search kept a call
@@ -399,8 +400,9 @@ RULES: tuple[Rule, ...] = (
     Rule(
         "out-of-scope-getenv",
         OUT_OF_SCOPE,
-        "Value probe whose body is os.getenv of one parameter then return 1. The calibration aggregate's "
-        "single build-error, in cell surface/function/value. Not a fence bucket.",
+        "Value probe whose body is os.getenv of one parameter then return 1. The frozen calibration "
+        "stores one build-error and does not name its id. This is the unique row of that shape, and "
+        "its cell is the only cell with a build-error. Not a per-id outcome and not a fence bucket.",
         match_getenv,
     ),
     Rule(
@@ -695,8 +697,11 @@ def render(report: Report) -> str:
         lines += [
             f"`{item.id}` is `{item.cell}` and matches `{item.rule}`. {_cell_text(item.detail)}",
             "",
-            "This is the calibration build-error. `calibrate.run_one` returns `build-error` when a value",
-            "probe exits non-zero for a reason other than fence exit 3. The row is not forced into a bucket.",
+            "The frozen calibration stores one build-error and does not name its id. This row is set aside",
+            "because it is the unique not-passing probe that matches the getenv rule, and its cell is the",
+            "only cell that records a build-error. Other not-passing rows share that cell, so this is the",
+            "rule's choice, not a stored per-id outcome. `calibrate.run_one` returns `build-error` when a",
+            "value probe exits non-zero for a reason other than fence exit 3. The row is not a fence bucket.",
             "",
         ]
     if report.unclassified:

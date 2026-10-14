@@ -34,7 +34,7 @@ than one is unclassified. The out-of-scope rule is the build-error and is not gi
 
 | rule | bucket | rows | why |
 | --- | --- | --- | --- |
-| `out-of-scope-getenv` | out of scope | 1 | Value probe whose body is os.getenv of one parameter then return 1. The calibration aggregate's single build-error, in cell surface/function/value. Not a fence bucket. |
+| `out-of-scope-getenv` | out of scope | 1 | Value probe whose body is os.getenv of one parameter then return 1. The frozen calibration stores one build-error and does not name its id. This is the unique row of that shape, and its cell is the only cell with a build-error. Not a per-id outcome and not a fence bucket. |
 | `raises-fallback` | probe wrong | 9 | kind raises with expect_exc set. Argument search kept an exception. v1 had lowered the name. |
 | `private-annotation` | probe wrong | 9 | Result annotation starts with '_' or is builtin_function_or_method. v1 folded the name to an int. |
 | `seq-int-remainder` | probe wrong | 1 | Source contains the seq-int fold '% 1000003'. v1 returned an element. |
@@ -266,5 +266,8 @@ than one is unclassified. The out-of-scope rule is the build-error and is not gi
 
 `stdlib.os.getenv` is `surface/function/value` and matches `out-of-scope-getenv`. os.getenv(p0) then return 1; args ['hello world']
 
-This is the calibration build-error. `calibrate.run_one` returns `build-error` when a value
-probe exits non-zero for a reason other than fence exit 3. The row is not forced into a bucket.
+The frozen calibration stores one build-error and does not name its id. This row is set aside
+because it is the unique not-passing probe that matches the getenv rule, and its cell is the
+only cell that records a build-error. Other not-passing rows share that cell, so this is the
+rule's choice, not a stored per-id outcome. `calibrate.run_one` returns `build-error` when a
+value probe exits non-zero for a reason other than fence exit 3. The row is not a fence bucket.
