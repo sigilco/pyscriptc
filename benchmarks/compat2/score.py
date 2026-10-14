@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections import Counter
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -302,6 +303,54 @@ def weighted_pass(results: dict[str, Any]) -> float:
     return sum(weights.get(r["id"], 1.0) for r in results["rows"] if r["outcome"] == "pass")
 
 
+def shard_path(out: Path, index: int, total: int) -> Path:
+    return out.with_name(f"{out.stem}.shard{index}of{total}{out.suffix}")
+
+
+def write_results(path: Path, results: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(f".{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def merge_results(parts: list[dict[str, Any]]) -> dict[str, Any]:
+    """One result from shard results of the same compiler. Raises ValueError on a mismatch."""
+
+    if len({p["compiler_hash"] for p in parts}) != 1:
+        raise ValueError("shards were scored with different compilers")
+    rows = [row for part in parts for row in part["rows"]]
+    if len({row["id"] for row in rows}) != len(rows):
+        raise ValueError("a probe appears in two shards")
+    weights = {k: v for part in parts for k, v in part["weights"].items()}
+    rows.sort(key=lambda row: row["id"])
+    return {
+        "compiler_hash": parts[0]["compiler_hash"],
+        "wall_s": round(max(p["wall_s"] for p in parts), 3),  # shards run side by side
+        "compile_s": round(sum(p["compile_s"] for p in parts), 3),
+        "cache_hits": sum(p["cache_hits"] for p in parts),
+        "weights": weights,
+        "rows": rows,
+        "counts": dict(Counter(row["outcome"] for row in rows)),
+    }
+
+
+def merge_if_complete(out: Path, total: int) -> bool:
+    """Merge the shard files next to `out` into `out` once all `total` are present and agree."""
+
+    files = [shard_path(out, i, total) for i in range(total)]
+    if not all(f.exists() for f in files):
+        return False
+    try:
+        parts = [json.loads(f.read_text(encoding="utf-8")) for f in files]
+        if any(p.get("shard") != {"index": i, "total": total} for i, p in enumerate(parts)):
+            return False
+        write_results(out, merge_results(parts))
+    except ValueError, KeyError:
+        return False  # stale shard files from another run: leave them, merge when the new ones land
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Score probes against CPython (scorer v2).")
     parser.add_argument("probes", nargs="?", help="probe JSONL file or directory")
@@ -350,7 +399,8 @@ def main(argv: list[str] | None = None) -> int:
         probes, why = coverage_map.tier0(probes, args.base)
         print(f"tier 0: {len(probes)} probes ({why})", file=sys.stderr)
     index, _, total = args.shard.partition("/")
-    probes = [p for i, p in enumerate(probes) if i % int(total or 1) == int(index)]
+    shard = (int(index), int(total or 1))
+    probes = [p for i, p in enumerate(probes) if i % shard[1] == shard[0]]
     mapped = coverage_map.load(Path(args.coverage_map) if args.coverage_map else coverage_map.MAP_PATH)
     coverage = coverage_map.key_map(mapped, probes) if mapped else {}
     results = score(
@@ -360,7 +410,16 @@ def main(argv: list[str] | None = None) -> int:
         coverage=coverage,
         cache_dir=None if args.no_cache or args.holdout else CACHE_DIR,
     )
-    Path(args.out).write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
+    out = Path(args.out)
+    if shard[1] > 1:
+        results["shard"] = {"index": shard[0], "total": shard[1]}
+        out = shard_path(out, *shard)
+    write_results(out, results)
+    if shard[1] > 1:
+        merged = merge_if_complete(Path(args.out), shard[1])
+        print(
+            f"shard {shard[0]}/{shard[1]}: {out.name}" + (f", merged all {shard[1]} into {args.out}" if merged else "")
+        )
     if args.holdout:
         # aggregate numbers only: per probe ids and results must never reach a generator's context
         print(f"holdout: scored {len(probes)} probes  {results['counts']}")
