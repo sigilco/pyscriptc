@@ -26,7 +26,7 @@ Fence counts per package are in `../census-snapshot.json`, generated 2026-10-14 
 uv run python -m benchmarks.compat2.census --json benchmarks/compat2/census-snapshot.json
 ```
 
-The file's `generated` field is that UTC date and changes when the command is rerun on a later UTC day. `src` is the absolute top100 source path of the checkout that ran it. Fence counts, `fencedDefinitions`, `definitions`, `rootFamilies`, and `ranking` are the census tool's output.
+The file's `generated` field is that UTC date and changes when the command is rerun on a later UTC day. `src` is the top100 source path relative to the repo root. Fence counts, `fencedDefinitions`, `definitions`, `rootFamilies`, and `ranking` are the census tool's output.
 
 ## Files
 

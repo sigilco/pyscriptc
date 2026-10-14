@@ -1,7 +1,7 @@
 {
   "generated": "2026-10-14",
   "command": "uv run python -m benchmarks.compat2.census --json benchmarks/compat2/census-snapshot.json",
-  "src": "/home/ubuntu/.worktrees/pyscriptc-census/benchmarks/compat/top100/src",
+  "src": "benchmarks/compat/top100/src",
   "packages": [
     {
       "package": "certifi",

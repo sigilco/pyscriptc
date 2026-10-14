@@ -95,8 +95,13 @@ def build_census(src: Path) -> dict[str, Any]:
     dirs = sorted(path for path in src.iterdir() if path.is_dir())
     packages = [package_census(path) for path in dirs]
     clean = [p["package"] for p in packages if p["fences"] == 0]
+    resolved = src.resolve()
+    try:
+        label = resolved.relative_to(ROOT).as_posix()
+    except ValueError:
+        label = str(resolved)
     return {
-        "src": str(src),
+        "src": label,
         "packages": packages,
         "clean": clean,
         "ranking": rank_families(packages),
