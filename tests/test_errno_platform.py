@@ -1,8 +1,10 @@
-"""Platform only errno names are optional: a missing one is left out, not fatal."""
+"""Platform only surface names are optional: a name the host lacks is left out, not fatal."""
 
 from __future__ import annotations
 
 import errno
+import importlib
+import os
 import pathlib
 
 import pytest
@@ -12,16 +14,28 @@ from pyscriptc import stdmore
 
 def test_missing_errno_name_is_left_out(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delattr(errno, "EADV", raising=False)
-    assert stdmore._host_int(errno, "EADV") is None
-    assert stdmore._host_int(errno, "ENOENT") == errno.ENOENT
+    found, _ = stdmore._load_constants()
+    assert ("errno", "EADV") not in found
+    assert ("errno", "ENOENT") in found
 
 
-def test_pathlib_errno_reexport_is_optional(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_missing_pathlib_errno_reexport_is_left_out(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delattr(pathlib, "E2BIG", raising=False)
-    assert stdmore._host_int(pathlib, "E2BIG") is None
+    found, _ = stdmore._load_constants()
+    assert ("pathlib", "E2BIG") not in found
 
 
-def test_present_errno_names_keep_their_values() -> None:
-    for name in stdmore._ERRNO:
-        if hasattr(errno, name):
-            assert stdmore._host_int(errno, name) == int(getattr(errno, name))
+def test_missing_os_name_does_not_block_table_build(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delattr(os, "CLONE_FILES", raising=False)
+    found, _ = stdmore._load_constants()
+    assert ("os", "CLONE_FILES") not in found
+    assert ("os", "O_RDONLY") in found
+
+
+def test_every_int_name_the_host_defines_is_in_table() -> None:
+    found, _ = stdmore._load_constants()
+    for module, names in stdmore._INT_SURFACE.items():
+        mod = importlib.import_module(module)
+        for name in names:
+            if hasattr(mod, name):
+                assert (module, name) in found, f"{module}.{name}"

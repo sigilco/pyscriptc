@@ -34,20 +34,19 @@ def _sig(params: list[dict[str, Any]], ret: dict[str, Any], symbol: str) -> dict
     return {"params": params, "return": ret, "symbol": symbol}
 
 
-def _host_int(owner: Any, name: str) -> int | None:
-    """Int value of `owner.name`, or None when this host does not define it.
+_MISSING: Any = object()
 
-    Errno names are platform specific: EADV exists only on Linux, and pathlib
-    re-exports the errno names on Linux but not on macOS. CPython raises
-    AttributeError for an absent name, so the table leaves it out instead of
-    failing the import.
+
+def _host_attr(owner: Any, name: str) -> Any:
+    """`getattr(owner, name)`, or `_MISSING` when this host does not define it.
+
+    Many surface names are platform specific: EADV, CLONE_* and AF_CAN are Linux
+    only, and pathlib re-exports errno names on Linux but not on macOS. CPython
+    raises AttributeError for an absent name, so the table leaves it out instead
+    of failing the import on hosts that lack it.
     """
-    value = getattr(owner, name, None)
-    return None if value is None else int(value)
+    return getattr(owner, name, _MISSING)
 
-
-# Modules in `_INT_SURFACE` whose names are errno names and may be absent on a host.
-_ERRNO_HOSTS = frozenset({"errno", "pathlib"})
 
 _ERRNO = (
     "EACCES",
@@ -1512,26 +1511,27 @@ def _load_constants() -> tuple[dict[tuple[str, str], tuple[Any, dict[str, Any]]]
         ("subprocess", "DEVNULL"): int(subprocess.DEVNULL),
     }
     for name in _ERRNO:
-        value = _host_int(errno, name)
-        if value is not None:
-            raw[("errno", name)] = value
+        value = _host_attr(errno, name)
+        if value is not _MISSING:
+            raw[("errno", name)] = int(value)
     for module, names in _INT_SURFACE.items():
         mod = importlib.import_module(module)
         for name in names:
-            if module in _ERRNO_HOSTS:
-                value = _host_int(mod, name)
-            else:
-                value = int(getattr(mod, name))
-            if value is not None:
-                raw[(module, name)] = value
+            value = _host_attr(mod, name)
+            if value is not _MISSING:
+                raw[(module, name)] = int(value)
     for module, names in _STR_SURFACE.items():
         mod = importlib.import_module(module)
         for name in names:
-            raw[(module, name)] = getattr(mod, name)
+            value = _host_attr(mod, name)
+            if value is not _MISSING:
+                raw[(module, name)] = value
     for module, names in _BOOL_SURFACE.items():
         mod = importlib.import_module(module)
         for name in names:
-            raw[(module, name)] = bool(getattr(mod, name))
+            value = _host_attr(mod, name)
+            if value is not _MISSING:
+                raw[(module, name)] = bool(value)
     found: dict[tuple[str, str], tuple[Any, dict[str, Any]]] = {}
     for key, value in raw.items():
         shaped = _ir_const(value)
