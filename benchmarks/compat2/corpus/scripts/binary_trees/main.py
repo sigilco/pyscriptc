@@ -1,5 +1,5 @@
 class Tree:
-    def __init__(self, left: "Tree | None", right: "Tree | None") -> None:
+    def __init__(self, left: Tree | None, right: Tree | None) -> None:
         self.left = left
         self.right = right
 

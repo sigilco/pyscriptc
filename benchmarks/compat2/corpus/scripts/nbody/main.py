@@ -1,7 +1,9 @@
 import math
 
 
-def energy(x: list[float], y: list[float], z: list[float], vx: list[float], vy: list[float], vz: list[float], m: list[float]) -> float:
+def energy(
+    x: list[float], y: list[float], z: list[float], vx: list[float], vy: list[float], vz: list[float], m: list[float]
+) -> float:
     e = 0.0
     n = len(m)
     for i in range(n):
@@ -14,7 +16,16 @@ def energy(x: list[float], y: list[float], z: list[float], vx: list[float], vy: 
     return e
 
 
-def advance(x: list[float], y: list[float], z: list[float], vx: list[float], vy: list[float], vz: list[float], m: list[float], dt: float) -> None:
+def advance(
+    x: list[float],
+    y: list[float],
+    z: list[float],
+    vx: list[float],
+    vy: list[float],
+    vz: list[float],
+    m: list[float],
+    dt: float,
+) -> None:
     n = len(m)
     for i in range(n):
         for j in range(i + 1, n):

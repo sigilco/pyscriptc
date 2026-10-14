@@ -27,7 +27,13 @@ FETCHED = "2026-10-14"
 # A tree ending in .py is a single module. Test dirs found inside a tree are moved out of it.
 SPECS: dict[str, tuple[str, str, str, str, int]] = {
     "six": ("six", "six.py", "test_six.py", "LICENSE", 15),
-    "typing-extensions": ("typing_extensions", "src/typing_extensions.py", "src/test_typing_extensions.py", "LICENSE", 3),
+    "typing-extensions": (
+        "typing_extensions",
+        "src/typing_extensions.py",
+        "src/test_typing_extensions.py",
+        "LICENSE",
+        3,
+    ),
     "annotated-types": ("annotated_types", "annotated_types", "tests", "LICENSE", 26),
     "sniffio": ("sniffio", "sniffio", "", "LICENSE.MIT", 72),
     "pluggy": ("pluggy", "src/pluggy", "testing", "LICENSE", 16),
@@ -142,7 +148,10 @@ def main() -> None:
         (held if project in HOLDOUT else visible)[project] = pin
         print(project, pin["version"])
     head = {"fetched": FETCHED, "index": "https://pypi.org/pypi"}
-    note = "Pinned sdists. tree is relative to this file's directory. tests holds the upstream tests, usable as oracles only inside the Linux container."
+    note = (
+        "Pinned sdists. tree is relative to this file's directory. "
+        "tests holds the upstream tests, usable as oracles only inside the Linux container."
+    )
     (HERE / "pins.json").write_text(json.dumps({**head, "note": note, "packages": visible}, indent=2) + "\n")
     (HERE / "holdout" / "pins.json").write_text(json.dumps({**head, "note": note, "packages": held}, indent=2) + "\n")
 
