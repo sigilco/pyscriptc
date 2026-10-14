@@ -44,13 +44,15 @@ def test_loader_reports_bad_line(tmp_path: Path) -> None:
 
 def test_headroom_flags_mention() -> None:
     bad = headroom.capped([probe("a"), probe("b", kind="mention"), probe("c", kind="raises")])
-    assert [r.id for r in bad] == ["b", "c"]
+    assert [r.id for r in bad] == ["c"]
+    row = headroom.classify(probe("b", kind="mention"))
+    assert row.outcome == "excluded" and row.reachable and row.evidence == "mention: weight 0 (backlog)"
 
 
 def test_cli_refuses_capped(tmp_path: Path) -> None:
     from benchmarks.compat2.score import main
 
-    dump_probes(tmp_path / "p.jsonl", [probe("m", kind="mention")])
+    dump_probes(tmp_path / "p.jsonl", [probe("m", kind="raises")])
     assert main([str(tmp_path / "p.jsonl"), "--out", str(tmp_path / "r.json")]) == 2
 
 
