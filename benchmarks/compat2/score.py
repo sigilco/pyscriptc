@@ -228,6 +228,11 @@ def _cached(cache_dir: Path, key: str) -> Result | None:
         return None
 
 
+def raise_fd_limit() -> None:
+    _, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (hard if hard != resource.RLIM_INFINITY else 65536, hard))
+
+
 def score(
     probes: list[Probe],
     *,
@@ -244,6 +249,7 @@ def score(
     """
 
     coverage = coverage or {}
+    raise_fd_limit()
     hashes = FileHashes()
     full = hashes.whole()
     use_bundles = (evaluator is evaluate) if bundles is None else bundles
@@ -371,8 +377,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--headroom", action="store_true", help="only run the headroom check")
     args = parser.parse_args(argv)
 
-    _, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-    resource.setrlimit(resource.RLIMIT_NOFILE, (hard if hard != resource.RLIM_INFINITY else 65536, hard))
+    raise_fd_limit()
     global USE_HOLDOUT
     USE_HOLDOUT = args.holdout
     if args.holdout and not corpus.holdout_open():
