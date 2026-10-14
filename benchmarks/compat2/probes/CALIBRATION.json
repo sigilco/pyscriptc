@@ -1,0 +1,291 @@
+{
+  "cells": {
+    "builtins/class/raises": {
+      "fence": 1
+    },
+    "builtins/class/value": {
+      "fence": 14,
+      "pass": 1
+    },
+    "builtins/constant/value": {
+      "fence": 10,
+      "pass": 3
+    },
+    "builtins/exception/value": {
+      "fence": 9,
+      "pass": 1
+    },
+    "builtins/function/raises": {
+      "fence": 10
+    },
+    "builtins/function/value": {
+      "fence": 11,
+      "pass": 38
+    },
+    "builtins/method/raises": {
+      "fence": 3
+    },
+    "builtins/method/value": {
+      "fence": 8,
+      "pass": 2
+    },
+    "language/language/value": {
+      "fence": 6,
+      "pass": 4
+    },
+    "modules/module/value": {
+      "fence": 8,
+      "pass": 37
+    },
+    "surface/class/raises": {
+      "fence": 10
+    },
+    "surface/class/value": {
+      "fence": 14,
+      "pass": 4
+    },
+    "surface/constant/mention": {
+      "mention": 10
+    },
+    "surface/constant/value": {
+      "fence": 147,
+      "pass": 955
+    },
+    "surface/exception/mention": {
+      "mention": 6
+    },
+    "surface/exception/value": {
+      "fence": 10
+    },
+    "surface/function/mention": {
+      "mention": 3
+    },
+    "surface/function/raises": {
+      "fence": 19
+    },
+    "surface/function/value": {
+      "build-error": 1,
+      "fence": 26,
+      "pass": 1277
+    },
+    "surface/method/mention": {
+      "mention": 10
+    },
+    "surface/method/raises": {
+      "fence": 10
+    },
+    "surface/method/value": {
+      "fence": 10
+    },
+    "surface/module/value": {
+      "fence": 3,
+      "pass": 7
+    }
+  },
+  "sampled": 2688,
+  "v1_equivalent_not_passing": [],
+  "v1_lowered": {
+    "ids": 1271,
+    "v1_equivalent_probe_outcomes": {
+      "pass": 1233
+    },
+    "v2_probe_missing": [],
+    "v2_probe_outcomes": {
+      "build-error": 1,
+      "fence": 189,
+      "pass": 1081
+    }
+  },
+  "v1_lowered_v2_probe_not_passing": [
+    "builtins.bool",
+    "builtins.dict",
+    "builtins.enumerate",
+    "builtins.float",
+    "builtins.getattr",
+    "builtins.hasattr",
+    "builtins.int",
+    "builtins.list",
+    "builtins.open",
+    "builtins.range",
+    "builtins.sorted",
+    "builtins.str",
+    "builtins.sum",
+    "builtins.tuple",
+    "builtins.zip",
+    "stdlib.atexit.register",
+    "stdlib.bisect.bisect_left",
+    "stdlib.bisect.bisect_right",
+    "stdlib.collections.OrderedDict",
+    "stdlib.collections.deque",
+    "stdlib.ctypes.sizeof",
+    "stdlib.functools.reduce",
+    "stdlib.hashlib.md5",
+    "stdlib.hashlib.sha1",
+    "stdlib.hashlib.sha256",
+    "stdlib.hashlib.sha384",
+    "stdlib.hashlib.sha512",
+    "stdlib.hmac.digest",
+    "stdlib.hmac.new",
+    "stdlib.importlib.resources.as_file",
+    "stdlib.importlib.resources.files",
+    "stdlib.io.BytesIO",
+    "stdlib.io.StringIO",
+    "stdlib.math.hypot",
+    "stdlib.os.getenv",
+    "stdlib.os.listdir",
+    "stdlib.pathlib.Path",
+    "stdlib.posixpath.split",
+    "stdlib.posixpath.splitext",
+    "stdlib.re.A",
+    "stdlib.re.ASCII",
+    "stdlib.re.DEBUG",
+    "stdlib.re.DOTALL",
+    "stdlib.re.I",
+    "stdlib.re.IGNORECASE",
+    "stdlib.re.L",
+    "stdlib.re.LOCALE",
+    "stdlib.re.M",
+    "stdlib.re.MULTILINE",
+    "stdlib.re.NOFLAG",
+    "stdlib.re.S",
+    "stdlib.re.U",
+    "stdlib.re.UNICODE",
+    "stdlib.re.VERBOSE",
+    "stdlib.re.X",
+    "stdlib.re.compile",
+    "stdlib.shutil.copyfile",
+    "stdlib.shutil.rmtree",
+    "stdlib.socket.AF_ALG",
+    "stdlib.socket.AF_APPLETALK",
+    "stdlib.socket.AF_ASH",
+    "stdlib.socket.AF_ATMPVC",
+    "stdlib.socket.AF_ATMSVC",
+    "stdlib.socket.AF_AX25",
+    "stdlib.socket.AF_BRIDGE",
+    "stdlib.socket.AF_CAN",
+    "stdlib.socket.AF_ECONET",
+    "stdlib.socket.AF_INET",
+    "stdlib.socket.AF_INET6",
+    "stdlib.socket.AF_IPX",
+    "stdlib.socket.AF_IRDA",
+    "stdlib.socket.AF_KEY",
+    "stdlib.socket.AF_LLC",
+    "stdlib.socket.AF_NETBEUI",
+    "stdlib.socket.AF_NETLINK",
+    "stdlib.socket.AF_NETROM",
+    "stdlib.socket.AF_PACKET",
+    "stdlib.socket.AF_PPPOX",
+    "stdlib.socket.AF_RDS",
+    "stdlib.socket.AF_ROSE",
+    "stdlib.socket.AF_ROUTE",
+    "stdlib.socket.AF_SECURITY",
+    "stdlib.socket.AF_SNA",
+    "stdlib.socket.AF_TIPC",
+    "stdlib.socket.AF_UNIX",
+    "stdlib.socket.AF_UNSPEC",
+    "stdlib.socket.AF_VSOCK",
+    "stdlib.socket.AF_WANPIPE",
+    "stdlib.socket.AF_X25",
+    "stdlib.socket.AI_ADDRCONFIG",
+    "stdlib.socket.AI_ALL",
+    "stdlib.socket.AI_CANONNAME",
+    "stdlib.socket.AI_NUMERICHOST",
+    "stdlib.socket.AI_NUMERICSERV",
+    "stdlib.socket.AI_PASSIVE",
+    "stdlib.socket.AI_V4MAPPED",
+    "stdlib.socket.MSG_CMSG_CLOEXEC",
+    "stdlib.socket.MSG_CONFIRM",
+    "stdlib.socket.MSG_CTRUNC",
+    "stdlib.socket.MSG_DONTROUTE",
+    "stdlib.socket.MSG_DONTWAIT",
+    "stdlib.socket.MSG_EOR",
+    "stdlib.socket.MSG_ERRQUEUE",
+    "stdlib.socket.MSG_FASTOPEN",
+    "stdlib.socket.MSG_MORE",
+    "stdlib.socket.MSG_NOSIGNAL",
+    "stdlib.socket.MSG_OOB",
+    "stdlib.socket.MSG_PEEK",
+    "stdlib.socket.MSG_TRUNC",
+    "stdlib.socket.MSG_WAITALL",
+    "stdlib.socket.SOCK_CLOEXEC",
+    "stdlib.socket.SOCK_DGRAM",
+    "stdlib.socket.SOCK_NONBLOCK",
+    "stdlib.socket.SOCK_RAW",
+    "stdlib.socket.SOCK_RDM",
+    "stdlib.socket.SOCK_SEQPACKET",
+    "stdlib.socket.SOCK_STREAM",
+    "stdlib.ssl.ALERT_DESCRIPTION_ACCESS_DENIED",
+    "stdlib.ssl.ALERT_DESCRIPTION_BAD_CERTIFICATE",
+    "stdlib.ssl.ALERT_DESCRIPTION_BAD_CERTIFICATE_HASH_VALUE",
+    "stdlib.ssl.ALERT_DESCRIPTION_BAD_CERTIFICATE_STATUS_RESPONSE",
+    "stdlib.ssl.ALERT_DESCRIPTION_BAD_RECORD_MAC",
+    "stdlib.ssl.ALERT_DESCRIPTION_CERTIFICATE_EXPIRED",
+    "stdlib.ssl.ALERT_DESCRIPTION_CERTIFICATE_REVOKED",
+    "stdlib.ssl.ALERT_DESCRIPTION_CERTIFICATE_UNKNOWN",
+    "stdlib.ssl.ALERT_DESCRIPTION_CERTIFICATE_UNOBTAINABLE",
+    "stdlib.ssl.ALERT_DESCRIPTION_CLOSE_NOTIFY",
+    "stdlib.ssl.ALERT_DESCRIPTION_DECODE_ERROR",
+    "stdlib.ssl.ALERT_DESCRIPTION_DECOMPRESSION_FAILURE",
+    "stdlib.ssl.ALERT_DESCRIPTION_DECRYPT_ERROR",
+    "stdlib.ssl.ALERT_DESCRIPTION_HANDSHAKE_FAILURE",
+    "stdlib.ssl.ALERT_DESCRIPTION_ILLEGAL_PARAMETER",
+    "stdlib.ssl.ALERT_DESCRIPTION_INSUFFICIENT_SECURITY",
+    "stdlib.ssl.ALERT_DESCRIPTION_INTERNAL_ERROR",
+    "stdlib.ssl.ALERT_DESCRIPTION_NO_RENEGOTIATION",
+    "stdlib.ssl.ALERT_DESCRIPTION_PROTOCOL_VERSION",
+    "stdlib.ssl.ALERT_DESCRIPTION_RECORD_OVERFLOW",
+    "stdlib.ssl.ALERT_DESCRIPTION_UNEXPECTED_MESSAGE",
+    "stdlib.ssl.ALERT_DESCRIPTION_UNKNOWN_CA",
+    "stdlib.ssl.ALERT_DESCRIPTION_UNKNOWN_PSK_IDENTITY",
+    "stdlib.ssl.ALERT_DESCRIPTION_UNRECOGNIZED_NAME",
+    "stdlib.ssl.ALERT_DESCRIPTION_UNSUPPORTED_CERTIFICATE",
+    "stdlib.ssl.ALERT_DESCRIPTION_UNSUPPORTED_EXTENSION",
+    "stdlib.ssl.ALERT_DESCRIPTION_USER_CANCELLED",
+    "stdlib.ssl.CERT_NONE",
+    "stdlib.ssl.CERT_OPTIONAL",
+    "stdlib.ssl.CERT_REQUIRED",
+    "stdlib.ssl.OP_ALL",
+    "stdlib.ssl.OP_CIPHER_SERVER_PREFERENCE",
+    "stdlib.ssl.OP_ENABLE_KTLS",
+    "stdlib.ssl.OP_ENABLE_MIDDLEBOX_COMPAT",
+    "stdlib.ssl.OP_IGNORE_UNEXPECTED_EOF",
+    "stdlib.ssl.OP_LEGACY_SERVER_CONNECT",
+    "stdlib.ssl.OP_NO_COMPRESSION",
+    "stdlib.ssl.OP_NO_RENEGOTIATION",
+    "stdlib.ssl.OP_NO_SSLv2",
+    "stdlib.ssl.OP_NO_SSLv3",
+    "stdlib.ssl.OP_NO_TICKET",
+    "stdlib.ssl.OP_NO_TLSv1",
+    "stdlib.ssl.OP_NO_TLSv1_1",
+    "stdlib.ssl.OP_NO_TLSv1_2",
+    "stdlib.ssl.OP_NO_TLSv1_3",
+    "stdlib.ssl.OP_SINGLE_DH_USE",
+    "stdlib.ssl.OP_SINGLE_ECDH_USE",
+    "stdlib.ssl.SOCK_STREAM",
+    "stdlib.ssl.SSL_ERROR_EOF",
+    "stdlib.ssl.SSL_ERROR_INVALID_ERROR_CODE",
+    "stdlib.ssl.SSL_ERROR_SSL",
+    "stdlib.ssl.SSL_ERROR_SYSCALL",
+    "stdlib.ssl.SSL_ERROR_WANT_CONNECT",
+    "stdlib.ssl.SSL_ERROR_WANT_READ",
+    "stdlib.ssl.SSL_ERROR_WANT_WRITE",
+    "stdlib.ssl.SSL_ERROR_WANT_X509_LOOKUP",
+    "stdlib.ssl.SSL_ERROR_ZERO_RETURN",
+    "stdlib.ssl.VERIFY_ALLOW_PROXY_CERTS",
+    "stdlib.ssl.VERIFY_CRL_CHECK_CHAIN",
+    "stdlib.ssl.VERIFY_CRL_CHECK_LEAF",
+    "stdlib.ssl.VERIFY_DEFAULT",
+    "stdlib.ssl.VERIFY_X509_PARTIAL_CHAIN",
+    "stdlib.ssl.VERIFY_X509_STRICT",
+    "stdlib.ssl.VERIFY_X509_TRUSTED_FIRST",
+    "stdlib.struct.pack",
+    "stdlib.struct.unpack",
+    "stdlib.sys.exit",
+    "stdlib.time.strftime",
+    "stdlib.unicodedata.lookup",
+    "stdlib.unicodedata.mirrored",
+    "stdlib.urllib.parse.parse_qs",
+    "stdlib.urllib.parse.urlencode",
+    "stdlib.urllib.parse.urlsplit"
+  ]
+}
