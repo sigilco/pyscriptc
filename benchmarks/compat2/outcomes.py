@@ -62,3 +62,27 @@ class Row:
 
     def to_json(self) -> dict[str, object]:
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class Probe:
+    """One executable check. Produced by compat2/probes, consumed by compat2/score.
+
+    kind "value": compile `source`, run `call(*args)` natively, compare to the CPython oracle.
+    kind "raises": same, but the expected result is an exception type name in `expect_exc`.
+    kind "mention": the name is only referenced, so it can never beat partial. The headroom
+    check marks such rows reachable=False and the scorer refuses to start.
+    """
+
+    id: str
+    area: Literal["language", "builtins", "surface", "modules", "top100", "scripts"]
+    category: Category
+    kind: Literal["value", "raises", "mention"]
+    source: str  # python module text containing the function named by `call`
+    call: str = "probe"
+    args: tuple[object, ...] = ()
+    expect_exc: str = ""
+    weight: float = 1.0
+
+    def to_json(self) -> dict[str, object]:
+        return asdict(self)

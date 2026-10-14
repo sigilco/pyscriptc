@@ -10,3 +10,4 @@ dist/
 *.ll
 *.ir.json
 *.so
+.agents/baseline-*.log
