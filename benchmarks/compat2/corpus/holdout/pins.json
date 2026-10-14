@@ -1,0 +1,90 @@
+{
+  "fetched": "2026-10-14",
+  "index": "https://pypi.org/pypi",
+  "note": "Pinned sdists. tree is relative to this file's directory. tests holds the upstream tests, usable as oracles only inside the Linux container.",
+  "packages": {
+    "six": {
+      "project": "six",
+      "import_name": "six",
+      "rank": 15,
+      "version": "1.17.0",
+      "filename": "six-1.17.0.tar.gz",
+      "sha256": "ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81",
+      "url": "https://files.pythonhosted.org/packages/94/e7/b2c673351809dca68a0e064b6af791aa332cf192da575fd474ed7d6f16a2/six-1.17.0.tar.gz",
+      "size": 34031,
+      "license": "MIT",
+      "requires": [],
+      "tree": "src/six.py",
+      "license_file": "six-LICENSE",
+      "tests": "tests/six",
+      "origin": "v2"
+    },
+    "annotated-types": {
+      "project": "annotated-types",
+      "import_name": "annotated_types",
+      "rank": 26,
+      "version": "0.8.0",
+      "filename": "annotated_types-0.8.0.tar.gz",
+      "sha256": "13b2beaad985e05e2d6407ee4c4f35590b11f8d693a258a561055cac8f64cab7",
+      "url": "https://files.pythonhosted.org/packages/5f/56/a8120250d128bed162cd73c76d45f6ef9991f3e068f62a8ee060afa3104a/annotated_types-0.8.0.tar.gz",
+      "size": 15893,
+      "license": "MIT",
+      "requires": [],
+      "tree": "src/annotated_types",
+      "license_file": "annotated-types-LICENSE",
+      "tests": "tests/annotated-types",
+      "origin": "v2"
+    },
+    "tenacity": {
+      "project": "tenacity",
+      "import_name": "tenacity",
+      "rank": 81,
+      "version": "9.2.1",
+      "filename": "tenacity-9.2.1.tar.gz",
+      "sha256": "a606b5c808d0cded4a359d5b9932d867ff2a6a6b64d37350260fd01bbdf83839",
+      "url": "https://files.pythonhosted.org/packages/82/9e/497c1c8ebe5a5b5d1d4a7511aea22c0bb1a97e3170d98abdef0e1b34265a/tenacity-9.2.1.tar.gz",
+      "size": 58261,
+      "license": "Apache-2.0",
+      "requires": [],
+      "tree": "src/tenacity",
+      "license_file": "tenacity-LICENSE",
+      "tests": "tests/tenacity",
+      "origin": "v2"
+    },
+    "aiosignal": {
+      "project": "aiosignal",
+      "import_name": "aiosignal",
+      "rank": 66,
+      "version": "1.4.0",
+      "filename": "aiosignal-1.4.0.tar.gz",
+      "sha256": "f47eecd9468083c2029cc99945502cb7708b082c232f9aca65da147157b251c7",
+      "url": "https://files.pythonhosted.org/packages/61/62/06741b579156360248d1ec624842ad0edf697050bbaf7c3e46394e106ad1/aiosignal-1.4.0.tar.gz",
+      "size": 25007,
+      "license": "Apache 2.0",
+      "requires": [
+        "frozenlist>=1.1.0",
+        "typing-extensions>=4.2; python_version < \"3.13\""
+      ],
+      "tree": "src/aiosignal",
+      "license_file": "aiosignal-LICENSE",
+      "tests": "tests/aiosignal",
+      "origin": "v2"
+    },
+    "pycparser": {
+      "project": "pycparser",
+      "import_name": "pycparser",
+      "rank": 19,
+      "version": "3.11",
+      "filename": "pycparser-3.11.tar.gz",
+      "sha256": "d875f09c3507d00e1aba0eecc6dcadc1352f30fff09dc6bff2f1c2935e97c2bc",
+      "url": "https://files.pythonhosted.org/packages/da/a8/c5fdbeee588bb8ada9458774f43adf1bdd30bd59157055142183e769a024/pycparser-3.11.tar.gz",
+      "size": 113796,
+      "license": "BSD-3-Clause",
+      "requires": [],
+      "tree": "src/pycparser",
+      "license_file": "pycparser-LICENSE",
+      "tests": "tests/pycparser",
+      "origin": "v2"
+    }
+  }
+}
