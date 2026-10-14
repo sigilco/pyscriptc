@@ -1,0 +1,143 @@
+{
+ "packages": {
+  "aiosignal": {
+   "import_name": "aiosignal",
+   "version": "1.4.0",
+   "closed_functions": [],
+   "oracles": {
+    "test_count": 6,
+    "files": [
+     {
+      "file": "tests/conftest.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/test_signals.py",
+      "tests": 6
+     }
+    ],
+    "functions_called_by_tests": {}
+   }
+  },
+  "annotated-types": {
+   "import_name": "annotated_types",
+   "version": "0.8.0",
+   "closed_functions": [],
+   "oracles": {
+    "test_count": 5,
+    "files": [
+     {
+      "file": "tests/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/test_grouped_metadata.py",
+      "tests": 2
+     },
+     {
+      "file": "tests/test_main.py",
+      "tests": 3
+     }
+    ],
+    "functions_called_by_tests": {}
+   }
+  },
+  "pycparser": {
+   "import_name": "pycparser",
+   "version": "3.11",
+   "closed_functions": [],
+   "oracles": {
+    "test_count": 186,
+    "files": [
+     {
+      "file": "tests/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/test_c_ast.py",
+      "tests": 6
+     },
+     {
+      "file": "tests/test_c_generator.py",
+      "tests": 56
+     },
+     {
+      "file": "tests/test_c_lexer.py",
+      "tests": 24
+     },
+     {
+      "file": "tests/test_c_parser.py",
+      "tests": 94
+     },
+     {
+      "file": "tests/test_examples.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_general.py",
+      "tests": 5
+     },
+     {
+      "file": "tests/test_util.py",
+      "tests": 0
+     }
+    ],
+    "functions_called_by_tests": {}
+   }
+  },
+  "six": {
+   "import_name": "six",
+   "version": "1.17.0",
+   "closed_functions": [],
+   "oracles": {
+    "test_count": 83,
+    "files": [
+     {
+      "file": "test_six.py",
+      "tests": 83
+     }
+    ],
+    "functions_called_by_tests": {}
+   }
+  },
+  "tenacity": {
+   "import_name": "tenacity",
+   "version": "9.2.1",
+   "closed_functions": [],
+   "oracles": {
+    "test_count": 160,
+    "files": [
+     {
+      "file": "tests/__init__.py",
+      "tests": 0
+     },
+     {
+      "file": "tests/test_after.py",
+      "tests": 3
+     },
+     {
+      "file": "tests/test_asyncio.py",
+      "tests": 4
+     },
+     {
+      "file": "tests/test_issue_478.py",
+      "tests": 1
+     },
+     {
+      "file": "tests/test_tenacity.py",
+      "tests": 145
+     },
+     {
+      "file": "tests/test_tornado.py",
+      "tests": 5
+     },
+     {
+      "file": "tests/test_utils.py",
+      "tests": 2
+     }
+    ],
+    "functions_called_by_tests": {}
+   }
+  }
+ }
+}
