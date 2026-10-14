@@ -7,6 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from benchmarks.native.build import ensure
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -99,6 +100,7 @@ def test_nativeprobe_stays_fenced_without_the_probe_flag(tmp_path: Path) -> None
     assert "nativeprobe" in proc.stderr
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_extension_exports_pyinit_not_the_c_abi() -> None:
     lib, ext = ensure()
     mix = subprocess.run(["nm", "-D", str(lib)], capture_output=True, text=True, check=True)
@@ -108,6 +110,7 @@ def test_extension_exports_pyinit_not_the_c_abi() -> None:
     assert " U mix_crc32\n" in probe.stdout or " U mix_crc32" in probe.stdout
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_direct_and_island_match_and_link_differently(tmp_path: Path) -> None:
     lib, _ext = ensure()
     env = _env(lib)

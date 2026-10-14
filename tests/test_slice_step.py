@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from tests.test_gates import compile_run, oracle, run_cli, write_case
 
 _PROBE = """
@@ -57,6 +58,7 @@ def zero() -> int:
 """
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_slice_step_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "slice.py", _PROBE)
     expected = {
@@ -85,7 +87,7 @@ def test_slice_step_stays_fenced(tmp_path: Path) -> None:
         ),
         (
             "assign.py",
-            'def probe() -> int:\n    xs: list[int] = [1, 2, 3]\n    xs[::2] = [0, 0]\n    return xs[0]\n',
+            "def probe() -> int:\n    xs: list[int] = [1, 2, 3]\n    xs[::2] = [0, 0]\n    return xs[0]\n",
             "slices are not lowered",
         ),
         (

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from tests.test_gates import compile_run, oracle, run_cli, write_case
 
 _PROBE = """
@@ -23,6 +24,7 @@ def assigned() -> int:
 """
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_ordereddict_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "ordered.py", _PROBE)
     expected = {"checklist": "0", "assigned": "1"}
@@ -37,41 +39,27 @@ def test_ordereddict_stays_fenced(tmp_path: Path) -> None:
     cases = [
         (
             "iterable.py",
-            "import collections\n"
-            "def probe() -> int:\n"
-            "    collections.OrderedDict([('a', 1)])\n"
-            "    return 1\n",
+            "import collections\ndef probe() -> int:\n    collections.OrderedDict([('a', 1)])\n    return 1\n",
             "an OrderedDict iterable is not lowered",
         ),
         (
             "keywords.py",
-            "import collections\n"
-            "def probe() -> int:\n"
-            "    collections.OrderedDict(a=1)\n"
-            "    return 1\n",
+            "import collections\ndef probe() -> int:\n    collections.OrderedDict(a=1)\n    return 1\n",
             "OrderedDict keyword arguments are not lowered",
         ),
         (
             "move.py",
-            "import collections\n"
-            "def probe() -> int:\n"
-            "    collections.OrderedDict().move_to_end('a')\n"
-            "    return 1\n",
+            "import collections\ndef probe() -> int:\n    collections.OrderedDict().move_to_end('a')\n    return 1\n",
             "OrderedDict.move_to_end is not lowered",
         ),
         (
             "pop.py",
-            "import collections\n"
-            "def probe() -> int:\n"
-            "    collections.OrderedDict().popitem()\n"
-            "    return 1\n",
+            "import collections\ndef probe() -> int:\n    collections.OrderedDict().popitem()\n    return 1\n",
             "OrderedDict.popitem is not lowered",
         ),
         (
             "eq.py",
-            "import collections\n"
-            "def probe() -> int:\n"
-            "    return 1 if {'a': 1} == collections.OrderedDict() else 0\n",
+            "import collections\ndef probe() -> int:\n    return 1 if {'a': 1} == collections.OrderedDict() else 0\n",
             "OrderedDict equality is not lowered",
         ),
     ]

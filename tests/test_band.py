@@ -7,9 +7,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from tests.test_gates import ROOT, compile_run, oracle, run_cli, write_case
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_hmac_matches_cpython(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -58,6 +60,7 @@ def test_hmac_algorithm_stays_a_fence(tmp_path: Path) -> None:
     assert "PS2001" in got.stderr
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_unicodedata_latin1_matches_cpython(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -85,6 +88,7 @@ def test_unicodedata_latin1_matches_cpython(tmp_path: Path) -> None:
     assert "ps_island_" not in ll.read_text(encoding="utf-8")
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_unicodedata_numbers_and_flags_match(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -115,6 +119,7 @@ def test_unicodedata_numbers_and_flags_match(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "probe")
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_normalization_outside_latin1_raises(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -133,6 +138,7 @@ def test_normalization_outside_latin1_raises(tmp_path: Path) -> None:
     assert "ValueError" in got.stderr
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_resource_read_and_as_file_match(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -166,6 +172,7 @@ def test_resource_read_and_as_file_match(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "probe")
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_missing_resource_package_raises(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -185,6 +192,7 @@ def test_missing_resource_package_raises(tmp_path: Path) -> None:
     assert "ValueError" in got.stderr
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_tempfile_and_shutil_match(tmp_path: Path) -> None:
     src = tmp_path / "src.txt"
     dst = tmp_path / "dst.txt"
@@ -231,6 +239,7 @@ def test_tempfile_and_shutil_match(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "probe")
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_atexit_runs_on_the_way_out(tmp_path: Path) -> None:
     marker = tmp_path / "bye.txt"
     path = write_case(
@@ -288,6 +297,7 @@ def test_small_names_stay_fenced(tmp_path: Path) -> None:
         assert needle in got.stderr
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_certifi_where_matches_cpython(tmp_path: Path) -> None:
     src = ROOT / "benchmarks" / "compat" / "top100" / "src"
     core = src / "certifi" / "core.py"
@@ -325,6 +335,7 @@ def test_certifi_where_matches_cpython(tmp_path: Path) -> None:
     assert proc.stdout.endswith("cacert.pem\n")
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_certifi_package_where_matches_cpython(tmp_path: Path) -> None:
     src = ROOT / "benchmarks" / "compat" / "top100" / "src"
     package = src / "certifi"

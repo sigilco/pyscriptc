@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from tests.test_gates import compile_run, oracle, run_cli, write_case
 
 _PROBE = """
@@ -56,6 +57,7 @@ def truthy() -> int:
 """
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_list_comp_if_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "comp.py", _PROBE)
     expected = {

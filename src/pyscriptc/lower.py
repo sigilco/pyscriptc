@@ -543,9 +543,7 @@ class Lowerer:
                 )
             )
 
-    def _install_class_export(
-        self, local: str, item: dict[str, Any], stmt: ast.AST, fences: list[Fence]
-    ) -> None:
+    def _install_class_export(self, local: str, item: dict[str, Any], stmt: ast.AST, fences: list[Fence]) -> None:
         name = str(item["name"])
         if name in self.classes and not self.classes[name].get("imported"):
             fences.append(Fence("PS2002", f"{local} is already bound", span_of(stmt, self.filename), None))
@@ -1390,12 +1388,7 @@ class Lowerer:
             if node is delete:
                 state["seen"] = True
                 return
-            if (
-                state["seen"]
-                and isinstance(node, ast.Name)
-                and isinstance(node.ctx, ast.Load)
-                and node.id == name
-            ):
+            if state["seen"] and isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load) and node.id == name:
                 state["hit"] = True
                 return
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -2081,16 +2074,12 @@ class Lowerer:
                         ),
                         {
                             "kind": "if",
-                            "cond": _compare(
-                                "==", _name(item, float_t, span), _name(held, float_t, span), span
-                            ),
+                            "cond": _compare("==", _name(item, float_t, span), _name(held, float_t, span), span),
                             "then": [_assign(found, _const_bool(True, span), span)],
                             "else": [],
                             "span": span,
                         },
-                        _assign(
-                            idx, _binary_int("+", _name(idx, int_t, span), _const_int(1, span), span), span
-                        ),
+                        _assign(idx, _binary_int("+", _name(idx, int_t, span), _const_int(1, span), span), span),
                     ],
                     "span": span,
                 },
@@ -3499,9 +3488,7 @@ class Lowerer:
         self.prelude.extend(self._set_absorb(dest, typ, source, span))
         return _name(dest, typ, span)
 
-    def _frozenset_call(
-        self, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None
-    ) -> dict[str, Any]:
+    def _frozenset_call(self, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
         """A list or set display of const str or const int, or one str constant, is the set list.
 
         A str constant is the set of its characters, in order, first duplicate kept.
@@ -3597,9 +3584,7 @@ class Lowerer:
             self.fail(node, "PS2002", f"bool() of {kind} is not lowered")
         return self._truthy(arg, span)
 
-    def _list_call(
-        self, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None
-    ) -> dict[str, Any]:
+    def _list_call(self, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
         self._reject_keywords(node)
         if len(node.args) != 1:
             self.fail(node, "PS2003", "list expects 1 argument(s)")
@@ -5106,9 +5091,7 @@ def _const_dict_keys(receiver: dict[str, Any], typ: dict[str, Any], span: dict[s
     return {"kind": "list", "elems": elems, "type": typ, "span": span}
 
 
-def _const_list_concat(
-    left: dict[str, Any], right: dict[str, Any], span: dict[str, Any]
-) -> dict[str, Any] | None:
+def _const_list_concat(left: dict[str, Any], right: dict[str, Any], span: dict[str, Any]) -> dict[str, Any] | None:
     """Two constant lists of one element type are one list. A runtime list stays fenced."""
 
     if left.get("kind") != "list" or right.get("kind") != "list":

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from tests.test_gates import EXAMPLES, compile_run, oracle, run_cli, write_case
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_wave_probe_matches_cpython(tmp_path: Path) -> None:
     path = EXAMPLES / "wave_probe.py"
     got = compile_run(tmp_path, path, "probe")
@@ -15,6 +17,7 @@ def test_wave_probe_matches_cpython(tmp_path: Path) -> None:
     assert got.stdout == "0\n"
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_from_import_of_a_lowered_function(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
