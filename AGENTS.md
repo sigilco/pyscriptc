@@ -6,6 +6,7 @@
 - Package manager: `uv`. Checks: `uv run pytest`, `uv run ruff check`, `uv run ruff format --check`, `uv run python -m benchmarks.baseline.run --check`.
 - Worktrees go in `~/.worktrees/`.
 - No co-author trailers on commits. Atomic conventional commits.
+- The scorer holdout is closed to generator agents (hook, deny rules, container mask, sparse worktrees). Never read it, ask for it or try to get around the guards; if a command is blocked for mentioning it, rephrase or stop. Details in `benchmarks/compat2/corpus/README.md`. Create agent worktrees with `.agents/bin/agent-worktree <name>`.
 
 ## Boxed fallback: cost and drop flag
 

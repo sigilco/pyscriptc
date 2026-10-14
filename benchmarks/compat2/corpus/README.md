@@ -25,7 +25,32 @@ None of the 24 new visible and held out directory packages reaches `subset` or `
 
 ## Applies to
 
-Checkpoints `top100` (categories `program`, `function`) and `scripts` (category `program`) of compat2. The holdout rules are in `holdout/README.md`.
+Checkpoints `top100` (categories `program`, `function`) and `scripts` (category `program`) of compat2. The holdout rules are in `holdout/README.md`; how it is kept closed is in the next section.
+
+## Keeping the holdout closed
+
+The holdout is committed, so the workflow is reproducible and the evaluator needs no secret. Generator agents are kept out of it in layers. The evaluator is a session or CI job started with `PYSCRIPTC_EVALUATOR=1`; nobody else gets that flag.
+
+| Layer | What it does | Where |
+| --- | --- | --- |
+| Loader and scorer gate | `corpus.load(holdout=True)` raises and `score --holdout` exits 2 unless the flag is set | `load.py`, `../score.py` |
+| Aggregate only output | `--holdout` prints counts and the weighted pass only, and never uses the shared cache | `../score.py` |
+| Container mask | `run.sh` mounts an empty tmpfs over the holdout directory unless the flag is set | `.agents/docker/run.sh` |
+| Claude Code deny rules | `Read`, `Edit` and `Write` of the holdout path are denied | `.claude/settings.json` |
+| PreToolUse hook | blocks tool calls on the holdout path, and Bash commands that mention it, the flag, or `git cat-file`, `ls-tree`, `archive` | `.claude/hooks/holdout_guard.py` |
+| Search ignore | `.ignore` hides the directory from ripgrep, so Grep and Glob skip it | `/.ignore` |
+| Sparse worktrees | agent worktrees are created without the holdout on disk | `.agents/bin/agent-worktree` |
+
+Limits, stated plainly. This stops accidental and incentive driven reads by cooperating agents. It is not a sandbox against a hostile one: `git log -p` or `git show` on a commit that added a holdout file would still print it, and shell obfuscation can dodge the Bash pattern. If that matters, encrypt the holdout at rest and keep the key only in the evaluator's keychain.
+
+Tests that read holdout contents skip themselves when the holdout is closed, so the agent suite stays green. The evaluator runs them with the flag set:
+
+```
+PYSCRIPTC_EVALUATOR=1 .agents/docker/run.sh uv run pytest -q tests/test_compat2_corpus.py
+PYSCRIPTC_EVALUATOR=1 HEAVY=1 .agents/docker/run.sh uv run python -m benchmarks.compat2.score --holdout --out /tmp/holdout.json
+```
+
+Create every agent worktree with `.agents/bin/agent-worktree <name>`, not plain `git worktree add`. Hooks and deny rules load when a session starts, so they apply to sessions started after this commit.
 
 ## References
 
