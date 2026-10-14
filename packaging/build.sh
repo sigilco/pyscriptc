@@ -28,10 +28,12 @@ case "$os-$arch" in
     exit 2
     ;;
 esac
+# venv directory stays free of the .exe suffix so it is not confused with the artifact.
+stem="pyscriptc-$os-$arch"
 if [ "$os" = windows ]; then
-  name="pyscriptc-$os-$arch.exe"
+  name="$stem.exe"
 else
-  name="pyscriptc-$os-$arch"
+  name="$stem"
 fi
 
 if [ "${1:-}" = "--check-env" ]; then
@@ -44,7 +46,7 @@ fi
 cd "$root"
 # One venv per target under packaging/build/ so a Linux container run and a macOS run never share
 # an interpreter, and the dev venv is left alone.
-venv="${UV_PROJECT_ENVIRONMENT:-$here/build/venv-$name}"
+venv="${UV_PROJECT_ENVIRONMENT:-$here/build/venv-$stem}"
 export UV_PROJECT_ENVIRONMENT="$venv"
 if [ "$os" = linux ] && ! command -v patchelf >/dev/null; then
   echo "patchelf is required for Nuitka onefile on Linux (apt-get install patchelf)" >&2
@@ -89,7 +91,10 @@ if [ "$os" = macos ]; then
   args+=(--macos-target-arch="$arch")
 fi
 if [ "$os" = windows ]; then
-  args+=(--mingw64)
+  # Experimental artifact. Nuitka on Python 3.13+ rejects MinGW64 unless this
+  # switch is set. --assume-yes-for-downloads (above) fetches that toolchain.
+  # Emitted programs still need POSIX headers and are out of scope.
+  args+=(--mingw64 --experimental=force-mingw64)
 fi
 
 PYTHONPATH="$root/src${PYTHONPATH:+:$PYTHONPATH}" \
