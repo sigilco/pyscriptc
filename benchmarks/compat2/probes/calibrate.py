@@ -69,7 +69,12 @@ def wrapped(row: dict[str, object]) -> str:
 
 
 def oracle(row: dict[str, object]) -> str:
-    status, value = engine.run_forked(lambda: engine._exec_probe(str(row["source"]), list(row["args"])))  # type: ignore[call-overload]
+    def job() -> object:
+        namespace: dict[str, object] = {}
+        exec(compile(str(row["source"]), "<probe>", "exec"), namespace)  # noqa: S102
+        return namespace[str(row["call"])](*row["args"])  # type: ignore[operator,misc]
+
+    status, value = engine.run_forked(job)
     return str(value) if status == "ok" else f"!{status}:{value}"
 
 
