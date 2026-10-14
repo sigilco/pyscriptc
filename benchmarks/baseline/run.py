@@ -3,7 +3,13 @@
 
 Each lowered workload is compiled, checked against CPython's stdout, then
 sampled for wall time and peak RSS. ``--check`` compares pyscriptc/CPython
-ratios with ``benchmarks/baseline/reference.json``.
+ratios with the reference file for this host.
+
+``reference.json`` is the Linux reference already in the tree. A later Mac
+records ``reference-macos-arm64.json`` instead: on Darwin arm64, ``--record``
+and ``--check`` default to that file, and any other host refuses to write it.
+The macOS file is produced only by ``--record`` on macOS arm64. This tree
+does not ship macOS millisecond or RSS numbers.
 
   uv run python -m benchmarks.baseline.run --check
   uv run python -m benchmarks.baseline.run --record
@@ -38,6 +44,34 @@ from benchmarks.harness import (
 HERE = Path(__file__).resolve().parent
 CATALOG = repo_root() / "benchmarks" / "runtime" / "workloads.json"
 REFERENCE = HERE / "reference.json"
+MACOS_ARM64_REFERENCE = HERE / "reference-macos-arm64.json"
+
+
+def reference_for_host(system: str | None = None, machine: str | None = None) -> Path:
+    """Linux keeps ``reference.json``. macOS arm64 uses its own file."""
+
+    system = platform.system() if system is None else system
+    machine = platform.machine() if machine is None else machine
+    if system == "Darwin" and machine == "arm64":
+        return MACOS_ARM64_REFERENCE
+    return REFERENCE
+
+
+def _is_macos_arm64_slot(path: str) -> bool:
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        candidate = Path.cwd() / candidate
+    return candidate.resolve() == MACOS_ARM64_REFERENCE.resolve()
+
+
+def refuses_macos_record(path: str, system: str | None = None, machine: str | None = None) -> bool:
+    """The macOS slot is written only by ``--record`` on Darwin arm64."""
+
+    system = platform.system() if system is None else system
+    machine = platform.machine() if machine is None else machine
+    if not _is_macos_arm64_slot(path):
+        return False
+    return not (system == "Darwin" and machine == "arm64")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -45,19 +79,33 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--runs", type=int)
     parser.add_argument("--workloads", help="comma-separated workload names")
     parser.add_argument("--json", dest="json_path", help="write this run to a path")
+    host_reference = reference_for_host()
     parser.add_argument(
         "--record",
         nargs="?",
-        const=str(REFERENCE),
-        help="write this run as the reference metric set (default: benchmarks/baseline/reference.json)",
+        const=str(host_reference),
+        help=(
+            "write this run as the reference metric set for this host "
+            f"({host_reference.name}). Linux uses reference.json. "
+            "macOS arm64 uses reference-macos-arm64.json."
+        ),
     )
     parser.add_argument(
         "--check",
         nargs="?",
-        const=str(REFERENCE),
-        help="compare pyscriptc/CPython ratios with the reference metric set",
+        const=str(host_reference),
+        help=(
+            "compare pyscriptc/CPython ratios with the reference metric set for this host "
+            f"({host_reference.name}). Pass a path to check another file."
+        ),
     )
     args = parser.parse_args(argv)
+    if args.record and refuses_macos_record(args.record):
+        print(
+            "reference-macos-arm64.json is produced only by --record on macOS arm64",
+            file=sys.stderr,
+        )
+        return 2
 
     suite = json.loads((HERE / "suite.json").read_text(encoding="utf-8"))
     runs = args.runs if args.runs is not None else int(suite["runs"])
