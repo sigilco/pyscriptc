@@ -44,6 +44,13 @@ def split_excluded(rows: list[dict[str, object]]) -> tuple[list[dict[str, object
     return kept, [r["excluded"] for r in rows if "excluded" in r]  # type: ignore[misc]
 
 
+def surface_modules() -> list[str]:
+    """Top-level stdlib modules plus the submodules the frozen v1 surface already counts (importlib.resources)."""
+    top = [m for m in DENOM["stdlib_modules"] if m != "builtins"]
+    extra = {q.rpartition(".")[0] for q in DENOM["stdlib_surface"]} - set(top)
+    return [*top, *sorted(extra)]
+
+
 def module_rows() -> list[dict[str, object]]:
     rows = []
     for name in DENOM["stdlib_modules"]:
@@ -72,19 +79,20 @@ def write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
 
 
 def main() -> int:
-    from . import language
+    from . import language, v1equiv
 
     if sys.platform != "linux":
         raise SystemExit("probe generation executes stdlib calls, run it in the Linux dev container")
 
     builtins_rows = run_worker("builtins")
     with ThreadPoolExecutor(max_workers=WORKERS) as pool:
-        surface_parts = list(pool.map(run_worker, [m for m in DENOM["stdlib_modules"] if m != "builtins"]))
+        surface_parts = list(pool.map(run_worker, surface_modules()))
     surface, excluded = split_excluded([row for part in surface_parts for row in part])
     modules = module_rows()
     lang, lang_info = language.generate()
     groups = {"builtins": builtins_rows, "surface": surface, "modules": modules, "language": lang}
-    for name, rows in groups.items():
+    v1_rows, v1_info = v1equiv.generate()
+    for name, rows in {**groups, "v1equiv": v1_rows}.items():
         write_jsonl(HERE / f"{name}.jsonl", rows)
     metas = [row["meta"] for rows in groups.values() for row in rows]
     manifest = {
@@ -93,6 +101,7 @@ def main() -> int:
         "mypy": version("mypy"),
         "total": len(metas),
         "language": lang_info,
+        "v1_equivalent": v1_info,
         "excluded_methods": sorted(excluded, key=lambda e: str(e["module"])),
         "areas": {
             area: {

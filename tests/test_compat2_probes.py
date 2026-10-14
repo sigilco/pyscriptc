@@ -82,3 +82,12 @@ def test_language_probes_cover_every_applicable_ast_node() -> None:
 def test_known_probes_are_value_probes(pid: str) -> None:
     by_id = {r["id"]: r for r in rows()}
     assert by_id[pid]["kind"] == "value"
+
+
+def test_v1_equivalent_probes_are_continuity_only() -> None:
+    lines = (PROBES / "v1equiv.jsonl").read_text(encoding="utf-8").splitlines()
+    data = [json.loads(line) for line in lines]
+    assert data
+    assert all(r["id"].endswith(".v1") and r["weight"] == 0.0 and r["kind"] == "value" for r in data)
+    manifest = json.loads((PROBES / "MANIFEST.json").read_text(encoding="utf-8"))
+    assert manifest["v1_equivalent"]["rows"] == len(data)

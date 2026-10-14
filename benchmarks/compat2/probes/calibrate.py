@@ -24,7 +24,7 @@ from . import engine
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
-FILES = ("builtins", "surface", "modules", "language")
+FILES = ("builtins", "surface", "modules", "language", "v1equiv")
 TIMEOUT = 120
 
 
@@ -56,7 +56,7 @@ def sample(rows: list[dict[str, object]], per_cell: int, lowered: set[str]) -> l
         for row in members[::step][:per_cell]:
             picked[str(row["id"])] = row
     for row in rows:
-        if str(row["id"]) in lowered:
+        if str(row["id"]) in lowered or str(row["id"]).endswith(".v1"):
             picked[str(row["id"])] = row
     return [picked[k] for k in sorted(picked)]
 
@@ -111,11 +111,18 @@ def main() -> int:
         cells.setdefault(f"{row['area']}/{row['category']}/{row['kind']}", Counter())[result] += 1
     by_id = {str(r["id"]): res for r, res in zip(chosen, results, strict=True)}
     v1 = Counter(by_id[i] for i in sorted(lowered) if i in by_id)
+    v1_equiv = Counter(res for i, res in by_id.items() if i.endswith(".v1"))
     report = {
         "sampled": len(chosen),
         "cells": {k: dict(sorted(v.items())) for k, v in sorted(cells.items())},
-        "v1_lowered": {"ids": len(lowered), "with_probe": sum(i in by_id for i in lowered), "outcomes": dict(v1)},
-        "v1_lowered_not_passing": sorted(i for i in lowered if by_id.get(i, "absent") != "pass"),
+        "v1_lowered": {
+            "ids": len(lowered),
+            "v2_probe_outcomes": dict(sorted(v1.items())),
+            "v2_probe_missing": sorted(i for i in lowered if i not in by_id),
+            "v1_equivalent_probe_outcomes": dict(sorted(v1_equiv.items())),
+        },
+        "v1_lowered_v2_probe_not_passing": sorted(i for i in lowered if by_id.get(i, "absent") != "pass"),
+        "v1_equivalent_not_passing": sorted(i for i, res in by_id.items() if i.endswith(".v1") and res != "pass"),
     }
     text = json.dumps(report, indent=2, sort_keys=True)
     if opts.out:

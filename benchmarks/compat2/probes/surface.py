@@ -13,6 +13,7 @@ import os
 import sys
 import tempfile
 from collections import Counter
+from pathlib import Path
 
 from benchmarks.compat2.outcomes import WEIGHTS, Probe
 
@@ -24,6 +25,12 @@ from .engine import Built, build, raises_probe, run_forked, scalar_params
 UNSAFE_MODULES = frozenset({"antigravity", "ensurepip"})
 # GUI toolkits cannot be constructed without a display, so their names cannot be oracle-checked at all.
 # They are reported as excluded in the manifest instead of becoming thousands of mention rows.
+V1_SURFACE: dict[str, list[str]] = {}
+for _qual in json.loads(
+    (Path(__file__).resolve().parents[2] / "compat" / "denominators.json").read_text(encoding="utf-8")
+)["stdlib_surface"]:
+    _mod, _, _name = _qual.rpartition(".")
+    V1_SURFACE.setdefault(_mod, []).append(_name)
 GUI_MODULES = frozenset({"idlelib", "tkinter", "turtle", "turtledemo"})
 UNSAFE_NAMES: frozenset[str] = frozenset()
 CALL_OVERRIDES: dict[str, list[list[str]]] = {"time.sleep": [["0"]], "exit": [["3"]], "quit": [["3"]]}
@@ -320,7 +327,7 @@ def run_module(module: str) -> None:
     except BaseException as exc:  # noqa: BLE001
         stub_only(ctx, f"import failed: {type(exc).__name__}")
         return
-    names = public_names(mod)
+    names = sorted({*public_names(mod), *(n for n in V1_SURFACE.get(module, ()) if hasattr(mod, n))})
     if module in GUI_MODULES:
         print(json.dumps({"excluded": {"module": module, "names": len(names), "reason": "gui toolkit"}}), flush=True)
         return
