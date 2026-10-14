@@ -1,0 +1,698 @@
+{
+  "schema": 1,
+  "recorded_at": "2026-10-14T21:15:42Z",
+  "cpython": "3.14.7",
+  "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O",
+  "machine": "arm64",
+  "cpu_count": 8,
+  "metrics": [
+    "wall_ms",
+    "rss_kb"
+  ],
+  "runs": 5,
+  "workloads": [
+    {
+      "name": "sum-squares",
+      "call": "sum_squares",
+      "args": [
+        200000
+      ],
+      "group": "kernel",
+      "module": "int",
+      "status": "ok",
+      "compile_ms": 2258.582,
+      "native_median_ms": 2.567,
+      "cpython_median_ms": 37.379,
+      "time_ratio": 0.06867492442280426,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149512,
+      "samples": 5
+    },
+    {
+      "name": "floor-sum",
+      "call": "floor_sum",
+      "args": [
+        200000
+      ],
+      "group": "kernel",
+      "module": "int",
+      "status": "ok",
+      "compile_ms": 1662.887,
+      "native_median_ms": 3.099,
+      "cpython_median_ms": 38.638,
+      "time_ratio": 0.08020601480407889,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149512,
+      "samples": 5
+    },
+    {
+      "name": "horner",
+      "call": "horner",
+      "args": [
+        200000
+      ],
+      "group": "kernel",
+      "module": "float",
+      "status": "ok",
+      "compile_ms": 1647.711,
+      "native_median_ms": 3.021,
+      "cpython_median_ms": 34.176,
+      "time_ratio": 0.08839536516853932,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149496,
+      "samples": 5
+    },
+    {
+      "name": "repeat-len",
+      "call": "repeat_len",
+      "args": [
+        400
+      ],
+      "group": "kernel",
+      "module": "str",
+      "status": "ok",
+      "compile_ms": 1764.591,
+      "native_median_ms": 2.686,
+      "cpython_median_ms": 27.311,
+      "time_ratio": 0.09834865072681337,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149528,
+      "samples": 5
+    },
+    {
+      "name": "math-loop",
+      "call": "bench",
+      "args": [
+        20000
+      ],
+      "group": "stdlib",
+      "module": "math",
+      "status": "ok",
+      "compile_ms": 1749.868,
+      "native_median_ms": 2.903,
+      "cpython_median_ms": 33.307,
+      "time_ratio": 0.08715885549584171,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149496,
+      "samples": 5
+    },
+    {
+      "name": "re-scan",
+      "call": "bench",
+      "args": [
+        1500
+      ],
+      "group": "stdlib",
+      "module": "re",
+      "status": "ok",
+      "compile_ms": 1700.863,
+      "native_median_ms": 4.203,
+      "cpython_median_ms": 30.026,
+      "time_ratio": 0.13997868513954573,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149512,
+      "samples": 5
+    },
+    {
+      "name": "json-roundtrip",
+      "call": "bench",
+      "args": [
+        1500
+      ],
+      "group": "stdlib",
+      "module": "json",
+      "status": "ok",
+      "compile_ms": 1707.851,
+      "native_median_ms": 3.423,
+      "cpython_median_ms": 34.965,
+      "time_ratio": 0.09789789789789789,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149520,
+      "samples": 5
+    },
+    {
+      "name": "url-parse",
+      "call": "bench",
+      "args": [
+        2500
+      ],
+      "group": "stdlib",
+      "module": "urllib.parse",
+      "status": "ok",
+      "compile_ms": 1736.746,
+      "native_median_ms": 4.733,
+      "cpython_median_ms": 40.161,
+      "time_ratio": 0.11785065112920494,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149512,
+      "samples": 5
+    },
+    {
+      "name": "b64-roundtrip",
+      "call": "bench",
+      "args": [
+        3000
+      ],
+      "group": "stdlib",
+      "module": "base64",
+      "status": "ok",
+      "compile_ms": 1682.219,
+      "native_median_ms": 3.341,
+      "cpython_median_ms": 33.343,
+      "time_ratio": 0.1002009417268992,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149520,
+      "samples": 5
+    },
+    {
+      "name": "sha256-digest",
+      "call": "bench",
+      "args": [
+        800
+      ],
+      "group": "stdlib",
+      "module": "hashlib",
+      "status": "ok",
+      "compile_ms": 1735.479,
+      "native_median_ms": 3.365,
+      "cpython_median_ms": 33.245,
+      "time_ratio": 0.10121822830500829,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149520,
+      "samples": 5
+    },
+    {
+      "name": "struct-pack",
+      "call": "bench",
+      "args": [
+        5000
+      ],
+      "group": "stdlib",
+      "module": "struct",
+      "status": "ok",
+      "compile_ms": 1785.953,
+      "native_median_ms": 3.423,
+      "cpython_median_ms": 30.646,
+      "time_ratio": 0.11169483782549108,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149512,
+      "samples": 5
+    },
+    {
+      "name": "date-add",
+      "call": "bench",
+      "args": [
+        3000
+      ],
+      "group": "stdlib",
+      "module": "datetime",
+      "status": "ok",
+      "compile_ms": 1772.158,
+      "native_median_ms": 3.093,
+      "cpython_median_ms": 31.648,
+      "time_ratio": 0.09773129423660262,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149512,
+      "samples": 5
+    },
+    {
+      "name": "time-format",
+      "call": "bench",
+      "args": [
+        3000
+      ],
+      "group": "stdlib",
+      "module": "time",
+      "status": "ok",
+      "compile_ms": 1702.126,
+      "native_median_ms": 4.23,
+      "cpython_median_ms": 29.535,
+      "time_ratio": 0.1432199085830371,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149512,
+      "samples": 5
+    },
+    {
+      "name": "deque-ring",
+      "call": "bench",
+      "args": [
+        5000
+      ],
+      "group": "stdlib",
+      "module": "collections",
+      "status": "ok",
+      "compile_ms": 1660.09,
+      "native_median_ms": 2.571,
+      "cpython_median_ms": 26.185,
+      "time_ratio": 0.09818598434218065,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149512,
+      "samples": 5
+    },
+    {
+      "name": "reduce-sum",
+      "call": "bench",
+      "args": [
+        2000
+      ],
+      "group": "stdlib",
+      "module": "functools",
+      "status": "ok",
+      "compile_ms": 1680.146,
+      "native_median_ms": 2.9,
+      "cpython_median_ms": 27.039,
+      "time_ratio": 0.10725248714819334,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149544,
+      "samples": 5
+    },
+    {
+      "name": "chain-repeat",
+      "call": "bench",
+      "args": [
+        1500
+      ],
+      "group": "stdlib",
+      "module": "itertools",
+      "status": "ok",
+      "compile_ms": 1647.052,
+      "native_median_ms": 2.595,
+      "cpython_median_ms": 27.323,
+      "time_ratio": 0.09497492954653589,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149520,
+      "samples": 5
+    },
+    {
+      "name": "operator-arith",
+      "call": "bench",
+      "args": [
+        15000
+      ],
+      "group": "stdlib",
+      "module": "operator",
+      "status": "ok",
+      "compile_ms": 1672.026,
+      "native_median_ms": 2.446,
+      "cpython_median_ms": 28.797,
+      "time_ratio": 0.08493940341007744,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149504,
+      "samples": 5
+    },
+    {
+      "name": "suppress-loop",
+      "call": "bench",
+      "args": [
+        1500
+      ],
+      "group": "stdlib",
+      "module": "contextlib",
+      "status": "ok",
+      "compile_ms": 1645.318,
+      "native_median_ms": 3.366,
+      "cpython_median_ms": 27.148,
+      "time_ratio": 0.1239870340356564,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149536,
+      "samples": 5
+    },
+    {
+      "name": "path-join",
+      "call": "bench",
+      "args": [
+        5000
+      ],
+      "group": "stdlib",
+      "module": "posixpath",
+      "status": "ok",
+      "compile_ms": 1664.328,
+      "native_median_ms": 3.459,
+      "cpython_median_ms": 31.18,
+      "time_ratio": 0.11093649775497114,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149512,
+      "samples": 5
+    },
+    {
+      "name": "fnmatch-filter",
+      "call": "bench",
+      "args": [
+        2000
+      ],
+      "group": "stdlib",
+      "module": "fnmatch",
+      "status": "ok",
+      "compile_ms": 1647.461,
+      "native_median_ms": 3.297,
+      "cpython_median_ms": 30.383,
+      "time_ratio": 0.10851462989171577,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149520,
+      "samples": 5
+    },
+    {
+      "name": "os-files",
+      "call": "bench",
+      "args": [
+        60
+      ],
+      "group": "stdlib",
+      "module": "os",
+      "status": "ok",
+      "compile_ms": 1680.575,
+      "native_median_ms": 6.603,
+      "cpython_median_ms": 32.602,
+      "time_ratio": 0.20253358689650944,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149512,
+      "samples": 5
+    },
+    {
+      "name": "pathlib-read",
+      "call": "bench",
+      "args": [
+        150
+      ],
+      "group": "stdlib",
+      "module": "pathlib",
+      "status": "ok",
+      "compile_ms": 1690.235,
+      "native_median_ms": 13.504,
+      "cpython_median_ms": 43.696,
+      "time_ratio": 0.3090443061149762,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149520,
+      "samples": 5
+    },
+    {
+      "name": "stat-mode",
+      "call": "bench",
+      "args": [
+        200
+      ],
+      "group": "stdlib",
+      "module": "stat",
+      "status": "ok",
+      "compile_ms": 1854.358,
+      "native_median_ms": 3.153,
+      "cpython_median_ms": 27.856,
+      "time_ratio": 0.11318925904652498,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149512,
+      "samples": 5
+    },
+    {
+      "name": "warn-loop",
+      "call": "bench",
+      "args": [
+        40
+      ],
+      "group": "stdlib",
+      "module": "warnings",
+      "status": "ok",
+      "compile_ms": 1664.738,
+      "native_median_ms": 2.883,
+      "cpython_median_ms": 29.545,
+      "time_ratio": 0.09757996276865798,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149496,
+      "samples": 5
+    },
+    {
+      "name": "stringio-loop",
+      "call": "bench",
+      "args": [
+        2000
+      ],
+      "group": "stdlib",
+      "module": "io",
+      "status": "ok",
+      "compile_ms": 1766.287,
+      "native_median_ms": 3.113,
+      "cpython_median_ms": 31.35,
+      "time_ratio": 0.09929824561403508,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149520,
+      "samples": 5
+    },
+    {
+      "name": "sys-const",
+      "call": "bench",
+      "args": [
+        40000
+      ],
+      "group": "stdlib",
+      "module": "sys",
+      "status": "ok",
+      "compile_ms": 1672.82,
+      "native_median_ms": 2.692,
+      "cpython_median_ms": 29.432,
+      "time_ratio": 0.09146507203044306,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149512,
+      "samples": 5
+    },
+    {
+      "name": "ssl-const",
+      "call": "bench",
+      "args": [
+        40000
+      ],
+      "group": "stdlib",
+      "module": "ssl",
+      "status": "ok",
+      "compile_ms": 1652.635,
+      "native_median_ms": 2.762,
+      "cpython_median_ms": 39.408,
+      "time_ratio": 0.07008729192042225,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149496,
+      "samples": 5
+    },
+    {
+      "name": "ctypes-sizeof",
+      "call": "bench",
+      "args": [
+        40000
+      ],
+      "group": "stdlib",
+      "module": "ctypes",
+      "status": "ok",
+      "compile_ms": 1742.501,
+      "native_median_ms": 2.751,
+      "cpython_median_ms": 35.622,
+      "time_ratio": 0.07722755600471619,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149520,
+      "samples": 5
+    },
+    {
+      "name": "builtins-loop",
+      "call": "bench",
+      "args": [
+        3000
+      ],
+      "group": "stdlib",
+      "module": "builtins",
+      "status": "ok",
+      "compile_ms": 1662.539,
+      "native_median_ms": 2.997,
+      "cpython_median_ms": 28.987,
+      "time_ratio": 0.10339117535446925,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149568,
+      "samples": 5
+    },
+    {
+      "name": "script-slice",
+      "call": "bench",
+      "args": [
+        400
+      ],
+      "group": "scripting",
+      "module": "json+re+pathlib",
+      "status": "ok",
+      "compile_ms": 1664.792,
+      "native_median_ms": 3.084,
+      "cpython_median_ms": 36.9,
+      "time_ratio": 0.08357723577235773,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 149520,
+      "samples": 5
+    },
+    {
+      "name": "socket-host",
+      "call": "bench",
+      "args": [
+        80
+      ],
+      "group": "island",
+      "module": "socket",
+      "status": "ok",
+      "compile_ms": 1806.475,
+      "native_median_ms": 19.25,
+      "cpython_median_ms": 29.936,
+      "time_ratio": 0.6430384820951363,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 151560,
+      "samples": 5
+    },
+    {
+      "name": "cleandoc",
+      "call": "bench",
+      "args": [
+        400
+      ],
+      "group": "island",
+      "module": "inspect",
+      "status": "ok",
+      "compile_ms": 1760.461,
+      "native_median_ms": 24.587,
+      "cpython_median_ms": 34.619,
+      "time_ratio": 0.7102169328981195,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 151560,
+      "samples": 5
+    },
+    {
+      "name": "threads",
+      "call": "bench",
+      "args": [
+        200
+      ],
+      "group": "island",
+      "module": "threading",
+      "status": "ok",
+      "compile_ms": 1724.032,
+      "native_median_ms": 18.229,
+      "cpython_median_ms": 30.285,
+      "time_ratio": 0.6019151395080072,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 151560,
+      "samples": 5
+    },
+    {
+      "name": "log-info",
+      "call": "bench",
+      "args": [
+        80
+      ],
+      "group": "island",
+      "module": "logging",
+      "status": "ok",
+      "compile_ms": 1986.564,
+      "native_median_ms": 29.837,
+      "cpython_median_ms": 39.875,
+      "time_ratio": 0.7482633228840125,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 151560,
+      "samples": 5
+    },
+    {
+      "name": "echo-out",
+      "call": "bench",
+      "args": [
+        15
+      ],
+      "group": "island",
+      "module": "subprocess",
+      "status": "ok",
+      "compile_ms": 1689.67,
+      "native_median_ms": 58.437,
+      "cpython_median_ms": 71.988,
+      "time_ratio": 0.8117602933822303,
+      "native_rss_kb": 0,
+      "cpython_rss_kb": 0,
+      "rss_ratio": 0.0,
+      "binary_bytes": 151560,
+      "samples": 5
+    }
+  ],
+  "geomean_group": "kernel",
+  "geomean_time_ratio": 0.0831860987217862,
+  "geomean_rss_ratio": 0.0,
+  "group_geomeans": {
+    "stdlib": {
+      "geomean_time_ratio": 0.1096232728352484,
+      "geomean_rss_ratio": 0.0
+    },
+    "scripting": {
+      "geomean_time_ratio": 0.08357723577235773,
+      "geomean_rss_ratio": 0.0
+    },
+    "island": {
+      "geomean_time_ratio": 0.6990835824873637,
+      "geomean_rss_ratio": 0.0
+    }
+  },
+  "role": "reference"
+}
