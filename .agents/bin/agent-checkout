@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# usage: .agents/bin/agent-checkout <name> [base-branch]
+# Creates ~/.worktrees/pyscriptc-<name> on branch work/<name> with the holdout left out of the checkout
+# (sparse checkout), so a generator agent has no holdout files on disk. Use this for every agent worktree.
+set -euo pipefail
+name="${1:?name}"
+base="${2:-master}"
+top="$(git rev-parse --show-toplevel)"
+dest="$HOME/.worktrees/pyscriptc-$name"
+git -C "$top" worktree add --no-checkout -b "work/$name" "$dest" "$base"
+git -C "$dest" sparse-checkout set --no-cone '/*' '!/benchmarks/compat2/corpus/holdout/'
+git -C "$dest" checkout -q
+echo "$dest"

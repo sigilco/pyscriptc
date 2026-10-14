@@ -16,7 +16,11 @@ CWD = "/work"
 def run(tool: str, env: dict[str, str] | None = None, **tool_input: str) -> int:
     event = json.dumps({"tool_name": tool, "tool_input": tool_input, "cwd": CWD})
     result = subprocess.run(
-        [sys.executable, str(HOOK)], input=event, capture_output=True, text=True, env={"PATH": "/usr/bin", **(env or {})}
+        [sys.executable, str(HOOK)],
+        input=event,
+        capture_output=True,
+        text=True,
+        env={"PATH": "/usr/bin", **(env or {})},
     )
     return result.returncode
 

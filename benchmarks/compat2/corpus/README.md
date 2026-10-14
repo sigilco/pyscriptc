@@ -39,7 +39,7 @@ The holdout is committed, so the workflow is reproducible and the evaluator need
 | Claude Code deny rules | `Read`, `Edit` and `Write` of the holdout path are denied | `.claude/settings.json` |
 | PreToolUse hook | blocks tool calls on the holdout path, and Bash commands that mention it, the flag, or `git cat-file`, `ls-tree`, `archive` | `.claude/hooks/holdout_guard.py` |
 | Search ignore | `.ignore` hides the directory from ripgrep, so Grep and Glob skip it | `/.ignore` |
-| Sparse worktrees | agent worktrees are created without the holdout on disk | `.agents/bin/agent-worktree` |
+| Sparse worktrees | agent worktrees are created without the holdout on disk | `.agents/bin/agent-checkout` |
 
 Limits, stated plainly. This stops accidental and incentive driven reads by cooperating agents. It is not a sandbox against a hostile one: `git log -p` or `git show` on a commit that added a holdout file would still print it, and shell obfuscation can dodge the Bash pattern. If that matters, encrypt the holdout at rest and keep the key only in the evaluator's keychain.
 
@@ -50,7 +50,7 @@ PYSCRIPTC_EVALUATOR=1 .agents/docker/run.sh uv run pytest -q tests/test_compat2_
 PYSCRIPTC_EVALUATOR=1 HEAVY=1 .agents/docker/run.sh uv run python -m benchmarks.compat2.score --holdout --out /tmp/holdout.json
 ```
 
-Create every agent worktree with `.agents/bin/agent-worktree <name>`, not plain `git worktree add`. Hooks and deny rules load when a session starts, so they apply to sessions started after this commit.
+Create every agent worktree with `.agents/bin/agent-checkout <name>`, not plain `git worktree add`. Hooks and deny rules load when a session starts, so they apply to sessions started after this commit.
 
 ## References
 
