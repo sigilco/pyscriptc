@@ -34,7 +34,9 @@ CATEGORIES: tuple[str, ...] = (
     "program",
 )
 
-# Primary-score weights. Constants stay low so batches cannot dominate.
+# Primary-score weights. Plan section 3 (primary metric) and section 4 (weak probe classes).
+# `program` is one script. Top100 uses CORPUS_WEIGHTS. Modules stay at 1.0: section 3 does not
+# name a separate module weight.
 WEIGHTS: dict[str, float] = {
     "function": 1.0,
     "class": 1.0,
@@ -43,8 +45,45 @@ WEIGHTS: dict[str, float] = {
     "constant": 0.1,
     "module": 1.0,
     "language": 1.0,
+    "program": 3.0,
+}
+
+# Top100 secondary: 2.0 per corpus function, 5.0 per whole package (section 3).
+CORPUS_WEIGHTS: dict[str, float] = {
+    "function": 2.0,
     "program": 5.0,
 }
+
+# Weak folds stay in the score below a core probe (section 4). Constants stay on WEIGHTS.
+WEAK_FOLDS: frozenset[str] = frozenset({"handle", "recv-handle", "exec", "none", "shape"})
+WEAK_FOLD_WEIGHT: float = 0.25
+
+# A raises probe with a valid argument list stays at 0 until E2. This table does not flip it.
+RAISES_WEIGHT: float = 0.0
+# Mention probes are 0, including a dropped no-valid-argument raises row once it is a mention.
+# Weight 0 leaves the weighted sum, the same way the v1 continuity rows do.
+MENTION_WEIGHT: float = 0.0
+
+
+def probe_weight(category: str, *, kind: str = "value", fold: str = "", area: str = "") -> float:
+    """Weight stored on a Probe.
+
+    Mention and raises contribute nothing. A weak fold is 0.25, and a constant stays at 0.1
+    even when its fold is weak (section 4 leaves constants unchanged). Scripts and top100 use
+    their own rows of the primary metric.
+    """
+
+    if kind == "mention":
+        return MENTION_WEIGHT
+    if kind == "raises":
+        return RAISES_WEIGHT
+    if area == "top100":
+        return CORPUS_WEIGHTS[category]
+    if area == "scripts":
+        return WEIGHTS["program"]
+    if fold in WEAK_FOLDS and category != "constant":
+        return WEAK_FOLD_WEIGHT
+    return WEIGHTS[category]
 
 
 @dataclass(frozen=True)

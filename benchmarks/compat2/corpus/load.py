@@ -4,11 +4,14 @@ Conventions the scorer relies on (the Probe contract in outcomes.py is not exten
 
 - scripts, category "program": `source` is main.py, `call` is "" (run the whole program) and
   `args == (expected_stdout,)` where expected_stdout is expected.txt from CPython 3.14.
+  Weight is 3.0 per program (`probe_weight`).
 - top100, category "function": `source` is a thin wrapper that imports one closed signature function
   from the pinned package and returns its value, `call` is "probe". The scorer puts the pinned tree's
   parent directory on the import path (see `package_root`). The id is `top100.<project>.<qual>`.
+  Weight is 2.0 per corpus function.
 - top100, category "program": one per package, `source` imports the package, `call` is "" and
   `args == ("",)`. The scorer compiles the pinned tree itself, as v1 `classify_tree` does.
+  Weight is 5.0 per whole package.
 
 The holdout is loaded only with `holdout=True` (CLI `--holdout`). The default never opens it.
 """
@@ -21,7 +24,7 @@ import os
 import sys
 from pathlib import Path
 
-from benchmarks.compat2.outcomes import WEIGHTS, Probe
+from benchmarks.compat2.outcomes import Probe, probe_weight
 
 HERE = Path(__file__).resolve().parent
 EVALUATOR_ENV = "PYSCRIPTC_EVALUATOR"
@@ -58,7 +61,7 @@ def script_probes(holdout: bool = False) -> list[Probe]:
                 source=main.read_text(encoding="utf-8"),
                 call="",
                 args=(expected.read_text(encoding="utf-8"),),
-                weight=WEIGHTS["program"],
+                weight=probe_weight("program", area="scripts"),
             )
         )
     return probes
@@ -106,7 +109,7 @@ def package_probes(holdout: bool = False) -> list[Probe]:
                 source=f"import {import_name}\n",
                 call="",
                 args=("",),
-                weight=WEIGHTS["program"],
+                weight=probe_weight("program", area="top100"),
             )
         )
         for fn in spec.get(project, {}).get("closed_functions", []):
@@ -117,7 +120,7 @@ def package_probes(holdout: bool = False) -> list[Probe]:
                     category="function",
                     kind="value",
                     source=_wrapper(fn),
-                    weight=WEIGHTS["function"],
+                    weight=probe_weight("function", area="top100"),
                 )
             )
     return probes

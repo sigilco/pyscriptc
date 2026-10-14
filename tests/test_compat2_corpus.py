@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from benchmarks.compat2.corpus import load as corpus
+from benchmarks.compat2.outcomes import probe_weight
 
 ROOT = Path(corpus.HERE)
 SCRIPT_DIRS = sorted(p for base in (ROOT, ROOT / "holdout") for p in (base / "scripts").glob("*/"))
@@ -72,6 +73,19 @@ def test_probe_shapes():
         else:
             assert probe.call == "probe" and probe.source.rstrip().endswith(")")
             compile(probe.source, probe.id, "exec")
+
+
+def test_corpus_weights_follow_the_primary_metric():
+    probes = corpus.load()
+    assert probes
+    for probe in probes:
+        assert probe.weight == probe_weight(probe.category, kind=probe.kind, area=probe.area)
+        if probe.area == "scripts":
+            assert probe.category == "program" and probe.weight == 3.0
+        elif probe.category == "function":
+            assert probe.area == "top100" and probe.weight == 2.0
+        else:
+            assert probe.area == "top100" and probe.category == "program" and probe.weight == 5.0
 
 
 def test_probe_ids_are_unique():
