@@ -34,6 +34,21 @@ def _sig(params: list[dict[str, Any]], ret: dict[str, Any], symbol: str) -> dict
     return {"params": params, "return": ret, "symbol": symbol}
 
 
+def _host_int(owner: Any, name: str) -> int | None:
+    """Int value of `owner.name`, or None when this host does not define it.
+
+    Errno names are platform specific: EADV exists only on Linux, and pathlib
+    re-exports the errno names on Linux but not on macOS. CPython raises
+    AttributeError for an absent name, so the table leaves it out instead of
+    failing the import.
+    """
+    value = getattr(owner, name, None)
+    return None if value is None else int(value)
+
+
+# Modules in `_INT_SURFACE` whose names are errno names and may be absent on a host.
+_ERRNO_HOSTS = frozenset({"errno", "pathlib"})
+
 _ERRNO = (
     "EACCES",
     "EAGAIN",
@@ -1495,12 +1510,20 @@ def _load_constants() -> tuple[dict[tuple[str, str], tuple[Any, dict[str, Any]]]
         ("logging", "BASIC_FORMAT"): logging.BASIC_FORMAT,
         ("asyncio", "ALL_COMPLETED"): asyncio.ALL_COMPLETED,
         ("subprocess", "DEVNULL"): int(subprocess.DEVNULL),
-        **{("errno", name): int(getattr(errno, name)) for name in _ERRNO},
     }
+    for name in _ERRNO:
+        value = _host_int(errno, name)
+        if value is not None:
+            raw[("errno", name)] = value
     for module, names in _INT_SURFACE.items():
         mod = importlib.import_module(module)
         for name in names:
-            raw[(module, name)] = int(getattr(mod, name))
+            if module in _ERRNO_HOSTS:
+                value = _host_int(mod, name)
+            else:
+                value = int(getattr(mod, name))
+            if value is not None:
+                raw[(module, name)] = value
     for module, names in _STR_SURFACE.items():
         mod = importlib.import_module(module)
         for name in names:
