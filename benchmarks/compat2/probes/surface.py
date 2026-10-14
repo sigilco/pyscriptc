@@ -36,6 +36,45 @@ UNSAFE_NAMES: frozenset[str] = frozenset()
 # `kill` and `killpg` must never get pids 3 or 7: those can be live processes of the generator itself, which
 # made generation crash or differ between runs. Pid 0 and signal 0 only probe the child's own process group.
 SELF_ONLY = [["0", "0"]]
+# Calls whose result is genuinely random or per process. Sampling forks a few times and agreeing by luck is
+# likely enough (a fair coin passes three forks 25% of the time), so these are demoted to the type-check fold
+# statically instead. The versions axis then leaves them empty through seed_dependent/process_dependent.
+VOLATILE_CALLS: frozenset[str] = frozenset(
+    {
+        "random.binomialvariate",
+        "random.SystemRandom.binomialvariate",
+        "secrets.choice",
+        "secrets.SystemRandom.choice",
+        "secrets.randbelow",
+        "secrets.SystemRandom.randbelow",
+        "secrets.randbits",
+        "secrets.SystemRandom.randbits",
+        "secrets.token_bytes",
+        "secrets.SystemRandom.token_bytes",
+        "secrets.token_hex",
+        "secrets.SystemRandom.token_hex",
+        "secrets.token_urlsafe",
+        "secrets.SystemRandom.token_urlsafe",
+        "os.forkpty",
+        "os.openpty",
+        "os.pipe",
+        "os.pipe2",
+        "os.urandom",
+        "random.getrandbits",
+        "random.randbytes",
+        "random.random",
+        "random.randrange",
+        "random.sample",
+        "random.shuffle",
+        "random.uniform",
+        "time.clock_gettime",
+        "time.clock_gettime_ns",
+        "time.process_time",
+        "time.process_time_ns",
+        "time.thread_time",
+        "time.thread_time_ns",
+    }
+)
 CALL_OVERRIDES: dict[str, list[list[str]]] = {
     "time.sleep": [["0"]],
     "exit": [["3"]],
@@ -131,6 +170,29 @@ class Ctx:
         return True
 
 
+def shape_only(
+    built: Built,
+    ctx: Ctx,
+    params: list[tuple[str, str]],
+    args: list[object],
+    setup: list[str],
+    expr: str,
+) -> Built:
+    """Rebuild a volatile value probe so it only checks the result type (see VOLATILE_CALLS)."""
+    target = built.ann.split("[")[0] if built.ann else ""
+    if not target or built.fold in {"none", "exec", "raises"}:
+        return built
+    lines = [f"r = {expr}", f"if isinstance(r, {target}):", "    return 1", "return 0"]
+    source = "\n".join(ctx.headers_for(expr, *setup)) + ("\n\n" if ctx.headers_for(expr, *setup) else "")
+    source += f"def probe({', '.join(f'{n}: {t}' for n, t in params)}) -> int:\n"
+    for line in [*setup, *lines]:
+        source += f"    {line}\n"
+    runs = [_run(source, args) for _ in range(3)]
+    if len({r for r in runs if r[0] == "ok"}) == 1 and isinstance(runs[0][1], int):
+        return Built("value", source, args, fold="shape", ann=built.ann)
+    return built
+
+
 def try_calls(
     ctx: Ctx,
     callee: str,
@@ -148,6 +210,8 @@ def try_calls(
         expr = f"{callee}({text})"
         built = build(ctx.headers_for(expr, *setup), params, args, setup, expr, receiver)
         if built.kind == "value":
+            if callee in VOLATILE_CALLS:
+                return shape_only(built, ctx, params, args, setup, expr)
             return built
         last = built
         if built.fold == "raises":
