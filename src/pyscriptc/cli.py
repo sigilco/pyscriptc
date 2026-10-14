@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from pyscriptc.check import CheckFailed, run_checker
+from pyscriptc.coverage import build_report, render_text
+from pyscriptc.diagnostics import explain
 from pyscriptc.errors import FitError, IRError, SpikeError, VersionError
 from pyscriptc.ir import validate_module
 from pyscriptc.llvm import emit_llvm, link_binary
@@ -37,10 +39,19 @@ def main(argv: list[str] | None = None) -> int:
     compile_parser.add_argument("--run", action="store_true", help="compile a binary and run it")
     compile_parser.add_argument("--skip-check", action="store_true")
     compile_parser.add_argument("--checker", default="mypy")
+    coverage_parser = sub.add_parser("coverage", help="report every fence in a file or package tree")
+    coverage_parser.add_argument("source")
+    coverage_parser.add_argument("--json", action="store_true", help="print the report as JSON")
+    explain_parser = sub.add_parser("explain", help="describe a diagnostic code")
+    explain_parser.add_argument("code")
     try:
         args = parser.parse_args(argv)
         if args.cmd == "compile":
             return compile_cmd(args)
+        if args.cmd == "coverage":
+            return coverage_cmd(args)
+        if args.cmd == "explain":
+            return explain_cmd(args)
     except CheckFailed as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -53,6 +64,21 @@ def main(argv: list[str] | None = None) -> int:
     return 2
 
 
+def coverage_cmd(args: argparse.Namespace) -> int:
+    report = build_report(Path(args.source))
+    print(json.dumps(report, indent=2) if args.json else render_text(report))
+    return 0
+
+
+def explain_cmd(args: argparse.Namespace) -> int:
+    text = explain(args.code)
+    if text is None:
+        print(f"unknown diagnostic code: {args.code}", file=sys.stderr)
+        return 2
+    print(text)
+    return 0
+
+
 def compile_cmd(args: argparse.Namespace) -> int:
     source_path = Path(args.source)
     if source_path.is_dir():
@@ -63,8 +89,6 @@ def compile_cmd(args: argparse.Namespace) -> int:
         raise IRError(f"source not found: {source_path}")
     if args.run:
         args.emit = "bin"
-    if args.emit == "bin" and not args.call:
-        raise IRError("--emit bin requires --call")
     for note in module.pop("_notes", []):
         print(note, file=sys.stderr)
     if not args.skip_check:
@@ -80,7 +104,7 @@ def compile_cmd(args: argparse.Namespace) -> int:
         print(ir_path)
         return 0
     call_args = _parse_args(args.args) if args.call else None
-    llvm_text = emit_llvm(module, args.call, call_args)
+    llvm_text = emit_llvm(module, args.call, call_args, standalone=args.emit == "bin")
     ll_path = _output_path(args, source_path, ".ll")
     ll_path.write_text(llvm_text, encoding="utf-8")
     if args.emit == "llvm":

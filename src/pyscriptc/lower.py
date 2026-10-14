@@ -68,6 +68,7 @@ _LIST_FORMS = frozenset({"List"})
 _DICT_FORMS = frozenset({"Dict"})
 _SET_FORMS = frozenset({"Set"})
 _UNWRAP_FORMS = frozenset({"Final", "ClassVar", "Annotated", "Required", "NotRequired"})
+_DYNAMIC_ANNOTATIONS = frozenset({"object", "Any", "Protocol", "TypeVar", "Generic", "Callable", "ABC"})
 _IO_HANDLES = {"BinaryIO": "BytesIO", "TextIO": "TextIO"}
 
 
@@ -632,9 +633,9 @@ class Lowerer:
 
     def _collect_class(self, node: ast.ClassDef) -> None:
         if node.keywords:
-            self.fail(node, "PS2002", "class keywords are not lowered")
+            self.fail(node, "PS1203", "class keywords are not lowered")
         if len(node.bases) > 1:
-            self.fail(node, "PS2002", "multiple inheritance is not lowered")
+            self.fail(node, "PS1203", "multiple inheritance is not lowered")
         if node.name in self.bindings or node.name in self.sigs or node.name in self.declared:
             self.fail(node, "PS2002", f"{node.name} is already bound")
         deco = self._class_decorator(node)
@@ -663,7 +664,7 @@ class Lowerer:
             try:
                 if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
                     if stmt.value is not None and deco != "dataclass":
-                        self.fail(stmt, "PS2002", "class fields are declared with an annotation and no value")
+                        self.fail(stmt, "PS1204", "class fields are declared with an annotation and no value")
                     if stmt.target.id in seen or stmt.target.id in inherited_names:
                         self.fail(stmt, "PS2002", f"duplicate field {stmt.target.id}")
                     typ = self._annotation(stmt.annotation)
@@ -690,10 +691,10 @@ class Lowerer:
                 if isinstance(stmt, ast.FunctionDef):
                     kind = self._method_decorator(stmt)
                     if stmt.name == "__init__" and kind != "method":
-                        self.fail(stmt, "PS2002", "decorators are not lowered")
+                        self.fail(stmt, "PS1201", "decorators are not lowered")
                     methods.append((stmt, kind))
                     continue
-                self.fail(stmt, "PS2002", f"{type(stmt).__name__} in a class body is not lowered")
+                self.fail(stmt, "PS1204", f"{type(stmt).__name__} in a class body is not lowered")
             except Fence as exc:
                 self.caught.append(exc)
         method_sigs: dict[str, tuple[list[dict[str, Any]], dict[str, Any]]] = {}
@@ -762,7 +763,7 @@ class Lowerer:
         if not node.decorator_list:
             return None
         if len(node.decorator_list) != 1 or not self._is_dataclass_deco(node.decorator_list[0]):
-            self.fail(node, "PS2002", "decorators are not lowered")
+            self.fail(node, "PS1201", "decorators are not lowered")
         return "dataclass"
 
     def _is_dataclass_deco(self, dec: ast.expr) -> bool:
@@ -813,16 +814,16 @@ class Lowerer:
         if not fn.decorator_list:
             return "method"
         if len(fn.decorator_list) != 1:
-            self.fail(fn, "PS2002", "decorators are not lowered")
+            self.fail(fn, "PS1201", "decorators are not lowered")
         dec = fn.decorator_list[0]
         target = dec
         if isinstance(dec, ast.Call):
             if dec.args or dec.keywords:
-                self.fail(fn, "PS2002", "decorators are not lowered")
+                self.fail(fn, "PS1201", "decorators are not lowered")
             target = dec.func
         if isinstance(target, ast.Name) and target.id in {"property", "staticmethod", "classmethod"}:
             return {"property": "property", "staticmethod": "static", "classmethod": "class"}[target.id]
-        self.fail(fn, "PS2002", "decorators are not lowered")
+        self.fail(fn, "PS1201", "decorators are not lowered")
         raise AssertionError("unreachable")
 
     def _is_builtin_object(self, node: ast.expr) -> bool:
@@ -1007,7 +1008,7 @@ class Lowerer:
         self, fn: ast.FunctionDef, class_name: str | None, kind: str = "method"
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         if fn.args.kwarg or fn.args.kwonlyargs or fn.args.posonlyargs:
-            self.fail(fn, "PS2002", f"{fn.name} uses a parameter form that is not lowered")
+            self.fail(fn, "PS1202", f"{fn.name} uses a parameter form that is not lowered")
         args = list(fn.args.args)
         params: list[dict[str, Any]] = []
         if kind == "property":
@@ -1016,7 +1017,7 @@ class Lowerer:
             if args[0].annotation is not None:
                 self.fail(args[0], "PS2002", "self is not annotated")
             if class_name is None:
-                self.fail(fn, "PS2002", "decorators are not lowered")
+                self.fail(fn, "PS1201", "decorators are not lowered")
             params.append({"name": "self", "type": {"kind": "class", "name": class_name}})
             args = []
         elif kind == "class":
@@ -1650,9 +1651,9 @@ class Lowerer:
         handlers = []
         for handler in stmt.handlers:
             if handler.name is not None:
-                self.fail(handler, "PS2002", "except-as is not lowered")
+                self.fail(handler, "PS1205", "except-as is not lowered")
             if handler.type is None:
-                self.fail(handler, "PS2002", "bare except is not lowered")
+                self.fail(handler, "PS1205", "bare except is not lowered")
             names = _handler_names(self, handler.type)
             codes: list[int] = []
             if "Exception" not in names:
@@ -2864,7 +2865,7 @@ class Lowerer:
 
     def _annotation(self, node: ast.AST) -> dict[str, Any]:
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
-            self.fail(node, "PS1001", "union types are not in the IR")
+            self.fail(node, "PS1101", "union types are not in the IR")
         formed = self._typing_annotation(node)
         if formed is not None:
             return formed
@@ -2901,8 +2902,21 @@ class Lowerer:
         named = self._annotation_class(node)
         if named is not None:
             return {"kind": "class", "name": named}
+        self._fail_annotation(node)
+
+    def _fail_annotation(self, node: ast.AST) -> NoReturn:
+        """Fence an annotation the subset does not lower, with the code that names why."""
+        text = ast.unparse(node)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            self.fail(node, "PS1105", f"the forward reference {text} is not lowered")
+        if isinstance(node, ast.Subscript):
+            self.fail(node, "PS1103", f"the generic annotation {text} is not lowered")
+        tail = text.rsplit(".", 1)[-1]
+        if tail in _DYNAMIC_ANNOTATIONS:
+            self.fail(node, "PS1104", f"{text} is a dynamic or structural type and is not lowered")
+        if isinstance(node, (ast.Name, ast.Attribute)):
+            self.fail(node, "PS1106", f"the annotation {text} names a type that is not lowered")
         self.fail(node, "PS1001", "this annotation is not in the lowered subset")
-        raise AssertionError("unreachable")
 
     def _abi_call(
         self,
@@ -2992,7 +3006,7 @@ class Lowerer:
         if self._is_mod(ctx, "importlib.resources", "as_file"):
             return self._with_as_file(stmt, item, span)
         if item.optional_vars is not None:
-            self.fail(stmt, "PS2002", "with-as is not lowered")
+            self.fail(stmt, "PS1206", "with-as is not lowered")
         if self._is_mod(ctx, "contextlib", "suppress"):
             assert isinstance(ctx, ast.Call)
             if len(ctx.args) != 1 or not isinstance(ctx.args[0], ast.Name) or ctx.args[0].id not in EXCEPTIONS:
@@ -4155,7 +4169,8 @@ class Lowerer:
             handle = _IO_HANDLES.get(alias)
             if handle is not None:
                 return {"kind": "class", "name": handle}
-            self.fail(node, "PS1001", f"{alias} is not a value type in the IR")
+            code = "PS1104" if alias in _DYNAMIC_ANNOTATIONS else "PS1103"
+            self.fail(node, code, f"{alias} is not a value type in the IR")
         if not isinstance(node, ast.Subscript):
             return None
         alias = self._typing_alias(node.value)
@@ -4196,11 +4211,10 @@ class Lowerer:
                     self.fail(node, "PS1001", "Annotated needs a type")
             return self._annotation(inner)
         if alias == "Optional":
-            self.fail(node, "PS1001", "optional types are not in the IR")
+            self.fail(node, "PS1102", "optional types are not in the IR")
         if alias == "Union":
-            self.fail(node, "PS1001", "union types are not in the IR")
-        self.fail(node, "PS1001", f"{alias} is not a value type in the IR")
-        raise AssertionError("unreachable")
+            self.fail(node, "PS1101", "union types are not in the IR")
+        self.fail(node, "PS1103", f"{alias} is not a value type in the IR")
 
     def _typing_alias(self, node: ast.AST) -> str | None:
         if isinstance(node, ast.Name) and node.id in self.type_aliases:
