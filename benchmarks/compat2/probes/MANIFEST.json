@@ -1,0 +1,207 @@
+{
+  "areas": {
+    "builtins": {
+      "class": 26,
+      "constant": 38,
+      "exception": 70,
+      "function": 49,
+      "method": 226
+    },
+    "language": {
+      "language": 444
+    },
+    "modules": {
+      "module": 194
+    },
+    "surface": {
+      "class": 753,
+      "constant": 4994,
+      "exception": 172,
+      "function": 1852,
+      "method": 5275,
+      "module": 192
+    }
+  },
+  "cpython": "3.14.8",
+  "cpython_pin": "3.14",
+  "excluded_methods": [
+    {
+      "module": "idlelib",
+      "names": 1,
+      "reason": "gui toolkit"
+    },
+    {
+      "module": "tkinter",
+      "names": 131,
+      "reason": "gui toolkit"
+    },
+    {
+      "module": "turtle",
+      "names": 126,
+      "reason": "gui toolkit"
+    },
+    {
+      "module": "turtledemo",
+      "names": 0,
+      "reason": "gui toolkit"
+    }
+  ],
+  "folds": {
+    "bool": 755,
+    "bytes": 248,
+    "cpython-test": 20,
+    "exec": 493,
+    "expr-arg": 67,
+    "expr-assign": 67,
+    "expr-cond": 67,
+    "expr-loop": 67,
+    "float": 117,
+    "handle": 2376,
+    "import": 386,
+    "int": 3014,
+    "len": 351,
+    "mention": 1212,
+    "none": 580,
+    "raise-except": 236,
+    "raises": 1965,
+    "recv-handle": 1006,
+    "recv-len": 11,
+    "recv-seq-int": 5,
+    "seq-int": 79,
+    "seq-str": 126,
+    "shape": 81,
+    "stmt-function": 78,
+    "stmt-method": 78,
+    "str": 800
+  },
+  "kinds": {
+    "builtins/class/raises": 1,
+    "builtins/class/value": 25,
+    "builtins/constant/value": 38,
+    "builtins/exception/value": 70,
+    "builtins/function/raises": 10,
+    "builtins/function/value": 39,
+    "builtins/method/raises": 3,
+    "builtins/method/value": 223,
+    "language/language/value": 444,
+    "modules/module/value": 194,
+    "surface/class/raises": 176,
+    "surface/class/value": 577,
+    "surface/constant/mention": 24,
+    "surface/constant/value": 4970,
+    "surface/exception/mention": 6,
+    "surface/exception/value": 166,
+    "surface/function/mention": 3,
+    "surface/function/raises": 520,
+    "surface/function/value": 1329,
+    "surface/method/mention": 1179,
+    "surface/method/raises": 1255,
+    "surface/method/value": 2841,
+    "surface/module/value": 192
+  },
+  "language": {
+    "cpython_tests": {
+      "files": {
+        "test_augassign.py.txt": {
+          "dropped": 6,
+          "kept": 1,
+          "methods": 7,
+          "statements_not_adapted": 95
+        },
+        "test_binop.py.txt": {
+          "dropped": 12,
+          "kept": 0,
+          "methods": 12,
+          "statements_not_adapted": 87
+        },
+        "test_bool.py.txt": {
+          "dropped": 25,
+          "kept": 6,
+          "methods": 31,
+          "statements_not_adapted": 200
+        },
+        "test_compare.py.txt": {
+          "dropped": 16,
+          "kept": 0,
+          "methods": 16,
+          "statements_not_adapted": 127
+        },
+        "test_float.py.txt": {
+          "dropped": 51,
+          "kept": 3,
+          "methods": 54,
+          "statements_not_adapted": 675
+        },
+        "test_grammar.py.txt": {
+          "dropped": 73,
+          "kept": 2,
+          "methods": 75,
+          "statements_not_adapted": 820
+        },
+        "test_int.py.txt": {
+          "dropped": 38,
+          "kept": 4,
+          "methods": 42,
+          "statements_not_adapted": 347
+        },
+        "test_unary.py.txt": {
+          "dropped": 2,
+          "kept": 4,
+          "methods": 6,
+          "statements_not_adapted": 8
+        }
+      },
+      "tag": "v3.14.8"
+    },
+    "dropped_unverified": [],
+    "nodes": 109,
+    "nodes_uncovered": [],
+    "not_applicable": [
+      "AST",
+      "AugLoad",
+      "AugStore",
+      "Expression",
+      "ExtSlice",
+      "FunctionType",
+      "Index",
+      "Interactive",
+      "Param",
+      "Suite",
+      "TypeIgnore",
+      "boolop",
+      "cmpop",
+      "excepthandler",
+      "expr",
+      "expr_context",
+      "mod",
+      "operator",
+      "pattern",
+      "slice",
+      "stmt",
+      "type_ignore",
+      "type_param",
+      "unaryop"
+    ]
+  },
+  "mention_reasons": {
+    "class has no constructible receiver": 1179,
+    "no constructible argument list": 6,
+    "no oracle-checked attribute: AddressValueError": 1,
+    "no oracle-checked attribute: AttributeError": 14,
+    "no oracle-checked attribute: TypeError": 4,
+    "no oracle-checked attribute: ValueError": 3,
+    "no oracle-checked attribute: crash": 2,
+    "unsafe to execute at generation time": 3
+  },
+  "mypy": "2.4.0",
+  "total": 14285,
+  "v1_equivalent": {
+    "rows": 1233,
+    "skipped_emit": [
+      "stdlib.sys.exit"
+    ],
+    "skipped_missing": [],
+    "skipped_no-oracle": [],
+    "v1_lowered": 1234
+  }
+}
