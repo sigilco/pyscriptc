@@ -122,6 +122,8 @@ class Probe:
     args: tuple[object, ...] = ()
     expect_exc: str = ""
     weight: float = 1.0
+    # Subset of CPython 3.10 to 3.14 where the name exists and the probe agrees with the oracle (probes/versions.py)
+    versions: tuple[str, ...] = ()
 
     def to_json(self) -> dict[str, object]:
         return asdict(self)
