@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from benchmarks.compat2 import cache, headroom
+from benchmarks.compat2 import cache, coverage_map, headroom
 from benchmarks.compat2.cache import CACHE_DIR, COMPILER_DIR, ROOT, FileHashes, cache_key, compiler_hash, probe_hash  # noqa: F401
 from benchmarks.compat2.corpus import load as corpus
 from benchmarks.compat2.loader import load_probes
@@ -289,7 +289,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--shard", default="0/1", help="I/N: run probes whose index mod N equals I")
     parser.add_argument("--timeout", type=float, default=60.0)
-    parser.add_argument("--coverage-map", help="JSON {probe id: [compiler files]} for narrower cache keys")
+    parser.add_argument(
+        "--coverage-map", help="coverage_map.py output for narrower cache keys (default: the built map, if any)"
+    )
+    parser.add_argument("--tier", type=int, choices=(0, 1), default=1, help="0: probes the git diff can move; 1: all")
+    parser.add_argument("--base", default="HEAD", help="git ref the Tier 0 diff is taken against")
     parser.add_argument("--no-cache", action="store_true")
     parser.add_argument("--headroom", action="store_true", help="only run the headroom check")
     args = parser.parse_args(argv)
@@ -318,9 +322,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"capped {row.id}: {row.evidence}", file=sys.stderr)
         print(f"refusing to start: {len(bad)} capped rows (see --headroom)", file=sys.stderr)
         return 2
+    if args.tier == 0:
+        probes, why = coverage_map.tier0(probes, args.base)
+        print(f"tier 0: {len(probes)} probes ({why})", file=sys.stderr)
     index, _, total = args.shard.partition("/")
     probes = [p for i, p in enumerate(probes) if i % int(total or 1) == int(index)]
-    coverage = json.loads(Path(args.coverage_map).read_text()) if args.coverage_map else {}
+    mapped = coverage_map.load(Path(args.coverage_map) if args.coverage_map else coverage_map.MAP_PATH)
+    coverage = coverage_map.key_map(mapped, probes) if mapped else {}
     results = score(
         probes,
         workers=args.workers,
