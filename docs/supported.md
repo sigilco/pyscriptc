@@ -77,6 +77,25 @@ Each module below is a closed set of calls, not the whole module.
 
 Island calls link libpython. The constants do not.
 
+## Finding every fence
+
+`pyscriptc coverage FILE|DIR [--json]` lowers a file or a package tree and reports every fence, not only the first. Each entry has the PS code, a code frame, a feature family, the definition that holds it, and a refactor hint. The `chain` list ranks families by how many definitions they alone block. `compile` is unchanged and still fails closed on any fence.
+
+`pyscriptc explain PSxxxx` describes a code. Annotation fences have their own codes:
+
+| Code | Meaning |
+| --- | --- |
+| PS1101 | union annotation (`A | B`, `Union[A, B]`) |
+| PS1102 | `Optional[T]` |
+| PS1103 | generic alias such as `Mapping[K, V]` or `Callable[...]` |
+| PS1104 | dynamic or structural type (`object`, `Any`, `Protocol`, `TypeVar`) |
+| PS1105 | forward reference (a quoted annotation) |
+| PS1106 | a name that is not a lowered type |
+
+Construct fences: PS1201 decorators, PS1202 parameter forms, PS1203 class keywords or multiple inheritance, PS1204 class body statements, PS1205 `except ... as` and bare `except`, PS1206 `with ... as`.
+
+`python -m benchmarks.compat2.census` runs `coverage` over the pinned top100 sources and ranks families by set cover.
+
 ## Fences you will hit first
 
 These refuse the whole file:
