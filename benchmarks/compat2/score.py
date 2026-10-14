@@ -331,6 +331,9 @@ def main(argv: list[str] | None = None) -> int:
     resource.setrlimit(resource.RLIMIT_NOFILE, (hard if hard != resource.RLIM_INFINITY else 65536, hard))
     global USE_HOLDOUT
     USE_HOLDOUT = args.holdout
+    if args.holdout and not corpus.holdout_open():
+        print(f"the holdout is closed: it opens only for the evaluator ({corpus.EVALUATOR_ENV}=1)", file=sys.stderr)
+        return 2
     probes = list(load_probes(args.probes)) if args.probes else []
     if args.corpus or args.holdout:
         probes += corpus.load(args.holdout)
@@ -356,10 +359,14 @@ def main(argv: list[str] | None = None) -> int:
         workers=args.workers,
         timeout=args.timeout,
         coverage=coverage,
-        cache_dir=None if args.no_cache else CACHE_DIR,
+        cache_dir=None if args.no_cache or args.holdout else CACHE_DIR,
     )
     Path(args.out).write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
-    print(f"scored {len(probes)} probes in {results['wall_s']}s  {results['counts']}")
+    if args.holdout:
+        # aggregate numbers only: per probe ids and results must never reach a generator's context
+        print(f"holdout: scored {len(probes)} probes  {results['counts']}")
+    else:
+        print(f"scored {len(probes)} probes in {results['wall_s']}s  {results['counts']}")
     print(f"weighted pass {weighted_pass(results):.1f}")
     return 0
 

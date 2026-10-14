@@ -17,15 +17,29 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
 from benchmarks.compat2.outcomes import WEIGHTS, Probe
 
 HERE = Path(__file__).resolve().parent
+EVALUATOR_ENV = "PYSCRIPTC_EVALUATOR"
+
+
+def holdout_open() -> bool:
+    """True only for the evaluator: the env flag is set and the holdout is on disk.
+
+    Generator agents never get the flag (see .claude/hooks/holdout_guard.py and .agents/docker/run.sh), and
+    their containers see an empty directory over the holdout.
+    """
+
+    return os.environ.get(EVALUATOR_ENV) == "1" and (HERE / "holdout" / "HOLDOUT").is_file()
 
 
 def _root(holdout: bool) -> Path:
+    if holdout and not holdout_open():
+        raise PermissionError(f"the holdout is closed: it opens only for the evaluator ({EVALUATOR_ENV}=1)")
     return HERE / "holdout" if holdout else HERE
 
 

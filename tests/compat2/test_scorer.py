@@ -206,3 +206,13 @@ def test_corrupt_cache_entry_is_recomputed(tmp_path: Path) -> None:
         entry.write_text("")
     again = score([probe("a")], cache_dir=tmp_path, evaluator=run)
     assert again["cache_hits"] == 0 and again["counts"] == {"pass": 1}
+
+
+def test_holdout_cli_is_closed_without_the_evaluator_flag(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from benchmarks.compat2.score import main
+
+    monkeypatch.delenv("PYSCRIPTC_EVALUATOR", raising=False)
+    assert main(["--holdout", "--out", "/nonexistent/never-written.json"]) == 2
+    assert "the holdout is closed" in capsys.readouterr().err
