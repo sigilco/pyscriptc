@@ -18,7 +18,7 @@ from pathlib import Path
 from benchmarks.compat2.outcomes import WEIGHTS, Probe
 
 from . import typeshed
-from .engine import Built, build, raises_probe, run_forked, scalar_params
+from .engine import Built, _exec_probe, build, raises_probe, run_forked, scalar_params
 
 # These are neither imported nor called: they open browsers, install packages, or run on import.
 # Everything else runs in a forked child of a Linux container with a scratch working directory.
@@ -187,7 +187,7 @@ def shape_only(
     source += f"def probe({', '.join(f'{n}: {t}' for n, t in params)}) -> int:\n"
     for line in [*setup, *lines]:
         source += f"    {line}\n"
-    runs = [_run(source, args) for _ in range(3)]
+    runs = [run_forked(lambda src=source, a=args: _exec_probe(src, a)) for _ in range(3)]
     if len({r for r in runs if r[0] == "ok"}) == 1 and isinstance(runs[0][1], int):
         return Built("value", source, args, fold="shape", ann=built.ann)
     return built
