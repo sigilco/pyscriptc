@@ -149,14 +149,14 @@ def compute_versions(oracle: str, rows: list[dict[str, object]]) -> tuple[dict[s
 
         with ThreadPoolExecutor(max_workers=2) as pool:
             results = dict(zip(jobs, pool.map(run, jobs), strict=True))
+        # A second oracle worker at the same seed decides whether the recorded value survives leaving
+        # the process that generated the row. getpriority, clock_gettime, getpgid and friends return
+        # values that vary per process, so their versions field would otherwise be a run-to-run lottery.
+        repeated = run_module(oracle, ["benchmarks.compat2.probes.versions", str(path)], HASH_SEEDS[0])
+        if repeated.returncode != 0:
+            raise SystemExit(f"version worker repeat failed: {repeated.stderr.strip()[-300:]}")
     reference = results[(oracle, HASH_SEEDS[0])]
     reseeded = results[(oracle, HASH_SEEDS[1])]
-    # A second oracle worker at the same seed decides whether the recorded value survives leaving
-    # the process that generated the row. getpriority, clock_gettime, getpgid and friends return
-    # values that vary per process, so their versions field would otherwise be a run-to-run lottery.
-    repeated = run_module(oracle, ["benchmarks.compat2.probes.versions", str(path)], HASH_SEEDS[0])
-    if repeated.returncode != 0:
-        raise SystemExit(f"version worker repeat failed: {repeated.stderr.strip()[-300:]}")
     stable: dict[str, bool] = {}
     for line in repeated.stdout.splitlines():
         pid, status, value = json.loads(line)
