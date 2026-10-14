@@ -20,7 +20,7 @@ Do this in a worktree from `.agents/bin/agent-checkout <name>`.
 
 ## Primary metric
 
-Weighted pass under the CPython 3.12 oracle. The scorer compares native output to the interpreter that runs it (`sys.executable` in `benchmarks/compat2/score.py`), so that process is the oracle. It must be CPython 3.12. Scoring under another version is not this metric.
+Weighted pass under the CPython 3.12 oracle. The 3.12 oracle is the target. This branch's scorer still uses `sys.executable` in `benchmarks/compat2/score.py` until A1's `--oracle` switch exists. The score and verdict commands in this file run with the interpreter this branch runs (`uv run python`).
 
 `weighted_pass` is the sum of the score JSON `weights[id]` over rows whose `outcome` is `pass`. The verdict's `primary_delta` is the candidate sum minus the baseline sum.
 
@@ -77,10 +77,10 @@ A heavy run is `HEAVY=1 .agents/docker/run.sh ...`. It takes `/tmp/pyscriptc-hea
 
 Scratch JSON below is written under `.agents/` because the container mounts the repo at `/work` and discards its own `/tmp` on exit. Do not commit scratch files. Stage paths by name. `chmod` lines keep the files writable after the container (it runs as root).
 
-Confirm the oracle, then write the baseline score. Do this on the clean parent, before the edit:
+Write the baseline score with the interpreter this branch runs. Do this on the clean parent, before the edit:
 
 ```bash
-HEAVY=1 .agents/docker/run.sh sh -c 'uv run python -c "import sys; assert sys.version_info[:2] == (3, 12), sys.version" && uv run python -m benchmarks.compat2.score benchmarks/compat2/probes --corpus --out .agents/scratch-iter-baseline.json && chmod a+rw .agents/scratch-iter-baseline.json'
+HEAVY=1 .agents/docker/run.sh sh -c 'uv run python -m benchmarks.compat2.score benchmarks/compat2/probes --corpus --out .agents/scratch-iter-baseline.json && chmod a+rw .agents/scratch-iter-baseline.json'
 ```
 
 One process, default shard `0/1`, probes in `benchmarks/compat2/probes/*.jsonl` plus the visible corpus (`--corpus`). Do not pass a holdout switch. Do not point the scorer at `benchmarks/compat2/continuity/`. If the scorer exits 2 because rows are capped, stop. That is a freeze problem, and this iteration does not edit the scorer to clear it. The full run is the Tier 1 score.
@@ -194,10 +194,10 @@ Name the focused pytest in step 4 above. Run the narrowest file or node that fai
 
 ## Edit, then score the candidate
 
-After the light checks pass, make one conventional commit for the iteration. No `Co-authored-by` trailer. Then score that commit. Wait until the baseline container has exited. Same probe set, same oracle check:
+After the light checks pass, make one conventional commit for the iteration. No `Co-authored-by` trailer. Then score that commit. Wait until the baseline container has exited. Same probe set, with the interpreter this branch runs:
 
 ```bash
-HEAVY=1 .agents/docker/run.sh sh -c 'uv run python -c "import sys; assert sys.version_info[:2] == (3, 12), sys.version" && uv run python -m benchmarks.compat2.score benchmarks/compat2/probes --corpus --out .agents/scratch-iter-candidate.json && chmod a+rw .agents/scratch-iter-candidate.json'
+HEAVY=1 .agents/docker/run.sh sh -c 'uv run python -m benchmarks.compat2.score benchmarks/compat2/probes --corpus --out .agents/scratch-iter-candidate.json && chmod a+rw .agents/scratch-iter-candidate.json'
 ```
 
 Build the candidate census after that container exits:
