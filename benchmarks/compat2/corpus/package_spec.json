@@ -259,21 +259,6 @@
     },
     {
      "module": "click.termui",
-     "name": "hidden_prompt_func",
-     "qual": "click.termui.hidden_prompt_func",
-     "params": [
-      {
-       "name": "prompt",
-       "kind": "str"
-      }
-     ],
-     "returns": "str",
-     "call_args": [
-      "a"
-     ]
-    },
-    {
-     "module": "click.termui",
      "name": "unstyle",
      "qual": "click.termui.unstyle",
      "params": [
@@ -309,19 +294,6 @@
      "call_args": [
       "a"
      ]
-    },
-    {
-     "module": "click.termui",
-     "name": "getchar",
-     "qual": "click.termui.getchar",
-     "params": [
-      {
-       "name": "echo",
-       "kind": "bool"
-      }
-     ],
-     "returns": "str",
-     "call_args": []
     },
     {
      "module": "click.utils",
@@ -638,7 +610,7 @@
      "returns": "bool",
      "call_args": [
       "a",
-      1
+      0
      ]
     },
     {
@@ -662,7 +634,7 @@
      "returns": "bool",
      "call_args": [
       "a",
-      1
+      0
      ]
     },
     {
@@ -693,23 +665,7 @@
   "importlib-metadata": {
    "import_name": "importlib_metadata",
    "version": "9.0.1",
-   "closed_functions": [
-    {
-     "module": "importlib_metadata",
-     "name": "version",
-     "qual": "importlib_metadata.version",
-     "params": [
-      {
-       "name": "distribution_name",
-       "kind": "str"
-      }
-     ],
-     "returns": "str",
-     "call_args": [
-      "a"
-     ]
-    }
-   ],
+   "closed_functions": [],
    "oracles": {
     "test_count": 88,
     "files": [
@@ -1258,66 +1214,6 @@
      "params": [],
      "returns": "str",
      "call_args": []
-    },
-    {
-     "module": "platformdirs.windows",
-     "name": "get_win_folder_from_env_vars",
-     "qual": "platformdirs.windows.get_win_folder_from_env_vars",
-     "params": [
-      {
-       "name": "csidl_name",
-       "kind": "str"
-      }
-     ],
-     "returns": "str",
-     "call_args": [
-      "a"
-     ]
-    },
-    {
-     "module": "platformdirs.windows",
-     "name": "get_win_folder_from_registry",
-     "qual": "platformdirs.windows.get_win_folder_from_registry",
-     "params": [
-      {
-       "name": "csidl_name",
-       "kind": "str"
-      }
-     ],
-     "returns": "str",
-     "call_args": [
-      "a"
-     ]
-    },
-    {
-     "module": "platformdirs.windows",
-     "name": "get_win_folder_via_ctypes",
-     "qual": "platformdirs.windows.get_win_folder_via_ctypes",
-     "params": [
-      {
-       "name": "csidl_name",
-       "kind": "str"
-      }
-     ],
-     "returns": "str",
-     "call_args": [
-      "a"
-     ]
-    },
-    {
-     "module": "platformdirs.windows",
-     "name": "get_win_folder",
-     "qual": "platformdirs.windows.get_win_folder",
-     "params": [
-      {
-       "name": "csidl_name",
-       "kind": "str"
-      }
-     ],
-     "returns": "str",
-     "call_args": [
-      "a"
-     ]
     }
    ]
   },
@@ -2474,16 +2370,8 @@
      ],
      "returns": "str",
      "call_args": [
-      "a"
+      "1abc"
      ]
-    },
-    {
-     "module": "wheel._commands",
-     "name": "main",
-     "qual": "wheel._commands.main",
-     "params": [],
-     "returns": "int",
-     "call_args": []
     },
     {
      "module": "wheel.macosx_libfile",
