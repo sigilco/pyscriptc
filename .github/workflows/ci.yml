@@ -1,0 +1,49 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+# `linux_container` is the Linux dev container suite:
+# HEAVY=1 .agents/docker/run.sh
+# Those tests shell out to clang or only pass on Linux. This workflow does
+# not run that marker, and it does not run the heavy container, the full
+# compiler suite, or probe calibration.
+#
+# The macOS-safe job runs on ubuntu-latest. These tests were not executed on
+# macOS from the Linux environment that added this workflow, so the job is
+# not macos-latest. It runs the subset that does not need Linux-only
+# compilation: every test that is not marked linux_container.
+
+jobs:
+  unit:
+    name: ruff and compat2
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.14"
+      - run: uv sync --frozen
+      - run: uv run ruff check
+      - run: uv run ruff format --check
+      - run: uv run pytest -q tests/compat2 -m "not linux_container"
+
+  macos-safe:
+    name: tests without linux_container
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.14"
+      - run: uv sync --frozen
+      - run: uv run pytest -q tests --ignore=tests/compat2 -m "not linux_container"

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from tests.test_gates import compile_run, oracle, run_cli, write_case
 
 _PROBE = """
@@ -50,6 +51,7 @@ def listed() -> int:
 """
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_tuple_membership_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "member.py", _PROBE)
     for func, expected in (("probe", "1000"), ("more", "110"), ("listed", "1")):

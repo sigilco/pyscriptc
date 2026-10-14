@@ -5,7 +5,10 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 
+import pytest
 from tests.test_gates import run_cli, write_case
+
+pytestmark = pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 
 # One name from each shape: flag, negative, wide i64, and a plain errno re-export.
 _CASES = (

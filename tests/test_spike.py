@@ -57,6 +57,7 @@ def test_sum_squares_ir_is_python_not_javascript() -> None:
     assert "nullT" not in dumped
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_relative_output_is_cwd_not_path(tmp_path: Path) -> None:
     work = tmp_path / "work"
     decoy_dir = tmp_path / "decoy-bin"
@@ -86,6 +87,7 @@ def test_relative_output_is_cwd_not_path(tmp_path: Path) -> None:
     assert proc.stdout == "285\n"
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_sum_squares_matches_cpython(tmp_path: Path) -> None:
     binary = tmp_path / "sum_squares"
     proc = run_cli(
@@ -126,6 +128,7 @@ def test_sum_squares_matches_cpython(tmp_path: Path) -> None:
         assert got.stdout == expect
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_longer_matches_cpython(tmp_path: Path) -> None:
     proc = run_cli(
         "compile",
@@ -154,6 +157,7 @@ def test_longer_matches_cpython(tmp_path: Path) -> None:
     assert swapped.stdout == "bb\n"
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_floor_div_matches_cpython(tmp_path: Path) -> None:
     cases = [(-3, 2, "-2"), (5, -2, "-3"), (-5, -2, "2"), (5, 2, "2")]
     for a, b, expect in cases:
@@ -172,6 +176,7 @@ def test_floor_div_matches_cpython(tmp_path: Path) -> None:
         assert proc.stdout == f"{expect}\n"
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_divide_by_zero_traps(tmp_path: Path) -> None:
     proc = run_cli(
         "compile",
@@ -188,6 +193,7 @@ def test_divide_by_zero_traps(tmp_path: Path) -> None:
     assert proc.stdout == ""
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_overflow_traps_instead_of_wrapping(tmp_path: Path) -> None:
     proc = run_cli(
         "compile",
@@ -204,6 +210,7 @@ def test_overflow_traps_instead_of_wrapping(tmp_path: Path) -> None:
     assert "-9223372036854775808" not in proc.stdout
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_float_add_matches_cpython(tmp_path: Path) -> None:
     proc = run_cli(
         "compile",

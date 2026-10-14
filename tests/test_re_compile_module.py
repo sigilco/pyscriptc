@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from tests.test_gates import compile_run, oracle, run_cli, write_case
 
 _PROBE = """
@@ -53,6 +54,7 @@ def twice() -> int:
 """
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_module_re_compile_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "normalize.py", _PROBE)
     for func, expected in (("probe", "2"), ("miss", "-1"), ("local_probe", "2"), ("twice", "1")):

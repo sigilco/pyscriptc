@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from tests.test_gates import EXAMPLES, oracle, run_cli
+
+pytestmark = pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 
 
 def _run(tmp_path: Path, name: str, func: str, args: str) -> str:

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from tests.test_gates import compile_run, oracle, run_cli, write_case
 
 _PROBE = """
@@ -32,6 +33,7 @@ def dup() -> int:
 """
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_frozenset_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "frozen.py", _PROBE)
     got = compile_run(tmp_path, path, "probe")
@@ -81,13 +83,7 @@ def test_frozenset_add_stays_fenced(tmp_path: Path) -> None:
         ),
         (
             "remove.py",
-            (
-                "REQUIRED = frozenset(['name'])\n"
-                "\n"
-                "def probe() -> int:\n"
-                "    REQUIRED.remove('name')\n"
-                "    return 0\n"
-            ),
+            ("REQUIRED = frozenset(['name'])\n\ndef probe() -> int:\n    REQUIRED.remove('name')\n    return 0\n"),
             "frozenset has no mutating methods",
         ),
     ]

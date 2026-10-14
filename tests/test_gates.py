@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES = ROOT / "examples"
 ENV = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
@@ -118,6 +120,7 @@ def test_stdlib_queue_is_locked() -> None:
     assert module_status("typing") is None
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_gate_examples_match_cpython(tmp_path: Path) -> None:
     cases = [
         (EXAMPLES / "gates_math.py", "hypotenuse", "[3.0, 4.0]"),
@@ -139,6 +142,7 @@ def test_gate_examples_match_cpython(tmp_path: Path) -> None:
         assert got.stdout == oracle(path, func, args)
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_nan_membership_uses_equality(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -160,6 +164,7 @@ def test_nan_membership_uses_equality(tmp_path: Path) -> None:
     assert got.stdout == "0\n"
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_empty_for_target_reads_as_zero(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -171,6 +176,7 @@ def test_empty_for_target_reads_as_zero(tmp_path: Path) -> None:
     assert got.stdout == "0\n"
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_forward_class_field(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -198,6 +204,7 @@ def test_forward_class_field(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "read")
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_uncaught_exceptions(tmp_path: Path) -> None:
     cases = [
         (
@@ -316,6 +323,7 @@ def test_bool_is_not_promoted_to_float(tmp_path: Path) -> None:
     assert "PS1003" in got.stderr
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_queued_import_without_use_still_lowers(tmp_path: Path) -> None:
     path = write_case(tmp_path, "urllib_only.py", "import urllib\n\ndef f() -> int:\n    return 1\n")
     got = compile_run(tmp_path, path, "f")
@@ -323,6 +331,7 @@ def test_queued_import_without_use_still_lowers(tmp_path: Path) -> None:
     assert got.stdout == "1\n"
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_emit_bin_without_call_builds_a_noop_main(tmp_path: Path) -> None:
     path = write_case(tmp_path, "lib.py", "def f() -> int:\n    return 1\n")
     got = run_cli("compile", str(path), "--skip-check", "--emit", "bin", "-o", str(tmp_path / "lib"))

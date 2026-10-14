@@ -5,7 +5,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
 from tests.test_gates import compile_run, write_case
+
+pytestmark = pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 
 _PROBE = """
 import re
