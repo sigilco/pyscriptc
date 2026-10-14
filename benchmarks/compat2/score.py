@@ -1,7 +1,7 @@
 """Scorer v2: run probes, type every outcome, cache by (probe, compiler) hash.
 
     python -m benchmarks.compat2.score PROBES --out results.json [--workers N]
-        [--shard I/N] [--coverage-map map.json] [--no-cache] [--timeout S]
+        [--shard I/N] [--tier 0|1] [--coverage-map map.json] [--no-cache] [--timeout S]
 
 Outcomes are the typed set in outcomes.py. The headroom check runs first and the
 scorer refuses to start while any row is capped. v1 (benchmarks/compat) is frozen
@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from benchmarks.compat2 import cache, coverage_map, headroom
+from benchmarks.compat2 import bundle, cache, coverage_map, headroom
 from benchmarks.compat2.cache import CACHE_DIR, COMPILER_DIR, ROOT, FileHashes, cache_key, compiler_hash, probe_hash  # noqa: F401
 from benchmarks.compat2.corpus import load as corpus
 from benchmarks.compat2.loader import load_probes
@@ -219,6 +219,14 @@ def _tail(text: str) -> str:
     return lines[-1].strip() if lines else ""
 
 
+def _cached(cache_dir: Path, key: str) -> Result | None:
+    data = cache.load(cache_dir, key)
+    try:
+        return Result(Row(**data["row"]), data["compile_s"]) if data else None
+    except KeyError, TypeError:
+        return None
+
+
 def score(
     probes: list[Probe],
     *,
@@ -227,33 +235,49 @@ def score(
     coverage: dict[str, list[str]] | None = None,
     cache_dir: Path | None = CACHE_DIR,
     evaluator: Evaluator = evaluate,
+    bundles: bool | None = None,
 ) -> dict[str, Any]:
+    """Score probes. Cache hits are free; misses are compiled in bundles unless `bundles` is False.
+
+    Bundling defaults on for the real evaluator and off for any stand-in.
+    """
+
     coverage = coverage or {}
     hashes = FileHashes()
     full = hashes.whole()
+    use_bundles = (evaluator is evaluate) if bundles is None else bundles
+    if cache_dir is not None:
+        cache_dir.mkdir(parents=True, exist_ok=True)
 
-    def one(probe: Probe) -> tuple[Result, bool]:
-        key = cache_key(probe, coverage, hashes) if cache_dir else ""
-        data = cache.load(cache_dir, key) if cache_dir else None
-        if data is not None:
-            try:
-                return Result(Row(**data["row"]), data["compile_s"]), True
-            except KeyError, TypeError:
-                pass
-        result = evaluator(probe, timeout)
-        if cache_dir:
-            cache.store(cache_dir, key, {"row": result.row.to_json(), "compile_s": result.compile_s})
-        return result, False
+    keys = {p.id: cache_key(p, coverage, hashes) if cache_dir else "" for p in probes}
+    done: dict[str, tuple[Result, bool]] = {}
+    misses: list[Probe] = []
+    for probe in probes:
+        hit = _cached(cache_dir, keys[probe.id]) if cache_dir else None
+        if hit is None:
+            misses.append(probe)
+        else:
+            done[probe.id] = (hit, True)
 
+    def run(unit: list[Probe]) -> list[tuple[str, Result]]:
+        results = bundle.evaluate_group(unit, timeout, evaluator)
+        for probe, result in zip(unit, results, strict=True):
+            if cache_dir:
+                cache.store(cache_dir, keys[probe.id], {"row": result.row.to_json(), "compile_s": result.compile_s})
+        return [(p.id, r) for p, r in zip(unit, results, strict=True)]
+
+    units = bundle.plan(misses) if use_bundles else [[p] for p in misses]
     started = time.monotonic()
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-        done = list(pool.map(one, probes))
-    rows = [r.row for r, _ in done]
+        for finished in pool.map(run, units):
+            for pid, result in finished:
+                done[pid] = (result, False)
+    rows = [done[p.id][0].row for p in probes]
     return {
         "compiler_hash": full,
         "wall_s": round(time.monotonic() - started, 3),
-        "compile_s": round(sum(r.compile_s for r, _ in done), 3),
-        "cache_hits": sum(1 for _, hit in done if hit),
+        "compile_s": round(sum(done[p.id][0].compile_s for p in probes), 3),
+        "cache_hits": sum(1 for p in probes if done[p.id][1]),
         "weights": {p.id: effective_weight(p) for p in probes},
         "rows": [row.to_json() for row in rows],
         "counts": counts(rows),
