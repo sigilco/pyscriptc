@@ -4,13 +4,29 @@ One self contained executable per target, built with [Nuitka](https://nuitka.net
 
 Nothing here touches `src/`. Nuitka is an optional dependency group (`packaging` in `pyproject.toml`), so `uv sync` for development does not install it.
 
+## Release pipeline
+
+GitHub Actions workflow [`.github/workflows/release.yml`](../.github/workflows/release.yml) builds every supported target on its native runner (Nuitka does not cross-compile). Triggers are version tags `v*` and manual `workflow_dispatch`.
+
+| Target | Runner | Smoke in CI |
+| --- | --- | --- |
+| `pyscriptc-macos-arm64` | `macos-14` | full `packaging/smoke.sh` |
+| `pyscriptc-macos-x86_64` | `macos-15-intel` | full |
+| `pyscriptc-linux-x86_64` | `ubuntu-24.04` | full (`patchelf` installed on the runner) |
+| `pyscriptc-linux-aarch64` | `ubuntu-24.04-arm` | full |
+| `pyscriptc-windows-x86_64.exe` | `windows-2022` | explain / `--help` only (experimental; smoke may fail without failing the build) |
+
+A final job writes `sha256sums.txt` and uploads a `release-bundle` artifact. Pushing a `v*` tag also opens a **draft** GitHub Release with the binaries and checksums. A manual dispatch with no tag builds artifacts and checksums only.
+
 ## Targets
 
 | Target | Output name | Built on | Status |
 | --- | --- | --- | --- |
 | macOS arm64 | `pyscriptc-macos-arm64` | Apple silicon Mac, system clang (no Xcode shim dependency) | built and smoke tested, see Status |
+| macOS x86_64 | `pyscriptc-macos-x86_64` | Intel Mac (`macos-15-intel` in CI) | CI matrix |
 | Linux aarch64 | `pyscriptc-linux-aarch64` | Linux aarch64 host or container, `patchelf`, `clang` or `gcc` | see the status section below |
-| Linux x86_64 | `pyscriptc-linux-x86_64` | Linux x86_64 host (the Dory VM here is aarch64, so not built locally) | documented, not built |
+| Linux x86_64 | `pyscriptc-linux-x86_64` | Linux x86_64 host (the Dory VM here is aarch64, so not built locally) | CI matrix |
+| Windows x86_64 | `pyscriptc-windows-x86_64.exe` | Windows x86_64, MinGW (no arm64) | experimental; emitted programs are POSIX-only |
 
 Nuitka does not cross compile. Build each target on its own OS and architecture.
 
