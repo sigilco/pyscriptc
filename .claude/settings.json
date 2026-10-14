@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./benchmarks/compat2/corpus/holdout/**)",
+      "Edit(./benchmarks/compat2/corpus/holdout/**)",
+      "Write(./benchmarks/compat2/corpus/holdout/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/holdout_guard.py\""
+          }
+        ]
+      }
+    ]
+  }
+}

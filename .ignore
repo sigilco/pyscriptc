@@ -1,0 +1,2 @@
+# ripgrep (and so the Grep and Glob tools) skips these. The holdout is closed to generator agents.
+benchmarks/compat2/corpus/holdout/
