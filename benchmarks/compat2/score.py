@@ -237,7 +237,7 @@ def _cpython(probe: Probe, timeout: float, env: dict[str, str] | None = None) ->
     except subprocess.TimeoutExpired:
         return "timeout", ""
     if proc.returncode != 0:
-        return "raise", "SyntaxError" if "SyntaxError" in proc.stderr else "Error"
+        return "raise", _tail(proc.stderr)[:120] or "Error"
     kind, _, value = proc.stdout.rstrip("\n").partition(" ")
     return kind, value
 
