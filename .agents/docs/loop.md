@@ -144,7 +144,10 @@ payload = {
     "fencedDefinitions": sorted(fenced),
 }
 Path(out_path).write_text(json.dumps(payload) + "\n", encoding="utf-8")
-print(f"fences {len(payload['fences'])} block-weight {sum(blocks.values())} fenced-definitions {len(fenced)}")
+print(
+    f"fences {len(payload['fences'])} block-weight {sum(blocks.values())} "
+    f"fenced-definitions {len(fenced)}"
+)
 ```
 
 Run it on the host after the score container has exited (coverage lowers in-process and does not take the heavy lock):

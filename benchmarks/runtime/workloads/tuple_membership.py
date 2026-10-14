@@ -1,6 +1,5 @@
 """Membership in a tuple of str constants, repeated."""
 
-
 def bench(n: int) -> int:
     total: int = 0
     i: int = 0

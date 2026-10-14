@@ -546,7 +546,9 @@ _INT_SURFACE: dict[str, tuple[str, ...]] = {
         "VERBOSE",
         "X",
     ),
-    "shutil": ("COPY_BUFSIZE",),
+    "shutil": (
+        "COPY_BUFSIZE",
+    ),
     "socket": (
         "AF_ALG",
         "AF_APPLETALK",
@@ -1070,7 +1072,9 @@ _INT_SURFACE: dict[str, tuple[str, ...]] = {
         "hexversion",
         "maxunicode",
     ),
-    "tempfile": ("TMP_MAX",),
+    "tempfile": (
+        "TMP_MAX",
+    ),
     "time": (
         "CLOCK_BOOTTIME",
         "CLOCK_MONOTONIC",
@@ -1141,7 +1145,9 @@ _STR_SURFACE: dict[str, tuple[str, ...]] = {
         "platlibdir",
         "prefix",
     ),
-    "tempfile": ("template",),
+    "tempfile": (
+        "template",
+    ),
 }
 
 
@@ -1155,9 +1161,15 @@ _BOOL_SURFACE: dict[str, tuple[str, ...]] = {
         "logThreads",
         "raiseExceptions",
     ),
-    "os": ("supports_bytes_environ",),
-    "posixpath": ("supports_unicode_filenames",),
-    "socket": ("has_ipv6",),
+    "os": (
+        "supports_bytes_environ",
+    ),
+    "posixpath": (
+        "supports_unicode_filenames",
+    ),
+    "socket": (
+        "has_ipv6",
+    ),
     "ssl": (
         "HAS_ALPN",
         "HAS_ECDH",
@@ -1172,7 +1184,9 @@ _BOOL_SURFACE: dict[str, tuple[str, ...]] = {
         "HAS_TLSv1_2",
         "HAS_TLSv1_3",
     ),
-    "sys": ("dont_write_bytecode",),
+    "sys": (
+        "dont_write_bytecode",
+    ),
 }
 
 
@@ -1367,7 +1381,9 @@ REST_FIXED: dict[str, dict[str, dict[str, Any]]] = {
 
 # Callable, but only in a particular statement shape.
 FOR_ONLY = frozenset({("itertools", "repeat"), ("itertools", "chain")})
-WITH_ONLY = frozenset({("contextlib", "suppress"), ("contextlib", "nullcontext"), ("importlib.resources", "as_file")})
+WITH_ONLY = frozenset(
+    {("contextlib", "suppress"), ("contextlib", "nullcontext"), ("importlib.resources", "as_file")}
+)
 
 CALL_FENCES: dict[tuple[str, str], str] = {
     ("importlib", "import_module"): "import_module returns a module",
