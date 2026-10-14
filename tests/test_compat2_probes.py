@@ -85,9 +85,17 @@ def test_known_probes_are_value_probes(pid: str) -> None:
 
 
 def test_v1_equivalent_probes_are_continuity_only() -> None:
-    lines = (PROBES / "v1equiv.jsonl").read_text(encoding="utf-8").splitlines()
+    lines = (PROBES.parent / "continuity" / "v1equiv.jsonl").read_text(encoding="utf-8").splitlines()
     data = [json.loads(line) for line in lines]
     assert data
     assert all(r["id"].endswith(".v1") and r["weight"] == 0.0 and r["kind"] == "value" for r in data)
     manifest = json.loads((PROBES / "MANIFEST.json").read_text(encoding="utf-8"))
     assert manifest["v1_equivalent"]["rows"] == len(data)
+
+
+def test_loader_reads_the_probe_directory_without_continuity_rows() -> None:
+    from benchmarks.compat2.loader import load_probes
+
+    loaded = list(load_probes(PROBES))
+    assert len(loaded) == len(rows())
+    assert not any(p.id.endswith(".v1") for p in loaded)

@@ -19,6 +19,8 @@ Output is sorted by id, so the same CPython 3.14 and mypy typeshed reproduce it 
 | modules.jsonl | modules | one import probe per stdlib module |
 | language.jsonl | language | ast node types by context, plus adapted CPython `Lib/test` cases |
 
+`../continuity/v1equiv.jsonl` holds weight 0.0 probes reproducing the v1 lowered rows. It lives outside this directory on purpose, so `load_probes(<this directory>)` never counts them.
+
 ## Probe shape
 
 A probe source is a self-contained module with `def probe(<scalar params>) -> int`. The int is derived from the CPython oracle result by a typed fold (see `fold.py`). Scalar arguments are lifted into parameters (`args`) so the compiler cannot fold them away. The CLI has no argument passing, so a scorer wraps the probe in a zero-argument entry that passes `args` (`calibrate.wrapped` does this).

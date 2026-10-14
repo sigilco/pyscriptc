@@ -19,6 +19,7 @@ from benchmarks.compat2.outcomes import WEIGHTS, Probe
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
+CONTINUITY = HERE.parent / "continuity"  # outside probes/ so a directory load never counts these rows
 DENOM = json.loads((ROOT / "benchmarks" / "compat" / "denominators.json").read_text(encoding="utf-8"))
 PINNED_CPYTHON = "3.14"
 WORKERS = 3
@@ -92,8 +93,10 @@ def main() -> int:
     lang, lang_info = language.generate()
     groups = {"builtins": builtins_rows, "surface": surface, "modules": modules, "language": lang}
     v1_rows, v1_info = v1equiv.generate()
-    for name, rows in {**groups, "v1equiv": v1_rows}.items():
+    for name, rows in groups.items():
         write_jsonl(HERE / f"{name}.jsonl", rows)
+    CONTINUITY.mkdir(exist_ok=True)
+    write_jsonl(CONTINUITY / "v1equiv.jsonl", v1_rows)
     metas = [row["meta"] for rows in groups.values() for row in rows]
     manifest = {
         "cpython": platform.python_version(),

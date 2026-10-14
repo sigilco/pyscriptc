@@ -24,7 +24,7 @@ from . import engine
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
-FILES = ("builtins", "surface", "modules", "language", "v1equiv")
+FILES = ("builtins", "surface", "modules", "language")
 TIMEOUT = 120
 
 
@@ -33,6 +33,8 @@ def load_all() -> list[dict[str, object]]:
     for name in FILES:
         path = HERE / f"{name}.jsonl"
         rows += [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+    continuity = HERE.parent / "continuity" / "v1equiv.jsonl"
+    rows += [json.loads(line) for line in continuity.read_text(encoding="utf-8").splitlines() if line]
     return rows
 
 
@@ -87,7 +89,9 @@ def run_one(row: dict[str, object]) -> str:
     if proc.returncode == 3:
         return "fence"
     if proc.returncode != 0:
-        return "raised" if row["kind"] == "raises" else "build-error"
+        if row["kind"] != "raises":
+            return "build-error"
+        return "pass" if str(row["expect_exc"]) in proc.stderr else "raised-other"
     if row["kind"] == "raises":
         return "compiled"
     return "pass" if proc.stdout.strip() == oracle(row) else "wrong-output"
