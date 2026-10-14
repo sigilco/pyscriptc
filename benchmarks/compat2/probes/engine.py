@@ -163,16 +163,16 @@ def _finalize(
     var: str = "r",
 ) -> Built:
     source = head + _signature(params, "int") + "\n" + _body(setup, lines) + "\n"
-    first, second = (run_forked(lambda: _exec_probe(source, args)) for _ in range(2))
-    if first[0] == "ok" and first == second and isinstance(first[1], int):
+    runs = [run_forked(lambda: _exec_probe(source, args)) for _ in range(3)]
+    if len({r for r in runs if r[0] == "ok"}) == 1 and isinstance(runs[0][1], int):
         return Built("value", source, args, fold=fold, ann=desc.ann)
-    if first[0] != "ok":
-        return Built("fail", reason=f"final-{first[0]}:{first[1]}")
-    # nondeterministic across two forks: keep only the type check
+    if runs[0][0] != "ok":
+        return Built("fail", reason=f"final-{runs[0][0]}:{runs[0][1]}")
+    # nondeterministic across three forks: keep only the type check
     shaped = [lines[0], *shape_lines(desc, var)] if lines[0].startswith(f"{var}:") else lines
     source = head + _signature(params, "int") + "\n" + _body(setup, shaped) + "\n"
-    first, second = (run_forked(lambda: _exec_probe(source, args)) for _ in range(2))
-    if first[0] == "ok" and first == second and isinstance(first[1], int):
+    runs = [run_forked(lambda: _exec_probe(source, args)) for _ in range(3)]
+    if len({r for r in runs if r[0] == "ok"}) == 1 and isinstance(runs[0][1], int):
         return Built("value", source, args, fold="shape", ann=desc.ann)
     return Built("fail", reason="nondeterministic")
 
