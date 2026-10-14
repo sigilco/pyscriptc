@@ -19,6 +19,34 @@ HERE = Path(__file__).resolve().parent
 CLOSED = {"int": 1, "str": "a", "bool": True}
 
 
+# Calls the auto-picked arguments get wrong on CPython, fixed by hand (qual -> call_args).
+ARG_FIXES: dict[str, list[object]] = {
+    "idna.core.valid_contextj": ["a", 0],
+    "idna.core.valid_contexto": ["a", 0],
+    "wheel._commands.parse_build_tag": ["1abc"],
+}
+# Closed signatures that cannot be scored: they need a TTY, installed metadata, Windows, or are a CLI entry point.
+DROPPED: dict[str, str] = {
+    "click.click.termui.hidden_prompt_func": "needs a TTY",
+    "click.click.termui.getchar": "needs a TTY",
+    "importlib-metadata.importlib_metadata.version": "needs installed package metadata",
+    "platformdirs.platformdirs.windows.get_win_folder": "Windows only",
+    "platformdirs.platformdirs.windows.get_win_folder_from_env_vars": "Windows only",
+    "platformdirs.platformdirs.windows.get_win_folder_from_registry": "Windows only",
+    "platformdirs.platformdirs.windows.get_win_folder_via_ctypes": "Windows only",
+    "wheel.wheel._commands.main": "argparse entry point, reads sys.argv",
+}
+
+
+def apply_fixes(project: str, functions: list[dict[str, object]]) -> list[dict[str, object]]:
+    kept = []
+    for fn in functions:
+        if f"{project}.{fn['qual']}" in DROPPED:
+            continue
+        kept.append({**fn, "call_args": ARG_FIXES.get(str(fn["qual"]), fn["call_args"])})
+    return kept
+
+
 def _annotation(node: ast.expr | None) -> str:
     return node.id if isinstance(node, ast.Name) and node.id in CLOSED else ""
 
@@ -121,7 +149,7 @@ def build(pins_path: Path) -> dict[str, object]:
         tree = (pins_path.parent / str(pin["tree"])).resolve()
         if not tree.exists():
             continue
-        functions = package_functions(str(pin["import_name"]), tree)
+        functions = apply_fixes(project, package_functions(str(pin["import_name"]), tree))
         entry: dict[str, object] = {
             "import_name": pin["import_name"],
             "version": pin["version"],

@@ -140,13 +140,15 @@ def evaluate(probe: Probe, timeout: float) -> Result:
 
 
 def _tree_env(tree: Path | None) -> dict[str, str] | None:
-    """The pinned package's parent goes on the import path, where CPython finds it too."""
+    """Every pinned package's parent goes on the import path, so one package can import another."""
 
     if tree is None:
         return None
     env = os.environ.copy()
-    parent = str(tree.parent)
-    env["PYTHONPATH"] = parent + os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else parent
+    roots = [str(tree.parent), *map(str, corpus.import_roots(USE_HOLDOUT))]
+    if env.get("PYTHONPATH"):
+        roots.append(env["PYTHONPATH"])
+    env["PYTHONPATH"] = os.pathsep.join(dict.fromkeys(roots))
     return env
 
 
