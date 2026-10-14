@@ -27,6 +27,13 @@ def run_forked(job, timeout: float = TIMEOUT) -> tuple[str, object]:  # noqa: AN
         status = 0
         try:
             os.close(read_fd)
+            # The child shares every open file description with the parent. A probe that
+            # touches fd 3 (io.FileIO(3), fd 3 reads and seeks) would move the parent's
+            # read offset, so fd 3 is pointed at /dev/null before the job runs.
+            spare = os.open(os.devnull, os.O_RDWR)
+            if spare != 3:
+                os.dup2(spare, 3)
+                os.close(spare)
             os.setpgid(0, 0)
             null = os.open(os.devnull, os.O_RDWR)
             for fd in (0, 1, 2):
