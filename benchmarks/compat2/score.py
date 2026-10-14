@@ -15,9 +15,11 @@ import hashlib
 import json
 import os
 import re
+import resource
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
@@ -262,11 +264,16 @@ def score(
     def one(probe: Probe) -> tuple[Result, bool]:
         path = cache_dir / (cache_key(probe, coverage, full) + ".json") if cache_dir else None
         if path is not None and path.exists():
-            data = json.loads(path.read_text(encoding="utf-8"))
-            return Result(Row(**data["row"]), data["compile_s"]), True
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                return Result(Row(**data["row"]), data["compile_s"]), True
+            except ValueError, KeyError, TypeError:
+                pass  # truncated by an interrupted run: recompute
         result = evaluator(probe, timeout)
         if path is not None:
-            path.write_text(json.dumps({"row": result.row.to_json(), "compile_s": result.compile_s}), encoding="utf-8")
+            tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
+            tmp.write_text(json.dumps({"row": result.row.to_json(), "compile_s": result.compile_s}), encoding="utf-8")
+            tmp.replace(path)
         return result, False
 
     started = time.monotonic()
@@ -318,6 +325,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--headroom", action="store_true", help="only run the headroom check")
     args = parser.parse_args(argv)
 
+    _, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (hard if hard != resource.RLIM_INFINITY else 65536, hard))
     global USE_HOLDOUT
     USE_HOLDOUT = args.holdout
     probes = list(load_probes(args.probes)) if args.probes else []
