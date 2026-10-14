@@ -60,6 +60,17 @@ def package_root(pin: dict[str, object], holdout: bool = False) -> Path:
     return (_root(holdout) / str(pin["tree"])).resolve()
 
 
+def import_roots(holdout: bool = False) -> list[Path]:
+    """Parent directories of every pinned tree and support dependency, for the CPython oracle path."""
+
+    visible = json.loads((HERE / "pins.json").read_text(encoding="utf-8"))
+    pins = [*visible["packages"].values(), *visible.get("support", {}).values()]
+    roots = [package_root(pin).parent for pin in pins]
+    if holdout:
+        roots += [package_root(pin, True).parent for pin in package_pins(True).values()]
+    return list(dict.fromkeys(roots))
+
+
 def _wrapper(fn: dict[str, object]) -> str:
     args = ", ".join(repr(a) for a in fn["call_args"])  # type: ignore[attr-defined]
     head = f"from {fn['module']} import {fn['name']}"
