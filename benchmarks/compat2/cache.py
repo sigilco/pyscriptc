@@ -61,6 +61,13 @@ class FileHashes:
         self._file: dict[str, bytes] = {}
         self._combined: dict[tuple[str, ...], str] = {}
         self._all: str | None = None
+        self._layout: str | None = None
+
+    def layout(self) -> str:
+        if self._layout is None:
+            names = "\0".join(str(p.relative_to(COMPILER_DIR)) for p in compiler_files())
+            self._layout = hashlib.sha256(names.encode()).hexdigest()
+        return self._layout
 
     def whole(self) -> str:
         if self._all is None:
@@ -73,6 +80,8 @@ class FileHashes:
         key = tuple(sorted(set(modules)))
         if key not in self._combined:
             digest = hashlib.sha256()
+            # a new or renamed compiler file may belong on a probe's path, so the layout is part of every key
+            digest.update(self.layout().encode())
             for name in key:
                 if name not in self._file:
                     path = COMPILER_DIR / name
