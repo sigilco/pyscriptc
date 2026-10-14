@@ -13,4 +13,10 @@ uv run python -m benchmarks.baseline.run --check
 uv run python -m benchmarks.baseline.run --record
 ```
 
-`--check` reads `reference.json`. `--record` replaces it with the run just taken. The report also keeps compile time and the linked binary's size; those are not part of the ratio gate.
+`--check` reads the reference file for this host. `--record` replaces that same file with the run just taken. The report also keeps compile time and the linked binary's size; those are not part of the ratio gate.
+
+## Host slots
+
+`reference.json` is the Linux reference committed in this tree. A full `--record` on Linux replaces it. A partial run belongs in `--json`, so the committed Linux file stays a complete suite.
+
+`reference-macos-arm64.json` is the macOS arm64 slot. On Darwin arm64, `--record` and `--check` use that path, which leaves `reference.json` untouched. Any other host refuses to write the macOS file. The file is produced only by `python -m benchmarks.baseline.run --record` on macOS arm64. No macOS millisecond or RSS numbers are stored in this tree.
