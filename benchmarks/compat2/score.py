@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import re
+import resource
 import subprocess
 import sys
 import tempfile
@@ -324,6 +325,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--headroom", action="store_true", help="only run the headroom check")
     args = parser.parse_args(argv)
 
+    _, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (hard if hard != resource.RLIM_INFINITY else 65536, hard))
     global USE_HOLDOUT
     USE_HOLDOUT = args.holdout
     probes = list(load_probes(args.probes)) if args.probes else []
