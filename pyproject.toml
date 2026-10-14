@@ -37,7 +37,15 @@ pythonpath = ["src", "."]
 target-version = "py314"
 line-length = 120
 src = ["src", "tests", "benchmarks"]
-extend-exclude = ["benchmarks/compat/top100"]
+extend-exclude = [
+    "benchmarks/compat/top100",
+    "benchmarks/compat2/corpus/src",
+    "benchmarks/compat2/corpus/tests",
+    "benchmarks/compat2/corpus/holdout/src",
+    "benchmarks/compat2/corpus/holdout/tests",
+    "benchmarks/compat2/corpus/scripts",
+    "benchmarks/compat2/corpus/holdout/scripts",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
