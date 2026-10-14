@@ -22,7 +22,7 @@ def test_scripting_stacks_stay_fenced(tmp_path: Path) -> None:
             "PS2003",
             "keyword arguments",
         ),
-        ("star.py", "def main(**kwargs) -> int:\n    return 0\n", "PS2002", "parameter form"),
+        ("star.py", "def main(**kwargs) -> int:\n    return 0\n", "PS1202", "parameter form"),
         (
             "async.py",
             "import asyncio\n\ndef main() -> int:\n    asyncio.run(None)\n    return 1\n",

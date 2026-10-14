@@ -96,7 +96,7 @@ def test_rest_fences_stay_closed(tmp_path: Path) -> None:
                     "",
                 ]
             ),
-            "PS2002",
+            "PS1206",
             "with-as",
         ),
         (
