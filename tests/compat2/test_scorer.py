@@ -197,3 +197,12 @@ def test_corpus_headroom_cli(capsys: pytest.CaptureFixture[str]) -> None:
     from benchmarks.compat2.score import main
 
     assert main(["--corpus", "--headroom"]) == 0
+
+
+def test_corrupt_cache_entry_is_recomputed(tmp_path: Path) -> None:
+    run = fake({"a": "pass"})
+    score([probe("a")], cache_dir=tmp_path, evaluator=run)
+    for entry in tmp_path.glob("*.json"):
+        entry.write_text("")
+    again = score([probe("a")], cache_dir=tmp_path, evaluator=run)
+    assert again["cache_hits"] == 0 and again["counts"] == {"pass": 1}
