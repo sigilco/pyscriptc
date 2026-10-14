@@ -15,11 +15,15 @@ EXAMPLES = ROOT / "examples"
 ENV = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
 
 
-def run_cli(*args: str) -> subprocess.CompletedProcess[str]:
+def run_cli(
+    *args: str,
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [sys.executable, "-m", "pyscriptc", *args],
-        cwd=ROOT,
-        env=ENV,
+        cwd=ROOT if cwd is None else cwd,
+        env=ENV if env is None else env,
         capture_output=True,
         text=True,
     )
@@ -51,6 +55,35 @@ def test_sum_squares_ir_is_python_not_javascript() -> None:
     dumped = json.dumps(module)
     assert "f64" not in dumped
     assert "nullT" not in dumped
+
+
+def test_relative_output_is_cwd_not_path(tmp_path: Path) -> None:
+    work = tmp_path / "work"
+    decoy_dir = tmp_path / "decoy-bin"
+    work.mkdir()
+    decoy_dir.mkdir()
+    decoy = decoy_dir / "prog.bin"
+    decoy.write_text("#!/bin/sh\necho DECOY\n", encoding="utf-8")
+    decoy.chmod(0o755)
+    env = {**ENV, "PATH": f"{decoy_dir}{os.pathsep}{os.environ['PATH']}"}
+    proc = run_cli(
+        "compile",
+        str(EXAMPLES / "sum_squares.py"),
+        "--run",
+        "--call",
+        "sum_squares",
+        "--args",
+        "[10]",
+        "-o",
+        "prog.bin",
+        cwd=work,
+        env=env,
+    )
+    written = work / "prog.bin"
+    assert proc.returncode == 0, proc.stderr
+    assert written.is_file()
+    assert decoy.read_text(encoding="utf-8").startswith("#!/bin/sh")
+    assert proc.stdout == "285\n"
 
 
 def test_sum_squares_matches_cpython(tmp_path: Path) -> None:
