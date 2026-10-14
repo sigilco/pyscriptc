@@ -1,0 +1,21 @@
+{
+  "baseline": "cpython",
+  "reference": "https://github.com/vercel-labs/scriptc/tree/main/benchmarks/runtime",
+  "runs": 3,
+  "workloads": [
+    {
+      "name": "frozenset-const",
+      "category": "cpu",
+      "scriptc": null,
+      "status": "ok",
+      "median_ms": 1.075,
+      "cpython_ms": 11.654,
+      "ratio": 0.09224300669298095,
+      "ci_low": 0.08876642645188638,
+      "ci_high": 0.09613221424245046,
+      "verdict": "faster",
+      "samples": 3
+    }
+  ],
+  "geomean_vs_cpython": 0.09224300669298095
+}

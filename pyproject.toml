@@ -1,0 +1,49 @@
+[project]
+name = "pyscriptc"
+version = "0.1.0"
+description = "Lower a typed subset of Python to LLVM, with CPython as the island."
+readme = "README.md"
+requires-python = ">=3.14"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Joaquin Terrasa" }]
+dependencies = ["mypy>=2.4"]
+
+[project.urls]
+Repository = "https://github.com/espetro/pyscriptc"
+Reference = "https://github.com/vercel-labs/scriptc"
+
+[project.scripts]
+pyscriptc = "pyscriptc.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.14"]
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+pyscriptc = ["runtime/*.c", "runtime/*.h"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 120
+src = ["src", "tests", "benchmarks"]
+extend-exclude = ["benchmarks/compat/top100"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["pyscriptc"]
+
+[tool.ruff.format]
+quote-style = "double"

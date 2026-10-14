@@ -1,0 +1,786 @@
+{
+  "baseline": "cpython",
+  "reference": "https://github.com/vercel-labs/scriptc/tree/main/benchmarks/runtime",
+  "workloads": [
+    {
+      "name": "sum-squares",
+      "entry": "workloads/sum-squares.py",
+      "call": "sum_squares",
+      "args": [200000],
+      "category": "cpu",
+      "group": "kernel",
+      "module": "int",
+      "scriptc": "numeric-kernels"
+    },
+    {
+      "name": "floor-sum",
+      "entry": "workloads/floor-sum.py",
+      "call": "floor_sum",
+      "args": [200000],
+      "category": "cpu",
+      "group": "kernel",
+      "module": "int",
+      "scriptc": "numeric-kernels"
+    },
+    {
+      "name": "horner",
+      "entry": "workloads/horner.py",
+      "call": "horner",
+      "args": [200000],
+      "category": "cpu",
+      "group": "kernel",
+      "module": "float",
+      "scriptc": "numeric-kernels"
+    },
+    {
+      "name": "repeat-len",
+      "entry": "workloads/repeat-len.py",
+      "call": "repeat_len",
+      "args": [400],
+      "category": "cpu",
+      "group": "kernel",
+      "module": "str",
+      "scriptc": "strings"
+    },
+    {
+      "name": "math-loop",
+      "entry": "workloads/math_loop.py",
+      "call": "bench",
+      "args": [20000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "math"
+    },
+    {
+      "name": "re-scan",
+      "entry": "workloads/re_scan.py",
+      "call": "bench",
+      "args": [1500],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "re"
+    },
+    {
+      "name": "json-roundtrip",
+      "entry": "workloads/json_roundtrip.py",
+      "call": "bench",
+      "args": [1500],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "json"
+    },
+    {
+      "name": "url-parse",
+      "entry": "workloads/url_parse.py",
+      "call": "bench",
+      "args": [2500],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "urllib.parse"
+    },
+    {
+      "name": "b64-roundtrip",
+      "entry": "workloads/b64_roundtrip.py",
+      "call": "bench",
+      "args": [3000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "base64"
+    },
+    {
+      "name": "sha256-digest",
+      "entry": "workloads/sha256_digest.py",
+      "call": "bench",
+      "args": [800],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "hashlib"
+    },
+    {
+      "name": "struct-pack",
+      "entry": "workloads/struct_pack.py",
+      "call": "bench",
+      "args": [5000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "struct"
+    },
+    {
+      "name": "date-add",
+      "entry": "workloads/date_add.py",
+      "call": "bench",
+      "args": [3000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "datetime"
+    },
+    {
+      "name": "time-format",
+      "entry": "workloads/time_format.py",
+      "call": "bench",
+      "args": [3000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "time"
+    },
+    {
+      "name": "deque-ring",
+      "entry": "workloads/deque_ring.py",
+      "call": "bench",
+      "args": [5000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "collections"
+    },
+    {
+      "name": "reduce-sum",
+      "entry": "workloads/reduce_sum.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "functools"
+    },
+    {
+      "name": "chain-repeat",
+      "entry": "workloads/chain_repeat.py",
+      "call": "bench",
+      "args": [1500],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "itertools"
+    },
+    {
+      "name": "operator-arith",
+      "entry": "workloads/operator_arith.py",
+      "call": "bench",
+      "args": [15000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "operator"
+    },
+    {
+      "name": "suppress-loop",
+      "entry": "workloads/suppress_loop.py",
+      "call": "bench",
+      "args": [1500],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "contextlib"
+    },
+    {
+      "name": "path-join",
+      "entry": "workloads/path_join.py",
+      "call": "bench",
+      "args": [5000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "posixpath"
+    },
+    {
+      "name": "fnmatch-filter",
+      "entry": "workloads/fnmatch_filter.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "fnmatch"
+    },
+    {
+      "name": "os-files",
+      "entry": "workloads/os_files.py",
+      "call": "bench",
+      "args": [60],
+      "category": "io",
+      "group": "stdlib",
+      "module": "os"
+    },
+    {
+      "name": "pathlib-read",
+      "entry": "workloads/pathlib_read.py",
+      "call": "bench",
+      "args": [150],
+      "category": "io",
+      "group": "stdlib",
+      "module": "pathlib"
+    },
+    {
+      "name": "stat-mode",
+      "entry": "workloads/stat_mode.py",
+      "call": "bench",
+      "args": [200],
+      "category": "io",
+      "group": "stdlib",
+      "module": "stat"
+    },
+    {
+      "name": "warn-loop",
+      "entry": "workloads/warn_loop.py",
+      "call": "bench",
+      "args": [40],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "warnings"
+    },
+    {
+      "name": "stringio-loop",
+      "entry": "workloads/stringio_loop.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "io"
+    },
+    {
+      "name": "sys-const",
+      "entry": "workloads/sys_const.py",
+      "call": "bench",
+      "args": [40000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "sys"
+    },
+    {
+      "name": "ssl-const",
+      "entry": "workloads/ssl_const.py",
+      "call": "bench",
+      "args": [40000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "ssl"
+    },
+    {
+      "name": "ctypes-sizeof",
+      "entry": "workloads/ctypes_sizeof.py",
+      "call": "bench",
+      "args": [40000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "ctypes"
+    },
+    {
+      "name": "builtins-loop",
+      "entry": "workloads/builtins_loop.py",
+      "call": "bench",
+      "args": [3000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "builtins"
+    },
+    {
+      "name": "script-slice",
+      "entry": "workloads/script_slice.py",
+      "call": "bench",
+      "args": [400],
+      "category": "scripting",
+      "group": "scripting",
+      "module": "json+re+pathlib"
+    },
+    {
+      "name": "socket-host",
+      "entry": "workloads/socket_host.py",
+      "call": "bench",
+      "args": [80],
+      "category": "island",
+      "group": "island",
+      "module": "socket"
+    },
+    {
+      "name": "cleandoc",
+      "entry": "workloads/cleandoc_loop.py",
+      "call": "bench",
+      "args": [400],
+      "category": "island",
+      "group": "island",
+      "module": "inspect"
+    },
+    {
+      "name": "threads",
+      "entry": "workloads/threads_loop.py",
+      "call": "bench",
+      "args": [200],
+      "category": "island",
+      "group": "island",
+      "module": "threading"
+    },
+    {
+      "name": "log-info",
+      "entry": "workloads/log_info.py",
+      "call": "bench",
+      "args": [80],
+      "category": "island",
+      "group": "island",
+      "module": "logging"
+    },
+    {
+      "name": "echo-out",
+      "entry": "workloads/echo_out.py",
+      "call": "bench",
+      "args": [15],
+      "category": "island",
+      "group": "island",
+      "module": "subprocess"
+    },
+    {
+      "name": "unicode-category",
+      "entry": "workloads/unicode_category.py",
+      "call": "bench",
+      "args": [20000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "unicodedata"
+    },
+    {
+      "name": "hmac-digest",
+      "entry": "workloads/hmac_digest.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "hmac"
+    },
+    {
+      "name": "resource-read",
+      "entry": "workloads/resource_read.py",
+      "call": "bench",
+      "args": [30],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "importlib.resources"
+    },
+    {
+      "name": "temp-dir",
+      "entry": "workloads/temp_dir.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "tempfile"
+    },
+    {
+      "name": "shutil-copy",
+      "entry": "workloads/shutil_copy.py",
+      "call": "bench",
+      "args": [40],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "shutil"
+    },
+    {
+      "name": "atexit-reg",
+      "entry": "workloads/atexit_reg.py",
+      "call": "bench",
+      "args": [40],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "atexit"
+    },
+    {
+      "name": "inherit-sum",
+      "entry": "workloads/inherit_sum.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "class"
+    },
+    {
+      "name": "set-sum",
+      "entry": "workloads/set_sum.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "set"
+    },
+    {
+      "name": "args-sum",
+      "entry": "workloads/args_sum.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "args"
+    },
+    {
+      "name": "bool-list",
+      "entry": "workloads/bool_list.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "builtins"
+    },
+    {
+      "name": "all-any",
+      "entry": "workloads/all_any.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "builtins"
+    },
+    {
+      "name": "where-path",
+      "entry": "workloads/where_path.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "importlib.resources"
+    },
+    {
+      "name": "object-box",
+      "entry": "workloads/object_box.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "language",
+      "module": "class"
+    },
+    {
+      "name": "dict-keys",
+      "entry": "workloads/dict_keys.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "language",
+      "module": "dict"
+    },
+    {
+      "name": "fstring-const",
+      "entry": "workloads/fstring_const.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "language",
+      "module": "str"
+    },
+    {
+      "name": "io-read",
+      "entry": "workloads/io_read.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "language",
+      "module": "io"
+    },
+    {
+      "name": "tuple-ellipsis",
+      "entry": "workloads/tuple_ellipsis.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "language",
+      "module": "tuple"
+    },
+    {
+      "name": "type-checking",
+      "entry": "workloads/type_checking.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "language",
+      "module": "typing"
+    },
+    {
+      "name": "module-set",
+      "entry": "workloads/module_set.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "language",
+      "module": "set"
+    },
+    {
+      "name": "is-none",
+      "entry": "workloads/is_none.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "language",
+      "module": "none"
+    },
+    {
+      "name": "ifexp",
+      "entry": "workloads/ifexp.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "language",
+      "module": "str"
+    },
+    {
+      "name": "frozenset-const",
+      "entry": "workloads/frozenset_const.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "language",
+      "module": "set"
+    },
+    {
+      "name": "frozenset-str",
+      "entry": "workloads/frozenset_str.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "language",
+      "module": "set"
+    },
+    {
+      "name": "re-compile-module",
+      "entry": "workloads/re_compile_module.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "language",
+      "module": "re"
+    },
+    {
+      "name": "tuple-membership",
+      "entry": "workloads/tuple_membership.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "language",
+      "module": "tuple"
+    },
+    {
+      "name": "float-inf",
+      "entry": "workloads/float_inf.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "language",
+      "module": "float"
+    },
+    {
+      "name": "nan-in",
+      "entry": "workloads/nan_in.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "language",
+      "module": "float"
+    },
+    {
+      "name": "compare-chain",
+      "entry": "workloads/compare_chain.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "language",
+      "module": "int"
+    },
+    {
+      "name": "list-comp-if",
+      "entry": "workloads/list_comp_if.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "language",
+      "module": "int"
+    },
+    {
+      "name": "break-loop",
+      "entry": "workloads/break_loop.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "language",
+      "module": "int"
+    },
+    {
+      "name": "continue-loop",
+      "entry": "workloads/continue_loop.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "language",
+      "module": "int"
+    },
+    {
+      "name": "assert-loop",
+      "entry": "workloads/assert_loop.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "language",
+      "module": "int"
+    },
+    {
+      "name": "pow-loop",
+      "entry": "workloads/pow_loop.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "language",
+      "module": "int"
+    },
+    {
+      "name": "slice-step",
+      "entry": "workloads/slice_step.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "language",
+      "module": "str"
+    },
+    {
+      "name": "match-literal",
+      "entry": "workloads/match_literal.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "language",
+      "module": "int"
+    },
+    {
+      "name": "del-local",
+      "entry": "workloads/del_local.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "language",
+      "module": "int"
+    },
+    {
+      "name": "module-staticmethod",
+      "entry": "workloads/module_staticmethod.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "language",
+      "module": "int"
+    },
+    {
+      "name": "or-mixed",
+      "entry": "workloads/or_mixed.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "language",
+      "module": "int"
+    },
+    {
+      "name": "reduce-add",
+      "entry": "workloads/reduce_add.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "int"
+    },
+    {
+      "name": "ordered-dict",
+      "entry": "workloads/ordered_dict.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "collections"
+    },
+    {
+      "name": "re-a",
+      "entry": "workloads/re_a.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "re"
+    },
+    {
+      "name": "re-ascii",
+      "entry": "workloads/re_ascii.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "re"
+    },
+    {
+      "name": "defaultaction",
+      "entry": "workloads/defaultaction.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "warnings"
+    },
+    {
+      "name": "agen-closed",
+      "entry": "workloads/agen_closed.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "inspect"
+    },
+    {
+      "name": "timeout-max",
+      "entry": "workloads/timeout_max.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "threading"
+    },
+    {
+      "name": "basic-format",
+      "entry": "workloads/basic_format.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "logging"
+    },
+    {
+      "name": "all-completed",
+      "entry": "workloads/all_completed.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "asyncio"
+    },
+    {
+      "name": "devnull",
+      "entry": "workloads/devnull.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "subprocess"
+    },
+    {
+      "name": "re-debug",
+      "entry": "workloads/re_debug.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "re"
+    },
+    {
+      "name": "re-dotall",
+      "entry": "workloads/re_dotall.py",
+      "call": "bench",
+      "args": [2000],
+      "category": "cpu",
+      "group": "stdlib",
+      "module": "re"
+    },
+    {
+      "name": "fenced-strip",
+      "entry": "workloads/fenced-strip.py",
+      "call": "clean",
+      "args": ["  hi  "],
+      "category": "fence",
+      "group": "fence",
+      "expect": "fence",
+      "module": "str",
+      "scriptc": "template-render"
+    }
+  ]
+}

@@ -1,0 +1,134 @@
+{
+  "source": "https://github.com/vercel-labs/scriptc/blob/main/benchmarks/runtime/workloads.json",
+  "note": "Status is against the gates-v1 subset. partial means a pyscriptc workload covers one piece and leaves the rest of that scriptc program on CPython.",
+  "workloads": [
+    {
+      "scriptc": "json-records",
+      "kind": "process",
+      "category": "cpu",
+      "status": "partial",
+      "pyscriptc": ["json-roundtrip"],
+      "needs": "the records program still needs richer JSON than ints and strings"
+    },
+    {
+      "scriptc": "regex-logs",
+      "kind": "process",
+      "category": "cpu",
+      "status": "partial",
+      "pyscriptc": ["re-scan"],
+      "needs": "a log-shaped regex workload, not the closed re surface"
+    },
+    {
+      "scriptc": "ast-interp",
+      "kind": "process",
+      "category": "cpu",
+      "status": "fenced",
+      "needs": "classes, lists, indexing"
+    },
+    {
+      "scriptc": "records-sort",
+      "kind": "process",
+      "category": "cpu",
+      "status": "partial",
+      "pyscriptc": ["builtins-loop"],
+      "needs": "sorted of ints is lowered; sorting records is not"
+    },
+    {
+      "scriptc": "template-render",
+      "kind": "process",
+      "category": "cpu",
+      "status": "fenced",
+      "needs": "methods, f-strings",
+      "checked_by": "fenced-strip"
+    },
+    {
+      "scriptc": "functional-pipeline",
+      "kind": "process",
+      "category": "cpu",
+      "status": "partial",
+      "pyscriptc": ["reduce-sum"],
+      "needs": "closures and functions as values"
+    },
+    {
+      "scriptc": "async-pipeline",
+      "kind": "process",
+      "category": "cpu",
+      "status": "fenced",
+      "needs": "async"
+    },
+    {
+      "scriptc": "word-graph",
+      "kind": "process",
+      "category": "cpu",
+      "status": "fenced",
+      "needs": "dict, set"
+    },
+    {
+      "scriptc": "alloc-trees",
+      "kind": "process",
+      "category": "cpu",
+      "status": "fenced",
+      "needs": "objects, spread"
+    },
+    {
+      "scriptc": "numeric-kernels",
+      "kind": "process",
+      "category": "cpu",
+      "status": "partial",
+      "pyscriptc": ["sum-squares", "floor-sum", "horner"],
+      "needs": "lists and indexing for the sieve, histogram, and matmul"
+    },
+    {
+      "scriptc": "validate-errors",
+      "kind": "process",
+      "category": "cpu",
+      "status": "partial",
+      "pyscriptc": ["suppress-loop"],
+      "needs": "a validation program; try and contextlib.suppress are the piece that lowers"
+    },
+    {
+      "scriptc": "csv-numbers",
+      "kind": "process",
+      "category": "cpu",
+      "status": "fenced",
+      "needs": "str methods, lists"
+    },
+    {
+      "scriptc": "log-lines",
+      "kind": "process",
+      "category": "cpu",
+      "status": "fenced",
+      "needs": "print inside the program"
+    },
+    {
+      "scriptc": "log-summary",
+      "kind": "process",
+      "category": "cpu",
+      "status": "fenced",
+      "needs": "multi-module imports and file IO",
+      "see": "benchmarks/builds"
+    },
+    {
+      "scriptc": "inventory-report",
+      "kind": "process",
+      "category": "cpu",
+      "status": "fenced",
+      "needs": "multi-module imports and file IO",
+      "see": "benchmarks/builds"
+    },
+    {
+      "scriptc": "cli-config",
+      "kind": "process",
+      "category": "startup",
+      "status": "fenced",
+      "needs": "json, dict, argv"
+    },
+    {
+      "scriptc": "http-api",
+      "kind": "server",
+      "category": "server",
+      "status": "fenced",
+      "needs": "sockets and a listening server"
+    }
+  ]
+}

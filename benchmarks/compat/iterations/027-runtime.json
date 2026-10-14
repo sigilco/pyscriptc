@@ -1,0 +1,21 @@
+{
+  "baseline": "cpython",
+  "reference": "https://github.com/vercel-labs/scriptc/tree/main/benchmarks/runtime",
+  "runs": 3,
+  "workloads": [
+    {
+      "name": "slice-step",
+      "category": "cpu",
+      "scriptc": null,
+      "status": "ok",
+      "median_ms": 0.625,
+      "cpython_ms": 11.688,
+      "ratio": 0.05347364818617385,
+      "ci_low": 0.04854039375424304,
+      "ci_high": 0.06914614981665794,
+      "verdict": "faster",
+      "samples": 3
+    }
+  ],
+  "geomean_vs_cpython": 0.05347364818617385
+}
