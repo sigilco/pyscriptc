@@ -11,7 +11,6 @@ and only its CPython oracle idea is reused here.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -19,7 +18,6 @@ import resource
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
@@ -27,16 +25,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from benchmarks.compat2 import headroom
+from benchmarks.compat2 import cache, headroom
+from benchmarks.compat2.cache import CACHE_DIR, COMPILER_DIR, ROOT, FileHashes, cache_key, compiler_hash, probe_hash  # noqa: F401
 from benchmarks.compat2.corpus import load as corpus
 from benchmarks.compat2.loader import load_probes
 from benchmarks.compat2.outcomes import WEIGHTS, Probe, Row
 
-HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
-COMPILER_DIR = ROOT / "src" / "pyscriptc"
-CACHE_DIR = HERE / ".cache"
-COMPILER_SUFFIXES = {".py", ".c", ".h"}
 PS_CODE = re.compile(r"PS\d+")
 
 
@@ -63,30 +57,6 @@ def tree_for(probe: Probe) -> Path | None:
         if pin:
             return corpus.package_root(pin, holdout)
     return None
-
-
-def compiler_hash(modules: Iterable[str] | None = None) -> str:
-    """Hash the compiler sources. `modules` limits it to the files a probe touches."""
-
-    digest = hashlib.sha256()
-    if modules is None:
-        files = sorted(p for p in COMPILER_DIR.rglob("*") if p.suffix in COMPILER_SUFFIXES)
-    else:
-        files = sorted(COMPILER_DIR / m for m in modules if (COMPILER_DIR / m).is_file())
-    for file in files:
-        digest.update(str(file.relative_to(COMPILER_DIR)).encode())
-        digest.update(file.read_bytes())
-    return digest.hexdigest()
-
-
-def probe_hash(probe: Probe) -> str:
-    return hashlib.sha256(json.dumps(probe.to_json(), sort_keys=True).encode()).hexdigest()
-
-
-def cache_key(probe: Probe, coverage: dict[str, list[str]], full_hash: str) -> str:
-    modules = coverage.get(probe.id)
-    chash = full_hash if modules is None else compiler_hash(modules)
-    return hashlib.sha256((probe_hash(probe) + chash).encode()).hexdigest()
 
 
 def evaluate(probe: Probe, timeout: float) -> Result:
@@ -259,23 +229,20 @@ def score(
     evaluator: Evaluator = evaluate,
 ) -> dict[str, Any]:
     coverage = coverage or {}
-    full = compiler_hash()
-    if cache_dir is not None:
-        cache_dir.mkdir(parents=True, exist_ok=True)
+    hashes = FileHashes()
+    full = hashes.whole()
 
     def one(probe: Probe) -> tuple[Result, bool]:
-        path = cache_dir / (cache_key(probe, coverage, full) + ".json") if cache_dir else None
-        if path is not None and path.exists():
+        key = cache_key(probe, coverage, hashes) if cache_dir else ""
+        data = cache.load(cache_dir, key) if cache_dir else None
+        if data is not None:
             try:
-                data = json.loads(path.read_text(encoding="utf-8"))
                 return Result(Row(**data["row"]), data["compile_s"]), True
-            except ValueError, KeyError, TypeError:
-                pass  # truncated by an interrupted run: recompute
+            except KeyError, TypeError:
+                pass
         result = evaluator(probe, timeout)
-        if path is not None:
-            tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
-            tmp.write_text(json.dumps({"row": result.row.to_json(), "compile_s": result.compile_s}), encoding="utf-8")
-            tmp.replace(path)
+        if cache_dir:
+            cache.store(cache_dir, key, {"row": result.row.to_json(), "compile_s": result.compile_s})
         return result, False
 
     started = time.monotonic()
