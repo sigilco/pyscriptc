@@ -34,6 +34,20 @@ def _sig(params: list[dict[str, Any]], ret: dict[str, Any], symbol: str) -> dict
     return {"params": params, "return": ret, "symbol": symbol}
 
 
+_MISSING: Any = object()
+
+
+def _host_attr(owner: Any, name: str) -> Any:
+    """`getattr(owner, name)`, or `_MISSING` when this host does not define it.
+
+    Many surface names are platform specific: EADV, CLONE_* and AF_CAN are Linux
+    only, and pathlib re-exports errno names on Linux but not on macOS. CPython
+    raises AttributeError for an absent name, so the table leaves it out instead
+    of failing the import on hosts that lack it.
+    """
+    return getattr(owner, name, _MISSING)
+
+
 _ERRNO = (
     "EACCES",
     "EAGAIN",
@@ -1495,20 +1509,29 @@ def _load_constants() -> tuple[dict[tuple[str, str], tuple[Any, dict[str, Any]]]
         ("logging", "BASIC_FORMAT"): logging.BASIC_FORMAT,
         ("asyncio", "ALL_COMPLETED"): asyncio.ALL_COMPLETED,
         ("subprocess", "DEVNULL"): int(subprocess.DEVNULL),
-        **{("errno", name): int(getattr(errno, name)) for name in _ERRNO},
     }
+    for name in _ERRNO:
+        value = _host_attr(errno, name)
+        if value is not _MISSING:
+            raw[("errno", name)] = int(value)
     for module, names in _INT_SURFACE.items():
         mod = importlib.import_module(module)
         for name in names:
-            raw[(module, name)] = int(getattr(mod, name))
+            value = _host_attr(mod, name)
+            if value is not _MISSING:
+                raw[(module, name)] = int(value)
     for module, names in _STR_SURFACE.items():
         mod = importlib.import_module(module)
         for name in names:
-            raw[(module, name)] = getattr(mod, name)
+            value = _host_attr(mod, name)
+            if value is not _MISSING:
+                raw[(module, name)] = value
     for module, names in _BOOL_SURFACE.items():
         mod = importlib.import_module(module)
         for name in names:
-            raw[(module, name)] = bool(getattr(mod, name))
+            value = _host_attr(mod, name)
+            if value is not _MISSING:
+                raw[(module, name)] = bool(value)
     found: dict[tuple[str, str], tuple[Any, dict[str, Any]]] = {}
     for key, value in raw.items():
         shaped = _ir_const(value)
