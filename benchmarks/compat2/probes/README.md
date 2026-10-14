@@ -5,10 +5,18 @@ Executable denominator for scorer v2. One JSON object per line, the fields of `o
 Regenerate (Linux only, because generation executes stdlib calls in forked children with a temp cwd):
 
 ```
-.agents/docker/run.sh uv run python -m benchmarks.compat2.probes.generate
+HEAVY=1 .agents/docker/run.sh uv run python -m benchmarks.compat2.probes.generate [--oracle 3.12]
 ```
 
-Output is sorted by id, so the same CPython 3.14 and mypy typeshed reproduce it byte for byte. `MANIFEST.json` holds counts per area and category, kinds, fold types, mention reasons, GUI exclusions and the language node coverage.
+The primary oracle is CPython 3.12. Workers run on the oracle interpreter from `PYSC_ORACLE_DIR` (uv installs of 3.10 to 3.14, pinned by patch version in `.agents/docker/Dockerfile`). The secondary set, `--oracle 3.14`, goes to `../oracle-3.14/` (outside this directory, so a directory load never counts it twice) and uses the v3.14.8 pins in `cpython_tests/py314/`.
+
+Output is sorted by id and workers run with `PYTHONHASHSEED=0`, so the same interpreters and mypy typeshed reproduce it byte for byte. `MANIFEST.json` holds counts per area and category, kinds, fold types, mention reasons, GUI exclusions, the language node coverage, the names the oracle does not have (`absent_in_oracle`) and the version axis counts.
+
+## Oracle and version axis
+
+The stdlib modules come from the frozen denominator, filtered by typeshed `stdlib/VERSIONS` for the oracle (`typeshed.available`). Names inside a module come from the oracle at run time, and stub `sys.version_info` branches resolve for the oracle. Modules removed before the oracle (for example `cgi` on 3.13) are not added, since the frozen denominator does not list them.
+
+Every row carries `versions`, the subset of 3.10 to 3.14 where the probe returns the same result as under the oracle (same int, or the same exception for `raises`, or a clean run for `mention`). A probe is run once per interpreter, and once more on the oracle under a second hash seed: rows that are not valid on the oracle or whose result depends on the seed get an empty `versions` and are listed in the manifest (`unverified_on_oracle`, `seed_dependent`).
 
 ## Files
 
@@ -34,9 +42,9 @@ Fold kinds and what they prove:
 
 ## Language profile
 
-Denominator is every concrete `ast` node type of the pinned CPython (abstract bases, parse modes and deprecated nodes are listed as not applicable). Expression nodes get four contexts (assign, arg, cond, loop), statement nodes get function and method. Each probe records its Language Reference page in the manifest `meta`. Every probe is verified under CPython before it is emitted.
+Denominator is every concrete `ast` node type of the oracle CPython. Nodes that only exist on a newer version (`TemplateStr`, `Interpolation`) have no 3.12 rows and are listed under `language.newer_nodes` with their first version. Nodes added after 3.10 are tagged in `language.min_version` (abstract bases, parse modes and deprecated nodes are listed as not applicable). Expression nodes get four contexts (assign, arg, cond, loop), statement nodes get function and method. Each probe records its Language Reference page in the manifest `meta`. Every probe is verified under CPython before it is emitted.
 
-`cpython_tests/` holds pinned files from CPython tag v3.14.8 (PSF license), stored as `.txt` so pytest does not collect them. `cpython_adapter.py` keeps the longest pure prefix of each `test_*` method and turns the assertions into `if not (cond): return 0`.
+`cpython_tests/` holds pinned files from CPython tag v3.12.15 (PSF license), and `cpython_tests/py314/` the v3.14.8 files for the secondary oracle, stored as `.txt` so pytest does not collect them. `cpython_adapter.py` keeps the longest pure prefix of each `test_*` method and turns the assertions into `if not (cond): return 0`.
 
 ## Calibration
 
