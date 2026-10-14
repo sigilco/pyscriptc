@@ -184,7 +184,10 @@ def _discover(root: Path) -> tuple[list[tuple[str, Path, bool]], list[str]]:
 
 
 def _skip_note(root: Path, relative: str) -> str:
-    return f"note: skipped {root.name}/{relative}; __main__.py is the python -m script, not an importable module"
+    return (
+        f"note: skipped {root.name}/{relative}; "
+        "__main__.py is the python -m script, not an importable module"
+    )
 
 
 _NOT_EXPORTED = " is not exported by this package"
@@ -195,7 +198,9 @@ def _promote_definition_fences(
 ) -> list[dict[str, Any]]:
     """Report the fence inside a class or function before the import that missed it."""
 
-    by_qual = {f"{module}.{name}": fence for module, names in failed.items() for name, fence in names.items()}
+    by_qual = {
+        f"{module}.{name}": fence for module, names in failed.items() for name, fence in names.items()
+    }
     if not by_qual:
         return fences
 

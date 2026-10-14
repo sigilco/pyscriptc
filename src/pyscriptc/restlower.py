@@ -53,7 +53,9 @@ def rest_call(
     if spec is not None:
         return lo._fixed_call(node, span, module, attr, spec)
     if module == "datetime" and attr == "date":
-        return _ints(lo, node, span, "datetime", "date", "ps_date_ymd", "Date", 3, ["year", "month", "day"])
+        return _ints(
+            lo, node, span, "datetime", "date", "ps_date_ymd", "Date", 3, ["year", "month", "day"]
+        )
     if module == "datetime" and attr == "datetime":
         return _ints(
             lo,

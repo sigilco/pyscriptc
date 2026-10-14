@@ -333,7 +333,7 @@ def score(workers: int) -> dict[str, Any]:
             "trove-classifiers is partial: sorted_classifiers, classifiers, deprecated_classifiers, "
             "and all_classifiers compiled, and no function was called. "
             "jmespath stays fenced: Options.__init__ parameter dict_cls needs an annotation. "
-            'Next: packaging\'s f-string f"2014 {__author__}" is the str constant a module assignment already stores. '
+            "Next: packaging's f-string f\"2014 {__author__}\" is the str constant a module assignment already stores. "
             "Folding it moves packaging's first fence and does not make packaging count; the next fence is IO. "
             "Leave dict.values(), dict.items(), Optional, keyword-only parameters, abc, Generic, "
             "and unannotated parameters fenced. "
@@ -682,7 +682,9 @@ def _first_ps(text: str) -> str:
     return ""
 
 
-def _call_real_function(name: str, tree: Path, functions: list[dict[str, Any]]) -> tuple[str, str] | None:
+def _call_real_function(
+    name: str, tree: Path, functions: list[dict[str, Any]]
+) -> tuple[str, str] | None:
     chosen: tuple[dict[str, Any], list[Any]] | None = None
     for fn in functions:
         args = _closed_args(fn)
@@ -782,7 +784,9 @@ def _cpython_path(tree: Path, qual: str, args: list[Any]) -> tuple[str, str]:
     return "ok", proc.stdout.strip()
 
 
-def _finish_group(label: str, source: str, probes: list[dict[str, Any]], header: str = "") -> list[dict[str, Any]]:
+def _finish_group(
+    label: str, source: str, probes: list[dict[str, Any]], header: str = ""
+) -> list[dict[str, Any]]:
     ir, code = _compile_ir(label, source)
     if ir is None:
         return [{**probe, "status": "absent", "detail": f"compile exit {code}"} for probe in probes]
