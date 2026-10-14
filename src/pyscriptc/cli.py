@@ -115,7 +115,7 @@ def compile_cmd(args: argparse.Namespace) -> int:
     if not args.run:
         print(binary)
         return 0
-    completed = subprocess.run([str(binary)])
+    completed = subprocess.run([str(binary.absolute())])
     if completed.returncode < 0:
         return 128 + (-completed.returncode)
     return completed.returncode
