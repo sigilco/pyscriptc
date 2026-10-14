@@ -8,6 +8,9 @@
 # The binary is copied to an empty temp directory and run from there, so nothing from the source
 # tree (no src/, no venv) can leak into the result. Needs clang on PATH and `uv` (for CPython 3.12).
 # Exit 0 on a match, 1 on any mismatch or failure.
+# Windows (git bash): default binary packaging/dist/pyscriptc-windows-x86_64.exe.
+# Experimental. explain and --help only, under env -i. No compile or run.
+# Emitted programs need POSIX headers (dirent.h, dlfcn.h, unistd.h).
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -35,10 +38,11 @@ fail() { echo "SMOKE FAIL: $*" >&2; exit 1; }
 if [ "$os" = windows ]; then
   work="$(mktemp -d)"
   trap 'rm -rf "$work"' EXIT
-  cp "$bin" "$work/pyscriptc.exe"
-  (cd "$work" && ./pyscriptc.exe explain PS2002 >/dev/null) \
+  mkdir "$work/run"
+  cp "$bin" "$work/run/pyscriptc.exe"
+  (cd "$work/run" && env -i PATH="$PATH" HOME="$work" ./pyscriptc.exe explain PS2002 >/dev/null) \
     || fail "binary did not start (explain PS2002 failed)"
-  (cd "$work" && ./pyscriptc.exe --help >/dev/null) \
+  (cd "$work/run" && env -i PATH="$PATH" HOME="$work" ./pyscriptc.exe --help >/dev/null) \
     || fail "binary did not answer --help"
   echo "SMOKE OK (windows explain-only, $(basename "$bin"))"
   exit 0
