@@ -1,7 +1,8 @@
 """Headroom check: every denominator row must be able to reach `pass`.
 
 A row is capped when no probe can ever score it better than partial. The scorer
-refuses to start while any row is capped.
+refuses to start while any row is capped. Mention probes are reachable at weight
+0 and only excluded from the headroom denominator.
 """
 
 from __future__ import annotations
@@ -17,8 +18,15 @@ from benchmarks.compat2.outcomes import Probe, Row
 def classify(probe: Probe) -> Row:
     reason = ""
     if probe.kind == "mention":
-        reason = "mention probe cannot be value-checked"
-    elif not probe.source.strip():
+        return Row(
+            id=probe.id,
+            area=probe.area,
+            category=probe.category,
+            outcome="excluded",
+            reachable=True,
+            evidence="mention: weight 0 (backlog)",
+        )
+    if not probe.source.strip():
         reason = "empty probe source"
     elif probe.kind == "raises" and not probe.expect_exc:
         reason = "raises probe without expect_exc"

@@ -1,7 +1,7 @@
 """Scorer v2: run probes, type every outcome, cache by (probe, compiler) hash.
 
     python -m benchmarks.compat2.score PROBES --out results.json [--workers N]
-        [--shard I/N] [--coverage-map map.json] [--no-cache] [--timeout S]
+        [--shard I/N] [--tier 0|1] [--coverage-map map.json] [--no-cache] [--timeout S]
 
 Outcomes are the typed set in outcomes.py. The headroom check runs first and the
 scorer refuses to start while any row is capped. v1 (benchmarks/compat) is frozen
@@ -11,7 +11,6 @@ and only its CPython oracle idea is reused here.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -19,24 +18,20 @@ import resource
 import subprocess
 import sys
 import tempfile
-import threading
 import time
+from collections import Counter
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from benchmarks.compat2 import headroom
+from benchmarks.compat2 import bundle, cache, coverage_map, headroom
+from benchmarks.compat2.cache import CACHE_DIR, COMPILER_DIR, ROOT, FileHashes, cache_key, compiler_hash, probe_hash  # noqa: F401
 from benchmarks.compat2.corpus import load as corpus
 from benchmarks.compat2.loader import load_probes
 from benchmarks.compat2.outcomes import WEIGHTS, Probe, Row
 
-HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
-COMPILER_DIR = ROOT / "src" / "pyscriptc"
-CACHE_DIR = HERE / ".cache"
-COMPILER_SUFFIXES = {".py", ".c", ".h"}
 PS_CODE = re.compile(r"PS\d+")
 
 
@@ -63,30 +58,6 @@ def tree_for(probe: Probe) -> Path | None:
         if pin:
             return corpus.package_root(pin, holdout)
     return None
-
-
-def compiler_hash(modules: Iterable[str] | None = None) -> str:
-    """Hash the compiler sources. `modules` limits it to the files a probe touches."""
-
-    digest = hashlib.sha256()
-    if modules is None:
-        files = sorted(p for p in COMPILER_DIR.rglob("*") if p.suffix in COMPILER_SUFFIXES)
-    else:
-        files = sorted(COMPILER_DIR / m for m in modules if (COMPILER_DIR / m).is_file())
-    for file in files:
-        digest.update(str(file.relative_to(COMPILER_DIR)).encode())
-        digest.update(file.read_bytes())
-    return digest.hexdigest()
-
-
-def probe_hash(probe: Probe) -> str:
-    return hashlib.sha256(json.dumps(probe.to_json(), sort_keys=True).encode()).hexdigest()
-
-
-def cache_key(probe: Probe, coverage: dict[str, list[str]], full_hash: str) -> str:
-    modules = coverage.get(probe.id)
-    chash = full_hash if modules is None else compiler_hash(modules)
-    return hashlib.sha256((probe_hash(probe) + chash).encode()).hexdigest()
 
 
 def evaluate(probe: Probe, timeout: float) -> Result:
@@ -133,7 +104,7 @@ def evaluate(probe: Probe, timeout: float) -> Result:
         if build.returncode != 0 or not binary.exists():
             return Result(row("build-error", _tail(build.stderr or build.stdout)), spent)
         try:
-            ran = subprocess.run([str(binary)], capture_output=True, text=True, timeout=timeout)
+            ran = subprocess.run([str(binary)], cwd=tmp, capture_output=True, text=True, timeout=timeout)
         except subprocess.TimeoutExpired:
             return Result(row("timeout", "binary timed out"), spent)
     return Result(_judge(probe, row, oracle, ran), spent)
@@ -152,14 +123,20 @@ def _tree_env(tree: Path | None) -> dict[str, str] | None:
     return env
 
 
-def _build(args: list[str], env: dict[str, str] | None, timeout: float, row: Callable[..., Row]) -> Any:
-    """Run the compiler. Returns (proc, seconds), or a final Result for fence and timeout."""
+def _build(
+    args: list[str], env: dict[str, str] | None, timeout: float, row: Callable[..., Row], cwd: Path | str = ROOT
+) -> Any:
+    """Run the compiler. Returns (proc, seconds), or a final Result for fence and timeout.
+
+    `cwd` is isolated for `--run`: probe code must not see the repo root (a probe that
+    chmods or writes `.` would otherwise corrupt the worktree).
+    """
 
     started = time.monotonic()
     try:
         proc = subprocess.run(
             [sys.executable, "-m", "pyscriptc", "compile", *args, "--skip-check"],
-            cwd=ROOT, env=env, capture_output=True, text=True, timeout=timeout,
+            cwd=cwd, env=env, capture_output=True, text=True, timeout=timeout,
         )  # fmt: skip
     except subprocess.TimeoutExpired:
         return Result(row("timeout", "compile timed out"), time.monotonic() - started)
@@ -189,7 +166,7 @@ def _program(
             return Result(row("build-error", _tail(proc.stderr or proc.stdout)), spent)
         if tree is not None:
             return Result(row("pass", "tree compiles with no fences"), spent)
-        built = _build([str(target), "--run", "-o", str(binary)], env, timeout, row)
+        built = _build([str(target), "--run", "-o", str(binary)], env, timeout, row, cwd=tmp)
         if isinstance(built, Result):
             return built
         proc, more = built
@@ -233,9 +210,16 @@ _ORACLE = (
 def _cpython(probe: Probe, timeout: float, env: dict[str, str] | None = None) -> tuple[str, str]:
     code = _ORACLE.format(call=probe.call, args=list(probe.args))
     try:
-        proc = subprocess.run(
-            [sys.executable, "-c", code], input=probe.source, capture_output=True, text=True, timeout=timeout, env=env
-        )
+        with tempfile.TemporaryDirectory(prefix="compat2-oracle-") as tmp:
+            proc = subprocess.run(
+                [sys.executable, "-c", code],
+                input=probe.source,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                env=env,
+                cwd=tmp,
+            )
     except subprocess.TimeoutExpired:
         return "timeout", ""
     if proc.returncode != 0:
@@ -249,6 +233,19 @@ def _tail(text: str) -> str:
     return lines[-1].strip() if lines else ""
 
 
+def _cached(cache_dir: Path, key: str) -> Result | None:
+    data = cache.load(cache_dir, key)
+    try:
+        return Result(Row(**data["row"]), data["compile_s"]) if data else None
+    except KeyError, TypeError:
+        return None
+
+
+def raise_fd_limit() -> None:
+    _, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (hard if hard != resource.RLIM_INFINITY else 65536, hard))
+
+
 def score(
     probes: list[Probe],
     *,
@@ -257,36 +254,50 @@ def score(
     coverage: dict[str, list[str]] | None = None,
     cache_dir: Path | None = CACHE_DIR,
     evaluator: Evaluator = evaluate,
+    bundles: bool | None = None,
 ) -> dict[str, Any]:
+    """Score probes. Cache hits are free; misses are compiled in bundles unless `bundles` is False.
+
+    Bundling defaults on for the real evaluator and off for any stand-in.
+    """
+
     coverage = coverage or {}
-    full = compiler_hash()
+    raise_fd_limit()
+    hashes = FileHashes()
+    full = hashes.whole()
+    use_bundles = (evaluator is evaluate) if bundles is None else bundles
     if cache_dir is not None:
         cache_dir.mkdir(parents=True, exist_ok=True)
 
-    def one(probe: Probe) -> tuple[Result, bool]:
-        path = cache_dir / (cache_key(probe, coverage, full) + ".json") if cache_dir else None
-        if path is not None and path.exists():
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-                return Result(Row(**data["row"]), data["compile_s"]), True
-            except ValueError, KeyError, TypeError:
-                pass  # truncated by an interrupted run: recompute
-        result = evaluator(probe, timeout)
-        if path is not None:
-            tmp = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
-            tmp.write_text(json.dumps({"row": result.row.to_json(), "compile_s": result.compile_s}), encoding="utf-8")
-            tmp.replace(path)
-        return result, False
+    keys = {p.id: cache_key(p, coverage, hashes) if cache_dir else "" for p in probes}
+    done: dict[str, tuple[Result, bool]] = {}
+    misses: list[Probe] = []
+    for probe in probes:
+        hit = _cached(cache_dir, keys[probe.id]) if cache_dir else None
+        if hit is None:
+            misses.append(probe)
+        else:
+            done[probe.id] = (hit, True)
 
+    def run(unit: list[Probe]) -> list[tuple[str, Result]]:
+        results = bundle.evaluate_group(unit, timeout, evaluator)
+        for probe, result in zip(unit, results, strict=True):
+            if cache_dir:
+                cache.store(cache_dir, keys[probe.id], {"row": result.row.to_json(), "compile_s": result.compile_s})
+        return [(p.id, r) for p, r in zip(unit, results, strict=True)]
+
+    units = bundle.plan(misses) if use_bundles else [[p] for p in misses]
     started = time.monotonic()
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-        done = list(pool.map(one, probes))
-    rows = [r.row for r, _ in done]
+        for finished in pool.map(run, units):
+            for pid, result in finished:
+                done[pid] = (result, False)
+    rows = [done[p.id][0].row for p in probes]
     return {
         "compiler_hash": full,
         "wall_s": round(time.monotonic() - started, 3),
-        "compile_s": round(sum(r.compile_s for r, _ in done), 3),
-        "cache_hits": sum(1 for _, hit in done if hit),
+        "compile_s": round(sum(done[p.id][0].compile_s for p in probes), 3),
+        "cache_hits": sum(1 for p in probes if done[p.id][1]),
         "weights": {p.id: effective_weight(p) for p in probes},
         "rows": [row.to_json() for row in rows],
         "counts": counts(rows),
@@ -311,6 +322,54 @@ def weighted_pass(results: dict[str, Any]) -> float:
     return sum(weights.get(r["id"], 1.0) for r in results["rows"] if r["outcome"] == "pass")
 
 
+def shard_path(out: Path, index: int, total: int) -> Path:
+    return out.with_name(f"{out.stem}.shard{index}of{total}{out.suffix}")
+
+
+def write_results(path: Path, results: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(f".{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def merge_results(parts: list[dict[str, Any]]) -> dict[str, Any]:
+    """One result from shard results of the same compiler. Raises ValueError on a mismatch."""
+
+    if len({p["compiler_hash"] for p in parts}) != 1:
+        raise ValueError("shards were scored with different compilers")
+    rows = [row for part in parts for row in part["rows"]]
+    if len({row["id"] for row in rows}) != len(rows):
+        raise ValueError("a probe appears in two shards")
+    weights = {k: v for part in parts for k, v in part["weights"].items()}
+    rows.sort(key=lambda row: row["id"])
+    return {
+        "compiler_hash": parts[0]["compiler_hash"],
+        "wall_s": round(max(p["wall_s"] for p in parts), 3),  # shards run side by side
+        "compile_s": round(sum(p["compile_s"] for p in parts), 3),
+        "cache_hits": sum(p["cache_hits"] for p in parts),
+        "weights": weights,
+        "rows": rows,
+        "counts": dict(Counter(row["outcome"] for row in rows)),
+    }
+
+
+def merge_if_complete(out: Path, total: int) -> bool:
+    """Merge the shard files next to `out` into `out` once all `total` are present and agree."""
+
+    files = [shard_path(out, i, total) for i in range(total)]
+    if not all(f.exists() for f in files):
+        return False
+    try:
+        parts = [json.loads(f.read_text(encoding="utf-8")) for f in files]
+        if any(p.get("shard") != {"index": i, "total": total} for i, p in enumerate(parts)):
+            return False
+        write_results(out, merge_results(parts))
+    except ValueError, KeyError:
+        return False  # stale shard files from another run: leave them, merge when the new ones land
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Score probes against CPython (scorer v2).")
     parser.add_argument("probes", nargs="?", help="probe JSONL file or directory")
@@ -322,13 +381,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--shard", default="0/1", help="I/N: run probes whose index mod N equals I")
     parser.add_argument("--timeout", type=float, default=60.0)
-    parser.add_argument("--coverage-map", help="JSON {probe id: [compiler files]} for narrower cache keys")
+    parser.add_argument(
+        "--coverage-map", help="coverage_map.py output for narrower cache keys (default: the built map, if any)"
+    )
+    parser.add_argument("--tier", type=int, choices=(0, 1), default=1, help="0: probes the git diff can move; 1: all")
+    parser.add_argument("--base", default="HEAD", help="git ref the Tier 0 diff is taken against")
     parser.add_argument("--no-cache", action="store_true")
     parser.add_argument("--headroom", action="store_true", help="only run the headroom check")
     args = parser.parse_args(argv)
 
-    _, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-    resource.setrlimit(resource.RLIMIT_NOFILE, (hard if hard != resource.RLIM_INFINITY else 65536, hard))
+    raise_fd_limit()
     global USE_HOLDOUT
     USE_HOLDOUT = args.holdout
     if args.holdout and not corpus.holdout_open():
@@ -351,9 +413,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"capped {row.id}: {row.evidence}", file=sys.stderr)
         print(f"refusing to start: {len(bad)} capped rows (see --headroom)", file=sys.stderr)
         return 2
+    if args.tier == 0:
+        probes, why = coverage_map.tier0(probes, args.base)
+        print(f"tier 0: {len(probes)} probes ({why})", file=sys.stderr)
     index, _, total = args.shard.partition("/")
-    probes = [p for i, p in enumerate(probes) if i % int(total or 1) == int(index)]
-    coverage = json.loads(Path(args.coverage_map).read_text()) if args.coverage_map else {}
+    shard = (int(index), int(total or 1))
+    probes = [p for i, p in enumerate(probes) if i % shard[1] == shard[0]]
+    mapped = coverage_map.load(Path(args.coverage_map) if args.coverage_map else coverage_map.MAP_PATH)
+    coverage = coverage_map.key_map(mapped, probes) if mapped else {}
     results = score(
         probes,
         workers=args.workers,
@@ -361,7 +428,16 @@ def main(argv: list[str] | None = None) -> int:
         coverage=coverage,
         cache_dir=None if args.no_cache or args.holdout else CACHE_DIR,
     )
-    Path(args.out).write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
+    out = Path(args.out)
+    if shard[1] > 1:
+        results["shard"] = {"index": shard[0], "total": shard[1]}
+        out = shard_path(out, *shard)
+    write_results(out, results)
+    if shard[1] > 1:
+        merged = merge_if_complete(Path(args.out), shard[1])
+        print(
+            f"shard {shard[0]}/{shard[1]}: {out.name}" + (f", merged all {shard[1]} into {args.out}" if merged else "")
+        )
     if args.holdout:
         # aggregate numbers only: per probe ids and results must never reach a generator's context
         print(f"holdout: scored {len(probes)} probes  {results['counts']}")
