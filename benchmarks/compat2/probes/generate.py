@@ -126,6 +126,33 @@ def write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def normalize_unstable(rows: list[dict[str, object]], axis_info: dict[str, object]) -> None:
+    """Rows the axis caught flapping must not ship a value probe.
+
+    Emission decisions are static (VOLATILE_CALLS, stubs), but a call that slips through
+    can still reach the file with whichever probe shape its agreement check happened to
+    emit that run. Rewriting every flagged value row to the canonical mention row makes
+    the file a function of the manifest flags, which come from multi-sample repeats and
+    are stable where a single forked check is not.
+    """
+    flagged = set(axis_info["process_dependent"]) | set(axis_info["seed_dependent"])  # type: ignore[arg-type]
+    for row in rows:
+        probe = row["probe"]  # type: ignore[index]
+        pid = str(probe["id"])
+        if pid not in flagged or probe["kind"] != "value" or not pid.startswith(("stdlib.", "builtins.")):
+            continue
+        qual = pid.split(".", 1)[1]
+        header = str(probe["source"]).split("def probe", 1)[0].rstrip("\n")
+        probe["kind"] = "mention"
+        probe["args"] = []
+        probe["expect_exc"] = ""
+        probe["source"] = (header + "\n\n" if header else "") + f"def probe() -> int:\n    {qual}\n    return 1\n"
+        meta = row["meta"]  # type: ignore[index]
+        meta["kind"] = "mention"
+        meta["fold"] = "mention"
+        meta["reason"] = "unstable across axis runs"
+
+
 def compute_versions(oracle: str, rows: list[dict[str, object]]) -> tuple[dict[str, list[str]], dict[str, object]]:
     """For each probe id, the axis versions whose result equals the oracle's (hash seed independent).
 
@@ -255,12 +282,15 @@ def main(argv: list[str]) -> int:
             row["probe"]["versions"] = versions[row["probe"]["id"]]  # type: ignore[index]
     lang_info["min_version"] = min_versions(oracle, produced["ast_nodes"], axis_info["ast_nodes"])  # type: ignore[arg-type]
     lang_info["newer_nodes"] = newer_nodes(oracle, axis_info["ast_nodes"])  # type: ignore[arg-type]
+    for rows in every:
+        normalize_unstable(rows, axis_info)
     out_dir.mkdir(parents=True, exist_ok=True)
     for name, rows in groups.items():
         write_jsonl(out_dir / f"{name}.jsonl", rows)
     if primary:
         CONTINUITY.mkdir(exist_ok=True)
         write_jsonl(CONTINUITY / "v1equiv.jsonl", v1_rows)
+        write_jsonl(out_dir / "v1equiv.jsonl", v1_rows)  # also under --out so a/b runs can byte-compare it
     metas = [row["meta"] for rows in groups.values() for row in rows]
     ids = {m["id"] for m in metas}
     interpreters = {
