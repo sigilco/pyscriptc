@@ -3,6 +3,8 @@
 - GitHub Project: none yet (decision 2026-10-14: track phases locally in `.agents/plans/` until the user shares a URL).
 - Active plan: `.agents/plans/2026-10-14-waves-after-scorer-v2.md` (supersedes phases 7 to 11 of `2026-10-14-scorer-v2-and-strategy.md`, which stays as history). Handoff: `.agents/notes/2026-10-14-wave-a-handoff.md`.
 - v1 scorer (`benchmarks/compat/`) is frozen history. v2 lives in `benchmarks/compat2/`; shared contract is `benchmarks/compat2/outcomes.py`.
+- Frozen v2 gates (tag `gates-v2`, 2026-10-16). Changes need a recorded decision first: `outcomes.py`, `score.py` weights, `coverage_map.py`, `cache.py`, `calibrate.py`, `CALIBRATION.json`, `TRIAGE.md`, `probes/*.jsonl`, `probes/IR_HASHES.json`, `canonical.py` rules (`docs/ir-canonicity.md`). Regenerating `IR_HASHES.json` requires the A/B byte-identical discipline (`python -m benchmarks.compat2.irscore` twice, `cmp`).
+- Sweep evidence for the 3.12 corpus: #22 (triage zero-deltas, verdict replays), #23 (calibration cells >= 26, headroom 0 capped), #24 (generation byte-identical). Boxed ledger at the boundary (2026-10-16, window `06ed55b`): code 1.39%, churn 0%, bugs 0%, tax 0%, drop_flag false.
 - Package manager: `uv`. Checks: `uv run pytest`, `uv run ruff check`, `uv run ruff format --check`, `uv run python -m benchmarks.baseline.run --check`.
 - Worktrees go in `~/.worktrees/`.
 - No co-author trailers on commits. Atomic conventional commits.
@@ -20,7 +22,7 @@ uv run python benchmarks/compat2/boxed_cost.py --window-commits 10 [--reach reac
 
 It reports, per window, code share, churn share, bug share (`fix` commits) and iteration tax (commits that touch boxed code without naming boxed, island or fallback in the subject). Record the latest values and their trend here after each run.
 
-Latest measurement: none yet. Baseline at snapshot 046: `ps_island.c` is about 1.4% of compiler lines, all other metrics are zero.
+Latest measurement (2026-10-16, at gates-v2): code 1.39%, churn 0.0%, bug 0.0%, tax 0.0%, drop_flag false, three windows all flat. Baseline at snapshot 046: `ps_island.c` is about 1.4% of compiler lines, all other metrics are zero.
 
 Drop flag rules. Raise the flag in the iteration report when any holds:
 
