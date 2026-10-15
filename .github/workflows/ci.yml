@@ -13,10 +13,9 @@ on:
 # ruff format skips src/pyscriptc, the frozen v1 scorer, loop.md, and two
 # workload files. Those still fail format under ruff 0.17; reformatting them
 # is not part of this workflow.
-# The macOS-safe job runs on ubuntu-latest. These tests were not executed on
-# macOS from the Linux environment that added this workflow, so the job is
-# not macos-latest. It runs the subset that does not need Linux-only
-# compilation: every test that is not marked linux_container.
+# Linux (unit): ruff plus compat2 under tests/compat2.
+# macOS (macos-safe): the rest of the test tree on macos-14, excluding
+# compat2 and any test marked linux_container.
 
 jobs:
   unit:
@@ -44,7 +43,7 @@ jobs:
 
   macos-safe:
     name: tests without linux_container
-    runs-on: ubuntu-latest
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
