@@ -94,7 +94,12 @@ def test_replay_script_prints_the_four_outcomes() -> None:
     assert "behavior=optional-tagged-class" in text
     assert "injected-wrong-output: FAIL" in text
     assert "area=soundness:inject.floordiv" in text
-    assert "No macOS timings were recorded." in text
+    expected_slot = (
+        "macOS timings are present in benchmarks/baseline/reference-macos-arm64.json"
+        if replay_verdict.MACOS_ARM64_REFERENCE.exists()
+        else "No macOS timings were recorded."
+    )
+    assert expected_slot in text
 
 
 def test_macos_arm64_reference_is_a_separate_slot() -> None:
@@ -108,8 +113,22 @@ def test_macos_arm64_reference_is_a_separate_slot() -> None:
     assert not refuses_macos_record(str(MACOS_ARM64_REFERENCE), "Darwin", "arm64")
 
     code = main(["--record", str(MACOS_ARM64_REFERENCE), "--runs", "1", "--workloads", "sum-squares"])
-    assert code == 2
-    assert not MACOS_ARM64_REFERENCE.exists()
+    if refuses_macos_record(str(MACOS_ARM64_REFERENCE)):
+        # Not a Darwin arm64 host: the refusal fires before any work and nothing is written.
+        assert code == 2
+        assert not MACOS_ARM64_REFERENCE.exists()
+    else:
+        # Darwin arm64 (the recording host): --record succeeds and the slot flips to present.
+        # The recorded numbers differ per machine, so restore the committed reference after.
+        assert code == 0
+        committed = subprocess.run(
+            ["git", "show", "HEAD:benchmarks/baseline/reference-macos-arm64.json"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        MACOS_ARM64_REFERENCE.write_text(committed, encoding="utf-8")
     slot = replay_verdict.baseline_slot_status()
     assert slot["linux_reference_present"] is True
-    assert slot["macos_timings_recorded"] is False
+    assert slot["macos_timings_recorded"] is MACOS_ARM64_REFERENCE.exists()
