@@ -50,7 +50,7 @@ def _ann(value: object, depth: int = 0) -> str:
         target: object = importlib.import_module(module)
         for part in qual.split("."):
             target = getattr(target, part)
-    except ImportError, AttributeError:
+    except Exception:  # noqa: BLE001  # missing module or attribute; also keeps this file parseable before 3.14
         return ""
     return f"{module}.{qual}" if target is kind else ""
 

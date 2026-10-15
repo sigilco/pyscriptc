@@ -27,6 +27,7 @@ def _read(files: list[Path]) -> Iterator[Probe]:
             try:
                 data = json.loads(line)
                 data["args"] = tuple(data.get("args", ()))
+                data["versions"] = tuple(data.get("versions", ()))
                 yield Probe(**data)
             except (TypeError, ValueError) as exc:
                 raise ValueError(f"{file}:{number}: bad probe: {exc}") from exc
