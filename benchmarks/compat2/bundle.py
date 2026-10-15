@@ -145,13 +145,15 @@ def oracle_batch(probes: list[Probe], timeout: float) -> list[tuple[str, str]] |
 
     jobs = [[p.source, p.call, list(p.args), max(1, int(timeout))] for p in probes]
     try:
-        proc = subprocess.run(
-            [sys.executable, "-c", _BATCH_ORACLE],
-            input=json.dumps(jobs),
-            capture_output=True,
-            text=True,
-            timeout=timeout * 2 + len(probes),
-        )
+        with tempfile.TemporaryDirectory(prefix="compat2-oracle-") as tmp:
+            proc = subprocess.run(
+                [sys.executable, "-c", _BATCH_ORACLE],
+                input=json.dumps(jobs),
+                capture_output=True,
+                text=True,
+                timeout=timeout * 2 + len(probes),
+                cwd=tmp,
+            )
         if proc.returncode != 0:
             return None
         return [(kind, value) for kind, value in json.loads(proc.stdout.splitlines()[-1])]
@@ -263,7 +265,7 @@ def _run_bundle(
         if proc.returncode != 0 or not binary.exists():
             return bisect()
         try:
-            ran = subprocess.run([str(binary)], capture_output=True, text=True, timeout=timeout)
+            ran = subprocess.run([str(binary)], cwd=tmp, capture_output=True, text=True, timeout=timeout)
         except subprocess.TimeoutExpired:
             return bisect()
     if ran.returncode != 0:

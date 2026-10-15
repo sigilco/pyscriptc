@@ -104,7 +104,7 @@ def evaluate(probe: Probe, timeout: float) -> Result:
         if build.returncode != 0 or not binary.exists():
             return Result(row("build-error", _tail(build.stderr or build.stdout)), spent)
         try:
-            ran = subprocess.run([str(binary)], capture_output=True, text=True, timeout=timeout)
+            ran = subprocess.run([str(binary)], cwd=tmp, capture_output=True, text=True, timeout=timeout)
         except subprocess.TimeoutExpired:
             return Result(row("timeout", "binary timed out"), spent)
     return Result(_judge(probe, row, oracle, ran), spent)
@@ -123,14 +123,20 @@ def _tree_env(tree: Path | None) -> dict[str, str] | None:
     return env
 
 
-def _build(args: list[str], env: dict[str, str] | None, timeout: float, row: Callable[..., Row]) -> Any:
-    """Run the compiler. Returns (proc, seconds), or a final Result for fence and timeout."""
+def _build(
+    args: list[str], env: dict[str, str] | None, timeout: float, row: Callable[..., Row], cwd: Path | str = ROOT
+) -> Any:
+    """Run the compiler. Returns (proc, seconds), or a final Result for fence and timeout.
+
+    `cwd` is isolated for `--run`: probe code must not see the repo root (a probe that
+    chmods or writes `.` would otherwise corrupt the worktree).
+    """
 
     started = time.monotonic()
     try:
         proc = subprocess.run(
             [sys.executable, "-m", "pyscriptc", "compile", *args, "--skip-check"],
-            cwd=ROOT, env=env, capture_output=True, text=True, timeout=timeout,
+            cwd=cwd, env=env, capture_output=True, text=True, timeout=timeout,
         )  # fmt: skip
     except subprocess.TimeoutExpired:
         return Result(row("timeout", "compile timed out"), time.monotonic() - started)
@@ -160,7 +166,7 @@ def _program(
             return Result(row("build-error", _tail(proc.stderr or proc.stdout)), spent)
         if tree is not None:
             return Result(row("pass", "tree compiles with no fences"), spent)
-        built = _build([str(target), "--run", "-o", str(binary)], env, timeout, row)
+        built = _build([str(target), "--run", "-o", str(binary)], env, timeout, row, cwd=tmp)
         if isinstance(built, Result):
             return built
         proc, more = built
@@ -204,9 +210,16 @@ _ORACLE = (
 def _cpython(probe: Probe, timeout: float, env: dict[str, str] | None = None) -> tuple[str, str]:
     code = _ORACLE.format(call=probe.call, args=list(probe.args))
     try:
-        proc = subprocess.run(
-            [sys.executable, "-c", code], input=probe.source, capture_output=True, text=True, timeout=timeout, env=env
-        )
+        with tempfile.TemporaryDirectory(prefix="compat2-oracle-") as tmp:
+            proc = subprocess.run(
+                [sys.executable, "-c", code],
+                input=probe.source,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                env=env,
+                cwd=tmp,
+            )
     except subprocess.TimeoutExpired:
         return "timeout", ""
     if proc.returncode != 0:
