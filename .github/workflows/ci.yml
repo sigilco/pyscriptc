@@ -55,3 +55,17 @@ jobs:
           python-version: "3.14"
       - run: uv sync --frozen
       - run: uv run pytest -q tests --ignore=tests/compat2 -m "not linux_container"
+
+  zig-smoke:
+    name: zig cc emitted-IR smoke
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install zig 0.16.0
+        run: |
+          set -euo pipefail
+          curl -fsSL https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz -o /tmp/zig.tar.xz
+          echo "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00  /tmp/zig.tar.xz" | sha256sum -c -
+          sudo tar -xJf /tmp/zig.tar.xz -C /usr/local
+          echo "/usr/local/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
+      - run: packaging/zig/smoke.sh
