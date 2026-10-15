@@ -149,18 +149,25 @@ def compute_versions(oracle: str, rows: list[dict[str, object]]) -> tuple[dict[s
 
         with ThreadPoolExecutor(max_workers=2) as pool:
             results = dict(zip(jobs, pool.map(run, jobs), strict=True))
-        # A second oracle worker at the same seed decides whether the recorded value survives leaving
-        # the process that generated the row. getpriority, clock_gettime, getpgid and friends return
-        # values that vary per process, so their versions field would otherwise be a run-to-run lottery.
-        repeated = run_module(oracle, ["benchmarks.compat2.probes.versions", str(path)], HASH_SEEDS[0])
-        if repeated.returncode != 0:
-            raise SystemExit(f"version worker repeat failed: {repeated.stderr.strip()[-300:]}")
+        # Second and third oracle workers at the same seed decide whether the recorded value survives
+        # leaving the process that generated the row. getpriority, clock_gettime, getpgid and friends
+        # return values that vary per process; wall-clock probes like timeit.timeit return name-stable
+        # but value-unstable ints that slip past the seed check. Two independent repeats must agree
+        # with the row's own value, else the probe is process dependent and its versions stay empty.
+        repeats = [
+            run_module(oracle, ["benchmarks.compat2.probes.versions", str(path)], HASH_SEEDS[0]) for _ in range(2)
+        ]
+        for rep in repeats:
+            if rep.returncode != 0:
+                raise SystemExit(f"version worker repeat failed: {rep.stderr.strip()[-300:]}")
     reference = results[(oracle, HASH_SEEDS[0])]
     reseeded = results[(oracle, HASH_SEEDS[1])]
-    stable: dict[str, bool] = {}
-    for line in repeated.stdout.splitlines():
-        pid, status, value = json.loads(line)
-        stable[pid] = (status, value) == reference.get(pid)
+    stable: dict[str, bool] = {pid: True for pid in (row["id"] for row in ordered)}  # type: ignore[index]
+    for rep in repeats:
+        for line in rep.stdout.splitlines():
+            pid, status, value = json.loads(line)
+            if (status, value) != reference.get(pid):
+                stable[pid] = False
     out: dict[str, list[str]] = {}
     unverified: list[str] = []
     seed_dependent: list[str] = []
@@ -175,7 +182,7 @@ def compute_versions(oracle: str, rows: list[dict[str, object]]) -> tuple[dict[s
         if not valid:
             unverified.append(pid)  # type: ignore[arg-type]
             out[pid] = []  # type: ignore[index]
-        elif not stable.get(pid, False):
+        elif not stable.get(pid, True):
             process_dependent.append(pid)  # type: ignore[arg-type]
             out[pid] = []  # type: ignore[index]
         elif reseeded.get(pid) != ref:  # type: ignore[arg-type]

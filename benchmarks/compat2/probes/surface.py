@@ -43,6 +43,24 @@ VOLATILE_CALLS: frozenset[str] = frozenset(
     {
         "random.binomialvariate",
         "random.SystemRandom.binomialvariate",
+        "random.SystemRandom.betavariate",
+        "random.SystemRandom.choice",
+        "random.SystemRandom.expovariate",
+        "random.SystemRandom.gammavariate",
+        "random.SystemRandom.getrandbits",
+        "random.SystemRandom.lognormvariate",
+        "random.SystemRandom.normalvariate",
+        "random.SystemRandom.paretovariate",
+        "random.SystemRandom.randbelow",
+        "random.SystemRandom.randbytes",
+        "random.SystemRandom.randbits",
+        "random.SystemRandom.random",
+        "random.SystemRandom.sample",
+        "random.SystemRandom.shuffle",
+        "random.SystemRandom.triangular",
+        "random.SystemRandom.uniform",
+        "random.SystemRandom.vonmisesvariate",
+        "random.SystemRandom.weibullvariate",
         "secrets.choice",
         "secrets.SystemRandom.choice",
         "secrets.randbelow",
@@ -70,11 +88,18 @@ VOLATILE_CALLS: frozenset[str] = frozenset(
         "time.clock_gettime",
         "time.clock_gettime_ns",
         "time.process_time",
+        "timeit.repeat",
+        "timeit.timeit",
         "time.process_time_ns",
         "time.thread_time",
         "time.thread_time_ns",
     }
 )
+# Calls that fork a grandchild while the result pipe is open: the grandchild inherits the
+# write end, both processes write, and the payload interleaves into garbage. Worse, whether
+# the call itself appears to raise or return flips with container load, so even raising
+# candidates are unreliable. No probe of these is stable; they always fold to mention rows.
+FORCE_NON_VALUE: frozenset[str] = frozenset({"os.fork", "os.forkpty", "posix.fork", "posix.forkpty", "pty.fork"})
 CALL_OVERRIDES: dict[str, list[list[str]]] = {
     "time.sleep": [["0"]],
     "exit": [["3"]],
@@ -202,6 +227,8 @@ def try_calls(
 ) -> Built:
     """First candidate that runs and folds wins. Else a raises probe if candidates agree on an exception."""
     setup = setup or []
+    if callee in FORCE_NON_VALUE:
+        return Built("fail", reason="non-value:forking")
     raised: Counter[str] = Counter()
     first_raise: dict[str, tuple[list[tuple[str, str]], list[object], str]] = {}
     last = Built("fail", reason="no-candidates")
