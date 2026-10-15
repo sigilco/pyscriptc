@@ -24,7 +24,7 @@ TESTS = Path(__file__).resolve().parent / "cpython_tests"
 
 def pinned_dir(oracle: str) -> Path:
     """The pinned directory whose tag is a release of `oracle`: cpython_tests/ holds 3.12, py314/ the secondary."""
-    for candidate in (TESTS, *sorted(p for p in TESTS.iterdir() if p.is_dir())):
+    for candidate in (TESTS, *sorted(p for p in TESTS.iterdir() if p.is_dir() and (p / "PIN.json").exists())):
         pin = json.loads((candidate / "PIN.json").read_text(encoding="utf-8"))
         if pin["tag"].startswith(f"v{oracle}."):
             return candidate

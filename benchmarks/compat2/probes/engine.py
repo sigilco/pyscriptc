@@ -12,6 +12,7 @@ import os
 import select
 import signal
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 
 from .fold import Desc, describe, fold_lines
@@ -181,10 +182,20 @@ def _finalize(
 ) -> Built:
     source = head + _signature(params, "int") + "\n" + _body(setup, lines) + "\n"
     runs = [run_forked(lambda: _exec_probe(source, args)) for _ in range(AGREE_FORKS)]
-    if len({r for r in runs if r[0] == "ok"}) == 1 and isinstance(runs[0][1], int):
-        return Built("value", source, args, fold=fold, ann=desc.ann)
-    if runs[0][0] != "ok":
-        return Built("fail", reason=f"final-{runs[0][0]}:{runs[0][1]}")
+    oks = {r for r in runs if r[0] == "ok"}
+    infra = {"timeout", "crash"}
+    # Value acceptance needs every ok fork to agree on one int AND every non-ok fork to be
+    # an infra outcome only. A divergent exc alongside ok runs is nondeterminism, not a
+    # value, and a leading timeout must not fail a probe the rest of the forks agreed on.
+    if len(oks) == 1 and all(r[0] in infra for r in runs if r[0] != "ok"):
+        value = next(iter(oks))[1]
+        if isinstance(value, int):
+            return Built("value", source, args, fold=fold, ann=desc.ann)
+        return Built("fail", reason="final-ok-nonint")
+    if not oks:
+        status = Counter(r[0] for r in runs).most_common(1)[0][0]
+        detail = next(r[1] for r in runs if r[0] == status)
+        return Built("fail", reason=f"final-{status}:{detail}")
     # Nondeterministic across AGREE_FORKS forks: fail with the result annotation still
     # attached. Only VOLATILE_CALLS entries demote to a shape probe (in surface.shape_only);
     # an untabled unstable call folds to a mention row, so emitted source stays a function

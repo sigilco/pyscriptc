@@ -229,7 +229,7 @@ def compute_versions(oracle: str, rows: list[dict[str, object]]) -> tuple[dict[s
     }
 
 
-def min_versions(oracle: str, concrete: list[str], nodes: dict[str, list[str]]) -> dict[str, str]:
+def min_versions(concrete: list[str], nodes: dict[str, list[str]]) -> dict[str, str]:
     """First axis version that has each oracle ast node, listed only when it is later than the first axis version."""
     out = {}
     for name in concrete:
@@ -280,7 +280,7 @@ def main(argv: list[str]) -> int:
     for rows in every:
         for row in rows:
             row["probe"]["versions"] = versions[row["probe"]["id"]]  # type: ignore[index]
-    lang_info["min_version"] = min_versions(oracle, produced["ast_nodes"], axis_info["ast_nodes"])  # type: ignore[arg-type]
+    lang_info["min_version"] = min_versions(produced["ast_nodes"], axis_info["ast_nodes"])  # type: ignore[arg-type]
     lang_info["newer_nodes"] = newer_nodes(oracle, axis_info["ast_nodes"])  # type: ignore[arg-type]
     for rows in every:
         normalize_unstable(rows, axis_info)

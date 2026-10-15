@@ -41,13 +41,9 @@ def main(argv: list[str]) -> int:
     with open(argv[1], encoding="utf-8") as handle:
         for line in handle:
             row = json.loads(line)
-            # timeout and crash can be load flakes (the generator runs six of these workers on
-            # two cpus), so a probe that did not produce a result runs twice more before the
-            # worker records it. A real crash reproduces; a flake does not.
+            # timeout and crash can be load flakes; run_forked already retries them
+            # internally, so a real crash reproduces and a flake does not survive.
             status, value = run_forked(lambda r=row: _call(r["source"], r["call"], r["args"]))
-            for _ in range(2):
-                if status in ("timeout", "crash"):
-                    status, value = run_forked(lambda r=row: _call(r["source"], r["call"], r["args"]))
             print(json.dumps([row["id"], status, value]), flush=True)
     return 0
 
