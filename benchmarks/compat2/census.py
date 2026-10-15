@@ -10,12 +10,17 @@ are reported but not ranked.
 The ranking is greedy. Each step picks the family that completes the most packages,
 then the one that clears the most of the remaining families of the packages it
 touches (sum of 1/remaining over those packages), then the one with the most fences.
+
+`--json` writes that census plus `generated` (UTC calendar date of the run) and
+`command` (the invocation that regenerates the file). `generated` changes when
+the command is rerun on a later UTC day. Package fence counts do not.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -90,11 +95,30 @@ def build_census(src: Path) -> dict[str, Any]:
     dirs = sorted(path for path in src.iterdir() if path.is_dir())
     packages = [package_census(path) for path in dirs]
     clean = [p["package"] for p in packages if p["fences"] == 0]
+    resolved = src.resolve()
+    try:
+        label = resolved.relative_to(ROOT).as_posix()
+    except ValueError:
+        label = str(resolved)
     return {
-        "src": str(src),
+        "src": label,
         "packages": packages,
         "clean": clean,
         "ranking": rank_families(packages),
+    }
+
+
+def json_payload(census: dict[str, Any], json_out: Path) -> dict[str, Any]:
+    """Census document plus the run date and the command that regenerates it."""
+
+    try:
+        shown = json_out.resolve().relative_to(Path.cwd().resolve())
+    except ValueError:
+        shown = json_out
+    return {
+        "generated": datetime.now(UTC).date().isoformat(),
+        "command": f"uv run python -m benchmarks.compat2.census --json {shown.as_posix()}",
+        **census,
     }
 
 
@@ -126,7 +150,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     census = build_census(args.src)
     if args.json_out:
-        args.json_out.write_text(json.dumps(census, indent=2) + "\n", encoding="utf-8")
+        payload = json_payload(census, args.json_out)
+        args.json_out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     print(render(census, args.top))
     return 0
 
