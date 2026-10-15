@@ -136,6 +136,7 @@ def test_support_ledger(tmp_path: Path) -> None:
     assert "| csv | function | 0 | 1 | 0.0 | 1 |" in (tmp_path / "support-ledger.md").read_text()
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_injected_wrong_output_is_soundness_fail(monkeypatch: pytest.MonkeyPatch) -> None:
     """The oracle is forced to disagree with the native result, as a miscompile would."""
 
@@ -167,6 +168,7 @@ def test_effective_weight_does_not_double_count() -> None:
     assert effective_weight(prog) == 5.0
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_program_probe_fences_or_matches() -> None:
     prog = Probe(
         id="scripts.tiny",
