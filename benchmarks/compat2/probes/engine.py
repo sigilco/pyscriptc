@@ -14,13 +14,30 @@ import signal
 import time
 from dataclasses import dataclass, field
 
-from .fold import Desc, describe, fold_lines, shape_lines
+from .fold import Desc, describe, fold_lines
 
 TIMEOUT = 2.5
+RETRIES = 2
+AGREE_FORKS = 5
 
 
 def run_forked(job, timeout: float = TIMEOUT) -> tuple[str, object]:  # noqa: ANN001
-    """Run `job()` in a child. Returns ("ok", json value) or ("exc", type name) or ("timeout"|"crash", "")."""
+    """Run `job()` in a child. Returns ("ok", json value) or ("exc", type name) or ("timeout"|"crash", "").
+
+    `timeout` and `crash` are infra outcomes (a busy box kills a healthy probe), not probe
+    facts, so they get RETRIES extra attempts before the caller sees them. Retrying keeps a
+    slow fork from flipping an emission decision between identical generation runs.
+    """
+    status, value = _fork_once(job, timeout)
+    for _ in range(RETRIES):
+        if status not in {"timeout", "crash"}:
+            break
+        status, value = _fork_once(job, timeout)
+    return status, value
+
+
+def _fork_once(job, timeout: float) -> tuple[str, object]:  # noqa: ANN001
+    """One attempt of run_forked."""
     read_fd, write_fd = os.pipe()
     pid = os.fork()
     if pid == 0:
@@ -163,20 +180,16 @@ def _finalize(
     var: str = "r",
 ) -> Built:
     source = head + _signature(params, "int") + "\n" + _body(setup, lines) + "\n"
-    runs = [run_forked(lambda: _exec_probe(source, args)) for _ in range(3)]
+    runs = [run_forked(lambda: _exec_probe(source, args)) for _ in range(AGREE_FORKS)]
     if len({r for r in runs if r[0] == "ok"}) == 1 and isinstance(runs[0][1], int):
         return Built("value", source, args, fold=fold, ann=desc.ann)
     if runs[0][0] != "ok":
         return Built("fail", reason=f"final-{runs[0][0]}:{runs[0][1]}")
-    # nondeterministic across three forks: keep only the type check. The shape probe is
-    # pure isinstance, so a single ok run that returns 0 or 1 is enough; repeating is what
-    # makes this decision itself nondeterministic under fork load.
-    shaped = [lines[0], *shape_lines(desc, var)] if lines[0].startswith(f"{var}:") else lines
-    source = head + _signature(params, "int") + "\n" + _body(setup, shaped) + "\n"
-    status, value = run_forked(lambda src=source, a=args: _exec_probe(src, a))
-    if status == "ok" and isinstance(value, int) and value in (0, 1):
-        return Built("value", source, args, fold="shape", ann=desc.ann)
-    return Built("fail", reason="nondeterministic")
+    # Nondeterministic across AGREE_FORKS forks: fail with the result annotation still
+    # attached. Only VOLATILE_CALLS entries demote to a shape probe (in surface.shape_only);
+    # an untabled unstable call folds to a mention row, so emitted source stays a function
+    # of the tables rather than of which way a coin-flip probe happened to land.
+    return Built("fail", reason="nondeterministic", ann=desc.ann)
 
 
 def raises_probe(
