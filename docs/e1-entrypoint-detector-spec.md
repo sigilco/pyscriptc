@@ -77,9 +77,10 @@ One JSON object per E1-relevant file:
 Worked example, `pi_digits/main.py`:
 
 ```python
-def pi_digits(count: int) -> str: ...   # FunctionDef, inert
+def pi_digits(count: int) -> str: ...  # FunctionDef, inert
 
-print(pi_digits(60))                    # Expr, call=print -> relevant
+
+print(pi_digits(60))  # Expr, call=print -> relevant
 ```
 
 Inventory: `FunctionDef` (inert), `Expr` with `call == "print"` (relevant). `entry_stmt_count` is 1, `print_calls` is 1, no guard, script.

@@ -9,8 +9,10 @@
 # tree (no src/, no venv) can leak into the result. Needs clang on PATH and `uv` (for CPython 3.12).
 # Exit 0 on a match, 1 on any mismatch or failure.
 # Windows (git bash): default binary packaging/dist/pyscriptc-windows-x86_64.exe.
-# Experimental. explain and --help only, under env -i. No compile or run.
-# Emitted programs need POSIX headers (dirent.h, dlfcn.h, unistd.h).
+# Experimental. explain and --help only, under env -i. No compile or run:
+# link_binary compiles every runtime/*.c into each emitted program and ps_mix.c
+# needs dlfcn.h/dlopen, which MinGW-w64 does not provide (dirent.h and unistd.h
+# are also POSIX-only). compile+run would need a src/pyscriptc change.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
