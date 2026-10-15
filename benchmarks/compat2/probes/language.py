@@ -7,13 +7,16 @@ Snippets that fail verification are dropped and counted in the manifest, never e
 from __future__ import annotations
 
 import ast
+import json
+import sys
 
 from benchmarks.compat2.outcomes import WEIGHTS, Probe
 
 from . import engine
 from .fold import describe
 
-REF = "https://docs.python.org/3.14/reference/"
+ORACLE = f"{sys.version_info[0]}.{sys.version_info[1]}"
+REF = f"https://docs.python.org/{ORACLE}/reference/"
 SECTIONS = {
     "lexical": "lexical_analysis.html",
     "datamodel": "datamodel.html",
@@ -414,9 +417,17 @@ def _stmt_source(body: list[str], context: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _expr_rows(rows: list[dict[str, object]], dropped: list[str]) -> None:
+def _in_oracle(node: str) -> bool:
+    """Table entries are named after ast classes. Snippets for newer nodes are skipped on an older oracle."""
+    return hasattr(ast, node)
+
+
+def _expr_rows(rows: list[dict[str, object]], dropped: list[str], absent: list[str]) -> None:
     for node, variant, section, expr in EXPRS:
         stem = f"lang.{node}" + (f".{variant}" if variant else "")
+        if not _in_oracle(node):
+            absent.append(stem)
+            continue
         for context in CONTEXTS_EXPR:
             source = _expr_source(expr, context)
             if source is None or not _verified(source):
@@ -456,9 +467,12 @@ def _evaluate(expr: str) -> tuple[object] | None:
         return None
 
 
-def _stmt_rows(rows: list[dict[str, object]], dropped: list[str]) -> None:
+def _stmt_rows(rows: list[dict[str, object]], dropped: list[str], absent: list[str]) -> None:
     for node, variant, section, body in STMTS:
         stem = f"lang.{node}" + (f".{variant}" if variant else "")
+        if not _in_oracle(node):
+            absent.append(stem)
+            continue
         for context in CONTEXTS_STMT:
             source = _stmt_source(body, context)
             if not _verified(source):
@@ -488,8 +502,9 @@ def generate() -> tuple[list[dict[str, object]], dict[str, object]]:
 
     rows: list[dict[str, object]] = []
     dropped: list[str] = []
-    _expr_rows(rows, dropped)
-    _stmt_rows(rows, dropped)
+    absent: list[str] = []  # snippets for ast nodes the oracle does not have: kept for newer oracles only
+    _expr_rows(rows, dropped, absent)
+    _stmt_rows(rows, dropped, absent)
     adapted, adapter_stats = cpython_adapter.generate()
     rows.extend(adapted)
     denominator = node_denominator()
@@ -504,6 +519,13 @@ def generate() -> tuple[list[dict[str, object]], dict[str, object]]:
         "nodes_uncovered": sorted(set(denominator["concrete"]) - covered),
         "not_applicable": denominator["not_applicable"],
         "dropped_unverified": sorted(dropped),
+        "absent_in_oracle": sorted(absent),
         "cpython_tests": adapter_stats,
     }
     return rows, info
+
+
+if __name__ == "__main__":
+    # Worker entry: runs on the oracle interpreter and prints one JSON document for the orchestrator.
+    generated, details = generate()
+    print(json.dumps({"rows": generated, "info": details, "ast_nodes": sorted(node_denominator()["concrete"])}))

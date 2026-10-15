@@ -12,21 +12,46 @@ import os
 import select
 import signal
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 
-from .fold import Desc, describe, fold_lines, shape_lines
+from .fold import Desc, describe, fold_lines
 
 TIMEOUT = 2.5
+RETRIES = 2
+AGREE_FORKS = 5
 
 
 def run_forked(job, timeout: float = TIMEOUT) -> tuple[str, object]:  # noqa: ANN001
-    """Run `job()` in a child. Returns ("ok", json value) or ("exc", type name) or ("timeout"|"crash", "")."""
+    """Run `job()` in a child. Returns ("ok", json value) or ("exc", type name) or ("timeout"|"crash", "").
+
+    `timeout` and `crash` are infra outcomes (a busy box kills a healthy probe), not probe
+    facts, so they get RETRIES extra attempts before the caller sees them. Retrying keeps a
+    slow fork from flipping an emission decision between identical generation runs.
+    """
+    status, value = _fork_once(job, timeout)
+    for _ in range(RETRIES):
+        if status not in {"timeout", "crash"}:
+            break
+        status, value = _fork_once(job, timeout)
+    return status, value
+
+
+def _fork_once(job, timeout: float) -> tuple[str, object]:  # noqa: ANN001
+    """One attempt of run_forked."""
     read_fd, write_fd = os.pipe()
     pid = os.fork()
     if pid == 0:
         status = 0
         try:
             os.close(read_fd)
+            # The child shares every open file description with the parent. A probe that
+            # touches fd 3 (io.FileIO(3), fd 3 reads and seeks) would move the parent's
+            # read offset, so fd 3 is pointed at /dev/null before the job runs.
+            spare = os.open(os.devnull, os.O_RDWR)
+            if spare != 3:
+                os.dup2(spare, 3)
+                os.close(spare)
             os.setpgid(0, 0)
             null = os.open(os.devnull, os.O_RDWR)
             for fd in (0, 1, 2):
@@ -156,18 +181,26 @@ def _finalize(
     var: str = "r",
 ) -> Built:
     source = head + _signature(params, "int") + "\n" + _body(setup, lines) + "\n"
-    first, second = (run_forked(lambda: _exec_probe(source, args)) for _ in range(2))
-    if first[0] == "ok" and first == second and isinstance(first[1], int):
-        return Built("value", source, args, fold=fold, ann=desc.ann)
-    if first[0] != "ok":
-        return Built("fail", reason=f"final-{first[0]}:{first[1]}")
-    # nondeterministic across two forks: keep only the type check
-    shaped = [lines[0], *shape_lines(desc, var)] if lines[0].startswith(f"{var}:") else lines
-    source = head + _signature(params, "int") + "\n" + _body(setup, shaped) + "\n"
-    first, second = (run_forked(lambda: _exec_probe(source, args)) for _ in range(2))
-    if first[0] == "ok" and first == second and isinstance(first[1], int):
-        return Built("value", source, args, fold="shape", ann=desc.ann)
-    return Built("fail", reason="nondeterministic")
+    runs = [run_forked(lambda: _exec_probe(source, args)) for _ in range(AGREE_FORKS)]
+    oks = {r for r in runs if r[0] == "ok"}
+    infra = {"timeout", "crash"}
+    # Value acceptance needs every ok fork to agree on one int AND every non-ok fork to be
+    # an infra outcome only. A divergent exc alongside ok runs is nondeterminism, not a
+    # value, and a leading timeout must not fail a probe the rest of the forks agreed on.
+    if len(oks) == 1 and all(r[0] in infra for r in runs if r[0] != "ok"):
+        value = next(iter(oks))[1]
+        if isinstance(value, int):
+            return Built("value", source, args, fold=fold, ann=desc.ann)
+        return Built("fail", reason="final-ok-nonint")
+    if not oks:
+        status = Counter(r[0] for r in runs).most_common(1)[0][0]
+        detail = next(r[1] for r in runs if r[0] == status)
+        return Built("fail", reason=f"final-{status}:{detail}")
+    # Nondeterministic across AGREE_FORKS forks: fail with the result annotation still
+    # attached. Only VOLATILE_CALLS entries demote to a shape probe (in surface.shape_only);
+    # an untabled unstable call folds to a mention row, so emitted source stays a function
+    # of the tables rather than of which way a coin-flip probe happened to land.
+    return Built("fail", reason="nondeterministic", ann=desc.ann)
 
 
 def raises_probe(
@@ -189,7 +222,7 @@ def scalar_params(positional: list[str], keywords: dict[str, str], start: int = 
     def lift(text: str) -> str:
         try:
             value = ast.literal_eval(text)
-        except ValueError, SyntaxError:
+        except Exception:  # noqa: BLE001  # not a literal; also keeps this file parseable before 3.14
             return text
         if type(value) in (int, float, bool, str):
             name = f"p{start + len(params)}"

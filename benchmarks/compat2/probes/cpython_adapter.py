@@ -11,6 +11,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 from benchmarks.compat2.outcomes import WEIGHTS, Probe
@@ -18,7 +19,18 @@ from benchmarks.compat2.outcomes import WEIGHTS, Probe
 from . import engine
 from .fold import describe
 
-DIR = Path(__file__).resolve().parent / "cpython_tests"
+TESTS = Path(__file__).resolve().parent / "cpython_tests"
+
+
+def pinned_dir(oracle: str) -> Path:
+    """The pinned directory whose tag is a release of `oracle`: cpython_tests/ holds 3.12, py314/ the secondary."""
+    for candidate in (TESTS, *sorted(p for p in TESTS.iterdir() if p.is_dir() and (p / "PIN.json").exists())):
+        pin = json.loads((candidate / "PIN.json").read_text(encoding="utf-8"))
+        if pin["tag"].startswith(f"v{oracle}."):
+            return candidate
+    raise SystemExit(f"no pinned CPython tests for oracle {oracle}")
+
+
 CAP = 80
 SECTION = {
     "grammar": "lexical_analysis.html",
@@ -124,10 +136,11 @@ def _ok(source: str) -> bool:
 
 
 def generate() -> tuple[list[dict[str, object]], dict[str, object]]:
-    pin = json.loads((DIR / "PIN.json").read_text(encoding="utf-8"))
+    tests_dir = pinned_dir(f"{sys.version_info[0]}.{sys.version_info[1]}")
+    pin = json.loads((tests_dir / "PIN.json").read_text(encoding="utf-8"))
     rows: list[dict[str, object]] = []
     stats: dict[str, object] = {"tag": pin["tag"], "files": {}}
-    for path in sorted(DIR.glob("test_*.py.txt")):
+    for path in sorted(tests_dir.glob("test_*.py.txt")):
         text = path.read_bytes()
         stem = path.name.removeprefix("test_").removesuffix(".py.txt")
         if hashlib.sha256(text).hexdigest() != pin["files"][path.name]:
@@ -150,7 +163,9 @@ def generate() -> tuple[list[dict[str, object]], dict[str, object]]:
                 pid = f"lang.cpython.{stem}.{cls.name}.{fn.name}"
                 probe = Probe(pid, "language", "language", "value", source, weight=WEIGHTS["language"])
                 meta = {"id": pid, "area": "language", "category": "language", "kind": "value", "fold": "cpython-test"}
-                meta["section"] = "https://docs.python.org/3.14/reference/" + SECTION[stem]
+                meta["section"] = (
+                    f"https://docs.python.org/{sys.version_info[0]}.{sys.version_info[1]}/reference/" + SECTION[stem]
+                )
                 rows.append({"probe": probe.to_json(), "meta": meta})
         stats["files"][path.name] = {  # type: ignore[index]
             "methods": methods,
