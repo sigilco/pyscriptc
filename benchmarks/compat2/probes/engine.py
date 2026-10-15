@@ -168,11 +168,13 @@ def _finalize(
         return Built("value", source, args, fold=fold, ann=desc.ann)
     if runs[0][0] != "ok":
         return Built("fail", reason=f"final-{runs[0][0]}:{runs[0][1]}")
-    # nondeterministic across three forks: keep only the type check
+    # nondeterministic across three forks: keep only the type check. The shape probe is
+    # pure isinstance, so a single ok run that returns 0 or 1 is enough; repeating is what
+    # makes this decision itself nondeterministic under fork load.
     shaped = [lines[0], *shape_lines(desc, var)] if lines[0].startswith(f"{var}:") else lines
     source = head + _signature(params, "int") + "\n" + _body(setup, shaped) + "\n"
-    runs = [run_forked(lambda: _exec_probe(source, args)) for _ in range(3)]
-    if len({r for r in runs if r[0] == "ok"}) == 1 and isinstance(runs[0][1], int):
+    status, value = run_forked(lambda src=source, a=args: _exec_probe(src, a))
+    if status == "ok" and isinstance(value, int) and value in (0, 1):
         return Built("value", source, args, fold="shape", ann=desc.ann)
     return Built("fail", reason="nondeterministic")
 

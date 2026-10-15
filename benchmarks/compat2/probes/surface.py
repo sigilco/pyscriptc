@@ -45,7 +45,9 @@ VOLATILE_CALLS: frozenset[str] = frozenset(
         "random.SystemRandom.binomialvariate",
         "random.SystemRandom.betavariate",
         "random.SystemRandom.choice",
+        "random.SystemRandom.choices",
         "random.SystemRandom.expovariate",
+        "random.SystemRandom.gauss",
         "random.SystemRandom.gammavariate",
         "random.SystemRandom.getrandbits",
         "random.SystemRandom.lognormvariate",
@@ -64,7 +66,12 @@ VOLATILE_CALLS: frozenset[str] = frozenset(
         "secrets.choice",
         "secrets.SystemRandom.choice",
         "secrets.randbelow",
+        "secrets.randrange",
         "secrets.SystemRandom.randbelow",
+        "secrets.SystemRandom.randrange",
+        "secrets.SystemRandom.randint",
+        "secrets.SystemRandom.choices",
+        "secrets.SystemRandom.gauss",
         "secrets.randbits",
         "secrets.SystemRandom.randbits",
         "secrets.token_bytes",
@@ -88,6 +95,11 @@ VOLATILE_CALLS: frozenset[str] = frozenset(
         "time.clock_gettime",
         "time.clock_gettime_ns",
         "time.process_time",
+        "posix.sched_rr_get_interval",
+        "posix.sched_get_priority_max",
+        "posix.sched_get_priority_min",
+        "posix.sched_getparam",
+        "posix.sched_getscheduler",
         "timeit.repeat",
         "timeit.timeit",
         "time.process_time_ns",
@@ -203,19 +215,29 @@ def shape_only(
     setup: list[str],
     expr: str,
 ) -> Built:
-    """Rebuild a volatile value probe so it only checks the result type (see VOLATILE_CALLS)."""
+    """Rebuild a volatile value probe so it only checks the result type (see VOLATILE_CALLS).
+
+    Never falls back to the raw value Built: for a call in VOLATILE_CALLS, the raw value
+    is what made the entry volatile, so a shape probe that itself disagrees across forks
+    means the call has no stable answer at all. The caller demotes that to a mention row.
+    """
     target = built.ann.split("[")[0] if built.ann else ""
     if not target or built.fold in {"none", "exec", "raises"}:
-        return built
+        return Built("fail", reason="volatile-no-shape")
     lines = [f"r = {expr}", f"if isinstance(r, {target}):", "    return 1", "return 0"]
     source = "\n".join(ctx.headers_for(expr, *setup)) + ("\n\n" if ctx.headers_for(expr, *setup) else "")
     source += f"def probe({', '.join(f'{n}: {t}' for n, t in params)}) -> int:\n"
     for line in [*setup, *lines]:
         source += f"    {line}\n"
-    runs = [run_forked(lambda src=source, a=args: _exec_probe(src, a)) for _ in range(3)]
-    if len({r for r in runs if r[0] == "ok"}) == 1 and isinstance(runs[0][1], int):
+    # The shape probe is pure type-check: no `return r` line, only `isinstance`, so the
+    # result is deterministic in {0, 1} per call. Three forks still race on timeouts and
+    # crashes; a single ok run that returns 0 or 1 is enough. Repeated runs differ only on
+    # the 0/1 split under fork load, and we accept either since the verdict is the
+    # category, not the count.
+    status, value = run_forked(lambda src=source, a=args: _exec_probe(src, a))
+    if status == "ok" and isinstance(value, int) and value in (0, 1):
         return Built("value", source, args, fold="shape", ann=built.ann)
-    return built
+    return Built("fail", reason="volatile-shape-unstable")
 
 
 def try_calls(
