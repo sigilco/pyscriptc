@@ -4,7 +4,8 @@
 #   packaging/build.sh                 build for the host OS and arch
 #   packaging/build.sh --check-env     print the detected target and tool versions, build nothing
 #
-# Output: packaging/dist/pyscriptc-<os>-<arch>  (os: macos|linux, arch: arm64|aarch64|x86_64)
+# Output: packaging/dist/pyscriptc-<os>-<arch>[.exe]
+#   os: macos|linux|windows, arch: arm64|aarch64|x86_64
 # Run it where the target runs. Nuitka does not cross compile, so each target is built on
 # its own OS and arch (linux targets inside the Linux dev container or a native Linux host).
 set -euo pipefail
@@ -12,17 +13,28 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/.." && pwd)"
 
-case "$(uname -s)" in
+uname_s="$(uname -s)"
+case "$uname_s" in
   Darwin) os=macos ;;
   Linux) os=linux ;;
-  *) echo "unsupported OS: $(uname -s)" >&2; exit 2 ;;
+  MINGW*|MSYS*|CYGWIN*) os=windows ;;
+  *) echo "unsupported OS: $uname_s" >&2; exit 2 ;;
 esac
 arch="$(uname -m)"
 case "$os-$arch" in
-  macos-arm64|linux-aarch64|linux-x86_64) ;;
-  *) echo "unsupported target $os-$arch (documented: macos-arm64, linux-aarch64, linux-x86_64)" >&2; exit 2 ;;
+  macos-arm64|macos-x86_64|linux-aarch64|linux-x86_64|windows-x86_64) ;;
+  *)
+    echo "unsupported target $os-$arch (documented: macos-arm64, macos-x86_64, linux-aarch64, linux-x86_64, windows-x86_64)" >&2
+    exit 2
+    ;;
 esac
-name="pyscriptc-$os-$arch"
+# venv directory stays free of the .exe suffix so it is not confused with the artifact.
+stem="pyscriptc-$os-$arch"
+if [ "$os" = windows ]; then
+  name="$stem.exe"
+else
+  name="$stem"
+fi
 
 if [ "${1:-}" = "--check-env" ]; then
   echo "target: $name"
@@ -34,7 +46,7 @@ fi
 cd "$root"
 # One venv per target under packaging/build/ so a Linux container run and a macOS run never share
 # an interpreter, and the dev venv is left alone.
-venv="${UV_PROJECT_ENVIRONMENT:-$here/build/venv-$name}"
+venv="${UV_PROJECT_ENVIRONMENT:-$here/build/venv-$stem}"
 export UV_PROJECT_ENVIRONMENT="$venv"
 if [ "$os" = linux ] && ! command -v patchelf >/dev/null; then
   echo "patchelf is required for Nuitka onefile on Linux (apt-get install patchelf)" >&2
@@ -77,6 +89,12 @@ if [ "${NUITKA_LOW_MEMORY:-0}" = 1 ]; then args+=(--low-memory); fi
 if [ -n "${NUITKA_JOBS:-}" ]; then args+=("--jobs=$NUITKA_JOBS"); fi
 if [ "$os" = macos ]; then
   args+=(--macos-target-arch="$arch")
+fi
+if [ "$os" = windows ]; then
+  # Experimental artifact. Nuitka on Python 3.13+ rejects MinGW64 unless this
+  # switch is set. --assume-yes-for-downloads (above) fetches that toolchain.
+  # Emitted programs still need POSIX headers and are out of scope.
+  args+=(--mingw64 --experimental=force-mingw64)
 fi
 
 PYTHONPATH="$root/src${PYTHONPATH:+:$PYTHONPATH}" \
