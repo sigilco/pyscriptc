@@ -39,72 +39,129 @@ SELF_ONLY = [["0", "0"]]
 # Calls whose result is genuinely random or per process. Sampling forks a few times and agreeing by luck is
 # likely enough (a fair coin passes three forks 25% of the time), so these are demoted to the type-check fold
 # statically instead. The versions axis then leaves them empty through seed_dependent/process_dependent.
+# Entries are qualified names (`random.choice`, `secrets.SystemRandom.randrange`): instance methods are
+# probed through an `o.<meth>` receiver, so the lookup keys on the declared qual, never the call text.
+_RAND_VARIATES: tuple[str, ...] = (
+    "betavariate",
+    "binomialvariate",
+    "choice",
+    "choices",
+    "expovariate",
+    "gammavariate",
+    "gauss",
+    "getrandbits",
+    "lognormvariate",
+    "normalvariate",
+    "paretovariate",
+    "randbelow",
+    "randbits",
+    "randbytes",
+    "randint",
+    "random",
+    "randrange",
+    "sample",
+    "shuffle",
+    "triangular",
+    "uniform",
+    "vonmisesvariate",
+    "weibullvariate",
+)
 VOLATILE_CALLS: frozenset[str] = frozenset(
     {
-        "random.binomialvariate",
-        "random.SystemRandom.binomialvariate",
-        "random.SystemRandom.betavariate",
-        "random.SystemRandom.choice",
-        "random.SystemRandom.choices",
-        "random.SystemRandom.expovariate",
-        "random.SystemRandom.gauss",
-        "random.SystemRandom.gammavariate",
-        "random.SystemRandom.getrandbits",
-        "random.SystemRandom.lognormvariate",
-        "random.SystemRandom.normalvariate",
-        "random.SystemRandom.paretovariate",
-        "random.SystemRandom.randbelow",
-        "random.SystemRandom.randbytes",
-        "random.SystemRandom.randbits",
-        "random.SystemRandom.random",
-        "random.SystemRandom.sample",
-        "random.SystemRandom.shuffle",
-        "random.SystemRandom.triangular",
-        "random.SystemRandom.uniform",
-        "random.SystemRandom.vonmisesvariate",
-        "random.SystemRandom.weibullvariate",
+        # Module-level random.* functions are bound to the global Random instance, and the
+        # SystemRandom classes under both homes draw from os.urandom regardless of the
+        # constructor argument, so the same variate set applies to all three surfaces.
+        *(f"random.{m}" for m in _RAND_VARIATES),
+        *(f"random.SystemRandom.{m}" for m in _RAND_VARIATES),
+        *(f"secrets.SystemRandom.{m}" for m in _RAND_VARIATES),
         "secrets.choice",
-        "secrets.SystemRandom.choice",
         "secrets.randbelow",
-        "secrets.randrange",
-        "secrets.SystemRandom.randbelow",
-        "secrets.SystemRandom.randrange",
-        "secrets.SystemRandom.randint",
-        "secrets.SystemRandom.choices",
-        "secrets.SystemRandom.gauss",
         "secrets.randbits",
-        "secrets.SystemRandom.randbits",
+        "secrets.randrange",
         "secrets.token_bytes",
-        "secrets.SystemRandom.token_bytes",
         "secrets.token_hex",
-        "secrets.SystemRandom.token_hex",
         "secrets.token_urlsafe",
-        "secrets.SystemRandom.token_urlsafe",
+        # os and posix expose the same calls; both quals appear in the stdlib surface.
         "os.forkpty",
+        "os.getpid",
+        "os.getpgrp",
+        "os.getrandom",
         "os.openpty",
         "os.pipe",
         "os.pipe2",
+        "os.times",
         "os.urandom",
-        "random.getrandbits",
-        "random.randbytes",
-        "random.random",
-        "random.randrange",
-        "random.sample",
-        "random.shuffle",
-        "random.uniform",
+        "posix.forkpty",
+        "posix.getpid",
+        "posix.getpgrp",
+        "posix.getrandom",
+        "posix.openpty",
+        "posix.pipe",
+        "posix.pipe2",
+        "posix.times",
+        "posix.urandom",
+        "ssl.RAND_bytes",
+        "ssl.RAND_pseudo_bytes",
+        "sys.getallocatedblocks",
+        "tempfile.mktemp",
+        "tempfile.mkdtemp",
+        "tempfile.mkstemp",
+        "tempfile.NamedTemporaryFile",
+        "tempfile.SpooledTemporaryFile",
+        "tempfile.TemporaryDirectory",
+        "tempfile.TemporaryFile",
+        "threading.get_ident",
+        "threading.get_native_id",
         "time.clock_gettime",
         "time.clock_gettime_ns",
+        "time.monotonic",
+        "time.monotonic_ns",
+        "time.perf_counter",
+        "time.perf_counter_ns",
         "time.process_time",
+        "time.process_time_ns",
+        "time.thread_time",
+        "time.thread_time_ns",
+        "time.time",
+        "time.time_ns",
+        "timeit.default_timer",
+        "timeit.repeat",
+        "timeit.timeit",
+        "uuid.getnode",
+        "uuid.uuid1",
+        "uuid.uuid4",
+        "asyncio.BaseEventLoop.time",
+        "gc.collect",
+        "gc.get_count",
+        "gc.get_freeze_count",
+        "gc.get_objects",
+        "gc.get_referents",
+        "gc.get_referrers",
+        "gc.get_stats",
         "posix.sched_rr_get_interval",
         "posix.sched_get_priority_max",
         "posix.sched_get_priority_min",
         "posix.sched_getparam",
         "posix.sched_getscheduler",
-        "timeit.repeat",
-        "timeit.timeit",
-        "time.process_time_ns",
-        "time.thread_time",
-        "time.thread_time_ns",
+        "os.sched_rr_get_interval",
+        "os.sched_get_priority_max",
+        "os.sched_get_priority_min",
+        "os.sched_getparam",
+        "os.sched_getscheduler",
+        # File times move under the generator's own reads (atime updates on access), so the
+        # same call can answer differently across forks of one run.
+        "genericpath.getatime",
+        "genericpath.getctime",
+        "genericpath.getmtime",
+        "ntpath.getatime",
+        "ntpath.getctime",
+        "ntpath.getmtime",
+        "os.path.getatime",
+        "os.path.getctime",
+        "os.path.getmtime",
+        "posixpath.getatime",
+        "posixpath.getctime",
+        "posixpath.getmtime",
     }
 )
 # Calls that fork a grandchild while the result pipe is open: the grandchild inherits the
@@ -246,11 +303,19 @@ def try_calls(
     attempts: list[tuple[list[str], dict[str, str]]],
     setup: list[str] | None = None,
     receiver: str = "",
+    qual: str = "",
 ) -> Built:
-    """First candidate that runs and folds wins. Else a raises probe if candidates agree on an exception."""
+    """First candidate that runs and folds wins. Else a raises probe if candidates agree on an exception.
+
+    `qual` is the declared name of the probed member (`secrets.SystemRandom.randrange`); it defaults to
+    `callee` for module-level calls and differs for instance methods, whose call text is `o.<meth>` and
+    could never match VOLATILE_CALLS.
+    """
     setup = setup or []
     if callee in FORCE_NON_VALUE:
         return Built("fail", reason="non-value:forking")
+    volatile_name = qual or callee
+    unstable: Built | None = None
     raised: Counter[str] = Counter()
     first_raise: dict[str, tuple[list[tuple[str, str]], list[object], str]] = {}
     last = Built("fail", reason="no-candidates")
@@ -259,13 +324,24 @@ def try_calls(
         expr = f"{callee}({text})"
         built = build(ctx.headers_for(expr, *setup), params, args, setup, expr, receiver)
         if built.kind == "value":
-            if callee in VOLATILE_CALLS:
+            if volatile_name in VOLATILE_CALLS:
                 return shape_only(built, ctx, params, args, setup, expr)
             return built
+        # A volatile call whose raw probe races still knows its result type: demote it
+        # statically instead of letting the next run's agreement check land elsewhere.
+        if built.kind == "fail" and built.reason == "nondeterministic" and volatile_name in VOLATILE_CALLS:
+            return shape_only(built, ctx, params, args, setup, expr)
+        if built.reason == "nondeterministic":
+            # The call ran but has no stable answer: later candidates may still yield a
+            # stable probe (typed args), and only those may feed the raises fallback.
+            unstable = unstable or built
+            continue
         last = built
         if built.fold == "raises":
             raised[built.reason] += 1
             first_raise.setdefault(built.reason, (params, args, expr))
+    if unstable is not None:
+        return unstable
     if raised:
         exc = raised.most_common(1)[0][0]
         params, args, expr = first_raise[exc]
@@ -438,7 +514,7 @@ def probe_methods(ctx: Ctx, name: str, cls: type, setup: list[str] | None) -> No
             continue
         callee = qual if static else f"o.{meth}"
         attempts = attempts_for(qual, sigs_of(defs, True), ctx.stub_of(cls))
-        built = try_calls(ctx, callee, attempts, [] if static else setup, "" if static else "o")
+        built = try_calls(ctx, callee, attempts, [] if static else setup, "" if static else "o", qual)
         if not ctx.finish(pid, category, built):
             ctx.mention(pid, category, qual, f"no oracle-checked call: {built.reason}")
 
