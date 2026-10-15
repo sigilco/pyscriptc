@@ -1,0 +1,157 @@
+# Native release binaries (Nuitka onefile). One OS and arch per runner. No cross compile.
+#
+# macOS x86_64 uses macos-15-intel, a native Intel runner. macos-13 is retired.
+# Do not build that target on macos-14 with a cross arch flag.
+# Linux stays on ubuntu-24.04 (glibc 2.39). Do not switch runners for an older glibc.
+# Windows x86_64 is experimental. The build step must pass. Only the Windows
+# smoke step sets continue-on-error. There is no Windows arm64 target.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build (${{ matrix.target }}${{ matrix.experimental && ', experimental' || '' }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            target: macos-arm64
+            artifact: pyscriptc-macos-arm64
+            platform: unix
+          - runner: macos-15-intel
+            target: macos-x86_64
+            artifact: pyscriptc-macos-x86_64
+            platform: unix
+          - runner: ubuntu-24.04
+            target: linux-x86_64
+            artifact: pyscriptc-linux-x86_64
+            platform: unix
+          - runner: ubuntu-24.04-arm
+            target: linux-aarch64
+            artifact: pyscriptc-linux-aarch64
+            platform: unix
+          - runner: windows-2022
+            target: windows-x86_64
+            artifact: pyscriptc-windows-x86_64.exe
+            platform: windows
+            experimental: true
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.14"
+
+      - name: Install patchelf and clang
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq patchelf clang
+
+      - name: Build
+        shell: bash
+        run: |
+          uv sync --group packaging
+          packaging/build.sh
+
+      - name: Smoke (full)
+        if: matrix.platform == 'unix'
+        shell: bash
+        run: packaging/smoke.sh "packaging/dist/${{ matrix.artifact }}"
+
+      - name: Smoke (Windows explain)
+        if: matrix.platform == 'windows'
+        continue-on-error: true
+        shell: bash
+        run: packaging/smoke.sh "packaging/dist/${{ matrix.artifact }}"
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: ${{ matrix.target }}
+          path: packaging/dist/${{ matrix.artifact }}
+          if-no-files-found: error
+
+  release:
+    name: checksums and draft release
+    needs: build
+    runs-on: ubuntu-24.04
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: dist
+          pattern: "*"
+          merge-multiple: true
+
+      - name: sha256sums.txt
+        run: |
+          set -euo pipefail
+          mkdir -p bundle
+          find dist -type f -name 'pyscriptc-*' -exec cp -t bundle {} +
+          mapfile -t bins < <(find bundle -maxdepth 1 -type f -name 'pyscriptc-*' | sort)
+          if [ "${#bins[@]}" -ne 5 ]; then
+            echo "expected 5 release binaries, found ${#bins[@]}" >&2
+            find dist -type f -print >&2
+            exit 1
+          fi
+          (
+            cd bundle
+            sha256sum pyscriptc-* | LC_ALL=C sort -k2 > sha256sums.txt
+            cat sha256sums.txt
+          )
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: release-bundle
+          path: bundle/
+          if-no-files-found: error
+
+      - name: Draft GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v3
+        with:
+          draft: true
+          name: ${{ github.ref_name }}
+          generate_release_notes: false
+          fail_on_unmatched_files: true
+          body: |
+            Draft release. Not published.
+
+            | Target | Artifact | Runner | Smoke |
+            | --- | --- | --- | --- |
+            | macos-arm64 | `pyscriptc-macos-arm64` | macos-14 | full |
+            | macos-x86_64 | `pyscriptc-macos-x86_64` | macos-15-intel | full |
+            | linux-x86_64 | `pyscriptc-linux-x86_64` | ubuntu-24.04 | full |
+            | linux-aarch64 | `pyscriptc-linux-aarch64` | ubuntu-24.04-arm | full |
+            | windows-x86_64 (experimental) | `pyscriptc-windows-x86_64.exe` | windows-2022 | explain and --help only |
+
+            Checksums for the five binaries are in `sha256sums.txt`.
+
+            Linux x86_64 and linux aarch64 are built on ubuntu-24.04. glibc on that image is 2.39. That is the floor for these artifacts. This workflow does not retarget an older runner to chase an older glibc.
+
+            `pyscriptc-windows-x86_64.exe` is experimental. The compiler binary may build with Nuitka MinGW64. Emitted programs need POSIX headers (`dirent.h`, `dlfcn.h`, `unistd.h`) and are out of scope. Windows smoke covers `explain` and `--help` only, not compile and run. There is no Windows arm64 artifact.
+
+            Each binary is the compiler only. User programs still need `clang` on `PATH` (see `packaging/TOOLCHAIN.md`). Nuitka does not cross-compile: each row is built on its own OS and CPU.
+          files: bundle/*

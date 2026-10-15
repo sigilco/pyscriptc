@@ -4,13 +4,35 @@ One self contained executable per target, built with [Nuitka](https://nuitka.net
 
 Nothing here touches `src/`. Nuitka is an optional dependency group (`packaging` in `pyproject.toml`), so `uv sync` for development does not install it.
 
+## Release pipeline
+
+GitHub Actions workflow [`.github/workflows/release.yml`](../.github/workflows/release.yml) builds every supported target on its native runner (Nuitka does not cross-compile). Triggers are version tags `v*` and manual `workflow_dispatch`.
+
+| Target | Runner | Smoke in CI |
+| --- | --- | --- |
+| `pyscriptc-macos-arm64` | `macos-14` | full `packaging/smoke.sh` |
+| `pyscriptc-macos-x86_64` | `macos-15-intel` | full |
+| `pyscriptc-linux-x86_64` | `ubuntu-24.04` | full (`patchelf` installed on the runner) |
+| `pyscriptc-linux-aarch64` | `ubuntu-24.04-arm` | full |
+| `pyscriptc-windows-x86_64.exe` | `windows-2022` | explain / `--help` only (experimental) |
+
+macOS x86_64 uses the native `macos-15-intel` runner. `macos-13` is retired. The workflow does not cross-compile that target from `macos-14`.
+
+`pyscriptc-windows-x86_64.exe` is experimental. The compiler binary may build with Nuitka MinGW64 (`--assume-yes-for-downloads`, plus `--experimental=force-mingw64` because Nuitka rejects MinGW64 on Python 3.14 otherwise). Programs it emits need POSIX headers (`dirent.h`, `dlfcn.h`, `unistd.h`) and are out of scope, so the Windows smoke does not compile or run. Only that smoke step may fail without failing the job. The Windows build step may not. There is no Windows arm64 artifact.
+
+Linux x86_64 and aarch64 are built on ubuntu-24.04, whose glibc is 2.39. That floor is recorded in the draft release notes. The workflow does not switch runners to chase an older glibc.
+
+A final job writes `sha256sums.txt` over all five binaries and uploads them together as the `release-bundle` workflow artifact. Pushing a `v*` tag also opens a draft GitHub Release named after the tag, with the binaries and checksums attached. The workflow never publishes that release. `workflow_dispatch` with no tag still produces the artifacts and checksums, and creates the draft only when `github.ref_type` is `tag`.
+
 ## Targets
 
 | Target | Output name | Built on | Status |
 | --- | --- | --- | --- |
 | macOS arm64 | `pyscriptc-macos-arm64` | Apple silicon Mac, system clang (no Xcode shim dependency) | built and smoke tested, see Status |
+| macOS x86_64 | `pyscriptc-macos-x86_64` | Intel Mac (`macos-15-intel` in CI) | CI matrix |
 | Linux aarch64 | `pyscriptc-linux-aarch64` | Linux aarch64 host or container, `patchelf`, `clang` or `gcc` | see the status section below |
-| Linux x86_64 | `pyscriptc-linux-x86_64` | Linux x86_64 host (the Dory VM here is aarch64, so not built locally) | documented, not built |
+| Linux x86_64 | `pyscriptc-linux-x86_64` | Linux x86_64 host (the Dory VM here is aarch64, so not built locally) | CI matrix |
+| Windows x86_64 | `pyscriptc-windows-x86_64.exe` | Windows x86_64, Nuitka MinGW64 (no arm64) | experimental; emitted programs need `dirent.h`, `dlfcn.h`, `unistd.h` and are out of scope |
 
 Nuitka does not cross compile. Build each target on its own OS and architecture.
 
