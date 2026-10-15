@@ -79,6 +79,7 @@ Worked example, `pi_digits/main.py`:
 ```python
 def pi_digits(count: int) -> str: ...  # FunctionDef, inert
 
+
 print(pi_digits(60))  # Expr, call=print -> relevant
 ```
 
