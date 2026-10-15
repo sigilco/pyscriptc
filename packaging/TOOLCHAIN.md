@@ -44,6 +44,14 @@ If a new file type appears in `runtime/`, extend both `--include-data-files` lin
 
 `src/pyscriptc/check.py` runs `sys.executable -m mypy ...` as a subprocess. In a onefile build `sys.executable` points at a path that does not exist, and the binary has no `-m` switch. `packaging/entry.py` handles both without touching `src/`: it points `sys.executable` at the binary itself, and answers `binary -m mypy ARGS` by calling `mypy.main.main` in process. Every `compile` therefore unpacks the binary twice (once for the compiler, once for the mypy child). `--skip-check` avoids the second unpack.
 
+## zig cc alternative
+
+`zig cc` can replace `clang` for emitted user programs on macOS and Linux: it is a clang front end, and zig 0.13 or newer wraps clang 18+, which clears the LLVM 15 opaque-pointer floor. Floor: zig >= 0.13 (clang 18); zig >= 0.15 wraps clang 20. Verified on zig 0.16.0 with `-target x86_64-linux-gnu.2.39`, which also pins the exact glibc the output binary needs (`zig targets` lists valid versions). Two usage notes: pass `.ll` files by extension, `zig cc` does not accept clang's `-x ir` flag; and glibc pins need the matching loader at run time, same as any cross-built binary. `packaging/zig/smoke.sh` proves the non-mix and mix paths on every CI run.
+
+Not supported under zig cc: Windows-native emitted programs (the runtime needs `dlfcn.h`/`dlopen` and `dirent.h`/`unistd.h`; mingw-w64 provides none of them, that is runtime code, not a flag). Static musl targets for mix programs (static musl cannot `dlopen`, so `PYSCRIPTC_MIX_SO` is dead there). A mix `.so` built against a different libc than the emitted binary. Also not in scope: compiling the compiler itself with zig (Nuitka-on-zig is experimental) and changing `link_binary` to use zig (a `src/pyscriptc` change, planned as a `CC` override after gates-v2).
+
+Release-note blurb, matching release.yml's draft-body style: "Emitted programs may also be compiled with `zig cc` >= 0.13 instead of `clang`, on macOS and Linux only. `zig cc -O2 prog.ll <runtime>/*.c -target x86_64-linux-gnu.2.39 -lm -o out` builds a binary pinned to glibc 2.39. Windows-native programs, static-musl mix programs, and cross-libc mix .so files are not supported. The released compiler binary is still built with the native per-runner toolchains."
+
 ## Known issues
 
 - **Platform constants (A0).** `src/pyscriptc/stdmore.py` reads every `errno` name, and some `os` names, at import time. macOS lacks `errno.EADV` and `os.CLONE_FILES`, so an unpatched binary dies on start. The fix is being made in the `pyscriptc-a0-macos` worktree. Until it lands, `entry.py` retries the import and sets each missing name to `-1`. A script that names such a constant on macOS gets `-1`, which is wrong. Delete `_load_cli` from `entry.py` once A0 is merged; it is inert on a tree where the import already works.
