@@ -1,0 +1,405 @@
+{
+  "generated": "2026-10-15",
+  "command": "uv run python -m benchmarks.compat2.census_self --json benchmarks/compat2/census-self.json",
+  "mode": "parse-only",
+  "src": "src/pyscriptc",
+  "lines": 11622,
+  "modules": 14,
+  "skipped": [
+    "__main__.py"
+  ],
+  "fences": 619,
+  "definitions": 497,
+  "fencedDefinitions": 430,
+  "packages": [
+    {
+      "package": "pyscriptc",
+      "fences": 0,
+      "definitions": 0,
+      "fencedDefinitions": 0,
+      "rootFamilies": {},
+      "derivedFamilies": {}
+    },
+    {
+      "package": "builtins",
+      "fences": 4,
+      "definitions": 3,
+      "fencedDefinitions": 3,
+      "rootFamilies": {
+        "dynamic-annotation": 4
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "check",
+      "fences": 9,
+      "definitions": 2,
+      "fencedDefinitions": 2,
+      "rootFamilies": {
+        "name-resolution": 4,
+        "construct-other": 2,
+        "field-lookup": 1,
+        "local-inference": 1,
+        "with-as": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "cli",
+      "fences": 16,
+      "definitions": 6,
+      "fencedDefinitions": 6,
+      "rootFamilies": {
+        "unlowered-type-name": 4,
+        "import-table": 2,
+        "dynamic-annotation": 1,
+        "union-types": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 8
+      }
+    },
+    {
+      "package": "coverage",
+      "fences": 25,
+      "definitions": 13,
+      "fencedDefinitions": 13,
+      "rootFamilies": {
+        "dynamic-annotation": 5,
+        "construct-other": 3,
+        "name-resolution": 3,
+        "union-types": 3,
+        "local-inference": 2,
+        "stdlib:collections": 2,
+        "decorators": 1,
+        "generic-alias": 1,
+        "import-table": 1,
+        "unlowered-type-name": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 3
+      }
+    },
+    {
+      "package": "diagnostics",
+      "fences": 4,
+      "definitions": 2,
+      "fencedDefinitions": 2,
+      "rootFamilies": {
+        "decorators": 1,
+        "union-types": 1,
+        "unlowered-call": 1,
+        "unlowered-type-name": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "errors",
+      "fences": 8,
+      "definitions": 6,
+      "fencedDefinitions": 6,
+      "rootFamilies": {
+        "construct-other": 4,
+        "dynamic-annotation": 2,
+        "field-lookup": 2
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "ir",
+      "fences": 15,
+      "definitions": 13,
+      "fencedDefinitions": 13,
+      "rootFamilies": {
+        "dynamic-annotation": 9,
+        "name-resolution": 2,
+        "construct-other": 1,
+        "local-inference": 1,
+        "module-assign": 1,
+        "stdlib:sys": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "llvm",
+      "fences": 107,
+      "definitions": 65,
+      "fencedDefinitions": 65,
+      "rootFamilies": {
+        "dynamic-annotation": 57,
+        "construct-other": 34,
+        "local-inference": 8,
+        "name-resolution": 4,
+        "union-types": 2
+      },
+      "derivedFamilies": {
+        "export-cascade": 2
+      }
+    },
+    {
+      "package": "lower",
+      "fences": 282,
+      "definitions": 246,
+      "fencedDefinitions": 246,
+      "rootFamilies": {
+        "unlowered-type-name": 174,
+        "dynamic-annotation": 56,
+        "name-resolution": 12,
+        "union-types": 10,
+        "local-inference": 5,
+        "parameter-forms": 3,
+        "import-table": 2
+      },
+      "derivedFamilies": {
+        "export-cascade": 20
+      }
+    },
+    {
+      "package": "package",
+      "fences": 15,
+      "definitions": 8,
+      "fencedDefinitions": 8,
+      "rootFamilies": {
+        "dynamic-annotation": 5,
+        "construct-other": 3,
+        "import-table": 2,
+        "unlowered-type-name": 2,
+        "local-inference": 1,
+        "name-resolution": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 1
+      }
+    },
+    {
+      "package": "restlower",
+      "fences": 65,
+      "definitions": 51,
+      "fencedDefinitions": 51,
+      "rootFamilies": {
+        "dynamic-annotation": 47,
+        "name-resolution": 3,
+        "union-types": 3,
+        "construct-other": 2,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 9
+      }
+    },
+    {
+      "package": "stdlib_queue",
+      "fences": 24,
+      "definitions": 6,
+      "fencedDefinitions": 6,
+      "rootFamilies": {
+        "dynamic-annotation": 17,
+        "generic-alias": 2,
+        "union-types": 2,
+        "construct-other": 1,
+        "local-inference": 1,
+        "type-mismatch": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "stdmore",
+      "fences": 45,
+      "definitions": 9,
+      "fencedDefinitions": 9,
+      "rootFamilies": {
+        "dynamic-annotation": 26,
+        "construct-other": 7,
+        "unlowered-call": 4,
+        "union-types": 3,
+        "name-resolution": 2,
+        "module-value": 1,
+        "operator": 1,
+        "type-mismatch": 1
+      },
+      "derivedFamilies": {}
+    }
+  ],
+  "clean": [
+    "pyscriptc"
+  ],
+  "ranking": [
+    {
+      "rank": 1,
+      "family": "dynamic-annotation",
+      "packagesTouched": 11,
+      "fences": 229,
+      "newlyUnblocked": [
+        "builtins"
+      ],
+      "cumulativeUnblocked": 1
+    },
+    {
+      "rank": 2,
+      "family": "construct-other",
+      "packagesTouched": 9,
+      "fences": 57,
+      "newlyUnblocked": [],
+      "cumulativeUnblocked": 1
+    },
+    {
+      "rank": 3,
+      "family": "field-lookup",
+      "packagesTouched": 2,
+      "fences": 3,
+      "newlyUnblocked": [
+        "errors"
+      ],
+      "cumulativeUnblocked": 2
+    },
+    {
+      "rank": 4,
+      "family": "name-resolution",
+      "packagesTouched": 8,
+      "fences": 31,
+      "newlyUnblocked": [],
+      "cumulativeUnblocked": 2
+    },
+    {
+      "rank": 5,
+      "family": "union-types",
+      "packagesTouched": 8,
+      "fences": 25,
+      "newlyUnblocked": [],
+      "cumulativeUnblocked": 2
+    },
+    {
+      "rank": 6,
+      "family": "local-inference",
+      "packagesTouched": 7,
+      "fences": 19,
+      "newlyUnblocked": [
+        "llvm"
+      ],
+      "cumulativeUnblocked": 3
+    },
+    {
+      "rank": 7,
+      "family": "import-table",
+      "packagesTouched": 5,
+      "fences": 8,
+      "newlyUnblocked": [
+        "restlower"
+      ],
+      "cumulativeUnblocked": 4
+    },
+    {
+      "rank": 8,
+      "family": "unlowered-type-name",
+      "packagesTouched": 5,
+      "fences": 182,
+      "newlyUnblocked": [
+        "cli",
+        "package"
+      ],
+      "cumulativeUnblocked": 6
+    },
+    {
+      "rank": 9,
+      "family": "parameter-forms",
+      "packagesTouched": 1,
+      "fences": 3,
+      "newlyUnblocked": [
+        "lower"
+      ],
+      "cumulativeUnblocked": 7
+    },
+    {
+      "rank": 10,
+      "family": "with-as",
+      "packagesTouched": 1,
+      "fences": 1,
+      "newlyUnblocked": [
+        "check"
+      ],
+      "cumulativeUnblocked": 8
+    },
+    {
+      "rank": 11,
+      "family": "generic-alias",
+      "packagesTouched": 2,
+      "fences": 3,
+      "newlyUnblocked": [],
+      "cumulativeUnblocked": 8
+    },
+    {
+      "rank": 12,
+      "family": "type-mismatch",
+      "packagesTouched": 2,
+      "fences": 2,
+      "newlyUnblocked": [
+        "stdlib_queue"
+      ],
+      "cumulativeUnblocked": 9
+    },
+    {
+      "rank": 13,
+      "family": "decorators",
+      "packagesTouched": 2,
+      "fences": 2,
+      "newlyUnblocked": [],
+      "cumulativeUnblocked": 9
+    },
+    {
+      "rank": 14,
+      "family": "unlowered-call",
+      "packagesTouched": 2,
+      "fences": 5,
+      "newlyUnblocked": [
+        "diagnostics"
+      ],
+      "cumulativeUnblocked": 10
+    },
+    {
+      "rank": 15,
+      "family": "stdlib:collections",
+      "packagesTouched": 1,
+      "fences": 2,
+      "newlyUnblocked": [
+        "coverage"
+      ],
+      "cumulativeUnblocked": 11
+    },
+    {
+      "rank": 16,
+      "family": "module-assign",
+      "packagesTouched": 1,
+      "fences": 1,
+      "newlyUnblocked": [],
+      "cumulativeUnblocked": 11
+    },
+    {
+      "rank": 17,
+      "family": "stdlib:sys",
+      "packagesTouched": 1,
+      "fences": 1,
+      "newlyUnblocked": [
+        "ir"
+      ],
+      "cumulativeUnblocked": 12
+    },
+    {
+      "rank": 18,
+      "family": "module-value",
+      "packagesTouched": 1,
+      "fences": 1,
+      "newlyUnblocked": [],
+      "cumulativeUnblocked": 12
+    },
+    {
+      "rank": 19,
+      "family": "operator",
+      "packagesTouched": 1,
+      "fences": 1,
+      "newlyUnblocked": [
+        "stdmore"
+      ],
+      "cumulativeUnblocked": 13
+    }
+  ]
+}
