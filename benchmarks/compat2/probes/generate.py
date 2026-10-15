@@ -290,7 +290,10 @@ def main(argv: list[str]) -> int:
     if primary:
         CONTINUITY.mkdir(exist_ok=True)
         write_jsonl(CONTINUITY / "v1equiv.jsonl", v1_rows)
-        write_jsonl(out_dir / "v1equiv.jsonl", v1_rows)  # also under --out so a/b runs can byte-compare it
+        if opts.out is not None:
+            # Duplicate under an explicit --out so a/b runs can byte-compare it; the
+            # default out dir IS the corpus, where a stray *.jsonl would be re-loaded.
+            write_jsonl(out_dir / "v1equiv.jsonl", v1_rows)
     metas = [row["meta"] for rows in groups.values() for row in rows]
     ids = {m["id"] for m in metas}
     interpreters = {
