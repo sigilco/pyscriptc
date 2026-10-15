@@ -69,11 +69,13 @@ def test_every_builtin_name_and_stdlib_module_has_a_probe() -> None:
         assert (f"builtins.{name}" in ids) != (name in absent["builtins"])
 
 
-def test_vendored_cpython_tests_match_the_pin() -> None:
-    pin = json.loads((PROBES / "cpython_tests" / "PIN.json").read_text(encoding="utf-8"))
-    assert pin["tag"] == "v3.14.8"
+@pytest.mark.parametrize(("subdir", "tag"), [("", "v3.12.15"), ("py314", "v3.14.8")])
+def test_vendored_cpython_tests_match_the_pin(subdir: str, tag: str) -> None:
+    folder = PROBES / "cpython_tests" / subdir
+    pin = json.loads((folder / "PIN.json").read_text(encoding="utf-8"))
+    assert pin["tag"] == tag
     for name, digest in pin["files"].items():
-        assert hashlib.sha256((PROBES / "cpython_tests" / name).read_bytes()).hexdigest() == digest
+        assert hashlib.sha256((folder / name).read_bytes()).hexdigest() == digest
 
 
 def test_language_probes_cover_every_applicable_ast_node() -> None:
