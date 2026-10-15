@@ -88,7 +88,7 @@ Total order for canonical form: sort by `(code, message, function or "", span.li
 
 ## 3. Hash choice: SHA-256
 
-`xxhash` is not a dependency: it appears nowhere in `pyproject.toml` or `uv.lock`, and `import xxhash` fails in the project environment. Picking it adds a third party wheel to every CI job that runs `irscore.py`, for a speed win that does not matter: the largest IR in the corpus is a few hundred KB of JSON, and SHA-256 through `hashlib` is microseconds at that size. SHA-256 is stdlib, is what `cache.py` already uses for `probe_hash` and `compiler_hash` (`cache.py:45`, `cache.py:54`), and keeps one digest everywhere. Pick: SHA-256, `hashlib.sha256` over the canonical JSON serialization (section 5), decided once.
+`xxhash` is not a dependency: it appears nowhere in `pyproject.toml` or `uv.lock`, and `import xxhash` fails in the project environment. Picking it adds a third party wheel to every CI job that runs `irscore.py`, for a speed win that does not matter: the largest IR in the corpus is a few hundred KB of JSON, and SHA-256 through `hashlib` is microseconds at that size. Measured on ~3.6 KB of canonical JSON: blake2b ~8.7 us, sha256 ~3.0 us (CPython's OpenSSL SHA-256 is hardware accelerated; blake2b's win is software only or on large inputs). SHA-256 is stdlib, is what `cache.py` already uses for `probe_hash` and `compiler_hash` (`cache.py:45`, `cache.py:54`), and keeps one digest everywhere. Pick: SHA-256, `hashlib.sha256` over the canonical JSON serialization (section 5), decided once.
 
 ## 4. Cache-key extension sketch
 
