@@ -9,6 +9,7 @@ from __future__ import annotations
 import inspect
 from pathlib import Path
 
+import pytest
 from tests.test_gates import compile_run, run_cli, write_case
 
 _PROBE = """
@@ -29,6 +30,7 @@ def _expected() -> int:
     return len(text) * 1000 + ord(text[0])
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_agen_closed_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "agen_closed.py", _PROBE)
     got = compile_run(tmp_path, path, "checklist")

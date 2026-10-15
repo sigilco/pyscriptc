@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from tests.test_gates import compile_run, run_cli
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_relative_imports_resolve_in_a_directory(tmp_path: Path) -> None:
     root = tmp_path / "labeler"
     (root / "sub").mkdir(parents=True)
@@ -49,6 +51,7 @@ def test_relative_imports_resolve_in_a_directory(tmp_path: Path) -> None:
     assert twice.stdout == "8\n"
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_absolute_imports_of_this_package_resolve(tmp_path: Path) -> None:
     root = tmp_path / "labeler"
     root.mkdir()
@@ -76,6 +79,7 @@ def test_absolute_imports_of_this_package_resolve(tmp_path: Path) -> None:
     assert got.stdout == "v1 4\n"
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_directory_exports_a_class_and_an_exception(tmp_path: Path) -> None:
     root = tmp_path / "shapes"
     root.mkdir()
@@ -151,6 +155,7 @@ def test_differing_classes_with_one_name_still_fence(tmp_path: Path) -> None:
     assert "defined in more than one module" in got.stderr
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_a_subclass_in_another_module_is_exported(tmp_path: Path) -> None:
     root = tmp_path / "shapes"
     root.mkdir()
@@ -212,6 +217,7 @@ def test_a_definition_fence_is_reported_before_the_export(tmp_path: Path) -> Non
     assert "not exported" not in first
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_dunder_main_is_skipped_and_a_library_import_still_fences(tmp_path: Path) -> None:
     root = tmp_path / "pkg"
     root.mkdir()

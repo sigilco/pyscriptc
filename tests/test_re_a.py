@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
 from tests.test_gates import compile_run, run_cli, write_case
 
 _PROBE = """
@@ -18,6 +19,7 @@ def checklist() -> int:
 """
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_re_a_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "re_a.py", _PROBE)
     got = compile_run(tmp_path, path, "checklist")

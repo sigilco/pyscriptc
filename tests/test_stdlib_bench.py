@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 from tests.test_gates import ROOT, oracle, run_cli
 
+pytestmark = pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+
 CATALOG = json.loads((ROOT / "benchmarks" / "runtime" / "workloads.json").read_text(encoding="utf-8"))
 LOWERED = [row for row in CATALOG["workloads"] if row.get("group") in {"stdlib", "island", "scripting"}]
 

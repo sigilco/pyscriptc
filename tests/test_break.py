@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from tests.test_gates import compile_run, oracle, run_cli, write_case
 
 _PROBE = """
@@ -61,6 +62,7 @@ def nested_for() -> int:
 """
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_break_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "brk.py", _PROBE)
     expected = {
@@ -104,14 +106,7 @@ def test_break_stays_fenced(tmp_path: Path) -> None:
         ),
         (
             "for_else.py",
-            (
-                "def probe() -> int:\n"
-                "    for i in range(2):\n"
-                "        break\n"
-                "    else:\n"
-                "        return 0\n"
-                "    return 1\n"
-            ),
+            ("def probe() -> int:\n    for i in range(2):\n        break\n    else:\n        return 0\n    return 1\n"),
             "for-else is not lowered",
         ),
     ]

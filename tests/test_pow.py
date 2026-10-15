@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from tests.test_gates import compile_run, oracle, run_cli, write_case
 
 _PROBE = """
@@ -56,6 +57,7 @@ def base_once() -> int:
 """
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_pow_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "pow.py", _PROBE)
     expected = {
@@ -110,6 +112,7 @@ def test_pow_stays_fenced(tmp_path: Path) -> None:
         assert text in got.stderr, f"{name}\n{got.stderr}"
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_computed_negative_does_not_return_a_float(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
