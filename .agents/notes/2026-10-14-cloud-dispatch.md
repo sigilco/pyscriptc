@@ -36,3 +36,9 @@ Repo: `sigilco/pyscriptc` (private). Master head: `2c605e7`. Full suite on maste
 - Tests must not regress vs the baseline list above (anything failing on master stays failing; new failures = your bug).
 - Branch off latest master, one PR per task, report-only: no merges, no tags, no `probes/*.jsonl` writes, no container heavy runs.
 - Terse docs, no emdashes, no AI-slop vocabulary ("leverage", "seamless", "robust", "delve").
+
+## Stage 0 dispatched and merged (2026-10-15)
+
+- #17 C1 cost baseline, #18 C3 entry-point spec, #19 C2 IR canonicity: all merged at master `5cb23cd`. Findings in `docs/e0-cost-baseline.md`, `docs/e1-entrypoint-detector-spec.md`, `docs/ir-canonicity.md`.
+- C2 corrections: hash = SHA-256 canonical JSON; strip `span` recursive + `sourceFile`/`cpython`/`_notes`; sort classes, handler codes, fences by `(code, message, function or "", span.line, span.col)` before span strip; real set-order leak is `lower.py:607` synthetics (not llvm.py); `cache_key` at `benchmarks/compat2/cache.py:95` already hashes compiler files (Stage 2 item 2 is verify-only); scripts corpus is `corpus/scripts/*/main.py` (not `scripts/src/`).
+- Briefs on /tmp: `/tmp/pyscriptc-c4-version-track-brief.md` (HOLD: Stage 4a only, post-freeze), `/tmp/pyscriptc-c5-release-followup-brief.md` (ready now, .github/ + packaging/ only).
