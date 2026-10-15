@@ -112,11 +112,14 @@ def test_macos_arm64_reference_is_a_separate_slot() -> None:
     assert refuses_macos_record(str(MACOS_ARM64_REFERENCE), "Linux", "x86_64")
     assert not refuses_macos_record(str(MACOS_ARM64_REFERENCE), "Darwin", "arm64")
 
+    before = MACOS_ARM64_REFERENCE.read_bytes() if MACOS_ARM64_REFERENCE.exists() else None
     code = main(["--record", str(MACOS_ARM64_REFERENCE), "--runs", "1", "--workloads", "sum-squares"])
     if refuses_macos_record(str(MACOS_ARM64_REFERENCE)):
         # Not a Darwin arm64 host: the refusal fires before any work and nothing is written.
+        # The committed reference may already exist on this host, so check it is untouched.
         assert code == 2
-        assert not MACOS_ARM64_REFERENCE.exists()
+        after = MACOS_ARM64_REFERENCE.read_bytes() if MACOS_ARM64_REFERENCE.exists() else None
+        assert after == before
     else:
         # Darwin arm64 (the recording host): --record succeeds and the slot flips to present.
         # The recorded numbers differ per machine, so restore the committed reference after.
