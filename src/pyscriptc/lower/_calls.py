@@ -145,6 +145,8 @@ class CallsMixin:
                 return self._path_context(node, span, receiver)
         if receiver["type"]["kind"] == "list" and receiver["type"].get("set"):
             return self._set_method(node, span, receiver)
+        if receiver["type"]["kind"] == "list":
+            return self._list_method(node, span, receiver)
         kind = receiver["type"]["kind"]
         if kind in {"str", "bytes"}:
             self._reject_keywords(node)
@@ -783,6 +785,41 @@ class CallsMixin:
             return True
         assert isinstance(node.func, ast.Attribute)
         return self._binding_is_frozen(node.func.value)
+
+    def _list_method(self, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
+        assert isinstance(node.func, ast.Attribute)
+        if self._receiver_is_frozen(node, receiver):
+            self.fail(node, "PS2002", "frozenset has no mutating methods")
+        if node.func.attr != "append":
+            # The generic wording, byte-identical to the dispatch tail, keeps
+            # the fenced list-method probes' IR unchanged.
+            self.fail(node, "PS2001", f"call of attribute is not lowered ({_dotted(node.func)})")
+        self._reject_keywords(node)
+        if len(node.args) != 1:
+            self.fail(node, "PS2003", "list.append expects 1 argument(s)")
+        if receiver["kind"] != "name":
+            self.fail(node, "PS2002", "list.append needs a name")
+        elem = receiver["type"]["elem"]
+        value = self._expr(node.args[0], elem)
+        if not types_equal(value["type"], elem):
+            self.fail(node, "PS1003", "list.append takes an element of that list")
+        self.prelude.extend(
+            [
+                {
+                    "kind": "expr",
+                    "expr": {
+                        "kind": "call",
+                        "callee": {"kind": "module", "module": "builtins", "name": "list.append"},
+                        "args": [receiver, value],
+                        "symbol": "ps_list_push",
+                        "type": {"kind": "none"},
+                        "span": span,
+                    },
+                    "span": span,
+                }
+            ]
+        )
+        return _const_none(span)
 
     def _set_method(self, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
         assert isinstance(node.func, ast.Attribute)
