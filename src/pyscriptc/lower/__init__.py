@@ -85,6 +85,11 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         self.class_aliases: dict[str, str] = {}
         self.global_slots: dict[str, dict[str, Any]] = {}
         self.fn_globals: set[str] = set()
+        # `global` declarations per function body, cached by body-list identity:
+        # the scan pass and the lowering pass would otherwise walk each function
+        # tree twice for the same `ast.Global` nodes. Bodies are not mutated
+        # after parsing, so identity is a stable key within one lower_file run.
+        self._globals_cache: dict[int, frozenset[str]] = {}
         # The function body being lowered, so `del name` can see a later load.
         self.fn_body: list[ast.stmt] = []
         # Names bound to frozenset(...). The value is still the set list. .add and
@@ -203,7 +208,7 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
             self.temp_n = 0
             self.prelude = []
             self.caught = []
-            self.fn_globals = _declared_globals(list(fn.body))
+            self.fn_globals = self._globals_for(fn.body)
             params, ret = self.sigs[fn.name]
             self.locals = {param["name"]: param["type"] for param in params}
             self.frozen_names = set()
@@ -725,16 +730,41 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
             and not binding.queued
         )
 
+    def _globals_for(self, body: list[ast.stmt]) -> frozenset[str]:
+        """`global`-declared names for one function body, walked once.
+
+        `_scan_global_slots` and the per-function lowering pass see the same
+        body objects, so the result is cached by body-list identity. Bodies
+        are immutable after parsing, so identity is a stable key within one
+        `lower_file` run; the cache lives on the `Lowerer` and dies with it.
+        """
+        key = id(body)
+        cached = self._globals_cache.get(key)
+        if cached is None:
+            cached = frozenset(_declared_globals(list(body)))
+            self._globals_cache[key] = cached
+        return cached
+
     def _scan_global_slots(self, statements: list[ast.stmt]) -> dict[str, dict[str, Any]]:
         slots: dict[str, dict[str, Any]] = {}
         for stmt in statements:
             if not isinstance(stmt, ast.FunctionDef):
                 continue
-            declared = _declared_globals(list(stmt.body))
+            declared: set[str] = set()
+            assigns: list[ast.Assign] = []
+            for node in ast.walk(stmt):
+                if isinstance(node, ast.Global):
+                    declared.update(node.names)
+                elif isinstance(node, ast.Assign):
+                    assigns.append(node)
             for name in declared:
                 slots.setdefault(name, {"type": None, "active": False})
-            for node in ast.walk(stmt):
-                if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            # Prime the lowering-time cache: `declared` equals
+            # `_declared_globals(list(stmt.body))` because a `global` statement
+            # can only appear in a body, and this walk covers the same body.
+            self._globals_cache[id(stmt.body)] = frozenset(declared)
+            for node in assigns:
+                if len(node.targets) != 1:
                     continue
                 target = node.targets[0]
                 if not isinstance(target, ast.Name) or target.id not in declared:
