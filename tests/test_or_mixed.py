@@ -1,7 +1,7 @@
 """A mixed `or` in a condition is truthiness joined by bool `or`.
 
 `1 or 'a'` is true, and the right side runs only when the left is false.
-The same expression used as a value stays fenced.
+Used as a value the same join applies and yields a bool (test_e1_boolop_value).
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from tests.test_gates import compile_run, oracle, run_cli, write_case
+from tests.test_gates import compile_run, oracle, write_case
 
 _PROBE = """
 class Counter:
@@ -100,18 +100,3 @@ def test_or_mixed_matches_cpython(tmp_path: Path) -> None:
         assert got.returncode == 0, f"{func}\n{got.stderr}"
         assert got.stdout == oracle(path, func)
         assert got.stdout.strip() == want
-
-
-def test_mixed_or_value_stays_fenced(tmp_path: Path) -> None:
-    path = write_case(tmp_path, "value.py", "def probe() -> int:\n    return 1 or 'a'\n")
-    got = run_cli(
-        "compile",
-        str(path),
-        "--skip-check",
-        "--emit",
-        "llvm",
-        "-o",
-        str(tmp_path / "value.ll"),
-    )
-    assert got.returncode == 3, got.stderr
-    assert "and/or across two types is not a value" in got.stderr

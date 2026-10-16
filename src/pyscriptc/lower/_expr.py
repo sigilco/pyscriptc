@@ -648,9 +648,11 @@ class ExprMixin:
     def _boolop(self, node: ast.BoolOp, span: dict[str, Any], *, as_cond: bool = False) -> dict[str, Any]:
         """Same-type `and`/`or` still yields the operand.
 
-        A mixed `and`/`or` in a condition is the truthiness of each side, joined
-        by the existing bool `and`/`or`. The right side is evaluated only when
-        the left does not decide it. Used as a value, the mixed form stays fenced.
+        A mixed `and`/`or` lowers as the truthiness of each side joined by bool
+        `and`/`or`, so the result is always a bool. That diverges from CPython,
+        where `a or b` returns the deciding operand with its own type; the IR
+        has no tagged union for `T_a | T_b` (epic E3c). The right side is
+        evaluated only when the left does not decide it.
         """
         op_and = isinstance(node.op, ast.And)
         first = self._bool_operand(node.values[0], as_cond)
@@ -669,9 +671,7 @@ class ExprMixin:
             if not types_equal(right["type"], typ):
                 left_ok = self._mixed_cond_kind(typ["kind"])
                 right_ok = self._mixed_cond_kind(right["type"]["kind"])
-                if not as_cond or not left_ok or not right_ok:
-                    if not as_cond and left_ok and right_ok:
-                        self.fail(node, "PS2004", "and/or across two types is not a value")
+                if not left_ok or not right_ok:
                     self.fail(node, "PS2004", "and/or across two types is not lowered")
                 if typ["kind"] != "bool":
                     bool_temp = self._temp("cond")
