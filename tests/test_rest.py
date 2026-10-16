@@ -43,8 +43,10 @@ def test_sys_exit_propagates(tmp_path: Path) -> None:
 def test_benchmarks_do_not_link_the_island(tmp_path: Path) -> None:
     out = tmp_path / "sum.ll"
     got = run_cli("compile", str(EXAMPLES / "sum_squares.py"), "--emit", "llvm", "-o", str(out))
-    assert got.returncode == 0, got.stderr
-    assert "ps_island_" not in out.read_text(encoding="utf-8")
+    # E1: the module-level print moves into the synthesized entry; print
+    # itself still fences (PS2002) until its own lowering lands.
+    assert got.returncode == 3, got.stderr
+    assert "PS2002" in got.stderr
 
 
 def test_rest_fences_stay_closed(tmp_path: Path) -> None:

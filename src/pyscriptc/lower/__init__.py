@@ -124,30 +124,10 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         class_nodes: list[ast.ClassDef] = []
         live = self._live_statements(list(tree.body), fences)
         self.global_slots = self._scan_global_slots(live)
-        for stmt in live:
-            if isinstance(stmt, (ast.Import, ast.ImportFrom)):
-                continue
-            if isinstance(stmt, ast.FunctionDef):
-                if not self._accept_module_function(stmt, fences):
-                    continue
-                functions.append(stmt)
-            elif isinstance(stmt, ast.ClassDef):
-                class_nodes.append(stmt)
-            elif isinstance(stmt, (ast.AnnAssign, ast.Assign)):
-                self.caught = []
-                self._bind_module_assign(stmt)
-                fences.extend(self.caught)
-            elif _is_main_guard(stmt) or _is_docstring(stmt):
-                continue
-            else:
-                fences.append(
-                    Fence(
-                        "PS2002",
-                        f"{type(stmt).__name__} at module scope is not lowered",
-                        span_of(stmt, self.filename),
-                        None,
-                    )
-                )
+        entry_stmts = self._split_entry(live, functions, class_nodes, fences)
+        entry_fn = self._entry_function(entry_stmts, functions)
+        entry_name = entry_fn[0].name if entry_fn else None
+        functions.extend(entry_fn)
         self._install_synthetics(class_nodes, fences)
         imported = {name for name, info in self.classes.items() if info.get("imported")}
         imported.update(self.class_aliases)
@@ -217,7 +197,11 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
                 body = self._body(list(fn.body))
                 if self.caught:
                     fences.extend(self.caught)
-                    continue
+                    # The entry is not a user function: its fences are already
+                    # in the module list and block emission, so the partial
+                    # body still carries the flip signal in the IR.
+                    if entry_name is None or fn.name != entry_name:
+                        continue
                 if ret["kind"] != "none" and not _always_returns(body):
                     self.fail(fn, "PS1004", f"{fn.name} can fall off the end and return None")
                 lowered.append(
@@ -234,16 +218,117 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
                 fences.append(exc)
         lowered_classes.extend(self._synthetic_classes({item["name"] for item in lowered_classes}))
         self.function = None
+        names = [item["name"] for item in lowered]
         return {
             "irVersion": 1,
             "subset": SUBSET,
             "cpython": cpython_version(),
             "sourceFile": self.filename,
-            "entry": lowered[0]["name"] if lowered else None,
+            # A definition-only module keeps the old shape: entry is the first
+            # function. Only a synthesized entry overrides that.
+            "entry": entry_name if entry_name in names else lowered[0]["name"] if lowered else None,
             "functions": lowered,
             "classes": lowered_classes,
             "fences": [fence.as_dict() for fence in fences],
         }
+
+    def _split_entry(
+        self,
+        live: list[ast.stmt],
+        functions: list[ast.FunctionDef],
+        class_nodes: list[ast.ClassDef],
+        fences: list[Fence],
+    ) -> list[ast.stmt]:
+        """Walk the live statements: definitions stay where they are, script
+        statements collect into the entry body, in source order.
+
+        A module assignment tries the constant binding first. When the module
+        also carries live script statements the failed binding rolls back and
+        the assignment lowers inside the entry instead; a definition-only
+        module keeps the constant fence it always raised. `pass` is inert
+        (C3) and never makes a script.
+        """
+        entry_stmts: list[ast.stmt] = []
+        failed_assigns: list[tuple[ast.stmt, int]] = []
+        for stmt in live:
+            if isinstance(stmt, (ast.Import, ast.ImportFrom, ast.Pass)):
+                continue
+            if isinstance(stmt, ast.FunctionDef):
+                if not self._accept_module_function(stmt, fences):
+                    continue
+                functions.append(stmt)
+            elif isinstance(stmt, ast.ClassDef):
+                class_nodes.append(stmt)
+            elif isinstance(stmt, (ast.AnnAssign, ast.Assign)):
+                snapshot = (dict(self.constants), set(self.declared), len(fences))
+                self.caught = []
+                self._bind_module_assign(stmt)
+                # A failed binding rolls back at once, so later assignments
+                # bind against the pre-statement state. Its fences stay for
+                # now; when the module turns out to be a script they are
+                # retracted and the statement lowers inside the entry.
+                if self.caught:
+                    self.constants = snapshot[0]
+                    self.declared = snapshot[1]
+                    fences.extend(self.caught)
+                    failed_assigns.append((stmt, snapshot[2]))
+                self.caught = []
+            elif _is_docstring(stmt):
+                continue
+            else:
+                entry_stmts.append(stmt)
+        if entry_stmts:
+            # This module is a script: retract the fences the failed constant
+            # bindings raised; those assignments lower inside the entry
+            # instead, in source order. Bindings that did not fence stay
+            # bound - a script may still carry true constants.
+            retract = min((at for _, at in failed_assigns), default=len(fences))
+            if retract < len(fences):
+                del fences[retract:]
+            entry_stmts.extend(stmt for stmt, _ in failed_assigns)
+            entry_stmts.sort(key=lambda stmt: stmt.lineno)
+        return entry_stmts
+
+    def _entry_function(self, stmts: list[ast.stmt], functions: list[ast.FunctionDef]) -> list[ast.FunctionDef]:
+        """The synthesized entry for module-level statements.
+
+        A definition-only module (imports, constants, functions, classes,
+        docstrings) synthesizes nothing: the IR is exactly what it was before
+        entry lowering existed. Scripts get one function named `main`, or
+        `__entry__` when the module defines its own `main` - the user's name
+        always wins - carrying the live statements in source order.
+
+        Package units never synthesize one: a package is a library, its
+        modules are namespaced, and `sigs` feeds the export table.
+        """
+        if not stmts or self.module_name or self.cataloguing:
+            return []
+        taken = {fn.name for fn in functions} | self.declared
+        name = "main" if "main" not in taken else "__entry__"
+        fn = ast.FunctionDef(
+            name=name,
+            args=ast.arguments(
+                posonlyargs=[],
+                args=[],
+                vararg=None,
+                kwonlyargs=[],
+                kw_defaults=[],
+                kwarg=None,
+                defaults=[],
+            ),
+            body=stmts,
+            decorator_list=[],
+            returns=ast.Constant(value=None),
+            type_comment=None,
+            type_params=[],
+        )
+        for stmt in stmts:
+            ast.copy_location(fn, stmt)
+        fn.lineno = stmts[0].lineno
+        fn.col_offset = 0
+        fn.end_lineno = stmts[-1].end_lineno
+        fn.end_col_offset = 0
+        return [fn]
 
     def _ir_name(self, name: str) -> str:
         if self.module_name:
@@ -649,7 +734,13 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
                 live.append(stmt)
                 _release_erased_import(stmt, rebound)
                 continue
-            if _is_main_guard(stmt) or _is_docstring(stmt):
+            if _is_main_guard(stmt):
+                # C3: the canonical guard's body is live script text. It joins
+                # the entry in source order; an `else` under a `__name__` test
+                # never runs as `__main__`, so it stays dropped.
+                live.extend(self._live_statements(list(stmt.body), fences, rebound))
+                continue
+            if _is_docstring(stmt):
                 continue
             if isinstance(stmt, ast.If):
                 taken = self._static_branch(stmt, rebound)
