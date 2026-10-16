@@ -37,31 +37,69 @@ def emit_llvm(
     return Emitter(module).emit(call, [] if args is None else args, standalone)
 
 
-def link_binary(llvm_path: Path, output: Path) -> None:
+def link_binary(
+    llvm_path: Path,
+    output: Path,
+    driver: str = "clang",
+    target: str | None = None,
+) -> None:
+    """Link `.ll` text plus the C runtime into `output`.
+
+    Two-stage: `.ll -> .o`, then objects + runtime `*.c` link. Required for
+    `zig cc` on macOS (a `.ll` on the link line writes an empty binary there)
+    and keeps per-target artifacts clean. `driver` is `clang` or `zig`
+    (`zig cc`); `target` is a zig-style triple and requires the zig driver —
+    it bundles the per-target sysroot that `clang --target` does not.
+    """
     output.parent.mkdir(parents=True, exist_ok=True)
+    if target is not None and driver != "zig":
+        raise IRError("--target requires --driver zig (bundled sysroot per target)")
+    cc = "zig cc" if driver == "zig" else driver
     runtime = Path(__file__).resolve().parent / "runtime"
     text = llvm_path.read_text(encoding="utf-8")
     sources = [str(path) for path in sorted(runtime.glob("*.c"))]
-    cmd = ["clang", "-O2", "-x", "ir", str(llvm_path), "-x", "c"]
+    target_flags = ["-target", target] if target is not None else []
     tail = ["-lm", "-o", str(output)]
     if "ps_island_" in text:
+        if target is not None:
+            raise IRError(
+                "island fallback embeds the host CPython; "
+                "cross-compiling it needs a cross-built libpython (explain-only)"
+            )
         import sysconfig
 
         include = sysconfig.get_path("include")
         libdir = sysconfig.get_config_var("LIBDIR")
         version = sysconfig.get_config_var("VERSION")
-        cmd.extend(["-I", include])
+        target_flags.extend(["-I", include])
         tail = [f"-L{libdir}", f"-lpython{version}", f"-Wl,-rpath,{libdir}", *tail]
     else:
         sources = [source for source in sources if not source.endswith("ps_island.c")]
-    proc = subprocess.run(
-        [*cmd, *sources, *tail],
-        capture_output=True,
-        text=True,
-    )
-    if proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout).strip()
-        raise IRError(f"clang failed to assemble LLVM IR: {detail}")
+    # zig cannot compile C sources inside a link invocation for Mach-O, so
+    # every unit goes to .o first and the link line carries objects only.
+    units = [llvm_path, *(Path(source) for source in sources)]
+    objects = [output.with_name(f"{output.name}.{unit.stem}.o") for unit in units]
+    proc: subprocess.CompletedProcess[str] | None = None
+    for unit, obj in zip(units, objects, strict=True):
+        kind = ["-x", "ir"] if driver == "clang" and unit == llvm_path else []
+        proc = subprocess.run(
+            [*cc.split(), "-O2", *kind, "-c", str(unit), "-o", str(obj), *target_flags],
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            break
+    if proc is not None and proc.returncode == 0:
+        proc = subprocess.run(
+            # no -O on the link line: it is a compile flag and zig's Mach-O
+            # driver crashes on it (0.16.0)
+            [*cc.split(), *objects, *target_flags, *tail],
+            capture_output=True,
+            text=True,
+        )
+    if proc is None or proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout).strip() if proc is not None else ""
+        raise IRError(f"{cc} failed to assemble LLVM IR: {detail}")
 
 
 class Emitter:
