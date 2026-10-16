@@ -839,7 +839,7 @@ class ExprMixin:
         return expr, 1
 
     def _slice_step(self, node: ast.expr | None, span: dict[str, Any]) -> dict[str, Any]:
-        """A positive step is the existing slice. A negative step stays fenced.
+        """Any nonzero step lowers; the runtime walks backwards for step < 0.
 
         Step 0 is the runtime's ValueError. The step expression is one operand,
         so it runs once.
@@ -849,9 +849,6 @@ class ExprMixin:
         expr = self._expr(node, {"kind": "int"})
         if expr["type"]["kind"] != "int":
             self.fail(node, "PS1003", "a slice step is int")
-        static = _static_int(expr)
-        if static is not None and static < 0:
-            self.fail(node, "PS2002", "a negative slice step is not lowered")
         return expr
 
     def _pin_slice_int(self, expr: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
