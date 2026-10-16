@@ -190,6 +190,18 @@ def _plain_const_kind(node: ast.expr) -> str | None:
     return None
 
 
+def _dotted(node: ast.Attribute) -> str:
+    parts: list[str] = [node.attr]
+    cur: ast.AST = node.value
+    while isinstance(cur, ast.Attribute):
+        parts.append(cur.attr)
+        cur = cur.value
+    if isinstance(cur, ast.Name):
+        parts.append(cur.id)
+    parts.reverse()
+    return ".".join(parts)
+
+
 _CMP = {
     ast.Lt: "<",
     ast.LtE: "<=",
