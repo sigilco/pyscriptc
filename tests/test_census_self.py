@@ -13,6 +13,8 @@ SRC = ROOT / "src" / "pyscriptc"
 def test_self_census_ballpark() -> None:
     census = build_self_census(SRC)
     assert census["modules"] == 22
-    assert census["fences"] == 680
+    # E1 item 2: the print family moves the fences from corpus/code shapes
+    # into the lowerer; net +3 self-host fences from restlower print support.
+    assert census["fences"] == 683
     assert 11_000 <= census["lines"] <= 12_400
-    assert sum(p["fences"] for p in census["packages"]) == 680
+    assert sum(p["fences"] for p in census["packages"]) == 683

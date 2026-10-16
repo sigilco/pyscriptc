@@ -47,11 +47,12 @@ def test_sum_squares_ir_is_python_not_javascript() -> None:
     assert module["irVersion"] == 1
     assert module["subset"] == "gates-v1"
     assert module["cpython"].startswith("3.14.")
-    # E1: the module-level print now lowers into the synthesized entry; the
-    # fence moves with it (function "main") until print lowering lands.
-    fences = module["fences"]
-    assert len(fences) == 1 and fences[0]["code"] == "PS2002"
-    assert fences[0]["function"] == "main"
+    # E1 items 1+2: the module-level print lowers into the synthesized entry
+    # and to a stdout write, so the script compiles with no fences.
+    assert module["fences"] == []
+    entry = next(fn for fn in module["functions"] if fn["name"] == module["entry"])
+    assert entry["name"] == "main"
+    assert [stmt["kind"] for stmt in entry["body"]] == ["expr"]
     fn = module["functions"][0]
     assert fn["name"] == "sum_squares"
     assert fn["returnType"] == {"kind": "int"}

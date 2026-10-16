@@ -130,6 +130,8 @@ def builtin_call(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any
     name = node.func.id
     if name == "open":
         return _open(lo, node, span)
+    if name == "print":
+        return _print(lo, node, span)
     if node.keywords and name in {
         "isinstance",
         "getattr",
@@ -169,6 +171,40 @@ def builtin_call(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any
 
 def _const_int(value: int, span: dict[str, Any]) -> dict[str, Any]:
     return {"kind": "const", "value": str(value), "type": {"kind": "int"}, "span": span}
+
+
+_PRINT_KINDS = {"str", "int", "float", "bool"}
+
+
+def _print(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """`print` lowers to the builtin of the same name; the emitter writes stdout.
+
+    Subset: positional values of the compiler's scalar set (str, int, float,
+    bool), space-separated, newline-terminated. `sep=`, `end=`, and `file=`
+    are fenced with a precise message instead of being half-supported.
+    """
+    for kw in node.keywords:
+        if kw.arg is None:
+            lo.fail(kw, "PS2002", "**kwargs are not lowered")
+        lo.fail(kw, "PS2003", f"print keyword argument {kw.arg} is not lowered; print supports positional values only")
+    if any(isinstance(arg, ast.Starred) for arg in node.args):
+        lo.fail(node, "PS2002", "starred calls are not lowered")
+    args = [lo._expr(arg) for arg in node.args]
+    for arg in args:
+        if arg["type"]["kind"] not in _PRINT_KINDS:
+            lo.fail(
+                node,
+                "PS2003",
+                f"print is lowered for str, int, float, and bool values, not {arg['type']['kind']};"
+                " wrap it in str(...)",
+            )
+    return {
+        "kind": "call",
+        "callee": {"kind": "builtin", "name": "print"},
+        "args": args,
+        "type": {"kind": "none"},
+        "span": span,
+    }
 
 
 def _const_text(value: str, kind: str, span: dict[str, Any]) -> dict[str, Any]:

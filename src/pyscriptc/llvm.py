@@ -144,7 +144,14 @@ class Emitter:
         if call is not None:
             self.emit_main(call, args)
         elif standalone:
-            self.out.extend(["define i32 @main() {", "entry:", "  ret i32 0", "}", ""])
+            # A script's synthesized entry (E1 item 1) is the program: run it
+            # in source order. A definition-only module keeps the no-op main.
+            entry = self.module.get("entry")
+            entry_fn = next((fn for fn in self.module["functions"] if fn["name"] == entry), None)
+            if entry_fn is not None and entry_fn["name"] == "main" and not entry_fn["params"]:
+                self.emit_main("main", [])
+            else:
+                self.out.extend(["define i32 @main() {", "entry:", "  ret i32 0", "}", ""])
         self.out.extend(self.outline_lines)
         header = ["%ps.str = type { i64, ptr }", ""]
         header.extend(self.globals)
@@ -642,6 +649,9 @@ class Emitter:
         return self.call_function(self.functions[callee["name"]], values)
 
     def emit_builtin(self, name: str, values: list[str], arg_types: list[dict[str, Any]]) -> str:
+        if name == "print":
+            self._emit_print(values, arg_types)
+            return ""
         if name == "len" and arg_types[0]["kind"] in {"str", "bytes"}:
             reg = self.tmp()
             self.line(f"{reg} = extractvalue %ps.str {values[0]}, 0")
@@ -1535,6 +1545,44 @@ class Emitter:
             self.line(f"call i32 (ptr, ...) @printf(ptr {fmt}, i64 {length}, ptr {ptr})")
             return
         raise IRError(f"cannot print {kind}")
+
+    def _emit_print(self, values: list[str], arg_types: list[dict[str, Any]]) -> None:
+        """`print` with CPython defaults: space separator, newline terminator.
+
+        Each value writes through `printf`, mirroring `print_value`'s int and
+        str pieces. Floats go through `ps_f64_str` so the text is the CPython
+        `str(float)` spelling (shortest round-trip, `.0`, `1e+16`), which a
+        raw `%g` conversion cannot reproduce. Bools select between the
+        `True` and `False` constants, not the runtime's lowercase literals.
+        """
+        self.needed.add("printf")
+        for index, (value, typ) in enumerate(zip(values, arg_types, strict=True)):
+            if index:
+                self._print_fmt("space", b" ")
+            kind = typ["kind"]
+            if kind == "int":
+                self._print_fmt("int", b"%lld", [f"i64 {value}"])
+            elif kind == "float":
+                out = self._buf_out("ps_f64_str", [f"double {value}"])
+                length, ptr = self._buf_parts(out)
+                self._abi_decl("ps_f64_str", "void", ["double", "ptr"])
+                self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"])
+            elif kind == "bool":
+                picked = self.tmp()
+                self.line(
+                    f"{picked} = select i1 {value}, ptr {self.format_global('boolT', b'True')}, "
+                    f"ptr {self.format_global('boolF', b'False')}"
+                )
+                self._print_fmt("s", b"%s", [f"ptr {picked}"])
+            else:
+                length, ptr = self._buf_parts(value)
+                self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"])
+        self._print_fmt("nl", b"\n")
+
+    def _print_fmt(self, name: str, data: bytes, args: list[str] | None = None) -> None:
+        fmt = self.format_global(name, data)
+        rendered = ", ".join([f"ptr {fmt}", *(args or [])])
+        self.line(f"call i32 (ptr, ...) @printf({rendered})")
 
     def format_global(self, name: str, data: bytes) -> str:
         symbol = f"@ps.fmt.{name}"

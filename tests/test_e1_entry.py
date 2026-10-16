@@ -184,7 +184,9 @@ print(f)
     )
     entry = _entry(mod)
     assert entry is not None and entry["name"] == "main"
-    assert [stmt["kind"] for stmt in entry["body"]] == ["assign"]
+    # The print lowers too (E1 item 2), so the entry carries both statements.
+    assert [stmt["kind"] for stmt in entry["body"]] == ["assign", "expr"]
+    assert mod["fences"] == []
     assert "call to fact is not lowered" not in {f["message"] for f in mod["fences"]}
 
 
