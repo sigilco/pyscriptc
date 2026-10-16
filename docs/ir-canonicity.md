@@ -107,7 +107,7 @@ Miss path behaviour: `load` (`cache.py:106`) returns `None` for a missing or unp
 
 ## 5. Serialization for the hash
 
-Hash the canonical module as `json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode()`. `sort_keys=True` makes dict key insertion order irrelevant, which is cheap insurance against two structurally equal dicts built in different orders. Lists stay ordered (they are semantic). The hash is over the canonical form only, never the raw dump, because the raw form is not reproducible (section 6).
+Hash the canonical module as `json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode()`. `sort_keys=True` makes dict key insertion order irrelevant, which is cheap insurance against two structurally equal dicts built in different orders. Lists stay ordered (they are semantic). The hash is over the canonical form only, never the raw dump, because the raw form is not reproducible (section 6). Since schema `canonical-schema/2` (decision 2026-10-16), canonicalization also replaces every substring of an environment absolute path (`sys.executable`, `sys._base_executable`, `sys.exec_prefix`, `sys.prefix`, cwd, the checkout root) in any IR string value with `<PATH>`: the stdlib probes for `sys.prefix` / `sys.exec_prefix` / `sys.executable` lower to constants carrying the machine's venv and checkout paths, and the baseline must reproduce byte-identically from any clone location.
 
 ## 6. Nondeterminism failure modes
 

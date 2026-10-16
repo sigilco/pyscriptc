@@ -19,7 +19,7 @@ import pytest
 
 from pyscriptc.canonical import CANONICAL_SCHEMA_VERSION, canonicalize, hash_module
 
-assert CANONICAL_SCHEMA_VERSION == "canonical-schema/1", "frozen API constant drifted"
+assert CANONICAL_SCHEMA_VERSION == "canonical-schema/2", "frozen API constant drifted"
 
 ROOT = Path(__file__).resolve().parents[1]
 HEX64 = re.compile(r"\A[0-9a-f]{64}\Z")
@@ -182,6 +182,70 @@ def test_idempotent_and_input_not_mutated() -> None:
     assert once == twice
     assert json.dumps(once, sort_keys=True) == json.dumps(twice, sort_keys=True)
     assert module == snapshot
+
+
+def const_module(value: str) -> dict[str, Any]:
+    """Module whose only content is one string constant."""
+
+    return {
+        "irVersion": 1,
+        "functions": [
+            {
+                "name": "probe",
+                "params": [],
+                "returnType": {"kind": "str"},
+                "body": [
+                    {
+                        "kind": "return",
+                        "value": {"kind": "const", "type": {"kind": "str"}, "value": value},
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def test_sys_prefix_string_normalizes() -> None:
+    module = const_module(sys.prefix)
+    out = canonicalize(module)
+    value = out["functions"][0]["body"][0]["value"]["value"]
+    assert value == "<PATH>"
+    assert sys.prefix not in json.dumps(out)
+
+
+def test_prefix_substring_in_longer_string_normalizes() -> None:
+    module = const_module(f"prefix is {sys.prefix} (venv site-packages live under it)")
+    out = canonicalize(module)
+    value = out["functions"][0]["body"][0]["value"]["value"]
+    assert value == "prefix is <PATH> (venv site-packages live under it)"
+    assert sys.prefix not in value
+
+
+def test_path_scrub_is_idempotent() -> None:
+    module = const_module(f"{sys.executable} runs from {sys.prefix}")
+    once = canonicalize(module)
+    twice = canonicalize(once)
+    assert once == twice
+
+
+def test_executable_replaced_before_prefix() -> None:
+    # sys.executable lives under sys.prefix: replacing the shorter prefix
+    # first would leave "/bin/python" style residue inside the placeholder.
+    module = const_module(sys.executable)
+    out = canonicalize(module)
+    value = out["functions"][0]["body"][0]["value"]["value"]
+    assert value == "<PATH>", value
+    assert "/" not in value
+
+
+def test_path_free_module_untouched() -> None:
+    module = base_module()  # strings like /somewhere/invoice.py, not env paths
+    snapshot = copy.deepcopy(module)
+    out = canonicalize(module)
+    assert "<PATH>" not in json.dumps(out)
+    assert out["irVersion"] == 1
+    assert out["functions"][0]["name"] == "add"
+    assert module == snapshot  # canonicalize still never mutates input
 
 
 def test_schema_version_changes_hash() -> None:

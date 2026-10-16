@@ -89,7 +89,7 @@ def test_generate_is_deterministic_across_runs(tmp_path: Path) -> None:
     assert one.read_bytes() == two.read_bytes()
     doc = json.loads(one.read_text(encoding="utf-8"))
     assert doc["version"] == 1 and doc["revision"] == 1 and doc["hash_algo"] == "sha256"
-    assert doc["canonical_schema"] == "canonical-schema/1"
+    assert doc["canonical_schema"] == "canonical-schema/2"
     assert set(doc["probes"]) == {"b.one", "b.two"}
     assert all(len(h) == 64 and h == h.lower() for h in doc["probes"].values())
     assert one.read_text(encoding="utf-8").endswith("\n")
