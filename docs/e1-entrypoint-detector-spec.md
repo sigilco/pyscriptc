@@ -1,6 +1,6 @@
 # E1 entry-point detector spec
 
-How to tell a script from a module by AST, and what a detector records so E1 can predict which corpus files flip once module-level statements lower into an entry function. Spec only: the permanent detector is built inside E1. The counts below come from a throwaway scan (`docs/e1-entrypoint-scan.py`, marked as throwaway, delete freely) run over `examples/` and the scripts corpus.
+How to tell a script from a module by AST, and what a detector records so E1 can predict which corpus files flip once module-level statements lower into an entry function. Spec only: the permanent detector is built inside E1. The counts below came from a throwaway scan, superseded by `benchmarks/compat2/entrypoints.py` (`python -m benchmarks.compat2.entrypoints`), which reproduces them exactly; see `docs/e1-entrypoint-detector-results.md`.
 
 Path note: the E1 plan names `benchmarks/compat2/corpus/scripts/src/`. That directory does not exist. The scripts corpus is `benchmarks/compat2/corpus/scripts/*/main.py` (20 directories, category `program`, weight 3.0 per `benchmarks/compat2/outcomes.py:48`). This spec scans those 20 `main.py` files. `corpus/src/` is vendored third-party packages (top100 trees), not scripts, and is out of scope.
 
@@ -163,4 +163,4 @@ Per-file relevant counts for the scripts corpus:
 
 ## Detector handoff
 
-The E1 implementer reuses the rules verbatim (guard shape from `_is_main_guard`, docstring = position-0 string `Expr`, inert set, one-level guard inventory) and the record shape above. `docs/e1-entrypoint-scan.py` is the reference implementation for the scan; it is throwaway and can be deleted once the real detector lands.
+The E1 implementer reuses the rules verbatim (guard shape from `_is_main_guard`, docstring = position-0 string `Expr`, inert set, one-level guard inventory) and the record shape above. `benchmarks/compat2/entrypoints.py` is the landed detector; it validates each record against the current compiler and emits the predicted-flip list.
