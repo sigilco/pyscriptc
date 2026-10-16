@@ -43,10 +43,11 @@ def test_sys_exit_propagates(tmp_path: Path) -> None:
 def test_benchmarks_do_not_link_the_island(tmp_path: Path) -> None:
     out = tmp_path / "sum.ll"
     got = run_cli("compile", str(EXAMPLES / "sum_squares.py"), "--emit", "llvm", "-o", str(out))
-    # E1: the module-level print moves into the synthesized entry; print
-    # itself still fences (PS2002) until its own lowering lands.
-    assert got.returncode == 3, got.stderr
-    assert "PS2002" in got.stderr
+    # E1 items 1+2: the module-level print lowers into the synthesized entry
+    # and to a stdout write, so the compile succeeds. The .ll carries no
+    # island import: benchmarks must not link the fallback.
+    assert got.returncode == 0, got.stderr
+    assert "ps_island_" not in out.read_text(encoding="utf-8")
 
 
 def test_rest_fences_stay_closed(tmp_path: Path) -> None:
