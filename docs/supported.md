@@ -162,7 +162,7 @@ A list comprehension filter is the existing `if` around the list push: the filte
 
 `base ** exp` for two ints is a loop of `*`. The base and the exponent each run once, and `0 ** 0` is 1. A negative exponent stays fenced, and a float or any other non-int stays fenced.
 
-A slice step on `str`, `bytes`, or `list` keeps every step-th element. Omitted bounds stay the ends of the value, step 0 raises `ValueError`, and a negative step stays fenced. Slice assignment stays fenced.
+A slice step on `str`, `bytes`, or `list` keeps every step-th element. Omitted bounds stay the ends of the value for a positive step, and flip like CPython for a negative step: missing start is the last index, missing stop walks through index 0, and out-of-range bounds clamp. Step 0 raises `ValueError`. Slice assignment stays fenced.
 
 `match subject: case literal:` is `if subject == literal`. The subject runs once, and a later literal case is the else of the previous one. A capture, a wildcard, an or pattern, a sequence, a class pattern, a mapping, a guard, and a singleton stay fenced.
 
