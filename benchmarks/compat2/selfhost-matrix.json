@@ -1,0 +1,142 @@
+{
+  "mode": "deepest-stage",
+  "src": "src/pyscriptc",
+  "modules": 18,
+  "tally": {
+    "ir": 1,
+    "llvm": 0,
+    "bin": 0,
+    "fenced": 12,
+    "errored": 5
+  },
+  "rows": [
+    {
+      "file": "__init__.py",
+      "label": "pyscriptc",
+      "ir": "ok",
+      "llvm": "error",
+      "stop": "PS0001: module has no functions to emit",
+      "reached": "ir"
+    },
+    {
+      "file": "builtins.py",
+      "label": "builtins",
+      "ir": "fence",
+      "fence": "PS1104: /home/ubuntu/.worktrees/pyscriptc-c4-selfhost/src/pyscriptc/builtins.py:23:34: PS1104: Any is not a value type in the IR",
+      "reached": "none"
+    },
+    {
+      "file": "canonical.py",
+      "label": "canonical",
+      "ir": "fence",
+      "fence": "PS2002: /home/ubuntu/.worktrees/pyscriptc-c4-selfhost/src/pyscriptc/canonical.py:16:1: PS2002: copy is not in the closed import table",
+      "reached": "none"
+    },
+    {
+      "file": "check.py",
+      "label": "check",
+      "ir": "fence",
+      "fence": "PS2002: /home/ubuntu/.worktrees/pyscriptc-c4-selfhost/src/pyscriptc/check.py:17:9: PS2002: super is not lowered",
+      "reached": "none"
+    },
+    {
+      "file": "cli.py",
+      "label": "cli",
+      "ir": "fence",
+      "fence": "PS2002: /home/ubuntu/.worktrees/pyscriptc-c4-selfhost/src/pyscriptc/cli.py:5:1: PS2002: argparse is not in the closed import table",
+      "reached": "none"
+    },
+    {
+      "file": "coverage.py",
+      "label": "coverage",
+      "ir": "fence",
+      "fence": "PS2002: /home/ubuntu/.worktrees/pyscriptc-c4-selfhost/src/pyscriptc/coverage.py:12:1: PS2002: ast is not in the closed import table",
+      "reached": "none"
+    },
+    {
+      "file": "diagnostics.py",
+      "label": "diagnostics",
+      "ir": "fence",
+      "fence": "PS2002: /home/ubuntu/.worktrees/pyscriptc-c4-selfhost/src/pyscriptc/diagnostics.py:17:5: PS2002: call to Diagnostic is not lowered",
+      "reached": "none"
+    },
+    {
+      "file": "errors.py",
+      "label": "errors",
+      "ir": "fence",
+      "fence": "PS1104: /home/ubuntu/.worktrees/pyscriptc-c4-selfhost/src/pyscriptc/errors.py:32:19: PS1104: Any is not a value type in the IR",
+      "reached": "none"
+    },
+    {
+      "file": "ir.py",
+      "label": "ir",
+      "ir": "fence",
+      "fence": "PS2002: /home/ubuntu/.worktrees/pyscriptc-c4-selfhost/src/pyscriptc/ir.py:13:1: PS2002: pyscriptc.errors is not in the closed import table",
+      "reached": "none"
+    },
+    {
+      "file": "llvm.py",
+      "label": "llvm",
+      "ir": "error",
+      "stop": "/home/ubuntu/.worktrees/pyscriptc-c4-selfhost/src/pyscriptc/llvm.py:906: error: \"None\" object is not iterable  [misc]",
+      "reached": "none"
+    },
+    {
+      "file": "lower/__init__.py",
+      "label": "lower",
+      "ir": "error",
+      "stop": "/home/ubuntu/.worktrees/pyscriptc-c4-selfhost/src/pyscriptc/lower/__init__.py:4264: error: Argument 1 to \"int\" has incompatible type \"str | bytes | int | float ",
+      "reached": "none"
+    },
+    {
+      "file": "lower/_core.py",
+      "label": "_core",
+      "ir": "fence",
+      "fence": "PS2002: /home/ubuntu/.worktrees/pyscriptc-c4-selfhost/src/pyscriptc/lower/_core.py:10:1: PS2002: ast is not in the closed import table",
+      "reached": "none"
+    },
+    {
+      "file": "lower/_stdlib.py",
+      "label": "_stdlib",
+      "ir": "error",
+      "stop": "/home/ubuntu/.worktrees/pyscriptc-c4-selfhost/src/pyscriptc/lower/_stdlib.py:489: error: \"StdlibDispatchMixin\" has no attribute \"filename\"  [attr-defined]",
+      "reached": "none"
+    },
+    {
+      "file": "lower/_stdlib_shared.py",
+      "label": "_stdlib_shared",
+      "ir": "fence",
+      "fence": "PS2002: /home/ubuntu/.worktrees/pyscriptc-c4-selfhost/src/pyscriptc/lower/_stdlib_shared.py:10:1: PS2002: ast is not in the closed import table",
+      "reached": "none"
+    },
+    {
+      "file": "package.py",
+      "label": "package",
+      "ir": "fence",
+      "fence": "PS2002: /home/ubuntu/.worktrees/pyscriptc-c4-selfhost/src/pyscriptc/package.py:14:1: PS2002: ast is not in the closed import table",
+      "reached": "none"
+    },
+    {
+      "file": "restlower.py",
+      "label": "restlower",
+      "ir": "error",
+      "stop": "/home/ubuntu/.worktrees/pyscriptc-c4-selfhost/src/pyscriptc/restlower.py:832: error: \"expr\" has no attribute \"id\"  [attr-defined]",
+      "reached": "none"
+    },
+    {
+      "file": "stdlib_queue.py",
+      "label": "stdlib_queue",
+      "ir": "fence",
+      "fence": "PS1003: /home/ubuntu/.worktrees/pyscriptc-c4-selfhost/src/pyscriptc/stdlib_queue.py:15:1: PS1003: QUEUE is tuple[str, str, str, str, str, str, str, str, str, str, str, ",
+      "reached": "none"
+    },
+    {
+      "file": "stdmore.py",
+      "label": "stdmore",
+      "ir": "error",
+      "stop": "/home/ubuntu/.worktrees/pyscriptc-c4-selfhost/src/pyscriptc/stdmore.py:1506: error: Module has no attribute \"defaultaction\"  [attr-defined]",
+      "reached": "none"
+    }
+  ],
+  "wall_s": 16.641
+}
