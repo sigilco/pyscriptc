@@ -92,15 +92,20 @@ class FileHashes:
         return self._combined[key]
 
 
-def cache_key(probe: Probe, coverage: dict[str, list[str]], hashes: FileHashes | str) -> str:
-    """`hashes` may be a precomputed whole tree hash (the old call shape) or a FileHashes."""
+def cache_key(probe: Probe, coverage: dict[str, list[str]], hashes: FileHashes | str, oracle: str | None = None) -> str:
+    """`hashes` may be a precomputed whole tree hash (the old call shape) or a FileHashes.
+
+    `oracle` is the resolved oracle version string (same shape as `oracle_version()`);
+    None means the interpreter running the scorer.
+    """
 
     modules = coverage.get(probe.id)
     if isinstance(hashes, str):
         chash = hashes if modules is None else compiler_hash(modules)
     else:
         chash = hashes.of(modules)
-    return hashlib.sha256("\0".join((probe_hash(probe), oracle_version(), chash)).encode()).hexdigest()
+    version = oracle if oracle is not None else oracle_version()
+    return hashlib.sha256("\0".join((probe_hash(probe), version, chash)).encode()).hexdigest()
 
 
 def load(cache_dir: Path, key: str) -> dict[str, Any] | None:
