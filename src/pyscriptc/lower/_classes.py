@@ -20,7 +20,6 @@ from pyscriptc.lower._core import (
     _LIST_FORMS,
     _SET_FORMS,
     Fence,
-    _declared_globals,
     _name,
     _show,
 )
@@ -355,7 +354,7 @@ class ClassesMixin:
             self.function = f"{node.name}.{stmt.name}"
             self.temp_n = 0
             self.prelude = []
-            self.fn_globals = _declared_globals(list(stmt.body))
+            self.fn_globals = self._globals_for(stmt.body)
             params, ret = info["methods"][stmt.name]
             kind = info["method_kind"].get(stmt.name, "method")
             self.locals = {param["name"]: param["type"] for param in params}
