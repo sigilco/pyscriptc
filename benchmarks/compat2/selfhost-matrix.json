@@ -1,13 +1,13 @@
 {
   "mode": "deepest-stage",
   "src": "src/pyscriptc",
-  "modules": 18,
+  "modules": 19,
   "tally": {
     "ir": 1,
     "llvm": 0,
     "bin": 0,
     "fenced": 12,
-    "errored": 5
+    "errored": 6
   },
   "rows": [
     {
@@ -85,7 +85,7 @@
       "file": "lower/__init__.py",
       "label": "lower",
       "ir": "error",
-      "stop": "/home/ubuntu/.worktrees/pyscriptc-c4-selfhost/src/pyscriptc/lower/__init__.py:4264: error: Argument 1 to \"int\" has incompatible type \"str | bytes | int | float ",
+      "stop": "/home/ubuntu/.worktrees/pyscriptc-c4-selfhost/src/pyscriptc/lower/__init__.py:3434: error: Argument 1 to \"int\" has incompatible type \"str | bytes | int | float ",
       "reached": "none"
     },
     {
@@ -93,6 +93,13 @@
       "label": "_core",
       "ir": "fence",
       "fence": "PS2002: /home/ubuntu/.worktrees/pyscriptc-c4-selfhost/src/pyscriptc/lower/_core.py:10:1: PS2002: ast is not in the closed import table",
+      "reached": "none"
+    },
+    {
+      "file": "lower/_expr.py",
+      "label": "_expr",
+      "ir": "error",
+      "stop": "/home/ubuntu/.worktrees/pyscriptc-c4-selfhost/src/pyscriptc/lower/_expr.py:862: error: \"ExprMixin\" has no attribute \"locals\"  [attr-defined]",
       "reached": "none"
     },
     {
@@ -138,5 +145,5 @@
       "reached": "none"
     }
   ],
-  "wall_s": 16.641
+  "wall_s": 18.289
 }
