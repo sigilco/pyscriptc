@@ -10,6 +10,8 @@ from __future__ import annotations
 import ast
 from typing import Any
 
+from pyscriptc.ir import types_equal
+
 
 class Fence(Exception):
     def __init__(self, code: str, message: str, span: dict[str, Any], function: str | None) -> None:
@@ -45,6 +47,162 @@ class Binding:
         self.type = typ
         # True when `import urllib.parse` binds `urllib`, not the whole module.
         self.rooted = rooted
+
+
+def _assign(target: str, value: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    return {"kind": "assign", "target": target, "value": value, "span": span}
+
+
+def _const_str_join(parts: list[dict[str, Any]], span: dict[str, Any]) -> dict[str, Any] | None:
+    """Module-level f-string pieces that are already str constants are one str constant."""
+
+    if any(part.get("kind") != "const" or part.get("type", {}).get("kind") != "str" for part in parts):
+        return None
+    text = "".join(str(part["value"]) for part in parts)
+    return {"kind": "const", "value": text, "type": {"kind": "str"}, "span": span}
+
+
+def _concat_str(parts: list[dict[str, Any]], span: dict[str, Any]) -> dict[str, Any]:
+    if not parts:
+        return {"kind": "const", "value": "", "type": {"kind": "str"}, "span": span}
+    acc = parts[0]
+    for part in parts[1:]:
+        acc = {"kind": "binary", "op": "+", "left": acc, "right": part, "type": {"kind": "str"}, "span": span}
+    return acc
+
+
+def _percent_pieces(fmt: str) -> list[tuple[str, str]] | None:
+    pieces: list[tuple[str, str]] = []
+    buf: list[str] = []
+    index = 0
+    size = len(fmt)
+    while index < size:
+        if fmt[index] != "%":
+            buf.append(fmt[index])
+            index += 1
+            continue
+        if index + 1 >= size:
+            return None
+        nxt = fmt[index + 1]
+        if nxt == "%":
+            buf.append("%")
+            index += 2
+            continue
+        if nxt not in {"s", "d"}:
+            return None
+        pieces.append(("lit", "".join(buf)))
+        buf = []
+        pieces.append((nxt, ""))
+        index += 2
+    pieces.append(("lit", "".join(buf)))
+    return pieces
+
+
+def _const_list_concat(left: dict[str, Any], right: dict[str, Any], span: dict[str, Any]) -> dict[str, Any] | None:
+    """Two constant lists of one element type are one list. A runtime list stays fenced."""
+
+    if left.get("kind") != "list" or right.get("kind") != "list":
+        return None
+    if left["type"]["kind"] != "list" or right["type"]["kind"] != "list":
+        return None
+    if left["type"].get("set") or right["type"].get("set"):
+        return None
+    if not types_equal(left["type"]["elem"], right["type"]["elem"]):
+        return None
+    return {
+        "kind": "list",
+        "elems": [*left["elems"], *right["elems"]],
+        "type": {"kind": "list", "elem": left["type"]["elem"]},
+        "span": span,
+    }
+
+
+def _name(name: str, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    return {"kind": "name", "id": name, "type": typ, "span": span}
+
+
+def _const_int(value: int, span: dict[str, Any]) -> dict[str, Any]:
+    return {"kind": "const", "value": str(value), "type": {"kind": "int"}, "span": span}
+
+
+def _int_text(value: str) -> bool:
+    body = value[1:] if value.startswith("-") else value
+    return bool(body) and body.isdigit()
+
+
+def _static_int(expr: dict[str, Any]) -> int | None:
+    if expr.get("kind") == "const" and expr.get("type", {}).get("kind") == "int":
+        value = expr.get("value")
+        if isinstance(value, str) and _int_text(value):
+            return int(value)
+    if expr.get("kind") == "unary" and expr.get("op") == "-" and isinstance(expr.get("operand"), dict):
+        inner = _static_int(expr["operand"])
+        if inner is not None:
+            return -inner
+    return None
+
+
+def _const_bool(value: bool, span: dict[str, Any]) -> dict[str, Any]:
+    return {"kind": "const", "value": value, "type": {"kind": "bool"}, "span": span}
+
+
+def _const_none(span: dict[str, Any]) -> dict[str, Any]:
+    return {"kind": "const", "value": None, "type": {"kind": "none"}, "span": span}
+
+
+def _len_call(seq: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "kind": "call",
+        "callee": {"kind": "builtin", "name": "len"},
+        "args": [seq],
+        "type": {"kind": "int"},
+        "span": span,
+    }
+
+
+def _binary_int(op: str, left: dict[str, Any], right: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    return {"kind": "binary", "op": op, "left": left, "right": right, "type": {"kind": "int"}, "span": span}
+
+
+def _compare(op: str, left: dict[str, Any], right: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    return {"kind": "compare", "op": op, "left": left, "right": right, "type": {"kind": "bool"}, "span": span}
+
+
+def _show(typ: dict[str, Any]) -> str:
+    if typ["kind"] == "list":
+        head = "set" if typ.get("set") else "list"
+        return f"{head}[{_show(typ['elem'])}]"
+    if typ["kind"] == "dict":
+        return f"dict[{_show(typ['key'])}, {_show(typ['value'])}]"
+    if typ["kind"] == "class":
+        return str(typ.get("label", typ["name"]))
+    return str(typ["kind"])
+
+
+def _plain_const_kind(node: ast.expr) -> str | None:
+    """A str constant or an int constant. Bool is not an int here."""
+    if not isinstance(node, ast.Constant) or isinstance(node.value, bool):
+        return None
+    if isinstance(node.value, str):
+        return "str"
+    if isinstance(node.value, int):
+        return "int"
+    return None
+
+
+_CMP = {
+    ast.Lt: "<",
+    ast.LtE: "<=",
+    ast.Gt: ">",
+    ast.GtE: ">=",
+    ast.Eq: "==",
+    ast.NotEq: "!=",
+}
+_SCALAR = {"int", "float", "str", "bytes"}
+_TRUTHY = frozenset({"str", "bytes", "int", "list", "dict"})
+_LIST_FORMS = frozenset({"List"})
+_DICT_FORMS = frozenset({"Dict"})
+_SET_FORMS = frozenset({"Set"})
 
 
 _FUTURE_OK = frozenset(
