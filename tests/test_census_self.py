@@ -12,7 +12,7 @@ SRC = ROOT / "src" / "pyscriptc"
 
 def test_self_census_ballpark() -> None:
     census = build_self_census(SRC)
-    assert census["modules"] == 15
-    assert census["fences"] == 627
+    assert census["modules"] == 18
+    assert census["fences"] == 639
     assert 11_000 <= census["lines"] <= 12_000
-    assert sum(p["fences"] for p in census["packages"]) == 627
+    assert sum(p["fences"] for p in census["packages"]) == 639
