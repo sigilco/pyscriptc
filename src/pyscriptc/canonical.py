@@ -16,9 +16,19 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
+import sys
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
-CANONICAL_SCHEMA_VERSION = "canonical-schema/1"
+CANONICAL_SCHEMA_VERSION = "canonical-schema/2"
+
+# Schema/2: environment-derived absolute paths reaching IR string constants
+# (stdmore.py reads sys.prefix / sys.executable at compile time) are replaced
+# with this placeholder so the digest cannot depend on the checkout or venv
+# location. Decision 2026-10-16.
+_PATH_PLACEHOLDER = "<PATH>"
 
 # Keys removed at every nesting depth. `span` rides on functions, classes,
 # statements, expressions and fence records; the rest are module level only.
@@ -29,6 +39,10 @@ def canonicalize(module: dict[str, Any]) -> dict[str, Any]:
     """Return a canonical deep copy: incidental keys stripped, orders normalized.
 
     - every `span`, plus top-level `sourceFile`, `cpython`, `_notes`, gone;
+    - every substring of an environment absolute path (sys.executable,
+      sys._base_executable, sys.exec_prefix, sys.prefix, cwd, the pyscriptc
+      checkout root) in any string value is replaced by `<PATH>`; longest
+      first so an executable path is consumed before its prefix runs;
     - `classes` sorted by `name` (synthetic class order leaks a set iteration
       order at lower.py:607);
     - every try-handler's `codes` list sorted (same leak via self.classes);
@@ -58,7 +72,7 @@ def canonicalize(module: dict[str, Any]) -> dict[str, Any]:
                 fence.get("span", {}).get("col", 0),
             ),
         )
-    return out
+    return _scrub_paths(out)
 
 
 def hash_module(module: dict[str, Any]) -> str:
@@ -71,6 +85,60 @@ def hash_module(module: dict[str, Any]) -> str:
     # should surface here instead of silently hashing into a digest.
     payload = json.dumps(canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+@lru_cache(maxsize=1)
+def _env_paths() -> tuple[str, ...]:
+    """Every absolute path this environment could leak into IR strings.
+
+    Realpath and as-given variants both (macOS /tmp is a symlink), longest
+    first so a path nested under another is replaced before its container.
+    Cached: sys.prefix etc. cannot change inside one process.
+    """
+
+    roots: list[str] = []
+    for raw in (
+        getattr(sys, "executable", ""),
+        getattr(sys, "_base_executable", ""),
+        getattr(sys, "exec_prefix", ""),
+        getattr(sys, "prefix", ""),
+        os.getcwd(),
+        _checkout_root(),
+    ):
+        if not raw:
+            continue
+        roots.append(os.path.normpath(raw))
+        real = os.path.realpath(raw)
+        if real != roots[-1]:
+            roots.append(real)
+    # Drop paths contained in a longer candidate: replacing the container
+    # first would strand the remainder of the shorter one as plain text.
+    return tuple(sorted(set(roots), key=len, reverse=True))
+
+
+def _checkout_root() -> str:
+    """Repository root found by walking up from this file to a pyproject.toml."""
+
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "pyproject.toml").is_file():
+            return str(parent)
+    return ""
+
+
+def _scrub_paths(value: Any) -> Any:
+    """Replace environment path substrings in every string value (keys are
+    structural: the IR key vocabulary is fixed and never carries paths)."""
+
+    if isinstance(value, dict):
+        return {k: _scrub_paths(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_scrub_paths(item) for item in value]
+    if isinstance(value, str):
+        for path in _env_paths():
+            if path in value:
+                value = value.replace(path, _PATH_PLACEHOLDER)
+        return value
+    return value
 
 
 def _strip(value: Any) -> Any:
