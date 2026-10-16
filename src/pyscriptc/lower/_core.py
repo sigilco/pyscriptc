@@ -232,5 +232,39 @@ def _package_base(module_name: str, is_package: bool, level: int) -> list[str] |
     return bits[: len(bits) - drop]
 
 
+def _tuple_assign(
+    dest: str, typ: dict[str, Any], elems: list[dict[str, Any]], span: dict[str, Any]
+) -> list[dict[str, Any]]:
+    made = {
+        "kind": "call",
+        "callee": {"kind": "class", "name": typ["name"]},
+        "args": [],
+        "type": typ,
+        "span": span,
+    }
+    stmts = [_assign(dest, made, span)]
+    for index, elem in enumerate(elems):
+        stmts.append(
+            {
+                "kind": "setattr",
+                "object": _name(dest, typ, span),
+                "name": f"_{index}",
+                "value": elem,
+                "span": span,
+            }
+        )
+    return stmts
+
+
+def _zero(typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    if typ["kind"] == "int":
+        return _const_int(0, span)
+    if typ["kind"] == "bool":
+        return _const_bool(False, span)
+    if typ["kind"] == "float":
+        return {"kind": "const", "value": "0.0", "type": typ, "span": span}
+    return {"kind": "const", "value": "", "type": typ, "span": span}
+
+
 def _is_none_expr(node: ast.expr) -> bool:
     return isinstance(node, ast.Constant) and node.value is None
