@@ -96,7 +96,24 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
     def fail(self, node: ast.AST, code: str, message: str) -> NoReturn:
         raise Fence(code, message, span_of(node, self.filename), self.function)
 
+    def _desugar(self, tree: ast.Module) -> ast.Module:
+        """Pre-lowering syntax pass. Runs once, before any statement is
+        lowered (called from `module`).
+
+        A desugar pass receives the parsed module tree and returns the tree
+        to lower: a replacement `ast.Module` whose statements the lowering
+        below accepts. It must not lower anything itself, touch IR state
+        (`self.bindings`, `self.prelude`, `self.sigs`, ...), or collect
+        fences; those belong to the lowering passes that run after it.
+
+        Today lowering happens inline (`for` becomes `while` inside
+        `_for`/`_for_range`, not before it), so this hook is the identity.
+        E1 replaces the body with the first real AST-to-AST pass.
+        """
+        return tree
+
     def module(self, tree: ast.Module) -> dict[str, Any]:
+        tree = self._desugar(tree)
         fences: list[Fence] = []
         functions: list[ast.FunctionDef] = []
         class_nodes: list[ast.ClassDef] = []
