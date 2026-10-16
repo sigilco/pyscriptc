@@ -68,4 +68,6 @@ jobs:
           echo "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00  /tmp/zig.tar.xz" | sha256sum -c -
           sudo tar -xJf /tmp/zig.tar.xz -C /usr/local
           echo "/usr/local/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
+      - name: Install qemu-user-static (run aarch64/riscv64 musl binaries)
+        run: sudo apt-get update && sudo apt-get install -y qemu-user-static
       - run: packaging/zig/smoke.sh

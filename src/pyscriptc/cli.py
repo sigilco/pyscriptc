@@ -37,6 +37,16 @@ def main(argv: list[str] | None = None) -> int:
         help="Python literal list of arguments for --call, parsed with ast.literal_eval",
     )
     compile_parser.add_argument("--run", action="store_true", help="compile a binary and run it")
+    compile_parser.add_argument(
+        "--driver",
+        choices=("clang", "zig"),
+        default="clang",
+        help="C toolchain driver; zig means `zig cc` (required for --target)",
+    )
+    compile_parser.add_argument(
+        "--target",
+        help="cross-compilation triple for `zig cc`, e.g. aarch64-linux-gnu.2.39",
+    )
     compile_parser.add_argument("--skip-check", action="store_true")
     compile_parser.add_argument("--checker", default="mypy")
     coverage_parser = sub.add_parser("coverage", help="report every fence in a file or package tree")
@@ -111,7 +121,7 @@ def compile_cmd(args: argparse.Namespace) -> int:
         print(ll_path)
         return 0
     binary = Path(args.output) if args.output else source_path.with_suffix("")
-    link_binary(ll_path, binary)
+    link_binary(ll_path, binary, driver=args.driver, target=args.target)
     if not args.run:
         print(binary)
         return 0

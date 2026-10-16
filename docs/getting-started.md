@@ -36,3 +36,16 @@ A fence is the whole file. Fix the named construct, or keep that program on CPyt
 ## What you get
 
 A script that never calls the island links the small runtime and does not link libpython. `examples/hostname.py` calls `socket.gethostname`, so that binary links the CPython that compiled it and initializes it on the call.
+
+## Cross-compiling
+
+`--driver zig --target TRIPLE` links through `zig cc` for another platform — zig bundles each target's sysroot, so no extra install is needed:
+
+```bash
+uv run pyscriptc compile examples/invoice.py --emit bin --call charge --args '[10, 2, 50]' \
+    --skip-check --driver zig --target aarch64-linux-gnu.2.39 -o /tmp/charge-arm64
+```
+
+Tier A targets (CI-verified by `packaging/zig/smoke.sh`): `x86_64-linux-gnu`, `aarch64-linux-gnu`, `riscv64-linux-gnu` (optionally pinned, e.g. `gnu.2.39`), `x86_64-linux-musl`, `aarch64-linux-musl`, `riscv64-linux-musl` (static), and `aarch64-macos` / `x86_64-macos` (compile-verified only — no runner). Static-musl binaries can run foreign arches under `qemu-<arch>-static`.
+
+Not supported yet: Windows targets (a few POSIX calls in the runtime need shims), island/fallback programs on any cross target (they embed the host libpython), and the `PYSCRIPTC_MIX_SO` dlopen path on static musl. `--target` requires `--driver zig`; without `--target`, `zig` is just another host driver.
