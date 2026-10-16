@@ -1,5 +1,6 @@
 /* Object helpers that are easier in C than in the LLVM text: abs, sum,
-sorted, ord, chr, round, warnings.warn, and lexicographic i64 compare.
+sorted, ord, chr, round, int(bytes), warnings.warn, and lexicographic i64
+compare.
 */
 
 #include "ps_rt.h"
@@ -120,6 +121,42 @@ int64_t ps_ord(int64_t n, const char *s) {
         ps_raise_cstr(PS_VALUE, "ord() expected a character");
     }
     return (unsigned char)s[0];
+}
+
+/* int(bytes): base 10, CPython's surrounding-whitespace strip, optional
+sign, every remaining byte a digit, no underscore subset, i64 range only. */
+int64_t ps_int_from_bytes(int64_t n, const char *s) {
+    int64_t i = 0;
+    while (i < n && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r' || s[i] == '\f' || s[i] == '\v')) {
+        i++;
+    }
+    int neg = 0;
+    if (i < n && (s[i] == '+' || s[i] == '-')) {
+        neg = s[i] == '-';
+        i++;
+    }
+    uint64_t mag = 0;
+    int64_t end = n;
+    while (end > i && (s[end - 1] == ' ' || s[end - 1] == '\t' || s[end - 1] == '\n' || s[end - 1] == '\r'
+                       || s[end - 1] == '\f' || s[end - 1] == '\v')) {
+        end--;
+    }
+    if (i >= end) {
+        ps_raise_cstr(PS_VALUE, "invalid literal for int() with base 10");
+    }
+    for (; i < end; i++) {
+        if (s[i] < '0' || s[i] > '9') {
+            ps_raise_cstr(PS_VALUE, "invalid literal for int() with base 10");
+        }
+        if (mag > (UINT64_MAX - (uint64_t)(s[i] - '0')) / 10) {
+            ps_raise_cstr(PS_VALUE, "int() literal does not fit in i64");
+        }
+        mag = mag * 10 + (uint64_t)(s[i] - '0');
+    }
+    if (!neg && mag > (uint64_t)INT64_MAX) {
+        ps_raise_cstr(PS_VALUE, "int() literal does not fit in i64");
+    }
+    return neg ? -(int64_t)(mag - 1) - 1 : (int64_t)mag;
 }
 
 void ps_chr(int64_t c, PsBuf *out) {
