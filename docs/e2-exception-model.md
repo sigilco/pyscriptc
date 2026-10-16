@@ -137,14 +137,21 @@ Options considered:
 The `try` node grows three optional fields; `ir.py` validation (`ir.py:218-226`) extends to match:
 
 ```python
-{"kind": "try",
- "body": [...],
- "handlers": [{"exc": [names], "codes": [ints],
-               "bind": "e" | None,          # NEW: except-as name
-               "body": [...]}],
- "orelse": [...],                            # NEW: try-else body
- "finalbody": [...],                         # NEW: finally body
- "span": ...}
+{
+    "kind": "try",
+    "body": [...],
+    "handlers": [
+        {
+            "exc": [names],
+            "codes": [ints],
+            "bind": "e" | None,  # NEW: except-as name
+            "body": [...],
+        }
+    ],
+    "orelse": [...],  # NEW: try-else body
+    "finalbody": [...],  # NEW: finally body
+    "span": ...,
+}
 ```
 
 `"bind"` is `None` when absent so older IR stays valid; `orelse`/`finalbody` default to `[]`. `STMT_KINDS` (`ir.py:33`) is unchanged — kind stays `"try"`.
