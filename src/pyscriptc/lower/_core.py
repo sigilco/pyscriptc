@@ -280,3 +280,12 @@ def _zero(typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
 
 def _is_none_expr(node: ast.expr) -> bool:
     return isinstance(node, ast.Constant) and node.value is None
+
+
+def _declared_globals(body: list[ast.stmt]) -> set[str]:
+    names: set[str] = set()
+    for stmt in body:
+        for node in ast.walk(stmt):
+            if isinstance(node, ast.Global):
+                names.update(node.names)
+    return names
