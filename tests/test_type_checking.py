@@ -101,4 +101,8 @@ def test_user_type_checking_name_stays_a_module_if(tmp_path: Path) -> None:
         path = write_case(tmp_path, name, source)
         got = run_cli("compile", str(path), "--skip-check", "--emit", "llvm", "-o", str(tmp_path / f"{name}.ll"))
         assert got.returncode == 3, f"{name}\n{got.stderr}"
-        assert "If at module scope is not lowered" in got.stderr
+        # E1: the if no longer fences at module scope by kind, but a rebound
+        # TYPE_CHECKING still never folds: the guard stays live and the
+        # compilation still refuses (typing-name misuse, or the import and
+        # the module-scope binding it guards).
+        assert "PS2002" in got.stderr
