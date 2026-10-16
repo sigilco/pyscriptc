@@ -1,0 +1,120 @@
+"""Tests for benchmarks/compat2/entrypoints.py (E1 entry-point detector)."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+from benchmarks.compat2 import entrypoints
+
+
+def scan_source(tmp_path: Path, source: str):
+    path = tmp_path / "probe.py"
+    path.write_text(source, encoding="utf-8")
+    return entrypoints.scan_file(path, rel=Path("probe.py"))
+
+
+def test_pure_module_is_not_a_script(tmp_path: Path):
+    rec = scan_source(
+        tmp_path,
+        '"""doc"""\nimport os\nfrom sys import path\n\n\ndef f(a: int) -> int:\n    return a\n',
+    )
+    assert rec["is_script"] is False
+    assert rec["entry_stmt_count"] == 0
+    assert rec["statement_kinds"] == ["Docstring", "Import", "ImportFrom", "FunctionDef"]
+
+
+def test_module_assign_is_entry_relevant(tmp_path: Path):
+    # Per the spec's inert set, a bare Assign counts toward entry_stmt_count:
+    # it lowers into the entry function when it cannot bind as a constant.
+    rec = scan_source(tmp_path, "X = 1\n")
+    assert rec["is_script"] is True
+    assert rec["entry_stmt_count"] == 1
+
+
+def test_bare_call_makes_a_script(tmp_path: Path):
+    rec = scan_source(tmp_path, "def f() -> int:\n    return 1\n\n\nprint(f())\n")
+    assert rec["is_script"] is True
+    assert rec["entry_stmt_count"] == 1
+    assert rec["print_calls"] == 1
+
+
+def test_guard_body_inventoried_one_level(tmp_path: Path):
+    rec = scan_source(
+        tmp_path,
+        'def f() -> int:\n    return 1\n\n\nif __name__ == "__main__":\n    print(f())\n    x = 2\n',
+    )
+    assert rec["has_main_guard"] is True
+    assert rec["is_script"] is True
+    assert rec["statement_kinds"] == ["FunctionDef", "If", "Expr", "Assign"]
+    assert rec["entry_stmt_count"] == 2
+    assert rec["print_calls"] == 1
+    guard_stmts = [s for s in rec["statements"] if s["where"] == "guard"]
+    assert len(guard_stmts) == 2
+
+
+def test_reversed_comparison_is_not_a_guard(tmp_path: Path):
+    rec = scan_source(tmp_path, 'if "__main__" == __name__:\n    print(1)\n')
+    assert rec["has_main_guard"] is False
+    assert [s["where"] for s in rec["statements"]] == ["top"]
+    # The non-guard If is itself the entry statement; its body is not flattened.
+    assert rec["statement_kinds"] == ["If"]
+    assert rec["entry_stmt_count"] == 1
+
+
+def test_docstring_only_at_position_zero(tmp_path: Path):
+    rec = scan_source(tmp_path, 'x = 1\n"not a docstring"\n')
+    assert rec["statement_kinds"] == ["Assign", "Expr"]
+
+
+def test_syntax_error_record(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    bad = tmp_path / "examples"
+    bad.mkdir()
+    (bad / "broken.py").write_text("def f(:\n", encoding="utf-8")
+    monkeypatch.setattr(entrypoints, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(entrypoints, "SCRIPTS_DIR", Path("empty"))
+    records = entrypoints.scan(with_fences=False)
+    assert len(records) == 1
+    assert records[0]["is_script"] is False
+    assert "error" in records[0]
+
+
+def test_serialization_is_byte_stable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    ex = tmp_path / "examples"
+    ex.mkdir()
+    (ex / "a.py").write_text("print(1)\n", encoding="utf-8")
+    (ex / "b.py").write_text("def f() -> int:\n    return 1\n", encoding="utf-8")
+    monkeypatch.setattr(entrypoints, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(entrypoints, "SCRIPTS_DIR", Path("empty"))
+    first = entrypoints.serialize(entrypoints.scan(with_fences=False))
+    second = entrypoints.serialize(entrypoints.scan(with_fences=False))
+    assert first == second
+    assert first.endswith("\n")
+    json.loads(first)  # parses
+
+
+def test_counts_match_spec_tables():
+    records = entrypoints.scan(with_fences=False)
+    examples = [r for r in records if r["path"].startswith("examples/")]
+    scripts = [r for r in records if r["path"].startswith("benchmarks/compat2/corpus/scripts/")]
+    assert len(examples) == 26
+    assert sum(1 for r in examples if r["is_script"]) == 3
+    assert len(scripts) == 20
+    assert sum(1 for r in scripts if r["is_script"]) == 20
+
+
+def test_validation_marks_entry_fences():
+    """On today's master only fib_recursive and word_freq still fence inside
+    an entry statement (the top-level `for` bodies). Other scripts fence
+    inside their own definitions first; the three example guard scripts
+    already compile."""
+    records = entrypoints.scan(with_fences=True)
+    flips = sorted(r["path"] for r in records if r["predicted_flip"])
+    assert flips == [
+        "benchmarks/compat2/corpus/scripts/fib_recursive/main.py",
+        "benchmarks/compat2/corpus/scripts/word_freq/main.py",
+    ]
+    fib = next(r for r in records if r["path"].endswith("fib_recursive/main.py"))
+    assert fib["first_fence"]["code"] == "PS2002"
+    assert fib["fences_at_entry"] == [7]
