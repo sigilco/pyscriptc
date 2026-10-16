@@ -23,12 +23,19 @@ from pyscriptc.lower._core import (
     _CMP,
     _DICT_FORMS,
     _LIST_FORMS,
-    _SCALAR,
     _SET_FORMS,
     _TRUTHY,
     Binding,
     Fence,
+    _binary_int,
+    _compare,
+    _const_bool,
+    _const_int,
+    _const_none,
     _is_none_expr,
+    _name,
+    _show,
+    _tuple_assign,
 )
 from pyscriptc.lower._expr import ExprMixin
 from pyscriptc.lower._stdlib import StdlibDispatchMixin
@@ -38,6 +45,14 @@ from pyscriptc.lower._stdlib_shared import (
     _module_assigned,
     _release_erased_import,
     _synth_module,
+)
+from pyscriptc.lower._stmt import (
+    StmtMixin,
+    _always_returns,
+    _is_docstring,
+    _is_main_guard,
+    _stmt_breaks_this_loop,
+    _stmt_continues_this_loop,
 )
 from pyscriptc.restlower import alias_name, builtin_call, path_attr
 from pyscriptc.restlower import method_spec as synth_method
@@ -49,7 +64,7 @@ _DYNAMIC_ANNOTATIONS = frozenset({"object", "Any", "Protocol", "TypeVar", "Gener
 _IO_HANDLES = {"BinaryIO": "BytesIO", "TextIO": "TextIO"}
 
 
-class Lowerer(StdlibDispatchMixin, ExprMixin):
+class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin):
     def __init__(self, filename: str, source: str) -> None:
         self.filename = filename
         self.source = source
@@ -268,9 +283,7 @@ class Lowerer(StdlibDispatchMixin, ExprMixin):
             return False
         return module == root or module.startswith(root + ".")
 
-    def _install_class_export(
-        self, local: str, item: dict[str, Any], stmt: ast.AST, fences: list[Fence]
-    ) -> None:
+    def _install_class_export(self, local: str, item: dict[str, Any], stmt: ast.AST, fences: list[Fence]) -> None:
         name = str(item["name"])
         if name in self.classes and not self.classes[name].get("imported"):
             fences.append(Fence("PS2002", f"{local} is already bound", span_of(stmt, self.filename), None))
@@ -780,584 +793,6 @@ class Lowerer(StdlibDispatchMixin, ExprMixin):
                     body.append(self._skip_rest(rest, span_of(stmt, self.filename)))
                 return body
         return body
-
-    def _loop_flag(self, body: list[ast.stmt]) -> str | None:
-        if not any(_stmt_breaks_this_loop(stmt) for stmt in body):
-            return None
-        flag = self._temp("brk")
-        self.locals[flag] = {"kind": "bool"}
-        return flag
-
-    def _continue_loop_flag(self, body: list[ast.stmt]) -> str | None:
-        if not any(_stmt_continues_this_loop(stmt) for stmt in body):
-            return None
-        flag = self._temp("cont")
-        self.locals[flag] = {"kind": "bool"}
-        return flag
-
-    def _continue_reset(self, span: dict[str, Any]) -> list[dict[str, Any]]:
-        if self.continue_flag is None:
-            return []
-        return [_assign(self.continue_flag, _const_bool(False, span), span)]
-
-    def _skip_rest(self, stmts: list[dict[str, Any]], span: dict[str, Any]) -> dict[str, Any]:
-        """Skip the rest of this loop body after `break` or `continue`.
-
-        `break` and `continue` each have a flag. The for-loop step stays outside
-        this guard, so `continue` still advances and `break` does not.
-        """
-        guarded = stmts
-        if self.continue_flag is not None:
-            guarded = [
-                {"kind": "if", "cond": _not_bool(self.continue_flag, span), "then": guarded, "else": [], "span": span}
-            ]
-        if self.break_flag is not None:
-            guarded = [
-                {"kind": "if", "cond": _not_bool(self.break_flag, span), "then": guarded, "else": [], "span": span}
-            ]
-        return guarded[0]
-
-    def _break_init(self, span: dict[str, Any]) -> list[dict[str, Any]]:
-        if self.break_flag is None:
-            return []
-        return [_assign(self.break_flag, _const_bool(False, span), span)]
-
-    def _skip_on_break(self, stmts: list[dict[str, Any]], span: dict[str, Any]) -> list[dict[str, Any]]:
-        if self.break_flag is None:
-            return stmts
-        return [{"kind": "if", "cond": _not_bool(self.break_flag, span), "then": stmts, "else": [], "span": span}]
-
-    def _user_while(
-        self,
-        cond: dict[str, Any],
-        body: list[dict[str, Any]],
-        span: dict[str, Any],
-        *,
-        init: bool = True,
-        cond_pre: list[dict[str, Any]] | None = None,
-    ) -> list[dict[str, Any]]:
-        """`while cond: body`, and `break` sets a flag the existing while already tests.
-
-        The flag starts false. The loop runs while it is false and `cond` is
-        true. `break` sets the flag and the rest of that body is an `if`.
-        A false `cond` sets the flag too, so the condition is not tested again.
-        Statements that compute `cond` run at the start of each iteration.
-        """
-        flag = self.break_flag
-        pre = cond_pre or []
-        if flag is None and not pre:
-            return [{"kind": "while", "cond": cond, "body": body, "span": span}]
-        own_flag = False
-        if flag is None:
-            flag = self._temp("whl")
-            self.locals[flag] = {"kind": "bool"}
-            own_flag = True
-        loop = {
-            "kind": "while",
-            "cond": _not_bool(flag, span),
-            "body": [
-                *pre,
-                {
-                    "kind": "if",
-                    "cond": cond,
-                    "then": body,
-                    "else": [_assign(flag, _const_bool(True, span), span)],
-                    "span": span,
-                },
-            ],
-            "span": span,
-        }
-        if not init and not own_flag:
-            return [loop]
-        return [_assign(flag, _const_bool(False, span), span), loop]
-
-    def _stmt(self, stmt: ast.stmt) -> list[dict[str, Any]]:
-        saved = self.prelude
-        self.prelude = []
-        try:
-            produced = self._stmt_core(stmt)
-        finally:
-            pre = self.prelude
-            self.prelude = saved
-        return [*pre, *produced]
-
-    def _stmt_core(self, stmt: ast.stmt) -> list[dict[str, Any]]:
-        span = span_of(stmt, self.filename)
-        if isinstance(stmt, ast.Pass):
-            return [{"kind": "pass", "span": span}]
-        if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Attribute):
-            return [self._setattr(stmt, span)]
-        if _is_setitem(stmt):
-            return [self._setitem(stmt, span)]
-        if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
-            typ = self._annotation(stmt.annotation)
-            if stmt.value is None:
-                self.fail(stmt, "PS1001", f"{stmt.target.id} needs an initial value")
-            value = self._expr(stmt.value, typ)
-            self._expect(stmt, value["type"], typ, stmt.target.id)
-            self.locals[stmt.target.id] = typ
-            self._note_frozen(stmt.target.id, stmt.value)
-            return [_assign(stmt.target.id, value, span)]
-        if isinstance(stmt, ast.Global):
-            for name in stmt.names:
-                slot = self.global_slots.get(name)
-                if slot is None or not slot.get("active"):
-                    self.fail(stmt, "PS2002", f"global {name} is not a module slot")
-            return [{"kind": "pass", "span": span}]
-        if isinstance(stmt, ast.Assign):
-            if len(stmt.targets) != 1 or not isinstance(stmt.targets[0], ast.Name):
-                self.fail(stmt, "PS2002", "only a single name can be assigned")
-            target = stmt.targets[0].id
-            if target in self.fn_globals:
-                return self._assign_global(stmt, target, span)
-            if target not in self.locals:
-                self.fail(stmt, "PS1001", f"{target} needs an annotation before use")
-            value = self._expr(stmt.value, self.locals[target])
-            self._expect(stmt, value["type"], self.locals[target], target)
-            self._note_frozen(target, stmt.value)
-            return [_assign(target, value, span)]
-        if isinstance(stmt, ast.AugAssign):
-            return self._aug_assign(stmt, span)
-        if isinstance(stmt, ast.If):
-            return [
-                {
-                    "kind": "if",
-                    "cond": self._bool_cond(stmt.test),
-                    "then": self._body(list(stmt.body)),
-                    "else": self._body(list(stmt.orelse)),
-                    "span": span,
-                }
-            ]
-        if isinstance(stmt, ast.Assert):
-            return self._assert(stmt, span)
-        if isinstance(stmt, ast.While):
-            if stmt.orelse:
-                self.fail(stmt, "PS2002", "while-else is not lowered")
-            saved_break = self.break_flag
-            saved_cont = self.continue_flag
-            self.break_flag = self._loop_flag(list(stmt.body))
-            self.continue_flag = self._continue_loop_flag(list(stmt.body))
-            try:
-                saved_prelude = self.prelude
-                self.prelude = []
-                try:
-                    cond = self._bool_cond(stmt.test)
-                    cond_pre = self.prelude
-                finally:
-                    self.prelude = saved_prelude
-                body = [*self._continue_reset(span), *self._body(list(stmt.body))]
-                return self._user_while(cond, body, span, cond_pre=cond_pre)
-            finally:
-                self.break_flag = saved_break
-                self.continue_flag = saved_cont
-        if isinstance(stmt, ast.Break):
-            if self.break_flag is None:
-                self.fail(stmt, "PS2002", "break outside a loop is not lowered")
-            return [_assign(self.break_flag, _const_bool(True, span), span)]
-        if isinstance(stmt, ast.Continue):
-            if self.continue_flag is None:
-                self.fail(stmt, "PS2002", "continue outside a loop is not lowered")
-            return [_assign(self.continue_flag, _const_bool(True, span), span)]
-        if isinstance(stmt, ast.For):
-            return self._for(stmt, span)
-        if isinstance(stmt, ast.Return):
-            _params, ret = self.sigs[self.function or ""] if self.function in self.sigs else self._current_method()
-            if stmt.value is None or (isinstance(stmt.value, ast.Constant) and stmt.value.value is None):
-                if ret["kind"] != "none":
-                    self.fail(stmt, "PS1003", "bare return is None, and this function does not return None")
-                return [{"kind": "return", "value": _const_none(span), "span": span}]
-            value = self._expr(stmt.value, ret)
-            self._expect(stmt, value["type"], ret, "return")
-            return [{"kind": "return", "value": value, "span": span}]
-        if isinstance(stmt, ast.Expr):
-            return [{"kind": "expr", "expr": self._expr(stmt.value), "span": span}]
-        if isinstance(stmt, ast.Raise):
-            return [self._raise(stmt, span)]
-        if isinstance(stmt, ast.Try):
-            return [self._try(stmt, span)]
-        if isinstance(stmt, ast.With):
-            return self._with(stmt, span)
-        if isinstance(stmt, ast.Match):
-            return self._match(stmt, span)
-        if isinstance(stmt, ast.Delete):
-            return self._delete(stmt, span)
-        self.fail(stmt, "PS2002", f"{type(stmt).__name__} is not lowered")
-        raise AssertionError("unreachable")
-
-    def _current_method(self) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        if self.function and "." in self.function:
-            class_name, method = self.function.split(".", 1)
-            return self.classes[class_name]["methods"][method]
-        self.fail(ast.Pass(), "PS2002", "return is outside a function")
-        raise AssertionError("unreachable")
-
-    def _match(self, stmt: ast.Match, span: dict[str, Any]) -> list[dict[str, Any]]:
-        """`match subject: case literal:` is `if subject == literal`.
-
-        The subject is stored once. Each later literal case sits in the else of
-        the previous one, so a match does not test the rest. Any other pattern
-        stays fenced.
-        """
-        subject_expr = self._expr(stmt.subject)
-        temp = self._temp("subj")
-        self.locals[temp] = subject_expr["type"]
-        self.prelude.append(_assign(temp, subject_expr, span))
-        chain: list[dict[str, Any]] = []
-        for case in reversed(stmt.cases):
-            cond = self._match_case(case, temp, span)
-            chain = [
-                {
-                    "kind": "if",
-                    "cond": cond,
-                    "then": self._body(list(case.body)),
-                    "else": chain,
-                    "span": span,
-                }
-            ]
-        return chain
-
-    def _match_case(self, case: ast.match_case, subject: str, span: dict[str, Any]) -> dict[str, Any]:
-        if case.guard is not None:
-            self.fail(case.guard, "PS2002", "a match guard is not lowered")
-        pat = case.pattern
-        if isinstance(pat, ast.MatchValue) and isinstance(pat.value, ast.Constant):
-            left = ast.Name(id=subject, ctx=ast.Load())
-            ast.copy_location(left, pat)
-            compare = ast.Compare(left=left, ops=[ast.Eq()], comparators=[pat.value])
-            ast.copy_location(compare, pat)
-            return self._compare(compare, span)
-        self._refuse_pattern(pat)
-        raise AssertionError("unreachable")
-
-    def _refuse_pattern(self, pat: ast.pattern) -> None:
-        if isinstance(pat, ast.MatchAs):
-            if pat.name is None:
-                self.fail(pat, "PS2002", "a wildcard pattern is not lowered")
-            self.fail(pat, "PS2002", "a capture pattern is not lowered")
-        if isinstance(pat, ast.MatchOr):
-            self.fail(pat, "PS2002", "an or pattern is not lowered")
-        if isinstance(pat, ast.MatchSequence) or isinstance(pat, ast.MatchStar):
-            self.fail(pat, "PS2002", "a sequence pattern is not lowered")
-        if isinstance(pat, ast.MatchClass):
-            self.fail(pat, "PS2002", "a class pattern is not lowered")
-        if isinstance(pat, ast.MatchMapping):
-            self.fail(pat, "PS2002", "a mapping pattern is not lowered")
-        if isinstance(pat, ast.MatchSingleton):
-            self.fail(pat, "PS2002", "a singleton pattern is not lowered")
-        if isinstance(pat, ast.MatchValue):
-            self.fail(pat, "PS2002", "a match value that is not a literal is not lowered")
-        self.fail(pat, "PS2002", f"{type(pat).__name__} is not lowered")
-
-    def _delete(self, stmt: ast.Delete, span: dict[str, Any]) -> list[dict[str, Any]]:
-        """`del` of one unread local is dropped.
-
-        The name stays in the local table so the earlier assignment still
-        type-checks, and nothing reads it. A later load stays fenced: this
-        compiler cannot raise UnboundLocalError, and an empty `for` target
-        already reads as 0. Other targets stay fenced.
-        """
-        if len(stmt.targets) != 1:
-            self.fail(stmt, "PS2002", "del of more than one name is not lowered")
-        target = stmt.targets[0]
-        if isinstance(target, ast.Attribute):
-            self.fail(stmt, "PS2002", "del of an attribute is not lowered")
-        if isinstance(target, ast.Subscript):
-            if isinstance(target.slice, ast.Slice):
-                self.fail(stmt, "PS2002", "del of a slice is not lowered")
-            self.fail(stmt, "PS2002", "del of a subscript is not lowered")
-        if isinstance(target, (ast.Tuple, ast.List)):
-            self.fail(stmt, "PS2002", "del of a tuple of names is not lowered")
-        if not isinstance(target, ast.Name):
-            self.fail(stmt, "PS2002", "del of this target is not lowered")
-        name = target.id
-        if name in self.fn_globals:
-            self.fail(stmt, "PS2002", "del of a global is not lowered")
-        if name not in self.locals:
-            self.fail(stmt, "PS2002", "del of an unbound name is not lowered")
-        if self._name_read_after(stmt, name):
-            self.fail(stmt, "PS2002", "del of a name that is read later is not lowered")
-        return [{"kind": "pass", "span": span}]
-
-    def _name_read_after(self, delete: ast.Delete, name: str) -> bool:
-        state = {"seen": False, "hit": False}
-
-        def visit(node: ast.AST) -> None:
-            if state["hit"]:
-                return
-            if node is delete:
-                state["seen"] = True
-                return
-            if (
-                state["seen"]
-                and isinstance(node, ast.Name)
-                and isinstance(node.ctx, ast.Load)
-                and node.id == name
-            ):
-                state["hit"] = True
-                return
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                return
-            for child in ast.iter_child_nodes(node):
-                visit(child)
-
-        for stmt in self.fn_body:
-            visit(stmt)
-        return (not state["seen"]) or state["hit"]
-
-    def _aug_assign(self, stmt: ast.AugAssign, span: dict[str, Any]) -> list[dict[str, Any]]:
-        if not isinstance(stmt.target, ast.Name):
-            self.fail(stmt, "PS2002", "augmented assignment is only lowered for a name")
-        target = stmt.target.id
-        if target not in self.locals:
-            self.fail(stmt, "PS1001", f"{target} needs an annotation before use")
-        left = ast.Name(id=target, ctx=ast.Load())
-        ast.copy_location(left, stmt)
-        node = ast.BinOp(left=left, op=stmt.op, right=stmt.value)
-        ast.copy_location(node, stmt)
-        value = self._expr(node)
-        self._expect(stmt, value["type"], self.locals[target], target)
-        return [_assign(target, value, span)]
-
-    def _for(self, stmt: ast.For, span: dict[str, Any]) -> list[dict[str, Any]]:
-        if stmt.orelse:
-            self.fail(stmt, "PS2002", "for-else is not lowered")
-        if not isinstance(stmt.target, ast.Name):
-            self.fail(stmt, "PS2002", "for targets a single name")
-        saved_break = self.break_flag
-        saved_cont = self.continue_flag
-        self.break_flag = self._loop_flag(list(stmt.body))
-        self.continue_flag = self._continue_loop_flag(list(stmt.body))
-        try:
-            return self._for_dispatch(stmt, span)
-        finally:
-            self.break_flag = saved_break
-            self.continue_flag = saved_cont
-
-    def _for_dispatch(self, stmt: ast.For, span: dict[str, Any]) -> list[dict[str, Any]]:
-        if self._is_mod(stmt.iter, "itertools", "repeat"):
-            return self._for_repeat(stmt, span)
-        if self._is_mod(stmt.iter, "itertools", "chain"):
-            return self._for_chain(stmt, span)
-        if _is_range_call(stmt.iter):
-            return self._for_range(stmt, span)
-        if _is_call_name(stmt.iter, "enumerate"):
-            return self._for_enumerate(stmt, span)
-        if _is_call_name(stmt.iter, "zip"):
-            return self._for_zip(stmt, span)
-        iterable = self._expr(stmt.iter)
-        if iterable["type"]["kind"] != "list":
-            self.fail(stmt.iter, "PS2002", "for iterates over a list or range")
-        elem = iterable["type"]["elem"]
-        if elem["kind"] not in _SCALAR:
-            self.fail(stmt, "PS2002", f"for over list[{_show(elem)}] is not lowered")
-        target = stmt.target.id
-        fresh = self._bind_loop_target(target, elem, stmt.target)
-        seq = self._temp("seq")
-        idx = self._temp("idx")
-        length = self._temp("len")
-        self.locals[seq] = iterable["type"]
-        self.locals[idx] = {"kind": "int"}
-        self.locals[length] = {"kind": "int"}
-        int_t = {"kind": "int"}
-        body = self._loop_body(stmt)
-        step = [
-            _assign(
-                target,
-                {
-                    "kind": "subscript",
-                    "value": _name(seq, iterable["type"], span),
-                    "index": _name(idx, int_t, span),
-                    "type": elem,
-                    "span": span,
-                },
-                span,
-            ),
-            *body,
-            *self._skip_on_break(
-                [_assign(idx, _binary_int("+", _name(idx, int_t, span), _const_int(1, span), span), span)],
-                span,
-            ),
-        ]
-        prefix = []
-        if fresh:
-            prefix.append(_assign(target, _zero(elem, span), span))
-        prefix.extend(
-            [
-                _assign(seq, iterable, span),
-                _assign(
-                    length,
-                    {
-                        "kind": "call",
-                        "callee": {"kind": "builtin", "name": "len"},
-                        "args": [_name(seq, iterable["type"], span)],
-                        "type": int_t,
-                        "span": span,
-                    },
-                    span,
-                ),
-                _assign(idx, _const_int(0, span), span),
-                *self._user_while(
-                    _compare("<", _name(idx, int_t, span), _name(length, int_t, span), span),
-                    step,
-                    span,
-                ),
-            ]
-        )
-        return prefix
-
-    def _for_range(self, stmt: ast.For, span: dict[str, Any]) -> list[dict[str, Any]]:
-        call = stmt.iter
-        assert isinstance(call, ast.Call)
-        if call.keywords:
-            self.fail(call, "PS2003", "keyword arguments are not lowered")
-        args = [self._expr(arg, {"kind": "int"}) for arg in call.args]
-        for arg in args:
-            if arg["type"]["kind"] != "int":
-                self.fail(call, "PS1003", "range arguments are int")
-        if len(args) == 1:
-            start, stop, step = _const_int(0, span), args[0], _const_int(1, span)
-        elif len(args) == 2:
-            start, stop, step = args[0], args[1], _const_int(1, span)
-        elif len(args) == 3:
-            start, stop, step = args
-        else:
-            self.fail(call, "PS2003", "range takes 1, 2, or 3 arguments")
-        target = stmt.target.id
-        assert isinstance(stmt.target, ast.Name)
-        fresh = self._bind_loop_target(target, {"kind": "int"}, stmt.target)
-        cur = self._temp("cur")
-        stop_n = self._temp("stop")
-        step_n = self._temp("step")
-        int_t = {"kind": "int"}
-        self.locals[cur] = int_t
-        self.locals[stop_n] = int_t
-        self.locals[step_n] = int_t
-        body = self._loop_body(stmt)
-        advance = self._skip_on_break(
-            [_assign(cur, _binary_int("+", _name(cur, int_t, span), _name(step_n, int_t, span), span), span)],
-            span,
-        )
-        up = [_assign(target, _name(cur, int_t, span), span), *body, *advance]
-        down = [_assign(target, _name(cur, int_t, span), span), *body, *advance]
-        prefix = []
-        if fresh:
-            prefix.append(_assign(target, _const_int(0, span), span))
-        prefix.extend(
-            [
-                *self._break_init(span),
-                _assign(cur, start, span),
-                _assign(stop_n, stop, span),
-                _assign(step_n, step, span),
-                {
-                    "kind": "if",
-                    "cond": _compare("==", _name(step_n, int_t, span), _const_int(0, span), span),
-                    "then": [{"kind": "raise", "exc": "ValueError", "message": None, "span": span}],
-                    "else": [],
-                    "span": span,
-                },
-                {
-                    "kind": "if",
-                    "cond": _compare(">", _name(step_n, int_t, span), _const_int(0, span), span),
-                    "then": self._user_while(
-                        _compare("<", _name(cur, int_t, span), _name(stop_n, int_t, span), span),
-                        up,
-                        span,
-                        init=False,
-                    ),
-                    "else": self._user_while(
-                        _compare(">", _name(cur, int_t, span), _name(stop_n, int_t, span), span),
-                        down,
-                        span,
-                        init=False,
-                    ),
-                    "span": span,
-                },
-            ]
-        )
-        return prefix
-
-    def _bind_loop_target(self, name: str, typ: dict[str, Any], node: ast.AST) -> bool:
-        if name in self.bindings or name in self.classes:
-            self.fail(node, "PS2002", f"{name} is already bound and cannot be a for target")
-        if name not in self.locals:
-            self.locals[name] = typ
-            return True
-        if not types_equal(self.locals[name], typ):
-            self.fail(node, "PS1003", f"{name} is {_show(self.locals[name])}, and the for target is {_show(typ)}")
-        return False
-
-    def _assert(self, stmt: ast.Assert, span: dict[str, Any]) -> list[dict[str, Any]]:
-        """`assert cond` is `if not cond: raise Exception`, and a message sits on that raise.
-
-        The condition is whatever `if` already accepts. AssertionError is not a
-        lowered exception, so the failure is the existing `Exception` raise.
-        The message is a `str`, same as `raise`, and it is lowered only in the
-        failing branch.
-        """
-        cond = self._bool_cond(stmt.test)
-        then: list[dict[str, Any]] = []
-        message: dict[str, Any] | None = None
-        if stmt.msg is not None:
-            saved = self.prelude
-            self.prelude = []
-            try:
-                message = self._expr(stmt.msg, {"kind": "str"})
-                if message["type"]["kind"] != "str":
-                    self.fail(stmt.msg, "PS1003", "an exception message is a str")
-                then = self.prelude
-            finally:
-                self.prelude = saved
-        then.append({"kind": "raise", "exc": "Exception", "message": message, "span": span})
-        negated = {"kind": "unary", "op": "not", "operand": cond, "type": {"kind": "bool"}, "span": span}
-        return [{"kind": "if", "cond": negated, "then": then, "else": [], "span": span}]
-
-    def _raise(self, stmt: ast.Raise, span: dict[str, Any]) -> dict[str, Any]:
-        if stmt.cause is not None:
-            self.fail(stmt, "PS2002", "raise-from is not lowered")
-        if stmt.exc is None:
-            self.fail(stmt, "PS2002", "bare raise is not lowered")
-        exc: ast.expr = stmt.exc
-        message: dict[str, Any] | None = None
-        if isinstance(exc, ast.Call):
-            if exc.keywords:
-                self.fail(exc, "PS2003", "keyword arguments are not lowered")
-            if len(exc.args) > 1:
-                self.fail(exc, "PS2003", "raise takes an exception name and an optional message")
-            if exc.args:
-                message = self._expr(exc.args[0], {"kind": "str"})
-                if message["type"]["kind"] != "str":
-                    self.fail(exc, "PS1003", "an exception message is a str")
-            exc = exc.func
-        if not isinstance(exc, ast.Name):
-            self.fail(stmt, "PS2002", "raise names a lowered exception")
-        if exc.id in EXCEPTIONS:
-            return {"kind": "raise", "exc": exc.id, "message": message, "span": span}
-        resolved = self.class_aliases.get(exc.id, exc.id)
-        info = self.classes.get(resolved)
-        if info is not None and info.get("exception"):
-            # A user exception is a code plus an optional str. raise does not call __init__.
-            return {"kind": "raise", "exc": resolved, "code": info["exc_code"], "message": message, "span": span}
-        self.fail(stmt, "PS2002", "raise names a lowered exception")
-        raise AssertionError("unreachable")
-
-    def _try(self, stmt: ast.Try, span: dict[str, Any]) -> dict[str, Any]:
-        if stmt.orelse:
-            self.fail(stmt, "PS2002", "try-else is not lowered")
-        if stmt.finalbody:
-            self.fail(stmt, "PS2002", "finally is not lowered")
-        handlers = []
-        for handler in stmt.handlers:
-            if handler.name is not None:
-                self.fail(handler, "PS1205", "except-as is not lowered")
-            if handler.type is None:
-                self.fail(handler, "PS1205", "bare except is not lowered")
-            names = _handler_names(self, handler.type)
-            codes: list[int] = []
-            if "Exception" not in names:
-                for name in names:
-                    codes.extend(self._exception_codes(name))
-            handlers.append({"exc": names, "codes": codes, "body": self._body(list(handler.body))})
-        return {"kind": "try", "body": self._body(list(stmt.body)), "handlers": handlers, "span": span}
 
     def _setitem(self, stmt: ast.Assign, span: dict[str, Any]) -> dict[str, Any]:
         target = stmt.targets[0]
@@ -2005,163 +1440,6 @@ class Lowerer(StdlibDispatchMixin, ExprMixin):
         self.fail(node, "PS2004", f"{op.__name__} on {left_name} and {right_name} is not lowered")
         raise AssertionError("unreachable")
 
-    def _with(self, stmt: ast.With, span: dict[str, Any]) -> list[dict[str, Any]]:
-        if len(stmt.items) != 1:
-            self.fail(stmt, "PS2002", "with lowers one contextlib item")
-        item = stmt.items[0]
-        ctx = item.context_expr
-        if isinstance(ctx, ast.Call) and isinstance(ctx.func, ast.Name) and ctx.func.id == "open":
-            return self._with_open(stmt, item, span)
-        if self._is_mod(ctx, "importlib.resources", "as_file"):
-            return self._with_as_file(stmt, item, span)
-        if item.optional_vars is not None:
-            self.fail(stmt, "PS1206", "with-as is not lowered")
-        if self._is_mod(ctx, "contextlib", "suppress"):
-            assert isinstance(ctx, ast.Call)
-            if len(ctx.args) != 1 or not isinstance(ctx.args[0], ast.Name) or ctx.args[0].id not in EXCEPTIONS:
-                self.fail(ctx, "PS2002", "suppress takes one lowered exception")
-            return [
-                {
-                    "kind": "try",
-                    "body": self._body(list(stmt.body)),
-                    "handlers": [{"exc": [ctx.args[0].id], "body": []}],
-                    "span": span,
-                }
-            ]
-        if self._is_mod(ctx, "contextlib", "nullcontext"):
-            assert isinstance(ctx, ast.Call)
-            if ctx.args:
-                self.fail(ctx, "PS2003", "nullcontext takes no arguments")
-            return self._body(list(stmt.body))
-        self.fail(
-            stmt,
-            "PS2002",
-            "with is lowered for contextlib.suppress, contextlib.nullcontext, open, and importlib.resources.as_file",
-        )
-        raise AssertionError("unreachable")
-
-    def _for_repeat(self, stmt: ast.For, span: dict[str, Any]) -> list[dict[str, Any]]:
-        call = stmt.iter
-        assert isinstance(call, ast.Call)
-        if len(call.args) != 2:
-            self.fail(call, "PS2003", "itertools.repeat takes a value and a count")
-        value = self._expr(call.args[0])
-        count = self._expr(call.args[1])
-        if count["type"]["kind"] != "int":
-            self.fail(call, "PS1003", "itertools.repeat count is int")
-        if value["type"]["kind"] not in _SCALAR:
-            self.fail(call, "PS2002", "itertools.repeat takes a scalar")
-        target = stmt.target.id
-        assert isinstance(stmt.target, ast.Name)
-        fresh = self._bind_loop_target(target, value["type"], stmt.target)
-        held = self._temp("rep")
-        idx = self._temp("idx")
-        stop = self._temp("stop")
-        int_t = {"kind": "int"}
-        self.locals[held] = value["type"]
-        self.locals[idx] = int_t
-        self.locals[stop] = int_t
-        body = self._loop_body(stmt)
-        prefix: list[dict[str, Any]] = []
-        if fresh:
-            prefix.append(_assign(target, _zero(value["type"], span), span))
-        prefix.extend(
-            [
-                _assign(held, value, span),
-                _assign(idx, _const_int(0, span), span),
-                _assign(stop, count, span),
-                *self._user_while(
-                    _compare("<", _name(idx, int_t, span), _name(stop, int_t, span), span),
-                    [
-                        _assign(target, _name(held, value["type"], span), span),
-                        *body,
-                        *self._skip_on_break(
-                            [_assign(idx, _binary_int("+", _name(idx, int_t, span), _const_int(1, span), span), span)],
-                            span,
-                        ),
-                    ],
-                    span,
-                ),
-            ]
-        )
-        return prefix
-
-    def _for_chain(self, stmt: ast.For, span: dict[str, Any]) -> list[dict[str, Any]]:
-        call = stmt.iter
-        assert isinstance(call, ast.Call)
-        if not 2 <= len(call.args) <= 8:
-            self.fail(call, "PS2003", "itertools.chain takes 2 to 8 lists")
-        lists = [self._expr(arg) for arg in call.args]
-        if any(item["type"]["kind"] != "list" for item in lists):
-            self.fail(call, "PS2002", "itertools.chain takes lists")
-        elem = lists[0]["type"]["elem"]
-        if elem["kind"] not in _SCALAR:
-            self.fail(call, "PS2002", f"for over list[{_show(elem)}] is not lowered")
-        for item in lists[1:]:
-            if not types_equal(item["type"]["elem"], elem):
-                self.fail(call, "PS1003", "itertools.chain lists have one element type")
-        target = stmt.target.id
-        assert isinstance(stmt.target, ast.Name)
-        fresh = self._bind_loop_target(target, elem, stmt.target)
-        body = self._loop_body(stmt)
-        prefix: list[dict[str, Any]] = []
-        if fresh:
-            prefix.append(_assign(target, _zero(elem, span), span))
-        prefix.extend(self._break_init(span))
-        for item in lists:
-            prefix.extend(self._list_loop(target, item, body, span))
-        return prefix
-
-    def _list_loop(
-        self, target: str, iterable: dict[str, Any], body: list[dict[str, Any]], span: dict[str, Any]
-    ) -> list[dict[str, Any]]:
-        elem = iterable["type"]["elem"]
-        seq = self._temp("seq")
-        idx = self._temp("idx")
-        length = self._temp("len")
-        int_t = {"kind": "int"}
-        self.locals[seq] = iterable["type"]
-        self.locals[idx] = int_t
-        self.locals[length] = int_t
-        return [
-            _assign(seq, iterable, span),
-            _assign(
-                length,
-                {
-                    "kind": "call",
-                    "callee": {"kind": "builtin", "name": "len"},
-                    "args": [_name(seq, iterable["type"], span)],
-                    "type": int_t,
-                    "span": span,
-                },
-                span,
-            ),
-            _assign(idx, _const_int(0, span), span),
-            *self._user_while(
-                _compare("<", _name(idx, int_t, span), _name(length, int_t, span), span),
-                [
-                    _assign(
-                        target,
-                        {
-                            "kind": "subscript",
-                            "value": _name(seq, iterable["type"], span),
-                            "index": _name(idx, int_t, span),
-                            "type": elem,
-                            "span": span,
-                        },
-                        span,
-                    ),
-                    *body,
-                    *self._skip_on_break(
-                        [_assign(idx, _binary_int("+", _name(idx, int_t, span), _const_int(1, span), span), span)],
-                        span,
-                    ),
-                ],
-                span,
-                init=False,
-            ),
-        ]
-
     def _lookup_attr(self, obj: dict[str, Any], name: str, span: dict[str, Any], node: ast.AST) -> dict[str, Any]:
         if obj["type"]["kind"] != "class":
             self.fail(node, "PS2001", f"attribute access is not lowered ({name})")
@@ -2508,9 +1786,7 @@ class Lowerer(StdlibDispatchMixin, ExprMixin):
         self.prelude.extend(self._set_absorb(dest, typ, source, span))
         return _name(dest, typ, span)
 
-    def _frozenset_call(
-        self, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None
-    ) -> dict[str, Any]:
+    def _frozenset_call(self, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
         """A list or set display of const str or const int, or one str constant, is the set list.
 
         A str constant is the set of its characters, in order, first duplicate kept.
@@ -2606,9 +1882,7 @@ class Lowerer(StdlibDispatchMixin, ExprMixin):
             self.fail(node, "PS2002", f"bool() of {kind} is not lowered")
         return self._truthy(arg, span)
 
-    def _list_call(
-        self, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None
-    ) -> dict[str, Any]:
+    def _list_call(self, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
         self._reject_keywords(node)
         if len(node.args) != 1:
             self.fail(node, "PS2003", "list expects 1 argument(s)")
@@ -2799,77 +2073,6 @@ class Lowerer(StdlibDispatchMixin, ExprMixin):
         self.prelude.extend(lowered)
         return _name(dest, self.locals[dest], span)
 
-    def _loop_body(self, stmt: ast.For) -> list[dict[str, Any]]:
-        if self.comp_elt is None or self.comp_dest is None:
-            return [*self._continue_reset(span_of(stmt, self.filename)), *self._body(list(stmt.body))]
-        filt_pre: list[dict[str, Any]] = []
-        filt_cond: dict[str, Any] | None = None
-        if self.comp_if is not None:
-            saved = self.prelude
-            self.prelude = []
-            try:
-                filt_cond = self._bool_cond(self.comp_if)
-                filt_pre = self.prelude
-            finally:
-                self.prelude = saved
-        saved = self.prelude
-        self.prelude = []
-        try:
-            elt = self._expr(self.comp_elt)
-            inner = self.prelude
-        finally:
-            self.prelude = saved
-        elem = elt["type"]
-        if elem["kind"] == "bool" or elem["kind"] not in {"int", "float", "str", "bytes", "list", "dict", "class"}:
-            self.fail(self.comp_elt, "PS2002", f"list[{_show(elem)}] is not lowered")
-        typ = {"kind": "list", "elem": elem}
-        if self.comp_expect is not None and self.comp_expect["kind"] == "list":
-            self._expect(self.comp_elt, typ, self.comp_expect, "list")
-        if not self.comp_ready:
-            self.locals[self.comp_dest] = typ
-            empty = {"kind": "list", "elems": [], "type": typ, "span": span_of(self.comp_elt, self.filename)}
-            self.comp_init = _assign(self.comp_dest, empty, empty["span"])
-            self.comp_ready = True
-        # The push is a module call, and those arguments are emitted twice.
-        # Store the element first so a call in it runs once, and only in this branch.
-        slot = self._temp("elt")
-        self.locals[slot] = elem
-        push = {
-            "kind": "expr",
-            "expr": {
-                "kind": "call",
-                "callee": {"kind": "module", "module": "builtins", "name": "list.append"},
-                "args": [_name(self.comp_dest, typ, elt["span"]), _name(slot, elem, elt["span"])],
-                "symbol": "ps_list_push",
-                "type": {"kind": "none"},
-                "span": elt["span"],
-            },
-            "span": elt["span"],
-        }
-        kept = [*inner, _assign(slot, elt, elt["span"]), push]
-        if filt_cond is None:
-            return kept
-        return [
-            *filt_pre,
-            {"kind": "if", "cond": filt_cond, "then": kept, "else": [], "span": span_of(self.comp_if, self.filename)},
-        ]
-
-    def _with_as_file(self, stmt: ast.With, item: ast.withitem, span: dict[str, Any]) -> list[dict[str, Any]]:
-        if not isinstance(item.optional_vars, ast.Name):
-            self.fail(stmt, "PS2002", "with as_file needs a name")
-        ctx = item.context_expr
-        assert isinstance(ctx, ast.Call)
-        if len(ctx.args) != 1 or ctx.keywords:
-            self.fail(ctx, "PS2003", "as_file expects 1 argument(s)")
-        opened = self._expr(ctx.args[0])
-        if opened["type"]["kind"] != "class" or opened["type"].get("name") != "Path":
-            self.fail(ctx, "PS1003", "as_file takes a resource path")
-        target = item.optional_vars.id
-        if target in self.bindings or target in self.constants:
-            self.fail(item.optional_vars, "PS2002", f"{target} is already bound")
-        self.locals[target] = opened["type"]
-        return [_assign(target, opened, span), *self._body(list(stmt.body))]
-
     def _path_read_text(self, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
         if node.args:
             self.fail(node, "PS2003", "Path.read_text expects 0 argument(s)")
@@ -2883,47 +2086,6 @@ class Lowerer(StdlibDispatchMixin, ExprMixin):
         if spec is None:
             self.fail(node, "PS2001", "Path.read_text is not lowered")
         return self._abi_call("pathlib", "Path.read_text", [receiver], {"kind": "str"}, spec["symbol"], span)
-
-    def _with_open(self, stmt: ast.With, item: ast.withitem, span: dict[str, Any]) -> list[dict[str, Any]]:
-        if not isinstance(item.optional_vars, ast.Name):
-            self.fail(stmt, "PS2002", "with open needs a name")
-        assert isinstance(item.context_expr, ast.Call)
-        opened = self._expr(item.context_expr)
-        target = item.optional_vars.id
-        if target in self.bindings or target in self.constants:
-            self.fail(item.optional_vars, "PS2002", f"{target} is already bound")
-        self.locals[target] = opened["type"]
-        close = {
-            "kind": "expr",
-            "expr": self._abi_call(
-                "io", "close", [_name(target, opened["type"], span)], {"kind": "none"}, "ps_io_close", span
-            ),
-            "span": span,
-        }
-        body = self._inject_close(self._body(list(stmt.body)), close)
-        return [
-            _assign(target, opened, span),
-            {
-                "kind": "try",
-                "body": [*body, close],
-                "handlers": [
-                    {
-                        "exc": ["Exception"],
-                        "body": [
-                            close,
-                            {
-                                "kind": "raise",
-                                "exc": "Exception",
-                                "message": None,
-                                "reraise": True,
-                                "span": span,
-                            },
-                        ],
-                    }
-                ],
-                "span": span,
-            },
-        ]
 
     def _typing_annotation(self, node: ast.AST) -> dict[str, Any] | None:
         if isinstance(node, ast.Name) and node.id in self.type_aliases:
@@ -3213,127 +2375,6 @@ class Lowerer(StdlibDispatchMixin, ExprMixin):
         )
         return _name(result, bool_t, span)
 
-    def _for_enumerate(self, stmt: ast.For, span: dict[str, Any]) -> list[dict[str, Any]]:
-        call = stmt.iter
-        assert isinstance(call, ast.Call)
-        if call.keywords:
-            self.fail(call, "PS2003", "keyword arguments are not lowered")
-        if len(call.args) not in {1, 2}:
-            self.fail(call, "PS2003", "enumerate takes 1 or 2 arguments")
-        source = self._expr(call.args[0])
-        if source["type"]["kind"] != "list" or source["type"].get("set"):
-            self.fail(call, "PS2002", "enumerate() takes a list")
-        elem = source["type"]["elem"]
-        if elem["kind"] not in _SCALAR | {"bool"}:
-            self.fail(call, "PS2002", f"enumerate() of list[{_show(elem)}] is not lowered")
-        start = _const_int(0, span)
-        if len(call.args) == 2:
-            start = self._expr(call.args[1], {"kind": "int"})
-            if start["type"]["kind"] != "int":
-                self.fail(call, "PS1003", "enumerate start is int")
-        return self._for_pairs(stmt, span, [source], [elem], start, "enumerate")
-
-    def _for_zip(self, stmt: ast.For, span: dict[str, Any]) -> list[dict[str, Any]]:
-        call = stmt.iter
-        assert isinstance(call, ast.Call)
-        if call.keywords or len(call.args) != 2:
-            self.fail(call, "PS2003", "zip takes 2 lists")
-        sources = [self._expr(arg) for arg in call.args]
-        elems: list[dict[str, Any]] = []
-        for source in sources:
-            if source["type"]["kind"] != "list" or source["type"].get("set"):
-                self.fail(call, "PS2002", "zip() takes lists")
-            elem = source["type"]["elem"]
-            if elem["kind"] not in _SCALAR | {"bool"}:
-                self.fail(call, "PS2002", f"zip() of list[{_show(elem)}] is not lowered")
-            elems.append(elem)
-        return self._for_pairs(stmt, span, sources, elems, None, "zip")
-
-    def _for_pairs(
-        self,
-        stmt: ast.For,
-        span: dict[str, Any],
-        sources: list[dict[str, Any]],
-        elems: list[dict[str, Any]],
-        enum_start: dict[str, Any] | None,
-        what: str,
-    ) -> list[dict[str, Any]]:
-        if not isinstance(stmt.target, ast.Name):
-            self.fail(stmt, "PS2002", "for targets a single name")
-        int_t = {"kind": "int"}
-        fields = ([{"kind": "int"}, *elems]) if enum_start is not None else elems
-        pair = self._tuple_type(fields, stmt.iter)
-        target = stmt.target.id
-        fresh = self._bind_loop_target(target, pair, stmt.target)
-        seqs = [self._temp("seq") for _ in sources]
-        idx = self._temp("idx")
-        length = self._temp("len")
-        enum_i = self._temp("enum")
-        for seq, source in zip(seqs, sources, strict=True):
-            self.locals[seq] = source["type"]
-        self.locals[idx] = int_t
-        self.locals[length] = int_t
-        if enum_start is not None:
-            self.locals[enum_i] = int_t
-        body = self._loop_body(stmt)
-        values: list[dict[str, Any]] = []
-        if enum_start is not None:
-            values.append(_name(enum_i, int_t, span))
-        for seq, source, elem in zip(seqs, sources, elems, strict=True):
-            values.append(
-                {
-                    "kind": "subscript",
-                    "value": _name(seq, source["type"], span),
-                    "index": _name(idx, int_t, span),
-                    "type": elem,
-                    "span": span,
-                }
-            )
-        tail = [_assign(idx, _binary_int("+", _name(idx, int_t, span), _const_int(1, span), span), span)]
-        if enum_start is not None:
-            tail.append(_assign(enum_i, _binary_int("+", _name(enum_i, int_t, span), _const_int(1, span), span), span))
-        step = [*_tuple_assign(target, pair, values, span), *body, *self._skip_on_break(tail, span)]
-        prefix: list[dict[str, Any]] = []
-        if fresh:
-            zeros = [_zero(field, span) for field in fields]
-            prefix.extend(_tuple_assign(target, pair, zeros, span))
-        for seq, source in zip(seqs, sources, strict=True):
-            prefix.append(_assign(seq, source, span))
-        prefix.append(_assign(idx, _const_int(0, span), span))
-        if len(sources) == 1:
-            prefix.append(_assign(length, _len_call(_name(seqs[0], sources[0]["type"], span), span), span))
-        else:
-            left_n = self._temp("n")
-            right_n = self._temp("n")
-            self.locals[left_n] = int_t
-            self.locals[right_n] = int_t
-            prefix.extend(
-                [
-                    _assign(left_n, _len_call(_name(seqs[0], sources[0]["type"], span), span), span),
-                    _assign(right_n, _len_call(_name(seqs[1], sources[1]["type"], span), span), span),
-                    _assign(length, _name(left_n, int_t, span), span),
-                    {
-                        "kind": "if",
-                        "cond": _compare("<", _name(right_n, int_t, span), _name(left_n, int_t, span), span),
-                        "then": [_assign(length, _name(right_n, int_t, span), span)],
-                        "else": [],
-                        "span": span,
-                    },
-                ]
-            )
-        if enum_start is not None:
-            prefix.append(_assign(enum_i, enum_start, span))
-        prefix.extend(
-            self._user_while(
-                _compare("<", _name(idx, int_t, span), _name(length, int_t, span), span),
-                step,
-                span,
-            )
-        )
-        if what not in {"enumerate", "zip"}:
-            self.fail(stmt, "PS2002", f"{what} is not lowered")
-        return prefix
-
     def _materialize_tuple(
         self, elems: list[dict[str, Any]], span: dict[str, Any], node: ast.AST | None = None
     ) -> dict[str, Any]:
@@ -3552,49 +2593,6 @@ class Lowerer(StdlibDispatchMixin, ExprMixin):
         self.temp_n += 1
         return f".ps_{hint}_{self.temp_n}"
 
-    def _inject_close(self, body: list[dict[str, Any]], close: dict[str, Any]) -> list[dict[str, Any]]:
-        """Close after a return value is computed, so ``return handle.read()`` still sees an open file."""
-        out: list[dict[str, Any]] = []
-        for stmt in body:
-            if stmt["kind"] == "return":
-                value = stmt["value"]
-                if value["kind"] == "const" and value["type"]["kind"] == "none":
-                    out.append(close)
-                    out.append(stmt)
-                    continue
-                temp = self._temp("withret")
-                self.locals[temp] = value["type"]
-                out.append(_assign(temp, value, value["span"]))
-                out.append(close)
-                out.append({**stmt, "value": _name(temp, value["type"], value["span"])})
-                continue
-            if stmt["kind"] == "if":
-                out.append(
-                    {
-                        **stmt,
-                        "then": self._inject_close(stmt["then"], close),
-                        "else": self._inject_close(stmt["else"], close),
-                    }
-                )
-                continue
-            if stmt["kind"] == "while":
-                out.append({**stmt, "body": self._inject_close(stmt["body"], close)})
-                continue
-            if stmt["kind"] == "try":
-                out.append(
-                    {
-                        **stmt,
-                        "body": self._inject_close(stmt["body"], close),
-                        "handlers": [
-                            {**handler, "body": self._inject_close(handler["body"], close)}
-                            for handler in stmt["handlers"]
-                        ],
-                    }
-                )
-                continue
-            out.append(stmt)
-        return out
-
 
 def lower_source(source: str, filename: str = "<stdin>") -> dict[str, Any]:
     tree = ast.parse(source, filename=filename)
@@ -3728,9 +2726,7 @@ def _const_dict_keys(receiver: dict[str, Any], typ: dict[str, Any], span: dict[s
     return {"kind": "list", "elems": elems, "type": typ, "span": span}
 
 
-def _const_list_concat(
-    left: dict[str, Any], right: dict[str, Any], span: dict[str, Any]
-) -> dict[str, Any] | None:
+def _const_list_concat(left: dict[str, Any], right: dict[str, Any], span: dict[str, Any]) -> dict[str, Any] | None:
     """Two constant lists of one element type are one list. A runtime list stays fenced."""
 
     if left.get("kind") != "list" or right.get("kind") != "list":
@@ -3747,14 +2743,6 @@ def _const_list_concat(
         "type": {"kind": "list", "elem": left["type"]["elem"]},
         "span": span,
     }
-
-
-def _name(name: str, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "name", "id": name, "type": typ, "span": span}
-
-
-def _const_int(value: int, span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "const", "value": str(value), "type": {"kind": "int"}, "span": span}
 
 
 def _static_int(expr: dict[str, Any]) -> int | None:
@@ -3774,54 +2762,8 @@ def _int_text(value: str) -> bool:
     return bool(body) and body.isdigit()
 
 
-def _const_bool(value: bool, span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "const", "value": value, "type": {"kind": "bool"}, "span": span}
-
-
-def _const_none(span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "const", "value": None, "type": {"kind": "none"}, "span": span}
-
-
 def _text_ir(value: str, kind: str, span: dict[str, Any]) -> dict[str, Any]:
     return {"kind": "const", "value": value, "type": {"kind": kind}, "span": span}
-
-
-def _len_call(seq: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "kind": "call",
-        "callee": {"kind": "builtin", "name": "len"},
-        "args": [seq],
-        "type": {"kind": "int"},
-        "span": span,
-    }
-
-
-def _tuple_assign(
-    dest: str, typ: dict[str, Any], elems: list[dict[str, Any]], span: dict[str, Any]
-) -> list[dict[str, Any]]:
-    made = {
-        "kind": "call",
-        "callee": {"kind": "class", "name": typ["name"]},
-        "args": [],
-        "type": typ,
-        "span": span,
-    }
-    stmts = [_assign(dest, made, span)]
-    for index, elem in enumerate(elems):
-        stmts.append(
-            {
-                "kind": "setattr",
-                "object": _name(dest, typ, span),
-                "name": f"_{index}",
-                "value": elem,
-                "span": span,
-            }
-        )
-    return stmts
-
-
-def _is_call_name(node: ast.expr, name: str) -> bool:
-    return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == name
 
 
 def _is_int_const(node: ast.expr) -> bool:
@@ -3852,35 +2794,6 @@ def _cmp_version(op: str, parts: tuple[int, ...]) -> bool:
     if op == "!=":
         return current != parts
     return False
-
-
-def _zero(typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    if typ["kind"] == "int":
-        return _const_int(0, span)
-    if typ["kind"] == "bool":
-        return _const_bool(False, span)
-    if typ["kind"] == "float":
-        return {"kind": "const", "value": "0.0", "type": typ, "span": span}
-    return {"kind": "const", "value": "", "type": typ, "span": span}
-
-
-def _binary_int(op: str, left: dict[str, Any], right: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "binary", "op": op, "left": left, "right": right, "type": {"kind": "int"}, "span": span}
-
-
-def _compare(op: str, left: dict[str, Any], right: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "compare", "op": op, "left": left, "right": right, "type": {"kind": "bool"}, "span": span}
-
-
-def _show(typ: dict[str, Any]) -> str:
-    if typ["kind"] == "list":
-        head = "set" if typ.get("set") else "list"
-        return f"{head}[{_show(typ['elem'])}]"
-    if typ["kind"] == "dict":
-        return f"dict[{_show(typ['key'])}, {_show(typ['value'])}]"
-    if typ["kind"] == "class":
-        return str(typ.get("label", typ["name"]))
-    return str(typ["kind"])
 
 
 def _type_slug(typ: dict[str, Any]) -> str:
@@ -3914,85 +2827,6 @@ def _dotted(node: ast.Attribute) -> str:
     return ".".join(parts)
 
 
-def _is_docstring(stmt: ast.stmt) -> bool:
-    return isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant) and isinstance(stmt.value.value, str)
-
-
-def _is_main_guard(stmt: ast.stmt) -> bool:
-    if not isinstance(stmt, ast.If) or not isinstance(stmt.test, ast.Compare):
-        return False
-    test = stmt.test
-    return (
-        isinstance(test.left, ast.Name)
-        and test.left.id == "__name__"
-        and len(test.ops) == 1
-        and isinstance(test.ops[0], ast.Eq)
-        and len(test.comparators) == 1
-        and isinstance(test.comparators[0], ast.Constant)
-        and test.comparators[0].value == "__main__"
-    )
-
-
-def _is_range_call(node: ast.expr) -> bool:
-    return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "range"
-
-
-def _is_setitem(stmt: ast.stmt) -> bool:
-    return isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Subscript)
-
-
-def _handler_names(lowerer: Lowerer, node: ast.expr) -> list[str]:
-    names = node.elts if isinstance(node, ast.Tuple) else [node]
-    found: list[str] = []
-    for item in names:
-        if not isinstance(item, ast.Name):
-            lowerer.fail(item, "PS2002", "except names a lowered exception")
-        resolved = lowerer.class_aliases.get(item.id, item.id)
-        info = lowerer.classes.get(resolved)
-        user_exception = info is not None and bool(info.get("exception"))
-        if resolved not in EXCEPTIONS and item.id not in EXCEPTIONS and not user_exception:
-            lowerer.fail(item, "PS2002", "except names a lowered exception")
-        found.append(resolved if user_exception else item.id)
-    return found
-
-
-def _not_bool(name: str, span: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "kind": "unary",
-        "op": "not",
-        "operand": _name(name, {"kind": "bool"}, span),
-        "type": {"kind": "bool"},
-        "span": span,
-    }
-
-
-def _stmt_jumps_this_loop(stmt: ast.stmt, jump: type[ast.stmt]) -> bool:
-    if isinstance(stmt, jump):
-        return True
-    if isinstance(stmt, (ast.While, ast.For, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-        return False
-    nested: list[ast.stmt] = []
-    if isinstance(stmt, ast.If):
-        nested = [*stmt.body, *stmt.orelse]
-    elif isinstance(stmt, ast.Try):
-        nested = [*stmt.body, *stmt.orelse, *stmt.finalbody]
-        for handler in stmt.handlers:
-            nested.extend(handler.body)
-    elif isinstance(stmt, ast.With):
-        nested = list(stmt.body)
-    elif isinstance(stmt, ast.Match):
-        nested = [child for case in stmt.cases for child in case.body]
-    return any(_stmt_jumps_this_loop(child, jump) for child in nested)
-
-
-def _stmt_breaks_this_loop(stmt: ast.stmt) -> bool:
-    return _stmt_jumps_this_loop(stmt, ast.Break)
-
-
-def _stmt_continues_this_loop(stmt: ast.stmt) -> bool:
-    return _stmt_jumps_this_loop(stmt, ast.Continue)
-
-
 def _assigned_fields(body: list[ast.stmt]) -> set[str]:
     found: set[str] = set()
     for stmt in body:
@@ -4009,21 +2843,6 @@ def _assigned_fields(body: list[ast.stmt]) -> set[str]:
             if isinstance(child, ast.stmt):
                 found |= _assigned_fields([child])
     return found
-
-
-def _always_returns(body: list[dict[str, Any]]) -> bool:
-    for stmt in body:
-        if stmt["kind"] == "return" or stmt["kind"] == "raise":
-            return True
-        if stmt["kind"] == "if" and _always_returns(stmt["then"]) and _always_returns(stmt["else"]):
-            return True
-        if (
-            stmt["kind"] == "try"
-            and _always_returns(stmt["body"])
-            and all(_always_returns(handler["body"]) for handler in stmt["handlers"])
-        ):
-            return True
-    return False
 
 
 _ASCII_SPACE = " \t\n\r\v\f"
