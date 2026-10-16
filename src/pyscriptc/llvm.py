@@ -668,6 +668,10 @@ class Emitter:
         if name in {"min", "max"}:
             return self._emit_minmax(name, values, arg_types)
         if name == "int":
+            if arg_types[0]["kind"] == "bytes":
+                self._abi_decl("ps_int_from_bytes", "i64", ["i64", "ptr"])
+                length, ptr = self._buf_parts(values[0])
+                return self._call_ret("i64", "ps_int_from_bytes", [f"i64 {length}", f"ptr {ptr}"])
             self.needed.add("math")
             return self._call_ret("i64", "ps_float_to_int", [f"double {values[0]}"])
         if name == "str":

@@ -82,6 +82,8 @@ class CallsMixin:
                 return {"kind": "cast", "op": "int_to_float", "value": args[0], "type": spec, "span": span}
             if name == "str" and args[0]["type"]["kind"] == "str":
                 return args[0]
+            if name == "int" and args[0]["type"]["kind"] == "bytes":
+                return self._abi_call("builtins", "int", args, spec, "ps_int_from_bytes", span)
             return {
                 "kind": "call",
                 "callee": {"kind": "builtin", "name": name},

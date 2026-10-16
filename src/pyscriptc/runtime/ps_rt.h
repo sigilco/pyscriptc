@@ -108,5 +108,6 @@ void ps_i64_str(int64_t v, PsBuf *out);
 void ps_f64_str(double v, PsBuf *out);
 int64_t ps_bisect_left(PsSeq *s, int64_t key);
 int64_t ps_bisect_right(PsSeq *s, int64_t key);
+int64_t ps_int_from_bytes(int64_t n, const char *s);
 
 #endif

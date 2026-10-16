@@ -46,18 +46,13 @@ def builtin_spec(name: str, arg_types: list[dict[str, Any]]) -> dict[str, Any] |
 
     if name == "len" and len(arg_types) == 1 and _len_ok(arg_types[0]):
         return {"kind": "int"}
-    if name == "int" and len(arg_types) == 1 and arg_types[0]["kind"] == "float":
+    if name == "int" and len(arg_types) == 1 and arg_types[0]["kind"] in {"float", "bytes"}:
         return {"kind": "int"}
     if name == "float" and len(arg_types) == 1 and arg_types[0]["kind"] == "int":
         return {"kind": "float"}
     if name == "str" and len(arg_types) == 1 and arg_types[0]["kind"] in {"str", "int", "float"}:
         return {"kind": "str"}
-    if (
-        name == "str"
-        and len(arg_types) == 1
-        and arg_types[0]["kind"] == "class"
-        and arg_types[0].get("name") == "Path"
-    ):
+    if name == "str" and len(arg_types) == 1 and arg_types[0]["kind"] == "class" and arg_types[0].get("name") == "Path":
         return {"kind": "str"}
     return None
 
