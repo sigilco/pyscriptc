@@ -1,0 +1,12 @@
++3 added, -1 removed, ~1 changed (5 total)
+
+ADDED
+  scripts.bigint_factorial
+  scripts.pi_digits
+  builtins.sum
+
+REMOVED
+  builtins.print
+
+CHANGED
+  scripts.nbody: deadbeef -> cafebabe
