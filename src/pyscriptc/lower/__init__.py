@@ -434,6 +434,11 @@ class Lowerer(StdlibDispatchMixin):
             kinds.update(parent["method_kind"])
             owners.update(parent["method_owner"])
         wrote_init = False
+        # A field fence leaves the field set unknown; a method signature fence
+        # only drops that one method. Count each kind so the catalog pass can
+        # tell them apart.
+        body_fences = len(self.caught)
+        sig_fences = 0
         for method, kind in methods:
             try:
                 method_sigs[method.name] = self._signature(method, node.name, kind)
@@ -443,7 +448,16 @@ class Lowerer(StdlibDispatchMixin):
                     wrote_init = True
             except Fence as exc:
                 self.caught.append(exc)
-        if self.caught:
+                sig_fences += 1
+        # The catalog pass still exports the shape when only method signatures
+        # fenced: the fenced methods drop out and the rest resolves, the same
+        # rule a fenced module function follows (it does not export, its
+        # siblings still do). Without this, a mixin or base class with one
+        # unlowerable annotation is invisible to every module that subclasses
+        # it, and the import fences as "not exported by this package". The
+        # lowering pass keeps the strict abort so an emitted class stays
+        # all-or-nothing.
+        if len(self.caught) > body_fences + sig_fences or (sig_fences and not self.cataloguing):
             return
         generated: str | None = None
         if deco == "dataclass":
