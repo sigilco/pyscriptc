@@ -1,0 +1,12 @@
+{
+ "canonical_schema": "canonical-schema/1",
+ "hash_algo": "sha256",
+ "oracle": "cpython-3.14.7",
+ "probes": {
+  "scripts.bigint_factorial": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "scripts.pi_digits": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "builtins.sum": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+ },
+ "revision": 1,
+ "version": 1
+}

@@ -1,0 +1,39 @@
+[
+  {
+    "entry_stmt_count": 4,
+    "has_main_guard": false,
+    "is_script": true,
+    "path": "benchmarks/compat2/corpus/scripts/bigint_factorial/main.py",
+    "print_calls": 3,
+    "statement_kinds": ["FunctionDef", "Assign", "Expr", "Expr", "Expr"]
+  },
+  {
+    "entry_stmt_count": 1,
+    "has_main_guard": false,
+    "is_script": true,
+    "path": "benchmarks/compat2/corpus/scripts/pi_digits/main.py",
+    "print_calls": 1,
+    "statement_kinds": ["FunctionDef", "Expr"]
+  },
+  {
+    "entry_stmt_count": 1,
+    "has_main_guard": false,
+    "is_script": true,
+    "path": "benchmarks/compat2/corpus/scripts/nbody/main.py",
+    "print_calls": 0,
+    "statement_kinds": ["Import", "FunctionDef", "Expr"]
+  },
+  {
+    "entry_stmt_count": 0,
+    "has_main_guard": false,
+    "is_script": false,
+    "path": "benchmarks/compat2/corpus/scripts/__nomodule__/main.py",
+    "print_calls": 0,
+    "statement_kinds": []
+  },
+  {
+    "error": "SyntaxError: invalid syntax",
+    "is_script": false,
+    "path": "benchmarks/compat2/corpus/scripts/__broken__/main.py"
+  }
+]
