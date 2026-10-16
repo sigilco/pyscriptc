@@ -60,8 +60,12 @@ def tree_for(probe: Probe) -> Path | None:
     return None
 
 
-def evaluate(probe: Probe, timeout: float) -> Result:
-    """Compile and run one probe natively, compare with CPython."""
+def evaluate(probe: Probe, timeout: float, oracle: str | None = None) -> Result:
+    """Compile and run one probe natively, compare with CPython.
+
+    `oracle` is the interpreter executable used for the CPython comparison; None
+    means the interpreter running the scorer.
+    """
 
     def row(outcome: str, evidence: str = "", code: str = "") -> Row:
         return Row(
@@ -79,7 +83,7 @@ def evaluate(probe: Probe, timeout: float) -> Result:
     env = _tree_env(tree)
     if probe.call == "":
         return _program(probe, row, tree, env, timeout)
-    oracle = _cpython(probe, timeout, env)
+    oracle = _cpython(probe, timeout, env) if oracle is None else _cpython(probe, timeout, env, executable=oracle)
     if oracle[0] == "timeout":
         return Result(row("excluded", "oracle timed out"))
     if probe.kind == "raises":
@@ -207,12 +211,14 @@ _ORACLE = (
 )
 
 
-def _cpython(probe: Probe, timeout: float, env: dict[str, str] | None = None) -> tuple[str, str]:
+def _cpython(
+    probe: Probe, timeout: float, env: dict[str, str] | None = None, executable: str | None = None
+) -> tuple[str, str]:
     code = _ORACLE.format(call=probe.call, args=list(probe.args))
     try:
         with tempfile.TemporaryDirectory(prefix="compat2-oracle-") as tmp:
             proc = subprocess.run(
-                [sys.executable, "-c", code],
+                [executable or sys.executable, "-c", code],
                 input=probe.source,
                 capture_output=True,
                 text=True,
@@ -255,10 +261,13 @@ def score(
     cache_dir: Path | None = CACHE_DIR,
     evaluator: Evaluator = evaluate,
     bundles: bool | None = None,
+    oracle: tuple[str, str] | None = None,
 ) -> dict[str, Any]:
     """Score probes. Cache hits are free; misses are compiled in bundles unless `bundles` is False.
 
-    Bundling defaults on for the real evaluator and off for any stand-in.
+    Bundling defaults on for the real evaluator and off for any stand-in. `oracle` is an
+    optional (executable, version) pair from `resolve_oracle`: the executable runs the
+    CPython comparison and the version string feeds the cache keys.
     """
 
     coverage = coverage or {}
@@ -269,7 +278,10 @@ def score(
     if cache_dir is not None:
         cache_dir.mkdir(parents=True, exist_ok=True)
 
-    keys = {p.id: cache_key(p, coverage, hashes) if cache_dir else "" for p in probes}
+    exe, version = oracle if oracle is not None else (None, None)
+    # a custom evaluator that takes an oracle override must accept the `oracle` keyword
+    ev = evaluator if exe is None else lambda p, t: evaluator(p, t, oracle=exe)
+    keys = {p.id: cache_key(p, coverage, hashes, version) if cache_dir else "" for p in probes}
     done: dict[str, tuple[Result, bool]] = {}
     misses: list[Probe] = []
     for probe in probes:
@@ -280,7 +292,7 @@ def score(
             done[probe.id] = (hit, True)
 
     def run(unit: list[Probe]) -> list[tuple[str, Result]]:
-        results = bundle.evaluate_group(unit, timeout, evaluator)
+        results = bundle.evaluate_group(unit, timeout, ev)
         for probe, result in zip(unit, results, strict=True):
             if cache_dir:
                 cache.store(cache_dir, keys[probe.id], {"row": result.row.to_json(), "compile_s": result.compile_s})
@@ -295,12 +307,14 @@ def score(
     rows = [done[p.id][0].row for p in probes]
     return {
         "compiler_hash": full,
+        "oracle": version if version is not None else cache.oracle_version(),
         "wall_s": round(time.monotonic() - started, 3),
         "compile_s": round(sum(done[p.id][0].compile_s for p in probes), 3),
         "cache_hits": sum(1 for p in probes if done[p.id][1]),
         "weights": {p.id: effective_weight(p) for p in probes},
         "rows": [row.to_json() for row in rows],
         "counts": counts(rows),
+        "versions": counts_by_version(probes, rows),
     }
 
 
@@ -315,6 +329,40 @@ def counts(rows: Iterable[Row]) -> dict[str, int]:
     for row in rows:
         tally[row.outcome] = tally.get(row.outcome, 0) + 1
     return tally
+
+
+def counts_by_version(probes: list[Probe], rows: list[Row]) -> dict[str, dict[str, Any]]:
+    """Outcome tallies per axis version. A probe counts under every version in its `versions` list;
+    probes without version coverage appear only in the aggregate `counts`."""
+
+    out: dict[str, dict[str, Any]] = {}
+    for probe, row in zip(probes, rows, strict=True):
+        for version in probe.versions:
+            cell = out.setdefault(version, {"probes": 0, "counts": {}})
+            cell["probes"] += 1
+            cell["counts"][row.outcome] = cell["counts"].get(row.outcome, 0) + 1
+    return dict(sorted(out.items()))
+
+
+def resolve_oracle(target: str | None) -> tuple[str, str] | None:
+    """The (executable, cache-key version) pair for `--target-version`; None means this interpreter.
+
+    Allowed targets come from the generation axis (probes.generate.AXIS); the interpreter
+    resolves the same way generation does (PYSC_ORACLE_DIR, else this interpreter).
+    """
+
+    if target is None:
+        return None
+    from benchmarks.compat2.probes import generate
+
+    executable = generate.interpreter(target)
+    out = subprocess.run(
+        [executable, "-c", "import platform;print(platform.python_version())"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return executable, f"{cache.SCORER_VERSION}/cpython-{out.stdout.strip()}"
 
 
 def weighted_pass(results: dict[str, Any]) -> float:
@@ -338,19 +386,29 @@ def merge_results(parts: list[dict[str, Any]]) -> dict[str, Any]:
 
     if len({p["compiler_hash"] for p in parts}) != 1:
         raise ValueError("shards were scored with different compilers")
+    if len({p.get("oracle") for p in parts}) != 1:
+        raise ValueError("shards were scored with different oracles")
     rows = [row for part in parts for row in part["rows"]]
     if len({row["id"] for row in rows}) != len(rows):
         raise ValueError("a probe appears in two shards")
     weights = {k: v for part in parts for k, v in part["weights"].items()}
     rows.sort(key=lambda row: row["id"])
+    versions: dict[str, dict[str, Any]] = {}
+    for part in parts:
+        for version, cell in part.get("versions", {}).items():
+            merged = versions.setdefault(version, {"probes": 0, "counts": Counter()})
+            merged["probes"] += cell["probes"]
+            merged["counts"].update(cell["counts"])
     return {
         "compiler_hash": parts[0]["compiler_hash"],
+        "oracle": parts[0].get("oracle"),
         "wall_s": round(max(p["wall_s"] for p in parts), 3),  # shards run side by side
         "compile_s": round(sum(p["compile_s"] for p in parts), 3),
         "cache_hits": sum(p["cache_hits"] for p in parts),
         "weights": weights,
         "rows": rows,
         "counts": dict(Counter(row["outcome"] for row in rows)),
+        "versions": {v: {"probes": c["probes"], "counts": dict(c["counts"])} for v, c in versions.items()},
     }
 
 
@@ -371,6 +429,8 @@ def merge_if_complete(out: Path, total: int) -> bool:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from benchmarks.compat2.probes import generate
+
     parser = argparse.ArgumentParser(description="Score probes against CPython (scorer v2).")
     parser.add_argument("probes", nargs="?", help="probe JSONL file or directory")
     parser.add_argument("--corpus", action="store_true", help="also score the real program corpus")
@@ -388,6 +448,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--base", default="HEAD", help="git ref the Tier 0 diff is taken against")
     parser.add_argument("--no-cache", action="store_true")
     parser.add_argument("--headroom", action="store_true", help="only run the headroom check")
+    parser.add_argument(
+        "--target-version",
+        choices=generate.AXIS,
+        default=None,
+        help="CPython oracle to score against (default: the interpreter running this scorer)",
+    )
     args = parser.parse_args(argv)
 
     raise_fd_limit()
@@ -421,12 +487,14 @@ def main(argv: list[str] | None = None) -> int:
     probes = [p for i, p in enumerate(probes) if i % shard[1] == shard[0]]
     mapped = coverage_map.load(Path(args.coverage_map) if args.coverage_map else coverage_map.MAP_PATH)
     coverage = coverage_map.key_map(mapped, probes) if mapped else {}
+    oracle = resolve_oracle(args.target_version)
     results = score(
         probes,
         workers=args.workers,
         timeout=args.timeout,
         coverage=coverage,
         cache_dir=None if args.no_cache or args.holdout else CACHE_DIR,
+        oracle=oracle,
     )
     out = Path(args.out)
     if shard[1] > 1:
@@ -443,6 +511,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"holdout: scored {len(probes)} probes  {results['counts']}")
     else:
         print(f"scored {len(probes)} probes in {results['wall_s']}s  {results['counts']}")
+    if results["versions"]:
+        per_version = "  ".join(f"{v}: {cell['counts']}" for v, cell in results["versions"].items())
+        print(f"versions {per_version}")
     print(f"weighted pass {weighted_pass(results):.1f}")
     return 0
 
