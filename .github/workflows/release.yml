@@ -162,3 +162,37 @@ jobs:
 
             Each binary is the compiler only. User programs still need `clang` on `PATH` (see `packaging/TOOLCHAIN.md`). Nuitka does not cross-compile: each row is built on its own OS and CPU.
           files: bundle/*
+
+  # Python package publish. Builds on every trigger (tags and dispatch);
+  # the upload step runs only on `v*` tags. Trusted publishing, no tokens:
+  # the maintainer must add a PyPI trusted publisher for this repo +
+  # workflow file once before the first tag lands.
+  pypi:
+    name: sdist and wheel to PyPI
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.14"
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      # Emitted programs link every src/pyscriptc/runtime/*.c from the
+      # installed package; a wheel that misses them produces broken output.
+      - name: Check the wheel ships the C runtime
+        run: |
+          set -euo pipefail
+          n="$(unzip -Z1 dist/pyscriptc-*-any.whl | grep -cE '^pyscriptc/runtime/.+\.c$')"
+          echo "runtime .c files in wheel: $n"
+          [ "$n" -ge 15 ]
+
+      - name: Publish to PyPI
+        if: github.ref_type == 'tag'
+        uses: pypa/gh-action-pypi-publish@release/v1
