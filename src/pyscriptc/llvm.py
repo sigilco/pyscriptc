@@ -1589,10 +1589,16 @@ class Emitter:
         self.line(f"call i32 (ptr, ...) @printf({rendered})")
 
     def format_global(self, name: str, data: bytes) -> str:
-        symbol = f"@ps.fmt.{name}"
-        line = f'{symbol} = private unnamed_addr constant [{len(data) + 1} x i8] c"{_llvm_bytes(data)}"'
-        if line not in self.globals:
-            self.globals.append(line)
+        base = f"@ps.fmt.{name}"
+        body = f'private unnamed_addr constant [{len(data) + 1} x i8] c"{_llvm_bytes(data)}"'
+        defined = {g.split(" = ", 1)[0] for g in self.globals}
+        symbol = base
+        suffix = 0
+        while symbol in defined and f"{symbol} = {body}" not in self.globals:
+            suffix += 1
+            symbol = f"{base}.{suffix}"
+        if symbol not in defined:
+            self.globals.append(f"{symbol} = {body}")
         return symbol
 
     def store(self, name: str, value: str) -> None:
