@@ -78,6 +78,13 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq patchelf clang
 
+      # Bake the PostHog project token into the package (src/pyscriptc/_posthog_token.py,
+      # gitignored). Without it the binary still builds; telemetry is a no-op.
+      - name: Stamp PostHog token
+        env:
+          POSTHOG_PROJECT_TOKEN: ${{ vars.POSTHOG_PROJECT_TOKEN }}
+        run: printf 'TOKEN = "%s"\n' "$POSTHOG_PROJECT_TOKEN" > src/pyscriptc/_posthog_token.py
+
       - name: Build
         shell: bash
         run: |
@@ -187,6 +194,12 @@ jobs:
         with:
           enable-cache: true
           python-version: "3.14"
+
+      # Same token stamp as the binary build; see src/pyscriptc/telemetry.py.
+      - name: Stamp PostHog token
+        env:
+          POSTHOG_PROJECT_TOKEN: ${{ vars.POSTHOG_PROJECT_TOKEN }}
+        run: printf 'TOKEN = "%s"\n' "$POSTHOG_PROJECT_TOKEN" > src/pyscriptc/_posthog_token.py
 
       - name: Build sdist and wheel
         run: uv build
