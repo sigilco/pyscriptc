@@ -16,8 +16,13 @@ enum {
     PS_OVERFLOW = 4,
     PS_ZERO_DIV = 5,
     PS_RUNTIME = 6,
-    PS_EXCEPTION = 7
+    PS_EXCEPTION = 7,
+    PS_USER_BASE = 8
 };
+
+/* longjmp payload once an exception is pending; the class code lives on the
+PsExc record, not on the wire. */
+enum { PS_RAISED = -1 };
 
 enum {
     PS_JSON_INT = 1,
@@ -68,11 +73,25 @@ typedef struct PsGrow {
     int64_t cap;
 } PsGrow;
 
+/* Raised exception. name and message are borrowed storage: name points at the
+static class-name table, message at a 256-byte owned buffer like the old
+ps_msg channel. cause and args stay NULL until M3/E3. */
+typedef struct PsExc {
+    int32_t code;
+    int32_t flags;
+    PsBuf name;
+    PsBuf message;
+    struct PsExc *cause;
+    PsSeq *args;
+} PsExc;
+
 extern char ps_empty_byte;
 
 __attribute__((noreturn)) void ps_raise_cstr(int32_t code, const char *msg);
 __attribute__((noreturn)) void ps_raise_code(int32_t code);
 __attribute__((noreturn)) void ps_reraise(void);
+int32_t ps_exc_code(void);
+int32_t ps_exc_isa(int32_t raised, int32_t wanted);
 void *ps_alloc(int64_t n);
 
 PsSeq *ps_seq_new(int64_t elem, int64_t n);
