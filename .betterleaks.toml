@@ -1,0 +1,14 @@
+# betterleaks scan config. The probe corpus is full of sha256 strings and
+# vendored CPython test fixtures; neither is a leak.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "IR probe hashes and vendored test fixtures"
+paths = [
+  '''benchmarks/compat2/probes/IR_HASHES\.json''',
+]
+regexes = [
+  '''dataStoreTestQuery''',
+]
