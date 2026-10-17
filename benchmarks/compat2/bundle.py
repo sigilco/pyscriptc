@@ -157,7 +157,7 @@ def oracle_batch(probes: list[Probe], timeout: float) -> list[tuple[str, str]] |
         if proc.returncode != 0:
             return None
         return [(kind, value) for kind, value in json.loads(proc.stdout.splitlines()[-1])]
-    except subprocess.TimeoutExpired, ValueError, IndexError:
+    except (subprocess.TimeoutExpired, ValueError, IndexError):
         return None
 
 
@@ -291,7 +291,7 @@ def _fences(
 
     try:
         fences = json.loads(ir_path.read_text(encoding="utf-8"))["fences"]
-    except OSError, ValueError, KeyError:
+    except (OSError, ValueError, KeyError):
         return None
     shared: list[tuple[int, str, str]] = []
     own: dict[int, list[tuple[int, str, str]]] = defaultdict(list)

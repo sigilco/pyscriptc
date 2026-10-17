@@ -204,7 +204,7 @@ def write(path: Path, data: dict[str, Any]) -> None:
 def load(path: Path = MAP_PATH) -> dict[str, Any] | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except OSError, ValueError:
+    except (OSError, ValueError):
         return None
     return data if isinstance(data, dict) and "probes" in data else None
 
