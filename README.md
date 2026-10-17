@@ -53,7 +53,7 @@ A `for` target that is new in the function is stored as `0`, `0.0`, or `""` befo
 
 ## Requirements
 
-- CPython 3.14 (the IR is stamped with the interpreter that lowered it)
+- CPython 3.10 or later (the IR is stamped with the interpreter that lowered it)
 - [uv](https://docs.astral.sh/uv/)
 - Clang that can assemble textual LLVM IR
 
