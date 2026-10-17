@@ -42,6 +42,7 @@ def link_binary(
     output: Path,
     driver: str = "clang",
     target: str | None = None,
+    record: list[list[str]] | None = None,
 ) -> None:
     """Link `.ll` text plus the C runtime into `output`.
 
@@ -82,21 +83,19 @@ def link_binary(
     proc: subprocess.CompletedProcess[str] | None = None
     for unit, obj in zip(units, objects, strict=True):
         kind = ["-x", "ir"] if driver == "clang" and unit == llvm_path else []
-        proc = subprocess.run(
-            [*cc.split(), "-O2", *kind, "-c", str(unit), "-o", str(obj), *target_flags],
-            capture_output=True,
-            text=True,
-        )
+        argv = [*cc.split(), "-O2", *kind, "-c", str(unit), "-o", str(obj), *target_flags]
+        if record is not None:
+            record.append([str(arg) for arg in argv])
+        proc = subprocess.run(argv, capture_output=True, text=True)
         if proc.returncode != 0:
             break
     if proc is not None and proc.returncode == 0:
-        proc = subprocess.run(
-            # no -O on the link line: it is a compile flag and zig's Mach-O
-            # driver crashes on it (0.16.0)
-            [*cc.split(), *objects, *target_flags, *tail],
-            capture_output=True,
-            text=True,
-        )
+        # no -O on the link line: it is a compile flag and zig's Mach-O
+        # driver crashes on it (0.16.0)
+        argv = [*cc.split(), *objects, *target_flags, *tail]
+        if record is not None:
+            record.append([str(arg) for arg in argv])
+        proc = subprocess.run(argv, capture_output=True, text=True)
     if proc is None or proc.returncode != 0:
         detail = (proc.stderr or proc.stdout).strip() if proc is not None else ""
         raise IRError(f"{cc} failed to assemble LLVM IR: {detail}")

@@ -14,6 +14,7 @@ from typing import Any
 from pyscriptc import telemetry
 from pyscriptc.check import CheckFailed, run_checker
 from pyscriptc.coverage import build_report, render_text
+from pyscriptc.debug import Debug, resolve
 from pyscriptc.diagnostics import explain
 from pyscriptc.errors import FitError, IRError, SpikeError, VersionError
 from pyscriptc.ir import validate_module
@@ -31,7 +32,7 @@ def main(argv: list[str] | None = None) -> int:
         description="Lower a typed Python subset to IR and LLVM.",
     )
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--debug", action="store_true", help="enable DEBUG audit records")
+    common.add_argument("-v", "--verbose", action="store_true", help="enable DEBUG audit records")
     sub = parser.add_subparsers(dest="cmd", required=True)
     compile_parser = sub.add_parser("compile", help="lower a source file", parents=[common])
     compile_parser.add_argument("source")
@@ -56,6 +57,20 @@ def main(argv: list[str] | None = None) -> int:
     )
     compile_parser.add_argument("--skip-check", action="store_true")
     compile_parser.add_argument("--checker", default="mypy")
+    compile_parser.add_argument(
+        "--debug",
+        nargs="?",
+        const="",
+        default=None,
+        metavar="WHAT",
+        help="print a compact stage table to stderr; WHAT is a comma list of "
+        "stages,fences,cc,paths,all (also via PYSC_DEBUG)",
+    )
+    compile_parser.add_argument(
+        "--debug-dir",
+        metavar="DIR",
+        help="write debug artifacts (ir.json, out.ll, cc.sh, summary.json) to DIR",
+    )
     coverage_parser = sub.add_parser("coverage", help="report every fence in a file or package tree", parents=[common])
     coverage_parser.add_argument("source")
     coverage_parser.add_argument("--json", action="store_true", help="print the report as JSON")
@@ -66,7 +81,7 @@ def main(argv: list[str] | None = None) -> int:
     telemetry_parser.add_argument("action", choices=("disable", "enable", "status"))
     try:
         args = parser.parse_args(argv)
-        if getattr(args, "debug", False):
+        if getattr(args, "verbose", False):
             enable_debug()
         log.info("cli.invoke", cmd=args.cmd)
         telemetry.maybe_print_notice()
@@ -135,6 +150,12 @@ def compile_cmd(args: argparse.Namespace) -> int:
 
 
 def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
+    try:
+        dbg = resolve(args.debug, args.debug_dir)
+    except ValueError as exc:
+        raise IRError(str(exc)) from exc
+    if dbg is None:
+        dbg = Debug(set(), None)
     source_path = Path(args.source)
     log.info(
         "compile.start",
@@ -145,58 +166,87 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         target=args.target,
         checker=None if args.skip_check else args.checker,
     )
-    if source_path.is_dir():
-        module, source = lower_directory(source_path)
-    elif source_path.is_file():
-        module, source = lower_file(str(source_path))
-    else:
-        raise IRError(f"source not found: {source_path}")
-    if args.run:
-        args.emit = "bin"
-    for note in module.pop("_notes", []):
-        print(note, file=sys.stderr)
-    if not args.skip_check:
-        run_checker(source_path, args.checker)
-    validate_module(module)
-    ir_path = _output_path(args, source_path, ".ir.json")
-    ir_path.parent.mkdir(parents=True, exist_ok=True)
-    ir_path.write_text(json.dumps(module, indent=2) + "\n", encoding="utf-8")
-    if module["fences"]:
-        state["fence_code"] = module["fences"][0].get("code")
-        log.info(
-            "check.fences",
-            count=len(module["fences"]),
-            codes=[fence["code"] for fence in module["fences"]],
-        )
-        print(render_fences(module, source), file=sys.stderr)
-        return 3
-    log.info("emit.ir", output=str(ir_path))
-    if args.emit == "ir":
-        print(ir_path)
-        return 0
-    call_args = _parse_args(args.args) if args.call else None
-    llvm_text = emit_llvm(module, args.call, call_args, standalone=args.emit == "bin")
-    ll_path = _output_path(args, source_path, ".ll")
-    ll_path.write_text(llvm_text, encoding="utf-8")
-    log.info("emit.llvm", output=str(ll_path))
-    if args.emit == "llvm":
-        print(ll_path)
-        return 0
-    binary = Path(args.output) if args.output else source_path.with_suffix("")
-    link_binary(ll_path, binary, driver=args.driver, target=args.target)
-    log.info("link.binary", output=str(binary), driver=args.driver, target=args.target)
+    module: dict[str, Any] | None = None
+    llvm_text: str | None = None
+    outputs: dict[str, str] = {}
+    status = "ok"
     try:
-        state["ran_bytes"] = binary.stat().st_size
-    except OSError:
-        pass
-    if not args.run:
-        print(binary)
-        return 0
-    log.info("run.start", binary=str(binary))
-    completed = subprocess.run([str(binary.absolute())])
-    code = 128 + (-completed.returncode) if completed.returncode < 0 else completed.returncode
-    log.info("run.exit", binary=str(binary), code=code)
-    return code
+        dbg.begin("lower")
+        if source_path.is_dir():
+            module, source = lower_directory(source_path)
+        elif source_path.is_file():
+            module, source = lower_file(str(source_path))
+        else:
+            raise IRError(f"source not found: {source_path}")
+        dbg.end("lower")
+        if args.run:
+            args.emit = "bin"
+        for note in module.pop("_notes", []):
+            print(note, file=sys.stderr)
+        if not args.skip_check:
+            dbg.begin("check")
+            run_checker(source_path, args.checker)
+            dbg.end("check")
+        dbg.begin("validate")
+        validate_module(module)
+        dbg.end("validate")
+        ir_path = _output_path(args, source_path, ".ir.json")
+        ir_path.parent.mkdir(parents=True, exist_ok=True)
+        ir_path.write_text(json.dumps(module, indent=2) + "\n", encoding="utf-8")
+        outputs["ir"] = str(ir_path)
+        if module["fences"]:
+            state["fence_code"] = module["fences"][0].get("code")
+            log.info(
+                "check.fences",
+                count=len(module["fences"]),
+                codes=[fence["code"] for fence in module["fences"]],
+            )
+            print(render_fences(module, source), file=sys.stderr)
+            status = "fences"
+            return 3
+        log.info("emit.ir", output=str(ir_path))
+        if args.emit == "ir":
+            print(ir_path)
+            return 0
+        call_args = _parse_args(args.args) if args.call else None
+        dbg.begin("emit_llvm")
+        llvm_text = emit_llvm(module, args.call, call_args, standalone=args.emit == "bin")
+        dbg.end("emit_llvm")
+        ll_path = _output_path(args, source_path, ".ll")
+        ll_path.write_text(llvm_text, encoding="utf-8")
+        outputs["ll"] = str(ll_path)
+        log.info("emit.llvm", output=str(ll_path))
+        if args.emit == "llvm":
+            print(ll_path)
+            return 0
+        binary = Path(args.output) if args.output else source_path.with_suffix("")
+        dbg.begin("link")
+        link_binary(ll_path, binary, driver=args.driver, target=args.target, record=dbg.commands)
+        dbg.end("link")
+        outputs["bin"] = str(binary)
+        log.info("link.binary", output=str(binary), driver=args.driver, target=args.target)
+        try:
+            state["ran_bytes"] = binary.stat().st_size
+        except OSError:
+            pass
+        if not args.run:
+            print(binary)
+            return 0
+        log.info("run.start", binary=str(binary))
+        dbg.begin("run")
+        completed = subprocess.run([str(binary.absolute())])
+        dbg.end("run")
+        code = 128 + (-completed.returncode) if completed.returncode < 0 else completed.returncode
+        log.info("run.exit", binary=str(binary), code=code)
+        return code
+    except Exception:
+        status = "error"
+        raise
+    finally:
+        report = dbg.render(module, outputs)
+        if report:
+            print(report, file=sys.stderr)
+        dbg.write_dir(module, llvm_text, outputs, status)
 
 
 def _parse_args(text: str) -> list[Any]:

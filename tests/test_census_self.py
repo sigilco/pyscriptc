@@ -12,11 +12,12 @@ SRC = ROOT / "src" / "pyscriptc"
 
 def test_self_census_ballpark() -> None:
     census = build_self_census(SRC)
-    # log.py (structured audit logging) + telemetry.py each added a module.
-    assert census["modules"] == 24
+    # log.py (structured audit logging) + telemetry.py + debug.py each added a module.
+    assert census["modules"] == 25
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
-    # telemetry.py (stdlib-only, runtime plumbing) added 36 fences, log.py 20.
-    assert census["fences"] == 719
+    # telemetry.py added 36 fences, log.py 20, debug.py adds 6 union-type
+    # fences (`X | None` parameters).
+    assert census["fences"] == 726
     assert 11_000 <= census["lines"] <= 14_000
-    assert sum(p["fences"] for p in census["packages"]) == 719
+    assert sum(p["fences"] for p in census["packages"]) == 726
