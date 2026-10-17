@@ -1,0 +1,4 @@
+{
+  "fetched": "2026-10-13",
+  "note": "PyJWT 2.15.1, byte-identical subset of benchmarks/compat/top100/src/jwt (same sdist pin: pyjwt-2.15.1.tar.gz sha256 4f259e80cdfb6b3fc18a7de51fd1ef9ec79652f25019bae68975ca2468a34df8). `src/jwt` is the minimal import closure of jwt.encode/jwt.decode for HS256: __init__.py, jwks_client.py, jwk_set_cache.py and help.py are omitted because nothing on the HMAC path imports them. `src/jwtapp` is the pyscriptc-subset compat port + probe."
+}
