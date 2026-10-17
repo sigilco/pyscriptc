@@ -134,6 +134,20 @@ uv run python -m benchmarks.scaling.run
 
 The kernel geomean is the original four loops. The stdlib rows time every module that has a lowered call, including the builtin helpers. `importlib.import_module` and `asyncio.run` are fences, so those calls are not timed. `importlib.resources`, `hmac`, and Latin-1 `unicodedata` have their own rows. Calls that embed CPython (`socket.gethostname`, `inspect.cleandoc`, `threading`, `logging`, `subprocess.check_output`) are the island group: they link libpython, and their speedup sits near 1x CPython. `benchmarks/adoption` records why pyperformance, click, typer, pip, and black are not compiled suites yet.
 
+## Telemetry
+
+Release builds collect anonymous usage metrics with PostHog (EU host): the subcommand you ran, pyscriptc/python versions, platform, compile duration, and the first `PSxxxx` fence code when a file fails to lower. Never sent: file names, paths, or source text. The machine id is a salted sha256 that is not reversible.
+
+Telemetry is off in CI and a no-op in dev checkouts (no baked-in token). One stderr line announces it on first use. Disable it with any of:
+
+```bash
+pyscriptc telemetry disable        # writes ~/.config/pyscriptc/config.toml
+export PYSC_NO_TELEMETRY=1
+export DO_NOT_TRACK=1
+```
+
+`pyscriptc telemetry status` shows the effective state and why.
+
 ## Checks
 
 ```bash
