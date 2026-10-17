@@ -151,7 +151,7 @@ class Emitter:
             if entry_fn is not None and entry_fn["name"] == "main" and not entry_fn["params"]:
                 self.emit_main("main", [])
             else:
-                self.out.extend(["define i32 @main() {", "entry:", "  ret i32 0", "}", ""])
+                self.out.extend(["define i32 @main(i32 %argc, ptr %argv) {", "entry:", "  ret i32 0", "}", ""])
         self.out.extend(self.outline_lines)
         header = ["%ps.str = type { i64, ptr }", ""]
         header.extend(self.globals)
@@ -211,9 +211,11 @@ class Emitter:
                 raise FitError(f"{name} expects {len(params)} argument(s), got {len(args)}")
             filled.append(_ir_const_value(param["type"], default["value"]))
         prepared = [_prepare_arg(param, value) for param, value in zip(params, filled, strict=True)]
-        self.out.append("define i32 @main() {")
+        self.out.append("define i32 @main(i32 %argc, ptr %argv) {")
         self._reset_function()
         self.block("entry")
+        self._abi_decl("ps_argv_init", "void", ["i32", "ptr"])
+        self._call_void("ps_argv_init", ["i32 %argc", "ptr %argv"])
         values = [self.materialize_arg(param["type"], value) for param, value in zip(params, prepared, strict=True)]
         result = self.call_function(fn, values)
         if fn["returnType"]["kind"] != "none":
