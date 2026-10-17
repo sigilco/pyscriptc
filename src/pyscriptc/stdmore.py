@@ -1487,12 +1487,14 @@ def _load_constants() -> tuple[dict[tuple[str, str], tuple[Any, dict[str, Any]]]
         ("re", "DEBUG"): int(re.DEBUG),
         ("re", "DOTALL"): int(re.DOTALL),
         ("warnings", "defaultaction"): warnings.defaultaction,
-        ("inspect", "AGEN_CLOSED"): inspect.AGEN_CLOSED,
         ("threading", "TIMEOUT_MAX"): threading.TIMEOUT_MAX,
         ("logging", "BASIC_FORMAT"): logging.BASIC_FORMAT,
         ("asyncio", "ALL_COMPLETED"): asyncio.ALL_COMPLETED,
         ("subprocess", "DEVNULL"): int(subprocess.DEVNULL),
     }
+    agen_closed = _host_attr(inspect, "AGEN_CLOSED")
+    if agen_closed is not _MISSING:
+        raw[("inspect", "AGEN_CLOSED")] = agen_closed
     for name in _ERRNO:
         value = _host_attr(errno, name)
         if value is not _MISSING:
