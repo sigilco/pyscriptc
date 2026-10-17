@@ -1372,7 +1372,6 @@ WITH_ONLY = frozenset({("contextlib", "suppress"), ("contextlib", "nullcontext")
 CALL_FENCES: dict[tuple[str, str], str] = {
     ("importlib", "import_module"): "import_module returns a module",
     ("asyncio", "run"): "coroutines are not lowered",
-    ("sys", "argv"): "sys.argv is not lowered",
     ("sys", "exit"): "",
     ("functools", "partial"): "functools.partial is not lowered",
     ("functools", "wraps"): "decorators are not lowered",
