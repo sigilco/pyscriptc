@@ -18,8 +18,11 @@ from pyscriptc.diagnostics import explain
 from pyscriptc.errors import FitError, IRError, SpikeError, VersionError
 from pyscriptc.ir import validate_module
 from pyscriptc.llvm import emit_llvm, link_binary
+from pyscriptc.log import enable_debug, get_logger, tail
 from pyscriptc.lower import lower_file, render_fences
 from pyscriptc.package import lower_directory
+
+log = get_logger()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -27,8 +30,10 @@ def main(argv: list[str] | None = None) -> int:
         prog="pyscriptc",
         description="Lower a typed Python subset to IR and LLVM.",
     )
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--debug", action="store_true", help="enable DEBUG audit records")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    compile_parser = sub.add_parser("compile", help="lower a source file")
+    compile_parser = sub.add_parser("compile", help="lower a source file", parents=[common])
     compile_parser.add_argument("source")
     compile_parser.add_argument("--emit", choices=("ir", "llvm", "bin"), default="llvm")
     compile_parser.add_argument("-o", dest="output")
@@ -51,15 +56,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     compile_parser.add_argument("--skip-check", action="store_true")
     compile_parser.add_argument("--checker", default="mypy")
-    coverage_parser = sub.add_parser("coverage", help="report every fence in a file or package tree")
+    coverage_parser = sub.add_parser("coverage", help="report every fence in a file or package tree", parents=[common])
     coverage_parser.add_argument("source")
     coverage_parser.add_argument("--json", action="store_true", help="print the report as JSON")
-    explain_parser = sub.add_parser("explain", help="describe a diagnostic code")
+    explain_parser = sub.add_parser("explain", help="describe a diagnostic code", parents=[common])
     explain_parser.add_argument("code")
+    sub.add_parser("logs", help="print the audit-log path and its last lines", parents=[common])
     telemetry_parser = sub.add_parser("telemetry", help="anonymous usage metrics opt-out")
     telemetry_parser.add_argument("action", choices=("disable", "enable", "status"))
     try:
         args = parser.parse_args(argv)
+        if getattr(args, "debug", False):
+            enable_debug()
+        log.info("cli.invoke", cmd=args.cmd)
         telemetry.maybe_print_notice()
         telemetry.track("cli.invoked", {"subcommand": args.cmd, **telemetry.base_properties()})
         if args.cmd == "compile":
@@ -68,6 +77,8 @@ def main(argv: list[str] | None = None) -> int:
             return coverage_cmd(args)
         if args.cmd == "explain":
             return explain_cmd(args)
+        if args.cmd == "logs":
+            return logs_cmd(args)
         if args.cmd == "telemetry":
             return telemetry.telemetry_cmd(args.action)
     except CheckFailed as exc:
@@ -84,16 +95,23 @@ def main(argv: list[str] | None = None) -> int:
 
 def coverage_cmd(args: argparse.Namespace) -> int:
     report = build_report(Path(args.source))
+    log.info("coverage.report", source=args.source)
     print(json.dumps(report, indent=2) if args.json else render_text(report))
     return 0
 
 
 def explain_cmd(args: argparse.Namespace) -> int:
     text = explain(args.code)
+    log.info("explain.lookup", code=args.code, known=text is not None)
     if text is None:
         print(f"unknown diagnostic code: {args.code}", file=sys.stderr)
         return 2
     print(text)
+    return 0
+
+
+def logs_cmd(args: argparse.Namespace) -> int:
+    tail()
     return 0
 
 
@@ -118,6 +136,15 @@ def compile_cmd(args: argparse.Namespace) -> int:
 
 def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
     source_path = Path(args.source)
+    log.info(
+        "compile.start",
+        source=str(source_path),
+        emit=args.emit,
+        run=args.run,
+        driver=args.driver,
+        target=args.target,
+        checker=None if args.skip_check else args.checker,
+    )
     if source_path.is_dir():
         module, source = lower_directory(source_path)
     elif source_path.is_file():
@@ -136,8 +163,14 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
     ir_path.write_text(json.dumps(module, indent=2) + "\n", encoding="utf-8")
     if module["fences"]:
         state["fence_code"] = module["fences"][0].get("code")
+        log.info(
+            "check.fences",
+            count=len(module["fences"]),
+            codes=[fence["code"] for fence in module["fences"]],
+        )
         print(render_fences(module, source), file=sys.stderr)
         return 3
+    log.info("emit.ir", output=str(ir_path))
     if args.emit == "ir":
         print(ir_path)
         return 0
@@ -145,11 +178,13 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
     llvm_text = emit_llvm(module, args.call, call_args, standalone=args.emit == "bin")
     ll_path = _output_path(args, source_path, ".ll")
     ll_path.write_text(llvm_text, encoding="utf-8")
+    log.info("emit.llvm", output=str(ll_path))
     if args.emit == "llvm":
         print(ll_path)
         return 0
     binary = Path(args.output) if args.output else source_path.with_suffix("")
     link_binary(ll_path, binary, driver=args.driver, target=args.target)
+    log.info("link.binary", output=str(binary), driver=args.driver, target=args.target)
     try:
         state["ran_bytes"] = binary.stat().st_size
     except OSError:
@@ -157,10 +192,11 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
     if not args.run:
         print(binary)
         return 0
+    log.info("run.start", binary=str(binary))
     completed = subprocess.run([str(binary.absolute())])
-    if completed.returncode < 0:
-        return 128 + (-completed.returncode)
-    return completed.returncode
+    code = 128 + (-completed.returncode) if completed.returncode < 0 else completed.returncode
+    log.info("run.exit", binary=str(binary), code=code)
+    return code
 
 
 def _parse_args(text: str) -> list[Any]:
