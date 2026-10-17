@@ -4,6 +4,7 @@
 | --- | --- |
 | `src/pyscriptc/cli.py` | argparse, exit codes, `--emit`, `--run`, `--args` |
 | `src/pyscriptc/check.py` | mypy subprocess |
+| `src/pyscriptc/debug.py` | `--debug` / `PYSC_DEBUG` stage table, `--debug-dir` artifacts |
 | `src/pyscriptc/errors.py` | `IRError`, `SpikeError`, `VersionError`, `FitError` |
 | `src/pyscriptc/ir.py` | JSON schema, `IR_VERSION`, `SUBSET`, forbidden scriptc kinds |
 | `src/pyscriptc/lower.py` | Language, classes, calls, `re` / `json` / `urllib.parse` / `base64` / `hashlib` / `struct` |

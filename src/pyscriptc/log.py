@@ -6,7 +6,7 @@ record per line to `~/.cache/pyscriptc/log/YYYYMMDD.jsonl` (or
 `$PYSC_LOG_DIR/YYYYMMDD.jsonl`). Records carry `ts`, `level`, `event`,
 `pysc`, `py`, `pid` plus the caller's key-values.
 
-Level is INFO by default; DEBUG when `PYSC_DEBUG=1` or the CLI `--debug`
+Level is INFO by default; DEBUG when `PYSC_DEBUG=1` or the CLI `-v` flag
 flag. Files rotate by day and are capped near 10 MiB: on overflow the
 oldest lines are dropped. Paths are fine to log; never log source
 contents. Writes never raise — logging must not break a compile.
