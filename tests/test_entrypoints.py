@@ -105,16 +105,15 @@ def test_counts_match_spec_tables():
 
 
 def test_validation_marks_entry_fences():
-    """On today's master only fib_recursive and word_freq still fence inside
-    an entry statement (the top-level `for` bodies). Other scripts fence
-    inside their own definitions first; the three example guard scripts
+    """On today's master only word_freq still fences inside an entry
+    statement (the top-level `for` body). Other scripts fence inside
+    their own definitions first; the three example guard scripts
     already compile."""
     records = entrypoints.scan(with_fences=True)
     flips = sorted(r["path"] for r in records if r["predicted_flip"])
     assert flips == [
-        "benchmarks/compat2/corpus/scripts/fib_recursive/main.py",
         "benchmarks/compat2/corpus/scripts/word_freq/main.py",
     ]
     fib = next(r for r in records if r["path"].endswith("fib_recursive/main.py"))
-    assert fib["first_fence"]["code"] == "PS2002"
-    assert fib["fences_at_entry"] == [7]
+    assert fib["first_fence"] is None
+    assert fib["fences_at_entry"] == []
