@@ -58,6 +58,7 @@ line-length = 120
 src = ["src", "tests", "benchmarks"]
 extend-exclude = [
     "benchmarks/compat/top100",
+    "benchmarks/compat/pyjwt/src/jwt",
     "benchmarks/compat2/corpus/src",
     "benchmarks/compat2/corpus/tests",
     "benchmarks/compat2/corpus/holdout/src",
