@@ -1,12 +1,52 @@
-# pyscriptc
+<h1 align="center">pyscriptc</h1>
+
+<p align="center">Compile annotated Python to a native binary. No CPython at runtime.</p>
+
+<p align="center">
+<a href="https://pypi.org/project/pyscriptc/"><img alt="PyPI" src="https://img.shields.io/pypi/v/pyscriptc"></a>
+<a href="https://github.com/sigilco/pyscriptc/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/sigilco/pyscriptc/actions/workflows/ci.yml/badge.svg"></a>
+<a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
+</p>
 
 A compiler that lowers a small, annotated subset of Python to a typed IR and then to LLVM. Parsing is CPython’s own `ast` module. [mypy](https://mypy-lang.org/) is a preflight: its tree is not an input. Anything the subset does not prove is a fence, not a guess.
 
-The pipeline follows [scriptc](https://github.com/vercel-labs/scriptc): a checker, a typed IR, then LLVM. The IR is not scriptc’s. `int` here is a Python int. The LLVM backend uses `i64` only when the value fits, traps on overflow, and refuses an integer literal that would have to be truncated. Calls that stay on the island (`subprocess.check_output`, `socket.gethostname`, `threading`, `inspect.cleandoc`, `logging`) initialize embedded CPython on first use. libpython is linked only when the LLVM text contains one of those calls.
+## Try it now
 
-The benchmark layout is scriptc’s `benchmarks/` directory. See [benchmarks/README.md](benchmarks/README.md).
+```bash
+uv tool install pyscriptc          # or: pipx install pyscriptc / pip install pyscriptc
+pyscriptc compile examples/sum_squares.py --run --call sum_squares --args '[10]' -o /tmp/sum_squares
+```
 
-The design is in [ARCHITECTURE.md](ARCHITECTURE.md). How to compile a script is in [docs/](docs/README.md). Contributor notes are in [.agents/docs/](.agents/docs/README.md). Programs that compile today, including an invoice, an access-log gate, and a URL allow-list, are in [examples/](examples/README.md).
+`sum_squares(10)` prints `285`, the same value CPython prints — from a native binary.
+
+## Install it
+
+```bash
+uv tool install pyscriptc
+```
+
+Requirements: CPython 3.10 or later (the IR is stamped with the interpreter that lowered it) and a clang that can assemble textual LLVM IR. `pipx install pyscriptc` and `pip install pyscriptc` work the same way.
+
+## What it does
+
+- Lowers an annotated Python subset (strict `x: T` typing, checked by mypy) to typed IR, then LLVM IR, then a native binary via clang or `zig cc`.
+- Anything the subset does not prove stops at a named `PSxxxx` fence with a hint — it never guesses at semantics.
+- `int` is a Python int: `i64` only when the value fits, traps on overflow, refuses literals that would truncate. `//` is floor division.
+- Island calls (`subprocess.check_output`, `socket.gethostname`, `threading`, `logging`) embed CPython on first use — and only binaries that call them link libpython.
+- `--emit ir` / `--emit llvm` dump the intermediate forms; `--run` compiles and executes; `--target` + `--driver zig` cross-compiles.
+
+## Stack
+
+| Layer | What it is |
+| --- | --- |
+| Parser | CPython's own `ast` module |
+| Checker | mypy preflight + the `PS1xxx`/`PS2xxx` fence tables |
+| IR | typed JSON, stamped per-interpreter (`gates-v1`) |
+| Backend | hand-emitted LLVM IR text → `clang` / `zig cc` |
+| Island | optional embedded-CPython calls, CPython-linked only when used |
+| Scoring | `benchmarks/` layout follows [scriptc](https://github.com/vercel-labs/scriptc) |
+
+The design is in [ARCHITECTURE.md](ARCHITECTURE.md). How to compile a script is in [docs/](docs/README.md). Contributor notes are in [.agents/docs/](.agents/docs/README.md). Programs that compile today, including an invoice, an access-log gate, and a URL allow-list, are in [examples/](examples/README.md). The benchmark layout is scriptc’s `benchmarks/` directory; see [benchmarks/README.md](benchmarks/README.md).
 
 Licensed under Apache 2.0. Copyright 2026 Joaquin Terrasa and contributors.
 
