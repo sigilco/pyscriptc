@@ -1,0 +1,303 @@
+# Static FFI manifest design
+
+Epic F design doc, report only. `--ffi <manifest>` binds `.pyi`-style
+signature declarations to C ABI symbols and links the C library into the
+single binary. The plan line is `.agents/plans/2026-10-14-waves-after-scorer-v2.md:79`;
+the seam and ownership model are `docs/http-seam-design.md`; the ABI rules it
+must respect are `docs/abi-strategy.md`. Nothing here ships code.
+
+## 1. Manifest shape
+
+**Pick: TOML, one file per adapter.** `requires-python = ">=3.14"`
+(`pyproject.toml`) means `tomllib` is always in the stdlib, so parsing costs
+nothing and adds no dependency — the "no new dependencies" rule holds.
+Comments and trailing commas matter: a manifest is a hand-edited contract
+reviewed like a header file, and JSON forbids comments. Every manifest is
+authored (adapter owners write it by hand); nothing generates one, so the
+writer ergonomics decide.
+
+```toml
+# pyscriptc-sqlite/ffi.toml — shape sketch, see §5 for the pilot
+[manifest]
+module = "pyscriptc_sqlite"   # importable module name this file claims
+ps_abi = 1                    # REQUIRED: the epoch this manifest was written against
+format = 1                    # manifest schema version; bumps independently of ps_abi
+
+[[source]]                    # C units / archives added to the link line
+path = "vendor/sqlite3.c"     # relative to the manifest file
+# objects = ["vendor/sqlite3.o"]   # pre-built archive members instead of .c
+
+[[handle]]                    # opaque pointer type; no fields cross the boundary
+name = "sqlite3"              # Python-side name in the .pyi surface
+c_type = "sqlite3 *"
+frees = "sqlite3_close_v2"    # ownership: which bound symbol releases it
+
+[[const]]                     # enum constants inlined at lowering time
+name = "SQLITE_OK"
+type = "int"
+value = 0
+
+[[fn]]
+name = "connect"              # Python-visible name on the module
+py = "(path: str) -> sqlite3" # .pyi-shaped signature string
+c_symbol = "sqlite3_open_v2"
+abi = "ps_ffi_sqlite_open"    # thunk in the adapter's shim .c; see §3
+```
+
+Field rules:
+
+- `[manifest].module` is the dotted name the import table binds; one manifest
+  claims exactly one module. The compiler refuses two manifests that claim
+  the same module.
+- `ps_abi` is REQUIRED and is a single integer. This resolves the caveat
+  `docs/abi-strategy.md` line 63-67 defers here: **per-manifest ABI pinning
+  is confirmed** — each manifest pins the `PS_ABI` epoch it was written
+  against, and the compiler refuses a manifest whose pin does not match the
+  `PS_ABI` stamped by the running compiler. The manifest pin covers the
+  `.ll` ↔ `ps_rt.h` contract the thunk relies on (`%ps.str`, `ps_alloc`,
+  raise codes); it does not version the C library itself — that is the
+  adapter's own release axis.
+- `abi` names the *shim* symbol, not the C library's symbol. The adapter
+  ships a thin `ps_ffi_*.c` thunk file that owns struct layouts, varargs
+  (`sqlite3_open_v2` is variadic — the shim fixes a calling convention),
+  out-params, and error-code mapping. Foreign symbols are never emitted into
+  `.ll` directly; `c_symbol` documents the thunk's target for review and for
+  a future direct-call fast path.
+- `[[handle]]` is the only way a C pointer enters Python-land: an opaque
+  token the subset treats like today's `Hash`/`Pattern`/`Deque` class kind —
+  a `ptr` at the ABI, no field access, freed only by its `frees` symbol
+  (compare `llvm.py:1072-1074`, where named classes already return `ptr`).
+- `[[const]]` values are compile-time literals; `type` is one of `int`,
+  `float`, `str`. Enum-style constants (`SQLITE_OK`, `Z_OK`) inline as
+  `{"kind": "const"}` nodes and never reach the link.
+- Ownership is per-arg, not per-call: a `[[fn]]` entry may carry
+  `borrows = ["db"]` / `consumes = ["stmt"]` annotations listing which
+  `[[handle]]` args the call borrows vs frees. Default is borrow; only
+  `frees`-like calls (`close`, `finalize`) list `consumes`. There is no
+  refcounting — this is the sqlite precedent's opaque-handle discipline,
+  not ctypes.
+
+## 2. ABI discipline
+
+Three pins, three axes, per `docs/abi-strategy.md` line 57-62:
+
+| pin | axis | failure mode |
+|---|---|---|
+| `ps_abi` in `[manifest]` | `.ll`↔runtime struct/signature contract | link/compile refuse a stale adapter |
+| `format` in `[manifest]` | manifest schema itself | parser refuses unknown versions loudly |
+| adapter version (the package's own release tag) | C library + shim pair | none in the compiler; same-source builds only |
+
+`PS_ABI` stays a third axis and never enters IR hashing
+(`abi-strategy.md:57-62`). The manifest check is compile-time: `--ffi` inputs
+are validated before lowering starts, so a mismatched epoch fails before any
+`.ll` exists — same fail-closed posture as `assert_same_cpython`
+(`abi-strategy.md:14-16`). `mix_crc32` remains the forever-frozen precedent
+(`abi-strategy.md:63-67`); with per-manifest pinning confirmed here, it
+graduates to the first manifest entry when FFI lands.
+
+## 3. Lowering path
+
+Today a foreign-looking call flows through three hand-rolled special cases:
+
+1. `_module_call` (`src/pyscriptc/lower/_stdlib.py:298-332`) dispatches by
+   module name: `nativeprobe` → `_nativeprobe_call`, `math` → `_math_call`,
+   `REST_MODULES` → `rest_call`, then `json`/`struct`/`re.findall` inline
+   cases, then `wave_function` → `_fixed_call`.
+2. `_nativeprobe_call` (`_calls.py:179-199`) is the manifest's current
+   stand-in: a hardwired symbol table mapping `crc32` → `ps_mix_crc32`,
+   arg-type checks, then `_abi_call`.
+3. `_abi_call` (`_calls.py:474-486`) attaches `"symbol"` to the
+   `{"kind": "call", "callee": {"kind": "module", ...}}` IR node that
+   `_mod_call` builds (`_stdlib_shared.py:73-82`).
+
+**The manifest replaces steps 1-2 for adapter modules; step 3 is already the
+target IR.** A manifest-loaded module gets a synthetic entry in the closed
+import table (`QUEUE`/`LOWERED`, `stdlib_queue.py:15-60`) so `import
+pyscriptc_sqlite` binds `Binding("module", ...)` exactly like a stdlib
+module — one registration point, same as the http seam's plan
+(`http-seam-design.md:77-81`). In `_module_call`, a new clause before the
+`wave_function` fallback looks the call up in the manifest's `[[fn]]` table,
+checks args against the `py` signature (same positional/min/defaults rules
+`_fixed_call` applies today, `_calls.py:217-254`), and returns
+`_abi_call(module, attr, args, ret, spec["abi"], span)`. The `.pyi` string is
+parsed once at manifest load into the same `{"kind": ...}` type dicts the
+lowerer already uses; the checker still sees a normal typed module via the
+adapter's real `.pyi` file, so mypy and the lowerer read the same signature.
+
+**IR node:** unchanged — `{"kind": "call", "callee": {"kind": "module"},
+"symbol": "<abi thunk>"}`. `emit_module_call` (`llvm.py:712-713`) already
+routes any module call carrying `"symbol"` to `_emit_abi` before the
+per-module emit tables, so zero emitter dispatch changes are needed. The
+only additions are type words: `handle` and `enum const` map onto the
+existing `class`/`ptr` return path (`llvm.py:1072-1074`) and `const` nodes.
+
+**Marshalling** is `_c_pieces` (`llvm.py:1033-1044`) exactly as today:
+`int`→`i64`, `float`→`double`, `str`/`bytes`→`(i64 len, ptr)` pair,
+`list`/`dict`/`class`/handle→`ptr`. Return mapping in `_emit_abi`
+(`llvm.py:1046-1074`): `str`/`bytes` return through a `ptr` out-slot
+(`_buf_out`, `llvm.py:999-1002`), `int`→`i64`, `float`→`double`,
+`bool`→`i32`+flag, `none`→`void`, pointer-like→`ptr`. There is no runtime
+type recursion: the `.pyi` signature fixes every arg's marshalling at
+lower time, so the emitter never inspects a value — this is the property
+that keeps the FFI off the island and off `PyObject`. ctypes-style
+`c_void_p`/`byref`/callback objects are refused at manifest parse: the type
+vocabulary is the subset's (`int`, `float`, `bool`, `str`, `bytes`,
+handles, fixed `list`/`dict` where a thunk accepts them).
+
+## 4. Static linking
+
+Today `link_binary` (`llvm.py:40-102`) is two-stage: every unit
+(the emitted `.ll` plus `runtime/*.c` from the glob at `llvm.py:58-60`)
+compiles to `.o` in a loop (`llvm.py:83-91`), then all objects link with a
+`-lm` tail (`llvm.py:62`, `llvm.py:93-99`). `zig cc` is selected by
+`--driver zig` and `--target` supplies the triple with a bundled sysroot
+(`llvm.py:55-57`); the same shape is what `packaging/zig/smoke.sh`
+re-implements standalone for the tier-A matrix (x86_64/aarch64/riscv64
+linux gnu+musl, macOS arm64/x64 compile-only — `smoke.sh` header and
+`docs/getting-started.md:49-51`).
+
+Changes are additive, in `link_binary` only:
+
+- `--ffi <manifest>` is a repeat-argument on `compile` (`cli.py:29-50`),
+  resolved before `lower_file`: the compiler loads each manifest, checks
+  `ps_abi`/`format`, and hands the lowerer the module table and the linker
+  the manifest's `[[source]]` list.
+- The unit list becomes `runtime/*.c` + each manifest's `source`/`objects`
+  paths (resolved relative to the manifest file). They enter the same
+  per-unit `.o` loop — no second link shape. Per target this is free: `zig
+  cc -c` already cross-compiles C for every tier-A triple, so a vendored
+  `sqlite3.c` builds for macOS arm64 and linux x64/aarch64 with no extra
+  tooling. Archives (`*.a` members listed under `objects=`) go straight on
+  the final link line with the other objects.
+- `tail` gains per-manifest `-l`/`-L` flags only when a manifest declares a
+  system library (e.g. `-lsqlite3` is *not* how sqlite ships — the pilot
+  vendors it — but `-lz` for a zlib manifest that does not vendor is).
+  Default stays `-lm` only.
+- `ps_mix.c`-style dlopen is explicitly rejected for FFI manifests: the
+  whole point is self-contained binaries, and dlopen already fails on static
+  musl (`smoke.sh` header; `ps_mix.c` is one of the POSIX blockers for
+  windows-gnu). `ps_mix.c` stays as the `nativeprobe` test seam only.
+
+## 5. The sqlite pilot
+
+Recorded decisions (`http-seam-design.md:7-11`, plan line 79): package
+`pyscriptc-sqlite` owns the vendored C, the `.pyi`, the manifest, and the
+shim; opaque handles; milestone surface `connect -> execute/query ->
+commit/close`. Mapped onto the format:
+
+```toml
+[manifest]
+module = "pyscriptc_sqlite"
+ps_abi = 1
+format = 1
+
+[[source]]
+path = "vendor/sqlite3.c"
+[[source]]
+path = "ps_ffi_sqlite.c"        # adapter thunk file
+
+[[handle]]
+name = "Connection"
+c_type = "sqlite3 *"
+frees = "sqlite3_close_v2"
+[[handle]]
+name = "Statement"
+c_type = "sqlite3_stmt *"
+frees = "sqlite3_finalize"
+
+[[const]]
+name = "OK"                   # exposed as sqlite.OK -> 0
+type = "int"
+value = 0
+[[const]]
+name = "ROW"
+type = "int"
+value = 100
+[[const]]
+name = "DONE"
+type = "int"
+value = 101
+
+# connect(path: str) -> Connection
+[[fn]]
+name = "connect"
+py = "(path: str) -> Connection"
+c_symbol = "sqlite3_open_v2"
+abi = "ps_ffi_sqlite_connect"   # wraps the variadic open with fixed flags
+
+# execute(db, sql) -> int         (SQLITE_OK or raises via thunk)
+[[fn]]
+name = "execute"
+py = "(db: Connection, sql: str) -> int"
+c_symbol = "sqlite3_exec"
+abi = "ps_ffi_sqlite_execute"
+borrows = ["db"]
+
+# query(db, sql) -> list[dict[str, str]]  — M1 shape: rows as records.
+# The thunk steps sqlite3_prepare_v2/column/step/finalize and builds the
+# %ps.seq/%ps.map result behind the ps_* runtime ABI; that keeps ALL
+# aggregate construction on our side of the thunk.
+[[fn]]
+name = "query"
+py = "(db: Connection, sql: str) -> list"
+c_symbol = "sqlite3_prepare_v2 + sqlite3_step + sqlite3_finalize"
+abi = "ps_ffi_sqlite_query"
+borrows = ["db"]
+
+[[fn]]
+name = "commit"
+py = "(db: Connection) -> int"
+c_symbol = "sqlite3_exec COMMIT"
+abi = "ps_ffi_sqlite_commit"
+borrows = ["db"]
+
+[[fn]]
+name = "close"
+py = "(db: Connection) -> None"
+c_symbol = "sqlite3_close_v2"
+abi = "ps_ffi_sqlite_close"
+consumes = ["db"]
+```
+
+Notes:
+
+- `execute`/`commit` are both `sqlite3_exec` underneath with different fixed
+  SQL handling inside the thunk — exactly why `abi` names the shim and
+  `c_symbol` is documentation. Variadic or macro-only C entry points
+  (`sqlite3_open_v2`'s `...`, `SQLITE_UTF8`) are always absorbed by the
+  thunk.
+- `query`'s `list` return rides the existing `ptr`-return ABI path
+  (`llvm.py:1072-1074`): the thunk allocates through `ps_alloc` and fills a
+  `PsSeq`/`PsMap` per `ps_rt.h`'s append-only layout — which is what makes
+  `ps_abi` pinning load-bearing, and why the pin is REQUIRED in §1.
+- Params are positional-only and `?`-bound by the thunk; no callbacks, no
+  context managers, `rows as records` — the same rules the http seam
+  adopted (`http-seam-design.md:54-57`).
+
+## 6. Milestones
+
+| gate | deliverable | proof |
+|---|---|---|
+| F0 | manifest parser + `ps_abi`/`format` validation; `--ffi` flag wired to `compile` | unit tests: reject bad pin, unknown format, duplicate module claim |
+| F1 | lowerer clause + synthetic import-table entry; `nativeprobe` re-expressed as a manifest | `mixdemo` compiles through `--ffi` instead of the env-var gate; `packaging/zig` smoke still passes |
+| F2 | `link_binary` source/object merge + per-manifest link flags | zig smoke extended: one manifest-built unit in the cross matrix (compile-only macOS OK) |
+| F3 | `pyscriptc-sqlite` pilot: `connect/execute/query/commit/close` | fixture script does open → create → insert → select → close; asserts rows; runs on host + `x86_64-linux-musl` |
+| F4 | zlib or libm manifest by an outside-of-compiler adapter | proves the seam is not sqlite-shaped; CI gate = the same fixture pattern |
+
+Each gate is mergeable alone; F3 is the one the essence-eval unlock count cares
+about (`docs/compile-rate-essence-method.md` — sqlite3 is the single largest
+seam win, 13 rows). F4 exists because a seam designed for exactly one
+consumer rots into a special case.
+
+## Risks
+
+- The thunk layer (`ps_ffi_*.c`) is where all real complexity lives —
+  aggregates, error mapping, varargs. The manifest deliberately pushes it
+  there rather than growing marshalling kinds; the risk is thunk code
+  drifting from `ps_rt.h`, which is what the `ps_abi` pin + CI grep checks
+  (`abi-strategy.md:51-56`) exist to catch.
+- `format` bumps fragment the ecosystem early; mitigate by keeping the
+  schema append-only inside a format epoch, same rule as `ps_rt.h`.
+- Vendored C trees enlarge every binary that uses them (order 200-500 KB
+  per `http-seam-design.md:41-44`); manifests make that opt-in per compile,
+  which is the point of `--ffi` being a flag and not ambient.
