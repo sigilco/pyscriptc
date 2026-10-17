@@ -129,4 +129,61 @@ int64_t ps_bisect_left(PsSeq *s, int64_t key);
 int64_t ps_bisect_right(PsSeq *s, int64_t key);
 int64_t ps_int_from_bytes(int64_t n, const char *s);
 
+/* ps_more.c: R1-R5 helpers */
+PsSeq *ps_seq_concat(PsSeq *a, PsSeq *b);
+PsSeq *ps_seq_repeat(PsSeq *s, int64_t n);
+void ps_seq_extend(PsSeq *dst, PsSeq *src);
+void ps_seq_insert(PsSeq *s, int64_t i, void *src);
+void ps_seq_reverse(PsSeq *s);
+void ps_seq_sort_i64(PsSeq *s, int64_t desc);
+void ps_seq_sort_f64(PsSeq *s, int64_t desc);
+void ps_seq_sort_buf(PsSeq *s, int64_t desc);
+int64_t ps_seq_index_i64(PsSeq *s, int64_t needle);
+int64_t ps_seq_index_f64(PsSeq *s, double needle);
+int64_t ps_seq_index_buf(PsSeq *s, int64_t n, char *p);
+int64_t ps_seq_count_i64(PsSeq *s, int64_t needle);
+int64_t ps_seq_count_f64(PsSeq *s, double needle);
+int64_t ps_seq_count_buf(PsSeq *s, int64_t n, char *p);
+void ps_seq_remove_i64(PsSeq *s, int64_t needle);
+void ps_seq_remove_f64(PsSeq *s, double needle);
+void ps_seq_remove_buf(PsSeq *s, int64_t n, char *p);
+void ps_seq_insert_i64(PsSeq *s, int64_t i, int64_t v);
+void ps_seq_insert_f64(PsSeq *s, int64_t i, double v);
+void ps_seq_insert_buf(PsSeq *s, int64_t i, int64_t n, char *p);
+int64_t ps_seq_pop_i64(PsSeq *s, int64_t i);
+double ps_seq_pop_f64(PsSeq *s, int64_t i);
+void ps_seq_pop_buf(PsSeq *s, int64_t i, PsBuf *out);
+void ps_map_del(PsMap *m, void *key);
+void ps_map_clear(PsMap *m);
+void ps_map_update(PsMap *dst, PsMap *src);
+PsSeq *ps_dict_values(PsMap *m);
+PsSeq *ps_dict_items(PsMap *m, int64_t voff, int64_t esz);
+PsSeq *ps_str_split_m(
+    int64_t n, const char *p, int64_t sn, const char *sp, int64_t mode, int64_t maxsplit, int64_t right
+);
+PsSeq *ps_str_splitlines(int64_t n, const char *p, int64_t keepends);
+int64_t ps_str_count(int64_t n, const char *p, int64_t sn, const char *sp);
+int64_t ps_str_index(int64_t n, const char *p, int64_t sn, const char *sp);
+int64_t ps_str_rfind(int64_t n, const char *p, int64_t sn, const char *sp);
+int64_t ps_str_isdigit(int64_t n, const char *p);
+int64_t ps_str_isalpha(int64_t n, const char *p);
+int64_t ps_str_isalnum(int64_t n, const char *p);
+int64_t ps_str_isspace(int64_t n, const char *p);
+int64_t ps_str_isupper(int64_t n, const char *p);
+int64_t ps_str_islower(int64_t n, const char *p);
+void ps_str_title(int64_t n, const char *p, PsBuf *out);
+void ps_str_capitalize(int64_t n, const char *p, PsBuf *out);
+void ps_str_casefold(int64_t n, const char *p, PsBuf *out);
+void ps_str_swapcase(int64_t n, const char *p, PsBuf *out);
+void ps_str_zfill(int64_t n, const char *p, int64_t width, PsBuf *out);
+void ps_str_justify(
+    int64_t n, const char *p, int64_t width, int64_t fn, const char *fc, int64_t side, PsBuf *out
+);
+void ps_str_removeprefix(int64_t n, const char *p, int64_t sn, const char *sp, PsBuf *out);
+void ps_str_removesuffix(int64_t n, const char *p, int64_t sn, const char *sp, PsBuf *out);
+void ps_str_expandtabs(int64_t n, const char *p, int64_t tabsize, PsBuf *out);
+void ps_str_partition(int64_t n, const char *p, int64_t sn, const char *sp, int64_t right, PsBuf *out);
+void ps_repr_bytes(int64_t n, const char *p, PsBuf *out);
+double ps_float_from_str(int64_t n, const char *p);
+
 #endif

@@ -64,23 +64,8 @@ def test_float_inf_matches_cpython(tmp_path: Path) -> None:
 def test_float_inf_stays_fenced(tmp_path: Path) -> None:
     cases = [
         (
-            "number.py",
-            "def probe() -> float:\n    return float('1.5')\n",
-            "float is not lowered for these arguments",
-        ),
-        (
             "bytes.py",
             "def probe() -> float:\n    return float(b'inf')\n",
-            "float is not lowered for these arguments",
-        ),
-        (
-            "name.py",
-            "WORD = 'inf'\n\ndef probe() -> float:\n    return float(WORD)\n",
-            "float is not lowered for these arguments",
-        ),
-        (
-            "wide.py",
-            'def probe() -> float:\n    return float("\\u00a0inf")\n',
             "float is not lowered for these arguments",
         ),
     ]

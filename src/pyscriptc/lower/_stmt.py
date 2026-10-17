@@ -325,6 +325,21 @@ class StmtMixin:
         if isinstance(target, ast.Subscript):
             if isinstance(target.slice, ast.Slice):
                 self.fail(stmt, "PS2002", "del of a slice is not lowered")
+            # del d[k] lowers to ps_map_del for a declared dict local; every
+            # other subscript target keeps the subscript fence.
+            if isinstance(target.value, ast.Name) and self.locals.get(target.value.id, {}).get("kind") == "dict":
+                container = self._expr(target.value)
+                index = self._expr(target.slice)
+                self._expect(stmt, index["type"], container["type"]["key"], "dict key")
+                call = self._abi_call(
+                    "builtins",
+                    "dict.delitem",
+                    [container, index],
+                    {"kind": "none"},
+                    "ps_map_del",
+                    span,
+                )
+                return [{"kind": "expr", "expr": call, "span": span}]
             self.fail(stmt, "PS2002", "del of a subscript is not lowered")
         if isinstance(target, (ast.Tuple, ast.List)):
             self.fail(stmt, "PS2002", "del of a tuple of names is not lowered")
@@ -413,7 +428,9 @@ class StmtMixin:
         if iterable["type"]["kind"] != "list":
             self.fail(stmt.iter, "PS2002", "for iterates over a list or range")
         elem = iterable["type"]["elem"]
-        if elem["kind"] not in _SCALAR:
+        if elem["kind"] not in _SCALAR and not (
+            elem["kind"] == "class" and self.classes.get(elem["name"], {}).get("tuple")
+        ):
             self.fail(stmt, "PS2002", f"for over list[{_show(elem)}] is not lowered")
         target = stmt.target.id
         fresh = self._bind_loop_target(target, elem, stmt.target)
