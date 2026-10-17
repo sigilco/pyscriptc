@@ -655,18 +655,18 @@ class Emitter:
         callee = expr["callee"]
         values = [self.emit_expr(arg) for arg in expr["args"]]
         if callee["kind"] == "builtin":
-            return self.emit_builtin(callee["name"], values, [arg["type"] for arg in expr["args"]])
+            return self.emit_builtin(callee["name"], values, [arg["type"] for arg in expr["args"]], expr)
         if callee["kind"] == "module":
             return self.emit_module_call(expr)
         if callee["kind"] == "method":
-            return self.emit_method(callee["name"], values, str(callee.get("receiver", "str")))
+            return self.emit_method(expr, values)
         if callee["kind"] == "class":
             return self.emit_constructor(callee["name"], values)
         return self.call_function(self.functions[callee["name"]], values)
 
-    def emit_builtin(self, name: str, values: list[str], arg_types: list[dict[str, Any]]) -> str:
+    def emit_builtin(self, name: str, values: list[str], arg_types: list[dict[str, Any]], expr: dict[str, Any]) -> str:
         if name == "print":
-            self._emit_print(values, arg_types)
+            self._emit_print(values, arg_types, expr)
             return ""
         if name == "len" and arg_types[0]["kind"] in {"str", "bytes"}:
             reg = self.tmp()
@@ -684,12 +684,16 @@ class Emitter:
         if name in {"min", "max"}:
             return self._emit_minmax(name, values, arg_types)
         if name == "int":
-            if arg_types[0]["kind"] == "bytes":
+            if arg_types[0]["kind"] in {"bytes", "str"}:
                 self._abi_decl("ps_int_from_bytes", "i64", ["i64", "ptr"])
                 length, ptr = self._buf_parts(values[0])
                 return self._call_ret("i64", "ps_int_from_bytes", [f"i64 {length}", f"ptr {ptr}"])
             self.needed.add("math")
             return self._call_ret("i64", "ps_float_to_int", [f"double {values[0]}"])
+        if name == "float" and arg_types[0]["kind"] == "str":
+            self._abi_decl("ps_float_from_str", "double", ["i64", "ptr"])
+            length, ptr = self._buf_parts(values[0])
+            return self._call_ret("double", "ps_float_from_str", [f"i64 {length}", f"ptr {ptr}"])
         if name == "str":
             kind = arg_types[0]["kind"]
             if kind == "str":
@@ -700,6 +704,23 @@ class Emitter:
             if kind == "float":
                 self._abi_decl("ps_f64_str", "void", ["double", "ptr"])
                 return self._buf_out("ps_f64_str", [f"double {values[0]}"])
+            if kind == "bool":
+                t_len = self.tmp()
+                t_ptr = self.tmp()
+                self.line(f"{t_len} = select i1 {values[0]}, i64 4, i64 5")
+                self.line(
+                    f"{t_ptr} = select i1 {values[0]}, ptr {self.format_global('boolT', b'True')}, "
+                    f"ptr {self.format_global('boolF', b'False')}"
+                )
+                agg = self.tmp()
+                self.line(f"{agg} = insertvalue %ps.str poison, i64 {t_len}, 0")
+                ret = self.tmp()
+                self.line(f"{ret} = insertvalue %ps.str {agg}, ptr {t_ptr}, 1")
+                return ret
+            if kind == "bytes":
+                self._abi_decl("ps_repr_bytes", "void", ["i64", "ptr", "ptr"])
+                length, ptr = self._buf_parts(values[0])
+                return self._buf_out("ps_repr_bytes", [f"i64 {length}", f"ptr {ptr}"])
             if kind == "class" and arg_types[0].get("name") == "Path":
                 self._abi_decl("ps_path_posix", "void", ["ptr", "ptr"])
                 return self._buf_out("ps_path_posix", [f"ptr {values[0]}"])
@@ -725,6 +746,26 @@ class Emitter:
             return self._emit_deque_load(expr, values)
         if expr.get("symbol") == "ps_list_push":
             return self._emit_list_push(expr, values)
+        if expr.get("symbol") == "ps_map_del":
+            self.needed.add("map")
+            key = self._stash(expr["args"][1]["type"], values[1])
+            self._abi_decl("ps_map_del", "void", ["ptr", "ptr"])
+            self._call_void("ps_map_del", [f"ptr {values[0]}", f"ptr {key}"])
+            return ""
+        if expr.get("symbol") == "ps_dict_items":
+            # The element is a synthetic tuple_N class; the C side packs key and
+            # value cells at byte offsets read off the class layout.
+            tname = expr["type"]["elem"]["name"]
+            size_ptr = self.tmp()
+            size = self.tmp()
+            self.line(f"{size_ptr} = getelementptr %cls.{tname}, ptr null, i64 1")
+            self.line(f"{size} = ptrtoint ptr {size_ptr} to i64")
+            voff_ptr = self.tmp()
+            voff = self.tmp()
+            self.line(f"{voff_ptr} = getelementptr %cls.{tname}, ptr null, i32 0, i32 1")
+            self.line(f"{voff} = ptrtoint ptr {voff_ptr} to i64")
+            self._abi_decl("ps_dict_items", "ptr", ["ptr", "i64", "i64"])
+            return self._call_ret("ptr", "ps_dict_items", [f"ptr {values[0]}", f"i64 {voff}", f"i64 {size}"])
         if expr.get("symbol"):
             return self._emit_abi(expr, values)
         if module == "math":
@@ -1280,37 +1321,105 @@ class Emitter:
         self.line(f"call void @ps_seq_get(ptr {seq}, i64 {index}, ptr {out})")
         return self._load(_llvm_type(elem), out)
 
-    def emit_method(self, name: str, values: list[str], receiver: str = "str") -> str:
-        kind = receiver
+    def emit_method(self, expr: dict[str, Any], values: list[str]) -> str:
+        callee = expr["callee"]
+        name = callee["name"]
+        kind = str(callee.get("receiver", "str"))
         self.needed.add("str")
         length, ptr = self._buf_parts(values[0])
         if name in {"strip", "lstrip", "rstrip", "upper", "lower"}:
             out = self._alloca("%ps.str")
             self.line(f"call void @ps_str_{name}(i64 {length}, ptr {ptr}, ptr {out})")
             return self._load("%ps.str", out)
+        if name in {"title", "capitalize", "casefold", "swapcase"}:
+            self._abi_decl(f"ps_str_{name}", "void", ["i64", "ptr", "ptr"])
+            return self._buf_out(f"ps_str_{name}", [f"i64 {length}", f"ptr {ptr}"])
+        if name in {"isdigit", "isalpha", "isalnum", "isspace", "isupper", "islower"}:
+            self._abi_decl(f"ps_str_{name}", "i32", ["i64", "ptr"])
+            return self._flag(self._call_ret("i32", f"ps_str_{name}", [f"i64 {length}", f"ptr {ptr}"]))
         if name == "encode":
             self._abi_decl("ps_utf8_encode", "void", ["i64", "ptr", "ptr"])
             return self._buf_out("ps_utf8_encode", [f"i64 {length}", f"ptr {ptr}"])
         if name == "decode":
             self._abi_decl("ps_utf8_decode", "void", ["i64", "ptr", "ptr"])
             return self._buf_out("ps_utf8_decode", [f"i64 {length}", f"ptr {ptr}"])
-        if name == "split":
+        if name == "splitlines":
+            self._abi_decl("ps_str_splitlines", "ptr", ["i64", "ptr", "i64"])
+            return self._call_ret("ptr", "ps_str_splitlines", [f"i64 {length}", f"ptr {ptr}", "i64 0"])
+        if name == "expandtabs":
+            tabsize = values[1] if len(values) > 1 else "8"
+            self._abi_decl("ps_str_expandtabs", "void", ["i64", "ptr", "i64", "ptr"])
+            return self._buf_out("ps_str_expandtabs", [f"i64 {length}", f"ptr {ptr}", f"i64 {tabsize}"])
+        if name == "zfill":
+            self._abi_decl("ps_str_zfill", "void", ["i64", "ptr", "i64", "ptr"])
+            return self._buf_out("ps_str_zfill", [f"i64 {length}", f"ptr {ptr}", f"i64 {values[1]}"])
+        if name in {"ljust", "rjust", "center"}:
+            side = {"ljust": "0", "rjust": "1", "center": "2"}[name]
+            if len(values) > 2:
+                fill_len, fill_ptr = self._buf_parts(values[2])
+            else:
+                fill_len, fill_ptr = "1", self.format_global("fill", b" ")
+            self._abi_decl("ps_str_justify", "void", ["i64", "ptr", "i64", "i64", "ptr", "i64", "ptr"])
+            return self._buf_out(
+                "ps_str_justify",
+                [
+                    f"i64 {length}",
+                    f"ptr {ptr}",
+                    f"i64 {values[1]}",
+                    f"i64 {fill_len}",
+                    f"ptr {fill_ptr}",
+                    f"i64 {side}",
+                ],
+            )
+        if name in {"partition", "rpartition"}:
+            sep_len, sep_ptr = self._buf_parts(values[1])
+            tname = callee["tuple"]
+            mem = self._alloc_class(tname)
+            right = "1" if name == "rpartition" else "0"
+            self._abi_decl("ps_str_partition", "void", ["i64", "ptr", "i64", "ptr", "i64", "ptr"])
+            self._call_void(
+                "ps_str_partition",
+                [
+                    f"i64 {length}",
+                    f"ptr {ptr}",
+                    f"i64 {sep_len}",
+                    f"ptr {sep_ptr}",
+                    f"i64 {right}",
+                    f"ptr {mem}",
+                ],
+            )
+            return mem
+        if name in {"split", "rsplit"}:
             if len(values) == 1:
                 sep_len, sep_ptr = "0", "null"
                 mode = "2" if kind == "bytes" else "1"
+                maxsplit = "-1"
             else:
                 sep_len, sep_ptr = self._buf_parts(values[1])
                 mode = "0"
-            self._abi_decl("ps_str_split", "ptr", ["i64", "ptr", "i64", "ptr", "i64"])
+                maxsplit = values[2] if len(values) > 2 else "-1"
+            right = "1" if name == "rsplit" else "0"
+            self._abi_decl("ps_str_split_m", "ptr", ["i64", "ptr", "i64", "ptr", "i64", "i64", "i64"])
             return self._call_ret(
                 "ptr",
-                "ps_str_split",
-                [f"i64 {length}", f"ptr {ptr}", f"i64 {sep_len}", f"ptr {sep_ptr}", f"i64 {mode}"],
+                "ps_str_split_m",
+                [
+                    f"i64 {length}",
+                    f"ptr {ptr}",
+                    f"i64 {sep_len}",
+                    f"ptr {sep_ptr}",
+                    f"i64 {mode}",
+                    f"i64 {maxsplit}",
+                    f"i64 {right}",
+                ],
             )
         if name == "join":
             self._abi_decl("ps_str_join", "void", ["i64", "ptr", "ptr", "ptr"])
             return self._buf_out("ps_str_join", [f"i64 {length}", f"ptr {ptr}", f"ptr {values[1]}"])
         arg_len, arg_ptr = self._buf_parts(values[1])
+        if name in {"removeprefix", "removesuffix"}:
+            self._abi_decl(f"ps_str_{name}", "void", ["i64", "ptr", "i64", "ptr", "ptr"])
+            return self._buf_out(f"ps_str_{name}", [f"i64 {length}", f"ptr {ptr}", f"i64 {arg_len}", f"ptr {arg_ptr}"])
         if name == "replace":
             new_len, new_ptr = self._buf_parts(values[2])
             out = self._alloca("%ps.str")
@@ -1319,10 +1428,14 @@ class Emitter:
                 f"i64 {length}, ptr {ptr}, i64 {arg_len}, ptr {arg_ptr}, i64 {new_len}, ptr {new_ptr}, ptr {out})"
             )
             return self._load("%ps.str", out)
-        if name == "find":
-            return self._call_ret(
-                "i64", "ps_str_find", [f"i64 {length}", f"ptr {ptr}", f"i64 {arg_len}", f"ptr {arg_ptr}"]
-            )
+        if name in {"find", "count", "index", "rfind"}:
+            symbol = {"find": "ps_str_find", "count": "ps_str_count", "index": "ps_str_index", "rfind": "ps_str_rfind"}[
+                name
+            ]
+            # ps_str_find is already declared by the "str" runtime block.
+            if name != "find":
+                self._abi_decl(symbol, "i64", ["i64", "ptr", "i64", "ptr"])
+            return self._call_ret("i64", symbol, [f"i64 {length}", f"ptr {ptr}", f"i64 {arg_len}", f"ptr {arg_ptr}"])
         if name in {"startswith", "endswith"}:
             flag = self._call_ret(
                 "i32", f"ps_str_{name}", [f"i64 {length}", f"ptr {ptr}", f"i64 {arg_len}", f"ptr {arg_ptr}"]
@@ -1566,19 +1679,27 @@ class Emitter:
             return
         raise IRError(f"cannot print {kind}")
 
-    def _emit_print(self, values: list[str], arg_types: list[dict[str, Any]]) -> None:
+    def _emit_print(self, values: list[str], arg_types: list[dict[str, Any]], expr: dict[str, Any]) -> None:
         """`print` with CPython defaults: space separator, newline terminator.
 
-        Each value writes through `printf`, mirroring `print_value`'s int and
-        str pieces. Floats go through `ps_f64_str` so the text is the CPython
-        `str(float)` spelling (shortest round-trip, `.0`, `1e+16`), which a
-        raw `%g` conversion cannot reproduce. Bools select between the
-        `True` and `False` constants, not the runtime's lowercase literals.
+        `sep=`/`end=` str arguments ride on the call dict; when absent the
+        constants hold. Each value writes through `printf`, mirroring
+        `print_value`'s int and str pieces. Floats go through `ps_f64_str` so
+        the text is the CPython `str(float)` spelling (shortest round-trip,
+        `.0`, `1e+16`), which a raw `%g` conversion cannot reproduce. Bools
+        select between the `True` and `False` constants, not the runtime's
+        lowercase literals. Bytes print as their `b'...'` repr.
         """
         self.needed.add("printf")
+        sep = self.emit_expr(expr["sep"]) if expr.get("sep") else None
+        end = self.emit_expr(expr["end"]) if expr.get("end") else None
         for index, (value, typ) in enumerate(zip(values, arg_types, strict=True)):
             if index:
-                self._print_fmt("space", b" ")
+                if sep is None:
+                    self._print_fmt("space", b" ")
+                else:
+                    slen, sptr = self._buf_parts(sep)
+                    self._print_fmt("sep", b"%.*s", [f"i64 {slen}", f"ptr {sptr}"])
             kind = typ["kind"]
             if kind == "int":
                 self._print_fmt("int", b"%lld", [f"i64 {value}"])
@@ -1594,10 +1715,20 @@ class Emitter:
                     f"ptr {self.format_global('boolF', b'False')}"
                 )
                 self._print_fmt("s", b"%s", [f"ptr {picked}"])
+            elif kind == "bytes":
+                self._abi_decl("ps_repr_bytes", "void", ["i64", "ptr", "ptr"])
+                rlen, rptr = self._buf_parts(value)
+                out = self._buf_out("ps_repr_bytes", [f"i64 {rlen}", f"ptr {rptr}"])
+                length, ptr = self._buf_parts(out)
+                self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"])
             else:
                 length, ptr = self._buf_parts(value)
                 self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"])
-        self._print_fmt("nl", b"\n")
+        if end is None:
+            self._print_fmt("nl", b"\n")
+        else:
+            elen, eptr = self._buf_parts(end)
+            self._print_fmt("end", b"%.*s", [f"i64 {elen}", f"ptr {eptr}"])
 
     def _print_fmt(self, name: str, data: bytes, args: list[str] | None = None) -> None:
         fmt = self.format_global(name, data)

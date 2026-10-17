@@ -35,6 +35,24 @@ STR_METHODS: dict[str, dict[str, Any]] = {
     "endswith": {"params": ["self"], "return": "bool"},
     "find": {"params": ["self"], "return": "int"},
     "replace": {"params": ["self", "self"], "return": "self"},
+    "count": {"params": ["self"], "return": "int"},
+    "index": {"params": ["self"], "return": "int"},
+    "rfind": {"params": ["self"], "return": "int"},
+    "isdigit": {"params": [], "return": "bool"},
+    "isalpha": {"params": [], "return": "bool"},
+    "isalnum": {"params": [], "return": "bool"},
+    "isspace": {"params": [], "return": "bool"},
+    "isupper": {"params": [], "return": "bool"},
+    "islower": {"params": [], "return": "bool"},
+    "title": {"params": [], "return": "self"},
+    "capitalize": {"params": [], "return": "self"},
+    # casefold is str-only in CPython; the "kinds" gate keeps bytes.casefold fenced.
+    "casefold": {"params": [], "return": "self", "kinds": {"str"}},
+    "swapcase": {"params": [], "return": "self"},
+    "zfill": {"params": ["int"], "return": "self"},
+    "removeprefix": {"params": ["self"], "return": "self"},
+    "removesuffix": {"params": ["self"], "return": "self"},
+    "splitlines": {"params": [], "return": "self_list"},
 }
 
 LEN_KINDS = {"str", "bytes", "list", "dict"}
@@ -51,11 +69,23 @@ def builtin_spec(name: str, arg_types: list[dict[str, Any]]) -> dict[str, Any] |
 
     if name == "len" and len(arg_types) == 1 and _len_ok(arg_types[0]):
         return {"kind": "int"}
-    if name == "int" and len(arg_types) == 1 and arg_types[0]["kind"] in {"float", "bytes"}:
+    if name == "int" and len(arg_types) == 1 and arg_types[0]["kind"] in {"float", "bytes", "str"}:
         return {"kind": "int"}
-    if name == "float" and len(arg_types) == 1 and arg_types[0]["kind"] == "int":
+    if name == "float" and len(arg_types) == 1 and arg_types[0]["kind"] in {"int", "str"}:
         return {"kind": "float"}
-    if name == "str" and len(arg_types) == 1 and arg_types[0]["kind"] in {"str", "int", "float"}:
+    if (
+        name == "str"
+        and len(arg_types) == 1
+        and arg_types[0]["kind"]
+        in {
+            "str",
+            "int",
+            "float",
+            "bool",
+            "bytes",
+            "none",
+        }
+    ):
         return {"kind": "str"}
     if name == "str" and len(arg_types) == 1 and arg_types[0]["kind"] == "class" and arg_types[0].get("name") == "Path":
         return {"kind": "str"}
@@ -66,19 +96,40 @@ def method_spec(receiver: dict[str, Any], name: str, arg_types: list[dict[str, A
     if receiver["kind"] not in {"str", "bytes"}:
         return None
     if name == "encode":
-        if receiver["kind"] != "str" or arg_types:
+        # One optional str encoding argument; the value is checked in _call_attr.
+        if receiver["kind"] != "str" or len(arg_types) > 1:
+            return None
+        if arg_types and arg_types[0]["kind"] != "str":
             return None
         return {"kind": "bytes"}
     if name == "decode":
-        if receiver["kind"] != "bytes" or arg_types:
+        if receiver["kind"] != "bytes" or len(arg_types) > 1:
+            return None
+        if arg_types and arg_types[0]["kind"] != "str":
             return None
         return {"kind": "str"}
-    if name == "split":
-        if len(arg_types) > 1:
+    if name in {"split", "rsplit"}:
+        # split([sep [, maxsplit]]); sep None is not a lowered type, so the
+        # whitespace form stays the 0-arg call.
+        if len(arg_types) > 2:
             return None
-        if len(arg_types) == 1 and arg_types[0]["kind"] != receiver["kind"]:
+        if len(arg_types) >= 1 and arg_types[0]["kind"] != receiver["kind"]:
+            return None
+        if len(arg_types) == 2 and arg_types[1]["kind"] != "int":
             return None
         return {"kind": "list", "elem": {"kind": receiver["kind"]}}
+    if name in {"ljust", "rjust", "center"}:
+        if not 1 <= len(arg_types) <= 2:
+            return None
+        if arg_types[0]["kind"] != "int":
+            return None
+        if len(arg_types) == 2 and arg_types[1]["kind"] != receiver["kind"]:
+            return None
+        return {"kind": receiver["kind"]}
+    if name == "expandtabs":
+        if len(arg_types) > 1 or (arg_types and arg_types[0]["kind"] != "int"):
+            return None
+        return {"kind": receiver["kind"]}
     if name == "join":
         if len(arg_types) != 1 or arg_types[0]["kind"] != "list":
             return None
@@ -88,6 +139,8 @@ def method_spec(receiver: dict[str, Any], name: str, arg_types: list[dict[str, A
     if name not in STR_METHODS:
         return None
     spec = STR_METHODS[name]
+    if receiver["kind"] not in spec.get("kinds", {"str", "bytes"}):
+        return None
     if len(arg_types) != len(spec["params"]):
         return None
     for got, want in zip(arg_types, spec["params"], strict=True):
@@ -98,4 +151,6 @@ def method_spec(receiver: dict[str, Any], name: str, arg_types: list[dict[str, A
             return None
     if spec["return"] == "self":
         return {"kind": receiver["kind"]}
+    if spec["return"] == "self_list":
+        return {"kind": "list", "elem": {"kind": receiver["kind"]}}
     return {"kind": spec["return"]}

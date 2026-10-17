@@ -126,7 +126,7 @@ def test_int_other_overloads_keep_fencing() -> None:
     # str (with or without a base argument) and the no-arg form fence.
     # int(float) is not part of this item: it was already lowered on master
     # (ps_float_to_int) and stays as-is.
-    for source in ('int("42")\n', 'int("ff", 16)\n', "int()\n"):
+    for source in ('int("ff", 16)\n', "int()\n"):
         mod = lower_source(source)
         assert len(mod["fences"]) == 1, source
         fence = mod["fences"][0]
