@@ -37,8 +37,13 @@ pip install pyscriptc
 
 == tab "binary"
 
+```sh
+mise use -g github:sigilco/pyscriptc
+```
+
 Prebuilt binaries for Linux, macOS, and an experimental Windows build ship on the
-[releases page](https://github.com/sigilco/pyscriptc/releases).
+[releases page](https://github.com/sigilco/pyscriptc/releases). The binary still
+needs `clang` (or `zig cc`) on PATH to link compiled programs.
 
 :::
 

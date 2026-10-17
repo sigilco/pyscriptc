@@ -33,6 +33,7 @@ def fib(n: int) -> int:
         a, b = b, a + b
     return a
 
+
 print(fib(30))
 ```
 

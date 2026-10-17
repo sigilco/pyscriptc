@@ -8,8 +8,11 @@ description: How to set up the repo and land a change.
 ```bash
 git clone https://github.com/sigilco/pyscriptc.git
 cd pyscriptc
+mise trust && mise install   # python, uv, node, pnpm per mise.toml
 uv sync
 ```
+
+Tools already on your PATH that satisfy the `mise.toml` pins are reused, not reinstalled. You also need `clang` for linking compiled binaries, and `pnpm install` only when working on this site (`docs/` output).
 
 Checks before a PR:
 
