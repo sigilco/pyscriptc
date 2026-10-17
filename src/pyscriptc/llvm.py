@@ -12,7 +12,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from pyscriptc.builtins import EXCEPTIONS
+from pyscriptc.builtins import EXCEPTIONS, USER_EXC_BASE
 from pyscriptc.errors import FitError, IRError
 from pyscriptc.ir import assert_same_cpython, fits_i64
 from pyscriptc.stdlib_queue import MATH_FUNCTIONS
@@ -317,10 +317,11 @@ class Emitter:
         self.block(hand_l)
         merge_l = self.fresh("try.merge")
         ret_l = self.fresh("try.ret")
+        ecode = self._call_ret("i32", "ps_exc_code", [])
         for index, handler in enumerate(stmt["handlers"]):
             take_l = self.fresh(f"try.h{index}")
             miss_l = self.fresh("try.miss")
-            cond = self._exc_match(code, handler)
+            cond = self._exc_match(ecode, handler)
             self.line(f"br i1 {cond}, label %{take_l}, label %{miss_l}")
             self.terminated = True
             self.block(take_l)
@@ -329,7 +330,7 @@ class Emitter:
                 self.line(f"br label %{merge_l}")
                 self.terminated = True
             self.block(miss_l)
-        self.line(f"call void @ps_raise(i32 {code}) noreturn")
+        self.line("call void @ps_reraise() noreturn")
         self.line("unreachable")
         self.terminated = True
         self.block(cont_l)
@@ -487,17 +488,31 @@ class Emitter:
 
     def _exc_match(self, code: str, handler: dict[str, Any] | list[str]) -> str:
         names = handler if isinstance(handler, list) else handler["exc"]
-        if "Exception" in names:
-            reg = self.tmp()
-            self.line(f"{reg} = icmp ne i32 {code}, 0")
-            return reg
+        checks: list[str] = []
+        for name in names:
+            if name not in EXCEPTIONS:
+                continue
+            wanted = EXCEPTIONS[name]
+            call = self._call_ret("i32", "ps_exc_isa", [f"i32 {code}", f"i32 {wanted}"])
+            checks.append(self._flag(call))
+            if name == "Exception":
+                # User codes have no runtime parent chain yet; every user
+                # exception inherits a lowered builtin, so all of them are
+                # Exception descendants.
+                reg = self.tmp()
+                self.line(f"{reg} = icmp sge i32 {code}, {USER_EXC_BASE}")
+                checks.append(reg)
         numbers = handler.get("codes") if isinstance(handler, dict) else None
         if not numbers:
-            numbers = [EXCEPTIONS[name] for name in names]
-        acc: str | None = None
+            numbers = [EXCEPTIONS[name] for name in names if name in EXCEPTIONS]
         for number in numbers:
+            if number < USER_EXC_BASE:
+                continue
             reg = self.tmp()
             self.line(f"{reg} = icmp eq i32 {code}, {number}")
+            checks.append(reg)
+        acc: str | None = None
+        for reg in checks:
             if acc is None:
                 acc = reg
                 continue
@@ -1761,6 +1776,8 @@ def _runtime_declarations(needed: set[str]) -> list[str]:
         lines.append("declare void @ps_raise_code(i32) noreturn")
         lines.append("declare void @ps_raise_msg(i32, i64, ptr) noreturn")
         lines.append("declare void @ps_reraise() noreturn")
+        lines.append("declare i32 @ps_exc_code()")
+        lines.append("declare i32 @ps_exc_isa(i32, i32)")
     if "alloc" in needed:
         lines.append("declare ptr @ps_alloc(i64)")
     if "seq" in needed:

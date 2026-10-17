@@ -20,9 +20,22 @@ typedef struct PsJmp {
 } PsJmp;
 
 static _Thread_local PsJmp *ps_top;
-static _Thread_local char ps_msg[256];
-static _Thread_local int32_t ps_exc;
+static _Thread_local PsExc *ps_current;
 char ps_empty_byte;
+
+/* Parent chain for the 7 existing codes: every builtin is a child of
+Exception. User codes (>= PS_USER_BASE) have no runtime parent yet; the
+emitted handler precomputes their matches (E3 registers them here). */
+static const int32_t ps_exc_parent[PS_USER_BASE] = {
+    0,
+    PS_EXCEPTION,
+    PS_EXCEPTION,
+    PS_EXCEPTION,
+    PS_EXCEPTION,
+    PS_EXCEPTION,
+    PS_EXCEPTION,
+    0,
+};
 
 _Static_assert(sizeof(PsBuf) == 16, "PsBuf must match %ps.str");
 
@@ -45,34 +58,84 @@ static const char *ps_exc_name(int code) {
     }
 }
 
+static PsExc *ps_exc_new(int32_t code) {
+    PsExc *e = calloc(1, sizeof(PsExc));
+    if (e == NULL) {
+        abort();
+    }
+    e->code = code;
+    e->name.data = (char *)ps_exc_name(code);
+    e->name.len = (int64_t)strlen(e->name.data);
+    e->message.data = calloc(256, 1);
+    if (e->message.data == NULL) {
+        abort();
+    }
+    return e;
+}
+
+/* Deliver ps_current: unwind to the innermost handler, or report and exit. */
+__attribute__((noinline, noreturn)) static void ps_deliver(void) {
+    PsExc *e = ps_current;
+    if (ps_top == NULL) {
+        if (e != NULL && e->message.len > 0) {
+            fprintf(stderr, "%s: %s\n", ps_exc_name(e->code), e->message.data);
+        } else {
+            fprintf(stderr, "%s\n", ps_exc_name(e != NULL ? e->code : PS_RUNTIME));
+        }
+        exit(1);
+    }
+    longjmp(ps_top->buf, PS_RAISED);
+}
+
 __attribute__((noinline, noreturn)) void ps_raise(int32_t code) {
     if (code == 0) {
         code = PS_RUNTIME;
     }
-    ps_exc = code;
-    if (ps_top == NULL) {
-        if (ps_msg[0] != '\0') {
-            fprintf(stderr, "%s: %s\n", ps_exc_name(code), ps_msg);
-        } else {
-            fprintf(stderr, "%s\n", ps_exc_name(code));
-        }
-        exit(1);
+    if (ps_current == NULL || ps_current->code != code) {
+        ps_current = ps_exc_new(code);
     }
-    longjmp(ps_top->buf, code);
+    ps_deliver();
 }
 
 __attribute__((noinline, noreturn)) void ps_raise_code(int32_t code) {
-    ps_msg[0] = '\0';
-    ps_raise(code);
+    if (code == 0) {
+        code = PS_RUNTIME;
+    }
+    ps_current = ps_exc_new(code);
+    ps_deliver();
 }
 
 __attribute__((noinline, noreturn)) void ps_reraise(void) {
-    ps_raise(ps_exc == 0 ? PS_RUNTIME : ps_exc);
+    if (ps_current == NULL) {
+        ps_current = ps_exc_new(PS_RUNTIME);
+    }
+    ps_deliver();
+}
+
+int32_t ps_exc_code(void) {
+    return ps_current != NULL ? ps_current->code : 0;
+}
+
+int32_t ps_exc_isa(int32_t raised, int32_t wanted) {
+    int32_t code = raised;
+    while (code > 0) {
+        if (code == wanted) {
+            return 1;
+        }
+        if (code >= PS_USER_BASE) {
+            return 0;
+        }
+        code = ps_exc_parent[code];
+    }
+    return 0;
 }
 
 __attribute__((noreturn)) void ps_raise_cstr(int32_t code, const char *msg) {
-    snprintf(ps_msg, sizeof ps_msg, "%s", msg);
-    ps_raise(code);
+    PsExc *e = ps_exc_new(code == 0 ? PS_RUNTIME : code);
+    snprintf(e->message.data, 256, "%s", msg);
+    e->message.len = (int64_t)strlen(e->message.data);
+    ps_current = e;
+    ps_deliver();
 }
 
 typedef int32_t (*ps_try_fn)(void *);
@@ -106,12 +169,15 @@ void ps_raise_msg(int32_t code, int64_t n, const char *data) {
         n = 0;
     }
     size_t take = (size_t)n;
-    if (take > sizeof ps_msg - 1) {
-        take = sizeof ps_msg - 1;
+    if (take > 255) {
+        take = 255;
     }
-    memcpy(ps_msg, data, take);
-    ps_msg[take] = '\0';
-    ps_raise(code);
+    PsExc *e = ps_exc_new(code == 0 ? PS_RUNTIME : code);
+    memcpy(e->message.data, data, take);
+    e->message.data[take] = '\0';
+    e->message.len = (int64_t)take;
+    ps_current = e;
+    ps_deliver();
 }
 
 void *ps_alloc(int64_t n) {
