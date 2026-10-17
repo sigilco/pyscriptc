@@ -30,7 +30,7 @@ jobs:
           set -euo pipefail
           curl -fsSL https://github.com/Betterleaks/betterleaks/releases/download/v1.9.0/betterleaks_1.9.0_linux_x64.tar.gz -o /tmp/bl.tar.gz
           curl -fsSL https://github.com/Betterleaks/betterleaks/releases/download/v1.9.0/checksums.txt -o /tmp/checksums.txt
-          grep betterleaks_1.9.0_linux_x64.tar.gz /tmp/checksums.txt | sha256sum -c -
+          (cd /tmp && grep betterleaks_1.9.0_linux_x64.tar.gz checksums.txt | sha256sum -c -)
           sudo tar -xzf /tmp/bl.tar.gz -C /usr/local/bin betterleaks
       - run: betterleaks git .
 
