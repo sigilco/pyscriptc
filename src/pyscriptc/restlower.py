@@ -138,7 +138,6 @@ def builtin_call(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any
         "min",
         "max",
         "sum",
-        "sorted",
         "ord",
         "chr",
         "round",
@@ -669,11 +668,130 @@ def _sum(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     return lo._abi_call("builtins", "sum", [arg], {"kind": kind}, symbol, span)
 
 
+_SORT_ELEM = {"int", "float", "str", "bytes"}
+
+
 def _sorted(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if len(node.args) != 1:
         lo.fail(node, "PS2003", "sorted expects 1 argument(s)")
+    if node.keywords:
+        if any(kw.arg is None for kw in node.keywords):
+            lo.fail(node, "PS2002", "**kwargs are not lowered")
+        if len(node.keywords) == 1 and node.keywords[0].arg == "key":
+            lam = node.keywords[0].value
+            if not isinstance(lam, ast.Lambda):
+                lo.fail(lam, "PS2003", "sorted key= takes an inline lambda")
+            args = lam.args
+            params = args.posonlyargs + args.args
+            variadic = args.vararg or args.kwarg or args.kwonlyargs or args.defaults or any(args.kw_defaults)
+            if len(params) != 1 or variadic:
+                lo.fail(lam, "PS2003", "a sorted key= lambda takes one positional parameter")
+            for sub in ast.walk(lam.body):
+                if isinstance(sub, (ast.Lambda, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+                    lo.fail(lam, "PS2003", "a sorted key= lambda is a plain expression")
+
+            arg = lo._expr(node.args[0])
+            kind = arg["type"]["kind"]
+            if kind == "dict":
+                elem = arg["type"]["key"]
+                elems_expr = "{s}.keys()"
+            elif kind == "list":
+                elem = arg["type"]["elem"]
+                elems_expr = "{s}"
+            else:
+                lo.fail(node.args[0], "PS2003", "sorted key= takes a list or dict")
+                raise AssertionError("unreachable")
+            if elem["kind"] not in _SORT_ELEM:
+                lo.fail(node.args[0], "PS2003", "sorted key= iterates int, float, str, or bytes elements")
+
+            w = params[0].arg
+            fields = lam.body.elts if isinstance(lam.body, ast.Tuple) else [lam.body]
+
+            saved_w = lo.locals.get(w)
+            lo.locals[w] = elem
+            probes = [lo._expr(field) for field in fields]
+            if saved_w is None:
+                del lo.locals[w]
+            else:
+                lo.locals[w] = saved_w
+            if any(p["type"]["kind"] not in _SORT_ELEM for p in probes):
+                lo.fail(lam, "PS2003", "a sorted key= lambda returns scalars or a tuple of scalars")
+
+            def temp(hint: str) -> str:
+                return lo._temp(hint).replace(".", "_")
+
+            s = temp("seq")
+            e = temp("elems")
+            keys = [temp(f"k{i}") for i in range(len(fields))]
+            n = temp("n")
+            idx = temp("idx")
+            i = temp("i")
+            j = temp("j")
+            v = temp("v")
+            out = temp("out")
+
+            lo.locals[s] = arg["type"]
+            lo.prelude.append({"kind": "assign", "target": s, "value": arg, "span": span})
+            lo.locals[e] = {"kind": "list", "elem": elem}
+            for p, k in zip(probes, keys, strict=True):
+                lo.locals[k] = {"kind": "list", "elem": p["type"]}
+            for t in (n, i, j, v):
+                lo.locals[t] = {"kind": "int"}
+            lo.locals[idx] = {"kind": "list", "elem": {"kind": "int"}}
+            lo.locals[out] = {"kind": "list", "elem": elem}
+
+            def less(field: int) -> str:
+                jb = f"{idx}[{j} - 1]"
+                lt = f"{keys[field]}[{v}] < {keys[field]}[{jb}]"
+                if field == len(keys) - 1:
+                    return lt
+                return f"{lt} or ({keys[field]}[{v}] == {keys[field]}[{jb}] and ({less(field + 1)}))"
+
+            # The block reuses the lambda's own parameter name as the loop
+            # variable; a pre-existing local is pinned and restored after.
+            lines = [f"{e} = {elems_expr.format(s=s)}"]
+            if saved_w is not None:
+                save_w = temp("save")
+                lo.locals[save_w] = elem
+                lines.append(f"{save_w} = {w}")
+            for k in keys:
+                lines.append(f"{k} = []")
+            lines.append(f"for {w} in {e}:")
+            for pos, k in enumerate(keys):
+                lines.append(f"    {k}.append({ast.unparse(fields[pos])})")
+            if saved_w is not None:
+                lines.append(f"{w} = {save_w}")
+            lines += [
+                f"{n} = len({keys[0]})",
+                f"{idx} = []",
+                f"{i} = 0",
+                f"while {i} < {n}:",
+                f"    {idx}.append({i})",
+                f"    {i} = {i} + 1",
+                f"{i} = 1",
+                f"while {i} < {n}:",
+                f"    {v} = {idx}[{i}]",
+                f"    {j} = {i}",
+                f"    while {j} > 0 and ({less(0)}):",
+                f"        {idx}[{j}] = {idx}[{j} - 1]",
+                f"        {j} = {j} - 1",
+                f"    {idx}[{j}] = {v}",
+                f"    {i} = {i} + 1",
+                f"{out} = []",
+                f"{i} = 0",
+                f"while {i} < {n}:",
+                f"    {out}.append({e}[{idx}[{i}]])",
+                f"    {i} = {i} + 1",
+            ]
+            for stmt in ast.parse("\n".join(lines)).body:
+                for sub in ast.walk(stmt):
+                    sub.lineno, sub.col_offset = node.lineno, node.col_offset
+                    sub.end_lineno, sub.end_col_offset = node.end_lineno, node.end_col_offset
+                lo.prelude.extend(lo._body([stmt]))
+            return {"kind": "name", "id": out, "type": {"kind": "list", "elem": elem}, "span": span}
+        lo._reject_keywords(node)
     arg = lo._expr(node.args[0])
-    if arg["type"]["kind"] != "list" or arg["type"]["elem"]["kind"] not in {"int", "float", "str", "bytes"}:
+    if arg["type"]["kind"] != "list" or arg["type"]["elem"]["kind"] not in _SORT_ELEM:
         lo.fail(node, "PS2003", "sorted takes a list of int, float, str, or bytes")
     folded = _const_sorted(arg, span)
     if folded is not None:
