@@ -63,20 +63,29 @@ mkdir -p "$out" "$work"
 # "_collections_abc", perhaps typeshed is broken?'. Ship typeshed as an explicit data dir.
 mypy_pkg="$(uv run --group packaging python -c 'import os, mypy; print(os.path.dirname(mypy.__file__))')"
 
+# Nuitka does not understand MSYS-style paths (/d/a/...) in --include-data-files
+# globs: "does not match any files". Pass native Windows paths on Windows.
+nroot="$root"
+nwork="$work"
+if [ "$os" = windows ]; then
+  nroot="$(cygpath -w "$root")"
+  nwork="$(cygpath -w "$work")"
+fi
+
 # Data files the compiler reads at run time: the C runtime it links beside every program.
 # llvm.py globs runtime/*.c next to its own __file__, so they must sit at pyscriptc/runtime/.
 # mypy needs its bundled typeshed stubs for the preflight.
 args=(
   --onefile
   --assume-yes-for-downloads
-  --output-dir="$work"
+  --output-dir="$nwork"
   --output-filename="$name"
   --include-package=pyscriptc
   --include-package=mypy
   --include-package-data=mypy
   "--include-data-files=$mypy_pkg/typeshed=mypy/typeshed/=**/*.pyi"
-  "--include-data-files=$root/src/pyscriptc/runtime/*.c=pyscriptc/runtime/"
-  "--include-data-files=$root/src/pyscriptc/runtime/*.h=pyscriptc/runtime/"
+  "--include-data-files=$nroot/src/pyscriptc/runtime/*.c=pyscriptc/runtime/"
+  "--include-data-files=$nroot/src/pyscriptc/runtime/*.h=pyscriptc/runtime/"
   --nofollow-import-to=pytest
   --nofollow-import-to=tkinter
   --python-flag=no_docstrings
