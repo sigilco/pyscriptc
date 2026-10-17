@@ -9,9 +9,20 @@ pyscriptc lowers a typed Python subset to a native binary. Parsing is CPython's 
 
 ## Requirements
 
-- CPython 3.10 or later. The emitted IR is stamped with the interpreter that lowered it.
-- `clang`, to assemble textual LLVM IR. `zig` unlocks cross-compilation via `--driver zig`.
+- CPython 3.10 or later (PyPI installs only; the prebuilt binary has no Python dependency). The emitted IR is stamped with the interpreter that lowered it.
+- A C toolchain to link compiled programs: `clang`, or `zig` which also unlocks cross-compilation via `--driver zig`.
 - The preflight checker, `mypy`, ships inside the installed package. No extra setup.
+
+### Installing clang or zig
+
+| Platform | Command |
+| --- | --- |
+| macOS | `xcode-select --install` (or `brew install llvm` / `brew install zig`) |
+| Debian / Ubuntu | `sudo apt install clang` (or `zig` on newer releases) |
+| Fedora | `sudo dnf install clang` (or `zig`) |
+| Arch | `sudo pacman -S clang` (or `zig`) |
+| Any Linux or macOS | `mise use -g zig` or `brew install zig` |
+| Windows | `winget install zig.zig` (or `scoop install zig`) |
 
 ## Install
 
