@@ -132,13 +132,18 @@ def test_print_empty_call_prints_a_bare_newline(tmp_path: Path) -> None:
     assert got.stdout == oracle_script(path)
 
 
-def test_print_sep_end_file_kwargs_fence() -> None:
-    for kw in ("sep='|'", "end=''", "file=sys.stderr"):
+def test_print_sep_end_kwargs_lower() -> None:
+    for kw in ("sep='|'", "end=''"):
         mod = lower_source(f"print(1, {kw})\n")
-        assert len(mod["fences"]) == 1, kw
-        fence = mod["fences"][0]
-        assert fence["code"] == "PS2003", kw
-        assert "print keyword argument" in fence["message"], kw
+        assert mod["fences"] == [], kw
+
+
+def test_print_file_kwarg_fences() -> None:
+    mod = lower_source("print(1, file=sys.stderr)\n")
+    assert len(mod["fences"]) == 1
+    fence = mod["fences"][0]
+    assert fence["code"] == "PS2003"
+    assert "print keyword argument" in fence["message"]
 
 
 def test_print_value_outside_the_scalar_set_fences() -> None:
@@ -151,7 +156,7 @@ print(items)
     assert len(mod["fences"]) == 1
     fence = mod["fences"][0]
     assert fence["code"] == "PS2003"
-    assert "print is lowered for str, int, float, and bool values" in fence["message"]
+    assert "print is lowered for str, int, float, bool, and bytes values" in fence["message"]
 
 
 def test_print_star_args_and_double_star_fence() -> None:
