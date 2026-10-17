@@ -170,20 +170,30 @@ def _const_int(value: int, span: dict[str, Any]) -> dict[str, Any]:
     return {"kind": "const", "value": str(value), "type": {"kind": "int"}, "span": span}
 
 
-_PRINT_KINDS = {"str", "int", "float", "bool"}
+_PRINT_KINDS = {"str", "int", "float", "bool", "bytes"}
 
 
 def _print(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     """`print` lowers to the builtin of the same name; the emitter writes stdout.
 
     Subset: positional values of the compiler's scalar set (str, int, float,
-    bool), space-separated, newline-terminated. `sep=`, `end=`, and `file=`
-    are fenced with a precise message instead of being half-supported.
+    bool, bytes), `sep=`/`end=` str keywords; `file=`/`flush=` stay fenced.
+    The keyword exprs ride on the call dict so the emitter can splice them.
     """
+    extras: dict[str, Any] = {}
     for kw in node.keywords:
         if kw.arg is None:
             lo.fail(kw, "PS2002", "**kwargs are not lowered")
-        lo.fail(kw, "PS2003", f"print keyword argument {kw.arg} is not lowered; print supports positional values only")
+        if kw.arg not in {"sep", "end"}:
+            lo.fail(
+                kw,
+                "PS2003",
+                f"print keyword argument {kw.arg} is not lowered; print supports sep= and end= only",
+            )
+        value = lo._expr(kw.value)
+        if value["type"]["kind"] != "str":
+            lo.fail(kw, "PS1003", f"print {kw.arg}= takes a str")
+        extras[kw.arg] = value
     if any(isinstance(arg, ast.Starred) for arg in node.args):
         lo.fail(node, "PS2002", "starred calls are not lowered")
     args = [lo._expr(arg) for arg in node.args]
@@ -192,16 +202,18 @@ def _print(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
             lo.fail(
                 node,
                 "PS2003",
-                f"print is lowered for str, int, float, and bool values, not {arg['type']['kind']};"
+                f"print is lowered for str, int, float, bool, and bytes values, not {arg['type']['kind']};"
                 " wrap it in str(...)",
             )
-    return {
+    expr = {
         "kind": "call",
         "callee": {"kind": "builtin", "name": "print"},
         "args": args,
         "type": {"kind": "none"},
         "span": span,
     }
+    expr.update(extras)
+    return expr
 
 
 def _const_text(value: str, kind: str, span: dict[str, Any]) -> dict[str, Any]:

@@ -275,6 +275,16 @@ def _zero(typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
         return _const_bool(False, span)
     if typ["kind"] == "float":
         return {"kind": "const", "value": "0.0", "type": typ, "span": span}
+    if typ["kind"] == "class":
+        # Fresh for-targets of a synthetic tuple class start as a zeroed
+        # instance (ps_alloc calloc); the loop step then rebinding every field.
+        return {
+            "kind": "call",
+            "callee": {"kind": "class", "name": typ["name"]},
+            "args": [],
+            "type": typ,
+            "span": span,
+        }
     return {"kind": "const", "value": "", "type": typ, "span": span}
 
 

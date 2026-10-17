@@ -78,11 +78,14 @@ class CallsMixin:
             spec = builtin_spec(name, [arg["type"] for arg in args])
             if spec is None:
                 self.fail(node, "PS2003", f"{name} is not lowered for these arguments")
-            if name == "float":
+            if name == "float" and args[0]["type"]["kind"] == "int":
                 return {"kind": "cast", "op": "int_to_float", "value": args[0], "type": spec, "span": span}
             if name == "str" and args[0]["type"]["kind"] == "str":
                 return args[0]
-            if name == "int" and args[0]["type"]["kind"] == "bytes":
+            if name == "str" and args[0]["type"]["kind"] == "none":
+                # None is not a runtime value; str(None) folds at lowering.
+                return {"kind": "const", "value": "None", "type": spec, "span": span}
+            if name == "int" and args[0]["type"]["kind"] in {"bytes", "str"}:
                 return self._abi_call("builtins", "int", args, spec, "ps_int_from_bytes", span)
             return {
                 "kind": "call",
@@ -149,8 +152,44 @@ class CallsMixin:
             return self._list_method(node, span, receiver)
         kind = receiver["type"]["kind"]
         if kind in {"str", "bytes"}:
+            attr = node.func.attr
+            if attr in {"startswith", "endswith"} and len(node.args) == 1 and isinstance(node.args[0], ast.Tuple):
+                # s.startswith((a, b)) is a or-chain of scalar calls; the empty
+                # tuple is constant False per CPython.
+                elts = node.args[0].elts
+                if not elts:
+                    return {"kind": "const", "value": False, "type": {"kind": "bool"}, "span": span}
+                rewritten = ast.BoolOp(
+                    op=ast.Or(),
+                    values=[ast.Call(func=node.func, args=[elt], keywords=[]) for elt in elts],
+                )
+                for sub in ast.walk(rewritten):
+                    sub.lineno, sub.col_offset = node.lineno, node.col_offset
+                    sub.end_lineno, sub.end_col_offset = node.end_lineno, node.end_col_offset
+                return self._expr(rewritten, expect)
+            if attr in {"partition", "rpartition"}:
+                # The result is a 3-tuple of the receiver's kind; it materializes
+                # as the synthetic tuple_3 class, like zip/enumerate pairs.
+                self._reject_keywords(node)
+                if len(node.args) != 1:
+                    self.fail(node, "PS2003", f"{kind}.{attr} expects 1 argument(s)")
+                sep = self._expr(node.args[0])
+                self._expect(node, sep["type"], {"kind": kind}, f"{kind}.{attr} separator")
+                typ = self._tuple_type([{"kind": kind}] * 3, node)
+                return {
+                    "kind": "call",
+                    "callee": {"kind": "method", "receiver": kind, "name": attr, "tuple": typ["name"]},
+                    "args": [receiver, sep],
+                    "type": typ,
+                    "span": span,
+                }
             self._reject_keywords(node)
             args = [self._expr(arg) for arg in node.args]
+            if attr in {"encode", "decode"} and args:
+                enc = args[0]
+                value = str(enc.get("value", "")).lower().replace("-", "").replace("_", "")
+                if enc["kind"] != "const" or value != "utf8":
+                    self.fail(node, "PS2003", f"{kind}.{attr} lowers the 'utf-8' encoding only")
             spec = method_spec(receiver["type"], node.func.attr, [arg["type"] for arg in args])
             if spec is None:
                 self.fail(node, "PS2001", f"call of attribute is not lowered ({_dotted(node.func)})")
@@ -202,6 +241,131 @@ class CallsMixin:
             return value
         if kind == "dict" and receiver["type"].get("ordered") and node.func.attr in {"move_to_end", "popitem"}:
             self.fail(node, "PS2001", f"OrderedDict.{node.func.attr} is not lowered")
+        if kind == "dict" and node.func.attr in {"values", "items", "pop", "setdefault", "update", "clear"}:
+            attr = node.func.attr
+            self._reject_keywords(node)
+            dtyp = receiver["type"]
+            key_t, val_t = dtyp["key"], dtyp["value"]
+            if attr in {"values", "items"}:
+                if node.args:
+                    self.fail(node, "PS2003", f"dict.{attr} expects 0 argument(s)")
+                if key_t["kind"] not in {"int", "str"}:
+                    self.fail(node, "PS2002", "dict keys are int or str")
+                if attr == "values":
+                    return self._abi_call(
+                        "builtins", "dict.values", [receiver], {"kind": "list", "elem": val_t}, "ps_dict_values", span
+                    )
+                elem = self._tuple_type([key_t, val_t], node)
+                return self._abi_call(
+                    "builtins", "dict.items", [receiver], {"kind": "list", "elem": elem}, "ps_dict_items", span
+                )
+            if attr in {"update", "clear"}:
+                # Both mutate the map in place; the abi call carries the receiver
+                # pointer, so a name is not required.
+                if attr == "clear":
+                    if node.args:
+                        self.fail(node, "PS2003", "dict.clear expects 0 argument(s)")
+                    call = self._abi_call("builtins", "dict.clear", [receiver], {"kind": "none"}, "ps_map_clear", span)
+                else:
+                    if len(node.args) != 1:
+                        self.fail(node, "PS2003", "dict.update expects 1 argument(s)")
+                    other = self._expr(node.args[0])
+                    if other["type"]["kind"] != "dict":
+                        self.fail(node, "PS1003", "dict.update takes a dict")
+                    self._expect(node, other["type"]["key"], key_t, "dict.update key")
+                    self._expect(node, other["type"]["value"], val_t, "dict.update value")
+                    call = self._abi_call(
+                        "builtins", "dict.update", [receiver, other], {"kind": "none"}, "ps_map_update", span
+                    )
+                self.prelude.append({"kind": "expr", "expr": call, "span": span})
+                return _const_none(span)
+            # pop and setdefault are statements: the dict is bound to a temp,
+            # the key checked with `in`, and the value bound before a ps_map_del
+            # or a setitem. `del` shares the ps_map_del call.
+            if attr == "setdefault" and len(node.args) != 2:
+                self.fail(node, "PS2003", "dict.setdefault expects 2 argument(s)")
+            if attr == "pop" and len(node.args) not in {1, 2}:
+                self.fail(node, "PS2003", "dict.pop expects 1 or 2 argument(s)")
+            d_t = self._temp("popd").replace(".", "_")
+            k_t = self._temp("popk").replace(".", "_")
+            key = self._expr(node.args[0])
+            self._expect(node, key["type"], key_t, f"dict.{attr} key")
+            self.locals[d_t] = dtyp
+            self.locals[k_t] = key_t
+            for t, v in ((d_t, receiver), (k_t, key)):
+                self.prelude.append({"kind": "assign", "target": t, "value": v, "span": span})
+            if attr == "setdefault":
+                val = self._expr(node.args[1], val_t)
+                self._expect(node, val["type"], val_t, "dict.setdefault value")
+                cond = {
+                    "kind": "contains",
+                    "hay": _name(d_t, dtyp, span),
+                    "needle": _name(k_t, key_t, span),
+                    "negated": True,
+                    "type": {"kind": "bool"},
+                    "span": span,
+                }
+                self.prelude.append(
+                    {
+                        "kind": "if",
+                        "cond": cond,
+                        "then": [
+                            {
+                                "kind": "setitem",
+                                "container": _name(d_t, dtyp, span),
+                                "index": _name(k_t, key_t, span),
+                                "value": val,
+                                "span": span,
+                            }
+                        ],
+                        "else": [],
+                        "span": span,
+                    }
+                )
+                return {
+                    "kind": "subscript",
+                    "value": _name(d_t, dtyp, span),
+                    "index": _name(k_t, key_t, span),
+                    "type": val_t,
+                    "span": span,
+                }
+            v_t = self._temp("popv").replace(".", "_")
+            self.locals[v_t] = val_t
+            getitem = {
+                "kind": "subscript",
+                "value": _name(d_t, dtyp, span),
+                "index": _name(k_t, key_t, span),
+                "type": val_t,
+                "span": span,
+            }
+            delitem = self._abi_call(
+                "builtins",
+                "dict.delitem",
+                [_name(d_t, dtyp, span), _name(k_t, key_t, span)],
+                {"kind": "none"},
+                "ps_map_del",
+                span,
+            )
+            then = [
+                {"kind": "assign", "target": v_t, "value": getitem, "span": span},
+                {"kind": "expr", "expr": delitem, "span": span},
+            ]
+            if len(node.args) == 2:
+                fallback = self._expr(node.args[1], val_t)
+                self._expect(node, fallback["type"], val_t, "dict.pop default")
+                other = [{"kind": "assign", "target": v_t, "value": fallback, "span": span}]
+            else:
+                other = [{"kind": "raise", "exc": "KeyError", "message": None, "span": span}]
+            cond = {
+                "kind": "contains",
+                "hay": _name(d_t, dtyp, span),
+                "needle": _name(k_t, key_t, span),
+                "negated": False,
+                "type": {"kind": "bool"},
+                "span": span,
+            }
+            self.prelude.append({"kind": "if", "cond": cond, "then": then, "else": other, "span": span})
+            return _name(v_t, val_t, span)
         if kind == "class":
             return self._method_call(node, span, receiver)
         self.fail(node, "PS2001", f"call of attribute is not lowered ({_dotted(node.func)})")
@@ -821,36 +985,155 @@ class CallsMixin:
         assert isinstance(node.func, ast.Attribute)
         if self._receiver_is_frozen(node, receiver):
             self.fail(node, "PS2002", "frozenset has no mutating methods")
-        if node.func.attr != "append":
-            # The generic wording, byte-identical to the dispatch tail, keeps
-            # the fenced list-method probes' IR unchanged.
-            self.fail(node, "PS2001", f"call of attribute is not lowered ({_dotted(node.func)})")
-        self._reject_keywords(node)
-        if len(node.args) != 1:
-            self.fail(node, "PS2003", "list.append expects 1 argument(s)")
-        if receiver["kind"] != "name":
-            self.fail(node, "PS2002", "list.append needs a name")
-        elem = receiver["type"]["elem"]
-        value = self._expr(node.args[0], elem)
-        if not types_equal(value["type"], elem):
-            self.fail(node, "PS1003", "list.append takes an element of that list")
-        self.prelude.extend(
-            [
-                {
-                    "kind": "expr",
-                    "expr": {
-                        "kind": "call",
-                        "callee": {"kind": "module", "module": "builtins", "name": "list.append"},
-                        "args": [receiver, value],
-                        "symbol": "ps_list_push",
-                        "type": {"kind": "none"},
+        attr = node.func.attr
+        if attr == "append":
+            self._reject_keywords(node)
+            if len(node.args) != 1:
+                self.fail(node, "PS2003", "list.append expects 1 argument(s)")
+            if receiver["kind"] != "name":
+                self.fail(node, "PS2002", "list.append needs a name")
+            elem = receiver["type"]["elem"]
+            value = self._expr(node.args[0], elem)
+            if not types_equal(value["type"], elem):
+                self.fail(node, "PS1003", "list.append takes an element of that list")
+            self.prelude.extend(
+                [
+                    {
+                        "kind": "expr",
+                        "expr": {
+                            "kind": "call",
+                            "callee": {"kind": "module", "module": "builtins", "name": "list.append"},
+                            "args": [receiver, value],
+                            "symbol": "ps_list_push",
+                            "type": {"kind": "none"},
+                            "span": span,
+                        },
                         "span": span,
-                    },
+                    }
+                ]
+            )
+            return _const_none(span)
+        elem = receiver["type"]["elem"]
+        # In-place mutations go through a prelude call; reads return a value.
+        suffix = {"int": "i64", "float": "f64", "str": "buf", "bytes": "buf"}.get(elem["kind"])
+        if attr == "sort":
+            desc = _const_int(0, span)
+            for kw in node.keywords:
+                if kw.arg == "reverse":
+                    rv = self._expr(kw.value)
+                    if rv["kind"] != "const" or rv["type"]["kind"] != "bool":
+                        self.fail(node, "PS2003", "list.sort reverse is a constant bool")
+                    desc = _const_int(1 if rv["value"] else 0, span)
+                else:
+                    self.fail(node, "PS2003", f"list.sort keyword {kw.arg} is not lowered")
+            if node.args:
+                self.fail(node, "PS2003", "list.sort expects 0 argument(s)")
+            if suffix is None:
+                self.fail(node, "PS2002", "list.sort is lowered for int, float, str, and bytes elements")
+            call = self._abi_call(
+                "builtins", "list.sort", [receiver, desc], {"kind": "none"}, f"ps_seq_sort_{suffix}", span
+            )
+            self.prelude.append({"kind": "expr", "expr": call, "span": span})
+            return _const_none(span)
+        self._reject_keywords(node)
+        mutating = {"extend", "insert", "remove", "reverse"}
+        if attr in mutating | {"index", "count", "pop"}:
+            if suffix is None:
+                self.fail(node, "PS2002", f"list.{attr} is lowered for int, float, str, and bytes elements")
+            if attr == "extend":
+                if len(node.args) != 1:
+                    self.fail(node, "PS2003", "list.extend expects 1 argument(s)")
+                other = self._expr(node.args[0])
+                if other["type"]["kind"] != "list" or other["type"].get("set"):
+                    self.fail(node, "PS1003", "list.extend takes a list")
+                self._expect(node, other["type"]["elem"], elem, "list.extend element")
+                call = self._abi_call(
+                    "builtins", "list.extend", [receiver, other], {"kind": "none"}, "ps_seq_extend", span
+                )
+                self.prelude.append({"kind": "expr", "expr": call, "span": span})
+                return _const_none(span)
+            if attr == "insert":
+                if len(node.args) != 2:
+                    self.fail(node, "PS2003", "list.insert expects 2 argument(s)")
+                index = self._expr(node.args[0])
+                self._expect(node, index["type"], {"kind": "int"}, "list.insert index")
+                value = self._expr(node.args[1], elem)
+                self._expect(node, value["type"], elem, "list.insert element")
+                call = self._abi_call(
+                    "builtins",
+                    "list.insert",
+                    [receiver, index, value],
+                    {"kind": "none"},
+                    f"ps_seq_insert_{suffix}",
+                    span,
+                )
+                self.prelude.append({"kind": "expr", "expr": call, "span": span})
+                return _const_none(span)
+            if attr == "remove":
+                if len(node.args) != 1:
+                    self.fail(node, "PS2003", "list.remove expects 1 argument(s)")
+                value = self._expr(node.args[0], elem)
+                self._expect(node, value["type"], elem, "list.remove element")
+                call = self._abi_call(
+                    "builtins", "list.remove", [receiver, value], {"kind": "none"}, f"ps_seq_remove_{suffix}", span
+                )
+                self.prelude.append({"kind": "expr", "expr": call, "span": span})
+                return _const_none(span)
+            if attr == "reverse":
+                if node.args:
+                    self.fail(node, "PS2003", "list.reverse expects 0 argument(s)")
+                call = self._abi_call("builtins", "list.reverse", [receiver], {"kind": "none"}, "ps_seq_reverse", span)
+                self.prelude.append({"kind": "expr", "expr": call, "span": span})
+                return _const_none(span)
+            if attr in {"index", "count"}:
+                if len(node.args) != 1:
+                    self.fail(node, "PS2003", f"list.{attr} expects 1 argument(s)")
+                value = self._expr(node.args[0], elem)
+                self._expect(node, value["type"], elem, f"list.{attr} element")
+                return self._abi_call(
+                    "builtins", f"list.{attr}", [receiver, value], {"kind": "int"}, f"ps_seq_{attr}_{suffix}", span
+                )
+            if len(node.args) > 1:
+                self.fail(node, "PS2003", "list.pop expects at most 1 argument(s)")
+            index = self._expr(node.args[0]) if node.args else _const_int(-1, span)
+            self._expect(node, index["type"], {"kind": "int"}, "list.pop index")
+            return self._abi_call("builtins", "list.pop", [receiver, index], elem, f"ps_seq_pop_{suffix}", span)
+        if attr == "clear":
+            if node.args:
+                self.fail(node, "PS2003", "list.clear expects 0 argument(s)")
+            if receiver["kind"] != "name":
+                self.fail(node, "PS2002", "list.clear needs a name")
+            self.prelude.append(
+                {
+                    "kind": "assign",
+                    "target": receiver["id"],
+                    "value": {"kind": "list", "elems": [], "type": receiver["type"], "span": span},
                     "span": span,
                 }
-            ]
-        )
-        return _const_none(span)
+            )
+            return _const_none(span)
+        if attr == "copy":
+            if node.args:
+                self.fail(node, "PS2003", "list.copy expects 0 argument(s)")
+            return self._abi_call(
+                "builtins",
+                "list.copy",
+                [
+                    receiver,
+                    _const_int(0, span),
+                    _const_int(0, span),
+                    _const_int(0, span),
+                    _const_int(0, span),
+                    _const_int(1, span),
+                ],
+                {"kind": "list", "elem": elem},
+                "ps_seq_slice",
+                span,
+            )
+        # The generic wording, byte-identical to the dispatch tail, keeps
+        # the fenced list-method probes' IR unchanged.
+        self.fail(node, "PS2001", f"call of attribute is not lowered ({_dotted(node.func)})")
+        raise AssertionError("unreachable")
 
     def _set_method(self, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
         assert isinstance(node.func, ast.Attribute)
