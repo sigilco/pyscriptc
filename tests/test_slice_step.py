@@ -1,7 +1,7 @@
 """A slice step selects every step-th element.
 
-`len('abcd'[::2])` is 2. Step 1 stays the old slice. A negative step stays
-fenced. Step 0 raises ValueError.
+`len('abcd'[::2])` is 2. Step 1 stays the old slice. A negative step walks
+backwards. Step 0 raises ValueError.
 """
 
 from __future__ import annotations
@@ -80,11 +80,6 @@ def test_slice_step_matches_cpython(tmp_path: Path) -> None:
 
 def test_slice_step_stays_fenced(tmp_path: Path) -> None:
     cases = [
-        (
-            "neg.py",
-            'def probe() -> str:\n    return "abcd"[::-1]\n',
-            "a negative slice step is not lowered",
-        ),
         (
             "assign.py",
             "def probe() -> int:\n    xs: list[int] = [1, 2, 3]\n    xs[::2] = [0, 0]\n    return xs[0]\n",

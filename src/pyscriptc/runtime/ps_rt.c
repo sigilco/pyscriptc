@@ -722,9 +722,6 @@ static void ps_slice_step_ok(int64_t step) {
     if (step == 0) {
         ps_raise_cstr(PS_VALUE, "slice step cannot be zero");
     }
-    if (step < 0) {
-        ps_raise_cstr(PS_VALUE, "a negative slice step is not lowered");
-    }
 }
 
 static int64_t ps_slice_count(int64_t lo, int64_t hi, int64_t step) {
@@ -739,18 +736,54 @@ static int64_t ps_slice_count(int64_t lo, int64_t hi, int64_t step) {
     return count;
 }
 
+/* Negative steps clamp like CPython: wrap negatives, then pin to [-1, n-1].
+   Missing start defaults to n-1, missing stop to -1 (walk through index 0). */
+static int64_t ps_slice_at_neg(int64_t n, int64_t i, int64_t present, int64_t fallback) {
+    if (!present) {
+        return fallback;
+    }
+    if (i < 0) {
+        i += n;
+    }
+    if (i < 0) {
+        return -1;
+    }
+    if (i > n - 1) {
+        return n - 1;
+    }
+    return i;
+}
+
+static void ps_slice_bounds_neg(
+    int64_t n, int64_t start, int64_t stop, int64_t has_start, int64_t has_stop, int64_t *lo, int64_t *hi
+) {
+    *lo = ps_slice_at_neg(n, start, has_start, n - 1);
+    *hi = ps_slice_at_neg(n, stop, has_stop, -1);
+}
+
+static int64_t ps_slice_count_neg(int64_t from, int64_t to, int64_t step) {
+    if (from <= to) {
+        return 0;
+    }
+    return (from - to - 1) / (-step) + 1;
+}
+
 void ps_str_slice(
     int64_t n, const char *p, int64_t start, int64_t stop, int64_t has_start, int64_t has_stop, int64_t step, PsBuf *out
 ) {
     ps_slice_step_ok(step);
     int64_t lo = 0;
     int64_t hi = 0;
-    ps_slice_bounds(n, start, stop, has_start, has_stop, &lo, &hi);
+    if (step < 0) {
+        ps_slice_bounds_neg(n, start, stop, has_start, has_stop, &lo, &hi);
+    } else {
+        ps_slice_bounds(n, start, stop, has_start, has_stop, &lo, &hi);
+    }
     if (step == 1) {
         ps_view(out, p + lo, hi - lo);
         return;
     }
-    int64_t count = ps_slice_count(lo, hi, step);
+    int64_t count = step < 0 ? ps_slice_count_neg(lo, hi, step) : ps_slice_count(lo, hi, step);
     if (count == 0) {
         ps_view(out, "", 0);
         return;
@@ -773,7 +806,11 @@ PsSeq *ps_seq_slice(PsSeq *s, int64_t start, int64_t stop, int64_t has_start, in
     ps_slice_step_ok(step);
     int64_t lo = 0;
     int64_t hi = 0;
-    ps_slice_bounds(s->len, start, stop, has_start, has_stop, &lo, &hi);
+    if (step < 0) {
+        ps_slice_bounds_neg(s->len, start, stop, has_start, has_stop, &lo, &hi);
+    } else {
+        ps_slice_bounds(s->len, start, stop, has_start, has_stop, &lo, &hi);
+    }
     if (step == 1) {
         int64_t count = hi - lo;
         PsSeq *out = ps_seq_new(s->elem, count);
@@ -782,7 +819,7 @@ PsSeq *ps_seq_slice(PsSeq *s, int64_t start, int64_t stop, int64_t has_start, in
         }
         return out;
     }
-    int64_t count = ps_slice_count(lo, hi, step);
+    int64_t count = step < 0 ? ps_slice_count_neg(lo, hi, step) : ps_slice_count(lo, hi, step);
     PsSeq *out = ps_seq_new(s->elem, count);
     if (count > 0 && s->data != NULL) {
         int64_t i = lo;
