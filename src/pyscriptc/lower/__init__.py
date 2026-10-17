@@ -95,7 +95,8 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         # Names bound to frozenset(...). The value is still the set list. .add and
         # .remove on these names stay fenced. A plain set name is not in this set.
         self.frozen_names: set[str] = set()
-        # User exception classes take codes after the builtin table (1–7).
+        # User exception classes take codes after the builtin table (1–7);
+        # builtins.USER_EXC_BASE pins the same floor.
         self.exc_n = 8
 
     def fail(self, node: ast.AST, code: str, message: str) -> NoReturn:
