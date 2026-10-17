@@ -202,6 +202,29 @@ class ExprMixin:
         joined = _const_list_concat(left, right, span)
         if joined is not None and isinstance(node.op, ast.Add):
             return joined
+        if (
+            isinstance(node.op, ast.Add)
+            and left_kind == "list"
+            and right_kind == "list"
+            and not left["type"].get("set")
+            and not right["type"].get("set")
+            and types_equal(left["type"]["elem"], right["type"]["elem"])
+        ):
+            # `xs + ys` builds a fresh list; `xs += ys` reaches the same node
+            # through the aug-assign rewrite, which makes += copy, not mutate.
+            return self._abi_call(
+                "builtins",
+                "concat",
+                [left, right],
+                {"kind": "list", "elem": left["type"]["elem"]},
+                "ps_seq_concat",
+                span,
+            )
+        if isinstance(node.op, ast.Mult):
+            if left_kind == "list" and right_kind == "int" and not left["type"].get("set"):
+                return self._abi_call("builtins", "repeat", [left, right], left["type"], "ps_seq_repeat", span)
+            if left_kind == "int" and right_kind == "list" and not right["type"].get("set"):
+                return self._abi_call("builtins", "repeat", [right, left], right["type"], "ps_seq_repeat", span)
         self.fail(node, "PS2004", f"{op_type.__name__} on {left_kind} and {right_kind} is not lowered")
         raise AssertionError("unreachable")
 
