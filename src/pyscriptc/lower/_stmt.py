@@ -400,7 +400,16 @@ class StmtMixin:
             return self._for_enumerate(stmt, span)
         if _is_call_name(stmt.iter, "zip"):
             return self._for_zip(stmt, span)
-        iterable = self._expr(stmt.iter)
+        iter_node: ast.AST = stmt.iter
+        if isinstance(iter_node, ast.Tuple):
+            if not iter_node.elts:
+                return []
+            # A tuple literal iterates its elements in order; the homogeneous
+            # case is the list literal this loop already lowers.
+            list_iter = ast.List(elts=iter_node.elts, ctx=ast.Load())
+            ast.copy_location(list_iter, iter_node)
+            iter_node = list_iter
+        iterable = self._expr(iter_node)
         if iterable["type"]["kind"] != "list":
             self.fail(stmt.iter, "PS2002", "for iterates over a list or range")
         elem = iterable["type"]["elem"]
