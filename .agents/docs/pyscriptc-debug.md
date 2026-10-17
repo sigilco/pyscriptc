@@ -8,8 +8,8 @@ structlog itself; the API is the same shape).
   line: `{ts, level, event, pysc, py, pid, ...kv}`. Rotates by day, capped
   near 10 MiB (oldest lines dropped). `PYSC_LOG_DIR` overrides the directory
   (use it in tests and repro scripts).
-- Level: INFO by default. DEBUG via `PYSC_DEBUG=1` or the `--debug` flag on
-  any subcommand.
+- Level: INFO by default. DEBUG via `PYSC_DEBUG=1` or the `-v`/`--verbose`
+  flag on any subcommand.
 - Support surface: `pyscriptc logs` prints the file path and its last ~50
   lines — that output is what users paste into issues.
 
