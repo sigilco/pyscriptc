@@ -283,12 +283,7 @@ def test_fences_stay_closed(tmp_path: Path) -> None:
             "PS2002",
             "list[bool]",
         ),
-        (
-            "slice.py",
-            'def f() -> str:\n    text: str = "ab"\n    return text[::-1]\n',
-            "PS2002",
-            "slice step",
-        ),
+        # slice steps lowered in #38; text[::-1] compiles today
         (
             "jump.py",
             (
