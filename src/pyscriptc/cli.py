@@ -7,9 +7,11 @@ import ast
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
+from pyscriptc import telemetry
 from pyscriptc.check import CheckFailed, run_checker
 from pyscriptc.coverage import build_report, render_text
 from pyscriptc.diagnostics import explain
@@ -54,14 +56,20 @@ def main(argv: list[str] | None = None) -> int:
     coverage_parser.add_argument("--json", action="store_true", help="print the report as JSON")
     explain_parser = sub.add_parser("explain", help="describe a diagnostic code")
     explain_parser.add_argument("code")
+    telemetry_parser = sub.add_parser("telemetry", help="anonymous usage metrics opt-out")
+    telemetry_parser.add_argument("action", choices=("disable", "enable", "status"))
     try:
         args = parser.parse_args(argv)
+        telemetry.maybe_print_notice()
+        telemetry.track("cli.invoked", {"subcommand": args.cmd, **telemetry.base_properties()})
         if args.cmd == "compile":
             return compile_cmd(args)
         if args.cmd == "coverage":
             return coverage_cmd(args)
         if args.cmd == "explain":
             return explain_cmd(args)
+        if args.cmd == "telemetry":
+            return telemetry.telemetry_cmd(args.action)
     except CheckFailed as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -90,6 +98,25 @@ def explain_cmd(args: argparse.Namespace) -> int:
 
 
 def compile_cmd(args: argparse.Namespace) -> int:
+    started = time.monotonic()
+    state: dict[str, Any] = {"ok": False, "fence_code": None, "ran_bytes": None}
+    try:
+        rc = _compile_cmd(args, state)
+        state["ok"] = rc == 0
+        return rc
+    finally:
+        properties: dict[str, Any] = {
+            "duration_ms": int((time.monotonic() - started) * 1000),
+            "ok": state["ok"],
+        }
+        if state["fence_code"]:
+            properties["fence_code"] = state["fence_code"]
+        telemetry.track("compile.finished", properties)
+        if state["ran_bytes"] is not None:
+            telemetry.track("compile.ran", {"binary_bytes": state["ran_bytes"]})
+
+
+def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
     source_path = Path(args.source)
     if source_path.is_dir():
         module, source = lower_directory(source_path)
@@ -108,6 +135,7 @@ def compile_cmd(args: argparse.Namespace) -> int:
     ir_path.parent.mkdir(parents=True, exist_ok=True)
     ir_path.write_text(json.dumps(module, indent=2) + "\n", encoding="utf-8")
     if module["fences"]:
+        state["fence_code"] = module["fences"][0].get("code")
         print(render_fences(module, source), file=sys.stderr)
         return 3
     if args.emit == "ir":
@@ -122,6 +150,10 @@ def compile_cmd(args: argparse.Namespace) -> int:
         return 0
     binary = Path(args.output) if args.output else source_path.with_suffix("")
     link_binary(ll_path, binary, driver=args.driver, target=args.target)
+    try:
+        state["ran_bytes"] = binary.stat().st_size
+    except OSError:
+        pass
     if not args.run:
         print(binary)
         return 0
