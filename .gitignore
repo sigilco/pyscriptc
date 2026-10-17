@@ -13,3 +13,4 @@ dist/
 .agents/baseline-*.log
 benchmarks/compat2/.cache/
 .agents/corpus-run.json
+src/pyscriptc/_posthog_token.py
