@@ -250,6 +250,9 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         """
         entry_stmts: list[ast.stmt] = []
         failed_assigns: list[tuple[ast.stmt, int]] = []
+        definitions = (ast.Import, ast.ImportFrom, ast.Pass, ast.FunctionDef, ast.ClassDef, ast.AnnAssign, ast.Assign)
+        scriptish = any(not isinstance(stmt, definitions) and not _is_docstring(stmt) for stmt in live)
+        divert = self._diverted_literals(live) if scriptish else set()
         for stmt in live:
             if isinstance(stmt, (ast.Import, ast.ImportFrom, ast.Pass)):
                 continue
@@ -260,6 +263,10 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
             elif isinstance(stmt, ast.ClassDef):
                 class_nodes.append(stmt)
             elif isinstance(stmt, (ast.AnnAssign, ast.Assign)):
+                targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]
+                if any(isinstance(t, ast.Name) and t.id in divert for t in targets):
+                    entry_stmts.append(stmt)
+                    continue
                 snapshot = (dict(self.constants), set(self.declared), len(fences))
                 self.caught = []
                 self._bind_module_assign(stmt)
@@ -288,6 +295,38 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
             entry_stmts.extend(stmt for stmt, _ in failed_assigns)
             entry_stmts.sort(key=lambda stmt: stmt.lineno)
         return entry_stmts
+
+    def _diverted_literals(self, live: list[ast.stmt]) -> set[str]:
+        """Names bound to container literals whose entry mutates them by subscript.
+
+        Module constants re-emit their literal on every read, so a script's
+        `counts[k] = v` would write into a throwaway dict; the binding lowers
+        inside the entry instead unless the name hides inside a def/class.
+        """
+        bound: set[str] = set()
+        for stmt in live:
+            if isinstance(stmt, (ast.Assign, ast.AnnAssign)) and isinstance(stmt.value, (ast.Dict, ast.List, ast.Set)):
+                targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]
+                bound.update(t.id for t in targets if isinstance(t, ast.Name))
+        if not bound:
+            return set()
+        hidden: set[str] = set()
+        for stmt in live:
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                hidden.update(n.id for n in ast.walk(stmt) if isinstance(n, ast.Name) and n.id in bound)
+        mutated: set[str] = set()
+        for stmt in live:
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                continue
+            for n in ast.walk(stmt):
+                if (
+                    isinstance(n, ast.Subscript)
+                    and isinstance(n.value, ast.Name)
+                    and n.value.id in bound
+                    and isinstance(n.ctx, (ast.Store, ast.Del))
+                ):
+                    mutated.add(n.value.id)
+        return mutated - hidden
 
     def _entry_function(self, stmts: list[ast.stmt], functions: list[ast.FunctionDef]) -> list[ast.FunctionDef]:
         """The synthesized entry for module-level statements.

@@ -169,6 +169,37 @@ class CallsMixin:
             return self._synth_call(node, span, receiver)
         if kind == "dict" and node.func.attr == "keys":
             return self._dict_keys(node, span, receiver)
+        if kind == "dict" and node.func.attr == "get" and len(node.args) == 2 and not node.keywords:
+            # `d.get(k, default)` is `d[k] if k in d else default`. Only this
+            # 2-arg positional form lowers: `val | none` is not an IR type, so
+            # the 1-arg form keeps the generic attribute fence below.
+            key = self._expr(node.args[0])
+            self._expect(node, key["type"], receiver["type"]["key"], "dict.get key")
+            d_t = self._temp("getd").replace(".", "_")
+            k_t = self._temp("getk").replace(".", "_")
+            self.locals[d_t] = receiver["type"]
+            self.locals[k_t] = receiver["type"]["key"]
+            for t, v in ((d_t, receiver), (k_t, key)):
+                self.prelude.append({"kind": "assign", "target": t, "value": v, "span": span})
+            ifexp = ast.IfExp(
+                test=ast.Compare(
+                    left=ast.Name(id=k_t, ctx=ast.Load()),
+                    ops=[ast.In()],
+                    comparators=[ast.Name(id=d_t, ctx=ast.Load())],
+                ),
+                body=ast.Subscript(
+                    value=ast.Name(id=d_t, ctx=ast.Load()),
+                    slice=ast.Name(id=k_t, ctx=ast.Load()),
+                    ctx=ast.Load(),
+                ),
+                orelse=node.args[1],
+            )
+            for sub in ast.walk(ifexp):
+                sub.lineno, sub.col_offset = node.lineno, node.col_offset
+                sub.end_lineno, sub.end_col_offset = node.end_lineno, node.end_col_offset
+            value = self._expr(ifexp, receiver["type"]["value"])
+            self._expect(node, value["type"], receiver["type"]["value"], "dict.get default")
+            return value
         if kind == "dict" and receiver["type"].get("ordered") and node.func.attr in {"move_to_end", "popitem"}:
             self.fail(node, "PS2001", f"OrderedDict.{node.func.attr} is not lowered")
         if kind == "class":
