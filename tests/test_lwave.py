@@ -414,16 +414,6 @@ def test_lwave_fences(tmp_path: Path) -> None:
             "set elements are int or str",
         ),
         (
-            "items.py",
-            "def f() -> int:\n    d: dict[str, int] = {'a': 1}\n    return len(list(d.items()))\n",
-            "call of attribute is not lowered (d.items)",
-        ),
-        (
-            "values.py",
-            "def f() -> int:\n    d: dict[str, int] = {'a': 1}\n    return len(list(d.values()))\n",
-            "call of attribute is not lowered (d.values)",
-        ),
-        (
             "strkeys.py",
             "def f() -> int:\n    text: str = 'ab'\n    return len(list(text.keys()))\n",
             "call of attribute is not lowered (text.keys)",

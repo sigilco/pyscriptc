@@ -245,7 +245,7 @@ def test_method_and_outside_table_are_fences(tmp_path: Path) -> None:
     method_ll = tmp_path / "method.ll"
     method = run_cli("compile", str(EXAMPLES / "fence_method.py"), "--emit", "llvm", "-o", str(method_ll))
     assert method.returncode == 3
-    assert "PS2001" in method.stderr
+    assert "PS2003" in method.stderr
     assert "encode" in method.stderr
     assert not method_ll.exists()
 

@@ -167,22 +167,41 @@ def probe() -> int:
     assert "main" not in {fn["name"] for fn in mod["functions"]}
 
 
-def test_non_append_list_methods_fence_ps2001() -> None:
-    for attr in ("pop", "sort", "extend", "insert", "clear"):
+def test_list_core_methods_lower_without_fences() -> None:
+    # R2 batch: the core mutators and lookups joined append on the lowered
+    # side. An outside-table call keeps the generic PS2001 wording.
+    for call in (
+        "pop(0)",
+        "sort()",
+        "extend([2])",
+        "insert(0, 2)",
+        "clear()",
+        "index(1)",
+        "count(1)",
+        "remove(1)",
+        "copy()",
+    ):
         mod = lower_source(
             f"""
 def probe() -> int:
     xs: list[int] = [1]
-    xs.{attr}(0)
+    xs.{call}
     return len(xs)
 """
         )
-        assert len(mod["fences"]) == 1, attr
-        fence = mod["fences"][0]
-        assert fence["code"] == "PS2001", attr
-        # The generic wording, pinned: it keeps the fenced list-method probes
-        # byte-identical with master, so only append flips in the regen.
-        assert f"call of attribute is not lowered (xs.{attr})" in fence["message"], attr
+        assert mod["fences"] == [], call
+    mod = lower_source(
+        """
+def probe() -> int:
+    xs: list[int] = [1]
+    xs.shuffle()
+    return len(xs)
+"""
+    )
+    assert len(mod["fences"]) == 1
+    fence = mod["fences"][0]
+    assert fence["code"] == "PS2001"
+    assert "call of attribute is not lowered (xs.shuffle)" in fence["message"]
 
 
 def test_non_name_receivers_fence_ps2002() -> None:
