@@ -7,6 +7,7 @@
 - Sweep evidence for the 3.12 corpus: #22 (triage zero-deltas, verdict replays), #23 (calibration cells >= 26, headroom 0 capped), #24 (generation byte-identical). Boxed ledger at the boundary (2026-10-16, window `06ed55b`): code 1.39%, churn 0%, bugs 0%, tax 0%, drop_flag false.
 - Package manager: `uv`. Checks: `uv run pytest`, `uv run ruff check`, `uv run ruff format --check`, `uv run python -m benchmarks.baseline.run --check`.
 - Worktrees go in `~/.worktrees/`.
+- Structured audit logging: `.agents/docs/pyscriptc-debug.md` — JSONL at `~/.cache/pyscriptc/log/`, `PYSC_DEBUG=1`, `pyscriptc logs`.
 - No co-author trailers on commits. Atomic conventional commits.
 - The scorer holdout is closed to generator agents (hook, deny rules, container mask, sparse worktrees). Never read it, ask for it or try to get around the guards; if a command is blocked for mentioning it, rephrase or stop. Details in `benchmarks/compat2/corpus/README.md`. Create agent worktrees with `.agents/bin/agent-checkout <name>`.
 
