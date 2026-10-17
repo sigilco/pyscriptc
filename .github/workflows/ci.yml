@@ -18,6 +18,22 @@ on:
 # compat2 and any test marked linux_container.
 
 jobs:
+  secrets:
+    name: betterleaks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Install betterleaks 1.9.0
+        run: |
+          set -euo pipefail
+          curl -fsSL https://github.com/Betterleaks/betterleaks/releases/download/v1.9.0/betterleaks_1.9.0_linux_x64.tar.gz -o /tmp/betterleaks_1.9.0_linux_x64.tar.gz
+          curl -fsSL https://github.com/Betterleaks/betterleaks/releases/download/v1.9.0/checksums.txt -o /tmp/checksums.txt
+          (cd /tmp && grep betterleaks_1.9.0_linux_x64.tar.gz checksums.txt | sha256sum -c -)
+          sudo tar -xzf /tmp/betterleaks_1.9.0_linux_x64.tar.gz -C /usr/local/bin betterleaks
+      - run: betterleaks git .
+
   unit:
     name: ruff and compat2
     runs-on: ubuntu-latest
