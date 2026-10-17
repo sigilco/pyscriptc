@@ -592,6 +592,8 @@ class ExprMixin:
             if constant is not None:
                 value, typ = constant
                 return {"kind": "const", "value": value, "type": typ, "span": span}
+            if module == "sys" and member == "argv":
+                return self._abi_call("sys", "argv", [], {"kind": "list", "elem": {"kind": "str"}}, "ps_argv_get", span)
             if (module == "math" and member in MATH_FUNCTIONS) or wave_function(module, member) is not None:
                 self.fail(node, "PS2002", f"{dotted} is a function and is not a value")
             if member in SPECIAL_FUNCTIONS.get(module, frozenset()) or member_callable(module, member):
