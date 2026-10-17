@@ -1,0 +1,11 @@
+# Toolchain for pyscriptc dev + docs site. `mise install` once, then:
+#   uv sync            python deps (ruff, pytest, nuitka for packaging)
+#   pnpm install       docmd site deps
+# clang and a C toolchain are also required at compile/run time but are
+# system packages, not mise tools (apt install clang).
+
+[tools]
+python = "3.12"
+uv = "latest"
+node = "22"
+pnpm = "12"

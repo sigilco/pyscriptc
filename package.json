@@ -1,0 +1,16 @@
+{
+  "name": "pyscriptc-site",
+  "private": true,
+  "version": "0.0.0",
+  "description": "docmd documentation site for pyscriptc",
+  "type": "module",
+  "packageManager": "pnpm@12.14.0",
+  "scripts": {
+    "docs:dev": "docmd dev",
+    "docs:build": "docmd build",
+    "docs:validate": "docmd validate"
+  },
+  "devDependencies": {
+    "@docmd/core": "^0.9.5"
+  }
+}

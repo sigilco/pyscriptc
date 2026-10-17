@@ -22,10 +22,21 @@ pyscriptc compile examples/sum_squares.py --run --call sum_squares --args '[10]'
 ## Install it
 
 ```bash
-uv tool install pyscriptc
+mise use -g github:sigilco/pyscriptc   # prebuilt binary from GitHub Releases
 ```
 
-Requirements: CPython 3.10 or later (the IR is stamped with the interpreter that lowered it) and a clang that can assemble textual LLVM IR. `pipx install pyscriptc` and `pip install pyscriptc` work the same way.
+Or from PyPI: `uv tool install pyscriptc`, `pipx install pyscriptc`, and `pip install pyscriptc` all work the same way. PyPI installs require CPython 3.10 or later (the IR is stamped with the interpreter that lowered it).
+
+Either way, compiling a program needs a clang that can assemble textual LLVM IR (`zig cc` also works, and enables `--driver zig` cross-compilation):
+
+| Platform | Command |
+| --- | --- |
+| macOS | `xcode-select --install` (or `brew install llvm` / `brew install zig`) |
+| Debian / Ubuntu | `sudo apt install clang` (or `zig` on newer releases) |
+| Fedora | `sudo dnf install clang` (or `zig`) |
+| Arch | `sudo pacman -S clang` (or `zig`) |
+| Any Linux or macOS | `mise use -g zig` or `brew install zig` |
+| Windows | `winget install zig.zig` (or `scoop install zig`) |
 
 ## What it does
 
@@ -93,13 +104,13 @@ A `for` target that is new in the function is stored as `0`, `0.0`, or `""` befo
 
 ## Requirements
 
-- CPython 3.10 or later (the IR is stamped with the interpreter that lowered it)
-- [uv](https://docs.astral.sh/uv/)
+- [mise](https://mise.jdx.dev/), then `mise trust && mise install` (provides python, uv, node, pnpm; already-installed tools that satisfy the pins are reused)
 - Clang that can assemble textual LLVM IR
 
 ## Run
 
 ```bash
+mise trust && mise install
 uv sync
 uv run pyscriptc compile examples/sum_squares.py --run --call sum_squares --args '[10]' -o /tmp/sum_squares
 ```
