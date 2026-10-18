@@ -1237,7 +1237,9 @@ class CallsMixin:
             self.fail(node, "PS2002", "**kwargs are not lowered")
         if any(isinstance(arg, ast.Starred) for arg in node.args):
             self.fail(node, "PS2002", "starred calls are not lowered")
-        var_index = next((index for index, param in enumerate(params) if param.get("vararg")), None)
+        var_index = next(
+            (index for index, param in enumerate(params) if param.get("vararg") or param.get("kwarg")), None
+        )
         if var_index is not None:
             return self._fill_varargs(node, params, var_index, what)
         if len(node.args) > len(params):
@@ -1278,8 +1280,9 @@ class CallsMixin:
         self, node: ast.Call, params: list[dict[str, Any]], var_index: int, what: str
     ) -> list[dict[str, Any]]:
         fixed = params[:var_index]
-        varparam = params[var_index]
-        if any(kw.arg == varparam["name"] for kw in node.keywords):
+        varparam = params[var_index] if params[var_index].get("vararg") else None
+        kwparam = params[-1] if params[-1].get("kwarg") else None
+        if varparam is not None and any(kw.arg == varparam["name"] for kw in node.keywords):
             self.fail(node, "PS2002", "a starred parameter is not passed by keyword")
         positional = list(node.args[: len(fixed)])
         extra = list(node.args[len(fixed) :])
@@ -1288,10 +1291,14 @@ class CallsMixin:
         for index, arg_node in enumerate(positional):
             slots[index] = self._expr(arg_node, fixed[index]["type"])
         seen: set[str] = set()
+        leftover: list[ast.keyword] = []
         for kw in node.keywords:
             assert kw.arg is not None
             if kw.arg not in names:
-                self.fail(kw, "PS2003", f"unexpected keyword argument {kw.arg}")
+                if kwparam is None:
+                    self.fail(kw, "PS2003", f"unexpected keyword argument {kw.arg}")
+                leftover.append(kw)
+                continue
             index = names.index(kw.arg)
             if index < len(positional) or kw.arg in seen:
                 self.fail(kw, "PS2003", f"{kw.arg} given more than once")
@@ -1307,15 +1314,27 @@ class CallsMixin:
             if not types_equal(got["type"], param["type"]):
                 self.fail(node, "PS1003", f"argument {param['name']} of {what} has the wrong type")
             args.append(got)
-        elem = varparam["type"]["elem"]
-        elems = []
-        for arg_node in extra:
-            value = self._expr(arg_node, elem)
-            if not types_equal(value["type"], elem):
-                self.fail(node, "PS1003", f"argument {varparam['name']} of {what} has the wrong type")
-            elems.append(value)
         span = span_of(node, self.filename)
-        args.append({"kind": "list", "elems": elems, "type": varparam["type"], "span": span})
+        if varparam is not None:
+            elem = varparam["type"]["elem"]
+            elems = []
+            for arg_node in extra:
+                value = self._expr(arg_node, elem)
+                if not types_equal(value["type"], elem):
+                    self.fail(node, "PS1003", f"argument {varparam['name']} of {what} has the wrong type")
+                elems.append(value)
+            args.append({"kind": "list", "elems": elems, "type": varparam["type"], "span": span})
+        elif extra:
+            self.fail(node, "PS1003", f"{what} expects {len(fixed)} argument(s)")
+        if kwparam is not None:
+            pairs = []
+            for kw in leftover:
+                value = self._expr(kw.value, kwparam["type"]["value"])
+                if not types_equal(value["type"], kwparam["type"]["value"]):
+                    self.fail(node, "PS1003", f"argument {kw.arg} of {what} has the wrong type")
+                key = {"kind": "const", "value": kw.arg, "type": {"kind": "str"}, "span": span}
+                pairs.append({"key": key, "value": value})
+            args.append({"kind": "dict", "pairs": pairs, "type": kwparam["type"], "span": span})
         return args
 
     def _set_call(self, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
