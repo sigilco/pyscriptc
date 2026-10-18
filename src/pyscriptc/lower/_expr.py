@@ -314,15 +314,44 @@ class ExprMixin:
             self.fail(node, "PS2004", f"{type(node.ops[0]).__name__} is not lowered")
         left = self._expr(node.left)
         right = self._expr(node.comparators[0])
+        return self._compare_values(node, op, left, right, span)
+
+    def _compare_values(
+        self,
+        node: ast.AST,
+        op: str,
+        left: dict[str, Any],
+        right: dict[str, Any],
+        span: dict[str, Any],
+    ) -> dict[str, Any]:
+        """The two-operand compare on already-lowered values.
+
+        Container `==`/`!=` synthesizes its loop here so container element
+        types recurse through the same dispatch. `node` is only the
+        fence-reporting anchor; recursion hands back the original compare.
+        """
         if left["type"].get("ordered") or right["type"].get("ordered"):
             self.fail(node, "PS2004", "OrderedDict equality is not lowered")
-        if (
+        same_class = (
             left["type"]["kind"] == "class"
             and right["type"]["kind"] == "class"
             and left["type"].get("name") == right["type"].get("name")
-            and left["type"].get("name") in COMPARE_CLASSES
-        ):
+        )
+        if same_class and left["type"].get("name") in COMPARE_CLASSES:
             return _compare(op, left, right, span)
+        if op in {"==", "!="}:
+            if same_class:
+                info = self.classes.get(str(left["type"]["name"]))
+                if info is not None and info.get("tuple"):
+                    return self._tuple_eq(node, left, right, span, negated=op == "!=")
+                if info is not None:
+                    # No __eq__ on a user class: CPython falls back to identity.
+                    return _compare(op, left, right, span)
+            if types_equal(left["type"], right["type"]):
+                if left["type"]["kind"] == "list":
+                    return self._seq_eq(node, left, right, span, negated=op == "!=")
+                if left["type"]["kind"] == "dict":
+                    return self._dict_eq(node, left, right, span, negated=op == "!=")
         if left["type"]["kind"] != right["type"]["kind"] or left["type"]["kind"] not in {
             "int",
             "float",
@@ -334,6 +363,32 @@ class ExprMixin:
         if left["type"]["kind"] == "bool" and op not in {"==", "!="}:
             self.fail(node, "PS2004", "bool ordering is not lowered")
         return _compare(op, left, right, span)
+
+    def _identity(self, node: ast.Compare, span: dict[str, Any], negated: bool) -> dict[str, Any]:
+        """`x is y` / `x is not y` where neither operand is the `None` literal.
+
+        Heap objects (list, dict, set, class instances, exceptions) compare by
+        pointer; str/bytes by backing-buffer pointer. int/float/bool carry no
+        runtime address, so `is` lowers to value equality — matching CPython
+        for singletons (True/False), constant-dedup'd literals, and the
+        small-int cache, but answering True where CPython built two distinct
+        objects. Different runtime kinds can never be the same object, so the
+        compare folds to a constant.
+        """
+        left = self._expr(node.left)
+        right = self._expr(node.comparators[0])
+        lk = left["type"]["kind"]
+        rk = right["type"]["kind"]
+        if lk != rk:
+            return _const_bool(negated, span)
+        if lk in {"int", "float", "bool"}:
+            return _compare("!=" if negated else "==", left, right, span)
+        if lk == "none":
+            return _const_bool(not negated, span)
+        if lk in {"str", "bytes", "list", "dict", "class", "exc"}:
+            return _compare("is not" if negated else "is", left, right, span)
+        self.fail(node, "PS2004", "is is not lowered")
+        raise AssertionError("unreachable")
 
     def _compare_chain(self, node: ast.Compare, span: dict[str, Any]) -> dict[str, Any]:
         """`a < b < c` is the existing compares joined by the existing `and`.
@@ -387,6 +442,297 @@ class ExprMixin:
         compare = ast.Compare(left=left, ops=[op], comparators=[right])
         ast.copy_location(compare, origin)
         return self._compare(compare, span_of(origin, self.filename))
+
+    def _seq_eq(
+        self,
+        node: ast.AST,
+        left: dict[str, Any],
+        right: dict[str, Any],
+        span: dict[str, Any],
+        *,
+        negated: bool,
+    ) -> dict[str, Any]:
+        """`a == b` on two list or set values is length equality plus a loop.
+
+        A set compares order-insensitively (`a[i] in b`); a list compares
+        pairwise (`a[i] == b[i]`), recursing through `_compare_values` so
+        nested containers work. Both operands are pinned so they evaluate
+        once before the loop; a False `res` short-circuits the rest.
+        """
+        bool_t: dict[str, Any] = {"kind": "bool"}
+        int_t: dict[str, Any] = {"kind": "int"}
+        a = self._temp("eqa")
+        b = self._temp("eqb")
+        res = self._temp("eqr")
+        idx = self._temp("eqi")
+        self.locals[a] = left["type"]
+        self.locals[b] = right["type"]
+        self.locals[res] = bool_t
+        self.locals[idx] = int_t
+        a_n = _name(a, left["type"], span)
+        b_n = _name(b, right["type"], span)
+        res_n = _name(res, bool_t, span)
+        idx_n = _name(idx, int_t, span)
+        self.prelude.append(_assign(a, left, span))
+        self.prelude.append(_assign(b, right, span))
+        self.prelude.append(_assign(res, _compare("==", _len_call(a_n, span), _len_call(b_n, span), span), span))
+        self.prelude.append(_assign(idx, _const_int(0, span), span))
+        elem = left["type"]["elem"]
+        sub_a = {"kind": "subscript", "value": a_n, "index": idx_n, "type": elem, "span": span}
+        if left["type"].get("set"):
+            pair: dict[str, Any] = {
+                "kind": "contains",
+                "hay": b_n,
+                "needle": sub_a,
+                "negated": False,
+                "type": bool_t,
+                "span": span,
+            }
+            inner: list[dict[str, Any]] = []
+        else:
+            sub_b = {"kind": "subscript", "value": b_n, "index": idx_n, "type": elem, "span": span}
+            saved = self.prelude
+            self.prelude = []
+            try:
+                pair = self._compare_values(node, "==", sub_a, sub_b, span)
+            finally:
+                inner = self.prelude
+                self.prelude = saved
+        then = [*inner, _assign(res, pair, span)]
+        body = [
+            {
+                "kind": "if",
+                "cond": self._truthy(res_n, span),
+                "then": then,
+                "else": [],
+                "span": span,
+            },
+            _assign(idx, _binary_int("+", idx_n, _const_int(1, span), span), span),
+        ]
+        loop = {
+            "kind": "while",
+            "cond": _compare("<", idx_n, _len_call(a_n, span), span),
+            "body": body,
+            "span": span,
+        }
+        # `a is a` skips the loop: CPython's identity-implies-equal fast path
+        # (a NaN element equals itself only under it).
+        self.prelude.append(
+            {
+                "kind": "if",
+                "cond": _compare("is not", a_n, b_n, span),
+                "then": [
+                    {
+                        "kind": "if",
+                        "cond": self._truthy(res_n, span),
+                        "then": [loop],
+                        "else": [],
+                        "span": span,
+                    }
+                ],
+                "else": [],
+                "span": span,
+            }
+        )
+        if negated:
+            return {"kind": "unary", "op": "not", "operand": _name(res, bool_t, span), "type": bool_t, "span": span}
+        return _name(res, bool_t, span)
+
+    def _dict_eq(
+        self,
+        node: ast.AST,
+        left: dict[str, Any],
+        right: dict[str, Any],
+        span: dict[str, Any],
+        *,
+        negated: bool,
+    ) -> dict[str, Any]:
+        """`a == b` on two dicts: equal lengths, every `a` key in `b`, equal values.
+
+        Iterates `a`'s key list (the `dict.keys` ABI call returns the runtime's
+        insertion-ordered seq). The value lookup runs only while `res` is True,
+        so a missing key never subscripts `b`.
+        """
+        bool_t: dict[str, Any] = {"kind": "bool"}
+        int_t: dict[str, Any] = {"kind": "int"}
+        key_t = left["type"]["key"]
+        val_t = left["type"]["value"]
+        a = self._temp("eqa")
+        b = self._temp("eqb")
+        ks = self._temp("eqk")
+        res = self._temp("eqr")
+        idx = self._temp("eqi")
+        key = self._temp("eqq")
+        self.locals[a] = left["type"]
+        self.locals[b] = right["type"]
+        self.locals[ks] = {"kind": "list", "elem": key_t}
+        self.locals[res] = bool_t
+        self.locals[idx] = int_t
+        self.locals[key] = key_t
+        a_n = _name(a, left["type"], span)
+        b_n = _name(b, right["type"], span)
+        ks_n = _name(ks, self.locals[ks], span)
+        res_n = _name(res, bool_t, span)
+        idx_n = _name(idx, int_t, span)
+        key_n = _name(key, key_t, span)
+        self.prelude.append(_assign(a, left, span))
+        self.prelude.append(_assign(b, right, span))
+        self.prelude.append(_assign(res, _compare("==", _len_call(a_n, span), _len_call(b_n, span), span), span))
+        self.prelude.append(
+            _assign(
+                ks,
+                self._abi_call("builtins", "dict.keys", [a_n], self.locals[ks], "ps_dict_keys", span),
+                span,
+            )
+        )
+        self.prelude.append(_assign(idx, _const_int(0, span), span))
+        sub_a = {"kind": "subscript", "value": a_n, "index": key_n, "type": val_t, "span": span}
+        sub_b = {"kind": "subscript", "value": b_n, "index": key_n, "type": val_t, "span": span}
+        saved = self.prelude
+        self.prelude = []
+        try:
+            pair = self._compare_values(node, "==", sub_a, sub_b, span)
+        finally:
+            inner = self.prelude
+            self.prelude = saved
+        value_cmp = {
+            "kind": "if",
+            "cond": self._truthy(res_n, span),
+            "then": [*inner, _assign(res, pair, span)],
+            "else": [],
+            "span": span,
+        }
+        member_cmp = {
+            "kind": "if",
+            "cond": self._truthy(res_n, span),
+            "then": [
+                _assign(
+                    res,
+                    {
+                        "kind": "contains",
+                        "hay": b_n,
+                        "needle": key_n,
+                        "negated": False,
+                        "type": bool_t,
+                        "span": span,
+                    },
+                    span,
+                ),
+                value_cmp,
+            ],
+            "else": [],
+            "span": span,
+        }
+        body = [
+            _assign(
+                key,
+                {"kind": "subscript", "value": ks_n, "index": idx_n, "type": key_t, "span": span},
+                span,
+            ),
+            member_cmp,
+            _assign(idx, _binary_int("+", idx_n, _const_int(1, span), span), span),
+        ]
+        loop = {
+            "kind": "while",
+            "cond": _compare("<", idx_n, _len_call(ks_n, span), span),
+            "body": body,
+            "span": span,
+        }
+        self.prelude.append(
+            {
+                "kind": "if",
+                "cond": _compare("is not", a_n, b_n, span),
+                "then": [
+                    {
+                        "kind": "if",
+                        "cond": self._truthy(res_n, span),
+                        "then": [loop],
+                        "else": [],
+                        "span": span,
+                    }
+                ],
+                "else": [],
+                "span": span,
+            }
+        )
+        if negated:
+            return {"kind": "unary", "op": "not", "operand": _name(res, bool_t, span), "type": bool_t, "span": span}
+        return _name(res, bool_t, span)
+
+    def _tuple_eq(
+        self,
+        node: ast.AST,
+        left: dict[str, Any],
+        right: dict[str, Any],
+        span: dict[str, Any],
+        *,
+        negated: bool,
+    ) -> dict[str, Any]:
+        """`a == b` on a synthetic tuple class is fieldwise equality.
+
+        Each field compare runs only while `res` is True, so the first
+        mismatch short-circuits the rest; field types recurse through
+        `_compare_values`, so a field that is itself a container still works.
+        """
+        bool_t: dict[str, Any] = {"kind": "bool"}
+        name = str(left["type"]["name"])
+        fields = self.classes[name]["fields"]
+        a = self._temp("eqa")
+        b = self._temp("eqb")
+        res = self._temp("eqr")
+        self.locals[a] = left["type"]
+        self.locals[b] = right["type"]
+        self.locals[res] = bool_t
+        res_n = _name(res, bool_t, span)
+        a_n = _name(a, left["type"], span)
+        b_n = _name(b, right["type"], span)
+        self.prelude.append(_assign(a, left, span))
+        self.prelude.append(_assign(b, right, span))
+        self.prelude.append(_assign(res, _const_bool(True, span), span))
+        field_stmts: list[dict[str, Any]] = []
+        for field in fields:
+            f_a = {
+                "kind": "attr",
+                "value": a_n,
+                "name": field["name"],
+                "type": field["type"],
+                "span": span,
+            }
+            f_b = {
+                "kind": "attr",
+                "value": b_n,
+                "name": field["name"],
+                "type": field["type"],
+                "span": span,
+            }
+            saved = self.prelude
+            self.prelude = []
+            try:
+                pair = self._compare_values(node, "==", f_a, f_b, span)
+            finally:
+                inner = self.prelude
+                self.prelude = saved
+            field_stmts.append(
+                {
+                    "kind": "if",
+                    "cond": self._truthy(res_n, span),
+                    "then": [*inner, _assign(res, pair, span)],
+                    "else": [],
+                    "span": span,
+                }
+            )
+        self.prelude.append(
+            {
+                "kind": "if",
+                "cond": _compare("is not", a_n, b_n, span),
+                "then": field_stmts,
+                "else": [],
+                "span": span,
+            }
+        )
+        if negated:
+            return {"kind": "unary", "op": "not", "operand": _name(res, bool_t, span), "type": bool_t, "span": span}
+        return _name(res, bool_t, span)
 
     def _contains(self, node: ast.Compare, span: dict[str, Any], negated: bool) -> dict[str, Any]:
         folded = self._const_tuple_membership(node, span, negated)

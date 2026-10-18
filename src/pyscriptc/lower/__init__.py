@@ -759,8 +759,7 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
             if name is not None:
                 return self._slot_is_unset(name, span, negated)
             return self._compare_none(node, self._expr(right), negated, span, none_on_left=True)
-        self.fail(node, "PS2004", "is is not lowered")
-        raise AssertionError("unreachable")
+        return self._identity(node, span, negated)
 
     def _slot_is_unset(self, name: str, span: dict[str, Any], negated: bool) -> dict[str, Any]:
         flag = self._global_is_set(name, span)

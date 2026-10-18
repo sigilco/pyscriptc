@@ -130,7 +130,7 @@ def validate_expr(expr: Any, where: str) -> None:
         validate_expr(expr.get("left"), f"{where}.left")
         validate_expr(expr.get("right"), f"{where}.right")
     elif kind == "compare":
-        if expr.get("op") not in {"<", "<=", ">", ">=", "==", "!="}:
+        if expr.get("op") not in {"<", "<=", ">", ">=", "==", "!=", "is", "is not"}:
             raise IRError(f"{where}: unsupported compare")
         validate_expr(expr.get("left"), f"{where}.left")
         validate_expr(expr.get("right"), f"{where}.right")

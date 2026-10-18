@@ -68,7 +68,7 @@ class CallsMixin:
             return found
         if name in self.type_aliases:
             self.fail(node, "PS2002", f"{name} is a typing name and is not a value")
-        if name in {"int", "float", "len", "str"}:
+        if name in {"int", "float", "len", "str", "id"}:
             if name == "float":
                 special = _float_special_arg(node)
                 if special is not None:

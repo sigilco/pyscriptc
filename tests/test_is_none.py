@@ -1,7 +1,8 @@
 """x is None and x is not None are == and != against None.
 
 One value is None and one is a str. The four flags are 1, 0, 0, 1.
-is against anything other than None stays fenced. A list cannot compare with None.
+is against anything other than None is the identity compare (R37);
+a list still cannot compare with None.
 """
 
 from __future__ import annotations
@@ -50,42 +51,6 @@ def test_is_none_matches_cpython(tmp_path: Path) -> None:
 
 def test_is_other_stays_fenced(tmp_path: Path) -> None:
     cases = [
-        (
-            "pair.py",
-            (
-                "def probe() -> int:\n"
-                "    left: str = 'Ada'\n"
-                "    right: str = 'Ada'\n"
-                "    if left is right:\n"
-                "        return 1\n"
-                "    return 0\n"
-            ),
-            "is is not lowered",
-        ),
-        (
-            "true.py",
-            "def probe() -> int:\n    text: str = 'Ada'\n    if text is True:\n        return 1\n    return 0\n",
-            "is is not lowered",
-        ),
-        (
-            "false.py",
-            "def probe() -> int:\n    text: str = 'Ada'\n    if text is False:\n        return 1\n    return 0\n",
-            "is is not lowered",
-        ),
-        (
-            "call.py",
-            (
-                "def other() -> str:\n"
-                "    return 'Ada'\n"
-                "\n"
-                "def probe() -> int:\n"
-                "    text: str = 'Ada'\n"
-                "    if text is other():\n"
-                "        return 1\n"
-                "    return 0\n"
-            ),
-            "is is not lowered",
-        ),
         (
             "listed.py",
             "def probe() -> int:\n    xs: list[int] = [1]\n    if xs is None:\n        return 1\n    return 0\n",
