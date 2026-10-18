@@ -290,6 +290,22 @@ def _zero(typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
     return {"kind": "const", "value": "", "type": typ, "span": span}
 
 
+def _attr(value: dict[str, Any], name: str, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    return {"kind": "attr", "value": value, "name": name, "type": typ, "span": span}
+
+
+def _item(value: dict[str, Any], index: dict[str, Any], typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    return {"kind": "subscript", "value": value, "index": index, "type": typ, "span": span}
+
+
+def _const_str(value: str, span: dict[str, Any]) -> dict[str, Any]:
+    return {"kind": "const", "value": value, "type": {"kind": "str"}, "span": span}
+
+
+def _raise_value(message: dict[str, Any] | None, span: dict[str, Any]) -> dict[str, Any]:
+    return {"kind": "raise", "exc": "ValueError", "message": message, "span": span}
+
+
 def _is_none_expr(node: ast.expr) -> bool:
     return isinstance(node, ast.Constant) and node.value is None
 
