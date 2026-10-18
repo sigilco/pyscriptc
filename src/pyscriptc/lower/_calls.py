@@ -36,7 +36,7 @@ from pyscriptc.lower._core import (
     _show,
 )
 from pyscriptc.lower._stdlib_shared import _mod_call, _synth_module
-from pyscriptc.restlower import builtin_call
+from pyscriptc.restlower import _mk_iter, builtin_call
 from pyscriptc.restlower import method_spec as synth_method
 from pyscriptc.stdlib_queue import MATH_FUNCTIONS
 
@@ -946,6 +946,10 @@ class CallsMixin:
         class_name = receiver["type"]["name"]
         if class_name == "Path" and node.func.attr == "read_text" and node.keywords:
             return self._path_read_text(node, span, receiver)
+        if class_name == "Path" and node.func.attr in {"iterdir", "glob"}:
+            return self._path_scan(node, span, receiver)
+        if class_name == "Path" and node.func.attr == "mkdir":
+            return self._path_mkdir(node, span, receiver)
         self._reject_keywords(node)
         spec = synth_method(class_name, node.func.attr)
         if spec is None:
@@ -1690,6 +1694,45 @@ class CallsMixin:
         if spec is None:
             self.fail(node, "PS2001", "Path.read_text is not lowered")
         return self._abi_call("pathlib", "Path.read_text", [receiver], {"kind": "str"}, spec["symbol"], span)
+
+    def _path_scan(self, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
+        """`Path.iterdir()` / `Path.glob(pat)` are R24 iterator values: the
+        runtime materializes a list[Path] and `_mk_iter` wraps it in the
+        {seq, idx} cursor record `for`/`next`/`list` already lower."""
+        assert isinstance(node.func, ast.Attribute)
+        list_t = {"kind": "list", "elem": {"kind": "class", "name": "Path"}}
+        self._reject_keywords(node)
+        if node.func.attr == "iterdir":
+            if node.args:
+                self.fail(node, "PS2003", "Path.iterdir expects 0 argument(s)")
+            seq = self._abi_call("pathlib", "Path.iterdir", [receiver], list_t, "ps_path_iterdir", span)
+        else:
+            if len(node.args) != 1:
+                self.fail(node, "PS2003", "Path.glob expects 1 argument(s)")
+            pat = self._expr(node.args[0])
+            if pat["type"]["kind"] != "str":
+                self.fail(node, "PS1003", "Path.glob pattern is str")
+            seq = self._abi_call("pathlib", "Path.glob", [receiver, pat], list_t, "ps_path_glob", span)
+        return _mk_iter(self, seq, node, span)
+
+    def _path_mkdir(self, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
+        """`Path.mkdir(mode=0o777, parents=False, exist_ok=False)` ->
+        ps_path_mkdir. `parents`/`exist_ok` are bool literals; `mode` is any
+        int expression."""
+        slots = self._place_nodes(node, ["mode", "parents", "exist_ok"])
+        mode = _const_int(0o777, span) if slots[0] is None else self._expr(slots[0])
+        if mode["type"]["kind"] != "int":
+            self.fail(node, "PS1003", "Path.mkdir mode is int")
+        args = [receiver, mode]
+        for slot, arg_name in zip(slots[1:], ("parents", "exist_ok"), strict=True):
+            if slot is None:
+                flag = _const_int(0, span)
+            elif isinstance(slot, ast.Constant) and isinstance(slot.value, bool):
+                flag = _const_int(1 if slot.value else 0, span)
+            else:
+                self.fail(node, "PS1003", f"Path.mkdir {arg_name} is a bool literal")
+            args.append(flag)
+        return self._abi_call("pathlib", "Path.mkdir", args, {"kind": "none"}, "ps_path_mkdir", span)
 
     def _one_str_pattern(self, node: ast.expr, value: dict[str, Any]) -> bool:
         """True when this is re.compile of one str constant plus constant flags.
