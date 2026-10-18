@@ -1,7 +1,7 @@
 """Lower spike IR to textual LLVM IR and a host binary.
 
 `int` stays a Python int in the IR. This backend uses i64 only when the value
-fits, and checked arithmetic traps on overflow instead of wrapping. A literal
+fits, and checked arithmetic raises through PsExc on overflow instead of wrapping. A literal
 that does not fit is refused: it is not truncated.
 """
 
@@ -2400,9 +2400,23 @@ def _declarations(needed: set[str]) -> list[str]:
     if "fprintf" in needed:
         lines.append("declare i32 @fprintf(ptr, ptr, ...)")
         lines.append("@stderr = external global ptr")
-    overflow = needed & {"iadd", "isub", "imul", "ineg", "strconcat"}
-    if overflow or needed & {"floordiv", "imod", "ishl", "ishr", "fdiv", "fmod", "ffloordiv", "fpow"}:
-        lines.append("declare void @llvm.trap() noreturn nounwind")
+    traps = needed & {
+        "iadd",
+        "isub",
+        "imul",
+        "ineg",
+        "strconcat",
+        "floordiv",
+        "imod",
+        "ishl",
+        "ishr",
+        "fdiv",
+        "fmod",
+        "ffloordiv",
+        "fpow",
+    }
+    if traps and "exc" not in needed:
+        lines.append("declare void @ps_raise_code(i32) noreturn")
     if "iadd" in needed or "strconcat" in needed:
         lines.append("declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64)")
     if "isub" in needed or "ineg" in needed:
@@ -2559,7 +2573,7 @@ ok:
   %v = extractvalue { i64, i1 } %r, 0
   ret i64 %v
 trap:
-  call void @llvm.trap()
+  call void @ps_raise_code(i32 4) noreturn ; OverflowError
   unreachable
 }
 """
@@ -2569,12 +2583,12 @@ trap:
             """define internal i64 @ps.floordiv(i64 %a, i64 %b) {
 entry:
   %zero = icmp eq i64 %b, 0
-  br i1 %zero, label %trap, label %nonzero
+  br i1 %zero, label %zdiv, label %nonzero
 nonzero:
   %min = icmp eq i64 %a, -9223372036854775808
   %neg1 = icmp eq i64 %b, -1
   %bad = and i1 %min, %neg1
-  br i1 %bad, label %trap, label %divide
+  br i1 %bad, label %ovf, label %divide
 divide:
   %q = sdiv i64 %a, %b
   %r = srem i64 %a, %b
@@ -2589,8 +2603,11 @@ dec:
   ret i64 %q2
 keep:
   ret i64 %q
-trap:
-  call void @llvm.trap()
+zdiv:
+  call void @ps_raise_code(i32 5) noreturn ; ZeroDivisionError
+  unreachable
+ovf:
+  call void @ps_raise_code(i32 4) noreturn ; OverflowError
   unreachable
 }
 """
@@ -2619,7 +2636,7 @@ divide:
   %out = select i1 %adjust, i64 %r2, i64 %r
   ret i64 %out
 trap:
-  call void @llvm.trap()
+  call void @ps_raise_code(i32 5) noreturn ; ZeroDivisionError
   unreachable
 }
 """
@@ -2629,24 +2646,27 @@ trap:
             """define internal i64 @ps.ishl(i64 %a, i64 %b) {
 entry:
   %neg = icmp slt i64 %b, 0
-  br i1 %neg, label %trap, label %ok
+  br i1 %neg, label %negshift, label %ok
 ok:
   %big = icmp uge i64 %b, 64
   br i1 %big, label %wide, label %shift
 wide:
   %is0 = icmp eq i64 %a, 0
-  br i1 %is0, label %zret, label %trap
+  br i1 %is0, label %zret, label %ovf
 zret:
   ret i64 0
 shift:
   %r = shl i64 %a, %b
   %back = ashr i64 %r, %b
   %fit = icmp eq i64 %back, %a
-  br i1 %fit, label %good, label %trap
+  br i1 %fit, label %good, label %ovf
 good:
   ret i64 %r
-trap:
-  call void @llvm.trap()
+negshift:
+  call void @ps_raise_code(i32 1) noreturn ; ValueError
+  unreachable
+ovf:
+  call void @ps_raise_code(i32 4) noreturn ; OverflowError
   unreachable
 }
 """
@@ -2663,7 +2683,7 @@ ok:
   %r = ashr i64 %a, %c
   ret i64 %r
 trap:
-  call void @llvm.trap()
+  call void @ps_raise_code(i32 1) noreturn ; ValueError
   unreachable
 }
 """
@@ -2678,7 +2698,7 @@ ok:
   %q = fdiv double %a, %b
   ret double %q
 trap:
-  call void @llvm.trap()
+  call void @ps_raise_code(i32 5) noreturn ; ZeroDivisionError
   unreachable
 }
 """
@@ -2700,7 +2720,7 @@ ok:
   %out = select i1 %adjust, double %r2, double %r
   ret double %out
 trap:
-  call void @llvm.trap()
+  call void @ps_raise_code(i32 5) noreturn ; ZeroDivisionError
   unreachable
 }
 """
@@ -2716,7 +2736,7 @@ ok:
   %f = call double @llvm.floor.f64(double %q)
   ret double %f
 trap:
-  call void @llvm.trap()
+  call void @ps_raise_code(i32 5) noreturn ; ZeroDivisionError
   unreachable
 }
 """
@@ -2733,7 +2753,7 @@ ok:
   %r = call double @llvm.pow.f64(double %a, double %b)
   ret double %r
 trap:
-  call void @llvm.trap()
+  call void @ps_raise_code(i32 5) noreturn ; ZeroDivisionError
   unreachable
 }
 """
@@ -2757,7 +2777,7 @@ alloc:
   %n1 = add i64 %n, 1
   %mem = call ptr @malloc(i64 %n1)
   %null = icmp eq ptr %mem, null
-  br i1 %null, label %trap, label %copy
+  br i1 %null, label %nomem, label %copy
 copy:
   call void @llvm.memcpy.p0.p0.i64(ptr %mem, ptr %pa, i64 %na, i1 false)
   %dst2 = getelementptr i8, ptr %mem, i64 %na
@@ -2768,7 +2788,10 @@ copy:
   %s1 = insertvalue %ps.str %s0, ptr %mem, 1
   ret %ps.str %s1
 trap:
-  call void @llvm.trap()
+  call void @ps_raise_code(i32 4) noreturn ; OverflowError
+  unreachable
+nomem:
+  call void @ps_raise_code(i32 6) noreturn ; RuntimeError
   unreachable
 }
 """
@@ -2786,7 +2809,7 @@ ok:
   %v = extractvalue {{ i64, i1 }} %r, 0
   ret i64 %v
 trap:
-  call void @llvm.trap()
+  call void @ps_raise_code(i32 4) noreturn ; OverflowError
   unreachable
 }}
 """

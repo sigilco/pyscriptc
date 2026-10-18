@@ -18,7 +18,10 @@ enum {
     PS_RUNTIME = 6,
     PS_EXCEPTION = 7,
     PS_STOP = 8,
-    PS_USER_BASE = 9
+    PS_FILE_NOT_FOUND = 9,
+    PS_TYPE = 10,
+    PS_ATTR = 11,
+    PS_USER_BASE = 12
 };
 
 /* longjmp payload once an exception is pending; the class code lives on the
