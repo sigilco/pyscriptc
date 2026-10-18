@@ -95,10 +95,10 @@ def test_codec_fences_stay_closed(tmp_path: Path) -> None:
             "json.loads needs the result annotation",
         ),
         (
-            "floatjson.py",
-            "import json\n\ndef f() -> str:\n    return json.dumps(1.5)\n",
+            "intkeys.py",
+            "import json\n\ndef f() -> str:\n    return json.dumps({1: 'a'})\n",
             "PS2001",
-            "float JSON",
+            "JSON object keys are str",
         ),
         (
             "dynfmt.py",

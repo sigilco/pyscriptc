@@ -1290,6 +1290,11 @@ class Emitter:
             elif kind == "dict":
                 child = add(node["value"])
                 entries[idx] = (5, child)
+            elif kind == "float":
+                entries[idx] = (6, 0)
+            elif node.get("optional"):
+                child = add(node["elem"])
+                entries[idx] = (7, child)
             else:
                 raise IRError(f"no JSON type for {kind}")
             return idx

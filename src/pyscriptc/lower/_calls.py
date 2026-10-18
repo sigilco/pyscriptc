@@ -526,9 +526,10 @@ class CallsMixin:
 
     def _json_type(self, node: ast.AST, typ: dict[str, Any], what: str) -> None:
         kind = typ["kind"]
-        if kind == "float":
-            self.fail(node, "PS2001", "float JSON is not lowered")
-        if kind in {"int", "bool", "str"}:
+        if kind in {"int", "bool", "str", "float"}:
+            return
+        if typ.get("optional"):
+            self._json_type(node, typ["elem"], what)
             return
         if kind == "list":
             if typ["elem"]["kind"] == "bool":
