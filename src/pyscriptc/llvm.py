@@ -1034,7 +1034,7 @@ class Emitter:
 
     def _emit_re(self, name: str, values: list[str]) -> str:
         if name == "compile":
-            return self._emit_pattern(values[0])
+            return self._emit_pattern(values)
         if name == "escape":
             length, ptr = self._buf_parts(values[0])
             return self._buf_out("ps_re_escape", [f"i64 {length}", f"ptr {ptr}"])
@@ -1044,7 +1044,13 @@ class Emitter:
             return self._call_ret(
                 "ptr",
                 "ps_re_findall",
-                [f"i64 {pattern_len}", f"ptr {pattern_ptr}", f"i64 {text_len}", f"ptr {text_ptr}"],
+                [
+                    f"i64 {pattern_len}",
+                    f"ptr {pattern_ptr}",
+                    f"i64 {text_len}",
+                    f"ptr {text_ptr}",
+                    f"i64 {values[2]}",
+                ],
             )
         if name == "split":
             pattern_len, pattern_ptr = self._buf_parts(values[0])
@@ -1052,7 +1058,14 @@ class Emitter:
             return self._call_ret(
                 "ptr",
                 "ps_re_split",
-                [f"i64 {pattern_len}", f"ptr {pattern_ptr}", f"i64 {text_len}", f"ptr {text_ptr}"],
+                [
+                    f"i64 {pattern_len}",
+                    f"ptr {pattern_ptr}",
+                    f"i64 {text_len}",
+                    f"ptr {text_ptr}",
+                    f"i64 {values[2]}",
+                    f"i64 {values[3]}",
+                ],
             )
         if name == "sub":
             pattern_len, pattern_ptr = self._buf_parts(values[0])
@@ -1067,11 +1080,13 @@ class Emitter:
                     f"ptr {repl_ptr}",
                     f"i64 {text_len}",
                     f"ptr {text_ptr}",
+                    f"i64 {values[3]}",
+                    f"i64 {values[4]}",
                 ],
             )
         raise IRError(f"no LLVM lowering for re.{name}")
 
-    def _emit_pattern(self, pattern: str) -> str:
+    def _emit_pattern(self, values: list[str]) -> str:
         self.needed.add("alloc")
         size_ptr = self.tmp()
         size = self.tmp()
@@ -1080,7 +1095,11 @@ class Emitter:
         mem = self._call_ret("ptr", "ps_alloc", [f"i64 {size}"])
         slot = self.tmp()
         self.line(f"{slot} = getelementptr %cls.Pattern, ptr {mem}, i32 0, i32 0")
-        self.line(f"store %ps.str {pattern}, ptr {slot}")
+        self.line(f"store %ps.str {values[0]}, ptr {slot}")
+        flags = values[1] if len(values) > 1 else "0"
+        fslot = self.tmp()
+        self.line(f"{fslot} = getelementptr %cls.Pattern, ptr {mem}, i32 0, i32 1")
+        self.line(f"store i64 {flags}, ptr {fslot}")
         return mem
 
     def _emit_b64(self, name: str, values: list[str]) -> str:

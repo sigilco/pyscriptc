@@ -33,7 +33,7 @@ Each module below is a closed set of calls, not the whole module.
 | Module | Lowered |
 | --- | --- |
 | `math` | `sqrt`, `fabs`, `sin`, `cos`, `tan`, `exp`, `log`, `log2`, `log10`, `hypot`, `pow`, `floor`, `ceil`, `trunc`, `isnan`, `isinf`, `pi`, `e`, `tau`, `inf`, `nan` |
-| `re` | `escape`, `findall`, `sub`, `split`, `compile`, and the int flags. A literal pattern with two to four groups returns a tuple of strings. Five or more groups is refused |
+| `re` | `escape`, `findall`, `sub`, `subn`, `split`, `compile`, `search`, `match`, and `fullmatch`, plus the int flags. A literal pattern with two to four groups returns a tuple of strings. Five or more groups is refused. `search`, `match`, `fullmatch`, and `Pattern`'s own methods return a `Match | None` that narrows with `is not None`; `Match` lowers `group`, `start`, `end`, and `span`, with `group` and `span` taking an optional group index. The regex flavor is the runtime's backtracking subset, documented at the top of `src/pyscriptc/runtime/ps_re.c`: `I`/`M`/`S`/`X`/`A`/`U` are honored, `L`/`T`/`DEBUG` and unknown bits raise at the call |
 | `json` | `loads`, `dumps` of ints, bools, strings, floats (incl. `NaN`/`Infinity`), `Optional[T]` (JSON `null`), lists, and dicts of those. No non-ASCII text |
 | `urllib.parse` | `quote`, `quote_plus`, `unquote`, `unquote_plus`, `urlencode`, `parse_qs`, `urlsplit` |
 | `base64` | `b64encode`, `b64decode`, and the standard and urlsafe pairs |
@@ -108,7 +108,7 @@ The file's `generated` field is the UTC calendar date of the run and changes whe
 
 These refuse the whole file:
 
-- Keyword arguments on a call whose parameters are not named (`math.sqrt(x=1)`, `re` flags)
+- Keyword arguments on a call whose parameters are not named (`math.sqrt(x=1)`)
 - `if x:` when `x` is a `float`, a class, or `None`
 - f-string format specs, and `%` conversions other than `%s` and `%d`
 - `str.encode("ascii")` and any other extra argument on `encode` or `decode`
@@ -142,7 +142,7 @@ A module assignment of a set of `str` constants or `int` constants is that set: 
 
 `frozenset` of a list or set display of `str` or `int` constants is that set list, copied at each use. Length and membership match CPython, iteration stays insertion order, and `.add` / `.remove` stay fenced on that call and on a name bound to it. A plain `set` can still `.add`. `frozenset` of one `str` constant is the set of its characters in that order, first duplicate kept, including the empty string. A code point above 255 stays fenced, and `frozenset` of bytes stays fenced.
 
-A module assignment `re.compile` of one `str` constant and no flags is the `Pattern` that call already returns inside a function, inlined at each use. A flags argument, a non-constant pattern, or any other form stays fenced.
+A module assignment `re.compile` of one `str` constant, with or without a constant flags argument, is the `Pattern` that call already returns inside a function, inlined at each use. A non-constant pattern, non-constant flags, or any other form stays fenced.
 
 `value in (c0, c1, ...)` where every element is a `str` constant, or every element is an `int` constant, is `==` joined by `or`. An empty display is false, one element is a single `==`, and `not in` is `not` of that test. A tuple name, a list, a mixed tuple, a non-constant element, and tuple equality stay fenced.
 

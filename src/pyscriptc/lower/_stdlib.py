@@ -270,6 +270,7 @@ class StdlibDispatchMixin:
         if module == "re" or module.startswith("re."):
             if module_status("re") == "lowered":
                 self.synthetics.add("Pattern")
+                self.synthetics.add("Match")
         if module == "urllib" or module == "urllib.parse" or module.startswith("urllib."):
             if module_status("urllib.parse") == "lowered":
                 self.synthetics.add("SplitResult")
@@ -339,6 +340,10 @@ class StdlibDispatchMixin:
             if symbol:
                 expr["symbol"] = symbol
             return expr
+        if module == "re" and attr in {"search", "match", "fullmatch"}:
+            return self._re_opt_match(node, span, attr)
+        if module == "re" and attr == "subn":
+            return self._re_subn(node, span)
         spec = wave_function(module, attr)
         if spec is None:
             self.fail(node, "PS2001", f"{module}.{attr} is not in the lowered subset of {module}")
