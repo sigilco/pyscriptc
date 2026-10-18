@@ -40,7 +40,7 @@ from pyscriptc.lower._core import (
     _subst_type,
 )
 from pyscriptc.lower._stdlib_shared import _mod_call, _synth_module
-from pyscriptc.restlower import _mk_iter, builtin_call
+from pyscriptc.restlower import _mk_iter, _static_builtin_fold, builtin_call
 from pyscriptc.restlower import method_spec as synth_method
 from pyscriptc.stdlib_queue import MATH_FUNCTIONS
 
@@ -77,6 +77,10 @@ class CallsMixin:
                     return {"kind": "const", "value": special, "type": {"kind": "float"}, "span": span}
             self._reject_keywords(node)
             args = [self._expr(arg) for arg in node.args]
+            if len(args) == 1:
+                folded = _static_builtin_fold(name, args[0], span)
+                if folded is not None:
+                    return folded
             spec = builtin_spec(name, [arg["type"] for arg in args])
             if spec is None:
                 if name in {"str", "len"} and len(args) == 1 and args[0]["type"]["kind"] == "class":
@@ -1490,6 +1494,9 @@ class CallsMixin:
         if len(node.args) != 1:
             self.fail(node, "PS2003", "bool expects 1 argument(s)")
         arg = self._expr(node.args[0])
+        folded = _static_builtin_fold("bool", arg, span)
+        if folded is not None:
+            return folded
         kind = arg["type"]["kind"]
         if kind not in {"bool", "int", "float", "str", "bytes", "list", "dict"}:
             self.fail(node, "PS2002", f"bool() of {kind} is not lowered")
