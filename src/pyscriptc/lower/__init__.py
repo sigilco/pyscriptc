@@ -107,6 +107,17 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         # `name = const` initializers for active global slots, emitted at the
         # top of main as ps_global_set_* calls.
         self.global_inits: list[dict[str, Any]] = []
+        # Module assignments and decorated definitions whose value may be a
+        # callable: they need every function signature, which does not exist
+        # during `_split_entry`, so they bind after the sigs pass, in source
+        # order.
+        self.deferred_module: list[ast.stmt] = []
+        # Re-entrancy guard: `_bind_module_assign` defers candidates unless a
+        # deferred bind is replaying it.
+        self._deferring = False
+        # Names of the current function's locals boxed into heap cells because
+        # a nested callable captures them by pointer.
+        self.boxed_names: set[str] = set()
         # Line of the first true script statement; global inits before it may
         # hoist, later ones lower inside the entry to keep source order.
         self._script_line: int | None = None
@@ -183,6 +194,8 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
                 self.sigs[fn.name] = self._signature(fn, None, kind)
             except Fence as exc:
                 fences.append(exc)
+        if self.deferred_module:
+            self._bind_deferred_module(fences)
         if self.cataloguing:
             self.function = None
             return {
@@ -226,6 +239,7 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
             self.locals = {param["name"]: param["type"] for param in params}
             self.frozen_names = set()
             self.opt_unwrap = {}
+            self.boxed_names = set()
             self.fn_body = list(fn.body)
             # Function-local imports rebind module names: snapshot the
             # compile-time binding tables so they restore when the body ends.
@@ -243,16 +257,17 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
                         continue
                 if ret["kind"] != "none" and not _always_returns(body):
                     self.fail(fn, "PS1004", f"{fn.name} can fall off the end and return None")
-                lowered.append(
-                    {
-                        "name": self._ir_name(fn.name),
-                        "params": params,
-                        "returnType": ret,
-                        "locals": [{"name": name, "type": typ} for name, typ in self.locals.items()],
-                        "body": body,
-                        "span": span_of(fn, self.filename),
-                    }
-                )
+                record = {
+                    "name": self._ir_name(fn.name),
+                    "params": params,
+                    "returnType": ret,
+                    "locals": [{"name": name, "type": typ} for name, typ in self.locals.items()],
+                    "body": body,
+                    "span": span_of(fn, self.filename),
+                }
+                if self.boxed_names:
+                    record["boxed"] = sorted(self.boxed_names)
+                lowered.append(record)
             except Fence as exc:
                 fences.append(exc)
             finally:
@@ -827,6 +842,8 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
             return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_i64", span)
         if typ["kind"] == "class" and typ.get("name") == "Path":
             return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_path", span)
+        if typ["kind"] == "func":
+            return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_ptr", span)
         self.fail(ast.Pass(), "PS2002", f"global {name} of {_show(typ)} is not lowered")
         raise AssertionError("unreachable")
 
@@ -839,6 +856,8 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
             symbol = "ps_global_set_i64"
         elif typ["kind"] == "class" and typ.get("name") == "Path":
             symbol = "ps_global_set_path"
+        elif typ["kind"] == "func":
+            symbol = "ps_global_set_ptr"
         else:
             self.fail(ast.Pass(), "PS2002", f"global {name} of {_show(typ)} is not lowered")
         return {
@@ -850,6 +869,95 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
     def _global_is_set(self, name: str, span: dict[str, Any]) -> dict[str, Any]:
         key = _text_ir(self._slot_key(name), "str", span)
         return self._abi_call("builtins", "global_is_set", [key], {"kind": "bool"}, "ps_global_is_set", span)
+
+    def _bind_deferred_module(self, fences: list[Fence]) -> None:
+        """Module assigns and decorated defs whose value may be a callable,
+        bound after the signature pass. A callable value becomes an active
+        global slot (`h = f` reads it via `ps_global_get_ptr`); anything else
+        replays the constant-binding path so its fences stay identical."""
+        saved = (self.locals, self.captures, self.prelude, self.function)
+        self.locals = {}
+        self.captures = {}
+        self.prelude = []
+        self.function = "__module__"
+        try:
+            for stmt in self.deferred_module:
+                try:
+                    self._bind_callable_global(stmt, fences)
+                except Fence as exc:
+                    fences.append(exc)
+                fences.extend(self.caught)
+                self.caught = []
+        finally:
+            self.locals, self.captures, self.prelude, self.function = saved
+            self._deferring = False
+
+    def _bind_callable_global(self, stmt: ast.stmt, fences: list[Fence]) -> None:
+        span = span_of(stmt, self.filename)
+        self.caught = []
+        value: dict[str, Any] | None = None
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            target = stmt.name
+            sig = self.sigs.get(stmt.name)
+            if sig is None:
+                return  # the signature pass already recorded its fence
+            params, ret = sig
+            value = {
+                "kind": "closure",
+                "name": self._ir_name(stmt.name),
+                "env": [],
+                "type": {"kind": "func", "params": [p["type"] for p in params], "return": ret},
+                "span": span,
+            }
+            try:
+                for dec in reversed(stmt.decorator_list):
+                    value = self._apply_decorator(dec, value, span)
+            except Fence as exc:
+                self.caught.append(exc)
+            if self.caught:
+                fences.extend(self.caught)
+                self.caught = []
+                return
+        else:
+            target = stmt.target.id if isinstance(stmt, ast.AnnAssign) else stmt.targets[0].id
+            try:
+                if isinstance(stmt, ast.AnnAssign):
+                    expect = self._annotation(stmt.annotation)
+                    value = self._expr(stmt.value, expect)
+                    self._expect(stmt, value["type"], expect, target)
+                else:
+                    value = self._expr(stmt.value)
+            except Fence as exc:
+                self.caught.append(exc)
+            if value is None or self.caught or value["type"]["kind"] != "func" or self.prelude:
+                # Not a lowered callable (or one needing prelude temps, which
+                # have no home at module scope): replay the ordinary binding
+                # path so constants still bind and fences stay identical.
+                self.caught = []
+                self._deferring = True
+                try:
+                    self._bind_module_assign(stmt)
+                finally:
+                    self._deferring = False
+                fences.extend(self.caught)
+                self.caught = []
+                return
+        self._bind_callable_slot(target, value, span, stmt)
+
+    def _bind_callable_slot(self, name: str, value: dict[str, Any], span: dict[str, Any], node: ast.AST) -> None:
+        slot = self.global_slots.get(name)
+        if slot is not None:
+            typ = slot.get("type")
+            if typ is not None and not types_equal(typ, value["type"]):
+                self.fail(node, "PS2002", f"global {name} is already bound")
+            slot["type"] = value["type"]
+            if not slot.get("active"):
+                self._activate_slot(name, node)
+        else:
+            self.global_slots[name] = {"type": value["type"], "active": False}
+            self._activate_slot(name, node)
+        init = self._global_set(name, value, span)
+        self.global_inits.append(init["expr"])
 
     def _is_none(self, node: ast.Compare, span: dict[str, Any], negated: bool) -> dict[str, Any]:
         left, right = node.left, node.comparators[0]
