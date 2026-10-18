@@ -1839,7 +1839,6 @@ class Emitter:
                 out = self._buf_out("ps_repr_bytes", [f"i64 {rlen}", f"ptr {rptr}"])
                 length, ptr = self._buf_parts(out)
                 self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
-                self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
             elif kind == "exc":
                 self._abi_decl("ps_exc_str", "%ps.str", ["ptr"])
                 out = self._call_ret("%ps.str", "ps_exc_str", [f"ptr {value}"])
