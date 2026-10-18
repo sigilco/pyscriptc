@@ -34,6 +34,7 @@ from pyscriptc.lower._core import (
     _const_int,
     _const_none,
     _const_str,
+    _has_typevar,
     _is_none_expr,
     _item,
     _len_call,
@@ -165,6 +166,8 @@ class StmtMixin:
             if stmt.target.id in self.fn_nonlocals:
                 self.fail(stmt, "PS2002", f"nonlocal {stmt.target.id} cannot be annotated")
             typ = self._annotation(stmt.annotation)
+            if _has_typevar(typ):
+                self.fail(stmt, "PS1001", f"{stmt.target.id} needs a concrete type")
             if stmt.value is None:
                 self.locals[stmt.target.id] = typ
                 return [_assign(stmt.target.id, _zero(typ, span), span)]
@@ -186,6 +189,13 @@ class StmtMixin:
                 and (nt_call := self._namedtuple_call(stmt.value)) is not None
             ):
                 self._namedtuple_decl(stmt.targets[0].id, nt_call, stmt)
+                return [{"kind": "pass", "span": span}]
+            if (
+                len(stmt.targets) == 1
+                and isinstance(stmt.targets[0], ast.Name)
+                and (tv_call := self._typevar_call(stmt.value)) is not None
+            ):
+                self._declare_typevar(stmt.targets[0].id, tv_call, stmt)
                 return [{"kind": "pass", "span": span}]
             if len(stmt.targets) != 1 or not isinstance(stmt.targets[0], ast.Name):
                 return self._spread_assign(stmt, span)
@@ -333,7 +343,12 @@ class StmtMixin:
         if isinstance(stmt, ast.For):
             return self._for(stmt, span)
         if isinstance(stmt, ast.Return):
-            _params, ret = self.sigs[self.function or ""] if self.function in self.sigs else self._current_method()
+            if self.inst_sig is not None:
+                _params, ret = self.inst_sig
+            elif self.function in self.sigs:
+                _params, ret = self.sigs[self.function or ""]
+            else:
+                _params, ret = self._current_method()
             if stmt.value is None or (isinstance(stmt.value, ast.Constant) and stmt.value.value is None):
                 if ret.get("optional"):
                     return [{"kind": "return", "value": self._opt_box(None, ret, span), "span": span}]
