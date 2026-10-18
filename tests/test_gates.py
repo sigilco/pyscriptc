@@ -350,11 +350,11 @@ def test_fences_stay_closed(tmp_path: Path) -> None:
             "PS2001",
             "os.environ",
         ),
-        # environ.get with one arg returns str | None, which has no IR type.
+        # environ.get's default must be a str; the 1-arg form is str | None (R26).
         (
-            "envget1.py",
-            "import os\n\ndef f() -> int:\n    os.environ.get('K')\n    return 1\n",
-            "PS2003",
+            "envgetbad.py",
+            "import os\n\ndef f() -> int:\n    os.environ.get('K', 1)\n    return 1\n",
+            "PS1003",
             "os.environ.get",
         ),
         # A bad import inside a function still fences, scoped to that body.

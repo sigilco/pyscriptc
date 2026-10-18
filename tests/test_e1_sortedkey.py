@@ -138,19 +138,18 @@ def probe(d: dict[str, int], w: str) -> int:
     assert mod["fences"] == []
 
 
-def test_dict_get_one_arg_keeps_generic_fence() -> None:
-    # The 1-arg form needs `val | none`, which the IR cannot say. It keeps the
-    # exact generic attribute-call wording so fenced probes' IR is unchanged.
+def test_dict_get_one_arg_lowers_optional() -> None:
+    # R26: the 1-arg form now has an IR type — `val | None` as a tagged cell.
     mod = lower_source(
         """
-def probe(d: dict[str, int], w: str) -> int:
+def probe(d: dict[str, int], w: str) -> int | None:
     return d.get(w)
 """
     )
-    assert len(mod["fences"]) == 1
-    fence = mod["fences"][0]
-    assert fence["code"] == "PS2001"
-    assert fence["message"] == "call of attribute is not lowered (d.get)"
+    assert mod["fences"] == []
+    probe = next(fn for fn in mod["functions"] if fn["name"] == "probe")
+    assert probe["returnType"]["optional"] is True
+    assert probe["returnType"]["elem"] == {"kind": "int"}
 
 
 def test_sorted_key_values_match_cpython(tmp_path: Path) -> None:

@@ -34,6 +34,7 @@ from pyscriptc.lower._core import (
     _const_int,
     _const_none,
     _const_str,
+    _is_none_expr,
     _item,
     _len_call,
     _name,
@@ -197,12 +198,50 @@ class StmtMixin:
         if isinstance(stmt, ast.AugAssign):
             return self._aug_assign(stmt, span)
         if isinstance(stmt, ast.If):
+            # `if x is (not) None:` narrows a tagged optional for the branch
+            # where the tag is known set: reads of x lower to its `_val`.
+            # A name rebound anywhere inside that branch is not narrowed.
+            narrow: str | None = None
+            narrow_else = False
+            test = stmt.test
+            if isinstance(test, ast.Compare) and len(test.ops) == 1 and isinstance(test.ops[0], (ast.Is, ast.IsNot)):
+                left, right = test.left, test.comparators[0]
+                probe = left if _is_none_expr(right) else right if _is_none_expr(left) else None
+                if isinstance(probe, ast.Name) and probe.id in self.locals:
+                    opt_typ = self.locals[probe.id]
+                    narrow_else = isinstance(test.ops[0], ast.Is)
+                    branch_stmts = stmt.orelse if narrow_else else stmt.body
+                    if (
+                        opt_typ.get("optional")
+                        and probe.id not in self.fn_globals
+                        and not any(
+                            isinstance(inner, ast.Name)
+                            and inner.id == probe.id
+                            and isinstance(inner.ctx, (ast.Store, ast.Del))
+                            for item in branch_stmts
+                            for inner in ast.walk(item)
+                        )
+                    ):
+                        narrow = probe.id
+            if narrow is not None:
+                self.opt_unwrap[narrow] = self.locals[narrow]
+                try:
+                    scoped = self._body(list(stmt.orelse if narrow_else else stmt.body))
+                finally:
+                    self.opt_unwrap.pop(narrow, None)
+                if narrow_else:
+                    then_body, else_body = self._body(list(stmt.body)), scoped
+                else:
+                    then_body, else_body = scoped, self._body(list(stmt.orelse))
+            else:
+                then_body = self._body(list(stmt.body))
+                else_body = self._body(list(stmt.orelse))
             return [
                 {
                     "kind": "if",
                     "cond": self._bool_cond(stmt.test),
-                    "then": self._body(list(stmt.body)),
-                    "else": self._body(list(stmt.orelse)),
+                    "then": then_body,
+                    "else": else_body,
                     "span": span,
                 }
             ]
@@ -269,6 +308,8 @@ class StmtMixin:
         if isinstance(stmt, ast.Return):
             _params, ret = self.sigs[self.function or ""] if self.function in self.sigs else self._current_method()
             if stmt.value is None or (isinstance(stmt.value, ast.Constant) and stmt.value.value is None):
+                if ret.get("optional"):
+                    return [{"kind": "return", "value": self._opt_box(None, ret, span), "span": span}]
                 if ret["kind"] != "none":
                     self.fail(stmt, "PS1003", "bare return is None, and this function does not return None")
                 return [{"kind": "return", "value": _const_none(span), "span": span}]

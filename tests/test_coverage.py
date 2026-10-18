@@ -58,7 +58,6 @@ def fence_codes(source: str) -> dict[str, str]:
     [
         ("int | str", "PS1101"),
         ("Union[int, str]", "PS1101"),
-        ("Optional[int]", "PS1102"),
         ("Mapping[str, int]", "PS1103"),
         ("Any", "PS1104"),
         ("object", "PS1104"),
@@ -78,13 +77,13 @@ def test_coverage_json_reports_each_fence(tmp_path: Path) -> None:
     report = json.loads(got.stdout)
     assert report["schemaVersion"] == 1
     families = {entry["family"] for entry in report["fences"]}
-    assert {"optional-types", "union-types", "generic-alias", "dynamic-annotation", "forward-reference"} <= families
+    assert {"union-types", "generic-alias", "dynamic-annotation", "forward-reference"} <= families
     assert "except-as" in families
     assert report["summary"]["definitions"] == 7
-    assert report["summary"]["fencedDefinitions"] == 6
+    assert report["summary"]["fencedDefinitions"] == 5
     by_name = {item["name"]: item for item in report["definitions"]}
     assert "ok" not in by_name
-    assert by_name["opt"]["bodyAnalyzed"] is False
+    assert "opt" not in by_name
     assert by_name["body"]["bodyAnalyzed"] is True
     first = report["fences"][0]
     assert {"code", "message", "family", "file", "line", "col", "frame", "hint", "definition"} <= set(first)
@@ -92,7 +91,7 @@ def test_coverage_json_reports_each_fence(tmp_path: Path) -> None:
 
 
 def test_coverage_text_has_frame_and_hint(tmp_path: Path) -> None:
-    path = write_case(tmp_path, "one.py", "def f(x: int | None) -> int:\n    return 1\n")
+    path = write_case(tmp_path, "one.py", "def f(x: int | str) -> int:\n    return 1\n")
     got = run_cli("coverage", str(path))
     assert got.returncode == 0, got.stderr
     assert "PS1101" in got.stdout
@@ -105,7 +104,7 @@ def test_coverage_walks_a_directory(tmp_path: Path) -> None:
     pkg = tmp_path / "pkg"
     pkg.mkdir()
     (pkg / "__init__.py").write_text("", encoding="utf-8")
-    (pkg / "a.py").write_text("def f(x: int | None) -> int:\n    return 1\n", encoding="utf-8")
+    (pkg / "a.py").write_text("def f(x: int | str) -> int:\n    return 1\n", encoding="utf-8")
     (pkg / "b.py").write_text("def g(x: 'B') -> int:\n    return 1\n", encoding="utf-8")
     got = run_cli("coverage", str(pkg), "--json")
     assert got.returncode == 0, got.stderr
@@ -115,7 +114,7 @@ def test_coverage_walks_a_directory(tmp_path: Path) -> None:
 
 
 def test_compile_still_fails_closed_on_a_fence(tmp_path: Path) -> None:
-    path = write_case(tmp_path, "opt.py", "def f(x: int | None) -> int:\n    return 1\n")
+    path = write_case(tmp_path, "opt.py", "def f(x: int | str) -> int:\n    return 1\n")
     got = run_cli("compile", str(path), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "opt.ir.json"))
     assert got.returncode == 3
     assert "PS1101" in got.stderr
