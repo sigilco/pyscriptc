@@ -162,7 +162,7 @@ A list comprehension filter is the existing `if` around the list push: the filte
 
 A slice step on `str`, `bytes`, or `list` keeps every step-th element. Omitted bounds stay the ends of the value for a positive step, and flip like CPython for a negative step: missing start is the last index, missing stop walks through index 0, and out-of-range bounds clamp. Step 0 raises `ValueError`. Slice assignment stays fenced.
 
-`match subject: case literal:` is `if subject == literal`. The subject runs once, and a later literal case is the else of the previous one. A capture, a wildcard, an or pattern, a sequence, a class pattern, a mapping, a guard, and a singleton stay fenced.
+`match subject:` is an if chain over the stored subject, one `if` per case. A literal case is `subject == literal`, `None` is `subject is None`, an or pattern joins its alternatives with `or`, and a guard `if` joins with `and`, so a guard runs only when its pattern matched. A wildcard `_` always matches, and a capture name binds the subject like a declaration — a name the match never reached reads the type's zero where CPython raises `NameError`. A sequence, a class pattern, a mapping, an as pattern, a capture inside `|`, a non-literal value, and `True` / `False` singletons stay fenced.
 
 `del` of one local that is not read again is dropped. The function returns what it returns. `del` of an attribute, a subscript, a slice, a tuple of names, or a name that is read after the `del` stays fenced.
 
