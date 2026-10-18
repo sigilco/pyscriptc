@@ -1021,33 +1021,6 @@ def _concat_str(parts: list[dict[str, Any]], span: dict[str, Any]) -> dict[str, 
     return acc
 
 
-def _percent_pieces(fmt: str) -> list[tuple[str, str]] | None:
-    pieces: list[tuple[str, str]] = []
-    buf: list[str] = []
-    index = 0
-    size = len(fmt)
-    while index < size:
-        if fmt[index] != "%":
-            buf.append(fmt[index])
-            index += 1
-            continue
-        if index + 1 >= size:
-            return None
-        nxt = fmt[index + 1]
-        if nxt == "%":
-            buf.append("%")
-            index += 2
-            continue
-        if nxt not in {"s", "d"}:
-            return None
-        pieces.append(("lit", "".join(buf)))
-        buf = []
-        pieces.append((nxt, ""))
-        index += 2
-    pieces.append(("lit", "".join(buf)))
-    return pieces
-
-
 def _const_list_concat(left: dict[str, Any], right: dict[str, Any], span: dict[str, Any]) -> dict[str, Any] | None:
     """Two constant lists of one element type are one list. A runtime list stays fenced."""
 

@@ -35,7 +35,6 @@ from pyscriptc.lower._core import (
     _const_str_join,
     _len_call,
     _name,
-    _percent_pieces,
     _plain_const_kind,
     _show,
     _static_int,
@@ -1173,38 +1172,27 @@ class ExprMixin:
         raise AssertionError("unreachable")
 
     def _percent(self, node: ast.BinOp, span: dict[str, Any]) -> dict[str, Any]:
-        if not isinstance(node.left, ast.Constant) or not isinstance(node.left.value, str):
-            self.fail(node, "PS2004", "a format string must be a literal")
-        if any(ord(ch) > 255 for ch in node.left.value):
-            self.fail(node, "PS2005", "string literals outside Latin-1 are not lowered")
-        pieces = _percent_pieces(node.left.value)
-        if pieces is None:
-            self.fail(node, "PS2004", "% formatting is lowered for %s and %d")
-        specs = [kind for kind, _text in pieces if kind != "lit"]
-        if isinstance(node.right, ast.Tuple):
-            values = list(node.right.elts)
-        else:
-            values = [node.right]
-        if len(values) != len(specs):
-            self.fail(node, "PS2003", "format string and values disagree")
-        rendered: list[dict[str, Any]] = []
-        index = 0
-        for kind, text in pieces:
-            if kind == "lit":
-                if text:
-                    rendered.append({"kind": "const", "value": text, "type": {"kind": "str"}, "span": span})
-                continue
-            expr = self._expr(values[index])
-            index += 1
-            if kind == "s":
-                if expr["type"]["kind"] != "str":
-                    self.fail(node, "PS1003", "%s takes a str")
-                rendered.append(expr)
-            else:
-                if expr["type"]["kind"] != "int":
-                    self.fail(node, "PS1003", "%d takes an int")
-                rendered.append(self._as_str(expr, node))
-        return _concat_str(rendered, span)
+        fmt = self._expr(node.left)
+        if fmt["type"]["kind"] != "str":
+            self.fail(node, "PS2004", "% formatting needs a str left operand")
+        elts = list(node.right.elts) if isinstance(node.right, ast.Tuple) else [node.right]
+        args = [fmt]
+        style = "percent"
+        for elt in elts:
+            arg = self._expr(elt)
+            kind = arg["type"]["kind"]
+            if kind == "dict":
+                t = arg["type"]
+                if t["key"]["kind"] not in {"int", "str"} or t["value"]["kind"] not in {"int", "float", "str", "bytes"}:
+                    self.fail(node, "PS2002", "% mapping needs scalar dict keys and values")
+                if not isinstance(node.right, ast.Tuple):
+                    style = "map"
+            elif kind not in {"int", "float", "str", "bool", "bytes"}:
+                self.fail(node, "PS2004", f"% formatting of {_show(arg['type'])} is not lowered")
+            args.append(arg)
+        expr = self._abi_call("builtins", "format", args, {"kind": "str"}, "ps_str_format", span)
+        expr["format_style"] = style
+        return expr
 
     def _slice(self, node: ast.Subscript, span: dict[str, Any]) -> dict[str, Any]:
         slc = node.slice
