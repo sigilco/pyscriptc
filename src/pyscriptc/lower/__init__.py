@@ -77,6 +77,7 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         self.comp_if: ast.expr | None = None
         self.break_flag: str | None = None
         self.continue_flag: str | None = None
+        self.broke_flag = None
         self.module_name = ""
         self.is_package = False
         self.cataloguing = False

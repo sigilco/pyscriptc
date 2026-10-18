@@ -1261,12 +1261,14 @@ CLASS_METHODS: dict[str, dict[str, dict[str, Any]]] = {
     },
     "TextIO": {
         "read": _sig([], _S, "ps_io_read"),
+        "readline": _sig([], _S, "ps_io_readline"),
         "write": _sig([_S], _I, "ps_io_write"),
         "close": _sig([], _N, "ps_io_close"),
         "getvalue": _sig([], _S, "ps_io_value"),
     },
     "BytesIO": {
         "read": _sig([], _BY, "ps_io_read"),
+        "readline": _sig([], _BY, "ps_io_readline"),
         "write": _sig([_BY], _I, "ps_io_write"),
         "close": _sig([], _N, "ps_io_close"),
         "getvalue": _sig([], _BY, "ps_io_value"),
