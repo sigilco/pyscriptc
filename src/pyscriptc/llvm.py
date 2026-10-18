@@ -1972,35 +1972,7 @@ class Emitter:
                 else:
                     slen, sptr = self._buf_parts(sep)
                     self._print_fmt("sep", b"%.*s", [f"i64 {slen}", f"ptr {sptr}"], err=err)
-            kind = typ["kind"]
-            if kind == "int":
-                self._print_fmt("int", b"%lld", [f"i64 {value}"], err=err)
-            elif kind == "float":
-                out = self._buf_out("ps_f64_str", [f"double {value}"])
-                length, ptr = self._buf_parts(out)
-                self._abi_decl("ps_f64_str", "void", ["double", "ptr"])
-                self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
-            elif kind == "bool":
-                picked = self.tmp()
-                self.line(
-                    f"{picked} = select i1 {value}, ptr {self.format_global('boolT', b'True')}, "
-                    f"ptr {self.format_global('boolF', b'False')}"
-                )
-                self._print_fmt("s", b"%s", [f"ptr {picked}"], err=err)
-            elif kind == "bytes":
-                self._abi_decl("ps_repr_bytes", "void", ["i64", "ptr", "ptr"])
-                rlen, rptr = self._buf_parts(value)
-                out = self._buf_out("ps_repr_bytes", [f"i64 {rlen}", f"ptr {rptr}"])
-                length, ptr = self._buf_parts(out)
-                self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
-            elif kind == "exc":
-                self._abi_decl("ps_exc_str", "%ps.str", ["ptr"])
-                out = self._call_ret("%ps.str", "ps_exc_str", [f"ptr {value}"])
-                length, ptr = self._buf_parts(out)
-                self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
-            else:
-                length, ptr = self._buf_parts(value)
-                self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
+            self._print_one(typ, value, err)
         if end is None:
             self._print_fmt("nl", b"\n", err=err)
         else:
@@ -2018,6 +1990,69 @@ class Emitter:
             return
         rendered = ", ".join([f"ptr {fmt}", *(args or [])])
         self.line(f"call i32 (ptr, ...) @printf({rendered})")
+
+    def _print_one(self, typ: dict[str, Any], value: str, err: bool) -> None:
+        """One print argument: scalars spell directly, a tuple class recurses.
+
+        Each branch here is a field of `_emit_print`'s loop; the tuple case
+        writes CPython's `(a, b)` shape field by field.
+        """
+
+        kind = typ["kind"]
+        if kind == "int":
+            self._print_fmt("int", b"%lld", [f"i64 {value}"], err=err)
+        elif kind == "float":
+            out = self._buf_out("ps_f64_str", [f"double {value}"])
+            length, ptr = self._buf_parts(out)
+            self._abi_decl("ps_f64_str", "void", ["double", "ptr"])
+            self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
+        elif kind == "bool":
+            picked = self.tmp()
+            self.line(
+                f"{picked} = select i1 {value}, ptr {self.format_global('boolT', b'True')}, "
+                f"ptr {self.format_global('boolF', b'False')}"
+            )
+            self._print_fmt("s", b"%s", [f"ptr {picked}"], err=err)
+        elif kind == "bytes":
+            self._abi_decl("ps_repr_bytes", "void", ["i64", "ptr", "ptr"])
+            rlen, rptr = self._buf_parts(value)
+            out = self._buf_out("ps_repr_bytes", [f"i64 {rlen}", f"ptr {rptr}"])
+            length, ptr = self._buf_parts(out)
+            self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
+        elif kind == "exc":
+            self._abi_decl("ps_exc_str", "%ps.str", ["ptr"])
+            out = self._call_ret("%ps.str", "ps_exc_str", [f"ptr {value}"])
+            length, ptr = self._buf_parts(out)
+            self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
+        elif kind == "class" and self._is_tuple(typ["name"]):
+            self._print_tuple(typ["name"], value, err)
+        else:
+            length, ptr = self._buf_parts(value)
+            self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
+
+    def _is_tuple(self, name: str) -> bool:
+        """Tuple classes the lowerer synthesizes: `tuple_N_*` over fields _0.._n."""
+
+        info = self.class_index.get(name)
+        if info is None or not name.startswith("tuple_"):
+            return False
+        return all(field["name"] == f"_{index}" for index, field in enumerate(info["fields"]))
+
+    def _print_tuple(self, name: str, value: str, err: bool) -> None:
+        """A synthetic tuple prints `(a, b)`; a lone field keeps the `,` tail."""
+
+        fields = self.class_index[name]["fields"]
+        self._print_fmt("lparen", b"(", err=err)
+        for index, field in enumerate(fields):
+            if index:
+                self._print_fmt("tsep", b", ", err=err)
+            loaded = self._load(
+                _llvm_type(field["type"]), self._field_ptr(name, value, self._field(name, field["name"]))
+            )
+            self._print_one(field["type"], loaded, err)
+        if len(fields) == 1:
+            self._print_fmt("tsep", b",", err=err)
+        self._print_fmt("rparen", b")", err=err)
 
     def format_global(self, name: str, data: bytes) -> str:
         base = f"@ps.fmt.{name}"
