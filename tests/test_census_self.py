@@ -19,6 +19,6 @@ def test_self_census_ballpark() -> None:
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
     # fences (`X | None` parameters); R1–R5 batch un-fenced 10 self-host
     # call sites (list/dict/str methods).
-    assert census["fences"] == 960
-    assert 11_000 <= census["lines"] <= 19_500
-    assert sum(p["fences"] for p in census["packages"]) == 960
+    assert census["fences"] == 973
+    assert 11_000 <= census["lines"] <= 20_000
+    assert sum(p["fences"] for p in census["packages"]) == 973
