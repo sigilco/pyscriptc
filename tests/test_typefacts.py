@@ -13,6 +13,7 @@ from pyscriptc.typefacts import (
     FactsProvider,
     MypyFactsAdapter,
     ParameterFacts,
+    PyrightFactsAdapter,
     TypeFacts,
     facts_provider,
 )
@@ -121,8 +122,9 @@ def test_errors_surface_as_check_failed(tmp_path: Path) -> None:
 def test_facts_provider_dispatch(tmp_path: Path) -> None:
     provider = facts_provider("mypy")
     assert isinstance(provider, MypyFactsAdapter)
+    assert isinstance(facts_provider("pyright"), PyrightFactsAdapter)
     with pytest.raises(CheckFailed):
-        facts_provider("pyright")
+        facts_provider("other")
 
 
 def test_dataclasses_match_the_plan(tmp_path: Path) -> None:
