@@ -83,7 +83,7 @@ The IR stamp is `gates-v1`. Lowered:
 
 Fenced (no LLVM for that file):
 
-- `and` / `or` across two types, f-string format specs, a slice step other than 1, `break`, `continue`, `finally`, `except as`, user decorators, `super()`, multiple inheritance, `**kwargs`, keyword-only and positional-only parameters, and starred calls
+- `finally`, `except ... as`, f-string format specs, user decorators, `super()`, multiple inheritance, `**kwargs`, keyword-only and positional-only parameters, and starred calls
 - String literals outside Latin-1
 - `bool` arithmetic, `list[bool]`, and `dict` values of `bool`. `bool` is not promoted to `float`
 - Calls such as `str.encode("ascii")`, `math.gcd`, `functools.partial`, `itertools.count`, `operator.itemgetter`, `importlib.import_module`, and `asyncio.run` that are outside the lowered surface
