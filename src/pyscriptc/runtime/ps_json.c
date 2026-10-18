@@ -1,8 +1,11 @@
-/* json.loads / json.dumps for int, bool, str, list, and dict[str, ...].
-Float text and null are ValueError. Object key order follows insertion. */
+/* json.loads / json.dumps for int, bool, str, float, Optional, list, and
+dict[str, ...]. An Optional[T] value is a heap cell { i1 tag, pad, T val }
+matching the opt_* class layout; `null` writes a zeroed cell (tag unset).
+Object key order follows insertion. */
 
 #include "ps_rt.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -117,11 +120,12 @@ static void ps_parse_string(PsJson *j, PsBuf *out) {
     ps_json_fail("unterminated JSON string");
 }
 
-static void ps_parse_int(PsJson *j, int64_t *out) {
-    ps_skip(j);
-    int neg = 0;
+/* Validates JSON number grammar starting at the cursor and leaves it past
+   the token. Returns the token start and whether it carried a fraction or
+   exponent (the float form). */
+static int64_t ps_scan_number(PsJson *j, int *is_float) {
+    int64_t start = j->i;
     if (j->i < j->n && j->p[j->i] == '-') {
-        neg = 1;
         j->i++;
     }
     if (j->i >= j->n || j->p[j->i] < '0' || j->p[j->i] > '9') {
@@ -132,23 +136,57 @@ static void ps_parse_int(PsJson *j, int64_t *out) {
         if (j->i < j->n && j->p[j->i] >= '0' && j->p[j->i] <= '9') {
             ps_json_fail("JSON number has a leading zero");
         }
-        if (j->i < j->n && (j->p[j->i] == '.' || j->p[j->i] == 'e' || j->p[j->i] == 'E')) {
-            ps_json_fail("float JSON is not lowered");
+    } else {
+        while (j->i < j->n && j->p[j->i] >= '0' && j->p[j->i] <= '9') {
+            j->i++;
         }
-        *out = 0;
-        return;
+    }
+    *is_float = 0;
+    if (j->i < j->n && j->p[j->i] == '.') {
+        *is_float = 1;
+        j->i++;
+        if (j->i >= j->n || j->p[j->i] < '0' || j->p[j->i] > '9') {
+            ps_json_fail("JSON number expected");
+        }
+        while (j->i < j->n && j->p[j->i] >= '0' && j->p[j->i] <= '9') {
+            j->i++;
+        }
+    }
+    if (j->i < j->n && (j->p[j->i] == 'e' || j->p[j->i] == 'E')) {
+        *is_float = 1;
+        j->i++;
+        if (j->i < j->n && (j->p[j->i] == '+' || j->p[j->i] == '-')) {
+            j->i++;
+        }
+        if (j->i >= j->n || j->p[j->i] < '0' || j->p[j->i] > '9') {
+            ps_json_fail("JSON number expected");
+        }
+        while (j->i < j->n && j->p[j->i] >= '0' && j->p[j->i] <= '9') {
+            j->i++;
+        }
+    }
+    return start;
+}
+
+static void ps_parse_int(PsJson *j, int64_t *out) {
+    int is_float = 0;
+    int64_t start = ps_scan_number(j, &is_float);
+    if (is_float) {
+        ps_json_fail("JSON value does not match the annotation");
+    }
+    int neg = 0;
+    if (j->p[start] == '-') {
+        neg = 1;
+        start++;
     }
     uint64_t mag = 0;
-    while (j->i < j->n && j->p[j->i] >= '0' && j->p[j->i] <= '9') {
-        int digit = j->p[j->i] - '0';
+    while (start < j->i) {
+        int digit = j->p[start] - '0';
         if (mag > (UINT64_MAX - (uint64_t)digit) / 10) {
             ps_json_fail("JSON integer does not fit in i64");
         }
         mag = mag * 10 + (uint64_t)digit;
-        j->i++;
-    }
-    if (j->i < j->n && (j->p[j->i] == '.' || j->p[j->i] == 'e' || j->p[j->i] == 'E')) {
-        ps_json_fail("float JSON is not lowered");
+        start++;
     }
     if (!neg) {
         if (mag > (uint64_t)INT64_MAX) {
@@ -165,6 +203,25 @@ static void ps_parse_int(PsJson *j, int64_t *out) {
         return;
     }
     *out = -(int64_t)mag;
+}
+
+static void ps_parse_float(PsJson *j, double *out) {
+    int is_float = 0;
+    int64_t start = ps_scan_number(j, &is_float);
+    (void)is_float;
+    int64_t len = j->i - start;
+    char *tmp = ps_alloc(len + 1);
+    memcpy(tmp, j->p + start, (size_t)len);
+    *out = strtod(tmp, NULL);
+}
+
+/* Byte offset of the `_val` field in an opt_* cell: { i1 tag, pad, T val }.
+   A bool payload (i1) sits right behind the tag; everything wider aligns 8. */
+static int64_t ps_opt_off(int kind) {
+    if (kind == PS_JSON_BOOL) {
+        return 1;
+    }
+    return 8;
 }
 
 static int64_t ps_slot(int kind) {
@@ -193,7 +250,22 @@ static void ps_parse_value(PsJson *j, int32_t idx, void *out) {
     PsType typ = j->types[idx];
     char c = ps_peek(j);
     if (c == 'n' && j->i + 4 <= j->n && memcmp(j->p + j->i, "null", 4) == 0) {
-        ps_json_fail("JSON null is not lowered");
+        if (typ.kind != PS_JSON_OPT) {
+            ps_json_fail("JSON value does not match the annotation");
+        }
+        j->i += 4;
+        void *cell = ps_alloc(ps_opt_off(j->types[typ.child].kind) + ps_slot(j->types[typ.child].kind));
+        memcpy(out, &cell, 8);
+        return;
+    }
+    if (typ.kind == PS_JSON_OPT) {
+        PsType child = j->types[typ.child];
+        int64_t off = ps_opt_off(child.kind);
+        char *cell = ps_alloc(off + ps_slot(child.kind));
+        ps_parse_value(j, typ.child, cell + off);
+        cell[0] = 1;
+        memcpy(out, &cell, 8);
+        return;
     }
     if (typ.kind == PS_JSON_INT) {
         int64_t v = 0;
@@ -215,6 +287,23 @@ static void ps_parse_value(PsJson *j, int32_t idx, void *out) {
             return;
         }
         ps_json_fail("JSON bool expected");
+    }
+    if (typ.kind == PS_JSON_FLOAT) {
+        double v = 0.0;
+        if (j->i + 3 <= j->n && memcmp(j->p + j->i, "NaN", 3) == 0) {
+            j->i += 3;
+            v = NAN;
+        } else if (j->i + 9 <= j->n && memcmp(j->p + j->i, "-Infinity", 9) == 0) {
+            j->i += 9;
+            v = -INFINITY;
+        } else if (j->i + 8 <= j->n && memcmp(j->p + j->i, "Infinity", 8) == 0) {
+            j->i += 8;
+            v = INFINITY;
+        } else {
+            ps_parse_float(j, &v);
+        }
+        memcpy(out, &v, 8);
+        return;
     }
     if (typ.kind == PS_JSON_STR) {
         ps_parse_string(j, out);
@@ -327,6 +416,84 @@ static void ps_dump_str(PsBuf buf, PsGrow *g) {
     ps_grow_byte(g, '"');
 }
 
+/* CPython float repr: shortest round-trip digits, fixed notation when the
+   decimal exponent is in [-4, 15], else d[.ddd]e+-XX with a signed exponent
+   of at least two digits. JSON writes nan/inf as the NaN/Infinity literals. */
+static void ps_dump_float(double v, PsGrow *g) {
+    if (isnan(v)) {
+        ps_grow_add(g, "NaN", 3);
+        return;
+    }
+    if (isinf(v)) {
+        if (signbit(v)) {
+            ps_grow_add(g, "-Infinity", 9);
+        } else {
+            ps_grow_add(g, "Infinity", 8);
+        }
+        return;
+    }
+    if (v == 0.0) {
+        ps_grow_add(g, signbit(v) ? "-0.0" : "0.0", signbit(v) ? 4 : 3);
+        return;
+    }
+    char sci[32];
+    for (int prec = 0; prec < 17; prec++) {
+        snprintf(sci, sizeof sci, "%.*e", prec, v);
+        char *end = NULL;
+        double back = strtod(sci, &end);
+        if (end != sci && *end == '\0' && back == v) {
+            break;
+        }
+    }
+    char digits[32];
+    int ndigits = 0;
+    char *cur = sci;
+    if (*cur == '-') {
+        cur++;
+    }
+    for (; *cur != 'e' && *cur != 'E'; cur++) {
+        if (*cur != '.') {
+            digits[ndigits++] = *cur;
+        }
+    }
+    digits[ndigits] = '\0';
+    int exp10 = atoi(cur + 1);
+    if (v < 0) {
+        ps_grow_byte(g, '-');
+    }
+    if (exp10 >= -4 && exp10 <= 15) {
+        if (exp10 < 0) {
+            ps_grow_add(g, "0.", 2);
+            for (int k = -exp10 - 1; k > 0; k--) {
+                ps_grow_byte(g, '0');
+            }
+            ps_grow_add(g, digits, ndigits);
+        } else if (ndigits > exp10 + 1) {
+            ps_grow_add(g, digits, exp10 + 1);
+            ps_grow_byte(g, '.');
+            ps_grow_add(g, digits + exp10 + 1, ndigits - exp10 - 1);
+        } else {
+            ps_grow_add(g, digits, ndigits);
+            for (int k = exp10 + 1 - ndigits; k > 0; k--) {
+                ps_grow_byte(g, '0');
+            }
+            ps_grow_add(g, ".0", 2);
+        }
+        return;
+    }
+    char head[40];
+    int wrote;
+    if (ndigits > 1) {
+        wrote = snprintf(head, sizeof head, "%c.%s", digits[0], digits + 1);
+    } else {
+        wrote = snprintf(head, sizeof head, "%c", digits[0]);
+    }
+    ps_grow_add(g, head, wrote);
+    char tail[12];
+    wrote = snprintf(tail, sizeof tail, "e%c%02d", exp10 < 0 ? '-' : '+', exp10 < 0 ? -exp10 : exp10);
+    ps_grow_add(g, tail, wrote);
+}
+
 static void ps_dump(const PsType *types, int32_t idx, const void *value, PsGrow *g) {
     PsType typ = types[idx];
     if (typ.kind == PS_JSON_INT) {
@@ -348,6 +515,23 @@ static void ps_dump(const PsType *types, int32_t idx, const void *value, PsGrow 
         } else {
             ps_grow_add(g, "false", 5);
         }
+        return;
+    }
+    if (typ.kind == PS_JSON_FLOAT) {
+        double v = 0.0;
+        memcpy(&v, value, 8);
+        ps_dump_float(v, g);
+        return;
+    }
+    if (typ.kind == PS_JSON_OPT) {
+        char *cell = NULL;
+        memcpy(&cell, value, 8);
+        if (cell[0] == 0) {
+            ps_grow_add(g, "null", 4);
+            return;
+        }
+        PsType child = types[typ.child];
+        ps_dump(types, typ.child, cell + ps_opt_off(child.kind), g);
         return;
     }
     if (typ.kind == PS_JSON_STR) {

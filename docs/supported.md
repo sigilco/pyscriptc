@@ -34,7 +34,7 @@ Each module below is a closed set of calls, not the whole module.
 | --- | --- |
 | `math` | `sqrt`, `fabs`, `sin`, `cos`, `tan`, `exp`, `log`, `log2`, `log10`, `hypot`, `pow`, `floor`, `ceil`, `trunc`, `isnan`, `isinf`, `pi`, `e`, `tau`, `inf`, `nan` |
 | `re` | `escape`, `findall`, `sub`, `split`, `compile`, and the int flags. A literal pattern with two to four groups returns a tuple of strings. Five or more groups is refused |
-| `json` | `loads`, `dumps` of ints, bools, strings, lists, and dicts of those. No float JSON, no JSON null, no non-ASCII text |
+| `json` | `loads`, `dumps` of ints, bools, strings, floats (incl. `NaN`/`Infinity`), `Optional[T]` (JSON `null`), lists, and dicts of those. No non-ASCII text |
 | `urllib.parse` | `quote`, `quote_plus`, `unquote`, `unquote_plus`, `urlencode`, `parse_qs`, `urlsplit` |
 | `base64` | `b64encode`, `b64decode`, and the standard and urlsafe pairs |
 | `hashlib` | `md5`, `sha1`, `sha256`, `sha384`, `sha512`, then `.hexdigest()` and `.digest()` |
