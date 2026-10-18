@@ -563,3 +563,228 @@ void ps_path_joinpath(PsPath *path, int64_t n, const char *s, PsPath *out) {
     ps_path_join(parts, 2, &joined);
     out->path = joined;
 }
+
+/* `p / other` for a Path right side, and `s / p` for a str left side. */
+
+void ps_path_joinpath_p(PsPath *path, PsPath *other, PsPath *out) {
+    PsBuf parts[2];
+    parts[0] = path->path;
+    parts[1] = other->path;
+    ps_path_join(parts, 2, &out->path);
+}
+
+void ps_path_rjoin(int64_t n, const char *s, PsPath *path, PsPath *out) {
+    PsBuf parts[2];
+    parts[0].len = n;
+    parts[0].data = (char *)s;
+    parts[1] = path->path;
+    ps_path_join(parts, 2, &out->path);
+}
+
+/* `p.with_name(s)` replaces the basename. CPython raises ValueError when the
+   path has no name or `s` is not a plain name. */
+
+void ps_path_with_name(PsPath *path, int64_t n, const char *s, PsPath *out) {
+    PsBuf base;
+    PsBuf dir;
+    PsBuf parts[2];
+    int64_t i;
+    for (i = 0; i < n; i++) {
+        if (s[i] == '/') {
+            ps_raise_cstr(PS_VALUE, "Invalid name");
+        }
+    }
+    if (n == 0) {
+        ps_raise_cstr(PS_VALUE, "Invalid name");
+    }
+    ps_path_base(path->path.len, path->path.data, &base);
+    if (base.len == 0) {
+        ps_raise_cstr(PS_VALUE, "path has an empty name");
+    }
+    ps_path_dir(path->path.len, path->path.data, &dir);
+    parts[0] = dir;
+    parts[1].len = n;
+    parts[1].data = (char *)s;
+    ps_path_join(parts, 2, &out->path);
+}
+
+/* `p.mkdir(mode, parents, exist_ok)`: parents walks the path like makedirs;
+   exist_ok only forgives an existing leaf that is itself a directory. */
+
+void ps_path_mkdir(PsPath *path, int64_t mode, int64_t parents, int64_t exist_ok) {
+    char *text = ps_cstr(path->path.len, path->path.data);
+    int rc;
+    if (parents) {
+        int leaf_exists = 0;
+        int64_t i;
+        for (i = 1; i <= path->path.len; i++) {
+            char save;
+            if (i < path->path.len && text[i] != '/') {
+                continue;
+            }
+            save = text[i];
+            text[i] = '\0';
+            rc = mkdir(text, (mode_t)mode);
+            if (rc != 0) {
+                if (errno == EEXIST && i == path->path.len) {
+                    leaf_exists = 1;
+                } else if (errno != EEXIST) {
+                    free(text);
+                    ps_os_fail("mkdir failed");
+                }
+            }
+            text[i] = save;
+        }
+        free(text);
+        if (leaf_exists && (!exist_ok || !ps_path_isdir(path->path.len, path->path.data))) {
+            ps_os_fail("mkdir failed");
+        }
+        return;
+    }
+    rc = mkdir(text, (mode_t)mode);
+    free(text);
+    if (rc != 0) {
+        if (exist_ok && errno == EEXIST && ps_path_isdir(path->path.len, path->path.data)) {
+            return;
+        }
+        ps_os_fail("mkdir failed");
+    }
+}
+
+/* `p.iterdir()` materializes the child paths; the caller wraps the list in
+   the iterator record. */
+
+/* A `list[Path]` stores pointers like every other class list. */
+static void ps_path_emit(PsSeq *out, PsBuf *joined) {
+    PsPath *hit = ps_alloc((int64_t)sizeof(PsPath));
+    hit->path = *joined;
+    ps_seq_push(out, &hit);
+}
+
+PsSeq *ps_path_iterdir(PsPath *path) {
+    PsSeq *names = ps_os_listdir(path->path.len, path->path.data);
+    PsSeq *out = ps_seq_new((int64_t)sizeof(PsPath *), 0);
+    int64_t i;
+    for (i = 0; i < names->len; i++) {
+        PsBuf name;
+        PsPath child;
+        memcpy(&name, (char *)names->data + (size_t)i * (size_t)names->elem, sizeof name);
+        ps_path_joinpath(path, name.len, name.data, &child);
+        ps_path_emit(out, &child.path);
+    }
+    return out;
+}
+
+/* `p.glob(pat)` descends segment by segment. `**` is the only recursive
+   segment and matches directories; every other segment is an fnmatch on the
+   names readdir yields, like CPython's selector over scandir. */
+
+static int ps_glob_star(const char *seg, int64_t ns) { return ns == 2 && seg[0] == '*' && seg[1] == '*'; }
+
+static void ps_glob_pat(PsBuf *base, const char *pat, int64_t np, PsSeq *out);
+
+static void ps_glob_seg(PsBuf *base, const char *seg, int64_t ns, const char *rest, int64_t nrest, PsSeq *out) {
+    int deep = ps_glob_star(seg, ns);
+    char *text;
+    DIR *dir;
+    struct dirent *ent;
+    if (deep) {
+        if (rest != NULL) {
+            /* `**` matching zero directories is `rest` from here. */
+            ps_glob_pat(base, rest, nrest, out);
+        } else {
+            /* A trailing `**` yields the directory itself, then every
+               descendant directory. */
+            ps_path_emit(out, base);
+        }
+    }
+    text = ps_cstr(base->len, base->data);
+    dir = opendir(text);
+    free(text);
+    if (dir == NULL) {
+        return;
+    }
+    while ((ent = readdir(dir)) != NULL) {
+        const char *name = ent->d_name;
+        PsBuf child;
+        PsBuf parts[2];
+        if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
+            continue;
+        }
+        parts[0] = *base;
+        parts[1].len = (int64_t)strlen(name);
+        parts[1].data = (char *)name;
+        if (deep) {
+            ps_path_join(parts, 2, &child);
+            if (ps_path_isdir(child.len, child.data)) {
+                if (rest == NULL) {
+                    ps_path_emit(out, &child);
+                }
+                ps_glob_seg(&child, seg, ns, rest, nrest, out);
+            }
+            continue;
+        }
+        if (!ps_fnmatch(parts[1].len, parts[1].data, ns, seg)) {
+            continue;
+        }
+        if (rest == NULL) {
+            ps_path_join(parts, 2, &child);
+            ps_path_emit(out, &child);
+            continue;
+        }
+        ps_path_join(parts, 2, &child);
+        if (ps_path_isdir(child.len, child.data)) {
+            ps_glob_pat(&child, rest, nrest, out);
+        }
+    }
+    closedir(dir);
+}
+
+static void ps_glob_pat(PsBuf *base, const char *pat, int64_t np, PsSeq *out) {
+    int64_t slash = 0;
+    while (slash < np && pat[slash] != '/') {
+        slash += 1;
+    }
+    /* PurePath parsing drops empty and '.' segments. */
+    if (slash == 0 || (slash == 1 && pat[0] == '.')) {
+        if (slash < np) {
+            ps_glob_pat(base, pat + slash + 1, np - slash - 1, out);
+        }
+        return;
+    }
+    ps_glob_seg(base, pat, slash, slash < np ? pat + slash + 1 : NULL, slash < np ? np - slash - 1 : 0, out);
+}
+
+PsSeq *ps_path_glob(PsPath *path, int64_t np, const char *pat) {
+    int64_t at;
+    PsSeq *out;
+    while (np > 0 && pat[np - 1] == '/') {
+        np -= 1;
+    }
+    if (np == 0) {
+        ps_raise_cstr(PS_VALUE, "Unacceptable pattern");
+    }
+    if (pat[0] == '/') {
+        ps_raise_cstr(PS_VALUE, "Non-relative patterns are unsupported");
+    }
+    for (at = 0; at < np;) {
+        int64_t ns = 0;
+        int64_t i;
+        int deep = 0;
+        while (at + ns < np && pat[at + ns] != '/') {
+            ns += 1;
+        }
+        for (i = 0; i + 1 < ns; i++) {
+            if (pat[at + i] == '*' && pat[at + i + 1] == '*') {
+                deep = 1;
+            }
+        }
+        if (deep && !ps_glob_star(pat + at, ns)) {
+            ps_raise_cstr(PS_VALUE, "Invalid pattern: '**' can only be an entire path component");
+        }
+        at += ns + 1;
+    }
+    out = ps_seq_new((int64_t)sizeof(PsPath *), 0);
+    ps_glob_pat(&path->path, pat, np, out);
+    return out;
+}
