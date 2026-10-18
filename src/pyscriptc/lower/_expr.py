@@ -389,6 +389,14 @@ class ExprMixin:
         folded = self._const_tuple_membership(node, span, negated)
         if folded is not None:
             return folded
+        if self._is_environ(node.comparators[0]):
+            needle = self._expr(node.left)
+            if needle["type"]["kind"] != "str":
+                self.fail(node, "PS1003", "in on os.environ takes str")
+            call = self._abi_call("os", "environ.contains", [needle], {"kind": "bool"}, "ps_env_has", span)
+            if negated:
+                return {"kind": "unary", "op": "not", "operand": call, "type": {"kind": "bool"}, "span": span}
+            return call
         needle = self._expr(node.left)
         hay = self._expr(node.comparators[0])
         hay_kind = hay["type"]["kind"]
@@ -568,6 +576,11 @@ class ExprMixin:
     def _subscript(self, node: ast.Subscript, span: dict[str, Any]) -> dict[str, Any]:
         if isinstance(node.slice, ast.Slice):
             return self._slice(node, span)
+        if self._is_environ(node.value):
+            index = self._expr(node.slice)
+            if index["type"]["kind"] != "str":
+                self.fail(node, "PS1003", "an os.environ key is str")
+            return self._abi_call("os", "environ.getitem", [index], {"kind": "str"}, "ps_os_getenv", span)
         value = self._expr(node.value)
         index = self._expr(node.slice)
         kind = value["type"]["kind"]

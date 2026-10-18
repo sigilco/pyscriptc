@@ -26,6 +26,8 @@ from pyscriptc.stdmore import (
 _CMP = {"eq": ast.Eq, "ne": ast.NotEq, "lt": ast.Lt, "le": ast.LtE, "gt": ast.Gt, "ge": ast.GtE}
 _BIN = {"add": ast.Add, "sub": ast.Sub, "mul": ast.Mult, "floordiv": ast.FloorDiv}
 _OPEN = {"r": 1, "w": 2, "rb": 3, "wb": 4, "a": 5, "ab": 6}
+# NamedTemporaryFile adds the read/write `+` modes; `open` keeps _OPEN only.
+_TEMP_OPEN = {**_OPEN, "w+": 7, "w+b": 8}
 
 
 def rest_call(
@@ -40,6 +42,12 @@ def rest_call(
         return _exit(lo, node, span)
     if module == "importlib.resources" and attr == "as_file":
         return _as_file_value(lo, node, span)
+    if module == "os" and attr == "getenv":
+        # The fixed row models the 1-arg form; the 2-arg form returns the
+        # default instead of raising KeyError.
+        return _getenv(lo, node, span)
+    if module == "tempfile" and attr == "NamedTemporaryFile":
+        return _named_temp(lo, node, span)
     message = CALL_FENCES.get((module, attr))
     if message:
         lo.fail(node, "PS2001", message)
@@ -296,6 +304,55 @@ def _as_float(lo: Any, node: ast.AST, arg: dict[str, Any], span: dict[str, Any],
     if arg["type"]["kind"] != "float":
         lo.fail(node, "PS1003", f"{what} argument is {arg['type']['kind']}, expected float")
     return arg
+
+
+def _getenv(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    lo._reject_keywords(node)
+    args = [lo._expr(arg) for arg in node.args]
+    for arg in args:
+        if arg["type"]["kind"] != "str":
+            lo.fail(node, "PS1003", "os.getenv takes str arguments")
+    if len(args) == 1:
+        return lo._abi_call("os", "getenv", args, {"kind": "str"}, "ps_os_getenv", span)
+    if len(args) == 2:
+        return lo._abi_call("os", "getenv", args, {"kind": "str"}, "ps_os_getenv_or", span)
+    lo.fail(node, "PS2003", "os.getenv expects 1 or 2 argument(s)")
+    raise AssertionError("unreachable")
+
+
+def _named_temp(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """tempfile.NamedTemporaryFile(mode, delete) maps onto the open handle
+    machinery: it returns a TextIO/BytesIO class whose ps_io_close unlinks
+    the file when `delete` is true. `name`, `dir`, and the other CPython
+    keywords stay fenced.
+    """
+    if len(node.args) > 1:
+        lo.fail(node, "PS2003", "tempfile.NamedTemporaryFile expects 0 or 1 argument(s)")
+    if node.args and any(kw.arg == "mode" for kw in node.keywords):
+        lo.fail(node, "PS2003", "NamedTemporaryFile mode is given twice")
+    for kw in node.keywords:
+        if kw.arg not in {"mode", "delete"}:
+            lo.fail(node, "PS2003", "tempfile.NamedTemporaryFile lowers mode and delete keyword arguments")
+    keep = 0
+    for kw in node.keywords:
+        if kw.arg == "delete":
+            if not isinstance(kw.value, ast.Constant) or not isinstance(kw.value.value, bool):
+                lo.fail(kw.value, "PS2002", "NamedTemporaryFile delete is a bool literal")
+            keep = 0 if kw.value.value else 1
+    mode = "w+b"
+    positional = [*node.args, *[kw.value for kw in node.keywords if kw.arg == "mode"]]
+    if positional:
+        arg = positional[0]
+        if not isinstance(arg, ast.Constant) or not isinstance(arg.value, str) or arg.value not in _TEMP_OPEN:
+            lo.fail(arg, "PS2002", "NamedTemporaryFile mode is one of r, w, rb, wb, a, ab, w+, w+b")
+        mode = arg.value
+    code = _TEMP_OPEN[mode]
+    cls = "BytesIO" if "b" in mode else "TextIO"
+    args = [
+        {"kind": "const", "value": code, "type": {"kind": "int"}, "span": span},
+        {"kind": "const", "value": keep, "type": {"kind": "int"}, "span": span},
+    ]
+    return lo._abi_call("tempfile", "NamedTemporaryFile", args, _class(cls), "ps_temp_named", span)
 
 
 def _exit(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
