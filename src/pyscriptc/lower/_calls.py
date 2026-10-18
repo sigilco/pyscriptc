@@ -24,12 +24,14 @@ from pyscriptc.errors import span_of
 from pyscriptc.ir import types_equal
 from pyscriptc.lower._core import (
     _assign,
+    _attr,
     _binary_int,
     _compare,
     _const_bool,
     _const_int,
     _const_none,
     _dotted,
+    _len_call,
     _name,
     _show,
 )
@@ -49,10 +51,6 @@ class CallsMixin:
             return self._all_any(node, span, True)
         if name == "any":
             return self._all_any(node, span, False)
-        if name == "enumerate":
-            self.fail(node, "PS2002", "enumerate is only lowered as the iterator of a for")
-        if name == "zip":
-            self.fail(node, "PS2002", "zip is only lowered as the iterator of a for")
         if name == "set":
             return self._set_call(node, span, expect)
         if name == "frozenset":
@@ -61,8 +59,6 @@ class CallsMixin:
             return self._bool_call(node, span)
         if name == "list":
             return self._list_call(node, span, expect)
-        if name == "range":
-            self.fail(node, "PS2002", "range is only lowered as the iterator of a for")
         found = builtin_call(self, node, span)
         if found is not None:
             return found
@@ -1033,9 +1029,57 @@ class CallsMixin:
         if len(node.args) != 1:
             self.fail(node, "PS2003", "list expects 1 argument(s)")
         source = self._expr(node.args[0])
-        if source["type"]["kind"] != "list":
+        src_t = source["type"]
+        if src_t["kind"] == "class" and self.classes.get(src_t["name"], {}).get("iterator"):
+            # list(it): drain the remaining elements and move the cursor to
+            # the end, like CPython's consuming list(iterator).
+            elem = src_t["elem"]
+            if elem["kind"] == "bool":
+                self.fail(node, "PS2002", "list[bool] is not lowered")
+            typ = {"kind": "list", "elem": elem}
+            if expect is not None and expect["kind"] == "list":
+                self._expect(node, typ, expect, "list")
+            itn = self._pin(source, self.prelude, span)
+            int_t = {"kind": "int"}
+            seq_t = {"kind": "list", "elem": elem}
+            seq_r = _attr(itn, "seq", seq_t, span)
+            idx_r = _attr(itn, "idx", int_t, span)
+            out = self._temp("dr")
+            self.locals[out] = typ
+            self.prelude.extend(
+                [
+                    _assign(
+                        out,
+                        self._abi_call(
+                            "builtins",
+                            "list",
+                            [
+                                seq_r,
+                                idx_r,
+                                _const_int(0, span),
+                                _const_int(1, span),
+                                _const_int(0, span),
+                                _const_int(1, span),
+                            ],
+                            typ,
+                            "ps_seq_slice",
+                            span,
+                        ),
+                        span,
+                    ),
+                    {
+                        "kind": "setattr",
+                        "object": itn,
+                        "name": "idx",
+                        "value": _len_call(seq_r, span),
+                        "span": span,
+                    },
+                ]
+            )
+            return _name(out, typ, span)
+        if src_t["kind"] != "list":
             self.fail(node, "PS2002", "list() takes a list, a set, or *args")
-        elem = source["type"]["elem"]
+        elem = src_t["elem"]
         if elem["kind"] == "bool":
             self.fail(node, "PS2002", "list[bool] is not lowered")
         typ = {"kind": "list", "elem": elem}

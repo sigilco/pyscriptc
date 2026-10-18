@@ -15,6 +15,7 @@ import os
 import sys
 from typing import Any, NoReturn
 
+from pyscriptc.builtins import USER_EXC_BASE
 from pyscriptc.errors import format_diagnostic, span_of
 from pyscriptc.ir import SUBSET, cpython_version, types_equal
 from pyscriptc.lower._calls import CallsMixin
@@ -124,9 +125,8 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         # `if x is not None:` narrowing on a tagged optional: inside the taken
         # branch a read of the name lowers to its `_val` field. name -> opt typ.
         self.opt_unwrap: dict[str, dict[str, Any]] = {}
-        # User exception classes take codes after the builtin table (1–7);
-        # builtins.USER_EXC_BASE pins the same floor.
-        self.exc_n = 8
+        # User exception classes take codes after the builtin table (1–8).
+        self.exc_n = USER_EXC_BASE
 
     def fail(self, node: ast.AST, code: str, message: str) -> NoReturn:
         raise Fence(code, message, span_of(node, self.filename), self.function)
@@ -708,11 +708,13 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
 
     def _comp(
         self,
-        node: ast.ListComp | ast.SetComp | ast.DictComp,
+        node: ast.ListComp | ast.SetComp | ast.DictComp | ast.GeneratorExp,
         span: dict[str, Any],
         expect: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        if isinstance(node, ast.ListComp):
+        # GeneratorExp lowers like ListComp: the elements materialize
+        # eagerly into a list (the eager model documented for R24).
+        if isinstance(node, (ast.ListComp, ast.GeneratorExp)):
             kind = "list"
         elif isinstance(node, ast.SetComp):
             kind = "set"

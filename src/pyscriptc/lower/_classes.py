@@ -869,6 +869,12 @@ class ClassesMixin:
             return {"kind": "func", "params": params, "return": ret}
         if alias == "Tuple":
             return self._tuple_annotation(node)
+        if alias == "Iterable":
+            typ = {"kind": "list", "elem": self._annotation(node.slice)}
+            self._reject_banned_type(node, typ)
+            return typ
+        if alias == "Iterator":
+            return self._iter_type(self._annotation(node.slice), node)
         if alias in _UNWRAP_FORMS:
             inner = node.slice
             if alias == "Annotated":
@@ -947,6 +953,31 @@ class ClassesMixin:
         elif not existing.get("tuple"):
             self.fail(node, "PS2002", f"{name} clashes with a tuple type")
         return {"kind": "class", "name": name, "label": label}
+
+    def _iter_type(self, elem: dict[str, Any], node: ast.AST) -> dict[str, Any]:
+        """`Iterator[T]` / the `iter()` value: a synthetic record
+        {seq: list[T], idx: int} whose cursor `next()`/`for` advance. The
+        sequence materializes eagerly (the R24 model), so the record is a
+        cursor into a list, not a lazy pull."""
+        self._reject_banned_type(node, {"kind": "list", "elem": elem})
+        name = f"iter_{_type_slug(elem)}"
+        existing = self.classes.get(name)
+        if existing is None:
+            if name in self.declared:
+                self.fail(node, "PS2002", f"{name} clashes with an iterator type")
+            self.classes[name] = {
+                "fields": [
+                    {"name": "seq", "type": {"kind": "list", "elem": elem}},
+                    {"name": "idx", "type": {"kind": "int"}},
+                ],
+                "methods": {},
+                "synthetic": True,
+                "iterator": True,
+            }
+            self.declared.add(name)
+        elif not existing.get("iterator"):
+            self.fail(node, "PS2002", f"{name} clashes with an iterator type")
+        return {"kind": "class", "name": name, "elem": elem}
 
     def _tuple_expr(self, node: ast.Tuple, span: dict[str, Any]) -> dict[str, Any]:
         if len(node.elts) < 2:
