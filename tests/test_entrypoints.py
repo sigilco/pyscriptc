@@ -111,10 +111,16 @@ def test_validation_marks_entry_fences():
     R8/R9: exceptions_flow's definitions now lower (try/finally, except-as);
     its one remaining fence is `print(err)` on an exc at the entry statement,
     which sits one entry fix from flipping — recorded so the next milestone
-    decides whether print of exc should lift."""
+    decides whether print of exc should lift.
+    R12: gcd_lcm's definitions now lower too (int `%`, `//`, `**`); its
+    entry fences are unannotated module-level `g`/`total` (PS1001), the
+    same "needs an annotation before use" family as before."""
     records = entrypoints.scan(with_fences=True)
     flips = sorted(r["path"] for r in records if r["predicted_flip"])
-    assert flips == ["benchmarks/compat2/corpus/scripts/exceptions_flow/main.py"]
+    assert flips == [
+        "benchmarks/compat2/corpus/scripts/exceptions_flow/main.py",
+        "benchmarks/compat2/corpus/scripts/gcd_lcm/main.py",
+    ]
     fib = next(r for r in records if r["path"].endswith("fib_recursive/main.py"))
     assert fib["first_fence"] is None
     assert fib["fences_at_entry"] == []

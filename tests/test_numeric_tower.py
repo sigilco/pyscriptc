@@ -233,9 +233,9 @@ def test_numeric_tower_stays_fenced(tmp_path: Path) -> None:
             "bool arithmetic is not lowered",
         ),
         (
-            "percent_var.py",
-            'def probe() -> str:\n    s: str = "%d"\n    return s % 3\n',
-            "a format string must be a literal",
+            "percent_non_str.py",
+            "def probe() -> int:\n    xs: list[int] = [1]\n    return xs % 3\n",
+            "% formatting needs a str left operand",
         ),
         (
             "float_pow.py",
@@ -253,7 +253,7 @@ def test_numeric_tower_stays_fenced(tmp_path: Path) -> None:
             "BitAnd on int and float is not lowered",
         ),
     ]
-    skip_check = {"float_pow.py", "invert_float.py", "band_float.py"}
+    skip_check = {"float_pow.py", "invert_float.py", "band_float.py", "percent_non_str.py"}
     for name, source, text in cases:
         path = write_case(tmp_path, name, source)
         args = ["compile", str(path), "--emit", "llvm", "-o", str(tmp_path / f"{name}.ll")]

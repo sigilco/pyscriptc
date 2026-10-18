@@ -195,7 +195,7 @@ class ExprMixin:
         if isinstance(node.op, ast.Pow):
             return self._pow(node, left, right, span)
         if isinstance(node.op, ast.Mod) and (left_kind not in _NUMERIC or right_kind not in _NUMERIC):
-            # Anything but a numeric `%` stays the format-string fence it was.
+            # Anything but a numeric `%` stays on the format-string path.
             return self._percent(node, span)
         if isinstance(node.op, ast.BitOr):
             which = "union"
@@ -369,9 +369,7 @@ class ExprMixin:
         left_kind = left["type"]["kind"]
         right_kind = right["type"]["kind"]
         same_class = (
-            left_kind == "class"
-            and right_kind == "class"
-            and left["type"].get("name") == right["type"].get("name")
+            left_kind == "class" and right_kind == "class" and left["type"].get("name") == right["type"].get("name")
         )
         if same_class and left["type"].get("name") in COMPARE_CLASSES:
             return _compare(op, left, right, span)
