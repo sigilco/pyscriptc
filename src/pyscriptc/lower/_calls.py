@@ -1287,7 +1287,7 @@ class CallsMixin:
                         param["type"],
                         got.get("span", span_of(node, self.filename)),
                     )
-            if not types_equal(got["type"], param["type"]):
+            if not types_equal(got["type"], param["type"]) and not self._accepts_protocol(param["type"], got["type"]):
                 self.fail(node, "PS1003", f"argument {param['name']} of {what} has the wrong type")
             args.append(got)
         return args
