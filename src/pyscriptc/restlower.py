@@ -153,9 +153,6 @@ def builtin_call(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any
         "getattr",
         "hasattr",
         "abs",
-        "min",
-        "max",
-        "sum",
         "ord",
         "chr",
         "round",
@@ -175,6 +172,14 @@ def builtin_call(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any
         return _sum(lo, node, span)
     if name == "sorted":
         return _sorted(lo, node, span)
+    if name == "divmod":
+        return _divmod(lo, node, span)
+    if name in {"hex", "oct", "bin"}:
+        return _base_repr(lo, node, span, name)
+    if name == "pow":
+        return _pow_call(lo, node, span)
+    if name == "repr":
+        return _repr(lo, node, span)
     if name == "ord":
         return _ord(lo, node, span)
     if name == "chr":
@@ -184,11 +189,39 @@ def builtin_call(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any
     return None
 
 
+def _span_to(node: ast.AST, sub: ast.AST) -> ast.AST:
+    """Copy a call's source span onto a synthesized expression, like the sorted block does."""
+
+    for item in ast.walk(sub):
+        item.lineno, item.col_offset = node.lineno, node.col_offset
+        item.end_lineno, item.end_col_offset = node.end_lineno, node.end_col_offset
+    return sub
+
+
+def _pin(lo: Any, value: dict[str, Any], span: dict[str, Any], hint: str) -> dict[str, Any]:
+    """Store a call argument in a fresh local so later uses read the name."""
+
+    temp = lo._temp(hint)
+    lo.locals[temp] = value["type"]
+    lo.prelude.append({"kind": "assign", "target": temp, "value": value, "span": span})
+    return {"kind": "name", "id": temp, "type": value["type"], "span": span}
+
+
 def _const_int(value: int, span: dict[str, Any]) -> dict[str, Any]:
     return {"kind": "const", "value": str(value), "type": {"kind": "int"}, "span": span}
 
 
 _PRINT_KINDS = {"str", "int", "float", "bool", "bytes"}
+
+
+def _printable(lo: Any, typ: dict[str, Any]) -> bool:
+    """printable: a scalar or a tuple class whose fields are all printable."""
+
+    if typ["kind"] in _PRINT_KINDS:
+        return True
+    if typ["kind"] == "class" and lo.classes.get(typ["name"], {}).get("tuple"):
+        return all(_printable(lo, field["type"]) for field in lo.classes[typ["name"]]["fields"])
+    return False
 
 
 def _print(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
@@ -224,7 +257,7 @@ def _print(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         lo.fail(node, "PS2002", "starred calls are not lowered")
     args = [lo._expr(arg) for arg in node.args]
     for arg in args:
-        if arg["type"]["kind"] not in _PRINT_KINDS:
+        if not _printable(lo, arg["type"]):
             lo.fail(
                 node,
                 "PS2003",
@@ -750,30 +783,140 @@ def _abs(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
 
 
 def _minmax(lo: Any, node: ast.Call, span: dict[str, Any], name: str) -> dict[str, Any]:
-    if len(node.args) != 2:
-        lo.fail(node, "PS2003", f"{name} expects 2 argument(s)")
-    left = lo._expr(node.args[0])
-    right = lo._expr(node.args[1])
-    if left["type"]["kind"] != right["type"]["kind"] or left["type"]["kind"] not in {"int", "float", "str", "bytes"}:
-        lo.fail(node, "PS2003", f"{name} takes two values of the same scalar type")
-    return {
+    """min/max: two scalars stay a builtin call; the iterable form folds into sorted().
+
+    A stable sort picks the first of equal keys, which is CPython's min/max
+    tie-break; max is `sorted(reverse=True)[0]`. An empty sequence raises
+    ValueError before the sort, matching CPython's message.
+    """
+    key = None
+    for kw in node.keywords:
+        if kw.arg is None:
+            lo.fail(node, "PS2002", "**kwargs are not lowered")
+        if kw.arg == "key":
+            key = kw.value
+        else:
+            lo._reject_keywords(node)
+    if key is None and len(node.args) == 2:
+        left = lo._expr(node.args[0])
+        right = lo._expr(node.args[1])
+        if left["type"]["kind"] != right["type"]["kind"] or left["type"]["kind"] not in _SORT_ELEM:
+            lo.fail(node, "PS2003", f"{name} takes two values of the same scalar type")
+        return {
+            "kind": "call",
+            "callee": {"kind": "builtin", "name": name},
+            "args": [left, right],
+            "type": left["type"],
+            "span": span,
+        }
+    if not node.args:
+        lo.fail(node, "PS2003", f"{name} expects at least 1 argument(s)")
+    if len(node.args) == 1:
+        arg = lo._expr(node.args[0])
+    else:
+        elems = [lo._expr(item) for item in node.args]
+        kind = elems[0]["type"]["kind"]
+        if kind not in _SORT_ELEM or any(elem["type"]["kind"] != kind for elem in elems):
+            lo.fail(node, "PS2003", f"{name} takes scalars of one type")
+        arg = {"kind": "list", "elems": elems, "type": {"kind": "list", "elem": elems[0]["type"]}, "span": span}
+    if arg["type"]["kind"] == "dict":
+        seq = _pin(lo, arg, span, "mmseq")
+        keys_call = ast.Call(
+            func=ast.Attribute(value=ast.Name(id=seq["id"], ctx=ast.Load()), attr="keys", ctx=ast.Load()),
+            args=[],
+            keywords=[],
+        )
+        arg = lo._expr(_span_to(node, keys_call))
+    if arg["type"]["kind"] != "list" or arg["type"]["elem"]["kind"] not in _SORT_ELEM:
+        lo.fail(node, "PS2003", f"{name} takes a list of int, float, str, or bytes")
+    if key is None:
+        kind = arg["type"]["elem"]["kind"]
+        symbol = "ps_" + name + "_" + {"int": "i64", "float": "f64", "str": "buf", "bytes": "buf"}[kind]
+        return lo._abi_call("builtins", name, [arg], {"kind": kind}, symbol, span)
+    seq = _pin(lo, arg, span, "mmseq")
+    len_call = {
         "kind": "call",
-        "callee": {"kind": "builtin", "name": name},
-        "args": [left, right],
-        "type": left["type"],
+        "callee": {"kind": "builtin", "name": "len"},
+        "args": [seq],
+        "type": {"kind": "int"},
+        "span": span,
+    }
+    empty = {
+        "kind": "compare",
+        "op": "==",
+        "left": len_call,
+        "right": {"kind": "const", "value": "0", "type": {"kind": "int"}, "span": span},
+        "type": {"kind": "bool"},
+        "span": span,
+    }
+    lo.prelude.append(
+        {
+            "kind": "if",
+            "cond": empty,
+            "then": [
+                {
+                    "kind": "raise",
+                    "exc": "ValueError",
+                    "message": {
+                        "kind": "const",
+                        "value": f"{name}() iterable argument is empty",
+                        "type": {"kind": "str"},
+                        "span": span,
+                    },
+                    "span": span,
+                }
+            ],
+            "else": [],
+            "span": span,
+        }
+    )
+    kws = [ast.keyword(arg="key", value=key)]
+    if name == "max":
+        kws.append(ast.keyword(arg="reverse", value=ast.Constant(value=True)))
+    call = ast.Call(
+        func=ast.Name(id="sorted", ctx=ast.Load()), args=[ast.Name(id=seq["id"], ctx=ast.Load())], keywords=kws
+    )
+    ordered = _sorted(lo, _span_to(node, call), span)
+    return {
+        "kind": "subscript",
+        "value": ordered,
+        "index": {"kind": "const", "value": "0", "type": {"kind": "int"}, "span": span},
+        "type": arg["type"]["elem"],
         "span": span,
     }
 
 
 def _sum(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
-    if len(node.args) != 1:
-        lo.fail(node, "PS2003", "sum expects 1 argument(s)")
+    """sum(xs) is a runtime fold; sum(xs, start) pins the fold and adds once.
+
+    The `+` rides the normal binary lowering, so int + float promotes like
+    CPython. `start` is keyword-or-positional like CPython.
+    """
+    start = None
+    for kw in node.keywords:
+        if kw.arg is None:
+            lo.fail(node, "PS2002", "**kwargs are not lowered")
+        if kw.arg == "start":
+            start = kw.value
+        else:
+            lo._reject_keywords(node)
+    if len(node.args) == 2:
+        if start is not None:
+            lo.fail(node, "PS2003", "sum got multiple values for argument 'start'")
+        start = node.args[1]
+    elif len(node.args) != 1:
+        lo.fail(node, "PS2003", "sum expects 1 or 2 argument(s)")
     arg = lo._expr(node.args[0])
     if arg["type"]["kind"] != "list" or arg["type"]["elem"]["kind"] not in {"int", "float"}:
         lo.fail(node, "PS2003", "sum takes a list of int or float")
     kind = arg["type"]["elem"]["kind"]
     symbol = "ps_sum_i64" if kind == "int" else "ps_sum_f64"
-    return lo._abi_call("builtins", "sum", [arg], {"kind": kind}, symbol, span)
+    call = lo._abi_call("builtins", "sum", [arg], {"kind": kind}, symbol, span)
+    if start is None:
+        return call
+    total = _pin(lo, call, span, "sum")
+    add = ast.BinOp(left=ast.Name(id=total["id"], ctx=ast.Load()), op=ast.Add(), right=start)
+    return lo._expr(_span_to(node, add))
 
 
 _SORT_ELEM = {"int", "float", "str", "bytes"}
@@ -782,131 +925,157 @@ _SORT_ELEM = {"int", "float", "str", "bytes"}
 def _sorted(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if len(node.args) != 1:
         lo.fail(node, "PS2003", "sorted expects 1 argument(s)")
-    if node.keywords:
-        if any(kw.arg is None for kw in node.keywords):
+    reverse = False
+    key = None
+    for kw in node.keywords:
+        if kw.arg is None:
             lo.fail(node, "PS2002", "**kwargs are not lowered")
-        if len(node.keywords) == 1 and node.keywords[0].arg == "key":
-            lam = node.keywords[0].value
-            if not isinstance(lam, ast.Lambda):
-                lo.fail(lam, "PS2003", "sorted key= takes an inline lambda")
-            args = lam.args
-            params = args.posonlyargs + args.args
-            variadic = args.vararg or args.kwarg or args.kwonlyargs or args.defaults or any(args.kw_defaults)
-            if len(params) != 1 or variadic:
-                lo.fail(lam, "PS2003", "a sorted key= lambda takes one positional parameter")
-            for sub in ast.walk(lam.body):
-                if isinstance(sub, (ast.Lambda, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
-                    lo.fail(lam, "PS2003", "a sorted key= lambda is a plain expression")
+        if kw.arg == "key":
+            key = kw.value
+        elif kw.arg == "reverse":
+            if not isinstance(kw.value, ast.Constant) or not isinstance(kw.value.value, bool):
+                lo.fail(kw, "PS2003", "sorted reverse= takes a True or False literal")
+            reverse = kw.value.value
+        else:
+            lo._reject_keywords(node)
+    if key is not None:
+        lam = key
+        if not isinstance(lam, ast.Lambda):
+            lo.fail(lam, "PS2003", "sorted key= takes an inline lambda")
+        args = lam.args
+        params = args.posonlyargs + args.args
+        variadic = args.vararg or args.kwarg or args.kwonlyargs or args.defaults or any(args.kw_defaults)
+        if len(params) != 1 or variadic:
+            lo.fail(lam, "PS2003", "a sorted key= lambda takes one positional parameter")
+        for sub in ast.walk(lam.body):
+            if isinstance(sub, (ast.Lambda, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+                lo.fail(lam, "PS2003", "a sorted key= lambda is a plain expression")
 
-            arg = lo._expr(node.args[0])
-            kind = arg["type"]["kind"]
-            if kind == "dict":
-                elem = arg["type"]["key"]
-                elems_expr = "{s}.keys()"
-            elif kind == "list":
-                elem = arg["type"]["elem"]
-                elems_expr = "{s}"
-            else:
-                lo.fail(node.args[0], "PS2003", "sorted key= takes a list or dict")
-                raise AssertionError("unreachable")
-            if elem["kind"] not in _SORT_ELEM:
-                lo.fail(node.args[0], "PS2003", "sorted key= iterates int, float, str, or bytes elements")
+        arg = lo._expr(node.args[0])
+        kind = arg["type"]["kind"]
+        if kind == "dict":
+            elem = arg["type"]["key"]
+            elems_expr = "{s}.keys()"
+        elif kind == "list":
+            elem = arg["type"]["elem"]
+            elems_expr = "{s}"
+        else:
+            lo.fail(node.args[0], "PS2003", "sorted key= takes a list or dict")
+            raise AssertionError("unreachable")
+        if elem["kind"] not in _SORT_ELEM:
+            lo.fail(node.args[0], "PS2003", "sorted key= iterates int, float, str, or bytes elements")
 
-            w = params[0].arg
-            fields = lam.body.elts if isinstance(lam.body, ast.Tuple) else [lam.body]
+        w = params[0].arg
+        fields = lam.body.elts if isinstance(lam.body, ast.Tuple) else [lam.body]
 
-            saved_w = lo.locals.get(w)
-            lo.locals[w] = elem
-            probes = [lo._expr(field) for field in fields]
-            if saved_w is None:
-                del lo.locals[w]
-            else:
-                lo.locals[w] = saved_w
-            if any(p["type"]["kind"] not in _SORT_ELEM for p in probes):
-                lo.fail(lam, "PS2003", "a sorted key= lambda returns scalars or a tuple of scalars")
+        saved_w = lo.locals.get(w)
+        lo.locals[w] = elem
+        probes = [lo._expr(field) for field in fields]
+        if saved_w is None:
+            del lo.locals[w]
+        else:
+            lo.locals[w] = saved_w
+        if any(p["type"]["kind"] not in _SORT_ELEM for p in probes):
+            lo.fail(lam, "PS2003", "a sorted key= lambda returns scalars or a tuple of scalars")
 
-            def temp(hint: str) -> str:
-                return lo._temp(hint).replace(".", "_")
+        def temp(hint: str) -> str:
+            return lo._temp(hint).replace(".", "_")
 
-            s = temp("seq")
-            e = temp("elems")
-            keys = [temp(f"k{i}") for i in range(len(fields))]
-            n = temp("n")
-            idx = temp("idx")
-            i = temp("i")
-            j = temp("j")
-            v = temp("v")
-            out = temp("out")
+        s = temp("seq")
+        e = temp("elems")
+        keys = [temp(f"k{i}") for i in range(len(fields))]
+        n = temp("n")
+        idx = temp("idx")
+        i = temp("i")
+        j = temp("j")
+        v = temp("v")
+        out = temp("out")
 
-            lo.locals[s] = arg["type"]
-            lo.prelude.append({"kind": "assign", "target": s, "value": arg, "span": span})
-            lo.locals[e] = {"kind": "list", "elem": elem}
-            for p, k in zip(probes, keys, strict=True):
-                lo.locals[k] = {"kind": "list", "elem": p["type"]}
-            for t in (n, i, j, v):
-                lo.locals[t] = {"kind": "int"}
-            lo.locals[idx] = {"kind": "list", "elem": {"kind": "int"}}
-            lo.locals[out] = {"kind": "list", "elem": elem}
+        lo.locals[s] = arg["type"]
+        lo.prelude.append({"kind": "assign", "target": s, "value": arg, "span": span})
+        lo.locals[e] = {"kind": "list", "elem": elem}
+        for p, k in zip(probes, keys, strict=True):
+            lo.locals[k] = {"kind": "list", "elem": p["type"]}
+        for t in (n, i, j, v):
+            lo.locals[t] = {"kind": "int"}
+        lo.locals[idx] = {"kind": "list", "elem": {"kind": "int"}}
+        lo.locals[out] = {"kind": "list", "elem": elem}
 
-            def less(field: int) -> str:
-                jb = f"{idx}[{j} - 1]"
-                lt = f"{keys[field]}[{v}] < {keys[field]}[{jb}]"
-                if field == len(keys) - 1:
-                    return lt
-                return f"{lt} or ({keys[field]}[{v}] == {keys[field]}[{jb}] and ({less(field + 1)}))"
+        # reverse=True flips the comparator; the insertion sort stays
+        # stable, so equal keys keep their original order like CPython.
+        cmp_op = ">" if reverse else "<"
 
-            # The block reuses the lambda's own parameter name as the loop
-            # variable; a pre-existing local is pinned and restored after.
-            lines = [f"{e} = {elems_expr.format(s=s)}"]
-            if saved_w is not None:
-                save_w = temp("save")
-                lo.locals[save_w] = elem
-                lines.append(f"{save_w} = {w}")
-            for k in keys:
-                lines.append(f"{k} = []")
-            lines.append(f"for {w} in {e}:")
-            for pos, k in enumerate(keys):
-                lines.append(f"    {k}.append({ast.unparse(fields[pos])})")
-            if saved_w is not None:
-                lines.append(f"{w} = {save_w}")
-            lines += [
-                f"{n} = len({keys[0]})",
-                f"{idx} = []",
-                f"{i} = 0",
-                f"while {i} < {n}:",
-                f"    {idx}.append({i})",
-                f"    {i} = {i} + 1",
-                f"{i} = 1",
-                f"while {i} < {n}:",
-                f"    {v} = {idx}[{i}]",
-                f"    {j} = {i}",
-                f"    while {j} > 0 and ({less(0)}):",
-                f"        {idx}[{j}] = {idx}[{j} - 1]",
-                f"        {j} = {j} - 1",
-                f"    {idx}[{j}] = {v}",
-                f"    {i} = {i} + 1",
-                f"{out} = []",
-                f"{i} = 0",
-                f"while {i} < {n}:",
-                f"    {out}.append({e}[{idx}[{i}]])",
-                f"    {i} = {i} + 1",
-            ]
-            for stmt in ast.parse("\n".join(lines)).body:
-                for sub in ast.walk(stmt):
-                    sub.lineno, sub.col_offset = node.lineno, node.col_offset
-                    sub.end_lineno, sub.end_col_offset = node.end_lineno, node.end_col_offset
-                lo.prelude.extend(lo._body([stmt]))
-            return {"kind": "name", "id": out, "type": {"kind": "list", "elem": elem}, "span": span}
-        lo._reject_keywords(node)
+        def less(field: int) -> str:
+            jb = f"{idx}[{j} - 1]"
+            lt = f"{keys[field]}[{v}] {cmp_op} {keys[field]}[{jb}]"
+            if field == len(keys) - 1:
+                return lt
+            return f"{lt} or ({keys[field]}[{v}] == {keys[field]}[{jb}] and ({less(field + 1)}))"
+
+        # The block reuses the lambda's own parameter name as the loop
+        # variable; a pre-existing local is pinned and restored after.
+        lines = [f"{e} = {elems_expr.format(s=s)}"]
+        if saved_w is not None:
+            save_w = temp("save")
+            lo.locals[save_w] = elem
+            lines.append(f"{save_w} = {w}")
+        for k in keys:
+            lines.append(f"{k} = []")
+        lines.append(f"for {w} in {e}:")
+        for pos, k in enumerate(keys):
+            lines.append(f"    {k}.append({ast.unparse(fields[pos])})")
+        if saved_w is not None:
+            lines.append(f"{w} = {save_w}")
+        lines += [
+            f"{n} = len({keys[0]})",
+            f"{idx} = []",
+            f"{i} = 0",
+            f"while {i} < {n}:",
+            f"    {idx}.append({i})",
+            f"    {i} = {i} + 1",
+            f"{i} = 1",
+            f"while {i} < {n}:",
+            f"    {v} = {idx}[{i}]",
+            f"    {j} = {i}",
+            f"    while {j} > 0 and ({less(0)}):",
+            f"        {idx}[{j}] = {idx}[{j} - 1]",
+            f"        {j} = {j} - 1",
+            f"    {idx}[{j}] = {v}",
+            f"    {i} = {i} + 1",
+            f"{out} = []",
+            f"{i} = 0",
+            f"while {i} < {n}:",
+            f"    {out}.append({e}[{idx}[{i}]])",
+            f"    {i} = {i} + 1",
+        ]
+        for stmt in ast.parse("\n".join(lines)).body:
+            for sub in ast.walk(stmt):
+                sub.lineno, sub.col_offset = node.lineno, node.col_offset
+                sub.end_lineno, sub.end_col_offset = node.end_lineno, node.end_col_offset
+            lo.prelude.extend(lo._body([stmt]))
+        return {"kind": "name", "id": out, "type": {"kind": "list", "elem": elem}, "span": span}
     arg = lo._expr(node.args[0])
     if arg["type"]["kind"] != "list" or arg["type"]["elem"]["kind"] not in _SORT_ELEM:
         lo.fail(node, "PS2003", "sorted takes a list of int, float, str, or bytes")
     folded = _const_sorted(arg, span)
     if folded is not None:
+        if reverse:
+            folded = {**folded, "elems": folded["elems"][::-1]}
         return folded
     kind = arg["type"]["elem"]["kind"]
     symbol = {"int": "ps_sorted_i64", "float": "ps_sorted_f64", "str": "ps_sorted_buf", "bytes": "ps_sorted_buf"}[kind]
-    return lo._abi_call("builtins", "sorted", [arg], arg["type"], symbol, span)
+    call = lo._abi_call("builtins", "sorted", [arg], arg["type"], symbol, span)
+    if not reverse:
+        return call
+    seq = _pin(lo, call, span, "sort")
+    lo.prelude.append(
+        {
+            "kind": "expr",
+            "expr": lo._abi_call("builtins", "list.reverse", [seq], {"kind": "none"}, "ps_seq_reverse", span),
+            "span": span,
+        }
+    )
+    return seq
 
 
 def _const_sorted(arg: dict[str, Any], span: dict[str, Any]) -> dict[str, Any] | None:
@@ -925,6 +1094,82 @@ def _const_sorted(arg: dict[str, Any], span: dict[str, Any]) -> dict[str, Any] |
     else:
         return None
     return {"kind": "list", "elems": ordered, "type": arg["type"], "span": span}
+
+
+def _divmod(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """divmod(a, b) is the `(a // b, a % b)` pair as a synthetic tuple_2.
+
+    Each operand pins once because it appears in both halves; the halves ride
+    the existing `//` and `%` lowering, so int, float, and mixed pairs all
+    work, and bool or text operands keep their binop fences.
+    """
+
+    lo._reject_keywords(node)
+    if len(node.args) != 2:
+        lo.fail(node, "PS2003", "divmod expects 2 argument(s)")
+    pinned = [_pin(lo, lo._expr(arg), span, "dv") for arg in node.args]
+    left = ast.Name(id=pinned[0]["id"], ctx=ast.Load())
+    right = ast.Name(id=pinned[1]["id"], ctx=ast.Load())
+    elems = []
+    for op in (ast.FloorDiv(), ast.Mod()):
+        elems.append(lo._expr(_span_to(node, ast.BinOp(left=left, op=op, right=right))))
+    return lo._materialize_tuple(elems, span)
+
+
+_BASE_SYMS = {"hex": "ps_hex_i64", "oct": "ps_oct_i64", "bin": "ps_bin_i64"}
+
+
+def _base_repr(lo: Any, node: ast.Call, span: dict[str, Any], name: str) -> dict[str, Any]:
+    """hex/oct/bin of an int: CPython's `0x`/`0o`/`0b` spellings, sign first."""
+
+    lo._reject_keywords(node)
+    if len(node.args) != 1:
+        lo.fail(node, "PS2003", f"{name} expects 1 argument(s)")
+    arg = lo._expr(node.args[0])
+    if arg["type"]["kind"] != "int":
+        lo.fail(node, "PS1003", f"{name} argument is int")
+    return lo._abi_call("builtins", name, [arg], {"kind": "str"}, _BASE_SYMS[name], span)
+
+
+def _pow_call(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """pow(x, y) is `x ** y`; pow(x, y, m) is `x ** y % m` for ints.
+
+    A negative exponent with a modulus keeps the `**` ValueError instead of
+    computing CPython's modular inverse.
+    """
+
+    lo._reject_keywords(node)
+    if len(node.args) not in {2, 3}:
+        lo.fail(node, "PS2003", "pow expects 2 or 3 argument(s)")
+    base = lo._pow(node, lo._expr(node.args[0]), lo._expr(node.args[1]), span)
+    if len(node.args) == 2:
+        return base
+    mod = lo._expr(node.args[2])
+    if base["type"]["kind"] != "int" or mod["type"]["kind"] != "int":
+        lo.fail(node, "PS2003", "pow with a modulus takes int arguments")
+    return {"kind": "binary", "op": "%", "left": base, "right": mod, "type": {"kind": "int"}, "span": span}
+
+
+def _repr(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """repr(x) is `'%r' % x` — the format engine already owns the spellings."""
+
+    lo._reject_keywords(node)
+    if len(node.args) != 1:
+        lo.fail(node, "PS2003", "repr expects 1 argument(s)")
+    arg = lo._expr(node.args[0])
+    kind = arg["type"]["kind"]
+    style = "percent"
+    if kind == "dict":
+        value_kinds = {"int", "float", "str", "bytes"}
+        if arg["type"]["key"]["kind"] not in {"int", "str"} or arg["type"]["value"]["kind"] not in value_kinds:
+            lo.fail(node, "PS2002", "repr needs scalar dict keys and values")
+        style = "map"
+    elif kind not in {"int", "float", "str", "bool", "bytes"}:
+        lo.fail(node, "PS2004", f"repr of {kind} is not lowered")
+    fmt = {"kind": "const", "value": "%r", "type": {"kind": "str"}, "span": span}
+    expr = lo._abi_call("builtins", "format", [fmt, arg], {"kind": "str"}, "ps_str_format", span)
+    expr["format_style"] = style
+    return expr
 
 
 def _ord(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
