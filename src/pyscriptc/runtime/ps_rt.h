@@ -107,6 +107,7 @@ PsExc *ps_exc_current(void);
 PsExc *ps_exc_make(int32_t code, int64_t n, const char *data);
 void ps_exc_set_cause(PsExc *e, PsExc *cause);
 PsBuf ps_exc_str(PsExc *e);
+void ps_exc_class(PsExc *e, PsBuf *out);
 PsSeq *ps_exc_args(PsExc *e);
 int32_t ps_exc_code(void);
 int32_t ps_exc_isa(int32_t raised, int32_t wanted);
