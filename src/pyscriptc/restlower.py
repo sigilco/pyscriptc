@@ -280,12 +280,19 @@ def _print(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if any(isinstance(arg, ast.Starred) for arg in node.args):
         lo.fail(node, "PS2002", "starred calls are not lowered")
     args = [lo._expr(arg) for arg in node.args]
-    for arg in args:
+    for index, arg in enumerate(args):
         if arg["type"]["kind"] == "class" and lo.classes.get(arg["type"]["name"], {}).get("namedtuple"):
             # A namedtuple prints `P(x=1, y=2)` in CPython; the tuple-class
             # print here would show `(1, 2)`. Fence instead of diverging.
             lo.fail(node, "PS2003", "print of a namedtuple is not lowered; print its fields")
         if not _printable(lo, arg["type"]):
+            if arg["type"]["kind"] == "class":
+                called = lo._dunder_call(node, arg, "__str__", [], arg["span"]) or lo._dunder_call(
+                    node, arg, "__repr__", [], arg["span"]
+                )
+                if called is not None:
+                    args[index] = called
+                    continue
             lo.fail(
                 node,
                 "PS2003",
@@ -1264,6 +1271,11 @@ def _repr(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         if arg["type"]["key"]["kind"] not in {"int", "str"} or arg["type"]["value"]["kind"] not in value_kinds:
             lo.fail(node, "PS2002", "repr needs scalar dict keys and values")
         style = "map"
+    elif kind == "class":
+        called = lo._dunder_call(node, arg, "__repr__", [], span)
+        if called is not None:
+            return called
+        lo.fail(node, "PS2004", f"repr of {kind} is not lowered")
     elif kind not in {"int", "float", "str", "bool", "bytes"}:
         lo.fail(node, "PS2004", f"repr of {kind} is not lowered")
     fmt = {"kind": "const", "value": "%r", "type": {"kind": "str"}, "span": span}
@@ -1390,6 +1402,10 @@ def _iter(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     src_t = source["type"]
     if src_t["kind"] == "class" and lo.classes.get(src_t["name"], {}).get("iterator"):
         return source
+    if src_t["kind"] == "class":
+        called = lo._dunder_call(node, source, "__iter__", [], span)
+        if called is not None:
+            return called
     if src_t["kind"] == "list":
         seq = source
     elif src_t["kind"] == "dict":
@@ -1411,6 +1427,27 @@ def _next(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         lo.fail(node, "PS2003", "next takes an iterator and an optional default")
     source = lo._expr(node.args[0])
     src_t = source["type"]
+    if src_t["kind"] == "class" and not lo.classes.get(src_t["name"], {}).get("iterator"):
+        # A user class with __next__ is an iterator itself; the 2-arg form
+        # catches its StopIteration for the default.
+        called = lo._dunder_call(node, source, "__next__", [], span)
+        if called is not None:
+            if len(node.args) == 1:
+                return called
+            elem = called["type"]
+            default = lo._expr(node.args[1])
+            lo._expect(node.args[1], default["type"], elem, "next")
+            out = lo._temp("nx")
+            lo.locals[out] = elem
+            lo.prelude.append(
+                {
+                    "kind": "try",
+                    "body": [_asg(out, called, span)],
+                    "handlers": [{"exc": ["StopIteration"], "codes": [8], "body": [_asg(out, default, span)]}],
+                    "span": span,
+                }
+            )
+            return _nm(out, elem, span)
     if src_t["kind"] != "class" or not lo.classes.get(src_t["name"], {}).get("iterator"):
         lo.fail(node.args[0], "PS2002", "next takes an iterator value")
     elem = src_t["elem"]
