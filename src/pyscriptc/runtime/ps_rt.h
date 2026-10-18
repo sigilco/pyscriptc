@@ -118,6 +118,7 @@ void ps_seq_push(PsSeq *s, const void *src);
 
 PsMap *ps_map_new(int32_t key_kind, int64_t key_size, int64_t val_size, int64_t cap);
 void ps_map_put(PsMap *m, void *key, void *val);
+int32_t ps_map_has(PsMap *m, void *key);
 void ps_map_get(PsMap *m, void *key, void *out);
 int64_t ps_map_len(PsMap *m);
 void ps_map_key_at(PsMap *m, int64_t i, void *out);
