@@ -828,6 +828,11 @@ class StmtMixin:
             iter_node = list_iter
         iterable = self._expr(iter_node)
         kind = iterable["type"]["kind"]
+        if kind == "class" and "__iter__" in self.classes.get(iterable["type"]["name"], {}).get("methods", {}):
+            called = self._dunder_call(stmt.iter, iterable, "__iter__", [], span)
+            if called is not None:
+                iterable = called
+                kind = iterable["type"]["kind"]
         if kind == "dict":
             key_t = iterable["type"]["key"]
             if key_t["kind"] not in {"int", "str"}:
@@ -870,6 +875,8 @@ class StmtMixin:
             return out
         if kind == "class" and self.classes.get(iterable["type"]["name"], {}).get("iterator"):
             return self._for_iter(stmt, iterable, span)
+        if kind == "class" and "__next__" in self.classes.get(iterable["type"]["name"], {}).get("methods", {}):
+            return self._for_dunder(stmt, iterable, span)
         if kind == "str":
             elem = {"kind": "str"}
         elif kind == "bytes":
@@ -993,6 +1000,54 @@ class StmtMixin:
             _compare("<", idx_r, _len_call(seq_r, span), span),
             [*bind, advance, *body],
             span,
+        )
+        return out
+
+    def _for_dunder(self, stmt: ast.For, iterable: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
+        """`for x in it` on a class with __next__: call it each step and let a
+        raised StopIteration end the loop — CPython's iterator drain."""
+        it_t = iterable["type"]
+        elem = self.classes[it_t["name"]]["methods"]["__next__"][1]
+        if not isinstance(stmt.target, ast.Name):
+            self.fail(stmt, "PS2002", "for unpacks a list of tuples or enumerate/zip")
+        target = stmt.target.id
+        fresh = self._bind_loop_target(target, elem, stmt.target)
+        itn = self._temp("it")
+        self.locals[itn] = it_t
+        flag = self._temp("itr")
+        self.locals[flag] = {"kind": "bool"}
+        step = self._dunder_call(stmt, _name(itn, it_t, span), "__next__", [], span)
+        if step is None:
+            self.fail(stmt, "PS2001", f"{it_t['name']}.__next__ is not a method")
+        saved_break = self.break_flag
+        self.break_flag = flag
+        body = self._loop_body(stmt)
+        guarded = self._skip_on_break(body, span)
+        self.break_flag = saved_break
+        out = [_assign(itn, iterable, span), _assign(flag, _const_bool(False, span), span)]
+        if fresh:
+            out.append(_assign(target, _zero(elem, span), span))
+        out.append(
+            {
+                "kind": "while",
+                "cond": _not_bool(flag, span),
+                "body": [
+                    {
+                        "kind": "try",
+                        "body": [_assign(target, step, span)],
+                        "handlers": [
+                            {
+                                "exc": ["StopIteration"],
+                                "codes": [8],
+                                "body": [_assign(flag, _const_bool(True, span), span)],
+                            }
+                        ],
+                        "span": span,
+                    },
+                    *guarded,
+                ],
+                "span": span,
+            }
         )
         return out
 
@@ -1243,9 +1298,9 @@ class StmtMixin:
             return self._with_open(stmt, item, span)
         if self._is_mod(ctx, "importlib.resources", "as_file"):
             return self._with_as_file(stmt, item, span)
-        if item.optional_vars is not None:
-            self.fail(stmt, "PS1206", "with-as is not lowered")
         if self._is_mod(ctx, "contextlib", "suppress"):
+            if item.optional_vars is not None:
+                self.fail(stmt, "PS1206", "with-as is not lowered")
             assert isinstance(ctx, ast.Call)
             if len(ctx.args) != 1 or not isinstance(ctx.args[0], ast.Name) or ctx.args[0].id not in EXCEPTIONS:
                 self.fail(ctx, "PS2002", "suppress takes one lowered exception")
@@ -1258,10 +1313,19 @@ class StmtMixin:
                 }
             ]
         if self._is_mod(ctx, "contextlib", "nullcontext"):
+            if item.optional_vars is not None:
+                self.fail(stmt, "PS1206", "with-as is not lowered")
             assert isinstance(ctx, ast.Call)
             if ctx.args:
                 self.fail(ctx, "PS2003", "nullcontext takes no arguments")
             return self._body(list(stmt.body))
+        ctx_v = self._expr(ctx)
+        if ctx_v["type"]["kind"] == "class" and "__enter__" in self.classes.get(ctx_v["type"].get("name"), {}).get(
+            "methods", {}
+        ):
+            return self._with_cm(stmt, item, ctx_v, span)
+        if item.optional_vars is not None:
+            self.fail(stmt, "PS1206", "with-as is not lowered")
         self.fail(
             stmt,
             "PS2002",
@@ -1521,6 +1585,133 @@ class StmtMixin:
             self.fail(item.optional_vars, "PS2002", f"{target} is already bound")
         self.locals[target] = opened["type"]
         return [_assign(target, opened, span), *self._body(list(stmt.body))]
+
+    def _with_cm(
+        self, stmt: ast.With, item: ast.withitem, ctx_v: dict[str, Any], span: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """`with CM() as c`: __enter__ binds the target, __exit__ runs on both
+        the normal and the raised path, and a truthy __exit__ suppresses the
+        in-flight exception (CPython's (None, None, None) is the three empty
+        optionals here).
+
+        Subset signature: `__exit__(self, Optional[str], Optional[Exception],
+        Optional[str]) -> bool` — the exception's class name, the exception,
+        and a traceback stand-in that is always empty.
+        """
+        class_name = ctx_v["type"]["name"]
+        info = self.classes[class_name]
+        exit_sig = info["methods"].get("__exit__")
+        if exit_sig is None or info.get("method_kind", {}).get("__exit__", "method") != "method":
+            self.fail(stmt, "PS2001", f"{class_name}.__exit__ is not a method")
+        params = exit_sig[0]
+        if len(params) != 4 or [param["type"].get("name") for param in params[1:]] != ["opt_str", "opt_exc", "opt_str"]:
+            self.fail(
+                stmt, "PS2003", f"{class_name}.__exit__ takes (Optional[str], Optional[Exception], Optional[str])"
+            )
+        target = item.optional_vars
+        if target is not None and not isinstance(target, ast.Name):
+            self.fail(stmt, "PS2002", "with-as needs a name")
+        mgr = self._temp("mgr")
+        self.locals[mgr] = ctx_v["type"]
+        mgr_n = _name(mgr, ctx_v["type"], span)
+        opt_str = self._opt_type({"kind": "str"}, stmt)
+        opt_exc = self._opt_type({"kind": "exc"}, stmt)
+        exc_slot = self._temp("exc")
+        self.locals[exc_slot] = {"kind": "exc"}
+        exc_n = _name(exc_slot, {"kind": "exc"}, span)
+
+        def box(typ: dict[str, Any], value: dict[str, Any] | None) -> tuple[str, list[dict[str, Any]]]:
+            temp = self._temp("opt")
+            self.locals[temp] = typ
+            made = {
+                "kind": "call",
+                "callee": {"kind": "class", "name": typ["name"]},
+                "args": [],
+                "type": typ,
+                "span": span,
+            }
+            stmts = [_assign(temp, made, span)]
+            if value is not None:
+                stmts += [
+                    {
+                        "kind": "setattr",
+                        "object": _name(temp, typ, span),
+                        "name": "_tag",
+                        "value": _const_bool(True, span),
+                        "span": span,
+                    },
+                    {"kind": "setattr", "object": _name(temp, typ, span), "name": "_val", "value": value, "span": span},
+                ]
+            return temp, stmts
+
+        et_n, et_stmts = box(
+            opt_str, self._abi_call("builtins", "exc.name", [exc_n], {"kind": "str"}, "ps_exc_class", span)
+        )
+        ev_n, ev_stmts = box(opt_exc, exc_n)
+        tb_n, tb_stmts = box(opt_str, None)
+        suppressed = self._temp("supp")
+        self.locals[suppressed] = {"kind": "bool"}
+        raised_exit = self._dunder_call(
+            stmt,
+            mgr_n,
+            "__exit__",
+            [_name(et_n, opt_str, span), _name(ev_n, opt_exc, span), _name(tb_n, opt_str, span)],
+            span,
+        )
+        et0, et0_stmts = box(opt_str, None)
+        ev0, ev0_stmts = box(opt_exc, None)
+        tb0, tb0_stmts = box(opt_str, None)
+        clean_exit = self._dunder_call(
+            stmt,
+            mgr_n,
+            "__exit__",
+            [_name(et0, opt_str, span), _name(ev0, opt_exc, span), _name(tb0, opt_str, span)],
+            span,
+        )
+        enter = self._dunder_call(stmt, mgr_n, "__enter__", [], span)
+        out = [_assign(mgr, ctx_v, span)]
+        if target is None:
+            out.append({"kind": "expr", "expr": enter, "span": span})
+        else:
+            self.locals[target.id] = enter["type"]
+            out.append(_assign(target.id, enter, span))
+        body = self._body(list(stmt.body))
+        out.append(
+            {
+                "kind": "try",
+                "body": [*et0_stmts, *ev0_stmts, *tb0_stmts, *body, {"kind": "expr", "expr": clean_exit, "span": span}],
+                "handlers": [
+                    {
+                        "exc": ["Exception"],
+                        "body": [
+                            *et_stmts,
+                            *ev_stmts,
+                            *tb_stmts,
+                            _assign(suppressed, raised_exit, span),
+                            {
+                                "kind": "if",
+                                "cond": _not_bool(suppressed, span),
+                                "then": [
+                                    {
+                                        "kind": "raise",
+                                        "exc": "Exception",
+                                        "reraise": True,
+                                        "excslot": exc_slot,
+                                        "span": span,
+                                    }
+                                ],
+                                "else": [],
+                                "span": span,
+                            },
+                        ],
+                        "excslot": exc_slot,
+                        "bind": exc_slot,
+                    }
+                ],
+                "span": span,
+            }
+        )
+        return out
 
     def _with_open(self, stmt: ast.With, item: ast.withitem, span: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(item.optional_vars, ast.Name):

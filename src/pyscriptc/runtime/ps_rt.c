@@ -144,6 +144,15 @@ PsBuf ps_exc_str(PsExc *e) {
     return e->message;
 }
 
+void ps_exc_class(PsExc *e, PsBuf *out) {
+    if (e == NULL) {
+        out->len = 0;
+        out->data = &ps_empty_byte;
+        return;
+    }
+    *out = e->name;
+}
+
 PsSeq *ps_exc_args(PsExc *e) {
     int64_t has = e != NULL && e->message.len > 0 ? 1 : 0;
     PsSeq *s = ps_seq_new((int64_t)sizeof(PsBuf), has);

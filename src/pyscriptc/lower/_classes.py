@@ -99,16 +99,20 @@ class ClassesMixin:
     def _collect_class(self, node: ast.ClassDef) -> None:
         if node.keywords:
             self.fail(node, "PS1203", "class keywords are not lowered")
-        if len(node.bases) > 1:
-            self.fail(node, "PS1203", "multiple inheritance is not lowered")
         if node.name in self.bindings or node.name in self.sigs or node.name in self.declared:
             self.fail(node, "PS2002", f"{node.name} is already bound")
         deco = self._class_decorator(node)
         # class C(object) and class C(object,) are the same class as class C.
-        # object.__init__ is not emitted. Two or more bases already fenced above.
-        base = None
-        if node.bases and not self._is_builtin_object(node.bases[0]):
-            base = self._resolve_base(node.bases[0])
+        # object.__init__ is not emitted.
+        bases: list[dict[str, str]] = []
+        for base_node in node.bases:
+            if self._is_builtin_object(base_node):
+                continue
+            resolved = self._resolve_base(base_node)
+            if resolved["kind"] != "class" and len(node.bases) > 1:
+                self.fail(node, "PS2002", "multiple inheritance needs lowered class bases")
+            bases.append(resolved)
+        base = bases[0] if bases else None
         if deco == "dataclass" and base is not None:
             self.fail(node, "PS2002", "a dataclass has no base")
         if base is not None and base["kind"] == "enum":
@@ -118,7 +122,20 @@ class ClassesMixin:
         parent_name = base["name"] if base is not None else None
         parent = self.classes.get(parent_name) if parent_name and base and base["kind"] == "class" else None
         inherited = list(parent["fields"]) if parent is not None else []
-        inherited_names = {field["name"] for field in inherited}
+        inherited_types = {field["name"]: field["type"] for field in inherited}
+        # Extra bases contribute the fields the earlier bases do not already
+        # name: the primary base's layout stays a literal prefix, which is what
+        # shared parent methods GEP against.
+        for extra in bases[1:]:
+            for field in self.classes[extra["name"]]["fields"]:
+                prior = inherited_types.get(field["name"])
+                if prior is not None:
+                    if not types_equal(prior, field["type"]):
+                        self.fail(node, "PS2002", f"base field {field['name']} has conflicting types")
+                    continue
+                inherited.append(field)
+                inherited_types[field["name"]] = field["type"]
+        mro, chain = self._mro_chain(node, bases)
         fields: list[dict[str, Any]] = []
         methods: list[tuple[ast.FunctionDef, str]] = []
         seen: set[str] = set()
@@ -130,7 +147,7 @@ class ClassesMixin:
                 if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
                     if stmt.value is not None and deco != "dataclass":
                         self.fail(stmt, "PS1204", "class fields are declared with an annotation and no value")
-                    if stmt.target.id in seen or stmt.target.id in inherited_names:
+                    if stmt.target.id in seen or stmt.target.id in inherited_types:
                         self.fail(stmt, "PS2002", f"duplicate field {stmt.target.id}")
                     typ = self._annotation(stmt.annotation)
                     if typ["kind"] == "bool":
@@ -167,10 +184,20 @@ class ClassesMixin:
         method_sigs: dict[str, tuple[list[dict[str, Any]], dict[str, Any]]] = {}
         kinds: dict[str, str] = {}
         owners: dict[str, str] = {}
-        if parent is not None:
-            method_sigs.update(parent["methods"])
-            kinds.update(parent["method_kind"])
-            owners.update(parent["method_owner"])
+        # MRO order, first definer wins: a method resolves to the earliest
+        # ancestor that defined it, which is the C3 answer for diamonds too.
+        for ancestor in mro[1:]:
+            ancestor_info = self.classes.get(ancestor)
+            if ancestor_info is None:
+                continue
+            for mname, sig in ancestor_info["methods"].items():
+                if ancestor_info["method_owner"].get(mname) != ancestor or mname in method_sigs:
+                    continue
+                if sig[0] and sig[0][0]["name"] == "self":
+                    sig = ([{"name": "self", "type": {"kind": "class", "name": node.name}}, *sig[0][1:]], sig[1])
+                method_sigs[mname] = sig
+                kinds[mname] = ancestor_info["method_kind"].get(mname, "method")
+                owners[mname] = ancestor
         wrote_init = False
         # A field fence leaves the field set unknown; a method signature fence
         # only drops that one method. Count each kind so the catalog pass can
@@ -198,6 +225,7 @@ class ClassesMixin:
         if len(self.caught) > body_fences + sig_fences or (sig_fences and not self.cataloguing):
             return
         generated: str | None = None
+        init_target: str | None = None
         if deco == "dataclass":
             if wrote_init:
                 self.fail(node, "PS2002", "a dataclass does not take a written __init__")
@@ -211,15 +239,34 @@ class ClassesMixin:
             kinds["__init__"] = "method"
             owners["__init__"] = node.name
             generated = "dataclass"
-        elif parent is not None and not wrote_init and "__init__" in parent["methods"]:
+        elif not wrote_init and "__init__" in method_sigs:
             if fields:
                 self.fail(node, "PS1001", f"{node.name} needs __init__")
-            parent_params = parent["methods"]["__init__"][0]
-            params = [{"name": "self", "type": {"kind": "class", "name": node.name}}, *parent_params[1:]]
-            method_sigs["__init__"] = (params, {"kind": "none"})
-            kinds["__init__"] = "method"
-            owners["__init__"] = node.name
-            generated = "forward"
+            init_owner = owners["__init__"]
+            if init_owner in chain:
+                # The primary chain shares the emitted init: cls.{C}.__init__
+                # is a trampoline to the first class in the MRO that emits it.
+                init_target = init_owner
+                for name in mro[1:]:
+                    xinfo = self.classes.get(name)
+                    if xinfo is None:
+                        continue
+                    if "__init__" in xinfo["methods"] and (
+                        name == init_owner or init_owner not in xinfo.get("chain", {name})
+                    ):
+                        init_target = name
+                        break
+                method_sigs["__init__"] = (
+                    [{"name": "self", "type": {"kind": "class", "name": node.name}}, *method_sigs["__init__"][0][1:]],
+                    {"kind": "none"},
+                )
+                kinds["__init__"] = "method"
+                owners["__init__"] = node.name
+                generated = "forward"
+            # Otherwise the secondary base's init is monomorphized at emit
+            # time: the definer's FunctionDef is re-lowered as cls.{C}.__init__
+            # with self typed C, since C's layout is not a prefix extension of
+            # the secondary base's.
         elif parent is not None and fields and not wrote_init:
             self.fail(node, "PS1001", f"{node.name} needs __init__")
         exception = bool(base and (base["kind"] == "exception" or (parent and parent.get("exception"))))
@@ -230,15 +277,105 @@ class ClassesMixin:
             "method_kind": kinds,
             "method_owner": owners,
             "base": parent_name,
+            "mro": mro,
+            "chain": chain,
             "node": node,
         }
         if generated is not None:
             info["generated_init"] = generated
+            info["init_target"] = init_target
         if exception:
             info["exception"] = True
             info["exc_code"] = self.exc_n
             self.exc_n += 1
         self.classes[node.name] = info
+
+    def _mro_chain(self, node: ast.ClassDef, bases: list[dict[str, str]]) -> tuple[list[str], set[str]]:
+        """C3 linearization of the bases, plus the primary-base spine.
+
+        `mro` is method-resolution order: the first class in it that defined a
+        method owns it. `chain` is the base[0] spine — a class on it sees its
+        ancestors' fields as a literal layout prefix, so their methods are
+        shared; anything off it is monomorphized per class at emit time.
+        """
+        base_names = [base["name"] for base in bases]
+        seqs = [list(self.classes.get(name, {}).get("mro", [name])) for name in base_names]
+        seqs.append(list(base_names))
+        mro = [node.name]
+        while True:
+            head = next((seq[0] for seq in seqs if seq and all(seq[0] not in other[1:] for other in seqs)), None)
+            if head is None:
+                if any(seqs):
+                    self.fail(node, "PS2002", "an inconsistent method resolution order")
+                break
+            mro.append(head)
+            for seq in seqs:
+                if seq and seq[0] == head:
+                    seq.pop(0)
+        chain = {node.name}
+        if base_names:
+            chain |= self.classes.get(base_names[0], {}).get("chain", {base_names[0]})
+        return mro, chain
+
+    def _emit_owner(self, class_name: str, method: str) -> str:
+        """The class that emitted `cls.{?}.{method}` for a `class_name` receiver.
+
+        Walks the MRO: the owner itself emits the method, and every class
+        whose primary chain does not contain the owner emits its own
+        monomorphized copy. The first MRO class qualifying wins.
+        """
+        info = self.classes[class_name]
+        owner = info.get("method_owner", {}).get(method, class_name)
+        for name in info.get("mro", [class_name]):
+            xinfo = self.classes.get(name)
+            if xinfo is None or method not in xinfo["methods"]:
+                continue
+            if name == owner or owner not in xinfo.get("chain", {name}):
+                return name
+        return owner
+
+    def _dunder_call(
+        self,
+        node: ast.AST,
+        receiver: dict[str, Any],
+        name: str,
+        args: list[dict[str, Any]],
+        span: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """`receiver.__x__(*args)` as a direct class-method call, or None.
+
+        None means the class never defined the dunder as a plain method; the
+        caller keeps its existing fence. Signature checks stay here so every
+        dispatch site reports the same arity/type failures.
+        """
+        info = self.classes.get(receiver["type"]["name"])
+        if info is None or info["methods"].get(name) is None:
+            return None
+        if info.get("method_kind", {}).get(name, "method") != "method":
+            return None
+        class_name = receiver["type"]["name"]
+        params, ret = info["methods"][name]
+        if len(params) - 1 != len(args):
+            self.fail(node, "PS2003", f"{class_name}.{name} takes {len(params) - 1} argument(s)")
+        for arg, param in zip(args, params[1:], strict=True):
+            self._expect(node, arg["type"], param["type"], f"{class_name}.{name} argument")
+        want = {
+            "__str__": "str",
+            "__repr__": "str",
+            "__len__": "int",
+            "__eq__": "bool",
+            "__exit__": "bool",
+        }.get(name)
+        if want is not None and ret["kind"] != want:
+            self.fail(node, "PS1003", f"{class_name}.{name} returns {_show(ret)}, not {want}")
+        emit = self._emit_owner(class_name, name)
+        return {
+            "kind": "call",
+            "callee": {"kind": "function", "name": f"cls.{emit}.{name}"},
+            "args": [receiver, *args],
+            "type": ret,
+            "span": span,
+        }
 
     def _class_decorator(self, node: ast.ClassDef) -> str | None:
         if not node.decorator_list:
@@ -365,38 +502,31 @@ class ClassesMixin:
                 continue
             if info["method_owner"].get(stmt.name) != node.name:
                 continue
-            self.function = f"{node.name}.{stmt.name}"
-            self.temp_n = 0
-            self.prelude = []
-            self.fn_globals = self._globals_for(stmt.body)
-            params, ret = info["methods"][stmt.name]
-            kind = info["method_kind"].get(stmt.name, "method")
-            self.locals = {param["name"]: param["type"] for param in params}
-            self.frozen_names = set()
-            self.fn_body = list(stmt.body)
-            if kind in {"method", "property"}:
-                self.locals["self"] = {"kind": "class", "name": node.name}
-            # Function-local imports rebind module names: snapshot the
-            # compile-time binding tables so they restore when the body ends.
-            saved_bindings = dict(self.bindings)
-            saved_aliases = dict(self.type_aliases)
-            saved_declared = set(self.declared)
-            try:
-                body = self._body(list(stmt.body))
-            finally:
-                self.bindings = saved_bindings
-                self.type_aliases = saved_aliases
-                self.declared = saved_declared
-            if self.caught:
+            emitted = self._emit_class_method(node.name, stmt, info, own_names)
+            if emitted is not None:
+                methods.append(emitted)
+        for mname in info["methods"]:
+            # Monomorphize inherited instance methods whose owner sits off the
+            # primary chain: the owner's fields are not a layout prefix of this
+            # class, so its body is re-lowered with self typed as this class.
+            owner = info["method_owner"].get(mname, node.name)
+            if owner == node.name or owner in info.get("chain", {node.name}):
                 continue
-            if stmt.name == "__init__":
-                assigned = _assigned_fields(stmt.body)
-                missing = sorted(own_names - assigned)
-                if missing:
-                    self.fail(stmt, "PS1001", f"__init__ does not assign {', '.join(missing)}")
-            if ret["kind"] != "none" and not _always_returns(body):
-                self.fail(stmt, "PS1004", f"{stmt.name} can fall off the end and return None")
-            methods.append(self._method_ir(stmt.name, params, ret, body, span_of(stmt, self.filename)))
+            if info["method_kind"].get(mname, "method") not in {"method", "property"}:
+                continue
+            ostmt = next(
+                (
+                    stmt
+                    for stmt in self.classes[owner].get("node", node).body
+                    if isinstance(stmt, ast.FunctionDef) and stmt.name == mname
+                ),
+                None,
+            )
+            if ostmt is None:
+                continue
+            emitted = self._emit_class_method(node.name, ostmt, info, own_names)
+            if emitted is not None:
+                methods.append(emitted)
         if self.caught:
             return None
         generated = self._generated_method(node, info)
@@ -408,6 +538,50 @@ class ClassesMixin:
             "methods": methods,
             "span": span_of(node, self.filename),
         }
+
+    def _emit_class_method(
+        self, class_name: str, stmt: ast.FunctionDef, info: dict[str, Any], own_names: set[str]
+    ) -> dict[str, Any] | None:
+        """Lower one method body for `cls.{class_name}.{stmt.name}`.
+
+        The definer's FunctionDef is reused verbatim; `self` and `super()`
+        resolve against `class_name`'s layout while `method_owner` still names
+        the defining class (CPython's __class__ cell for super()).
+        """
+        self.function = f"{class_name}.{stmt.name}"
+        self.temp_n = 0
+        self.prelude = []
+        self.fn_globals = self._globals_for(stmt.body)
+        params, ret = info["methods"][stmt.name]
+        kind = info["method_kind"].get(stmt.name, "method")
+        if params and params[0]["name"] == "self":
+            params = [{"name": "self", "type": {"kind": "class", "name": class_name}}, *params[1:]]
+        self.locals = {param["name"]: param["type"] for param in params}
+        self.frozen_names = set()
+        self.fn_body = list(stmt.body)
+        if kind in {"method", "property"}:
+            self.locals["self"] = {"kind": "class", "name": class_name}
+        # Function-local imports rebind module names: snapshot the
+        # compile-time binding tables so they restore when the body ends.
+        saved_bindings = dict(self.bindings)
+        saved_aliases = dict(self.type_aliases)
+        saved_declared = set(self.declared)
+        try:
+            body = self._body(list(stmt.body))
+        finally:
+            self.bindings = saved_bindings
+            self.type_aliases = saved_aliases
+            self.declared = saved_declared
+        if self.caught:
+            return None
+        if stmt.name == "__init__":
+            assigned = _assigned_fields(stmt.body)
+            missing = sorted(own_names - assigned)
+            if missing:
+                self.fail(stmt, "PS1001", f"__init__ does not assign {', '.join(missing)}")
+        if ret["kind"] != "none" and not _always_returns(body):
+            self.fail(stmt, "PS1004", f"{stmt.name} can fall off the end and return None")
+        return self._method_ir(stmt.name, params, ret, body, span_of(stmt, self.filename))
 
     def _method_ir(
         self,
@@ -447,7 +621,7 @@ class ClassesMixin:
                 for field in info["own_fields"]
             ]
         else:
-            parent = info["base"]
+            parent = info.get("init_target") or info["base"]
             args = [_name(param["name"], param["type"], span) for param in params]
             body = [
                 {
@@ -695,6 +869,12 @@ class ClassesMixin:
             return {"kind": node.id}
         if isinstance(node, ast.Constant) and node.value is None:
             return {"kind": "none"}
+        if isinstance(node, ast.Name) and (
+            node.id in EXCEPTIONS
+            or node.id == "BaseException"
+            or self.classes.get(node.id, {}).get("exception")
+        ):
+            return {"kind": "exc"}
         if isinstance(node, ast.Name) and (node.id in self.declared or node.id in self.known_classes):
             return {"kind": "class", "name": self.class_aliases.get(node.id, node.id)}
         if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "list":
@@ -796,7 +976,7 @@ class ClassesMixin:
                 return {"kind": "attr", "value": obj, "name": name, "type": field["type"], "span": span}
         if info.get("method_kind", {}).get(name) == "property":
             sig = info["methods"][name]
-            owner = info.get("method_owner", {}).get(name, class_name)
+            owner = self._emit_owner(class_name, name)
             return {
                 "kind": "call",
                 "callee": {"kind": "function", "name": f"cls.{owner}.{name}"},
@@ -865,6 +1045,12 @@ class ClassesMixin:
         return types_equal(got, want)
 
     def _is_subclass_name(self, got: str, want: str) -> bool:
+        info = self.classes.get(got)
+        if info is None:
+            return False
+        mro = info.get("mro")
+        if mro is not None:
+            return want in mro
         current: str | None = got
         seen: set[str] = set()
         while current and current not in seen:
