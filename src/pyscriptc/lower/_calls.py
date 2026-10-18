@@ -105,6 +105,18 @@ class CallsMixin:
             self.fail(node, "PS2002", f"{name} is not a function")
         if name in self.class_aliases or name in self.classes:
             return self._construct(node, span, self.class_aliases.get(name, name))
+        ftype = self.locals.get(name, self.captures.get(name))
+        if ftype is not None and ftype["kind"] == "func":
+            # Callable annotations carry bare types, no names or defaults.
+            params = [{"name": f"_{index}", "type": typ} for index, typ in enumerate(ftype["params"])]
+            args = self._fill_args(node, params, name)
+            return {
+                "kind": "call",
+                "callee": {"kind": "value", "target": _name(name, ftype, span)},
+                "args": args,
+                "type": ftype["return"],
+                "span": span,
+            }
         if name in self.sigs:
             params, ret = self.sigs[name]
             args = self._fill_args(node, params, name)

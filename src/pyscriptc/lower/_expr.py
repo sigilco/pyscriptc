@@ -98,6 +98,8 @@ class ExprMixin:
             return self._comp(node, span, expect)
         if isinstance(node, ast.IfExp):
             return self._ifexp(node, span)
+        if isinstance(node, ast.Lambda):
+            return self._lambda(node, span, expect)
         self.fail(node, "PS2002", f"{type(node).__name__} is not lowered")
         raise AssertionError("unreachable")
 
@@ -107,6 +109,8 @@ class ExprMixin:
             pass
         elif node.id in self.locals:
             return _name(node.id, self.locals[node.id], span)
+        elif node.id in self.captures:
+            return _name(node.id, self.captures[node.id], span)
         slot = self.global_slots.get(node.id)
         if slot is not None and slot.get("active"):
             return self._global_get(node.id, span)
@@ -140,6 +144,18 @@ class ExprMixin:
             self.fail(node, "PS2002", f"{node.id} is a function and is not a value")
         if node.id in self.classes:
             self.fail(node, "PS2002", f"class {node.id} is not a value")
+        if node.id in self.sigs:
+            # A function referenced as a value: the closure wraps it with an
+            # empty environment (the emitter adds a lazy env-first shim).
+            params, ret = self.sigs[node.id]
+            ftype = {"kind": "func", "params": [param["type"] for param in params], "return": ret}
+            return {
+                "kind": "closure",
+                "name": self._ir_name(node.id),
+                "env": [],
+                "type": ftype,
+                "span": span,
+            }
         if node.id in EXCEPTIONS:
             self.fail(node, "PS2002", f"{node.id} is only lowered in raise and except")
         self.fail(node, "PS2002", f"{node.id} is not a local or parameter")
