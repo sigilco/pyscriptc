@@ -197,6 +197,26 @@ class StmtMixin:
                 self._expect(stmt, value["type"], self.captures[target], target)
                 return [_assign(target, value, span)]
             if target not in self.locals:
+                if isinstance(stmt.value, ast.Name) and stmt.value.id != target:
+                    # `h = f`: a function value rebinds like a Callable
+                    # annotation; the variable becomes callable-typed.
+                    ftype = self._callable_name_type(stmt.value.id)
+                    if ftype is not None:
+                        self.locals[target] = ftype
+                        value = self._expr(stmt.value, ftype)
+                        self._expect(stmt, value["type"], ftype, target)
+                        return [_assign(target, value, span)]
+                if isinstance(stmt.value, ast.Call):
+                    # `p = functools.partial(f, 1)` / `p = dec()`: a call
+                    # whose result is a callable binds like a Callable
+                    # annotation.
+                    value = self._expr(stmt.value)
+                    if value["type"]["kind"] == "func":
+                        self.locals[target] = value["type"]
+                        return [_assign(target, value, span)]
+                    self.fail(stmt, "PS1001", f"{target} needs an annotation before use")
+                if isinstance(stmt.value, ast.Lambda):
+                    self.fail(stmt, "PS1001", "a lambda needs a Callable[[args], ret] annotation")
                 self.fail(stmt, "PS1001", f"{target} needs an annotation before use")
             value = self._expr(stmt.value, self.locals[target])
             self._expect(stmt, value["type"], self.locals[target], target)

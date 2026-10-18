@@ -286,12 +286,21 @@ class StdlibDispatchMixin:
         """
         message = self._module_decorator_fence(fn)
         if message is None:
+            if fn.decorator_list and not self._is_module_staticmethod(fn):
+                # A user decorator wraps the function after the signature
+                # pass: the def lowers normally, the wrap binds as a
+                # callable global in the deferred pass.
+                self.deferred_module.append(fn)
             return True
         fences.append(Fence("PS2002", message, span_of(fn, self.filename), fn.name))
         return False
 
     def _is_module_staticmethod(self, fn: ast.FunctionDef) -> bool:
-        return self._module_decorator_fence(fn) is None and bool(fn.decorator_list)
+        return (
+            len(fn.decorator_list) == 1
+            and isinstance(fn.decorator_list[0], ast.Name)
+            and fn.decorator_list[0].id == "staticmethod"
+        )
 
     def _module_decorator_fence(self, fn: ast.FunctionDef) -> str | None:
         if not fn.decorator_list:
@@ -299,15 +308,21 @@ class StdlibDispatchMixin:
         if len(fn.decorator_list) != 1:
             return "stacked decorators are not lowered"
         dec = fn.decorator_list[0]
-        if not isinstance(dec, ast.Name):
-            return "a decorator expression is not lowered"
-        if dec.id == "staticmethod":
+        if isinstance(dec, ast.Name):
+            if dec.id == "staticmethod":
+                return None
+            if dec.id == "property":
+                return "a module property is not lowered"
+            if dec.id == "classmethod":
+                return "a module classmethod is not lowered"
             return None
-        if dec.id == "property":
-            return "a module property is not lowered"
-        if dec.id == "classmethod":
-            return "a module classmethod is not lowered"
-        return "user decorators are not lowered"
+        if (
+            isinstance(dec, ast.Call)
+            and isinstance(dec.func, ast.Name)
+            and dec.func.id in {"staticmethod", "property", "classmethod"}
+        ):
+            return "a decorator expression is not lowered"
+        return None
 
     def _module_call(
         self,
@@ -480,6 +495,13 @@ class StdlibDispatchMixin:
                     self._annotation(stmt.annotation)  # a bare declaration binds nothing
                     return
                 typ = self._annotation(stmt.annotation)
+                if typ["kind"] == "func" and not self._deferring and self._script_line is None:
+                    # A Callable-annotated module name may bind a function
+                    # value: signatures do not exist yet, so binding waits
+                    # for the deferred pass after sigs. A scriptish module
+                    # leaves it: the assignment lowers inside the entry.
+                    self.deferred_module.append(stmt)
+                    return
                 if isinstance(stmt.value, ast.Set):
                     folded = self._module_set_literal(stmt.value)
                     if folded is not None:
@@ -508,6 +530,20 @@ class StdlibDispatchMixin:
                 nt_call = self._namedtuple_call(stmt.value)
                 if nt_call is not None:
                     self._namedtuple_decl(target, nt_call, stmt)
+                    return
+                if (
+                    not self._deferring
+                    and self._script_line is None
+                    and isinstance(
+                        stmt.value,
+                        (ast.Name, ast.Lambda, ast.Call, ast.Attribute, ast.Subscript, ast.IfExp),
+                    )
+                ):
+                    # `h = f` / `p = functools.partial(...)` may hold a
+                    # callable: signatures do not exist yet, so binding waits
+                    # for the deferred pass after sigs. A scriptish module
+                    # leaves it: the assignment lowers inside the entry.
+                    self.deferred_module.append(stmt)
                     return
                 if target in self.global_slots and _is_none_expr(stmt.value):
                     self._activate_slot(target, stmt)
