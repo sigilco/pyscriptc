@@ -467,7 +467,35 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         target = stmt.targets[0]
         assert isinstance(target, ast.Subscript)
         if isinstance(target.slice, ast.Slice):
-            self.fail(target, "PS2002", "slices are not lowered")
+            # `xs[a:b] = ys` splices a list, growing or shrinking it; a step
+            # stays fenced with the slice-read message.
+            slc = target.slice
+            container = self._expr(target.value)
+            kind = container["type"]["kind"]
+            if kind == "list" and container["type"].get("set"):
+                self.fail(target, "PS2002", "a set has no item assignment")
+            if kind != "list":
+                self.fail(target, "PS2002", "slice assignment targets a list")
+            if slc.step is not None:
+                self.fail(target, "PS2002", "slices are not lowered")
+            value = self._expr(stmt.value)
+            if value["type"]["kind"] != "list" or not types_equal(value["type"]["elem"], container["type"]["elem"]):
+                self.fail(stmt, "PS1003", "slice assignment takes a list of the same element type")
+            start, has_start = self._slice_bound(slc.lower, span)
+            stop, has_stop = self._slice_bound(slc.upper, span)
+            flags = [
+                {"kind": "const", "value": str(has_start), "type": {"kind": "int"}, "span": span},
+                {"kind": "const", "value": str(has_stop), "type": {"kind": "int"}, "span": span},
+            ]
+            call = self._abi_call(
+                "builtins",
+                "list.setslice",
+                [container, start, stop, *flags, value],
+                {"kind": "none"},
+                "ps_seq_splice",
+                span,
+            )
+            return {"kind": "expr", "expr": call, "span": span}
         container = self._expr(target.value)
         index = self._expr(target.slice)
         kind = container["type"]["kind"]

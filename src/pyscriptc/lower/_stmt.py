@@ -327,19 +327,36 @@ class StmtMixin:
                 self.fail(stmt, "PS2002", "del of a slice is not lowered")
             # del d[k] lowers to ps_map_del for a declared dict local; every
             # other subscript target keeps the subscript fence.
-            if isinstance(target.value, ast.Name) and self.locals.get(target.value.id, {}).get("kind") == "dict":
-                container = self._expr(target.value)
-                index = self._expr(target.slice)
-                self._expect(stmt, index["type"], container["type"]["key"], "dict key")
-                call = self._abi_call(
-                    "builtins",
-                    "dict.delitem",
-                    [container, index],
-                    {"kind": "none"},
-                    "ps_map_del",
-                    span,
-                )
-                return [{"kind": "expr", "expr": call, "span": span}]
+            if isinstance(target.value, ast.Name):
+                local = self.locals.get(target.value.id, {})
+                kind = local.get("kind")
+                if kind == "dict":
+                    container = self._expr(target.value)
+                    index = self._expr(target.slice)
+                    self._expect(stmt, index["type"], container["type"]["key"], "dict key")
+                    call = self._abi_call(
+                        "builtins",
+                        "dict.delitem",
+                        [container, index],
+                        {"kind": "none"},
+                        "ps_map_del",
+                        span,
+                    )
+                    return [{"kind": "expr", "expr": call, "span": span}]
+                if kind == "list" and not local.get("set"):
+                    container = self._expr(target.value)
+                    index = self._expr(target.slice)
+                    if index["type"]["kind"] != "int":
+                        self.fail(stmt, "PS1003", "a list index is int")
+                    call = self._abi_call(
+                        "builtins",
+                        "list.delitem",
+                        [container, index],
+                        {"kind": "none"},
+                        "ps_seq_del",
+                        span,
+                    )
+                    return [{"kind": "expr", "expr": call, "span": span}]
             self.fail(stmt, "PS2002", "del of a subscript is not lowered")
         if isinstance(target, (ast.Tuple, ast.List)):
             self.fail(stmt, "PS2002", "del of a tuple of names is not lowered")

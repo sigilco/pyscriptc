@@ -1087,3 +1087,6 @@ void ps_seq_pop_buf(PsSeq *s, int64_t i, PsBuf *out) {
     *out = *(PsBuf *)ps_cell(s, i);
     ps_seq_drop(s, i);
 }
+
+/* `del xs[i]` drops one slot with the same index wrap and IndexError as pop. */
+void ps_seq_del(PsSeq *s, int64_t i) { ps_seq_drop(s, ps_pop_index(s, i)); }
