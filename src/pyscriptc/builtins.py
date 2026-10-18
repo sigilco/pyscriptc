@@ -84,6 +84,7 @@ def builtin_spec(name: str, arg_types: list[dict[str, Any]]) -> dict[str, Any] |
             "bool",
             "bytes",
             "none",
+            "exc",
         }
     ):
         return {"kind": "str"}

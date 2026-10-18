@@ -107,10 +107,14 @@ def test_counts_match_spec_tables():
 def test_validation_marks_entry_fences():
     """All entry statements compile today: fib_recursive and word_freq
     un-fenced in #44 and #45. Other scripts fence inside their own
-    definitions first; the three example guard scripts already compile."""
+    definitions first; the three example guard scripts already compile.
+    R8/R9: exceptions_flow's definitions now lower (try/finally, except-as);
+    its one remaining fence is `print(err)` on an exc at the entry statement,
+    which sits one entry fix from flipping — recorded so the next milestone
+    decides whether print of exc should lift."""
     records = entrypoints.scan(with_fences=True)
     flips = sorted(r["path"] for r in records if r["predicted_flip"])
-    assert flips == []
+    assert flips == ["benchmarks/compat2/corpus/scripts/exceptions_flow/main.py"]
     fib = next(r for r in records if r["path"].endswith("fib_recursive/main.py"))
     assert fib["first_fence"] is None
     assert fib["fences_at_entry"] == []

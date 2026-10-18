@@ -15,7 +15,7 @@ from pyscriptc.errors import IRError, VersionError
 IR_VERSION = 1
 SUBSET = "gates-v1"
 
-TYPE_KINDS = {"int", "float", "bool", "none", "str", "bytes", "list", "dict", "class", "unknown"}
+TYPE_KINDS = {"int", "float", "bool", "none", "str", "bytes", "list", "dict", "class", "exc", "unknown"}
 EXPR_KINDS = {
     "name",
     "const",
@@ -215,15 +215,41 @@ def validate_stmt(stmt: Any, where: str) -> None:
         message = stmt.get("message")
         if message is not None:
             validate_expr(message, f"{where}.message")
+        cause = stmt.get("cause")
+        if cause is not None:
+            if not isinstance(cause, dict) or cause.get("kind") not in {"name", "excmake"}:
+                raise IRError(f"{where}: raise cause must be a name or excmake")
+            if cause["kind"] == "name":
+                validate_expr(cause, f"{where}.cause")
+            else:
+                if not isinstance(cause.get("exc"), str):
+                    raise IRError(f"{where}.cause: excmake needs an exception name")
+                if cause.get("message") is not None:
+                    validate_expr(cause["message"], f"{where}.cause.message")
+        if stmt.get("reraise") is not None and not isinstance(stmt.get("reraise"), bool):
+            raise IRError(f"{where}: raise reraise must be a bool")
+        if stmt.get("excslot") is not None and not isinstance(stmt.get("excslot"), str):
+            raise IRError(f"{where}: raise excslot must be a local name")
     elif kind == "try":
         _validate_body(stmt.get("body"), f"{where}.body")
         handlers = stmt.get("handlers")
-        if not isinstance(handlers, list) or not handlers:
-            raise IRError(f"{where}: try needs handlers")
+        if not isinstance(handlers, list) or (not handlers and not stmt.get("finalbody")):
+            raise IRError(f"{where}: try needs handlers or finally")
         for i, handler in enumerate(handlers):
             if not isinstance(handler, dict) or not isinstance(handler.get("exc"), list):
                 raise IRError(f"{where}.handlers[{i}] needs exc names")
+            for key in ("bind", "excslot"):
+                if handler.get(key) is not None and not isinstance(handler.get(key), str):
+                    raise IRError(f"{where}.handlers[{i}]: {key} must be a name")
+            if handler.get("bare") is not None and not isinstance(handler.get("bare"), bool):
+                raise IRError(f"{where}.handlers[{i}]: bare must be a bool")
             _validate_body(handler.get("body"), f"{where}.handlers[{i}].body")
+        for key in ("orelse", "finalbody"):
+            if key in stmt:
+                _validate_body(stmt.get(key), f"{where}.{key}")
+        for flag in ("brk", "cont"):
+            if stmt.get(flag) is not None and not isinstance(stmt.get(flag), str):
+                raise IRError(f"{where}: try {flag} must be a flag name")
 
 
 def _validate_callee(callee: Any, where: str) -> None:
