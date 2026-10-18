@@ -1288,8 +1288,11 @@ class StmtMixin:
         return node
 
     def _with(self, stmt: ast.With, span: dict[str, Any]) -> list[dict[str, Any]]:
-        if len(stmt.items) != 1:
-            self.fail(stmt, "PS2002", "with lowers one contextlib item")
+        if len(stmt.items) > 1:
+            # `with a, b:` is `with a: with b:` — nest the tail so each
+            # item lowers through the single-item dispatch below.
+            inner = ast.copy_location(ast.With(items=list(stmt.items[1:]), body=list(stmt.body)), stmt)
+            stmt = ast.copy_location(ast.With(items=[stmt.items[0]], body=[inner]), stmt)
         item = stmt.items[0]
         ctx = item.context_expr
         if isinstance(ctx, ast.Call) and isinstance(ctx.func, ast.Name) and ctx.func.id == "open":
@@ -1320,6 +1323,8 @@ class StmtMixin:
                 self.fail(ctx, "PS2003", "nullcontext takes no arguments")
             return self._body(list(stmt.body))
         ctx_v = self._expr(ctx)
+        if ctx_v["type"]["kind"] == "class" and ctx_v["type"].get("name") in {"TextIO", "BytesIO"}:
+            return self._with_io(stmt, item, ctx_v, span)
         if ctx_v["type"]["kind"] == "class" and "__enter__" in self.classes.get(ctx_v["type"].get("name"), {}).get(
             "methods", {}
         ):
@@ -1753,6 +1758,55 @@ class StmtMixin:
                 "span": span,
             },
         ]
+
+    def _with_io(
+        self, stmt: ast.With, item: ast.withitem, ctx_v: dict[str, Any], span: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """`with f`/`with f as g` on a TextIO/BytesIO receiver: the file is its
+        own context manager — `as` rebinds the same handle, and both the
+        normal and the raised path close it (CPython io.__exit__ closes).
+        """
+        target = item.optional_vars
+        if target is not None and not isinstance(target, ast.Name):
+            self.fail(stmt, "PS2002", "with-as needs a name")
+        hold = self._temp("io")
+        self.locals[hold] = ctx_v["type"]
+        hold_n = _name(hold, ctx_v["type"], span)
+        out = [_assign(hold, ctx_v, span)]
+        if target is not None:
+            if target.id in self.bindings or target.id in self.constants:
+                self.fail(target, "PS2002", f"{target.id} is already bound")
+            self.locals[target.id] = ctx_v["type"]
+            out.append(_assign(target.id, hold_n, span))
+        close = {
+            "kind": "expr",
+            "expr": self._abi_call("io", "close", [hold_n], {"kind": "none"}, "ps_io_close", span),
+            "span": span,
+        }
+        body = self._inject_close(self._body(list(stmt.body)), close)
+        out.append(
+            {
+                "kind": "try",
+                "body": [*body, close],
+                "handlers": [
+                    {
+                        "exc": ["Exception"],
+                        "body": [
+                            close,
+                            {
+                                "kind": "raise",
+                                "exc": "Exception",
+                                "message": None,
+                                "reraise": True,
+                                "span": span,
+                            },
+                        ],
+                    }
+                ],
+                "span": span,
+            }
+        )
+        return out
 
     def _for_enumerate(self, stmt: ast.For, span: dict[str, Any]) -> list[dict[str, Any]]:
         call = stmt.iter
