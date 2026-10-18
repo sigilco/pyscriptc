@@ -37,6 +37,7 @@ SOURCE = "\n".join(
         "",
         "def body(x: int) -> int:",
         "    a = [i for i in range(x)]",
+        "    exc: int = x",
         "    try:",
         "        pass",
         "    except ValueError as exc:",

@@ -943,52 +943,134 @@ class StmtMixin:
         return [{"kind": "if", "cond": negated, "then": then, "else": [], "span": span}]
 
     def _raise(self, stmt: ast.Raise, span: dict[str, Any]) -> dict[str, Any]:
-        if stmt.cause is not None:
-            self.fail(stmt, "PS2002", "raise-from is not lowered")
+        # `E(arg)` becomes the message (str(arg)); bool goes through str() so
+        # True prints "True". The exc and `raise ... from` calls share one
+        # pass; multi-arg ctors fence (repr(tuple) is not cheap).
+        msgs: list[dict[str, Any] | None] = [None, None]
+        for which in range(2):
+            call = stmt.exc if which == 0 else stmt.cause
+            if not isinstance(call, ast.Call):
+                continue
+            if call.keywords:
+                self.fail(call, "PS2003", "keyword arguments are not lowered")
+            built: dict[str, Any] | None = None
+            if call.args:
+                if len(call.args) != 1:
+                    self.fail(call, "PS2003", "exception takes one scalar argument")
+                expr = self._expr(call.args[0])
+                if expr["type"]["kind"] == "bool":
+                    built = {
+                        "kind": "call",
+                        "callee": {"kind": "builtin", "name": "str"},
+                        "args": [expr],
+                        "type": {"kind": "str"},
+                        "span": span,
+                    }
+                elif expr["type"]["kind"] in {"str", "int", "float"}:
+                    built = self._as_str(expr, call)
+                else:
+                    self.fail(call, "PS2003", "exception argument is a scalar")
+            msgs[which] = built
+        message, cmessage = msgs
         if stmt.exc is None:
-            self.fail(stmt, "PS2002", "bare raise is not lowered")
-        exc: ast.expr = stmt.exc
-        message: dict[str, Any] | None = None
-        if isinstance(exc, ast.Call):
-            if exc.keywords:
-                self.fail(exc, "PS2003", "keyword arguments are not lowered")
-            if len(exc.args) > 1:
-                self.fail(exc, "PS2003", "raise takes an exception name and an optional message")
-            if exc.args:
-                message = self._expr(exc.args[0], {"kind": "str"})
-                if message["type"]["kind"] != "str":
-                    self.fail(exc, "PS1003", "an exception message is a str")
-            exc = exc.func
-        if not isinstance(exc, ast.Name):
-            self.fail(stmt, "PS2002", "raise names a lowered exception")
-        if exc.id in EXCEPTIONS:
-            return {"kind": "raise", "exc": exc.id, "message": message, "span": span}
-        resolved = self.class_aliases.get(exc.id, exc.id)
-        info = self.classes.get(resolved)
-        if info is not None and info.get("exception"):
-            # A user exception is a code plus an optional str. raise does not call __init__.
-            return {"kind": "raise", "exc": resolved, "code": info["exc_code"], "message": message, "span": span}
-        self.fail(stmt, "PS2002", "raise names a lowered exception")
-        raise AssertionError("unreachable")
+            if not self.exc_stack:
+                self.fail(stmt, "PS2002", "bare raise is only lowered inside an except handler")
+            slot = self.exc_stack[-1]
+            if not slot:
+                slot = self._temp("exc")
+                self.locals[slot] = {"kind": "exc"}
+                self.exc_stack[-1] = slot
+            node: dict[str, Any] = {"kind": "raise", "exc": "Exception", "reraise": True, "excslot": slot, "span": span}
+        else:
+            exc: ast.expr = stmt.exc
+            if isinstance(exc, ast.Call):
+                exc = exc.func
+            if not isinstance(exc, ast.Name):
+                self.fail(stmt, "PS2002", "raise names a lowered exception")
+            if exc.id in EXCEPTIONS:
+                node = {"kind": "raise", "exc": exc.id, "message": message, "span": span}
+            else:
+                resolved = self.class_aliases.get(exc.id, exc.id)
+                info = self.classes.get(resolved)
+                if info is None or not info.get("exception"):
+                    self.fail(stmt, "PS2002", "raise names a lowered exception")
+                # raise makes a code plus optional str; it does not call __init__.
+                node = {"kind": "raise", "exc": resolved, "code": info["exc_code"], "message": message, "span": span}
+        if stmt.cause is not None:
+            cause_node = stmt.cause
+            if isinstance(cause_node, ast.Name) and self.locals.get(cause_node.id, {}).get("kind") == "exc":
+                node["cause"] = {"kind": "name", "id": cause_node.id, "type": {"kind": "exc"}, "span": span}
+            elif not (isinstance(cause_node, ast.Constant) and cause_node.value is None):
+                cexc = cause_node
+                if isinstance(cause_node, ast.Call):
+                    cexc = cause_node.func
+                if not isinstance(cexc, ast.Name):
+                    self.fail(cause_node, "PS2002", "raise-from needs an exception or None")
+                if cexc.id in EXCEPTIONS:
+                    node["cause"] = {"kind": "excmake", "exc": cexc.id, "message": cmessage, "span": span}
+                else:
+                    cresolved = self.class_aliases.get(cexc.id, cexc.id)
+                    cinfo = self.classes.get(cresolved)
+                    if cinfo is None or not cinfo.get("exception"):
+                        self.fail(cause_node, "PS2002", "raise-from needs an exception or None")
+                    node["cause"] = {
+                        "kind": "excmake",
+                        "exc": cresolved,
+                        "code": cinfo["exc_code"],
+                        "message": cmessage,
+                        "span": span,
+                    }
+        return node
 
     def _try(self, stmt: ast.Try, span: dict[str, Any]) -> dict[str, Any]:
-        if stmt.orelse:
-            self.fail(stmt, "PS2002", "try-else is not lowered")
-        if stmt.finalbody:
-            self.fail(stmt, "PS2002", "finally is not lowered")
+        # brk/cont flags tell the else path whether the try body jumped out.
+        brk = self.break_flag
+        cont = self.continue_flag
         handlers = []
         for handler in stmt.handlers:
-            if handler.name is not None:
-                self.fail(handler, "PS1205", "except-as is not lowered")
-            if handler.type is None:
-                self.fail(handler, "PS1205", "bare except is not lowered")
-            names = _handler_names(self, handler.type)
+            names: list[str] = []
             codes: list[int] = []
-            if "Exception" not in names:
-                for name in names:
-                    codes.extend(self._exception_codes(name))
-            handlers.append({"exc": names, "codes": codes, "body": self._body(list(handler.body))})
-        return {"kind": "try", "body": self._body(list(stmt.body)), "handlers": handlers, "span": span}
+            if handler.type is not None:
+                names = _handler_names(self, handler.type)
+                if "Exception" not in names:
+                    for name in names:
+                        codes.extend(self._exception_codes(name))
+            bind = handler.name
+            if bind is not None:
+                prior = self.locals.get(bind)
+                if prior is None:
+                    self.locals[bind] = {"kind": "exc"}
+                elif prior.get("kind") != "exc":
+                    self.fail(handler, "PS1205", f"{bind} is {_show(prior)}, and except-as binds an exception")
+                self.dead_names.discard(bind)
+            self.exc_stack.append(bind or "")
+            try:
+                body = self._body(list(handler.body))
+            finally:
+                slot = self.exc_stack.pop()
+                if bind is not None:
+                    self.dead_names.add(bind)  # CPython emits `del e` at handler end
+
+            node: dict[str, Any] = {"exc": names, "codes": codes, "body": body}
+            if handler.type is None:
+                node["bare"] = True
+            if slot:
+                node["excslot"] = slot
+            elif bind is not None:
+                node["excslot"] = bind
+            if bind is not None:
+                node["bind"] = bind
+            handlers.append(node)
+        node = {"kind": "try", "body": self._body(list(stmt.body)), "handlers": handlers, "span": span}
+        if stmt.orelse:
+            node["orelse"] = self._body(list(stmt.orelse))
+            if brk is not None:
+                node["brk"] = brk
+            if cont is not None:
+                node["cont"] = cont
+        if stmt.finalbody:
+            node["finalbody"] = self._body(list(stmt.finalbody))
+        return node
 
     def _with(self, stmt: ast.With, span: dict[str, Any]) -> list[dict[str, Any]]:
         if len(stmt.items) != 1:
