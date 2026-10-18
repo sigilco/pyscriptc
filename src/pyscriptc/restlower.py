@@ -60,6 +60,14 @@ def rest_call(
     spec = fixed_spec(module, attr)
     if spec is not None:
         return lo._fixed_call(node, span, module, attr, spec)
+    if module == "random":
+        return _random_call(lo, node, span, attr)
+    if module == "csv":
+        return _csv_call(lo, node, span, attr)
+    if module == "textwrap":
+        return _textwrap_call(lo, node, span, attr)
+    if module == "copy":
+        return _copy_call(lo, node, span, attr)
     if module == "datetime" and attr == "date":
         return _ints(lo, node, span, "datetime", "date", "ps_date_ymd", "Date", 3, ["year", "month", "day"])
     if module == "datetime" and attr == "datetime":
@@ -1076,6 +1084,196 @@ def _resource_files(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, 
         "ps_res_files",
         span,
     )
+
+
+_RAND_LEN = {"kind": "int"}
+
+
+def _rand_len_of(arg: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "kind": "call",
+        "callee": {"kind": "builtin", "name": "len"},
+        "args": [arg],
+        "type": {"kind": "int"},
+        "span": span,
+    }
+
+
+def _random_call(lo: Any, node: ast.Call, span: dict[str, Any], attr: str) -> dict[str, Any]:
+    """random lowers onto a single shared MT19937 in ps_rand.c.
+
+    Seed parity with CPython is kept for int seeds (init_by_array on the
+    little-endian limbs); seed() with no argument is nondeterministic.
+    """
+    lo._reject_keywords(node)
+    if attr == "seed":
+        if len(node.args) > 1:
+            lo.fail(node, "PS2003", "random.seed expects 0 or 1 argument(s)")
+        if not node.args:
+            return lo._abi_call("random", "seed", [], {"kind": "none"}, "ps_rand_seed_auto", span)
+        arg = lo._expr(node.args[0])
+        if arg["type"]["kind"] != "int":
+            lo.fail(node, "PS1003", "random.seed argument is int")
+        return lo._abi_call("random", "seed", [arg], {"kind": "none"}, "ps_rand_seed", span)
+    if attr == "random":
+        if node.args:
+            lo.fail(node, "PS2003", "random.random expects 0 argument(s)")
+        return lo._abi_call("random", "random", [], {"kind": "float"}, "ps_rand_f64", span)
+    if attr == "randint":
+        if len(node.args) != 2:
+            lo.fail(node, "PS2003", "random.randint expects 2 argument(s)")
+        args = [lo._expr(arg) for arg in node.args]
+        for arg in args:
+            if arg["type"]["kind"] != "int":
+                lo.fail(node, "PS1003", "random.randint arguments are int")
+        return lo._abi_call("random", "randint", args, {"kind": "int"}, "ps_rand_range2", span)
+    if attr == "randrange":
+        if not 1 <= len(node.args) <= 3:
+            lo.fail(node, "PS2003", "random.randrange expects 1 to 3 argument(s)")
+        args = [lo._expr(arg) for arg in node.args]
+        for arg in args:
+            if arg["type"]["kind"] != "int":
+                lo.fail(node, "PS1003", "random.randrange arguments are int")
+        if len(args) == 1:
+            args = [_const_int(0, span), args[0]]
+        if len(args) == 2:
+            args.append(_const_int(1, span))
+        return lo._abi_call("random", "randrange", args, {"kind": "int"}, "ps_rand_range3", span)
+    if attr == "uniform":
+        if len(node.args) != 2:
+            lo.fail(node, "PS2003", "random.uniform expects 2 argument(s)")
+        args = [_as_float(lo, node, lo._expr(arg), span, "random.uniform") for arg in node.args]
+        return lo._abi_call("random", "uniform", args, {"kind": "float"}, "ps_rand_uniform", span)
+    if attr == "getrandbits":
+        if len(node.args) != 1:
+            lo.fail(node, "PS2003", "random.getrandbits expects 1 argument(s)")
+        arg = lo._expr(node.args[0])
+        if arg["type"]["kind"] != "int":
+            lo.fail(node, "PS1003", "random.getrandbits argument is int")
+        return lo._abi_call("random", "getrandbits", [arg], {"kind": "int"}, "ps_rand_bits", span)
+    if attr == "choice":
+        if len(node.args) != 1:
+            lo.fail(node, "PS2003", "random.choice expects 1 argument(s)")
+        arg = lo._expr(node.args[0])
+        kind = arg["type"]["kind"]
+        if kind == "list":
+            elem = arg["type"]["elem"]
+        elif kind == "str":
+            elem = {"kind": "str"}
+        else:
+            lo.fail(node, "PS1003", f"random.choice takes a list or str, not {kind}")
+        length = _rand_len_of(arg, span)
+        index = lo._abi_call("random", "choice", [length], {"kind": "int"}, "ps_rand_index", span)
+        return {"kind": "subscript", "value": arg, "index": index, "type": elem, "span": span}
+    if attr == "shuffle":
+        if len(node.args) != 1:
+            lo.fail(node, "PS2003", "random.shuffle expects 1 argument(s)")
+        arg = lo._expr(node.args[0])
+        if arg["type"]["kind"] != "list":
+            lo.fail(node, "PS1003", "random.shuffle takes a list")
+        return lo._abi_call("random", "shuffle", [arg], {"kind": "none"}, "ps_seq_shuffle", span)
+    lo.fail(node, "PS2001", f"random.{attr} is not in the lowered subset of random")
+    raise AssertionError("unreachable")
+
+
+def _csv_call(lo: Any, node: ast.Call, span: dict[str, Any], attr: str) -> dict[str, Any]:
+    """csv.reader is eager: it returns list[list[str]] from a file or a
+    list[str] of physical lines. csv.writer wraps the TextIO handle itself as
+    the CsvWriter value and writes excel-dialect rows."""
+    lo._reject_keywords(node)
+    if attr == "reader":
+        if len(node.args) != 1:
+            lo.fail(node, "PS2003", "csv.reader expects 1 argument(s)")
+        arg = lo._expr(node.args[0])
+        typ = arg["type"]
+        rows: dict[str, Any] = {"kind": "list", "elem": {"kind": "list", "elem": {"kind": "str"}}}
+        if typ["kind"] == "list" and typ["elem"]["kind"] == "str":
+            return lo._abi_call("csv", "reader", [arg], rows, "ps_csv_read_lines", span)
+        if typ["kind"] == "class" and typ.get("name") == "TextIO":
+            return lo._abi_call("csv", "reader", [arg], rows, "ps_csv_read_io", span)
+        lo.fail(node, "PS1003", "csv.reader takes a list[str] or a text file")
+    if attr == "writer":
+        if len(node.args) != 1:
+            lo.fail(node, "PS2003", "csv.writer expects 1 argument(s)")
+        arg = lo._expr(node.args[0])
+        typ = arg["type"]
+        if typ["kind"] == "class" and typ.get("name") == "TextIO":
+            return lo._abi_call("csv", "writer", [arg], _class("CsvWriter"), "ps_csv_writer", span)
+        lo.fail(node, "PS1003", "csv.writer takes a text file")
+    lo.fail(node, "PS2001", f"csv.{attr} is not in the lowered subset of csv")
+    raise AssertionError("unreachable")
+
+
+def _textwrap_call(lo: Any, node: ast.Call, span: dict[str, Any], attr: str) -> dict[str, Any]:
+    """textwrap.fill/wrap/shorten take text plus an optional width (default 70);
+    dedent and indent ride the fixed table."""
+    if attr in {"fill", "wrap", "shorten"}:
+        slots = lo._place_nodes(node, ["text", "width"])
+        if slots[0] is None:
+            lo.fail(node, "PS2003", f"textwrap.{attr} expects a text argument")
+        assert slots[0] is not None
+        text = lo._expr(slots[0])
+        if text["type"]["kind"] != "str":
+            lo.fail(node, "PS1003", f"textwrap.{attr} text is str")
+        if slots[1] is None:
+            if attr == "shorten":
+                lo.fail(node, "PS2003", "textwrap.shorten expects a width argument")
+            width = _const_int(70, span)
+        else:
+            width = lo._expr(slots[1])
+            if width["type"]["kind"] != "int":
+                lo.fail(node, "PS1003", f"textwrap.{attr} width is int")
+        if attr == "wrap":
+            return lo._abi_call(
+                "textwrap",
+                attr,
+                [text, width],
+                {"kind": "list", "elem": {"kind": "str"}},
+                "ps_wrap_wrap",
+                span,
+            )
+        symbol = "ps_wrap_fill" if attr == "fill" else "ps_wrap_shorten"
+        return lo._abi_call("textwrap", attr, [text, width], {"kind": "str"}, symbol, span)
+    lo.fail(node, "PS2001", f"textwrap.{attr} is not in the lowered subset of textwrap")
+    raise AssertionError("unreachable")
+
+
+_COPY_SCALARS = {"int", "float", "bool", "str", "bytes"}
+
+
+def _copyable(typ: dict[str, Any]) -> bool:
+    kind = typ["kind"]
+    if kind in {"int", "float", "str", "bytes"}:
+        return True
+    if kind == "list":
+        return _copyable(typ["elem"])
+    if kind == "dict":
+        return _copyable(typ["value"])
+    return False
+
+
+def _copy_call(lo: Any, node: ast.Call, span: dict[str, Any], attr: str) -> dict[str, Any]:
+    """copy.copy/deepcopy: scalars are returned as-is; shallow copies of
+    list/dict memcpy the container; deepcopy walks a static type table the
+    emitter writes next to the call (ps_copy_deep)."""
+    lo._reject_keywords(node)
+    if len(node.args) != 1:
+        lo.fail(node, "PS2003", f"copy.{attr} expects 1 argument(s)")
+    arg = lo._expr(node.args[0])
+    typ = arg["type"]
+    kind = typ["kind"]
+    if kind in _COPY_SCALARS:
+        return arg
+    if attr == "copy":
+        if kind == "list":
+            return lo._abi_call("copy", attr, [arg], typ, "ps_copy_seq", span)
+        if kind == "dict":
+            return lo._abi_call("copy", attr, [arg], typ, "ps_copy_map", span)
+    else:
+        if kind in {"list", "dict"} and _copyable(typ):
+            return lo._abi_call("copy", attr, [arg], typ, "ps_copy_deep", span)
+    lo.fail(node, "PS2001", f"copy.{attr} is not lowered for {kind}")
+    raise AssertionError("unreachable")
 
 
 def _atexit_register(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:

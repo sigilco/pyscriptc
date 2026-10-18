@@ -19,6 +19,7 @@ _S: dict[str, Any] = {"kind": "str"}
 _BY: dict[str, Any] = {"kind": "bytes"}
 _N: dict[str, Any] = {"kind": "none"}
 _LS: dict[str, Any] = {"kind": "list", "elem": _S}
+_LLS: dict[str, Any] = {"kind": "list", "elem": _LS}
 _DATE: dict[str, Any] = {"kind": "class", "name": "Date"}
 _DT: dict[str, Any] = {"kind": "class", "name": "DateTime"}
 _TOD: dict[str, Any] = {"kind": "class", "name": "Time"}
@@ -79,6 +80,14 @@ _INT_SURFACE: dict[str, tuple[str, ...]] = {
     "base64": (
         "MAXBINSIZE",
         "MAXLINESIZE",
+    ),
+    "csv": (
+        "QUOTE_ALL",
+        "QUOTE_MINIMAL",
+        "QUOTE_NONE",
+        "QUOTE_NONNUMERIC",
+        "QUOTE_NOTNULL",
+        "QUOTE_STRINGS",
     ),
     "ctypes": (
         "DEFAULT_MODE",
@@ -1188,6 +1197,7 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "collections": ("Deque",),
     "hmac": ("Hmac",),
     "importlib.resources": ("Path",),
+    "csv": ("CsvWriter",),
 }
 
 CLASS_FIELDS: dict[str, list[dict[str, Any]]] = {
@@ -1232,6 +1242,7 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("io", "BytesIO"): "BytesIO",
     ("time", "struct_time"): "StructTime",
     ("os", "stat_result"): "Stat",
+    ("csv", "_writer"): "CsvWriter",
 }
 
 # Instance methods. `elem` means the deque's element type.
@@ -1280,6 +1291,10 @@ CLASS_METHODS: dict[str, dict[str, dict[str, Any]]] = {
         "popleft": {"params": [], "return": "elem", "symbol": "ps_deque_popleft"},
     },
     "Hmac": {"digest": _sig([], _BY, "ps_hmac_finish")},
+    "CsvWriter": {
+        "writerow": _sig([_LS], _N, "ps_csv_writerow"),
+        "writerows": _sig([_LLS], _N, "ps_csv_writerows"),
+    },
 }
 
 PATH_ATTRS: dict[str, tuple[dict[str, Any], str]] = {
@@ -1370,6 +1385,10 @@ REST_FIXED: dict[str, dict[str, dict[str, Any]]] = {
         "rmtree": _sig([_S], _N, "ps_shutil_rmtree"),
         "which": _sig([_S], _S, "ps_shutil_which"),
     },
+    "textwrap": {
+        "dedent": _sig([_S], _S, "ps_wrap_dedent"),
+        "indent": _sig([_S, _S], _S, "ps_wrap_indent"),
+    },
 }
 
 # Callable, but only in a particular statement shape.
@@ -1432,6 +1451,10 @@ REST_MODULES = frozenset(
         "tempfile",
         "atexit",
         "shutil",
+        "random",
+        "csv",
+        "textwrap",
+        "copy",
     }
 )
 
@@ -1601,5 +1624,22 @@ def member_callable(module: str, member: str) -> bool:
     if module == "enum" and member in {"Enum", "IntEnum"}:
         return True
     if module == "dataclasses" and member == "dataclass":
+        return True
+    if module == "random" and member in {
+        "seed",
+        "random",
+        "randint",
+        "randrange",
+        "uniform",
+        "getrandbits",
+        "choice",
+        "shuffle",
+    }:
+        return True
+    if module == "csv" and member in {"reader", "writer"}:
+        return True
+    if module == "textwrap" and member in {"fill", "wrap", "shorten"}:
+        return True
+    if module == "copy" and member in {"copy", "deepcopy"}:
         return True
     return False

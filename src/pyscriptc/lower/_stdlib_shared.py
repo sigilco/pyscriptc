@@ -67,6 +67,8 @@ def _synth_module(class_name: str) -> str:
         return "collections"
     if class_name == "Hmac":
         return "hmac"
+    if class_name == "CsvWriter":
+        return "csv"
     return "builtins"
 
 

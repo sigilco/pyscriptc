@@ -64,6 +64,8 @@ typedef struct PsType {
 typedef struct PsIO PsIO;
 PsIO *ps_io_take_fd(int fd, const char *path, int64_t mode, int64_t keep);
 PsIO *ps_temp_named(int64_t mode, int64_t keep);
+void ps_io_read(PsIO *io, PsBuf *out);
+int64_t ps_io_write(PsIO *io, int64_t n, const char *s);
 
 typedef struct PsArg {
     int32_t kind;
