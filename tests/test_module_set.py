@@ -51,7 +51,7 @@ def test_module_set_stays_fenced(tmp_path: Path) -> None:
         (
             "comp.py",
             "ARCHS = {item for item in ['a', 'b']}\n",
-            "SetComp is not lowered",
+            "a module assignment must be a constant",
         ),
         (
             "float.py",
