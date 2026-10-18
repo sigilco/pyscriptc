@@ -324,9 +324,9 @@ class CallsMixin:
                         self.fail(node, "PS1003", "dict.update takes a dict")
                     self._expect(node, other["type"]["key"], key_t, "dict.update key")
                     self._expect(node, other["type"]["value"], val_t, "dict.update value")
-                    call = self._abi_call(
-                        "builtins", "dict.update", [receiver, other], {"kind": "none"}, "ps_map_update", span
-                    )
+                    # Counter.update adds counts; dict.update replaces them.
+                    symbol = "ps_counter_update" if dtyp.get("counter") else "ps_map_update"
+                    call = self._abi_call("builtins", "dict.update", [receiver, other], {"kind": "none"}, symbol, span)
                 self.prelude.append({"kind": "expr", "expr": call, "span": span})
                 return _const_none(span)
             # pop and setdefault are statements: the dict is bound to a temp,

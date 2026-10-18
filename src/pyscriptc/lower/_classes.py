@@ -20,7 +20,9 @@ from pyscriptc.lower._core import (
     _LIST_FORMS,
     _SET_FORMS,
     Fence,
+    _assign,
     _name,
+    _plain_const_kind,
     _show,
 )
 from pyscriptc.lower._stmt import _always_returns, _is_docstring
@@ -529,6 +531,8 @@ class ClassesMixin:
 
     def _construct(self, node: ast.Call, span: dict[str, Any], name: str) -> dict[str, Any]:
         info = self.classes[name]
+        if info.get("namedtuple"):
+            return self._construct_namedtuple(node, span, name, info)
         init = info["methods"].get("__init__")
         if init is None:
             if node.args or node.keywords:
@@ -549,6 +553,117 @@ class ClassesMixin:
             "type": {"kind": "class", "name": name},
             "span": span,
         }
+
+    def _namedtuple_call(self, node: ast.expr) -> ast.Call | None:
+        """The `collections.namedtuple(...)` call, spelled either binding or `collections.namedtuple`."""
+        if not isinstance(node, ast.Call):
+            return None
+        if isinstance(node.func, ast.Name):
+            binding = self.bindings.get(node.func.id)
+            if binding is not None and binding.module == "collections" and binding.attr == "namedtuple":
+                return node
+            return None
+        if isinstance(node.func, ast.Attribute):
+            resolved = self._resolve_module(node.func)
+            if resolved is not None and resolved[1] == "collections" and resolved[2] == "namedtuple":
+                return node
+        return None
+
+    def _namedtuple_decl(self, target: str, call: ast.Call, stmt: ast.stmt) -> None:
+        """`P = namedtuple('P', 'x y')` declares the synthetic tuple class `P`.
+
+        Subset: the typename is a str constant, the field names come from a
+        str constant split on commas and whitespace or a list/tuple of str
+        constants, and `fields=` may name the second argument. `rename`,
+        `defaults`, and `module` stay fenced. Field types are fixed by the
+        first `P(...)` construction.
+        """
+        fields_node = call.args[1] if len(call.args) == 2 else None
+        for kw in call.keywords:
+            if kw.arg == "fields" and fields_node is None:
+                fields_node = kw.value
+            else:
+                self.fail(kw.value, "PS2003", f"namedtuple keyword {kw.arg} is not lowered")
+        if len(call.args) not in {1, 2} or fields_node is None:
+            self.fail(call, "PS2003", "namedtuple expects a typename and field names")
+        type_node = call.args[0]
+        if _plain_const_kind(type_node) != "str" or not type_node.value.isidentifier():
+            self.fail(call, "PS2003", "namedtuple needs a str typename that is an identifier")
+        names = _nt_fields(fields_node)
+        if names is None:
+            self.fail(call, "PS2003", "namedtuple field names are str constants")
+        if len(set(names)) != len(names):
+            self.fail(call, "PS2003", "namedtuple field names repeat")
+        for field in names:
+            if not field.isidentifier() or field.startswith("_"):
+                self.fail(call, "PS2003", f"namedtuple field {field} is not an allowed name")
+        if target in self.declared or target in self.bindings or target in self.locals:
+            self.fail(stmt, "PS2002", f"{target} is already bound")
+        typename = type_node.value
+        existing = self.classes.get(typename)
+        if existing is not None:
+            if not existing.get("namedtuple") or existing["nt_fields"] != names:
+                self.fail(stmt, "PS2002", f"{typename} is already bound")
+        elif typename in self.declared:
+            self.fail(stmt, "PS2002", f"{typename} is already bound")
+        else:
+            self.classes[typename] = {
+                "fields": [],
+                "methods": {},
+                "synthetic": True,
+                "tuple": True,
+                "namedtuple": True,
+                "nt_fields": names,
+            }
+            self.declared.add(typename)
+        self.class_aliases[target] = typename
+        self.declared.add(target)
+
+    def _construct_namedtuple(
+        self, node: ast.Call, span: dict[str, Any], name: str, info: dict[str, Any]
+    ) -> dict[str, Any]:
+        """`P(1, 2)` or `P(x=1, y=2)`: materialize with per-field setattrs.
+
+        Positional arguments fill fields in order; keywords must name fields
+        not already filled. The first construction fixes the field types;
+        later ones check against them, like a class without an `__init__`.
+        """
+        fields = info["nt_fields"]
+        if any(isinstance(arg, ast.Starred) for arg in node.args):
+            self.fail(node, "PS2002", "starred calls are not lowered")
+        if len(node.args) > len(fields):
+            self.fail(node, "PS2003", f"{name}() expects {len(fields)} argument(s)")
+        values: dict[str, dict[str, Any]] = {}
+        for field, arg in zip(fields, node.args, strict=False):
+            values[field] = self._expr(arg)
+        for kw in node.keywords:
+            if kw.arg is None or kw.arg not in fields:
+                self.fail(node, "PS2003", f"{name}() keyword arguments name its fields")
+            if kw.arg in values:
+                self.fail(node, "PS2003", f"{name}() field {kw.arg} is given twice")
+            values[kw.arg] = self._expr(kw.value)
+        missing = [field for field in fields if field not in values]
+        if missing:
+            self.fail(node, "PS2003", f"{name}() is missing field {missing[0]}")
+        args = [values[field] for field in fields]
+        if not info["fields"]:
+            for field, arg in zip(fields, args, strict=True):
+                if arg["type"]["kind"] in {"func", "none"}:
+                    self.fail(node, "PS2002", f"{name}() field {field} is {_show(arg['type'])}")
+                info["fields"].append({"name": field, "type": arg["type"]})
+        else:
+            for field, arg in zip(info["fields"], args, strict=True):
+                self._expect(node, arg["type"], field["type"], f"{name}.{field['name']}")
+        typ = {"kind": "class", "name": name}
+        dest = self._temp("nt").replace(".", "_")
+        self.locals[dest] = typ
+        made = {"kind": "call", "callee": {"kind": "class", "name": name}, "args": [], "type": typ, "span": span}
+        self.prelude.append(_assign(dest, made, span))
+        for field, arg in zip(fields, args, strict=True):
+            self.prelude.append(
+                {"kind": "setattr", "object": _name(dest, typ, span), "name": field, "value": arg, "span": span}
+            )
+        return _name(dest, typ, span)
 
     def _reject_banned_type(self, node: ast.AST, typ: dict[str, Any]) -> None:
         if typ["kind"] == "list" and typ["elem"]["kind"] == "bool":
@@ -781,6 +896,24 @@ class ClassesMixin:
             }
             self._reject_banned_type(node, typ)
             return typ
+        if alias == "Counter":
+            # `counter` marks the dict so a `c[k]` read yields 0 on a miss.
+            typ = {"kind": "dict", "key": self._annotation(node.slice), "value": {"kind": "int"}, "counter": True}
+            self._reject_banned_type(node, typ)
+            return typ
+        if alias == "defaultdict":
+            # `defaultdict` marks the dict so a `d[k]` miss inserts a fresh
+            # default (the zero of the value type) before the read.
+            if not isinstance(node.slice, ast.Tuple) or len(node.slice.elts) != 2:
+                self.fail(node, "PS1001", "defaultdict annotations are defaultdict[key, value]")
+            typ = {
+                "kind": "dict",
+                "key": self._annotation(node.slice.elts[0]),
+                "value": self._annotation(node.slice.elts[1]),
+                "defaultdict": True,
+            }
+            self._reject_banned_type(node, typ)
+            return typ
         return None
 
     def _annotation_class(self, node: ast.AST) -> str | None:
@@ -807,6 +940,10 @@ class ClassesMixin:
                 return "Deque"
             if binding.module == "collections" and binding.attr == "OrderedDict":
                 return "OrderedDict"
+            if binding.module == "collections" and binding.attr == "Counter":
+                return "Counter"
+            if binding.module == "collections" and binding.attr == "defaultdict":
+                return "defaultdict"
             return alias_name(binding.module, binding.attr)
         if isinstance(node, ast.Attribute):
             resolved = self._resolve_module(node)
@@ -816,6 +953,10 @@ class ClassesMixin:
                 return "Deque"
             if resolved[1] == "collections" and resolved[2] == "OrderedDict":
                 return "OrderedDict"
+            if resolved[1] == "collections" and resolved[2] == "Counter":
+                return "Counter"
+            if resolved[1] == "collections" and resolved[2] == "defaultdict":
+                return "defaultdict"
         return None
 
     def _typing_annotation(self, node: ast.AST) -> dict[str, Any] | None:
@@ -1071,6 +1212,17 @@ def _assigned_fields(body: list[ast.stmt]) -> set[str]:
             if isinstance(child, ast.stmt):
                 found |= _assigned_fields([child])
     return found
+
+
+def _nt_fields(node: ast.expr) -> list[str] | None:
+    """namedtuple field names: a str constant split on commas/whitespace or a list of them."""
+    if _plain_const_kind(node) == "str":
+        names = node.value.replace(",", " ").split()
+        return names if names else None
+    if isinstance(node, (ast.List, ast.Tuple)) and node.elts:
+        names = [elt.value for elt in node.elts if _plain_const_kind(elt) == "str"]
+        return names if len(names) == len(node.elts) else None
+    return None
 
 
 def _const_int_index(node: ast.expr) -> int | None:

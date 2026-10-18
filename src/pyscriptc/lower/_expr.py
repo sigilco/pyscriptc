@@ -39,6 +39,7 @@ from pyscriptc.lower._core import (
     _plain_const_kind,
     _show,
     _static_int,
+    _zero,
 )
 from pyscriptc.stdlib_queue import (
     MATH_CONSTANTS,
@@ -1084,6 +1085,8 @@ class ExprMixin:
         elif kind == "dict":
             self._expect(node, index["type"], value["type"]["key"], "dict key")
             result = value["type"]["value"]
+            if value["type"].get("counter") or value["type"].get("defaultdict"):
+                return self._defaulted_subscript(node, value, index, span)
         elif kind == "str":
             if index["type"]["kind"] != "int":
                 self.fail(node, "PS1003", "a str index is int")
@@ -1101,6 +1104,58 @@ class ExprMixin:
         else:
             self.fail(node, "PS2002", "subscript is lowered for list, dict, str, and bytes")
         return {"kind": "subscript", "value": value, "index": index, "type": result, "span": span}
+
+    def _defaulted_subscript(
+        self, node: ast.Subscript, value: dict[str, Any], index: dict[str, Any], span: dict[str, Any]
+    ) -> dict[str, Any]:
+        """`c[k]` on a Counter or defaultdict: the missing-key read CPython performs.
+
+        A Counter read yields 0 without inserting. A defaultdict read inserts a
+        fresh default (the zero value of the annotation's value type) then
+        returns it. Both pin the dict and key to prelude temps and guard the
+        raw subscript with `k in d`, like `dict.setdefault`.
+        """
+        dtyp = value["type"]
+        key_t, val_t = dtyp["key"], dtyp["value"]
+        d_t = self._temp("dfd").replace(".", "_")
+        k_t = self._temp("dfk").replace(".", "_")
+        v_t = self._temp("dfv").replace(".", "_")
+        self.locals[d_t] = dtyp
+        self.locals[k_t] = key_t
+        self.locals[v_t] = val_t
+        for t, v in ((d_t, value), (k_t, index)):
+            self.prelude.append({"kind": "assign", "target": t, "value": v, "span": span})
+        getitem = {
+            "kind": "subscript",
+            "value": _name(d_t, dtyp, span),
+            "index": _name(k_t, key_t, span),
+            "type": val_t,
+            "span": span,
+        }
+        then = [_assign(v_t, getitem, span)]
+        if dtyp.get("counter"):
+            other = [_assign(v_t, _zero(val_t, span), span)]
+        else:
+            other = [
+                {
+                    "kind": "setitem",
+                    "container": _name(d_t, dtyp, span),
+                    "index": _name(k_t, key_t, span),
+                    "value": _zero(val_t, span),
+                    "span": span,
+                },
+                _assign(v_t, getitem, span),
+            ]
+        cond = {
+            "kind": "contains",
+            "hay": _name(d_t, dtyp, span),
+            "needle": _name(k_t, key_t, span),
+            "negated": False,
+            "type": {"kind": "bool"},
+            "span": span,
+        }
+        self.prelude.append({"kind": "if", "cond": cond, "then": then, "else": other, "span": span})
+        return _name(v_t, val_t, span)
 
     def _attribute(self, node: ast.Attribute, span: dict[str, Any]) -> dict[str, Any]:
         if (
