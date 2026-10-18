@@ -614,7 +614,10 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         if obj["type"]["kind"] != "class":
             self.fail(target, "PS2001", f"attribute assignment is not lowered ({_dotted(target)})")
         class_name = obj["type"]["name"]
-        field = next((item for item in self.classes[class_name]["fields"] if item["name"] == target.attr), None)
+        info = self.classes[class_name]
+        if info.get("namedtuple"):
+            self.fail(target, "PS2002", f"{class_name}.{target.attr} is read-only on a namedtuple")
+        field = next((item for item in info["fields"] if item["name"] == target.attr), None)
         if field is None:
             self.fail(target, "PS2001", f"{class_name}.{target.attr} is not a field")
         value = self._expr(stmt.value, field["type"])

@@ -180,6 +180,13 @@ class StmtMixin:
                     self.fail(stmt, "PS2002", f"global {name} is not a module slot")
             return [{"kind": "pass", "span": span}]
         if isinstance(stmt, ast.Assign):
+            if (
+                len(stmt.targets) == 1
+                and isinstance(stmt.targets[0], ast.Name)
+                and (nt_call := self._namedtuple_call(stmt.value)) is not None
+            ):
+                self._namedtuple_decl(stmt.targets[0].id, nt_call, stmt)
+                return [{"kind": "pass", "span": span}]
             if len(stmt.targets) != 1 or not isinstance(stmt.targets[0], ast.Name):
                 return self._spread_assign(stmt, span)
             target = stmt.targets[0].id

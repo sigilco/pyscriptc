@@ -500,6 +500,10 @@ class StdlibDispatchMixin:
                 return
             if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
                 target = stmt.targets[0].id
+                nt_call = self._namedtuple_call(stmt.value)
+                if nt_call is not None:
+                    self._namedtuple_decl(target, nt_call, stmt)
+                    return
                 if target in self.global_slots and _is_none_expr(stmt.value):
                     self._activate_slot(target, stmt)
                     return
