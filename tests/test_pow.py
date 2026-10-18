@@ -1,7 +1,9 @@
-"""`2 ** 3` is a loop of `*`. A negative exponent stays fenced.
+"""`2 ** 3` is a loop of `*`. A float operand or `-1` lowers to `pow`.
 
 The base and the exponent are ints and each runs once. `0 ** 0` is 1.
-A float operand and `**` on a non-int stay fenced.
+A float operand or a constant negative exponent lifts the pair to
+`llvm.pow.f64` — `2 ** -1` is `0.5` — while a computed negative exponent
+keeps the old catchable ValueError, and `**` on a non-int stays fenced.
 """
 
 from __future__ import annotations
@@ -54,6 +56,18 @@ def base_once() -> int:
     box: Counter = Counter(0)
     value: int = bump(box) ** 2
     return value * 10 + box.n
+
+def float_base() -> str:
+    return str(2.0 ** 3)
+
+def float_exp() -> str:
+    return str(2 ** 3.0)
+
+def neg_exp() -> str:
+    return str(2 ** -1)
+
+def neg_both() -> str:
+    return str((-2) ** -2)
 """
 
 
@@ -71,6 +85,10 @@ def test_pow_matches_cpython(tmp_path: Path) -> None:
         "grouped": "64",
         "once": "81",
         "base_once": "91",
+        "float_base": "8.0",
+        "float_exp": "8.0",
+        "neg_exp": "0.5",
+        "neg_both": "0.25",
     }
     for func, want in expected.items():
         got = compile_run(tmp_path, path, func)
@@ -82,21 +100,6 @@ def test_pow_matches_cpython(tmp_path: Path) -> None:
 def test_pow_stays_fenced(tmp_path: Path) -> None:
     cases = [
         (
-            "neg.py",
-            "def probe() -> int:\n    return 2 ** -1\n",
-            "a negative exponent is not lowered",
-        ),
-        (
-            "float_base.py",
-            "def probe() -> float:\n    return 2.0 ** 3\n",
-            "** is only lowered for int",
-        ),
-        (
-            "float_exp.py",
-            "def probe() -> float:\n    return 2 ** 3.0\n",
-            "** is only lowered for int",
-        ),
-        (
             "text.py",
             'def probe() -> int:\n    return "ab" ** 2\n',
             "** is only lowered for int",
@@ -105,7 +108,7 @@ def test_pow_stays_fenced(tmp_path: Path) -> None:
     for name, source, text in cases:
         path = write_case(tmp_path, name, source)
         args = ["compile", str(path), "--emit", "llvm", "-o", str(tmp_path / f"{name}.ll")]
-        if name in {"text.py", "neg.py"}:
+        if name in {"text.py"}:
             args = ["compile", str(path), "--skip-check", "--emit", "llvm", "-o", str(tmp_path / f"{name}.ll")]
         got = run_cli(*args)
         assert got.returncode == 3, f"{name}\n{got.stderr}"
