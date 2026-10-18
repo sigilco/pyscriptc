@@ -6,7 +6,7 @@ The area owns the `_stmt` dispatch and its statement forms: assignments
 repeat, chain, enumerate, zip, list), `break`/`continue` plumbing,
 `return`/`raise`/`assert`/`del`, `try` handlers, `with` (suppress,
 nullcontext, `open`, `importlib.resources.as_file`), and `match` on
-literal subjects.
+literal, wildcard, capture, or, guarded, and `None` patterns.
 
 Loop-flag plumbing and close injection are statement-shaped and moved with
 the area. Small leaf helpers shared across the package (tables, `_assign`,
@@ -300,42 +300,84 @@ class StmtMixin:
         raise AssertionError("unreachable")
 
     def _match(self, stmt: ast.Match, span: dict[str, Any]) -> list[dict[str, Any]]:
-        """`match subject: case literal:` is `if subject == literal`.
+        """`match subject:` is an if chain, one `if` per case.
 
-        The subject is stored once. Each later literal case sits in the else of
-        the previous one, so a match does not test the rest. Any other pattern
-        stays fenced.
+        The subject is stored once; a case is tested only when every earlier
+        case missed. Per-case prelude collection keeps a capture bind or a
+        guard evaluation from running before its case is reached.
         """
         subject_expr = self._expr(stmt.subject)
         temp = self._temp("subj")
         self.locals[temp] = subject_expr["type"]
         self.prelude.append(_assign(temp, subject_expr, span))
+        for case in stmt.cases:
+            pat = case.pattern
+            if not (isinstance(pat, ast.MatchAs) and pat.pattern is None and pat.name is not None):
+                continue
+            if pat.name in self.locals:
+                continue
+            # A fresh capture declares the name with the subject's type and
+            # zero, like an unbound `for` target; its case rebinds it.
+            self.locals[pat.name] = subject_expr["type"]
+            if subject_expr["type"]["kind"] != "none":
+                self.prelude.append(_assign(pat.name, _zero(subject_expr["type"], span), span))
         chain: list[dict[str, Any]] = []
         for case in reversed(stmt.cases):
-            cond = self._match_case(case, temp, span)
-            chain = [
-                {
-                    "kind": "if",
-                    "cond": cond,
-                    "then": self._body(list(case.body)),
-                    "else": chain,
-                    "span": span,
-                }
-            ]
+            saved = self.prelude
+            self.prelude = []
+            try:
+                cond = self._match_case(case, temp, span)
+                then = self._body(list(case.body))
+            finally:
+                pre = self.prelude
+                self.prelude = saved
+            chain = [*pre, {"kind": "if", "cond": cond, "then": then, "else": chain, "span": span}]
         return chain
 
     def _match_case(self, case: ast.match_case, subject: str, span: dict[str, Any]) -> dict[str, Any]:
-        if case.guard is not None:
-            self.fail(case.guard, "PS2002", "a match guard is not lowered")
+        """A case's condition; a capture also binds the subject to the name.
+
+        `|` joins alternative tests with `or`, a guard with `and` — both ride
+        the BoolOp short-circuit. A wildcard or a capture always matches.
+        """
         pat = case.pattern
-        if isinstance(pat, ast.MatchValue) and isinstance(pat.value, ast.Constant):
+        parts = list(pat.patterns) if isinstance(pat, ast.MatchOr) else [pat]
+        values: list[ast.expr] = []
+        always = False
+        for part in parts:
+            if isinstance(part, ast.MatchAs) and part.pattern is None:
+                if part.name is None:
+                    always = True
+                    break
+                if len(parts) != 1:
+                    self.fail(part, "PS2002", "a capture pattern is not lowered")
+                self._expect(part, self.locals[subject], self.locals[part.name], part.name)
+                self.prelude.append(_assign(part.name, _name(subject, self.locals[subject], span), span))
+                always = True
+                break
+            if isinstance(part, ast.MatchValue) and isinstance(part.value, ast.Constant):
+                right, ops = part.value, [ast.Eq()]
+            elif isinstance(part, ast.MatchSingleton) and part.value is None:
+                right, ops = ast.Constant(value=None), [ast.Is()]
+            else:
+                self._refuse_pattern(part)
+                raise AssertionError("unreachable")
             left = ast.Name(id=subject, ctx=ast.Load())
-            ast.copy_location(left, pat)
-            compare = ast.Compare(left=left, ops=[ast.Eq()], comparators=[pat.value])
-            ast.copy_location(compare, pat)
-            return self._compare(compare, span)
-        self._refuse_pattern(pat)
-        raise AssertionError("unreachable")
+            ast.copy_location(left, part)
+            compare = ast.Compare(left=left, ops=ops, comparators=[right])
+            ast.copy_location(compare, part)
+            values.append(compare)
+        test: ast.expr | None = None
+        if values and not always:
+            test = values[0] if len(values) == 1 else ast.BoolOp(op=ast.Or(), values=values)
+            ast.copy_location(test, pat)
+        if case.guard is not None:
+            if test is None:
+                test = case.guard
+            else:
+                test = ast.BoolOp(op=ast.And(), values=[test, case.guard])
+                ast.copy_location(test, pat)
+        return _const_bool(True, span) if test is None else self._bool_cond(test)
 
     def _refuse_pattern(self, pat: ast.pattern) -> None:
         if isinstance(pat, ast.MatchAs):
