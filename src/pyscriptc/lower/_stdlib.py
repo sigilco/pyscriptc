@@ -18,6 +18,7 @@ import os
 from typing import Any, NoReturn
 
 from pyscriptc.errors import span_of
+from pyscriptc.ir import types_equal
 from pyscriptc.lower._core import (
     _FUTURE_OK,
     Binding,
@@ -491,6 +492,33 @@ class StdlibDispatchMixin:
                 target = stmt.targets[0].id
                 if target in self.global_slots and _is_none_expr(stmt.value):
                     self._activate_slot(target, stmt)
+                    return
+                if target in self.global_slots:
+                    # `count = 0` under a `global count` declaration: the slot
+                    # activates and the constant is emitted as a ps_global_set_*
+                    # initializer at the top of main. In a script, only an
+                    # initializer before the first entry statement may hoist;
+                    # later ones keep source order inside the entry instead.
+                    if self._script_line is not None and stmt.lineno > self._script_line:
+                        self.fail(stmt, "PS2002", "a module global initializer must precede script statements")
+                    value = self._module_fold(stmt.value)
+                    if value is None:
+                        value = self._expr(stmt.value)
+                    if (
+                        value["kind"] != "const"
+                        or value["type"]["kind"] not in {"int", "str"}
+                        or not _module_closed(value)
+                    ):
+                        self.fail(stmt, "PS2002", "a module global initializer must be a str or int constant")
+                    slot = self.global_slots[target]
+                    if slot.get("type") is None:
+                        slot["type"] = value["type"]
+                    elif not types_equal(slot["type"], value["type"]):
+                        self.fail(stmt, "PS2002", f"global {target} is already bound")
+                    if not slot.get("active"):
+                        self._activate_slot(target, stmt)
+                    init = self._global_set(target, value, span_of(stmt, self.filename))
+                    self.global_inits.append(init["expr"])
                     return
                 if isinstance(stmt.value, ast.Tuple):
                     self._store_tuple_constant(target, stmt.value, stmt)

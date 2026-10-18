@@ -138,6 +138,9 @@ class Emitter:
         self.copy_n = 0
         self.atexit_n = 0
         self.abi_decls: dict[str, tuple[str, list[str]]] = {}
+        # Function names that need a lazy env-first `name.clo` wrapper because
+        # they are referenced as values.
+        self.clo_wrappers: set[str] = set()
 
     def emit(self, call: str | None, args: list[Any], standalone: bool = False) -> str:
         self.class_index = {cls["name"]: cls for cls in self.module.get("classes", [])}
@@ -152,6 +155,8 @@ class Emitter:
         for cls in self.module.get("classes", []):
             for method in cls["methods"]:
                 self.emit_function(self.functions[f"cls.{cls['name']}.{method['name']}"])
+        for name in sorted(self.clo_wrappers):
+            self._emit_clo_wrapper(self.functions[name])
         if call is not None:
             self.emit_main(call, args)
         elif standalone:
@@ -178,8 +183,12 @@ class Emitter:
 
     def emit_function(self, fn: dict[str, Any]) -> None:
         ret = _llvm_type(fn["returnType"])
-        params = ", ".join(f"{_llvm_type(p['type'])} %{_safe(p['name'])}" for p in fn["params"])
-        self.out.append(f"define {ret} @{_fn_symbol(fn['name'])}({params}) {{")
+        # Env-first functions (nested defs and lambdas) take the caller's env
+        # cell array as a leading `ptr %env` and bind those slots by pointer.
+        plist = [f"{_llvm_type(p['type'])} %{_safe(p['name'])}" for p in fn["params"]]
+        if "env" in fn:
+            plist.insert(0, "ptr %env")
+        self.out.append(f"define {ret} @{_fn_symbol(fn['name'])}({', '.join(plist)}) {{")
         self._reset_function()
         self.block("entry")
         self.slot_order = []
@@ -194,6 +203,11 @@ class Emitter:
             self.slots[local["name"]] = (ptr, local["type"])
             self.slot_order.append(local["name"])
             self.slot_types[local["name"]] = local["type"]
+        for index, item in enumerate(fn.get("env", [])):
+            ptr = self._load_env_ptr("%env", index)
+            self.slots[item["name"]] = (ptr, item["type"])
+            self.slot_order.append(item["name"])
+            self.slot_types[item["name"]] = item["type"]
         self.ret_llvm = None if fn["returnType"]["kind"] == "none" else _llvm_type(fn["returnType"])
         self.ret_ptr = None if self.ret_llvm is None else self._alloca(self.ret_llvm)
         self.flow_ptr = self._alloca("i32")
@@ -227,6 +241,8 @@ class Emitter:
         self.block("entry")
         self._abi_decl("ps_argv_init", "void", ["i32", "ptr"])
         self._call_void("ps_argv_init", ["i32 %argc", "ptr %argv"])
+        for init in self.module.get("globals", []):
+            self.emit_expr(init)
         values = [self.materialize_arg(param["type"], value) for param, value in zip(params, prepared, strict=True)]
         result = self.call_function(fn, values)
         if fn["returnType"]["kind"] != "none":
@@ -515,8 +531,7 @@ class Emitter:
             ptrs.append(self.ret_ptr)
         return ptrs
 
-    def _pack_env(self) -> str:
-        ptrs = self._env_pointers()
+    def _pack_ptrs(self, ptrs: list[str]) -> str:
         if not ptrs:
             return "null"
         env = self._alloca(f"[{len(ptrs)} x ptr]")
@@ -526,6 +541,9 @@ class Emitter:
                 self.line(f"{dest} = getelementptr ptr, ptr {env}, i64 {index}")
             self.line(f"store ptr {ptr}, ptr {dest}")
         return env
+
+    def _pack_env(self) -> str:
+        return self._pack_ptrs(self._env_pointers())
 
     def _bind_env(self, env: str) -> None:
         self.slots = {}
@@ -699,6 +717,8 @@ class Emitter:
             return reg
         if kind == "contains":
             return self.emit_contains(expr)
+        if kind == "closure":
+            return self.emit_closure(expr)
         raise IRError(f"cannot emit expression {kind}")
 
     def emit_const(self, expr: dict[str, Any]) -> str:
@@ -818,6 +838,8 @@ class Emitter:
             return self.emit_method(expr, values)
         if callee["kind"] == "class":
             return self.emit_constructor(callee["name"], values)
+        if callee["kind"] == "value":
+            return self.emit_value_call(expr, values)
         return self.call_function(self.functions[callee["name"]], values)
 
     def emit_builtin(self, name: str, values: list[str], arg_types: list[dict[str, Any]], expr: dict[str, Any]) -> str:
@@ -1898,6 +1920,61 @@ class Emitter:
         self.line(f"{reg} = call {ret} @{symbol}({rendered})")
         return reg
 
+    def emit_closure(self, expr: dict[str, Any]) -> str:
+        """A callable value: a `[2 x ptr]` cell of {implementation, env}.
+
+        Env-first functions (nested defs, lambdas) are their own entry point;
+        a plain function gets a lazy `name.clo` wrapper that drops the env.
+        """
+        fn = self.functions[expr["name"]]
+        if "env" in fn:
+            impl = _fn_symbol(fn["name"])
+        else:
+            impl = f"{_fn_symbol(fn['name'])}.clo"
+            self.clo_wrappers.add(fn["name"])
+        env = self._pack_ptrs([self.slots[item["name"]][0] for item in expr["env"]])
+        pair = self._alloca("[2 x ptr]")
+        self.line(f"store ptr @{impl}, ptr {pair}")
+        env_ptr = self.tmp()
+        self.line(f"{env_ptr} = getelementptr ptr, ptr {pair}, i64 1")
+        self.line(f"store ptr {env}, ptr {env_ptr}")
+        return pair
+
+    def emit_value_call(self, expr: dict[str, Any], values: list[str]) -> str:
+        """Indirect call through a callable cell: load {impl, env}, call env-first."""
+        pair = self.emit_expr(expr["callee"]["target"])
+        impl = self._load("ptr", pair)
+        env_ptr = self.tmp()
+        self.line(f"{env_ptr} = getelementptr ptr, ptr {pair}, i64 1")
+        env = self._load("ptr", env_ptr)
+        args = [f"ptr {env}"]
+        args.extend(f"{_llvm_type(arg['type'])} {value}" for arg, value in zip(expr["args"], values, strict=True))
+        ret = _llvm_type(expr["type"])
+        if ret == "void":
+            self.line(f"call void {impl}({', '.join(args)})")
+            return ""
+        reg = self.tmp()
+        self.line(f"{reg} = call {ret} {impl}({', '.join(args)})")
+        return reg
+
+    def _emit_clo_wrapper(self, fn: dict[str, Any]) -> None:
+        """`name.clo(env, params...) -> name(params...)`: env-first shim for a
+        plain function referenced as a value."""
+        ret = _llvm_type(fn["returnType"])
+        symbol = _fn_symbol(fn["name"])
+        plist = ["ptr %env"] + [f"{_llvm_type(p['type'])} %{_safe(p['name'])}" for p in fn["params"]]
+        args = ", ".join(f"{_llvm_type(p['type'])} %{_safe(p['name'])}" for p in fn["params"])
+        self.out.append(f"define internal {ret} @{symbol}.clo({', '.join(plist)}) {{")
+        self.out.append("entry:")
+        if ret == "void":
+            self.out.append(f"  call void @{symbol}({args})")
+            self.out.append("  ret void")
+        else:
+            self.out.append(f"  %r = call {ret} @{symbol}({args})")
+            self.out.append(f"  ret {ret} %r")
+        self.out.append("}")
+        self.out.append("")
+
     def helper_call(self, name: str, ret: str, args: list[str], arg_type: str = "i64") -> str:
         self.needed.add(name)
         rendered = ", ".join(f"{arg_type} {arg}" for arg in args)
@@ -2160,7 +2237,7 @@ def _llvm_type(typ: dict[str, Any]) -> str:
         return "double"
     if kind in {"str", "bytes"}:
         return "%ps.str"
-    if kind in {"list", "dict", "class", "exc"}:
+    if kind in {"list", "dict", "class", "exc", "func"}:
         return "ptr"
     if kind == "none":
         return "void"
