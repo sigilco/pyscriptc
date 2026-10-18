@@ -43,7 +43,7 @@ Each module below is a closed set of calls, not the whole module.
 | `time` | `time`, `monotonic`, `sleep`, `gmtime`, `localtime`, `strftime`, `mktime` |
 | `collections` | `deque` (append, appendleft, pop, popleft) and `OrderedDict()` with no arguments, which is an empty dict |
 | `functools` | `reduce(operator.add, list of int)`. An initializer stays fenced |
-| `itertools` | `repeat` and `chain` as a `for` iterator |
+| `itertools` | `repeat` and `chain` as a `for` iterator; `islice` `product` `combinations` `accumulate` `zip_longest` `takewhile` `groupby` as eager iterator values |
 | `operator` | `add`, `sub`, `mul`, `floordiv`, `neg`, comparisons, `concat` |
 | `contextlib` | `suppress`, `nullcontext` |
 | `os` | `getcwd`, `listdir`, `getenv`, `remove`, `rename`, `makedirs`, `stat` |
