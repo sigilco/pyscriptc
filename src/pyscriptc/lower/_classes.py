@@ -54,7 +54,17 @@ class ClassesMixin:
         self.synthetics.update(ALWAYS_CLASSES)
         specs: dict[str, list[dict[str, Any]]] = {}
         if "Pattern" in self.synthetics:
-            specs["Pattern"] = [{"name": "pattern", "type": {"kind": "str"}}]
+            specs["Pattern"] = [
+                {"name": "pattern", "type": {"kind": "str"}},
+                {"name": "flags", "type": {"kind": "int"}},
+            ]
+        if "Match" in self.synthetics:
+            # %cls.Match layout mirrors the runtime PsMatch: the subject
+            # text plus a flat i64 span list, -1 for groups that did not take part.
+            specs["Match"] = [
+                {"name": "_text", "type": {"kind": "str"}},
+                {"name": "_spans", "type": {"kind": "list", "elem": {"kind": "int"}}},
+            ]
         if "SplitResult" in self.synthetics:
             specs["SplitResult"] = [
                 {"name": name, "type": {"kind": "str"}} for name in ("scheme", "netloc", "path", "query", "fragment")

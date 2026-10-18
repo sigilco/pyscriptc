@@ -2,7 +2,17 @@
 (for example "()*") stop with RuntimeError once the fuel is spent.
 ps_re_findall is the one-group form. Two to four groups go through
 ps_re_findall_groups, which returns pointers to rows of PsBuf. A dynamic
-pattern that actually has two or more groups still raises ValueError here. */
+pattern that actually has two or more groups still raises ValueError here.
+
+Regex flavor: byte-oriented, no POSIX regcomp. Literal chars, '.',
+classes with ranges and negation, alternation, groups (capturing and
+'(?:)'), '*', '+', '?', '{m,n}' with a lazy suffix, anchors '^', '$',
+'\b', '\B', class escapes '\d\D\w\W\s\S', '\n\t\r\b', backreferences
+'\1'-'\9', and escaped punctuation. CPython flag ints are honored the
+way a byte engine can: I folds ASCII case, M lets '^'/'$' see line
+bounds, S lets '.' match '\n', X strips whitespace and '#' comments
+outside classes, and A/U are no-ops on the ASCII alphabet. L, T,
+DEBUG, and unknown bits raise ValueError at the call. */
 
 #include "ps_rt.h"
 
@@ -36,10 +46,25 @@ typedef struct Bits {
     int negate;
 } Bits;
 
+enum {
+    RE_T = 1,
+    RE_I = 2,
+    RE_L = 4,
+    RE_M = 8,
+    RE_S = 16,
+    RE_U = 32,
+    RE_X = 64,
+    RE_DEBUG = 128,
+    RE_A = 256,
+    RE_KNOWN = RE_T | RE_I | RE_L | RE_M | RE_S | RE_U | RE_X | RE_DEBUG | RE_A
+};
+
 typedef struct Comp {
     const char *p;
     int64_t n;
     int64_t i;
+    int64_t flags;
+    char *owned;
     Op *ops;
     int64_t len;
     int64_t cap;
@@ -61,6 +86,7 @@ typedef struct Eng {
     int64_t tlen;
     Op *ops;
     Bits *bits;
+    int64_t flags;
     int64_t fuel;
     int64_t cs[32];
     int64_t ce[32];
@@ -100,6 +126,13 @@ static int bit_has(const Bits *bits, int ch) { return (bits->b[ch >> 3] >> (ch &
 
 static int is_word(int ch) {
     return (ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_';
+}
+
+static int fold(int ch) {
+    if (ch >= 'A' && ch <= 'Z') {
+        return ch + ('a' - 'A');
+    }
+    return ch;
 }
 
 static int starts_atom(Comp *c) {
@@ -307,6 +340,15 @@ static void compile_class(Comp *c) {
         return;
     }
     c->i++;
+    if (c->flags & RE_I) {
+        for (int ch = 'a'; ch <= 'z'; ch++) {
+            int up = ch + 'A' - 'a';
+            if (bit_has(&bits, ch) || bit_has(&bits, up)) {
+                bit_set(&bits, ch);
+                bit_set(&bits, up);
+            }
+        }
+    }
     if (c->nbits == 0) {
         c->bits = NULL;
     }
@@ -709,7 +751,9 @@ static int eng_run(Eng *e, int pc, int64_t sp) {
         Op op = e->ops[pc];
         switch (op.op) {
         case OP_CHAR:
-            if (sp < e->tlen && (unsigned char)e->text[sp] == (unsigned char)op.c) {
+            if (sp < e->tlen &&
+                ((unsigned char)e->text[sp] == (unsigned char)op.c ||
+                 ((e->flags & RE_I) && fold((unsigned char)e->text[sp]) == fold((unsigned char)op.c)))) {
                 pc++;
                 sp++;
                 break;
@@ -719,7 +763,7 @@ static int eng_run(Eng *e, int pc, int64_t sp) {
             }
             break;
         case OP_ANY:
-            if (sp < e->tlen && e->text[sp] != '\n') {
+            if (sp < e->tlen && ((e->flags & RE_S) || e->text[sp] != '\n')) {
                 pc++;
                 sp++;
                 break;
@@ -745,7 +789,7 @@ static int eng_run(Eng *e, int pc, int64_t sp) {
             break;
         }
         case OP_BOL:
-            if (sp == 0) {
+            if (sp == 0 || ((e->flags & RE_M) && e->text[sp - 1] == '\n')) {
                 pc++;
                 break;
             }
@@ -754,7 +798,7 @@ static int eng_run(Eng *e, int pc, int64_t sp) {
             }
             break;
         case OP_EOL:
-            if (sp == e->tlen || (sp == e->tlen - 1 && e->text[sp] == '\n')) {
+            if (sp == e->tlen || (e->text[sp] == '\n' && ((e->flags & RE_M) || sp == e->tlen - 1))) {
                 pc++;
                 break;
             }
@@ -784,7 +828,22 @@ static int eng_run(Eng *e, int pc, int64_t sp) {
                 break;
             }
             int64_t n = e->ce[g] - e->cs[g];
-            if (sp + n <= e->tlen && (n == 0 || memcmp(e->text + sp, e->text + e->cs[g], (size_t)n) == 0)) {
+            int same = 0;
+            if (sp + n <= e->tlen) {
+                if (e->flags & RE_I) {
+                    same = 1;
+                    for (int64_t k = 0; k < n; k++) {
+                        if (fold((unsigned char)e->text[sp + k]) !=
+                            fold((unsigned char)e->text[e->cs[g] + k])) {
+                            same = 0;
+                            break;
+                        }
+                    }
+                } else {
+                    same = n == 0 || memcmp(e->text + sp, e->text + e->cs[g], (size_t)n) == 0;
+                }
+            }
+            if (same) {
                 sp += n;
                 pc++;
                 break;
@@ -858,6 +917,7 @@ static void eng_init(Eng *e, Comp *c, const char *text, int64_t tlen) {
     e->tlen = tlen;
     e->ops = c->ops;
     e->bits = c->bits;
+    e->flags = c->flags;
     e->fuel = 2000000;
     e->pool = c;
     eng_clear(e);
@@ -884,11 +944,190 @@ static void push_piece(PsSeq *seq, const char *text, int64_t a, int64_t b) {
     ps_seq_push(seq, &piece);
 }
 
-PsSeq *ps_re_findall(int64_t pn, char *pat, int64_t tn, char *text) {
+/* re.X: whitespace and '#' comments outside classes and escapes are
+part of the spelling, not the pattern. The stripped copy is owned. */
+static void strip_verbose(Comp *c) {
+    char *out = malloc((size_t)c->n + 1);
+    if (out == NULL) {
+        abort();
+    }
+    int64_t w = 0;
+    int in_class = 0;
+    for (int64_t i = 0; i < c->n; i++) {
+        char ch = c->p[i];
+        if (ch == '\\' && i + 1 < c->n) {
+            out[w++] = ch;
+            out[w++] = c->p[++i];
+            continue;
+        }
+        if (in_class) {
+            out[w++] = ch;
+            if (ch == ']') {
+                in_class = 0;
+            }
+            continue;
+        }
+        if (ch == '[') {
+            in_class = 1;
+            out[w++] = ch;
+            continue;
+        }
+        if (ch == '#') {
+            while (i < c->n && c->p[i] != '\n') {
+                i++;
+            }
+            continue;
+        }
+        if (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\f' || ch == '\v') {
+            continue;
+        }
+        out[w++] = ch;
+    }
+    c->owned = out;
+    c->p = out;
+    c->n = w;
+}
+
+static void comp_open(Comp *c, int64_t pn, char *pat, int64_t flags) {
+    memset(c, 0, sizeof *c);
+    if (flags & ~RE_KNOWN) {
+        ps_raise_cstr(PS_VALUE, "unsupported regular expression flags");
+    }
+    if (flags & RE_L) {
+        ps_raise_cstr(PS_VALUE, "re.L is not supported");
+    }
+    if (flags & RE_T) {
+        ps_raise_cstr(PS_VALUE, "re.T is not supported");
+    }
+    if (flags & RE_DEBUG) {
+        ps_raise_cstr(PS_VALUE, "re.DEBUG is not supported");
+    }
+    c->flags = flags;
+    c->p = pat;
+    c->n = pn;
+    if (flags & RE_X) {
+        strip_verbose(c);
+    }
+}
+
+static void comp_close(Comp *c) { free(c->owned); }
+
+/* One engine run. anchor 0 scans like re.search, 1 runs only position 0
+(re.match), and 2 also requires the end (re.fullmatch). On a hit the
+capture array stays live in eng for the caller to read. */
+static int re_once(Comp *comp, Eng *eng, const char *text, int64_t tn, int anchor) {
+    eng_init(eng, comp, text, tn);
+    if (anchor == 0) {
+        int64_t a = 0;
+        int64_t b = 0;
+        return eng_search(eng, 0, &a, &b);
+    }
+    eng_clear(eng);
+    if (!eng_run(eng, 0, 0)) {
+        return 0;
+    }
+    if (anchor == 2 && eng->end != tn) {
+        return 0;
+    }
+    eng->cs[0] = 0;
+    eng->ce[0] = eng->end;
+    return 1;
+}
+
+static int32_t re_probe(int64_t pn, char *pat, int64_t tn, char *text, int64_t flags, int anchor) {
     Comp comp;
-    memset(&comp, 0, sizeof comp);
-    comp.p = pat;
-    comp.n = pn;
+    comp_open(&comp, pn, pat, flags);
+    compile_or_raise(&comp);
+    Eng eng;
+    int32_t ok = re_once(&comp, &eng, text, tn, anchor);
+    eng_free(&eng);
+    comp_close(&comp);
+    return ok;
+}
+
+int32_t ps_re_search_hit(int64_t pn, char *pat, int64_t tn, char *text, int64_t flags) {
+    return re_probe(pn, pat, tn, text, flags, 0);
+}
+
+int32_t ps_re_match_hit(int64_t pn, char *pat, int64_t tn, char *text, int64_t flags) {
+    return re_probe(pn, pat, tn, text, flags, 1);
+}
+
+int32_t ps_re_fullmatch_hit(int64_t pn, char *pat, int64_t tn, char *text, int64_t flags) {
+    return re_probe(pn, pat, tn, text, flags, 2);
+}
+
+typedef struct PsMatch {
+    PsBuf text;
+    PsSeq *spans;
+} PsMatch;
+
+typedef struct PsSubN {
+    PsBuf s;
+    int64_t n;
+} PsSubN;
+
+/* Re-runs the match after *_hit reported one and copies the capture
+offsets into a flat i64 PsSeq, -1 for a group that did not take part.
+Layout matches %cls.Match: a %ps.str text and a spans pointer. */
+static void re_make(int64_t pn, char *pat, int64_t tn, char *text, int64_t flags, int anchor,
+                    PsMatch *out) {
+    Comp comp;
+    comp_open(&comp, pn, pat, flags);
+    compile_or_raise(&comp);
+    Eng eng;
+    PsSeq *seq = ps_seq_new(8, 0);
+    if (re_once(&comp, &eng, text, tn, anchor)) {
+        ps_buf_view(&out->text, text, tn);
+        for (int g = 0; g <= comp.groups; g++) {
+            ps_seq_push(seq, &eng.cs[g]);
+            ps_seq_push(seq, &eng.ce[g]);
+        }
+    } else {
+        ps_buf_copy(&out->text, "", 0);
+    }
+    out->spans = seq;
+    eng_free(&eng);
+    comp_close(&comp);
+}
+
+void ps_re_search_make(int64_t pn, char *pat, int64_t tn, char *text, int64_t flags, PsMatch *out) {
+    re_make(pn, pat, tn, text, flags, 0, out);
+}
+
+void ps_re_match_make(int64_t pn, char *pat, int64_t tn, char *text, int64_t flags, PsMatch *out) {
+    re_make(pn, pat, tn, text, flags, 1, out);
+}
+
+void ps_re_fullmatch_make(int64_t pn, char *pat, int64_t tn, char *text, int64_t flags, PsMatch *out) {
+    re_make(pn, pat, tn, text, flags, 2, out);
+}
+
+static int64_t *match_span(PsMatch *m, int64_t g) {
+    if (m->spans == NULL || g < 0 || 2 * g + 1 >= m->spans->len) {
+        ps_raise_cstr(PS_INDEX, "no such group");
+    }
+    return (int64_t *)m->spans->data + 2 * g;
+}
+
+int32_t ps_match_group_hit(PsMatch *m, int64_t g) { return match_span(m, g)[0] >= 0; }
+
+void ps_match_group(PsMatch *m, int64_t g, PsBuf *out) {
+    int64_t *sp = match_span(m, g);
+    if (sp[0] < 0) {
+        ps_buf_copy(out, "", 0);
+        return;
+    }
+    ps_buf_view(out, m->text.data + sp[0], sp[1] - sp[0]);
+}
+
+int64_t ps_match_start(PsMatch *m, int64_t g) { return match_span(m, g)[0]; }
+
+int64_t ps_match_end(PsMatch *m, int64_t g) { return match_span(m, g)[1]; }
+
+PsSeq *ps_re_findall(int64_t pn, char *pat, int64_t tn, char *text, int64_t flags) {
+    Comp comp;
+    comp_open(&comp, pn, pat, flags);
     compile_or_raise(&comp);
     if (comp.groups >= 2) {
         free(comp.ops);
@@ -921,15 +1160,14 @@ PsSeq *ps_re_findall(int64_t pn, char *pat, int64_t tn, char *text) {
         }
     }
     eng_free(&eng);
+    comp_close(&comp);
     return seq;
 }
 
-PsSeq *ps_re_findall_groups(int64_t pn, char *pat, int64_t tn, char *text) {
+PsSeq *ps_re_findall_groups(int64_t pn, char *pat, int64_t tn, char *text, int64_t flags) {
     Comp comp;
     int g;
-    memset(&comp, 0, sizeof comp);
-    comp.p = pat;
-    comp.n = pn;
+    comp_open(&comp, pn, pat, flags);
     compile_or_raise(&comp);
     if (comp.groups < 2 || comp.groups > 4) {
         free(comp.ops);
@@ -1009,28 +1247,30 @@ static int repl_expand(Eng *e, const char *repl, int64_t rn, int groups, PsGrow 
     return 1;
 }
 
-void ps_re_sub(int64_t pn, char *pat, int64_t rn, char *repl, int64_t tn, char *text, PsBuf *out) {
+static void sub_core(int64_t pn, char *pat, int64_t rn, char *repl, int64_t tn, char *text,
+                     int64_t count, int64_t flags, int64_t *subs, PsBuf *out) {
     Comp comp;
-    memset(&comp, 0, sizeof comp);
-    comp.p = pat;
-    comp.n = pn;
+    comp_open(&comp, pn, pat, flags);
     compile_or_raise(&comp);
     Eng eng;
     eng_init(&eng, &comp, text, tn);
     PsGrow g;
     ps_grow_init(&g);
     int64_t pos = 0;
+    int64_t did = 0;
     while (pos <= tn) {
         int64_t a = 0;
         int64_t b = 0;
-        if (!eng_search(&eng, pos, &a, &b)) {
+        if ((count > 0 && did == count) || !eng_search(&eng, pos, &a, &b)) {
             ps_grow_add(&g, text + pos, tn - pos);
             break;
         }
+        did++;
         ps_grow_add(&g, text + pos, a - pos);
         if (!repl_expand(&eng, repl, rn, comp.groups, &g)) {
             free(g.data);
             eng_free(&eng);
+            comp_close(&comp);
             ps_raise_cstr(PS_VALUE, "bad escape in replacement");
         }
         if (b > a) {
@@ -1043,27 +1283,40 @@ void ps_re_sub(int64_t pn, char *pat, int64_t rn, char *repl, int64_t tn, char *
         }
     }
     eng_free(&eng);
+    comp_close(&comp);
+    *subs = did;
     ps_grow_finish(&g, out);
 }
 
-PsSeq *ps_re_split(int64_t pn, char *pat, int64_t tn, char *text) {
+void ps_re_sub(int64_t pn, char *pat, int64_t rn, char *repl, int64_t tn, char *text, int64_t count,
+               int64_t flags, PsBuf *out) {
+    int64_t did = 0;
+    sub_core(pn, pat, rn, repl, tn, text, count, flags, &did, out);
+}
+
+void ps_re_subn(int64_t pn, char *pat, int64_t rn, char *repl, int64_t tn, char *text, int64_t count,
+                int64_t flags, PsSubN *out) {
+    sub_core(pn, pat, rn, repl, tn, text, count, flags, &out->n, &out->s);
+}
+
+PsSeq *ps_re_split(int64_t pn, char *pat, int64_t tn, char *text, int64_t maxsplit, int64_t flags) {
     Comp comp;
-    memset(&comp, 0, sizeof comp);
-    comp.p = pat;
-    comp.n = pn;
+    comp_open(&comp, pn, pat, flags);
     compile_or_raise(&comp);
     Eng eng;
     eng_init(&eng, &comp, text, tn);
     PsSeq *seq = ps_seq_new(16, 0);
     int64_t last = 0;
     int64_t pos = 0;
+    int64_t did = 0;
     while (pos <= tn) {
         int64_t a = 0;
         int64_t b = 0;
-        if (!eng_search(&eng, pos, &a, &b)) {
+        if ((maxsplit > 0 && did == maxsplit) || !eng_search(&eng, pos, &a, &b)) {
             push_piece(seq, text, last, tn);
             break;
         }
+        did++;
         push_piece(seq, text, last, a);
         for (int g = 1; g <= comp.groups; g++) {
             if (eng.cs[g] < 0) {
@@ -1084,6 +1337,7 @@ PsSeq *ps_re_split(int64_t pn, char *pat, int64_t tn, char *text) {
         }
     }
     eng_free(&eng);
+    comp_close(&comp);
     return seq;
 }
 
