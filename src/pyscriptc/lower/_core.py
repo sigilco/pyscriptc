@@ -292,6 +292,8 @@ def _zero(typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
         return {"kind": "const", "value": "0.0", "type": typ, "span": span}
     if typ["kind"] == "list":
         return {"kind": "list", "elems": [], "type": typ, "span": span}
+    if typ["kind"] == "dict":
+        return {"kind": "dict", "pairs": [], "type": typ, "span": span}
     if typ["kind"] == "class":
         # Fresh for-targets of a synthetic tuple class start as a zeroed
         # instance (ps_alloc calloc); the loop step then rebinding every field.
