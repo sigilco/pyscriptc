@@ -217,3 +217,115 @@ void ps_warn(int64_t n, const char *s) {
     }
     fprintf(stderr, "UserWarning: %.*s\n", (int)n, s);
 }
+
+/* R20 builtins: base spellings and min/max folds over a seq. */
+
+static void ps_i64_base(int64_t x, int64_t base, const char *digits, const char *prefix, PsBuf *out) {
+    char tmp[72];
+    char *end = tmp + sizeof tmp;
+    char *p = end;
+    size_t plen = strlen(prefix);
+    uint64_t mag = x < 0 ? (uint64_t)(-(x + 1)) + 1 : (uint64_t)x;
+    if (mag == 0) {
+        *--p = '0';
+    }
+    while (mag) {
+        *--p = digits[mag % (uint64_t)base];
+        mag /= (uint64_t)base;
+    }
+    p -= plen;
+    memcpy(p, prefix, plen);
+    if (x < 0) {
+        *--p = '-';
+    }
+    ps_buf_copy(out, p, end - p);
+}
+
+void ps_hex_i64(int64_t x, PsBuf *out) { ps_i64_base(x, 16, "0123456789abcdef", "0x", out); }
+
+void ps_oct_i64(int64_t x, PsBuf *out) { ps_i64_base(x, 8, "01234567", "0o", out); }
+
+void ps_bin_i64(int64_t x, PsBuf *out) { ps_i64_base(x, 2, "01", "0b", out); }
+
+static int64_t ps_minmax_i64(PsSeq *s, int64_t is_max) {
+    int64_t best;
+    int64_t i;
+    memcpy(&best, s->data, sizeof best);
+    for (i = 1; i < s->len; i++) {
+        int64_t item;
+        memcpy(&item, (char *)s->data + (size_t)i * (size_t)s->elem, sizeof item);
+        if (is_max ? item > best : item < best) {
+            best = item;
+        }
+    }
+    return best;
+}
+
+int64_t ps_min_i64(PsSeq *s) {
+    if (s->len == 0) {
+        ps_raise_cstr(PS_VALUE, "min() iterable argument is empty");
+    }
+    return ps_minmax_i64(s, 0);
+}
+
+int64_t ps_max_i64(PsSeq *s) {
+    if (s->len == 0) {
+        ps_raise_cstr(PS_VALUE, "max() iterable argument is empty");
+    }
+    return ps_minmax_i64(s, 1);
+}
+
+static double ps_minmax_f64(PsSeq *s, int64_t is_max) {
+    double best;
+    int64_t i;
+    memcpy(&best, s->data, sizeof best);
+    for (i = 1; i < s->len; i++) {
+        double item;
+        memcpy(&item, (char *)s->data + (size_t)i * (size_t)s->elem, sizeof item);
+        if (is_max ? item > best : item < best) {
+            best = item;
+        }
+    }
+    return best;
+}
+
+double ps_min_f64(PsSeq *s) {
+    if (s->len == 0) {
+        ps_raise_cstr(PS_VALUE, "min() iterable argument is empty");
+    }
+    return ps_minmax_f64(s, 0);
+}
+
+double ps_max_f64(PsSeq *s) {
+    if (s->len == 0) {
+        ps_raise_cstr(PS_VALUE, "max() iterable argument is empty");
+    }
+    return ps_minmax_f64(s, 1);
+}
+
+static void ps_minmax_buf(PsSeq *s, int64_t is_max, PsBuf *out) {
+    PsBuf *items = (PsBuf *)s->data;
+    PsBuf *best = &items[0];
+    int64_t i;
+    for (i = 1; i < s->len; i++) {
+        int32_t cmp = ps_str_cmp(items[i].len, items[i].data, best->len, best->data);
+        if (is_max ? cmp > 0 : cmp < 0) {
+            best = &items[i];
+        }
+    }
+    ps_buf_copy(out, best->data, best->len);
+}
+
+void ps_min_buf(PsSeq *s, PsBuf *out) {
+    if (s->len == 0) {
+        ps_raise_cstr(PS_VALUE, "min() iterable argument is empty");
+    }
+    ps_minmax_buf(s, 0, out);
+}
+
+void ps_max_buf(PsSeq *s, PsBuf *out) {
+    if (s->len == 0) {
+        ps_raise_cstr(PS_VALUE, "max() iterable argument is empty");
+    }
+    ps_minmax_buf(s, 1, out);
+}
