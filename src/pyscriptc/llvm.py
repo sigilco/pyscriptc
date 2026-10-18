@@ -141,6 +141,11 @@ class Emitter:
         # Function names that need a lazy env-first `name.clo` wrapper because
         # they are referenced as values.
         self.clo_wrappers: set[str] = set()
+        # Synthesized env-first `functools.partial` shims: symbol -> spec,
+        # deduplicated on the spec key.
+        self.partials: dict[str, dict[str, Any]] = {}
+        self.partial_keys: dict[str, str] = {}
+        self.partial_n = 0
 
     def emit(self, call: str | None, args: list[Any], standalone: bool = False) -> str:
         self.class_index = {cls["name"]: cls for cls in self.module.get("classes", [])}
@@ -155,8 +160,6 @@ class Emitter:
         for cls in self.module.get("classes", []):
             for method in cls["methods"]:
                 self.emit_function(self.functions[f"cls.{cls['name']}.{method['name']}"])
-        for name in sorted(self.clo_wrappers):
-            self._emit_clo_wrapper(self.functions[name])
         if call is not None:
             self.emit_main(call, args)
         elif standalone:
@@ -168,6 +171,12 @@ class Emitter:
                 self.emit_main("main", [])
             else:
                 self.out.extend(["define i32 @main(i32 %argc, ptr %argv) {", "entry:", "  ret i32 0", "}", ""])
+        # Shims go last: a closure inside a module global initializer (emitted
+        # in @main) can still register one.
+        for name in sorted(self.clo_wrappers):
+            self._emit_clo_wrapper(self.functions[name])
+        for symbol in sorted(self.partials):
+            self._emit_partial_stub(symbol, self.partials[symbol])
         self.out.extend(self.outline_lines)
         header = ["%ps.str = type { i64, ptr }", ""]
         header.extend(self.globals)
@@ -193,13 +202,20 @@ class Emitter:
         self.block("entry")
         self.slot_order = []
         self.slot_types = {}
+        boxed = set(fn.get("boxed") or [])
         for local in fn["locals"]:
             if local["type"]["kind"] == "none":
                 # None is not a runtime value. The local is the singleton, so it has no slot.
                 self.slots[local["name"]] = ("", local["type"])
                 continue
-            ptr = self.tmp()
-            self.line(f"{ptr} = alloca {_llvm_type(local['type'])}")
+            if local["name"] in boxed:
+                # Captured by a nested callable: the env stores a pointer to
+                # this storage, so it must outlive the frame.
+                self.needed.add("alloc")
+                ptr = self._call_ret("ptr", "ps_alloc", [f"i64 {_elem_size(local['type'])}"])
+            else:
+                ptr = self.tmp()
+                self.line(f"{ptr} = alloca {_llvm_type(local['type'])}")
             self.slots[local["name"]] = (ptr, local["type"])
             self.slot_order.append(local["name"])
             self.slot_types[local["name"]] = local["type"]
@@ -1403,7 +1419,7 @@ class Emitter:
         if kind in {"str", "bytes"}:
             length, ptr = self._buf_parts(value)
             return [(f"i64 {length}", "i64"), (f"ptr {ptr}", "ptr")]
-        if kind in {"list", "dict", "class", "exc"}:
+        if kind in {"list", "dict", "class", "exc", "func"}:
             return [(f"ptr {value}", "ptr")]
         raise IRError(f"cannot pass {kind} to a runtime call")
 
@@ -1433,7 +1449,7 @@ class Emitter:
             self._abi_decl(symbol, "void", types)
             self._call_void(symbol, rendered)
             return ""
-        if kind in {"list", "dict"} or (
+        if kind in {"list", "dict", "func"} or (
             kind == "class" and ret.get("name") in {"Deque", "TextIO", "BytesIO", "CsvWriter"}
         ):
             self._abi_decl(symbol, "ptr", types)
@@ -1945,24 +1961,99 @@ class Emitter:
         return reg
 
     def emit_closure(self, expr: dict[str, Any]) -> str:
-        """A callable value: a `[2 x ptr]` cell of {implementation, env}.
+        """A callable value: a heap cell of {implementation, env}.
 
-        Env-first functions (nested defs, lambdas) are their own entry point;
-        a plain function gets a lazy `name.clo` wrapper that drops the env.
+        Pair and env are `ps_alloc`'d so a callable returned or stored
+        outlives its frame. Env-first functions (nested defs, lambdas) are
+        their own entry point; a plain function gets a lazy `name.clo`
+        wrapper that drops the env; a `stub` spec gets a synthesized
+        env-first `functools.partial` shim. Env items either name a local
+        (its storage pointer is packed) or carry an `init` expression (its
+        value goes into a fresh heap cell).
         """
-        fn = self.functions[expr["name"]]
-        if "env" in fn:
-            impl = _fn_symbol(fn["name"])
+        stub = expr.get("stub")
+        if stub is not None:
+            impl = self._partial_symbol(stub)
         else:
-            impl = f"{_fn_symbol(fn['name'])}.clo"
-            self.clo_wrappers.add(fn["name"])
-        env = self._pack_ptrs([self.slots[item["name"]][0] for item in expr["env"]])
-        pair = self._alloca("[2 x ptr]")
+            fn = self.functions[expr["name"]]
+            if "env" in fn:
+                impl = _fn_symbol(fn["name"])
+            else:
+                impl = f"{_fn_symbol(fn['name'])}.clo"
+                self.clo_wrappers.add(fn["name"])
+        items = expr["env"]
+        if not items:
+            env = "null"
+        else:
+            self.needed.add("alloc")
+            env = self._call_ret("ptr", "ps_alloc", [f"i64 {8 * len(items)}"])
+            for index, item in enumerate(items):
+                if "init" in item:
+                    cell = self._heap_cell(item["type"], self.emit_expr(item["init"]))
+                else:
+                    cell = self.slots[item["name"]][0]
+                dest = env if index == 0 else self.tmp()
+                if index != 0:
+                    self.line(f"{dest} = getelementptr ptr, ptr {env}, i64 {index}")
+                self.line(f"store ptr {cell}, ptr {dest}")
+        self.needed.add("alloc")
+        pair = self._call_ret("ptr", "ps_alloc", ["i64 16"])
         self.line(f"store ptr @{impl}, ptr {pair}")
         env_ptr = self.tmp()
         self.line(f"{env_ptr} = getelementptr ptr, ptr {pair}, i64 1")
         self.line(f"store ptr {env}, ptr {env_ptr}")
         return pair
+
+    def _heap_cell(self, typ: dict[str, Any], value: str) -> str:
+        self.needed.add("alloc")
+        cell = self._call_ret("ptr", "ps_alloc", [f"i64 {_elem_size(typ)}"])
+        self.line(f"store {_llvm_type(typ)} {value}, ptr {cell}")
+        return cell
+
+    def _partial_symbol(self, spec: dict[str, Any]) -> str:
+        key = repr((spec["bound"], spec["params"], spec["return"]))
+        symbol = self.partial_keys.get(key)
+        if symbol is None:
+            symbol = f"pa.partial.{self.partial_n}"
+            self.partial_n += 1
+            self.partial_keys[key] = symbol
+            self.partials[symbol] = spec
+        return symbol
+
+    def _emit_partial_stub(self, symbol: str, spec: dict[str, Any]) -> None:
+        """`pa.partial.N(env, p...)`: load the bound arguments and the inner
+        pair out of the env, then call the inner impl env-first with the
+        bound arguments prepended."""
+        bound = spec["bound"]
+        params = spec["params"]
+        ret = _llvm_type(spec["return"])
+        plist = ["ptr %env"] + [f"{_llvm_type(p)} %p{index}" for index, p in enumerate(params)]
+        self.out.append(f"define internal {ret} @{symbol}({', '.join(plist)}) {{")
+        self.out.append("entry:")
+        args: list[str] = []
+        for index, typ in enumerate(bound):
+            if index == 0:
+                self.out.append(f"  %b{index} = load ptr, ptr %env")
+            else:
+                self.out.append(f"  %g{index} = getelementptr ptr, ptr %env, i64 {index}")
+                self.out.append(f"  %b{index} = load ptr, ptr %g{index}")
+            self.out.append(f"  %v{index} = load {_llvm_type(typ)}, ptr %b{index}")
+            args.append(f"{_llvm_type(typ)} %v{index}")
+        self.out.append(f"  %ip = getelementptr ptr, ptr %env, i64 {len(bound)}")
+        self.out.append("  %pc = load ptr, ptr %ip")
+        self.out.append("  %pp = load ptr, ptr %pc")
+        self.out.append("  %impl = load ptr, ptr %pp")
+        self.out.append("  %ip2 = getelementptr ptr, ptr %pp, i64 1")
+        self.out.append("  %env2 = load ptr, ptr %ip2")
+        call_args = ["ptr %env2", *args] + [f"{_llvm_type(p)} %p{index}" for index, p in enumerate(params)]
+        if ret == "void":
+            self.out.append(f"  call void %impl({', '.join(call_args)})")
+            self.out.append("  ret void")
+        else:
+            self.out.append(f"  %r = call {ret} %impl({', '.join(call_args)})")
+            self.out.append(f"  ret {ret} %r")
+        self.out.append("}")
+        self.out.append("")
 
     def emit_value_call(self, expr: dict[str, Any], values: list[str]) -> str:
         """Indirect call through a callable cell: load {impl, env}, call env-first."""
@@ -2276,8 +2367,10 @@ def _elem_size(typ: dict[str, Any]) -> int:
         return 8
     if kind in {"str", "bytes"}:
         return 16
-    if kind in {"list", "dict", "class"}:
+    if kind in {"list", "dict", "class", "func", "exc"}:
         return 8
+    if kind == "bool":
+        return 1
     raise IRError(f"no element size for {kind}")
 
 

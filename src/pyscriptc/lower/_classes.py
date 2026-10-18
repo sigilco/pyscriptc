@@ -531,10 +531,8 @@ class ClassesMixin:
         if fn.returns is None:
             self.fail(fn, "PS1001", f"{fn.name} needs a return annotation")
         ret = self._annotation(fn.returns)
-        if ret["kind"] == "func":
-            # The env of a closure points into its parent frame; it cannot
-            # escape through a return.
-            self.fail(fn.returns, "PS2002", "a callable return type is not lowered")
+        # A callable return is heap-allocated (`ps_alloc` pair + env), so it
+        # escapes the frame safely.
         if class_name is not None and fn.name == "__init__" and ret["kind"] != "none":
             self.fail(fn, "PS1003", "__init__ returns None")
         return params, ret
@@ -683,10 +681,6 @@ class ClassesMixin:
                 self.fail(node, "PS2002", "dict keys are int or str")
             if typ["value"]["kind"] == "bool":
                 self.fail(node, "PS2002", "dict values of bool are not lowered")
-        if typ["kind"] == "list" and typ["elem"]["kind"] == "func":
-            self.fail(node, "PS2002", "callable members are not lowered")
-        if typ["kind"] == "dict" and typ["value"]["kind"] == "func":
-            self.fail(node, "PS2002", "callable members are not lowered")
 
     def _annotation(self, node: ast.AST) -> dict[str, Any]:
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
@@ -1015,8 +1009,6 @@ class ClassesMixin:
                 self.fail(node, "PS1001", "Callable annotations are Callable[[args], ret]")
             params = [self._annotation(arg) for arg in node.slice.elts[0].elts]
             ret = self._annotation(node.slice.elts[1])
-            if ret["kind"] == "func":
-                self.fail(node, "PS2002", "a callable return type is not lowered")
             return {"kind": "func", "params": params, "return": ret}
         if alias == "Tuple":
             return self._tuple_annotation(node)

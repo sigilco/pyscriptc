@@ -48,6 +48,8 @@ def rest_call(
         return _getenv(lo, node, span)
     if module == "tempfile" and attr == "NamedTemporaryFile":
         return _named_temp(lo, node, span)
+    if module == "functools" and attr == "partial":
+        return lo._partial_callable(node, span)
     message = CALL_FENCES.get((module, attr))
     if message:
         lo.fail(node, "PS2001", message)

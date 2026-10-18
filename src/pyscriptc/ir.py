@@ -192,9 +192,24 @@ def validate_expr(expr: Any, where: str) -> None:
         if not isinstance(env, list):
             raise IRError(f"{where}: closure needs an env list")
         for i, item in enumerate(env):
-            if not isinstance(item, dict) or not isinstance(item.get("name"), str):
-                raise IRError(f"{where}.env[{i}] needs a name")
+            if not isinstance(item, dict):
+                raise IRError(f"{where}.env[{i}] needs a name or an init")
+            if isinstance(item.get("name"), str):
+                pass
+            elif item.get("init") is not None:
+                validate_expr(item["init"], f"{where}.env[{i}].init")
+            else:
+                raise IRError(f"{where}.env[{i}] needs a name or an init")
             validate_type(item.get("type"), f"{where}.env[{i}].type")
+        stub = expr.get("stub")
+        if stub is not None:
+            if not isinstance(stub, dict):
+                raise IRError(f"{where}: closure stub must be an object")
+            for i, typ in enumerate(stub.get("bound", [])):
+                validate_type(typ, f"{where}.stub.bound[{i}]")
+            for i, typ in enumerate(stub.get("params", [])):
+                validate_type(typ, f"{where}.stub.params[{i}]")
+            validate_type(stub.get("return"), f"{where}.stub.return")
 
 
 def validate_stmt(stmt: Any, where: str) -> None:
@@ -351,6 +366,10 @@ def validate_module(module: Any) -> None:
                 if not isinstance(item, dict) or not isinstance(item.get("name"), str):
                     raise IRError(f"{name}.env[{j}] needs a name")
                 validate_type(item.get("type"), f"{name}.env[{j}].type")
+        boxed = fn.get("boxed")
+        if boxed is not None:
+            if not isinstance(boxed, list) or not all(isinstance(item, str) for item in boxed):
+                raise IRError(f"{name}: boxed must be a list of names")
         _validate_body(fn.get("body"), f"{name}.body")
     classes = module.get("classes")
     if not isinstance(classes, list):

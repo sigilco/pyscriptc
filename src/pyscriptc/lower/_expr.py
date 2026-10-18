@@ -1214,6 +1214,19 @@ class ExprMixin:
             return self._call_name(node, span, expect)
         if isinstance(node.func, ast.Attribute):
             return self._call_attr(node, span, expect)
+        target = self._expr(node.func)
+        if target["type"]["kind"] == "func":
+            # `d["f"](x)`, `make()(x)`: an indirect call through a callable
+            # cell. Callable annotations carry bare types, no names.
+            params = [{"name": f"_{index}", "type": typ} for index, typ in enumerate(target["type"]["params"])]
+            args = self._fill_args(node, params, "call")
+            return {
+                "kind": "call",
+                "callee": {"kind": "value", "target": target},
+                "args": args,
+                "type": target["type"]["return"],
+                "span": span,
+            }
         self.fail(node, "PS2002", "this call is not lowered")
         raise AssertionError("unreachable")
 

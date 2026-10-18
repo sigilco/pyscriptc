@@ -44,9 +44,16 @@ def _range_type(ctx: FunctionContext) -> Type:
     return ctx.api.named_generic_type("builtins.list", [ctx.api.named_type("builtins.int")])
 
 
+def _partial_type(ctx: FunctionContext) -> Type:
+    # functools.partial returns a Callable whose exact parameter shift the
+    # subset does not model; Any keeps the value assignable to Callable.
+    return AnyType(TypeOfAny.explicit)
+
+
 _HOOKS: dict[str, Callable[[FunctionContext], Type]] = {
     "struct.unpack": _unpack_type,
     "_struct.unpack": _unpack_type,
+    "functools.partial": _partial_type,
     "frozenset": _frozenset_type,
     "builtins.frozenset": _frozenset_type,
     "range": _range_type,
