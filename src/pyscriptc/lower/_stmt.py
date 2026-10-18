@@ -192,12 +192,17 @@ class StmtMixin:
         if isinstance(stmt, ast.Assert):
             return self._assert(stmt, span)
         if isinstance(stmt, ast.While):
-            if stmt.orelse:
-                self.fail(stmt, "PS2002", "while-else is not lowered")
             saved_break = self.break_flag
             saved_cont = self.continue_flag
+            saved_broke = self.broke_flag
             self.break_flag = self._loop_flag(list(stmt.body))
             self.continue_flag = self._continue_loop_flag(list(stmt.body))
+            # The else block runs when no `break` fired. The break flag itself
+            # cannot report that: _user_while also sets it on a false cond, so
+            # else needs its own flag only a real `break` assigns.
+            self.broke_flag = self._temp("els") if stmt.orelse and self.break_flag is not None else None
+            if self.broke_flag is not None:
+                self.locals[self.broke_flag] = {"kind": "bool"}
             try:
                 saved_prelude = self.prelude
                 self.prelude = []
@@ -207,14 +212,37 @@ class StmtMixin:
                 finally:
                     self.prelude = saved_prelude
                 body = [*self._continue_reset(span), *self._body(list(stmt.body))]
-                return self._user_while(cond, body, span, cond_pre=cond_pre)
+                out = self._user_while(cond, body, span, cond_pre=cond_pre)
             finally:
+                broke = self.broke_flag
                 self.break_flag = saved_break
                 self.continue_flag = saved_cont
+                self.broke_flag = saved_broke
+            if stmt.orelse:
+                # Lowered with the enclosing loop's flags: a `break` inside
+                # `else:` belongs to an outer loop, not to this one.
+                else_body = self._body(list(stmt.orelse))
+                if broke is None:
+                    return [*out, *else_body]
+                return [
+                    _assign(broke, _const_bool(False, span), span),
+                    *out,
+                    {
+                        "kind": "if",
+                        "cond": _not_bool(broke, span),
+                        "then": else_body,
+                        "else": [],
+                        "span": span,
+                    },
+                ]
+            return out
         if isinstance(stmt, ast.Break):
             if self.break_flag is None:
                 self.fail(stmt, "PS2002", "break outside a loop is not lowered")
-            return [_assign(self.break_flag, _const_bool(True, span), span)]
+            out = [_assign(self.break_flag, _const_bool(True, span), span)]
+            if self.broke_flag is not None:
+                out.append(_assign(self.broke_flag, _const_bool(True, span), span))
+            return out
         if isinstance(stmt, ast.Continue):
             if self.continue_flag is None:
                 self.fail(stmt, "PS2002", "continue outside a loop is not lowered")
@@ -390,19 +418,39 @@ class StmtMixin:
         return [_assign(target, value, span)]
 
     def _for(self, stmt: ast.For, span: dict[str, Any]) -> list[dict[str, Any]]:
-        if stmt.orelse:
-            self.fail(stmt, "PS2002", "for-else is not lowered")
         if not isinstance(stmt.target, ast.Name):
             self.fail(stmt, "PS2002", "for targets a single name")
         saved_break = self.break_flag
         saved_cont = self.continue_flag
+        saved_broke = self.broke_flag
         self.break_flag = self._loop_flag(list(stmt.body))
         self.continue_flag = self._continue_loop_flag(list(stmt.body))
+        self.broke_flag = self._temp("els") if stmt.orelse and self.break_flag is not None else None
+        if self.broke_flag is not None:
+            self.locals[self.broke_flag] = {"kind": "bool"}
         try:
-            return self._for_dispatch(stmt, span)
+            out = self._for_dispatch(stmt, span)
         finally:
+            broke = self.broke_flag
             self.break_flag = saved_break
             self.continue_flag = saved_cont
+            self.broke_flag = saved_broke
+        if stmt.orelse:
+            else_body = self._body(list(stmt.orelse))
+            if broke is None:
+                return [*out, *else_body]
+            return [
+                _assign(broke, _const_bool(False, span), span),
+                *out,
+                {
+                    "kind": "if",
+                    "cond": _not_bool(broke, span),
+                    "then": else_body,
+                    "else": [],
+                    "span": span,
+                },
+            ]
+        return out
 
     def _for_dispatch(self, stmt: ast.For, span: dict[str, Any]) -> list[dict[str, Any]]:
         if self._is_mod(stmt.iter, "itertools", "repeat"):
@@ -425,13 +473,59 @@ class StmtMixin:
             ast.copy_location(list_iter, iter_node)
             iter_node = list_iter
         iterable = self._expr(iter_node)
-        if iterable["type"]["kind"] != "list":
+        kind = iterable["type"]["kind"]
+        if kind == "dict":
+            key_t = iterable["type"]["key"]
+            if key_t["kind"] not in {"int", "str"}:
+                self.fail(stmt.iter, "PS2002", "dict keys are int or str")
+            # `for k in d` visits keys in insertion order; ps_dict_keys builds
+            # the list in that same order.
+            iterable = self._abi_call(
+                "builtins", "dict.keys", [iterable], {"kind": "list", "elem": key_t}, "ps_dict_keys", span
+            )
+            kind = "list"
+        if kind == "class" and iterable["type"].get("name") in {"TextIO", "BytesIO"}:
+            # `for line in f` reads a line at a time until the empty result;
+            # each line keeps its trailing newline like CPython file iteration.
+            elem = {"kind": "bytes"} if iterable["type"]["name"] == "BytesIO" else {"kind": "str"}
+            target = stmt.target.id
+            fresh = self._bind_loop_target(target, elem, stmt.target)
+            fio = self._temp("fio")
+            line = self._temp("line")
+            self.locals[fio] = iterable["type"]
+            self.locals[line] = elem
+            body = self._loop_body(stmt)
+            readline = self._abi_call(
+                "io", "readline", [_name(fio, iterable["type"], span)], elem, "ps_io_readline", span
+            )
+            out = [
+                _assign(fio, iterable, span),
+                _assign(line, readline, span),
+                *self._user_while(
+                    _compare("!=", _len_call(_name(line, elem, span), span), _const_int(0, span), span),
+                    [
+                        _assign(target, _name(line, elem, span), span),
+                        *body,
+                        *self._skip_on_break([_assign(line, readline, span)], span),
+                    ],
+                    span,
+                ),
+            ]
+            if fresh:
+                out.insert(0, _assign(target, _zero(elem, span), span))
+            return out
+        if kind == "str":
+            elem = {"kind": "str"}
+        elif kind == "bytes":
+            elem = {"kind": "int"}
+        elif kind == "list":
+            elem = iterable["type"]["elem"]
+            if elem["kind"] not in _SCALAR | {"list"} and not (
+                elem["kind"] == "class" and self.classes.get(elem["name"], {}).get("tuple")
+            ):
+                self.fail(stmt, "PS2002", f"for over list[{_show(elem)}] is not lowered")
+        else:
             self.fail(stmt.iter, "PS2002", "for iterates over a list or range")
-        elem = iterable["type"]["elem"]
-        if elem["kind"] not in _SCALAR and not (
-            elem["kind"] == "class" and self.classes.get(elem["name"], {}).get("tuple")
-        ):
-            self.fail(stmt, "PS2002", f"for over list[{_show(elem)}] is not lowered")
         target = stmt.target.id
         fresh = self._bind_loop_target(target, elem, stmt.target)
         seq = self._temp("seq")
@@ -1134,10 +1228,14 @@ def _not_bool(name: str, span: dict[str, Any]) -> dict[str, Any]:
 def _stmt_jumps_this_loop(stmt: ast.stmt, jump: type[ast.stmt]) -> bool:
     if isinstance(stmt, jump):
         return True
-    if isinstance(stmt, (ast.While, ast.For, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+    if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
         return False
     nested: list[ast.stmt] = []
-    if isinstance(stmt, ast.If):
+    if isinstance(stmt, (ast.While, ast.For)):
+        # A jump in the body targets the nested loop; a jump in its else
+        # block runs after the loop and targets the enclosing one.
+        nested = list(stmt.orelse)
+    elif isinstance(stmt, ast.If):
         nested = [*stmt.body, *stmt.orelse]
     elif isinstance(stmt, ast.Try):
         nested = [*stmt.body, *stmt.orelse, *stmt.finalbody]
