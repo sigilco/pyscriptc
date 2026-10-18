@@ -128,6 +128,11 @@ def test_gate_examples_match_cpython(tmp_path: Path) -> None:
         (EXAMPLES / "gates_list.py", "baked", "[]"),
         (EXAMPLES / "gates_list.py", "countdown", "[]"),
         (EXAMPLES / "gates_dict.py", "lookup", "[]"),
+        (EXAMPLES / "gates_list.py", "splice", "[]"),
+        (EXAMPLES / "gates_list.py", "delidx", "[]"),
+        (EXAMPLES / "gates_set.py", "algebra", "[]"),
+        (EXAMPLES / "gates_set.py", "methods", "[]"),
+        (EXAMPLES / "rest_probe.py", "iostream", "[]"),
         (EXAMPLES / "gates_try.py", "clamp", "[-3]"),
         (EXAMPLES / "gates_try.py", "clamp", "[4]"),
         (EXAMPLES / "gates_class.py", "origin_sum", "[]"),
@@ -162,6 +167,51 @@ def test_nan_membership_uses_equality(tmp_path: Path) -> None:
     got = compile_run(tmp_path, path, "found")
     assert got.returncode == 0, got.stderr
     assert got.stdout == "0\n"
+
+
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+def test_input_reads_a_line(tmp_path: Path) -> None:
+    path = write_case(
+        tmp_path,
+        "echo.py",
+        "def echo() -> str:\n    s: str = input()\n    return s.upper()\n",
+    )
+    got = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pyscriptc",
+            "compile",
+            str(path),
+            "--run",
+            "--call",
+            "echo",
+            "-o",
+            str(tmp_path / "echo"),
+        ],
+        cwd=ROOT,
+        env=ENV,
+        input="quim\n",
+        capture_output=True,
+        text=True,
+    )
+    assert got.returncode == 0, got.stderr
+    oracle_src = (
+        "import importlib.util\n"
+        f"spec = importlib.util.spec_from_file_location('mod', r'{path}')\n"
+        "mod = importlib.util.module_from_spec(spec)\n"
+        "spec.loader.exec_module(mod)\n"
+        "print(mod.echo())\n"
+    )
+    want = subprocess.run(
+        [sys.executable, "-c", oracle_src],
+        cwd=ROOT,
+        input="quim\n",
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert got.stdout == want.stdout
 
 
 @pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh

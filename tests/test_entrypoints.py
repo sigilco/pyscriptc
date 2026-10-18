@@ -98,7 +98,7 @@ def test_counts_match_spec_tables():
     records = entrypoints.scan(with_fences=False)
     examples = [r for r in records if r["path"].startswith("examples/")]
     scripts = [r for r in records if r["path"].startswith("benchmarks/compat2/corpus/scripts/")]
-    assert len(examples) == 26
+    assert len(examples) == 27
     assert sum(1 for r in examples if r["is_script"]) == 3
     assert len(scripts) == 20
     assert sum(1 for r in scripts if r["is_script"]) == 20
