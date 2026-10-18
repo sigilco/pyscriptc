@@ -31,7 +31,7 @@ def test_scripting_stacks_stay_fenced(tmp_path: Path) -> None:
         ),
         (
             "fstr.py",
-            "def main() -> str:\n    name: str = 'a'\n    return f'{name:>5}'\n",
+            "def main() -> str:\n    name: str = 'a'\n    return f'{name:{name!r}}'\n",
             "PS2002",
             "f-string",
         ),

@@ -76,7 +76,9 @@ def test_module_fstring_fences(tmp_path: Path) -> None:
                     "",
                 ]
             ),
-            "f-string format specs are not lowered",
+            # The spec lowers through the R16 engine now; the module constant
+            # rule is what still fences the assignment.
+            "a module assignment must be a constant",
         ),
     ]
     for name, source, text in cases:
