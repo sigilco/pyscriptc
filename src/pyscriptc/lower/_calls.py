@@ -21,7 +21,8 @@ from typing import Any
 
 from pyscriptc.builtins import builtin_spec, method_spec
 from pyscriptc.errors import span_of
-from pyscriptc.ir import types_equal
+from pyscriptc.ir import type_key, types_equal
+from pyscriptc.lower._classes import _type_slug
 from pyscriptc.lower._core import (
     _assign,
     _attr,
@@ -31,9 +32,12 @@ from pyscriptc.lower._core import (
     _const_int,
     _const_none,
     _dotted,
+    _has_typevar,
     _len_call,
     _name,
     _show,
+    _sig_typevars,
+    _subst_type,
 )
 from pyscriptc.lower._stdlib_shared import _mod_call, _synth_module
 from pyscriptc.restlower import _mk_iter, builtin_call
@@ -64,6 +68,8 @@ class CallsMixin:
             return found
         if name in self.type_aliases:
             self.fail(node, "PS2002", f"{name} is a typing name and is not a value")
+        if name in self.typevars:
+            self.fail(node, "PS2002", f"{name} is a TypeVar and is not a value")
         if name in {"int", "float", "len", "str", "id"}:
             if name == "float":
                 special = _float_special_arg(node)
@@ -134,6 +140,8 @@ class CallsMixin:
                 "span": span,
             }
         if name in self.sigs:
+            if name in self.generic_fns:
+                return self._generic_call(node, span, name)
             params, ret = self.sigs[name]
             args = self._fill_args(node, params, name)
             return {
@@ -145,6 +153,176 @@ class CallsMixin:
             }
         self.fail(node, "PS2002", f"call to {name} is not lowered")
         raise AssertionError("unreachable")
+
+    def _generic_call(self, node: ast.Call, span: dict[str, Any], name: str) -> dict[str, Any]:
+        """A call to a generic function (`def ident(x: T) -> T`): unify the
+        argument types with the signature's TypeVars, emit a specialized
+        `ident.int`-style copy, and call it."""
+        params, ret = self.sigs[name]
+        mapping: dict[str, dict[str, Any]] = {}
+        args = self._fill_generic_args(node, params, mapping, name)
+        emit = self._fn_instance(node, name, params, ret, mapping)
+        # Params whose TypeVar resolved to none drop from the emitted
+        # signature; their args drop with them.
+        args = [
+            arg
+            for arg, param in zip(args, params, strict=True)
+            if _subst_type(param["type"], mapping)["kind"] != "none"
+        ]
+        return {
+            "kind": "call",
+            "callee": {"kind": "function", "name": self._ir_name(emit)},
+            "args": args,
+            "type": _subst_type(ret, mapping),
+            "span": span,
+        }
+
+    def _fn_instance(
+        self,
+        node: ast.Call,
+        name: str,
+        params: list[dict[str, Any]],
+        ret: dict[str, Any],
+        mapping: dict[str, dict[str, Any]],
+    ) -> str:
+        """Bind every signature TypeVar (from the args, else its bound) and
+        queue the specialized body; returns the emitted function name."""
+        tvars = _sig_typevars([*(param["type"] for param in params), ret])
+        for tv in tvars:
+            if tv not in mapping:
+                bound = self.typevars.get(tv)
+                if bound is None:
+                    self.fail(node, "PS1003", f"cannot infer {tv} for {name}")
+                mapping[tv] = bound
+        key = (name, tuple((tv, type_key(mapping[tv])) for tv in tvars))
+        emit = self.inst_fns.get(key)
+        if emit is None:
+            emit = f"{name}.{'_'.join(_type_slug(mapping[tv]) for tv in tvars)}"
+            self.inst_fns[key] = emit
+            self.inst_queue.append((name, emit, dict(mapping)))
+        return emit
+
+    def _generic_arg(
+        self,
+        arg_node: ast.expr,
+        param: dict[str, Any],
+        mapping: dict[str, dict[str, Any]],
+        node: ast.Call,
+    ) -> dict[str, Any]:
+        ptype = param["type"]
+        if not _has_typevar(ptype):
+            return self._expr(arg_node, ptype)
+        value = self._expr(arg_node)
+        self._unify(value["type"], ptype, mapping, node, arg_node)
+        return value
+
+    def _unify(
+        self,
+        got: dict[str, Any],
+        want: dict[str, Any],
+        mapping: dict[str, dict[str, Any]],
+        node: ast.Call,
+        arg_node: ast.expr,
+    ) -> None:
+        """Bind the TypeVars in `want` against the concrete `got`, or check the
+        concrete parts match when nothing remains to bind."""
+        if want["kind"] == "typevar":
+            tv = want["name"]
+            bound = self.typevars.get(tv)
+            existing = mapping.get(tv)
+            if existing is not None:
+                if not types_equal(existing, got):
+                    self.fail(arg_node, "PS1003", f"{tv} is {_show(existing)}, not {_show(got)}")
+                return
+            if bound is not None:
+                self._expect(arg_node, got, bound, tv)
+                mapping[tv] = bound
+            else:
+                mapping[tv] = got
+            return
+        if want["kind"] == "list" and got["kind"] == "list":
+            self._unify(got["elem"], want["elem"], mapping, node, arg_node)
+            return
+        if want["kind"] == "dict" and got["kind"] == "dict":
+            self._unify(got["key"], want["key"], mapping, node, arg_node)
+            self._unify(got["value"], want["value"], mapping, node, arg_node)
+            return
+        if want["kind"] == "func" and got["kind"] == "func":
+            for got_param, want_param in zip(got["params"], want["params"], strict=False):
+                self._unify(got_param, want_param, mapping, node, arg_node)
+            self._unify(got["return"], want["return"], mapping, node, arg_node)
+            return
+        if (
+            want["kind"] == "class"
+            and got["kind"] == "class"
+            and got["name"] == want["name"]
+            and isinstance(want.get("elem"), dict)
+            and isinstance(got.get("elem"), dict)
+        ):
+            self._unify(got["elem"], want["elem"], mapping, node, arg_node)
+            return
+        self._expect(arg_node, got, want, node.func.id if isinstance(node.func, ast.Name) else "call")
+
+    def _fill_generic_args(
+        self,
+        node: ast.Call,
+        params: list[dict[str, Any]],
+        mapping: dict[str, dict[str, Any]],
+        what: str,
+    ) -> list[dict[str, Any]]:
+        """`_fill_args` for a signature with TypeVar placeholders: each
+        argument lowers once; placeholder parameters unify their declared
+        TypeVars against the argument type instead of expecting it."""
+        if any(kw.arg is None for kw in node.keywords):
+            self.fail(node, "PS2002", "**kwargs are not lowered")
+        if any(isinstance(arg, ast.Starred) for arg in node.args):
+            self.fail(node, "PS2002", "starred calls are not lowered")
+        var_index = next((index for index, param in enumerate(params) if param.get("vararg")), None)
+        ordinary = params if var_index is None else params[:var_index]
+        if var_index is None and len(node.args) > len(params):
+            self.fail(node, "PS1003", f"{what} expects {len(params)} argument(s)")
+        if var_index is not None and len(node.args) < len(ordinary):
+            self.fail(node, "PS1003", f"{what} expects {len(ordinary)} argument(s)")
+        slots: list[dict[str, Any] | None] = [None] * len(params)
+        names = [param["name"] for param in params]
+        limit = len(node.args) if var_index is None else min(len(node.args), len(ordinary))
+        for index in range(limit):
+            slots[index] = self._generic_arg(node.args[index], params[index], mapping, node)
+        seen = {param["name"] for param, slot in zip(params, slots, strict=True) if slot is not None}
+        for kw in node.keywords:
+            if kw.arg in seen:
+                self.fail(node, "PS1003", f"{what} gets {kw.arg} twice")
+            if kw.arg not in names:
+                self.fail(node, "PS1003", f"{what} does not take {kw.arg}")
+            index = names.index(kw.arg)
+            seen.add(kw.arg)
+            slots[index] = self._generic_arg(kw.value, params[index], mapping, node)
+        args: list[dict[str, Any]] = []
+        for index, param in enumerate(params):
+            if param.get("vararg"):
+                continue
+            got = slots[index]
+            if got is None:
+                if "default" not in param:
+                    self.fail(node, "PS1003", f"{what} misses {param['name']}")
+                got = param["default"]
+                if param.get("optdefault"):
+                    got = self._opt_box(got, param["type"], span_of(node, self.filename))
+            want = _subst_type(param["type"], mapping)
+            if not _has_typevar(want) and not types_equal(got["type"], want):
+                self.fail(node, "PS1003", f"argument {param['name']} of {what} has the wrong type")
+            args.append(got)
+        if var_index is not None:
+            varparam = params[var_index]
+            elem = varparam["type"]["elem"]
+            elems = []
+            for arg_node in node.args[len(ordinary) :]:
+                value = self._expr(arg_node)
+                self._unify(value["type"], elem, mapping, node, arg_node)
+                elems.append(value)
+            var_type = _subst_type(varparam["type"], mapping)
+            args.append({"kind": "list", "elems": elems, "type": var_type, "span": span_of(node, self.filename)})
+        return args
 
     def _super_call(self, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         """`super().method(args)`: resolution starts one MRO step past the
@@ -168,9 +346,7 @@ class CallsMixin:
             self.fail(node, "PS2002", "super is not lowered")
         method = node.func.attr
         ancestors = mro[mro.index(owner) + 1 :]
-        ancestor = next(
-            (name for name in ancestors if method in self.classes.get(name, {}).get("methods", {})), None
-        )
+        ancestor = next((name for name in ancestors if method in self.classes.get(name, {}).get("methods", {})), None)
         if ancestor is None:
             self.fail(node, "PS2001", f"{self_t}.{method} is not a method")
         sig = self.classes[ancestor]["methods"][method]

@@ -531,6 +531,10 @@ class StdlibDispatchMixin:
                 if nt_call is not None:
                     self._namedtuple_decl(target, nt_call, stmt)
                     return
+                tv_call = self._typevar_call(stmt.value)
+                if tv_call is not None:
+                    self._declare_typevar(target, tv_call, stmt)
+                    return
                 if (
                     not self._deferring
                     and self._script_line is None

@@ -31,9 +31,11 @@ from pyscriptc.lower._core import (
     _const_none,
     _declared_globals,
     _dotted,
+    _has_typevar,
     _is_none_expr,
     _name,
     _show,
+    _subst_type,
     _tuple_assign,
 )
 from pyscriptc.lower._expr import ExprMixin
@@ -138,6 +140,25 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         self.opt_unwrap: dict[str, dict[str, Any]] = {}
         # User exception classes take codes after the builtin table (1–8).
         self.exc_n = USER_EXC_BASE
+        # TypeVar erasure (tier-2): name -> bound type or None when unbound.
+        # Annotations on an unbound TypeVar produce {"kind": "typevar"}
+        # placeholders that only ever live in signatures/field tables;
+        # call sites monomorphize them into concrete instantiations.
+        self.typevars: dict[str, dict[str, Any] | None] = {}
+        # Active substitution while lowering one instantiation.
+        self.tv_subst: dict[str, dict[str, Any]] = {}
+        # Functions whose signature carries placeholders, name -> def.
+        self.generic_fns: dict[str, ast.FunctionDef] = {}
+        # (fn, ((typevar, type_key), ...)) -> emitted name, plus the queue
+        # of instantiations still to lower (fn, emitted name, mapping).
+        self.inst_fns: dict[tuple[str, tuple[tuple[str, str], ...]], str] = {}
+        self.inst_queue: list[tuple[str, str, dict[str, dict[str, Any]]]] = []
+        # (class, (type_key, ...)) -> emitted class name, plus queued
+        # (base ClassDef, emitted name, mapping) class instantiations.
+        self.class_insts: dict[tuple[str, tuple[str, ...]], str] = {}
+        self.class_queue: list[tuple[ast.ClassDef, str, dict[str, dict[str, Any]]]] = []
+        # The substituted (params, ret) while an instantiation lowers.
+        self.inst_sig: tuple[list[dict[str, Any]], dict[str, Any]] | None = None
 
     def fail(self, node: ast.AST, code: str, message: str) -> NoReturn:
         raise Fence(code, message, span_of(node, self.filename), self.function)
@@ -194,6 +215,10 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
                 self.sigs[fn.name] = self._signature(fn, None, kind)
             except Fence as exc:
                 fences.append(exc)
+            else:
+                params, ret = self.sigs[fn.name]
+                if _has_typevar(ret) or any(_has_typevar(param["type"]) for param in params):
+                    self.generic_fns[fn.name] = fn
         if self.deferred_module:
             self._bind_deferred_module(fences)
         if self.cataloguing:
@@ -210,7 +235,8 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
             }
         lowered_classes: list[dict[str, Any]] = []
         for node in class_nodes:
-            if node.name not in self.classes or self.classes[node.name].get("synthetic"):
+            info = self.classes.get(node.name)
+            if info is None or info.get("synthetic") or info.get("typevars"):
                 continue
             self.function = node.name
             self.caught = []
@@ -226,7 +252,7 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         lowered_classes.extend(self._synthetic_classes({item["name"] for item in lowered_classes}))
         lowered: list[dict[str, Any]] = []
         for fn in functions:
-            if fn.name not in self.sigs:
+            if fn.name not in self.sigs or fn.name in self.generic_fns:
                 continue
             self.function = fn.name
             self.temp_n = 0
@@ -246,6 +272,7 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
             saved_bindings = dict(self.bindings)
             saved_aliases = dict(self.type_aliases)
             saved_declared = set(self.declared)
+            saved_typevars = dict(self.typevars)
             try:
                 body = self._body(list(fn.body))
                 if self.caught:
@@ -274,6 +301,8 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
                 self.bindings = saved_bindings
                 self.type_aliases = saved_aliases
                 self.declared = saved_declared
+                self.typevars = saved_typevars
+        self._drain_instances(lowered, lowered_classes, fences)
         lowered.extend(self.nested_fns)
         lowered_classes.extend(self._synthetic_classes({item["name"] for item in lowered_classes}))
         self.function = None
@@ -449,6 +478,100 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         if self.module_name:
             return f"{self.module_name}.{name}"
         return name
+
+    def _drain_instances(
+        self,
+        lowered: list[dict[str, Any]],
+        lowered_classes: list[dict[str, Any]],
+        fences: list[Fence],
+    ) -> None:
+        """Lower every queued TypeVar instantiation to a concrete copy.
+
+        Call sites discover specializations while ordinary bodies lower;
+        each queued entry is lowered here with `self.tv_subst` holding its
+        TypeVar mapping so annotations inside the copy resolve concretely.
+        New specializations found inside a copy just extend the queues.
+        """
+        while self.inst_queue or self.class_queue:
+            while self.class_queue:
+                node, emit_name, mapping = self.class_queue.pop(0)
+                self.function = emit_name
+                self.caught = []
+                self.tv_subst = mapping
+                try:
+                    record = self._lower_class(node, emit_name)
+                    if record is not None and not self.caught:
+                        lowered_classes.append(record)
+                    fences.extend(self.caught)
+                except Fence as exc:
+                    fences.append(exc)
+                    fences.extend(self.caught)
+                finally:
+                    self.tv_subst = {}
+            while self.inst_queue:
+                fn_name, emit_name, mapping = self.inst_queue.pop(0)
+                fn = self.generic_fns[fn_name]
+                self.function = emit_name
+                self.temp_n = 0
+                self.prelude = []
+                self.caught = []
+                self.fn_globals = self._globals_for(fn.body)
+                self.fn_nonlocals = set()
+                self.captures = {}
+                params, ret = self.sigs[fn_name]
+                params = [{**param, "type": _subst_type(param["type"], mapping)} for param in params]
+                ret = _subst_type(ret, mapping)
+                # A param whose TypeVar resolved to none takes no runtime
+                # slot (void is not a value); it drops from the signature
+                # and binds as the `None` constant for the body.
+                dropped = {param["name"] for param in params if param["type"]["kind"] == "none"}
+                params = [param for param in params if param["name"] not in dropped]
+                self.locals = {param["name"]: param["type"] for param in params}
+                saved_consts = {name: self.constants.get(name) for name in dropped}
+                for name in dropped:
+                    self.constants[name] = {"kind": "const", "value": None, "type": {"kind": "none"}}
+                self.frozen_names = set()
+                self.opt_unwrap = {}
+                self.boxed_names = set()
+                self.fn_body = list(fn.body)
+                self.tv_subst = mapping
+                self.inst_sig = (params, ret)
+                saved_bindings = dict(self.bindings)
+                saved_aliases = dict(self.type_aliases)
+                saved_declared = set(self.declared)
+                saved_typevars = dict(self.typevars)
+                try:
+                    body = self._body(list(fn.body))
+                    if self.caught:
+                        fences.extend(self.caught)
+                        continue
+                    if ret["kind"] != "none" and not _always_returns(body):
+                        self.fail(fn, "PS1004", f"{fn.name} can fall off the end and return None")
+                    record = {
+                        "name": self._ir_name(emit_name),
+                        "params": params,
+                        "returnType": ret,
+                        "locals": [{"name": name, "type": typ} for name, typ in self.locals.items()],
+                        "body": body,
+                        "span": span_of(fn, self.filename),
+                    }
+                    if self.boxed_names:
+                        record["boxed"] = sorted(self.boxed_names)
+                    lowered.append(record)
+                except Fence as exc:
+                    fences.append(exc)
+                finally:
+                    self.bindings = saved_bindings
+                    self.type_aliases = saved_aliases
+                    self.declared = saved_declared
+                    self.typevars = saved_typevars
+                    self.tv_subst = {}
+                    self.inst_sig = None
+                    for name, prev in saved_consts.items():
+                        if prev is None:
+                            self.constants.pop(name, None)
+                        else:
+                            self.constants[name] = prev
 
     def _bind_one_export(self, module: str, name: str, local: str, stmt: ast.AST, fences: list[Fence]) -> None:
         package = self.package or {}
