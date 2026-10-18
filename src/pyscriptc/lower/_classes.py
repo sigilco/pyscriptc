@@ -123,6 +123,8 @@ class ClassesMixin:
                     typ = self._annotation(stmt.annotation)
                     if typ["kind"] == "bool":
                         self.fail(stmt, "PS2002", "bool fields are not lowered")
+                    if typ["kind"] == "func":
+                        self.fail(stmt, "PS2002", "callable fields are not lowered")
                     field: dict[str, Any] = {"name": stmt.target.id, "type": typ}
                     if stmt.value is not None:
                         saved_prelude = self.prelude
@@ -506,6 +508,10 @@ class ClassesMixin:
         if fn.returns is None:
             self.fail(fn, "PS1001", f"{fn.name} needs a return annotation")
         ret = self._annotation(fn.returns)
+        if ret["kind"] == "func":
+            # The env of a closure points into its parent frame; it cannot
+            # escape through a return.
+            self.fail(fn.returns, "PS2002", "a callable return type is not lowered")
         if class_name is not None and fn.name == "__init__" and ret["kind"] != "none":
             self.fail(fn, "PS1003", "__init__ returns None")
         return params, ret
@@ -541,6 +547,10 @@ class ClassesMixin:
                 self.fail(node, "PS2002", "dict keys are int or str")
             if typ["value"]["kind"] == "bool":
                 self.fail(node, "PS2002", "dict values of bool are not lowered")
+        if typ["kind"] == "list" and typ["elem"]["kind"] == "func":
+            self.fail(node, "PS2002", "callable members are not lowered")
+        if typ["kind"] == "dict" and typ["value"]["kind"] == "func":
+            self.fail(node, "PS2002", "callable members are not lowered")
 
     def _annotation(self, node: ast.AST) -> dict[str, Any]:
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
@@ -831,6 +841,18 @@ class ClassesMixin:
             }
             self._reject_banned_type(node, typ)
             return typ
+        if alias == "Callable":
+            if (
+                not isinstance(node.slice, ast.Tuple)
+                or len(node.slice.elts) != 2
+                or not isinstance(node.slice.elts[0], ast.List)
+            ):
+                self.fail(node, "PS1001", "Callable annotations are Callable[[args], ret]")
+            params = [self._annotation(arg) for arg in node.slice.elts[0].elts]
+            ret = self._annotation(node.slice.elts[1])
+            if ret["kind"] == "func":
+                self.fail(node, "PS2002", "a callable return type is not lowered")
+            return {"kind": "func", "params": params, "return": ret}
         if alias == "Tuple":
             return self._tuple_annotation(node)
         if alias in _UNWRAP_FORMS:
@@ -888,6 +910,8 @@ class ClassesMixin:
         return self._tuple_type([self._annotation(elt) for elt in elts], node)
 
     def _tuple_type(self, fields: list[dict[str, Any]], node: ast.AST) -> dict[str, Any]:
+        if any(field["kind"] == "func" for field in fields):
+            self.fail(node, "PS2002", "callable members are not lowered")
         label = "tuple[" + ", ".join(_show(field) for field in fields) + "]"
         name = "tuple_" + str(len(fields)) + "_" + "_".join(_type_slug(field) for field in fields)
         existing = self.classes.get(name)

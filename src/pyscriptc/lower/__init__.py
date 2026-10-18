@@ -19,6 +19,7 @@ from pyscriptc.errors import format_diagnostic, span_of
 from pyscriptc.ir import SUBSET, cpython_version, types_equal
 from pyscriptc.lower._calls import CallsMixin
 from pyscriptc.lower._classes import ClassesMixin
+from pyscriptc.lower._closures import ClosuresMixin
 from pyscriptc.lower._core import (
     _CMP,
     _TRUTHY,
@@ -52,7 +53,7 @@ from pyscriptc.stdlib_queue import canonical_module, module_status
 from pyscriptc.stdmore import member_callable, module_constant
 
 
-class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixin):
+class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixin, ClosuresMixin):
     def __init__(self, filename: str, source: str) -> None:
         self.filename = filename
         self.source = source
@@ -93,6 +94,22 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         self.class_aliases: dict[str, str] = {}
         self.global_slots: dict[str, dict[str, Any]] = {}
         self.fn_globals: set[str] = set()
+        # `nonlocal` declarations for the function being lowered.
+        self.fn_nonlocals: set[str] = set()
+        # Env-bound names for the function being lowered (its captured outer
+        # slots). Top-level functions have none.
+        self.captures: dict[str, dict[str, Any]] = {}
+        # Env-first nested functions collected while lowering a module.
+        self.nested_fns: list[dict[str, Any]] = []
+        self.nested_n = 0
+        # `name = const` initializers for active global slots, emitted at the
+        # top of main as ps_global_set_* calls.
+        self.global_inits: list[dict[str, Any]] = []
+        # Line of the first true script statement; global inits before it may
+        # hoist, later ones lower inside the entry to keep source order.
+        self._script_line: int | None = None
+        # Name of the synthesized entry function (`main`/`__entry__`), if any.
+        self.entry_fn_name: str | None = None
         # `global` declarations per function body, cached by body-list identity:
         # the scan pass and the lowering pass would otherwise walk each function
         # tree twice for the same `ast.Global` nodes. Bodies are not mutated
@@ -136,6 +153,7 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         entry_stmts = self._split_entry(live, functions, class_nodes, fences)
         entry_fn = self._entry_function(entry_stmts, functions)
         entry_name = entry_fn[0].name if entry_fn else None
+        self.entry_fn_name = entry_name
         functions.extend(entry_fn)
         self._install_synthetics(class_nodes, fences)
         imported = {name for name, info in self.classes.items() if info.get("imported")}
@@ -198,6 +216,8 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
             self.prelude = []
             self.caught = []
             self.fn_globals = self._globals_for(fn.body)
+            self.fn_nonlocals = set()
+            self.captures = {}
             params, ret = self.sigs[fn.name]
             self.locals = {param["name"]: param["type"] for param in params}
             self.frozen_names = set()
@@ -234,10 +254,11 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
                 self.bindings = saved_bindings
                 self.type_aliases = saved_aliases
                 self.declared = saved_declared
+        lowered.extend(self.nested_fns)
         lowered_classes.extend(self._synthetic_classes({item["name"] for item in lowered_classes}))
         self.function = None
         names = [item["name"] for item in lowered]
-        return {
+        module = {
             "irVersion": 1,
             "subset": SUBSET,
             "cpython": cpython_version(),
@@ -249,6 +270,9 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
             "classes": lowered_classes,
             "fences": [fence.as_dict() for fence in fences],
         }
+        if self.global_inits:
+            module["globals"] = self.global_inits
+        return module
 
     def _split_entry(
         self,
@@ -270,7 +294,11 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         failed_assigns: list[tuple[ast.stmt, int]] = []
         bare_decls: list[ast.AnnAssign] = []
         definitions = (ast.Import, ast.ImportFrom, ast.Pass, ast.FunctionDef, ast.ClassDef, ast.AnnAssign, ast.Assign)
-        scriptish = any(not isinstance(stmt, definitions) and not _is_docstring(stmt) for stmt in live)
+        self._script_line = min(
+            (stmt.lineno for stmt in live if not isinstance(stmt, definitions) and not _is_docstring(stmt)),
+            default=None,
+        )
+        scriptish = self._script_line is not None
         divert = self._diverted_literals(live) if scriptish else set()
         for stmt in live:
             if isinstance(stmt, (ast.Import, ast.ImportFrom, ast.Pass)):

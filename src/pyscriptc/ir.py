@@ -15,7 +15,7 @@ from pyscriptc.errors import IRError, VersionError
 IR_VERSION = 1
 SUBSET = "gates-v1"
 
-TYPE_KINDS = {"int", "float", "bool", "none", "str", "bytes", "list", "dict", "class", "exc", "unknown"}
+TYPE_KINDS = {"int", "float", "bool", "none", "str", "bytes", "list", "dict", "class", "exc", "unknown", "func"}
 EXPR_KINDS = {
     "name",
     "const",
@@ -29,6 +29,7 @@ EXPR_KINDS = {
     "attr",
     "cast",
     "contains",
+    "closure",
 }
 STMT_KINDS = {"assign", "if", "while", "return", "expr", "pass", "setitem", "setattr", "try", "raise"}
 # Kinds that would import a JavaScript object model. Named so a reused
@@ -65,6 +66,9 @@ def type_key(typ: dict[str, Any]) -> str:
         if "elem" in typ:
             return f"{typ['name']}[{type_key(typ['elem'])}]"
         return str(typ["name"])
+    if typ["kind"] == "func":
+        args = ", ".join(type_key(param) for param in typ["params"])
+        return f"({args}) -> {type_key(typ['return'])}"
     return str(typ["kind"])
 
 
@@ -102,6 +106,13 @@ def validate_type(typ: Any, where: str) -> None:
             raise IRError(f"{where}: class type needs a name")
         if "elem" in typ:
             validate_type(typ["elem"], f"{where}.elem")
+    elif kind == "func":
+        params = typ.get("params")
+        if not isinstance(params, list):
+            raise IRError(f"{where}: func type needs params")
+        for i, param in enumerate(params):
+            validate_type(param, f"{where}.params[{i}]")
+        validate_type(typ.get("return"), f"{where}.return")
 
 
 def validate_expr(expr: Any, where: str) -> None:
@@ -172,6 +183,18 @@ def validate_expr(expr: Any, where: str) -> None:
         validate_expr(expr.get("needle"), f"{where}.needle")
         if not isinstance(expr.get("negated"), bool):
             raise IRError(f"{where}: contains needs negated")
+    elif kind == "closure":
+        if not isinstance(expr.get("name"), str) or not _dotted_identifier(expr["name"]):
+            raise IRError(f"{where}: closure needs a function name")
+        if expr["type"]["kind"] != "func":
+            raise IRError(f"{where}: closure type must be func")
+        env = expr.get("env")
+        if not isinstance(env, list):
+            raise IRError(f"{where}: closure needs an env list")
+        for i, item in enumerate(env):
+            if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+                raise IRError(f"{where}.env[{i}] needs a name")
+            validate_type(item.get("type"), f"{where}.env[{i}].type")
 
 
 def validate_stmt(stmt: Any, where: str) -> None:
@@ -268,6 +291,9 @@ def _validate_callee(callee: Any, where: str) -> None:
         if callee.get("receiver") not in {"str", "bytes"} or not isinstance(callee.get("name"), str):
             raise IRError(f"{where}: method callee needs a str or bytes receiver and a name")
         return
+    if kind == "value":
+        validate_expr(callee.get("target"), f"{where}.callee")
+        return
     raise IRError(f"{where}: call callee must be function, builtin, module, method, or class")
 
 
@@ -317,6 +343,14 @@ def validate_module(module: Any) -> None:
             if not isinstance(local, dict) or not isinstance(local.get("name"), str):
                 raise IRError(f"{name}.locals[{j}] needs a name")
             validate_type(local.get("type"), f"{name}.locals[{j}].type")
+        env = fn.get("env")
+        if env is not None:
+            if not isinstance(env, list):
+                raise IRError(f"{name}: env must be a list")
+            for j, item in enumerate(env):
+                if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+                    raise IRError(f"{name}.env[{j}] needs a name")
+                validate_type(item.get("type"), f"{name}.env[{j}].type")
         _validate_body(fn.get("body"), f"{name}.body")
     classes = module.get("classes")
     if not isinstance(classes, list):
