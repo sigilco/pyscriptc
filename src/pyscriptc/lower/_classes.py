@@ -21,9 +21,12 @@ from pyscriptc.lower._core import (
     _SET_FORMS,
     Fence,
     _assign,
+    _has_typevar,
     _name,
     _plain_const_kind,
     _show,
+    _sig_typevars,
+    _subst_type,
 )
 from pyscriptc.lower._stmt import _always_returns, _is_docstring
 from pyscriptc.restlower import alias_name, path_attr
@@ -105,8 +108,16 @@ class ClassesMixin:
         # class C(object) and class C(object,) are the same class as class C.
         # object.__init__ is not emitted.
         bases: list[dict[str, str]] = []
+        type_params: list[str] = []
         for base_node in node.bases:
             if self._is_builtin_object(base_node):
+                continue
+            generic_params = self._generic_base(base_node)
+            if generic_params is not None:
+                # `class C(Generic[T])` erases: the parameter list records
+                # nothing at runtime; the declared TypeVars parameterize
+                # the class's annotations for call-site instantiation.
+                type_params = generic_params
                 continue
             resolved = self._resolve_base(base_node)
             if resolved["kind"] != "class" and len(node.bases) > 1:
@@ -288,6 +299,8 @@ class ClassesMixin:
             info["exception"] = True
             info["exc_code"] = self.exc_n
             self.exc_n += 1
+        if type_params:
+            info["typevars"] = type_params
         self.classes[node.name] = info
 
     def _mro_chain(self, node: ast.ClassDef, bases: list[dict[str, str]]) -> tuple[list[str], set[str]]:
@@ -491,8 +504,9 @@ class ClassesMixin:
         self.fail(stmt, "PS2002", "an enum body is integer constants")
         raise AssertionError("unreachable")
 
-    def _lower_class(self, node: ast.ClassDef) -> dict[str, Any] | None:
-        info = self.classes[node.name]
+    def _lower_class(self, node: ast.ClassDef, emit_name: str | None = None) -> dict[str, Any] | None:
+        own = emit_name or node.name
+        info = self.classes[own]
         if info.get("enum"):
             return None
         own_names = {field["name"] for field in info.get("own_fields", info["fields"])}
@@ -500,17 +514,17 @@ class ClassesMixin:
         for stmt in node.body:
             if not isinstance(stmt, ast.FunctionDef):
                 continue
-            if info["method_owner"].get(stmt.name) != node.name:
+            if info["method_owner"].get(stmt.name) != own:
                 continue
-            emitted = self._emit_class_method(node.name, stmt, info, own_names)
+            emitted = self._emit_class_method(own, stmt, info, own_names)
             if emitted is not None:
                 methods.append(emitted)
         for mname in info["methods"]:
             # Monomorphize inherited instance methods whose owner sits off the
             # primary chain: the owner's fields are not a layout prefix of this
             # class, so its body is re-lowered with self typed as this class.
-            owner = info["method_owner"].get(mname, node.name)
-            if owner == node.name or owner in info.get("chain", {node.name}):
+            owner = info["method_owner"].get(mname, own)
+            if owner == own or owner in info.get("chain", {own}):
                 continue
             if info["method_kind"].get(mname, "method") not in {"method", "property"}:
                 continue
@@ -524,7 +538,7 @@ class ClassesMixin:
             )
             if ostmt is None:
                 continue
-            emitted = self._emit_class_method(node.name, ostmt, info, own_names)
+            emitted = self._emit_class_method(own, ostmt, info, own_names)
             if emitted is not None:
                 methods.append(emitted)
         if self.caught:
@@ -533,7 +547,7 @@ class ClassesMixin:
         if generated is not None:
             methods.append(generated)
         return {
-            "name": node.name,
+            "name": own,
             "fields": info["fields"],
             "methods": methods,
             "span": span_of(node, self.filename),
@@ -566,12 +580,14 @@ class ClassesMixin:
         saved_bindings = dict(self.bindings)
         saved_aliases = dict(self.type_aliases)
         saved_declared = set(self.declared)
+        saved_typevars = dict(self.typevars)
         try:
             body = self._body(list(stmt.body))
         finally:
             self.bindings = saved_bindings
             self.type_aliases = saved_aliases
             self.declared = saved_declared
+            self.typevars = saved_typevars
         if self.caught:
             return None
         if stmt.name == "__init__":
@@ -716,6 +732,8 @@ class ClassesMixin:
         if info.get("namedtuple"):
             return self._construct_namedtuple(node, span, name, info)
         init = info["methods"].get("__init__")
+        if info.get("typevars"):
+            return self._construct_generic(node, span, name, init)
         if init is None:
             if node.args or node.keywords:
                 self.fail(node, "PS2003", f"{name} takes no arguments")
@@ -733,6 +751,41 @@ class ClassesMixin:
             "callee": {"kind": "class", "name": name},
             "args": args,
             "type": {"kind": "class", "name": name},
+            "span": span,
+        }
+
+    def _construct_generic(
+        self, node: ast.Call, span: dict[str, Any], name: str, init: tuple[Any, Any] | None
+    ) -> dict[str, Any]:
+        """`Box(3)` on a `class Box(Generic[T])`: unify the arguments with the
+        __init__ parameters to bind its TypeVars, then emit the call against
+        the specialized `Box_int`-style class record."""
+        if init is None:
+            self.fail(node, "PS1003", f"cannot infer type arguments for {name}")
+        params = [param for param in init[0] if param["name"] != "self"]
+        mapping: dict[str, dict[str, Any]] = {}
+        args = self._fill_generic_args(node, params, mapping, name)
+        tvars = self.classes[name].get("typevars") or []
+        for param in params:
+            for tv in _sig_typevars([param["type"]]):
+                if tv not in mapping:
+                    bound = self.typevars.get(tv)
+                    if bound is None:
+                        self.fail(node, "PS1003", f"cannot infer {tv} for {name}")
+                    mapping[tv] = bound
+        missing = [tv for tv in tvars if tv not in mapping]
+        if missing:
+            self.fail(node, "PS1003", f"cannot infer {missing[0]} for {name}")
+        inst = self._instantiate_class(name, [mapping[tv] for tv in tvars], node)
+        for arg, param in zip(args, params, strict=True):
+            want = _subst_type(param["type"], mapping)
+            if not _has_typevar(want):
+                self._expect(node, arg["type"], want, name)
+        return {
+            "kind": "call",
+            "callee": {"kind": "class", "name": inst},
+            "args": args,
+            "type": {"kind": "class", "name": inst},
             "span": span,
         }
 
@@ -857,6 +910,13 @@ class ClassesMixin:
                 self.fail(node, "PS2002", "dict values of bool are not lowered")
 
     def _annotation(self, node: ast.AST) -> dict[str, Any]:
+        if isinstance(node, ast.Name) and node.id in self.tv_subst:
+            return self.tv_subst[node.id]
+        if isinstance(node, ast.Name) and node.id in self.typevars:
+            bound = self.typevars[node.id]
+            if bound is not None:
+                return bound
+            return {"kind": "typevar", "name": node.id}
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
             opt = self._optional_pipe(node)
             if opt is not None:
@@ -870,9 +930,7 @@ class ClassesMixin:
         if isinstance(node, ast.Constant) and node.value is None:
             return {"kind": "none"}
         if isinstance(node, ast.Name) and (
-            node.id in EXCEPTIONS
-            or node.id == "BaseException"
-            or self.classes.get(node.id, {}).get("exception")
+            node.id in EXCEPTIONS or node.id == "BaseException" or self.classes.get(node.id, {}).get("exception")
         ):
             return {"kind": "exc"}
         if isinstance(node, ast.Name) and (node.id in self.declared or node.id in self.known_classes):
@@ -904,6 +962,9 @@ class ClassesMixin:
         named = self._annotation_class(node)
         if named is not None:
             return {"kind": "class", "name": named}
+        inst = self._generic_alias_annotation(node)
+        if inst is not None:
+            return inst
         self._fail_annotation(node)
 
     def _fail_annotation(self, node: ast.AST) -> NoReturn:
@@ -919,6 +980,132 @@ class ClassesMixin:
         if isinstance(node, (ast.Name, ast.Attribute)):
             self.fail(node, "PS1106", f"the annotation {text} names a type that is not lowered")
         self.fail(node, "PS1001", "this annotation is not in the lowered subset")
+
+    def _typevar_call(self, node: ast.expr) -> ast.Call | None:
+        """The `TypeVar('T', ...)` call, spelled through a `from typing import
+        TypeVar` local or an erased `typing.TypeVar` attribute."""
+        if not isinstance(node, ast.Call):
+            return None
+        func = node.func
+        if isinstance(func, ast.Name):
+            if self.type_aliases.get(func.id) == "TypeVar":
+                return node
+            return None
+        if isinstance(func, ast.Attribute):
+            resolved = self._resolve_module(func)
+            if resolved is not None and resolved[3] == "erased" and resolved[2] == "TypeVar":
+                return node
+        return None
+
+    def _declare_typevar(self, target: str, call: ast.Call, stmt: ast.AST) -> None:
+        """`T = TypeVar('T')` registers `T` as a TypeVar and lowers as a no-op.
+
+        `bound=` records a bound type its annotations erase to directly;
+        variance flags are ignored; an unbound TypeVar annotates as a
+        `{"kind": "typevar"}` placeholder that only call-site
+        monomorphization resolves."""
+        if target in self.bindings or target in self.declared or target in self.constants or target in self.typevars:
+            self.fail(stmt, "PS2002", f"{target} is already bound")
+        if not call.args or _plain_const_kind(call.args[0]) != "str":
+            self.fail(call, "PS2003", "TypeVar needs a str name")
+        bound: dict[str, Any] | None = None
+        for kw in call.keywords:
+            if kw.arg == "bound":
+                typ = self._annotation(kw.value)
+                bound = typ if typ["kind"] != "typevar" else None
+            elif kw.arg in {"covariant", "contravariant"}:
+                continue
+            else:
+                self.fail(kw.value, "PS2003", f"TypeVar keyword {kw.arg} is not lowered")
+        self.typevars[target] = bound
+        self.declared.add(target)
+
+    def _is_generic_name(self, node: ast.expr) -> bool:
+        if isinstance(node, ast.Name):
+            return self.type_aliases.get(node.id) == "Generic"
+        if isinstance(node, ast.Attribute):
+            resolved = self._resolve_module(node)
+            return resolved is not None and resolved[3] == "erased" and resolved[2] == "Generic"
+        return False
+
+    def _generic_base(self, node: ast.expr) -> list[str] | None:
+        """A `Generic[T, ...]` (or bare `Generic`) base: the declared TypeVar
+        names it parameterizes over, or None when this is not a Generic base."""
+        if isinstance(node, ast.Subscript):
+            if not self._is_generic_name(node.value):
+                return None
+            elts = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+            return [elt.id for elt in elts if isinstance(elt, ast.Name) and elt.id in self.typevars]
+        if self._is_generic_name(node):
+            return []
+        return None
+
+    def _generic_alias_annotation(self, node: ast.AST) -> dict[str, Any] | None:
+        """`Box[int]` on a user `class Box(Generic[T])`: instantiate the class
+        at the argument types; the annotation resolves to `Box_int`."""
+        if not isinstance(node, ast.Subscript) or not isinstance(node.value, ast.Name):
+            return None
+        info = self.classes.get(node.value.id)
+        if info is None or not info.get("typevars"):
+            return None
+        elts = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+        args = [self._annotation(elt) for elt in elts]
+        name = self._instantiate_class(node.value.id, args, node)
+        return {"kind": "class", "name": name}
+
+    def _instantiate_class(self, base: str, arg_types: list[dict[str, Any]], node: ast.AST) -> str:
+        """Register (or reuse) `base` specialized at `arg_types` and return the
+        emitted class name; the specialized record is queued to lower."""
+        info = self.classes[base]
+        tvars = info.get("typevars") or []
+        if len(arg_types) != len(tvars):
+            self.fail(node, "PS1003", f"{base} takes {len(tvars)} type argument(s)")
+        mapping: dict[str, dict[str, Any]] = {}
+        for tv, typ in zip(tvars, arg_types, strict=True):
+            if typ["kind"] == "none":
+                self.fail(node, "PS1003", f"cannot instantiate {base} with none")
+            bound = self.typevars.get(tv)
+            if bound is not None and not types_equal(typ, bound):
+                self.fail(node, "PS1003", f"{_show(typ)} is outside the bound {_show(bound)} of {tv}")
+            mapping[tv] = typ
+        key = (base, tuple(type_key(typ) for typ in arg_types))
+        name = self.class_insts.get(key)
+        if name is not None:
+            return name
+        name = f"{base}_{'_'.join(_type_slug(typ) for typ in arg_types)}"
+        if name in self.classes or name in self.declared:
+            self.fail(node, "PS2002", f"{name} is already bound")
+        inst = copy.deepcopy(info)
+        inst["fields"] = [{**field, "type": _subst_type(field["type"], mapping)} for field in inst["fields"]]
+        inst["own_fields"] = [
+            {**field, "type": _subst_type(field["type"], mapping)} for field in inst.get("own_fields", [])
+        ]
+        for field in inst["fields"] + inst["own_fields"]:
+            default = field.get("default")
+            if default is not None:
+                default["type"] = _subst_type(default["type"], mapping)
+        inst["methods"] = {
+            mname: (
+                [{**param, "type": _subst_type(param["type"], mapping)} for param in params],
+                _subst_type(ret, mapping),
+            )
+            for mname, (params, ret) in inst["methods"].items()
+        }
+        inst["method_owner"] = {
+            mname: (name if owner == base else owner) for mname, owner in inst["method_owner"].items()
+        }
+        inst.pop("typevars", None)
+        inst["instance_of"] = base
+        inst["mro"] = [name, base]
+        inst["chain"] = {name}
+        self.classes[name] = inst
+        self.declared.add(name)
+        self.known_classes.add(name)
+        self.class_insts[key] = name
+        base_node = info.get("node")
+        if base_node is not None:
+            self.class_queue.append((base_node, name, mapping))
+        return name
 
     def _class_binary(
         self, node: ast.BinOp, left: dict[str, Any], right: dict[str, Any], span: dict[str, Any]

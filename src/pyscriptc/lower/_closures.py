@@ -133,7 +133,7 @@ class ClosuresMixin:
 
     def _callable_name_type(self, name: str) -> dict[str, Any] | None:
         """The func type a bare name carries, from any scope, else None."""
-        if name in self.sigs:
+        if name in self.sigs and name not in self.generic_fns:
             params, ret = self.sigs[name]
             return {"kind": "func", "params": [param["type"] for param in params], "return": ret}
         ftype = self.locals.get(name, self.captures.get(name))
