@@ -329,22 +329,7 @@ def test_lwave_fences(tmp_path: Path) -> None:
     cases = [
         (
             "super.py",
-            "\n".join(
-                [
-                    "class Point:",
-                    "    x: int",
-                    "    def __init__(self, x: int) -> None:",
-                    "        self.x = x",
-                    "class Spot(Point):",
-                    "    y: int",
-                    "    def __init__(self, x: int, y: int) -> None:",
-                    "        super().__init__(x)",
-                    "        self.y = y",
-                    "def f() -> int:",
-                    "    return Spot(1, 2).y",
-                    "",
-                ]
-            ),
+            "def f() -> int:\n    super().m()\n    return 1\n",
             "super is not lowered",
         ),
         (
@@ -354,7 +339,7 @@ def test_lwave_fences(tmp_path: Path) -> None:
                     "class A:",
                     "    x: int",
                     "class B:",
-                    "    y: int",
+                    "    x: str",
                     "class C(A, B):",
                     "    pass",
                     "def f() -> int:",
@@ -362,7 +347,7 @@ def test_lwave_fences(tmp_path: Path) -> None:
                     "",
                 ]
             ),
-            "multiple inheritance is not lowered",
+            "base field x has conflicting types",
         ),
         (
             "objectmulti.py",
@@ -372,14 +357,14 @@ def test_lwave_fences(tmp_path: Path) -> None:
                     "    x: int",
                     "    def __init__(self, x: int) -> None:",
                     "        self.x = x",
-                    "class D(object, A):",
+                    "class D(A, Exception):",
                     "    pass",
                     "def f() -> int:",
                     "    return 1",
                     "",
                 ]
             ),
-            "multiple inheritance is not lowered",
+            "multiple inheritance needs lowered class bases",
         ),
         (
             "kwargs.py",

@@ -73,6 +73,12 @@ class CallsMixin:
             args = [self._expr(arg) for arg in node.args]
             spec = builtin_spec(name, [arg["type"] for arg in args])
             if spec is None:
+                if name in {"str", "len"} and len(args) == 1 and args[0]["type"]["kind"] == "class":
+                    called = self._dunder_call(node, args[0], {"str": "__str__", "len": "__len__"}[name], [], span)
+                    if called is None and name == "str":
+                        called = self._dunder_call(node, args[0], "__repr__", [], span)
+                    if called is not None:
+                        return called
                 self.fail(node, "PS2003", f"{name} is not lowered for these arguments")
             if name == "float" and args[0]["type"]["kind"] == "int":
                 return {"kind": "cast", "op": "int_to_float", "value": args[0], "type": spec, "span": span}
@@ -140,8 +146,63 @@ class CallsMixin:
         self.fail(node, "PS2002", f"call to {name} is not lowered")
         raise AssertionError("unreachable")
 
+    def _super_call(self, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+        """`super().method(args)`: resolution starts one MRO step past the
+        class the enclosing method text lives in (CPython's __class__ cell).
+        The receiver is still self, so the emitted symbol is the one valid for
+        self's static layout — the same `_emit_owner` rule every call uses.
+        """
+        assert isinstance(node.func, ast.Attribute)
+        super_call = node.func.value
+        assert isinstance(super_call, ast.Call)
+        if super_call.args or super_call.keywords:
+            self.fail(super_call, "PS2002", "super() takes no arguments")
+        class_name, _, method_name = (self.function or "").rpartition(".")
+        info = self.classes.get(class_name)
+        owner = info["method_owner"].get(method_name) if info is not None else None
+        self_t = self.locals.get("self", {}).get("name") if owner is not None else None
+        if owner is None or self_t is None:
+            self.fail(node, "PS2002", "super is not lowered")
+        mro = self.classes[self_t].get("mro", [self_t])
+        if owner not in mro:
+            self.fail(node, "PS2002", "super is not lowered")
+        method = node.func.attr
+        ancestors = mro[mro.index(owner) + 1 :]
+        ancestor = next(
+            (name for name in ancestors if method in self.classes.get(name, {}).get("methods", {})), None
+        )
+        if ancestor is None:
+            self.fail(node, "PS2001", f"{self_t}.{method} is not a method")
+        sig = self.classes[ancestor]["methods"][method]
+        if self.classes[ancestor]["method_kind"].get(method, "method") != "method":
+            self.fail(node, "PS2001", f"{self_t}.{method} is not a method")
+        params = [param for param in sig[0] if param["name"] != "self"]
+        args = [_name("self", self.locals["self"], span), *self._fill_args(node, params, f"{self_t}.{method}")]
+        emit = next(
+            (
+                name
+                for name in ancestors
+                if method in self.classes.get(name, {}).get("methods", {})
+                and (name == ancestor or ancestor not in self.classes[name].get("chain", {name}))
+            ),
+            ancestor,
+        )
+        return {
+            "kind": "call",
+            "callee": {"kind": "function", "name": f"cls.{emit}.{method}"},
+            "args": args,
+            "type": sig[1],
+            "span": span,
+        }
+
     def _call_attr(self, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
         assert isinstance(node.func, ast.Attribute)
+        if (
+            isinstance(node.func.value, ast.Call)
+            and isinstance(node.func.value.func, ast.Name)
+            and node.func.value.func.id == "super"
+        ):
+            return self._super_call(node, span)
         if node.func.attr == "get" and self._is_environ(node.func.value):
             # `os.environ.get(k, default)` is always a str. The 1-arg form
             # returns the tagged `str | None`, like `os.getenv(k)`.
@@ -854,10 +915,11 @@ class CallsMixin:
             if kind == "property":
                 self.fail(node, "PS2002", "a property is not called")
             self.fail(node, "PS2001", f"{class_name}.{method} is not a method")
-        owner = info.get("method_owner", {}).get(method, class_name)
         if kind in {"static", "class"}:
+            owner = info.get("method_owner", {}).get(method, class_name)
             args = self._fill_args(node, sig[0], f"{class_name}.{method}")
         else:
+            owner = self._emit_owner(class_name, method)
             params = [param for param in sig[0] if param["name"] != "self"]
             args = [receiver, *self._fill_args(node, params, f"{class_name}.{method}")]
         return {
