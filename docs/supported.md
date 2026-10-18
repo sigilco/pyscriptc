@@ -18,11 +18,11 @@ The subset stamp is `gates-v1`. Parsing is CPython 3.14's `ast`. A lowered call 
 
 `float` supports `+`, `-`, `*`, and comparisons. `nan != nan`.
 
-`str` and `bytes` support concatenation, indexing, ordering, `in`, and a slice whose step is 1. Methods: `strip`, `lstrip`, `rstrip`, `upper`, `lower`, `startswith`, `endswith`, `find`, `replace`, `split`, `join`. `str.encode()` and `bytes.decode()` take no extra arguments and use UTF-8, and the result has to stay inside Latin-1. String literals are Latin-1, one byte per code point. `str(int)` and `str(float)` lower. An f-string and `%s` / `%d` lower when there is no format spec. A list comprehension is one `for` and no filter.
+`str` and `bytes` support concatenation, indexing, ordering, `in`, and slices with any step. Methods: `strip`, `lstrip`, `rstrip`, `upper`, `lower`, `startswith`, `endswith`, `find`, `rfind`, `replace`, `split`, `rsplit`, `splitlines`, `partition`, `rpartition`, `join`, `count`, `index`, `title`, `capitalize`, `casefold`, `swapcase`, `isdigit`, `isalpha`, `isalnum`, `isspace`, `isupper`, `islower`, `zfill`, `ljust`, `rjust`, `center`, `removeprefix`, `removesuffix`, `expandtabs`. `split` and `rsplit` take an optional `maxsplit`. `str.encode()` and `bytes.decode()` take no extra arguments and use UTF-8, and the result has to stay inside Latin-1. String literals are Latin-1, one byte per code point. `str(int)` and `str(float)` lower. An f-string and `%s` / `%d` lower when there is no format spec. A list comprehension is one `for` and no filter.
 
-`len` works on `str`, `bytes`, `list`, `dict`, and `collections.deque`. Also lowered: `abs`, `min`, `max`, `sum`, `sorted`, `ord`, `chr`, `round`, `isinstance`, `getattr`, `hasattr`, `bool`, `list`, `all`, and `any`. The attribute name in `getattr` and `hasattr` is a string literal. `int(float)` truncates toward zero. `float(int)` widens. `bool()` is the truthiness of `bool`, `int`, `float`, `str`, `bytes`, `list`, `dict`, and `set`, including `bool(nan)`. `all()` and `any()` use that same truthiness on a list or a set. `list()` copies a `list`, a `set`, or `*args` into a new `list`.
+`len` works on `str`, `bytes`, `list`, `dict`, and `collections.deque`. Also lowered: `abs`, `min`, `max`, `sum`, `sorted` (including `key=lambda`), `ord`, `chr`, `round`, `isinstance`, `getattr`, `hasattr`, `bool`, `list`, `all`, `any`, and `print` (positional `str`/`int`/`float`/`bool`/`bytes` values, plus `sep` and `end`). `int(str)` and `float(str)` parse; `str()` of `bool` and `None` lower. `sorted(key=)` iterates `int`, `float`, `str`, or `bytes` elements. The attribute name in `getattr` and `hasattr` is a string literal. `int(float)` truncates toward zero. `float(int)` widens. `bool()` is the truthiness of `bool`, `int`, `float`, `str`, `bytes`, `list`, `dict`, and `set`, including `bool(nan)`. `all()` and `any()` use that same truthiness on a list or a set. `list()` copies a `list`, a `set`, or `*args` into a new `list`.
 
-`list` and `dict` literals, indexing, and item assignment work. Dict keys are `int` or `str`. `list[bool]` and dict values of `bool` are refused. A tuple of two or more fields is the same synthetic class as before (`tuple_N_…` with fields `_0`, `_1`, …). A constant index reads a field. Tuple equality stays a fence. `open` takes a path and a literal mode `r`, `w`, `rb`, `wb`, `a`, or `ab`.
+`list` and `dict` literals, indexing, and item assignment work. `list` methods: `append`, `extend`, `insert`, `pop`, `sort`, `reverse`, `index`, `count`, `remove`, `clear`, `copy`; `xs += [...]` and `xs * n` also lower. `dict` methods: `get`, `values`, `items`, `pop`, `setdefault`, `update`, `clear`; `del d[k]` works. Dict keys are `int` or `str`. `list[bool]` and dict values of `bool` are refused. A tuple of two or more fields is the same synthetic class as before (`tuple_N_…` with fields `_0`, `_1`, …). A constant index reads a field. Tuple equality stays a fence. `open` takes a path and a literal mode `r`, `w`, `rb`, `wb`, `a`, or `ab`.
 
 `with` works for `contextlib.suppress(SomeError)`, `contextlib.nullcontext()`, `with open(...) as name`, and `with importlib.resources.as_file(...) as name`. The file is closed on the way out, including a `return` and an exception. `as_file(...)` as a call is that same `Path`. `Path.__enter__` returns the path and `Path.__exit__` is a no-op, so `certifi.core.where` matches CPython from one `files` lookup and does not link libpython. `itertools.repeat` and `itertools.chain` work as the iterator of a `for`.
 
@@ -53,7 +53,7 @@ Each module below is a closed set of calls, not the whole module.
 | `fnmatch` | `fnmatch`, `filter` |
 | `warnings` | `warn` of a string, and the str constant `defaultaction` |
 | `io` | `StringIO`, `BytesIO` |
-| `sys` | `platform`, `version`, `executable`, `maxsize`, `exit` |
+| `sys` | `platform`, `version`, `executable`, `maxsize`, `argv` (the real process arguments as `list[str]`), `exit` |
 | `inspect` | `cleandoc` (island) and the str constant `AGEN_CLOSED` |
 | `threading` | `active_count`, `current_thread().name` (island), and the float `TIMEOUT_MAX` |
 | `logging` | `info`, `warning` of a string (island), and the str constant `BASIC_FORMAT` |
@@ -109,9 +109,8 @@ The file's `generated` field is the UTC calendar date of the run and changes whe
 These refuse the whole file:
 
 - Keyword arguments on a call whose parameters are not named (`math.sqrt(x=1)`, `re` flags)
-- A mixed `and` / `or` used as a value, and `if x:` when `x` is a `float`, a class, or `None`
+- `if x:` when `x` is a `float`, a class, or `None`
 - f-string format specs, and `%` conversions other than `%s` and `%d`
-- A slice step other than 1
 - `str.encode("ascii")` and any other extra argument on `encode` or `decode`
 - User decorators, `**kwargs`, keyword-only and positional-only parameters, starred calls, `super()`, and multiple inheritance
 - `with ... as` except `with open(...) as name` and `with importlib.resources.as_file(...) as name`
@@ -119,14 +118,13 @@ These refuse the whole file:
 - Any import outside the table (`requests`, `argparse`, …). `enum` and `dataclasses` are in the table for `Enum` / `IntEnum` and `@dataclass`
 - Lambdas, a tuple of fewer than two fields, a mixed or nested `tuple[T, ...]`, a non-constant tuple index, tuple equality, a `set` whose elements are not `int` or `str`, and a list comprehension with a filter or a second `for`
 - String literals outside Latin-1
-- `break`, `continue`, `finally`, `except as`
-- `print`
+- `finally`, `except ... as`
 
 `date + timedelta` uses the normalized day count. `datetime + timedelta` uses the whole delta. After `for i in range(0)`, a new target reads as `0` rather than raising `UnboundLocalError`.
 
 `class C(object)` and `class C(object,)` are the same class as `class C`. `object.__init__` is not emitted. A name bound to `object` stays a real base. Multiple bases stay a fence.
 
-`dict.keys()` is a `list` of the keys in insertion order. A constant dict folds to that list; a runtime dict copies its keys. `dict.values()` and `dict.items()` are not lowered.
+`dict.keys()` is a `list` of the keys in insertion order. A constant dict folds to that list; a runtime dict copies its keys. `dict.values()` and `dict.items()` are the list of values and the list of `(key, value)` pairs in that same order.
 
 A module assignment whose value is an f-string of `str` constants, such as `f"2014 {__author__}"`, is that one `str` constant. A format spec or a non-constant interpolation stays fenced.
 
@@ -170,7 +168,7 @@ A slice step on `str`, `bytes`, or `list` keeps every step-th element. Omitted b
 
 A module `@staticmethod` is that function, and a call passes no instance. A module `@property`, a module `@classmethod`, stacked decorators, a decorator expression, and a user decorator stay fenced.
 
-A mixed `and` / `or` in an `if`, `while`, `assert`, or list-comprehension filter is the truthiness of each side joined by the existing bool `and` / `or`. The right side runs only when the left does not decide it. `return 1 or 'a'` stays fenced, because that value is the operand, not a bool.
+A mixed `and` / `or` in an `if`, `while`, `assert`, or list-comprehension filter is the truthiness of each side joined by the existing bool `and` / `or`. The right side runs only when the left does not decide it. Used as a value, `and` / `or` also lower: the result is the deciding operand, matching CPython.
 
 `functools.reduce(operator.add, xs)` of a non-empty `list[int]` is a loop of `+`. An initializer on that call stays fenced, and so do `partial`, `wraps`, and `lru_cache`. An empty list raises `ValueError`.
 
