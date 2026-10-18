@@ -38,6 +38,7 @@ class TypeFacts:
     protocols: frozenset[str]
     runtime_repr: str | None
 
+
 class CallableFacts:
     parameters: tuple[ParameterFacts, ...]
     return_type: TypeFacts
