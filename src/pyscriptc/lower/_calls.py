@@ -113,6 +113,20 @@ class CallsMixin:
                 "type": ftype["return"],
                 "span": span,
             }
+        slot = self.global_slots.get(name)
+        if slot is not None and slot.get("active") and slot["type"]["kind"] == "func":
+            # A module-level callable bind (`h = f`, `@dec def`, partial):
+            # read the pair cell back through the global slot.
+            ftype = slot["type"]
+            params = [{"name": f"_{index}", "type": typ} for index, typ in enumerate(ftype["params"])]
+            args = self._fill_args(node, params, name)
+            return {
+                "kind": "call",
+                "callee": {"kind": "value", "target": self._global_get(name, span)},
+                "args": args,
+                "type": ftype["return"],
+                "span": span,
+            }
         if name in self.sigs:
             params, ret = self.sigs[name]
             args = self._fill_args(node, params, name)

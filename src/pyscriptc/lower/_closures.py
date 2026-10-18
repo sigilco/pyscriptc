@@ -9,7 +9,8 @@ import ast
 from typing import Any
 
 from pyscriptc.errors import span_of
-from pyscriptc.lower._core import Fence, _assign
+from pyscriptc.ir import types_equal
+from pyscriptc.lower._core import Fence, _assign, _name
 from pyscriptc.lower._stmt import _always_returns
 
 # Lowerer fields swapped for the duration of one nested body's lowering.
@@ -30,6 +31,7 @@ _FN_STATE = (
     "bindings",
     "type_aliases",
     "declared",
+    "boxed_names",
 )
 
 
@@ -46,7 +48,101 @@ class ClosuresMixin:
         if built is None:
             return [{"kind": "pass", "span": span}]
         name, env, _ = built
-        return [_assign(fn.name, {"kind": "closure", "name": name, "env": env, "type": ftype, "span": span}, span)]
+        stmts = [_assign(fn.name, {"kind": "closure", "name": name, "env": env, "type": ftype, "span": span}, span)]
+        stmts.extend(self._decorators(fn, span))
+        return stmts
+
+    def _decorators(self, fn: ast.FunctionDef | ast.AsyncFunctionDef, span: dict[str, Any]) -> list[dict[str, Any]]:
+        """`@dec` on a nested def rewrites the just-bound name to `name =
+        dec(name)`; the local's type updates to the decorator's return."""
+        if not fn.decorator_list:
+            return []
+        if len(fn.decorator_list) != 1:
+            self.fail(fn, "PS2002", "stacked decorators are not lowered")
+        dec = fn.decorator_list[0]
+        value = self._apply_decorator(dec, _name(fn.name, self.locals[fn.name], span), span)
+        self.locals[fn.name] = value["type"]
+        return [_assign(fn.name, value, span)]
+
+    def _apply_decorator(self, dec: ast.expr, value: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+        """`dec(value)` as a callable-value call; the result must stay callable."""
+        dec_expr: dict[str, Any] | None = None
+        try:
+            dec_expr = self._expr(dec)
+        except Fence:
+            pass
+        params = dec_expr["type"]["params"] if dec_expr is not None else []
+        if (
+            dec_expr is None
+            or dec_expr["type"]["kind"] != "func"
+            or len(params) != 1
+            or not types_equal(params[0], value["type"])
+            or dec_expr["type"]["return"]["kind"] != "func"
+        ):
+            self.fail(dec, "PS2002", "user decorators are not lowered")
+        return {
+            "kind": "call",
+            "callee": {"kind": "value", "target": dec_expr},
+            "args": [value],
+            "type": dec_expr["type"]["return"],
+            "span": span,
+        }
+
+    def _partial_callable(self, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+        """`functools.partial(f, a, ...)`: a callable cell whose env holds the
+        bound arguments and the target pair; a synthesized env-first stub
+        prepends them at each call. Any failure falls back to the standing
+        `functools.partial is not lowered` fence."""
+        try:
+            return self._partial_callable_inner(node, span)
+        except Fence:
+            self.fail(node, "PS2001", "functools.partial is not lowered")
+
+    def _partial_callable_inner(self, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+        if node.keywords:
+            self.fail(node, "PS2001", "functools.partial is not lowered")
+        if not node.args:
+            self.fail(node, "PS2001", "functools.partial is not lowered")
+        target = self._expr(node.args[0])
+        ftype = target["type"]
+        if ftype["kind"] != "func":
+            self.fail(node, "PS2001", "functools.partial is not lowered")
+        bound = list(node.args[1:])
+        if len(bound) > len(ftype["params"]):
+            self.fail(node, "PS2001", "functools.partial is not lowered")
+        env: list[dict[str, Any]] = []
+        for index, arg in enumerate(bound):
+            expect = ftype["params"][index]
+            value = self._expr(arg, expect)
+            self._expect(arg, value["type"], expect, f"functools.partial argument {index + 2}")
+            env.append({"init": value, "type": expect})
+        env.append({"init": target, "type": ftype})
+        result = {"kind": "func", "params": ftype["params"][len(bound) :], "return": ftype["return"]}
+        return {
+            "kind": "closure",
+            "name": "pa.partial",
+            "env": env,
+            "type": result,
+            "stub": {
+                "bound": [item["type"] for item in env[:-1]],
+                "params": result["params"],
+                "return": result["return"],
+            },
+            "span": span,
+        }
+
+    def _callable_name_type(self, name: str) -> dict[str, Any] | None:
+        """The func type a bare name carries, from any scope, else None."""
+        if name in self.sigs:
+            params, ret = self.sigs[name]
+            return {"kind": "func", "params": [param["type"] for param in params], "return": ret}
+        ftype = self.locals.get(name, self.captures.get(name))
+        if ftype is not None and ftype["kind"] == "func":
+            return ftype
+        slot = self.global_slots.get(name)
+        if slot is not None and slot.get("active") and slot["type"]["kind"] == "func":
+            return slot["type"]
+        return None
 
     def _nonlocal(self, stmt: ast.Nonlocal, span: dict[str, Any]) -> list[dict[str, Any]]:
         for name in stmt.names:
@@ -94,6 +190,11 @@ class ClosuresMixin:
             typ = self.locals.get(free, self.captures.get(free))
             if typ is not None:
                 env.append({"name": free, "type": typ})
+                if free in self.locals:
+                    # The env stores a pointer to this local, so a cell handed
+                    # to a closure that outlives the frame must be heap
+                    # storage, not an alloca.
+                    self.boxed_names.add(free)
         ftype = {"kind": "func", "params": [param["type"] for param in params], "return": ret}
         saved = {field: getattr(self, field) for field in _FN_STATE}
         self.locals = {param["name"]: param["type"] for param in params}
@@ -129,17 +230,18 @@ class ClosuresMixin:
             if len(self.caught) == mark and ret["kind"] != "none" and not _always_returns(lowered):
                 self.fail(fn, "PS1004", f"{name} can fall off the end and return None")
             if len(self.caught) == mark:
-                self.nested_fns.append(
-                    {
-                        "name": qname,
-                        "env": env,
-                        "params": params,
-                        "returnType": ret,
-                        "locals": [{"name": n, "type": t} for n, t in self.locals.items()],
-                        "body": lowered,
-                        "span": span_of(fn, self.filename),
-                    }
-                )
+                record = {
+                    "name": qname,
+                    "env": env,
+                    "params": params,
+                    "returnType": ret,
+                    "locals": [{"name": n, "type": t} for n, t in self.locals.items()],
+                    "body": lowered,
+                    "span": span_of(fn, self.filename),
+                }
+                if self.boxed_names:
+                    record["boxed"] = sorted(self.boxed_names)
+                self.nested_fns.append(record)
         except Fence as exc:
             self.caught.append(exc)
         finally:

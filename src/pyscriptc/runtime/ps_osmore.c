@@ -357,7 +357,9 @@ typedef struct PsGlobal {
     int64_t name_n;
     int set;
     int is_int;
+    int is_ptr;
     int64_t ival;
+    void *pval;
     PsBuf buf;
 } PsGlobal;
 
@@ -390,7 +392,9 @@ static PsGlobal *ps_global_slot(int64_t n, const char *name, int create) {
     slot->name_n = n;
     slot->set = 0;
     slot->is_int = 0;
+    slot->is_ptr = 0;
     slot->ival = 0;
+    slot->pval = NULL;
     slot->buf.len = 0;
     slot->buf.data = &ps_empty_byte;
     return slot;
@@ -405,12 +409,13 @@ void ps_global_set_str(int64_t nn, const char *name, int64_t vn, const char *val
     PsGlobal *slot = ps_global_slot(nn, name, 1);
     ps_buf_copy(&slot->buf, val, vn);
     slot->is_int = 0;
+    slot->is_ptr = 0;
     slot->set = 1;
 }
 
 void ps_global_get_str(int64_t n, const char *name, PsBuf *out) {
     PsGlobal *slot = ps_global_slot(n, name, 0);
-    if (slot == NULL || !slot->set || slot->is_int) {
+    if (slot == NULL || !slot->set || slot->is_int || slot->is_ptr) {
         ps_raise_cstr(PS_RUNTIME, "global is unset");
     }
     ps_buf_copy(out, slot->buf.data == NULL ? "" : slot->buf.data, slot->buf.len);
@@ -420,27 +425,45 @@ void ps_global_set_i64(int64_t n, const char *name, int64_t value) {
     PsGlobal *slot = ps_global_slot(n, name, 1);
     slot->ival = value;
     slot->is_int = 1;
+    slot->is_ptr = 0;
     slot->set = 1;
 }
 
 int64_t ps_global_get_i64(int64_t n, const char *name) {
     PsGlobal *slot = ps_global_slot(n, name, 0);
-    if (slot == NULL || !slot->set || !slot->is_int) {
+    if (slot == NULL || !slot->set || !slot->is_int || slot->is_ptr) {
         ps_raise_cstr(PS_RUNTIME, "global is unset");
     }
     return slot->ival;
+}
+
+void ps_global_set_ptr(int64_t n, const char *name, void *value) {
+    PsGlobal *slot = ps_global_slot(n, name, 1);
+    slot->pval = value;
+    slot->is_int = 0;
+    slot->is_ptr = 1;
+    slot->set = 1;
+}
+
+void *ps_global_get_ptr(int64_t n, const char *name) {
+    PsGlobal *slot = ps_global_slot(n, name, 0);
+    if (slot == NULL || !slot->set || !slot->is_ptr) {
+        ps_raise_cstr(PS_RUNTIME, "global is unset");
+    }
+    return slot->pval;
 }
 
 void ps_global_set_path(int64_t n, const char *name, PsPath *path) {
     PsGlobal *slot = ps_global_slot(n, name, 1);
     ps_buf_copy(&slot->buf, path->path.data == NULL ? "" : path->path.data, path->path.len);
     slot->is_int = 0;
+    slot->is_ptr = 0;
     slot->set = 1;
 }
 
 void ps_global_get_path(int64_t n, const char *name, PsPath *out) {
     PsGlobal *slot = ps_global_slot(n, name, 0);
-    if (slot == NULL || !slot->set || slot->is_int) {
+    if (slot == NULL || !slot->set || slot->is_int || slot->is_ptr) {
         ps_raise_cstr(PS_RUNTIME, "global is unset");
     }
     ps_buf_copy(&out->path, slot->buf.data == NULL ? "" : slot->buf.data, slot->buf.len);
