@@ -20,7 +20,9 @@ def test_self_census_ballpark() -> None:
     # fences (`X | None` parameters); R1–R5 batch un-fenced 10 self-host
     # call sites (list/dict/str methods).
     # PyrightFactsAdapter (typefacts.py) added 139 fences: subprocess/threads/
-    # JSON-RPC stdio plumbing has no scriptc-subset equivalent.
-    assert census["fences"] == 1189
-    assert 11_000 <= census["lines"] <= 22_000
-    assert sum(p["fences"] for p in census["packages"]) == 1189
+    # JSON-RPC stdio plumbing has no scriptc-subset equivalent; the `--facts`
+    # CLI lane adds 21 more (same plumbing family).
+    assert census["fences"] == 1210
+    # 22,164 lines after the `--facts` lane landed in typefacts.py.
+    assert 11_000 <= census["lines"] <= 25_000
+    assert sum(p["fences"] for p in census["packages"]) == 1210
