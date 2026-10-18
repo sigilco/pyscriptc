@@ -4,7 +4,7 @@ This is not the callables epic. The lambda must be one positional parameter
 and a plain scalar-or-tuple body; the lowering builds one key list per key
 field in a synthesized extraction loop, stable-sorts an index list by those
 keys, and rebuilds the element list through the permutation. Every other
-`key=` shape keeps a precise fence, as do `reverse=` and any other keyword.
+`key=` shape keeps a precise fence, as does a non-literal `reverse=`.
 """
 
 from __future__ import annotations
@@ -107,11 +107,21 @@ def probe(xs: list[str]) -> list[str]:
     assert "a sorted key= lambda is a plain expression" in mod["fences"][0]["message"]
 
 
-def test_sorted_reverse_keyword_still_fences() -> None:
+def test_sorted_reverse_keyword_lowers() -> None:
     mod = lower_source(
         """
 def probe(xs: list[int]) -> list[int]:
     return sorted(xs, reverse=True)
+"""
+    )
+    assert mod["fences"] == []
+
+
+def test_sorted_reverse_nonliteral_still_fences() -> None:
+    mod = lower_source(
+        """
+def probe(xs: list[int], flip: bool) -> list[int]:
+    return sorted(xs, reverse=flip)
 """
     )
     assert len(mod["fences"]) == 1
