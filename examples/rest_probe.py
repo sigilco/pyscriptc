@@ -330,3 +330,15 @@ def probe() -> int:
     if raw.read() != b"ab":
         return 109
     return 0
+
+
+def iostream() -> int:
+    n: int = sys.stdout.write("probe-out\n")
+    if n != 10:
+        return 1
+    m: int = sys.stderr.write("probe-err\n")
+    if m != 10:
+        return 2
+    print("print-err", file=sys.stderr)
+    print("print-out", file=sys.stdout)
+    return 0

@@ -13,11 +13,11 @@ def test_report_is_stable_across_runs() -> None:
     second = version_surface.emit(version_surface.build_report())
     assert first == second
     report = json.loads(first)
-    assert report["scan"]["examples"]["files"] == 26
+    assert report["scan"]["examples"]["files"] == 27
     assert report["scan"]["examples"]["scripts"] == 3
-    assert report["scan"]["examples"]["modules"] == 23
+    assert report["scan"]["examples"]["modules"] == 24
     assert report["scan"]["corpus_scripts"]["files"] == 20
-    assert report["scan"]["total_files"] == 46
+    assert report["scan"]["total_files"] == 47
     assert report["versions"] == ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
 
