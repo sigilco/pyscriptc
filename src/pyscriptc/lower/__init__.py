@@ -265,6 +265,7 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         """
         entry_stmts: list[ast.stmt] = []
         failed_assigns: list[tuple[ast.stmt, int]] = []
+        bare_decls: list[ast.AnnAssign] = []
         definitions = (ast.Import, ast.ImportFrom, ast.Pass, ast.FunctionDef, ast.ClassDef, ast.AnnAssign, ast.Assign)
         scriptish = any(not isinstance(stmt, definitions) and not _is_docstring(stmt) for stmt in live)
         divert = self._diverted_literals(live) if scriptish else set()
@@ -294,6 +295,11 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
                     self.declared = snapshot[1]
                     fences.extend(self.caught)
                     failed_assigns.append((stmt, snapshot[2]))
+                elif isinstance(stmt, ast.AnnAssign) and stmt.value is None:
+                    # Bound nothing, but a script may still need the
+                    # declaration: the name's real assignment lowers inside
+                    # the entry and reads `locals` for its annotation.
+                    bare_decls.append(stmt)
                 self.caught = []
             elif _is_docstring(stmt):
                 continue
@@ -308,6 +314,10 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
             if retract < len(fences):
                 del fences[retract:]
             entry_stmts.extend(stmt for stmt, _ in failed_assigns)
+            # A bare declaration follows its name into the entry unless already bound.
+            for stmt in bare_decls:
+                if isinstance(stmt.target, ast.Name) and stmt.target.id not in self.declared:
+                    entry_stmts.append(stmt)
             entry_stmts.sort(key=lambda stmt: stmt.lineno)
         return entry_stmts
 

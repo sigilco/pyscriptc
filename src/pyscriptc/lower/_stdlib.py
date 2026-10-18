@@ -470,7 +470,8 @@ class StdlibDispatchMixin:
         try:
             if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
                 if stmt.value is None:
-                    self.fail(stmt, "PS1001", f"{stmt.target.id} needs an initial value")
+                    self._annotation(stmt.annotation)  # a bare declaration binds nothing
+                    return
                 typ = self._annotation(stmt.annotation)
                 if isinstance(stmt.value, ast.Set):
                     folded = self._module_set_literal(stmt.value)

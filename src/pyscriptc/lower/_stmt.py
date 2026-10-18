@@ -159,7 +159,8 @@ class StmtMixin:
         if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
             typ = self._annotation(stmt.annotation)
             if stmt.value is None:
-                self.fail(stmt, "PS1001", f"{stmt.target.id} needs an initial value")
+                self.locals[stmt.target.id] = typ
+                return [_assign(stmt.target.id, _zero(typ, span), span)]
             value = self._expr(stmt.value, typ)
             self._expect(stmt, value["type"], typ, stmt.target.id)
             self.locals[stmt.target.id] = typ
