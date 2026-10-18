@@ -1183,14 +1183,17 @@ class ExprMixin:
         return body
 
     def _joined(self, node: ast.JoinedStr, span: dict[str, Any]) -> dict[str, Any]:
+        if any(
+            isinstance(value, ast.FormattedValue) and (value.conversion != -1 or value.format_spec is not None)
+            for value in node.values
+        ):
+            return self._joined_formatted(node, span)
         parts: list[dict[str, Any]] = []
         for value in node.values:
             if isinstance(value, ast.Constant) and isinstance(value.value, str):
                 parts.append(self._const(value, span_of(value, self.filename)))
                 continue
             if isinstance(value, ast.FormattedValue):
-                if value.conversion != -1 or value.format_spec is not None:
-                    self.fail(value, "PS2002", "f-string format specs are not lowered")
                 parts.append(self._as_str(self._expr(value.value), value))
                 continue
             self.fail(value, "PS2002", "f-strings are not lowered")
@@ -1199,6 +1202,70 @@ class ExprMixin:
             if folded is not None:
                 return folded
         return _concat_str(parts, span)
+
+    def _joined_formatted(self, node: ast.JoinedStr, span: dict[str, Any]) -> dict[str, Any]:
+        # R11: rewrite the f-string as one `str.format`-grammar template plus
+        # positional args, rendered by the R16 engine (`ps_str_format`, "dot"
+        # style). Literal braces in the constants are re-escaped for the
+        # runtime parse; `{x=}` debug fields keep their `x=` literal and arrive
+        # as conversion 'r'.
+        template: list[str] = []
+        args: list[dict[str, Any]] = []
+        for value in node.values:
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                template.append(value.value.replace("{", "{{").replace("}", "}}"))
+                continue
+            if isinstance(value, ast.FormattedValue):
+                template.append(self._fstring_field(value, args))
+                continue
+            self.fail(value, "PS2002", "f-strings are not lowered")
+        fmt = {"kind": "const", "value": "".join(template), "type": {"kind": "str"}, "span": span}
+        expr = self._abi_call("builtins", "format", [fmt, *args], {"kind": "str"}, "ps_str_format", span)
+        expr["format_style"] = "dot"
+        return expr
+
+    def _fstring_field(self, value: ast.FormattedValue, args: list[dict[str, Any]]) -> str:
+        args.append(self._fstring_arg(self._expr(value.value), value))
+        field = ["{", str(len(args) - 1)]
+        if value.conversion != -1:
+            conv = chr(value.conversion)
+            if conv not in "sra":
+                self.fail(value, "PS2002", "f-string conversion is not lowered")
+            field.append("!" + conv)
+        if value.format_spec is not None:
+            field.append(":")
+            field.append(self._fstring_spec(value.format_spec, args))
+        field.append("}")
+        return "".join(field)
+
+    def _fstring_spec(self, spec: ast.expr, args: list[dict[str, Any]]) -> str:
+        parts = spec.values if isinstance(spec, ast.JoinedStr) else [spec]
+        out: list[str] = []
+        for part in parts:
+            if isinstance(part, ast.Constant) and isinstance(part.value, str):
+                out.append(part.value)
+                continue
+            if isinstance(part, ast.FormattedValue) and part.conversion == -1 and part.format_spec is None:
+                args.append(self._fstring_arg(self._expr(part.value), part))
+                out.append("{" + str(len(args) - 1) + "}")
+                continue
+            self.fail(spec, "PS2002", "nested f-string format fields are not lowered")
+        return "".join(out)
+
+    def _fstring_arg(self, arg: dict[str, Any], node: ast.AST) -> dict[str, Any]:
+        kind = arg["type"]["kind"]
+        if kind == "dict":
+            typ = arg["type"]
+            if typ["key"]["kind"] not in {"int", "str"} or typ["value"]["kind"] not in {
+                "int",
+                "float",
+                "str",
+                "bytes",
+            }:
+                self.fail(node, "PS2002", "f-string formatting needs scalar dict keys and values")
+        elif kind not in {"int", "float", "str", "bool", "bytes"}:
+            self.fail(node, "PS2004", f"f-string formatting of {_show(arg['type'])} is not lowered")
+        return arg
 
     def _as_str(self, expr: dict[str, Any], node: ast.AST) -> dict[str, Any]:
         kind = expr["type"]["kind"]
