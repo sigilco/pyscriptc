@@ -30,7 +30,9 @@ enum {
     PS_JSON_BOOL = 2,
     PS_JSON_STR = 3,
     PS_JSON_LIST = 4,
-    PS_JSON_DICT = 5
+    PS_JSON_DICT = 5,
+    PS_JSON_FLOAT = 6,
+    PS_JSON_OPT = 7
 };
 
 typedef struct PsBuf {
