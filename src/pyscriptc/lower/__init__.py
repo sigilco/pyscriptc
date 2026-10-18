@@ -78,6 +78,10 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         self.break_flag: str | None = None
         self.continue_flag: str | None = None
         self.broke_flag = None
+        # Active except handlers: bound name, or a bare-raise temp once made.
+        self.exc_stack: list[str] = []
+        # `except ... as name` deletes the name at handler end (CPython del).
+        self.dead_names: set[str] = set()
         self.module_name = ""
         self.is_package = False
         self.cataloguing = False
