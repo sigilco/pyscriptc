@@ -1251,57 +1251,117 @@ class StmtMixin:
     def _loop_body(self, stmt: ast.For) -> list[dict[str, Any]]:
         if self.comp_elt is None or self.comp_dest is None:
             return [*self._continue_reset(span_of(stmt, self.filename)), *self._body(list(stmt.body))]
-        filt_pre: list[dict[str, Any]] = []
-        filt_cond: dict[str, Any] | None = None
-        if self.comp_if is not None:
-            saved = self.prelude
-            self.prelude = []
-            try:
-                filt_cond = self._bool_cond(self.comp_if)
-                filt_pre = self.prelude
-            finally:
-                self.prelude = saved
+        if self.comp_gens:
+            # A later `for` descends from this level. This level's `if`s gate
+            # the descent itself; the next level's `if`s wait for its body.
+            nxt = self.comp_gens[0]
+            self.comp_gens = self.comp_gens[1:]
+            inner_for = ast.For(target=nxt.target, iter=nxt.iter, body=[ast.Pass()], orelse=[], type_comment=None)
+            ast.copy_location(inner_for, nxt.iter)
+            stmts: list[ast.stmt] = [inner_for]
+            ifs = self.comp_ifs
+            self.comp_ifs = nxt.ifs
+            for cond in reversed(ifs):
+                guard = ast.If(test=cond, body=stmts, orelse=[])
+                ast.copy_location(guard, cond)
+                stmts = [guard]
+            out: list[dict[str, Any]] = []
+            for item in stmts:
+                out.extend(self._stmt(item))
+            return out
         saved = self.prelude
         self.prelude = []
         try:
+            key_node = self.comp_key
+            key = self._expr(key_node) if key_node is not None else None
             elt = self._expr(self.comp_elt)
             inner = self.prelude
         finally:
             self.prelude = saved
         elem = elt["type"]
-        if elem["kind"] == "bool" or elem["kind"] not in {"int", "float", "str", "bytes", "list", "dict", "class"}:
-            self.fail(self.comp_elt, "PS2002", f"list[{_show(elem)}] is not lowered")
-        typ = {"kind": "list", "elem": elem}
-        if self.comp_expect is not None and self.comp_expect["kind"] == "list":
-            self._expect(self.comp_elt, typ, self.comp_expect, "list")
+        if self.comp_kind == "dict":
+            if key_node is None or key is None:
+                self.fail(self.comp_elt, "PS2002", "dict comprehension is not lowered")
+            key_t = key["type"]
+            if key_t["kind"] not in {"int", "str"}:
+                self.fail(key_node, "PS2002", "dict keys are int or str")
+            if elem["kind"] == "bool":
+                self.fail(self.comp_elt, "PS2002", "dict values of bool are not lowered")
+            typ = {"kind": "dict", "key": key_t, "value": elem}
+            what = "dict"
+        elif self.comp_kind == "set":
+            if elem["kind"] not in {"int", "str"}:
+                self.fail(self.comp_elt, "PS2002", "set elements are int or str")
+            typ = {"kind": "list", "elem": elem, "set": True}
+            what = "set"
+        else:
+            if elem["kind"] == "bool" or elem["kind"] not in {"int", "float", "str", "bytes", "list", "dict", "class"}:
+                self.fail(self.comp_elt, "PS2002", f"list[{_show(elem)}] is not lowered")
+            typ = {"kind": "list", "elem": elem}
+            what = "list"
+        if self.comp_expect is not None and self.comp_expect["kind"] == typ["kind"]:
+            self._expect(self.comp_elt, typ, self.comp_expect, what)
         if not self.comp_ready:
             self.locals[self.comp_dest] = typ
-            empty = {"kind": "list", "elems": [], "type": typ, "span": span_of(self.comp_elt, self.filename)}
-            self.comp_init = _assign(self.comp_dest, empty, empty["span"])
+            span = span_of(self.comp_elt, self.filename)
+            empty = (
+                {"kind": "dict", "pairs": [], "type": typ, "span": span}
+                if self.comp_kind == "dict"
+                else {"kind": "list", "elems": [], "type": typ, "span": span}
+            )
+            self.comp_init = _assign(self.comp_dest, empty, span)
             self.comp_ready = True
-        # The push is a module call, and those arguments are emitted twice.
-        # Store the element first so a call in it runs once, and only in this branch.
-        slot = self._temp("elt")
-        self.locals[slot] = elem
-        push = {
-            "kind": "expr",
-            "expr": {
-                "kind": "call",
-                "callee": {"kind": "module", "module": "builtins", "name": "list.append"},
-                "args": [_name(self.comp_dest, typ, elt["span"]), _name(slot, elem, elt["span"])],
-                "symbol": "ps_list_push",
-                "type": {"kind": "none"},
+        # The push args are emitted where they sit, so key/element calls are
+        # stored first: each runs once, and only inside this branch.
+        kept: list[dict[str, Any]] = []
+        if self.comp_kind == "dict":
+            kslot = self._temp("key")
+            vslot = self._temp("elt")
+            self.locals[kslot] = key["type"]
+            self.locals[vslot] = elem
+            kept = [
+                *inner,
+                _assign(kslot, key, key["span"]),
+                _assign(vslot, elt, elt["span"]),
+                {
+                    "kind": "setitem",
+                    "container": _name(self.comp_dest, typ, elt["span"]),
+                    "index": _name(kslot, key["type"], elt["span"]),
+                    "value": _name(vslot, elem, elt["span"]),
+                    "span": elt["span"],
+                },
+            ]
+        elif self.comp_kind == "set":
+            kept = [*inner, *self._set_insert_stmts(self.comp_dest, typ, elt, elt["span"])]
+        else:
+            slot = self._temp("elt")
+            self.locals[slot] = elem
+            push = {
+                "kind": "expr",
+                "expr": {
+                    "kind": "call",
+                    "callee": {"kind": "module", "module": "builtins", "name": "list.append"},
+                    "args": [_name(self.comp_dest, typ, elt["span"]), _name(slot, elem, elt["span"])],
+                    "symbol": "ps_list_push",
+                    "type": {"kind": "none"},
+                    "span": elt["span"],
+                },
                 "span": elt["span"],
-            },
-            "span": elt["span"],
-        }
-        kept = [*inner, _assign(slot, elt, elt["span"]), push]
-        if filt_cond is None:
-            return kept
-        return [
-            *filt_pre,
-            {"kind": "if", "cond": filt_cond, "then": kept, "else": [], "span": span_of(self.comp_if, self.filename)},
-        ]
+            }
+            kept = [*inner, _assign(slot, elt, elt["span"]), push]
+        for cond in reversed(self.comp_ifs):
+            saved_cond = self.prelude
+            self.prelude = []
+            try:
+                filt = self._bool_cond(cond)
+                filt_pre = self.prelude
+            finally:
+                self.prelude = saved_cond
+            kept = [
+                *filt_pre,
+                {"kind": "if", "cond": filt, "then": kept, "else": [], "span": span_of(cond, self.filename)},
+            ]
+        return kept
 
     def _with_as_file(self, stmt: ast.With, item: ast.withitem, span: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(item.optional_vars, ast.Name):

@@ -70,11 +70,14 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         self.constants: dict[str, dict[str, Any]] = {}
         self.type_aliases: dict[str, str] = {}
         self.comp_elt: ast.expr | None = None
+        self.comp_key: ast.expr | None = None
+        self.comp_kind = "list"
+        self.comp_gens: list[ast.comprehension] = []
+        self.comp_ifs: list[ast.expr] = []
         self.comp_dest: str | None = None
         self.comp_init: dict[str, Any] | None = None
         self.comp_expect: dict[str, Any] | None = None
         self.comp_ready = False
-        self.comp_if: ast.expr | None = None
         self.break_flag: str | None = None
         self.continue_flag: str | None = None
         self.broke_flag = None
@@ -637,46 +640,68 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
             self.prelude.extend(self._set_insert_stmts(dest, typ, value, span))
         return _name(dest, typ, span)
 
-    def _listcomp(self, node: ast.ListComp, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
+    def _comp(
+        self,
+        node: ast.ListComp | ast.SetComp | ast.DictComp,
+        span: dict[str, Any],
+        expect: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        if isinstance(node, ast.ListComp):
+            kind = "list"
+        elif isinstance(node, ast.SetComp):
+            kind = "set"
+        else:
+            kind = "dict"
         if any(gen.is_async for gen in node.generators):
             self.fail(node, "PS2002", "async comprehensions are not lowered")
-        if any(gen.ifs and index < len(node.generators) - 1 for index, gen in enumerate(node.generators)):
-            self.fail(node, "PS2002", "an if before the for is not lowered")
-        if len(node.generators) != 1:
-            self.fail(node, "PS2002", "list comprehensions have one for")
-        gen = node.generators[0]
-        if len(gen.ifs) > 1:
-            self.fail(node, "PS2002", "list comprehensions have one if")
-        if isinstance(gen.target, (ast.Tuple, ast.List)):
-            for elt in gen.target.elts:
-                if not isinstance(elt, ast.Name):
-                    self.fail(elt, "PS2002", "for unpacks flat names")
-        elif not isinstance(gen.target, ast.Name):
-            self.fail(node, "PS2002", "for targets a single name")
+        for gen in node.generators:
+            if isinstance(gen.target, (ast.Tuple, ast.List)):
+                for elt in gen.target.elts:
+                    if not isinstance(elt, ast.Name):
+                        self.fail(elt, "PS2002", "for unpacks flat names")
+            elif not isinstance(gen.target, ast.Name):
+                self.fail(node, "PS2002", "for targets a single name")
         dest = self._temp("comp")
         saved = (
             self.comp_elt,
+            self.comp_key,
+            self.comp_kind,
+            self.comp_gens,
+            self.comp_ifs,
             self.comp_dest,
             self.comp_init,
             self.comp_expect,
             self.comp_ready,
-            self.comp_if,
         )
-        self.comp_elt = node.elt
+        self.comp_elt = node.value if isinstance(node, ast.DictComp) else node.elt
+        self.comp_key = node.key if isinstance(node, ast.DictComp) else None
+        self.comp_kind = kind
+        self.comp_gens = node.generators[1:]
+        self.comp_ifs = node.generators[0].ifs
         self.comp_dest = dest
         self.comp_init = None
         self.comp_expect = expect
         self.comp_ready = False
-        self.comp_if = gen.ifs[0] if gen.ifs else None
-        loop = ast.For(target=gen.target, iter=gen.iter, body=[ast.Pass()], orelse=[], type_comment=None)
+        first = node.generators[0]
+        loop = ast.For(target=first.target, iter=first.iter, body=[ast.Pass()], orelse=[], type_comment=None)
         ast.copy_location(loop, node)
         try:
             lowered = self._for(loop, span)
         finally:
             init = self.comp_init
-            self.comp_elt, self.comp_dest, self.comp_init, self.comp_expect, self.comp_ready, self.comp_if = saved
+            (
+                self.comp_elt,
+                self.comp_key,
+                self.comp_kind,
+                self.comp_gens,
+                self.comp_ifs,
+                self.comp_dest,
+                self.comp_init,
+                self.comp_expect,
+                self.comp_ready,
+            ) = saved
         if init is None:
-            self.fail(node, "PS2002", "list comprehension is not lowered")
+            self.fail(node, "PS2002", f"{kind} comprehension is not lowered")
         self.prelude.append(init)
         self.prelude.extend(lowered)
         return _name(dest, self.locals[dest], span)

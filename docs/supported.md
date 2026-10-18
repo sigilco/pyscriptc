@@ -18,7 +18,7 @@ The subset stamp is `gates-v1`. Parsing is CPython 3.14's `ast`. A lowered call 
 
 `float` supports `+`, `-`, `*`, and comparisons. `nan != nan`.
 
-`str` and `bytes` support concatenation, indexing, ordering, `in`, and slices with any step. Methods: `strip`, `lstrip`, `rstrip`, `upper`, `lower`, `startswith`, `endswith`, `find`, `rfind`, `replace`, `split`, `rsplit`, `splitlines`, `partition`, `rpartition`, `join`, `count`, `index`, `title`, `capitalize`, `casefold`, `swapcase`, `isdigit`, `isalpha`, `isalnum`, `isspace`, `isupper`, `islower`, `zfill`, `ljust`, `rjust`, `center`, `removeprefix`, `removesuffix`, `expandtabs`. `split` and `rsplit` take an optional `maxsplit`. `str.encode()` and `bytes.decode()` take no extra arguments and use UTF-8, and the result has to stay inside Latin-1. String literals are Latin-1, one byte per code point. `str(int)` and `str(float)` lower. An f-string and `%s` / `%d` lower when there is no format spec. A list comprehension is one `for` and no filter.
+`str` and `bytes` support concatenation, indexing, ordering, `in`, and slices with any step. Methods: `strip`, `lstrip`, `rstrip`, `upper`, `lower`, `startswith`, `endswith`, `find`, `rfind`, `replace`, `split`, `rsplit`, `splitlines`, `partition`, `rpartition`, `join`, `count`, `index`, `title`, `capitalize`, `casefold`, `swapcase`, `isdigit`, `isalpha`, `isalnum`, `isspace`, `isupper`, `islower`, `zfill`, `ljust`, `rjust`, `center`, `removeprefix`, `removesuffix`, `expandtabs`. `split` and `rsplit` take an optional `maxsplit`. `str.encode()` and `bytes.decode()` take no extra arguments and use UTF-8, and the result has to stay inside Latin-1. String literals are Latin-1, one byte per code point. `str(int)` and `str(float)` lower. An f-string and `%s` / `%d` lower when there is no format spec.
 
 `len` works on `str`, `bytes`, `list`, `dict`, and `collections.deque`. Also lowered: `abs`, `min`, `max`, `sum`, `sorted` (including `key=lambda`), `ord`, `chr`, `round`, `isinstance`, `getattr`, `hasattr`, `bool`, `list`, `all`, `any`, and `print` (positional `str`/`int`/`float`/`bool`/`bytes` values, plus `sep` and `end`). `int(str)` and `float(str)` parse; `str()` of `bool` and `None` lower. `sorted(key=)` iterates `int`, `float`, `str`, or `bytes` elements. The attribute name in `getattr` and `hasattr` is a string literal. `int(float)` truncates toward zero. `float(int)` widens. `bool()` is the truthiness of `bool`, `int`, `float`, `str`, `bytes`, `list`, `dict`, and `set`, including `bool(nan)`. `all()` and `any()` use that same truthiness on a list or a set. `list()` copies a `list`, a `set`, or `*args` into a new `list`.
 
@@ -116,7 +116,7 @@ These refuse the whole file:
 - `with ... as` except `with open(...) as name` and `with importlib.resources.as_file(...) as name`
 - A relative import in a single file. A directory compile resolves `from .mod import name`, `from . import name`, and an absolute import of that same package (`from pkg.mod import name`) for a function, a module-level constant, or a class the defining module emits, including a subclass of a class exported by another module. `__main__.py` is skipped and the compile says so: it is the `python -m` script, not an importable module. An `argparse` import in any other file stays a fence. When a class or function does not lower, the first fence is the one inside that definition, ahead of "is not exported". Two user classes with the same name and different fields stay a fence. Identical synthetic classes are skipped
 - Any import outside the table (`requests`, `argparse`, …). `enum` and `dataclasses` are in the table for `Enum` / `IntEnum` and `@dataclass`
-- Lambdas, a tuple of fewer than two fields, a mixed or nested `tuple[T, ...]`, a non-constant tuple index, tuple equality, a `set` whose elements are not `int` or `str`, and a list comprehension with a filter or a second `for`
+- Lambdas, a tuple of fewer than two fields, a mixed or nested `tuple[T, ...]`, a non-constant tuple index, tuple equality, a `set` whose elements are not `int` or `str`, and a generator expression
 - String literals outside Latin-1
 - `finally`, `except ... as`
 
@@ -134,7 +134,7 @@ A module assignment whose value is an f-string of `str` constants, such as `f"20
 
 A module `if TYPE_CHECKING:` is omitted when that name is the `typing` or `typing_extensions` import. CPython treats the name as false, so the branch contributes no statements and an else is kept. `if not TYPE_CHECKING:` keeps the body. A user assignment of the same name stays a module `if`.
 
-A module assignment of a set of `str` constants or `int` constants is that set: a list of the element with the set flag, copied at each use. Iteration is insertion order, not CPython's hash order. Length and membership match. A set of any other element, a comprehension, or a non-constant element stays fenced.
+A module assignment of a set of `str` constants or `int` constants is that set: a list of the element with the set flag, copied at each use. Iteration is insertion order, not CPython's hash order. Length and membership match. A set of any other element or a non-constant element stays fenced; a module-scope set comprehension still fences as a non-constant assignment.
 
 `x is None` and `x is not None`, including `None` on the left, are `==` and `!=` against `None` when the other operand is `None`, `int`, `float`, `bool`, `str`, or `bytes`. A process slot's `name is None` stays the unset flag. `is` against anything else stays fenced, and a list, dict, or class cannot compare with `None`.
 
@@ -152,7 +152,7 @@ A float `in` a list is that element's `==`. NaN is not a member, because NaN is 
 
 A chained comparison is the compares the compiler already lowers, joined by `and`. Each middle value is stored once, and a false link does not evaluate the rest. A chain that uses `is`, or a link the existing compare rejects, stays fenced.
 
-A list comprehension filter is the existing `if` around the list push: the filter runs once per element, and a false filter does not evaluate the element. More than one `for` or `if`, an `if` before the `for`, and dict and set comprehensions stay fenced.
+A list comprehension filter is the existing `if` around the list push: the filter runs once per element, and a false filter does not evaluate the element. Each `for` clause may carry `if`s, a later `for` descends inside the earlier filters, and dict (`{k: v for ...}`) and set (`{x for ...}`) comprehensions lower the same way: the dict lowers to `setitem` on an empty map, the set dedupes like a set literal. Keys, set elements, and element types keep the display limits (`int`/`str` keys and set elements, no `bool` dict values, no `list[bool]`). Async comprehensions and generator expressions stay fenced.
 
 `break` leaves the nearest `while` or `for`: code after the loop runs, and a nested `break` leaves the outer loop running. `continue` skips the rest of the nearest loop body and returns to that loop's test; the `for` step still runs, and `continue` outside a loop stays fenced.
 

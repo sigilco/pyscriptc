@@ -1,9 +1,9 @@
-"""A list comprehension filter is the existing if around the list push.
+"""Comprehension filters and widening (R39).
 
-The element expression increments a counter. A false filter does not evaluate
-it, so a rejected element leaves the counter at 0 and a kept element increments
-it. The filter itself runs once per element. The checklist value is xs[0] of
-`[i for i in range(4) if i > 1]`.
+Filters and nested `for` clauses desugar to guarded loops: each level's `if`s
+wrap the next level's loop, and the element (and key, for dicts) evaluates
+once per kept item. Set comprehension inserts dedupe like a set literal;
+dict comprehension lowers to `setitem` on the accumulator.
 """
 
 from __future__ import annotations
@@ -54,6 +54,57 @@ def from_list() -> int:
 def truthy() -> int:
     xs: list[int] = [i for i in range(4) if i]
     return xs[0]
+
+def two_if() -> int:
+    xs: list[int] = [i for i in range(6) if i > 1 if i < 4]
+    return xs[0] + xs[1]
+
+def dict_comp() -> str:
+    xs: list[int] = [1, 2, 3]
+    d: dict[str, int] = {str(i): i * 2 for i in xs}
+    return str(d["2"]) + str(len(d))
+
+def dict_if() -> int:
+    xs: list[int] = [1, 2, 3, 4]
+    d: dict[int, int] = {i: i * i for i in xs if i % 2 == 0}
+    return d[2] + d[4]
+
+def set_comp() -> int:
+    xs: list[int] = [1, 1, 2, 3, 3]
+    s: set[int] = {i for i in xs}
+    t: set[int] = {i * 2 for i in xs if i > 1}
+    return len(s) + len(t)
+
+def nested() -> int:
+    xs: list[list[int]] = [[1, 2], [3]]
+    ys: list[int] = [x for a in xs for x in a]
+    return ys[0] + ys[1] + ys[2]
+
+def nested_if() -> int:
+    xs: list[list[int]] = [[1, 2], [3], [4, 5]]
+    ys: list[int] = [x for a in xs if len(a) > 1 for x in a if x > 2]
+    return ys[0] + ys[1]
+
+def nested_side_effect() -> str:
+    checks: list[int] = [0]
+    xs: list[list[int]] = [[1], [2, 3]]
+    ys: list[int] = [x for a in xs if pred(checks, len(a)) for x in a]
+    return str(checks[0]) + str(len(ys))
+
+def comp_in_comp() -> int:
+    xs: list[list[int]] = [[1, 2], [3]]
+    ys: list[list[int]] = [[x * 10 for x in a] for a in xs]
+    return ys[0][1] + ys[1][0]
+
+def unpack() -> int:
+    xs: list[int] = [5, 6]
+    ys: list[int] = [i * x for i, x in enumerate(xs)]
+    return ys[1]
+
+def over_dict() -> str:
+    d: dict[str, int] = {"a": 1, "b": 2}
+    ks: list[str] = [k for k in d]
+    return ks[0] + ks[1]
 """
 
 
@@ -65,6 +116,16 @@ def test_list_comp_if_matches_cpython(tmp_path: Path) -> None:
         "plain": "3",
         "from_list": "3",
         "truthy": "1",
+        "two_if": "5",
+        "dict_comp": "43",
+        "dict_if": "20",
+        "set_comp": "5",
+        "nested": "6",
+        "nested_if": "9",
+        "nested_side_effect": "22",
+        "comp_in_comp": "50",
+        "unpack": "6",
+        "over_dict": "ab",
     }
     for func, want in expected.items():
         got = compile_run(tmp_path, path, func)
@@ -76,25 +137,6 @@ def test_list_comp_if_matches_cpython(tmp_path: Path) -> None:
 def test_list_comp_if_stays_fenced(tmp_path: Path) -> None:
     cases = [
         (
-            "two_if.py",
-            "def probe() -> int:\n    xs: list[int] = [i for i in range(4) if i > 1 if i < 3]\n    return xs[0]\n",
-            "list comprehensions have one if",
-        ),
-        (
-            "two_for.py",
-            "def probe() -> int:\n    xs: list[int] = [x for x in range(2) for y in range(2)]\n    return xs[0]\n",
-            "list comprehensions have one for",
-        ),
-        (
-            "if_before.py",
-            (
-                "def probe() -> int:\n"
-                "    xs: list[int] = [x for x in range(2) if x > 0 for y in range(2)]\n"
-                "    return xs[0]\n"
-            ),
-            "an if before the for is not lowered",
-        ),
-        (
             "float_if.py",
             (
                 "def probe() -> int:\n"
@@ -105,14 +147,34 @@ def test_list_comp_if_stays_fenced(tmp_path: Path) -> None:
             "condition must be a bool, not a truthy value",
         ),
         (
-            "set_comp.py",
-            "def probe() -> int:\n    return len({i for i in range(2) if i > 0})\n",
-            "SetComp is not lowered",
+            "gen_exp.py",
+            "def probe() -> int:\n    return len((i for i in range(2)))\n",
+            "GeneratorExp is not lowered",
         ),
         (
-            "dict_comp.py",
-            "def probe() -> int:\n    return len({i: i for i in range(2) if i > 0})\n",
-            "DictComp is not lowered",
+            "async_comp.py",
+            "def probe() -> int:\n    xs: list[int] = [i async for i in [1]]\n    return xs[0]\n",
+            "async comprehensions are not lowered",
+        ),
+        (
+            "star_unpack.py",
+            "def probe() -> int:\n    xs: list[int] = [x for a, *rest in [1]]\n    return xs[0]\n",
+            "for unpacks flat names",
+        ),
+        (
+            "set_elem.py",
+            "def probe() -> int:\n    s: set[float] = {1.5 for i in range(2)}\n    return len(s)\n",
+            "set elements are int or str",
+        ),
+        (
+            "dict_key.py",
+            "def probe() -> int:\n    d: dict[list[int], int] = {[i]: i for i in [1]}\n    return len(d)\n",
+            "dict keys are int or str",
+        ),
+        (
+            "dict_bool.py",
+            "def probe() -> int:\n    d: dict[int, bool] = {i: i > 0 for i in range(2)}\n    return len(d)\n",
+            "dict values of bool are not lowered",
         ),
     ]
     for name, source, text in cases:
