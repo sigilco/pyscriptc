@@ -6,7 +6,7 @@ import errno
 from pathlib import Path
 
 import pytest
-from tests.test_gates import compile_run, run_cli, write_case
+from tests.test_gates import compile_run, oracle, run_cli, write_case
 
 
 @pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
@@ -338,9 +338,9 @@ def test_tuples_longer_than_four_fields(tmp_path: Path) -> None:
         "eq.py",
         "def same() -> int:\n    if (1, 2) == (1, 2):\n        return 1\n    return 0\n",
     )
-    refused = run_cli("compile", str(same), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "eq.ir.json"))
-    assert refused.returncode == 3
-    assert "comparison" in refused.stderr
+    got = compile_run(tmp_path, same, "same")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle(same, "same")
 
 
 @pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
