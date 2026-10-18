@@ -295,6 +295,24 @@ void ps_os_getenv(int64_t n, const char *s, PsBuf *out) {
     ps_buf_copy(out, value, (int64_t)strlen(value));
 }
 
+int32_t ps_env_has(int64_t n, const char *s) {
+    char *text = ps_cstr(n, s);
+    const char *value = getenv(text);
+    free(text);
+    return value != NULL ? 1 : 0;
+}
+
+void ps_os_getenv_or(int64_t n, const char *s, int64_t dn, const char *d, PsBuf *out) {
+    char *text = ps_cstr(n, s);
+    const char *value = getenv(text);
+    free(text);
+    if (value == NULL) {
+        ps_buf_copy(out, d, dn);
+        return;
+    }
+    ps_buf_copy(out, value, (int64_t)strlen(value));
+}
+
 PsSeq *ps_os_listdir(int64_t n, const char *s) {
     char *text = ps_cstr(n, s);
     DIR *dir = opendir(text);

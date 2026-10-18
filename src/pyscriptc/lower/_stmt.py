@@ -24,6 +24,7 @@ from pyscriptc.errors import span_of
 from pyscriptc.ir import types_equal
 from pyscriptc.lower._core import (
     _SCALAR,
+    Fence,
     _assign,
     _attr,
     _binary_int,
@@ -275,6 +276,19 @@ class StmtMixin:
             return self._match(stmt, span)
         if isinstance(stmt, ast.Delete):
             return self._delete(stmt, span)
+        if isinstance(stmt, ast.Import | ast.ImportFrom):
+            # A function-local import binds the module name for the rest of
+            # this body only; the binding tables restore when the function
+            # finishes lowering. It emits no IR, like the module-level form.
+            inner: list[Fence] = []
+            if isinstance(stmt, ast.Import):
+                self._bind_import(stmt, inner)
+            else:
+                self._bind_from(stmt, inner)
+            if inner:
+                first = inner[0]
+                raise Fence(first.code, first.message, first.span, self.function)
+            return [{"kind": "pass", "span": span}]
         self.fail(stmt, "PS2002", f"{type(stmt).__name__} is not lowered")
         raise AssertionError("unreachable")
 
@@ -982,6 +996,8 @@ class StmtMixin:
         item = stmt.items[0]
         ctx = item.context_expr
         if isinstance(ctx, ast.Call) and isinstance(ctx.func, ast.Name) and ctx.func.id == "open":
+            return self._with_open(stmt, item, span)
+        if self._named_temp_call(ctx):
             return self._with_open(stmt, item, span)
         if self._is_mod(ctx, "importlib.resources", "as_file"):
             return self._with_as_file(stmt, item, span)

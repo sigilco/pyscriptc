@@ -25,6 +25,7 @@ from pyscriptc.stdlib_queue import (
     MATH_CONSTANTS,
     MATH_FUNCTIONS,
     SPECIAL_FUNCTIONS,
+    canonical_module,
     module_status,
     wave_function,
 )
@@ -112,37 +113,38 @@ class StdlibDispatchMixin:
                 )
             )
             return
+        # Aliased spellings (os.path -> posixpath) bind against the canonical
+        # table so later calls reach the lowered rows under the real module.
+        module = canonical_module(stmt.module)
         for alias in stmt.names:
             if alias.name == "*":
                 fences.append(Fence("PS2002", "star import is not lowered", span_of(stmt, self.filename), None))
                 continue
             local = alias.asname or alias.name
             if status == "queued":
-                self.bindings[local] = Binding("func", stmt.module, alias.name, True)
+                self.bindings[local] = Binding("func", module, alias.name, True)
                 continue
-            if stmt.module == "math" and alias.name in MATH_FUNCTIONS:
-                self.bindings[local] = Binding(
-                    "func", stmt.module, alias.name, False, MATH_FUNCTIONS[alias.name]["return"]
-                )
+            if module == "math" and alias.name in MATH_FUNCTIONS:
+                self.bindings[local] = Binding("func", module, alias.name, False, MATH_FUNCTIONS[alias.name]["return"])
                 continue
-            if stmt.module == "math" and alias.name in MATH_CONSTANTS:
-                self.bindings[local] = Binding("const", stmt.module, alias.name, False, {"kind": "float"})
+            if module == "math" and alias.name in MATH_CONSTANTS:
+                self.bindings[local] = Binding("const", module, alias.name, False, {"kind": "float"})
                 continue
-            if wave_function(stmt.module, alias.name) is not None or alias.name in SPECIAL_FUNCTIONS.get(
-                stmt.module, frozenset()
+            if wave_function(module, alias.name) is not None or alias.name in SPECIAL_FUNCTIONS.get(
+                module, frozenset()
             ):
-                self.bindings[local] = Binding("func", stmt.module, alias.name, False)
-                self._note_module(stmt.module)
+                self.bindings[local] = Binding("func", module, alias.name, False)
+                self._note_module(module)
                 continue
-            constant = module_constant(stmt.module, alias.name)
+            constant = module_constant(module, alias.name)
             if constant is not None:
-                self.bindings[local] = Binding("const", stmt.module, alias.name, False, constant[1])
+                self.bindings[local] = Binding("const", module, alias.name, False, constant[1])
                 continue
-            if member_callable(stmt.module, alias.name):
-                self.bindings[local] = Binding("func", stmt.module, alias.name, False)
-                self._note_module(stmt.module)
+            if member_callable(module, alias.name):
+                self.bindings[local] = Binding("func", module, alias.name, False)
+                self._note_module(module)
                 continue
-            child = f"{stmt.module}.{alias.name}"
+            child = f"{module}.{alias.name}"
             child_status = module_status(child)
             if child_status is not None:
                 self.bindings[local] = Binding("module", child, "", child_status == "queued")
@@ -151,7 +153,7 @@ class StdlibDispatchMixin:
             fences.append(
                 Fence(
                     "PS2001",
-                    f"{stmt.module}.{alias.name} is not in the lowered subset of {stmt.module}",
+                    f"{module}.{alias.name} is not in the lowered subset of {module}",
                     span_of(stmt, self.filename),
                     None,
                 )
@@ -398,6 +400,18 @@ class StdlibDispatchMixin:
     def _queued(self, node: ast.AST, dotted: str) -> NoReturn:
         self.fail(node, "PS2101", f"{dotted} is queued in the stdlib subset and is not lowered yet")
 
+    def _is_environ(self, node: ast.AST) -> bool:
+        """True when `node` spells `os.environ` through a module import chain.
+
+        `os.environ` is not a materialized value: it lowers at each use site
+        (subscript, `in`, `.get`) to a dedicated env call, so the receiver
+        spelling is checked before the generic attribute path fences it.
+        """
+        if not isinstance(node, ast.Attribute):
+            return False
+        resolved = self._resolve_module(node)
+        return resolved is not None and resolved[1] == "os" and resolved[2] == "environ" and resolved[3] == "lowered"
+
     def _is_mod(self, node: ast.expr, module: str, name: str) -> bool:
         if not isinstance(node, ast.Call) or node.keywords:
             return False
@@ -414,6 +428,33 @@ class StdlibDispatchMixin:
         if isinstance(func, ast.Attribute):
             resolved = self._resolve_module(func)
             return resolved is not None and resolved[1] == module and resolved[2] == name and resolved[3] == "lowered"
+        return False
+
+    def _named_temp_call(self, node: ast.expr) -> bool:
+        """Same resolution as `_is_mod` for tempfile.NamedTemporaryFile, but
+        keeps the `mode`/`delete` keywords (the call itself rejects any
+        other keyword).
+        """
+        if not isinstance(node, ast.Call):
+            return False
+        func = node.func
+        if isinstance(func, ast.Name):
+            binding = self.bindings.get(func.id)
+            return (
+                binding is not None
+                and binding.kind == "func"
+                and binding.module == "tempfile"
+                and binding.attr == "NamedTemporaryFile"
+                and not binding.queued
+            )
+        if isinstance(func, ast.Attribute):
+            resolved = self._resolve_module(func)
+            return (
+                resolved is not None
+                and resolved[1] == "tempfile"
+                and resolved[2] == "NamedTemporaryFile"
+                and resolved[3] == "lowered"
+            )
         return False
 
     def _bind_module_assign(self, stmt: ast.stmt) -> None:

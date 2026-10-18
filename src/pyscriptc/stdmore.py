@@ -1368,6 +1368,7 @@ REST_FIXED: dict[str, dict[str, dict[str, Any]]] = {
     "shutil": {
         "copyfile": _sig([_S, _S], _S, "ps_shutil_copyfile"),
         "rmtree": _sig([_S], _N, "ps_shutil_rmtree"),
+        "which": _sig([_S], _S, "ps_shutil_which"),
     },
 }
 
@@ -1592,6 +1593,8 @@ def member_callable(module: str, member: str) -> bool:
     if module == "unicodedata" and member == "name":
         return True
     if module == "importlib.resources" and member == "files":
+        return True
+    if module == "tempfile" and member == "NamedTemporaryFile":
         return True
     if module == "atexit" and member == "register":
         return True

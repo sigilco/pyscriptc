@@ -445,3 +445,75 @@ void ps_global_get_path(int64_t n, const char *name, PsPath *out) {
     }
     ps_buf_copy(&out->path, slot->buf.data == NULL ? "" : slot->buf.data, slot->buf.len);
 }
+
+/* shutil.which(cmd): first executable regular file found walking PATH left
+   to right, or KeyError — the subset stand-in for CPython's None. An empty
+   PATH entry means the current directory; a cmd that already contains a
+   slash is checked directly, like CPython. */
+void ps_shutil_which(int64_t n, const char *s, PsBuf *out) {
+    char *cmd = ps_cstr(n, s);
+    const char *env = getenv("PATH");
+    const char *dir;
+    const char *end;
+    struct stat st;
+    char cand[4096];
+    size_t dlen;
+    if (env == NULL || env[0] == '\0') {
+        env = "/bin:/usr/bin";
+    }
+    if (strchr(cmd, '/') != NULL) {
+        if (stat(cmd, &st) == 0 && S_ISREG(st.st_mode) && access(cmd, X_OK) == 0) {
+            ps_buf_copy(out, cmd, (int64_t)strlen(cmd));
+            free(cmd);
+            return;
+        }
+        free(cmd);
+        ps_raise_cstr(PS_KEY, "which found no executable");
+    }
+    dir = env;
+    for (;;) {
+        end = strchr(dir, ':');
+        dlen = end == NULL ? strlen(dir) : (size_t)(end - dir);
+        if (dlen == 0) {
+            snprintf(cand, sizeof cand, "./%s", cmd);
+        } else {
+            if (dlen + 1 + strlen(cmd) + 1 > sizeof cand) {
+                goto next;
+            }
+            memcpy(cand, dir, dlen);
+            if (cand[dlen - 1] == '/') {
+                memcpy(cand + dlen, cmd, strlen(cmd) + 1);
+            } else {
+                cand[dlen] = '/';
+                memcpy(cand + dlen + 1, cmd, strlen(cmd) + 1);
+            }
+        }
+        if (stat(cand, &st) == 0 && S_ISREG(st.st_mode) && access(cand, X_OK) == 0) {
+            ps_buf_copy(out, cand, (int64_t)strlen(cand));
+            free(cmd);
+            return;
+        }
+    next:
+        if (end == NULL) {
+            break;
+        }
+        dir = end + 1;
+    }
+    free(cmd);
+    ps_raise_cstr(PS_KEY, "which found no executable");
+}
+
+PsIO *ps_temp_named(int64_t mode, int64_t keep) {
+    char dir[4096];
+    char path[4200];
+    int fd;
+    ps_copy_tempdir(dir, sizeof dir);
+    if (snprintf(path, sizeof path, "%s/tmpXXXXXX", dir) >= (int)sizeof path) {
+        ps_os_fail("NamedTemporaryFile failed");
+    }
+    fd = mkstemp(path);
+    if (fd < 0) {
+        ps_os_fail("NamedTemporaryFile failed");
+    }
+    return ps_io_take_fd(fd, path, mode, keep);
+}
