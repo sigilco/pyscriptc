@@ -4,8 +4,7 @@ mypy is a subprocess. Its AST is not an input to lowering. A bad annotation
 fails the build before LLVM emission.
 
 The plugin below realigns a few typeshed signatures with the lowered
-contract: `os.getenv(key)` returns `str` or raises `KeyError`, never
-`None`; `struct.unpack` yields a homogeneous `list`, not `tuple[Any, ...]`;
+contract: `struct.unpack` yields a homogeneous `list`, not `tuple[Any, ...]`;
 `frozenset(...)` is the set list, so `set[T]` annotation sites accept it.
 """
 
@@ -27,10 +26,6 @@ class CheckFailed(Exception):
         self.output = output
 
 
-def _getenv_type(ctx: FunctionContext) -> Type:
-    return ctx.api.named_generic_type("builtins.str", [])
-
-
 def _unpack_type(ctx: FunctionContext) -> Type:
     # struct.unpack lowers to a homogeneous list; `Any` keeps both `list[int]`
     # and the historical `tuple[int, ...]` annotations checking clean.
@@ -44,7 +39,6 @@ def _frozenset_type(ctx: FunctionContext) -> Type:
 
 
 _HOOKS: dict[str, Callable[[FunctionContext], Type]] = {
-    "os.getenv": _getenv_type,
     "struct.unpack": _unpack_type,
     "_struct.unpack": _unpack_type,
     "frozenset": _frozenset_type,

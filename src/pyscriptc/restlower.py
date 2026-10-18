@@ -43,8 +43,8 @@ def rest_call(
     if module == "importlib.resources" and attr == "as_file":
         return _as_file_value(lo, node, span)
     if module == "os" and attr == "getenv":
-        # The fixed row models the 1-arg form; the 2-arg form returns the
-        # default instead of raising KeyError.
+        # The 1-arg form returns the tagged `str | None`; the 2-arg form
+        # returns the default instead.
         return _getenv(lo, node, span)
     if module == "tempfile" and attr == "NamedTemporaryFile":
         return _named_temp(lo, node, span)
@@ -354,7 +354,7 @@ def _getenv(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         if arg["type"]["kind"] != "str":
             lo.fail(node, "PS1003", "os.getenv takes str arguments")
     if len(args) == 1:
-        return lo._abi_call("os", "getenv", args, {"kind": "str"}, "ps_os_getenv", span)
+        return lo._opt_env_get(node, args[0], span)
     if len(args) == 2:
         return lo._abi_call("os", "getenv", args, {"kind": "str"}, "ps_os_getenv_or", span)
     lo.fail(node, "PS2003", "os.getenv expects 1 or 2 argument(s)")
@@ -739,6 +739,12 @@ def _isinstance(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]
         lo.fail(node, "PS2003", "isinstance expects 2 argument(s)")
     obj = lo._expr(node.args[0])
     want = lo._isinstance_type(node.args[1])
+    if obj["type"].get("optional"):
+        # `isinstance(x, T)` on `T | None` is the tag: the value is exactly
+        # its element type or it is None.
+        if lo._isinstance_holds(obj["type"]["elem"], want):
+            return {"kind": "attr", "value": obj, "name": "_tag", "type": {"kind": "bool"}, "span": span}
+        return {"kind": "const", "value": False, "type": {"kind": "bool"}, "span": span}
     flag = lo._isinstance_holds(obj["type"], want)
     return {"kind": "const", "value": flag, "type": {"kind": "bool"}, "span": span}
 

@@ -25,6 +25,7 @@ from pyscriptc.lower._core import (
     _TRUTHY,
     Binding,
     Fence,
+    _attr,
     _compare,
     _const_none,
     _declared_globals,
@@ -120,6 +121,9 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         # Names bound to frozenset(...). The value is still the set list. .add and
         # .remove on these names stay fenced. A plain set name is not in this set.
         self.frozen_names: set[str] = set()
+        # `if x is not None:` narrowing on a tagged optional: inside the taken
+        # branch a read of the name lowers to its `_val` field. name -> opt typ.
+        self.opt_unwrap: dict[str, dict[str, Any]] = {}
         # User exception classes take codes after the builtin table (1–7);
         # builtins.USER_EXC_BASE pins the same floor.
         self.exc_n = 8
@@ -221,6 +225,7 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
             params, ret = self.sigs[fn.name]
             self.locals = {param["name"]: param["type"] for param in params}
             self.frozen_names = set()
+            self.opt_unwrap = {}
             self.fn_body = list(fn.body)
             # Function-local imports rebind module names: snapshot the
             # compile-time binding tables so they restore when the body ends.
@@ -499,24 +504,57 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
 
     def _body(self, statements: list[ast.stmt]) -> list[dict[str, Any]]:
         body: list[dict[str, Any]] = []
-        for index, stmt in enumerate(statements):
-            if _is_docstring(stmt):
-                continue
-            try:
-                lowered = self._stmt(stmt)
-            except Fence as exc:
-                self.caught.append(exc)
-                continue
-            body.extend(lowered)
-            skips = (self.break_flag is not None and _stmt_breaks_this_loop(stmt)) or (
-                self.continue_flag is not None and _stmt_continues_this_loop(stmt)
-            )
-            if skips:
-                rest = self._body(statements[index + 1 :])
-                if rest:
-                    body.append(self._skip_rest(rest, span_of(stmt, self.filename)))
-                return body
-        return body
+        saved_unwrap = dict(self.opt_unwrap)
+        try:
+            for index, stmt in enumerate(statements):
+                if _is_docstring(stmt):
+                    continue
+                try:
+                    lowered = self._stmt(stmt)
+                except Fence as exc:
+                    self.caught.append(exc)
+                    continue
+                body.extend(lowered)
+                # `if x is None: <arm always exits>` narrows x to its tagged
+                # value for the rest of this body, unless a later statement
+                # rebinds the name.
+                if (
+                    isinstance(stmt, ast.If)
+                    and len(lowered) == 1
+                    and lowered[0]["kind"] == "if"
+                    and isinstance(stmt.test, ast.Compare)
+                    and len(stmt.test.ops) == 1
+                    and isinstance(stmt.test.ops[0], ast.Is)
+                ):
+                    t_left, t_right = stmt.test.left, stmt.test.comparators[0]
+                    probe = t_left if _is_none_expr(t_right) else t_right if _is_none_expr(t_left) else None
+                    rest = statements[index + 1 :]
+                    if (
+                        isinstance(probe, ast.Name)
+                        and probe.id in self.locals
+                        and self.locals[probe.id].get("optional")
+                        and probe.id not in self.fn_globals
+                        and _always_returns(lowered[0]["then"])
+                        and not any(
+                            isinstance(inner, ast.Name)
+                            and inner.id == probe.id
+                            and isinstance(inner.ctx, (ast.Store, ast.Del))
+                            for item in rest
+                            for inner in ast.walk(item)
+                        )
+                    ):
+                        self.opt_unwrap[probe.id] = self.locals[probe.id]
+                skips = (self.break_flag is not None and _stmt_breaks_this_loop(stmt)) or (
+                    self.continue_flag is not None and _stmt_continues_this_loop(stmt)
+                )
+                if skips:
+                    rest = self._body(statements[index + 1 :])
+                    if rest:
+                        body.append(self._skip_rest(rest, span_of(stmt, self.filename)))
+                    return body
+            return body
+        finally:
+            self.opt_unwrap = saved_unwrap
 
     def _setitem(self, stmt: ast.Assign, span: dict[str, Any]) -> dict[str, Any]:
         target = stmt.targets[0]
@@ -591,7 +629,7 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         kind = cond["type"]["kind"]
         if kind == "bool":
             return cond
-        if kind in _TRUTHY:
+        if kind in _TRUTHY or cond["type"].get("optional"):
             return self._truthy(cond, span_of(node, self.filename))
         self.fail(node, "PS2004", "condition must be a bool, not a truthy value")
         raise AssertionError("unreachable")
@@ -840,6 +878,11 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         none_on_left: bool,
     ) -> dict[str, Any]:
         kind = value["type"]["kind"]
+        if kind == "class" and value["type"].get("optional"):
+            tag = _attr(value, "_tag", {"kind": "bool"}, span)
+            if negated:
+                return tag
+            return {"kind": "unary", "op": "not", "operand": tag, "type": {"kind": "bool"}, "span": span}
         if kind not in {"none", "int", "float", "bool", "str", "bytes"}:
             self.fail(node, "PS2004", f"{_show(value['type'])} cannot compare with None")
         none = _const_none(span)

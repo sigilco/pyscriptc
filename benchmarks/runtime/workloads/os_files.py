@@ -20,5 +20,5 @@ def bench(n: int) -> int:
         total = total + wrote + info.st_size
         i = i + 1
     names: list[str] = os.listdir(root)
-    env_path: str = os.getenv("PATH")  # type: ignore[assignment]
-    return total + len(names) + len(env_path)
+    env_path: str | None = os.getenv("PATH")
+    return total + len(names) + len(env_path or "")
