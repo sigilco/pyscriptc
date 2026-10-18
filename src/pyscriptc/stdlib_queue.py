@@ -141,10 +141,20 @@ def _optional(
 WAVE_FUNCTIONS: dict[str, dict[str, dict[str, Any]]] = {
     "re": {
         "escape": _fixed([_STR], _STR),
-        "findall": _fixed([_STR, _STR], _LIST_STR),
-        "sub": _fixed([_STR, _STR, _STR], _STR),
-        "split": _fixed([_STR, _STR], _LIST_STR),
-        "compile": _fixed([_STR], _PATTERN),
+        "findall": _optional([_STR, _STR, _I], _LIST_STR, ["0"], ["pattern", "string", "flags"]),
+        "sub": _optional(
+            [_STR, _STR, _STR, _I, _I],
+            _STR,
+            ["0", "0"],
+            ["pattern", "repl", "string", "count", "flags"],
+        ),
+        "split": _optional(
+            [_STR, _STR, _I, _I],
+            _LIST_STR,
+            ["0", "0"],
+            ["pattern", "string", "maxsplit", "flags"],
+        ),
+        "compile": _optional([_STR, _I], _PATTERN, ["0"], ["pattern", "flags"]),
     },
     "base64": {
         "b64encode": _fixed([_BYTES], _BYTES),
@@ -170,6 +180,7 @@ WAVE_FUNCTIONS: dict[str, dict[str, dict[str, Any]]] = {
 SPECIAL_FUNCTIONS: dict[str, frozenset[str]] = {
     "json": frozenset({"loads", "dumps"}),
     "struct": frozenset({"pack", "unpack"}),
+    "re": frozenset({"search", "match", "fullmatch", "subn"}),
 }
 
 
