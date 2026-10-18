@@ -94,8 +94,8 @@ class ExprMixin:
             return self._boolop(node, span)
         if isinstance(node, ast.JoinedStr):
             return self._joined(node, span)
-        if isinstance(node, ast.ListComp):
-            return self._listcomp(node, span, expect)
+        if isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp)):
+            return self._comp(node, span, expect)
         if isinstance(node, ast.IfExp):
             return self._ifexp(node, span)
         self.fail(node, "PS2002", f"{type(node).__name__} is not lowered")

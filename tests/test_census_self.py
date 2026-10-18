@@ -20,5 +20,5 @@ def test_self_census_ballpark() -> None:
     # fences (`X | None` parameters); R1–R5 batch un-fenced 10 self-host
     # call sites (list/dict/str methods).
     assert census["fences"] == 761
-    assert 11_000 <= census["lines"] <= 16_000
+    assert 11_000 <= census["lines"] <= 16_500
     assert sum(p["fences"] for p in census["packages"]) == 761
