@@ -25,13 +25,18 @@ from pyscriptc.ir import types_equal
 from pyscriptc.lower._core import (
     _SCALAR,
     _assign,
+    _attr,
     _binary_int,
     _compare,
+    _concat_str,
     _const_bool,
     _const_int,
     _const_none,
+    _const_str,
+    _item,
     _len_call,
     _name,
+    _raise_value,
     _show,
     _tuple_assign,
     _zero,
@@ -167,7 +172,7 @@ class StmtMixin:
             return [{"kind": "pass", "span": span}]
         if isinstance(stmt, ast.Assign):
             if len(stmt.targets) != 1 or not isinstance(stmt.targets[0], ast.Name):
-                self.fail(stmt, "PS2002", "only a single name can be assigned")
+                return self._spread_assign(stmt, span)
             target = stmt.targets[0].id
             if target in self.fn_globals:
                 return self._assign_global(stmt, target, span)
@@ -434,8 +439,212 @@ class StmtMixin:
         self._expect(stmt, value["type"], self.locals[target], target)
         return [_assign(target, value, span)]
 
+    def _spread_assign(self, stmt: ast.Assign, span: dict[str, Any]) -> list[dict[str, Any]]:
+        """Chained (`a = b = c`) and destructuring (`a, b = pair`, `first, *rest = xs`) targets.
+
+        The RHS lowers once; a non-name value pins to a temp when several
+        targets share it or a destructuring needs repeated reads.
+        """
+        value = self._expr(stmt.value)
+        stmts: list[dict[str, Any]] = []
+        for target in stmt.targets:
+            if isinstance(target, (ast.Tuple, ast.List)):
+                value = self._pin(value, stmts, span)
+                stmts.extend(self._unpack(stmt, target.elts, value, span))
+            elif isinstance(target, ast.Name):
+                if len(stmt.targets) > 1:
+                    value = self._pin(value, stmts, span)
+                stmts.append(self._store_target(stmt, target.id, value, span))
+                self._note_frozen(target.id, stmt.value)
+            else:
+                self.fail(stmt, "PS2002", "only a single name can be assigned")
+        return stmts
+
+    def _pin(self, value: dict[str, Any], stmts: list[dict[str, Any]], span: dict[str, Any]) -> dict[str, Any]:
+        if value["kind"] == "name":
+            return value
+        holder = self._temp("hold")
+        self.locals[holder] = value["type"]
+        stmts.append(_assign(holder, value, span))
+        return _name(holder, value["type"], span)
+
+    def _store_target(self, node: ast.AST, name: str, value: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+        """One name target: a global slot stores through `ps_global_set`; a local binds."""
+        if name in self.fn_globals:
+            slot = self.global_slots.get(name)
+            if slot is None or not slot.get("active"):
+                self.fail(node, "PS2002", f"global {name} is not a module slot")
+            self._expect(node, value["type"], slot["type"], name)
+            return self._global_set(name, value, span)
+        self._bind_target(name, value["type"], node)
+        return _assign(name, value, span)
+
+    def _bind_target(self, name: str, typ: dict[str, Any], node: ast.AST) -> None:
+        """An unpack or chained target binds a fresh name implicitly, like a for target."""
+        if name in self.bindings or name in self.classes:
+            self.fail(node, "PS2002", f"{name} is already bound and cannot be an unpack target")
+        if name not in self.locals:
+            self.locals[name] = typ
+            return
+        if not types_equal(self.locals[name], typ):
+            self.fail(node, "PS1003", f"{name} is {_show(self.locals[name])}, and the unpack target is {_show(typ)}")
+
+    def _unpack(
+        self, node: ast.AST, elts: list[ast.expr], value: dict[str, Any], span: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """A tuple or list destructuring target.
+
+        Element targets are names or a nested tuple/list; a single `*name`
+        collects the middle. The value is a tuple (static field reads) or a
+        list (runtime length checks).
+        """
+        star = -1
+        for index, elt in enumerate(elts):
+            inner = elt.value if isinstance(elt, ast.Starred) else elt
+            if not isinstance(inner, (ast.Name, ast.Tuple, ast.List)):
+                self.fail(elt, "PS2002", "unpack targets are names")
+            if isinstance(elt, ast.Starred):
+                if star >= 0:
+                    self.fail(elt, "PS2002", "unpack keeps a single star")
+                star = index
+        typ = value["type"]
+        if typ["kind"] == "class" and self.classes.get(typ["name"], {}).get("tuple"):
+            return self._unpack_fixed(node, elts, star, value, span)
+        if typ["kind"] == "list" and not typ.get("set"):
+            return self._unpack_sized(elts, star, value, span)
+        self.fail(node, "PS2002", "unpacking needs a tuple or list value")
+        raise AssertionError("unreachable")
+
+    def _unpack_fixed(
+        self, node: ast.AST, elts: list[ast.expr], star: int, value: dict[str, Any], span: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """A tuple RHS reads fields; a wrong name count is a static fence (the checker rejects it first anyway)."""
+        fields = self.classes[value["type"]["name"]]["fields"]
+        if star < 0:
+            if len(fields) != len(elts):
+                self.fail(node, "PS2002", f"unpacking a {len(fields)}-tuple needs {len(fields)} names")
+        elif len(fields) < len(elts) - 1:
+            self.fail(node, "PS2002", f"starred unpack of a {len(fields)}-tuple needs {len(fields)} fields")
+        tail = len(elts) - star - 1 if star >= 0 else 0
+        span_fields = fields[star : len(fields) - tail] if star >= 0 else []
+        elem: dict[str, Any] | None = None
+        if star >= 0:
+            if not span_fields:
+                self.fail(elts[star], "PS2002", "starred unpack needs an element type")
+            elem = span_fields[0]["type"]
+            if any(not types_equal(field["type"], elem) for field in span_fields):
+                self.fail(elts[star], "PS2002", "starred unpack needs uniform element types")
+        stmts: list[dict[str, Any]] = []
+        for index, elt in enumerate(elts):
+            if index == star:
+                member: dict[str, Any] = {
+                    "kind": "list",
+                    "elems": [_attr(value, field["name"], field["type"], span) for field in span_fields],
+                    "type": {"kind": "list", "elem": elem},
+                    "span": span,
+                }
+            else:
+                f_index = index if star < 0 or index < star else len(fields) - (len(elts) - index)
+                member = _attr(value, fields[f_index]["name"], fields[f_index]["type"], span)
+            stmts.extend(self._unpack_name(elt, member, span))
+        return stmts
+
+    def _unpack_sized(
+        self, elts: list[ast.expr], star: int, value: dict[str, Any], span: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """A list RHS length-checks at run time; a wrong count raises the CPython ValueError."""
+        stmts: list[dict[str, Any]] = []
+        if value["kind"] != "name":
+            seq = self._temp("seq")
+            self.locals[seq] = value["type"]
+            stmts.append(_assign(seq, value, span))
+            value = _name(seq, value["type"], span)
+        length = _len_call(value, span)
+        got: dict[str, Any] = {
+            "kind": "call",
+            "callee": {"kind": "builtin", "name": "str"},
+            "args": [length],
+            "type": {"kind": "str"},
+            "span": span,
+        }
+        need = len(elts) - 1 if star >= 0 else len(elts)
+        checks: list[tuple[dict[str, Any], dict[str, Any]]] = []
+        if star < 0:
+            checks.append(
+                (
+                    _compare("<", length, _const_int(need, span), span),
+                    _concat_str(
+                        [
+                            _const_str(f"not enough values to unpack (expected {need}, got ", span),
+                            got,
+                            _const_str(")", span),
+                        ],
+                        span,
+                    ),
+                )
+            )
+            checks.append(
+                (
+                    _compare(">", length, _const_int(need, span), span),
+                    _const_str(f"too many values to unpack (expected {need})", span),
+                )
+            )
+        else:
+            checks.append(
+                (
+                    _compare("<", length, _const_int(need, span), span),
+                    _concat_str(
+                        [
+                            _const_str(f"not enough values to unpack (expected at least {need}, got ", span),
+                            got,
+                            _const_str(")", span),
+                        ],
+                        span,
+                    ),
+                )
+            )
+        for cond, message in checks:
+            stmts.append({"kind": "if", "cond": cond, "then": [_raise_value(message, span)], "else": [], "span": span})
+        elem = value["type"]["elem"]
+        for index, elt in enumerate(elts):
+            if index == star:
+                tail = len(elts) - star - 1
+                member = self._abi_call(
+                    "builtins",
+                    "slice",
+                    [
+                        value,
+                        _const_int(star, span),
+                        _const_int(-tail, span),
+                        _const_int(1, span),
+                        _const_int(1 if tail else 0, span),
+                        _const_int(1, span),
+                    ],
+                    {"kind": "list", "elem": elem},
+                    "ps_seq_slice",
+                    span,
+                )
+            else:
+                offset = index if star < 0 or index < star else index - len(elts)
+                member = _item(value, _const_int(offset, span), elem, span)
+            stmts.extend(self._unpack_name(elt, member, span))
+        return stmts
+
+    def _unpack_name(self, elt: ast.expr, member: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
+        """One unpack element: a Name binds; a nested tuple/list recurses."""
+        if isinstance(elt, ast.Starred):
+            elt = elt.value
+        if isinstance(elt, ast.Name):
+            return [self._store_target(elt, elt.id, member, span)]
+        assert isinstance(elt, (ast.Tuple, ast.List))
+        return self._unpack(elt, elt.elts, member, span)
+
     def _for(self, stmt: ast.For, span: dict[str, Any]) -> list[dict[str, Any]]:
-        if not isinstance(stmt.target, ast.Name):
+        if isinstance(stmt.target, (ast.Tuple, ast.List)):
+            for elt in stmt.target.elts:
+                if not isinstance(elt, ast.Name):
+                    self.fail(elt, "PS2002", "for unpacks flat names")
+        elif not isinstance(stmt.target, ast.Name):
             self.fail(stmt, "PS2002", "for targets a single name")
         saved_break = self.break_flag
         saved_cont = self.continue_flag
@@ -470,6 +679,12 @@ class StmtMixin:
         return out
 
     def _for_dispatch(self, stmt: ast.For, span: dict[str, Any]) -> list[dict[str, Any]]:
+        if not isinstance(stmt.target, ast.Name) and (
+            self._is_mod(stmt.iter, "itertools", "repeat")
+            or self._is_mod(stmt.iter, "itertools", "chain")
+            or _is_range_call(stmt.iter)
+        ):
+            self.fail(stmt, "PS2002", "for unpacks a list of tuples or enumerate/zip")
         if self._is_mod(stmt.iter, "itertools", "repeat"):
             return self._for_repeat(stmt, span)
         if self._is_mod(stmt.iter, "itertools", "chain"):
@@ -543,8 +758,15 @@ class StmtMixin:
                 self.fail(stmt, "PS2002", f"for over list[{_show(elem)}] is not lowered")
         else:
             self.fail(stmt.iter, "PS2002", "for iterates over a list or range")
-        target = stmt.target.id
-        fresh = self._bind_loop_target(target, elem, stmt.target)
+        unpack = not isinstance(stmt.target, ast.Name)
+        target = ""
+        fresh = False
+        if unpack:
+            if elem["kind"] != "class" or not self.classes.get(elem["name"], {}).get("tuple"):
+                self.fail(stmt, "PS2002", "for unpacks a list of tuples or enumerate/zip")
+        else:
+            target = stmt.target.id
+            fresh = self._bind_loop_target(target, elem, stmt.target)
         seq = self._temp("seq")
         idx = self._temp("idx")
         length = self._temp("len")
@@ -552,19 +774,21 @@ class StmtMixin:
         self.locals[idx] = {"kind": "int"}
         self.locals[length] = {"kind": "int"}
         int_t = {"kind": "int"}
+        item = _item(_name(seq, iterable["type"], span), _name(idx, int_t, span), elem, span)
+        if unpack:
+            item_t = self._temp("item")
+            self.locals[item_t] = elem
+            fields = self.classes[elem["name"]]["fields"]
+            values = [_attr(_name(item_t, elem, span), field["name"], field["type"], span) for field in fields]
+            bind = [
+                _assign(item_t, item, span),
+                *self._for_unpack(stmt, [field["type"] for field in fields], values, span),
+            ]
+        else:
+            bind = [_assign(target, item, span)]
         body = self._loop_body(stmt)
         step = [
-            _assign(
-                target,
-                {
-                    "kind": "subscript",
-                    "value": _name(seq, iterable["type"], span),
-                    "index": _name(idx, int_t, span),
-                    "type": elem,
-                    "span": span,
-                },
-                span,
-            ),
+            *bind,
             *body,
             *self._skip_on_break(
                 [_assign(idx, _binary_int("+", _name(idx, int_t, span), _const_int(1, span), span), span)],
@@ -1066,13 +1290,16 @@ class StmtMixin:
         enum_start: dict[str, Any] | None,
         what: str,
     ) -> list[dict[str, Any]]:
-        if not isinstance(stmt.target, ast.Name):
-            self.fail(stmt, "PS2002", "for targets a single name")
         int_t = {"kind": "int"}
         fields = ([{"kind": "int"}, *elems]) if enum_start is not None else elems
-        pair = self._tuple_type(fields, stmt.iter)
-        target = stmt.target.id
-        fresh = self._bind_loop_target(target, pair, stmt.target)
+        unpack = not isinstance(stmt.target, ast.Name)
+        pair: dict[str, Any] | None = None
+        target = ""
+        fresh = False
+        if not unpack:
+            pair = self._tuple_type(fields, stmt.iter)
+            target = stmt.target.id
+            fresh = self._bind_loop_target(target, pair, stmt.target)
         seqs = [self._temp("seq") for _ in sources]
         idx = self._temp("idx")
         length = self._temp("len")
@@ -1083,7 +1310,6 @@ class StmtMixin:
         self.locals[length] = int_t
         if enum_start is not None:
             self.locals[enum_i] = int_t
-        body = self._loop_body(stmt)
         values: list[dict[str, Any]] = []
         if enum_start is not None:
             values.append(_name(enum_i, int_t, span))
@@ -1097,12 +1323,17 @@ class StmtMixin:
                     "span": span,
                 }
             )
+        if unpack:
+            bind = self._for_unpack(stmt, fields, values, span)
+        else:
+            bind = _tuple_assign(target, pair, values, span)
+        body = self._loop_body(stmt)
         tail = [_assign(idx, _binary_int("+", _name(idx, int_t, span), _const_int(1, span), span), span)]
         if enum_start is not None:
             tail.append(_assign(enum_i, _binary_int("+", _name(enum_i, int_t, span), _const_int(1, span), span), span))
-        step = [*_tuple_assign(target, pair, values, span), *body, *self._skip_on_break(tail, span)]
+        step = [*bind, *body, *self._skip_on_break(tail, span)]
         prefix: list[dict[str, Any]] = []
-        if fresh:
+        if fresh and pair is not None:
             zeros = [_zero(field, span) for field in fields]
             prefix.extend(_tuple_assign(target, pair, zeros, span))
         for seq, source in zip(seqs, sources, strict=True):
@@ -1141,6 +1372,34 @@ class StmtMixin:
         if what not in {"enumerate", "zip"}:
             self.fail(stmt, "PS2002", f"{what} is not lowered")
         return prefix
+
+    def _for_unpack(
+        self,
+        stmt: ast.For,
+        fields: list[dict[str, Any]],
+        values: list[dict[str, Any]],
+        span: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Bind a tuple/list for-target's names to one iterated item's fields.
+
+        Fresh names zero before the loop via prelude (a post-loop read of an
+        uniterated unpack target reads as zero, same as a name target). A
+        wrong name count still binds each name — padding extras with int — so
+        the body lowers, and the step raises the CPython unpack ValueError,
+        which fires only when the iterable is non-empty.
+        """
+        names = [elt.id for elt in stmt.target.elts]
+        for index, name in enumerate(names):
+            typ = fields[index] if index < len(fields) else {"kind": "int"}
+            if self._bind_loop_target(name, typ, stmt.target):
+                self.prelude.append(_assign(name, _zero(typ, span), span))
+        if len(names) != len(fields):
+            if len(fields) > len(names):
+                text = f"too many values to unpack (expected {len(names)})"
+            else:
+                text = f"not enough values to unpack (expected {len(names)}, got {len(fields)})"
+            return [_raise_value(_const_str(text, span), span)]
+        return [_assign(name, value, span) for name, value in zip(names, values, strict=True)]
 
     def _inject_close(self, body: list[dict[str, Any]], close: dict[str, Any]) -> list[dict[str, Any]]:
         """Close after a return value is computed, so ``return handle.read()`` still sees an open file."""
