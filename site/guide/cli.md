@@ -29,7 +29,7 @@ pyscriptc compile FILE [options]
 | `--driver clang\|zig` | C toolchain driver; `zig` enables `--target` (default `clang`) |
 | `--target TRIPLE` | Cross-compile triple for `zig cc`, e.g. `aarch64-linux-gnu.2.39` |
 | `--skip-check` | Skip the mypy preflight |
-| `--checker mypy` | Preflight checker (default `mypy`) |
+| `--checker mypy\|pyright` | Preflight checker (default `mypy`); `pyright` resolves via `PYRIGHT_BIN` then PATH |
 | `--debug[=WHAT]` | Print a stage table; `WHAT` is a comma list of `stages,fences,cc,paths,all` |
 | `--debug-dir DIR` | Write `ir.json`, `out.ll`, `cc.sh`, `summary.json` to `DIR` |
 

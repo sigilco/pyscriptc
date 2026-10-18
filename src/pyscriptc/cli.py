@@ -56,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
         help="cross-compilation triple for `zig cc`, e.g. aarch64-linux-gnu.2.39",
     )
     compile_parser.add_argument("--skip-check", action="store_true")
-    compile_parser.add_argument("--checker", default="mypy")
+    compile_parser.add_argument("--checker", choices=("mypy", "pyright"), default="mypy")
     compile_parser.add_argument(
         "--debug",
         nargs="?",
