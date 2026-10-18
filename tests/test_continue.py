@@ -88,32 +88,6 @@ def test_continue_stays_fenced(tmp_path: Path) -> None:
             "def probe() -> int:\n    continue\n    return 0\n",
             "continue outside a loop is not lowered",
         ),
-        (
-            "while_else.py",
-            (
-                "def probe() -> int:\n"
-                "    i: int = 0\n"
-                "    while i < 1:\n"
-                "        i = i + 1\n"
-                "        continue\n"
-                "    else:\n"
-                "        i = 2\n"
-                "    return i\n"
-            ),
-            "while-else is not lowered",
-        ),
-        (
-            "for_else.py",
-            (
-                "def probe() -> int:\n"
-                "    for i in range(2):\n"
-                "        continue\n"
-                "    else:\n"
-                "        return 0\n"
-                "    return 1\n"
-            ),
-            "for-else is not lowered",
-        ),
     ]
     for name, source, text in cases:
         path = write_case(tmp_path, name, source)

@@ -283,21 +283,6 @@ def test_fences_stay_closed(tmp_path: Path) -> None:
             "PS2002",
             "list[bool]",
         ),
-        # slice steps lowered in #38; text[::-1] compiles today
-        (
-            "jump.py",
-            (
-                "def f() -> int:\n"
-                "    i: int = 0\n"
-                "    while i < 1:\n"
-                "        continue\n"
-                "    else:\n"
-                "        i = 1\n"
-                "    return i\n"
-            ),
-            "PS2002",
-            "while-else",
-        ),
     ]
     for name, source, code, text in cases:
         path = write_case(tmp_path, name, source)

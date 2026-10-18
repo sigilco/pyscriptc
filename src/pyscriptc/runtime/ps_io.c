@@ -176,6 +176,48 @@ int64_t ps_io_write(PsIO *io, int64_t n, const char *s) {
     return n;
 }
 
+void ps_io_readline(PsIO *io, PsBuf *out) {
+    /* `for line in f` / f.readline(): bytes through the next '\n' (kept),
+       an empty buffer at EOF. */
+    PsGrow line;
+    ps_open_check(io);
+    if (!ps_can_read(io)) {
+        ps_raise_cstr(PS_VALUE, "readline is lowered for readable streams");
+    }
+    ps_grow_init(&line);
+    if (io->fp != NULL) {
+        int ch;
+        for (;;) {
+            ch = fgetc(io->fp);
+            if (ch == EOF) {
+                break;
+            }
+            ps_grow_byte(&line, (unsigned char)ch);
+            if (ch == '\n') {
+                break;
+            }
+        }
+        if (ferror(io->fp)) {
+            free(line.data);
+            ps_raise_cstr(PS_RUNTIME, "readline failed");
+        }
+        ps_grow_finish(&line, out);
+        return;
+    }
+    if (io->pos > io->mem.len) {
+        io->pos = io->mem.len;
+    }
+    while (io->pos < io->mem.len) {
+        unsigned char ch = (unsigned char)io->mem.data[io->pos];
+        io->pos += 1;
+        ps_grow_byte(&line, ch);
+        if (ch == '\n') {
+            break;
+        }
+    }
+    ps_grow_finish(&line, out);
+}
+
 void ps_io_close(PsIO *io) {
     if (io->closed) {
         return;
