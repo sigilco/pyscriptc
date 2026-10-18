@@ -20,7 +20,17 @@ from pyscriptc.stdmore import COMPARE_CLASSES
 
 _ICMP = {"<": "slt", "<=": "sle", ">": "sgt", ">=": "sge", "==": "eq", "!=": "ne"}
 _FOP = {"+": "fadd", "-": "fsub", "*": "fmul"}
-_INT_HELPER = {"+": "iadd", "-": "isub", "*": "imul", "//": "floordiv"}
+_INT_HELPER = {
+    "+": "iadd",
+    "-": "isub",
+    "*": "imul",
+    "//": "floordiv",
+    "%": "imod",
+    "<<": "ishl",
+    ">>": "ishr",
+}
+_INT_INS = {"&": "and", "|": "or", "^": "xor"}
+_FHELPER = {"/": "fdiv", "%": "fmod", "//": "ffloordiv", "**": "fpow"}
 
 
 def emit_llvm(
@@ -662,6 +672,10 @@ class Emitter:
                 reg = self.tmp()
                 self.line(f"{reg} = xor i1 {operand}, true")
                 return reg
+            if expr["op"] == "~" and expr["type"]["kind"] == "int":
+                reg = self.tmp()
+                self.line(f"{reg} = xor i64 {operand}, -1")
+                return reg
             raise IRError(f"cannot emit unary {expr['op']}")
         if kind == "binary":
             return self.emit_binary(expr, self.emit_expr(expr["left"]), self.emit_expr(expr["right"]))
@@ -710,11 +724,17 @@ class Emitter:
         kind = expr["type"]["kind"]
         op = expr["op"]
         if kind == "int":
+            if op in _INT_INS:
+                reg = self.tmp()
+                self.line(f"{reg} = {_INT_INS[op]} i64 {left}, {right}")
+                return reg
             return self.helper_call(_INT_HELPER[op], "i64", [left, right])
         if kind == "float":
-            reg = self.tmp()
-            self.line(f"{reg} = {_FOP[op]} double {left}, {right}")
-            return reg
+            if op in _FOP:
+                reg = self.tmp()
+                self.line(f"{reg} = {_FOP[op]} double {left}, {right}")
+                return reg
+            return self.helper_call(_FHELPER[op], "double", [left, right], arg_type="double")
         if kind in {"str", "bytes"} and op == "+":
             return self.helper_call("strconcat", "%ps.str", [left, right], arg_type="%ps.str")
         if expr["left"]["type"]["kind"] == "class":
@@ -2108,7 +2128,7 @@ def _declarations(needed: set[str]) -> list[str]:
         lines.append("declare i32 @fprintf(ptr, ptr, ...)")
         lines.append("@stderr = external global ptr")
     overflow = needed & {"iadd", "isub", "imul", "ineg", "strconcat"}
-    if overflow or "floordiv" in needed:
+    if overflow or needed & {"floordiv", "imod", "ishl", "ishr", "fdiv", "fmod", "ffloordiv", "fpow"}:
         lines.append("declare void @llvm.trap() noreturn nounwind")
     if "iadd" in needed or "strconcat" in needed:
         lines.append("declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64)")
@@ -2116,6 +2136,10 @@ def _declarations(needed: set[str]) -> list[str]:
         lines.append("declare { i64, i1 } @llvm.ssub.with.overflow.i64(i64, i64)")
     if "imul" in needed:
         lines.append("declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64)")
+    if "ffloordiv" in needed:
+        lines.append("declare double @llvm.floor.f64(double)")
+    if "fpow" in needed:
+        lines.append("declare double @llvm.pow.f64(double, double)")
     if "strconcat" in needed:
         lines.append("declare ptr @malloc(i64)")
         lines.append("declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)")
@@ -2292,6 +2316,149 @@ dec:
   ret i64 %q2
 keep:
   ret i64 %q
+trap:
+  call void @llvm.trap()
+  unreachable
+}
+"""
+        )
+    if "imod" in needed:
+        chunks.append(
+            """define internal i64 @ps.imod(i64 %a, i64 %b) {
+entry:
+  %zero = icmp eq i64 %b, 0
+  br i1 %zero, label %trap, label %nonzero
+nonzero:
+  %min = icmp eq i64 %a, -9223372036854775808
+  %neg1 = icmp eq i64 %b, -1
+  %bad = and i1 %min, %neg1
+  br i1 %bad, label %zeroret, label %divide
+zeroret:
+  ret i64 0
+divide:
+  %r = srem i64 %a, %b
+  %rnz = icmp ne i64 %r, 0
+  %rneg = icmp slt i64 %r, 0
+  %bneg = icmp slt i64 %b, 0
+  %diff = icmp ne i1 %rneg, %bneg
+  %adjust = and i1 %rnz, %diff
+  %r2 = add i64 %r, %b
+  %out = select i1 %adjust, i64 %r2, i64 %r
+  ret i64 %out
+trap:
+  call void @llvm.trap()
+  unreachable
+}
+"""
+        )
+    if "ishl" in needed:
+        chunks.append(
+            """define internal i64 @ps.ishl(i64 %a, i64 %b) {
+entry:
+  %neg = icmp slt i64 %b, 0
+  br i1 %neg, label %trap, label %ok
+ok:
+  %big = icmp uge i64 %b, 64
+  br i1 %big, label %wide, label %shift
+wide:
+  %is0 = icmp eq i64 %a, 0
+  br i1 %is0, label %zret, label %trap
+zret:
+  ret i64 0
+shift:
+  %r = shl i64 %a, %b
+  %back = ashr i64 %r, %b
+  %fit = icmp eq i64 %back, %a
+  br i1 %fit, label %good, label %trap
+good:
+  ret i64 %r
+trap:
+  call void @llvm.trap()
+  unreachable
+}
+"""
+        )
+    if "ishr" in needed:
+        chunks.append(
+            """define internal i64 @ps.ishr(i64 %a, i64 %b) {
+entry:
+  %neg = icmp slt i64 %b, 0
+  br i1 %neg, label %trap, label %ok
+ok:
+  %big = icmp sge i64 %b, 64
+  %c = select i1 %big, i64 63, i64 %b
+  %r = ashr i64 %a, %c
+  ret i64 %r
+trap:
+  call void @llvm.trap()
+  unreachable
+}
+"""
+        )
+    if "fdiv" in needed:
+        chunks.append(
+            """define internal double @ps.fdiv(double %a, double %b) {
+entry:
+  %z = fcmp oeq double %b, 0.0
+  br i1 %z, label %trap, label %ok
+ok:
+  %q = fdiv double %a, %b
+  ret double %q
+trap:
+  call void @llvm.trap()
+  unreachable
+}
+"""
+        )
+    if "fmod" in needed:
+        chunks.append(
+            """define internal double @ps.fmod(double %a, double %b) {
+entry:
+  %z = fcmp oeq double %b, 0.0
+  br i1 %z, label %trap, label %ok
+ok:
+  %r = frem double %a, %b
+  %rnz = fcmp one double %r, 0.0
+  %rneg = fcmp olt double %r, 0.0
+  %bneg = fcmp olt double %b, 0.0
+  %diff = icmp ne i1 %rneg, %bneg
+  %adjust = and i1 %rnz, %diff
+  %r2 = fadd double %r, %b
+  %out = select i1 %adjust, double %r2, double %r
+  ret double %out
+trap:
+  call void @llvm.trap()
+  unreachable
+}
+"""
+        )
+    if "ffloordiv" in needed:
+        chunks.append(
+            """define internal double @ps.ffloordiv(double %a, double %b) {
+entry:
+  %z = fcmp oeq double %b, 0.0
+  br i1 %z, label %trap, label %ok
+ok:
+  %q = fdiv double %a, %b
+  %f = call double @llvm.floor.f64(double %q)
+  ret double %f
+trap:
+  call void @llvm.trap()
+  unreachable
+}
+"""
+        )
+    if "fpow" in needed:
+        chunks.append(
+            """define internal double @ps.fpow(double %a, double %b) {
+entry:
+  %z = fcmp oeq double %a, 0.0
+  %n = fcmp olt double %b, 0.0
+  %bad = and i1 %z, %n
+  br i1 %bad, label %trap, label %ok
+ok:
+  %r = call double @llvm.pow.f64(double %a, double %b)
+  ret double %r
 trap:
   call void @llvm.trap()
   unreachable
