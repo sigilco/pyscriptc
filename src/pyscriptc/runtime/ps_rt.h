@@ -59,6 +59,12 @@ typedef struct PsType {
     int32_t child;
 } PsType;
 
+/* The open-file handle is private to ps_io.c. tempfile.NamedTemporaryFile
+   lives in ps_osmore.c and wraps an mkstemp fd in one of these. */
+typedef struct PsIO PsIO;
+PsIO *ps_io_take_fd(int fd, const char *path, int64_t mode, int64_t keep);
+PsIO *ps_temp_named(int64_t mode, int64_t keep);
+
 typedef struct PsArg {
     int32_t kind;
     int32_t pad;

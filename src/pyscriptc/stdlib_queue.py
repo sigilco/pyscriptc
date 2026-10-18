@@ -59,6 +59,17 @@ QUEUE: tuple[str, ...] = (
 
 LOWERED: frozenset[str] = frozenset(QUEUE)
 
+# User spellings that resolve onto another module's lowered table. `os.path`
+# is the posixpath surface: `import os.path`, `from os.path import join`, and
+# `os.path.join(...)` all lower through the posixpath rows while fence
+# messages keep the user's dotted spelling.
+MODULE_ALIASES: dict[str, str] = {"os.path": "posixpath"}
+
+
+def canonical_module(name: str) -> str:
+    return MODULE_ALIASES.get(name, name)
+
+
 _F: dict[str, Any] = {"kind": "float"}
 _I: dict[str, Any] = {"kind": "int"}
 _B: dict[str, Any] = {"kind": "bool"}
@@ -171,6 +182,7 @@ def module_status(name: str) -> str | None:
     children that already emit.
     """
 
+    name = canonical_module(name)
     if name in LOWERED:
         return "lowered"
     if name in QUEUE:

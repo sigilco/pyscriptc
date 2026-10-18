@@ -48,7 +48,7 @@ from pyscriptc.lower._stmt import (
     _stmt_breaks_this_loop,
     _stmt_continues_this_loop,
 )
-from pyscriptc.stdlib_queue import module_status
+from pyscriptc.stdlib_queue import canonical_module, module_status
 from pyscriptc.stdmore import member_callable, module_constant
 
 
@@ -195,6 +195,11 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
             self.locals = {param["name"]: param["type"] for param in params}
             self.frozen_names = set()
             self.fn_body = list(fn.body)
+            # Function-local imports rebind module names: snapshot the
+            # compile-time binding tables so they restore when the body ends.
+            saved_bindings = dict(self.bindings)
+            saved_aliases = dict(self.type_aliases)
+            saved_declared = set(self.declared)
             try:
                 body = self._body(list(fn.body))
                 if self.caught:
@@ -218,6 +223,10 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
                 )
             except Fence as exc:
                 fences.append(exc)
+            finally:
+                self.bindings = saved_bindings
+                self.type_aliases = saved_aliases
+                self.declared = saved_declared
         lowered_classes.extend(self._synthetic_classes({item["name"] for item in lowered_classes}))
         self.function = None
         names = [item["name"] for item in lowered]
@@ -565,6 +574,10 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         return "missing"
 
     def _finish_resolve(self, dotted: str, module: str, member: str, status: str) -> tuple[str, str, str, str]:
+        # Aliased spellings (os.path -> posixpath) resolve against the
+        # canonical module table; `dotted` keeps the user's spelling for
+        # fence messages.
+        module = canonical_module(module)
         if status != "missing":
             return dotted, module, member, status
         parts = module.split(".")
@@ -575,7 +588,7 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
                 best = index
         if best == 0:
             return dotted, module, member, status
-        parent = ".".join(parts[:best])
+        parent = canonical_module(".".join(parts[:best]))
         rest = parts[best:]
         if member:
             rest.append(member)
