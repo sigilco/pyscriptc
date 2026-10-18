@@ -238,3 +238,43 @@ void ps_io_value(PsIO *io, PsBuf *out) {
     }
     ps_buf_copy(out, io->mem.data == NULL ? "" : io->mem.data, io->mem.len);
 }
+
+/* `sys.stdout.write`/`sys.stderr.write` return the chars written, like CPython. */
+
+int64_t ps_stdout_write(int64_t n, const char *s) {
+    if (n < 0) {
+        ps_raise_code(PS_VALUE);
+    }
+    if (n > 0 && fwrite(s, 1, (size_t)n, stdout) != (size_t)n) {
+        ps_raise_cstr(PS_RUNTIME, "write failed");
+    }
+    return n;
+}
+
+int64_t ps_stderr_write(int64_t n, const char *s) {
+    if (n < 0) {
+        ps_raise_code(PS_VALUE);
+    }
+    if (n > 0 && fwrite(s, 1, (size_t)n, stderr) != (size_t)n) {
+        ps_raise_cstr(PS_RUNTIME, "write failed");
+    }
+    return n;
+}
+
+/* `input()` reads one stdin line and drops the trailing newline. A first EOF
+is RuntimeError standing in for EOFError, which the exception table lacks. */
+void ps_input_line(PsBuf *out) {
+    PsGrow grow;
+    ps_grow_init(&grow);
+    int ch = fgetc(stdin);
+    int got = 0;
+    while (ch != EOF && ch != '\n') {
+        ps_grow_byte(&grow, (unsigned char)ch);
+        got = 1;
+        ch = fgetc(stdin);
+    }
+    if (ch == EOF && !got) {
+        ps_raise_cstr(PS_RUNTIME, "EOF when reading a line");
+    }
+    ps_grow_finish(&grow, out);
+}

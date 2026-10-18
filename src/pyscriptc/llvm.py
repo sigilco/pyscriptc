@@ -1691,47 +1691,55 @@ class Emitter:
         lowercase literals. Bytes print as their `b'...'` repr.
         """
         self.needed.add("printf")
+        err = expr.get("file") == "stderr"
         sep = self.emit_expr(expr["sep"]) if expr.get("sep") else None
         end = self.emit_expr(expr["end"]) if expr.get("end") else None
         for index, (value, typ) in enumerate(zip(values, arg_types, strict=True)):
             if index:
                 if sep is None:
-                    self._print_fmt("space", b" ")
+                    self._print_fmt("space", b" ", err=err)
                 else:
                     slen, sptr = self._buf_parts(sep)
-                    self._print_fmt("sep", b"%.*s", [f"i64 {slen}", f"ptr {sptr}"])
+                    self._print_fmt("sep", b"%.*s", [f"i64 {slen}", f"ptr {sptr}"], err=err)
             kind = typ["kind"]
             if kind == "int":
-                self._print_fmt("int", b"%lld", [f"i64 {value}"])
+                self._print_fmt("int", b"%lld", [f"i64 {value}"], err=err)
             elif kind == "float":
                 out = self._buf_out("ps_f64_str", [f"double {value}"])
                 length, ptr = self._buf_parts(out)
                 self._abi_decl("ps_f64_str", "void", ["double", "ptr"])
-                self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"])
+                self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
             elif kind == "bool":
                 picked = self.tmp()
                 self.line(
                     f"{picked} = select i1 {value}, ptr {self.format_global('boolT', b'True')}, "
                     f"ptr {self.format_global('boolF', b'False')}"
                 )
-                self._print_fmt("s", b"%s", [f"ptr {picked}"])
+                self._print_fmt("s", b"%s", [f"ptr {picked}"], err=err)
             elif kind == "bytes":
                 self._abi_decl("ps_repr_bytes", "void", ["i64", "ptr", "ptr"])
                 rlen, rptr = self._buf_parts(value)
                 out = self._buf_out("ps_repr_bytes", [f"i64 {rlen}", f"ptr {rptr}"])
                 length, ptr = self._buf_parts(out)
-                self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"])
+                self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
             else:
                 length, ptr = self._buf_parts(value)
-                self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"])
+                self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
         if end is None:
-            self._print_fmt("nl", b"\n")
+            self._print_fmt("nl", b"\n", err=err)
         else:
             elen, eptr = self._buf_parts(end)
-            self._print_fmt("end", b"%.*s", [f"i64 {elen}", f"ptr {eptr}"])
+            self._print_fmt("end", b"%.*s", [f"i64 {elen}", f"ptr {eptr}"], err=err)
 
-    def _print_fmt(self, name: str, data: bytes, args: list[str] | None = None) -> None:
+    def _print_fmt(self, name: str, data: bytes, args: list[str] | None = None, err: bool = False) -> None:
         fmt = self.format_global(name, data)
+        if err:
+            self.needed.add("fprintf")
+            fd = self.tmp()
+            self.line(f"{fd} = load ptr, ptr @stderr")
+            rendered = ", ".join([f"ptr {fd}", f"ptr {fmt}", *(args or [])])
+            self.line(f"call i32 (ptr, ptr, ...) @fprintf({rendered})")
+            return
         rendered = ", ".join([f"ptr {fmt}", *(args or [])])
         self.line(f"call i32 (ptr, ...) @printf({rendered})")
 
@@ -1884,6 +1892,9 @@ def _declarations(needed: set[str]) -> list[str]:
     lines: list[str] = []
     if "printf" in needed:
         lines.append("declare i32 @printf(ptr, ...)")
+    if "fprintf" in needed:
+        lines.append("declare i32 @fprintf(ptr, ptr, ...)")
+        lines.append("@stderr = external global ptr")
     overflow = needed & {"iadd", "isub", "imul", "ineg", "strconcat"}
     if overflow or "floordiv" in needed:
         lines.append("declare void @llvm.trap() noreturn nounwind")
