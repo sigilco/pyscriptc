@@ -166,7 +166,9 @@ class ExprMixin:
             return self._boolop(node, span)
         if isinstance(node, ast.JoinedStr):
             return self._joined(node, span)
-        if isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp)):
+        if isinstance(node, (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)):
+            # Eager model: generator expressions materialize into a list at
+            # the point of evaluation, like the iterator builtins do.
             return self._comp(node, span, expect)
         if isinstance(node, ast.IfExp):
             return self._ifexp(node, span)

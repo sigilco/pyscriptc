@@ -146,11 +146,8 @@ def test_list_comp_if_stays_fenced(tmp_path: Path) -> None:
             ),
             "condition must be a bool, not a truthy value",
         ),
-        (
-            "gen_exp.py",
-            "def probe() -> int:\n    return len((i for i in range(2)))\n",
-            "GeneratorExp is not lowered",
-        ),
+        # R24: generator expressions materialize eagerly (the ListComp path);
+        # `len((i for i in range(2)))` now compiles.
         (
             "async_comp.py",
             "def probe() -> int:\n    xs: list[int] = [i async for i in [1]]\n    return xs[0]\n",

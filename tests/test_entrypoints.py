@@ -116,7 +116,7 @@ def test_validation_marks_entry_fences():
     entry fences are unannotated module-level `g`/`total` (PS1001), the
     same "needs an annotation before use" family as before."""
     records = entrypoints.scan(with_fences=True)
-    flips = sorted(r["path"] for r in records if r["predicted_flip"])
+    flips = sorted(r["path"] for r in records if r.get("predicted_flip"))
     assert flips == [
         "benchmarks/compat2/corpus/scripts/exceptions_flow/main.py",
         "benchmarks/compat2/corpus/scripts/gcd_lcm/main.py",

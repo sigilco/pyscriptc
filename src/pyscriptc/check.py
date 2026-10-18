@@ -38,11 +38,19 @@ def _frozenset_type(ctx: FunctionContext) -> Type:
     return ctx.api.named_generic_type("builtins.set", list(args))
 
 
+def _range_type(ctx: FunctionContext) -> Type:
+    # R24: range(...) materializes as list[int]; sizing and indexing line
+    # up with CPython's range under the eager model.
+    return ctx.api.named_generic_type("builtins.list", [ctx.api.named_type("builtins.int")])
+
+
 _HOOKS: dict[str, Callable[[FunctionContext], Type]] = {
     "struct.unpack": _unpack_type,
     "_struct.unpack": _unpack_type,
     "frozenset": _frozenset_type,
     "builtins.frozenset": _frozenset_type,
+    "range": _range_type,
+    "builtins.range": _range_type,
 }
 
 
