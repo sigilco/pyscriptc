@@ -1,8 +1,11 @@
-"""`match` of one literal is `if subject == literal`.
+"""`match` lowers to an if chain over the stored subject.
 
-The subject runs once. A matching case falls through to the next statement
-unless its body returns. A miss does not run the case body. Other patterns
-stay fenced.
+Literal patterns compare `subject == literal`, `None` compares `is None`,
+`|` joins alternatives with `or`, and a guard joins with `and` — both ride
+the BoolOp short-circuit, so a guard only runs when the pattern matched.
+A wildcard always matches; a capture binds the subject to the name. The
+subject runs once. A matching case falls through to the next statement
+unless its body returns. Other patterns stay fenced.
 """
 
 from __future__ import annotations
@@ -78,6 +81,121 @@ def text() -> int:
         case "ab":
             return 3
     return 0
+
+def wild() -> int:
+    x: int = 7
+    match x:
+        case 1:
+            return 1
+        case _:
+            return 9
+    return 0
+
+def wild_only() -> int:
+    x: int = 3
+    match x:
+        case _:
+            return 4
+    return 0
+
+def capture() -> int:
+    x: int = 5
+    match x:
+        case 1:
+            return 1
+        case y:
+            return y + 10
+    return 0
+
+def capture_declared() -> int:
+    x: int = 5
+    y: int = 0
+    match x:
+        case 9:
+            return 0
+        case y:
+            pass
+    return y
+
+def orpat() -> int:
+    x: int = 2
+    match x:
+        case 1 | 2 | 3:
+            return 7
+        case _:
+            return 0
+    return 0
+
+def or_miss() -> int:
+    x: int = 9
+    match x:
+        case 1 | 2 | 3:
+            return 7
+        case _:
+            return 4
+    return 0
+
+def or_wild() -> int:
+    x: int = 9
+    match x:
+        case 1 | _:
+            return 3
+    return 0
+
+def or_none() -> int:
+    x: int = 2
+    match x:
+        case None | 1:
+            return 1
+        case _:
+            return 0
+    return 0
+
+def guard_falls() -> int:
+    x: int = 1
+    match x:
+        case 1 if x > 5:
+            return 5
+        case 1:
+            return 1
+    return 0
+
+def guard_captures() -> int:
+    x: int = 9
+    match x:
+        case y if y > 5:
+            return y
+        case _:
+            return 0
+    return 0
+
+def guard_misses() -> int:
+    x: int = 2
+    match x:
+        case y if y > 5:
+            return y
+        case _:
+            return 0
+    return 0
+
+def guard_skipped() -> int:
+    box: Counter = Counter(0)
+    x: int = 1
+    match x:
+        case 1:
+            pass
+        case _ if bump(box) == 1:
+            pass
+    return box.n
+
+def nonesuch() -> int:
+    x: int = 0
+    match x:
+        case None:
+            return 1
+        case _:
+            return 2
+    return 0
 """
 
 
@@ -92,6 +210,19 @@ def test_match_matches_cpython(tmp_path: Path) -> None:
         "first_only": "1",
         "once": "1",
         "text": "3",
+        "wild": "9",
+        "wild_only": "4",
+        "capture": "15",
+        "capture_declared": "5",
+        "orpat": "7",
+        "or_miss": "4",
+        "or_wild": "3",
+        "or_none": "0",
+        "guard_falls": "1",
+        "guard_captures": "9",
+        "guard_misses": "0",
+        "guard_skipped": "0",
+        "nonesuch": "2",
     }
     for func, want in expected.items():
         got = compile_run(tmp_path, path, func)
@@ -103,19 +234,14 @@ def test_match_matches_cpython(tmp_path: Path) -> None:
 def test_match_stays_fenced(tmp_path: Path) -> None:
     cases = [
         (
-            "capture.py",
-            "def probe(x: int) -> int:\n    match x:\n        case y:\n            return y\n    return 0\n",
+            "as.py",
+            "def probe(x: int) -> int:\n    match x:\n        case 1 as y:\n            return y\n    return 0\n",
             "a capture pattern is not lowered",
         ),
         (
-            "wild.py",
-            "def probe(x: int) -> int:\n    match x:\n        case _:\n            return 1\n    return 0\n",
-            "a wildcard pattern is not lowered",
-        ),
-        (
-            "orpat.py",
-            "def probe(x: int) -> int:\n    match x:\n        case 1 | 2:\n            return 1\n    return 0\n",
-            "an or pattern is not lowered",
+            "or_capture.py",
+            "def probe(x: int) -> int:\n    match x:\n        case y | 1:\n            return 1\n    return 0\n",
+            "a capture pattern is not lowered",
         ),
         (
             "seq.py",
@@ -133,14 +259,19 @@ def test_match_stays_fenced(tmp_path: Path) -> None:
             "a mapping pattern is not lowered",
         ),
         (
-            "guard.py",
-            "def probe(x: int) -> int:\n    match x:\n        case 1 if x > 0:\n            return 1\n    return 0\n",
-            "a match guard is not lowered",
-        ),
-        (
             "single.py",
             "def probe(x: int) -> int:\n    match x:\n        case True:\n            return 1\n    return 0\n",
             "a singleton pattern is not lowered",
+        ),
+        (
+            "dotted.py",
+            "def probe(x: int) -> int:\n    match x:\n        case C.K:\n            return 1\n    return 0\n",
+            "a match value that is not a literal is not lowered",
+        ),
+        (
+            "unary.py",
+            "def probe(x: int) -> int:\n    match x:\n        case -1:\n            return 1\n    return 0\n",
+            "a match value that is not a literal is not lowered",
         ),
     ]
     for name, source, text in cases:
