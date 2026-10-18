@@ -156,7 +156,13 @@ class StmtMixin:
             return [self._setattr(stmt, span)]
         if _is_setitem(stmt):
             return [self._setitem(stmt, span)]
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            return self._nested_def(stmt, span)
+        if isinstance(stmt, ast.Nonlocal):
+            return self._nonlocal(stmt, span)
         if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+            if stmt.target.id in self.fn_nonlocals:
+                self.fail(stmt, "PS2002", f"nonlocal {stmt.target.id} cannot be annotated")
             typ = self._annotation(stmt.annotation)
             if stmt.value is None:
                 self.locals[stmt.target.id] = typ
@@ -176,8 +182,12 @@ class StmtMixin:
             if len(stmt.targets) != 1 or not isinstance(stmt.targets[0], ast.Name):
                 return self._spread_assign(stmt, span)
             target = stmt.targets[0].id
-            if target in self.fn_globals:
+            if target in self.fn_globals or (self.function == self.entry_fn_name and target in self.global_slots):
                 return self._assign_global(stmt, target, span)
+            if target in self.fn_nonlocals and target in self.captures:
+                value = self._expr(stmt.value, self.captures[target])
+                self._expect(stmt, value["type"], self.captures[target], target)
+                return [_assign(target, value, span)]
             if target not in self.locals:
                 self.fail(stmt, "PS1001", f"{target} needs an annotation before use")
             value = self._expr(stmt.value, self.locals[target])
@@ -460,6 +470,19 @@ class StmtMixin:
         if not isinstance(stmt.target, ast.Name):
             self.fail(stmt, "PS2002", "augmented assignment is only lowered for a name")
         target = stmt.target.id
+        if (
+            target in self.fn_globals
+            or target in self.fn_nonlocals
+            or (self.function == self.entry_fn_name and target in self.global_slots)
+        ):
+            assign = ast.Assign(
+                targets=[stmt.target],
+                value=ast.BinOp(left=ast.Name(id=target, ctx=ast.Load()), op=stmt.op, right=stmt.value),
+            )
+            ast.copy_location(assign, stmt)
+            ast.copy_location(assign.value, stmt)
+            ast.copy_location(assign.value.left, stmt)
+            return self._stmt_core(assign)
         if target not in self.locals:
             self.fail(stmt, "PS1001", f"{target} needs an annotation before use")
         left = ast.Name(id=target, ctx=ast.Load())
