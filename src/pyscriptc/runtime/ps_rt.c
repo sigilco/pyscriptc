@@ -901,6 +901,56 @@ PsSeq *ps_seq_slice(PsSeq *s, int64_t start, int64_t stop, int64_t has_start, in
     return out;
 }
 
+/* `xs[a:b] = items` with the step-1 bounds of ps_seq_slice. Grows through the
+same capacity policy as ps_seq_push, then shifts the tail once. */
+void ps_seq_splice(PsSeq *s, int64_t start, int64_t stop, int64_t has_start, int64_t has_stop, PsSeq *items) {
+    int64_t lo = 0;
+    int64_t hi = 0;
+    ps_slice_bounds(s->len, start, stop, has_start, has_stop, &lo, &hi);
+    if (items->elem != s->elem) {
+        ps_raise_code(PS_VALUE);
+    }
+    int64_t drop = hi - lo;
+    int64_t add = items->len;
+    int64_t len = s->len - drop + add;
+    if (len > s->cap) {
+        int64_t cap = s->cap == 0 ? 4 : s->cap;
+        while (cap < len) {
+            cap *= 2;
+        }
+        if ((uint64_t)cap > UINT64_MAX / (uint64_t)s->elem) {
+            ps_raise_code(PS_OVERFLOW);
+        }
+        void *data = realloc(s->data, (size_t)cap * (size_t)s->elem);
+        if (data == NULL) {
+            abort();
+        }
+        s->data = data;
+        s->cap = cap;
+    }
+    /* `xs[a:b] = xs` reads its own cells; snapshot them before the shift. */
+    void *src = items->data;
+    void *held = NULL;
+    if (items == s && add > 0) {
+        held = malloc((size_t)add * (size_t)s->elem);
+        if (held == NULL) {
+            abort();
+        }
+        memcpy(held, items->data, (size_t)add * (size_t)s->elem);
+        src = held;
+    }
+    memmove(
+        (char *)s->data + (size_t)(lo + add) * (size_t)s->elem,
+        (char *)s->data + (size_t)hi * (size_t)s->elem,
+        (size_t)(s->len - hi) * (size_t)s->elem
+    );
+    if (add > 0) {
+        memcpy((char *)s->data + (size_t)lo * (size_t)s->elem, src, (size_t)add * (size_t)s->elem);
+    }
+    s->len = len;
+    free(held);
+}
+
 static int ps_ascii_space(unsigned char c) {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f';
 }
