@@ -56,6 +56,10 @@ QUEUE = (
     "shutil",
     "enum",
     "dataclasses",
+    "random",
+    "csv",
+    "textwrap",
+    "copy",
 )
 
 

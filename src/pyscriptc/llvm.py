@@ -135,6 +135,7 @@ class Emitter:
         self.flow_ptr: str | None = None
         self.class_index: dict[str, dict[str, Any]] = {}
         self.json_n = 0
+        self.copy_n = 0
         self.atexit_n = 0
         self.abi_decls: dict[str, tuple[str, list[str]]] = {}
 
@@ -921,6 +922,8 @@ class Emitter:
             self._abi_decl("ps_map_del", "void", ["ptr", "ptr"])
             self._call_void("ps_map_del", [f"ptr {values[0]}", f"ptr {key}"])
             return ""
+        if expr.get("symbol") == "ps_copy_deep":
+            return self._emit_copy_deep(expr, values)
         if expr.get("symbol") == "ps_dict_items":
             # The element is a synthetic tuple_N class; the C side packs key and
             # value cells at byte offsets read off the class layout.
@@ -1195,6 +1198,45 @@ class Emitter:
         self.line(f"{slot} = getelementptr %ps.arg, ptr {base}, i32 0, i32 4")
         self.line(f"store %ps.str {value}, ptr {slot}")
 
+    def _emit_copy_deep(self, expr: dict[str, Any], values: list[str]) -> str:
+        symbol, root = self._copy_global(expr["args"][0]["type"])
+        self._abi_decl("ps_copy_deep", "ptr", ["ptr", "i32", "ptr"])
+        return self._call_ret("ptr", "ps_copy_deep", [f"ptr {symbol}", f"i32 {root}", f"ptr {values[0]}"])
+
+    def _copy_global(self, typ: dict[str, Any]) -> tuple[str, int]:
+        entries: list[tuple[int, int] | None] = []
+
+        def add(node: dict[str, Any]) -> int:
+            idx = len(entries)
+            entries.append(None)
+            kind = node["kind"]
+            if kind == "int":
+                entries[idx] = (1, 0)
+            elif kind == "float":
+                entries[idx] = (2, 0)
+            elif kind == "str":
+                entries[idx] = (3, 0)
+            elif kind == "bytes":
+                entries[idx] = (4, 0)
+            elif kind == "list":
+                child = add(node["elem"])
+                entries[idx] = (5, child)
+            elif kind == "dict":
+                child = add(node["value"])
+                entries[idx] = (6, child)
+            else:
+                raise IRError(f"no copy type for {kind}")
+            return idx
+
+        root = add(typ)
+        typed = ", ".join(f"%ps.copy.ty {{ i32 {kind}, i32 {child} }}" for kind, child in entries if kind is not None)
+        symbol = f"@ps.copy.{self.copy_n}"
+        self.copy_n += 1
+        if "%ps.copy.ty = type { i32, i32 }" not in self.globals:
+            self.globals.append("%ps.copy.ty = type { i32, i32 }")
+        self.globals.append(f"{symbol} = private constant [{len(entries)} x %ps.copy.ty] [{typed}]")
+        return symbol, root
+
     def _emit_json_loads(self, text: str, typ: dict[str, Any]) -> str:
         symbol, root = self._json_global(typ)
         length, ptr = self._buf_parts(text)
@@ -1345,7 +1387,9 @@ class Emitter:
             self._abi_decl(symbol, "void", types)
             self._call_void(symbol, rendered)
             return ""
-        if kind == "list" or (kind == "class" and ret.get("name") in {"Deque", "TextIO", "BytesIO"}):
+        if kind in {"list", "dict"} or (
+            kind == "class" and ret.get("name") in {"Deque", "TextIO", "BytesIO", "CsvWriter"}
+        ):
             self._abi_decl(symbol, "ptr", types)
             return self._call_ret("ptr", symbol, rendered)
         if kind == "class":
