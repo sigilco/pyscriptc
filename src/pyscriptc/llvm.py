@@ -915,6 +915,36 @@ class Emitter:
             self.line(f"{voff} = ptrtoint ptr {voff_ptr} to i64")
             self._abi_decl("ps_dict_items", "ptr", ["ptr", "i64", "i64"])
             return self._call_ret("ptr", "ps_dict_items", [f"ptr {values[0]}", f"i64 {voff}", f"i64 {size}"])
+        if expr.get("symbol") == "ps_str_format":
+            # args[0] is the format string; the rest marshal into %ps.arg.
+            count = len(values) - 1
+            nkw = expr.get("format_kwnames", 0)
+            style = {"percent": 0, "dot": 1, "map": 2}[expr.get("format_style", "percent")]
+            if count:
+                self._ensure_arg_type()
+                slot = self.tmp()
+                self.line(f"{slot} = alloca [{count} x %ps.arg]")
+                for index in range(count):
+                    base = self.tmp()
+                    self.line(f"{base} = getelementptr [{count} x %ps.arg], ptr {slot}, i64 0, i64 {index}")
+                    self._store_ps_arg(base, values[index + 1], {**args[index + 1]["type"], "fmt": 1})
+                arg_ptr = self.tmp()
+                self.line(f"{arg_ptr} = getelementptr [{count} x %ps.arg], ptr {slot}, i64 0, i64 0")
+            else:
+                arg_ptr = "null"
+            flen, fptr = self._buf_parts(values[0])
+            self._abi_decl("ps_str_format", "void", ["i64", "ptr", "ptr", "i64", "i64", "i64", "ptr"])
+            return self._buf_out(
+                "ps_str_format",
+                [
+                    f"i64 {flen}",
+                    f"ptr {fptr}",
+                    f"ptr {arg_ptr}",
+                    f"i64 {count}",
+                    f"i64 {nkw}",
+                    f"i64 {style}",
+                ],
+            )
         if expr.get("symbol"):
             return self._emit_abi(expr, values)
         if module == "math":
@@ -1107,7 +1137,9 @@ class Emitter:
 
     def _store_ps_arg(self, base: str, value: str, typ: dict[str, Any]) -> None:
         kind = typ["kind"]
-        code = 1 if kind == "int" else 2 if kind == "float" else 3
+        code = {"int": 1, "float": 2}.get(kind)
+        if code is None:
+            code = {"str": 3, "bool": 4, "bytes": 6, "dict": 7}.get(kind, 3) if typ.get("fmt") else 3
         kind_ptr = self.tmp()
         self.line(f"{kind_ptr} = getelementptr %ps.arg, ptr {base}, i32 0, i32 0")
         self.line(f"store i32 {code}, ptr {kind_ptr}")
@@ -1120,6 +1152,24 @@ class Emitter:
             slot = self.tmp()
             self.line(f"{slot} = getelementptr %ps.arg, ptr {base}, i32 0, i32 3")
             self.line(f"store double {value}, ptr {slot}")
+            return
+        if kind == "bool":
+            slot = self.tmp()
+            self.line(f"{slot} = getelementptr %ps.arg, ptr {base}, i32 0, i32 2")
+            wide = self.tmp()
+            self.line(f"{wide} = zext i1 {value} to i64")
+            self.line(f"store i64 {wide}, ptr {slot}")
+            return
+        if kind == "dict":
+            vkind = {"int": 1, "float": 2, "str": 3, "bytes": 6}[typ["value"]["kind"]]
+            slot = self.tmp()
+            self.line(f"{slot} = getelementptr %ps.arg, ptr {base}, i32 0, i32 2")
+            self.line(f"store i64 {vkind}, ptr {slot}")
+            b_ptr = self.tmp()
+            self.line(f"{b_ptr} = getelementptr %ps.arg, ptr {base}, i32 0, i32 4")
+            data = self.tmp()
+            self.line(f"{data} = getelementptr %ps.str, ptr {b_ptr}, i32 0, i32 1")
+            self.line(f"store ptr {value}, ptr {data}")
             return
         slot = self.tmp()
         self.line(f"{slot} = getelementptr %ps.arg, ptr {base}, i32 0, i32 4")
