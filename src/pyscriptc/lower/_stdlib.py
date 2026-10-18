@@ -454,6 +454,30 @@ class StdlibDispatchMixin:
                     self.fail(stmt, "PS2002", "a module assignment must be a constant")
                 self._store_constant(target, value, stmt)
                 return
+            if isinstance(stmt, ast.Assign) and len(stmt.targets) > 1:
+                names = [target.id for target in stmt.targets if isinstance(target, ast.Name)]
+                if len(names) == len(stmt.targets):
+                    value = self._expr(stmt.value)
+                    if value["kind"] not in {"const", "list", "dict"}:
+                        self.fail(stmt, "PS2002", "a module assignment must be a constant")
+                    for name in names:
+                        self._store_constant(name, value, stmt)
+                    return
+            if (
+                isinstance(stmt, ast.Assign)
+                and len(stmt.targets) == 1
+                and isinstance(stmt.targets[0], (ast.Tuple, ast.List))
+                and isinstance(stmt.value, ast.Tuple)
+            ):
+                elts = stmt.targets[0].elts
+                names = [elt.id for elt in elts if isinstance(elt, ast.Name)]
+                if len(stmt.value.elts) == len(elts) and len(names) == len(elts):
+                    for name, part in zip(names, stmt.value.elts, strict=True):
+                        value = self._expr(part)
+                        if value["kind"] != "const":
+                            self.fail(stmt, "PS2002", "a module assignment must be a constant")
+                        self._store_constant(name, value, stmt)
+                    return
             self.fail(stmt, "PS2002", "module assignment is not lowered")
         except Fence as exc:
             self.caught.append(exc)
