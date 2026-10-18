@@ -438,15 +438,22 @@ class MypyFactsAdapter:
 # ---------------------------------------------------------------------------
 # Pyright langserver oracle
 #
-# The second provider speaks LSP: a long-lived pyright-langserver subprocess
-# over stdio (initialize -> didOpen -> hover/documentSymbol). There is no
-# `--facts` verb and no vendored analyzer; rendered hover strings like
-# "(function) def f(a: int) -> str" are parsed back into the same
-# TypeFacts/CallableFacts dataclasses. Hover answers on symbol positions
-# only, so expression coverage is sparser than mypy's full TypeMap — nodes
-# pyright declines to describe degrade to "no fact". The langserver binary
-# comes from PYRIGHT_LANGSERVER_BIN (shlex-split, default
-# "pyright-langserver" on PATH); "--stdio" is appended when missing.
+# The second provider has two lanes. The preferred lane runs the pyright
+# CLI with `--facts` (the sigilco/pyright fork): one subprocess emits
+# structural type JSON — resolved types per expression node plus function,
+# overload and class signatures — which maps into the same
+# TypeFacts/CallableFacts dataclasses without any string parsing. The
+# fallback lane keeps the original path for stock upstream pyright: a
+# long-lived pyright-langserver subprocess over stdio (initialize ->
+# didOpen -> hover/documentSymbol) whose rendered hover strings like
+# "(function) def f(a: int) -> str" are parsed back. Hover answers on
+# symbol positions only, so expression coverage is sparser than the
+# `--facts` lane's full-node walk — nodes the oracle declines to describe
+# degrade to "no fact". The CLI binary comes from PYRIGHT_BIN (shlex-split,
+# default "pyright" on PATH) and is probed for `--facts` support via
+# `--help`; the langserver binary comes from PYRIGHT_LANGSERVER_BIN
+# (shlex-split, default "pyright-langserver" on PATH); "--stdio" is
+# appended when missing.
 
 
 _PYRIGHT_STUBS = Path(__file__).with_name("_pyright_stubs")
@@ -455,6 +462,7 @@ _PYRIGHT_STUBS = Path(__file__).with_name("_pyright_stubs")
 # into `except A, B:` — valid only on 3.14+, broken on the 3.13 dev venv.
 _PIPE_ERRORS = (OSError, CheckFailed)
 _SHUTDOWN_ERRORS = _PIPE_ERRORS + (subprocess.TimeoutExpired,)
+_CLI_ERRORS = (OSError, subprocess.TimeoutExpired)
 _READ_ERRORS = (OSError, ValueError, json.JSONDecodeError)
 _EVAL_ERRORS = (ValueError, SyntaxError)
 
@@ -633,6 +641,18 @@ def _utf16_col(line_text: str, byte_col: int) -> int:
     """ast col_offset is a UTF-8 byte offset; LSP wants UTF-16 units."""
     prefix = line_text.encode("utf-8")[:byte_col].decode("utf-8", errors="ignore")
     return len(prefix.encode("utf-16-le")) // 2
+
+
+def _byte_col(line_text: str, utf16_col: int) -> int:
+    """Inverse of `_utf16_col`: UTF-16 units to a UTF-8 byte offset."""
+    units = 0
+    byte_col = 0
+    for char in line_text:
+        if units >= utf16_col:
+            break
+        units += 2 if ord(char) > 0xFFFF else 1
+        byte_col += len(char.encode("utf-8"))
+    return byte_col
 
 
 def _split_top(text: str, sep: str) -> list[str]:
@@ -1036,32 +1056,228 @@ def _is_overload_decorator(expr: ast.expr) -> bool:
     return False
 
 
+def _facts_type(fact: Mapping[str, Any]) -> TypeFacts:
+    """Map one serialized `--facts` type object onto TypeFacts."""
+    kind = fact.get("kind")
+    if kind == "union":
+        members = tuple(_facts_type(option) for option in fact.get("options", ()) if isinstance(option, Mapping))
+        return TypeFacts(
+            kind="union",
+            optional=any(member.kind == "none" or member.optional for member in members),
+            args=members,
+            runtime_repr="union",
+        )
+    if kind == "class":
+        name = str(fact.get("name") or "unknown")
+        if name == "NoneType":
+            return TypeFacts(kind="none", optional=True, runtime_repr="None")
+        if fact.get("literalValue") is not None:
+            return TypeFacts(kind="literal", args=(TypeFacts(kind=name),), runtime_repr=repr(fact["literalValue"]))
+        args = tuple(_facts_type(arg) for arg in fact.get("typeArgs", ()) if isinstance(arg, Mapping))
+        if name == "tuple":
+            items = fact.get("tupleArgs") or fact.get("typeArgs") or ()
+            return TypeFacts(
+                kind="tuple",
+                args=tuple(_facts_type(item) for item in items if isinstance(item, Mapping)),
+                runtime_repr="tuple",
+            )
+        return TypeFacts(kind=name, args=args, runtime_repr=str(fact.get("fullName") or name))
+    if kind == "type":
+        inner_args = tuple(_facts_type(arg) for arg in fact.get("typeArgs", ()) if isinstance(arg, Mapping))
+        if fact.get("name") == "type":
+            # builtins.type[T]: args carries the denoted instance type.
+            item = inner_args[0] if len(inner_args) == 1 else TypeFacts(kind="unknown")
+            return TypeFacts(kind="type", args=(item,), runtime_repr="type")
+        # Any other instantiable class (a class object): args carries its
+        # instance form, keeping typeArgs so `list[int]` survives unwrap.
+        return TypeFacts(
+            kind="type",
+            args=(TypeFacts(kind=str(fact.get("name") or "unknown"), args=inner_args),),
+            runtime_repr="type",
+        )
+    if kind == "callable":
+        signature = fact.get("signature")
+        return TypeFacts(
+            kind="callable",
+            callable=_facts_signature(signature) if isinstance(signature, Mapping) else None,
+            runtime_repr="callable",
+        )
+    if kind == "overloaded":
+        variants = fact.get("overloads", ())
+        return TypeFacts(
+            kind="overloaded",
+            args=tuple(
+                TypeFacts(kind="callable", callable=_facts_signature(variant))
+                for variant in variants
+                if isinstance(variant, Mapping)
+            ),
+            runtime_repr="overloaded",
+        )
+    if kind == "typevar":
+        return TypeFacts(kind="typevar", runtime_repr=str(fact.get("name") or ""))
+    if kind == "module":
+        return TypeFacts(kind="module", runtime_repr=str(fact.get("name") or ""))
+    if kind in ("any", "unknown"):
+        return TypeFacts(kind="any", runtime_repr=str(kind))
+    return TypeFacts(kind="unknown", runtime_repr=str(fact.get("printed") or kind or ""))
+
+
+def _facts_denoted(facts: TypeFacts) -> TypeFacts:
+    """Unwrap the type-object layer an annotation expression evaluates to.
+
+    Pyright resolves `int | None` in annotation position to
+    `type[int] | type[None]`; the declared type a target binds is the
+    inner `int | None`. Single `type[X]` facts unwrap to `X`.
+    """
+    if facts.kind == "type" and facts.args:
+        inner = facts.args[0]
+        if inner.kind == "NoneType":
+            return TypeFacts(kind="none", optional=True, runtime_repr="None")
+        return inner
+    if facts.kind == "union":
+        members = tuple(_facts_denoted(member) for member in facts.args)
+        return TypeFacts(
+            kind="union",
+            optional=any(member.kind == "none" or member.optional for member in members),
+            args=members,
+            runtime_repr="union",
+        )
+    return facts
+
+
+def _facts_default_value(default_type: Any) -> Any:
+    """Compile-time constant for a `--facts` param defaultType, or _MISSING."""
+    if not isinstance(default_type, Mapping):
+        return _MISSING
+    if default_type.get("literalValue") is not None:
+        return default_type["literalValue"]
+    if str(default_type.get("fullName") or "").endswith("NoneType"):
+        return None
+    return _MISSING
+
+
+def _facts_signature(signature: Mapping[str, Any]) -> CallableFacts:
+    """Map a `--facts` signature onto CallableFacts.
+
+    Pyright keeps the `/` and bare `*` separators in its parameter list as
+    unnamed params: an unnamed `simple` param marks the positional-only
+    boundary and an unnamed `args` param the keyword-only boundary.
+    """
+    parameters: list[ParameterFacts] = []
+    positional_only = 0
+    keyword_only: set[str] = set()
+    defaults: dict[str, Any] = {}
+    after_star = False
+    for param in signature.get("params", ()):
+        if not isinstance(param, Mapping):
+            continue
+        name = param.get("name")
+        category = param.get("category")
+        if name is None:
+            if category == "simple":
+                positional_only = len(parameters)
+            elif category == "args":
+                after_star = True
+            continue
+        param_type = param.get("type")
+        param_facts = _facts_type(param_type) if isinstance(param_type, Mapping) else TypeFacts(kind="unknown")
+        has_default = bool(param.get("hasDefault"))
+        if category == "args":
+            kind = "varargs"
+            after_star = True
+        elif category == "kwargs":
+            kind = "kwargs"
+        elif after_star:
+            kind = "keyword_optional" if has_default else "keyword_only"
+            keyword_only.add(str(name))
+        else:
+            kind = "positional_optional" if has_default else "positional"
+        if has_default:
+            value = _facts_default_value(param.get("defaultType"))
+            if value is not _MISSING:
+                defaults[str(name)] = value
+        parameters.append(ParameterFacts(name=str(name), kind=kind, type=param_facts, has_default=has_default))
+    return_type = signature.get("returnType")
+    return CallableFacts(
+        parameters=tuple(parameters),
+        return_type=_facts_type(return_type) if isinstance(return_type, Mapping) else TypeFacts(kind="unknown"),
+        positional_only=positional_only,
+        keyword_only=frozenset(keyword_only),
+        defaults=defaults,
+    )
+
+
+def _facts_qualnames(tree: ast.Module) -> dict[str, str]:
+    """Suffix map from pyright's flat qualnames to pyscriptc qualnames.
+
+    Pyright names a nested function `mod.outer.inner`; pyscriptc keeps the
+    mypy convention `outer.<locals>.inner`. Both drop the module segment,
+    so the mapping is keyed on the remaining dotted suffix.
+    """
+    mapping: dict[str, str] = {}
+
+    def visit(body: list[ast.stmt], prefix: str) -> None:
+        for stmt in body:
+            if isinstance(stmt, ast.ClassDef):
+                visit(stmt.body, f"{prefix}{stmt.name}.")
+            elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                flat = prefix.replace("<locals>.", "")
+                mapping[f"{flat}{stmt.name}"] = f"{prefix}{stmt.name}"
+                visit(stmt.body, f"{prefix}{stmt.name}.<locals>.")
+
+    visit(tree.body, "")
+    return mapping
+
+
+def _facts_qualname(pyright_name: str, mapping: Mapping[str, str]) -> str:
+    """`mod.outer.inner` -> `__main__.outer.<locals>.inner`."""
+    _, _, suffix = pyright_name.partition(".")
+    return f"__main__.{mapping.get(suffix, suffix)}"
+
+
 class PyrightFactsAdapter:
-    """Facts backed by the pyright-langserver stdio oracle.
+    """Facts backed by `pyright --facts`, with an LSP-hover fallback.
 
-    One long-lived subprocess is spawned lazily and reused across `facts`
-    calls; each target file is opened once via `textDocument/didOpen`.
-    Function/method signatures come from hovering the `def` name;
-    expression facts come from hovering symbol positions (call sites take
-    the callee's return type). Annotated assignment targets get their
-    declared type from the annotation's own source text because hover
-    reports the *narrowed* type. Anything the oracle declines to describe
-    — literals, operators, unsymbolized spans — degrades to "no fact"
-    rather than an error.
+    Preferred lane: spawn the pyright CLI with `--facts` once per file and
+    map its structural JSON — no string parsing anywhere. The CLI comes
+    from `cli`/`PYRIGHT_BIN` (default `pyright` on PATH) and is probed for
+    `--facts` support via `--help`; a stock upstream pyright lacks the
+    verb and falls through to the fallback lane below.
 
-    `command` overrides the spawn line (default: `PYRIGHT_LANGSERVER_BIN`
-    env or `pyright-langserver` on PATH); `--stdio` is appended when
-    absent. `close()` shuts the server down; leaving it to GC also works.
+    Fallback lane (stock pyright compat): one long-lived pyright-langserver
+    subprocess is spawned lazily and reused across `facts` calls; each
+    target file is opened once via `textDocument/didOpen`. Function/method
+    signatures come from hovering the `def` name; expression facts come
+    from hovering symbol positions (call sites take the callee's return
+    type), so coverage is sparser than the `--facts` lane. Annotated
+    assignment targets get their declared type from the annotation's own
+    source text because hover reports the *narrowed* type. Anything the
+    oracle declines to describe — literals, operators, unsymbolized spans —
+    degrades to "no fact" rather than an error.
+
+    `command` overrides the langserver spawn line (default:
+    `PYRIGHT_LANGSERVER_BIN` env or `pyright-langserver` on PATH);
+    `--stdio` is appended when absent. `cli` overrides the `--facts` CLI
+    spawn line (default: `PYRIGHT_BIN` env or `pyright` on PATH); pass
+    `cli=[]` to force the LSP lane. `close()` shuts the server down;
+    leaving it to GC also works.
     """
 
     name = "pyright"
 
-    def __init__(self, command: str | Sequence[str] | None = None) -> None:
+    def __init__(
+        self,
+        command: str | Sequence[str] | None = None,
+        cli: str | Sequence[str] | None = None,
+    ) -> None:
         raw = command if command is not None else os.environ.get("PYRIGHT_LANGSERVER_BIN")
         argv = shlex.split(raw) if isinstance(raw, str) else list(raw or ["pyright-langserver"])
         if "--stdio" not in argv:
             argv = [*argv, "--stdio"]
         self._argv = argv
+        cli_raw = cli if cli is not None else os.environ.get("PYRIGHT_BIN", "pyright")
+        self._cli_argv = shlex.split(cli_raw) if isinstance(cli_raw, str) else list(cli_raw)
+        self._facts_supported: bool | None = None
         self._connection: _LspConnection | None = None
         self._opened: set[str] = set()
         self._hover_cache: dict[tuple[str, int, int], str | None] = {}
@@ -1076,6 +1292,9 @@ class PyrightFactsAdapter:
             tree = ast.parse(source, filename=str(path))
         except SyntaxError as exc:
             raise CheckFailed(f"cannot parse {path}: {exc}") from exc
+        cli = self._facts_cli()
+        if cli is not None:
+            return self._cli_facts(cli, path, tree, source)
         connection = self._connect()
         uri = path.as_uri()
         self._open_document(uri, source)
@@ -1095,6 +1314,101 @@ class PyrightFactsAdapter:
             self._connection = None
             self._opened.clear()
             self._hover_cache.clear()
+
+    def _facts_cli(self) -> list[str] | None:
+        """The `--facts`-capable CLI argv, or None to use the LSP lane."""
+        if not self._cli_argv:
+            return None
+        if self._facts_supported is None:
+            try:
+                proc = subprocess.run(
+                    [*self._cli_argv, "--help"],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+            except _CLI_ERRORS:
+                proc = None
+            self._facts_supported = bool(proc and "--facts" in (proc.stdout or ""))
+        return self._cli_argv if self._facts_supported else None
+
+    def _cli_facts(self, cli: list[str], path: Path, tree: ast.Module, source: str) -> ModuleFacts:
+        """Fast lane: one `pyright --facts` subprocess, structural JSON in."""
+        with tempfile.TemporaryDirectory(prefix="pyscriptc-pyright-facts-") as tmp:
+            config = Path(tmp) / "pyrightconfig.json"
+            config.write_text(
+                json.dumps(
+                    {
+                        "stubPath": str(_PYRIGHT_STUBS),
+                        "executionEnvironments": [{"root": str(path.parent)}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            try:
+                proc = subprocess.run(
+                    [*cli, "--facts", "--pythonversion", "3.13", "--project", tmp, str(path)],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+            except _CLI_ERRORS as exc:
+                raise CheckFailed(f"pyright --facts failed for {path}: {exc}") from exc
+        try:
+            report = json.loads(proc.stdout)
+        except json.JSONDecodeError:
+            output = (proc.stderr or proc.stdout).strip() or f"pyright exited {proc.returncode}"
+            raise CheckFailed(output) from None
+        summary = report.get("summary") or {}
+        if summary.get("errorCount", 0):
+            raise CheckFailed(f"pyright reported {summary['errorCount']} error(s) in {path}")
+        facts_doc = (report.get("facts") or {}).get(str(path))
+        if facts_doc is None:
+            candidates = list((report.get("facts") or {}).values())
+            if len(candidates) != 1:
+                raise CheckFailed(f"pyright emitted no facts for {path}")
+            facts_doc = candidates[0]
+        rename = _facts_qualnames(tree)
+        callables = {
+            _facts_qualname(name, rename): _facts_signature(sig)
+            for name, sig in (facts_doc.get("callables") or {}).items()
+            if isinstance(sig, Mapping)
+        }
+        overloads = {
+            _facts_qualname(name, rename): tuple(_facts_signature(sig) for sig in sigs if isinstance(sig, Mapping))
+            for name, sigs in (facts_doc.get("overloads") or {}).items()
+            if isinstance(sigs, list)
+        }
+        expressions: dict[str, TypeFacts] = {}
+        lines = source.splitlines()
+        for expr in facts_doc.get("expressions") or ():
+            if not isinstance(expr, Mapping):
+                continue
+            line = expr.get("line")
+            col = expr.get("col")
+            if not isinstance(line, int) or not isinstance(col, int) or line < 0 or line >= len(lines):
+                continue
+            if not isinstance(expr.get("type"), Mapping):
+                continue
+            expressions.setdefault(f"{line + 1}:{_byte_col(lines[line], col)}", _facts_type(expr["type"]))
+        # AnnAssign targets take the annotation's denoted type, not the
+        # narrowed type pyright reports for the name at its assignment
+        # site (e.g. `x: int | None = 1` records the union, not `int`).
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.AnnAssign) or node.annotation is None:
+                continue
+            target_key = f"{node.target.lineno}:{node.target.col_offset}"
+            annotation_key = f"{node.annotation.lineno}:{node.annotation.col_offset}"
+            declared = expressions.get(annotation_key)
+            if declared is not None:
+                expressions[target_key] = _facts_denoted(declared)
+        return ModuleFacts(
+            path=path,
+            provider=self.name,
+            expressions=expressions,
+            callables=callables,
+            overloads=overloads,
+        )
 
     def __enter__(self) -> PyrightFactsAdapter:
         return self

@@ -11,6 +11,8 @@ from __future__ import annotations
 import os
 import shlex
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -18,6 +20,7 @@ from tests.test_gates import write_case
 
 from pyscriptc.check import CheckFailed
 from pyscriptc.typefacts import (
+    _CLI_ERRORS,
     FactsProvider,
     PyrightFactsAdapter,
     _parse_def_signature,
@@ -201,10 +204,224 @@ def test_adapter_command_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_missing_langserver_raises_check_failed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PYRIGHT_LANGSERVER_BIN", "pyright-langserver-does-not-exist-xyz")
+    monkeypatch.setenv("PYRIGHT_BIN", "pyright-does-not-exist-xyz")  # keep the LSP lane
     path = write_case(tmp_path, "probe.py", "def probe() -> int:\n    return 1\n")
     adapter = PyrightFactsAdapter()
     with pytest.raises(CheckFailed, match="not installed"):
         adapter.facts(path)
+
+
+# --- `--facts` CLI fast lane --------------------------------------------------
+
+# Fake pyright CLI: --help advertises --facts, a --facts run prints a canned
+# report with __FILE__ swapped for the target path.
+_FAKE_CLI = """\
+import json
+import sys
+
+if "--help" in sys.argv:
+    print("  --facts   Emit structured type facts (schema pyright-facts) as JSON")
+    sys.exit(0)
+
+path = sys.argv[-1]
+report = __REPORT__
+report["facts"] = {path: report.pop("_doc")}
+print(json.dumps(report))
+"""
+
+_FACTS_DOC = {
+    "file": "__FILE__",
+    "expressions": [
+        {
+            "start": 0,
+            "end": 1,
+            "line": 0,
+            "col": 0,
+            "type": {"kind": "class", "name": "int", "fullName": "builtins.int"},
+        },
+        {
+            "start": 4,
+            "end": 15,
+            "line": 0,
+            "col": 3,
+            "type": {
+                "kind": "union",
+                "options": [
+                    {"kind": "type", "name": "int", "fullName": "builtins.int"},
+                    {"kind": "type", "name": "NoneType", "fullName": "types.NoneType"},
+                ],
+            },
+        },
+        {
+            "start": 0,
+            "end": 5,
+            "line": 1,
+            "col": 0,
+            "type": {"kind": "class", "name": "str", "fullName": "builtins.str"},
+        },
+    ],
+    "callables": {
+        "fixture.f": {
+            "fullName": "fixture.f",
+            "params": [
+                {"name": "a", "category": "simple", "type": {"kind": "class", "name": "int"}, "hasDefault": False},
+                {"category": "simple", "type": {"kind": "unknown"}, "hasDefault": False},
+                {
+                    "name": "b",
+                    "category": "simple",
+                    "type": {"kind": "class", "name": "int"},
+                    "defaultType": {"kind": "class", "name": "int", "literalValue": 3},
+                    "hasDefault": True,
+                },
+                {"name": "args", "category": "args", "type": {"kind": "class", "name": "str"}, "hasDefault": False},
+                {
+                    "name": "c",
+                    "category": "simple",
+                    "type": {"kind": "class", "name": "bool"},
+                    "defaultType": {"kind": "class", "name": "bool", "literalValue": True},
+                    "hasDefault": True,
+                },
+                {"name": "kw", "category": "kwargs", "type": {"kind": "class", "name": "int"}, "hasDefault": False},
+            ],
+            "returnType": {"kind": "class", "name": "str", "fullName": "builtins.str"},
+        },
+        "fixture.outer": {
+            "fullName": "fixture.outer",
+            "params": [
+                {"name": "x", "category": "simple", "type": {"kind": "class", "name": "int"}, "hasDefault": False}
+            ],
+            "returnType": {"kind": "class", "name": "int"},
+        },
+        "fixture.outer.inner": {
+            "fullName": "fixture.outer.inner",
+            "params": [
+                {"name": "y", "category": "simple", "type": {"kind": "class", "name": "int"}, "hasDefault": False}
+            ],
+            "returnType": {"kind": "class", "name": "int"},
+        },
+    },
+    "overloads": {
+        "fixture.pick": [
+            {
+                "params": [
+                    {"name": "v", "category": "simple", "type": {"kind": "class", "name": "int"}, "hasDefault": False}
+                ],
+                "returnType": {"kind": "class", "name": "int"},
+            },
+            {
+                "params": [
+                    {"name": "v", "category": "simple", "type": {"kind": "class", "name": "str"}, "hasDefault": False}
+                ],
+                "returnType": {"kind": "class", "name": "str"},
+            },
+        ],
+    },
+    "classes": {},
+}
+
+
+def _fake_facts_cli(tmp_path: Path) -> list[str]:
+    script = tmp_path / "fake_pyright.py"
+    script.write_text(_FAKE_CLI.replace("__REPORT__", repr({"_doc": _FACTS_DOC})), encoding="utf-8")
+    return [sys.executable, str(script)]
+
+
+def test_facts_cli_lane_maps_report(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PYRIGHT_BIN", raising=False)
+    source = """\
+def outer(x: int) -> int:
+    def inner(y: int) -> int:
+        return y
+    return inner(x)
+"""
+    path = write_case(tmp_path, "fixture.py", source)
+    adapter = PyrightFactsAdapter(cli=_fake_facts_cli(tmp_path))
+    assert adapter._facts_cli() == _fake_facts_cli(tmp_path)
+    facts = adapter.facts(path)
+
+    assert facts.provider == "pyright"
+    assert facts.signature("__main__.outer.inner") is None  # nested names keep <locals>
+    assert facts.signature("__main__.outer.<locals>.inner") is not None
+
+    f_sig = facts.signature("__main__.f")
+    assert f_sig is not None
+    assert f_sig.positional_only == 1
+    assert f_sig.keyword_only == frozenset({"c"})
+    assert f_sig.defaults == {"b": 3, "c": True}
+    assert [p.kind for p in f_sig.parameters] == [
+        "positional",
+        "positional_optional",
+        "varargs",
+        "keyword_optional",
+        "kwargs",
+    ]
+    assert f_sig.return_type.kind == "str"
+
+    variants = facts.overload_choices("__main__.pick")
+    assert {v.return_type.kind for v in variants} == {"int", "str"}
+
+    # Expression at "1:0" is the union fact moved onto the AnnAssign
+    # target only when ast+pyright positions line up; the fixture's
+    # expressions land on arbitrary keys — just check shape.
+    assert facts.expressions
+    assert all(t.kind for t in facts.expressions.values())
+
+
+def test_facts_cli_denoted_annotation(tmp_path: Path) -> None:
+    """The AnnAssign override unwraps `type[X]` to the declared X."""
+    source = "x: int | None = 1\n"
+    path = write_case(tmp_path, "decl.py", source)
+    adapter = PyrightFactsAdapter(cli=_fake_facts_cli(tmp_path))
+    facts = adapter.facts(path)
+    # The fixture's expression at (0,0) is a bare `int` class — the target
+    # override copies the annotation fact (0,4 union of type[]) denoted.
+    target = facts.expression_at(1, 0)
+    assert target is not None
+    assert target.kind == "union" and target.optional
+    assert {arg.kind for arg in target.args} == {"int", "none"}
+
+
+def test_facts_cli_probe_rejects_stock_pyright(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PYRIGHT_BIN", raising=False)
+    script = tmp_path / "stock_pyright.py"
+    script.write_text("import sys\nprint('usage: pyright [options]')\nsys.exit(0)\n", encoding="utf-8")
+    adapter = PyrightFactsAdapter(cli=[sys.executable, str(script)])
+    assert adapter._facts_cli() is None
+
+
+def _facts_cli_present() -> bool:
+    argv = shlex.split(os.environ.get("PYRIGHT_BIN", "pyright"))
+    if not argv or shutil.which(argv[0]) is None:
+        return False
+    try:
+        proc = subprocess.run([*argv, "--help"], capture_output=True, text=True, timeout=30)
+    except _CLI_ERRORS:
+        return False
+    return "--facts" in (proc.stdout or "")
+
+
+_facts_cli_present = _facts_cli_present()
+
+
+@pytest.mark.skipif(not _facts_cli_present, reason="no --facts-capable pyright CLI on PYRIGHT_BIN/PATH")
+def test_facts_cli_live_smoke(tmp_path: Path) -> None:
+    source = """\
+def greet(name: str) -> str:
+    return "hi " + name
+
+x: int | None = 1
+total = greet("w")
+"""
+    path = write_case(tmp_path, "smoke.py", source)
+    adapter = PyrightFactsAdapter()
+    facts = adapter.facts(path)
+    assert facts.provider == "pyright"
+    signature = facts.signature("__main__.greet")
+    assert signature is not None and signature.return_type.kind == "str"
+    declared = facts.expression_at(4, 0)
+    assert declared is not None and declared.kind == "union" and declared.optional
+    call = facts.expression_at(5, 8)
+    assert call is not None and call.kind == "str"
 
 
 # --- smoke test against the real langserver ---------------------------------
