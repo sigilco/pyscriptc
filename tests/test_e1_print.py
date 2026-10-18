@@ -142,8 +142,14 @@ def test_print_file_kwarg_fences() -> None:
     mod = lower_source("print(1, file=sys.stderr)\n")
     assert len(mod["fences"]) == 1
     fence = mod["fences"][0]
-    assert fence["code"] == "PS2003"
-    assert "print keyword argument" in fence["message"]
+    assert fence["code"] == "PS2002"
+    assert "print file= takes sys.stdout or sys.stderr" in fence["message"]
+
+
+def test_print_file_kwarg_lowers() -> None:
+    for stream in ("sys.stdout", "sys.stderr"):
+        mod = lower_source(f"import sys\nprint(1, file={stream})\n")
+        assert mod["fences"] == [], stream
 
 
 def test_print_value_outside_the_scalar_set_fences() -> None:

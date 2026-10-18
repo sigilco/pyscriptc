@@ -130,6 +130,8 @@ def builtin_call(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any
         return _open(lo, node, span)
     if name == "print":
         return _print(lo, node, span)
+    if name == "input":
+        return _input(lo, node, span)
     if node.keywords and name in {
         "isinstance",
         "getattr",
@@ -177,13 +179,21 @@ def _print(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     """`print` lowers to the builtin of the same name; the emitter writes stdout.
 
     Subset: positional values of the compiler's scalar set (str, int, float,
-    bool, bytes), `sep=`/`end=` str keywords; `file=`/`flush=` stay fenced.
-    The keyword exprs ride on the call dict so the emitter can splice them.
+    bool, bytes), `sep=`/`end=` str keywords, and `file=` naming sys.stdout
+    or sys.stderr; `flush=` stays fenced. The keyword exprs ride on the call
+    dict so the emitter can splice them; `file` rides as a stream tag.
     """
     extras: dict[str, Any] = {}
     for kw in node.keywords:
         if kw.arg is None:
             lo.fail(kw, "PS2002", "**kwargs are not lowered")
+        if kw.arg == "file":
+            # `sys.stdout` (the default) or `sys.stderr` as the stream tag.
+            resolved = lo._resolve_module(kw.value)
+            if resolved is not None and resolved[1] == "sys" and resolved[2] in {"stdout", "stderr"}:
+                extras["file"] = resolved[2]
+                continue
+            lo.fail(kw, "PS2002", "print file= takes sys.stdout or sys.stderr")
         if kw.arg not in {"sep", "end"}:
             lo.fail(
                 kw,
@@ -214,6 +224,27 @@ def _print(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     }
     expr.update(extras)
     return expr
+
+
+def _input(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """`input()` reads one stdin line without the trailing newline.
+
+    A prompt argument stays fenced; CPython writes it to stdout without a
+    newline, which the simple stdin read here does not model. EOF raises
+    RuntimeError in place of EOFError, which is not in the exception table.
+    """
+    if node.keywords:
+        lo._reject_keywords(node)
+    if node.args:
+        lo.fail(node, "PS2003", "input expects 0 argument(s)")
+    return {
+        "kind": "call",
+        "callee": {"kind": "module", "module": "builtins", "name": "input"},
+        "args": [],
+        "symbol": "ps_input_line",
+        "type": {"kind": "str"},
+        "span": span,
+    }
 
 
 def _const_text(value: str, kind: str, span: dict[str, Any]) -> dict[str, Any]:

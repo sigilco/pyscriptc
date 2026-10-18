@@ -1342,6 +1342,10 @@ REST_FIXED: dict[str, dict[str, dict[str, Any]]] = {
     "socket": {"gethostname": _sig([], _S, "ps_island_hostname")},
     "threading": {"active_count": _sig([], _I, "ps_island_threads")},
     "subprocess": {"check_output": _sig([{"kind": "list", "elem": _S}], _BY, "ps_island_check_output")},
+    "sys": {
+        "stdout.write": _sig([_S], _I, "ps_stdout_write"),
+        "stderr.write": _sig([_S], _I, "ps_stderr_write"),
+    },
     "unicodedata": {
         "category": _sig([_S], _S, "ps_unicode_category"),
         "combining": _sig([_S], _I, "ps_unicode_combining"),

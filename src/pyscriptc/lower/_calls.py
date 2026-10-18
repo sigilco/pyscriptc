@@ -1137,21 +1137,147 @@ class CallsMixin:
 
     def _set_method(self, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
         assert isinstance(node.func, ast.Attribute)
-        if self._receiver_is_frozen(node, receiver):
-            self.fail(node, "PS2002", "frozenset has no mutating methods")
-        if node.func.attr != "add":
-            self.fail(node, "PS2001", "set.add is the only lowered set method")
-        self._reject_keywords(node)
-        if len(node.args) != 1:
-            self.fail(node, "PS2003", "set.add expects 1 argument(s)")
-        if receiver["kind"] != "name":
-            self.fail(node, "PS2002", "set.add needs a name")
-        elem = receiver["type"]["elem"]
-        value = self._expr(node.args[0], elem)
-        if not types_equal(value["type"], elem):
-            self.fail(node, "PS1003", "set.add takes an element of that set")
-        self.prelude.extend(self._set_insert_stmts(receiver["id"], receiver["type"], value, span))
-        return _const_none(span)
+        attr = node.func.attr
+        if attr in {"add", "discard", "remove"}:
+            if self._receiver_is_frozen(node, receiver):
+                self.fail(node, "PS2002", "frozenset has no mutating methods")
+            self._reject_keywords(node)
+            if len(node.args) != 1:
+                self.fail(node, "PS2003", f"set.{attr} expects 1 argument(s)")
+            if receiver["kind"] != "name":
+                self.fail(node, "PS2002", f"set.{attr} needs a name")
+            elem = receiver["type"]["elem"]
+            value = self._expr(node.args[0], elem)
+            if not types_equal(value["type"], elem):
+                self.fail(node, "PS1003", f"set.{attr} takes an element of that set")
+            if attr == "add":
+                self.prelude.extend(self._set_insert_stmts(receiver["id"], receiver["type"], value, span))
+                return _const_none(span)
+            # discard removes when present; remove raises KeyError when absent.
+            slot = self._temp("elt")
+            self.locals[slot] = elem
+            hay = _name(receiver["id"], receiver["type"], span)
+            needle = _name(slot, elem, span)
+            drop = _mod_call("builtins", "list.remove", [hay, needle], {"kind": "none"}, span)
+            drop["symbol"] = f"ps_seq_remove_{'i64' if elem['kind'] == 'int' else 'buf'}"
+            else_body = (
+                [{"kind": "raise", "exc": "KeyError", "message": None, "span": span}] if attr == "remove" else []
+            )
+            self.prelude.append(_assign(slot, value, span))
+            self.prelude.append(
+                {
+                    "kind": "if",
+                    "cond": {
+                        "kind": "contains",
+                        "hay": _name(receiver["id"], receiver["type"], span),
+                        "needle": needle,
+                        "negated": False,
+                        "type": {"kind": "bool"},
+                        "span": span,
+                    },
+                    "then": [{"kind": "expr", "expr": drop, "span": span}],
+                    "else": else_body,
+                    "span": span,
+                }
+            )
+            return _const_none(span)
+        if attr in {"union", "intersection"}:
+            self._reject_keywords(node)
+            if len(node.args) != 1:
+                self.fail(node, "PS2003", f"set.{attr} expects 1 argument(s)")
+            elem = receiver["type"]["elem"]
+            other = self._expr(node.args[0])
+            if other["type"]["kind"] != "list" or not types_equal(other["type"]["elem"], elem):
+                self.fail(node, "PS1003", f"set.{attr} takes a list or set of the same element type")
+            return self._set_algebra(span, receiver, other, "union" if attr == "union" else "inter")
+        self.fail(node, "PS2001", "set.add is the only lowered set method")
+        raise AssertionError("unreachable")
+
+    def _set_algebra(
+        self, span: dict[str, Any], left: dict[str, Any], right: dict[str, Any], which: str
+    ) -> dict[str, Any]:
+        """A new set from two set/list operands: `a | b`, `a & b`, `a - b`, `a ^ b`.
+
+        The result is a fresh set; the operands are read through `_set_absorb`-style
+        loops, each insert gated by a membership test against the other operand
+        for inter/diff/xor (`which` is `union`, `inter`, `diff`, or `xor`)."""
+        elem = left["type"]["elem"]
+        typ = {"kind": "list", "elem": elem, "set": True}
+        dest = self._temp("set")
+        self.locals[dest] = typ
+        self.prelude.append(_assign(dest, {"kind": "list", "elems": [], "type": typ, "span": span}, span))
+        if which == "union":
+            self.prelude.extend(self._set_absorb(dest, typ, left, span))
+            self.prelude.extend(self._set_absorb(dest, typ, right, span))
+            return _name(dest, typ, span)
+        # inter: keep members of `right`; diff: drop them; xor: both diffs.
+        pairs = [(left, right)] if which != "xor" else [(left, right), (right, left)]
+        int_t = {"kind": "int"}
+        for source, other in pairs:
+            src = self._temp("src")
+            oth = self._temp("oth")
+            idx = self._temp("idx")
+            length = self._temp("len")
+            item = self._temp("item")
+            self.locals[src] = source["type"]
+            self.locals[oth] = other["type"]
+            self.locals[idx] = int_t
+            self.locals[length] = int_t
+            self.locals[item] = elem
+            item_n = _name(item, elem, span)
+            body = [
+                _assign(
+                    item,
+                    {
+                        "kind": "subscript",
+                        "value": _name(src, source["type"], span),
+                        "index": _name(idx, int_t, span),
+                        "type": elem,
+                        "span": span,
+                    },
+                    span,
+                ),
+                {
+                    "kind": "if",
+                    "cond": {
+                        "kind": "contains",
+                        "hay": _name(oth, other["type"], span),
+                        "needle": item_n,
+                        "negated": which != "inter",
+                        "type": {"kind": "bool"},
+                        "span": span,
+                    },
+                    "then": self._set_insert_stmts(dest, typ, item_n, span),
+                    "else": [],
+                    "span": span,
+                },
+                _assign(idx, _binary_int("+", _name(idx, int_t, span), _const_int(1, span), span), span),
+            ]
+            self.prelude.extend(
+                [
+                    _assign(src, source, span),
+                    _assign(oth, other, span),
+                    _assign(
+                        length,
+                        {
+                            "kind": "call",
+                            "callee": {"kind": "builtin", "name": "len"},
+                            "args": [_name(src, source["type"], span)],
+                            "type": int_t,
+                            "span": span,
+                        },
+                        span,
+                    ),
+                    _assign(idx, _const_int(0, span), span),
+                    {
+                        "kind": "while",
+                        "cond": _compare("<", _name(idx, int_t, span), _name(length, int_t, span), span),
+                        "body": body,
+                        "span": span,
+                    },
+                ]
+            )
+        return _name(dest, typ, span)
 
     def _set_absorb(
         self, dest: str, typ: dict[str, Any], source: dict[str, Any], span: dict[str, Any]
