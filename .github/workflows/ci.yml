@@ -57,6 +57,7 @@ jobs:
           --exclude benchmarks/runtime/workloads/tuple_membership.py
           --exclude benchmarks/compat2/bundle.py
           --exclude benchmarks/compat2/cache.py
+          --exclude benchmarks/compat2/corpus/spec.py
           --exclude benchmarks/compat2/coverage_map.py
           --exclude benchmarks/compat2/score.py
       - run: uv run pytest -q tests/compat2 -m "not linux_container"
