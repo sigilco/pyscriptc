@@ -122,18 +122,6 @@ def test_compare_chain_stays_fenced(tmp_path: Path) -> None:
             "is is not lowered",
         ),
         (
-            "is_value.py",
-            (
-                "def probe() -> int:\n"
-                "    item: int = 1\n"
-                "    other: int = 1\n"
-                "    if item is other:\n"
-                "        return 1\n"
-                "    return 0\n"
-            ),
-            "is is not lowered",
-        ),
-        (
             "mixed.py",
             "def probe() -> int:\n    if 1 < 2 < 'a':\n        return 1\n    return 0\n",
             "comparisons need two values of the same scalar type",

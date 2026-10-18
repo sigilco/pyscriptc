@@ -16,6 +16,7 @@ from pyscriptc.builtins import EXCEPTIONS, USER_EXC_BASE
 from pyscriptc.errors import FitError, IRError
 from pyscriptc.ir import assert_same_cpython, fits_i64
 from pyscriptc.stdlib_queue import MATH_FUNCTIONS
+from pyscriptc.stdmore import COMPARE_CLASSES
 
 _ICMP = {"<": "slt", "<=": "sle", ">": "sgt", ">=": "sge", "==": "eq", "!=": "ne"}
 _FOP = {"+": "fadd", "-": "fsub", "*": "fmul"}
@@ -739,6 +740,8 @@ class Emitter:
         left = self.emit_expr(expr["left"])
         right = self.emit_expr(expr["right"])
         kind = left_kind
+        if op in {"is", "is not"}:
+            return self._emit_identity(op, kind, left, right)
         reg = self.tmp()
         if kind in {"int", "bool"}:
             self.line(f"{reg} = icmp {_ICMP[op]} {'i64' if kind == 'int' else 'i1'} {left}, {right}")
@@ -755,6 +758,24 @@ class Emitter:
         if kind == "class":
             return self._emit_class_cmp(expr, left, right)
         raise IRError(f"cannot compare {kind}")
+
+    def _emit_identity(self, op: str, kind: str, left: str, right: str) -> str:
+        """`is`/`is not`: pointer identity for heap values, backing-pointer
+        identity for str/bytes. Scalar kinds never reach here (the lowerer
+        emits plain ==/!= for them)."""
+        pred = "eq" if op == "is" else "ne"
+        reg = self.tmp()
+        if kind in {"str", "bytes"}:
+            left_ptr = self.tmp()
+            right_ptr = self.tmp()
+            self.line(f"{left_ptr} = extractvalue %ps.str {left}, 1")
+            self.line(f"{right_ptr} = extractvalue %ps.str {right}, 1")
+            self.line(f"{reg} = icmp {pred} ptr {left_ptr}, {right_ptr}")
+            return reg
+        if kind in {"list", "dict", "class", "exc"}:
+            self.line(f"{reg} = icmp {pred} ptr {left}, {right}")
+            return reg
+        raise IRError(f"cannot compare {kind} identity")
 
     def _emit_none_side(self, expr: dict[str, Any]) -> None:
         """Emit a call that returns None. A None constant or a None local is not a register."""
@@ -795,6 +816,17 @@ class Emitter:
         if name == "len" and arg_types[0]["kind"] == "class" and arg_types[0].get("name") == "Deque":
             self._abi_decl("ps_deque_len", "i64", ["ptr"])
             return self._call_ret("i64", "ps_deque_len", [f"ptr {values[0]}"])
+        if name == "id":
+            # CPython's id() is the object's address; same here for heap values.
+            # str/bytes carry their buffer in field 1 — the stable identity.
+            reg = self.tmp()
+            if arg_types[0]["kind"] in {"str", "bytes"}:
+                ptr = self.tmp()
+                self.line(f"{ptr} = extractvalue %ps.str {values[0]}, 1")
+                self.line(f"{reg} = ptrtoint ptr {ptr} to i64")
+                return reg
+            self.line(f"{reg} = ptrtoint ptr {values[0]} to i64")
+            return reg
         if name in {"min", "max"}:
             return self._emit_minmax(name, values, arg_types)
         if name == "int":
@@ -1324,10 +1356,18 @@ class Emitter:
             self.line(f"{left_ptr} = getelementptr %cls.Path, ptr {left}, i32 0, i32 0")
             self.line(f"{right_ptr} = getelementptr %cls.Path, ptr {right}, i32 0, i32 0")
             cmp = self._buf_cmp(self._load("%ps.str", left_ptr), self._load("%ps.str", right_ptr))
-        else:
+        elif name in COMPARE_CLASSES:
             count = len(self.class_index[name]["fields"])
             self._abi_decl("ps_i64_lex", "i32", ["ptr", "ptr", "i64"])
             cmp = self._call_ret("i32", "ps_i64_lex", [f"ptr {left}", f"ptr {right}", f"i64 {count}"])
+        else:
+            # A user class without __eq__ compares by identity in CPython.
+            if op not in {"==", "!="}:
+                raise IRError(f"cannot order {name}")
+            pred = "eq" if op == "==" else "ne"
+            reg = self.tmp()
+            self.line(f"{reg} = icmp {pred} ptr {left}, {right}")
+            return reg
         pred = {"==": "eq", "!=": "ne", "<": "slt", "<=": "sle", ">": "sgt", ">=": "sge"}[op]
         reg = self.tmp()
         self.line(f"{reg} = icmp {pred} i32 {cmp}, 0")
