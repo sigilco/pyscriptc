@@ -202,6 +202,8 @@ class ExprMixin:
             return {"kind": "const", "value": self.module_name or "__main__", "type": {"kind": "str"}, "span": span}
         if node.id in self.type_aliases:
             self.fail(node, "PS2002", f"{node.id} is a typing name and is not a value")
+        if node.id in self.typevars:
+            self.fail(node, "PS2002", f"{node.id} is a TypeVar and is not a value")
         binding = self.bindings.get(node.id)
         if binding is not None:
             if binding.queued:
@@ -224,6 +226,8 @@ class ExprMixin:
         if node.id in self.classes:
             self.fail(node, "PS2002", f"class {node.id} is not a value")
         if node.id in self.sigs:
+            if node.id in self.generic_fns:
+                self.fail(node, "PS2002", f"{node.id} is generic and is not a value")
             # A function referenced as a value: the closure wraps it with an
             # empty environment (the emitter adds a lazy env-first shim).
             params, ret = self.sigs[node.id]

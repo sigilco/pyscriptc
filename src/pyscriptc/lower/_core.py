@@ -334,3 +334,60 @@ def _declared_globals(body: list[ast.stmt]) -> set[str]:
             if isinstance(node, ast.Global):
                 names.update(node.names)
     return names
+
+
+def _has_typevar(typ: dict[str, Any]) -> bool:
+    """True when a type carries a `{"kind": "typevar"}` placeholder."""
+    if typ["kind"] == "typevar":
+        return True
+    for key in ("elem", "key", "value", "return"):
+        inner = typ.get(key)
+        if isinstance(inner, dict) and _has_typevar(inner):
+            return True
+    return any(isinstance(param, dict) and _has_typevar(param) for param in typ.get("params", []))
+
+
+def _sig_typevars(types: list[dict[str, Any]]) -> list[str]:
+    """TypeVar names appearing in `types`, first-appearance order."""
+    found: list[str] = []
+
+    def walk(typ: dict[str, Any]) -> None:
+        if typ["kind"] == "typevar":
+            if typ["name"] not in found:
+                found.append(typ["name"])
+            return
+        for key in ("elem", "key", "value", "return"):
+            inner = typ.get(key)
+            if isinstance(inner, dict):
+                walk(inner)
+        for param in typ.get("params", []):
+            if isinstance(param, dict):
+                walk(param)
+
+    for typ in types:
+        walk(typ)
+    return found
+
+
+def _subst_type(typ: dict[str, Any], mapping: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    """Replace `{"kind": "typevar"}` placeholders by the mapped concrete type."""
+    kind = typ["kind"]
+    if kind == "typevar":
+        return mapping.get(typ["name"], typ)
+    if kind == "list":
+        return {**typ, "elem": _subst_type(typ["elem"], mapping)}
+    if kind == "dict":
+        return {
+            **typ,
+            "key": _subst_type(typ["key"], mapping),
+            "value": _subst_type(typ["value"], mapping),
+        }
+    if kind == "func":
+        return {
+            **typ,
+            "params": [_subst_type(param, mapping) for param in typ["params"]],
+            "return": _subst_type(typ["return"], mapping),
+        }
+    if "elem" in typ and isinstance(typ["elem"], dict):
+        return {**typ, "elem": _subst_type(typ["elem"], mapping)}
+    return typ
