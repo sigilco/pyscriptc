@@ -1599,7 +1599,7 @@ def member_callable(module: str, member: str) -> bool:
         return True
     if module == "time" and member in {"sleep", "gmtime", "localtime"}:
         return True
-    if module == "collections" and member in {"deque", "OrderedDict"}:
+    if module == "collections" and member in {"deque", "OrderedDict", "Counter", "defaultdict", "namedtuple"}:
         return True
     if module == "functools" and member == "reduce":
         return True

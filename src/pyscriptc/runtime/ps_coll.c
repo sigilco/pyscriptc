@@ -131,3 +131,61 @@ void ps_deque_popleft(PsDeque *d, void *out) {
         }
     }
 }
+
+/* collections.Counter. A Counter is a PsMap of int counts; a read of a
+   missing key reports 0 in the lowerer, so the runtime only counts. */
+
+void ps_counter_add(PsMap *m, void *key) {
+    int64_t n = 0;
+    if (ps_map_has(m, key)) {
+        ps_map_get(m, key, &n);
+    }
+    n += 1;
+    ps_map_put(m, key, &n);
+}
+
+PsMap *ps_counter_from_buf(int64_t len, const char *p) {
+    PsMap *m = ps_map_new(2, 16, 8, len < 16 ? len : 16);
+    PsBuf key;
+    int64_t i;
+    key.len = 1;
+    for (i = 0; i < len; i++) {
+        key.data = (char *)p + i;
+        ps_counter_add(m, &key);
+    }
+    return m;
+}
+
+PsMap *ps_counter_from_seq(PsSeq *s) {
+    int32_t kind = s->elem == 8 ? 1 : 2;
+    PsMap *m = ps_map_new(kind, s->elem, 8, s->len < 16 ? s->len : 16);
+    char cell[16];
+    int64_t i;
+    for (i = 0; i < s->len; i++) {
+        ps_seq_get(s, i, cell);
+        ps_counter_add(m, cell);
+    }
+    return m;
+}
+
+void ps_counter_update(PsMap *dst, PsMap *src) {
+    char cell[16];
+    int64_t i;
+    int64_t n;
+    for (i = 0; i < src->len; i++) {
+        ps_map_key_at(src, i, cell);
+        ps_map_val_at(src, i, &n);
+        if (ps_map_has(dst, cell)) {
+            int64_t cur = 0;
+            ps_map_get(dst, cell, &cur);
+            n += cur;
+        }
+        ps_map_put(dst, cell, &n);
+    }
+}
+
+PsMap *ps_counter_from_map(PsMap *src) {
+    PsMap *m = ps_map_new(src->key_kind, src->key_size, src->val_size, src->len);
+    ps_counter_update(m, src);
+    return m;
+}
