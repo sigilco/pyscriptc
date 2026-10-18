@@ -176,6 +176,25 @@ class ExprMixin:
             self.fail(node, "PS2004", "bool arithmetic is not lowered (bool is a subclass of int in Python)")
         if isinstance(node.op, ast.Pow):
             return self._pow(node, left, right, span)
+        if isinstance(node.op, ast.BitOr):
+            which = "union"
+        elif isinstance(node.op, ast.BitAnd):
+            which = "inter"
+        elif isinstance(node.op, ast.Sub):
+            which = "diff"
+        elif isinstance(node.op, ast.BitXor):
+            which = "xor"
+        else:
+            which = ""
+        if (
+            which
+            and left_kind == "list"
+            and right_kind == "list"
+            and left["type"].get("set")
+            and right["type"].get("set")
+            and types_equal(left["type"]["elem"], right["type"]["elem"])
+        ):
+            return self._set_algebra(span, left, right, which)
         op_type = type(node.op)
         if left_kind == "int" and right_kind == "int" and op_type in _INT_BIN:
             return _binary_int(_INT_BIN[op_type], left, right, span)
