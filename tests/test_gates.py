@@ -369,3 +369,163 @@ def test_emit_bin_without_call_builds_a_noop_main(tmp_path: Path) -> None:
     ran = subprocess.run([str(tmp_path / "lib")], capture_output=True, text=True)
     assert ran.returncode == 0
     assert ran.stdout == ""
+
+
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+def test_unpack_assignment_forms(tmp_path: Path) -> None:
+    cases = [
+        (
+            "tuple_rhs.py",
+            'def f() -> int:\n    pair: tuple[int, str] = (7, "x")\n    a, b = pair\n    return a + len(b)\n',
+        ),
+        (
+            "list_rhs.py",
+            "def f() -> int:\n    xs: list[int] = [3, 4]\n    a, b = xs\n    return a * 10 + b\n",
+        ),
+        (
+            "chained.py",
+            "def side() -> int:\n    return 4\n\ndef f() -> int:\n    a = b = side()\n    return a + b\n",
+        ),
+        (
+            "enumerate.py",
+            'def f() -> int:\n    xs: list[str] = ["a", "bb"]\n    total: int = 0\n'
+            "    for i, x in enumerate(xs):\n        total = total + i * 10 + len(x)\n    return total\n",
+        ),
+        (
+            "items.py",
+            'def f() -> int:\n    table: dict[str, int] = {"a": 1, "bb": 2}\n    total: int = 0\n'
+            "    for k, v in table.items():\n        total = total + len(k) * 10 + v\n    return total\n",
+        ),
+        (
+            "zip_pairs.py",
+            'def f() -> int:\n    xs: list[int] = [1, 2]\n    ys: list[str] = ["a", "bb"]\n    total: int = 0\n'
+            "    for a, b in zip(xs, ys):\n        total = total + a * 10 + len(b)\n    return total\n",
+        ),
+        (
+            "for_pairs.py",
+            "def f() -> int:\n    ps: list[tuple[int, int]] = [(1, 2), (3, 4)]\n    total: int = 0\n"
+            "    for a, b in ps:\n        total = total + a * 10 + b\n    return total\n",
+        ),
+        (
+            "star_head.py",
+            "def f() -> int:\n    xs: list[int] = [1, 2, 3, 4]\n    first, *rest = xs\n"
+            "    return first + rest[0] * 10 + len(rest)\n",
+        ),
+        (
+            "star_mid.py",
+            "def f() -> int:\n    xs: list[int] = [1, 2, 3, 4]\n    a, *rest, z = xs\n"
+            "    return a + z * 10 + len(rest)\n",
+        ),
+        (
+            "nested.py",
+            "def f() -> int:\n    pair: tuple[int, tuple[int, int]] = (1, (2, 3))\n"
+            "    a, (b, c) = pair\n    return a * 100 + b * 10 + c\n",
+        ),
+        (
+            "list_target.py",
+            "def f() -> int:\n    xs: list[int] = [3, 4]\n    [a, b] = xs\n    return a * b\n",
+        ),
+        (
+            "module_consts.py",
+            'A, B = (1, "s")\nC = D = 9\n\ndef f() -> int:\n    return A + len(B) + C + D\n',
+        ),
+        (
+            "comp_target.py",
+            "def f() -> int:\n    ps: list[tuple[int, int]] = [(1, 2), (3, 4)]\n"
+            "    xs: list[int] = [a + b for a, b in ps]\n    return xs[0] * 10 + xs[1]\n",
+        ),
+    ]
+    for name, source in cases:
+        path = write_case(tmp_path, name, source)
+        got = compile_run(tmp_path, path, "f")
+        assert got.returncode == 0, f"{name}\n{got.stderr}"
+        assert got.stdout == oracle(path, "f"), name
+
+
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+def test_unpack_wrong_arity_raises(tmp_path: Path) -> None:
+    cases = [
+        (
+            "few.py",
+            "def f() -> int:\n    xs: list[int] = [1]\n    a, b = xs\n    return a + b\n",
+            "not enough values to unpack (expected 2, got 1)",
+        ),
+        (
+            "many.py",
+            "def f() -> int:\n    xs: list[int] = [1, 2, 3]\n    a, b = xs\n    return a + b\n",
+            "too many values to unpack (expected 2)",
+        ),
+        (
+            "star.py",
+            "def f() -> int:\n    xs: list[int] = []\n    a, *rest = xs\n    return a\n",
+            "not enough values to unpack (expected at least 1, got 0)",
+        ),
+    ]
+    for name, source, text in cases:
+        path = write_case(tmp_path, name, source)
+        got = compile_run(tmp_path, path, "f")
+        assert got.returncode == 1, f"{name}\ncode {got.returncode}\n{got.stderr}"
+        assert text in got.stderr
+
+
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+def test_for_unpack_wrong_arity_raises(tmp_path: Path) -> None:
+    # A wrong for-target count binds the names and raises the CPython
+    # ValueError per iteration, so an empty iterable never raises.
+    full = write_case(
+        tmp_path,
+        "full.py",
+        "def f() -> int:\n    ps: list[tuple[int, int]] = [(1, 2)]\n    total: int = 0\n"
+        "    for a, b, c in ps:\n        total = total + a\n    return total\n",
+    )
+    got = run_cli("compile", str(full), "--skip-check", "--run", "--call", "f", "-o", str(tmp_path / "full"))
+    assert got.returncode == 1, got.stderr
+    assert "not enough values to unpack (expected 3, got 2)" in got.stderr
+    empty = write_case(
+        tmp_path,
+        "empty.py",
+        "def f() -> int:\n    ps: list[tuple[int, int]] = []\n    total: int = 7\n"
+        "    for a, b, c in ps:\n        total = 0\n    return total\n",
+    )
+    got = run_cli("compile", str(empty), "--skip-check", "--run", "--call", "f", "-o", str(tmp_path / "empty"))
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == "7\n"
+
+
+def test_unpack_fences_stay(tmp_path: Path) -> None:
+    # A static tuple arity mismatch and the non-name/non-tuple shapes fence;
+    # only a dynamic-length (list) RHS raises the CPython ValueError at run time.
+    cases = [
+        (
+            "arity.py",
+            "def f() -> int:\n    pair: tuple[int, int] = (1, 2)\n    a, b, c = pair\n    return a\n",
+            "needs 2 names",
+        ),
+        (
+            "star_arity.py",
+            "def f() -> int:\n    pair: tuple[int, int] = (1, 2)\n    a, b, c, *rest = pair\n    return a\n",
+            "starred unpack",
+        ),
+        (
+            "str_rhs.py",
+            'def f() -> int:\n    a, b = "xy"\n    return 1\n',
+            "tuple or list",
+        ),
+        (
+            "nested_for.py",
+            "def f() -> int:\n    ps: list[tuple[int, tuple[int, int]]] = [(1, (2, 3))]\n"
+            "    for a, (b, c) in ps:\n        pass\n    return 1\n",
+            "flat names",
+        ),
+        (
+            "range_unpack.py",
+            "def f() -> int:\n    for a, b in range(3):\n        pass\n    return 1\n",
+            "enumerate/zip",
+        ),
+    ]
+    for name, source, text in cases:
+        path = write_case(tmp_path, name, source)
+        got = run_cli("compile", str(path), "--skip-check", "--emit", "llvm", "-o", str(tmp_path / f"{name}.ll"))
+        assert got.returncode == 3, f"{name}\n{got.stderr}"
+        assert "PS2002" in got.stderr
+        assert text in got.stderr

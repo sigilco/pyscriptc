@@ -620,7 +620,11 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         gen = node.generators[0]
         if len(gen.ifs) > 1:
             self.fail(node, "PS2002", "list comprehensions have one if")
-        if not isinstance(gen.target, ast.Name):
+        if isinstance(gen.target, (ast.Tuple, ast.List)):
+            for elt in gen.target.elts:
+                if not isinstance(elt, ast.Name):
+                    self.fail(elt, "PS2002", "for unpacks flat names")
+        elif not isinstance(gen.target, ast.Name):
             self.fail(node, "PS2002", "for targets a single name")
         dest = self._temp("comp")
         saved = (
