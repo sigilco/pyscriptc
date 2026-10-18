@@ -23,7 +23,7 @@ static _Thread_local PsJmp *ps_top;
 static _Thread_local PsExc *ps_current;
 char ps_empty_byte;
 
-/* Parent chain for the 7 existing codes: every builtin is a child of
+/* Parent chain for the 8 existing codes: every builtin is a child of
 Exception. User codes (>= PS_USER_BASE) have no runtime parent yet; the
 emitted handler precomputes their matches (E3 registers them here). */
 static const int32_t ps_exc_parent[PS_USER_BASE] = {
@@ -35,6 +35,7 @@ static const int32_t ps_exc_parent[PS_USER_BASE] = {
     PS_EXCEPTION,
     PS_EXCEPTION,
     0,
+    PS_EXCEPTION,
 };
 
 _Static_assert(sizeof(PsBuf) == 16, "PsBuf must match %ps.str");
@@ -53,6 +54,8 @@ static const char *ps_exc_name(int code) {
         return "ZeroDivisionError";
     case PS_EXCEPTION:
         return "Exception";
+    case PS_STOP:
+        return "StopIteration";
     default:
         return "RuntimeError";
     }

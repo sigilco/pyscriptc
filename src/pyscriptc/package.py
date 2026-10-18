@@ -16,6 +16,7 @@ import copy
 from pathlib import Path
 from typing import Any
 
+from pyscriptc.builtins import USER_EXC_BASE
 from pyscriptc.errors import IRError
 from pyscriptc.ir import SUBSET, cpython_version
 from pyscriptc.lower import Lowerer
@@ -29,7 +30,7 @@ def lower_directory(root: Path) -> tuple[dict[str, Any], str]:
     classes: list[dict[str, Any]] = []
     fences: list[dict[str, Any]] = []
     class_names: dict[str, dict[str, Any]] = {}
-    exc_n = 8
+    exc_n = USER_EXC_BASE
     for name, path, is_package in units:
         text = path.read_text(encoding="utf-8")
         tree = ast.parse(text, filename=str(path))
@@ -95,7 +96,7 @@ def _catalog_once(
 ) -> tuple[dict[str, dict[str, dict[str, Any]]], dict[str, dict[str, dict[str, Any]]]]:
     found: dict[str, dict[str, dict[str, Any]]] = {}
     failed: dict[str, dict[str, dict[str, Any]]] = {}
-    exc_n = 8
+    exc_n = USER_EXC_BASE
     for name, path, is_package in units:
         text = path.read_text(encoding="utf-8")
         tree = ast.parse(text, filename=str(path))

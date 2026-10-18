@@ -17,12 +17,13 @@ EXCEPTIONS: dict[str, int] = {
     "ZeroDivisionError": 5,
     "RuntimeError": 6,
     "Exception": 7,
+    "StopIteration": 8,
 }
 
 # User exception classes take codes from here up; matches PS_USER_BASE in
 # ps_rt.h. Exception handlers treat every code at or above it as an
 # Exception descendant, since all user exceptions inherit a lowered builtin.
-USER_EXC_BASE = 8
+USER_EXC_BASE = 9
 
 # params are type kinds. return is a type kind, or "self" for the receiver's type.
 STR_METHODS: dict[str, dict[str, Any]] = {

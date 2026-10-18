@@ -841,6 +841,8 @@ class StmtMixin:
             if fresh:
                 out.insert(0, _assign(target, _zero(elem, span), span))
             return out
+        if kind == "class" and self.classes.get(iterable["type"]["name"], {}).get("iterator"):
+            return self._for_iter(stmt, iterable, span)
         if kind == "str":
             elem = {"kind": "str"}
         elif kind == "bytes":
@@ -916,6 +918,56 @@ class StmtMixin:
             ]
         )
         return prefix
+
+    def _for_iter(self, stmt: ast.For, iterable: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
+        """`for x in it` drains the iterator record: each step reads seq[idx]
+        and advances idx, so a second loop over `it` sees the spent cursor."""
+        elem = iterable["type"]["elem"]
+        int_t = {"kind": "int"}
+        seq_t = {"kind": "list", "elem": elem}
+        itn = self._temp("it")
+        self.locals[itn] = iterable["type"]
+        itn_n = _name(itn, iterable["type"], span)
+        seq_r = _attr(itn_n, "seq", seq_t, span)
+        idx_r = _attr(itn_n, "idx", int_t, span)
+        unpack = not isinstance(stmt.target, ast.Name)
+        target = ""
+        fresh = False
+        if unpack:
+            if elem["kind"] != "class" or not self.classes.get(elem["name"], {}).get("tuple"):
+                self.fail(stmt, "PS2002", "for unpacks a list of tuples or enumerate/zip")
+        else:
+            target = stmt.target.id
+            fresh = self._bind_loop_target(target, elem, stmt.target)
+        item = _item(seq_r, idx_r, elem, span)
+        if unpack:
+            item_t = self._temp("item")
+            self.locals[item_t] = elem
+            fields = self.classes[elem["name"]]["fields"]
+            values = [_attr(_name(item_t, elem, span), field["name"], field["type"], span) for field in fields]
+            bind = [
+                _assign(item_t, item, span),
+                *self._for_unpack(stmt, [field["type"] for field in fields], values, span),
+            ]
+        else:
+            bind = [_assign(target, item, span)]
+        advance = {
+            "kind": "setattr",
+            "object": itn_n,
+            "name": "idx",
+            "value": _binary_int("+", idx_r, _const_int(1, span), span),
+            "span": span,
+        }
+        body = self._loop_body(stmt)
+        out = [_assign(itn, iterable, span)]
+        if fresh:
+            out.append(_assign(target, _zero(elem, span), span))
+        out += self._user_while(
+            _compare("<", idx_r, _len_call(seq_r, span), span),
+            [*bind, advance, *body],
+            span,
+        )
+        return out
 
     def _for_range(self, stmt: ast.For, span: dict[str, Any]) -> list[dict[str, Any]]:
         call = stmt.iter

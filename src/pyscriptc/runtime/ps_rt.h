@@ -17,7 +17,8 @@ enum {
     PS_ZERO_DIV = 5,
     PS_RUNTIME = 6,
     PS_EXCEPTION = 7,
-    PS_USER_BASE = 8
+    PS_STOP = 8,
+    PS_USER_BASE = 9
 };
 
 /* longjmp payload once an exception is pending; the class code lives on the
