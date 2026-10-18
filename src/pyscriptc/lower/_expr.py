@@ -115,6 +115,8 @@ class ExprMixin:
             if found.get("kind") == "tuple-const":
                 return self._materialize_tuple(found["elems"], span)
             return {**found, "span": span}
+        if node.id == "__name__":
+            return {"kind": "const", "value": self.module_name or "__main__", "type": {"kind": "str"}, "span": span}
         if node.id in self.type_aliases:
             self.fail(node, "PS2002", f"{node.id} is a typing name and is not a value")
         binding = self.bindings.get(node.id)
