@@ -150,6 +150,48 @@ def _const_none(span: dict[str, Any]) -> dict[str, Any]:
     return {"kind": "const", "value": None, "type": {"kind": "none"}, "span": span}
 
 
+def _const_truthy(value: dict[str, Any] | None) -> bool | None:
+    """Python truthiness of a folded constant. None means not decidable."""
+    if value is None:
+        return None
+    kind = value["kind"]
+    if kind == "const":
+        typ = value["type"]["kind"]
+        if typ == "bool":
+            return bool(value["value"])
+        if typ == "int":
+            return int(value["value"]) != 0
+        if typ == "float":
+            return float(value["value"]) != 0.0
+        if typ in {"str", "bytes"}:
+            return len(value["value"]) > 0
+        if typ == "none":
+            return False
+        return None
+    if kind == "list":
+        return len(value["elems"]) > 0
+    if kind == "dict":
+        return len(value["pairs"]) > 0
+    return None
+
+
+def _module_closed(value: dict[str, Any]) -> bool:
+    """A storable module constant: no `name` references anywhere inside.
+
+    A `name` points at a prelude temp that only exists inside a function
+    body, so storing one at module scope dangles. Every other kind re-emits
+    at each read, which is what stored calls and literals already do.
+    """
+    kind = value["kind"]
+    if kind == "name":
+        return False
+    if kind == "list":
+        return all(_module_closed(elem) for elem in value["elems"])
+    if kind == "dict":
+        return all(_module_closed(pair["key"]) and _module_closed(pair["value"]) for pair in value["pairs"])
+    return True
+
+
 def _len_call(seq: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
     return {
         "kind": "call",
