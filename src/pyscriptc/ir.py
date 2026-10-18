@@ -121,11 +121,11 @@ def validate_expr(expr: Any, where: str) -> None:
         if "value" not in expr:
             raise IRError(f"{where}: const needs value")
     elif kind == "unary":
-        if expr.get("op") not in {"-", "not"}:
+        if expr.get("op") not in {"-", "not", "~"}:
             raise IRError(f"{where}: unsupported unary op")
         validate_expr(expr.get("operand"), f"{where}.operand")
     elif kind == "binary":
-        if expr.get("op") not in {"+", "-", "*", "//"}:
+        if expr.get("op") not in {"+", "-", "*", "//", "/", "%", "&", "|", "^", "<<", ">>", "**"}:
             raise IRError(f"{where}: unsupported binary op")
         validate_expr(expr.get("left"), f"{where}.left")
         validate_expr(expr.get("right"), f"{where}.right")

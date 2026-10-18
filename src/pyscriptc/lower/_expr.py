@@ -47,8 +47,20 @@ from pyscriptc.stdlib_queue import (
 )
 from pyscriptc.stdmore import COMPARE_CLASSES, member_callable, module_constant
 
-_INT_BIN = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*", ast.FloorDiv: "//"}
-_FLOAT_BIN = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*"}
+_INT_BIN = {
+    ast.Add: "+",
+    ast.Sub: "-",
+    ast.Mult: "*",
+    ast.FloorDiv: "//",
+    ast.Mod: "%",
+    ast.BitOr: "|",
+    ast.BitAnd: "&",
+    ast.BitXor: "^",
+    ast.LShift: "<<",
+    ast.RShift: ">>",
+}
+_FLOAT_BIN = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*", ast.Div: "/", ast.Mod: "%", ast.FloorDiv: "//"}
+_NUMERIC = {"int", "float"}
 
 
 class ExprMixin:
@@ -164,11 +176,15 @@ class ExprMixin:
             return {"kind": "unary", "op": "not", "operand": inner, "type": {"kind": "bool"}, "span": span}
         if isinstance(node.op, ast.USub) and kind == "class" and operand["type"].get("name") == "TimeDelta":
             return {"kind": "unary", "op": "-", "operand": operand, "type": operand["type"], "span": span}
+        if isinstance(node.op, ast.UAdd) and kind in _NUMERIC:
+            return operand
+        if isinstance(node.op, ast.Invert) and kind == "int":
+            return {"kind": "unary", "op": "~", "operand": operand, "type": {"kind": "int"}, "span": span}
         self.fail(node, "PS2004", f"unary {type(node.op).__name__} on {kind} is not lowered")
         raise AssertionError("unreachable")
 
     def _binary(self, node: ast.BinOp, span: dict[str, Any]) -> dict[str, Any]:
-        if isinstance(node.op, ast.Mod):
+        if isinstance(node.op, ast.Mod) and isinstance(node.left, ast.Constant) and isinstance(node.left.value, str):
             return self._percent(node, span)
         left = self._expr(node.left)
         right = self._expr(node.right)
@@ -178,6 +194,9 @@ class ExprMixin:
             self.fail(node, "PS2004", "bool arithmetic is not lowered (bool is a subclass of int in Python)")
         if isinstance(node.op, ast.Pow):
             return self._pow(node, left, right, span)
+        if isinstance(node.op, ast.Mod) and (left_kind not in _NUMERIC or right_kind not in _NUMERIC):
+            # Anything but a numeric `%` stays the format-string fence it was.
+            return self._percent(node, span)
         if isinstance(node.op, ast.BitOr):
             which = "union"
         elif isinstance(node.op, ast.BitAnd):
@@ -198,17 +217,25 @@ class ExprMixin:
         ):
             return self._set_algebra(span, left, right, which)
         op_type = type(node.op)
-        if left_kind == "int" and right_kind == "int" and op_type in _INT_BIN:
-            return _binary_int(_INT_BIN[op_type], left, right, span)
-        if left_kind == "float" and right_kind == "float" and op_type in _FLOAT_BIN:
-            return {
-                "kind": "binary",
-                "op": _FLOAT_BIN[op_type],
-                "left": left,
-                "right": right,
-                "type": {"kind": "float"},
-                "span": span,
-            }
+        if left_kind in _NUMERIC and right_kind in _NUMERIC:
+            if left_kind == "int" and right_kind == "int" and op_type in _INT_BIN:
+                return _binary_int(_INT_BIN[op_type], left, right, span)
+            if op_type in _FLOAT_BIN:
+                # A float operand — or `/` itself — lifts the int side through
+                # sitofp, the same promotion `float(x)` emits.
+                float_t = {"kind": "float"}
+                if left_kind == "int":
+                    left = {"kind": "cast", "op": "int_to_float", "value": left, "type": float_t, "span": span}
+                if right_kind == "int":
+                    right = {"kind": "cast", "op": "int_to_float", "value": right, "type": float_t, "span": span}
+                return {
+                    "kind": "binary",
+                    "op": _FLOAT_BIN[op_type],
+                    "left": left,
+                    "right": right,
+                    "type": float_t,
+                    "span": span,
+                }
         if left_kind == right_kind and left_kind in {"str", "bytes"} and isinstance(node.op, ast.Add):
             return {
                 "kind": "binary",
@@ -252,18 +279,26 @@ class ExprMixin:
     def _pow(
         self, node: ast.BinOp, left: dict[str, Any], right: dict[str, Any], span: dict[str, Any]
     ) -> dict[str, Any]:
-        """`base ** exp` is a loop of the existing int `*`.
+        """`base ** exp` is a loop of the existing int `*`, or a float `pow`.
 
-        Both operands are ints. The base and the exponent are stored once, then
+        Both operands ints: the base and the exponent are stored once, then
         the accumulator starts at 1 and is multiplied `exp` times. `0 ** 0` is
-        that 1. A negative exponent stays fenced: a constant is refused here,
-        and a computed negative raises ValueError instead of becoming a float.
+        that 1. A float operand lifts the pair to `llvm.pow.f64`, and so does
+        a constant negative exponent — `2 ** -1` is `0.5`, like CPython. A
+        computed negative stays the old ValueError raise, since the result
+        type is pinned int here and cannot become a float per operand.
         """
-        if left["type"]["kind"] != "int" or right["type"]["kind"] != "int":
+        left_kind = left["type"]["kind"]
+        right_kind = right["type"]["kind"]
+        if left_kind not in _NUMERIC or right_kind not in _NUMERIC:
             self.fail(node, "PS2004", "** is only lowered for int")
-        static = _static_int(right)
-        if static is not None and static < 0:
-            self.fail(node, "PS2004", "a negative exponent is not lowered")
+        float_t = {"kind": "float"}
+        if left_kind == "float" or right_kind == "float" or (_static_int(right) or 0) < 0:
+            if left_kind == "int":
+                left = {"kind": "cast", "op": "int_to_float", "value": left, "type": float_t, "span": span}
+            if right_kind == "int":
+                right = {"kind": "cast", "op": "int_to_float", "value": right, "type": float_t, "span": span}
+            return {"kind": "binary", "op": "**", "left": left, "right": right, "type": float_t, "span": span}
         int_t = {"kind": "int"}
         base = self._temp("powb")
         exp = self._temp("powe")
@@ -331,9 +366,11 @@ class ExprMixin:
         """
         if left["type"].get("ordered") or right["type"].get("ordered"):
             self.fail(node, "PS2004", "OrderedDict equality is not lowered")
+        left_kind = left["type"]["kind"]
+        right_kind = right["type"]["kind"]
         same_class = (
-            left["type"]["kind"] == "class"
-            and right["type"]["kind"] == "class"
+            left_kind == "class"
+            and right_kind == "class"
             and left["type"].get("name") == right["type"].get("name")
         )
         if same_class and left["type"].get("name") in COMPARE_CLASSES:
@@ -351,15 +388,23 @@ class ExprMixin:
                     return self._seq_eq(node, left, right, span, negated=op == "!=")
                 if left["type"]["kind"] == "dict":
                     return self._dict_eq(node, left, right, span, negated=op == "!=")
-        if left["type"]["kind"] != right["type"]["kind"] or left["type"]["kind"] not in {
+        if left_kind != right_kind or left_kind not in {
             "int",
             "float",
             "bool",
             "str",
             "bytes",
         }:
+            if left_kind in _NUMERIC and right_kind in _NUMERIC:
+                # int vs float promotes through sitofp, then fcmp.
+                float_t = {"kind": "float"}
+                if left_kind == "int":
+                    left = {"kind": "cast", "op": "int_to_float", "value": left, "type": float_t, "span": span}
+                else:
+                    right = {"kind": "cast", "op": "int_to_float", "value": right, "type": float_t, "span": span}
+                return _compare(op, left, right, span)
             self.fail(node, "PS2004", "comparisons need two values of the same scalar type")
-        if left["type"]["kind"] == "bool" and op not in {"==", "!="}:
+        if left_kind == "bool" and op not in {"==", "!="}:
             self.fail(node, "PS2004", "bool ordering is not lowered")
         return _compare(op, left, right, span)
 
