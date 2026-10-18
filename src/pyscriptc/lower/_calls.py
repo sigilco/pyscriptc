@@ -195,6 +195,34 @@ class CallsMixin:
                     "type": typ,
                     "span": span,
                 }
+            if attr == "format" and kind == "str":
+                # Same engine as `%`; arg layout is [kwarg names, positionals, kwarg values].
+                if any(keyword.arg is None for keyword in node.keywords):
+                    self.fail(node, "PS2003", "str.format **kwargs are not lowered")
+                names = [
+                    {"kind": "const", "value": keyword.arg, "type": {"kind": "str"}, "span": span}
+                    for keyword in node.keywords
+                ]
+                tail = [self._expr(arg) for arg in node.args]
+                tail += [self._expr(keyword.value) for keyword in node.keywords]
+                for arg in tail:
+                    a_type = arg["type"]
+                    if a_type["kind"] == "dict":
+                        if a_type["key"]["kind"] not in {"int", "str"} or a_type["value"]["kind"] not in {
+                            "int",
+                            "float",
+                            "str",
+                            "bytes",
+                        }:
+                            self.fail(node, "PS2002", "str.format needs scalar dict keys and values")
+                    elif a_type["kind"] not in {"int", "float", "str", "bool", "bytes"}:
+                        self.fail(node, "PS2004", f"str.format of {_show(arg['type'])} is not lowered")
+                expr = self._abi_call(
+                    "builtins", "format", [receiver, *names, *tail], {"kind": "str"}, "ps_str_format", span
+                )
+                expr["format_style"] = "dot"
+                expr["format_kwnames"] = len(node.keywords)
+                return expr
             self._reject_keywords(node)
             args = [self._expr(arg) for arg in node.args]
             if attr in {"encode", "decode"} and args:
