@@ -73,18 +73,84 @@ static PsExc *ps_exc_new(int32_t code) {
     return e;
 }
 
+static void ps_report_one(PsExc *e) {
+    if (e != NULL && e->message.len > 0) {
+        fprintf(stderr, "%s: %s\n", ps_exc_name(e->code), e->message.data);
+    } else {
+        fprintf(stderr, "%s\n", ps_exc_name(e != NULL ? e->code : PS_RUNTIME));
+    }
+}
+
 /* Deliver ps_current: unwind to the innermost handler, or report and exit. */
 __attribute__((noinline, noreturn)) static void ps_deliver(void) {
     PsExc *e = ps_current;
     if (ps_top == NULL) {
-        if (e != NULL && e->message.len > 0) {
-            fprintf(stderr, "%s: %s\n", ps_exc_name(e->code), e->message.data);
-        } else {
-            fprintf(stderr, "%s\n", ps_exc_name(e != NULL ? e->code : PS_RUNTIME));
+        if (e != NULL && e->cause != NULL) {
+            ps_report_one(e->cause);
+            fprintf(stderr, "The above exception was the direct cause of the following exception.\n");
         }
+        ps_report_one(e);
         exit(1);
     }
     longjmp(ps_top->buf, PS_RAISED);
+}
+
+PsExc *ps_exc_current(void) {
+    return ps_current;
+}
+
+PsExc *ps_exc_make(int32_t code, int64_t n, const char *data) {
+    if (code == 0) {
+        code = PS_RUNTIME;
+    }
+    if (n < 0) {
+        n = 0;
+    }
+    size_t take = (size_t)n;
+    if (take > 255) {
+        take = 255;
+    }
+    PsExc *e = ps_exc_new(code);
+    if (take > 0 && data != NULL) {
+        memcpy(e->message.data, data, take);
+    }
+    e->message.data[take] = '\0';
+    e->message.len = (int64_t)take;
+    return e;
+}
+
+void ps_exc_set_cause(PsExc *e, PsExc *cause) {
+    if (e != NULL) {
+        e->cause = cause;
+    }
+}
+
+__attribute__((noinline, noreturn)) void ps_raise_exc(PsExc *e) {
+    if (e == NULL) {
+        e = ps_exc_new(PS_RUNTIME);
+    }
+    ps_current = e;
+    ps_deliver();
+}
+
+PsBuf ps_exc_str(PsExc *e) {
+    if (e == NULL) {
+        PsBuf empty = {0, &ps_empty_byte};
+        return empty;
+    }
+    return e->message;
+}
+
+PsSeq *ps_exc_args(PsExc *e) {
+    int64_t has = e != NULL && e->message.len > 0 ? 1 : 0;
+    PsSeq *s = ps_seq_new((int64_t)sizeof(PsBuf), has);
+    if (s == NULL) {
+        abort();
+    }
+    if (has) {
+        ps_seq_set(s, 0, &e->message);
+    }
+    return s;
 }
 
 __attribute__((noinline, noreturn)) void ps_raise(int32_t code) {

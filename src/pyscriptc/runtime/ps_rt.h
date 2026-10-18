@@ -81,7 +81,8 @@ typedef struct PsGrow {
 
 /* Raised exception. name and message are borrowed storage: name points at the
 static class-name table, message at a 256-byte owned buffer like the old
-ps_msg channel. cause and args stay NULL until M3/E3. */
+ps_msg channel. cause links `raise ... from`; args is built lazily by
+ps_exc_args from message (E3 stores real ctor args). */
 typedef struct PsExc {
     int32_t code;
     int32_t flags;
@@ -96,6 +97,12 @@ extern char ps_empty_byte;
 __attribute__((noreturn)) void ps_raise_cstr(int32_t code, const char *msg);
 __attribute__((noreturn)) void ps_raise_code(int32_t code);
 __attribute__((noreturn)) void ps_reraise(void);
+__attribute__((noreturn)) void ps_raise_exc(PsExc *e);
+PsExc *ps_exc_current(void);
+PsExc *ps_exc_make(int32_t code, int64_t n, const char *data);
+void ps_exc_set_cause(PsExc *e, PsExc *cause);
+PsBuf ps_exc_str(PsExc *e);
+PsSeq *ps_exc_args(PsExc *e);
 int32_t ps_exc_code(void);
 int32_t ps_exc_isa(int32_t raised, int32_t wanted);
 void *ps_alloc(int64_t n);

@@ -304,6 +304,55 @@ class Emitter:
 
     def emit_try(self, stmt: dict[str, Any]) -> None:
         self.needed.add("exc")
+        if stmt.get("finalbody"):
+            # E2 desugar: body+handlers+else become an inner try inside one
+            # outline; the callsite runs `finalbody` on every outcome.
+            inner = {"kind": "try", "body": stmt["body"], "handlers": stmt["handlers"], "span": stmt["span"]}
+            if stmt.get("orelse"):
+                inner["orelse"] = stmt["orelse"]
+                for flag in ["brk", "cont"]:
+                    if stmt.get(flag) is not None:
+                        inner[flag] = stmt[flag]
+            outline = self._emit_outline([inner])
+            env = self._pack_env()
+            if self.flow_ptr is None:
+                raise IRError("try has no flow slot")
+            code = self._call_ret("i32", "ps_try_call", [f"ptr @{outline}", f"ptr {env}", f"ptr {self.flow_ptr}"])
+            raised = self.tmp()
+            self.line(f"{raised} = icmp ne i32 {code}, 0")
+            raise_l = self.fresh("fin.raise")
+            norm_l = self.fresh("fin.norm")
+            merge_l = self.fresh("fin.merge")
+            ret_l = self.fresh("fin.ret")
+            self.line(f"br i1 {raised}, label %{raise_l}, label %{norm_l}")
+            self.terminated = True
+            self.block(raise_l)
+            self._abi_decl("ps_exc_current", "ptr", [])
+            self._abi_decl("ps_raise_exc", "void", ["ptr"])
+            saved = self._call_ret("ptr", "ps_exc_current", [])
+            self.emit_body(stmt["finalbody"])
+            if not self.terminated:
+                self.line(f"call void @ps_raise_exc(ptr {saved}) noreturn")
+                self.line("unreachable")
+                self.terminated = True
+            self.block(norm_l)
+            flow = self._load("i32", self.flow_ptr)
+            leave = self.tmp()
+            self.line(f"{leave} = icmp eq i32 {flow}, 1")
+            cont_l = self.fresh("fin.cont")
+            self.line(f"br i1 {leave}, label %{ret_l}, label %{cont_l}")
+            self.terminated = True
+            self.block(ret_l)
+            self.emit_body(stmt["finalbody"])
+            if not self.terminated:
+                self._emit_propagated_return()
+            self.block(cont_l)
+            self.emit_body(stmt["finalbody"])
+            if not self.terminated:
+                self.line(f"br label %{merge_l}")
+                self.terminated = True
+            self.block(merge_l)
+            return
         outline = self._emit_outline(stmt["body"])
         env = self._pack_env()
         if self.flow_ptr is None:
@@ -326,6 +375,12 @@ class Emitter:
             self.line(f"br i1 {cond}, label %{take_l}, label %{miss_l}")
             self.terminated = True
             self.block(take_l)
+            slot = handler.get("excslot")
+            if slot is not None:
+                # `except E as e` binding (or a bare-raise temp slot).
+                self._abi_decl("ps_exc_current", "ptr", [])
+                current = self._call_ret("ptr", "ps_exc_current", [])
+                self.line(f"store ptr {current}, ptr {self.slots[slot][0]}")
             self.emit_body(handler["body"])
             if not self.terminated:
                 self.line(f"br label %{merge_l}")
@@ -338,8 +393,34 @@ class Emitter:
         flow = self._load("i32", self.flow_ptr)
         leave = self.tmp()
         self.line(f"{leave} = icmp eq i32 {flow}, 1")
-        self.line(f"br i1 {leave}, label %{ret_l}, label %{merge_l}")
-        self.terminated = True
+        if stmt.get("orelse"):
+            else_l = self.fresh("try.else")
+            skip_l = self.fresh("try.skipelse")
+            self.line(f"br i1 {leave}, label %{ret_l}, label %{skip_l}")
+            self.terminated = True
+            self.block(skip_l)
+            # else runs iff the body fell through: no raise, return, or jump.
+            jumped: str = "false"
+            for flag in ["brk", "cont"]:
+                fname = stmt.get(flag)
+                if fname is not None:
+                    reg = self._load("i1", self.slots[fname][0])
+                    if jumped == "false":
+                        jumped = reg
+                    else:
+                        nxt = self.tmp()
+                        self.line(f"{nxt} = or i1 {jumped}, {reg}")
+                        jumped = nxt
+            self.line(f"br i1 {jumped}, label %{merge_l}, label %{else_l}")
+            self.terminated = True
+            self.block(else_l)
+            self.emit_body(stmt["orelse"])
+            if not self.terminated:
+                self.line(f"br label %{merge_l}")
+                self.terminated = True
+        else:
+            self.line(f"br i1 {leave}, label %{ret_l}, label %{merge_l}")
+            self.terminated = True
         self.block(ret_l)
         self._emit_propagated_return()
         self.block(merge_l)
@@ -453,7 +534,38 @@ class Emitter:
         self.needed.add("exc")
         code = stmt["code"] if "code" in stmt else EXCEPTIONS[stmt["exc"]]
         if stmt.get("reraise"):
-            self.line("call void @ps_reraise() noreturn")
+            slot = stmt.get("excslot")
+            if slot is not None:
+                value = self.load(slot)
+                self._abi_decl("ps_raise_exc", "void", ["ptr"])
+                self.line(f"call void @ps_raise_exc(ptr {value}) noreturn")
+            else:
+                self.line("call void @ps_reraise() noreturn")
+        elif stmt.get("cause") is not None:
+            # `raise E(args) from cause`: build the record, link the cause
+            # (an excmake or bound `except ... as e` local), then raise.
+            self._abi_decl("ps_exc_make", "ptr", ["i32", "i64", "ptr"])
+            self._abi_decl("ps_exc_set_cause", "void", ["ptr", "ptr"])
+            self._abi_decl("ps_raise_exc", "void", ["ptr"])
+            made = self._call_ret("ptr", "ps_exc_make", [f"i32 {code}", "i64 0", "ptr null"])
+            if stmt.get("message") is not None:
+                msg = self.emit_expr(stmt["message"])
+                mlen, mptr = self._buf_parts(msg)
+                made = self._call_ret("ptr", "ps_exc_make", [f"i32 {code}", f"i64 {mlen}", f"ptr {mptr}"])
+            cause = stmt["cause"]
+            if cause["kind"] == "excmake":
+                ccode = cause["code"] if "code" in cause else EXCEPTIONS[cause["exc"]]
+                cause_value = self._call_ret("ptr", "ps_exc_make", [f"i32 {ccode}", "i64 0", "ptr null"])
+                if cause.get("message") is not None:
+                    cmsg = self.emit_expr(cause["message"])
+                    clen, cptr = self._buf_parts(cmsg)
+                    cause_value = self._call_ret("ptr", "ps_exc_make", [f"i32 {ccode}", f"i64 {clen}", f"ptr {cptr}"])
+            elif cause["kind"] == "name":
+                cause_value = self.load(cause["id"])
+            else:
+                raise IRError("raise cause must be a name or excmake")
+            self._call_void("ps_exc_set_cause", [f"ptr {made}", f"ptr {cause_value}"])
+            self.line(f"call void @ps_raise_exc(ptr {made}) noreturn")
         elif stmt.get("message") is None:
             self.line(f"call void @ps_raise_code(i32 {code}) noreturn")
         else:
@@ -488,6 +600,8 @@ class Emitter:
         self.line(f"store {_llvm_type(field['type'])} {value}, ptr {slot}")
 
     def _exc_match(self, code: str, handler: dict[str, Any] | list[str]) -> str:
+        if isinstance(handler, dict) and handler.get("bare"):
+            return "true"
         names = handler if isinstance(handler, list) else handler["exc"]
         checks: list[str] = []
         for name in names:
@@ -721,6 +835,9 @@ class Emitter:
                 self._abi_decl("ps_repr_bytes", "void", ["i64", "ptr", "ptr"])
                 length, ptr = self._buf_parts(values[0])
                 return self._buf_out("ps_repr_bytes", [f"i64 {length}", f"ptr {ptr}"])
+            if kind == "exc":
+                self._abi_decl("ps_exc_str", "%ps.str", ["ptr"])
+                return self._call_ret("%ps.str", "ps_exc_str", [f"ptr {values[0]}"])
             if kind == "class" and arg_types[0].get("name") == "Path":
                 self._abi_decl("ps_path_posix", "void", ["ptr", "ptr"])
                 return self._buf_out("ps_path_posix", [f"ptr {values[0]}"])
@@ -1096,7 +1213,7 @@ class Emitter:
         if kind in {"str", "bytes"}:
             length, ptr = self._buf_parts(value)
             return [(f"i64 {length}", "i64"), (f"ptr {ptr}", "ptr")]
-        if kind in {"list", "dict", "class"}:
+        if kind in {"list", "dict", "class", "exc"}:
             return [(f"ptr {value}", "ptr")]
         raise IRError(f"cannot pass {kind} to a runtime call")
 
@@ -1722,6 +1839,12 @@ class Emitter:
                 out = self._buf_out("ps_repr_bytes", [f"i64 {rlen}", f"ptr {rptr}"])
                 length, ptr = self._buf_parts(out)
                 self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
+                self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
+            elif kind == "exc":
+                self._abi_decl("ps_exc_str", "%ps.str", ["ptr"])
+                out = self._call_ret("%ps.str", "ps_exc_str", [f"ptr {value}"])
+                length, ptr = self._buf_parts(out)
+                self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
             else:
                 length, ptr = self._buf_parts(value)
                 self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
@@ -1849,7 +1972,7 @@ def _llvm_type(typ: dict[str, Any]) -> str:
         return "double"
     if kind in {"str", "bytes"}:
         return "%ps.str"
-    if kind in {"list", "dict", "class"}:
+    if kind in {"list", "dict", "class", "exc"}:
         return "ptr"
     if kind == "none":
         return "void"

@@ -622,6 +622,12 @@ class ClassesMixin:
         raise AssertionError("unreachable")
 
     def _lookup_attr(self, obj: dict[str, Any], name: str, span: dict[str, Any], node: ast.AST) -> dict[str, Any]:
+        if obj["type"]["kind"] == "exc":
+            if name == "args":
+                return self._abi_call(
+                    "builtins", "exc.args", [obj], {"kind": "list", "elem": {"kind": "str"}}, "ps_exc_args", span
+                )
+            self.fail(node, "PS2001", f"exception has no attribute {name}")
         if obj["type"]["kind"] != "class":
             self.fail(node, "PS2001", f"attribute access is not lowered ({name})")
         class_name = obj["type"]["name"]

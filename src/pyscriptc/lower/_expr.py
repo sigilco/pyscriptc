@@ -91,7 +91,10 @@ class ExprMixin:
         raise AssertionError("unreachable")
 
     def _name(self, node: ast.Name, span: dict[str, Any]) -> dict[str, Any]:
-        if node.id in self.locals:
+        if node.id in self.dead_names:
+            # `except E as e` deletes e at handler end (CPython's `del e`).
+            pass
+        elif node.id in self.locals:
             return _name(node.id, self.locals[node.id], span)
         slot = self.global_slots.get(node.id)
         if slot is not None and slot.get("active"):
