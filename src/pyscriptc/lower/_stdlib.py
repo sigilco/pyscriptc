@@ -18,7 +18,16 @@ import os
 from typing import Any, NoReturn
 
 from pyscriptc.errors import span_of
-from pyscriptc.lower._core import _FUTURE_OK, Binding, Fence, _is_none_expr, _package_base
+from pyscriptc.lower._core import (
+    _FUTURE_OK,
+    Binding,
+    Fence,
+    _const_bool,
+    _const_truthy,
+    _is_none_expr,
+    _module_closed,
+    _package_base,
+)
 from pyscriptc.lower._stdlib_shared import _ERASED_MODULES
 from pyscriptc.restlower import alias_name, rest_call
 from pyscriptc.stdlib_queue import (
@@ -469,7 +478,11 @@ class StdlibDispatchMixin:
                         self._expect(stmt, folded["type"], typ, stmt.target.id)
                         self._store_constant(stmt.target.id, folded, stmt)
                         return
-                value = self._expr(stmt.value, typ)
+                value = self._module_fold(stmt.value)
+                if value is None:
+                    value = self._expr(stmt.value, typ)
+                if not _module_closed(value):
+                    self.fail(stmt, "PS2002", "a module assignment must be a constant")
                 self._expect(stmt, value["type"], typ, stmt.target.id)
                 self._store_constant(stmt.target.id, value, stmt)
                 return
@@ -486,12 +499,16 @@ class StdlibDispatchMixin:
                     if folded is not None:
                         self._store_constant(target, folded, stmt)
                         return
-                value = self._expr(stmt.value)
+                value = self._module_fold(stmt.value)
+                if value is None:
+                    value = self._expr(stmt.value)
                 # re.compile of one str constant is the Pattern call a function
                 # already lowers. Store that call and re-emit it at each read.
                 # It is not a const kind and not a runtime global. Flags, extra
                 # arguments, and a non-constant pattern stay fenced here.
-                if value["kind"] not in {"const", "list", "dict"} and not self._one_str_pattern(stmt.value, value):
+                if (
+                    value["kind"] not in {"const", "list", "dict"} or not _module_closed(value)
+                ) and not self._one_str_pattern(stmt.value, value):
                     self.fail(stmt, "PS2002", "a module assignment must be a constant")
                 self._store_constant(target, value, stmt)
                 return
@@ -522,6 +539,65 @@ class StdlibDispatchMixin:
             self.fail(stmt, "PS2002", "module assignment is not lowered")
         except Fence as exc:
             self.caught.append(exc)
+
+    def _module_fold(self, node: ast.expr) -> dict[str, Any] | None:
+        """Fold a module-scope conditional or boolean operation over constants.
+
+        Inside a function the operands lower through `if` prelude statements;
+        module scope has no body to hold them, so the value folds here. A node
+        that does not reduce to a closed constant returns None, and the
+        ordinary path decides whether the assignment stores or fences.
+        """
+        if isinstance(node, ast.IfExp):
+            truthy = _const_truthy(self._module_const(node.test))
+            if truthy is None:
+                return None
+            return self._module_const(node.body if truthy else node.orelse)
+        if isinstance(node, ast.BoolOp):
+            values = [self._module_const(value) for value in node.values]
+            result = values[-1]
+            for value in values:
+                truthy = _const_truthy(value)
+                if truthy is None:
+                    return None
+                if truthy != isinstance(node.op, ast.And):
+                    result = value
+                    break
+            return result
+        return None
+
+    def _module_const(self, node: ast.expr) -> dict[str, Any] | None:
+        """An operand of a module fold: a closed constant, else None.
+
+        A failed attempt rolls the lowering state back: `prelude` temps never
+        reach a body at module scope and a partial `locals`/`classes` update
+        must not leak into the next statement.
+        """
+        if isinstance(node, (ast.IfExp, ast.BoolOp)):
+            return self._module_fold(node)
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+            operand = self._module_const(node.operand)
+            truthy = _const_truthy(operand)
+            if truthy is None:
+                return None
+            return _const_bool(not truthy, span_of(node, self.filename))
+        saved_locals = dict(self.locals)
+        saved_classes = dict(self.classes)
+        saved_prelude = self.prelude
+        self.prelude = []
+        try:
+            value = self._expr(node)
+        except Fence:
+            self.locals = saved_locals
+            self.classes = saved_classes
+            raise
+        finally:
+            self.prelude = saved_prelude
+        if value["kind"] not in {"const", "list", "dict"} or not _module_closed(value):
+            self.locals = saved_locals
+            self.classes = saved_classes
+            return None
+        return value
 
     def _module_set_literal(self, node: ast.Set) -> dict[str, Any] | None:
         """A set of const str or const int is the set list a module list constant already inlines.

@@ -2,6 +2,11 @@
 
 mypy is a subprocess. Its AST is not an input to lowering. A bad annotation
 fails the build before LLVM emission.
+
+The plugin below realigns a few typeshed signatures with the lowered
+contract: `os.getenv(key)` returns `str` or raises `KeyError`, never
+`None`; `struct.unpack` yields a homogeneous `list`, not `tuple[Any, ...]`;
+`frozenset(...)` is the set list, so `set[T]` annotation sites accept it.
 """
 
 from __future__ import annotations
@@ -9,7 +14,11 @@ from __future__ import annotations
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
+
+from mypy.plugin import FunctionContext, Plugin
+from mypy.types import AnyType, Instance, Type, TypeOfAny
 
 
 class CheckFailed(Exception):
@@ -18,10 +27,46 @@ class CheckFailed(Exception):
         self.output = output
 
 
+def _getenv_type(ctx: FunctionContext) -> Type:
+    return ctx.api.named_generic_type("builtins.str", [])
+
+
+def _unpack_type(ctx: FunctionContext) -> Type:
+    # struct.unpack lowers to a homogeneous list; `Any` keeps both `list[int]`
+    # and the historical `tuple[int, ...]` annotations checking clean.
+    return AnyType(TypeOfAny.explicit)
+
+
+def _frozenset_type(ctx: FunctionContext) -> Type:
+    ret = ctx.default_return_type
+    args = ret.args if isinstance(ret, Instance) and ret.args else [AnyType(TypeOfAny.explicit)]
+    return ctx.api.named_generic_type("builtins.set", list(args))
+
+
+_HOOKS: dict[str, Callable[[FunctionContext], Type]] = {
+    "os.getenv": _getenv_type,
+    "struct.unpack": _unpack_type,
+    "_struct.unpack": _unpack_type,
+    "frozenset": _frozenset_type,
+    "builtins.frozenset": _frozenset_type,
+}
+
+
+class _SubsetPlugin(Plugin):
+    def get_function_hook(self, fullname: str) -> Callable[[FunctionContext], Type] | None:
+        return _HOOKS.get(fullname)
+
+
+def plugin(version: str) -> type[Plugin]:
+    return _SubsetPlugin
+
+
 def run_checker(path: Path, checker: str = "mypy") -> None:
     if checker != "mypy":
         raise CheckFailed(f"checker {checker!r} is not wired; the spike preflight uses mypy")
     with tempfile.TemporaryDirectory(prefix="pyscriptc-mypy-") as cache:
+        config = Path(cache) / "mypy.ini"
+        config.write_text("[mypy]\nplugins = pyscriptc.check\n", encoding="utf-8")
         proc = subprocess.run(
             [
                 sys.executable,
@@ -31,6 +76,8 @@ def run_checker(path: Path, checker: str = "mypy") -> None:
                 "--hide-error-context",
                 "--no-error-summary",
                 "--follow-imports=silent",
+                "--config-file",
+                str(config),
                 "--cache-dir",
                 cache,
                 "--no-incremental",
