@@ -451,6 +451,13 @@ class MypyFactsAdapter:
 
 _PYRIGHT_STUBS = Path(__file__).with_name("_pyright_stubs")
 
+# Named tuples because ruff (target-version py314) strips except-parens
+# into `except A, B:` — valid only on 3.14+, broken on the 3.13 dev venv.
+_PIPE_ERRORS = (OSError, CheckFailed)
+_SHUTDOWN_ERRORS = _PIPE_ERRORS + (subprocess.TimeoutExpired,)
+_READ_ERRORS = (OSError, ValueError, json.JSONDecodeError)
+_EVAL_ERRORS = (ValueError, SyntaxError)
+
 
 class _LspConnection:
     """Minimal synchronous JSON-RPC client for one stdio langserver.
@@ -514,7 +521,7 @@ class _LspConnection:
             return
         try:
             self._send({"jsonrpc": "2.0", "method": method, "params": params})
-        except (OSError, CheckFailed):
+        except _PIPE_ERRORS:
             self._dead = True
 
     def wait_notification(
@@ -546,7 +553,7 @@ class _LspConnection:
             self.request("shutdown", None, timeout=10)
             self.notify("exit", None)
             proc.wait(timeout=5)
-        except (CheckFailed, subprocess.TimeoutExpired, OSError):
+        except _SHUTDOWN_ERRORS:
             pass
         if proc.poll() is None:
             proc.kill()
@@ -594,7 +601,7 @@ class _LspConnection:
                     self._mark_dead()
                     return
                 message = json.loads(body)
-            except (OSError, ValueError, json.JSONDecodeError):
+            except _READ_ERRORS:
                 self._mark_dead()
                 return
             self._dispatch(message)
@@ -817,7 +824,7 @@ def _parse_literal_piece(text: str) -> TypeFacts | None:
     """A `Literal[...]` member or a bare literal: 1, 's', True, None, Color.RED."""
     try:
         value = ast.literal_eval(text)
-    except (ValueError, SyntaxError):
+    except _EVAL_ERRORS:
         value = None
     if isinstance(value, bool):
         return TypeFacts(kind="literal", args=(TypeFacts(kind="bool"),), runtime_repr=text)
@@ -865,7 +872,7 @@ def _default_static_value(text: str) -> Any:
     """`"x"`/`3`/`True` -> StaticValue; _MISSING when unrepresentable."""
     try:
         value = ast.literal_eval(text)
-    except (ValueError, SyntaxError):
+    except _EVAL_ERRORS:
         return _MISSING
     if value is ... or isinstance(value, (tuple, frozenset, complex)):
         return _MISSING
@@ -1274,6 +1281,9 @@ class PyrightFactsAdapter:
 
         def visit(body: list[ast.stmt], prefix: str) -> None:
             for stmt in body:
+                if isinstance(stmt, ast.ClassDef):
+                    visit(stmt.body, f"{prefix}{stmt.name}.")
+                    continue
                 if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     qualname = f"{prefix}{stmt.name}"
                     position = self._def_hover_position(stmt, lines)
