@@ -55,6 +55,10 @@ QUEUE: tuple[str, ...] = (
     "shutil",
     "enum",
     "dataclasses",
+    "random",
+    "csv",
+    "textwrap",
+    "copy",
 )
 
 LOWERED: frozenset[str] = frozenset(QUEUE)
