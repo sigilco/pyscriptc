@@ -761,6 +761,20 @@ class ClassesMixin:
                     "type": {"kind": "class", "name": "TimeDelta"},
                     "span": span,
                 }
+        if op is ast.Div:
+            # `p / x` is pathlib's __truediv__/__rtruediv__: joinpath each way.
+            if left_name == "Path" and right["type"]["kind"] == "str":
+                return self._abi_call(
+                    "pathlib", "Path.__truediv__", [left, right], left["type"], "ps_path_joinpath", span
+                )
+            if left_name == "Path" and right_name == "Path":
+                return self._abi_call(
+                    "pathlib", "Path.__truediv__", [left, right], left["type"], "ps_path_joinpath_p", span
+                )
+            if left["type"]["kind"] == "str" and right_name == "Path":
+                return self._abi_call(
+                    "pathlib", "Path.__rtruediv__", [left, right], right["type"], "ps_path_rjoin", span
+                )
         self.fail(node, "PS2004", f"{op.__name__} on {left_name} and {right_name} is not lowered")
         raise AssertionError("unreachable")
 

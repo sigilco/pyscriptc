@@ -1271,6 +1271,12 @@ CLASS_METHODS: dict[str, dict[str, dict[str, Any]]] = {
         "write_text": _sig([_S], _I, "ps_path_write_text"),
         "write_bytes": _sig([_BY], _I, "ps_path_write_bytes"),
         "joinpath": _sig([_S], _PATH, "ps_path_joinpath"),
+        "with_name": _sig([_S], _PATH, "ps_path_with_name"),
+        # iterdir/glob return the materialized list[Path]; lowering wraps it
+        # in the R24 iterator record. mkdir is special-cased for keywords.
+        "iterdir": _sig([], {"kind": "list", "elem": _PATH}, "ps_path_iterdir"),
+        "glob": _sig([_S], {"kind": "list", "elem": _PATH}, "ps_path_glob"),
+        "mkdir": _sig([], _N, "ps_path_mkdir"),
     },
     "TextIO": {
         "read": _sig([], _S, "ps_io_read"),
