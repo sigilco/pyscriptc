@@ -362,7 +362,17 @@ class ClassesMixin:
             self.fn_body = list(stmt.body)
             if kind in {"method", "property"}:
                 self.locals["self"] = {"kind": "class", "name": node.name}
-            body = self._body(list(stmt.body))
+            # Function-local imports rebind module names: snapshot the
+            # compile-time binding tables so they restore when the body ends.
+            saved_bindings = dict(self.bindings)
+            saved_aliases = dict(self.type_aliases)
+            saved_declared = set(self.declared)
+            try:
+                body = self._body(list(stmt.body))
+            finally:
+                self.bindings = saved_bindings
+                self.type_aliases = saved_aliases
+                self.declared = saved_declared
             if self.caught:
                 continue
             if stmt.name == "__init__":

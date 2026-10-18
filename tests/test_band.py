@@ -270,16 +270,6 @@ def test_atexit_runs_on_the_way_out(tmp_path: Path) -> None:
 def test_small_names_stay_fenced(tmp_path: Path) -> None:
     cases = [
         (
-            "which.py",
-            "import shutil\n\ndef f() -> int:\n    shutil.which('ls')\n    return 1\n",
-            "shutil.which",
-        ),
-        (
-            "named.py",
-            "import tempfile\n\ndef f() -> int:\n    tempfile.NamedTemporaryFile()\n    return 1\n",
-            "tempfile.NamedTemporaryFile",
-        ),
-        (
             "ucd.py",
             "import unicodedata\n\ndef f() -> int:\n    unicodedata.ucd_3_2_0\n    return 1\n",
             "unicodedata.ucd_3_2_0",

@@ -120,6 +120,18 @@ class CallsMixin:
 
     def _call_attr(self, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
         assert isinstance(node.func, ast.Attribute)
+        if node.func.attr == "get" and self._is_environ(node.func.value):
+            # `os.environ.get(k, default)` is always a str. The 1-arg form
+            # returns `str | None`, which has no IR type — same boundary as
+            # `dict.get` below.
+            self._reject_keywords(node)
+            if len(node.args) != 2:
+                self.fail(node, "PS2003", "os.environ.get expects 2 argument(s)")
+            args = [self._expr(arg) for arg in node.args]
+            for arg in args:
+                if arg["type"]["kind"] != "str":
+                    self.fail(node, "PS1003", "os.environ.get takes str arguments")
+            return self._abi_call("os", "environ.get", args, {"kind": "str"}, "ps_os_getenv_or", span)
         resolved = self._resolve_module(node.func)
         if resolved is not None:
             dotted, module, member, status = resolved

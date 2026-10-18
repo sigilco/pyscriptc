@@ -9,6 +9,7 @@ File writes are flushed so a later open sees them. OS errors are RuntimeError.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 typedef struct PsIO {
     int32_t kind;
@@ -16,6 +17,8 @@ typedef struct PsIO {
     PsGrow mem;
     int64_t pos;
     FILE *fp;
+    /* Set for tempfile.NamedTemporaryFile(delete=True): unlinked on close. */
+    char *tmp_path;
 } PsIO;
 
 static PsIO *ps_blank(int kind) {
@@ -50,30 +53,74 @@ PsIO *ps_io_bytes(int64_t n, const char *s) {
     return io;
 }
 
+static const char *ps_open_how(int64_t mode) {
+    if (mode == 1) {
+        return "r";
+    }
+    if (mode == 2) {
+        return "w";
+    }
+    if (mode == 3) {
+        return "rb";
+    }
+    if (mode == 4) {
+        return "wb";
+    }
+    if (mode == 5) {
+        return "a";
+    }
+    if (mode == 6) {
+        return "ab";
+    }
+    if (mode == 7) {
+        return "w+";
+    }
+    if (mode == 8) {
+        return "w+b";
+    }
+    return NULL;
+}
+
+static int32_t ps_open_kind(int64_t mode) { return mode == 3 || mode == 4 || mode == 6 || mode == 8 ? 4 : 3; }
+
+/* tempfile.NamedTemporaryFile hands over an fd that mkstemp created. The
+   path is unlinked on close unless `keep` is set (delete=False). */
+PsIO *ps_io_take_fd(int fd, const char *path, int64_t mode, int64_t keep) {
+    const char *how = ps_open_how(mode);
+    FILE *fp;
+    PsIO *io;
+    if (how == NULL) {
+        close(fd);
+        ps_raise_cstr(PS_VALUE, "open mode is not lowered");
+    }
+    fp = fdopen(fd, how);
+    if (fp == NULL) {
+        close(fd);
+        ps_raise_cstr(PS_RUNTIME, "open failed");
+    }
+    io = ps_blank(ps_open_kind(mode));
+    io->fp = fp;
+    if (!keep) {
+        size_t len = strlen(path);
+        io->tmp_path = malloc(len + 1);
+        if (io->tmp_path == NULL) {
+            abort();
+        }
+        memcpy(io->tmp_path, path, len + 1);
+    }
+    return io;
+}
+
 PsIO *ps_io_open(int64_t n, const char *path, int64_t mode) {
-    const char *how = NULL;
-    int kind = 3;
+    const char *how = ps_open_how(mode);
+    int kind;
     char *text;
     FILE *fp;
     PsIO *io;
-    if (mode == 1) {
-        how = "r";
-    } else if (mode == 2) {
-        how = "w";
-    } else if (mode == 3) {
-        how = "rb";
-        kind = 4;
-    } else if (mode == 4) {
-        how = "wb";
-        kind = 4;
-    } else if (mode == 5) {
-        how = "a";
-    } else if (mode == 6) {
-        how = "ab";
-        kind = 4;
-    } else {
+    if (how == NULL) {
         ps_raise_cstr(PS_VALUE, "open mode is not lowered");
     }
+    kind = ps_open_kind(mode);
     text = malloc((size_t)n + 1);
     if (text == NULL) {
         abort();
@@ -221,6 +268,11 @@ void ps_io_readline(PsIO *io, PsBuf *out) {
 void ps_io_close(PsIO *io) {
     if (io->closed) {
         return;
+    }
+    if (io->tmp_path != NULL) {
+        unlink(io->tmp_path);
+        free(io->tmp_path);
+        io->tmp_path = NULL;
     }
     if (io->fp != NULL && fclose(io->fp) != 0) {
         io->fp = NULL;

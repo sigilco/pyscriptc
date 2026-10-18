@@ -333,6 +333,33 @@ def test_fences_stay_closed(tmp_path: Path) -> None:
             "PS2002",
             "list[bool]",
         ),
+        # Star imports stay fenced: a lowered star table would need a
+        # snapshot of every exported name per module, and `from x import *`
+        # hides the name list from the static table.
+        ("star.py", "from os import *\n\ndef f() -> int:\n    return 1\n", "PS2002", "star import"),
+        # os.uname returns a structseq: 5-tuple of strs is not an IR value.
+        ("uname.py", "import os\n\ndef f() -> int:\n    os.uname()\n    return 1\n", "PS2001", "os.uname"),
+        # os.environ is read-mostly: item assignment fences.
+        (
+            "envset.py",
+            "import os\n\ndef f() -> int:\n    os.environ['K'] = 'v'\n    return 1\n",
+            "PS2001",
+            "os.environ",
+        ),
+        # environ.get with one arg returns str | None, which has no IR type.
+        (
+            "envget1.py",
+            "import os\n\ndef f() -> int:\n    os.environ.get('K')\n    return 1\n",
+            "PS2003",
+            "os.environ.get",
+        ),
+        # A bad import inside a function still fences, scoped to that body.
+        (
+            "localpickle.py",
+            "def f() -> int:\n    import pickle\n    return 1\n",
+            "PS2002",
+            "pickle",
+        ),
     ]
     for name, source, code, text in cases:
         path = write_case(tmp_path, name, source)
@@ -529,3 +556,48 @@ def test_unpack_fences_stay(tmp_path: Path) -> None:
         assert got.returncode == 3, f"{name}\n{got.stderr}"
         assert "PS2002" in got.stderr
         assert text in got.stderr
+
+
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+def test_import_forms_and_env(tmp_path: Path) -> None:
+    path = write_case(
+        tmp_path,
+        "import_env.py",
+        "\n".join(
+            [
+                "import os",
+                "import os.path",
+                "import shutil",
+                "import tempfile",
+                "",
+                "def f() -> str:",
+                "    import json",
+                "    import urllib.parse",
+                "    import urllib.parse as up",
+                "    from os.path import join, basename",
+                "    lines: list[str] = []",
+                "    lines.append(json.dumps({'a': 1}))",
+                "    lines.append(urllib.parse.quote('a b'))",
+                "    lines.append(up.unquote('a%20b'))",
+                "    lines.append(join('x', 'y') + basename('/a/b/c'))",
+                "    lines.append(os.path.join('a', 'b', 'c'))",
+                "    import os.path as osp",
+                "    lines.append(osp.dirname('/a/b/c'))",
+                "    lines.append(str(os.environ['HOME'] == os.getenv('HOME')))",
+                "    lines.append(str('HOME' in os.environ))",
+                "    lines.append(str('PS_NO_SUCH_KEY_QQ' in os.environ))",
+                "    lines.append(os.environ.get('PS_NO_SUCH_KEY_QQ', 'fallback'))",
+                "    lines.append(os.getenv('PS_NO_SUCH_KEY_QQ', 'fallback2'))",
+                "    lines.append(os.getenv('HOME') or 'none')",
+                "    lines.append(shutil.which('sh') or 'missing')",
+                "    with tempfile.NamedTemporaryFile(mode='w+') as fh:",
+                "        fh.write('hi')",
+                "    lines.append('closed')",
+                "    return chr(10).join(lines)",
+                "",
+            ]
+        ),
+    )
+    got = compile_run(tmp_path, path, "f")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle(path, "f")
