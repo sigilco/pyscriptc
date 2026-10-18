@@ -24,7 +24,7 @@ uv run python benchmarks/compat2/boxed_cost.py --window-commits 10 [--reach reac
 
 It reports, per window, code share, churn share, bug share (`fix` commits) and iteration tax (commits that touch boxed code without naming boxed, island or fallback in the subject). Record the latest values and their trend here after each run.
 
-Latest measurement (2026-10-18, after wave-3 merges #94-#100): code 1.0%, churn 0.0%, bug 0.0%, tax 0.0%, drop_flag false, three windows all flat (previous windows 1.1%/1.3%). Baseline at snapshot 046: `ps_island.c` is about 1.4% of compiler lines, all other metrics are zero.
+Latest measurement (2026-10-18, after wave-5 merges #104-#114): code 0.8%, churn 0.0%, bug 0.0%, tax 0.0%, drop_flag false, three windows all flat (previous windows 1.0%/1.1%). Baseline at snapshot 046: `ps_island.c` is about 1.4% of compiler lines, all other metrics are zero.
 
 Drop flag rules. Raise the flag in the iteration report when any holds:
 
