@@ -134,16 +134,17 @@ class CallsMixin:
         assert isinstance(node.func, ast.Attribute)
         if node.func.attr == "get" and self._is_environ(node.func.value):
             # `os.environ.get(k, default)` is always a str. The 1-arg form
-            # returns `str | None`, which has no IR type — same boundary as
-            # `dict.get` below.
+            # returns the tagged `str | None`, like `os.getenv(k)`.
             self._reject_keywords(node)
-            if len(node.args) != 2:
-                self.fail(node, "PS2003", "os.environ.get expects 2 argument(s)")
+            if len(node.args) not in {1, 2}:
+                self.fail(node, "PS2003", "os.environ.get expects 1-2 argument(s)")
             args = [self._expr(arg) for arg in node.args]
             for arg in args:
                 if arg["type"]["kind"] != "str":
                     self.fail(node, "PS1003", "os.environ.get takes str arguments")
-            return self._abi_call("os", "environ.get", args, {"kind": "str"}, "ps_os_getenv_or", span)
+            if len(args) == 2:
+                return self._abi_call("os", "environ.get", args, {"kind": "str"}, "ps_os_getenv_or", span)
+            return self._opt_env_get(node, args[0], span)
         resolved = self._resolve_module(node.func)
         if resolved is not None:
             dotted, module, member, status = resolved
@@ -260,10 +261,9 @@ class CallsMixin:
             return self._synth_call(node, span, receiver)
         if kind == "dict" and node.func.attr == "keys":
             return self._dict_keys(node, span, receiver)
-        if kind == "dict" and node.func.attr == "get" and len(node.args) == 2 and not node.keywords:
-            # `d.get(k, default)` is `d[k] if k in d else default`. Only this
-            # 2-arg positional form lowers: `val | none` is not an IR type, so
-            # the 1-arg form keeps the generic attribute fence below.
+        if kind == "dict" and node.func.attr == "get" and len(node.args) in {1, 2} and not node.keywords:
+            # `d.get(k, default)` is `d[k] if k in d else default`. The 1-arg
+            # form's `else None` arm unifies into the tagged `V | None`.
             key = self._expr(node.args[0])
             self._expect(node, key["type"], receiver["type"]["key"], "dict.get key")
             d_t = self._temp("getd").replace(".", "_")
@@ -283,14 +283,16 @@ class CallsMixin:
                     slice=ast.Name(id=k_t, ctx=ast.Load()),
                     ctx=ast.Load(),
                 ),
-                orelse=node.args[1],
+                orelse=node.args[1] if len(node.args) == 2 else ast.Constant(value=None),
             )
             for sub in ast.walk(ifexp):
                 sub.lineno, sub.col_offset = node.lineno, node.col_offset
                 sub.end_lineno, sub.end_col_offset = node.end_lineno, node.end_col_offset
-            value = self._expr(ifexp, receiver["type"]["value"])
-            self._expect(node, value["type"], receiver["type"]["value"], "dict.get default")
-            return value
+            if len(node.args) == 2:
+                value = self._expr(ifexp, receiver["type"]["value"])
+                self._expect(node, value["type"], receiver["type"]["value"], "dict.get default")
+                return value
+            return self._expr(ifexp)
         if kind == "dict" and receiver["type"].get("ordered") and node.func.attr in {"move_to_end", "popitem"}:
             self.fail(node, "PS2001", f"OrderedDict.{node.func.attr} is not lowered")
         if kind == "dict" and node.func.attr in {"values", "items", "pop", "setdefault", "update", "clear"}:
@@ -718,6 +720,43 @@ class CallsMixin:
             "span": span,
         }
 
+    def _opt_env_get(self, node: ast.Call, key: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+        """`os.getenv(k)` / `os.environ.get(k)`: the tagged `str | None`.
+
+        The cell starts untagged; only when ps_env_has reports the key is it
+        filled with ps_os_getenv's str.
+        """
+        opt_t = self._opt_type({"kind": "str"}, node)
+        res = self._opt_box(None, opt_t, span)
+        dest = res["id"]
+        has = self._abi_call("os", "environ.contains", [key], {"kind": "bool"}, "ps_env_has", span)
+        got = self._abi_call("os", "environ.get", [key], {"kind": "str"}, "ps_os_getenv", span)
+        self.prelude.append(
+            {
+                "kind": "if",
+                "cond": has,
+                "then": [
+                    {
+                        "kind": "setattr",
+                        "object": _name(dest, opt_t, span),
+                        "name": "_tag",
+                        "value": _const_bool(True, span),
+                        "span": span,
+                    },
+                    {
+                        "kind": "setattr",
+                        "object": _name(dest, opt_t, span),
+                        "name": "_val",
+                        "value": got,
+                        "span": span,
+                    },
+                ],
+                "else": [],
+                "span": span,
+            }
+        )
+        return res
+
     def _abi_call(
         self,
         module: str,
@@ -812,6 +851,12 @@ class CallsMixin:
                 if "default" not in param:
                     self.fail(node, "PS1003", f"{what} expects {len(params)} argument(s)")
                 got = param["default"]
+                if param.get("optdefault"):
+                    got = self._opt_box(
+                        None if got["type"]["kind"] == "none" else got,
+                        param["type"],
+                        got.get("span", span_of(node, self.filename)),
+                    )
             if not types_equal(got["type"], param["type"]):
                 self.fail(node, "PS1003", f"argument {param['name']} of {what} has the wrong type")
             args.append(got)

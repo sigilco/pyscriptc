@@ -491,11 +491,22 @@ class ClassesMixin:
             param = _param(self, arg)
             if index >= missing:
                 default_node = defaults[index - missing]
-                value = self._expr(default_node, param["type"])
-                self._expect(default_node, value["type"], param["type"], arg.arg)
-                if value["kind"] != "const":
-                    self.fail(default_node, "PS2002", "a default must be a constant")
-                param["default"] = value
+                if param["type"].get("optional"):
+                    value = self._expr(default_node)
+                    if value["kind"] != "const":
+                        self.fail(default_node, "PS2002", "a default must be a constant")
+                    if value["type"]["kind"] != "none" and not types_equal(value["type"], param["type"]["elem"]):
+                        self.fail(
+                            default_node, "PS1003", f"{arg.arg} is {_show(value['type'])}, not {_show(param['type'])}"
+                        )
+                    param["default"] = value
+                    param["optdefault"] = True
+                else:
+                    value = self._expr(default_node, param["type"])
+                    self._expect(default_node, value["type"], param["type"], arg.arg)
+                    if value["kind"] != "const":
+                        self.fail(default_node, "PS2002", "a default must be a constant")
+                    param["default"] = value
             params.append(param)
         if fn.args.vararg is not None:
             vararg = fn.args.vararg
@@ -554,6 +565,9 @@ class ClassesMixin:
 
     def _annotation(self, node: ast.AST) -> dict[str, Any]:
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+            opt = self._optional_pipe(node)
+            if opt is not None:
+                return opt
             self.fail(node, "PS1101", "union types are not in the IR")
         formed = self._typing_annotation(node)
         if formed is not None:
@@ -864,8 +878,13 @@ class ClassesMixin:
                     self.fail(node, "PS1001", "Annotated needs a type")
             return self._annotation(inner)
         if alias == "Optional":
-            self.fail(node, "PS1102", "optional types are not in the IR")
+            return self._opt_type(self._annotation(node.slice), node)
         if alias == "Union":
+            parts = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+            if len(parts) == 2:
+                for i, part in enumerate(parts):
+                    if isinstance(part, ast.Constant) and part.value is None:
+                        return self._opt_type(self._annotation(parts[1 - i]), node)
             self.fail(node, "PS1101", "union types are not in the IR")
         self.fail(node, "PS1103", f"{alias} is not a value type in the IR")
 
@@ -946,6 +965,39 @@ class ClassesMixin:
             self.fail(node, "PS2002", "tuple index is out of range")
         field = fields[index]
         return {"kind": "attr", "value": value, "name": field["name"], "type": field["type"], "span": span}
+
+    def _optional_pipe(self, node: ast.BinOp) -> dict[str, Any] | None:
+        for side in (node.left, node.right):
+            if isinstance(side, ast.Constant) and side.value is None:
+                other = node.left if side is node.right else node.right
+                if isinstance(other, ast.BinOp) and isinstance(other.op, ast.BitOr):
+                    return None
+                return self._opt_type(self._annotation(other), node)
+        return None
+
+    def _opt_type(self, elem: dict[str, Any], node: ast.AST) -> dict[str, Any]:
+        if elem["kind"] == "none":
+            return {"kind": "none"}
+        if elem.get("optional"):
+            return elem
+        name = "opt_" + _type_slug(elem)
+        existing = self.classes.get(name)
+        if existing is None:
+            if name in self.declared:
+                self.fail(node, "PS2002", f"{name} clashes with an optional type")
+            self.classes[name] = {
+                "fields": [
+                    {"name": "_tag", "type": {"kind": "bool"}},
+                    {"name": "_val", "type": elem},
+                ],
+                "methods": {},
+                "synthetic": True,
+                "optional": True,
+            }
+            self.declared.add(name)
+        elif not existing.get("optional"):
+            self.fail(node, "PS2002", f"{name} clashes with an optional type")
+        return {"kind": "class", "name": name, "label": _show(elem) + " | None", "optional": True, "elem": elem}
 
 
 def _param(lowerer: Any, arg: ast.arg) -> dict[str, Any]:

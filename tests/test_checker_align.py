@@ -1,6 +1,6 @@
 """Checker-alignment shims: the lowered contract, not typeshed, is the truth.
 
-`os.getenv(key)` returns `str` or raises `KeyError`, `struct.unpack` yields
+`os.getenv(key)` returns `str | None`, `struct.unpack` yields
 a homogeneous `list`, `frozenset(...)` is the set list, and
 `from posixpath import join` binds like `posixpath.join`. Each probe below
 compiles WITHOUT `--skip-check` and matches the CPython oracle.
@@ -20,7 +20,9 @@ def test_getenv_str_annotation_compiles(tmp_path: Path, monkeypatch: pytest.Monk
 import os
 
 def probe() -> int:
-    v: str = os.getenv("PYSC_TEST_ENV")
+    v: str | None = os.getenv("PYSC_TEST_ENV")
+    if v is None:
+        return -1
     return len(v)
 """
     monkeypatch.setitem(ENV, "PYSC_TEST_ENV", "hello")
@@ -33,18 +35,21 @@ def probe() -> int:
 
 
 @pytest.mark.linux_container
-def test_getenv_unset_raises_keyerror(tmp_path: Path) -> None:
+def test_getenv_unset_returns_none(tmp_path: Path) -> None:
     source = """
 import os
 
 def probe() -> int:
-    v: str = os.getenv("PYSC_TEST_ENV_UNSET")
+    v: str | None = os.getenv("PYSC_TEST_ENV_UNSET")
+    if v is None:
+        return -7
     return len(v)
 """
     path = write_case(tmp_path, "getenv_unset.py", source)
     got = compile_run(tmp_path, path, "probe")
-    assert got.returncode != 0
-    assert "KeyError" in (got.stdout + got.stderr)
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle(path, "probe")
+    assert got.stdout.strip() == "-7"
 
 
 @pytest.mark.linux_container
