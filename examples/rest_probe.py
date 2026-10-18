@@ -232,8 +232,8 @@ def probe() -> int:
     os.remove(dst)
     if posixpath.exists(dst):
         return 69
-    env_path: str = os.getenv("PATH")  # type: ignore[assignment]
-    if len(env_path) == 0:
+    env_path: str | None = os.getenv("PATH")
+    if len(env_path or "") == 0:
         return 70
     entries: list[str] = os.listdir("/tmp")
     if len(entries) == 0:

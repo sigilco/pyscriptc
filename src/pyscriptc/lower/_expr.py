@@ -25,6 +25,7 @@ from pyscriptc.lower._core import (
     _SCALAR,
     _TRUTHY,
     _assign,
+    _attr,
     _binary_int,
     _compare,
     _concat_str,
@@ -65,6 +66,77 @@ _NUMERIC = {"int", "float"}
 
 class ExprMixin:
     def _expr(self, node: ast.expr, expect: dict[str, Any] | None = None) -> dict[str, Any]:
+        value = self._expr_any(node, expect)
+        if expect is not None and expect.get("optional") and not value["type"].get("optional"):
+            # `T | None` takes a bare T or None by boxing it: heap value with a
+            # `_tag` flag and a `_val` field, allocated zeroed (tag false).
+            if value["type"]["kind"] == "none" or types_equal(value["type"], expect["elem"]):
+                return self._opt_box(
+                    None if value["type"]["kind"] == "none" else value, expect, span_of(node, self.filename)
+                )
+        return value
+
+    def _opt_box(self, value: dict[str, Any] | None, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+        """Box `value` into the `opt_*` heap cell, or emit the tagged-empty one.
+
+        The cell is calloc'd, so `_tag` starts false (None); a wrapped value
+        flips the tag and stores `_val`.
+        """
+        if value is not None and value["type"]["kind"] == "none":
+            value = None
+        dest = self._temp("opt")
+        self.locals[dest] = typ
+        made = {
+            "kind": "call",
+            "callee": {"kind": "class", "name": typ["name"]},
+            "args": [],
+            "type": typ,
+            "span": span,
+        }
+        self.prelude.append(_assign(dest, made, span))
+        box = _name(dest, typ, span)
+        if value is not None:
+            self.prelude.append(
+                {
+                    "kind": "setattr",
+                    "object": box,
+                    "name": "_tag",
+                    "value": _const_bool(True, span),
+                    "span": span,
+                }
+            )
+            self.prelude.append(
+                {
+                    "kind": "setattr",
+                    "object": _name(dest, typ, span),
+                    "name": "_val",
+                    "value": value,
+                    "span": span,
+                }
+            )
+        return box
+
+    def _opt_truthy(self, expr: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+        """Truthiness of a tagged optional: tagged and its value truthy.
+
+        Heap elements are truthy whenever they exist, so the tag alone decides.
+        """
+        typ = expr["type"]
+        tag = _attr(expr, "_tag", {"kind": "bool"}, span)
+        if typ["elem"]["kind"] in {"class", "exc"}:
+            return tag
+        val = _attr(expr, "_val", typ["elem"], span)
+        res = self._temp("optcond")
+        self.locals[res] = {"kind": "bool"}
+        self.prelude.append(_assign(res, tag, span))
+        retag = _attr(expr, "_tag", {"kind": "bool"}, span)
+        inner = self._truthy(val, span)
+        self.prelude.append(
+            {"kind": "if", "cond": retag, "then": [_assign(res, inner, span)], "else": [], "span": span}
+        )
+        return _name(res, {"kind": "bool"}, span)
+
+    def _expr_any(self, node: ast.expr, expect: dict[str, Any] | None = None) -> dict[str, Any]:
         span = span_of(node, self.filename)
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
             return self._name(node, span)
@@ -108,6 +180,10 @@ class ExprMixin:
             # `except E as e` deletes e at handler end (CPython's `del e`).
             pass
         elif node.id in self.locals:
+            narrowed = self.opt_unwrap.get(node.id)
+            if narrowed is not None:
+                # Inside `if x is not None:` a read of x is its tagged value.
+                return _attr(_name(node.id, narrowed, span), "_val", narrowed["elem"], span)
             return _name(node.id, self.locals[node.id], span)
         elif node.id in self.captures:
             return _name(node.id, self.captures[node.id], span)
@@ -189,7 +265,7 @@ class ExprMixin:
             return {"kind": "unary", "op": "-", "operand": operand, "type": {"kind": "float"}, "span": span}
         if isinstance(node.op, ast.Not) and kind == "bool":
             return {"kind": "unary", "op": "not", "operand": operand, "type": {"kind": "bool"}, "span": span}
-        if isinstance(node.op, ast.Not) and kind in _TRUTHY:
+        if isinstance(node.op, ast.Not) and (kind in _TRUTHY or operand["type"].get("optional")):
             inner = self._truthy(operand, span)
             return {"kind": "unary", "op": "not", "operand": inner, "type": {"kind": "bool"}, "span": span}
         if isinstance(node.op, ast.USub) and kind == "class" and operand["type"].get("name") == "TimeDelta":
@@ -391,6 +467,8 @@ class ExprMixin:
         )
         if same_class and left["type"].get("name") in COMPARE_CLASSES:
             return _compare(op, left, right, span)
+        if left["type"].get("optional") or right["type"].get("optional"):
+            return self._opt_compare(node, op, left, right, span)
         if op in {"==", "!="}:
             if same_class:
                 info = self.classes.get(str(left["type"]["name"]))
@@ -1086,6 +1164,8 @@ class ExprMixin:
         kind = expr["type"]["kind"]
         if kind == "bool":
             return expr
+        if expr["type"].get("optional"):
+            return self._opt_truthy(expr, span)
         if kind == "int":
             return _compare("!=", expr, _const_int(0, span), span)
         if kind == "float":
@@ -1123,6 +1203,10 @@ class ExprMixin:
         op_and = isinstance(node.op, ast.And)
         first = self._bool_operand(node.values[0], as_cond)
         typ = first["type"]
+        if typ.get("optional"):
+            if len(node.values) != 2:
+                self.fail(node, "PS2004", "and/or on an optional joins two values")
+            return self._opt_boolop(node, first, op_and, span)
         if typ["kind"] not in _TRUTHY | {"bool", "float"}:
             self.fail(node, "PS2004", f"and/or on {typ['kind']} is not lowered")
         temp = self._temp("boolop")
@@ -1173,7 +1257,42 @@ class ExprMixin:
         finally:
             self.prelude = saved
         if not types_equal(body["type"], orelse["type"]):
-            self.fail(node, "PS2004", "conditional expression across two types is not lowered")
+            # `x if c else None` (or a bare T against an optional) unifies on
+            # the optional: the other arm is boxed into the same tagged cell.
+            opt_typ = None
+            if body["type"].get("optional"):
+                opt_typ = body["type"]
+            elif orelse["type"].get("optional"):
+                opt_typ = orelse["type"]
+            elif body["type"]["kind"] == "none" and orelse["type"]["kind"] != "none":
+                opt_typ = self._opt_type(orelse["type"], node)
+            elif orelse["type"]["kind"] == "none" and body["type"]["kind"] != "none":
+                opt_typ = self._opt_type(body["type"], node)
+            coerced = False
+            if opt_typ is not None:
+                coerced = True
+                for which in ("body", "orelse"):
+                    side = body if which == "body" else orelse
+                    if types_equal(side["type"], opt_typ):
+                        continue
+                    if side["type"]["kind"] == "none":
+                        raw = None
+                    elif types_equal(side["type"], opt_typ["elem"]):
+                        raw = side
+                    else:
+                        coerced = False
+                        break
+                    saved = self.prelude
+                    self.prelude = body_pre if which == "body" else orelse_pre
+                    boxed = self._opt_box(raw, opt_typ, span)
+                    pre = self.prelude
+                    self.prelude = saved
+                    if which == "body":
+                        body, body_pre = boxed, pre
+                    else:
+                        orelse, orelse_pre = boxed, pre
+            if not coerced:
+                self.fail(node, "PS2004", "conditional expression across two types is not lowered")
         typ = body["type"]
         then_body = self._ifexp_branch(body_pre, body, span)
         else_body = self._ifexp_branch(orelse_pre, orelse, span)
@@ -1197,6 +1316,179 @@ class ExprMixin:
         if value["kind"] != "const":
             body.append({"kind": "expr", "expr": value, "span": span})
         return body
+
+    def _opt_boolop(
+        self, node: ast.BoolOp, first: dict[str, Any], op_and: bool, span: dict[str, Any]
+    ) -> dict[str, Any]:
+        """`x and y` / `x or y` on a tagged optional.
+
+        `x or y` with `y: T` unwraps to `T` (the value or the default), matching
+        CPython. `x and y` and `x or <optional>` keep the tagged type: the
+        deciding operand is already a tagged cell.
+        """
+        o_typ = first["type"]
+        elem = o_typ["elem"]
+        bool_t = {"kind": "bool"}
+        o = self._temp("opt")
+        self.locals[o] = o_typ
+        self.prelude.append(_assign(o, first, span))
+        oname = _name(o, o_typ, span)
+        cond = self._opt_truthy(oname, span)
+        saved = self.prelude
+        self.prelude = []
+        right = self._bool_operand(node.values[1], as_cond=False)
+        right_pre = self.prelude
+        self.prelude = saved
+        if right["type"].get("optional") or right["type"]["kind"] == "none":
+            if right["type"].get("optional") and not types_equal(right["type"], o_typ):
+                self.fail(node, "PS2004", "and/or across two types is not lowered")
+            if right["type"]["kind"] == "none":
+                saved = self.prelude
+                self.prelude = right_pre
+                right = self._opt_box(None, o_typ, span)
+                right_pre = self.prelude
+                self.prelude = saved
+            res = self._temp("opt")
+            self.locals[res] = o_typ
+            self.prelude.append(_assign(res, oname, span))
+            if not op_and:
+                cond = {"kind": "unary", "op": "not", "operand": cond, "type": bool_t, "span": span}
+            self.prelude.append(
+                {"kind": "if", "cond": cond, "then": [*right_pre, _assign(res, right, span)], "else": [], "span": span}
+            )
+            return _name(res, o_typ, span)
+        if not types_equal(right["type"], elem):
+            self.fail(node, "PS2004", "and/or across two types is not lowered")
+        res = self._temp("opt")
+        if op_and:
+            saved = self.prelude
+            self.prelude = right_pre
+            boxed = self._opt_box(right, o_typ, span)
+            then_body = self.prelude
+            self.prelude = saved
+            self.locals[res] = o_typ
+            self.prelude.append(_assign(res, oname, span))
+            self.prelude.append(
+                {"kind": "if", "cond": cond, "then": [*then_body, _assign(res, boxed, span)], "else": [], "span": span}
+            )
+            return _name(res, o_typ, span)
+        self.locals[res] = elem
+        val = _attr(oname, "_val", elem, span)
+        self.prelude.append(
+            {
+                "kind": "if",
+                "cond": cond,
+                "then": [_assign(res, val, span)],
+                "else": [*right_pre, _assign(res, right, span)],
+                "span": span,
+            }
+        )
+        return _name(res, elem, span)
+
+    def _opt_compare(
+        self,
+        node: ast.AST,
+        op: str,
+        left: dict[str, Any],
+        right: dict[str, Any],
+        span: dict[str, Any],
+    ) -> dict[str, Any]:
+        """`==`/`!=` on a tagged optional: compare tags, then values.
+
+        Both-untagged compares equal (None == None). Against a bare value the
+        tag must be set and the value equal; a non-optional operand of another
+        type can never equal it, so the compare folds to a constant.
+        """
+        bool_t = {"kind": "bool"}
+        if op not in {"==", "!="}:
+            self.fail(node, "PS2004", "ordering an optional is not lowered")
+        if left["type"].get("optional") and right["type"].get("optional"):
+            return self._opt_opt_eq(node, left, right, span, negated=op == "!=")
+        side, other = (left, right) if left["type"].get("optional") else (right, left)
+        if other["type"]["kind"] == "none":
+            tag = _attr(side, "_tag", bool_t, span)
+            if op == "!=":
+                return tag
+            return {"kind": "unary", "op": "not", "operand": tag, "type": bool_t, "span": span}
+        if not types_equal(other["type"], side["type"]["elem"]):
+            return _const_bool(op == "!=", span)
+        o = self._temp("optcmp")
+        self.locals[o] = side["type"]
+        self.prelude.append(_assign(o, side, span))
+        oname = _name(o, side["type"], span)
+        tag = _attr(oname, "_tag", bool_t, span)
+        val = _attr(oname, "_val", side["type"]["elem"], span)
+        saved = self.prelude
+        self.prelude = []
+        inner = self._compare_values(node, "==", val, other, span)
+        inner_pre = self.prelude
+        self.prelude = saved
+        res = self._temp("optcmp")
+        self.locals[res] = bool_t
+        self.prelude.append(_assign(res, tag, span))
+        self.prelude.append(
+            {
+                "kind": "if",
+                "cond": _attr(oname, "_tag", bool_t, span),
+                "then": [*inner_pre, _assign(res, inner, span)],
+                "else": [],
+                "span": span,
+            }
+        )
+        base = _name(res, bool_t, span)
+        if op == "!=":
+            return {"kind": "unary", "op": "not", "operand": base, "type": bool_t, "span": span}
+        return base
+
+    def _opt_opt_eq(
+        self,
+        node: ast.AST,
+        left: dict[str, Any],
+        right: dict[str, Any],
+        span: dict[str, Any],
+        *,
+        negated: bool,
+    ) -> dict[str, Any]:
+        bool_t = {"kind": "bool"}
+        la = self._temp("optcmp")
+        lb = self._temp("optcmp")
+        self.locals[la] = left["type"]
+        self.locals[lb] = right["type"]
+        self.prelude.append(_assign(la, left, span))
+        self.prelude.append(_assign(lb, right, span))
+        aname = _name(la, left["type"], span)
+        bname = _name(lb, right["type"], span)
+        tag_a = _attr(aname, "_tag", bool_t, span)
+        tag_b = _attr(bname, "_tag", bool_t, span)
+        if types_equal(left["type"]["elem"], right["type"]["elem"]):
+            saved = self.prelude
+            self.prelude = []
+            val_eq = self._compare_values(
+                node,
+                "==",
+                _attr(aname, "_val", left["type"]["elem"], span),
+                _attr(bname, "_val", right["type"]["elem"], span),
+                span,
+            )
+            val_pre = self.prelude
+            self.prelude = saved
+        else:
+            # `int | None` vs `str | None` can still tie on both-None; the
+            # value arms never equal each other.
+            val_eq = _const_bool(False, span)
+            val_pre = []
+        res = self._temp("optcmp")
+        self.locals[res] = bool_t
+        then_b = [
+            _assign(res, tag_b, span),
+            {"kind": "if", "cond": tag_b, "then": [*val_pre, _assign(res, val_eq, span)], "else": [], "span": span},
+        ]
+        else_b = [_assign(res, {"kind": "unary", "op": "not", "operand": tag_b, "type": bool_t, "span": span}, span)]
+        self.prelude.append({"kind": "if", "cond": tag_a, "then": then_b, "else": else_b, "span": span})
+        base = _name(res, bool_t, span)
+        if negated:
+            return {"kind": "unary", "op": "not", "operand": base, "type": bool_t, "span": span}
+        return base
 
     def _joined(self, node: ast.JoinedStr, span: dict[str, Any]) -> dict[str, Any]:
         if any(

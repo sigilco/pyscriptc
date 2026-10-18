@@ -37,9 +37,10 @@ def test_real_pyjwt_hmac_tree_still_fences() -> None:
 
     proc = run_cli("compile", str(FIXTURE / "jwt"), "--emit", "ir", "-o", os.devnull, "--skip-check")
     assert proc.returncode == 3
-    # 106 fences at pin time (roots + derived). Shrinking means a backlog
-    # lowering cleared fences here; update the pin when that happens.
-    assert proc.stderr.count("PS") == 106
+    # 103 fences after R26 (`Optional` / `x | None` annotations lowered).
+    # Shrinking means a backlog lowering cleared fences here; update the pin
+    # when that happens.
+    assert proc.stderr.count("PS") == 103
 
 
 @pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh

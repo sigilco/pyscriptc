@@ -55,15 +55,14 @@ def test_typing_value_stays_a_fence(tmp_path: Path) -> None:
     assert "optional" not in got.stderr
 
 
-def test_optional_annotation_is_a_fence(tmp_path: Path) -> None:
+def test_optional_annotation_compiles(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
         "opt.py",
         "from typing import Optional\n\ndef main(x: Optional[int]) -> int:\n    return 1\n",
     )
     got = run_cli("compile", str(path), "--skip-check", "--emit", "llvm", "-o", str(tmp_path / "opt.ll"))
-    assert got.returncode == 3
-    assert "optional types are not in the IR" in got.stderr
+    assert got.returncode == 0, got.stderr
     assert "closed import table" not in got.stderr
 
 

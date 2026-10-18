@@ -28,6 +28,7 @@ from pyscriptc.lower._core import (
     _is_none_expr,
     _module_closed,
     _package_base,
+    _show,
 )
 from pyscriptc.lower._stdlib_shared import _ERASED_MODULES
 from pyscriptc.restlower import alias_name, rest_call
@@ -482,10 +483,19 @@ class StdlibDispatchMixin:
                         return
                 value = self._module_fold(stmt.value)
                 if value is None:
-                    value = self._expr(stmt.value, typ)
+                    # An optional target keeps its raw constant: each read
+                    # boxes it into the tagged cell.
+                    value = self._expr(stmt.value, None if typ.get("optional") else typ)
                 if not _module_closed(value):
                     self.fail(stmt, "PS2002", "a module assignment must be a constant")
-                self._expect(stmt, value["type"], typ, stmt.target.id)
+                if typ.get("optional") and not (
+                    value["type"]["kind"] == "none" or types_equal(value["type"], typ["elem"])
+                ):
+                    self.fail(
+                        stmt, "PS1003", f"{stmt.target.id} is {_show(value['type'])}, annotation says {_show(typ)}"
+                    )
+                elif not typ.get("optional"):
+                    self._expect(stmt, value["type"], typ, stmt.target.id)
                 self._store_constant(stmt.target.id, value, stmt)
                 return
             if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
