@@ -253,6 +253,8 @@ class CallsMixin:
             return self._hash_method(node, span, receiver)
         if kind == "class" and receiver["type"]["name"] == "Pattern":
             return self._pattern_method(node, span, receiver)
+        if kind == "class" and receiver["type"]["name"] == "Match":
+            return self._match_method(node, span, receiver)
         if kind == "class" and synth_method(receiver["type"]["name"], node.func.attr) is not None:
             return self._synth_call(node, span, receiver)
         if kind == "dict" and node.func.attr == "keys":
@@ -611,6 +613,7 @@ class CallsMixin:
         self._reject_keywords(node)
         name = node.func.attr
         pattern = {"kind": "attr", "value": receiver, "name": "pattern", "type": {"kind": "str"}, "span": span}
+        flags = {"kind": "attr", "value": receiver, "name": "flags", "type": {"kind": "int"}, "span": span}
         if name == "findall":
             if len(node.args) != 1:
                 self.fail(node, "PS2003", "Pattern.findall expects 1 argument(s)")
@@ -618,27 +621,183 @@ class CallsMixin:
             text = self._expr(node.args[0])
             if text["type"]["kind"] != "str":
                 self.fail(node, "PS1003", "Pattern.findall argument is " + _show(text["type"]) + ", expected str")
-            expr = _mod_call("re", "findall", [pattern, text], ret, span)
+            expr = _mod_call("re", "findall", [pattern, text, flags], ret, span)
             if symbol:
                 expr["symbol"] = symbol
             return expr
-        if name == "sub":
-            if len(node.args) != 2:
-                self.fail(node, "PS2003", "Pattern.sub expects 2 argument(s)")
+        if name in {"search", "match", "fullmatch"}:
+            if len(node.args) != 1:
+                self.fail(node, "PS2003", f"Pattern.{name} expects 1 argument(s)")
+            text = self._expr(node.args[0])
+            if text["type"]["kind"] != "str":
+                self.fail(node, "PS1003", f"Pattern.{name} argument is " + _show(text["type"]) + ", expected str")
+            return self._re_opt_match(node, span, name, [pattern, text, flags])
+        if name in {"sub", "subn"}:
+            if len(node.args) not in {2, 3}:
+                self.fail(node, "PS2003", f"Pattern.{name} expects 2-3 argument(s)")
             repl = self._expr(node.args[0])
             text = self._expr(node.args[1])
             if repl["type"]["kind"] != "str" or text["type"]["kind"] != "str":
-                self.fail(node, "PS1003", "Pattern.sub arguments are str")
-            return _mod_call("re", "sub", [pattern, repl, text], {"kind": "str"}, span)
+                self.fail(node, "PS1003", f"Pattern.{name} arguments are str")
+            count = (
+                self._expr(node.args[2])
+                if len(node.args) == 3
+                else {"kind": "const", "value": 0, "type": {"kind": "int"}, "span": span}
+            )
+            if count["type"]["kind"] != "int":
+                self.fail(node, "PS1003", f"Pattern.{name} count is an int")
+            if name == "subn":
+                return self._re_subn(node, span, [pattern, repl, text, count, flags])
+            return _mod_call("re", "sub", [pattern, repl, text, count, flags], {"kind": "str"}, span)
         if name == "split":
-            if len(node.args) != 1:
-                self.fail(node, "PS2003", "Pattern.split expects 1 argument(s)")
+            if len(node.args) not in {1, 2}:
+                self.fail(node, "PS2003", "Pattern.split expects 1-2 argument(s)")
             text = self._expr(node.args[0])
             if text["type"]["kind"] != "str":
                 self.fail(node, "PS1003", "Pattern.split argument is " + _show(text["type"]) + ", expected str")
-            return _mod_call("re", "split", [pattern, text], {"kind": "list", "elem": {"kind": "str"}}, span)
+            maxsplit = (
+                self._expr(node.args[1])
+                if len(node.args) == 2
+                else {"kind": "const", "value": 0, "type": {"kind": "int"}, "span": span}
+            )
+            if maxsplit["type"]["kind"] != "int":
+                self.fail(node, "PS1003", "Pattern.split maxsplit is an int")
+            return _mod_call(
+                "re", "split", [pattern, text, maxsplit, flags], {"kind": "list", "elem": {"kind": "str"}}, span
+            )
         self.fail(node, "PS2001", f"Pattern.{name} is not lowered")
         raise AssertionError("unreachable")
+
+    def _match_method(self, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
+        assert isinstance(node.func, ast.Attribute)
+        self._reject_keywords(node)
+        name = node.func.attr
+        if name not in {"group", "start", "end", "span"}:
+            self.fail(node, "PS2001", f"Match.{name} is not lowered")
+        if len(node.args) > 1:
+            self.fail(node, "PS2003", f"Match.{name} expects 0-1 argument(s)")
+        if node.args:
+            index = self._expr(node.args[0])
+            if index["type"]["kind"] != "int":
+                self.fail(node, "PS2001", f"Match.{name} names are not lowered")
+        else:
+            index = {"kind": "const", "value": 0, "type": {"kind": "int"}, "span": span}
+        if name == "start" or name == "end":
+            return self._abi_call("re", f"Match.{name}", [receiver, index], {"kind": "int"}, f"ps_match_{name}", span)
+        if name == "span":
+            start = self._abi_call("re", "Match.start", [receiver, index], {"kind": "int"}, "ps_match_start", span)
+            end = self._abi_call("re", "Match.end", [receiver, index], {"kind": "int"}, "ps_match_end", span)
+            return self._materialize_tuple([start, end], span, node)
+        const0 = not node.args or (isinstance(node.args[0], ast.Constant) and node.args[0].value == 0)
+        if const0:
+            # Group 0 always takes part in a match that exists.
+            return self._abi_call("re", "Match.group", [receiver, index], {"kind": "str"}, "ps_match_group", span)
+        # `m.group(i)` is `str | None`: the group may not have taken part. Same
+        # hit-then-fill optional as os.getenv.
+        opt_t = self._opt_type({"kind": "str"}, node)
+        res = self._opt_box(None, opt_t, span)
+        dest = res["id"]
+        hit = self._abi_call("re", "Match.group_hit", [receiver, index], {"kind": "bool"}, "ps_match_group_hit", span)
+        got = self._abi_call("re", "Match.group", [receiver, index], {"kind": "str"}, "ps_match_group", span)
+        self.prelude.append(
+            {
+                "kind": "if",
+                "cond": hit,
+                "then": [
+                    {
+                        "kind": "setattr",
+                        "object": _name(dest, opt_t, span),
+                        "name": "_tag",
+                        "value": _const_bool(True, span),
+                        "span": span,
+                    },
+                    {
+                        "kind": "setattr",
+                        "object": _name(dest, opt_t, span),
+                        "name": "_val",
+                        "value": got,
+                        "span": span,
+                    },
+                ],
+                "else": [],
+                "span": span,
+            }
+        )
+        return res
+
+    def _re_opt_match(
+        self,
+        node: ast.Call,
+        span: dict[str, Any],
+        attr: str,
+        args: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """`re.search`/`re.match`/`re.fullmatch` -> the tagged `Match | None`.
+
+        Two engine runs like `os.getenv`: a bool probe, then the make call
+        fills the cell only when the probe hit.
+        """
+        if args is None:
+            params = [
+                {"name": "pattern", "type": {"kind": "str"}},
+                {"name": "string", "type": {"kind": "str"}},
+                {
+                    "name": "flags",
+                    "type": {"kind": "int"},
+                    "default": {"kind": "const", "value": 0, "type": {"kind": "int"}, "span": span},
+                },
+            ]
+            args = self._fill_args(node, params, f"re.{attr}")
+        opt_t = self._opt_type({"kind": "class", "name": "Match"}, node)
+        res = self._opt_box(None, opt_t, span)
+        dest = res["id"]
+        hit = self._abi_call("re", f"{attr}.hit", args, {"kind": "bool"}, f"ps_re_{attr}_hit", span)
+        made = self._abi_call("re", f"{attr}.make", args, opt_t["elem"], f"ps_re_{attr}_make", span)
+        self.prelude.append(
+            {
+                "kind": "if",
+                "cond": hit,
+                "then": [
+                    {
+                        "kind": "setattr",
+                        "object": _name(dest, opt_t, span),
+                        "name": "_tag",
+                        "value": _const_bool(True, span),
+                        "span": span,
+                    },
+                    {
+                        "kind": "setattr",
+                        "object": _name(dest, opt_t, span),
+                        "name": "_val",
+                        "value": made,
+                        "span": span,
+                    },
+                ],
+                "else": [],
+                "span": span,
+            }
+        )
+        return res
+
+    def _re_subn(
+        self,
+        node: ast.Call,
+        span: dict[str, Any],
+        args: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """`re.subn`/`Pattern.subn` -> the (new text, count) tuple class."""
+        if args is None:
+            zero = {"kind": "const", "value": 0, "type": {"kind": "int"}, "span": span}
+            params = [
+                {"name": "pattern", "type": {"kind": "str"}},
+                {"name": "repl", "type": {"kind": "str"}},
+                {"name": "string", "type": {"kind": "str"}},
+                {"name": "count", "type": {"kind": "int"}, "default": zero},
+                {"name": "flags", "type": {"kind": "int"}, "default": zero},
+            ]
+            args = self._fill_args(node, params, "re.subn")
+        tup = self._tuple_type([{"kind": "str"}, {"kind": "int"}], node)
+        return self._abi_call("re", "subn", args, tup, "ps_re_subn", span)
 
     def _group_tuple(self, node: ast.AST, pattern: ast.expr | None) -> tuple[dict[str, Any], str | None]:
         text = self._pattern_literal(pattern) if pattern is not None else None
@@ -1519,16 +1678,23 @@ class CallsMixin:
         return self._abi_call("pathlib", "Path.read_text", [receiver], {"kind": "str"}, spec["symbol"], span)
 
     def _one_str_pattern(self, node: ast.expr, value: dict[str, Any]) -> bool:
-        """True when this is re.compile of one str constant and no keywords.
+        """True when this is re.compile of one str constant plus constant flags.
 
-        That is the call a function already lowers to a Pattern. The stored
-        value is that call, copied at each use. Anything else is not this form.
+        That is the call a function already lowers to a Pattern, keywords
+        included — the wave fills them before the value reaches here. The
+        stored value is that call, copied at each use. Anything else is not
+        this form.
         """
-        if not isinstance(node, ast.Call) or node.keywords or len(node.args) != 1:
+        if not isinstance(node, ast.Call) or len(node.args) not in {1, 2}:
             return False
         arg = node.args[0]
         if not isinstance(arg, ast.Constant) or not isinstance(arg.value, str):
             return False
+        if len(node.args) == 2:
+            lowered_args = value.get("args") or []
+            flag = lowered_args[1] if len(lowered_args) == 2 else None
+            if not isinstance(flag, dict) or flag.get("kind") != "const" or flag.get("type", {}).get("kind") != "int":
+                return False
         if value.get("kind") != "call":
             return False
         callee = value.get("callee")

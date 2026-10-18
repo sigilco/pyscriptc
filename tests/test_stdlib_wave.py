@@ -39,10 +39,10 @@ def test_from_import_of_a_lowered_function(tmp_path: Path) -> None:
 def test_codec_fences_stay_closed(tmp_path: Path) -> None:
     cases = [
         (
-            "search.py",
-            "import re\n\ndef f(s: str) -> int:\n    re.search('a', s)\n    return 1\n",
+            "finditer.py",
+            "import re\n\ndef f(s: str) -> int:\n    re.finditer('a', s)\n    return 1\n",
             "PS2001",
-            "re.search",
+            "re.finditer",
         ),
         (
             "load.py",

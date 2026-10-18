@@ -1,7 +1,10 @@
 """A module re.compile of one str constant is the Pattern call, inlined at each use.
 
 The probe prints the start index of a match, or -1 when findall is empty.
-findall and str.find are already lowered. search and match are not.
+findall and str.find are already lowered; a constant flags argument
+(`re.compile(pat, re.I)`) lowers too since R27 folded flag args into the
+call, and module-scope `re.Match`/`re.Pattern` uses lower through
+search/match.
 """
 
 from __future__ import annotations
@@ -51,13 +54,29 @@ def twice() -> int:
     if len(second) != 0:
         return -2
     return start
+
+
+_FLAGGED = re.compile(r"[a-z]+", re.IGNORECASE)
+
+
+def flagged() -> int:
+    m: re.Match | None = _FLAGGED.search("--AB--")
+    if m is not None:
+        return m.end()
+    return -1
 """
 
 
 @pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
 def test_module_re_compile_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "normalize.py", _PROBE)
-    for func, expected in (("probe", "2"), ("miss", "-1"), ("local_probe", "2"), ("twice", "1")):
+    for func, expected in (
+        ("probe", "2"),
+        ("miss", "-1"),
+        ("local_probe", "2"),
+        ("twice", "1"),
+        ("flagged", "4"),
+    ):
         got = compile_run(tmp_path, path, func)
         assert got.returncode == 0, f"{func}\n{got.stderr}"
         assert got.stdout == oracle(path, func)
@@ -68,13 +87,13 @@ def test_module_re_compile_stays_fenced(tmp_path: Path) -> None:
     cases = [
         (
             "flags.py",
-            "import re\nPAT = re.compile(r'[-_.]+', re.IGNORECASE)\n\ndef probe() -> int:\n    return 0\n",
-            "re.compile expects 1 argument(s)",
+            "import re\nPAT = re.compile(r'[-_.]+', 'i')\n\ndef probe() -> int:\n    return 0\n",
+            "argument flags of re.compile has the wrong type",
         ),
         (
             "keyword.py",
-            "import re\nPAT = re.compile(r'a', flags=0)\n\ndef probe() -> int:\n    return 0\n",
-            "keyword arguments are not lowered",
+            "import re\nPAT = re.compile(r'a', bogus=0)\n\ndef probe() -> int:\n    return 0\n",
+            "unexpected keyword argument bogus",
         ),
         (
             "name.py",

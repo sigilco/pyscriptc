@@ -1243,6 +1243,8 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("time", "struct_time"): "StructTime",
     ("os", "stat_result"): "Stat",
     ("csv", "_writer"): "CsvWriter",
+    ("re", "Pattern"): "Pattern",
+    ("re", "Match"): "Match",
 }
 
 # Instance methods. `elem` means the deque's element type.

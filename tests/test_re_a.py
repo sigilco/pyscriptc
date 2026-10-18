@@ -1,6 +1,6 @@
 """`re.A` is the int constant CPython stores for that flag.
 
-`re.search` stays fenced, and passing `re.A` to `re.compile` stays fenced.
+`re.A` lowers as a flags argument; the bare member stays a value fence.
 """
 
 from __future__ import annotations
@@ -29,17 +29,10 @@ def test_re_a_matches_cpython(tmp_path: Path) -> None:
 
 def test_other_re_flags_stay_fenced(tmp_path: Path) -> None:
     cases = [
-        ("search.py", "re.search", "re.search is not in the lowered subset of re"),
-        (
-            "flag.py",
-            "re.compile('ab', re.A)",
-            "re.compile expects 1 argument(s)",
-        ),
+        ("search.py", "re.search", "re.search is a function and is not a value"),
     ]
     for name, expr, text in cases:
         source = f"import re\ndef probe() -> int:\n    return {expr}\n"
-        if name == "flag.py":
-            source = "import re\ndef probe() -> int:\n    re.compile('ab', re.A)\n    return 1\n"
         path = write_case(tmp_path, name, source)
         got = run_cli(
             "compile",
