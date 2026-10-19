@@ -87,6 +87,9 @@ def run_checker(path: Path, checker: str = "mypy") -> None:
     if checker == "pyright":
         _run_pyright(path)
         return
+    if checker == "pyrefly":
+        _run_pyrefly(path)
+        return
     if checker != "mypy":
         raise CheckFailed(f"checker {checker!r} is not wired; the spike preflight uses mypy")
     with tempfile.TemporaryDirectory(prefix="pyscriptc-mypy-") as cache:
@@ -122,6 +125,24 @@ def run_checker(path: Path, checker: str = "mypy") -> None:
 
 
 _PYRIGHT_STUBS = Path(__file__).with_name("_pyright_stubs")
+
+
+def _run_pyrefly(path: Path) -> None:
+    binary = os.environ.get("PYREFLY_BIN", "pyrefly")
+    try:
+        proc = subprocess.run(
+            [binary, "check", str(path.resolve())],
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as exc:
+        raise CheckFailed(
+            f"pyrefly is not installed (binary {binary!r}); set PYREFLY_BIN or put pyrefly on PATH"
+        ) from exc
+    if proc.returncode == 0:
+        return
+    output = (proc.stderr or proc.stdout).strip() or f"pyrefly exited {proc.returncode}"
+    raise CheckFailed(output)
 
 
 def _run_pyright(path: Path) -> None:
