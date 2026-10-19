@@ -1,31 +1,38 @@
 """Checker preflight.
 
-mypy is a subprocess. Its AST is not an input to lowering. A bad annotation
-fails the build before LLVM emission.
+The checker is a subprocess. Its AST is not an input to lowering. A bad
+annotation fails the build before LLVM emission.
 
-The plugin below realigns a few typeshed signatures with the lowered
-contract: `struct.unpack` yields a homogeneous `list`, not `tuple[Any, ...]`;
-`frozenset(...)` is the set list, so `set[T]` annotation sites accept it.
+The default checker is `pyrefly` (`PYREFLY_BIN`, fallback `pyrefly` on
+PATH): a 34 MB MIT-licensed binary, fast enough to run per compile. It
+runs against a copy of mypy's bundled typeshed patched the same way the
+mypy plugin realigns signatures (`range(...) -> list[int]`,
+`frozenset[T]` subclasses `set[T]`), plus the vendored `_pyright_stubs/`
+on `search-path` so `struct.unpack` and `functools.partial` keep
+yielding `Any`. Two check kinds that reject idioms the subset defines —
+`unbound-name` (bare `x: int` declarations are zero-initialized) and
+`bad-context-manager` (`__exit__` keeps the lowered signature) — are
+silenced in the generated `pyrefly.toml`; nothing else is suppressed.
 
-`--checker pyright` swaps the preflight for a pyright subprocess
-(`PYRIGHT_BIN`, fallback `pyright` on PATH). Pyright has no plugin API,
-so the realignments above are applied as vendored stubs in
-`_pyright_stubs/` (`struct.pyi` + `functools.pyi` patched to yield
-`Any` like the hooks) bound through a generated `pyrightconfig.json`
-whose `stubPath` points at that directory. Known residual divergences
-versus mypy: `builtins` cannot be partially stubbed, so `range(...)` at
-`list[int]` sites and `frozenset(...)` at `set[T]` sites are errors under
-pyright that mypy's hooks accept. Those two idioms stay documented
-divergences; nothing else is suppressed.
+Deprecated: `--checker mypy` and `--checker pyright` still work but emit
+DeprecationWarning. The mypy plugin below realigns a few typeshed
+signatures with the lowered contract: `struct.unpack` yields a
+homogeneous `list`, not `tuple[Any, ...]`; `frozenset(...)` is the set
+list, so `set[T]` annotation sites accept it. The pyright lane reuses
+`_pyright_stubs/` through a generated `pyrightconfig.json` `stubPath`.
+Keep them for sanity-diffing against pyrefly (`benchmarks/factsdiff.py`)
+and as the escape hatch for the two builtins divergences.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
+import warnings
 from collections.abc import Callable
 from pathlib import Path
 
@@ -83,7 +90,16 @@ def plugin(version: str) -> type[Plugin]:
     return _SubsetPlugin
 
 
-def run_checker(path: Path, checker: str = "mypy") -> None:
+_DEPRECATED_CHECKERS = {
+    "mypy": "--checker mypy is deprecated; pyrefly is the default preflight. "
+    "mypy remains as the coverage escape hatch (range/frozenset builtins realignments).",
+    "pyright": "--checker pyright is deprecated; pyrefly is the default preflight.",
+}
+
+
+def run_checker(path: Path, checker: str = "pyrefly") -> None:
+    if checker in _DEPRECATED_CHECKERS:
+        warnings.warn(_DEPRECATED_CHECKERS[checker], DeprecationWarning, stacklevel=2)
     if checker == "pyright":
         _run_pyright(path)
         return
@@ -91,7 +107,7 @@ def run_checker(path: Path, checker: str = "mypy") -> None:
         _run_pyrefly(path)
         return
     if checker != "mypy":
-        raise CheckFailed(f"checker {checker!r} is not wired; the spike preflight uses mypy")
+        raise CheckFailed(f"checker {checker!r} is not wired; the preflight uses pyrefly")
     with tempfile.TemporaryDirectory(prefix="pyscriptc-mypy-") as cache:
         config = Path(cache) / "mypy.ini"
         config.write_text("[mypy]\nplugins = pyscriptc.check\n", encoding="utf-8")
@@ -127,21 +143,67 @@ def run_checker(path: Path, checker: str = "mypy") -> None:
 _PYRIGHT_STUBS = Path(__file__).with_name("_pyright_stubs")
 
 
+def _patched_typeshed(dest: Path) -> Path:
+    """Copy mypy's bundled typeshed and realign builtins with the lowered contract.
+
+    `frozenset(...)` is the set list (`frozenset[T]` subclasses `set[T]`),
+    and `range(...)` materializes `list[int]` (`range.__new__` yields a
+    list). Everything else stays stock mypy-typeshed — which, unlike
+    pyrefly's bundled snapshot, already types `str.split*` as `list[str]`
+    rather than `list[LiteralString]`.
+    """
+    import mypy  # local import: only needed on the pyrefly lane
+
+    shutil.copytree(Path(mypy.__file__).resolve().parent / "typeshed", dest)
+    builtins = dest / "stdlib" / "builtins.pyi"
+    text = builtins.read_text(encoding="utf-8")
+    text = text.replace("class frozenset(AbstractSet[_T_co]):", "class frozenset(set[_T_co]):", 1)
+    start = text.index("class range(")
+    end = text.index("\nclass ", start)
+    block = text[start:end].replace("-> Self:", "-> list[int]:")
+    builtins.write_text(text[:start] + block + text[end:], encoding="utf-8")
+    return dest
+
+
 def _run_pyrefly(path: Path) -> None:
     binary = os.environ.get("PYREFLY_BIN", "pyrefly")
-    try:
-        proc = subprocess.run(
-            [binary, "check", str(path.resolve())],
-            capture_output=True,
-            text=True,
+    source = path.resolve()
+    with tempfile.TemporaryDirectory(prefix="pyscriptc-pyrefly-") as tmp:
+        typeshed = _patched_typeshed(Path(tmp) / "typeshed")
+        search = [str(_PYRIGHT_STUBS)]
+        if source.is_dir():
+            # A package's own dir resolves `from .x import ...`-adjacent
+            # names; its parent resolves `import <pkg>.x`.
+            search += [str(source), str(source.parent)]
+        else:
+            search.append(str(source.parent))
+        config = Path(tmp) / "pyrefly.toml"
+        config.write_text(
+            f'typeshed-path = "{typeshed}"\n'
+            f"search-path = [{', '.join(json.dumps(s) for s in search)}]\n\n"
+            "[errors]\n"
+            "# The subset deliberately diverges from typeshed here: bare\n"
+            "# `x: int` declarations are zero-initialized (unbound-name),\n"
+            "# and __exit__ signatures keep the lowered shape\n"
+            "# (bad-context-manager).\n"
+            'unbound-name = "ignore"\n'
+            'bad-context-manager = "ignore"\n',
+            encoding="utf-8",
         )
-    except FileNotFoundError as exc:
-        raise CheckFailed(
-            f"pyrefly is not installed (binary {binary!r}); set PYREFLY_BIN or put pyrefly on PATH"
-        ) from exc
+        try:
+            proc = subprocess.run(
+                [binary, "check", "-c", str(config), str(source)],
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError as exc:
+            raise CheckFailed(
+                f"pyrefly is not installed (binary {binary!r}); set PYREFLY_BIN or put pyrefly on PATH"
+            ) from exc
     if proc.returncode == 0:
         return
-    output = (proc.stderr or proc.stdout).strip() or f"pyrefly exited {proc.returncode}"
+    # Diagnostics go to stdout; stderr carries WARN/INFO progress lines.
+    output = proc.stdout.strip() or proc.stderr.strip() or f"pyrefly exited {proc.returncode}"
     raise CheckFailed(output)
 
 

@@ -13,7 +13,9 @@ from pyscriptc.typefacts import (
     FactsProvider,
     MypyFactsAdapter,
     ParameterFacts,
+    PyreflyFactsAdapter,
     PyrightFactsAdapter,
+    TSPFactsAdapter,
     TypeFacts,
     facts_provider,
 )
@@ -120,9 +122,14 @@ def test_errors_surface_as_check_failed(tmp_path: Path) -> None:
 
 
 def test_facts_provider_dispatch(tmp_path: Path) -> None:
-    provider = facts_provider("mypy")
+    with pytest.warns(DeprecationWarning):
+        provider = facts_provider("mypy")
     assert isinstance(provider, MypyFactsAdapter)
-    assert isinstance(facts_provider("pyright"), PyrightFactsAdapter)
+    with pytest.warns(DeprecationWarning):
+        assert isinstance(facts_provider("pyright"), PyrightFactsAdapter)
+    assert isinstance(facts_provider("pyrefly"), PyreflyFactsAdapter)
+    with pytest.warns(UserWarning, match="experimental"):
+        assert isinstance(facts_provider("tsp"), TSPFactsAdapter)
     with pytest.raises(CheckFailed):
         facts_provider("other")
 

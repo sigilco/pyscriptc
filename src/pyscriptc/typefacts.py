@@ -5,12 +5,14 @@ pyright exposes a stable compiler API, so pyscriptc owns a narrow facts IR
 (`.agents/plans/2026-10-18-tiered-lowering-and-typefacts.md`). A
 `FactsProvider` reports what the checker decided — optional/union members,
 callable signatures, overload choices, generic arguments — and tier-2
-lowering queries it. `MypyFactsAdapter` is backed by the same mypy pass
-`check.py` runs (same subset plugin); `PyrightFactsAdapter` feeds the
-external pyright oracle (`--facts` JSON or stdio LSP hover) into the same
-dataclasses; `PyreflyFactsAdapter` reads `pyrefly check --report-pysa`
-per-module JSON; `TSPFactsAdapter` drives `pyright-typeserver` over its
-Type Server Protocol for structured per-node types.
+lowering queries it. `PyreflyFactsAdapter` — the default oracle — reads
+`pyrefly check --report-pysa` per-module JSON; `TSPFactsAdapter`
+(experimental) drives `pyright-typeserver` over its Type Server Protocol
+for structured per-node types. Deprecated: `MypyFactsAdapter` is backed
+by the same mypy pass `check.py` ran (same subset plugin) and
+`PyrightFactsAdapter` feeds the external pyright oracle (`--facts` JSON
+or stdio LSP hover) into the same dataclasses; selecting either through
+`facts_provider` emits DeprecationWarning.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -179,8 +182,17 @@ class FactsProvider(Protocol):
     def facts(self, path: Path) -> ModuleFacts: ...
 
 
+_DEPRECATED_FACTS = {
+    "mypy": "the mypy facts adapter is deprecated; pyrefly is the default oracle. "
+    "mypy remains as the coverage escape hatch (Pysa misses nested defs and sub-expressions).",
+    "pyright": "the pyright facts adapter is deprecated; pyrefly is the default oracle.",
+}
+
+
 def facts_provider(checker: str) -> FactsProvider:
     """Pick the provider behind a `run_checker` checker name."""
+    if checker in _DEPRECATED_FACTS:
+        warnings.warn(_DEPRECATED_FACTS[checker], DeprecationWarning, stacklevel=2)
     if checker == "mypy":
         return MypyFactsAdapter()
     if checker == "pyright":
@@ -188,8 +200,9 @@ def facts_provider(checker: str) -> FactsProvider:
     if checker == "pyrefly":
         return PyreflyFactsAdapter()
     if checker == "tsp":
+        warnings.warn("the tsp facts adapter is experimental", stacklevel=2)
         return TSPFactsAdapter()
-    raise CheckFailed(f"checker {checker!r} is not wired; the spike preflight uses mypy")
+    raise CheckFailed(f"checker {checker!r} is not wired; the facts oracle defaults to pyrefly")
 
 
 def _static_value(expr: Expression | None) -> Any:
@@ -371,6 +384,9 @@ def _callable_of(stmt: FuncDef | Decorator) -> CallableType | None:
 
 class MypyFactsAdapter:
     """Facts backed by the same mypy run `run_checker` drives.
+
+    Deprecated: pyrefly is the default facts oracle; keep this adapter
+    only for sanity-diffing and the builtins realignment escape hatch.
 
     Options mirror the check invocation: the `pyscriptc.check` plugin,
     `--follow-imports=silent`, no incremental cache. `preserve_asts` and
@@ -1245,6 +1261,9 @@ def _facts_qualname(pyright_name: str, mapping: Mapping[str, str]) -> str:
 class PyrightFactsAdapter:
     """Facts backed by `pyright --facts`, with an LSP-hover fallback.
 
+    Deprecated: pyrefly is the default facts oracle; this adapter stays
+    for sanity-diffing (`benchmarks/factsdiff.py`).
+
     Preferred lane: spawn the pyright CLI with `--facts` once per file and
     map its structural JSON — no string parsing anywhere. The CLI comes
     from `cli`/`PYRIGHT_BIN` (default `pyright` on PATH) and is probed for
@@ -1951,6 +1970,10 @@ class PyreflyFactsAdapter:
             report_dir.glob(f"{stem.replace('.', '_')}:*.json")
         )
         if not candidates:
+            # pyrefly names the module `__unknown__` when the target sits
+            # outside every search root (e.g. pytest's per-test tmp dirs).
+            candidates = sorted(report_dir.glob("__unknown__:*.json"))
+        if not candidates:
             raise CheckFailed(f"pyrefly emitted no {kind} report for {path}")
         for candidate in candidates:
             try:
@@ -2154,6 +2177,9 @@ def _tsp_signature_from_type(typ: Any, seen: dict[int, TypeFacts]) -> TypeFacts 
 
 class TSPFactsAdapter:
     """Facts backed by `pyright-typeserver` (Type Server Protocol over stdio).
+
+    Experimental: pyright-typeserver is a sigilco fork; the snapshot /
+    getComputedType contract is not stable upstream API.
 
     One long-lived subprocess is spawned lazily and reused across `facts`
     calls; each file is opened via `textDocument/didOpen`, then the adapter

@@ -110,4 +110,4 @@ def probe() -> int:
     path = write_case(tmp_path, "getenv_mismatch.py", source)
     got = run_cli("compile", str(path), "--emit", "llvm", "-o", str(tmp_path / "mismatch.ll"))
     assert got.returncode == 2, got.stderr
-    assert "Incompatible types" in got.stderr
+    assert "not assignable" in got.stderr

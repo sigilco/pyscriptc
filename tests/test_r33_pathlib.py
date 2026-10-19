@@ -223,32 +223,32 @@ def test_r33_fences_stay_closed(tmp_path: Path) -> None:
         (
             "r33_div_int.py",
             "import pathlib\n\ndef probe() -> int:\n    q: pathlib.Path = pathlib.Path('a') / 3\n    return 0\n",
-            "error",
-            'Unsupported operand types for / ("Path" and "int")',
+            "unsupported-operation",
+            "is not supported between `Path` and",
         ),
         (
             "r33_iterdir_arg.py",
             "import pathlib\n\ndef probe() -> int:\n    pathlib.Path('.').iterdir(1)\n    return 0\n",
-            "call-arg",
-            'Too many arguments for "iterdir" of "Path"',
+            "bad-argument-count",
+            "Expected 0 positional arguments",
         ),
         (
             "r33_glob_int.py",
             "import pathlib\n\ndef probe() -> int:\n    pathlib.Path('.').glob(3)\n    return 0\n",
-            "arg-type",
-            'Argument 1 to "glob" of "Path" has incompatible type "int"; expected "str"',
+            "bad-argument-type",
+            "is not assignable to parameter `pattern`",
         ),
         (
             "r33_mkdir_kw.py",
             "import pathlib\n\ndef probe() -> int:\n    pathlib.Path('d').mkdir(nope=1)\n    return 0\n",
-            "call-arg",
-            'Unexpected keyword argument "nope" for "mkdir" of "Path"',
+            "unexpected-keyword",
+            "Unexpected keyword argument `nope`",
         ),
         (
             "r33_mkdir_flag.py",
             "import pathlib\n\ndef probe() -> int:\n    pathlib.Path('d').mkdir(parents=1)\n    return 0\n",
-            "arg-type",
-            'Argument "parents" to "mkdir" of "Path" has incompatible type "int"; expected "bool"',
+            "bad-argument-type",
+            "is not assignable to parameter `parents`",
         ),
     ]
     for name, source, code, needle in cases:

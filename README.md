@@ -8,7 +8,7 @@
 <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
 </p>
 
-A compiler that lowers a small, annotated subset of Python to a typed IR and then to LLVM. Parsing is CPython’s own `ast` module. [mypy](https://mypy-lang.org/) is a preflight: its tree is not an input. Anything the subset does not prove is a fence, not a guess.
+A compiler that lowers a small, annotated subset of Python to a typed IR and then to LLVM. Parsing is CPython’s own `ast` module. [pyrefly](https://pyrefly.org/) is a preflight: its tree is not an input. Anything the subset does not prove is a fence, not a guess.
 
 ## Try it now
 
@@ -40,7 +40,7 @@ Either way, compiling a program needs a clang that can assemble textual LLVM IR 
 
 ## What it does
 
-- Lowers an annotated Python subset (strict `x: T` typing, checked by mypy) to typed IR, then LLVM IR, then a native binary via clang or `zig cc`.
+- Lowers an annotated Python subset (strict `x: T` typing, checked by pyrefly) to typed IR, then LLVM IR, then a native binary via clang or `zig cc`.
 - Anything the subset does not prove stops at a named `PSxxxx` fence with a hint — it never guesses at semantics.
 - `int` is a Python int: `i64` only when the value fits, traps on overflow, refuses literals that would truncate. `//` is floor division.
 - Island calls (`subprocess.check_output`, `socket.gethostname`, `threading`, `logging`) embed CPython on first use — and only binaries that call them link libpython.
@@ -51,7 +51,7 @@ Either way, compiling a program needs a clang that can assemble textual LLVM IR 
 | Layer | What it is |
 | --- | --- |
 | Parser | CPython's own `ast` module |
-| Checker | mypy preflight + the `PS1xxx`/`PS2xxx` fence tables |
+| Checker | pyrefly preflight + the `PS1xxx`/`PS2xxx` fence tables |
 | IR | typed JSON, stamped per-interpreter (`gates-v1`) |
 | Backend | hand-emitted LLVM IR text → `clang` / `zig cc` |
 | Island | optional embedded-CPython calls, CPython-linked only when used |
@@ -100,7 +100,7 @@ A `for` target that is new in the function is stored as `0`, `0.0`, or `""` befo
 
 `in` on a list uses `==`. `math.nan in [math.nan]` is false here. CPython's list finds that same object by identity before it compares.
 
-`typing` stays in mypy. It is not a runtime lowering. Island constants (`sys.platform`, `sys.version`, `sys.executable`, `sys.maxsize`, `socket.AF_INET`, `ssl.OPENSSL_VERSION`, `ssl.HAS_SNI`, `stat.S_IFREG`, `ctypes.sizeof`) are baked from the interpreter that lowers the file. `sys.exit` is libc `exit`. `subprocess.check_output` takes a `list[str]` and returns `bytes`. `os.getenv` raises `KeyError` when the variable is unset. `date` plus `timedelta` uses the normalized day count; `datetime` plus `timedelta` uses the whole delta.
+`typing` stays in the checker. It is not a runtime lowering. Island constants (`sys.platform`, `sys.version`, `sys.executable`, `sys.maxsize`, `socket.AF_INET`, `ssl.OPENSSL_VERSION`, `ssl.HAS_SNI`, `stat.S_IFREG`, `ctypes.sizeof`) are baked from the interpreter that lowers the file. `sys.exit` is libc `exit`. `subprocess.check_output` takes a `list[str]` and returns `bytes`. `os.getenv` raises `KeyError` when the variable is unset. `date` plus `timedelta` uses the normalized day count; `datetime` plus `timedelta` uses the whole delta.
 
 ## Requirements
 
@@ -127,7 +127,7 @@ uv run pyscriptc compile examples/gates_probe.py --run --call probe -o /tmp/prob
 uv run pyscriptc compile examples/fence_method.py --emit llvm -o /tmp/fence.ll
 ```
 
-`floors()` prints `3`. `probe()` prints `0`. The fence exits nonzero, names `encode`, and does not write LLVM. `examples/wave_probe.py` prints `0` when the codec wave matches CPython. `examples/rest_probe.py` prints `0` when the rest of the queue matches CPython. `examples/fence_pickle.py` exits nonzero with `PS2002` because `pickle` is outside the import table. `examples/invoice.py`, `examples/access_log.py`, `examples/request_id.py`, `examples/release_note.py`, `examples/blob_digest.py`, `examples/url_gate.py`, and `examples/hostname.py` are the scripts in [docs/examples.md](docs/examples.md). `examples/bad_annotation.py` fails in mypy before lowering. `examples/big_literal.py` lowers to IR, then LLVM emission refuses the integer because it does not fit in `i64`.
+`floors()` prints `3`. `probe()` prints `0`. The fence exits nonzero, names `encode`, and does not write LLVM. `examples/wave_probe.py` prints `0` when the codec wave matches CPython. `examples/rest_probe.py` prints `0` when the rest of the queue matches CPython. `examples/fence_pickle.py` exits nonzero with `PS2002` because `pickle` is outside the import table. `examples/invoice.py`, `examples/access_log.py`, `examples/request_id.py`, `examples/release_note.py`, `examples/blob_digest.py`, `examples/url_gate.py`, and `examples/hostname.py` are the scripts in [docs/examples.md](docs/examples.md). `examples/bad_annotation.py` fails in the checker before lowering. `examples/big_literal.py` lowers to IR, then LLVM emission refuses the integer because it does not fit in `i64`.
 
 `re.compile` returns a `Pattern` with a `pattern` field. `findall`, `sub`, and `split` on that object use the field. `hashlib` returns an opaque `Hash`; `hexdigest` and `digest` are the methods that lower. `urlsplit` returns a `SplitResult` of five strings (`scheme`, `netloc`, `path`, `query`, `fragment`). `struct.unpack` is a list, so `[0]` is the first value. `json.loads` takes its type from the annotation it is assigned to, or from the return annotation. `parse_qs` splits on `&` only, which is what CPython 3.14 does. A pattern that can match empty forever, such as `()*`, stops with `RuntimeError` once the matcher spends its fuel. `re.error`, `struct.error`, and `binascii.Error` surface here as `ValueError`.
 

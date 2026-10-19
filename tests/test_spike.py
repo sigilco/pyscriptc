@@ -257,11 +257,11 @@ def test_method_and_outside_table_are_fences(tmp_path: Path) -> None:
     assert not outside_ll.exists()
 
 
-def test_bad_annotation_fails_in_mypy_before_llvm(tmp_path: Path) -> None:
+def test_bad_annotation_fails_in_checker_before_llvm(tmp_path: Path) -> None:
     out = tmp_path / "bad.ll"
     proc = run_cli("compile", str(EXAMPLES / "bad_annotation.py"), "--emit", "llvm", "-o", str(out))
     assert proc.returncode == 2
-    assert "return-value" in proc.stderr
+    assert "bad-return" in proc.stderr
     assert not out.exists()
     assert not Path(str(out) + ".ir.json").exists()
 

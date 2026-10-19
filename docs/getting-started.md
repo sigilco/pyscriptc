@@ -20,14 +20,14 @@ uv run pyscriptc compile FILE --run --call FUNC --args '[...]' -o /tmp/name
 - `--args` is a Python list literal (`ast.literal_eval`). Elements can be `int`, `float`, `bool`, or `str`. A `list`, a `dict`, or `bytes` is built inside the function.
 - The printed return is an `int`, a `float` (`%.17g`), or a `str`. A `bool` return cannot be printed.
 - `--emit ir` writes JSON. `--emit llvm` writes textual LLVM. `--emit bin` writes the binary and does not run it.
-- `--skip-check` skips mypy. The default preflight is mypy.
+- `--skip-check` skips the checker. The default preflight is pyrefly: a single MIT-licensed binary that answers a bulk expression→type map via `pyrefly check --report-pysa`. Coverage caveat: the Pysa report only records expressions pyrefly kept for taint analysis, so nested `def`s and some sub-expressions come back without facts — `--checker mypy` stays as the coverage escape hatch for sanity-diffing (`uv run python -m benchmarks.factsdiff`). `--checker mypy` and `--checker pyright` are deprecated and warn on use; `range(...)` at `list[int]` sites and `frozenset(...)` at `set[T]` sites are mypy-plugin realignments the pyrefly lane does not reproduce.
 
 ## When it stops
 
 | Exit | Cause |
 | --- | --- |
 | 0 | The file lowered, and the binary's own status if you used `--run` |
-| 2 | mypy rejected an annotation |
+| 2 | the checker rejected an annotation |
 | 3 | The subset refused the file. The message names a `PS` code |
 | 4 | The integer or the CPython stamp does not fit this backend |
 

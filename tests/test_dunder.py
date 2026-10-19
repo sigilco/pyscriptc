@@ -109,6 +109,8 @@ def test_dunder_iter_next(tmp_path: Path) -> None:
                 "    n: int",
                 "    def __init__(self, n: int) -> None:",
                 "        self.n = n",
+                "    def __iter__(self) -> It:",
+                "        return self",
                 "    def __next__(self) -> int:",
                 "        if self.n <= 0:",
                 "            raise StopIteration()",
