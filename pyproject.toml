@@ -19,7 +19,10 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Compilers",
 ]
-dependencies = ["mypy>=2.4"]
+dependencies = [
+    "mypy>=2.4",
+    "pyrefly>=1.4.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/sigilco/pyscriptc"

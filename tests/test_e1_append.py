@@ -332,7 +332,7 @@ def test_append_rejects_cpython_type_errors_up_front(tmp_path: Path) -> None:
     )
     got = run_cli("compile", str(bad), "--emit", "llvm", "-o", str(tmp_path / "bad.ll"))
     assert got.returncode == 2, got.stderr
-    assert "has incompatible type" in got.stderr
+    assert "is not assignable to parameter" in got.stderr
 
 
 if __name__ == "__main__":

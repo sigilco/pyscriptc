@@ -5,10 +5,14 @@ pyright exposes a stable compiler API, so pyscriptc owns a narrow facts IR
 (`.agents/plans/2026-10-18-tiered-lowering-and-typefacts.md`). A
 `FactsProvider` reports what the checker decided — optional/union members,
 callable signatures, overload choices, generic arguments — and tier-2
-lowering queries it. `MypyFactsAdapter` is backed by the same mypy pass
-`check.py` runs (same subset plugin); `PyrightFactsAdapter` feeds the
-external pyright-langserver oracle (stdio LSP hover + documentSymbol) into
-the same dataclasses.
+lowering queries it. `PyreflyFactsAdapter` — the default oracle — reads
+`pyrefly check --report-pysa` per-module JSON; `TSPFactsAdapter`
+(experimental) drives `pyright-typeserver` over its Type Server Protocol
+for structured per-node types. Deprecated: `MypyFactsAdapter` is backed
+by the same mypy pass `check.py` ran (same subset plugin) and
+`PyrightFactsAdapter` feeds the external pyright oracle (`--facts` JSON
+or stdio LSP hover) into the same dataclasses; selecting either through
+`facts_provider` emits DeprecationWarning.
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -177,13 +182,27 @@ class FactsProvider(Protocol):
     def facts(self, path: Path) -> ModuleFacts: ...
 
 
+_DEPRECATED_FACTS = {
+    "mypy": "the mypy facts adapter is deprecated; pyrefly is the default oracle. "
+    "mypy remains as the coverage escape hatch (Pysa misses nested defs and sub-expressions).",
+    "pyright": "the pyright facts adapter is deprecated; pyrefly is the default oracle.",
+}
+
+
 def facts_provider(checker: str) -> FactsProvider:
     """Pick the provider behind a `run_checker` checker name."""
+    if checker in _DEPRECATED_FACTS:
+        warnings.warn(_DEPRECATED_FACTS[checker], DeprecationWarning, stacklevel=2)
     if checker == "mypy":
         return MypyFactsAdapter()
     if checker == "pyright":
         return PyrightFactsAdapter()
-    raise CheckFailed(f"checker {checker!r} is not wired; the spike preflight uses mypy")
+    if checker == "pyrefly":
+        return PyreflyFactsAdapter()
+    if checker == "tsp":
+        warnings.warn("the tsp facts adapter is experimental", stacklevel=2)
+        return TSPFactsAdapter()
+    raise CheckFailed(f"checker {checker!r} is not wired; the facts oracle defaults to pyrefly")
 
 
 def _static_value(expr: Expression | None) -> Any:
@@ -366,6 +385,9 @@ def _callable_of(stmt: FuncDef | Decorator) -> CallableType | None:
 class MypyFactsAdapter:
     """Facts backed by the same mypy run `run_checker` drives.
 
+    Deprecated: pyrefly is the default facts oracle; keep this adapter
+    only for sanity-diffing and the builtins realignment escape hatch.
+
     Options mirror the check invocation: the `pyscriptc.check` plugin,
     `--follow-imports=silent`, no incremental cache. `preserve_asts` and
     `export_types` hold back the trees and expression TypeMap this adapter
@@ -475,8 +497,9 @@ class _LspConnection:
     keeps the protocol plumbing out of the fact-mapping code.
     """
 
-    def __init__(self, argv: Sequence[str]) -> None:
+    def __init__(self, argv: Sequence[str], server_name: str = "pyright langserver") -> None:
         self._argv = list(argv)
+        self._server_name = server_name
         self._proc: subprocess.Popen[bytes] | None = None
         self._lock = threading.Lock()
         self._pending: dict[int, queue.Queue[dict[str, Any]]] = {}
@@ -497,8 +520,8 @@ class _LspConnection:
             )
         except FileNotFoundError as exc:
             raise CheckFailed(
-                f"pyright langserver is not installed (command {self._argv[0]!r}); "
-                "set PYRIGHT_LANGSERVER_BIN or put pyright-langserver on PATH"
+                f"{self._server_name} is not installed (command {self._argv[0]!r}); "
+                "set PYRIGHT_LANGSERVER_BIN or put the server on PATH"
             ) from exc
         threading.Thread(target=self._read_loop, daemon=True).start()
 
@@ -515,7 +538,7 @@ class _LspConnection:
             try:
                 response = slot.get(timeout=timeout)
             except queue.Empty:
-                raise CheckFailed(f"pyright langserver timed out answering {method!r}") from None
+                raise CheckFailed(f"{self._server_name} timed out answering {method!r}") from None
         finally:
             with self._lock:
                 self._pending.pop(request_id, None)
@@ -571,7 +594,7 @@ class _LspConnection:
         self.start()
         assert self._proc is not None
         if self._dead or self._proc.poll() is not None:
-            raise CheckFailed("pyright langserver exited unexpectedly")
+            raise CheckFailed(f"{self._server_name} exited unexpectedly")
 
     def _send(self, message: dict[str, Any]) -> None:
         assert self._proc is not None and self._proc.stdin is not None
@@ -581,7 +604,7 @@ class _LspConnection:
             self._proc.stdin.flush()
         except (BrokenPipeError, OSError) as exc:
             self._dead = True
-            raise CheckFailed(f"pyright langserver pipe broke: {exc}") from exc
+            raise CheckFailed(f"{self._server_name} pipe broke: {exc}") from exc
 
     def _read_loop(self) -> None:
         assert self._proc is not None and self._proc.stdout is not None
@@ -1238,6 +1261,9 @@ def _facts_qualname(pyright_name: str, mapping: Mapping[str, str]) -> str:
 class PyrightFactsAdapter:
     """Facts backed by `pyright --facts`, with an LSP-hover fallback.
 
+    Deprecated: pyrefly is the default facts oracle; this adapter stays
+    for sanity-diffing (`benchmarks/factsdiff.py`).
+
     Preferred lane: spawn the pyright CLI with `--facts` once per file and
     map its structural JSON — no string parsing anywhere. The CLI comes
     from `cli`/`PYRIGHT_BIN` (default `pyright` on PATH) and is probed for
@@ -1631,3 +1657,863 @@ class PyrightFactsAdapter:
             return None
         name_col = node.col_offset + offset + len(marker)
         return line_index, _utf16_col(lines[line_index], name_col)
+
+
+# ---------------------------------------------------------------------------
+# Pyrefly Pysa-report oracle
+#
+# `pyrefly check --report-pysa <outdir> --report-pysa-format json <target>`
+# (hidden flag, pyrefly >= 1.4) writes one `type_of_expressions/<mod>:<id>.json`
+# and one `definitions/<mod>:<id>.json` per analyzed module. The expressions
+# file carries a Pysa `functions` map: scope id ("MTL" for module level,
+# "F:<n>" per function) -> `locations` ("line:col-line:col" spans, 1-based,
+# end-exclusive) indexing a `type_table` of rendered types. The definitions
+# file resolves each `F:<n>` to a name, location, parent and its
+# `undecorated_signatures` (one entry per @overload variant plus the
+# implementation), which is how the adapter fills CallableFacts/overloads
+# without parsing signature strings.
+
+_PYSA_SIGNATURE = re.compile(r"^\((?P<params>.*)\)\s*->\s*(?P<ret>.+)$", re.S)
+_PYSA_FORMAT_VERSION = 1
+# Pysa scope keys for function bodies; "MTL" is the module top level.
+_PYSA_SCOPE_FUNCTION = re.compile(r"^F:\d+$")
+# Param variants inside a pysa signature's parameters.List.
+_PYSA_PARAM_KIND = {
+    "PosOnly": "positional",
+    "Pos": "positional",
+    "VarArg": "varargs",
+    "KwOnly": "keyword_only",
+    "Kwargs": "kwargs",
+}
+
+
+def _pysa_location_key(span: str) -> str | None:
+    """`"14:13-14:20"` (1-based, end-exclusive) -> `"14:12"` (mypy space)."""
+    start = span.split("-", 1)[0]
+    line, _, col = start.partition(":")
+    if not line.isdigit() or not col.isdigit() or int(col) < 1:
+        return None
+    return f"{int(line)}:{int(col) - 1}"
+
+
+def _pysa_type(entry: Mapping[str, Any]) -> TypeFacts:
+    """Map one pysa `type_table` entry onto TypeFacts.
+
+    The `string` field is pyrefly's rendered type — parsed by the shared
+    type-text grammar, with a signature form `(a: int, b = 2) -> int` that
+    pysa uses for callables. `class_names` is the fallback classifier when
+    the rendered form is outside the shared grammar.
+    """
+    text = str(entry.get("string") or "")
+    signature = _PYSA_SIGNATURE.match(text)
+    if signature is not None:
+        parameters, positional_only, keyword_only, _defaults = _parse_signature_params(signature.group("params"))
+        return_type = _parse_type_text(signature.group("ret").strip()) or TypeFacts(
+            kind="unknown", runtime_repr=signature.group("ret").strip() or None
+        )
+        return TypeFacts(
+            kind="callable",
+            callable=CallableFacts(
+                parameters=parameters,
+                return_type=return_type,
+                positional_only=positional_only,
+                keyword_only=keyword_only,
+            ),
+            runtime_repr=text,
+        )
+    parsed = _parse_type_text(text)
+    if parsed is not None:
+        return parsed
+    names = entry.get("class_names")
+    if isinstance(names, Mapping):
+        classes = names.get("classes") or ()
+        first = classes[0] if classes else None
+        if isinstance(first, Mapping):
+            cls = first.get("class")
+            if isinstance(cls, Mapping) and cls.get("class_name"):
+                return TypeFacts(kind=str(cls["class_name"]), runtime_repr=text or None)
+    return TypeFacts(kind="unknown", runtime_repr=text or None)
+
+
+def _pysa_signature(signature: Mapping[str, Any], defaults: Mapping[str, Any]) -> CallableFacts:
+    """Map one `undecorated_signatures` entry onto CallableFacts.
+
+    Parameter kinds come from the pysa wrapper tags (PosOnly/Pos/VarArg/
+    KwOnly/Kwargs); `required` absent marks a defaulted parameter, whose
+    compile-time value is recovered from the module's own AST defaults map.
+    """
+    parameters: list[ParameterFacts] = []
+    positional_only = 0
+    keyword_only: set[str] = set()
+    static_defaults: dict[str, StaticValue] = {}
+    for wrapper in signature.get("parameters", {}).get("List", ()):
+        if not isinstance(wrapper, Mapping):
+            continue
+        tag, param = next(iter(wrapper.items()), (None, None))
+        if not isinstance(param, Mapping):
+            continue
+        name = str(param.get("name") or f"arg{len(parameters)}")
+        required = param.get("required")
+        has_default = name in defaults or (required is False and tag in ("Pos", "PosOnly", "KwOnly"))
+        annotation = param.get("annotation")
+        param_type = _pysa_type(annotation) if isinstance(annotation, Mapping) else TypeFacts(kind="unknown")
+        kind = _PYSA_PARAM_KIND.get(str(tag), "positional")
+        if tag == "PosOnly":
+            positional_only += 1
+        elif tag == "KwOnly":
+            keyword_only.add(name)
+            if has_default:
+                kind = "keyword_optional"
+        elif has_default:
+            kind = "positional_optional"
+        if has_default:
+            value = defaults.get(name, _MISSING)
+            if value is not _MISSING:
+                static_defaults[name] = value
+        parameters.append(ParameterFacts(name=name, kind=kind, type=param_type, has_default=has_default))
+    annotation = signature.get("return_annotation")
+    return_type = _pysa_type(annotation) if isinstance(annotation, Mapping) else TypeFacts(kind="unknown")
+    return CallableFacts(
+        parameters=tuple(parameters),
+        return_type=return_type,
+        positional_only=positional_only,
+        keyword_only=frozenset(keyword_only),
+        defaults=static_defaults,
+    )
+
+
+def _def_name_positions(tree: ast.Module) -> dict[tuple[int, int], str]:
+    """(1-based line, 0-based col) of each `def` name -> pyscriptc qualname."""
+    mapping: dict[tuple[int, int], str] = {}
+
+    def visit(body: list[ast.stmt], prefix: str) -> None:
+        for stmt in body:
+            if isinstance(stmt, ast.ClassDef):
+                visit(stmt.body, f"{prefix}{stmt.name}.")
+            elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                marker = "async def " if isinstance(stmt, ast.AsyncFunctionDef) else "def "
+                mapping[(stmt.lineno, stmt.col_offset + len(marker))] = f"{prefix}{stmt.name}"
+                visit(stmt.body, f"{prefix}{stmt.name}.<locals>.")
+
+    visit(tree.body, "__main__.")
+    return mapping
+
+
+def _static_defaults(tree: ast.Module) -> dict[str, dict[str, Any]]:
+    """Qualname -> parameter name -> default value (or _MISSING when non-constant)."""
+    defaults: dict[str, dict[str, StaticValue]] = {}
+
+    def visit(body: list[ast.stmt], prefix: str) -> None:
+        for stmt in body:
+            if isinstance(stmt, ast.ClassDef):
+                visit(stmt.body, f"{prefix}{stmt.name}.")
+            elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                qualname = f"{prefix}{stmt.name}"
+                positional = [*stmt.args.posonlyargs, *stmt.args.args]
+                bound = list(
+                    zip(positional[len(positional) - len(stmt.args.defaults) :], stmt.args.defaults, strict=True)
+                ) + list(zip(stmt.args.kwonlyargs, stmt.args.kw_defaults, strict=True))
+                slots: dict[str, Any] = {}
+                for arg, expr in bound:
+                    if expr is None:
+                        continue
+                    try:
+                        value = ast.literal_eval(expr)
+                    except _EVAL_ERRORS:
+                        value = _MISSING
+                    if not (isinstance(value, (int, float, bool, str, bytes)) or value is None):
+                        value = _MISSING
+                    slots[arg.arg] = value
+                defaults[qualname] = slots
+                visit(stmt.body, f"{prefix}{stmt.name}.<locals>.")
+
+    visit(tree.body, "__main__.")
+    return defaults
+
+
+def _pysa_module_facts(
+    expressions_doc: Mapping[str, Any],
+    definitions_doc: Mapping[str, Any],
+    path: Path,
+    tree: ast.Module,
+) -> ModuleFacts:
+    """Pure mapping: pysa JSON documents -> ModuleFacts (no subprocess)."""
+    for label, doc in (("type_of_expressions", expressions_doc), ("definitions", definitions_doc)):
+        version = doc.get("format_version")
+        if version != _PYSA_FORMAT_VERSION:
+            raise CheckFailed(
+                f"pyrefly pysa {label} format_version is {version!r}, expected "
+                f"{_PYSA_FORMAT_VERSION} — the report format changed; update PyreflyFactsAdapter"
+            )
+    expressions: dict[str, TypeFacts] = {}
+    functions = expressions_doc.get("functions") or {}
+    for scope in functions.values():
+        if not isinstance(scope, Mapping):
+            continue
+        type_table = scope.get("type_table") or ()
+        for span, index in (scope.get("locations") or {}).items():
+            key = _pysa_location_key(str(span))
+            if key is None or not isinstance(index, int) or index >= len(type_table):
+                continue
+            entry = type_table[index]
+            if isinstance(entry, Mapping):
+                expressions.setdefault(key, _pysa_type(entry))
+    class_names = {
+        str(cid): str(cls.get("name") or "")
+        for cid, cls in (definitions_doc.get("class_definitions") or {}).items()
+        if isinstance(cls, Mapping)
+    }
+    name_map = _def_name_positions(tree)
+    defaults = _static_defaults(tree)
+    callables: dict[str, CallableFacts] = {}
+    overloads: dict[str, tuple[CallableFacts, ...]] = {}
+    for fdef in (definitions_doc.get("function_definitions") or {}).values():
+        if not isinstance(fdef, Mapping):
+            continue
+        name_location = _pysa_location_key(str(fdef.get("name_location") or ""))
+        qualname = name_map.get(tuple(int(part) for part in name_location.split(":"))) if name_location else None
+        if qualname is None:
+            name = str(fdef.get("name") or "")
+            parent = fdef.get("parent")
+            if isinstance(parent, Mapping) and "Class" in parent:
+                cls = parent["Class"]
+                owner = class_names.get(str(cls.get("class_id") if isinstance(cls, Mapping) else cls), "")
+                qualname = f"__main__.{owner}.{name}" if owner else f"__main__.{name}"
+            else:
+                qualname = f"__main__.{name}"
+        signatures = [
+            _pysa_signature(sig, defaults.get(qualname, {}))
+            for sig in (fdef.get("undecorated_signatures") or ())
+            if isinstance(sig, Mapping)
+        ]
+        if not signatures:
+            continue
+        if len(signatures) > 1:
+            overloads[qualname] = tuple(signatures)
+        callables[qualname] = signatures[-1]
+    return ModuleFacts(
+        path=path,
+        provider="pyrefly",
+        expressions=expressions,
+        callables=callables,
+        overloads=overloads,
+    )
+
+
+class PyreflyFactsAdapter:
+    """Facts backed by `pyrefly check --report-pysa` per-module JSON.
+
+    One subprocess per `facts` call emits the Pysa report for the module;
+    `type_of_expressions` fills `expressions` and `definitions` fills
+    `callables`/`overloads`. Coverage is Pysa-selective: the report only
+    records expressions pyrefly kept for taint analysis, so sub-expressions
+    (and nested `def`s, which get no `function_definitions` entry) are often
+    absent and degrade to "no fact"; `Unknown` annotations map to `any`.
+    `format_version` is pinned at 1 — any drift raises CheckFailed instead
+    of silently mis-mapping.
+
+    `command` overrides the spawn line (default: `PYREFLY_BIN` env or
+    `pyrefly` on PATH).
+    """
+
+    name = "pyrefly"
+
+    def __init__(self, command: str | Sequence[str] | None = None) -> None:
+        raw = command if command is not None else os.environ.get("PYREFLY_BIN")
+        self._argv = shlex.split(raw) if isinstance(raw, str) else list(raw or ["pyrefly"])
+
+    def facts(self, path: Path) -> ModuleFacts:
+        path = path.resolve()
+        try:
+            source = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise CheckFailed(f"cannot read {path}: {exc}") from exc
+        try:
+            tree = ast.parse(source, filename=str(path))
+        except SyntaxError as exc:
+            raise CheckFailed(f"cannot parse {path}: {exc}") from exc
+        with tempfile.TemporaryDirectory(prefix="pyscriptc-pyrefly-") as tmp:
+            try:
+                proc = subprocess.run(
+                    [
+                        *self._argv,
+                        "check",
+                        "--report-pysa",
+                        tmp,
+                        "--report-pysa-format",
+                        "json",
+                        str(path),
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                )
+            except FileNotFoundError as exc:
+                raise CheckFailed(
+                    f"pyrefly is not installed (command {self._argv[0]!r}); "
+                    "pip install pyrefly, set PYREFLY_BIN, or put pyrefly on PATH"
+                ) from exc
+            except _CLI_ERRORS as exc:
+                raise CheckFailed(f"pyrefly check failed for {path}: {exc}") from exc
+            expressions_doc = self._read_report(tmp, "type_of_expressions", path)
+            definitions_doc = self._read_report(tmp, "definitions", path)
+        if proc.returncode != 0:
+            output = (proc.stderr or proc.stdout).strip() or f"pyrefly exited {proc.returncode}"
+            raise CheckFailed(output)
+        return _pysa_module_facts(expressions_doc, definitions_doc, path, tree)
+
+    def _read_report(self, outdir: str, kind: str, path: Path) -> Mapping[str, Any]:
+        """The `kind/<module>:<id>.json` whose source_path is `path`."""
+        report_dir = Path(outdir) / kind
+        stem = path.stem
+        candidates = sorted(report_dir.glob(f"{stem}:*.json")) + sorted(
+            report_dir.glob(f"{stem.replace('.', '_')}:*.json")
+        )
+        if not candidates:
+            # pyrefly names the module `__unknown__` when the target sits
+            # outside every search root (e.g. pytest's per-test tmp dirs).
+            candidates = sorted(report_dir.glob("__unknown__:*.json"))
+        if not candidates:
+            raise CheckFailed(f"pyrefly emitted no {kind} report for {path}")
+        for candidate in candidates:
+            try:
+                doc = json.loads(candidate.read_text(encoding="utf-8"))
+            except _READ_ERRORS:
+                continue
+            source_path = doc.get("source_path")
+            recorded = None
+            if isinstance(source_path, Mapping):
+                recorded = source_path.get("FileSystem")
+            if recorded is None or Path(str(recorded)) == path:
+                return doc
+        raise CheckFailed(f"pyrefly {kind} report for {path} was not readable JSON")
+
+
+# ---------------------------------------------------------------------------
+# Pyright typeserver (TSP) oracle
+#
+# The third provider talks to `pyright-typeserver` (the sigilco/pyright
+# fork's `work/scriptc-native` build, or the stock package) over stdio
+# JSON-RPC: LSP `initialize` -> `textDocument/didOpen` ->
+# `typeServer/getSnapshot`, then `typeServer/getComputedType` /
+# `getDeclaredType` / `getExpectedType` per node range -> structured Type
+# JSON (kind/flags/declaration/subTypes/overloads/specializedTypes). Unlike
+# hover, TSP is per-node rather than bulk, so the adapter walks every
+# `ast.expr` in the file — the same coverage shape mypy's TypeMap gives —
+# and maps each response into TypeFacts/CallableFacts without any string
+# parsing. Nodes the evaluator declines (e.g. whole Call nodes — the
+# adapter falls back to the callee's return type) degrade to "no fact".
+
+# TypeServerProtocol.TypeKind (const enum order in typeServerProtocol.ts).
+_TSP_KIND_BUILTIN = 0
+_TSP_KIND_FUNCTION = 2
+_TSP_KIND_CLASS = 3
+_TSP_KIND_UNION = 4
+_TSP_KIND_MODULE = 5
+_TSP_KIND_TYPEVAR = 6
+_TSP_KIND_OVERLOADED = 7
+_TSP_KIND_SYNTHESIZED = 8
+_TSP_KIND_TYPEREF = 9
+_TSP_KIND_OVERLOAD_RESULT = 10
+
+# TypeFlags bits.
+_TSP_FLAG_INSTANTIABLE = 1 << 0
+_TSP_FLAG_LITERAL = 1 << 3
+_TSP_FLAG_INTERFACE = 1 << 4
+
+_TSP_STUB_DEF = re.compile(r"def\s+\w+\s*\((?P<params>.*)\)\s*->\s*(?P<ret>[^\n]+)", re.S)
+_TSP_STUB_CLASS = re.compile(r"class\s+(?P<name>\w+)")
+
+
+def _tsp_decl_name(decl: Any) -> str | None:
+    if isinstance(decl, Mapping):
+        name = decl.get("name")
+        if isinstance(name, str) and name:
+            return name
+    return None
+
+
+def _tsp_type(typ: Any, seen: dict[int, TypeFacts]) -> TypeFacts:
+    """Map one serialized TSP Type object onto TypeFacts.
+
+    `seen` is the per-response id -> TypeFacts cache TypeReference nodes
+    (kind 9) resolve through; ids are registered as each type is mapped so
+    later references deref, never recurse.
+    """
+    if not isinstance(typ, Mapping):
+        return TypeFacts(kind="unknown")
+    kind = typ.get("kind")
+    type_id = typ.get("id")
+    if kind == _TSP_KIND_TYPEREF:
+        ref = typ.get("typeReferenceId")
+        return seen.get(ref, TypeFacts(kind="unknown", runtime_repr=f"tsp-ref:{ref}"))
+    facts: TypeFacts
+    if kind == _TSP_KIND_BUILTIN:
+        name = str(typ.get("name") or "unknown")
+        facts = TypeFacts(
+            kind="any" if name in ("any", "ellipsis") else "unknown",
+            runtime_repr=name,
+        )
+    elif kind == _TSP_KIND_CLASS:
+        facts = _tsp_class_type(typ, seen)
+    elif kind == _TSP_KIND_UNION:
+        members = tuple(_tsp_type(sub, seen) for sub in typ.get("subTypes", ()))
+        facts = TypeFacts(
+            kind="union",
+            optional=any(member.kind == "none" or member.optional for member in members),
+            args=members,
+            runtime_repr="union",
+        )
+    elif kind == _TSP_KIND_FUNCTION:
+        facts = TypeFacts(
+            kind="callable",
+            callable=_tsp_function_signature(typ, seen),
+            runtime_repr="function",
+        )
+    elif kind == _TSP_KIND_OVERLOADED:
+        variants = tuple(
+            TypeFacts(kind="callable", callable=_tsp_function_signature(variant, seen))
+            for variant in typ.get("overloads", ())
+        )
+        facts = TypeFacts(kind="overloaded", args=variants, runtime_repr="overloaded")
+    elif kind == _TSP_KIND_MODULE:
+        facts = TypeFacts(kind="module", runtime_repr=str(typ.get("moduleName") or ""))
+    elif kind == _TSP_KIND_TYPEVAR:
+        facts = TypeFacts(kind="typevar", runtime_repr=_tsp_decl_name(typ.get("declaration")) or "")
+    elif kind == _TSP_KIND_SYNTHESIZED:
+        facts = _tsp_synthesized_type(typ, seen)
+    elif kind == _TSP_KIND_OVERLOAD_RESULT:
+        facts = _tsp_type(typ.get("baselineType"), seen)
+    else:
+        facts = TypeFacts(kind="unknown", runtime_repr=str(kind))
+    if isinstance(type_id, int):
+        seen[type_id] = facts
+    return facts
+
+
+def _tsp_class_type(typ: Mapping[str, Any], seen: dict[int, TypeFacts]) -> TypeFacts:
+    """ClassType (kind 3): literal/instantiable/instance forms."""
+    decl = typ.get("declaration")
+    name = _tsp_decl_name(decl)
+    flags = int(typ.get("flags") or 0)
+    if name is None:
+        stub = typ.get("stubContent")
+        match = _TSP_STUB_CLASS.search(str(stub or ""))
+        name = match.group("name") if match else "unknown"
+    if name == "NoneType":
+        return TypeFacts(kind="none", optional=True, runtime_repr="None")
+    args = tuple(_tsp_type(arg, seen) for arg in typ.get("typeArgs", ()))
+    literal = typ.get("literalValue")
+    if flags & _TSP_FLAG_LITERAL and literal is not None:
+        return TypeFacts(kind="literal", args=(TypeFacts(kind=name),), runtime_repr=repr(literal))
+    if name == "tuple" and args:
+        return TypeFacts(kind="tuple", args=args, runtime_repr="tuple")
+    instance = TypeFacts(
+        kind=name,
+        args=args,
+        protocols=frozenset({f"builtins.{name}"}) if flags & _TSP_FLAG_INTERFACE else frozenset(),
+        runtime_repr=name,
+    )
+    if flags & _TSP_FLAG_INSTANTIABLE:
+        return TypeFacts(kind="type", args=(instance,), runtime_repr=f"type[{name}]")
+    return instance
+
+
+def _tsp_param_types(fn: Mapping[str, Any], seen: dict[int, TypeFacts]) -> tuple[list[TypeFacts], dict[str, Any]]:
+    """`specializedTypes` parameter/default types when present."""
+    specialized = fn.get("specializedTypes")
+    if not isinstance(specialized, Mapping):
+        return [], {}
+    param_types = [_tsp_type(item, seen) for item in specialized.get("parameterTypes", ()) if item is not None]
+    return param_types, specialized
+
+
+def _tsp_function_signature(fn: Mapping[str, Any], seen: dict[int, TypeFacts]) -> CallableFacts:
+    """FunctionType -> CallableFacts (params only when specializedTypes lists them)."""
+    param_types, _specialized = _tsp_param_types(fn, seen)
+    parameters = tuple(
+        ParameterFacts(name=f"arg{index}", kind="positional", type=param_type)
+        for index, param_type in enumerate(param_types)
+    )
+    return_type = _tsp_type(fn.get("returnType"), seen)
+    return CallableFacts(parameters=parameters, return_type=return_type)
+
+
+def _tsp_synthesized_type(typ: Mapping[str, Any], seen: dict[int, TypeFacts]) -> TypeFacts:
+    """SynthesizedType: recover a def/class from its generated stub."""
+    stub = str(typ.get("stubContent") or "")
+    metadata = typ.get("metadata")
+    offset = metadata.get("primaryDefinitionOffset", 0) if isinstance(metadata, Mapping) else 0
+    body = stub[offset:] if isinstance(offset, int) and 0 <= offset < len(stub) else stub
+    signature = _TSP_STUB_DEF.search(body)
+    if signature is not None:
+        parameters, positional_only, keyword_only, defaults = _parse_signature_params(signature.group("params"))
+        return_type = _parse_type_text(signature.group("ret").strip()) or TypeFacts(
+            kind="unknown", runtime_repr=signature.group("ret").strip() or None
+        )
+        return TypeFacts(
+            kind="callable",
+            callable=CallableFacts(
+                parameters=parameters,
+                return_type=return_type,
+                positional_only=positional_only,
+                keyword_only=keyword_only,
+                defaults=defaults,
+            ),
+            runtime_repr="synthesized-def",
+        )
+    cls = _TSP_STUB_CLASS.search(body)
+    if cls is not None:
+        return TypeFacts(kind=cls.group("name"), runtime_repr="synthesized-class")
+    return TypeFacts(kind="unknown", runtime_repr="synthesized")
+
+
+def _tsp_signature_from_type(typ: Any, seen: dict[int, TypeFacts]) -> TypeFacts | None:
+    if typ is None:
+        return None
+    facts = _tsp_type(typ, seen)
+    return facts
+
+
+class TSPFactsAdapter:
+    """Facts backed by `pyright-typeserver` (Type Server Protocol over stdio).
+
+    Experimental: pyright-typeserver is a sigilco fork; the snapshot /
+    getComputedType contract is not stable upstream API.
+
+    One long-lived subprocess is spawned lazily and reused across `facts`
+    calls; each file is opened via `textDocument/didOpen`, then the adapter
+    snapshots the type cache once (`typeServer/getSnapshot`) and queries
+    `getComputedType` for every `ast.expr` range and `getDeclaredType` for
+    AnnAssign targets and `ast.arg` parameters — structured Type JSON all
+    the way, richer than hover strings (unions, literals, overloads,
+    specialized generics come through as structured fields). Call nodes get
+    no direct answer from the evaluator, so a call expression records its
+    callee's return type, mirroring the hover lane. When a response comes
+    back stale the adapter re-snapshots and retries the request once.
+
+    `command` overrides the spawn line (default: `PYRIGHT_TYPESERVER_BIN`
+    env or `pyright-typeserver` on PATH); `--stdio` is appended when
+    absent. `close()` shuts the server down; leaving it to GC also works.
+    """
+
+    name = "tsp"
+
+    def __init__(self, command: str | Sequence[str] | None = None) -> None:
+        raw = command if command is not None else os.environ.get("PYRIGHT_TYPESERVER_BIN")
+        argv = shlex.split(raw) if isinstance(raw, str) else list(raw or ["pyright-typeserver"])
+        if "--stdio" not in argv:
+            argv = [*argv, "--stdio"]
+        self._argv = argv
+        self._connection: _LspConnection | None = None
+        self._opened: set[str] = set()
+        self._snapshot: int | None = None
+
+    def facts(self, path: Path) -> ModuleFacts:
+        path = path.resolve()
+        try:
+            source = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise CheckFailed(f"cannot read {path}: {exc}") from exc
+        try:
+            tree = ast.parse(source, filename=str(path))
+        except SyntaxError as exc:
+            raise CheckFailed(f"cannot parse {path}: {exc}") from exc
+        connection = self._connect()
+        uri = path.as_uri()
+        self._open_document(uri, path, source)
+        expressions = self._expression_facts(connection, uri, tree, source)
+        callables, overloads = self._callable_facts(connection, uri, tree, source)
+        return ModuleFacts(
+            path=path,
+            provider=self.name,
+            expressions=expressions,
+            callables=callables,
+            overloads=overloads,
+        )
+
+    def close(self) -> None:
+        if self._connection is not None:
+            self._connection.shutdown()
+            self._connection = None
+            self._opened.clear()
+            self._snapshot = None
+
+    def __enter__(self) -> TSPFactsAdapter:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
+    def _connect(self) -> _LspConnection:
+        if self._connection is None:
+            connection = _LspConnection(self._argv, server_name="pyright typeserver")
+            connection.start()
+            result = connection.request(
+                "initialize",
+                {
+                    "processId": None,
+                    "rootUri": None,
+                    "capabilities": {"textDocument": {"publishDiagnostics": {}}},
+                    "workspaceFolders": None,
+                },
+                timeout=60,
+            )
+            if result is None:
+                connection.shutdown()
+                raise CheckFailed("pyright typeserver refused initialize")
+            connection.notify("initialized", {})
+            self._connection = connection
+        return self._connection
+
+    def _open_document(self, uri: str, path: Path, source: str) -> None:
+        connection = self._connect()
+        if uri in self._opened:
+            return
+        self._opened.add(uri)
+        connection.notify(
+            "workspace/didChangeWorkspaceFolders",
+            {
+                "event": {
+                    "added": [{"uri": path.parent.as_uri(), "name": "pyscriptc"}],
+                    "removed": [],
+                }
+            },
+        )
+        connection.notify(
+            "textDocument/didOpen",
+            {
+                "textDocument": {
+                    "uri": uri,
+                    "languageId": "python",
+                    "version": 1,
+                    "text": source,
+                }
+            },
+        )
+        connection.wait_notification(
+            "textDocument/publishDiagnostics",
+            lambda params: isinstance(params, dict) and params.get("uri") == uri,
+            timeout=30,
+        )
+        self._snapshot = None
+
+    def _snapshot_now(self, connection: _LspConnection) -> int:
+        if self._snapshot is None:
+            result = connection.request("typeServer/getSnapshot", None)
+            if not isinstance(result, int):
+                raise CheckFailed("pyright typeserver refused getSnapshot")
+            self._snapshot = result
+        return self._snapshot
+
+    def _get_type(
+        self,
+        connection: _LspConnection,
+        method: str,
+        arg: Mapping[str, Any],
+    ) -> Any:
+        """One typeServer request with a single re-snapshot retry."""
+        snapshot = self._snapshot_now(connection)
+        result = connection.request(f"typeServer/{method}", {"arg": arg, "snapshot": snapshot}, timeout=30)
+        if result is None:
+            self._snapshot = None
+            snapshot = self._snapshot_now(connection)
+            result = connection.request(f"typeServer/{method}", {"arg": arg, "snapshot": snapshot}, timeout=30)
+        return result
+
+    @staticmethod
+    def _node_arg(uri: str, node: ast.AST, lines: list[str]) -> dict[str, Any] | None:
+        """TSP Node {uri, range} for an ast node (0-based, UTF-16 cols)."""
+        if node.lineno - 1 >= len(lines) or node.end_lineno is None or node.end_col_offset is None:
+            return None
+        if node.end_lineno - 1 >= len(lines):
+            return None
+        start_col = _utf16_col(lines[node.lineno - 1], node.col_offset)
+        end_col = _utf16_col(lines[node.end_lineno - 1], node.end_col_offset)
+        return {
+            "uri": uri,
+            "range": {
+                "start": {"line": node.lineno - 1, "character": start_col},
+                "end": {"line": node.end_lineno - 1, "character": end_col},
+            },
+        }
+
+    def _expression_facts(
+        self, connection: _LspConnection, uri: str, tree: ast.Module, source: str
+    ) -> dict[str, TypeFacts]:
+        lines = source.splitlines()
+        facts: dict[str, TypeFacts] = {}
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.expr):
+                continue
+            key = f"{node.lineno}:{node.col_offset}"
+            if key in facts:
+                continue
+            arg = self._node_arg(uri, node, lines)
+            if arg is None:
+                continue
+            result = self._get_type(connection, "getComputedType", arg)
+            facts_type = _tsp_signature_from_type(result, {})
+            if facts_type is None and isinstance(node, ast.Call):
+                # Call nodes get no direct answer: the callee's FunctionType
+                # carries the return type.
+                func_arg = self._node_arg(uri, node.func, lines)
+                if func_arg is not None:
+                    callee = _tsp_signature_from_type(self._get_type(connection, "getComputedType", func_arg), {})
+                    if callee is not None and callee.callable is not None:
+                        facts_type = callee.callable.return_type
+            if facts_type is not None:
+                facts[key] = facts_type
+        # Declared types for annotated targets: getDeclaredType answers the
+        # annotation itself, not the narrowed type a computed query returns.
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.AnnAssign) or node.annotation is None:
+                continue
+            arg = self._node_arg(uri, node.target, lines)
+            if arg is None:
+                continue
+            declared = _tsp_signature_from_type(self._get_type(connection, "getDeclaredType", arg), {})
+            if declared is not None:
+                facts[f"{node.target.lineno}:{node.target.col_offset}"] = declared
+        return facts
+
+    def _callable_facts(
+        self, connection: _LspConnection, uri: str, tree: ast.Module, source: str
+    ) -> tuple[dict[str, CallableFacts], dict[str, tuple[CallableFacts, ...]]]:
+        callables: dict[str, CallableFacts] = {}
+        overloads: dict[str, tuple[CallableFacts, ...]] = {}
+
+        def visit(body: list[ast.stmt], prefix: str) -> None:
+            for stmt in body:
+                if isinstance(stmt, ast.ClassDef):
+                    visit(stmt.body, f"{prefix}{stmt.name}.")
+                    continue
+                if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    qualname = f"{prefix}{stmt.name}"
+                    signature = self._function_facts(connection, uri, stmt, source.splitlines())
+                    if signature is not None:
+                        if any(_is_overload_decorator(dec) for dec in stmt.decorator_list):
+                            overloads.setdefault(qualname, ())
+                            overloads[qualname] += (signature,)
+                        else:
+                            callables[qualname] = signature
+                    visit(stmt.body, f"{prefix}{stmt.name}.<locals>.")
+
+        visit(tree.body, "__main__.")
+        return callables, overloads
+
+    def _function_facts(
+        self,
+        connection: _LspConnection,
+        uri: str,
+        stmt: ast.FunctionDef | ast.AsyncFunctionDef,
+        lines: list[str],
+    ) -> CallableFacts | None:
+        """CallableFacts from the def-name FunctionType plus per-arg declared types."""
+        marker = "async def " if isinstance(stmt, ast.AsyncFunctionDef) else "def "
+        text = lines[stmt.lineno - 1][stmt.col_offset :] if stmt.lineno - 1 < len(lines) else ""
+        offset = text.find(marker)
+        if offset < 0:
+            return None
+        name_col = stmt.col_offset + offset + len(marker)
+        span = {
+            "uri": uri,
+            "range": {
+                "start": {
+                    "line": stmt.lineno - 1,
+                    "character": _utf16_col(lines[stmt.lineno - 1], name_col),
+                },
+                "end": {
+                    "line": stmt.lineno - 1,
+                    "character": _utf16_col(lines[stmt.lineno - 1], name_col + len(stmt.name.encode("utf-8"))),
+                },
+            },
+        }
+        result = self._get_type(connection, "getComputedType", span)
+        seen: dict[int, TypeFacts] = {}
+        fn = _tsp_signature_from_type(result, seen)
+        if fn is None or fn.callable is None:
+            return None
+        return_type = fn.callable.return_type
+        parameters: list[ParameterFacts] = []
+        positional_only = len(stmt.args.posonlyargs)
+        keyword_only: set[str] = set()
+        defaults: dict[str, StaticValue] = {}
+        slots: list[tuple[ast.arg, str]] = []
+        positional = [*stmt.args.posonlyargs, *stmt.args.args]
+        default_exprs = [None] * (len(positional) - len(stmt.args.defaults)) + list(stmt.args.defaults)
+        for index, arg in enumerate(positional):
+            kind = "positional"
+            if default_exprs[index] is not None:
+                kind = "positional_optional"
+            slots.append((arg, kind))
+            if default_exprs[index] is not None:
+                try:
+                    defaults[arg.arg] = ast.literal_eval(default_exprs[index])
+                except _EVAL_ERRORS:
+                    pass
+        if stmt.args.vararg is not None:
+            slots.append((stmt.args.vararg, "varargs"))
+        for index, arg in enumerate(stmt.args.kwonlyargs):
+            expr = stmt.args.kw_defaults[index]
+            kind = "keyword_optional" if expr is not None else "keyword_only"
+            keyword_only.add(arg.arg)
+            slots.append((arg, kind))
+            if expr is not None:
+                try:
+                    defaults[arg.arg] = ast.literal_eval(expr)
+                except _EVAL_ERRORS:
+                    pass
+        if stmt.args.kwarg is not None:
+            slots.append((stmt.args.kwarg, "kwargs"))
+        for arg, kind in slots:
+            # Declared types answer on the parameter NAME node only; the
+            # `arg` node span covers the annotation too and resolves to it.
+            if arg.lineno - 1 < len(lines) and arg.end_lineno == arg.lineno:
+                name_end = arg.col_offset + len(arg.arg.encode("utf-8"))
+                arg_span = {
+                    "uri": uri,
+                    "range": {
+                        "start": {
+                            "line": arg.lineno - 1,
+                            "character": _utf16_col(lines[arg.lineno - 1], arg.col_offset),
+                        },
+                        "end": {
+                            "line": arg.lineno - 1,
+                            "character": _utf16_col(lines[arg.lineno - 1], name_end),
+                        },
+                    },
+                }
+            else:
+                arg_span = None
+            param_type = TypeFacts(kind="unknown")
+            if arg_span is not None:
+                declared = _tsp_signature_from_type(self._get_type(connection, "getDeclaredType", arg_span), {})
+                if declared is not None:
+                    param_type = declared
+            parameters.append(
+                ParameterFacts(
+                    name=arg.arg,
+                    kind=kind,
+                    type=param_type,
+                    has_default=arg.arg in defaults or kind in ("positional_optional", "keyword_optional"),
+                )
+            )
+        defaults = {
+            name: value
+            for name, value in defaults.items()
+            if isinstance(value, (int, float, bool, str, bytes)) or value is None
+        }
+        return CallableFacts(
+            parameters=tuple(parameters),
+            return_type=return_type,
+            positional_only=positional_only,
+            keyword_only=frozenset(keyword_only),
+            defaults=defaults,
+        )

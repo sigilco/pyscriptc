@@ -22,7 +22,8 @@ def test_self_census_ballpark() -> None:
     # PyrightFactsAdapter (typefacts.py) added 139 fences: subprocess/threads/
     # JSON-RPC stdio plumbing has no scriptc-subset equivalent; the `--facts`
     # CLI lane adds 21 more (same plumbing family).
-    assert census["fences"] == 1210
+    # Pyrefly/TSP adapter plumbing + deprecation markers added more.
+    assert census["fences"] == 1260
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 25_000
-    assert sum(p["fences"] for p in census["packages"]) == 1210
+    assert sum(p["fences"] for p in census["packages"]) == 1260

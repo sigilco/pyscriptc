@@ -6,7 +6,7 @@ Unknown syntax, an unknown import, and a call outside a module's lowered surface
 
 ## The checker is not the IR
 
-mypy runs as a subprocess (`src/pyscriptc/check.py`). Lowering reads annotations from CPython's `ast`. Do not walk mypy's tree. `typing` stays in the checker. It is not a runtime module.
+The checker runs as a subprocess (`src/pyscriptc/check.py`); pyrefly is the default (`--checker mypy`/`pyright` deprecated but kept for sanity-diffing and the builtins realignments). Lowering reads annotations from CPython's `ast`. Do not walk the checker's tree. `typing` stays in the checker. It is not a runtime module.
 
 ## Stamp
 
