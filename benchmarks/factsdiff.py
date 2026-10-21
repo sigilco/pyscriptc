@@ -8,8 +8,10 @@ of the compat2 census and must not ingest corpus files.
     uv run python -m benchmarks.factsdiff [file]
     uv run python -m benchmarks.factsdiff --corpus [N]
 
-With no file it uses the built-in ~30-line sample. `--corpus` runs mypy and
-pyrefly-tsp over N (default 12, minimum 12) visible files under
+With no file it uses the built-in ~30-line sample. The mypy lane is an
+optional cross-check (install the `oracle-mypy` extra); without mypy the
+tool runs the pyrefly lanes only. `--corpus` runs pyrefly-tsp (and mypy, if
+installed) over N (default 12, minimum 12) visible files under
 benchmarks/compat/top100/src and writes benchmarks/factsdiff-report.json
 (gitignored): expressions typed per oracle, kind-level agreement at shared
 positions, callables recovered, and pyrefly-tsp coverage as a share of
@@ -26,12 +28,11 @@ import tempfile
 from pathlib import Path
 
 from pyscriptc.typefacts import (
+    CallableFacts,
     ModuleFacts,
-    MypyFactsAdapter,
     PyreflyFactsAdapter,
     PyreflyTspFactsAdapter,
-    PyrightFactsAdapter,
-    TSPFactsAdapter,
+    TypeFacts,
 )
 
 SAMPLE = '''\
@@ -82,6 +83,89 @@ def _describe(facts: ModuleFacts) -> dict[str, str]:
     }
 
 
+def _mypy_kind(typ: object) -> str:
+    from mypy.types import AnyType, CallableType, Instance, NoneType, TupleType, UnionType, get_proper_type
+
+    typ = get_proper_type(typ)  # type: ignore[arg-type]
+    if isinstance(typ, Instance):
+        return typ.type.name
+    for cls, kind in (
+        (NoneType, "none"),
+        (UnionType, "union"),
+        (AnyType, "any"),
+        (CallableType, "callable"),
+        (TupleType, "tuple"),
+    ):
+        if isinstance(typ, cls):
+            return kind
+    return "unknown"
+
+
+def _iter_mypy_nodes(root: object):
+    """Yield every mypy node under `root` (mypyc classes cannot be visitor-subclassed)."""
+    from mypy.nodes import Node
+
+    stack = [root]
+    visited: set[int] = set()
+    while stack:
+        node = stack.pop()
+        if id(node) in visited:
+            continue
+        visited.add(id(node))
+        yield node
+        for attr in getattr(type(node), "__mypyc_attrs__", ()):
+            value = getattr(node, attr, None)
+            if isinstance(value, Node):
+                stack.append(value)
+            elif isinstance(value, (list, tuple)):
+                stack.extend(item for item in value if isinstance(item, Node))
+
+
+class MypyKindOracle:
+    """Optional cross-check: mypy's expression TypeMap reduced to kinds.
+
+    Not a FactsProvider (the full mypy adapter was removed in v0.3.1); it
+    only reports what factsdiff compares: typed positions and callables.
+    """
+
+    name = "mypy"
+
+    @staticmethod
+    def available() -> bool:
+        try:
+            import mypy  # noqa: F401
+        except ImportError:
+            return False
+        return True
+
+    def facts(self, path: Path) -> ModuleFacts:
+        from mypy import build as mypy_build
+        from mypy.modulefinder import BuildSource
+        from mypy.nodes import Expression, FuncDef
+        from mypy.options import Options
+
+        path = path.resolve()
+        with tempfile.TemporaryDirectory(prefix="factsdiff-mypy-") as cache:
+            options = Options()
+            options.incremental = False
+            options.follow_imports = "silent"
+            options.cache_dir = cache
+            options.preserve_asts = True
+            options.export_types = True
+            result = mypy_build.build(sources=[BuildSource(str(path), None, None)], options=options)
+        if result.errors:
+            raise RuntimeError("\n".join(result.errors))
+        module = next(t for t in result.files.values() if Path(t.path) == path)
+        expressions: dict[str, TypeFacts] = {}
+        callables: dict[str, CallableFacts] = {}
+        for node in _iter_mypy_nodes(module):
+            if isinstance(node, Expression) and node in result.types:
+                expressions.setdefault(f"{node.line}:{node.column}", TypeFacts(kind=_mypy_kind(result.types[node])))
+            elif isinstance(node, FuncDef) and node.fullname.startswith(f"{module.fullname}."):
+                callables[node.fullname] = CallableFacts(parameters=(), return_type=TypeFacts(kind="unknown"))
+        return ModuleFacts(path=path, provider=self.name, expressions=expressions, callables=callables, overloads={})
+
+
 CORPUS = Path(__file__).parent / "compat" / "top100" / "src"
 REPORT = Path(__file__).parent / "factsdiff-report.json"
 
@@ -123,7 +207,10 @@ def corpus_report(count: int) -> int:
     for path in paths:
         row: dict[str, object] = {"file": str(path.relative_to(CORPUS))}
         results = {}
-        for name, provider in (("mypy", MypyFactsAdapter()), ("pyrefly-tsp", PyreflyTspFactsAdapter())):
+        lanes = [("pyrefly-tsp", PyreflyTspFactsAdapter())]
+        if MypyKindOracle.available():
+            lanes.insert(0, ("mypy", MypyKindOracle()))
+        for name, provider in lanes:
             try:
                 results[name] = provider.facts(path)
             except Exception as exc:  # noqa: BLE001 — report, never abort
@@ -185,12 +272,9 @@ def main() -> int:
         tmp = Path(tempfile.mkdtemp(prefix="factsdiff-"))
         path = tmp / "sample.py"
         path.write_text(SAMPLE)
-    providers = [
-        ("mypy", MypyFactsAdapter()),
-        ("pyright", PyrightFactsAdapter()),
-        ("pyrefly", PyreflyFactsAdapter()),
-        ("tsp", TSPFactsAdapter()),
-    ]
+    providers: list = [("pyrefly", PyreflyFactsAdapter()), ("pyrefly-tsp", PyreflyTspFactsAdapter())]
+    if MypyKindOracle.available():
+        providers.insert(0, ("mypy", MypyKindOracle()))
     results: dict[str, ModuleFacts | str] = {}
     for name, provider in providers:
         try:

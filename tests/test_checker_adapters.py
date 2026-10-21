@@ -1,9 +1,8 @@
-"""Pyrefly/TSP facts adapters: JSON mappers + skip-marked binary smoke tests.
+"""Pyrefly facts adapters: JSON mappers + skip-marked binary smoke tests.
 
 All pure-mapping tests feed captured payloads into the mapper functions —
 no subprocess. The smoke tests run the real oracles when the binaries are
-reachable (`PYREFLY_BIN`/`pyrefly`, `PYRIGHT_TYPESERVER_BIN`/
-`pyright-typeserver`) and skip otherwise.
+reachable (`PYREFLY_BIN`/`pyrefly`) and skip otherwise.
 """
 
 from __future__ import annotations
@@ -20,7 +19,6 @@ import pytest
 from pyscriptc.check import CheckFailed
 from pyscriptc.typefacts import (
     PyreflyFactsAdapter,
-    TSPFactsAdapter,
     _def_name_positions,
     _pysa_location_key,
     _pysa_module_facts,
@@ -367,22 +365,6 @@ def test_pyrefly_smoke(tmp_path: Path) -> None:
     add = facts.signature("__main__.add")
     assert add is not None and add.return_type.kind == "int"
     assert {p.name for p in add.parameters} == {"a", "b"}
-
-
-@pytest.mark.skipif(
-    _binary("PYRIGHT_TYPESERVER_BIN", "pyright-typeserver") is None,
-    reason="pyright-typeserver binary not on PATH",
-)
-def test_tsp_smoke(tmp_path: Path) -> None:
-    path = tmp_path / "smoke.py"
-    path.write_text(SMOKE)
-    with TSPFactsAdapter() as adapter:
-        facts = adapter.facts(path)
-    assert facts.provider == "tsp"
-    add = facts.signature("__main__.add")
-    assert add is not None and add.return_type.kind == "int"
-    assert facts.expression_at(5, 8) is not None  # the `add` callee
-    assert facts.expression_at(5, 12) is not None or facts.expression_at(5, 0) is not None
 
 
 def _write_report(outdir: Path, kind: str, name: str, source: str | None) -> None:

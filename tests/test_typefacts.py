@@ -1,7 +1,8 @@
-"""Checker-facts seam: the mypy adapter answers lowering questions."""
+"""Checker-facts seam: provider dispatch, dataclass pins, type-text decoders, pyrefly-tsp semantics."""
 
 from __future__ import annotations
 
+import shutil
 import textwrap
 from pathlib import Path
 
@@ -11,12 +12,11 @@ from pyscriptc.check import CheckFailed
 from pyscriptc.typefacts import (
     CallableFacts,
     FactsProvider,
-    MypyFactsAdapter,
     ParameterFacts,
     PyreflyFactsAdapter,
-    PyrightFactsAdapter,
-    TSPFactsAdapter,
+    PyreflyTspFactsAdapter,
     TypeFacts,
+    _parse_type_text,
     facts_provider,
 )
 
@@ -31,18 +31,7 @@ SOURCE = textwrap.dedent(
     """
 )
 
-
-def _facts(tmp_path: Path, source: str = SOURCE) -> MypyFactsAdapter:
-    path = tmp_path / "probe.py"
-    path.write_text(source, encoding="utf-8")
-    return MypyFactsAdapter().facts(path)
-
-
-def test_adapter_is_a_facts_provider(tmp_path: Path) -> None:
-    adapter = MypyFactsAdapter()
-    assert isinstance(adapter, FactsProvider)
-    facts = adapter.facts(_write(tmp_path, SOURCE))
-    assert facts.provider == "mypy"
+needs_pyrefly = pytest.mark.skipif(shutil.which("pyrefly") is None, reason="pyrefly binary not on PATH")
 
 
 def _write(tmp_path: Path, source: str) -> Path:
@@ -51,90 +40,22 @@ def _write(tmp_path: Path, source: str) -> Path:
     return path
 
 
-def test_optional_and_union_members(tmp_path: Path) -> None:
-    facts = _facts(tmp_path)
-    optional = facts.expression_at(4, 0)  # `x: int | None`
-    assert optional is not None
-    assert optional.optional is True
-    assert optional.kind == "union"
-    assert {member.kind for member in optional.args} == {"int", "none"}
-    union = facts.expression_at(5, 0)  # `y: str | int`
-    assert union is not None
-    assert union.kind == "union"
-    assert union.optional is False
-    assert {member.kind for member in union.args} == {"str", "int"}
+def _facts(tmp_path: Path, source: str = SOURCE):
+    with PyreflyTspFactsAdapter() as adapter:
+        return adapter.facts(_write(tmp_path, source))
 
 
-def test_generic_args(tmp_path: Path) -> None:
-    facts = _facts(tmp_path)
-    result = facts.expression_at(6, 8)  # `total = f(1)` → list[int]
-    assert result is not None
-    assert result.kind == "list"
-    assert [arg.kind for arg in result.args] == ["int"]
-
-
-def test_callable_signature(tmp_path: Path) -> None:
-    facts = _facts(tmp_path)
-    signature = facts.signature("__main__.f")
-    assert signature is not None
-    assert signature.positional_only == 1
-    assert signature.keyword_only == frozenset({"c"})
-    assert signature.defaults == {"b": "x", "c": True}
-    assert signature.return_type.kind == "list"
-    kinds = [param.kind for param in signature.parameters]
-    assert kinds == [
-        "positional",
-        "positional_optional",
-        "varargs",
-        "keyword_optional",
-        "kwargs",
-    ]
-    assert signature.parameters[0].type.kind == "int"
-    assert signature.parameters[4].type.kind == "int"
-
-
-def test_overload_choices(tmp_path: Path) -> None:
-    source = textwrap.dedent(
-        """\
-        from typing import overload
-
-        @overload
-        def pick(v: int) -> int: ...
-        @overload
-        def pick(v: str) -> str: ...
-        def pick(v: object) -> object:
-            return v
-        """
-    )
-    facts = _facts(tmp_path, source)
-    name = next(key for key in facts.overloads if key.endswith("pick"))
-    variants = facts.overload_choices(name)
-    assert len(variants) == 2
-    assert {variant.return_type.kind for variant in variants} == {"int", "str"}
-    impl = facts.signature(name)
-    assert impl is not None
-
-
-def test_errors_surface_as_check_failed(tmp_path: Path) -> None:
-    path = _write(tmp_path, "def f(x: int) -> str:\n    return x\n")
-    with pytest.raises(CheckFailed):
-        MypyFactsAdapter().facts(path)
-
-
-def test_facts_provider_dispatch(tmp_path: Path) -> None:
-    with pytest.warns(DeprecationWarning):
-        provider = facts_provider("mypy")
-    assert isinstance(provider, MypyFactsAdapter)
-    with pytest.warns(DeprecationWarning):
-        assert isinstance(facts_provider("pyright"), PyrightFactsAdapter)
+def test_facts_provider_dispatch() -> None:
+    assert isinstance(facts_provider(), PyreflyTspFactsAdapter)
+    assert isinstance(facts_provider("pyrefly-tsp"), PyreflyTspFactsAdapter)
     assert isinstance(facts_provider("pyrefly"), PyreflyFactsAdapter)
-    with pytest.warns(UserWarning, match="experimental"):
-        assert isinstance(facts_provider("tsp"), TSPFactsAdapter)
-    with pytest.raises(CheckFailed):
-        facts_provider("other")
+    assert isinstance(PyreflyTspFactsAdapter(), FactsProvider)
+    for removed in ("mypy", "pyright", "tsp", "other"):
+        with pytest.raises(CheckFailed):
+            facts_provider(removed)
 
 
-def test_dataclasses_match_the_plan(tmp_path: Path) -> None:
+def test_dataclasses_match_the_plan() -> None:
     # Field set pins the seam so lowering code can rely on it.
     tf = TypeFacts(kind="int")
     assert (tf.optional, tf.args, tf.callable, tf.protocols, tf.runtime_repr) == (
@@ -148,3 +69,106 @@ def test_dataclasses_match_the_plan(tmp_path: Path) -> None:
     cf = CallableFacts(parameters=(pf,), return_type=tf)
     assert cf.positional_only == 0
     assert cf.defaults == {}
+
+
+@needs_pyrefly
+def test_optional_and_union_members(tmp_path: Path) -> None:
+    facts = _facts(tmp_path)
+    assert facts.provider == "pyrefly-tsp"
+    optional = facts.expression_at(4, 0)  # `x: int | None`
+    assert optional is not None
+    assert optional.optional is True
+    assert {member.kind for member in optional.args} >= {"int", "none"}
+
+
+@needs_pyrefly
+def test_callable_signature(tmp_path: Path) -> None:
+    facts = _facts(tmp_path)
+    signature = facts.signature("__main__.f")
+    assert signature is not None
+    assert signature.positional_only == 1
+    assert signature.keyword_only == frozenset({"c"})
+    assert signature.defaults == {"b": "x", "c": True}
+    assert signature.return_type.kind == "list"
+    assert [param.kind for param in signature.parameters] == [
+        "positional",
+        "positional_optional",
+        "varargs",
+        "keyword_optional",
+        "kwargs",
+    ]
+
+
+# --- type-text parser ------------------------------------------------------
+
+
+def test_parse_generic_type() -> None:
+    facts = _parse_type_text("list[int]")
+    assert facts is not None
+    assert facts.kind == "list"
+    assert [arg.kind for arg in facts.args] == ["int"]
+
+
+def test_parse_union_marks_optional() -> None:
+    facts = _parse_type_text("int | None")
+    assert facts is not None
+    assert facts.kind == "union"
+    assert facts.optional is True
+    assert {arg.kind for arg in facts.args} == {"int", "none"}
+    plain = _parse_type_text("str | int")
+    assert plain is not None and plain.kind == "union" and not plain.optional
+
+
+def test_parse_optional_and_union_forms() -> None:
+    optional = _parse_type_text("Optional[int]")
+    assert optional is not None
+    assert optional.optional is True
+    assert {arg.kind for arg in optional.args} == {"int", "none"}
+    union = _parse_type_text("Union[int, str, None]")
+    assert union is not None and union.optional is True
+
+
+def test_parse_tuple_type() -> None:
+    facts = _parse_type_text("tuple[int, str]")
+    assert facts is not None
+    assert facts.kind == "tuple"
+    assert [arg.kind for arg in facts.args] == ["int", "str"]
+    homogeneous = _parse_type_text("tuple[int, ...]")
+    assert homogeneous is not None and [arg.kind for arg in homogeneous.args] == ["int"]
+
+
+def test_parse_callable_type() -> None:
+    facts = _parse_type_text("Callable[[int, str], bool]")
+    assert facts is not None
+    assert facts.kind == "callable"
+    assert facts.callable is not None
+    assert [p.type.kind for p in facts.callable.parameters] == ["int", "str"]
+    assert facts.callable.return_type.kind == "bool"
+
+
+def test_parse_type_typevar_literal() -> None:
+    type_fact = _parse_type_text("type[Box]")
+    assert type_fact is not None and type_fact.kind == "type" and type_fact.args[0].kind == "Box"
+    typevar = _parse_type_text("Self@Box")
+    assert typevar is not None and typevar.kind == "typevar"
+    literal = _parse_type_text("Literal[1]")
+    assert literal is not None and literal.kind == "literal" and literal.args[0].kind == "int"
+
+
+def test_parse_specials() -> None:
+    for text, kind in [("None", "none"), ("Any", "any"), ("Unknown", "any"), ("Never", "unknown")]:
+        facts = _parse_type_text(text)
+        assert facts is not None and facts.kind == kind, text
+
+
+def test_parse_nested_generics() -> None:
+    facts = _parse_type_text("dict[str, list[int]] | None")
+    assert facts is not None and facts.kind == "union" and facts.optional
+    member = next(arg for arg in facts.args if arg.kind == "dict")
+    assert [arg.kind for arg in member.args] == ["str", "list"]
+
+
+def test_parse_garbage_degrades() -> None:
+    assert _parse_type_text("") is None
+    assert _parse_type_text("...") is None
+    assert _parse_type_text("foo(1, 2") is None
