@@ -203,13 +203,33 @@ def test_kwonly_missing_required(tmp_path: Path) -> None:
     )
 
 
-def test_still_fenced_kwargs(tmp_path: Path) -> None:
+def test_kwargs_with_kwonly_and_posonly_lowers(tmp_path: Path) -> None:
+    # `**kwargs` capture lowered in T2-4 (#121), so a signature that mixes it
+    # with `/`-positional and `*`-keyword parameters must compile and match
+    # CPython instead of staying fenced.
+    _oracle_diff(
+        tmp_path,
+        "t2_kwargs_mixed.py",
+        "\n".join(
+            [
+                "def f(a: int, /, b: int = 2, *, c: int = 3, **kw: int) -> int:",
+                "    return a + b + c + len(kw)",
+                "",
+                "def probe() -> int:",
+                "    return f(1, c=4, d=5)",
+                "",
+            ]
+        ),
+    )
+
+
+def test_unannotated_kwargs_still_fenced(tmp_path: Path) -> None:
     _fence(
         tmp_path,
         "t2_kwargs.py",
         "\n".join(
             [
-                "def f(a: int, **kw: int) -> int:",
+                "def f(a: int, **kw) -> int:",
                 "    return a",
                 "",
                 "def probe() -> int:",
