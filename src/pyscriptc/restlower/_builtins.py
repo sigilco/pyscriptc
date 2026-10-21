@@ -127,6 +127,25 @@ def _pow_call(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     return {"kind": "binary", "op": "%", "left": base, "right": mod, "type": {"kind": "int"}, "span": span}
 
 
+def _type_call(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """type(e) on a caught exception: the runtime class name as a str carrier.
+
+    CPython returns the class object; the surface this subset needs is
+    `type(e).__name__`, so `__name__` on this carrier is the carrier itself
+    (see `_lookup_attr`). Any other use of the carrier is not a str.
+    """
+
+    lo._reject_keywords(node)
+    if len(node.args) != 1:
+        lo.fail(node, "PS2003", "type expects 1 argument(s)")
+    arg = lo._expr(node.args[0])
+    if arg["type"]["kind"] != "exc":
+        lo.fail(node, "PS2002", "call to type is not lowered")
+    expr = lo._abi_call("builtins", "exc.name", [arg], {"kind": "str"}, "ps_exc_class", span)
+    expr["attrtype"] = "type"
+    return expr
+
+
 def _repr(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     """repr(x) is `'%r' % x` — the format engine already owns the spellings."""
 

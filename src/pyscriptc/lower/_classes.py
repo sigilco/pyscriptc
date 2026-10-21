@@ -1163,6 +1163,12 @@ class ClassesMixin:
                     "builtins", "exc.args", [obj], {"kind": "list", "elem": {"kind": "str"}}, "ps_exc_args", span
                 )
             self.fail(node, "PS2001", f"exception has no attribute {name}")
+        if obj.get("symbol") == "ps_exc_class" and obj.get("attrtype") == "type":
+            # type(e): the carrier holds the runtime class name. `.__name__`
+            # is that name; any other attribute is not in the subset.
+            if name == "__name__":
+                return obj
+            self.fail(node, "PS2001", f"type(e) has no attribute {name}")
         if obj["type"]["kind"] != "class":
             self.fail(node, "PS2001", f"attribute access is not lowered ({name})")
         class_name = obj["type"]["name"]
