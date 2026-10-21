@@ -1,0 +1,172 @@
+# Nightly (T2 tier): visible-corpus score trend and boxed ledger window.
+#
+# Never blocks master. A failing score or ledger step opens (or comments on)
+# a single open issue labelled `nightly-failure`; it does not gate merges.
+# The scorer holdout is never touched here: this workflow reads only the
+# visible corpus and the probes in the tree.
+#
+# Results are uploaded as a run artifact (retention 90 days). The job summary
+# carries the weighted pass so the trend is readable without downloading.
+
+name: nightly
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  visible-score:
+    name: visible corpus score
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    outputs:
+      failed: ${{ steps.result.outputs.failed }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.14"
+
+      - name: Install clang
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq clang
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Visible-corpus score
+        id: score
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          mkdir -p nightly
+          uv run python -m benchmarks.compat2.score benchmarks/compat2/probes --corpus \
+            --out nightly/visible-score.json 2>&1 | tee nightly/visible-score.log
+
+      - name: Record outcome
+        id: result
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.score.outcome }}" = "success" ]; then
+            echo "failed=false" >> "$GITHUB_OUTPUT"
+            echo "### Visible score" >> "$GITHUB_STEP_SUMMARY"
+            grep -E '^(scored|weighted pass)' nightly/visible-score.log >> "$GITHUB_STEP_SUMMARY" || true
+          else
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+            echo "Visible score failed. See nightly/visible-score.log in the artifact." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          mkdir -p nightly
+          printf '{"date":"%s","commit":"%s","score_outcome":"%s"}\n' \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$GITHUB_SHA" "${{ steps.score.outcome }}" > nightly/run.json
+
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: nightly-visible-${{ github.run_id }}
+          path: nightly/
+          retention-days: 90
+          if-no-files-found: warn
+
+  boxed-ledger:
+    name: boxed ledger window
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      failed: ${{ steps.result.outputs.failed }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.14"
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Boxed ledger
+        id: ledger
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          mkdir -p nightly
+          uv run python benchmarks/compat2/boxed_cost.py --window-commits 10 --json \
+            | tee nightly/boxed-ledger.json
+
+      - name: Record outcome
+        id: result
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.ledger.outcome }}" = "success" ]; then
+            echo "failed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: nightly-ledger-${{ github.run_id }}
+          path: nightly/
+          retention-days: 90
+          if-no-files-found: warn
+
+  # Failure reporting. One open issue per label; repeat failures add a comment.
+  report-failure:
+    name: open or update nightly-failure issue
+    needs: [visible-score, boxed-ledger]
+    if: ${{ always() && (needs.visible-score.outputs.failed == 'true' || needs.boxed-ledger.outputs.failed == 'true') }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Open or update issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh label create nightly-failure --repo "$REPO" --color B60205 \
+            --description "Nightly workflow failure" 2>/dev/null || true
+          body="$(mktemp)"
+          printf 'Nightly run failed on %s.\n\nRun: %s\n\nVisible score: %s\nBoxed ledger: %s\n' \
+            "$(date -u +%Y-%m-%d)" "$RUN_URL" \
+            "${{ needs.visible-score.outputs.failed == 'true' && 'failed' || 'ok' }}" \
+            "${{ needs.boxed-ledger.outputs.failed == 'true' && 'failed' || 'ok' }}" > "$body"
+          existing="$(gh issue list --repo "$REPO" --label nightly-failure --state open \
+            --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$REPO" --body-file "$body"
+          else
+            gh issue create --repo "$REPO" --label nightly-failure \
+              --title "nightly failed: $(date -u +%Y-%m-%d)" --body-file "$body"
+          fi
+
+  # TODO(bolo): repository_dispatch to the bolo repo after V3's bolo PR merges
+  # (plan 2026-10-21-v5, W3). Not wired. Needs a token decision first: a
+  # fine-grained PAT or GitHub App with contents:write on bolo, stored as a
+  # secret. The GITHUB_TOKEN cannot dispatch to another repository.
+  # Also still missing from the T2 list: matrix builds and the self-compile
+  # S1 re-baseline (W5).
+  bolo-dispatch:
+    name: TODO bolo repository_dispatch (not wired)
+    # Gated off by an unset repo variable until the token decision lands.
+    if: ${{ vars.BOLO_DISPATCH_ENABLED == 'true' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "TODO bolo dispatch, once the token decision is made"
