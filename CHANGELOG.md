@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+First-run fixes for the v0.4.1 alpha.
+
+- Fix: `compile FILE --run` without `--call` now runs the file's own script, including the body of `if __name__ == "__main__":` when the module also defines `main`. Before, it compiled a no-op binary and exited 0 silently. When there is nothing to run it prints a note naming `--call` on stderr.
+- `compile` checks for the C driver (clang, or zig with `--driver zig` / `PYSC_CC`) before doing any work when the output needs one, and points at `pyscriptc doctor` instead of failing deep in the link step. `--emit ir|llvm` need no toolchain.
+- Fence messages name operators and constructs as written in source (`` `*` on str and float``, `f-string`, `starred expression`) instead of AST class names (`Mult`, `JoinedStr`, `Starred`).
+- Docs: README and getting-started now agree with the changelog (binaries bundle pyrefly, macOS x86_64 is built, emitted programs cannot compile on Windows yet) and lead with `pyscriptc coverage`. New `examples/hello.py`.
+
 ## [0.4.0] - 2026-10-21
 
 The rest-of-stdlib lowering moved out of one 5000-line file into a package, with no behavior change.

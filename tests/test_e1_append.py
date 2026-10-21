@@ -281,7 +281,7 @@ def probe() -> int:
     assert len(mod["fences"]) == 1
     fence = mod["fences"][0]
     assert fence["code"] == "PS2002"
-    assert "Starred is not lowered" in fence["message"]
+    assert "starred expression is not lowered" in fence["message"]
 
 
 def test_append_element_type_mismatch_fences_ps1003() -> None:
