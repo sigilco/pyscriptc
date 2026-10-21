@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.1] - 2026-10-21
+
+Release binaries work. The 0.2.0 Nuitka binaries failed their smoke test because the default checker (pyrefly, a native executable) was not inside them.
+
+- Fix: the release binaries bundle the pyrefly executable and use it by default; `PYREFLY_BIN` still overrides.
+- `pyscriptc doctor [--json]` reports the checker (path, version, resolution source), the C toolchain, cache dir, target default and install shape.
+- `PYSC_TARGET`, `PYSC_CC` and `PYSC_LINKER` set the matching flag defaults; `--linker`, `--emit asm,obj` and `--out-dir` are new.
+- Telemetry v1 (`compile.finished`, `coverage.reported`): anonymous, opt out with `PYSC_NO_TELEMETRY=1` or `pyscriptc telemetry disable`. See `site/guide/telemetry.md`.
+- GitHub Release notes are now built from the matching CHANGELOG.md section.
+- Nightly and manual cut-release workflows (`docs/release-process.md`).
+
 ## [0.2.0] - 2026-10-21
 
 Installs work. Every install path from 0.1.0 failed on the default checker, and there was no GitHub Release.
