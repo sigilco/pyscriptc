@@ -312,17 +312,13 @@ class StdlibDispatchMixin:
         typing's `@overload` stubs erase (only the final undecorated
         implementation lowers); `@abstractmethod` erases off the list.
         """
-<<<<<<< HEAD
         if any(self._erased_deco_name(d) == "overload" for d in fn.decorator_list):
             return False
         fn.decorator_list = [d for d in fn.decorator_list if self._erased_deco_name(d) is None]
-||||||| parent of 8922b39 (feat(coro): await chains on coroutine frames with a C run loop)
-=======
         if isinstance(fn, ast.AsyncFunctionDef) and not fn.decorator_list and enabled():
             # A module-level coroutine: the coro pass owns it (PS2002 fences
             # from its shape check already carry the precise message).
             return True
->>>>>>> 8922b39 (feat(coro): await chains on coroutine frames with a C run loop)
         message = self._module_decorator_fence(fn)
         if message is None:
             if fn.decorator_list and not self._is_module_staticmethod(fn):
