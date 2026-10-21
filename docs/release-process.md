@@ -16,9 +16,15 @@ The `cut-release` concurrency group queues concurrent runs and never cancels one
 
 ## Secret and branch protection
 
-A tag pushed with the default `GITHUB_TOKEN` does not start other workflows, so `release.yml` would never run. `cut-release` therefore checks out and pushes with the `RELEASE_TOKEN` secret. Use a fine-grained personal access token or a GitHub App token with contents write on this repository. The job fails before doing anything if the secret is missing.
+Master changes come from pull requests. Direct push is exceptional, and the reason goes in the commit message.
 
-If master has branch protection that requires pull requests, the push to master will be rejected. Either allow the token's identity to bypass that rule or cut releases from a release branch and merge it. Do not weaken protection for other pushes.
+Enforcement is the repository ruleset `master: PR only` (on sigilco/pyscriptc, target branch the default branch). It requires a pull request with 0 approvals (solo maintainer plus agents, so a required review would only block; the gate is CI), requires the status checks `betterleaks`, `ruff and compat2`, `zig cc emitted-IR smoke` and `wheel install smoke` to pass on the PR head, blocks force pushes and deletion, and lets the Repository admin role bypass (bypass mode always, so an admin can still push directly in an emergency). Required checks are not branch-up-to-date strict. Merge, squash and rebase are all allowed. The `tests without linux_container` check is not required yet: PR #128 shards it into `tests without linux_container (shard N/3)`, and a required name that no job reports blocks every PR. Add the three shard names to the ruleset when #128 lands. Flaky checks must not be added to the required list.
+
+Inspect it with `gh api repos/sigilco/pyscriptc/rulesets`. The repo is public under the free `sigilco` organization, which is why rulesets are available without a paid plan.
+
+A tag pushed with the default `GITHUB_TOKEN` does not start other workflows, so `release.yml` would never run. `cut-release` therefore checks out and pushes with the `RELEASE_TOKEN` secret. Use a fine-grained personal access token or a GitHub App token with contents write on this repository. The job fails before doing anything if the secret is missing. As of 2026-10-21 the secret is not set on the repository, so `cut-release` cannot run until the owner adds it.
+
+How `cut-release` coexists with the ruleset: it pushes the `chore(release): vX.Y.Z` commit straight to master and then the tag. Tags are not covered by the ruleset. The commit push is accepted when the identity behind `RELEASE_TOKEN` holds the Repository admin role (a PAT of an admin user does) because that role bypasses the rule. If you use a GitHub App token instead, add the app as a bypass actor of the ruleset (`gh api` bypass_actors with actor_type `Integration`, bypass_mode `always`). A release commit is the one routine direct push; its subject is `chore(release): vX.Y.Z` and it only touches `pyproject.toml`, `uv.lock` and `CHANGELOG.md`. The alternative, making `cut-release` open a version-bump PR and tag after merge, is cleaner but adds a second workflow run and a merge wait, so it is deferred. Do not weaken the ruleset for other pushes.
 
 ## Nightly
 
@@ -33,3 +39,22 @@ The draft release body comes from `release.yml` and is unchanged by this process
 ## Release classes and bar
 
 See the Release policy section in `AGENTS.md` for the thresholds (patch, hotfix, minor, rc) and `.agents/plans/2026-10-21-release-cadence-strategy.md` for the data behind them. Rehearse the exact commit (full build matrix, smoke, wheel verify, no publish) before tagging, and use an `X.Y.ZrcN` tag for packaging changes. The automated bar check and the rehearsal dispatch input are not implemented yet; until then apply them by hand.
+
+## Starting thresholds in plain language
+
+These are the numbers behind the bar in `AGENTS.md`. They are starting values, tuned after the next two releases. They live in the plan and the AGENTS.md policy for now; the plan is to move them into an `env` block at the top of `cut-release.yml` so the owner changes one line. That block is not implemented yet.
+
+Patch release (the frequent one), all of these must hold:
+
+- At least 1 user-visible change (a `feat`, `fix` or `perf` commit that touches code or docs a user reads), or at least 3 merged PRs. Why: a release with nothing for a user to notice only burns a version number, and PyPI versions can never be reused.
+- At least 10 commits since the last tag. Why: our three releases after v0.2.0 had 3, 11 and 25 commits; a floor stops a release made of one test tweak.
+- At least 12 hours since the last tag. Why: those same releases were 26 to 61 minutes apart, and a gap gives CI, the nightly and early users time to find a problem before the next number is spent.
+
+Minor release (a theme, not a calendar slot), all of these must hold:
+
+- At least 2 user-visible features. Why: a minor is a story you can tell in a sentence; one small change is a patch.
+- At least 5 days since the previous minor. Why: it caps the minor pace at about one a week and forces the theme to be finished, not sliced.
+- 0 open issues in the matching GitHub milestone. Why: the milestone holds the exit criteria; open issues mean the theme is not done.
+- A measured receipt (census delta, boxed ledger window, or a perf number with its baseline). Why: a claim in the release notes needs a number behind it, which the changelog plan already requires.
+
+Hotfix patches skip the content and gap checks only, and need a documented install or first-run break. Every release, including hotfixes, needs a passing rehearsal on the exact commit first.
