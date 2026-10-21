@@ -3,8 +3,9 @@
 The checker is a subprocess. Its AST is not an input to lowering. A bad
 annotation fails the build before LLVM emission.
 
-The default checker is `pyrefly` (`PYREFLY_BIN`, fallback `pyrefly` on
-PATH): a 34 MB MIT-licensed binary, fast enough to run per compile. It
+The default checker is `pyrefly` (resolved by `_resolve_pyrefly_binary`: the
+running interpreter's install, then `PYREFLY_BIN`, then PATH): a 34 MB
+MIT-licensed binary, fast enough to run per compile. It
 runs against a copy of mypy's bundled typeshed patched the same way the
 mypy plugin realigns signatures (`range(...) -> list[int]`,
 `frozenset[T]` subclasses `set[T]`), plus the vendored `_pyright_stubs/`
@@ -28,9 +29,11 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
+import sysconfig
 import tempfile
 import warnings
 from collections.abc import Callable
@@ -165,8 +168,39 @@ def _patched_typeshed(dest: Path) -> Path:
     return dest
 
 
+def _resolve_tool_argv(name: str, env_var: str, fallback: list[str]) -> list[str]:
+    """argv that launches a checker binary, preferring the running interpreter's install.
+
+    Order: `env_var` (shlex-split, an explicit override), then the scripts dir of
+    the running interpreter, then the user scheme's scripts dir, then `name` on
+    PATH, then `fallback`. The result is an argv list, so `fallback` may be multi-token
+    (`[sys.executable, "-m", "pyrefly"]`).
+    """
+    override = os.environ.get(env_var)
+    if override:
+        return shlex.split(override)
+    exe = sysconfig.get_config_var("EXE") or ""
+    scripts_dirs = [sysconfig.get_path("scripts")]
+    try:
+        scripts_dirs.append(sysconfig.get_path("scripts", sysconfig.get_preferred_scheme("user")))
+    except KeyError:
+        pass
+    for scripts in scripts_dirs:
+        candidate = Path(scripts) / f"{name}{exe}"
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return [str(candidate)]
+    found = shutil.which(name)
+    if found:
+        return [found]
+    return list(fallback)
+
+
+def _resolve_pyrefly_binary() -> list[str]:
+    return _resolve_tool_argv("pyrefly", "PYREFLY_BIN", [sys.executable, "-m", "pyrefly"])
+
+
 def _run_pyrefly(path: Path) -> None:
-    binary = os.environ.get("PYREFLY_BIN", "pyrefly")
+    argv = _resolve_pyrefly_binary()
     source = path.resolve()
     with tempfile.TemporaryDirectory(prefix="pyscriptc-pyrefly-") as tmp:
         typeshed = _patched_typeshed(Path(tmp) / "typeshed")
@@ -192,13 +226,21 @@ def _run_pyrefly(path: Path) -> None:
         )
         try:
             proc = subprocess.run(
-                [binary, "check", "-c", str(config), str(source)],
+                [
+                    *argv,
+                    "check",
+                    "-c",
+                    str(config),
+                    "--python-interpreter-path",
+                    sys.executable,
+                    str(source),
+                ],
                 capture_output=True,
                 text=True,
             )
         except FileNotFoundError as exc:
             raise CheckFailed(
-                f"pyrefly is not installed (binary {binary!r}); set PYREFLY_BIN or put pyrefly on PATH"
+                f"pyrefly is not installed (command {argv[0]!r}); set PYREFLY_BIN or put pyrefly on PATH"
             ) from exc
     if proc.returncode == 0:
         return
@@ -208,7 +250,7 @@ def _run_pyrefly(path: Path) -> None:
 
 
 def _run_pyright(path: Path) -> None:
-    binary = os.environ.get("PYRIGHT_BIN", "pyright")
+    argv = _resolve_tool_argv("pyright", "PYRIGHT_BIN", ["pyright"])
     source = path.resolve()
     with tempfile.TemporaryDirectory(prefix="pyscriptc-pyright-") as tmp:
         config = Path(tmp) / "pyrightconfig.json"
@@ -224,7 +266,7 @@ def _run_pyright(path: Path) -> None:
         try:
             proc = subprocess.run(
                 [
-                    binary,
+                    *argv,
                     "--outputjson",
                     "--pythonversion",
                     "3.13",
@@ -237,7 +279,7 @@ def _run_pyright(path: Path) -> None:
             )
         except FileNotFoundError as exc:
             raise CheckFailed(
-                f"pyright is not installed (binary {binary!r}); set PYRIGHT_BIN or put pyright on PATH"
+                f"pyright is not installed (command {argv[0]!r}); set PYRIGHT_BIN or put pyright on PATH"
             ) from exc
     try:
         report = json.loads(proc.stdout)

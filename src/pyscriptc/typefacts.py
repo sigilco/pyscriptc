@@ -68,7 +68,7 @@ from mypy.types import (
     get_proper_type,
 )
 
-from pyscriptc.check import CheckFailed
+from pyscriptc.check import CheckFailed, _resolve_pyrefly_binary, _resolve_tool_argv
 
 # A default value a checker could prove constant at compile time.
 StaticValue = int | float | bool | str | bytes | None
@@ -1912,15 +1912,18 @@ class PyreflyFactsAdapter:
     `format_version` is pinned at 1 — any drift raises CheckFailed instead
     of silently mis-mapping.
 
-    `command` overrides the spawn line (default: `PYREFLY_BIN` env or
-    `pyrefly` on PATH).
+    `command` overrides the spawn line (default: the running interpreter's
+    pyrefly, then `PYREFLY_BIN`, then `pyrefly` on PATH; see
+    `check._resolve_pyrefly_binary`).
     """
 
     name = "pyrefly"
 
     def __init__(self, command: str | Sequence[str] | None = None) -> None:
-        raw = command if command is not None else os.environ.get("PYREFLY_BIN")
-        self._argv = shlex.split(raw) if isinstance(raw, str) else list(raw or ["pyrefly"])
+        if command is None:
+            self._argv = _resolve_pyrefly_binary()
+        else:
+            self._argv = shlex.split(command) if isinstance(command, str) else list(command)
 
     def facts(self, path: Path) -> ModuleFacts:
         path = path.resolve()
@@ -1963,30 +1966,27 @@ class PyreflyFactsAdapter:
         return _pysa_module_facts(expressions_doc, definitions_doc, path, tree)
 
     def _read_report(self, outdir: str, kind: str, path: Path) -> Mapping[str, Any]:
-        """The `kind/<module>:<id>.json` whose source_path is `path`."""
+        """The `kind/*.json` report whose `source_path.FileSystem` is `path`.
+
+        pyrefly names each report by the dotted module path (or `__unknown__`
+        for targets outside every search root), so the file name cannot be
+        matched reliably; the report's own `source_path` can.
+        """
         report_dir = Path(outdir) / kind
-        stem = path.stem
-        candidates = sorted(report_dir.glob(f"{stem}:*.json")) + sorted(
-            report_dir.glob(f"{stem.replace('.', '_')}:*.json")
-        )
-        if not candidates:
-            # pyrefly names the module `__unknown__` when the target sits
-            # outside every search root (e.g. pytest's per-test tmp dirs).
-            candidates = sorted(report_dir.glob("__unknown__:*.json"))
-        if not candidates:
-            raise CheckFailed(f"pyrefly emitted no {kind} report for {path}")
-        for candidate in candidates:
+        for candidate in sorted(report_dir.glob("*.json")):
             try:
                 doc = json.loads(candidate.read_text(encoding="utf-8"))
             except _READ_ERRORS:
                 continue
+            if not isinstance(doc, Mapping):
+                continue
             source_path = doc.get("source_path")
-            recorded = None
-            if isinstance(source_path, Mapping):
-                recorded = source_path.get("FileSystem")
-            if recorded is None or Path(str(recorded)) == path:
+            if not isinstance(source_path, Mapping):
+                continue
+            recorded = source_path.get("FileSystem")
+            if recorded is not None and Path(str(recorded)).resolve() == path:
                 return doc
-        raise CheckFailed(f"pyrefly {kind} report for {path} was not readable JSON")
+        raise CheckFailed(f"pyrefly emitted no {kind} report for {path}")
 
 
 # ---------------------------------------------------------------------------
@@ -2200,8 +2200,10 @@ class TSPFactsAdapter:
     name = "tsp"
 
     def __init__(self, command: str | Sequence[str] | None = None) -> None:
-        raw = command if command is not None else os.environ.get("PYRIGHT_TYPESERVER_BIN")
-        argv = shlex.split(raw) if isinstance(raw, str) else list(raw or ["pyright-typeserver"])
+        if command is None:
+            argv = _resolve_tool_argv("pyright-typeserver", "PYRIGHT_TYPESERVER_BIN", ["pyright-typeserver"])
+        else:
+            argv = shlex.split(command) if isinstance(command, str) else list(command)
         if "--stdio" not in argv:
             argv = [*argv, "--stdio"]
         self._argv = argv

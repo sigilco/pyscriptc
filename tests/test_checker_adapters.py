@@ -9,6 +9,7 @@ reachable (`PYREFLY_BIN`/`pyrefly`, `PYRIGHT_TYPESERVER_BIN`/
 from __future__ import annotations
 
 import ast
+import json
 import os
 import shlex
 import shutil
@@ -382,3 +383,57 @@ def test_tsp_smoke(tmp_path: Path) -> None:
     assert add is not None and add.return_type.kind == "int"
     assert facts.expression_at(5, 8) is not None  # the `add` callee
     assert facts.expression_at(5, 12) is not None or facts.expression_at(5, 0) is not None
+
+
+def _write_report(outdir: Path, kind: str, name: str, source: str | None) -> None:
+    doc: dict[str, object] = {"expressions": [], "callables": []}
+    if source is not None:
+        doc["source_path"] = {"FileSystem": source}
+    (outdir / kind).mkdir(parents=True, exist_ok=True)
+    (outdir / kind / name).write_text(json.dumps(doc), encoding="utf-8")
+
+
+def test_report_matches_on_source_path_not_stem(tmp_path: Path) -> None:
+    target = tmp_path / "pkg" / "ansi.py"
+    target.parent.mkdir()
+    target.write_text("x = 1\n", encoding="utf-8")
+    outdir = tmp_path / "out"
+    # pyrefly names reports by dotted module path; the stem never matches.
+    _write_report(outdir, "type_of_expressions", "pkg.ansi:1000.json", str(target.resolve()))
+    doc = PyreflyFactsAdapter()._read_report(str(outdir), "type_of_expressions", target.resolve())
+    assert doc["source_path"] == {"FileSystem": str(target.resolve())}
+
+
+def test_report_matches_unknown_module_and_skips_decoys(tmp_path: Path) -> None:
+    target = tmp_path / "scratch" / "smoke.py"
+    target.parent.mkdir()
+    target.write_text("x = 1\n", encoding="utf-8")
+    outdir = tmp_path / "out"
+    decoy = tmp_path / "elsewhere" / "smoke.py"
+    _write_report(outdir, "definitions", "__unknown__:1.json", str(decoy))
+    _write_report(outdir, "definitions", "smoke:2.json", str(decoy))
+    (outdir / "definitions" / "broken:3.json").write_text("{not json", encoding="utf-8")
+    _write_report(outdir, "definitions", "__unknown__:4.json", None)
+    _write_report(outdir, "definitions", "__unknown__:5.json", str(target.resolve()))
+    doc = PyreflyFactsAdapter()._read_report(str(outdir), "definitions", target.resolve())
+    assert doc["source_path"] == {"FileSystem": str(target.resolve())}
+
+
+def test_report_without_matching_source_path_raises(tmp_path: Path) -> None:
+    target = tmp_path / "lonely.py"
+    target.write_text("x = 1\n", encoding="utf-8")
+    outdir = tmp_path / "out"
+    _write_report(outdir, "type_of_expressions", "__unknown__:1.json", str(tmp_path / "other.py"))
+    with pytest.raises(CheckFailed, match="emitted no type_of_expressions report"):
+        PyreflyFactsAdapter()._read_report(str(outdir), "type_of_expressions", target.resolve())
+
+
+@pytest.mark.skipif(_binary("PYREFLY_BIN", "pyrefly") is None, reason="pyrefly binary not on PATH")
+def test_pyrefly_real_package_module_facts() -> None:
+    repo = Path(__file__).resolve().parents[1]
+    path = repo / "benchmarks" / "compat" / "top100" / "src" / "colorama" / "ansi.py"
+    if not path.is_file():
+        pytest.skip("top100 corpus not checked out")
+    facts = PyreflyFactsAdapter().facts(path)
+    assert len(facts.expressions) == 9
+    assert len(facts.callables) == 10
