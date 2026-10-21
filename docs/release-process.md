@@ -2,17 +2,51 @@
 
 Releases are cut from master by a manual workflow and built by a tag-triggered workflow. Publishing to PyPI stays behind an approval gate.
 
+## Rehearse before tagging
+
+Every release, including rc and hotfix, needs a successful rehearsal of the exact commit first. A rehearsal is a `workflow_dispatch` run of `release.yml`: the full build matrix, smoke, wheel build and wheel verify, with the version read from `pyproject.toml`. It never creates a GitHub Release and never publishes to PyPI.
+
+Dispatch it on the commit you intend to release (the tip of master) with the full SHA, so the run title is `rehearsal <full SHA>`:
+
+```sh
+gh workflow run release.yml --ref master -f ref="$(git rev-parse origin/master)"
+```
+
+Leaving `ref` empty rehearses the dispatched commit, which has the same title. A branch name works for a trial run, but only a run titled `rehearsal <full SHA>` counts for the gates below. The matrix takes about 20 minutes.
+
 ## Cut a release
 
-1. Run the `cut-release` workflow from the Actions tab on master. Choose `bump` (patch, minor or major). `dry_run` is on by default: the run prints the new version and the changelog entry, and creates nothing.
-2. Read the dry run output in the job summary. Entries come from conventional commit subjects since the last `v*` tag. `feat` goes to Added, `fix` to Fixed, `!` or a breaking marker to Breaking. `chore`, `test` and `style` are left out. Merge commits and `chore(release)` commits are skipped.
-3. Re-run with `dry_run` unchecked. The workflow bumps `version` in `pyproject.toml`, prepends the entry to `CHANGELOG.md`, runs `uv lock`, commits `chore(release): vX.Y.Z` to master, creates an annotated tag `vX.Y.Z`, and pushes both.
-4. The tag push starts `release.yml`. It builds the five binaries, smoke-tests them, drafts the GitHub Release with `sha256sums.txt`, and runs the wheel verify job.
-5. The PyPI publish job waits for a required reviewer in the `pypi-publish` environment. Approve it only after the draft release and smoke results look right.
+Master is PR-only, so a release is two runs of the `cut-release` workflow (Actions tab, run from master) around a merge.
+
+1. Rehearse the tip of master (above) and wait for it to pass.
+2. Run `cut-release` with `stage=prepare`, `dry_run` on (the default). It prints the new version, the changelog entry and the bar report (one pass or fail line per check). Entries come from conventional commit subjects since the last stable `v*` tag: `feat` goes to Added, `fix` to Fixed, `!` to Breaking, `chore`, `test` and `style` are left out, merge and `chore(release)` commits are skipped. The dry run is red when the real run would be refused.
+3. Re-run with `dry_run` off. It opens a PR from `release/vX.Y.Z` titled `chore(release): vX.Y.Z` that bumps `pyproject.toml`, runs `uv lock` and prepends the changelog entry. Merge it (squash or rebase) while master is still at the rehearsed commit. If master moved, rehearse the new tip first.
+4. Run `cut-release` with `stage=tag` and `dry_run` off. It checks that master HEAD is the release commit (only `pyproject.toml`, `uv.lock` and `CHANGELOG.md` changed, version matches, tag free) and that its parent was rehearsed, then pushes the annotated tag `vX.Y.Z`.
+5. The tag push starts `release.yml`. It builds the five binaries, smoke-tests them, drafts the GitHub Release with `sha256sums.txt`, and runs the wheel verify job.
+6. The PyPI publish job first checks that a successful rehearsal run covers the tagged commit, or its parent when the release commit only touched the three release files. It has no bypass: rehearse, then re-run the job. After that it waits for a required reviewer in the `pypi-publish` environment. Approve it only after the draft release and smoke results look right.
+
+## The bar
+
+`cut-release` computes the checks in `.github/scripts/release_bar.py`. Thresholds live in the top-level `env` block of `cut-release.yml`: `PATCH_MIN_COMMITS`, `PATCH_MIN_HOURS`, `PATCH_MIN_PRS`, `PATCH_MIN_USER_CHANGES`, `MINOR_MIN_FEATURES`, `MINOR_MIN_DAYS`, `MAX_RC`. Change one line there to tune. A user-visible change is a `feat`, `fix` or `perf` commit touching `src/` (runtime C included), `packaging/`, `README.md` or a user doc (`docs/getting-started.md`, `supported.md`, `examples.md`, `refused-features.md`, `README.md`).
+
+Inputs:
+
+- `bump`: `patch`, `minor`, `major` or `prerelease`. On an rc version, a stable bump promotes it to its base version (`0.5.0rc2` becomes `0.5.0`), and `prerelease` counts up (`rc3`).
+- `rc_of`: with `prerelease` from a stable version, which release the first rc is for (`patch` gives `0.4.2rc1`, `minor` gives `0.5.0rc1`).
+- `hotfix`: patch only. Skips the content and gap checks, keeps the rehearsal. It needs a linked issue labelled `hotfix` that reproduces an install or first-run break; this is a manual check.
+- `bypass_reason`: required to proceed past any failing check. It is echoed in the job summary, the release PR and the release commit, and the tag message. Nothing is bypassed silently. A bypass cannot fix "nothing releasable" (only chore, test and style commits) and does not skip the publish gate.
+- `dry_run` (default on) and `stage` (`prepare` or `tag`).
+
+Checks by class:
+
+- Patch: user-visible change count or merged PR count, commits since the last stable tag, hours since it, and a rehearsal of the base commit.
+- Hotfix: patch bump and a rehearsal; the evidence line is manual.
+- Minor and major: user-visible `feat` count, days since the previous minor, 0 open issues in the milestone titled `vX.Y.Z` (a title like `v0.5.0` or `v0.4.1 alpha` matches; no milestone is a failure), and a rehearsal. The measured receipt is a manual line.
+- Prerelease: rc number at most `MAX_RC`, and a rehearsal. Use an rc for packaging changes and before any minor.
 
 ## Guards
 
-The `cut-release` concurrency group queues concurrent runs and never cancels one. The job refuses to run from any branch other than master. It refuses if the tag already exists on origin, and it refuses if there are no releasable commits since the last tag.
+The `cut-release` concurrency group queues concurrent runs and never cancels one. The job refuses to run from any branch other than master, refuses if the tag already exists on origin or the `release/vX.Y.Z` branch exists, and refuses if there are no releasable commits since the last tag.
 
 ## Secret and branch protection
 
@@ -22,9 +56,9 @@ Enforcement is the repository ruleset `master: PR only` (on sigilco/pyscriptc, t
 
 Inspect it with `gh api repos/sigilco/pyscriptc/rulesets`. The repo is public under the free `sigilco` organization, which is why rulesets are available without a paid plan.
 
-A tag pushed with the default `GITHUB_TOKEN` does not start other workflows, so `release.yml` would never run. `cut-release` therefore checks out and pushes with the `RELEASE_TOKEN` secret. Use a fine-grained personal access token or a GitHub App token with contents write on this repository. The job fails before doing anything if the secret is missing. As of 2026-10-21 the secret is not set on the repository, so `cut-release` cannot run until the owner adds it.
+A tag pushed with the default `GITHUB_TOKEN` does not start other workflows, so `release.yml` would never run. `cut-release` therefore prefers the `RELEASE_TOKEN` secret (a fine-grained personal access token or GitHub App token with contents write and pull requests write on this repository). The `prepare` stage works without it, the `tag` stage does not: it fails fast with the manual command (`git tag -a vX.Y.Z <merged release commit> && git push origin vX.Y.Z`, run by an admin; a person's tag push starts `release.yml`). As of 2026-10-21 the secret is not set on the repository.
 
-How `cut-release` coexists with the ruleset: it pushes the `chore(release): vX.Y.Z` commit straight to master and then the tag. Tags are not covered by the ruleset. The commit push is accepted when the identity behind `RELEASE_TOKEN` holds the Repository admin role (a PAT of an admin user does) because that role bypasses the rule. If you use a GitHub App token instead, add the app as a bypass actor of the ruleset (`gh api` bypass_actors with actor_type `Integration`, bypass_mode `always`). A release commit is the one routine direct push; its subject is `chore(release): vX.Y.Z` and it only touches `pyproject.toml`, `uv.lock` and `CHANGELOG.md`. The alternative, making `cut-release` open a version-bump PR and tag after merge, is cleaner but adds a second workflow run and a merge wait, so it is deferred. Do not weaken the ruleset for other pushes.
+How `cut-release` coexists with the ruleset: it never pushes to master. The `prepare` stage pushes `release/vX.Y.Z` and opens a PR with the `chore(release): vX.Y.Z` commit, which only touches `pyproject.toml`, `uv.lock` and `CHANGELOG.md`. The `tag` stage pushes only the tag, and tags are not covered by the ruleset. Without `RELEASE_TOKEN`, the PR is opened with `GITHUB_TOKEN`. That needs the repository setting "Allow GitHub Actions to create and approve pull requests" (Settings > Actions > General; it is off as of 2026-10-21), and a PR made that way does not start CI, so the required checks never report. Close and reopen the PR to start them, or merge with the admin bypass. With `RELEASE_TOKEN` set, none of that applies. Owner action to remove both caveats: add the `RELEASE_TOKEN` secret. Do not weaken the ruleset for other pushes.
 
 ## Nightly
 
@@ -38,11 +72,11 @@ The draft release body comes from `release.yml` and is unchanged by this process
 
 ## Release classes and bar
 
-See the Release policy section in `AGENTS.md` for the thresholds (patch, hotfix, minor, rc) and `.agents/plans/2026-10-21-release-cadence-strategy.md` for the data behind them. Rehearse the exact commit (full build matrix, smoke, wheel verify, no publish) before tagging, and use an `X.Y.ZrcN` tag for packaging changes. The automated bar check and the rehearsal dispatch input are not implemented yet; until then apply them by hand.
+See the Release policy section in `AGENTS.md` for the thresholds (patch, hotfix, minor, rc) and `.agents/plans/2026-10-21-release-cadence-strategy.md` for the data behind them. The rehearsal and the automated bar are described above in "Rehearse before tagging" and "The bar".
 
 ## Starting thresholds in plain language
 
-These are the numbers behind the bar in `AGENTS.md`. They are starting values, tuned after the next two releases. They live in the plan and the AGENTS.md policy for now; the plan is to move them into an `env` block at the top of `cut-release.yml` so the owner changes one line. That block is not implemented yet.
+These are the numbers behind the bar in `AGENTS.md`. They are starting values, tuned after the next two releases. They live in the top-level `env` block of `cut-release.yml`, so the owner changes one line (the minor receipt is a manual check).
 
 Patch release (the frequent one), all of these must hold:
 
