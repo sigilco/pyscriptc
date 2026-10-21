@@ -25,7 +25,7 @@ def test_self_census_ballpark() -> None:
     # Pyrefly/TSP adapter plumbing + deprecation markers added more.
     # Checker resolver (sysconfig/which/env probing) in check.py adds 12 more.
     # Telemetry v1 events + CLI --fail-on/--print/passthrough add 14 more.
-        # PyreflyTspFactsAdapter (typefacts.py) adds 23 more.
+    # PyreflyTspFactsAdapter (typefacts.py) adds 23 more.
     assert census["fences"] == 1309
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 25_000
