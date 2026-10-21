@@ -202,6 +202,8 @@ def facts_provider(checker: str) -> FactsProvider:
     if checker == "tsp":
         warnings.warn("the tsp facts adapter is experimental", stacklevel=2)
         return TSPFactsAdapter()
+    if checker == "pyrefly-tsp":
+        return PyreflyTspFactsAdapter()
     raise CheckFailed(f"checker {checker!r} is not wired; the facts oracle defaults to pyrefly")
 
 
@@ -2057,7 +2059,7 @@ def _tsp_type(typ: Any, seen: dict[int, TypeFacts]) -> TypeFacts:
     elif kind == _TSP_KIND_CLASS:
         facts = _tsp_class_type(typ, seen)
     elif kind == _TSP_KIND_UNION:
-        members = tuple(_tsp_type(sub, seen) for sub in typ.get("subTypes", ()))
+        members = tuple(_tsp_type(sub, seen) for sub in typ.get("subTypes") or ())
         facts = TypeFacts(
             kind="union",
             optional=any(member.kind == "none" or member.optional for member in members),
@@ -2073,7 +2075,7 @@ def _tsp_type(typ: Any, seen: dict[int, TypeFacts]) -> TypeFacts:
     elif kind == _TSP_KIND_OVERLOADED:
         variants = tuple(
             TypeFacts(kind="callable", callable=_tsp_function_signature(variant, seen))
-            for variant in typ.get("overloads", ())
+            for variant in typ.get("overloads") or ()
         )
         facts = TypeFacts(kind="overloaded", args=variants, runtime_repr="overloaded")
     elif kind == _TSP_KIND_MODULE:
@@ -2102,7 +2104,7 @@ def _tsp_class_type(typ: Mapping[str, Any], seen: dict[int, TypeFacts]) -> TypeF
         name = match.group("name") if match else "unknown"
     if name == "NoneType":
         return TypeFacts(kind="none", optional=True, runtime_repr="None")
-    args = tuple(_tsp_type(arg, seen) for arg in typ.get("typeArgs", ()))
+    args = tuple(_tsp_type(arg, seen) for arg in typ.get("typeArgs") or ())
     literal = typ.get("literalValue")
     if flags & _TSP_FLAG_LITERAL and literal is not None:
         return TypeFacts(kind="literal", args=(TypeFacts(kind=name),), runtime_repr=repr(literal))
@@ -2124,7 +2126,7 @@ def _tsp_param_types(fn: Mapping[str, Any], seen: dict[int, TypeFacts]) -> tuple
     specialized = fn.get("specializedTypes")
     if not isinstance(specialized, Mapping):
         return [], {}
-    param_types = [_tsp_type(item, seen) for item in specialized.get("parameterTypes", ()) if item is not None]
+    param_types = [_tsp_type(item, seen) for item in specialized.get("parameterTypes") or () if item is not None]
     return param_types, specialized
 
 
@@ -2519,3 +2521,435 @@ class TSPFactsAdapter:
             keyword_only=frozenset(keyword_only),
             defaults=defaults,
         )
+
+
+# ---------------------------------------------------------------------------
+# Pyrefly TSP oracle (`pyrefly tsp`, 1.4.x)
+#
+# `pyrefly/typeFacts` is a pyrefly-specific bulk request: one call answers N
+# expression ranges with a lossy JSON type (`kind` instance|class|union|
+# function|module|any|other), NOT the upstream TSP Type shape. Callable
+# signatures come from per-node `typeServer/getComputedType`, which does
+# return the full TSP Type (decoded by `_tsp_type`). Opening a document
+# advances the snapshot; a request carrying the pre-open snapshot silently
+# returns nulls, so the snapshot is re-read after every didOpen/didChange.
+
+_PYREFLY_TSP_VERSION_PREFIX = "0.4."
+_TYPEFACTS_CHUNK = 1500
+
+
+def _tsf_denote(facts: TypeFacts) -> TypeFacts:
+    """Annotation position: a `class` fact (type[X]) denotes the instance X."""
+    if facts.kind == "type" and facts.args:
+        return facts.args[0]
+    if facts.kind == "union":
+        members = tuple(_tsf_denote(member) for member in facts.args)
+        return TypeFacts(
+            kind="union",
+            optional=any(m.kind == "none" or m.optional for m in members),
+            args=members,
+            runtime_repr=facts.runtime_repr,
+        )
+    return facts
+
+
+def _tsf_instance(qname: str, args: tuple[TypeFacts, ...], display: str | None = None) -> TypeFacts:
+    name = _short_name(qname)
+    if name == "NoneType":
+        return TypeFacts(kind="none", optional=True, runtime_repr="None")
+    if name == "tuple" and args:
+        return TypeFacts(kind="tuple", args=args, runtime_repr=display or "tuple")
+    return TypeFacts(kind=name, args=args, runtime_repr=display or name)
+
+
+def _tsf_type(raw: Any) -> TypeFacts | None:
+    """Decode one `pyrefly/typeFacts` entry; None when the oracle gave no answer."""
+    if not isinstance(raw, Mapping):
+        return None
+    kind = raw.get("kind")
+    if kind == "instance":
+        qname = raw.get("qname")
+        if not isinstance(qname, str):
+            return None
+        args = tuple(
+            t if (t := _tsf_type(a)) is not None else TypeFacts(kind="unknown") for a in raw.get("typeArgs") or ()
+        )
+        return _tsf_instance(qname, args)
+    if kind == "class":
+        qname = raw.get("qname")
+        if not isinstance(qname, str):
+            return None
+        inner = _tsf_instance(qname, ())
+        return TypeFacts(kind="type", args=(inner,), runtime_repr=f"type[{inner.runtime_repr}]")
+    if kind == "union":
+        members = tuple(
+            t if (t := _tsf_type(m)) is not None else TypeFacts(kind="unknown") for m in raw.get("members") or ()
+        )
+        return TypeFacts(
+            kind="union",
+            optional=any(m.kind == "none" or m.optional for m in members),
+            args=members,
+            runtime_repr="union",
+        )
+    if kind == "function":
+        returns = _tsf_type(raw.get("returns")) or TypeFacts(kind="unknown")
+        return TypeFacts(
+            kind="callable",
+            callable=CallableFacts(parameters=(), return_type=returns),
+            runtime_repr=str(raw.get("qname") or "function"),
+        )
+    if kind == "module":
+        return TypeFacts(kind="module", runtime_repr=str(raw.get("name") or ""))
+    if kind == "any":
+        return TypeFacts(kind="any", runtime_repr="Any")
+    if kind == "other":
+        display = raw.get("display")
+        if not isinstance(display, str):
+            return TypeFacts(kind="unknown")
+        parsed = _parse_type_text(display)
+        return parsed if parsed is not None else TypeFacts(kind="unknown", runtime_repr=display)
+    return None
+
+
+def _lsp_range(node: ast.AST, lines: list[str]) -> dict[str, Any] | None:
+    """LSP range (0-based line, UTF-16 character) for an ast node."""
+    end_lineno = getattr(node, "end_lineno", None)
+    end_col = getattr(node, "end_col_offset", None)
+    lineno = getattr(node, "lineno", None)
+    if lineno is None or end_lineno is None or end_col is None:
+        return None
+    if lineno - 1 >= len(lines) or end_lineno - 1 >= len(lines):
+        return None
+    return {
+        "start": {"line": lineno - 1, "character": _utf16_col(lines[lineno - 1], node.col_offset)},
+        "end": {"line": end_lineno - 1, "character": _utf16_col(lines[end_lineno - 1], end_col)},
+    }
+
+
+def _def_name_range(stmt: ast.FunctionDef | ast.AsyncFunctionDef, lines: list[str]) -> dict[str, Any] | None:
+    if stmt.lineno - 1 >= len(lines):
+        return None
+    line = lines[stmt.lineno - 1]
+    raw = line.encode("utf-8")
+    marker = b"async def " if isinstance(stmt, ast.AsyncFunctionDef) else b"def "
+    at = raw.find(marker, stmt.col_offset)
+    if at < 0:
+        return None
+    start = at + len(marker)
+    end = start + len(stmt.name.encode("utf-8"))
+    return {
+        "start": {"line": stmt.lineno - 1, "character": _utf16_col(line, start)},
+        "end": {"line": stmt.lineno - 1, "character": _utf16_col(line, end)},
+    }
+
+
+def _arg_slots(
+    args: ast.arguments,
+) -> tuple[list[tuple[ast.arg, str, ast.expr | None]], int, frozenset[str]]:
+    """(arg, kind, default expr) in declaration order, positional-only count, keyword-only names."""
+    slots: list[tuple[ast.arg, str, ast.expr | None]] = []
+    positional = [*args.posonlyargs, *args.args]
+    defaults: list[ast.expr | None] = [None] * (len(positional) - len(args.defaults)) + list(args.defaults)
+    for arg, default in zip(positional, defaults, strict=True):
+        slots.append((arg, "positional" if default is None else "positional_optional", default))
+    if args.vararg is not None:
+        slots.append((args.vararg, "varargs", None))
+    for arg, default in zip(args.kwonlyargs, args.kw_defaults, strict=True):
+        slots.append((arg, "keyword_only" if default is None else "keyword_optional", default))
+    if args.kwarg is not None:
+        slots.append((args.kwarg, "kwargs", None))
+    return slots, len(args.posonlyargs), frozenset(a.arg for a in args.kwonlyargs)
+
+
+class PyreflyTspFactsAdapter:
+    """Facts backed by a long-lived `pyrefly tsp` subprocess.
+
+    Expression types come from the bulk `pyrefly/typeFacts` request (one
+    query per `ast.expr` range, outermost expression per position, same
+    "line:col" keys as the other adapters). `callables` / `overloads` come
+    from three sources: each `def` (parameter types from the annotation
+    expressions, since parameter nodes return null; the return type from the
+    annotation or the def name's inferred function type), plus per-call-site
+    `typeServer/getComputedType` on the callee for the full signature or
+    overload set of anything called (keyed by the callee's qualified name,
+    with the module's own name rewritten to `__main__`).
+
+    The startup probe `typeServer/getSupportedProtocolVersion` must report
+    0.4.x; anything else raises CheckFailed rather than risk silent nulls.
+    `command` overrides the spawn line; default is `_resolve_pyrefly_binary()`
+    plus `tsp`.
+    """
+
+    name = "pyrefly-tsp"
+
+    def __init__(self, command: str | Sequence[str] | None = None) -> None:
+        argv = (
+            _resolve_pyrefly_binary()
+            if command is None
+            else (shlex.split(command) if isinstance(command, str) else list(command))
+        )
+        self._argv = [*argv, "tsp"] if "tsp" not in argv else list(argv)
+        self._connection: _LspConnection | None = None
+        self._opened: dict[str, tuple[int, str]] = {}
+
+    def facts(self, path: Path) -> ModuleFacts:
+        path = path.resolve()
+        try:
+            source = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise CheckFailed(f"cannot read {path}: {exc}") from exc
+        try:
+            tree = ast.parse(source, filename=str(path))
+        except SyntaxError as exc:
+            raise CheckFailed(f"cannot parse {path}: {exc}") from exc
+        connection = self._connect()
+        uri = path.as_uri()
+        snapshot = self._open_document(connection, uri, source)
+        lines = source.splitlines()
+
+        annotation_ids: set[int] = set()
+        for node in ast.walk(tree):
+            for ann in _annotation_exprs(node):
+                annotation_ids.update(id(sub) for sub in ast.walk(ann))
+
+        # One batched query list; `slot` maps a query index back to its purpose.
+        queries: list[dict[str, Any]] = []
+        expr_slots: dict[str, int] = {}
+        node_slots: dict[int, int] = {}
+
+        def add(rng: dict[str, Any] | None) -> int | None:
+            if rng is None:
+                return None
+            queries.append({"range": rng, "expected": False})
+            return len(queries) - 1
+
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.expr):
+                continue
+            idx = add(_lsp_range(node, lines))
+            if idx is None:
+                continue
+            node_slots[id(node)] = idx
+            key = f"{node.lineno}:{node.col_offset}"
+            if id(node) not in annotation_ids and key not in expr_slots:
+                expr_slots[key] = idx
+        defs: list[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef, int | None]] = []
+
+        def collect(body: list[ast.stmt], prefix: str) -> None:
+            for stmt in body:
+                if isinstance(stmt, ast.ClassDef):
+                    collect(stmt.body, f"{prefix}{stmt.name}.")
+                elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    defs.append((f"{prefix}{stmt.name}", stmt, add(_def_name_range(stmt, lines))))
+                    collect(stmt.body, f"{prefix}{stmt.name}.<locals>.")
+
+        collect(tree.body, "__main__.")
+        raw = self._type_facts(connection, uri, snapshot, queries)
+        decoded = [_tsf_type(item) for item in raw]
+
+        expressions = {key: facts for key, idx in expr_slots.items() if (facts := decoded[idx]) is not None}
+        callables, overloads = self._def_facts(defs, decoded, node_slots)
+        callees = [
+            (node.func, node_slots[id(node.func)])
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and id(node.func) in node_slots
+        ]
+        self._call_site_facts(connection, uri, snapshot, lines, callees, raw, callables, overloads, path.stem)
+        return ModuleFacts(
+            path=path,
+            provider=self.name,
+            expressions=expressions,
+            callables=callables,
+            overloads=overloads,
+        )
+
+    def close(self) -> None:
+        if self._connection is not None:
+            self._connection.shutdown()
+            self._connection = None
+            self._opened.clear()
+
+    def __enter__(self) -> PyreflyTspFactsAdapter:
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
+    def _connect(self) -> _LspConnection:
+        if self._connection is not None:
+            return self._connection
+        connection = _LspConnection(self._argv, server_name="pyrefly tsp")
+        connection.start()
+        initialized = connection.request(
+            "initialize",
+            {"processId": None, "rootUri": None, "capabilities": {}, "workspaceFolders": None},
+            timeout=60,
+        )
+        if initialized is None:
+            connection.shutdown()
+            raise CheckFailed("pyrefly tsp refused initialize")
+        connection.notify("initialized", {})
+        version = connection.request("typeServer/getSupportedProtocolVersion", None, timeout=30)
+        if not isinstance(version, str) or not version.startswith(_PYREFLY_TSP_VERSION_PREFIX):
+            connection.shutdown()
+            raise CheckFailed(
+                f"pyrefly tsp speaks protocol {version!r}, expected {_PYREFLY_TSP_VERSION_PREFIX}x; "
+                "install pyrefly>=1.4.0,<1.5"
+            )
+        self._connection = connection
+        return connection
+
+    def _open_document(self, connection: _LspConnection, uri: str, source: str) -> int:
+        """Open (or refresh) the document, then re-read the snapshot it advanced."""
+        previous = self._opened.get(uri)
+        if previous is None:
+            connection.notify(
+                "textDocument/didOpen",
+                {"textDocument": {"uri": uri, "languageId": "python", "version": 1, "text": source}},
+            )
+            self._opened[uri] = (1, source)
+        elif previous[1] != source:
+            version = previous[0] + 1
+            connection.notify(
+                "textDocument/didChange",
+                {
+                    "textDocument": {"uri": uri, "version": version},
+                    "contentChanges": [{"text": source}],
+                },
+            )
+            self._opened[uri] = (version, source)
+        return self._snapshot_now(connection)
+
+    @staticmethod
+    def _snapshot_now(connection: _LspConnection) -> int:
+        snapshot = connection.request("typeServer/getSnapshot", None, timeout=30)
+        if not isinstance(snapshot, int):
+            raise CheckFailed("pyrefly tsp refused getSnapshot")
+        return snapshot
+
+    def _type_facts(
+        self, connection: _LspConnection, uri: str, snapshot: int, queries: list[dict[str, Any]]
+    ) -> list[Any]:
+        results: list[Any] = []
+        for start in range(0, len(queries), _TYPEFACTS_CHUNK):
+            chunk = queries[start : start + _TYPEFACTS_CHUNK]
+            params = {"uri": uri, "snapshot": snapshot, "queries": chunk}
+            answer = connection.request("pyrefly/typeFacts", params, timeout=120)
+            if not isinstance(answer, list) or len(answer) != len(chunk):
+                raise CheckFailed("pyrefly tsp returned a malformed pyrefly/typeFacts answer")
+            if all(item is None for item in answer) and len(chunk) > 1:
+                # A stale snapshot answers all-null; re-read once and retry.
+                params["snapshot"] = snapshot = self._snapshot_now(connection)
+                answer = connection.request("pyrefly/typeFacts", params, timeout=120)
+                if not isinstance(answer, list) or len(answer) != len(chunk):
+                    raise CheckFailed("pyrefly tsp returned a malformed pyrefly/typeFacts answer")
+            results.extend(answer)
+        return results
+
+    def _def_facts(
+        self,
+        defs: list[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef, int | None]],
+        decoded: list[TypeFacts | None],
+        node_slots: dict[int, int],
+    ) -> tuple[dict[str, CallableFacts], dict[str, tuple[CallableFacts, ...]]]:
+        callables: dict[str, CallableFacts] = {}
+        overloads: dict[str, tuple[CallableFacts, ...]] = {}
+
+        def annotation(node: ast.expr | None) -> TypeFacts | None:
+            idx = node_slots.get(id(node)) if node is not None else None
+            fact = decoded[idx] if idx is not None else None
+            return _tsf_denote(fact) if fact is not None else None
+
+        for qualname, stmt, name_idx in defs:
+            slots, positional_only, keyword_only = _arg_slots(stmt.args)
+            parameters: list[ParameterFacts] = []
+            default_values: dict[str, StaticValue] = {}
+            for arg, kind, default in slots:
+                parameters.append(
+                    ParameterFacts(
+                        name=arg.arg,
+                        kind=kind,
+                        type=annotation(arg.annotation) or TypeFacts(kind="unknown"),
+                        has_default=default is not None,
+                    )
+                )
+                if default is not None:
+                    try:
+                        value = ast.literal_eval(default)
+                    except _EVAL_ERRORS:
+                        continue
+                    if value is None or isinstance(value, (int, float, bool, str, bytes)):
+                        default_values[arg.arg] = value
+            return_type = annotation(stmt.returns)
+            if return_type is None and name_idx is not None:
+                named = decoded[name_idx]
+                if named is not None and named.callable is not None:
+                    return_type = named.callable.return_type
+            signature = CallableFacts(
+                parameters=tuple(parameters),
+                return_type=return_type or TypeFacts(kind="unknown"),
+                positional_only=positional_only,
+                keyword_only=keyword_only,
+                defaults=default_values,
+            )
+            if any(_is_overload_decorator(dec) for dec in stmt.decorator_list):
+                overloads[qualname] = (*overloads.get(qualname, ()), signature)
+            else:
+                callables[qualname] = signature
+        return callables, overloads
+
+    def _call_site_facts(
+        self,
+        connection: _LspConnection,
+        uri: str,
+        snapshot: int,
+        lines: list[str],
+        callees: list[tuple[ast.expr, int]],
+        raw: list[Any],
+        callables: dict[str, CallableFacts],
+        overloads: dict[str, tuple[CallableFacts, ...]],
+        stem: str,
+    ) -> None:
+        """Recover signatures of called things via per-callee `getComputedType`."""
+        seen: set[str] = set()
+        for func, idx in callees:
+            reply = raw[idx]
+            if not isinstance(reply, Mapping) or reply.get("kind") != "function":
+                continue
+            qname = str(reply.get("qname") or "")
+            if qname.startswith(f"{stem}."):
+                qname = "__main__." + qname[len(stem) + 1 :]
+            if not qname or qname in seen or qname in callables or qname in overloads:
+                continue
+            seen.add(qname)
+            rng = _lsp_range(func, lines)
+            computed = connection.request(
+                "typeServer/getComputedType",
+                {"arg": {"uri": uri, "range": rng}, "snapshot": snapshot},
+                timeout=30,
+            )
+            if computed is None:
+                continue
+            facts = _tsp_type(computed, {})
+            if facts.callable is not None:
+                callables[qname] = facts.callable
+            elif facts.kind == "overloaded":
+                variants = tuple(v.callable for v in facts.args if v.callable is not None)
+                if variants:
+                    overloads[qname] = variants
+
+
+def _annotation_exprs(node: ast.AST) -> list[ast.expr]:
+    if isinstance(node, ast.arg) and node.annotation is not None:
+        return [node.annotation]
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.returns is not None:
+        return [node.returns]
+    if isinstance(node, ast.AnnAssign):
+        return [node.annotation]
+    return []

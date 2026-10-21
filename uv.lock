@@ -399,7 +399,7 @@ packaging = [
 [package.metadata]
 requires-dist = [
     { name = "mypy", specifier = ">=2.4" },
-    { name = "pyrefly", specifier = ">=1.4.0" },
+    { name = "pyrefly", specifier = ">=1.4.0,<1.5" },
 ]
 
 [package.metadata.requires-dev]
