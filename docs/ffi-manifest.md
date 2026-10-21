@@ -284,8 +284,8 @@ Notes:
 | F3 | `pyscriptc-sqlite` pilot: `connect/execute/query/commit/close` | fixture script does open → create → insert → select → close; asserts rows; runs on host + `x86_64-linux-musl` |
 | F4 | zlib or libm manifest by an outside-of-compiler adapter | proves the seam is not sqlite-shaped; CI gate = the same fixture pattern |
 
-Each gate is mergeable alone; F3 is the one the essence-eval unlock count cares
-about (`docs/compile-rate-essence-method.md` — sqlite3 is the single largest
+Each gate is mergeable alone; F3 is the seam the largest-blocker count points
+at (`docs/compile-rate-essence-method.md` — sqlite3 is the single largest
 seam win, 13 rows). F4 exists because a seam designed for exactly one
 consumer rots into a special case.
 
