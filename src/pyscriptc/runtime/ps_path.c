@@ -9,6 +9,7 @@ getenv raises KeyError, which is the subset stand-in for None.
 #include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -727,6 +728,73 @@ PsSeq *ps_fnfilter(PsSeq *names, int64_t pn, const char *pat) {
 }
 
 void ps_path_new(int64_t n, const char *s, PsPath *out) { ps_buf_copy(&out->path, s, n); }
+
+/* is_absolute: posix paths are absolute when they start with `/`. */
+int32_t ps_path_isabs_p(PsPath *path) {
+    return ps_abs(path->path.len, path->path.data) ? 1 : 0;
+}
+
+/* resolve: make the path absolute and normalize it. Symlinks are not
+   followed; `Path.resolve` in CPython does, but the difference only shows
+   on a path with a symlinked parent. */
+void ps_path_resolve(PsPath *path, PsPath *out) {
+    ps_path_abs(path->path.len, path->path.data, &out->path);
+}
+
+/* unlink: remove the file. `missing_ok` is not in this subset. */
+void ps_path_unlink(PsPath *path) {
+    char *text = ps_cstr(path->path.len, path->path.data);
+    int rc = unlink(text);
+    free(text);
+    if (rc != 0) {
+        ps_os_fail("unlink failed");
+    }
+}
+
+/* touch: create the file when it is missing, else update its mtime. */
+void ps_path_touch(PsPath *path, int64_t exist_ok) {
+    char *text = ps_cstr(path->path.len, path->path.data);
+    int fd = open(text, O_WRONLY | O_CREAT, 0644);
+    if (fd < 0) {
+        free(text);
+        ps_os_fail("touch failed");
+    }
+    close(fd);
+    free(text);
+    (void)exist_ok;
+}
+
+/* rename/replace: move the path, replacing the target. */
+void ps_path_rename(PsPath *path, int64_t n, const char *s, PsPath *out) {
+    char *from = ps_cstr(path->path.len, path->path.data);
+    char *to = ps_cstr(n, s);
+    int rc = rename(from, to);
+    free(from);
+    free(to);
+    if (rc != 0) {
+        ps_os_fail("rename failed");
+    }
+    ps_buf_copy(&out->path, s, n);
+}
+
+/* stat: the same Stat record os.stat returns. */
+void ps_path_stat(PsPath *path, PsStat *out) { ps_os_stat(path->path.len, path->path.data, out); }
+
+/* cwd and home: the process cwd and the user's home directory. */
+void ps_path_cwd(PsPath *out) { ps_os_getcwd(&out->path); }
+
+void ps_path_home(PsPath *out) {
+    const char *env = getenv("HOME");
+    if (env == NULL) {
+        ps_os_fail("home has no HOME");
+    }
+    ps_buf_copy(&out->path, env, (int64_t)strlen(env));
+}
+
+/* expanduser on a Path: `~` becomes the home directory. */
+void ps_path_expanduser_p(PsPath *path, PsPath *out) {
+    ps_path_expanduser(path->path.len, path->path.data, &out->path);
+}
 
 void ps_path_posix(PsPath *path, PsBuf *out) { ps_buf_copy(out, path->path.data, path->path.len); }
 

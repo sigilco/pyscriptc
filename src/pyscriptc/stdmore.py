@@ -1192,7 +1192,7 @@ ALWAYS_CLASSES: tuple[str, ...] = ("TextIO", "BytesIO")
 MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "datetime": ("Date", "DateTime", "Time", "TimeDelta"),
     "time": ("StructTime",),
-    "pathlib": ("Path",),
+    "pathlib": ("Path", "Stat"),
     "os": ("Stat",),
     "collections": ("Deque",),
     "hmac": ("Hmac",),
@@ -1266,12 +1266,19 @@ CLASS_METHODS: dict[str, dict[str, dict[str, Any]]] = {
         "exists": _sig([], _B, "ps_path_exists_p"),
         "is_file": _sig([], _B, "ps_path_isfile_p"),
         "is_dir": _sig([], _B, "ps_path_isdir_p"),
+        "is_absolute": _sig([], _B, "ps_path_isabs_p"),
         "read_text": _sig([], _S, "ps_path_read_text"),
         "read_bytes": _sig([], _BY, "ps_path_read_bytes"),
         "write_text": _sig([_S], _I, "ps_path_write_text"),
         "write_bytes": _sig([_BY], _I, "ps_path_write_bytes"),
         "joinpath": _sig([_S], _PATH, "ps_path_joinpath"),
         "with_name": _sig([_S], _PATH, "ps_path_with_name"),
+        "resolve": _sig([], _PATH, "ps_path_resolve"),
+        "unlink": _sig([], _N, "ps_path_unlink"),
+        "touch": _sig([], _N, "ps_path_touch"),
+        "rename": _sig([_S], _PATH, "ps_path_rename"),
+        "stat": _sig([], _STAT, "ps_path_stat"),
+        "expanduser": _sig([], _PATH, "ps_path_expanduser_p"),
         # iterdir/glob return the materialized list[Path]; lowering wraps it
         # in the R24 iterator record. mkdir is special-cased for keywords.
         "iterdir": _sig([], {"kind": "list", "elem": _PATH}, "ps_path_iterdir"),
@@ -1325,6 +1332,10 @@ REST_FIXED: dict[str, dict[str, dict[str, Any]]] = {
         "monotonic": _sig([], _F, "ps_time_monotonic"),
         "strftime": _sig([_S, _STM], _S, "ps_time_strftime"),
         "mktime": _sig([_STM], _F, "ps_time_mktime"),
+    },
+    "pathlib": {
+        "Path.cwd": _sig([], _PATH, "ps_path_cwd"),
+        "Path.home": _sig([], _PATH, "ps_path_home"),
     },
     "os": {
         "getcwd": _sig([], _S, "ps_os_getcwd"),
