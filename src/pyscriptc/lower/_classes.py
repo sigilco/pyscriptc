@@ -658,12 +658,12 @@ class ClassesMixin:
     def _signature(
         self, fn: ast.FunctionDef, class_name: str | None, kind: str = "method"
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        if fn.args.kwarg or fn.args.kwonlyargs or fn.args.posonlyargs:
+        if fn.args.kwonlyargs or fn.args.posonlyargs:
             self.fail(fn, "PS1202", f"{fn.name} uses a parameter form that is not lowered")
         args = list(fn.args.args)
         params: list[dict[str, Any]] = []
         if kind == "property":
-            if fn.args.vararg is not None or len(args) != 1 or args[0].arg != "self":
+            if fn.args.vararg is not None or fn.args.kwarg is not None or len(args) != 1 or args[0].arg != "self":
                 self.fail(fn, "PS2002", "a property's only parameter is self")
             if args[0].annotation is not None:
                 self.fail(args[0], "PS2002", "self is not annotated")
@@ -718,6 +718,20 @@ class ClassesMixin:
             if elem["kind"] == "bool":
                 self.fail(vararg, "PS2002", "list[bool] is not lowered")
             params.append({"name": vararg.arg, "type": {"kind": "list", "elem": elem}, "vararg": True})
+        if fn.args.kwarg is not None:
+            kwarg = fn.args.kwarg
+            if kwarg.annotation is None:
+                self.fail(fn, "PS1202", f"{fn.name} uses a parameter form that is not lowered")
+            value = self._annotation(kwarg.annotation)
+            if value["kind"] == "bool":
+                self.fail(kwarg, "PS2002", "dict values of bool are not lowered")
+            params.append(
+                {
+                    "name": kwarg.arg,
+                    "type": {"kind": "dict", "key": {"kind": "str"}, "value": value},
+                    "kwarg": True,
+                }
+            )
         if fn.returns is None:
             self.fail(fn, "PS1001", f"{fn.name} needs a return annotation")
         ret = self._annotation(fn.returns)
