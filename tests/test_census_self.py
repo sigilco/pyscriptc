@@ -24,7 +24,7 @@ def test_self_census_ballpark() -> None:
     # CLI lane adds 21 more (same plumbing family).
     # Pyrefly/TSP adapter plumbing + deprecation markers added more.
     # Checker resolver (sysconfig/which/env probing) in check.py adds 12 more.
-    assert census["fences"] == 1272
+    assert census["fences"] == 1281
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 25_000
-    assert sum(p["fences"] for p in census["packages"]) == 1272
+    assert sum(p["fences"] for p in census["packages"]) == 1281
