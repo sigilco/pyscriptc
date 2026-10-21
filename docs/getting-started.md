@@ -22,7 +22,8 @@ The first prints a greeting. The second prints `600`, the value CPython returns.
 pyscriptc compile FILE --run [--call FUNC --args '[...]'] [-o /tmp/name] [-- ARGS]
 ```
 
-- `FILE` is one Python file or a package directory. Imports come from the closed standard-library table. A second file of yours is not imported unless you compile the directory.
+- `FILE` is one Python file or a directory. Imports come from the closed standard-library table. A second file of yours is not imported unless you compile the directory.
+- A directory with a root `__main__.py` and no root `__init__.py` is a **program**: `__main__.py` is the entry point, the siblings are imported by their plain names (`import util`, `from pkg import x`), and every module body runs once, in CPython's import order. A directory with a root `__init__.py` is a **package**: its modules are namespaced under the directory name and its `__main__.py` is the `python -m` script, which the compile skips. A circular import is refused with the path that closes it.
 - `--run` without `--call` runs the file's own script: module-level statements and the body of `if __name__ == "__main__":`, in source order. If the file has neither, it prints a note on stderr naming `--call` and exits 0.
 - `--call` runs one function instead. `--args` is a Python list literal (`ast.literal_eval`); elements can be `int`, `float`, `bool`, or `str`. A `list`, a `dict`, or `bytes` is built inside the function. The generated `main` prints the return value: an `int`, a `float` (`%.17g`), or a `str`. A `bool` return cannot be printed.
 - `print` of `str`, `int`, `float`, `bool` and `bytes` lowers (see [supported.md](supported.md)).

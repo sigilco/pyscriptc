@@ -94,3 +94,13 @@ uv run pyscriptc compile examples/hostname.py --run --call hostname -o /tmp/host
 ```
 
 It prints the same name `socket.gethostname()` prints under CPython.
+
+## Word count (a program directory)
+
+`examples/wordcount/` is a program: `__main__.py` is the entry point and `tally.py` is imported by its plain name. The whole tree compiles into one binary.
+
+```bash
+uv run pyscriptc compile examples/wordcount --run -o /tmp/wordcount
+```
+
+It prints `three 3`, the word that appears most often in the sentence and how often it appears.
