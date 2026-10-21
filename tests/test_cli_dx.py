@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 from pathlib import Path
 
@@ -26,3 +27,24 @@ def test_separator_without_run_is_rejected(tmp_path: Path) -> None:
     got = run_cli("compile", str(path), "--", "a")
     assert got.returncode == 2
     assert "--run" in got.stderr
+
+
+FENCED = "from typing import Any\n\n\ndef f(x: Any) -> int:\n    return 1\n"
+CLEAN = "def f(x: int) -> int:\n    return x\n"
+
+
+def test_print_diagnostics_matches_coverage_json(tmp_path: Path) -> None:
+    path = write_case(tmp_path, "mix.py", FENCED)
+    got = run_cli("compile", str(path), "--print", "diagnostics")
+    assert got.returncode == 3, got.stderr
+    cov = run_cli("coverage", str(path), "--json")
+    assert json.loads(got.stdout) == json.loads(cov.stdout)
+    assert json.loads(got.stdout)["fences"][0]["code"] == "PS1104"
+    assert not path.with_suffix(".ir.json").exists()
+
+
+def test_print_diagnostics_clean_exits_zero(tmp_path: Path) -> None:
+    path = write_case(tmp_path, "ok.py", CLEAN)
+    got = run_cli("compile", str(path), "--print", "diagnostics")
+    assert got.returncode == 0, got.stderr
+    assert json.loads(got.stdout)["fences"] == []

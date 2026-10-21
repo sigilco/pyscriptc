@@ -59,6 +59,12 @@ def main(argv: list[str] | None = None) -> int:
         "--target",
         help="cross-compilation triple for `zig cc`, e.g. aarch64-linux-gnu.2.39",
     )
+    compile_parser.add_argument(
+        "--print",
+        dest="print_what",
+        choices=("diagnostics",),
+        help="print JSON instead of compiling: diagnostics is the coverage report; exit 3 when fenced",
+    )
     compile_parser.add_argument("--skip-check", action="store_true")
     compile_parser.add_argument(
         "--checker",
@@ -174,6 +180,10 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
     if dbg is None:
         dbg = Debug(set(), None)
     source_path = Path(args.source)
+    if args.print_what == "diagnostics":
+        report = build_report(source_path)
+        print(json.dumps(report, indent=2))
+        return 3 if report["fences"] else 0
     log.info(
         "compile.start",
         source=str(source_path),
