@@ -1242,9 +1242,7 @@ class CallsMixin:
         )
         if var_index is not None:
             return self._fill_varargs(node, params, var_index, what)
-        kwonly_start = next(
-            (index for index, param in enumerate(params) if param.get("kwonly")), len(params)
-        )
+        kwonly_start = next((index for index, param in enumerate(params) if param.get("kwonly")), len(params))
         positional = params[:kwonly_start]
         if len(node.args) > len(positional):
             self.fail(node, "PS1003", f"{what} expects {len(positional)} argument(s)")
@@ -1300,9 +1298,7 @@ class CallsMixin:
         # Keyword-only parameters can sit before the `**kwargs` capture, so
         # split them out of the fixed prefix rather than assuming a layout.
         positional_params = [param for param in fixed if not param.get("kwonly")]
-        kwonly = [param for param in fixed if param.get("kwonly")] + [
-            param for param in tail if param.get("kwonly")
-        ]
+        kwonly = [param for param in fixed if param.get("kwonly")] + [param for param in tail if param.get("kwonly")]
         if varparam is not None and any(kw.arg == varparam["name"] for kw in node.keywords):
             self.fail(node, "PS2002", "a starred parameter is not passed by keyword")
         positional = list(node.args[: len(positional_params)])
