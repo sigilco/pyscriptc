@@ -19,11 +19,12 @@ Leaving `ref` empty rehearses the dispatched commit, which has the same title. A
 Master is PR-only, so a release is two runs of the `cut-release` workflow (Actions tab, run from master) around a merge.
 
 1. Rehearse the tip of master (above) and wait for it to pass.
-2. Run `cut-release` with `stage=prepare`, `dry_run` on (the default). It prints the new version, the changelog entry and the bar report (one pass or fail line per check). Entries come from conventional commit subjects since the last stable `v*` tag: `feat` goes to Added, `fix` to Fixed, `!` to Breaking, `chore`, `test` and `style` are left out, merge and `chore(release)` commits are skipped. The dry run is red when the real run would be refused.
-3. Re-run with `dry_run` off. It opens a PR from `release/vX.Y.Z` titled `chore(release): vX.Y.Z` that bumps `pyproject.toml`, runs `uv lock` and prepends the changelog entry. Merge it (squash or rebase) while master is still at the rehearsed commit. If master moved, rehearse the new tip first.
-4. Run `cut-release` with `stage=tag` and `dry_run` off. It checks that master HEAD is the release commit (only `pyproject.toml`, `uv.lock` and `CHANGELOG.md` changed, version matches, tag free) and that its parent was rehearsed, then pushes the annotated tag `vX.Y.Z`.
-5. The tag push starts `release.yml`. It builds the five binaries, smoke-tests them, drafts the GitHub Release with `sha256sums.txt`, and runs the wheel verify job.
-6. The PyPI publish job first checks that a successful rehearsal run covers the tagged commit, or its parent when the release commit only touched the three release files. It has no bypass: rehearse, then re-run the job. After that it waits for a required reviewer in the `pypi-publish` environment. Approve it only after the draft release and smoke results look right.
+2. Run `cut-release` with `stage=prepare`, `dry_run` on (the default). It prints the new version, the changelog entry and the bar report (one pass or fail line per check). Entries come from conventional commit subjects since the last stable `v*` tag, grouped per the section map below. The dry run is red when the real run would be refused.
+3. Edit the entry. The generated skeleton is a draft, not the product: write the theme paragraph and, for minors and majors, the Highlights bullets, turn raw subject lines into `**bold lead,** then behavior` bullets, and collapse the Internal line. Check every number against a committed receipt (see "Number rules" below). The real run refuses an entry that still contains `<!-- theme:` or `<!-- write 2 to 5 bullets` placeholders; either edit the dry-run output into the release PR, or let the real run commit the skeleton and push a follow-up `docs(changelog)` commit before approving the draft.
+4. Re-run with `dry_run` off. It opens a PR from `release/vX.Y.Z` titled `chore(release): vX.Y.Z` that bumps `pyproject.toml`, runs `uv lock`, prepends the changelog entry and appends the compare reference link at the bottom of `CHANGELOG.md`. Merge it (squash or rebase) while master is still at the rehearsed commit. If master moved, rehearse the new tip first.
+5. Run `cut-release` with `stage=tag` and `dry_run` off. It checks that master HEAD is the release commit (only `pyproject.toml`, `uv.lock` and `CHANGELOG.md` changed, version matches, tag free) and that its parent was rehearsed, then pushes the annotated tag `vX.Y.Z`.
+6. The tag push starts `release.yml`. It builds the five binaries, smoke-tests them, drafts the GitHub Release with `sha256sums.txt`, and runs the wheel verify job.
+7. The PyPI publish job first checks that a successful rehearsal run covers the tagged commit, or its parent when the release commit only touched the three release files. It has no bypass: rehearse, then re-run the job. After that it waits for a required reviewer in the `pypi-publish` environment. Approve it only after the draft release and smoke results look right.
 
 ## The bar
 
@@ -68,7 +69,25 @@ The bolo `repository_dispatch` step is a stub. It is not wired until a token dec
 
 ## Release notes
 
-The draft release body comes from `release.yml` and is unchanged by this process. Changelog entries are written from conventional commit subjects, so keep subjects accurate: they become the notes.
+`CHANGELOG.md` is the source of truth. Every version has a `## [X.Y.Z] - date` heading and sections in this order, each omitted when empty (see `.agents/plans/2026-10-21-changelog-structure.md` for the reasoning):
+
+1. One theme paragraph under the heading, only when the release has a theme.
+2. `### Breaking changes`, first when present. One line per entry: what changed, who is affected, the migration.
+3. `### Highlights`: 2 to 5 bullets, for minor and major releases (optional for patches). Hand or agent written.
+4. `### Features` (`feat`), `### Performance` (`perf`), `### Fixes` (`fix`), in that order, bullets of the form `**bold lead,** then the user-visible behavior`. No file names unless the file is the interface.
+5. `### Internal` (`refactor`, `build`, `ci`, `docs`, `test`, `deps`), at most three bullets collapsed from the commit list. `chore(release)`, merges and pure `style` commits never appear.
+
+The generator refuses to finish a release that has a `!` commit or `BREAKING CHANGE:` footer since the previous tag but no `### Breaking changes` entry.
+
+### Number rules
+
+A number appears in a changelog bullet only when a committed benchmark or receipt produced it: cite the command or file (`benchmarks/compat2/...`) in the same bullet or in parentheses. Always name the baseline version ("than 0.3.0"). Give ranges or rounded values, not single noisy runs. Never report a number from a frozen-gate file without the recorded decision. No number means no adjective: write what changed, not "faster". Pass rates and fence counts follow the same rule.
+
+### Release body and contributors
+
+`release.yml` builds the draft release body from the CHANGELOG section with `.github/scripts/release_notes.py`: `## vX.Y.Z (date)`, the section verbatim, optional contributor blocks, the compare link to the previous tag, then the static binary-table footer. Contributor credits live only in the release body, never in CHANGELOG.md, so the changelog stays hand-editable.
+
+Contributor detection (`gh api repos/.../compare/PREV...TAG`): bot logins (ending `[bot]`) and the `cursor` / `devin-ai-integration` agents are dropped, as are the handles in `.github/maintainers.txt` (agent commits act for the maintainer). Remaining unique logins become `### Contributors`; those with no commit reachable from the previous tag become `### New contributors`. Both blocks are omitted when the set is empty, which is the case for every release so far. Without `gh` (local runs) the blocks are skipped with a stderr note.
 
 ## Release classes and bar
 
