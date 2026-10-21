@@ -11,11 +11,7 @@ from pyscriptc.config import ConfigError, lane_for, load_config, read_pep723
 
 def test_pep723_basic() -> None:
     meta = read_pep723(
-        "# /// script\n"
-        "# requires-python = \">=3.12\"\n"
-        '# dependencies = ["orjson", "rich>=13"]\n'
-        "# ///\n"
-        "print('hi')\n"
+        '# /// script\n# requires-python = ">=3.12"\n# dependencies = ["orjson", "rich>=13"]\n# ///\nprint(\'hi\')\n'
     )
     assert meta == {"requires-python": ">=3.12", "dependencies": ["orjson", "rich>=13"]}
 

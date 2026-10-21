@@ -118,7 +118,7 @@ def test_pep723_script_still_compiles_with_project(tmp_path: Path) -> None:
     script = _project(
         tmp_path,
         "[tool.pyscriptc]\nentry = 'main'\n",
-        script="# /// script\n# requires-python = \">=3.12\"\n# dependencies = []\n# ///\n" + HELLO,
+        script='# /// script\n# requires-python = ">=3.12"\n# dependencies = []\n# ///\n' + HELLO,
     )
     got = run_cli("compile", str(script), "--run", "--skip-check", "-o", str(tmp_path / "app"))
     assert got.returncode == 0, got.stderr

@@ -64,8 +64,7 @@ def read_pep723(text: str) -> dict[str, Any] | None:
     if len(blocks) > 1:
         raise ConfigError("more than one `# /// script` block (PEP 723 allows one)")
     content = "".join(
-        line[2:] if line.startswith("# ") else line[1:]
-        for line in blocks[0].group("content").splitlines(keepends=True)
+        line[2:] if line.startswith("# ") else line[1:] for line in blocks[0].group("content").splitlines(keepends=True)
     )
     try:
         return tomllib.loads(content)
