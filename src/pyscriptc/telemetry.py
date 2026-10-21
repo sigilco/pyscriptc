@@ -1,8 +1,11 @@
 """Anonymous usage telemetry via PostHog.
 
 What is sent: a short event payload (subcommand, version, python/platform, and
-for `compile` a duration plus the first PSxxxx fence code when the lower fences
-the file). Never sent: file names, paths, source text, or anything derived from
+for `compile` a duration, an outcome, the fence count, the diagnostic family
+names behind those fences, the checker/emit/driver flags and the binary size;
+for `coverage` the aggregate fence counts and the covered-definition ratio).
+Never sent: file names, paths, source text, per-fence identifiers (the file,
+definition, line or frame a fence points at), or anything else derived from
 the compiled program.
 
 Token flow. The PostHog project token is baked in at release time, not read
@@ -186,6 +189,71 @@ def base_properties() -> dict:
         "platform": sys.platform,
         "ci": ci(),
     }
+
+
+def compile_properties(
+    *,
+    duration_ms: int,
+    outcome: str,
+    fence_count: int,
+    fence_families: dict[str, int],
+    checker: str | None = None,
+    emit: str | None = None,
+    driver: str | None = None,
+    binary_bytes: int | None = None,
+    skip_check: bool = False,
+) -> dict:
+    """Build the `compile.finished` property payload.
+
+    `outcome` is one of ok|fences|check-failed|lower-error|build-error.
+    `fence_families` maps a diagnostic family name to a count; callers
+    must strip the dynamic "stdlib:<module>" suffix before calling.
+    Never includes file names, paths, or source text.
+    """
+    props = dict(base_properties())
+    props.update(
+        duration_ms=duration_ms,
+        outcome=outcome,
+        fence_count=fence_count,
+        fence_families=dict(fence_families),
+        emit=emit,
+        skip_check=skip_check,
+    )
+    if checker:
+        props["checker"] = checker
+    if driver:
+        props["driver"] = driver
+    if binary_bytes:
+        props["binary_bytes"] = binary_bytes
+    return props
+
+
+def coverage_properties(summary: dict) -> dict:
+    """Build the `coverage.reported` payload from a coverage summary.
+
+    Only aggregate counts and ratios; never per-fence entries, which
+    carry file/definition/frame identifiers.
+    """
+    definitions = int(summary.get("definitions", 0))
+    fenced_definitions = int(summary.get("fencedDefinitions", 0))
+    families: dict[str, int] = {}
+    for family, value in (summary.get("byFamily") or {}).items():
+        count = int(value.get("fences", 0)) if isinstance(value, dict) else int(value)
+        # `stdlib:<module>` embeds an imported module name taken from the source.
+        if family.startswith("stdlib:"):
+            family = "stdlib"
+        families[family] = families.get(family, 0) + count
+    props = dict(base_properties())
+    props.update(
+        files=int(summary.get("files", 0)),
+        definitions=definitions,
+        fencedDefinitions=fenced_definitions,
+        fences=int(summary.get("fences", 0)),
+        rootFences=int(summary.get("rootFences", 0)),
+        byFamily=families,
+        coverage_ratio=fenced_definitions / definitions if definitions else 0.0,
+    )
+    return props
 
 
 def telemetry_cmd(action: str) -> int:

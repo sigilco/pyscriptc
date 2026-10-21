@@ -9,8 +9,11 @@ Telemetry exists to answer one question: which unsupported constructs block real
 ## What is sent
 
 - `cli.invoked` with the subcommand name and version
-- `compile.finished` with duration, exit code, and the list of `PSxxxx` fence codes hit (codes only, never source text or paths)
-- `compile.ran` when `--run` executes the binary
+- `compile.finished` with `duration_ms`, `outcome` (`ok`, `fences`, `check-failed`, `lower-error` or `build-error`), `fence_count`, `fence_families` (diagnostic family name to count, with `stdlib:<module>` collapsed to `stdlib`), the `checker`, `emit` and `driver` flags, `skip_check`, and `binary_bytes` when a binary was linked
+- `coverage.reported` when you run `pyscriptc coverage`, with aggregate counts only: `files`, `definitions`, `fencedDefinitions`, `fences`, `rootFences`, `byFamily` (family to fence count) and `coverage_ratio` (fenced definitions over definitions)
+
+Every event also carries the pyscriptc version, Python version, platform and a CI flag.
+Fence codes, per-fence locations, definition names and imported module names are not sent.
 
 Events carry a randomly generated, salted machine hash.
 No source code, file paths, hostnames, usernames, or argument values are ever collected.
