@@ -1181,9 +1181,7 @@ class ExprMixin:
             and node.attr == "name"
             and self._is_mod(node.value, "threading", "current_thread")
         ):
-            return self._abi_call(
-                "threading", "current_thread.name", [], {"kind": "str"}, "ps_thread_name", span
-            )
+            return self._abi_call("threading", "current_thread.name", [], {"kind": "str"}, "ps_thread_name", span)
         resolved = self._resolve_module(node)
         if resolved is not None:
             dotted, module, member, status = resolved

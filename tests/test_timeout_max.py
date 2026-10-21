@@ -1,7 +1,8 @@
 """`threading.TIMEOUT_MAX` is the float const CPython stores.
 
 The harness returns 2 when the value compares unequal to itself, and 1
-otherwise. `Thread`, `Lock`, and `Event` stay fenced.
+otherwise. `Thread` and `Event` stay fenced. `Lock` is lowered when it is
+called, so the bare name is a fence of the "function and is not a value" kind.
 """
 
 from __future__ import annotations
@@ -41,7 +42,7 @@ def test_timeout_max_matches_cpython(tmp_path: Path) -> None:
 def test_other_threading_names_stay_fenced(tmp_path: Path) -> None:
     cases = [
         ("thread.py", "threading.Thread", "threading.Thread is not in the lowered subset of threading"),
-        ("lock.py", "threading.Lock", "threading.Lock is not in the lowered subset of threading"),
+        ("lock.py", "threading.Lock", "threading.Lock is a function and is not a value"),
         ("event.py", "threading.Event", "threading.Event is not in the lowered subset of threading"),
     ]
     for name, expr, text in cases:

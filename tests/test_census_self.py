@@ -13,7 +13,7 @@ SRC = ROOT / "src" / "pyscriptc"
 def test_self_census_ballpark() -> None:
     census = build_self_census(SRC)
     # doctor.py is the 28th module; log.py, telemetry.py, debug.py and rtcache.py each added a module.
-    assert census["modules"] == 48
+    assert census["modules"] == 49
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -36,7 +36,11 @@ def test_self_census_ballpark() -> None:
     # move from union-types (11 to 9) into optional-types (0 to 2, PS1102).
     # T2-3 parameter forms normalize into the named-parameter machinery (+1
     # _classes fence for the kwarg-dict binding path).
-    assert census["fences"] == 1435
+    # Phase-1 native threading locks: restlower/_threading.py adds 1 module and
+    # 10 fences (import/export plumbing, dynamic annotations); the Lock-method
+    # dispatch in lower/_calls.py and the module handler export in
+    # restlower/__init__.py add 3 more.
+    assert census["fences"] == 1448
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 25_000
-    assert sum(p["fences"] for p in census["packages"]) == 1435
+    assert sum(p["fences"] for p in census["packages"]) == 1448
