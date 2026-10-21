@@ -40,7 +40,7 @@ from pyscriptc.lower._core import (
     _subst_type,
 )
 from pyscriptc.lower._stdlib_shared import _mod_call, _synth_module
-from pyscriptc.restlower import _mk_iter, builtin_call
+from pyscriptc.restlower import _lock_method, _mk_iter, builtin_call
 from pyscriptc.restlower import method_spec as synth_method
 from pyscriptc.stdlib_queue import MATH_FUNCTIONS
 
@@ -506,6 +506,8 @@ class CallsMixin:
             return self._pattern_method(node, span, receiver)
         if kind == "class" and receiver["type"]["name"] == "Match":
             return self._match_method(node, span, receiver)
+        if kind == "class" and receiver["type"]["name"] == "Lock":
+            return _lock_method(self, node, span, receiver)
         if kind == "class" and synth_method(receiver["type"]["name"], node.func.attr) is not None:
             return self._synth_call(node, span, receiver)
         if kind == "dict" and node.func.attr == "keys":
