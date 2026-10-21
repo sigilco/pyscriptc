@@ -508,6 +508,11 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
 
         return self.program and self.module_name == "__main__"
 
+    def _is_main_module(self) -> bool:
+        """True when this module runs as `__main__` (a script or program entry)."""
+
+        return not self.module_name or self._is_program_main()
+
     def _ir_name(self, name: str) -> str:
         if self.module_name:
             return f"{self.module_name}.{name}"
@@ -1218,10 +1223,15 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
                 _release_erased_import(stmt, rebound)
                 continue
             if _is_main_guard(stmt):
-                # C3: the canonical guard's body is live script text. It joins
-                # the entry in source order; an `else` under a `__name__` test
-                # never runs as `__main__`, so it stays dropped.
-                live.extend(self._live_statements(list(stmt.body), fences, rebound))
+                if self._is_main_module():
+                    # C3: the canonical guard's body is live script text. It joins
+                    # the entry in source order; an `else` under a `__name__` test
+                    # never runs as `__main__`, so it stays dropped.
+                    live.extend(self._live_statements(list(stmt.body), fences, rebound))
+                    continue
+                # An imported module is not `__main__`: the guard body never
+                # runs there, and the `else` branch does.
+                live.extend(self._live_statements(list(stmt.orelse), fences, rebound))
                 continue
             if _is_docstring(stmt):
                 continue

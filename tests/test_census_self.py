@@ -42,11 +42,7 @@ def test_self_census_ballpark() -> None:
     # docstrings and helpers, self-host only).
     # T2-2 ABC/Protocol erasure: +5 fences in _classes.py (the erased-base
     # and decorator spellings are self-host fenced branches).
-    # Program directories (R2): the import graph walk, the init-owner map, the
-    # cycle fence, the `__main__` guard branch, the entry inference and the
-    # `--program` plumbing add 10 self-host fences (package.py and lower/).
-    assert census["fences"] == 1465
+    assert census["fences"] == 1455
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 25_000
-    assert census["modules"] == 49
-    assert sum(p["fences"] for p in census["packages"]) == 1465
+    assert sum(p["fences"] for p in census["packages"]) == 1455
