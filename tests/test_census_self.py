@@ -40,7 +40,9 @@ def test_self_census_ballpark() -> None:
     # _classes fence for the kwarg-dict binding path).
     # T2-5 static folds: restlower/_folds.py adds +15 fences (fold-boundary
     # docstrings and helpers, self-host only).
-    assert census["fences"] == 1450
+    # T2-2 ABC/Protocol erasure: +5 fences in _classes.py (the erased-base
+    # and decorator spellings are self-host fenced branches).
+    assert census["fences"] == 1455
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 25_000
-    assert sum(p["fences"] for p in census["packages"]) == 1450
+    assert sum(p["fences"] for p in census["packages"]) == 1455
