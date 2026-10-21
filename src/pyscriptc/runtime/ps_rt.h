@@ -176,10 +176,15 @@ typedef struct PsExc {
     PsSeq *args;
 } PsExc;
 
+/* The message is already a repr (a KeyError's missing key, say), so the
+report must not quote it a second time. */
+#define PS_EXC_FLAG_PREQUOTED 1
+
 extern char ps_empty_byte;
 
 __attribute__((noreturn)) void ps_raise_cstr(int32_t code, const char *msg);
 __attribute__((noreturn)) void ps_raise_code(int32_t code);
+__attribute__((noreturn)) void ps_raise_zdi(int32_t variant);
 __attribute__((noreturn)) void ps_reraise(void);
 __attribute__((noreturn)) void ps_raise_exc(PsExc *e);
 PsExc *ps_exc_current(void);

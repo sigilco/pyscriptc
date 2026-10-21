@@ -48,7 +48,7 @@ def test_full_ordering_fallthrough_raises_and_returns(tmp_path: Path) -> None:
                 '        log = log + "|else2"',
                 "    finally:",
                 '        log = log + "|finally2"',
-                "    return log + \"|\" + via_return()",
+                '    return log + "|" + via_return()',
                 "",
             ]
         ),
@@ -175,7 +175,7 @@ def test_finally_around_break_and_continue(tmp_path: Path) -> None:
                 "                continue",
                 "            if i == 3:",
                 "                break",
-                '            log = log + str(i)',
+                "            log = log + str(i)",
                 "        except ValueError:",
                 '            log = log + "|exc"',
                 "        else:",

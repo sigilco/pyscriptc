@@ -36,7 +36,11 @@ def test_self_census_ballpark() -> None:
     # log.py and telemetry.py, so those functions now lower past their old
     # `except names a lowered exception` fence and their next pre-existing
     # fences surface (+15 there, -6 of the old except fences, net +9).
-    assert census["fences"] == 1443
+    # E2 M5: the ZeroDivisionError messages track the running interpreter
+    # (zdi_variants in ir.py, consumed by _exc_codes in llvm.py), which adds
+    # 3 llvm fences. Base drift: master's T2-3 kwargs PRs moved the total to
+    # 1435 before this branch; the M2 hierarchy re-pin sits on top.
+    assert census["fences"] == 1457
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 25_000
-    assert sum(p["fences"] for p in census["packages"]) == 1443
+    assert sum(p["fences"] for p in census["packages"]) == 1457

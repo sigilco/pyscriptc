@@ -15,7 +15,7 @@ from typing import Any
 from pyscriptc import rtcache
 from pyscriptc.builtins import EXCEPTIONS, USER_EXC_BASE
 from pyscriptc.errors import FitError, IRError
-from pyscriptc.ir import assert_same_cpython, fits_i64
+from pyscriptc.ir import assert_same_cpython, fits_i64, zdi_variants
 from pyscriptc.stdlib_queue import MATH_FUNCTIONS
 from pyscriptc.stdmore import COMPARE_CLASSES
 
@@ -2499,6 +2499,8 @@ def _declarations(needed: set[str]) -> list[str]:
     }
     if traps and "exc" not in needed:
         lines.append("declare void @ps_raise_code(i32) noreturn")
+    if traps:
+        lines.append("declare void @ps_raise_zdi(i32) noreturn")
     if "iadd" in needed or "strconcat" in needed:
         lines.append("declare { i64, i1 } @llvm.sadd.with.overflow.i64(i64, i64)")
     if "isub" in needed or "ineg" in needed:
@@ -2686,7 +2688,7 @@ dec:
 keep:
   ret i64 %q
 zdiv:
-  call void @ps_raise_code(i32 @ZDI@) noreturn ; ZeroDivisionError
+  call void @ps_raise_zdi(i32 @ZDI_idiv@) noreturn ; ZeroDivisionError
   unreachable
 ovf:
   call void @ps_raise_code(i32 @OVF@) noreturn ; OverflowError
@@ -2718,7 +2720,7 @@ divide:
   %out = select i1 %adjust, i64 %r2, i64 %r
   ret i64 %out
 trap:
-  call void @ps_raise_code(i32 @ZDI@) noreturn ; ZeroDivisionError
+  call void @ps_raise_zdi(i32 @ZDI_imod@) noreturn ; ZeroDivisionError
   unreachable
 }
 """
@@ -2780,7 +2782,7 @@ ok:
   %q = fdiv double %a, %b
   ret double %q
 trap:
-  call void @ps_raise_code(i32 @ZDI@) noreturn ; ZeroDivisionError
+  call void @ps_raise_zdi(i32 @ZDI_fdiv@) noreturn ; ZeroDivisionError
   unreachable
 }
 """
@@ -2802,7 +2804,7 @@ ok:
   %out = select i1 %adjust, double %r2, double %r
   ret double %out
 trap:
-  call void @ps_raise_code(i32 @ZDI@) noreturn ; ZeroDivisionError
+  call void @ps_raise_zdi(i32 @ZDI_fmod@) noreturn ; ZeroDivisionError
   unreachable
 }
 """
@@ -2818,7 +2820,7 @@ ok:
   %f = call double @llvm.floor.f64(double %q)
   ret double %f
 trap:
-  call void @ps_raise_code(i32 @ZDI@) noreturn ; ZeroDivisionError
+  call void @ps_raise_zdi(i32 @ZDI_ffloordiv@) noreturn ; ZeroDivisionError
   unreachable
 }
 """
@@ -2835,7 +2837,7 @@ ok:
   %r = call double @llvm.pow.f64(double %a, double %b)
   ret double %r
 trap:
-  call void @ps_raise_code(i32 @ZDI@) noreturn ; ZeroDivisionError
+  call void @ps_raise_zdi(i32 @ZDI_fpow@) noreturn ; ZeroDivisionError
   unreachable
 }
 """
@@ -2885,15 +2887,27 @@ def _exc_codes(chunk: str) -> str:
     """Fill the exception-code placeholders in a runtime helper.
 
     The helpers are plain strings so the LLVM braces stay literal; the codes
-    come from the builtin table, so a renumber moves them together.
+    come from the builtin table, so a renumber moves them together. The
+    ZeroDivisionError message variants track the running interpreter's
+    CPython: 3.13 and earlier name the operation, 3.14 unified them into
+    "division by zero" (the same interpreter the oracle runs on).
     """
 
-    return (
-        chunk.replace("@OVF@", str(EXCEPTIONS["OverflowError"]))
-        .replace("@ZDI@", str(EXCEPTIONS["ZeroDivisionError"]))
-        .replace("@VAL@", str(EXCEPTIONS["ValueError"]))
-        .replace("@RUN@", str(EXCEPTIONS["RuntimeError"]))
-    )
+    zdi = zdi_variants()
+    for token, value in (
+        ("@OVF@", str(EXCEPTIONS["OverflowError"])),
+        ("@ZDI@", str(EXCEPTIONS["ZeroDivisionError"])),
+        ("@VAL@", str(EXCEPTIONS["ValueError"])),
+        ("@RUN@", str(EXCEPTIONS["RuntimeError"])),
+        ("@ZDI_idiv@", str(zdi["idiv"])),
+        ("@ZDI_imod@", str(zdi["imod"])),
+        ("@ZDI_fdiv@", str(zdi["fdiv"])),
+        ("@ZDI_fmod@", str(zdi["fmod"])),
+        ("@ZDI_ffloordiv@", str(zdi["ffloordiv"])),
+        ("@ZDI_fpow@", str(zdi["fpow"])),
+    ):
+        chunk = chunk.replace(token, value)
+    return chunk
 
 
 def _overflow_helper(name: str, intrinsic: str) -> str:

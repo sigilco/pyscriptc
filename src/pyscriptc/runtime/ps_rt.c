@@ -261,7 +261,7 @@ static void ps_report_one(PsExc *e) {
         return;
     }
     if (e->message.len > 0) {
-        if (ps_exc_isa(e->code, PS_KEY)) {
+        if (ps_exc_isa(e->code, PS_KEY) && (e->flags & PS_EXC_FLAG_PREQUOTED) == 0) {
             /* CPython prints a KeyError message as its repr: quoted. */
             PsBuf quoted = ps_exc_quoted(&e->message);
             fprintf(stderr, "%s: %s\n", ps_exc_name(e->code), quoted.data);
@@ -332,8 +332,9 @@ PsBuf ps_exc_str(PsExc *e) {
         return empty;
     }
     /* CPython's KeyError shows its argument as a repr: str(KeyError('k'))
-       is "'k'", while str(ValueError('k')) is "k". */
-    if (ps_exc_isa(e->code, PS_KEY) && e->message.len > 0) {
+       is "'k'", while str(ValueError('k')) is "k". A message that already
+       holds the repr (a missing dict key) is left alone. */
+    if (ps_exc_isa(e->code, PS_KEY) && e->message.len > 0 && (e->flags & PS_EXC_FLAG_PREQUOTED) == 0) {
         return ps_exc_quoted(&e->message);
     }
     return e->message;
@@ -531,12 +532,59 @@ void *ps_alloc(int64_t n) {
     return p;
 }
 
-static int64_t ps_index(int64_t len, int64_t i) {
+/* CPython's ZeroDivisionError message names the operation up to 3.13; 3.14
+unified them all into "division by zero". The emitted division helpers pass
+the variant, and the compiler picks the variant set that matches the running
+interpreter (the one the oracle uses). */
+__attribute__((noreturn)) void ps_raise_zdi(int32_t variant) {
+    const char *msg = NULL;
+    switch (variant) {
+        case 1:
+            msg = "integer division or modulo by zero";
+            break;
+        case 2:
+            msg = "integer modulo by zero";
+            break;
+        case 3:
+            msg = "float division by zero";
+            break;
+        case 4:
+            msg = "float floor division by zero";
+            break;
+        case 5:
+            msg = "float modulo";
+            break;
+        case 6:
+            msg = "0.0 cannot be raised to a negative power";
+            break;
+        case 7:
+            msg = "division by zero";
+            break;
+        case 8:
+            msg = "zero to a negative power";
+            break;
+        default:
+            break;
+    }
+    if (msg != NULL) {
+        ps_raise_cstr(PS_ZERO_DIV, msg);
+    }
+    ps_raise_code(PS_ZERO_DIV);
+}
+
+/* CPython's IndexError message names the container kind. */
+static void ps_index_error(const char *what) {
+    char msg[64];
+    snprintf(msg, sizeof msg, "%s index out of range", what);
+    ps_raise_cstr(PS_INDEX, msg);
+}
+
+static int64_t ps_index(int64_t len, int64_t i, const char *what) {
     if (i < 0) {
         i += len;
     }
     if (i < 0 || i >= len) {
-        ps_raise_code(PS_INDEX);
+        ps_index_error(what);
     }
     return i;
 }
@@ -569,7 +617,7 @@ PsSeq *ps_seq_new(int64_t elem, int64_t n) {
 int64_t ps_seq_len(PsSeq *s) { return s->len; }
 
 void ps_seq_get(PsSeq *s, int64_t i, void *out) {
-    i = ps_index(s->len, i);
+    i = ps_index(s->len, i, "list");
     memcpy(out, (char *)s->data + (size_t)i * (size_t)s->elem, (size_t)s->elem);
 }
 
@@ -594,7 +642,7 @@ void ps_seq_push(PsSeq *s, const void *src) {
 }
 
 void ps_seq_set(PsSeq *s, int64_t i, void *src) {
-    i = ps_index(s->len, i);
+    i = ps_index(s->len, i, "list");
     memcpy((char *)s->data + (size_t)i * (size_t)s->elem, src, (size_t)s->elem);
 }
 
@@ -719,7 +767,26 @@ void ps_map_put(PsMap *m, void *key, void *val) {
 void ps_map_get(PsMap *m, void *key, void *out) {
     int64_t at = ps_map_find(m, key);
     if (at < 0) {
-        ps_raise_code(PS_KEY);
+        /* CPython's KeyError message is the key's repr: 'missing' or 42. */
+        char msg[280];
+        if (m->key_kind == 1) {
+            snprintf(msg, sizeof msg, "%lld", (long long)*(int64_t *)key);
+        } else {
+            PsBuf *k = key;
+            PsGrow g;
+            PsBuf quoted;
+            ps_grow_init(&g);
+            ps_report_quoted(&g, k);
+            ps_grow_finish(&g, &quoted);
+            snprintf(msg, sizeof msg, "%.*s", (int)(quoted.len < 250 ? quoted.len : 250), quoted.data);
+            free(quoted.data);
+        }
+        PsExc *e = ps_exc_new(PS_KEY);
+        snprintf(e->message.data, 256, "%s", msg);
+        e->message.len = (int64_t)strlen(e->message.data);
+        e->flags = PS_EXC_FLAG_PREQUOTED;
+        ps_current = e;
+        ps_deliver();
     }
     memcpy(out, (char *)m->vals + (size_t)at * (size_t)m->val_size, (size_t)m->val_size);
 }
@@ -829,12 +896,12 @@ void ps_grow_finish(PsGrow *g, PsBuf *out) {
 }
 
 void ps_str_get(int64_t n, char *p, int64_t i, PsBuf *out) {
-    i = ps_index(n, i);
+    i = ps_index(n, i, "string");
     ps_view(out, p + i, 1);
 }
 
 int64_t ps_buf_at(int64_t n, char *p, int64_t i) {
-    i = ps_index(n, i);
+    i = ps_index(n, i, "string");
     return (unsigned char)p[i];
 }
 

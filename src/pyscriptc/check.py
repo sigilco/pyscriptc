@@ -234,7 +234,7 @@ def _resolve_pyrefly() -> tuple[list[str], str]:
 _PEP765_MARKERS = ("in a `finally` block will silence exceptions",)
 
 
-def _is_pep765(error: dict[str, object]) -> bool:
+def _is_pep765(error):
     """True for the PEP 765 `finally`-block diagnostics, false otherwise."""
     if error.get("name") != "invalid-syntax":
         return False
@@ -242,7 +242,7 @@ def _is_pep765(error: dict[str, object]) -> bool:
     return any(marker in description for marker in _PEP765_MARKERS)
 
 
-def _pyrefly_errors(stdout: str) -> list[dict[str, object]] | None:
+def _pyrefly_errors(stdout):
     """The parsed pyrefly diagnostics, or None when the output is not JSON."""
     text = stdout.strip()
     if not text.startswith("{"):
@@ -257,7 +257,7 @@ def _pyrefly_errors(stdout: str) -> list[dict[str, object]] | None:
     return [err for err in errors if isinstance(err, dict)]
 
 
-def _format_pyrefly_error(error: dict[str, object]) -> str:
+def _format_pyrefly_error(error):
     """One diagnostic in the shape the CLI prints."""
     path = str(error.get("path", ""))
     line = int(error.get("line", 0) or 0)
@@ -322,7 +322,6 @@ def _run_pyrefly(path: Path) -> None:
     # Diagnostics go to stdout; stderr carries WARN/INFO progress lines.
     output = proc.stdout.strip() or proc.stderr.strip() or f"pyrefly exited {proc.returncode}"
     raise CheckFailed(output)
-
 
 
 def _run_pyright(path: Path) -> None:
