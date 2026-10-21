@@ -68,7 +68,15 @@ cp "$src" "$work/ref/prog.py"
 # separator is resolved through PATH, never through the cwd.
 got="$(cd "$work/run" && env -i PATH="$PATH" HOME="$work" ./pyscriptc compile prog.py --run --call "$func" --args "$fargs" -o "$work/run/prog.bin" 2>"$work/stderr.txt")" \
   || { cat "$work/stderr.txt" >&2; fail "compile or run failed (exit $?)"; }
-[ -n "$got" ] || { echo "--- stderr from compile --run (empty stdout) ---" >&2; cat "$work/stderr.txt" >&2; ls -la "$work/run" >&2; }
+if [ -z "$got" ]; then
+  echo "--- stderr from compile --run (empty stdout) ---" >&2
+  cat "$work/stderr.txt" >&2
+  ls -la "$work/run" >&2
+  echo "--- rerun with --debug=all ---" >&2
+  rc=0
+  (cd "$work/run" && env -i PATH="$PATH" HOME="$work" ./pyscriptc compile prog.py --run --call "$func" --args "$fargs" -o "$work/run/prog.bin" --debug=all) >&2 || rc=$?
+  echo "exit code: $rc" >&2
+fi
 
 # 3. the same function under CPython 3.12
 want="$(cd "$work/ref" && uv run --no-project --python 3.12 python -I -c '
