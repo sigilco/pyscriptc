@@ -439,7 +439,6 @@ def cmd_plan(a: argparse.Namespace) -> int:
     out.mkdir(parents=True, exist_ok=True)
     if entry is None:
         print(f"nothing to release since {last or 'the first commit'}", file=sys.stderr)
-        ok = False
     else:
         (out / "entry.md").write_text(entry)
         print(entry)
@@ -447,7 +446,8 @@ def cmd_plan(a: argparse.Namespace) -> int:
     (out / "version").write_text(new)
     if gho := os.environ.get("GITHUB_OUTPUT"):
         with open(gho, "a") as f:
-            f.write(f"version={new}\nclass={cls}\nbar_passed={'true' if ok else 'false'}\nbase_sha={head}\n")
+            f.write(f"version={new}\nclass={cls}\nbar_passed={'true' if ok else 'false'}\n")
+            f.write(f"releasable={'true' if entry else 'false'}\nbase_sha={head}\n")
     return 0
 
 
