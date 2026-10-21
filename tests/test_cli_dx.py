@@ -48,3 +48,19 @@ def test_print_diagnostics_clean_exits_zero(tmp_path: Path) -> None:
     got = run_cli("compile", str(path), "--print", "diagnostics")
     assert got.returncode == 0, got.stderr
     assert json.loads(got.stdout)["fences"] == []
+
+
+@pytest.mark.parametrize(
+    ("source", "mode", "code"),
+    [
+        (FENCED, None, 0),
+        (FENCED, "any", 1),
+        (FENCED, "blockers", 1),
+        (CLEAN, "any", 0),
+        (CLEAN, "blockers", 0),
+    ],
+)
+def test_coverage_fail_on(tmp_path: Path, source: str, mode: str | None, code: int) -> None:
+    path = write_case(tmp_path, "case.py", source)
+    extra = ["--fail-on", mode] if mode else []
+    assert run_cli("coverage", str(path), *extra).returncode == code

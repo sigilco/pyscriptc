@@ -89,6 +89,11 @@ def main(argv: list[str] | None = None) -> int:
     coverage_parser = sub.add_parser("coverage", help="report every fence in a file or package tree", parents=[common])
     coverage_parser.add_argument("source")
     coverage_parser.add_argument("--json", action="store_true", help="print the report as JSON")
+    coverage_parser.add_argument(
+        "--fail-on",
+        choices=("blockers", "any"),
+        help="exit 1 when root fences (blockers) or any fence exist; default always exits 0",
+    )
     explain_parser = sub.add_parser("explain", help="describe a diagnostic code", parents=[common])
     explain_parser.add_argument("code")
     sub.add_parser("logs", help="print the audit-log path and its last lines", parents=[common])
@@ -135,6 +140,11 @@ def coverage_cmd(args: argparse.Namespace) -> int:
     report = build_report(Path(args.source))
     log.info("coverage.report", source=args.source)
     print(json.dumps(report, indent=2) if args.json else render_text(report))
+    summary = report["summary"]
+    if args.fail_on == "any" and summary["fences"]:
+        return 1
+    if args.fail_on == "blockers" and summary["rootFences"]:
+        return 1
     return 0
 
 
