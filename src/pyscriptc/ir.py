@@ -391,6 +391,13 @@ def validate_module(module: Any) -> None:
         methods = cls.get("methods")
         if not isinstance(methods, list):
             raise IRError(f"{cls['name']}: methods must be a list")
+        if cls.get("exception") is not None:
+            if not isinstance(cls.get("exception"), bool):
+                raise IRError(f"{cls['name']}: exception must be a bool")
+            for key in ("exc_code", "exc_parent"):
+                value = cls.get(key)
+                if not isinstance(value, int) or isinstance(value, bool):
+                    raise IRError(f"{cls['name']}: {key} must be an int")
         for j, method in enumerate(methods):
             if not isinstance(method, dict) or not isinstance(method.get("name"), str):
                 raise IRError(f"{cls['name']}.methods[{j}] needs a name")

@@ -32,7 +32,11 @@ def test_self_census_ballpark() -> None:
     # Telemetry privacy pass: random install id, IP-discard properties, opt-in switch (+12 fences).
     # rtcache.py (runtime object cache: threads, hashing, subprocess) adds 1 module and 33 fences.
     # First-run fix: node_text/op_text diagnostics helpers and CLI --run entry handling (+7 fences).
-    assert census["fences"] == 1434
+    # E2 M2 (builtin exception hierarchy, 69 names): `except OSError` lowers in
+    # log.py and telemetry.py, so those functions now lower past their old
+    # `except names a lowered exception` fence and their next pre-existing
+    # fences surface (+15 there, -6 of the old except fences, net +9).
+    assert census["fences"] == 1443
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 25_000
-    assert sum(p["fences"] for p in census["packages"]) == 1434
+    assert sum(p["fences"] for p in census["packages"]) == 1443

@@ -222,7 +222,12 @@ class Emitter:
             if entry_fn is not None:
                 self.emit_main(entry_fn["name"], [])
             else:
-                self.out.extend(["define i32 @main(i32 %argc, ptr %argv) {", "entry:", "  ret i32 0", "}", ""])
+                self.out.append("define i32 @main(i32 %argc, ptr %argv) {")
+                self._reset_function()
+                self.block("entry")
+                self._emit_exc_registrations()
+                self.line("ret i32 0")
+                self.out.extend(["}", ""])
         # Shims go last: a closure inside a module global initializer (emitted
         # in @main) can still register one.
         for name in sorted(self.clo_wrappers):
@@ -309,6 +314,7 @@ class Emitter:
         self.block("entry")
         self._abi_decl("ps_argv_init", "void", ["i32", "ptr"])
         self._call_void("ps_argv_init", ["i32 %argc", "ptr %argv"])
+        self._emit_exc_registrations()
         for init in self.module.get("globals", []):
             self.emit_expr(init)
         values = [self.materialize_arg(param["type"], value) for param, value in zip(params, prepared, strict=True)]
@@ -318,6 +324,27 @@ class Emitter:
         self.line("ret i32 0")
         self.out.append("}")
         self.out.append("")
+
+    def _emit_exc_registrations(self) -> None:
+        """Register the module's user exception classes with the runtime.
+
+        The runtime keeps the parent chain, so a user class matches
+        `except Exception` and `except <its builtin base>` the same way a
+        builtin does. One call per class, before any user code runs.
+        """
+
+        classes = [cls for cls in self.module.get("classes", []) if cls.get("exception")]
+        if not classes:
+            return
+        self.needed.add("exc")
+        self._abi_decl("ps_exc_register", "void", ["i32", "i32", "ptr"])
+        for cls in classes:
+            value = self.string_value(cls["name"])
+            _, ptr = self._buf_parts(value)
+            self._call_void(
+                "ps_exc_register",
+                [f"i32 {cls['exc_code']}", f"i32 {cls.get('exc_parent', 0)}", f"ptr {ptr}"],
+            )
 
     def emit_body(self, body: list[dict[str, Any]]) -> None:
         for stmt in body:
@@ -708,19 +735,14 @@ class Emitter:
             wanted = EXCEPTIONS[name]
             call = self._call_ret("i32", "ps_exc_isa", [f"i32 {code}", f"i32 {wanted}"])
             checks.append(self._flag(call))
-            if name == "Exception":
-                # User codes have no runtime parent chain yet; every user
-                # exception inherits a lowered builtin, so all of them are
-                # Exception descendants.
-                reg = self.tmp()
-                self.line(f"{reg} = icmp sge i32 {code}, {USER_EXC_BASE}")
-                checks.append(reg)
         numbers = handler.get("codes") if isinstance(handler, dict) else None
         if not numbers:
             numbers = [EXCEPTIONS[name] for name in names if name in EXCEPTIONS]
         for number in numbers:
             if number < USER_EXC_BASE:
                 continue
+            # A user class: the runtime walks its registered parent chain, so
+            # `except Exception` and `except <its builtin base>` both match.
             reg = self.tmp()
             self.line(f"{reg} = icmp eq i32 {code}, {number}")
             checks.append(reg)
@@ -1669,7 +1691,7 @@ class Emitter:
             self.terminated = True
             self.block(bad)
             self.needed.add("exc")
-            self.line("call void @ps_raise_code(i32 1) noreturn")
+            self.line(f"call void @ps_raise_code(i32 {EXCEPTIONS['ValueError']}) noreturn")
             self.line("unreachable")
             self.terminated = True
             self.block(ok)
@@ -2625,7 +2647,7 @@ ok:
   %v = extractvalue { i64, i1 } %r, 0
   ret i64 %v
 trap:
-  call void @ps_raise_code(i32 4) noreturn ; OverflowError
+  call void @ps_raise_code(i32 @OVF@) noreturn ; OverflowError
   unreachable
 }
 """
@@ -2656,10 +2678,10 @@ dec:
 keep:
   ret i64 %q
 zdiv:
-  call void @ps_raise_code(i32 5) noreturn ; ZeroDivisionError
+  call void @ps_raise_code(i32 @ZDI@) noreturn ; ZeroDivisionError
   unreachable
 ovf:
-  call void @ps_raise_code(i32 4) noreturn ; OverflowError
+  call void @ps_raise_code(i32 @OVF@) noreturn ; OverflowError
   unreachable
 }
 """
@@ -2688,7 +2710,7 @@ divide:
   %out = select i1 %adjust, i64 %r2, i64 %r
   ret i64 %out
 trap:
-  call void @ps_raise_code(i32 5) noreturn ; ZeroDivisionError
+  call void @ps_raise_code(i32 @ZDI@) noreturn ; ZeroDivisionError
   unreachable
 }
 """
@@ -2715,10 +2737,10 @@ shift:
 good:
   ret i64 %r
 negshift:
-  call void @ps_raise_code(i32 1) noreturn ; ValueError
+  call void @ps_raise_code(i32 @VAL@) noreturn ; ValueError
   unreachable
 ovf:
-  call void @ps_raise_code(i32 4) noreturn ; OverflowError
+  call void @ps_raise_code(i32 @OVF@) noreturn ; OverflowError
   unreachable
 }
 """
@@ -2735,7 +2757,7 @@ ok:
   %r = ashr i64 %a, %c
   ret i64 %r
 trap:
-  call void @ps_raise_code(i32 1) noreturn ; ValueError
+  call void @ps_raise_code(i32 @VAL@) noreturn ; ValueError
   unreachable
 }
 """
@@ -2750,7 +2772,7 @@ ok:
   %q = fdiv double %a, %b
   ret double %q
 trap:
-  call void @ps_raise_code(i32 5) noreturn ; ZeroDivisionError
+  call void @ps_raise_code(i32 @ZDI@) noreturn ; ZeroDivisionError
   unreachable
 }
 """
@@ -2772,7 +2794,7 @@ ok:
   %out = select i1 %adjust, double %r2, double %r
   ret double %out
 trap:
-  call void @ps_raise_code(i32 5) noreturn ; ZeroDivisionError
+  call void @ps_raise_code(i32 @ZDI@) noreturn ; ZeroDivisionError
   unreachable
 }
 """
@@ -2788,7 +2810,7 @@ ok:
   %f = call double @llvm.floor.f64(double %q)
   ret double %f
 trap:
-  call void @ps_raise_code(i32 5) noreturn ; ZeroDivisionError
+  call void @ps_raise_code(i32 @ZDI@) noreturn ; ZeroDivisionError
   unreachable
 }
 """
@@ -2805,7 +2827,7 @@ ok:
   %r = call double @llvm.pow.f64(double %a, double %b)
   ret double %r
 trap:
-  call void @ps_raise_code(i32 5) noreturn ; ZeroDivisionError
+  call void @ps_raise_code(i32 @ZDI@) noreturn ; ZeroDivisionError
   unreachable
 }
 """
@@ -2840,19 +2862,34 @@ copy:
   %s1 = insertvalue %ps.str %s0, ptr %mem, 1
   ret %ps.str %s1
 trap:
-  call void @ps_raise_code(i32 4) noreturn ; OverflowError
+  call void @ps_raise_code(i32 @OVF@) noreturn ; OverflowError
   unreachable
 nomem:
-  call void @ps_raise_code(i32 6) noreturn ; RuntimeError
+  call void @ps_raise_code(i32 @RUN@) noreturn ; RuntimeError
   unreachable
 }
 """
         )
-    return chunks
+    return [_exc_codes(chunk) for chunk in chunks]
+
+
+def _exc_codes(chunk: str) -> str:
+    """Fill the exception-code placeholders in a runtime helper.
+
+    The helpers are plain strings so the LLVM braces stay literal; the codes
+    come from the builtin table, so a renumber moves them together.
+    """
+
+    return (
+        chunk.replace("@OVF@", str(EXCEPTIONS["OverflowError"]))
+        .replace("@ZDI@", str(EXCEPTIONS["ZeroDivisionError"]))
+        .replace("@VAL@", str(EXCEPTIONS["ValueError"]))
+        .replace("@RUN@", str(EXCEPTIONS["RuntimeError"]))
+    )
 
 
 def _overflow_helper(name: str, intrinsic: str) -> str:
-    return f"""define internal i64 @ps.{name}(i64 %a, i64 %b) {{
+    return _exc_codes(f"""define internal i64 @ps.{name}(i64 %a, i64 %b) {{
 entry:
   %r = call {{ i64, i1 }} @llvm.{intrinsic}.with.overflow.i64(i64 %a, i64 %b)
   %ov = extractvalue {{ i64, i1 }} %r, 1
@@ -2861,7 +2898,7 @@ ok:
   %v = extractvalue {{ i64, i1 }} %r, 0
   ret i64 %v
 trap:
-  call void @ps_raise_code(i32 4) noreturn ; OverflowError
+  call void @ps_raise_code(i32 @OVF@) noreturn ; OverflowError
   unreachable
 }}
-"""
+""")
