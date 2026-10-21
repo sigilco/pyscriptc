@@ -1379,6 +1379,11 @@ REST_FIXED: dict[str, dict[str, dict[str, Any]]] = {
         "mkdir": _sig([_S], _N, "ps_os_mkdir"),
         "replace": _sig([_S, _S], _N, "ps_os_replace"),
         "unlink": _sig([_S], _N, "ps_os_remove"),
+        "close": _sig([_I], _N, "ps_os_close"),
+        "write": _sig([_I, _BY], _I, "ps_os_write"),
+        "fstat": _sig([_I], _STAT, "ps_os_fstat"),
+        "lstat": _sig([_S], _STAT, "ps_os_lstat"),
+        "utime": _sig([_S], _N, "ps_os_utime"),
     },
     "posixpath": {
         "basename": _sig([_S], _S, "ps_path_base"),

@@ -48,7 +48,7 @@ from pyscriptc.restlower._iterators import (
 from pyscriptc.restlower._itertools import _itertools
 from pyscriptc.restlower._minmax import _minmax, _sorted, _sum
 from pyscriptc.restlower._operator import _bisect, _join, _operator
-from pyscriptc.restlower._ospath import _relpath
+from pyscriptc.restlower._ospath import _os_open, _os_read, _relpath
 from pyscriptc.restlower._pathlib import _buffer, _one
 from pyscriptc.restlower._random import _random_call
 from pyscriptc.restlower._subprocess import _call as _sub_call
@@ -147,6 +147,8 @@ _AFTER_KEYWORDS: dict[tuple[str, str], Handler] = {
     ("functools", "reduce"): lambda lo, node, span, expect, attr: _reduce(lo, node, span),
     ("posixpath", "join"): lambda lo, node, span, expect, attr: _join(lo, node, span),
     ("posixpath", "relpath"): lambda lo, node, span, expect, attr: _relpath(lo, node, span),
+    ("os", "open"): lambda lo, node, span, expect, attr: _os_open(lo, node, span),
+    ("os", "read"): lambda lo, node, span, expect, attr: _os_read(lo, node, span),
     ("pathlib", "Path"): lambda lo, node, span, expect, attr: _one(
         lo, node, span, "pathlib", "Path", "ps_path_new", {"kind": "str"}, {"kind": "class", "name": "Path"}
     ),

@@ -30,3 +30,36 @@ def _relpath(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if len(args) == 1:
         args.append({"kind": "const", "value": "", "type": {"kind": "str"}, "span": span})
     return lo._abi_call("posixpath", "relpath", args, {"kind": "str"}, "ps_path_relpath", span)
+
+
+def _os_open(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """`os.open(path, flags, mode=0o777)`: mode only matters with O_CREAT."""
+    lo._reject_keywords(node)
+    if len(node.args) not in {2, 3}:
+        lo.fail(node, "PS2003", "os.open expects 2 or 3 argument(s)")
+    args = []
+    path = lo._expr(node.args[0])
+    if path["type"]["kind"] != "str":
+        lo.fail(node, "PS1003", "os.open takes a str path")
+    args.append(path)
+    for arg_node in node.args[1:]:
+        arg = lo._expr(arg_node)
+        if arg["type"]["kind"] != "int":
+            lo.fail(node, "PS1003", "os.open flags and mode are int")
+        args.append(arg)
+    if len(args) == 2:
+        args.append({"kind": "const", "value": "511", "type": {"kind": "int"}, "span": span})
+    return lo._abi_call("os", "open", args, {"kind": "int"}, "ps_os_open", span)
+
+
+def _os_read(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """`os.read(fd, n)`: n bytes into a fresh buffer."""
+    lo._reject_keywords(node)
+    if len(node.args) != 2:
+        lo.fail(node, "PS2003", "os.read expects 2 argument(s)")
+    fd = lo._expr(node.args[0])
+    size = lo._expr(node.args[1])
+    for arg, what in ((fd, "fd"), (size, "size")):
+        if arg["type"]["kind"] != "int":
+            lo.fail(node, "PS1003", f"os.read {what} is int")
+    return lo._abi_call("os", "read", [fd, size], {"kind": "bytes"}, "ps_os_read", span)

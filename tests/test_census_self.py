@@ -38,7 +38,9 @@ def test_self_census_ballpark() -> None:
     # chain/starmap/filterfalse handlers add 11 fences total (1442 at
     # b07a48c, 1453 after the itertools family).
     # enum.auto adds one fence (the enum-only auto call).
-    assert census["fences"] == 1454
+    # The os fd family (open/read handlers and the ps_osfd.c rows) adds 4
+    # fences through the new handler bodies.
+    assert census["fences"] == 1458
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 25_000
-    assert sum(p["fences"] for p in census["packages"]) == 1454
+    assert sum(p["fences"] for p in census["packages"]) == 1458
