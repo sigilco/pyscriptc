@@ -280,4 +280,4 @@ def test_unsupported_shapes_fence_precisely(monkeypatch: pytest.MonkeyPatch) -> 
 def test_kill_switch_restores_old_fence(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PYSC_CORO", "0")
     module = lower_source(NESTED, "nested.py")
-    assert any(f["message"] == "Await is not lowered" for f in module["fences"])
+    assert any(f["message"] == "await is not lowered" for f in module["fences"])

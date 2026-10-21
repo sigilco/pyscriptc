@@ -12,12 +12,14 @@ from __future__ import annotations
 import ast
 from typing import Any
 
-from pyscriptc.coro import SLEEP_MARKER
+from pyscriptc.coro import SLEEP_MARKER, enabled
 from pyscriptc.ir import types_equal
 from pyscriptc.restlower._shared import _as_float
 
 
 def _frame_of(lo: Any, node: ast.expr, what: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    if not enabled():
+        lo.fail(node, "PS2001", "coroutines are not lowered")
     value = lo._expr(node)
     name = str(value["type"].get("name", ""))
     if value["type"].get("kind") != "class" or not name.startswith("coro."):
@@ -59,6 +61,8 @@ def _asyncio_run(lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = No
 def _asyncio_sleep(lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = None, attr: str = "") -> dict[str, Any]:
     if len(node.args) != 1:
         lo.fail(node, "PS2003", "asyncio.sleep expects 1 argument(s)")
+    if not enabled():
+        lo.fail(node, "PS2001", "coroutines are not lowered")
     delay = _as_float(lo, node, lo._expr(node.args[0]), span, "asyncio.sleep")
     if lo._coro_current() is None:
         lo.fail(node, "PS2002", "asyncio.sleep is only lowered inside a coroutine")
