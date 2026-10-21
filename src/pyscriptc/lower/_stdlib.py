@@ -220,6 +220,11 @@ class StdlibDispatchMixin:
             )
 
     def _bind_pkg_module(self, local: str, module: str, stmt: ast.AST, fences: list[Fence]) -> None:
+        existing = self.bindings.get(local)
+        if existing is not None and existing.kind == "pkg" and existing.module == module:
+            # The same module imported twice under the same name: CPython
+            # keeps one binding, and so does this.
+            return
         if local in self.bindings or local in self.constants or local in self.declared:
             fences.append(Fence("PS2002", f"{local} is already bound", span_of(stmt, self.filename), None))
             return

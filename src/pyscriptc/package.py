@@ -33,7 +33,8 @@ from pyscriptc.lower import Lowerer
 
 
 def lower_directory(root: Path) -> tuple[dict[str, Any], str]:
-    units, skipped, program = _discover(root)
+    units, skipped = _discover(root)
+    program = _is_program_dir(root)
     exports, failed = _catalog(units, program)
 
     if program:
@@ -384,25 +385,34 @@ def _class_export(info: dict[str, Any]) -> dict[str, Any]:
     return exported
 
 
-def _discover(root: Path) -> tuple[list[tuple[str, Path, bool]], list[str], bool]:
+def _is_program_dir(root: Path) -> bool:
+    """True when the directory is a program: a `__main__.py` and no package.
+
+    A root `__init__.py` marks a library package: its `__main__.py` is the
+    `python -m` script, not an importable module. Without it, a directory
+    with `__main__.py` is a program: that file is the entry point and the
+    siblings are imported by their plain names.
+    """
+
+    root = root.resolve()
+    return (root / "__main__.py").is_file() and not (root / "__init__.py").is_file()
+
+
+def _discover(root: Path) -> tuple[list[tuple[str, Path, bool]], list[str]]:
     """Find every module in the tree.
 
-    A directory whose root holds ``__main__.py`` is a program: that file is
-    the entry point, and every sibling module is reachable under its plain
-    name. Any other directory is a package, where the directory name is the
-    module root and ``__main__.py`` is the ``python -m`` script, not an
-    importable module.
+    A directory whose root holds ``__main__.py`` and no ``__init__.py`` is a
+    program: that file is the entry point, and every sibling module is
+    reachable under its plain name. Any other directory is a package, where
+    the directory name is the module root and ``__main__.py`` is the
+    ``python -m`` script, not an importable module.
     """
 
     root = root.resolve()
     package = root.name
     if not package.isidentifier():
         raise IRError(f"package directory {package} is not an identifier")
-    # A root `__init__.py` marks a library package: its `__main__.py` is the
-    # `python -m` script, not an importable module. Without it, a directory
-    # with `__main__.py` is a program: that file is the entry point and the
-    # siblings are imported by their plain names.
-    program = (root / "__main__.py").is_file() and not (root / "__init__.py").is_file()
+    program = _is_program_dir(root)
     found: list[tuple[str, Path, bool]] = []
     skipped: list[str] = []
     for path in sorted(root.rglob("*.py")):
@@ -436,7 +446,7 @@ def _discover(root: Path) -> tuple[list[tuple[str, Path, bool]], list[str], bool
         found.append(((".".join((package, *stem.parts))), path, False))
     if not found:
         raise IRError(f"no Python files in {root}")
-    return found, skipped, program
+    return found, skipped
 
 
 def _skip_note(root: Path, relative: str) -> str:
