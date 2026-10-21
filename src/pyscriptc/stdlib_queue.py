@@ -59,6 +59,7 @@ QUEUE: tuple[str, ...] = (
     "csv",
     "textwrap",
     "copy",
+    "argparse",
 )
 
 LOWERED: frozenset[str] = frozenset(QUEUE)

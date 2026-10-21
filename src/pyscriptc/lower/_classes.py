@@ -31,7 +31,7 @@ from pyscriptc.lower._core import (
 from pyscriptc.lower._stmt import _always_returns, _is_docstring
 from pyscriptc.restlower import alias_name, path_attr
 from pyscriptc.restlower import method_spec as synth_method
-from pyscriptc.stdmore import ALWAYS_CLASSES, CLASS_FIELDS
+from pyscriptc.stdmore import ALWAYS_CLASSES, CLASS_FIELDS, DEFERRED_CLASSES
 
 _UNWRAP_FORMS = frozenset({"Final", "ClassVar", "Annotated", "Required", "NotRequired"})
 _DYNAMIC_ANNOTATIONS = frozenset({"object", "Any", "Protocol", "TypeVar", "Generic", "Callable", "ABC"})
@@ -77,6 +77,12 @@ class ClassesMixin:
                 specs[name] = CLASS_FIELDS[name]
         user_names = {node.name for node in class_nodes}
         for name, fields in specs.items():
+            existing = self.classes.get(name)
+            if existing is not None and existing.get("synthetic"):
+                # The argparse handlers can declare their classes while the
+                # entry is split, before this pass runs; the same class twice
+                # is a re-install, not a clash.
+                continue
             if name in user_names or name in self.declared:
                 clash = next((node for node in class_nodes if node.name == name), None)
                 fences.append(
@@ -96,6 +102,7 @@ class ClassesMixin:
                 "method_kind": {},
                 "method_owner": {},
                 "synthetic": True,
+                "deferred": name in DEFERRED_CLASSES,
                 "base": None,
             }
 
@@ -1463,10 +1470,14 @@ class ClassesMixin:
                 return resolved[2]
         return None
 
-    def _synthetic_classes(self, seen: set[str]) -> list[dict[str, Any]]:
+    def _synthetic_classes(self, seen: set[str], deferred_only: bool = False) -> list[dict[str, Any]]:
         found: list[dict[str, Any]] = []
         for name, info in self.classes.items():
             if name in seen or not info.get("synthetic"):
+                continue
+            # A deferred class (the argparse Namespace) grows fields while
+            # the statements lower, so only the closing pass emits it.
+            if deferred_only != bool(info.get("deferred")):
                 continue
             found.append(
                 {

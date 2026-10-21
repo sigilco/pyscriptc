@@ -1200,6 +1200,7 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "hmac": ("Hmac",),
     "importlib.resources": ("Path",),
     "csv": ("CsvWriter",),
+    "argparse": ("ArgParser", "Namespace"),
 }
 
 CLASS_FIELDS: dict[str, list[dict[str, Any]]] = {
@@ -1236,7 +1237,15 @@ CLASS_FIELDS: dict[str, list[dict[str, Any]]] = {
         {"name": "_msg", "type": _BY},
         {"name": "_alg", "type": _I},
     ],
+    # The parser holds the encoded spec rows; the namespace fields are
+    # declared as the options are registered, so they start empty here.
+    "ArgParser": [{"name": "_specs", "type": {"kind": "list", "elem": _S}}],
+    "Namespace": [],
 }
+
+# Classes whose fields grow while the statements lower. They are emitted
+# after the functions, not with the other synthetic classes.
+DEFERRED_CLASSES = frozenset({"Namespace"})
 
 # i64 field packs compared lexicographically. Path compares its string.
 LEX_CLASSES = frozenset({"Date", "DateTime", "Time", "TimeDelta"})
@@ -1263,6 +1272,8 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("time", "struct_time"): "StructTime",
     ("os", "stat_result"): "Stat",
     ("csv", "_writer"): "CsvWriter",
+    ("argparse", "ArgumentParser"): "ArgParser",
+    ("argparse", "Namespace"): "Namespace",
     ("re", "Pattern"): "Pattern",
     ("re", "Match"): "Match",
     ("os", "terminal_size"): "TerminalSize",
@@ -1526,6 +1537,7 @@ REST_MODULES = frozenset(
         "csv",
         "textwrap",
         "copy",
+        "argparse",
     }
 )
 
@@ -1724,5 +1736,7 @@ def member_callable(module: str, member: str) -> bool:
         "starmap",
         "filterfalse",
     }:
+        return True
+    if module == "argparse" and member == "ArgumentParser":
         return True
     return False

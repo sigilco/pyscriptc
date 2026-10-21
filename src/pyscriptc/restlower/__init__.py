@@ -13,6 +13,7 @@ import ast
 from collections.abc import Callable
 from typing import Any
 
+from pyscriptc.restlower._argparse import _parser
 from pyscriptc.restlower._builtins import (
     _abs,
     _base_repr,
@@ -149,6 +150,7 @@ _AFTER_KEYWORDS: dict[tuple[str, str], Handler] = {
     ("posixpath", "relpath"): lambda lo, node, span, expect, attr: _relpath(lo, node, span),
     ("os", "open"): lambda lo, node, span, expect, attr: _os_open(lo, node, span),
     ("os", "read"): lambda lo, node, span, expect, attr: _os_read(lo, node, span),
+    ("argparse", "ArgumentParser"): lambda lo, node, span, expect, attr: _parser(lo, node, span),
     ("pathlib", "Path"): lambda lo, node, span, expect, attr: _one(
         lo, node, span, "pathlib", "Path", "ps_path_new", {"kind": "str"}, {"kind": "class", "name": "Path"}
     ),

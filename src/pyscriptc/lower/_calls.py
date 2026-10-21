@@ -42,6 +42,7 @@ from pyscriptc.lower._core import (
 from pyscriptc.lower._stdlib_shared import _mod_call, _synth_module
 from pyscriptc.restlower import _mk_iter, builtin_call
 from pyscriptc.restlower import method_spec as synth_method
+from pyscriptc.restlower._argparse import _add_argument, _parse_args
 from pyscriptc.stdlib_queue import MATH_FUNCTIONS
 
 
@@ -415,6 +416,14 @@ class CallsMixin:
         if named is not None and named in self.classes:
             return self._named_class_call(node, span, named)
         receiver = self._expr(node.func.value)
+        if receiver["type"]["kind"] == "class" and receiver["type"].get("name") == "ArgParser":
+            # argparse parser methods need the lowerer state, so they have a
+            # handler instead of a fixed method row.
+            if node.func.attr == "add_argument":
+                return _add_argument(self, node, span, receiver)
+            if node.func.attr == "parse_args":
+                return _parse_args(self, node, span, receiver)
+            self.fail(node, "PS2001", f"ArgParser.{node.func.attr} is not lowered")
         if receiver["type"]["kind"] == "class" and receiver["type"].get("name") == "Path":
             if node.func.attr in {"__enter__", "__exit__"}:
                 return self._path_context(node, span, receiver)

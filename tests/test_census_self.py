@@ -14,7 +14,8 @@ def test_self_census_ballpark() -> None:
     census = build_self_census(SRC)
     # doctor.py is the 28th module; log.py, telemetry.py, debug.py and rtcache.py each added a module.
     # The restlower package split into handler modules (+2 more than the old pin).
-    assert census["modules"] == 50
+    # The argparse handler adds one more module (restlower/_argparse.py).
+    assert census["modules"] == 51
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -40,7 +41,8 @@ def test_self_census_ballpark() -> None:
     # enum.auto adds one fence (the enum-only auto call).
     # The os fd family (open/read handlers and the ps_osfd.c rows) adds 4
     # fences through the new handler bodies.
-    assert census["fences"] == 1458
+    # The argparse handler module (restlower/_argparse.py) adds 51 fences.
+    assert census["fences"] == 1513
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 25_000
-    assert sum(p["fences"] for p in census["packages"]) == 1458
+    assert sum(p["fences"] for p in census["packages"]) == 1513

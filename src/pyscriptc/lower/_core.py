@@ -154,9 +154,15 @@ def _module_closed(value: dict[str, Any]) -> bool:
     A `name` points at a prelude temp that only exists inside a function
     body, so storing one at module scope dangles. Every other kind re-emits
     at each read, which is what stored calls and literals already do.
+
+    A value with `identity` set re-emits too, but must NOT: an argparse
+    parser keeps runtime state (its registered options), so every read has
+    to be the same object. The assignment lowers inside the entry instead.
     """
     kind = value["kind"]
     if kind == "name":
+        return False
+    if value.get("identity"):
         return False
     if kind == "list":
         return all(_module_closed(elem) for elem in value["elems"])
