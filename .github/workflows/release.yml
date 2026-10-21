@@ -142,7 +142,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p bundle
-          find dist -type f -name 'pyscriptc-*' -exec cp -t bundle {} +
+          find dist -type f -name 'pyscriptc-*' ! -name '*.whl' ! -name '*.tar.gz' -exec cp -t bundle {} +
           mapfile -t bins < <(find bundle -maxdepth 1 -type f -name 'pyscriptc-*' | sort)
           if [ "${#bins[@]}" -ne 5 ]; then
             echo "expected 5 release binaries, found ${#bins[@]}" >&2
