@@ -658,9 +658,13 @@ class ClassesMixin:
     def _signature(
         self, fn: ast.FunctionDef, class_name: str | None, kind: str = "method"
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        if fn.args.kwonlyargs or fn.args.posonlyargs:
-            self.fail(fn, "PS1202", f"{fn.name} uses a parameter form that is not lowered")
-        args = list(fn.args.args)
+        # `**kwargs` capture stays lowered (packed into dict[str, T] by
+        # `_fill_varargs`); `/`-positional and `*`-keyword parameters normalize
+        # into the named-parameter machinery instead: positional-only
+        # parameters refuse keywords, keyword-only ones must be passed by
+        # name. See `_fill_args`/`_fill_varargs` for the binding rules.
+        pos_marks = [True] * len(fn.args.posonlyargs) + [False] * len(fn.args.args)
+        args = list(fn.args.posonlyargs) + list(fn.args.args)
         params: list[dict[str, Any]] = []
         if kind == "property":
             if fn.args.vararg is not None or fn.args.kwarg is not None or len(args) != 1 or args[0].arg != "self":
@@ -671,6 +675,7 @@ class ClassesMixin:
                 self.fail(fn, "PS1201", "decorators are not lowered")
             params.append({"name": "self", "type": {"kind": "class", "name": class_name}})
             args = []
+            pos_marks = []
         elif kind == "class":
             if not args or args[0].arg != "cls":
                 self.fail(fn, "PS2002", "a classmethod's first parameter must be cls")
@@ -678,6 +683,7 @@ class ClassesMixin:
                 self.fail(args[0], "PS2002", "cls is not annotated")
             # cls is not a value. Class.method(...) does not pass the class object.
             args = args[1:]
+            pos_marks = pos_marks[1:]
         elif kind == "static":
             pass
         elif class_name is not None:
@@ -687,28 +693,15 @@ class ClassesMixin:
                 self.fail(args[0], "PS2002", "self is not annotated")
             params.append({"name": "self", "type": {"kind": "class", "name": class_name}})
             args = args[1:]
+            pos_marks = pos_marks[1:]
         defaults = list(fn.args.defaults)
         missing = len(args) - len(defaults)
         for index, arg in enumerate(args):
             param = _param(self, arg)
+            if pos_marks[index]:
+                param["posonly"] = True
             if index >= missing:
-                default_node = defaults[index - missing]
-                if param["type"].get("optional"):
-                    value = self._expr(default_node)
-                    if value["kind"] != "const":
-                        self.fail(default_node, "PS2002", "a default must be a constant")
-                    if value["type"]["kind"] != "none" and not types_equal(value["type"], param["type"]["elem"]):
-                        self.fail(
-                            default_node, "PS1003", f"{arg.arg} is {_show(value['type'])}, not {_show(param['type'])}"
-                        )
-                    param["default"] = value
-                    param["optdefault"] = True
-                else:
-                    value = self._expr(default_node, param["type"])
-                    self._expect(default_node, value["type"], param["type"], arg.arg)
-                    if value["kind"] != "const":
-                        self.fail(default_node, "PS2002", "a default must be a constant")
-                    param["default"] = value
+                self._param_default(arg, defaults[index - missing], param)
             params.append(param)
         if fn.args.vararg is not None:
             vararg = fn.args.vararg
@@ -718,6 +711,12 @@ class ClassesMixin:
             if elem["kind"] == "bool":
                 self.fail(vararg, "PS2002", "list[bool] is not lowered")
             params.append({"name": vararg.arg, "type": {"kind": "list", "elem": elem}, "vararg": True})
+        for karg, kdef in zip(fn.args.kwonlyargs, fn.args.kw_defaults, strict=True):
+            param = _param(self, karg)
+            param["kwonly"] = True
+            if kdef is not None:
+                self._param_default(karg, kdef, param)
+            params.append(param)
         if fn.args.kwarg is not None:
             kwarg = fn.args.kwarg
             if kwarg.annotation is None:
@@ -740,6 +739,22 @@ class ClassesMixin:
         if class_name is not None and fn.name == "__init__" and ret["kind"] != "none":
             self.fail(fn, "PS1003", "__init__ returns None")
         return params, ret
+
+    def _param_default(self, arg: ast.arg, default_node: ast.expr, param: dict[str, Any]) -> None:
+        if param["type"].get("optional"):
+            value = self._expr(default_node)
+            if value["kind"] != "const":
+                self.fail(default_node, "PS2002", "a default must be a constant")
+            if value["type"]["kind"] != "none" and not types_equal(value["type"], param["type"]["elem"]):
+                self.fail(default_node, "PS1003", f"{arg.arg} is {_show(value['type'])}, not {_show(param['type'])}")
+            param["default"] = value
+            param["optdefault"] = True
+        else:
+            value = self._expr(default_node, param["type"])
+            self._expect(default_node, value["type"], param["type"], arg.arg)
+            if value["kind"] != "const":
+                self.fail(default_node, "PS2002", "a default must be a constant")
+            param["default"] = value
 
     def _construct(self, node: ast.Call, span: dict[str, Any], name: str) -> dict[str, Any]:
         info = self.classes[name]
