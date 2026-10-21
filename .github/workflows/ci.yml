@@ -161,7 +161,7 @@ jobs:
           wheel="$(ls dist/pyscriptc-*-any.whl)"
           uv venv "$WORK/venv"
           uv pip install --python "$WORK/venv/bin/python" "$wheel"
-          printf 'def main() -> int:\n    print("hello")\n    return 0\n' > "$WORK/hello.py"
+          printf 'def main() -> None:\n    print("hello")\n' > "$WORK/hello.py"
           # Repo venv and pyrefly dirs are off PATH on purpose.
           env -i HOME="$HOME" PATH=/usr/bin:/bin:/usr/local/bin \
             "$WORK/venv/bin/pyscriptc" compile "$WORK/hello.py" --emit bin -o "$WORK/hello-bin"
