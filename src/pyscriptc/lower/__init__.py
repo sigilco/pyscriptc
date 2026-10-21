@@ -779,7 +779,7 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         raise AssertionError("unreachable")
 
     def _expect(self, node: ast.AST, got: dict[str, Any], want: dict[str, Any], what: str) -> None:
-        if not types_equal(got, want):
+        if not types_equal(got, want) and not self._accepts_protocol(want, got):
             self.fail(node, "PS1003", f"{what} is {_show(got)}, annotation says {_show(want)}")
 
     def _use_status(self, module: str) -> str:
