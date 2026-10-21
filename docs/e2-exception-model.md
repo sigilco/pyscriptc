@@ -193,13 +193,15 @@ Keep the current contract and extend names: `ps_raise`'s uncaught path (`ps_rt.c
 
 Each milestone is an iteration under the loop's keep/drop rules (`.agents/docs/loop.md:230-260`): verdict `PASS` plus its family-fence drop, with `uv run pytest` and `uv run ruff check && uv run ruff format --check` green on every commit.
 
-| Milestone | Contents | Gate commands |
-| --- | --- | --- |
-| M1: one builtin end to end | `PsExc` record, `ps_exc_isa` for the 7 existing codes, `ValueError` raised and caught by name and by `Exception` parent. Existing corpus must not regress. | `uv run pytest`; `uv run python -m benchmarks.compat2.irscore` (A/B byte-identical on unchanged IR surface) |
-| M2: hierarchy table | Full 70-name table, `ps_exc_parent`, `ps_exc_name_for`, `ps_exc_register`, code renumber 1 to 71, user floor 256, ABI note in `docs/abi-strategy.md`. | `uv run pytest`; irscore A/B regen committed (recorded decision); container-baseline `uv run python -m benchmarks.baseline.run --check` |
-| M3: except-as + raise-from | `bind` on handlers, `e.args`, `str(e)`, deleted-after-handler scoping, `raise ... from` cause storage and print. PS1205 family fences drop. | `uv run pytest`; verdict candidate vs epic-start baseline (`--compile-budget 1.25`); PS1205 family fence count strictly down |
-| M4: else + finally | `orelse`/`finalbody` on `try`, flow codes 2 to 4, replay semantics, nested try in finalbody. PS2002 `try-else`/`finally` fences drop. | `uv run pytest`; verdict candidate; family fence count strictly down |
-| M5: uncaught format | `ps_exc_name_for` in the uncaught path, cause-chain wording, exit-1 contract, stderr golden tests. | `uv run pytest`; verdict boundary: `PASS`, `primary_delta` > 0, flip-list hit rate >= 50% (`.agents/docs/loop.md:239`); `boxed_cost.py` ledger recorded |
+M1 shipped with #52. M2 to M5 shipped with #186 (branch `feat/exceptions-m2-m5`). The "Status" column records where each one landed.
+
+| Milestone | Contents | Gate commands | Status |
+| --- | --- | --- | --- |
+| M1: one builtin end to end | `PsExc` record, `ps_exc_isa` for the 7 existing codes, `ValueError` raised and caught by name and by `Exception` parent. Existing corpus must not regress. | `uv run pytest`; `uv run python -m benchmarks.compat2.irscore` (A/B byte-identical on unchanged IR surface) | shipped (#52) |
+| M2: hierarchy table | Full 70-name table, `ps_exc_parent`, `ps_exc_name_for`, `ps_exc_register`, code renumber 1 to 71, user floor 256, ABI note in `docs/abi-strategy.md`. | `uv run pytest`; irscore A/B regen committed (recorded decision); container-baseline `uv run python -m benchmarks.baseline.run --check` | shipped (ba701bf) |
+| M3: except-as + raise-from | `bind` on handlers, `e.args`, `str(e)`, deleted-after-handler scoping, `raise ... from` cause storage and print. PS1205 family fences drop. | `uv run pytest`; verdict candidate vs epic-start baseline (`--compile-budget 1.25`); PS1205 family fence count strictly down | shipped (951d4b7, 7d88de0) |
+| M4: else + finally | `orelse`/`finalbody` on `try`, flow codes 2 to 4, replay semantics, nested try in finalbody. PS2002 `try-else`/`finally` fences drop. | `uv run pytest`; verdict candidate; family fence count strictly down | shipped (080c259) |
+| M5: uncaught format | `ps_exc_name_for` in the uncaught path, cause-chain wording, exit-1 contract, stderr golden tests. | `uv run pytest`; verdict boundary: `PASS`, `primary_delta` > 0, flip-list hit rate >= 50% (`.agents/docs/loop.md:239`); `boxed_cost.py` ledger recorded | shipped (26fb804) |
 
 Epic-close extras (not milestones): the `raises`-probe weight flip in `score.py` (weight-1.0 decision above), and the boundary evaluator's holdout aggregate recorded in the epic file.
 
