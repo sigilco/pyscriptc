@@ -21,7 +21,7 @@ classifiers = [
 ]
 dependencies = [
     "mypy>=2.4",
-    "pyrefly>=1.4.0",
+    "pyrefly>=1.4.0,<1.5",
 ]
 
 [project.urls]

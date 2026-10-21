@@ -15,3 +15,4 @@ benchmarks/compat2/.cache/
 .agents/corpus-run.json
 src/pyscriptc/_posthog_token.py
 node_modules/
+benchmarks/factsdiff-report.json
