@@ -6,6 +6,7 @@ import argparse
 import ast
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -20,7 +21,7 @@ from pyscriptc.diagnostics import explain
 from pyscriptc.doctor import doctor_cmd
 from pyscriptc.errors import FitError, IRError, SpikeError, VersionError
 from pyscriptc.ir import validate_module
-from pyscriptc.llvm import compile_unit, emit_llvm, link_binary
+from pyscriptc.llvm import compile_unit, emit_llvm, link_binary, standalone_entry
 from pyscriptc.log import enable_debug, get_logger, tail
 from pyscriptc.lower import lower_file, render_fences
 from pyscriptc.package import lower_directory
@@ -227,6 +228,19 @@ def _apply_env_defaults(args: argparse.Namespace) -> None:
         args.driver = "clang"
 
 
+def _require_toolchain(args: argparse.Namespace) -> None:
+    """Fail before any work when the requested output needs a C driver that is not on PATH."""
+    if not (args.run or args.emit in ("asm", "obj", "bin")):
+        return
+    driver = args.driver or "clang"
+    if shutil.which(driver) is None:
+        raise IRError(
+            f"{driver} not found on PATH, and compiling to a binary needs a C toolchain "
+            f"(clang or zig; select with --driver or PYSC_CC). Run `pyscriptc doctor` to see what was found "
+            f"and the README for install commands. `--emit ir` and `--emit llvm` need no toolchain."
+        )
+
+
 def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
     try:
         dbg = resolve(args.debug, args.debug_dir)
@@ -239,6 +253,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         report = build_report(source_path)
         print(json.dumps(report, indent=2))
         return 3 if report["fences"] else 0
+    _require_toolchain(args)
     log.info(
         "compile.start",
         source=str(source_path),
@@ -295,6 +310,12 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             print(ir_path)
             return 0
         call_args = _parse_args(args.args) if args.call else None
+        if args.run and not args.call and standalone_entry(module) is None:
+            print(
+                'note: nothing to run: the file has no module-level script and no `if __name__ == "__main__":` '
+                "body, so the binary exits 0 without output. Use --call FUNC [--args '[...]'] to run a function.",
+                file=sys.stderr,
+            )
         state["stage"] = "emit"
         dbg.begin("emit_llvm")
         llvm_text = emit_llvm(module, args.call, call_args, standalone=args.emit == "bin")
