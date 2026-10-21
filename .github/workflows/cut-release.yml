@@ -1,0 +1,214 @@
+# Cut a release: bump pyproject.toml, prepend a CHANGELOG entry built from
+# conventional commits since the last tag, commit, and tag.
+#
+# This workflow NEVER publishes. Pushing the tag triggers release.yml, which
+# builds the binaries, drafts the GitHub Release, and runs the PyPI verify job.
+# The PyPI publish step still waits for the pypi-publish environment approval.
+#
+# Token: a tag pushed with GITHUB_TOKEN does not trigger other workflows, so
+# this job needs the RELEASE_TOKEN secret (fine-grained PAT or GitHub App token
+# with contents:write on this repo). The job fails fast when it is missing.
+#
+# Double-run protection: the concurrency group serializes runs (queued, never
+# cancelled), and the job refuses to run if the target tag already exists on
+# the remote.
+
+name: cut-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Which part of the version to bump"
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+        required: true
+      dry_run:
+        description: "Print the new version and changelog entry only; no commit, no tag"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cut-release
+  cancel-in-progress: false
+
+jobs:
+  cut:
+    name: bump, changelog, commit, tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Require master
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/master" ]; then
+            echo "cut-release must run from master, not $GITHUB_REF" >&2
+            exit 1
+          fi
+
+      - name: Require RELEASE_TOKEN
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$RELEASE_TOKEN" ]; then
+            echo "RELEASE_TOKEN secret is not set. A tag pushed with GITHUB_TOKEN will not start release.yml." >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version: "3.14"
+
+      - name: Compute version and changelog entry
+        id: plan
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+          last="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)"
+          if [ -n "$last" ]; then range="$last..HEAD"; else range="HEAD"; fi
+          python3 - "$BUMP" "$range" "$last" <<'PY'
+          import datetime
+          import re
+          import subprocess
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          bump, rng, last = sys.argv[1], sys.argv[2], sys.argv[3]
+          pyproject = Path("pyproject.toml")
+          text = pyproject.read_text()
+          cur = tomllib.loads(text)["project"]["version"]
+          major, minor, patch = (int(p) for p in cur.split("."))
+          if bump == "major":
+              major, minor, patch = major + 1, 0, 0
+          elif bump == "minor":
+              minor, patch = minor + 1, 0
+          else:
+              patch += 1
+          new = f"{major}.{minor}.{patch}"
+
+          log = subprocess.run(
+              ["git", "log", "--no-merges", "--format=%s", rng],
+              check=True, capture_output=True, text=True,
+          ).stdout.splitlines()
+          conv = re.compile(r"^(\w+)(\([^)]*\))?(!)?: (.+)$")
+          sections = {"breaking": [], "feat": [], "fix": [], "perf": [], "refactor": [],
+                      "revert": [], "docs": [], "build": [], "ci": [], "other": []}
+          labels = {"breaking": "Breaking", "feat": "Added", "fix": "Fixed", "perf": "Performance",
+                    "refactor": "Changed", "revert": "Reverted", "docs": "Docs", "build": "Build",
+                    "ci": "CI", "other": "Other"}
+          skip = {"chore", "test", "style"}
+          for subject in log:
+              if subject.startswith("chore(release)"):
+                  continue
+              m = conv.match(subject)
+              if not m:
+                  sections["other"].append(subject)
+                  continue
+              kind, bang, desc = m.group(1), m.group(3), m.group(4)
+              if bang:
+                  sections["breaking"].append(desc)
+              elif kind in skip:
+                  continue
+              elif kind in sections:
+                  sections[kind].append(desc)
+              else:
+                  sections["other"].append(subject)
+
+          if not any(sections.values()):
+              sys.exit(f"nothing to release since {last or 'the first commit'}")
+
+          today = datetime.date.today().isoformat()
+          lines = [f"## [{new}] - {today}", ""]
+          for key, items in sections.items():
+              if not items:
+                  continue
+              lines.append(f"### {labels[key]}")
+              lines.extend(f"- {item}" for item in items)
+              lines.append("")
+          entry = "\n".join(lines).rstrip() + "\n"
+
+          new_text = re.sub(r'^version = "[^"]+"', f'version = "{new}"', text, count=1, flags=re.M)
+          Path("/tmp/cut-release-entry.md").write_text(entry)
+          Path("/tmp/cut-release-pyproject.toml").write_text(new_text)
+          Path("/tmp/cut-release-version").write_text(new)
+          print(f"version {cur} -> {new}")
+          print(entry)
+          PY
+          echo "version=$(cat /tmp/cut-release-version)" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse if the tag already exists
+        env:
+          TAG: v${{ steps.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "tag $TAG already exists on origin" >&2
+            exit 1
+          fi
+
+      - name: Dry run summary
+        if: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### Dry run: v${{ steps.plan.outputs.version }}"
+            echo
+            echo "No commit or tag was created. Re-run with dry_run unchecked to cut the release."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Apply bump and changelog
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          cp /tmp/cut-release-pyproject.toml pyproject.toml
+          python3 - <<'PY'
+          from pathlib import Path
+
+          entry = Path("/tmp/cut-release-entry.md").read_text()
+          path = Path("CHANGELOG.md")
+          text = path.read_text()
+          marker = "\n## ["
+          idx = text.find(marker)
+          if idx == -1:
+              text = text.rstrip() + "\n\n" + entry
+          else:
+              text = text[: idx + 1] + entry + "\n" + text[idx + 1 :]
+          path.write_text(text)
+          PY
+          uv lock
+
+      - name: Commit and tag
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pyproject.toml CHANGELOG.md uv.lock
+          git commit -m "chore(release): v$VERSION"
+          git tag -a "v$VERSION" -m "v$VERSION"
+          git push origin "HEAD:refs/heads/master"
+          git push origin "refs/tags/v$VERSION"
+
+      - name: Summary
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          echo "Tag v$VERSION pushed. release.yml builds the binaries and drafts the release. Publish waits for pypi-publish approval." >> "$GITHUB_STEP_SUMMARY"
