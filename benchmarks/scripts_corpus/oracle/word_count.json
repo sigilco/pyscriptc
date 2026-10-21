@@ -1,0 +1,10 @@
+{
+  "slug": "word_count",
+  "argv": [
+    "/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/lines.txt",
+    "3"
+  ],
+  "stdout": "     2 alpha\n     2 beta\n     1 gamma\n4 distinct words\n",
+  "stderr": "",
+  "exitCode": 0
+}

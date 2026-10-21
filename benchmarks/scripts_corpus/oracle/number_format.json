@@ -1,0 +1,9 @@
+{
+  "slug": "number_format",
+  "argv": [
+    "/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/numbers.txt"
+  ],
+  "stdout": "10.00 1000.0% 10\n-3.00 -300.0% -3\n7.25 725.0% 7\n1000.00 100000.0% 1,000\n0.50 50.0% 0\n",
+  "stderr": "",
+  "exitCode": 0
+}

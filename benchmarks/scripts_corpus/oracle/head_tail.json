@@ -1,0 +1,10 @@
+{
+  "slug": "head_tail",
+  "argv": [
+    "/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/lines.txt",
+    "2"
+  ],
+  "stdout": "alpha\nbeta\nalpha\ndelta\n",
+  "stderr": "",
+  "exitCode": 0
+}

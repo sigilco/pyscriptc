@@ -1,0 +1,9 @@
+{
+  "slug": "access_summary",
+  "argv": [
+    "/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/access.log"
+  ],
+  "stdout": "5 requests, 1 unparsed\n  200 3\n  201 1\n  404 1\ntop paths:\n       3 /api/users\n       1 /health\n       1 /missing\n",
+  "stderr": "",
+  "exitCode": 0
+}

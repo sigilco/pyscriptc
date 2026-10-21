@@ -1,0 +1,9 @@
+{
+  "slug": "ini_read",
+  "argv": [
+    "/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/sample.ini"
+  ],
+  "stdout": "[server]\nhost=localhost\nport=8000\n[client]\ntimeout=30\nretries=3\n2 sections\n",
+  "stderr": "",
+  "exitCode": 0
+}

@@ -1,0 +1,10 @@
+{
+  "slug": "base64_codec",
+  "argv": [
+    "encode",
+    "hello world"
+  ],
+  "stdout": "aGVsbG8gd29ybGQ=\n",
+  "stderr": "",
+  "exitCode": 0
+}

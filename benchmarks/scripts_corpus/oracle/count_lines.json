@@ -1,0 +1,9 @@
+{
+  "slug": "count_lines",
+  "argv": [
+    "/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/lines.txt"
+  ],
+  "stdout": "lines 6\nwords 6\nchars 34\n",
+  "stderr": "",
+  "exitCode": 0
+}

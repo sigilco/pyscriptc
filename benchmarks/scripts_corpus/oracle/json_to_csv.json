@@ -1,0 +1,9 @@
+{
+  "slug": "json_to_csv",
+  "argv": [
+    "/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/records.json"
+  ],
+  "stdout": "name,role,team\nalice,admin,\nbob,user,\ncarol,,red\n",
+  "stderr": "3 records, 3 columns\n",
+  "exitCode": 0
+}

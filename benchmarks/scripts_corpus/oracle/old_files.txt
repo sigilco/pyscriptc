@@ -1,0 +1,2 @@
+2001-09-09T03:46:40 /Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/tree/Empty Name.TXT
+2001-09-09T03:46:40 /Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/tree/a.txt

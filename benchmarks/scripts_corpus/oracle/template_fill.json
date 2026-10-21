@@ -1,0 +1,11 @@
+{
+  "slug": "template_fill",
+  "argv": [
+    "/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/template.txt",
+    "NAME=world",
+    "VERSION=1.2"
+  ],
+  "stdout": "Hello world, welcome to version 1.2.\n",
+  "stderr": "",
+  "exitCode": 0
+}

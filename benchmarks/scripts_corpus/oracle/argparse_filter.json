@@ -1,0 +1,11 @@
+{
+  "slug": "argparse_filter",
+  "argv": [
+    "/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/lines.txt",
+    "--pattern",
+    "b"
+  ],
+  "stdout": "beta\nbeta\n",
+  "stderr": "2 lines kept\n",
+  "exitCode": 0
+}

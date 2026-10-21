@@ -1,0 +1,9 @@
+{
+  "slug": "reverse_dict",
+  "argv": [
+    "/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/a.env"
+  ],
+  "stdout": "8080=port\nalpha=host\none=shared\n3 pairs\n",
+  "stderr": "",
+  "exitCode": 0
+}

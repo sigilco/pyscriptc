@@ -1,0 +1,7 @@
+{
+  "license": "MIT",
+  "author": "pyscriptc contributors",
+  "origin": "original implementation written for this corpus, no upstream code copied",
+  "kind": "sysadmin-data-cli",
+  "deterministic": true
+}

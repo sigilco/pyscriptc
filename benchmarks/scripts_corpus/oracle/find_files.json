@@ -1,0 +1,9 @@
+{
+  "slug": "find_files",
+  "argv": [
+    "/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/tree"
+  ],
+  "stdout": "/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/tree/Empty Name.TXT\n/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/tree/a.txt\n/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/tree/empty\n/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/tree/empty/.keep\n/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/tree/sub\n/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/tree/sub/b.txt\n/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/tree/sub/with space.txt\n7 paths\n",
+  "stderr": "",
+  "exitCode": 0
+}

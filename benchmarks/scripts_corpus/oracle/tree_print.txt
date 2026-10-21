@@ -1,0 +1,9 @@
+/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/tree
+|-- Empty Name.TXT
+|-- a.txt
+|-- empty
+|   `-- .keep
+`-- sub
+    |-- b.txt
+    `-- with space.txt
+7 entries

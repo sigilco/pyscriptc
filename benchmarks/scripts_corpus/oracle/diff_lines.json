@@ -1,0 +1,10 @@
+{
+  "slug": "diff_lines",
+  "argv": [
+    "/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/lines.txt",
+    "/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/lines2.txt"
+  ],
+  "stdout": "- beta\n- gamma\n- beta\n- alpha\n- delta\n+ delta\n+ epsilon\n5 removed, 2 added\n",
+  "stderr": "",
+  "exitCode": 0
+}
