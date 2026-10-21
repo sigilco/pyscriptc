@@ -40,7 +40,7 @@ from pyscriptc.lower._core import (
     _subst_type,
 )
 from pyscriptc.lower._stdlib_shared import _mod_call, _synth_module
-from pyscriptc.restlower import _mk_iter, builtin_call
+from pyscriptc.restlower import _mk_iter, _static_builtin_fold, builtin_call
 from pyscriptc.restlower import method_spec as synth_method
 from pyscriptc.stdlib_queue import MATH_FUNCTIONS
 
@@ -77,6 +77,10 @@ class CallsMixin:
                     return {"kind": "const", "value": special, "type": {"kind": "float"}, "span": span}
             self._reject_keywords(node)
             args = [self._expr(arg) for arg in node.args]
+            if len(args) == 1:
+                folded = _static_builtin_fold(name, args[0], span)
+                if folded is not None:
+                    return folded
             spec = builtin_spec(name, [arg["type"] for arg in args])
             if spec is None:
                 if name in {"str", "len"} and len(args) == 1 and args[0]["type"]["kind"] == "class":
@@ -1242,22 +1246,34 @@ class CallsMixin:
         )
         if var_index is not None:
             return self._fill_varargs(node, params, var_index, what)
-        if len(node.args) > len(params):
-            self.fail(node, "PS1003", f"{what} expects {len(params)} argument(s)")
+        kwonly_start = next((index for index, param in enumerate(params) if param.get("kwonly")), len(params))
+        positional = params[:kwonly_start]
+        if len(node.args) > len(positional):
+            self.fail(node, "PS1003", f"{what} expects {len(positional)} argument(s)")
         slots: list[dict[str, Any] | None] = [None] * len(params)
         names = [param["name"] for param in params]
+        pos_names = [param["name"] for param in positional]
         for index, arg_node in enumerate(node.args):
             slots[index] = self._expr(arg_node, params[index]["type"])
         seen: set[str] = set()
         for kw in node.keywords:
             assert kw.arg is not None
-            if kw.arg not in names:
+            if kw.arg in pos_names:
+                index = names.index(kw.arg)
+                if params[index].get("posonly"):
+                    self.fail(kw, "PS2003", f"{what} got {kw.arg} as a keyword for a positional-only parameter")
+                if index < len(node.args) or kw.arg in seen:
+                    self.fail(kw, "PS2003", f"{kw.arg} given more than once")
+                seen.add(kw.arg)
+                slots[index] = self._expr(kw.value, params[index]["type"])
+            elif kw.arg in names:
+                index = names.index(kw.arg)
+                if kw.arg in seen:
+                    self.fail(kw, "PS2003", f"{kw.arg} given more than once")
+                seen.add(kw.arg)
+                slots[index] = self._expr(kw.value, params[index]["type"])
+            else:
                 self.fail(kw, "PS2003", f"unexpected keyword argument {kw.arg}")
-            index = names.index(kw.arg)
-            if index < len(node.args) or kw.arg in seen:
-                self.fail(kw, "PS2003", f"{kw.arg} given more than once")
-            seen.add(kw.arg)
-            slots[index] = self._expr(kw.value, params[index]["type"])
         args: list[dict[str, Any]] = []
         for index, param in enumerate(params):
             got = slots[index]
@@ -1271,7 +1287,7 @@ class CallsMixin:
                         param["type"],
                         got.get("span", span_of(node, self.filename)),
                     )
-            if not types_equal(got["type"], param["type"]):
+            if not types_equal(got["type"], param["type"]) and not self._accepts_protocol(param["type"], got["type"]):
                 self.fail(node, "PS1003", f"argument {param['name']} of {what} has the wrong type")
             args.append(got)
         return args
@@ -1282,34 +1298,49 @@ class CallsMixin:
         fixed = params[:var_index]
         varparam = params[var_index] if params[var_index].get("vararg") else None
         kwparam = params[-1] if params[-1].get("kwarg") else None
+        tail = params[var_index + 1 :]
+        # Keyword-only parameters can sit before the `**kwargs` capture, so
+        # split them out of the fixed prefix rather than assuming a layout.
+        positional_params = [param for param in fixed if not param.get("kwonly")]
+        kwonly = [param for param in fixed if param.get("kwonly")] + [param for param in tail if param.get("kwonly")]
         if varparam is not None and any(kw.arg == varparam["name"] for kw in node.keywords):
             self.fail(node, "PS2002", "a starred parameter is not passed by keyword")
-        positional = list(node.args[: len(fixed)])
-        extra = list(node.args[len(fixed) :])
-        slots: list[dict[str, Any] | None] = [None] * len(fixed)
-        names = [param["name"] for param in fixed]
+        positional = list(node.args[: len(positional_params)])
+        extra = list(node.args[len(positional_params) :])
+        slots: list[dict[str, Any] | None] = [None] * len(positional_params)
+        kw_slots: list[dict[str, Any] | None] = [None] * len(kwonly)
+        names = [param["name"] for param in positional_params]
+        kw_names = [param["name"] for param in kwonly]
         for index, arg_node in enumerate(positional):
-            slots[index] = self._expr(arg_node, fixed[index]["type"])
+            slots[index] = self._expr(arg_node, positional_params[index]["type"])
         seen: set[str] = set()
         leftover: list[ast.keyword] = []
         for kw in node.keywords:
             assert kw.arg is not None
-            if kw.arg not in names:
-                if kwparam is None:
-                    self.fail(kw, "PS2003", f"unexpected keyword argument {kw.arg}")
+            if kw.arg in names:
+                index = names.index(kw.arg)
+                if positional_params[index].get("posonly"):
+                    self.fail(kw, "PS2003", f"{what} got {kw.arg} as a keyword for a positional-only parameter")
+                if index < len(positional) or kw.arg in seen:
+                    self.fail(kw, "PS2003", f"{kw.arg} given more than once")
+                seen.add(kw.arg)
+                slots[index] = self._expr(kw.value, positional_params[index]["type"])
+            elif kw.arg in kw_names:
+                index = kw_names.index(kw.arg)
+                if kw.arg in seen:
+                    self.fail(kw, "PS2003", f"{kw.arg} given more than once")
+                seen.add(kw.arg)
+                kw_slots[index] = self._expr(kw.value, kwonly[index]["type"])
+            elif kwparam is not None:
                 leftover.append(kw)
-                continue
-            index = names.index(kw.arg)
-            if index < len(positional) or kw.arg in seen:
-                self.fail(kw, "PS2003", f"{kw.arg} given more than once")
-            seen.add(kw.arg)
-            slots[index] = self._expr(kw.value, fixed[index]["type"])
+            else:
+                self.fail(kw, "PS2003", f"unexpected keyword argument {kw.arg}")
         args: list[dict[str, Any]] = []
-        for index, param in enumerate(fixed):
+        for index, param in enumerate(positional_params):
             got = slots[index]
             if got is None:
                 if "default" not in param:
-                    self.fail(node, "PS1003", f"{what} expects {len(fixed)} argument(s)")
+                    self.fail(node, "PS1003", f"{what} expects {len(positional_params)} argument(s)")
                 got = param["default"]
             if not types_equal(got["type"], param["type"]):
                 self.fail(node, "PS1003", f"argument {param['name']} of {what} has the wrong type")
@@ -1325,7 +1356,16 @@ class CallsMixin:
                 elems.append(value)
             args.append({"kind": "list", "elems": elems, "type": varparam["type"], "span": span})
         elif extra:
-            self.fail(node, "PS1003", f"{what} expects {len(fixed)} argument(s)")
+            self.fail(node, "PS1003", f"{what} expects {len(positional_params)} argument(s)")
+        for index, param in enumerate(kwonly):
+            got = kw_slots[index]
+            if got is None:
+                if "default" not in param:
+                    self.fail(node, "PS1003", f"{what} expects keyword argument {param['name']}")
+                got = param["default"]
+            if not types_equal(got["type"], param["type"]):
+                self.fail(node, "PS1003", f"argument {param['name']} of {what} has the wrong type")
+            args.append(got)
         if kwparam is not None:
             pairs = []
             for kw in leftover:
@@ -1454,6 +1494,9 @@ class CallsMixin:
         if len(node.args) != 1:
             self.fail(node, "PS2003", "bool expects 1 argument(s)")
         arg = self._expr(node.args[0])
+        folded = _static_builtin_fold("bool", arg, span)
+        if folded is not None:
+            return folded
         kind = arg["type"]["kind"]
         if kind not in {"bool", "int", "float", "str", "bytes", "list", "dict"}:
             self.fail(node, "PS2002", f"bool() of {kind} is not lowered")

@@ -133,6 +133,7 @@ Deliberate divergences that are already lowered and documented; kept because the
 - `int` overflow and `//` by zero `abort()` instead of raising (`benchmarks/compat2` R10 row). Caveat: a known trap-vs-raise gap, tracked for E2.
 - `assert` always evaluates — there is no `-O` flag on a compiled binary. Caveat: never put side effects in the condition.
 - `tuple_N_*` synthetic classes: `repr` and `type()` name differ from CPython (`docs/supported.md:135`). Cosmetic only.
+- `ABC`/`ABCMeta`/`Protocol` bases, `metaclass=ABCMeta`, `@abstractmethod`, and `@overload` are tier-2 erasures (`.agents/plans/2026-10-18-tiered-lowering-and-typefacts.md`): they lower as plain classes/methods with no CPython runtime semantics. Caveats: `ABC()` instantiates (CPython raises `TypeError` when abstract methods remain); a declaration-only body (`...`/`pass`) on a Protocol member or `@abstractmethod` is skipped, not emitted; `f(x: SomeProtocol)` accepts any subclass of the erased class — object-ish, not structural — and unrelated classes, scalars, `list`/`dict` still fail the annotation; `isinstance`/`issubclass` on a Protocol and `@runtime_checkable` stay fenced (structural checks are the checker's job); a lone `@overload` with no implementation erases to nothing, so calls to the name fence as unbound.
 
 ## Does refusing change the corpus scorer?
 

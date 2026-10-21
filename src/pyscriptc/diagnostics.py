@@ -50,8 +50,9 @@ _ENTRIES = (
     Diagnostic(
         "PS1102",
         "Optional annotation",
-        "The IR has no optional value, so `Optional[T]` and `T | None` have no representation.",
-        "Return or accept T and signal absence with a sentinel value, or split the function.",
+        "An optional of one type (`T | None`, `Optional[T]`) is lowered. "
+        "`A | B | None` and `Union[A, B, None]` need a multi-arm union, which the IR does not have yet.",
+        "Narrow to `T | None` with one arm, or split the function per arm.",
     ),
     Diagnostic(
         "PS1103",
