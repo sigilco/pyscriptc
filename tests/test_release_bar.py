@@ -225,11 +225,34 @@ def test_changelog_entry():
     subjects = ["feat(cli): add x", "chore: skip", "fix!: break", "chore(release): v0.1.0", "plain subject", "test: t"]
     entry = rb.changelog_entry(subjects, "0.2.0", "2026-10-21")
     assert entry.startswith("## [0.2.0] - 2026-10-21\n")
-    assert "### Breaking\n- break" in entry
-    assert "### Added\n- add x" in entry
+    assert "### Breaking changes\n- break" in entry
+    assert "### Features\n- add x" in entry
     assert "- plain subject" in entry
     assert "skip" not in entry
-    assert rb.changelog_entry(["chore: a", "test: b"], "0.2.0", "d") is None
+    assert "Highlights" not in entry  # patch release
+    assert "### Internal\n- Internal changes: 2 areas" in entry
+
+
+def test_changelog_entry_minor_has_highlights_placeholder():
+    subjects = ["feat(a): one", "feat(b): two"]
+    entry = rb.changelog_entry(subjects, "0.5.0", "2026-10-21", "minor")
+    assert "### Highlights" in entry
+    assert "<!-- write 2 to 5 bullets or delete this section -->" in entry
+    assert "<!-- theme:" in entry
+    assert entry.index("### Highlights") < entry.index("### Features")
+
+
+def test_changelog_entry_internal_collapses_refactors():
+    subjects = [f"refactor(restlower): split module {i}" for i in range(24)] + ["fix: one"]
+    entry = rb.changelog_entry(subjects, "0.4.0", "2026-10-21")
+    assert entry.count("refactor(restlower)") == 0
+    assert "### Internal" in entry and "1 areas (restlower)" in entry
+    assert "### Features" not in entry and "### Fixes\n- one" in entry
+
+
+def test_changelog_entry_perf_section():
+    entry = rb.changelog_entry(["perf(cache): speed x"], "0.4.2", "2026-10-21")
+    assert "### Performance\n- speed x" in entry
 
 
 def test_report_marks_bypass():

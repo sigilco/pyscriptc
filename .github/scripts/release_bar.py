@@ -350,40 +350,59 @@ def render_report(checks: list[Check], version: str, cls: str, bypass_reason: st
     return "\n".join(lines) + "\n"
 
 
-def changelog_entry(subjects: list[str], version: str, today: str) -> str | None:
-    """Changelog section from conventional commit subjects, or None when nothing is releasable."""
-    sections: dict[str, list[str]] = {
-        k: [] for k in ("breaking", "feat", "fix", "perf", "refactor", "revert", "docs", "build", "ci", "other")
-    }
-    labels = {
-        "breaking": "Breaking", "feat": "Added", "fix": "Fixed", "perf": "Performance", "refactor": "Changed",
-        "revert": "Reverted", "docs": "Docs", "build": "Build", "ci": "CI", "other": "Other",
-    }  # fmt: skip
-    skip = {"chore", "test", "style"}
+def changelog_entry(subjects: list[str], version: str, today: str, cls: str = "patch") -> str | None:
+    """Changelog section from conventional commit subjects, or None when nothing is releasable.
+
+    Section map (see .agents/plans/2026-10-21-changelog-structure.md): Breaking changes,
+    Features, Performance, Fixes, then a collapsed Internal section. Every section is
+    omitted when empty. Highlights and the theme paragraph are placeholders the
+    maintainer (or an agent) writes before the release is published.
+    """
+    sections: dict[str, list[str]] = {k: [] for k in ("breaking", "feat", "perf", "fix", "internal")}
+    scopes: dict[str, set[str]] = {}
+    internal_kinds = {"refactor", "build", "ci", "docs", "test", "deps", "chore", "style"}
     for subject in subjects:
         if subject.startswith("chore(release)"):
             continue
         m = CONVENTIONAL.match(subject)
         if not m:
-            sections["other"].append(subject)
+            sections["internal"].append(subject)
             continue
-        kind, bang, desc = m.group(1), m.group(3), m.group(4)
+        kind, scope, bang, desc = m.group(1), m.group(2), m.group(3), m.group(4)
+        scope_name = scope.strip("()") if scope else ""
         if bang:
             sections["breaking"].append(desc)
-        elif kind in skip:
-            continue
-        elif kind in sections:
+        elif kind in ("feat", "perf", "fix"):
             sections[kind].append(desc)
+        elif kind in internal_kinds:
+            scopes.setdefault(scope_name or kind, set()).add(kind)
         else:
-            sections["other"].append(subject)
+            sections["internal"].append(subject)
     if not any(sections.values()):
         return None
-    lines = [f"## [{version}] - {today}", ""]
-    for key, items in sections.items():
-        if items:
-            lines.append(f"### {labels[key]}")
-            lines.extend(f"- {i}" for i in items)
-            lines.append("")
+    lines = [
+        f"## [{version}] - {today}",
+        "",
+        "<!-- theme: one paragraph on what this release changes for users. -->",
+        "",
+    ]
+    if cls in ("minor", "major"):
+        lines += ["### Highlights", "", "<!-- write 2 to 5 bullets or delete this section -->", ""]
+    labels = {"breaking": "Breaking changes", "feat": "Features", "perf": "Performance", "fix": "Fixes"}
+    for key in ("breaking", "feat", "perf", "fix"):
+        items = sections[key]
+        if not items:
+            continue
+        lines.append(f"### {labels[key]}")
+        lines.extend(f"- {i}" for i in items)
+        lines.append("")
+    if scopes or sections["internal"]:
+        lines.append("### Internal")
+        if scopes:
+            summary = ", ".join(sorted(scopes))
+            lines.append(f"- Internal changes: {len(scopes)} areas ({summary}). Summarize before publishing.")
+        lines.extend(f"- {i}" for i in sections["internal"])
+        lines.append("")
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -482,7 +501,7 @@ def cmd_plan(a: argparse.Namespace) -> int:
         with open(summary, "a") as f:
             f.write(report + "\n")
 
-    entry = changelog_entry([c.subject for c in commits], new, dt.date.today().isoformat())
+    entry = changelog_entry([c.subject for c in commits], new, dt.date.today().isoformat(), cls)
     out = Path(a.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     if entry is None:
