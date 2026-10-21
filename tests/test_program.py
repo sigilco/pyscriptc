@@ -252,6 +252,30 @@ def test_a_cycle_inside_a_package_is_refused(tmp_path: Path) -> None:
     assert "circular import: pkg.a -> pkg.b -> pkg.a" in got.stderr
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+def test_program_flag_matches_python_dash_m(tmp_path: Path) -> None:
+    # A package directory with --program is the `python -m pkg` shape: the
+    # root __main__.py is the entry and the modules keep the namespace.
+    root = write_tree(
+        tmp_path,
+        "pkg",
+        {
+            "__init__.py": "print('init pkg')\n",
+            "util.py": "print('init util')\n\n\ndef twice(n: int) -> int:\n    return n * 2\n",
+            "__main__.py": "from pkg import util\n\nprint(util.twice(21))\n",
+        },
+    )
+    expected = subprocess.run(
+        [sys.executable, "-m", "pkg"], cwd=root.parent, capture_output=True, text=True, check=True
+    )
+    got = run_cli(
+        "compile", str(root), "--program", "--skip-check", "--run", "-o", str(tmp_path / "pkgprog")
+    )
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == expected.stdout
+    assert got.stdout == "init pkg\ninit util\n42\n"
+
+
 def test_a_package_directory_still_skips_dunder_main(tmp_path: Path) -> None:
     # A root __init__.py marks a library package: __main__.py stays the
     # python -m script and is skipped, not compiled as the entry.

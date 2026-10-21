@@ -94,7 +94,7 @@ print(x.NAME)
 
 `util.py` is imported as `util`, and `pkg/__init__.py` as `pkg`. A module body runs once, at the first import that reaches it, in CPython's order, so the printed order of a program matches `python3 __main__.py`. A module with only definitions and constants has no body and contributes nothing. A module's own imports run before its body.
 
-A **package** directory has a root `__init__.py`. It is a library: its modules are namespaced under the directory name (`from mypkg.mod import name`), and its `__main__.py` is the `python -m` script, not an importable module. The compile skips it and says so.
+A **package** directory has a root `__init__.py`. It is a library: its modules are namespaced under the directory name (`from mypkg.mod import name`), and its `__main__.py` is the `python -m` script, not an importable module. The compile skips it and says so. `--program` turns that shape into the `python -m pkg` one: the root `__main__.py` becomes the entry point and the modules keep the package namespace.
 
 A circular import is refused before anything is emitted. The fence names the path that closes it and points at the import statement:
 

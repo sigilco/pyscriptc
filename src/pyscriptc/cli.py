@@ -39,6 +39,13 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
     compile_parser = sub.add_parser("compile", help="lower a source file", parents=[common])
     compile_parser.add_argument("source")
+    compile_parser.add_argument(
+        "--program",
+        action="store_true",
+        help="treat the directory as a program (`python -m pkg` parity): `__main__.py` is the "
+        "entry point even when the directory has an `__init__.py`, and its modules are "
+        "namespaced under the directory name",
+    )
     compile_parser.add_argument("--emit", choices=("ir", "llvm", "asm", "obj", "bin"), default="llvm")
     compile_parser.add_argument(
         "--out-dir",
@@ -270,7 +277,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
     try:
         dbg.begin("lower")
         if source_path.is_dir():
-            module, source = lower_directory(source_path)
+            module, source = lower_directory(source_path, program_mode=args.program)
         elif source_path.is_file():
             module, source = lower_file(str(source_path))
         else:
