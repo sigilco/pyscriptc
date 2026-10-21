@@ -27,7 +27,8 @@ def test_self_census_ballpark() -> None:
     # Telemetry v1 events + CLI --fail-on/--print/passthrough add 14 more.
     # doctor.py, env defaults and --emit asm/obj add 1 module and 34 fences.
     # PyreflyTspFactsAdapter (typefacts.py) adds 23 more.
-    assert census["fences"] == 1343
+    # v0.3.1: mypy/pyright/pyright-typeserver adapters removed from typefacts.py (-1343 to 1242).
+    assert census["fences"] == 1242
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 25_000
-    assert sum(p["fences"] for p in census["packages"]) == 1343
+    assert sum(p["fences"] for p in census["packages"]) == 1242
