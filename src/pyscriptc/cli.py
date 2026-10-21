@@ -111,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
     explain_parser.add_argument("code")
     sub.add_parser("logs", help="print the audit-log path and its last lines", parents=[common])
     telemetry_parser = sub.add_parser("telemetry", help="usage metrics opt-out")
-    telemetry_parser.add_argument("action", choices=("disable", "enable", "status"))
+    telemetry_parser.add_argument("action", choices=("disable", "enable", "status", "reset-id"))
     doctor_parser = sub.add_parser("doctor", help="report toolchain, cache and install shape", parents=[common])
     doctor_parser.add_argument("--json", action="store_true", help="print the report as JSON")
     try:
@@ -190,7 +190,6 @@ def compile_cmd(args: argparse.Namespace) -> int:
         "stage": "lower",
         "fence_count": 0,
         "fence_families": {},
-        "binary_bytes": None,
     }
     try:
         return _compile_cmd(args, state)
@@ -209,7 +208,6 @@ def compile_cmd(args: argparse.Namespace) -> int:
                 checker=None if args.skip_check else args.checker,
                 emit=args.emit,
                 driver=args.driver,
-                binary_bytes=state["binary_bytes"],
                 skip_check=bool(args.skip_check),
             ),
         )
@@ -330,10 +328,6 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         dbg.end("link")
         outputs["bin"] = str(binary)
         log.info("link.binary", output=str(binary), driver=args.driver, target=args.target)
-        try:
-            state["binary_bytes"] = binary.stat().st_size
-        except OSError:
-            pass
         if not args.run:
             print(binary)
             return 0

@@ -3,6 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
+import socket
+import stat
+import sys
+import uuid
+from pathlib import Path
 
 import pytest
 
@@ -63,16 +69,74 @@ def test_payload_shape_and_stable_distinct_id(captured, monkeypatch):
     assert first["api_key"] == "phc_test"
     assert first["event"] == "cli.invoked"
     assert second["event"] == "compile.finished"
-    assert len(first["distinct_id"]) == 64  # sha256 hex
+    assert uuid.UUID(first["distinct_id"]).version == 4
     assert first["distinct_id"] == second["distinct_id"]
     # No PII-ish fields anywhere in the payload.
-    blob = json.dumps(first)
+    blob = json.dumps(first).replace("profile", "")
     for banned in ("hostname", "machine-id", "path", "file", "source", "user"):
         assert banned not in blob
 
 
-def test_distinct_id_stable_across_calls(captured):
-    assert telemetry._machine_id() == telemetry._machine_id()
+def _no_hardware(monkeypatch):
+    def boom(*args, **kwargs):
+        raise AssertionError("hardware identifier read")
+
+    monkeypatch.setattr(uuid, "getnode", boom)
+    monkeypatch.setattr(socket, "gethostname", boom)
+    real_read_bytes = Path.read_bytes
+
+    def guarded(self):
+        if "machine-id" in str(self):
+            boom()
+        return real_read_bytes(self)
+
+    monkeypatch.setattr(Path, "read_bytes", guarded)
+
+
+def test_distinct_id_stable_across_calls_and_no_hardware_reads(captured, monkeypatch, tmp_path):
+    _no_hardware(monkeypatch)
+    first = telemetry._install_id()
+    assert first == telemetry._install_id()
+    id_file = tmp_path / "pyscriptc" / "telemetry-id"
+    assert id_file.read_text().strip() == first
+    if sys.platform != "win32":
+        assert stat.S_IMODE(os.stat(id_file).st_mode) == 0o600
+
+
+def test_reset_id_creates_new_id(captured, monkeypatch, tmp_path, capsys):
+    first = telemetry._install_id()
+    assert telemetry.telemetry_cmd("reset-id") == 0
+    assert not (tmp_path / "pyscriptc" / "telemetry-id").exists()
+    assert telemetry._install_id() != first
+
+
+def test_payload_has_no_ip_and_privacy_flags(captured, monkeypatch):
+    monkeypatch.setattr(telemetry, "_BAKED_TOKEN", "phc_test")
+    telemetry.track("cli.invoked", {"subcommand": "compile"})
+    props = captured[0]["properties"]
+    assert "$ip" in props and props["$ip"] is None
+    assert props["$geoip_disable"] is True
+    assert props["$process_person_profile"] is False
+    assert telemetry.POSTHOG_HOST == "https://eu.i.posthog.com"
+
+
+def test_base_properties_minimal():
+    assert set(telemetry.base_properties()) == {"pyscriptc_version", "python_version", "platform"}
+
+
+def test_opt_in_mode(captured, monkeypatch, capsys):
+    monkeypatch.setattr(telemetry, "_BAKED_TOKEN", "phc_test")
+    monkeypatch.setattr(telemetry, "OPT_IN", True)
+    monkeypatch.setattr(telemetry, "_notice_shown_now", False)
+    _tty(monkeypatch)
+    assert not telemetry.enabled()
+    telemetry.maybe_print_notice()
+    assert "pyscriptc telemetry enable" in capsys.readouterr().err
+    telemetry.track("cli.invoked", {})
+    assert captured == []
+    telemetry.telemetry_cmd("enable")
+    telemetry.track("cli.invoked", {})
+    assert len(captured) == 1
 
 
 @pytest.mark.parametrize("envar", ["PYSC_NO_TELEMETRY", "DO_NOT_TRACK"])
@@ -184,17 +248,15 @@ def test_compile_properties_schema():
         checker="pyrefly",
         emit="bin",
         driver="cc",
-        binary_bytes=1234,
     )
-    for key in ("pyscriptc_version", "python_version", "platform", "ci"):
+    for key in ("pyscriptc_version", "python_version", "platform"):
         assert key in props
     assert props["outcome"] == "fences"
     assert props["fence_count"] == 3
     assert props["fence_families"] == {"union-types": 2, "stdlib": 1}
-    assert props["binary_bytes"] == 1234
     assert props["skip_check"] is False
     bare = telemetry.compile_properties(duration_ms=1, outcome="ok", fence_count=0, fence_families={})
-    assert "checker" not in bare and "driver" not in bare and "binary_bytes" not in bare
+    assert "checker" not in bare and "driver" not in bare
 
 
 def test_coverage_properties_aggregates_and_collapses_stdlib():
@@ -213,10 +275,9 @@ def test_coverage_properties_aggregates_and_collapses_stdlib():
     }
     props = telemetry.coverage_properties(summary)
     assert props["byFamily"] == {"union-types": 1, "stdlib": 2}
-    assert props["coverage_ratio"] == 0.25
+    assert "coverage_ratio" not in props and "files" not in props
     assert "byCode" not in props
     assert "zz_private_mod" not in json.dumps(props)
-    assert telemetry.coverage_properties({})["coverage_ratio"] == 0.0
 
 
 def test_compile_ok_event(captured, monkeypatch, tmp_path):
@@ -271,7 +332,6 @@ def test_coverage_event(captured, monkeypatch, tmp_path, capsys):
     (event,) = _events(captured, "coverage.reported")
     props = event["properties"]
     assert props["definitions"] >= 1
-    assert 0.0 <= props["coverage_ratio"] <= 1.0
     blob = json.dumps(captured)
     assert "zz_private_mod" not in blob and str(tmp_path) not in blob
 

@@ -29,7 +29,8 @@ def test_self_census_ballpark() -> None:
     # PyreflyTspFactsAdapter (typefacts.py) adds 23 more.
     # v0.3.1: mypy/pyright/pyright-typeserver adapters removed from typefacts.py (-1343 to 1242).
     # v0.4.0: restlower.py split into a package of handler modules (+19 modules, +140 fences).
-    assert census["fences"] == 1382
+    # Telemetry privacy pass: random install id, IP-discard properties, opt-in switch (+12 fences).
+    assert census["fences"] == 1394
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 25_000
-    assert sum(p["fences"] for p in census["packages"]) == 1382
+    assert sum(p["fences"] for p in census["packages"]) == 1394
