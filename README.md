@@ -164,7 +164,7 @@ export DO_NOT_TRACK=1
 ```bash
 uv run ruff check .
 uv run ruff format --check .
-uv run pytest
+uv run pytest -n 6 -m "not linux_container"   # or -n auto: bounded by CPU and free memory; PYTEST_WORKERS=N overrides
 ```
 
 ## What this does not prove

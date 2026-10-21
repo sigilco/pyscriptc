@@ -8,6 +8,7 @@
 - Package manager: `uv`. Checks: `uv run pytest`, `uv run ruff check`, `uv run ruff format --check`, `uv run python -m benchmarks.baseline.run --check`.
 - Compiler debug mode: `pyscriptc compile FILE --debug[=stages,fences,cc,paths,all]` (env `PYSC_DEBUG`) prints a stage/fence/cc table to stderr; `--debug-dir DIR` dumps `ir.json`, `out.ll`, `cc.sh`, `summary.json`. Details in `.agents/docs/debug.md`.
 - Master changes come from PRs: the ruleset `master: PR only` requires a PR and the CI checks `betterleaks`, `ruff and compat2`, `zig cc emitted-IR smoke`, `wheel install smoke`, blocks force push and deletion, and lets only the repository admin role bypass. Direct push is exceptional (release commit by `cut-release`, emergency); give the reason in the commit message. Details in `docs/release-process.md`.
+- Running tests: `uv run pytest -n 6 -m "not linux_container"` (CI selection adds `--ignore=tests/compat2`). `-n auto` is bounded by CPU and free memory via `conftest.py` + `scripts/pytest_workers.py`; override with `PYTEST_WORKERS=N`. Details: `.agents/plans/2026-10-21-xdist-workers-and-split.md`.
 - Worktrees go in `~/.worktrees/`.
 - Structured audit logging: `.agents/docs/pyscriptc-debug.md` — JSONL at `~/.cache/pyscriptc/log/`, `PYSC_DEBUG=1`, `pyscriptc logs`.
 - No co-author trailers on commits. Atomic conventional commits.
