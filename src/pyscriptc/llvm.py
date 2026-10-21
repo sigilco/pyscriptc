@@ -1097,6 +1097,19 @@ class Emitter:
             reg = self.tmp()
             self.line(f"{reg} = fcmp oeq double {abs_reg}, 0x7FF0000000000000")
             return reg
+        if name == "isfinite":
+            # `x` is finite when it is neither NaN (fcmp ord) nor at the
+            # infinity magnitude (ordered |x| != +inf).
+            nn = self.tmp()
+            self.line(f"{nn} = fcmp ord double {values[0]}, 0.0")
+            abs_reg = self.tmp()
+            self.line(f"{abs_reg} = call double @llvm.fabs.f64(double {values[0]})")
+            self.needed.add("fabs")
+            ni = self.tmp()
+            self.line(f"{ni} = fcmp one double {abs_reg}, 0x7FF0000000000000")
+            reg = self.tmp()
+            self.line(f"{reg} = and i1 {nn}, {ni}")
+            return reg
         self.needed.add("math")
         return self._call_ret(spec["llvm"], spec["symbol"], [f"double {value}" for value in values])
 

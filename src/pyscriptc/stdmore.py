@@ -1201,6 +1201,7 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "importlib.resources": ("Path",),
     "csv": ("CsvWriter",),
     "argparse": ("ArgParser", "Namespace"),
+    "logging": ("Logger",),
 }
 
 CLASS_FIELDS: dict[str, list[dict[str, Any]]] = {
@@ -1241,6 +1242,8 @@ CLASS_FIELDS: dict[str, list[dict[str, Any]]] = {
     # declared as the options are registered, so they start empty here.
     "ArgParser": [{"name": "_specs", "type": {"kind": "list", "elem": _S}}],
     "Namespace": [],
+    # The logger carries the name getLogger recorded.
+    "Logger": [{"name": "_name", "type": _S}],
 }
 
 # Classes whose fields grow while the statements lower. They are emitted
@@ -1274,6 +1277,7 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("csv", "_writer"): "CsvWriter",
     ("argparse", "ArgumentParser"): "ArgParser",
     ("argparse", "Namespace"): "Namespace",
+    ("logging", "Logger"): "Logger",
     ("re", "Pattern"): "Pattern",
     ("re", "Match"): "Match",
     ("os", "terminal_size"): "TerminalSize",
@@ -1340,6 +1344,14 @@ CLASS_METHODS: dict[str, dict[str, dict[str, Any]]] = {
         "popleft": {"params": [], "return": "elem", "symbol": "ps_deque_popleft"},
     },
     "Hmac": {"digest": _sig([], _BY, "ps_hmac_finish")},
+    "Logger": {
+        "debug": _sig([_S], _N, "ps_log_debug"),
+        "info": _sig([_S], _N, "ps_log_info"),
+        "warning": _sig([_S], _N, "ps_log_warning"),
+        "error": _sig([_S], _N, "ps_log_error"),
+        "critical": _sig([_S], _N, "ps_log_critical"),
+        "exception": _sig([_S], _N, "ps_log_exception"),
+    },
     "CsvWriter": {
         "writerow": _sig([_LS], _N, "ps_csv_writerow"),
         "writerows": _sig([_LLS], _N, "ps_csv_writerows"),
@@ -1428,8 +1440,12 @@ REST_FIXED: dict[str, dict[str, dict[str, Any]]] = {
     "warnings": {"warn": _sig([_S], _N, "ps_warn")},
     "inspect": {"cleandoc": _sig([_S], _S, "ps_island_cleandoc")},
     "logging": {
+        "getLogger": _sig([_S], {"kind": "class", "name": "Logger"}, "ps_log_new"),
+        "debug": _sig([_S], _N, "ps_island_log_debug"),
         "info": _sig([_S], _N, "ps_island_log_info"),
         "warning": _sig([_S], _N, "ps_island_log_warning"),
+        "error": _sig([_S], _N, "ps_island_log_error"),
+        "critical": _sig([_S], _N, "ps_island_log_critical"),
     },
     "socket": {"gethostname": _sig([], _S, "ps_island_hostname")},
     "threading": {"active_count": _sig([], _I, "ps_island_threads")},
