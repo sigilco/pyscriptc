@@ -64,8 +64,12 @@ jobs:
       - run: uv run pytest -q tests/compat2 -m "not linux_container"
 
   macos-safe:
-    name: tests without linux_container
+    name: tests without linux_container (shard ${{ matrix.group }}/3)
     runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3]
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -77,17 +81,25 @@ jobs:
           enable-cache: true
           python-version: "3.14"
       - run: uv sync --frozen
-      - run: uv run pytest -q tests --ignore=tests/compat2 -m "not linux_container"
+      # pytest-split shards by recorded durations (.test_durations), xdist parallelises inside a shard.
+      # Refresh with: uv run pytest -n 6 -m "not linux_container" --store-durations --durations-path .test_durations
+      - run: uv run pytest -q tests --ignore=tests/compat2 -m "not linux_container" -n auto --splits 3 --group ${{ matrix.group }} --durations-path .test_durations
 
   zig-smoke:
     name: zig cc emitted-IR smoke
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+      - name: Cache zig tarball
+        uses: actions/cache@v5
+        with:
+          path: /tmp/zig.tar.xz
+          key: zig-0.16.0-x86_64-linux
       - name: Install zig 0.16.0
         run: |
           set -euo pipefail
-          curl -fsSL https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz -o /tmp/zig.tar.xz
+          [ -f /tmp/zig.tar.xz ] || \
+            curl -fsSL https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz -o /tmp/zig.tar.xz
           echo "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00  /tmp/zig.tar.xz" | sha256sum -c -
           sudo tar -xJf /tmp/zig.tar.xz -C /usr/local
           echo "/usr/local/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"

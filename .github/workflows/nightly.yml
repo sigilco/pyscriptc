@@ -44,6 +44,21 @@ jobs:
       - name: Sync dependencies
         run: uv sync --frozen
 
+      # Entries are keyed inside cache.py on probe, oracle version and compiler file
+      # hashes, so a restored entry can only hit when its inputs are identical. The outer
+      # key also pins the clang version and the lockfile; restore-keys stay within
+      # one toolchain.
+      - name: Toolchain fingerprint
+        id: tc
+        run: echo "v=$(clang --version | head -1 | tr -c 'A-Za-z0-9.\n' '_')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore scorer cache
+        uses: actions/cache@v5
+        with:
+          path: benchmarks/compat2/.cache
+          key: compat2-${{ runner.os }}-${{ steps.tc.outputs.v }}-${{ hashFiles('uv.lock', 'src/pyscriptc/**', 'benchmarks/compat2/**', '!benchmarks/compat2/.cache/**') }}
+          restore-keys: compat2-${{ runner.os }}-${{ steps.tc.outputs.v }}-
+
       - name: Visible-corpus score
         id: score
         continue-on-error: true

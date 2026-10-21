@@ -9,7 +9,16 @@
 # src/pyscriptc/runtime/*.c into every emitted program, and ps_mix.c needs
 # dlfcn.h/dlopen, which MinGW-w64 does not provide. compile+run needs a
 # src/pyscriptc change, so it is out of scope here.
+#
+# workflow_dispatch is the rehearsal: it builds, smoke-tests and wheel-verifies the exact
+# commit given by `ref` (a branch or a full SHA; empty means the dispatched commit), with the
+# version taken from pyproject.toml. It never creates a GitHub Release and never publishes.
+# Dispatch runs are named "rehearsal <ref>". The publish job and cut-release.yml look for a
+# successful run with the title "rehearsal <full SHA>", so pass the full SHA (or dispatch from
+# the branch and leave `ref` empty) when the rehearsal must count as a release gate.
 name: release
+
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('rehearsal {0}', inputs.ref || github.sha) || format('release {0}', github.ref_name) }}
 
 on:
   push:
@@ -17,20 +26,21 @@ on:
       - "v*"
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Tag to dry run against, e.g. v0.1.0 (builds and verifies the dists, never publishes)"
-        required: true
+      ref:
+        description: "Branch or full SHA to rehearse (empty: the dispatched commit). Builds and verifies only; never releases or publishes"
+        required: false
+        default: ""
 
 permissions:
   contents: read
   actions: write
 
 concurrency:
-  group: release-${{ github.workflow }}-${{ github.ref }}
+  group: release-${{ github.workflow }}-${{ github.ref }}-${{ inputs.ref }}
   cancel-in-progress: false
 
 env:
-  TAG: ${{ inputs.tag || github.ref_name }}
+  TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
 
 jobs:
   build:
@@ -64,6 +74,8 @@ jobs:
             experimental: true
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
 
       - uses: actions/setup-python@v6
         with:
@@ -74,6 +86,25 @@ jobs:
           version: ">=0.13.4"  # emSign CA incident: uv 0.13.4 dropped the compromised root
           enable-cache: true
           python-version: "3.14"
+
+      # ccache is content addressed (preprocessed source plus flags), so a restored
+      # cache can only miss, never return a stale object. Nuitka picks ccache up from PATH.
+      - name: ccache
+        if: runner.os != 'Windows'
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: nuitka-${{ matrix.target }}-${{ hashFiles('uv.lock', 'packaging/build.sh') }}
+          restore-keys: nuitka-${{ matrix.target }}-
+          max-size: 1G
+
+      # Nuitka downloads (MinGW64, depends.exe) on Windows; versioned by Nuitka itself.
+      - name: Nuitka download cache
+        if: runner.os == 'Windows'
+        uses: actions/cache@v5
+        with:
+          path: ~\AppData\Local\Nuitka\Nuitka\Cache
+          key: nuitka-dl-${{ matrix.target }}-${{ hashFiles('uv.lock') }}
+          restore-keys: nuitka-dl-${{ matrix.target }}-
 
       - name: Install patchelf and clang
         if: runner.os == 'Linux'
@@ -123,6 +154,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
+          ref: ${{ inputs.ref }}
           sparse-checkout: |
             CHANGELOG.md
             .github
@@ -175,8 +207,9 @@ jobs:
   # PyPI publish, two stages: verify (no secrets) -> publish (approval
   # gate). The pypi-publish GitHub environment holds the required-reviewer
   # approval; the PyPI trusted publisher is configured for workflow
-  # release.yml + environment pypi-publish. workflow_dispatch takes a tag
-  # input and is verify-only: publish stays gated on push events.
+  # release.yml + environment pypi-publish. workflow_dispatch takes a ref
+  # input and is a rehearsal: verify-only, publish stays gated on push events
+  # and on a prior successful rehearsal of the release commit.
   verify:
     name: verify dists
     runs-on: ubuntu-24.04
@@ -184,6 +217,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
 
       - uses: astral-sh/setup-uv@v6
         with:
@@ -221,7 +256,25 @@ jobs:
           echo "$out" | grep -qx 'hello 42'
           [ "$(echo "$out" | tail -1)" = "0" ]
 
+      - name: Rehearsal report
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          REF: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          V="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          {
+            echo "### Rehearsal passed for $sha"
+            echo
+            echo "Version from pyproject.toml: $V. Nothing was released or published."
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$REF" ] && [ "$REF" != "$sha" ]; then
+            echo "::warning::ref '$REF' is not a full SHA. This run is titled 'rehearsal $REF' and will not satisfy the cut-release or publish gates. Re-dispatch with ref=$sha."
+          fi
+
       - name: Verify tag matches pyproject version
+        if: github.event_name == 'push'
         run: |
           set -euo pipefail
           VER="${TAG#v}"
@@ -244,8 +297,23 @@ jobs:
     environment: pypi-publish
     permissions:
       contents: read
+      actions: read
       id-token: write
     steps:
+      # First step on purpose: fail before anything is published unless a
+      # successful workflow_dispatch rehearsal covers the release commit (its
+      # parent, when the release commit only changes pyproject.toml, uv.lock
+      # and CHANGELOG.md). No bypass here: rehearse, then re-run this job.
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: .github/scripts
+          sparse-checkout-cone-mode: false
+
+      - name: Require a rehearsal of the release commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/release_bar.py check-rehearsal --sha "$GITHUB_SHA" --repo "$GITHUB_REPOSITORY"
+
       - uses: actions/download-artifact@v7
         with:
           name: pypi-dists

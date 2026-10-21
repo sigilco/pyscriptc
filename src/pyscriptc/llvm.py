@@ -12,6 +12,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from pyscriptc import rtcache
 from pyscriptc.builtins import EXCEPTIONS, USER_EXC_BASE
 from pyscriptc.errors import FitError, IRError
 from pyscriptc.ir import assert_same_cpython, fits_i64
@@ -46,6 +47,15 @@ def emit_llvm(
     if not module["functions"]:
         raise IRError("module has no functions to emit")
     return Emitter(module).emit(call, [] if args is None else args, standalone)
+
+
+def standalone_entry(module: dict[str, Any]) -> dict[str, Any] | None:
+    """The module's runnable entry (a script body or `__main__` guard), if `--run` without `--call` has one."""
+    entry = module.get("entry")
+    fn = next((f for f in module["functions"] if f["name"] == entry), None)
+    if fn is not None and fn["name"] in ("main", "__entry__") and not fn["params"]:
+        return fn
+    return None
 
 
 def link_binary(
@@ -90,18 +100,35 @@ def link_binary(
         sources = [source for source in sources if not source.endswith("ps_island.c")]
     # zig cannot compile C sources inside a link invocation for Mach-O, so
     # every unit goes to .o first and the link line carries objects only.
-    units = [llvm_path, *(Path(source) for source in sources)]
-    objects = [output.with_name(f"{output.name}.{unit.stem}.o") for unit in units]
-    proc: subprocess.CompletedProcess[str] | None = None
-    for unit, obj in zip(units, objects, strict=True):
-        kind = ["-x", "ir"] if driver == "clang" and unit == llvm_path else []
-        argv = [*cc.split(), "-O2", *kind, "-c", str(unit), "-o", str(obj), *target_flags]
-        if record is not None:
-            record.append([str(arg) for arg in argv])
-        proc = subprocess.run(argv, capture_output=True, text=True)
-        if proc.returncode != 0:
-            break
-    if proc is not None and proc.returncode == 0:
+    use_cache = rtcache.prepare()
+    ll_obj = output.with_name(f"{output.name}.{llvm_path.stem}.o")
+    ll_kind = ["-x", "ir"] if driver == "clang" else []
+    ll_argv = [*cc.split(), "-O2", *ll_kind, "-c", str(llvm_path), "-o", str(ll_obj), *target_flags]
+    jobs: list[tuple[list[str], Path | None]] = [(ll_argv, None)]
+    objects = [ll_obj]
+    hits = 0
+    for source in sources:
+        src = Path(source)
+        flags = ["-O2", *target_flags]
+        if use_cache:
+            final = rtcache.object_path(src, runtime, cc.split(), flags)
+            objects.append(final)
+            if final.exists():
+                hits += 1
+                continue
+            tmp = rtcache.temp_for(final)
+            jobs.append(([*cc.split(), *flags, "-c", source, "-o", str(tmp)], final))
+        else:
+            obj = output.with_name(f"{output.name}.{src.stem}.o")
+            objects.append(obj)
+            jobs.append(([*cc.split(), *flags, "-c", source, "-o", str(obj)], None))
+    if record is not None:
+        state = f"on dir={rtcache.cache_dir()}" if use_cache else "off"
+        record.append(["#", f"rtcache {state} hit={hits} miss={len(jobs) - 1}"])
+        record.extend([str(arg) for arg in argv] for argv, _ in jobs)
+    proc = rtcache.run_jobs(jobs)
+    ok = proc is None
+    if ok:
         # no -O on the link line: it is a compile flag and zig's Mach-O
         # driver crashes on it (0.16.0)
         link_cc = ("zig cc" if link_driver == "zig" else link_driver) if link_driver else cc
@@ -109,8 +136,8 @@ def link_binary(
         if record is not None:
             record.append([str(arg) for arg in argv])
         proc = subprocess.run(argv, capture_output=True, text=True)
-    if proc is None or proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout).strip() if proc is not None else ""
+    if proc is not None and proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout).strip()
         raise IRError(f"{cc} failed to assemble LLVM IR: {detail}")
 
 
@@ -191,10 +218,9 @@ class Emitter:
         elif standalone:
             # A script's synthesized entry (E1 item 1) is the program: run it
             # in source order. A definition-only module keeps the no-op main.
-            entry = self.module.get("entry")
-            entry_fn = next((fn for fn in self.module["functions"] if fn["name"] == entry), None)
-            if entry_fn is not None and entry_fn["name"] == "main" and not entry_fn["params"]:
-                self.emit_main("main", [])
+            entry_fn = standalone_entry(self.module)
+            if entry_fn is not None:
+                self.emit_main(entry_fn["name"], [])
             else:
                 self.out.extend(["define i32 @main(i32 %argc, ptr %argv) {", "entry:", "  ret i32 0", "}", ""])
         # Shims go last: a closure inside a module global initializer (emitted

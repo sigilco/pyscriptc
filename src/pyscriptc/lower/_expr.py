@@ -36,6 +36,8 @@ from pyscriptc.lower._core import (
     _const_str_join,
     _len_call,
     _name,
+    _node_text,
+    _op_text,
     _plain_const_kind,
     _show,
     _static_int,
@@ -175,7 +177,7 @@ class ExprMixin:
             return self._ifexp(node, span)
         if isinstance(node, ast.Lambda):
             return self._lambda(node, span, expect)
-        self.fail(node, "PS2002", f"{type(node).__name__} is not lowered")
+        self.fail(node, "PS2002", f"{_node_text(node)} is not lowered")
         raise AssertionError("unreachable")
 
     def _name(self, node: ast.Name, span: dict[str, Any]) -> dict[str, Any]:
@@ -281,7 +283,7 @@ class ExprMixin:
             return operand
         if isinstance(node.op, ast.Invert) and kind == "int":
             return {"kind": "unary", "op": "~", "operand": operand, "type": {"kind": "int"}, "span": span}
-        self.fail(node, "PS2004", f"unary {type(node.op).__name__} on {kind} is not lowered")
+        self.fail(node, "PS2004", f"unary {_op_text(node.op)} on {kind} is not lowered")
         raise AssertionError("unreachable")
 
     def _binary(self, node: ast.BinOp, span: dict[str, Any]) -> dict[str, Any]:
@@ -374,7 +376,7 @@ class ExprMixin:
                 return self._abi_call("builtins", "repeat", [left, right], left["type"], "ps_seq_repeat", span)
             if left_kind == "int" and right_kind == "list" and not right["type"].get("set"):
                 return self._abi_call("builtins", "repeat", [right, left], right["type"], "ps_seq_repeat", span)
-        self.fail(node, "PS2004", f"{op_type.__name__} on {left_kind} and {right_kind} is not lowered")
+        self.fail(node, "PS2004", f"{_op_text(node.op)} on {left_kind} and {right_kind} is not lowered")
         raise AssertionError("unreachable")
 
     def _pow(
@@ -446,7 +448,7 @@ class ExprMixin:
             return self._is_none(node, span, isinstance(node.ops[0], ast.IsNot))
         op = _CMP.get(type(node.ops[0]))
         if op is None:
-            self.fail(node, "PS2004", f"{type(node.ops[0]).__name__} is not lowered")
+            self.fail(node, "PS2004", f"{_op_text(node.ops[0])} is not lowered")
         left = self._expr(node.left)
         right = self._expr(node.comparators[0])
         return self._compare_values(node, op, left, right, span)

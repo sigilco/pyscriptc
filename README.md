@@ -14,10 +14,39 @@ A compiler that lowers a small, annotated subset of Python to a typed IR and the
 
 ```bash
 uv tool install pyscriptc          # or: pipx install pyscriptc / pip install pyscriptc
-pyscriptc compile examples/sum_squares.py --run --call sum_squares --args '[10]' -o /tmp/sum_squares
+pyscriptc coverage your_script.py  # how much of YOUR file compiles, and what blocks the rest
 ```
 
-`sum_squares(10)` prints `285`, the same value CPython prints — from a native binary.
+pyscriptc compiles a small, annotated subset of Python, and a fence stops the whole file at the first unsupported construct. Most real scripts will not compile yet: on the 3.12 calibration corpus about 16 percent of surface probes compile. `coverage` needs no C toolchain, lists every fence with a hint, and ranks what to fix first. Run it on your own file before anything else.
+
+## Three examples
+
+Hello. A script with `main()` and a `__main__` guard runs as-is with `--run` (it needs the C toolchain from the next section):
+
+```bash
+pyscriptc compile examples/hello.py --run
+```
+
+A loop. A plain function needs `--call` (and `--args`, a Python list literal); a file that also has a `__main__` guard runs that guard when you pass neither. Both print `285`, the value CPython prints:
+
+```bash
+pyscriptc compile examples/sum_squares.py --run
+pyscriptc compile examples/sum_squares.py --run --call sum_squares --args '[10]'
+```
+
+A fence. `str.encode("ascii")` is outside the subset, so the file stops with a named code and writes no LLVM:
+
+```bash
+pyscriptc coverage examples/fence_method.py
+pyscriptc compile examples/fence_method.py --emit llvm   # exit 3
+```
+
+```
+examples/fence_method.py:2:12: PS2003: str.encode lowers the 'utf-8' encoding only
+      return name.encode("ascii")
+```
+
+`pyscriptc explain PS2003` describes any code. If `--run` finds nothing to run (no module-level script, no `__main__` body, no `--call`), it prints a note on stderr naming `--call` and exits 0.
 
 ## Install it
 
@@ -25,9 +54,9 @@ pyscriptc compile examples/sum_squares.py --run --call sum_squares --args '[10]'
 uv tool install pyscriptc
 ```
 
-`pipx install pyscriptc` and `pip install pyscriptc` work the same way. The installed command finds the pyrefly checker that ships with it, so no extra PATH setup is needed. Prebuilt standalone binaries (macOS arm64, Linux x86_64 and aarch64) are attached to each [GitHub Release](https://github.com/sigilco/pyscriptc/releases); the binary does not bundle a checker yet, so use the PyPI install if you want type checking out of the box. PyPI installs require CPython 3.10 or later (the IR is stamped with the interpreter that lowered it).
+`pipx install pyscriptc` and `pip install pyscriptc` work the same way. The installed command finds the pyrefly checker that ships with it, so no extra PATH setup is needed. PyPI installs require CPython 3.10 or later (CI runs 3.14; the IR is stamped with the interpreter that lowered it). Prebuilt standalone binaries are attached to each [GitHub Release](https://github.com/sigilco/pyscriptc/releases): macOS arm64 and x86_64, Linux x86_64 and aarch64, and Windows x86_64 (experimental). The binaries bundle pyrefly too, so type checking works out of the box. On macOS the first launch of a binary can take several seconds; the PyPI install avoids that.
 
-Either way, compiling a program needs a clang that can assemble textual LLVM IR (`zig cc` also works, and enables `--driver zig` cross-compilation):
+Compiling a program to a binary needs a clang that can assemble textual LLVM IR (`zig cc` also works, and enables `--driver zig` cross-compilation). `coverage`, `explain`, `--emit ir` and `--emit llvm` do not. If the driver is missing, `compile` stops before doing any work and points at `pyscriptc doctor`, which reports what was found.
 
 | Platform | Command |
 | --- | --- |
@@ -36,7 +65,8 @@ Either way, compiling a program needs a clang that can assemble textual LLVM IR 
 | Fedora | `sudo dnf install clang` (or `zig`) |
 | Arch | `sudo pacman -S clang` (or `zig`) |
 | Any Linux or macOS | `mise use -g zig` or `brew install zig` |
-| Windows | `winget install zig.zig` (or `scoop install zig`) |
+
+Windows: the `pyscriptc` binary runs there (experimental) and `coverage` works, but emitted programs cannot be compiled on Windows yet, because the C runtime needs POSIX `dlfcn.h` that MinGW-w64 lacks. Use Linux, macOS or WSL to build programs.
 
 ## What it does
 
@@ -44,7 +74,7 @@ Either way, compiling a program needs a clang that can assemble textual LLVM IR 
 - Anything the subset does not prove stops at a named `PSxxxx` fence with a hint — it never guesses at semantics.
 - `int` is a Python int: `i64` only when the value fits, traps on overflow, refuses literals that would truncate. `//` is floor division.
 - Island calls (`subprocess.check_output`, `socket.gethostname`, `threading`, `logging`) embed CPython on first use — and only binaries that call them link libpython.
-- `--emit ir` / `--emit llvm` dump the intermediate forms; `--run` compiles and executes; `--target` + `--driver zig` cross-compiles.
+- `--emit ir` / `--emit llvm` dump the intermediate forms; `--run` compiles and executes (a `__main__` guard runs by itself, anything else needs `--call`); `--target` + `--driver zig` cross-compiles.
 
 ## Stack
 
@@ -63,75 +93,9 @@ Licensed under Apache 2.0. Copyright 2026 Joaquin Terrasa and contributors.
 
 ## Subset
 
-The IR stamp is `gates-v1`. Lowered:
+The IR stamp is `gates-v1`. The full list of what lowers, the closed standard-library table, and what fences is in [docs/supported.md](docs/supported.md). In short: annotated functions over `int`, `float`, `bool`, `str`, `bytes`, `list`, `dict`, `set` and your own classes; `if`, `while`, `for`, `try`/`except` for builtin exceptions; and a closed set of calls from `math`, `re`, `json`, `hashlib`, `datetime`, `pathlib` and others. Anything else fences.
 
-- Annotated functions whose parameters and return use `int`, `float`, `bool`, `str`, `bytes`, `list`, `dict`, or an annotated class
-- `if`, `while`, `for` over a `list` or `range`, assignment, `return`
-- `int` `+`, `-`, `*`, `//`, unary `-`, and comparisons
-- `float` `+`, `-`, `*`, and comparisons (`NaN` follows Python: `nan != nan`)
-- `str` and `bytes` concatenation, indexing, ordering, and `in`
-- `len` on `str`, `bytes`, `list`, `dict`, and `collections.deque`
-- `abs`, `min`, `max`, `sum`, `sorted`, `ord`, `chr`, `round`, `isinstance`, `getattr`, and `hasattr` (the attribute name is a string literal)
-- `open` with a literal mode `r`, `w`, `rb`, `wb`, `a`, or `ab`
-- `int(float)` (toward zero) and `float(int)`
-- Latin-1 `str` and `bytes` methods: `strip`, `lstrip`, `rstrip`, `upper`, `lower`, `startswith`, `endswith`, `find`, `replace`, `split`, `join`, plus `encode()` and `decode()` with no extra arguments
-- `list` and `dict` literals, indexing, and item assignment. Assignment shares the buffer
-- `try` / `except` for `ValueError`, `IndexError`, `KeyError`, `OverflowError`, `ZeroDivisionError`, `RuntimeError`, `Exception`, and a user subclass of one of those
-- `*args` of one element type, lowered as a `list` of that type. A `set` of `int` or `str`: construction, `add`, membership, `len`, and iteration
-- Annotated classes: fields, `__init__`, methods, and a single base. Layout is the parent's fields, then the class's own fields. Method lookup walks the parent. `@property` (getter only), `@staticmethod`, and `@classmethod` on methods. A flat `@dataclass` generates `__init__` from annotations. `enum.IntEnum` and `enum.Enum` members are integer constants. A subclass of `Exception` (or another lowered exception) can be raised and caught as its own type and as the parent
-- `import` / `from` against the closed table in `pyscriptc.stdlib_queue`. `math` is lowered (`sqrt`, `fabs`, `sin`, `cos`, `tan`, `exp`, `log`, `log2`, `log10`, `hypot`, `pow`, `floor`, `ceil`, `trunc`, `isnan`, `isinf`, and `pi`, `e`, `tau`, `inf`, `nan`). The codec wave is lowered too: `re` (`escape`, `findall`, `sub`, `split`, `compile`), `json` (`loads`, `dumps`), `urllib.parse` (`quote`, `quote_plus`, `unquote`, `unquote_plus`, `urlencode`, `parse_qs`, `urlsplit`), `base64` (`b64encode`, `b64decode`, and the standard and urlsafe pairs), `hashlib` (`md5`, `sha1`, `sha256`, `sha384`, `sha512`), and `struct` (`pack`, `unpack` of a literal format). The rest of the queue is lowered as a closed surface: `datetime`, `time`, `collections`, `functools`, `itertools`, `operator`, `contextlib`, `os`, `posixpath`, `pathlib`, `stat`, `fnmatch`, `warnings`, `io`, `string`, `bisect`, `errno`, and the island modules `sys`, `importlib`, `inspect`, `threading`, `logging`, `asyncio`, `subprocess`, `socket`, `ssl`, and `ctypes`. Also lowered, as closed names: `importlib.resources.files` / `as_file`, `hmac.digest` / `new` / `compare_digest` for a literal `sha256` / `sha384` / `sha512` (and `md5` / `sha1`), Latin-1 `unicodedata`, `tempfile.gettempdir` / `gettempprefix` / `mkdtemp`, `atexit.register` of a no-argument function, `shutil.copyfile` / `rmtree`, `enum.Enum` / `enum.IntEnum` as integer members, and `dataclasses.dataclass` as a flat `__init__`. Anything outside the table fences at the import (`PS2002`). A name added to the queue and left out of the lowered set would fence with `PS2101`
-
-Fenced (no LLVM for that file):
-
-- `finally`, `except ... as`, f-string format specs, user decorators, `super()`, multiple inheritance, `**kwargs`, keyword-only and positional-only parameters, and starred calls
-- String literals outside Latin-1
-- `bool` arithmetic, `list[bool]`, and `dict` values of `bool`. `bool` is not promoted to `float`
-- Calls such as `str.encode("ascii")`, `math.gcd`, `functools.partial`, `itertools.count`, `operator.itemgetter`, `importlib.import_module`, and `asyncio.run` that are outside the lowered surface
-- `with` except `contextlib.suppress(Exc)`, `contextlib.nullcontext()`, `with open(...) as name`, and `with importlib.resources.as_file(...) as name`
-- `itertools.repeat` and `itertools.chain` except as the iterator of a `for`
-- `re.findall` with more than four capturing groups. A literal pattern of two to four groups returns a tuple of strings. A dynamic pattern with two or more groups raises `ValueError`
-- Float JSON, JSON null, and non-ASCII JSON text
-- `struct` format `@`, a format that is not a string literal, and `Q` values that do not fit in `i64`
-- Keyword arguments, including `re` flags and `base64` `validate`
-
-`//` is Python floor division, including negative operands. Division by zero and signed `i64` overflow abort the process. They do not wrap. `math.floor`, `math.ceil`, `math.trunc`, and `int(float)` raise `OverflowError` when the result does not fit in `i64`. An uncaught exception prints its name to stderr and exits 1.
-
-A `for` target that is new in the function is stored as `0`, `0.0`, or `""` before the loop. After `for i in range(0)`, this subset reads `i` as `0`. CPython would raise `UnboundLocalError`. A target that already had a value keeps that value when the loop body never runs.
-
-`in` on a list uses `==`. `math.nan in [math.nan]` is false here. CPython's list finds that same object by identity before it compares.
-
-`typing` stays in the checker. It is not a runtime lowering. Island constants (`sys.platform`, `sys.version`, `sys.executable`, `sys.maxsize`, `socket.AF_INET`, `ssl.OPENSSL_VERSION`, `ssl.HAS_SNI`, `stat.S_IFREG`, `ctypes.sizeof`) are baked from the interpreter that lowers the file. `sys.exit` is libc `exit`. `subprocess.check_output` takes a `list[str]` and returns `bytes`. `os.getenv` raises `KeyError` when the variable is unset. `date` plus `timedelta` uses the normalized day count; `datetime` plus `timedelta` uses the whole delta.
-
-## Requirements
-
-- [mise](https://mise.jdx.dev/), then `mise trust && mise install` (provides python, uv, node, pnpm; already-installed tools that satisfy the pins are reused)
-- Clang that can assemble textual LLVM IR
-
-## Run
-
-```bash
-mise trust && mise install
-uv sync
-uv run pyscriptc compile examples/sum_squares.py --run --call sum_squares --args '[10]' -o /tmp/sum_squares
-```
-
-`sum_squares(10)` prints `285`, the same value CPython prints. `--args` is a Python literal parsed with `ast.literal_eval`, so integers are not rounded through JSON.
-
-Other corpus programs:
-
-```bash
-uv run pyscriptc compile examples/longer.py --run --call longer --args '["bb", "a"]' -o /tmp/longer
-uv run pyscriptc compile examples/floor_div.py --run --call floor_div --args '[-3, 2]' -o /tmp/floor_div
-uv run pyscriptc compile examples/gates_math.py --run --call floors -o /tmp/floors
-uv run pyscriptc compile examples/gates_probe.py --run --call probe -o /tmp/probe
-uv run pyscriptc compile examples/fence_method.py --emit llvm -o /tmp/fence.ll
-```
-
-`floors()` prints `3`. `probe()` prints `0`. The fence exits nonzero, names `encode`, and does not write LLVM. `examples/wave_probe.py` prints `0` when the codec wave matches CPython. `examples/rest_probe.py` prints `0` when the rest of the queue matches CPython. `examples/fence_pickle.py` exits nonzero with `PS2002` because `pickle` is outside the import table. `examples/invoice.py`, `examples/access_log.py`, `examples/request_id.py`, `examples/release_note.py`, `examples/blob_digest.py`, `examples/url_gate.py`, and `examples/hostname.py` are the scripts in [docs/examples.md](docs/examples.md). `examples/bad_annotation.py` fails in the checker before lowering. `examples/big_literal.py` lowers to IR, then LLVM emission refuses the integer because it does not fit in `i64`.
-
-`re.compile` returns a `Pattern` with a `pattern` field. `findall`, `sub`, and `split` on that object use the field. `hashlib` returns an opaque `Hash`; `hexdigest` and `digest` are the methods that lower. `urlsplit` returns a `SplitResult` of five strings (`scheme`, `netloc`, `path`, `query`, `fragment`). `struct.unpack` is a list, so `[0]` is the first value. `json.loads` takes its type from the annotation it is assigned to, or from the return annotation. `parse_qs` splits on `&` only, which is what CPython 3.14 does. A pattern that can match empty forever, such as `()*`, stops with `RuntimeError` once the matcher spends its fuel. `re.error`, `struct.error`, and `binascii.Error` surface here as `ValueError`.
-
-`--emit ir` writes the JSON IR. `--emit llvm` writes textual LLVM. The CPython version is a field on the module. Emitting LLVM from an IR stamped by a different version is an error: re-lower it and re-run the corpus.
+`int` is a Python int on `i64`: overflow and division by zero abort the process, and literals that would truncate are refused. `//` is floor division. `print` of `str`, `int`, `float`, `bool` and `bytes` lowers. An uncaught exception prints its name to stderr and exits 1. `finally`, `except ... as`, f-string format specs, user decorators, `super()`, multiple inheritance, `**kwargs` and non-Latin-1 string literals are fences. Known semantic differences from CPython (such as a loop target after an empty `range`) are listed in [docs/supported.md](docs/supported.md).
 
 ## Benchmarks
 
@@ -147,7 +111,7 @@ The kernel geomean is the original four loops. The stdlib rows time every module
 
 ## Telemetry
 
-Release builds collect anonymous usage metrics with PostHog (EU host): the subcommand you ran, pyscriptc/python versions, platform, compile duration, and the first `PSxxxx` fence code when a file fails to lower. Never sent: file names, paths, or source text. The machine id is a salted sha256 that is not reversible.
+Release builds collect anonymous usage metrics with PostHog (EU host): the subcommand you ran, pyscriptc/python versions, platform, compile duration, outcome and fence counts with diagnostic family names, keyed by a random install id (no hardware ids, IP not stored, raw events kept 90 days). Never sent: file names, paths, or source text. See [site/guide/privacy.md](site/guide/privacy.md).
 
 Telemetry is off in CI and a no-op in dev checkouts (no baked-in token). One stderr line announces it on first use. Disable it with any of:
 
@@ -155,16 +119,21 @@ Telemetry is off in CI and a no-op in dev checkouts (no baked-in token). One std
 pyscriptc telemetry disable        # writes ~/.config/pyscriptc/config.toml
 export PYSC_NO_TELEMETRY=1
 export DO_NOT_TRACK=1
+pyscriptc telemetry reset-id       # new random install id
 ```
 
 `pyscriptc telemetry status` shows the effective state and why.
+
+## Development
+
+From a checkout: `mise trust && mise install`, then `uv sync`, then `uv run pyscriptc ...`. More corpus programs are in [examples/](examples/README.md) and [docs/examples.md](docs/examples.md).
 
 ## Checks
 
 ```bash
 uv run ruff check .
 uv run ruff format --check .
-uv run pytest
+uv run pytest -n 6 -m "not linux_container"   # or -n auto: bounded by CPU and free memory; PYTEST_WORKERS=N overrides
 ```
 
 ## What this does not prove
