@@ -1,0 +1,5 @@
+# Maintainer handles, one per line, without the @.
+# Commits by these logins are never credited as external contributors.
+# Bot logins (ending in "[bot]") and the cursor / devin-ai-integration agents
+# are filtered by the script itself, because they act for the maintainer.
+espetro
