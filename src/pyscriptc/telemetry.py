@@ -1,4 +1,4 @@
-"""Anonymous usage telemetry via PostHog.
+"""Pseudonymous usage telemetry via PostHog.
 
 What is sent: a short event payload (subcommand, version, python/platform, and
 for `compile` a duration, an outcome, the fence count, the diagnostic family
@@ -15,6 +15,11 @@ from the environment at run time: the release workflow writes
 `uv build`. Dev checkouts and contributor installs have no such file, so
 `_token()` returns "" and every telemetry call is a silent no-op. For local
 testing set `PYSC_POSTHOG_TOKEN`; it wins over the baked-in file.
+
+First-run notice: printed once on stderr when stderr is a TTY, outside CI and
+while telemetry is enabled; it records `notice_seen = true`. No event is sent
+before the notice was shown, so non-interactive use never sends anything until
+a TTY run has shown it.
 
 Opt-out, first match wins:
 
@@ -99,7 +104,11 @@ def _toml_value(value: str) -> str:
 
 
 def _machine_id() -> str:
-    """Stable anonymous machine hash. Not reversible, carries no raw identity."""
+    """Stable pseudonymous machine hash (sha256 of a fixed salt, machine-id, MAC and hostname).
+
+    Not reversible, but it is derived from machine identifiers and is stable, so it
+    identifies one machine across runs. It is not random.
+    """
     parts = [_SALT]
     for candidate in ("/etc/machine-id", "/var/lib/dbus/machine-id"):
         try:
@@ -130,18 +139,37 @@ def enabled() -> bool:
     return bool(_token())
 
 
+NOTICE_URL = "https://github.com/sigilco/pyscriptc/blob/master/site/guide/telemetry.md"
+
+NOTICE = (
+    "pyscriptc sends usage metrics: command name, pyscriptc/Python/OS versions, compile outcome, "
+    "duration, fence counts and diagnostic family names, plus a salted hash of this machine. "
+    "Never source code, file paths or names.\n"
+    "Opt out: PYSC_NO_TELEMETRY=1 or `pyscriptc telemetry disable`. Details: " + NOTICE_URL
+)
+
+_notice_shown_now = False
+
+
 def maybe_print_notice() -> None:
-    """One stderr line on first non-CI, opted-in invocation; never twice."""
+    """Print the first-run notice once, on an interactive stderr outside CI.
+
+    Nothing is sent until the notice was shown (see `track`). A non-interactive
+    run never shows it, so it never sends either.
+    """
+    global _notice_shown_now
     if not enabled():
         return
-    config = _read_config()
-    if config.get("notice_seen") == "true":
+    if _read_config().get("notice_seen") == "true":
         return
-    print(
-        "pyscriptc collects anonymous usage metrics (no source/paths). "
-        "Disable: PYSC_NO_TELEMETRY=1 or `pyscriptc telemetry disable`",
-        file=sys.stderr,
-    )
+    try:
+        if not sys.stderr.isatty():
+            return
+    except AttributeError, ValueError:
+        return
+    print(NOTICE, file=sys.stderr)
+    _notice_shown_now = True
+    config = _read_config()
     config["notice_seen"] = "true"
     try:
         _write_config(config)
@@ -149,9 +177,13 @@ def maybe_print_notice() -> None:
         pass
 
 
+def _notice_acknowledged() -> bool:
+    return _notice_shown_now or _read_config().get("notice_seen") == "true"
+
+
 def track(event: str, properties: dict | None = None) -> None:
     """Queue one event on a daemon thread. Every failure is swallowed."""
-    if not enabled():
+    if not enabled() or not _notice_acknowledged():
         return
     payload = {
         "api_key": _token(),

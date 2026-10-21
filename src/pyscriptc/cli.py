@@ -110,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
     explain_parser = sub.add_parser("explain", help="describe a diagnostic code", parents=[common])
     explain_parser.add_argument("code")
     sub.add_parser("logs", help="print the audit-log path and its last lines", parents=[common])
-    telemetry_parser = sub.add_parser("telemetry", help="anonymous usage metrics opt-out")
+    telemetry_parser = sub.add_parser("telemetry", help="usage metrics opt-out")
     telemetry_parser.add_argument("action", choices=("disable", "enable", "status"))
     doctor_parser = sub.add_parser("doctor", help="report toolchain, cache and install shape", parents=[common])
     doctor_parser.add_argument("--json", action="store_true", help="print the report as JSON")
@@ -127,8 +127,9 @@ def main(argv: list[str] | None = None) -> int:
         if getattr(args, "verbose", False):
             enable_debug()
         log.info("cli.invoke", cmd=args.cmd)
-        telemetry.maybe_print_notice()
-        telemetry.track("cli.invoked", {"subcommand": args.cmd, **telemetry.base_properties()})
+        if args.cmd != "telemetry":
+            telemetry.maybe_print_notice()
+            telemetry.track("cli.invoked", {"subcommand": args.cmd, **telemetry.base_properties()})
         if args.cmd == "compile":
             return compile_cmd(args)
         if args.cmd == "coverage":

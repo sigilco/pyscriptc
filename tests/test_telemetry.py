@@ -41,6 +41,7 @@ def captured(monkeypatch, tmp_path):
     for name in ("CI", "PYSC_NO_TELEMETRY", "DO_NOT_TRACK", "PYSC_POSTHOG_TOKEN"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setattr(telemetry, "_notice_shown_now", True)
     monkeypatch.setattr(telemetry.threading, "Thread", _SyncThread)
     monkeypatch.setattr(telemetry.urllib.request, "urlopen", fake_urlopen)
     return sent
@@ -114,18 +115,24 @@ def test_ci_silences_everything(captured, monkeypatch, capsys):
     assert capsys.readouterr().err == ""
 
 
+def _tty(monkeypatch):
+    monkeypatch.setattr(telemetry.sys.stderr, "isatty", lambda: True, raising=False)
+
+
 def test_notice_prints_exactly_once(captured, monkeypatch, capsys):
     monkeypatch.setattr(telemetry, "_BAKED_TOKEN", "phc_test")
+    _tty(monkeypatch)
     telemetry.maybe_print_notice()
     err = capsys.readouterr().err
-    assert "anonymous usage metrics" in err
-    assert err.count("\n") == 1
+    for needle in ("PYSC_NO_TELEMETRY=1", "pyscriptc telemetry disable", telemetry.NOTICE_URL, "Never source code"):
+        assert needle in err
     telemetry.maybe_print_notice()
     assert capsys.readouterr().err == ""
 
 
 def test_notice_survives_config_roundtrip(captured, monkeypatch, tmp_path):
     monkeypatch.setattr(telemetry, "_BAKED_TOKEN", "phc_test")
+    _tty(monkeypatch)
     telemetry.maybe_print_notice()
     # A second process would re-read the file: the flag must persist.
     config = (tmp_path / "pyscriptc" / "config.toml").read_text()
@@ -278,4 +285,56 @@ def test_new_events_respect_opt_out(captured, monkeypatch, tmp_path, capsys, arg
     argv = ["compile", str(src), "--skip-check", "--emit", "ir"] if argv_kind == "compile" else ["coverage", str(src)]
     _run_cli(argv)
     capsys.readouterr()
+    assert captured == []
+
+
+def test_notice_never_when_not_a_tty(captured, monkeypatch, capsys, tmp_path):
+    monkeypatch.setattr(telemetry, "_BAKED_TOKEN", "phc_test")
+    monkeypatch.setattr(telemetry.sys.stderr, "isatty", lambda: False, raising=False)
+    telemetry.maybe_print_notice()
+    assert capsys.readouterr().err == ""
+    assert not (tmp_path / "pyscriptc" / "config.toml").exists()
+
+
+@pytest.mark.parametrize("envar", ["PYSC_NO_TELEMETRY", "DO_NOT_TRACK", "CI"])
+def test_notice_never_when_disabled(captured, monkeypatch, capsys, envar):
+    monkeypatch.setattr(telemetry, "_BAKED_TOKEN", "phc_test")
+    _tty(monkeypatch)
+    monkeypatch.setenv(envar, "1")
+    telemetry.maybe_print_notice()
+    assert capsys.readouterr().err == ""
+
+
+def test_notice_never_when_config_disabled(captured, monkeypatch, capsys):
+    monkeypatch.setattr(telemetry, "_BAKED_TOKEN", "phc_test")
+    _tty(monkeypatch)
+    telemetry.telemetry_cmd("disable")
+    capsys.readouterr()
+    telemetry.maybe_print_notice()
+    assert capsys.readouterr().err == ""
+
+
+def test_no_event_before_notice(captured, monkeypatch, capsys):
+    monkeypatch.setattr(telemetry, "_BAKED_TOKEN", "phc_test")
+    monkeypatch.setattr(telemetry, "_notice_shown_now", False)
+    # Non-interactive first run: no notice, so no event.
+    monkeypatch.setattr(telemetry.sys.stderr, "isatty", lambda: False, raising=False)
+    telemetry.maybe_print_notice()
+    telemetry.track("cli.invoked", {})
+    assert captured == []
+    # Interactive run: notice first, then events flow.
+    _tty(monkeypatch)
+    telemetry.maybe_print_notice()
+    assert "PYSC_NO_TELEMETRY=1" in capsys.readouterr().err
+    telemetry.track("cli.invoked", {})
+    assert len(captured) == 1
+    # A later non-interactive process sees notice_seen in the config.
+    monkeypatch.setattr(telemetry, "_notice_shown_now", False)
+    telemetry.track("cli.invoked", {})
+    assert len(captured) == 2
+
+
+def test_telemetry_subcommand_sends_nothing(captured, monkeypatch):
+    monkeypatch.setattr(telemetry, "_BAKED_TOKEN", "phc_test")
+    assert _run_cli(["telemetry", "status"]) == 0
     assert captured == []
