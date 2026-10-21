@@ -218,9 +218,7 @@ def test_a_main_py_directory_is_a_program_too(tmp_path: Path) -> None:
             "util.py": "def twice(n: int) -> int:\n    return n * 2\n",
         },
     )
-    expected = subprocess.run(
-        [sys.executable, "main.py"], cwd=root, capture_output=True, text=True, check=True
-    )
+    expected = subprocess.run([sys.executable, "main.py"], cwd=root, capture_output=True, text=True, check=True)
     got = run_cli("compile", str(root), "--skip-check", "--run", "-o", str(tmp_path / "mainshape-bin"))
     assert got.returncode == 0, got.stderr
     assert got.stdout == expected.stdout
@@ -288,9 +286,7 @@ def test_program_flag_matches_python_dash_m(tmp_path: Path) -> None:
     expected = subprocess.run(
         [sys.executable, "-m", "pkg"], cwd=root.parent, capture_output=True, text=True, check=True
     )
-    got = run_cli(
-        "compile", str(root), "--program", "--skip-check", "--run", "-o", str(tmp_path / "pkgprog")
-    )
+    got = run_cli("compile", str(root), "--program", "--skip-check", "--run", "-o", str(tmp_path / "pkgprog"))
     assert got.returncode == 0, got.stderr
     assert got.stdout == expected.stdout
     assert got.stdout == "init pkg\ninit util\n42\n"
