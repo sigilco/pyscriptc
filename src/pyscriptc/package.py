@@ -410,16 +410,29 @@ def _class_export(info: dict[str, Any]) -> dict[str, Any]:
 
 
 def _is_program_dir(root: Path) -> bool:
-    """True when the directory is a program: a `__main__.py` and no package.
+    """True when the directory is a program.
 
-    A root `__init__.py` marks a library package: its `__main__.py` is the
-    `python -m` script, not an importable module. Without it, a directory
-    with `__main__.py` is a program: that file is the entry point and the
-    siblings are imported by their plain names.
+    Two shapes infer a program: a root ``__main__.py`` (the ``python DIR``
+    and ``python -m DIR`` entry), or a root ``main.py`` with no
+    ``__init__.py`` (``main.py`` plus sibling modules, the other R2 shape).
+    A root ``__init__.py`` without either stays a library package.
     """
 
     root = root.resolve()
-    return (root / "__main__.py").is_file() and not (root / "__init__.py").is_file()
+    if (root / "__main__.py").is_file() and not (root / "__init__.py").is_file():
+        return True
+    return (root / "main.py").is_file() and not (root / "__init__.py").is_file()
+
+
+def _program_entry_file(root: Path) -> Path | None:
+    """The inferred entry file: ``__main__.py`` first, then ``main.py``."""
+
+    root = root.resolve()
+    if (root / "__main__.py").is_file():
+        return root / "__main__.py"
+    if (root / "main.py").is_file() and not (root / "__init__.py").is_file():
+        return root / "main.py"
+    return None
 
 
 def _discover(root: Path, program_mode: bool = False) -> tuple[list[tuple[str, Path, bool]], list[str]]:
@@ -442,17 +455,18 @@ def _discover(root: Path, program_mode: bool = False) -> tuple[list[tuple[str, P
         raise IRError(f"package directory {package} is not an identifier")
     program = program_mode or _is_program_dir(root)
     namespaced = program_mode and not _is_program_dir(root)
+    entry = _program_entry_file(root)
     found: list[tuple[str, Path, bool]] = []
     skipped: list[str] = []
     for path in sorted(root.rglob("*.py")):
         relative = path.relative_to(root)
         if any(part.startswith(".") or part == "__pycache__" for part in relative.parts):
             continue
+        if program and entry is not None and path == entry:
+            # The program entry. It lowers as the `__main__` module.
+            found.append(("__main__", path, False))
+            continue
         if path.name == "__main__.py":
-            if program and len(relative.parts) == 1:
-                # The program entry. It lowers as the `__main__` module.
-                found.append(("__main__", path, False))
-                continue
             skipped.append(relative.as_posix())
             continue
         if path.name == "__init__.py":

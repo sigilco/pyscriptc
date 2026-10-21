@@ -38,7 +38,7 @@ def test_self_census_ballpark() -> None:
     # cycle fence and the `__main__` guard branch add 11 self-host fences in
     # package.py and lower/; the `--program` mode (`python -m pkg` parity)
     # adds 3 more in package.py, cli.py and lower/.
-    assert census["fences"] == 1448
+    assert census["fences"] == 1450
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 25_000
-    assert sum(p["fences"] for p in census["packages"]) == 1448
+    assert sum(p["fences"] for p in census["packages"]) == 1450
