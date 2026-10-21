@@ -34,9 +34,10 @@ def test_self_census_ballpark() -> None:
     # rtcache.py (runtime object cache: threads, hashing, subprocess) adds 1 module and 33 fences.
     # First-run fix: node_text/op_text diagnostics helpers and CLI --run entry handling (+7 fences).
     # stdlib families: os/path, pathlib, shutil, subprocess, datetime rows in
-    # stdmore.py and the class_constant hook in _expr.py add 6 fences total
-    # (1442 at b07a48c, 1448 after the datetime family).
-    assert census["fences"] == 1448
+    # stdmore.py, the class_constant hook in _expr.py, and the itertools
+    # chain/starmap/filterfalse handlers add 11 fences total (1442 at
+    # b07a48c, 1453 after the itertools family).
+    assert census["fences"] == 1453
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 25_000
-    assert sum(p["fences"] for p in census["packages"]) == 1448
+    assert sum(p["fences"] for p in census["packages"]) == 1453

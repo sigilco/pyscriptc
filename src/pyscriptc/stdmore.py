@@ -1458,7 +1458,7 @@ REST_FIXED: dict[str, dict[str, dict[str, Any]]] = {
 }
 
 # Callable, but only in a particular statement shape.
-FOR_ONLY = frozenset({("itertools", "repeat"), ("itertools", "chain")})
+FOR_ONLY = frozenset({("itertools", "repeat")})
 WITH_ONLY = frozenset({("contextlib", "suppress"), ("contextlib", "nullcontext"), ("importlib.resources", "as_file")})
 
 CALL_FENCES: dict[tuple[str, str], str] = {
@@ -1712,5 +1712,12 @@ def member_callable(module: str, member: str) -> bool:
     if module == "textwrap" and member in {"fill", "wrap", "shorten"}:
         return True
     if module == "copy" and member in {"copy", "deepcopy"}:
+        return True
+    if module == "itertools" and member in {
+        "chain",
+        "chain.from_iterable",
+        "starmap",
+        "filterfalse",
+    }:
         return True
     return False

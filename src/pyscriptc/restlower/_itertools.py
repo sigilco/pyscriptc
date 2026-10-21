@@ -522,6 +522,145 @@ def _groupby(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     return _mk_iter(lo, _nm(out, lo.locals[out], span), node, span)
 
 
+def _filterfalse(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """`filterfalse(f, xs)` keeps the elements where `f(x)` is false."""
+
+    lo._reject_keywords(node)
+    if len(node.args) != 2:
+        lo.fail(node, "PS2003", "itertools.filterfalse takes a predicate and an iterable")
+    fn, xs = node.args
+    if isinstance(fn, ast.Lambda):
+        names = _lambda_params(lo, fn, 1, "filterfalse")
+        var = names[0]
+        test = ast.UnaryOp(op=ast.Not(), operand=fn.body)
+    elif isinstance(fn, ast.Constant) and fn.value is None:
+        var = lo._temp("ffx")
+        test = ast.UnaryOp(op=ast.Not(), operand=ast.Name(id=var, ctx=ast.Load()))
+    else:
+        var = lo._temp("ffx")
+        func = _fn_ref(lo, fn, span, "filterfalse")
+        call = ast.Call(func=func, args=[ast.Name(id=var, ctx=ast.Load())], keywords=[])
+        test = ast.UnaryOp(op=ast.Not(), operand=call)
+    comp = ast.ListComp(
+        elt=ast.Name(id=var, ctx=ast.Load()),
+        generators=[ast.comprehension(target=ast.Name(id=var, ctx=ast.Store()), iter=xs, ifs=[test], is_async=False)],
+    )
+    seq = lo._comp(_span_to(node, comp), span, None)
+    return _mk_iter(lo, seq, node, span)
+
+
+def _chain(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """`chain(a, b, ...)` concatenates the iterables in order."""
+
+    lo._reject_keywords(node)
+    if not node.args:
+        lo.fail(node, "PS2003", "itertools.chain takes at least one iterable")
+    parts: list[ast.expr] = []
+    for arg in node.args:
+        var = lo._temp("ch")
+        parts.append(
+            ast.ListComp(
+                elt=ast.Name(id=var, ctx=ast.Load()),
+                generators=[
+                    ast.comprehension(target=ast.Name(id=var, ctx=ast.Store()), iter=arg, ifs=[], is_async=False)
+                ],
+            )
+        )
+    comp = ast.ListComp(
+        elt=ast.Name(id=lo._temp("ch"), ctx=ast.Load()),
+        generators=[],
+    )
+    # The concatenation is a `+` chain over the materialized parts.
+    value: ast.expr = parts[0]
+    for part in parts[1:]:
+        value = ast.BinOp(left=value, op=ast.Add(), right=part)
+    _span_to(node, comp)
+    seq = lo._expr(value, None)
+    return _mk_iter(lo, seq, node, span)
+
+
+def _chain_from_iterable(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """`chain.from_iterable(xs)` flattens one level of `xs`."""
+
+    lo._reject_keywords(node)
+    if len(node.args) != 1:
+        lo.fail(node, "PS2003", "itertools.chain.from_iterable takes one iterable of iterables")
+    outer = lo._temp("cfi")
+    inner = lo._temp("cfj")
+    comp = ast.ListComp(
+        elt=ast.Name(id=inner, ctx=ast.Load()),
+        generators=[
+            ast.comprehension(
+                target=ast.Name(id=outer, ctx=ast.Store()),
+                iter=node.args[0],
+                ifs=[],
+                is_async=False,
+            ),
+            ast.comprehension(
+                target=ast.Name(id=inner, ctx=ast.Store()),
+                iter=ast.Name(id=outer, ctx=ast.Load()),
+                ifs=[],
+                is_async=False,
+            ),
+        ],
+    )
+    seq = lo._comp(_span_to(node, comp), span, None)
+    return _mk_iter(lo, seq, node, span)
+
+
+def _starmap(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """`starmap(f, pairs)` calls `f(*pair)` for every pair.
+
+    Starred calls are not lowered, so the pair's fields are unpacked into
+    plain arguments. The arity comes from the callable: a lambda names its
+    parameters, a function reference reads its signature.
+    """
+
+    lo._reject_keywords(node)
+    if len(node.args) != 2:
+        lo.fail(node, "PS2003", "itertools.starmap takes a function and an iterable of pairs")
+    fn, pairs = node.args
+    if isinstance(fn, ast.Lambda):
+        args = fn.args
+        plain = args.posonlyargs + args.args
+        if args.vararg or args.kwarg or args.kwonlyargs or args.defaults or any(args.kw_defaults or []):
+            lo.fail(fn, "PS2003", "a starmap lambda takes plain positional parameters")
+        names = [arg.arg for arg in plain]
+        call: ast.expr = fn.body
+    else:
+        arity = _fn_arity(lo, fn, span)
+        names = [lo._temp("sm") for _ in range(arity)]
+        func = _fn_ref(lo, fn, span, "starmap")
+        call = ast.Call(func=func, args=[ast.Name(id=n, ctx=ast.Load()) for n in names], keywords=[])
+    target = (
+        ast.Name(id=names[0], ctx=ast.Store())
+        if len(names) == 1
+        else ast.Tuple(elts=[ast.Name(id=n, ctx=ast.Store()) for n in names], ctx=ast.Store())
+    )
+    comp = ast.ListComp(
+        elt=call,
+        generators=[ast.comprehension(target=target, iter=pairs, ifs=[], is_async=False)],
+    )
+    seq = lo._comp(_span_to(node, comp), span, None)
+    return _mk_iter(lo, seq, node, span)
+
+
+def _fn_arity(lo: Any, fn: ast.expr, span: dict[str, Any]) -> int:
+    """The parameter count of a callable reference."""
+
+    name = None
+    if isinstance(fn, ast.Name):
+        name = fn.id
+    elif isinstance(fn, ast.Attribute):
+        name = fn.attr
+    if name is not None:
+        sig = lo.sigs.get(name)
+        if sig is not None:
+            return len(sig[0])
+    lo.fail(fn, "PS2002", "itertools.starmap needs a callable of known arity")
+    raise AssertionError("unreachable")
+
+
 def _itertools(lo: Any, node: ast.Call, span: dict[str, Any], attr: str) -> dict[str, Any]:
     """`itertools` calls that materialize eagerly under the R24 iterator
     model: each returns a cursor record over a computed list, so `for`,
@@ -536,6 +675,14 @@ def _itertools(lo: Any, node: ast.Call, span: dict[str, Any], attr: str) -> dict
         return _combinations(lo, node, span)
     if attr == "accumulate":
         return _accumulate(lo, node, span)
+    if attr == "filterfalse":
+        return _filterfalse(lo, node, span)
+    if attr == "chain":
+        return _chain(lo, node, span)
+    if attr == "chain.from_iterable":
+        return _chain_from_iterable(lo, node, span)
+    if attr == "starmap":
+        return _starmap(lo, node, span)
     if attr == "zip_longest":
         return _ziplongest(lo, node, span)
     if attr == "takewhile":
