@@ -68,7 +68,7 @@ from mypy.types import (
     get_proper_type,
 )
 
-from pyscriptc.check import CheckFailed
+from pyscriptc.check import CheckFailed, _resolve_pyrefly_binary, _resolve_tool_argv
 
 # A default value a checker could prove constant at compile time.
 StaticValue = int | float | bool | str | bytes | None
@@ -1912,15 +1912,18 @@ class PyreflyFactsAdapter:
     `format_version` is pinned at 1 — any drift raises CheckFailed instead
     of silently mis-mapping.
 
-    `command` overrides the spawn line (default: `PYREFLY_BIN` env or
-    `pyrefly` on PATH).
+    `command` overrides the spawn line (default: the running interpreter's
+    pyrefly, then `PYREFLY_BIN`, then `pyrefly` on PATH; see
+    `check._resolve_pyrefly_binary`).
     """
 
     name = "pyrefly"
 
     def __init__(self, command: str | Sequence[str] | None = None) -> None:
-        raw = command if command is not None else os.environ.get("PYREFLY_BIN")
-        self._argv = shlex.split(raw) if isinstance(raw, str) else list(raw or ["pyrefly"])
+        if command is None:
+            self._argv = _resolve_pyrefly_binary()
+        else:
+            self._argv = shlex.split(command) if isinstance(command, str) else list(command)
 
     def facts(self, path: Path) -> ModuleFacts:
         path = path.resolve()
@@ -2200,8 +2203,10 @@ class TSPFactsAdapter:
     name = "tsp"
 
     def __init__(self, command: str | Sequence[str] | None = None) -> None:
-        raw = command if command is not None else os.environ.get("PYRIGHT_TYPESERVER_BIN")
-        argv = shlex.split(raw) if isinstance(raw, str) else list(raw or ["pyright-typeserver"])
+        if command is None:
+            argv = _resolve_tool_argv("pyright-typeserver", "PYRIGHT_TYPESERVER_BIN", ["pyright-typeserver"])
+        else:
+            argv = shlex.split(command) if isinstance(command, str) else list(command)
         if "--stdio" not in argv:
             argv = [*argv, "--stdio"]
         self._argv = argv
