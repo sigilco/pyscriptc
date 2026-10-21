@@ -58,11 +58,6 @@ out="$here/dist"
 work="$here/build"
 mkdir -p "$out" "$work"
 
-# --include-package-data=mypy carries mypy's xml/ and misc data but silently drops every
-# .pyi stub, so the mypy preflight dies with 'Failed to find builtin module
-# "_collections_abc", perhaps typeshed is broken?'. Ship typeshed as an explicit data dir.
-mypy_pkg="$(uv run --group packaging python -c 'import os, mypy; print(os.path.dirname(mypy.__file__))')"
-
 # pyrefly is the default preflight and is a native executable, not a Python module, so the
 # onefile cannot reach it through `sys.executable -m pyrefly`. Ship it as a data file under
 # bin/; entry.py points PYREFLY_BIN at the extracted copy.
@@ -83,27 +78,26 @@ fi
 
 # Data files the compiler reads at run time: the C runtime it links beside every program.
 # llvm.py globs runtime/*.c next to its own __file__, so they must sit at pyscriptc/runtime/.
-# mypy needs its bundled typeshed stubs for the preflight.
+# The pyrefly preflight reads the vendored typeshed (a mypy-free copy) from pyscriptc/_typeshed.
 args=(
   --onefile
   --assume-yes-for-downloads
   --output-dir="$nwork"
   --output-filename="$name"
   --include-package=pyscriptc
-  --include-package=mypy
-  --include-package-data=mypy
-  "--include-data-files=$mypy_pkg/typeshed=mypy/typeshed/=**/*.pyi"
+  # --include-data-dir drops .pyi files; select the stubs (and the license) explicitly.
+  "--include-data-files=$nroot/src/pyscriptc/_typeshed=pyscriptc/_typeshed/=**/*.pyi"
+  "--include-data-files=$nroot/src/pyscriptc/_typeshed/LICENSE=pyscriptc/_typeshed/LICENSE"
   "--include-data-files=$pyrefly_exe=$pyrefly_dest"
   "--include-data-files=$nroot/src/pyscriptc/runtime/*.c=pyscriptc/runtime/"
   "--include-data-files=$nroot/src/pyscriptc/runtime/*.h=pyscriptc/runtime/"
   --nofollow-import-to=pytest
+  --nofollow-import-to=mypy
   --nofollow-import-to=tkinter
   --python-flag=no_docstrings
   --remove-output
-  # check.py runs `sys.executable -m mypy`; entry.py answers that call, so allow the self call.
-  --no-deployment-flag=self-execution
 )
-# Small hosts (the 2 GB dev container) can run out of memory compiling lower.py and mypy.
+# Small hosts (the 2 GB dev container) can run out of memory compiling lower.py.
 if [ "${NUITKA_LOW_MEMORY:-0}" = 1 ]; then args+=(--low-memory); fi
 if [ -n "${NUITKA_JOBS:-}" ]; then args+=("--jobs=$NUITKA_JOBS"); fi
 if [ "$os" = macos ]; then

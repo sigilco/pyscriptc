@@ -1,27 +1,15 @@
 """Nuitka entry point for the release binary.
 
 The default preflight is pyrefly, a native executable bundled under bin/ (see
-`_point_pyrefly_at_bundle`). The deprecated mypy lane runs as `sys.executable -m mypy ...`
-(src/pyscriptc/check.py). Inside a Nuitka onefile build `sys.executable` is the
-release binary itself, which has no `-m` switch. This shim answers that one call
-shape in process and hands every other invocation to the normal CLI. It keeps
-src/ untouched.
+`_point_pyrefly_at_bundle`). The release binary ships without mypy (an optional extra): mypy's
+mypyc-compiled extension segfaults at import inside a Nuitka onefile on x86_64 Linux.
+This shim points `sys.executable` and `PYREFLY_BIN` at the binary and its bundle,
+then hands off to the normal CLI. It keeps src/ untouched.
 """
 
 from __future__ import annotations
 
 import sys
-
-
-def _run_mypy(argv: list[str]) -> int:
-    from mypy.main import main as mypy_main
-
-    try:
-        mypy_main(args=argv, clean_exit=True)
-    except SystemExit as exc:
-        code = exc.code
-        return code if isinstance(code, int) else (0 if code is None else 1)
-    return 0
 
 
 def _load_cli():
@@ -84,8 +72,6 @@ def _point_pyrefly_at_bundle() -> None:
 
 
 def main() -> int:
-    if sys.argv[1:3] == ["-m", "mypy"]:
-        return _run_mypy(sys.argv[3:])
     _point_executable_at_binary()
     _point_pyrefly_at_bundle()
     cli_main = _load_cli()
