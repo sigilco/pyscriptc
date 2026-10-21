@@ -88,9 +88,9 @@ module is the contract the later gates build on. The API is three calls:
 ```python
 from pyscriptc.ffi_manifest import load_manifest, load_manifests, parse_manifest_text
 
-manifest = load_manifest(Path("ffi.toml"))          # one file, raises FfiManifestError
-manifests = load_manifests([Path("a.toml"), ...])   # several files, refuses duplicate module claims
-parsed = parse_manifest_text(text)                  # the same, from a string
+manifest = load_manifest(Path("ffi.toml"))  # one file, raises FfiManifestError
+manifests = load_manifests([Path("a.toml"), ...])  # several files, refuses duplicate module claims
+parsed = parse_manifest_text(text)  # the same, from a string
 ```
 
 `load_manifest` returns an `FfiManifest` with `module`, `ps_abi`, `format`,
