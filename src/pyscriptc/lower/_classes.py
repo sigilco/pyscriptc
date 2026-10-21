@@ -35,6 +35,12 @@ from pyscriptc.stdmore import ALWAYS_CLASSES, CLASS_FIELDS
 
 _UNWRAP_FORMS = frozenset({"Final", "ClassVar", "Annotated", "Required", "NotRequired"})
 _DYNAMIC_ANNOTATIONS = frozenset({"object", "Any", "Protocol", "TypeVar", "Generic", "Callable", "ABC"})
+# Tier-2 erasure (`.agents/plans/2026-10-18-tiered-lowering-and-typefacts.md`):
+# static-typing constructs that vanish before emission. `abc` is an erased
+# module, so these names arrive through `type_aliases` or an erased
+# `_resolve_module` triple.
+_ERASED_BASES = frozenset({"ABC", "ABCMeta", "Protocol"})
+_ERASED_DECORATORS = frozenset({"abstractmethod", "overload"})
 _IO_HANDLES = {"BinaryIO": "BytesIO", "TextIO": "TextIO"}
 
 
@@ -100,15 +106,18 @@ class ClassesMixin:
             }
 
     def _collect_class(self, node: ast.ClassDef) -> None:
-        if node.keywords:
+        keywords = [kw for kw in node.keywords if not self._is_abcmeta_keyword(kw)]
+        if keywords:
             self.fail(node, "PS1203", "class keywords are not lowered")
         if node.name in self.bindings or node.name in self.sigs or node.name in self.declared:
             self.fail(node, "PS2002", f"{node.name} is already bound")
         deco = self._class_decorator(node)
         # class C(object) and class C(object,) are the same class as class C.
-        # object.__init__ is not emitted.
+        # object.__init__ is not emitted. `ABC`/`ABCMeta`/`Protocol` bases
+        # erase the same way: the class lowers as a plain class.
         bases: list[dict[str, str]] = []
         type_params: list[str] = []
+        protocol = False
         for base_node in node.bases:
             if self._is_builtin_object(base_node):
                 continue
@@ -118,6 +127,10 @@ class ClassesMixin:
                 # nothing at runtime; the declared TypeVars parameterize
                 # the class's annotations for call-site instantiation.
                 type_params = generic_params
+                continue
+            erased = self._erased_base_name(base_node)
+            if erased is not None:
+                protocol = protocol or erased == "Protocol"
                 continue
             resolved = self._resolve_base(base_node)
             if resolved["kind"] != "class" and len(node.bases) > 1:
@@ -184,6 +197,17 @@ class ClassesMixin:
                     fields.append(field)
                     continue
                 if isinstance(stmt, ast.FunctionDef):
+                    decos = {self._erased_deco_name(d) for d in stmt.decorator_list}
+                    decos.discard(None)
+                    if "overload" in decos:
+                        # typing.overload declares the shape; only the final
+                        # undecorated implementation lowers.
+                        continue
+                    if (protocol or "abstractmethod" in decos) and self._declaration_only(stmt):
+                        # `def f(self) -> T: ...` on a Protocol or an
+                        # abstractmethod declares the method; there is no
+                        # body to emit and no runtime check to honor.
+                        continue
                     kind = self._method_decorator(stmt)
                     if stmt.name == "__init__" and kind != "method":
                         self.fail(stmt, "PS1201", "decorators are not lowered")
@@ -301,6 +325,8 @@ class ClassesMixin:
             self.exc_n += 1
         if type_params:
             info["typevars"] = type_params
+        if protocol:
+            info["protocol"] = True
         self.classes[node.name] = info
 
     def _mro_chain(self, node: ast.ClassDef, bases: list[dict[str, str]]) -> tuple[list[str], set[str]]:
@@ -412,11 +438,14 @@ class ClassesMixin:
         return False
 
     def _method_decorator(self, fn: ast.FunctionDef) -> str:
-        if not fn.decorator_list:
+        # Erased typing decorators (`@abstractmethod`) drop out first, so
+        # `@property @abstractmethod` still resolves to a property.
+        decos = [d for d in fn.decorator_list if self._erased_deco_name(d) is None]
+        if not decos:
             return "method"
-        if len(fn.decorator_list) != 1:
+        if len(decos) != 1:
             self.fail(fn, "PS1201", "decorators are not lowered")
-        dec = fn.decorator_list[0]
+        dec = decos[0]
         target = dec
         if isinstance(dec, ast.Call):
             if dec.args or dec.keywords:
@@ -435,6 +464,64 @@ class ClassesMixin:
         if node.id in self.declared:
             return False
         return True
+
+    def _erased_base_name(self, node: ast.expr) -> str | None:
+        """`ABC`/`ABCMeta`/`Protocol` base through an erased import, or None."""
+        member: str | None = None
+        if isinstance(node, ast.Name):
+            member = self.type_aliases.get(node.id)
+        elif isinstance(node, ast.Attribute):
+            resolved = self._resolve_module(node)
+            if resolved is not None and resolved[3] == "erased":
+                member = resolved[2]
+        return member if member in _ERASED_BASES else None
+
+    def _is_abcmeta_keyword(self, kw: ast.keyword) -> bool:
+        """`metaclass=ABCMeta` — erased like the `ABC` base it is sugar for."""
+        if kw.arg != "metaclass":
+            return False
+        value = kw.value
+        if isinstance(value, ast.Name):
+            return self.type_aliases.get(value.id) == "ABCMeta"
+        if isinstance(value, ast.Attribute):
+            resolved = self._resolve_module(value)
+            return resolved is not None and resolved[3] == "erased" and resolved[2] == "ABCMeta"
+        return False
+
+    def _erased_deco_name(self, dec: ast.expr) -> str | None:
+        """`abstractmethod`/`overload` through an erased import, or None."""
+        member: str | None = None
+        if isinstance(dec, ast.Name):
+            member = self.type_aliases.get(dec.id)
+        elif isinstance(dec, ast.Attribute):
+            resolved = self._resolve_module(dec)
+            if resolved is not None and resolved[3] == "erased":
+                member = resolved[2]
+        return member if member in _ERASED_DECORATORS else None
+
+    def _declaration_only(self, fn: ast.FunctionDef) -> bool:
+        """The body is only a docstring, `pass`, or `...` — a declaration, not an implementation."""
+        for stmt in fn.body:
+            if _is_docstring(stmt) or isinstance(stmt, ast.Pass):
+                continue
+            if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant) and stmt.value.value is Ellipsis:
+                continue
+            return False
+        return True
+
+    def _accepts_protocol(self, want: dict[str, Any], got: dict[str, Any]) -> bool:
+        """A Protocol-annotated slot accepts any subclass of the erased class:
+        the marker carries no fields, so every record below it already
+        satisfies its layout."""
+        if want["kind"] != "class" or got["kind"] != "class":
+            return False
+        want_name = want.get("name")
+        got_name = got.get("name")
+        if not isinstance(want_name, str) or not isinstance(got_name, str):
+            return False
+        if not self.classes.get(want_name, {}).get("protocol"):
+            return False
+        return self._is_subclass_name(got_name, want_name)
 
     def _resolve_base(self, node: ast.expr) -> dict[str, str]:
         enum = self._enum_base_name(node)
@@ -658,9 +745,13 @@ class ClassesMixin:
     def _signature(
         self, fn: ast.FunctionDef, class_name: str | None, kind: str = "method"
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        if fn.args.kwonlyargs or fn.args.posonlyargs:
-            self.fail(fn, "PS1202", f"{fn.name} uses a parameter form that is not lowered")
-        args = list(fn.args.args)
+        # `**kwargs` capture stays lowered (packed into dict[str, T] by
+        # `_fill_varargs`); `/`-positional and `*`-keyword parameters normalize
+        # into the named-parameter machinery instead: positional-only
+        # parameters refuse keywords, keyword-only ones must be passed by
+        # name. See `_fill_args`/`_fill_varargs` for the binding rules.
+        pos_marks = [True] * len(fn.args.posonlyargs) + [False] * len(fn.args.args)
+        args = list(fn.args.posonlyargs) + list(fn.args.args)
         params: list[dict[str, Any]] = []
         if kind == "property":
             if fn.args.vararg is not None or fn.args.kwarg is not None or len(args) != 1 or args[0].arg != "self":
@@ -671,6 +762,7 @@ class ClassesMixin:
                 self.fail(fn, "PS1201", "decorators are not lowered")
             params.append({"name": "self", "type": {"kind": "class", "name": class_name}})
             args = []
+            pos_marks = []
         elif kind == "class":
             if not args or args[0].arg != "cls":
                 self.fail(fn, "PS2002", "a classmethod's first parameter must be cls")
@@ -678,6 +770,7 @@ class ClassesMixin:
                 self.fail(args[0], "PS2002", "cls is not annotated")
             # cls is not a value. Class.method(...) does not pass the class object.
             args = args[1:]
+            pos_marks = pos_marks[1:]
         elif kind == "static":
             pass
         elif class_name is not None:
@@ -687,28 +780,15 @@ class ClassesMixin:
                 self.fail(args[0], "PS2002", "self is not annotated")
             params.append({"name": "self", "type": {"kind": "class", "name": class_name}})
             args = args[1:]
+            pos_marks = pos_marks[1:]
         defaults = list(fn.args.defaults)
         missing = len(args) - len(defaults)
         for index, arg in enumerate(args):
             param = _param(self, arg)
+            if pos_marks[index]:
+                param["posonly"] = True
             if index >= missing:
-                default_node = defaults[index - missing]
-                if param["type"].get("optional"):
-                    value = self._expr(default_node)
-                    if value["kind"] != "const":
-                        self.fail(default_node, "PS2002", "a default must be a constant")
-                    if value["type"]["kind"] != "none" and not types_equal(value["type"], param["type"]["elem"]):
-                        self.fail(
-                            default_node, "PS1003", f"{arg.arg} is {_show(value['type'])}, not {_show(param['type'])}"
-                        )
-                    param["default"] = value
-                    param["optdefault"] = True
-                else:
-                    value = self._expr(default_node, param["type"])
-                    self._expect(default_node, value["type"], param["type"], arg.arg)
-                    if value["kind"] != "const":
-                        self.fail(default_node, "PS2002", "a default must be a constant")
-                    param["default"] = value
+                self._param_default(arg, defaults[index - missing], param)
             params.append(param)
         if fn.args.vararg is not None:
             vararg = fn.args.vararg
@@ -718,6 +798,12 @@ class ClassesMixin:
             if elem["kind"] == "bool":
                 self.fail(vararg, "PS2002", "list[bool] is not lowered")
             params.append({"name": vararg.arg, "type": {"kind": "list", "elem": elem}, "vararg": True})
+        for karg, kdef in zip(fn.args.kwonlyargs, fn.args.kw_defaults, strict=True):
+            param = _param(self, karg)
+            param["kwonly"] = True
+            if kdef is not None:
+                self._param_default(karg, kdef, param)
+            params.append(param)
         if fn.args.kwarg is not None:
             kwarg = fn.args.kwarg
             if kwarg.annotation is None:
@@ -740,6 +826,22 @@ class ClassesMixin:
         if class_name is not None and fn.name == "__init__" and ret["kind"] != "none":
             self.fail(fn, "PS1003", "__init__ returns None")
         return params, ret
+
+    def _param_default(self, arg: ast.arg, default_node: ast.expr, param: dict[str, Any]) -> None:
+        if param["type"].get("optional"):
+            value = self._expr(default_node)
+            if value["kind"] != "const":
+                self.fail(default_node, "PS2002", "a default must be a constant")
+            if value["type"]["kind"] != "none" and not types_equal(value["type"], param["type"]["elem"]):
+                self.fail(default_node, "PS1003", f"{arg.arg} is {_show(value['type'])}, not {_show(param['type'])}")
+            param["default"] = value
+            param["optdefault"] = True
+        else:
+            value = self._expr(default_node, param["type"])
+            self._expect(default_node, value["type"], param["type"], arg.arg)
+            if value["kind"] != "const":
+                self.fail(default_node, "PS2002", "a default must be a constant")
+            param["default"] = value
 
     def _construct(self, node: ast.Call, span: dict[str, Any], name: str) -> dict[str, Any]:
         info = self.classes[name]
@@ -1217,7 +1319,10 @@ class ClassesMixin:
         if isinstance(node, ast.Name) and (
             node.id in self.classes or node.id in self.class_aliases or node.id in EXCEPTIONS
         ):
-            return {"kind": "class", "name": self.class_aliases.get(node.id, node.id)}
+            name = self.class_aliases.get(node.id, node.id)
+            if self.classes.get(name, {}).get("protocol"):
+                self.fail(node, "PS2001", "isinstance on a Protocol is not lowered")
+            return {"kind": "class", "name": name}
         if isinstance(node, ast.Name):
             binding = self.bindings.get(node.id)
             if binding is not None:
