@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the pyscriptc release binary with Nuitka onefile.
+# Build the pyscriptc release binary with Nuitka onefile (payload cached under the user cache dir after the first run).
 #
 #   packaging/build.sh                 build for the host OS and arch
 #   packaging/build.sh --check-env     print the detected target and tool versions, build nothing
@@ -79,8 +79,17 @@ fi
 # Data files the compiler reads at run time: the C runtime it links beside every program.
 # llvm.py globs runtime/*.c next to its own __file__, so they must sit at pyscriptc/runtime/.
 # The pyrefly preflight reads the vendored typeshed (a mypy-free copy) from pyscriptc/_typeshed.
+# Cache the onefile payload. The default spec extracts to a fresh temp dir on every run and
+# deletes it on exit, so every start pays the full unpack. A static spec under the user cache
+# dir ({CACHE_DIR} is ~/Library/Caches, ~/.cache or %LOCALAPPDATA%) unpacks once and later
+# starts reuse it. The key carries the project version and the source commit so a rebuilt
+# binary never reuses a stale tree.
+version="$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)"
+rev="$(git rev-parse --short=12 HEAD 2>/dev/null || echo nogit)"
+cache_spec="{CACHE_DIR}/pyscriptc/onefile-$version-$rev"
 args=(
   --onefile
+  "--onefile-tempdir-spec=$cache_spec"
   --assume-yes-for-downloads
   --output-dir="$nwork"
   --output-filename="$name"

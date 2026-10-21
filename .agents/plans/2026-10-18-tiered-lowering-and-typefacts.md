@@ -53,6 +53,15 @@ consuming `sigilco/pyright`'s native binary in JSON/LSP mode as an external
 oracle — NOT a vendored analyzer (Option C is only justified if broad typing
 compat becomes the primary product goal).
 
+### T2-5 boundary (landed)
+
+`repr`/`str`/`hash`/`len`/`chr`/`ord`/`int`/`bool`/`abs` fold on
+compile-time-constant arguments (`_static_builtin_fold` in `restlower.py`).
+The boundary is CPython reproducibility: `chr` folds only inside the
+Latin-1 literal range, `hash` only on int/bool (str/bytes hashing is
+seed-randomized → tier 3), and `eval` only through `ast.literal_eval`
+with a scalar result — arbitrary `eval`/`exec` stay fenced (tier 3).
+
 ## Sequencing
 
 - E-TF (facts seam): extract the TypeFacts/CallableFacts interface + mypy
