@@ -5,8 +5,12 @@ pyright exposes a stable compiler API, so pyscriptc owns a narrow facts IR
 (`.agents/plans/2026-10-18-tiered-lowering-and-typefacts.md`). A
 `FactsProvider` reports what the checker decided — optional/union members,
 callable signatures, overload choices, generic arguments — and tier-2
-lowering queries it. `PyreflyFactsAdapter` — the default oracle — reads
-`pyrefly check --report-pysa` per-module JSON; `TSPFactsAdapter`
+lowering queries it. `PyreflyTspFactsAdapter` — the default oracle since
+v0.3.0 — drives `pyrefly tsp` for per-node types. `PyreflyFactsAdapter`
+(the fixed Pysa-report adapter, `facts_provider("pyrefly")`) stays
+importable as the fallback: it reads `pyrefly check --report-pysa`
+per-module JSON, which misses nested defs and sub-expressions but needs no
+long-lived server. `TSPFactsAdapter`
 (experimental) drives `pyright-typeserver` over its Type Server Protocol
 for structured per-node types. Deprecated: `MypyFactsAdapter` is backed
 by the same mypy pass `check.py` ran (same subset plugin) and
@@ -189,8 +193,8 @@ _DEPRECATED_FACTS = {
 }
 
 
-def facts_provider(checker: str) -> FactsProvider:
-    """Pick the provider behind a `run_checker` checker name."""
+def facts_provider(checker: str = "pyrefly-tsp") -> FactsProvider:
+    """Pick the provider behind a `run_checker` checker name; default `pyrefly-tsp`."""
     if checker in _DEPRECATED_FACTS:
         warnings.warn(_DEPRECATED_FACTS[checker], DeprecationWarning, stacklevel=2)
     if checker == "mypy":
