@@ -63,6 +63,14 @@ mkdir -p "$out" "$work"
 # "_collections_abc", perhaps typeshed is broken?'. Ship typeshed as an explicit data dir.
 mypy_pkg="$(uv run --group packaging python -c 'import os, mypy; print(os.path.dirname(mypy.__file__))')"
 
+# pyrefly is the default preflight and is a native executable, not a Python module, so the
+# onefile cannot reach it through `sys.executable -m pyrefly`. Ship it as a data file under
+# bin/; entry.py points PYREFLY_BIN at the extracted copy.
+pyrefly_exe="$(uv run --group packaging python -c 'import os, sysconfig; print(os.path.join(sysconfig.get_path("scripts"), "pyrefly" + (sysconfig.get_config_var("EXE") or "")))')"
+[ -f "$pyrefly_exe" ] || { echo "pyrefly executable not found at $pyrefly_exe" >&2; exit 1; }
+pyrefly_dest=bin/pyrefly
+[ "$os" = windows ] && pyrefly_dest=bin/pyrefly.exe
+
 # Nuitka does not understand MSYS-style paths (/d/a/...) in --include-data-files
 # globs: "does not match any files". Pass native Windows paths on Windows.
 nroot="$root"
@@ -70,6 +78,7 @@ nwork="$work"
 if [ "$os" = windows ]; then
   nroot="$(cygpath -w "$root")"
   nwork="$(cygpath -w "$work")"
+  pyrefly_exe="$(cygpath -w "$pyrefly_exe")"
 fi
 
 # Data files the compiler reads at run time: the C runtime it links beside every program.
@@ -84,6 +93,7 @@ args=(
   --include-package=mypy
   --include-package-data=mypy
   "--include-data-files=$mypy_pkg/typeshed=mypy/typeshed/=**/*.pyi"
+  "--include-data-files=$pyrefly_exe=$pyrefly_dest"
   "--include-data-files=$nroot/src/pyscriptc/runtime/*.c=pyscriptc/runtime/"
   "--include-data-files=$nroot/src/pyscriptc/runtime/*.h=pyscriptc/runtime/"
   --nofollow-import-to=pytest

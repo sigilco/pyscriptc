@@ -1,6 +1,7 @@
 """Nuitka entry point for the release binary.
 
-The compiler runs its mypy preflight as `sys.executable -m mypy ...`
+The default preflight is pyrefly, a native executable bundled under bin/ (see
+`_point_pyrefly_at_bundle`). The deprecated mypy lane runs as `sys.executable -m mypy ...`
 (src/pyscriptc/check.py). Inside a Nuitka onefile build `sys.executable` is the
 release binary itself, which has no `-m` switch. This shim answers that one call
 shape in process and hands every other invocation to the normal CLI. It keeps
@@ -66,10 +67,27 @@ def _point_executable_at_binary() -> None:
         sys.executable = os.path.abspath(found)
 
 
+def _point_pyrefly_at_bundle() -> None:
+    """Use the pyrefly executable bundled under bin/ unless PYREFLY_BIN already overrides it."""
+    import os
+    import stat
+
+    if os.environ.get("PYREFLY_BIN"):
+        return
+    name = "pyrefly.exe" if os.name == "nt" else "pyrefly"
+    bundled = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin", name)
+    if os.path.isfile(bundled):
+        mode = os.stat(bundled).st_mode
+        if not mode & stat.S_IXUSR:
+            os.chmod(bundled, mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        os.environ["PYREFLY_BIN"] = bundled
+
+
 def main() -> int:
     if sys.argv[1:3] == ["-m", "mypy"]:
         return _run_mypy(sys.argv[3:])
     _point_executable_at_binary()
+    _point_pyrefly_at_bundle()
     cli_main = _load_cli()
 
     return cli_main()
