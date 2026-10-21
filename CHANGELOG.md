@@ -18,7 +18,7 @@ pyrefly is the only runtime oracle, and the release binaries work on Linux x86_6
 - mypy and pyright are optional extras (`oracle-mypy`, `oracle-pyright`); `--checker mypy|pyright` without the extra stops with an install hint. See `docs/external-oracles.md`.
 - The checker's stdlib patches (`range`, `frozenset`, `str.split`) now apply to a vendored typeshed copy (`pyscriptc/_typeshed`, from mypy 2.4) through pyrefly's `typeshed-path`, so mypy is no longer needed for the default lane. Larger wheel.
 - Removed the mypy, pyright and pyright-typeserver facts adapters (about 1260 lines).
-- Release 0.2.1 published to PyPI only; its Linux x86_64 binary was broken, so there is no 0.2.1 GitHub Release.
+- Release 0.2.1 went to PyPI first; its Linux x86_64 binary was broken, so its GitHub Release (added retroactively) carries only the wheel and sdist.
 
 ## [0.2.1] - 2026-10-21
 
@@ -33,7 +33,7 @@ Release binaries work. The 0.2.0 Nuitka binaries failed their smoke test because
 
 ## [0.2.0] - 2026-10-21
 
-Installs work. Every install path from 0.1.0 failed on the default checker, and there was no GitHub Release.
+Installs work. Every install path from 0.1.0 failed on the default checker, and no binaries were published (its GitHub Release, added retroactively, has the wheel and sdist only).
 
 - Fix: the pyrefly checker is found in the installed environment instead of by bare PATH lookup, so `uv tool install pyscriptc` then `pyscriptc compile` works. `PYREFLY_BIN` still overrides.
 - Fix: pyrefly checks against the running interpreter's site-packages, not the host Python's.
