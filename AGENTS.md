@@ -1,6 +1,6 @@
 # pyscriptc agent notes
 
-- GitHub Project: none yet (decision 2026-10-14: track phases locally in `.agents/plans/` until the user shares a URL).
+- GitHub Project: none yet (decision 2026-10-14: track phases locally in `.agents/plans/` until the user shares a URL). Versions are tracked as GitHub milestones (v0.4.1 alpha, v0.5.0, v0.6.0 public, v0.7.0 to v0.9.0); every product PR carries a milestone and `Closes #N`.
 - Active plan: `.agents/plans/2026-10-14-waves-after-scorer-v2.md` (supersedes phases 7 to 11 of `2026-10-14-scorer-v2-and-strategy.md`, which stays as history). Handoff: `.agents/notes/2026-10-14-wave-a-handoff.md`.
 - v1 scorer (`benchmarks/compat/`) is frozen history. v2 lives in `benchmarks/compat2/`; shared contract is `benchmarks/compat2/outcomes.py`.
 - Frozen v2 gates (tag `gates-v2`, 2026-10-16). Changes need a recorded decision first: `outcomes.py`, `score.py` weights, `coverage_map.py`, `cache.py`, `calibrate.py`, `CALIBRATION.json`, `TRIAGE.md`, `probes/*.jsonl`, `probes/IR_HASHES.json`, `canonical.py` rules (`docs/ir-canonicity.md`). Regenerating `IR_HASHES.json` requires the A/B byte-identical discipline (`python -m benchmarks.compat2.irscore` twice, `cmp`).
@@ -33,3 +33,14 @@ Drop flag rules. Raise the flag in the iteration report when any holds:
 - boxed-only reach flat or falling for three windows while churn share plus bug share rose
 
 When the flag is raised, stop adding boxed features and ask the user whether to drop the tier. Dropping means deleting `boxed.py`, the island runtime, the marked regions and the boxed matrix column. Thresholds are starting values and the user can tune them in `boxed_cost.py`.
+
+## Release policy
+
+Decision 2026-10-21 (`.agents/plans/2026-10-21-release-cadence-strategy.md`): the default is not releasing. PyPI versions are irreversible, so ceremony is the cost of shipping.
+
+- Patch: at least 1 user-visible change (`feat`, `fix`, `perf` touching `src/`, `packaging/`, runtime C or user docs) or 3 merged PRs, plus 10 commits and 12 hours since the last tag. Refactor, test, ci and docs-only changes ride along under "Internal" and never trigger a release alone.
+- Hotfix: bypasses the content and gap checks only, for a documented install or first-run break (label `hotfix`).
+- Minor: one theme with written exit criteria in its milestone, 0 open issues, at least 2 user-visible features, a measured receipt (census delta, boxed ledger window, or perf number with a baseline), at least 5 days after the previous minor.
+- Rehearsal: before any tag, the release build matrix, smoke and wheel verify must pass on the exact commit with no publish. Packaging changes also go through an `X.Y.ZrcN` tag first.
+- Until the rehearsal and bar-check workflow changes land (plan steps 5 and 6), do not cut a release by hand without running the build on the commit first.
+- The old "keep releasing versions" standing goal is retired: ship when the bar is met. Ceiling: no unreleased user-visible change older than 7 days.

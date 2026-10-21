@@ -29,3 +29,7 @@ The bolo `repository_dispatch` step is a stub. It is not wired until a token dec
 ## Release notes
 
 The draft release body comes from `release.yml` and is unchanged by this process. Changelog entries are written from conventional commit subjects, so keep subjects accurate: they become the notes.
+
+## Release classes and bar
+
+See the Release policy section in `AGENTS.md` for the thresholds (patch, hotfix, minor, rc) and `.agents/plans/2026-10-21-release-cadence-strategy.md` for the data behind them. Rehearse the exact commit (full build matrix, smoke, wheel verify, no publish) before tagging, and use an `X.Y.ZrcN` tag for packaging changes. The automated bar check and the rehearsal dispatch input are not implemented yet; until then apply them by hand.
