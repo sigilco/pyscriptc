@@ -26,12 +26,15 @@ pyscriptc compile FILE [options]
 | `--call FUNC` | Emit a `main` that calls `FUNC` and prints its return |
 | `--args '[...]'` | Arguments for `--call`, a Python list literal |
 | `--run` | Emit a binary and run it immediately |
-| `--driver clang\|zig` | C toolchain driver; `zig` enables `--target` (default `clang`) |
-| `--target TRIPLE` | Cross-compile triple for `zig cc`, e.g. `aarch64-linux-gnu.2.39` |
+| `--driver clang\|zig` | C toolchain driver; `zig` enables `--target` (default `clang`, env `PYSC_CC`) |
+| `--linker clang\|zig` | Driver for the final link step only (env `PYSC_LINKER`, defaults to `--driver`) |
+| `--target TRIPLE` | Cross-compile triple for `zig cc`, e.g. `aarch64-linux-gnu.2.39` (env `PYSC_TARGET`) |
 | `--skip-check` | Skip the mypy preflight |
 | `--checker mypy\|pyright` | Preflight checker (default `mypy`); `pyright` resolves via `PYRIGHT_BIN` then PATH |
 | `--debug[=WHAT]` | Print a stage table; `WHAT` is a comma list of `stages,fences,cc,paths,all` |
 | `--debug-dir DIR` | Write `ir.json`, `out.ll`, `cc.sh`, `summary.json` to `DIR` |
+
+Environment defaults: `PYSC_CC`, `PYSC_LINKER` and `PYSC_TARGET` fill `--driver`, `--linker` and `--target` when the flag is absent. An explicit flag always wins.
 
 ## `coverage`
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -85,3 +86,33 @@ def test_doctor_text_and_env_source(tmp_path: Path) -> None:
         [sys.executable, "-m", "pyscriptc", "doctor"], capture_output=True, text=True, env=env, cwd=ROOT
     )
     assert "source: env" in got.stdout, got.stdout + got.stderr
+
+
+def _run_env(env_extra: dict[str, str], *args: str) -> subprocess.CompletedProcess[str]:
+    import os
+    import subprocess
+    import sys
+
+    env = {**os.environ, **env_extra}
+    return subprocess.run([sys.executable, "-m", "pyscriptc", *args], capture_output=True, text=True, env=env, cwd=ROOT)
+
+
+def test_env_target_without_zig_driver_is_rejected(tmp_path: Path) -> None:
+    path = write_case(tmp_path, "ok.py", CLEAN)
+    got = _run_env({"PYSC_TARGET": "aarch64-linux-gnu"}, "compile", str(path), "--emit", "bin", "--skip-check")
+    assert got.returncode != 0
+    assert "--target requires --driver zig" in got.stderr
+
+
+def test_env_cc_invalid_value(tmp_path: Path) -> None:
+    path = write_case(tmp_path, "ok.py", CLEAN)
+    got = _run_env({"PYSC_CC": "gcc"}, "compile", str(path), "--skip-check")
+    assert got.returncode == 1
+    assert "PYSC_CC must be" in got.stderr
+
+
+@needs_clang
+def test_flag_wins_over_env(tmp_path: Path) -> None:
+    path = write_case(tmp_path, "ok.py", CLEAN)
+    got = _run_env({"PYSC_CC": "gcc"}, "compile", str(path), "--driver", "clang", "--emit", "bin", "--skip-check")
+    assert got.returncode == 0, got.stderr

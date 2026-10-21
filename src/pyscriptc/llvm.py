@@ -54,6 +54,7 @@ def link_binary(
     driver: str = "clang",
     target: str | None = None,
     record: list[list[str]] | None = None,
+    link_driver: str | None = None,
 ) -> None:
     """Link `.ll` text plus the C runtime into `output`.
 
@@ -103,7 +104,8 @@ def link_binary(
     if proc is not None and proc.returncode == 0:
         # no -O on the link line: it is a compile flag and zig's Mach-O
         # driver crashes on it (0.16.0)
-        argv = [*cc.split(), *objects, *target_flags, *tail]
+        link_cc = ("zig cc" if link_driver == "zig" else link_driver) if link_driver else cc
+        argv = [*link_cc.split(), *objects, *target_flags, *tail]
         if record is not None:
             record.append([str(arg) for arg in argv])
         proc = subprocess.run(argv, capture_output=True, text=True)

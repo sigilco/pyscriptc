@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import os
 import subprocess
 import sys
 import time
@@ -53,12 +54,18 @@ def main(argv: list[str] | None = None) -> int:
     compile_parser.add_argument(
         "--driver",
         choices=("clang", "zig"),
-        default="clang",
-        help="C toolchain driver; zig means `zig cc` (required for --target)",
+        default=None,
+        help="C toolchain driver; zig means `zig cc` (required for --target); env PYSC_CC, default clang",
     )
     compile_parser.add_argument(
         "--target",
-        help="cross-compilation triple for `zig cc`, e.g. aarch64-linux-gnu.2.39",
+        help="cross-compilation triple for `zig cc`, e.g. aarch64-linux-gnu.2.39 (env PYSC_TARGET)",
+    )
+    compile_parser.add_argument(
+        "--linker",
+        choices=("clang", "zig"),
+        default=None,
+        help="driver for the final link step only; env PYSC_LINKER, defaults to --driver",
     )
     compile_parser.add_argument(
         "--print",
@@ -171,6 +178,7 @@ def logs_cmd(args: argparse.Namespace) -> int:
 
 def compile_cmd(args: argparse.Namespace) -> int:
     started = time.monotonic()
+    _apply_env_defaults(args)
     state: dict[str, Any] = {
         "outcome": None,
         "stage": "lower",
@@ -199,6 +207,20 @@ def compile_cmd(args: argparse.Namespace) -> int:
                 skip_check=bool(args.skip_check),
             ),
         )
+
+
+def _apply_env_defaults(args: argparse.Namespace) -> None:
+    """Fill unset toolchain flags from PYSC_CC / PYSC_LINKER / PYSC_TARGET; explicit flags win."""
+    for attr, var in (("driver", "PYSC_CC"), ("linker", "PYSC_LINKER")):
+        if getattr(args, attr) is None:
+            value = os.environ.get(var) or None
+            if value is not None and value not in ("clang", "zig"):
+                raise IRError(f"{var} must be clang or zig, got {value!r}")
+            setattr(args, attr, value)
+    if args.target is None:
+        args.target = os.environ.get("PYSC_TARGET") or None
+    if args.driver is None:
+        args.driver = "clang"
 
 
 def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
@@ -283,7 +305,14 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         binary = Path(args.output) if args.output else source_path.with_suffix("")
         state["stage"] = "link"
         dbg.begin("link")
-        link_binary(ll_path, binary, driver=args.driver, target=args.target, record=dbg.commands)
+        link_binary(
+            ll_path,
+            binary,
+            driver=args.driver,
+            target=args.target,
+            record=dbg.commands,
+            link_driver=args.linker,
+        )
         dbg.end("link")
         outputs["bin"] = str(binary)
         log.info("link.binary", output=str(binary), driver=args.driver, target=args.target)
@@ -350,8 +379,6 @@ def _output_path(args: argparse.Namespace, source: Path, suffix: str) -> Path:
         return Path(args.output)
     if args.output and args.emit == "llvm" and suffix == ".ll":
         return Path(args.output)
-    if args.output and suffix == ".ll":
-        return Path(str(args.output) + ".ll")
-    if args.output and suffix == ".ir.json":
-        return Path(str(args.output) + ".ir.json")
+    if args.output:
+        return Path(str(args.output) + suffix)
     return source.with_suffix(suffix)
