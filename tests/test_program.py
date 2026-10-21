@@ -207,6 +207,26 @@ def test_a_nested_package_resolves_by_its_plain_name(tmp_path: Path) -> None:
     assert_matches_cpython(tmp_path, root)
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+def test_a_main_py_directory_is_a_program_too(tmp_path: Path) -> None:
+    # The other R2 shape: main.py plus sibling modules, no __init__.py.
+    root = write_tree(
+        tmp_path,
+        "mainshape",
+        {
+            "main.py": "import util\n\nprint(util.twice(21))\n",
+            "util.py": "def twice(n: int) -> int:\n    return n * 2\n",
+        },
+    )
+    expected = subprocess.run(
+        [sys.executable, "main.py"], cwd=root, capture_output=True, text=True, check=True
+    )
+    got = run_cli("compile", str(root), "--skip-check", "--run", "-o", str(tmp_path / "mainshape-bin"))
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == expected.stdout
+    assert got.stdout == "42\n"
+
+
 def test_a_circular_import_is_refused_with_the_cycle_path(tmp_path: Path) -> None:
     root = write_tree(
         tmp_path,
