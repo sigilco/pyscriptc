@@ -104,8 +104,7 @@ def _asyncio_gather(
     return {
         "kind": "list",
         "elems": [
-            {"kind": "attr", "value": frame, "name": ".ps_result", "type": elem, "span": span}
-            for frame in frames
+            {"kind": "attr", "value": frame, "name": ".ps_result", "type": elem, "span": span} for frame in frames
         ],
         "type": {"kind": "list", "elem": elem},
         "span": span,

@@ -220,9 +220,7 @@ class CoroMixin:
             "coro": "coroutine" if coroutine else "generator",
         }
         self.known_classes.add(frame)
-        self._coro_plans()[fn.name] = FramePlan(
-            "coroutine" if coroutine else "generator", fn.name, frame, elem, params
-        )
+        self._coro_plans()[fn.name] = FramePlan("coroutine" if coroutine else "generator", fn.name, frame, elem, params)
         return params, frame_t
 
     def _coro_result(self, fn: ast.AsyncFunctionDef) -> dict[str, Any]:
@@ -804,9 +802,7 @@ class _Frame:
             _assign(status, call, span),
             *pending,
         ]
-        result_set = (
-            [_assign(result, read, span)] if result is not None else []
-        )
+        result_set = [_assign(result, read, span)] if result is not None else []
         return [
             _if(self.fresh(span), leave, arrive, span),
             *result_set,
