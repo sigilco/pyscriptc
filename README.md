@@ -22,10 +22,10 @@ pyscriptc compile examples/sum_squares.py --run --call sum_squares --args '[10]'
 ## Install it
 
 ```bash
-mise use -g github:sigilco/pyscriptc   # prebuilt binary from GitHub Releases
+uv tool install pyscriptc
 ```
 
-Or from PyPI: `uv tool install pyscriptc`, `pipx install pyscriptc`, and `pip install pyscriptc` all work the same way. PyPI installs require CPython 3.10 or later (the IR is stamped with the interpreter that lowered it).
+`pipx install pyscriptc` and `pip install pyscriptc` work the same way. The installed command finds the pyrefly checker that ships with it, so no extra PATH setup is needed. Prebuilt standalone binaries (macOS arm64, Linux x86_64 and aarch64) are attached to each [GitHub Release](https://github.com/sigilco/pyscriptc/releases); the binary does not bundle a checker yet, so use the PyPI install if you want type checking out of the box. PyPI installs require CPython 3.10 or later (the IR is stamped with the interpreter that lowered it).
 
 Either way, compiling a program needs a clang that can assemble textual LLVM IR (`zig cc` also works, and enables `--driver zig` cross-compilation):
 
