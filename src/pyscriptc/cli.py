@@ -20,6 +20,8 @@ from pyscriptc.debug import Debug, resolve
 from pyscriptc.diagnostics import explain
 from pyscriptc.doctor import doctor_cmd
 from pyscriptc.errors import FitError, IRError, SpikeError, VersionError
+from pyscriptc.imports import build_report as build_import_report
+from pyscriptc.imports import render_text as render_import_text
 from pyscriptc.ir import validate_module
 from pyscriptc.llvm import compile_unit, emit_llvm, link_binary, standalone_entry
 from pyscriptc.log import enable_debug, get_logger, tail
@@ -110,6 +112,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     explain_parser = sub.add_parser("explain", help="describe a diagnostic code", parents=[common])
     explain_parser.add_argument("code")
+    imports_parser = sub.add_parser(
+        "imports", help="classify every import of a file or package tree into a compat lane", parents=[common]
+    )
+    imports_parser.add_argument("source")
+    imports_parser.add_argument("--json", action="store_true", help="print the report as JSON")
     sub.add_parser("logs", help="print the audit-log path and its last lines", parents=[common])
     telemetry_parser = sub.add_parser("telemetry", help="usage metrics opt-out")
     telemetry_parser.add_argument("action", choices=("disable", "enable", "status", "reset-id"))
@@ -135,6 +142,8 @@ def main(argv: list[str] | None = None) -> int:
             return compile_cmd(args)
         if args.cmd == "coverage":
             return coverage_cmd(args)
+        if args.cmd == "imports":
+            return imports_cmd(args)
         if args.cmd == "explain":
             return explain_cmd(args)
         if args.cmd == "logs":
@@ -165,6 +174,13 @@ def coverage_cmd(args: argparse.Namespace) -> int:
         return 1
     if args.fail_on == "blockers" and summary["rootFences"]:
         return 1
+    return 0
+
+
+def imports_cmd(args: argparse.Namespace) -> int:
+    report = build_import_report(Path(args.source))
+    log.info("imports.report", source=args.source)
+    print(json.dumps(report, indent=2) if args.json else render_import_text(report))
     return 0
 
 
