@@ -39,9 +39,6 @@ import warnings
 from collections.abc import Callable
 from pathlib import Path
 
-from mypy.plugin import FunctionContext, Plugin
-from mypy.types import AnyType, Instance, Type, TypeOfAny
-
 
 class CheckFailed(Exception):
     def __init__(self, output: str) -> None:
@@ -49,47 +46,56 @@ class CheckFailed(Exception):
         self.output = output
 
 
-def _unpack_type(ctx: FunctionContext) -> Type:
-    # struct.unpack lowers to a homogeneous list; `Any` keeps both `list[int]`
-    # and the historical `tuple[int, ...]` annotations checking clean.
-    return AnyType(TypeOfAny.explicit)
+def plugin(version: str) -> type:
+    """mypy plugin entry point (deprecated mypy lane only).
+
+    mypy is imported here, not at module import, so `pyscriptc.check` works
+    with mypy absent (install the `oracle-mypy` extra for the mypy lane).
+    """
+    return _subset_plugin_class()
 
 
-def _frozenset_type(ctx: FunctionContext) -> Type:
-    ret = ctx.default_return_type
-    args = ret.args if isinstance(ret, Instance) and ret.args else [AnyType(TypeOfAny.explicit)]
-    return ctx.api.named_generic_type("builtins.set", list(args))
+def _subset_plugin_class() -> type:
+    try:
+        from mypy.plugin import FunctionContext, Plugin
+        from mypy.types import AnyType, Instance, Type, TypeOfAny
+    except ImportError as exc:
+        raise CheckFailed("mypy is not installed; install the extra: pip install 'pyscriptc[oracle-mypy]'") from exc
 
+    def unpack_type(ctx: FunctionContext) -> Type:
+        # struct.unpack lowers to a homogeneous list; `Any` keeps both
+        # `list[int]` and the historical `tuple[int, ...]` annotations clean.
+        return AnyType(TypeOfAny.explicit)
 
-def _range_type(ctx: FunctionContext) -> Type:
-    # R24: range(...) materializes as list[int]; sizing and indexing line
-    # up with CPython's range under the eager model.
-    return ctx.api.named_generic_type("builtins.list", [ctx.api.named_type("builtins.int")])
+    def frozenset_type(ctx: FunctionContext) -> Type:
+        ret = ctx.default_return_type
+        args = ret.args if isinstance(ret, Instance) and ret.args else [AnyType(TypeOfAny.explicit)]
+        return ctx.api.named_generic_type("builtins.set", list(args))
 
+    def range_type(ctx: FunctionContext) -> Type:
+        # R24: range(...) materializes as list[int]; sizing and indexing line
+        # up with CPython's range under the eager model.
+        return ctx.api.named_generic_type("builtins.list", [ctx.api.named_type("builtins.int")])
 
-def _partial_type(ctx: FunctionContext) -> Type:
-    # functools.partial returns a Callable whose exact parameter shift the
-    # subset does not model; Any keeps the value assignable to Callable.
-    return AnyType(TypeOfAny.explicit)
+    def partial_type(ctx: FunctionContext) -> Type:
+        # functools.partial returns a Callable whose exact parameter shift the
+        # subset does not model; Any keeps the value assignable to Callable.
+        return AnyType(TypeOfAny.explicit)
 
+    hooks: dict[str, Callable[[FunctionContext], Type]] = {
+        "struct.unpack": unpack_type,
+        "_struct.unpack": unpack_type,
+        "functools.partial": partial_type,
+        "frozenset": frozenset_type,
+        "builtins.frozenset": frozenset_type,
+        "range": range_type,
+        "builtins.range": range_type,
+    }
 
-_HOOKS: dict[str, Callable[[FunctionContext], Type]] = {
-    "struct.unpack": _unpack_type,
-    "_struct.unpack": _unpack_type,
-    "functools.partial": _partial_type,
-    "frozenset": _frozenset_type,
-    "builtins.frozenset": _frozenset_type,
-    "range": _range_type,
-    "builtins.range": _range_type,
-}
+    class _SubsetPlugin(Plugin):
+        def get_function_hook(self, fullname: str) -> Callable[[FunctionContext], Type] | None:
+            return hooks.get(fullname)
 
-
-class _SubsetPlugin(Plugin):
-    def get_function_hook(self, fullname: str) -> Callable[[FunctionContext], Type] | None:
-        return _HOOKS.get(fullname)
-
-
-def plugin(version: str) -> type[Plugin]:
     return _SubsetPlugin
 
 
@@ -139,7 +145,7 @@ def run_checker(path: Path, checker: str = "pyrefly") -> None:
     if not output:
         output = proc.stderr.strip() or f"mypy exited {proc.returncode}"
     if "No module named mypy" in output:
-        output = "mypy is not installed for this interpreter"
+        output = "mypy is not installed; install the extra: pip install 'pyscriptc[oracle-mypy]'"
     raise CheckFailed(output)
 
 
