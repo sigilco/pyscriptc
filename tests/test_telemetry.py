@@ -249,7 +249,7 @@ def test_compile_error_outcome(captured, monkeypatch, tmp_path):
     monkeypatch.setattr(telemetry, "_BAKED_TOKEN", "phc_test")
     src = tmp_path / "bad.py"
     src.write_text("def (:\n")
-    with pytest.raises(Exception):
+    with pytest.raises(SyntaxError):
         _run_cli(["compile", str(src), "--skip-check", "--emit", "ir"])
     (event,) = _events(captured, "compile.finished")
     assert event["properties"]["outcome"] == "lower-error"
