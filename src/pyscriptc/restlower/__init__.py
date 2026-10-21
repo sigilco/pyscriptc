@@ -1,12 +1,16 @@
 """Call lowering for the modules in `stdmore`.
 
 The lowerer evaluates arguments and reports fences. This module decides which
-calls are in the closed surface and which symbol implements them.
+calls are in the closed surface and which symbol implements them: per-module
+handlers live in the sibling `_*.py` modules, and this file keeps only the
+`(module, attr)` registry, the `builtin_call` table and the shared table
+consults (`CALL_FENCES`, `FOR_ONLY`, `WITH_ONLY`, `fixed_spec`).
 """
 
 from __future__ import annotations
 
 import ast
+from collections.abc import Callable
 from typing import Any
 
 from pyscriptc.restlower._builtins import (
@@ -31,12 +35,9 @@ from pyscriptc.restlower._functools import _reduce
 from pyscriptc.restlower._hmac import _hmac, _hmac_compare
 from pyscriptc.restlower._io import _input, _named_temp, _open, _print
 from pyscriptc.restlower._iterators import (
-    _elem_list,
     _enumerate_value,
     _filter,
-    _fn_ref,
     _iter,
-    _lambda_params,
     _map,
     _mk_iter,
     _next,
@@ -49,28 +50,6 @@ from pyscriptc.restlower._minmax import _minmax, _sorted, _sum
 from pyscriptc.restlower._operator import _bisect, _join, _operator
 from pyscriptc.restlower._pathlib import _buffer, _one
 from pyscriptc.restlower._random import _random_call
-from pyscriptc.restlower._shared import (
-    _BIN,
-    _CMP,
-    _as_float,
-    _asg,
-    _class,
-    _cmp,
-    _const_int,
-    _const_text,
-    _emit,
-    _field,
-    _incr,
-    _int,
-    _len_of,
-    _nm,
-    _pin,
-    _same,
-    _set_field,
-    _span_to,
-    _sub,
-    _tname,
-)
 from pyscriptc.restlower._system import _as_file_value, _atexit_register, _exit, _getenv, _resource_files, _unicode_name
 from pyscriptc.restlower._textwrap import _textwrap_call
 from pyscriptc.restlower._time import _clock, _sleep
@@ -81,12 +60,102 @@ from pyscriptc.stdmore import (
     FOR_ONLY,
     OPERATORS,
     PATH_ATTRS,
-    SIZEOF,
     WITH_ONLY,
     fixed_spec,
-    slot_size,
     type_alias,
 )
+
+__all__ = ["_mk_iter", "alias_name", "builtin_call", "method_spec", "path_attr", "rest_call"]
+
+# A registered handler takes the lowerer, the call, its span, the expected type
+# and the attribute name, whatever subset of those it actually needs.
+Handler = Callable[[Any, ast.Call, dict[str, Any], "dict[str, Any] | None", str], dict[str, Any]]
+
+_DATETIME_ROWS: dict[str, tuple[str, str, int, list[str]]] = {
+    "date": ("ps_date_ymd", "Date", 3, ["year", "month", "day"]),
+    "datetime": (
+        "ps_dt_new",
+        "DateTime",
+        3,
+        ["year", "month", "day", "hour", "minute", "second", "microsecond"],
+    ),
+    "time": ("ps_tod_new", "Time", 0, ["hour", "minute", "second", "microsecond"]),
+    "timedelta": ("ps_delta_new", "TimeDelta", 0, ["days", "seconds", "microseconds"]),
+}
+
+
+def _datetime_row(attr: str) -> Handler:
+    symbol, cls, minimum, names = _DATETIME_ROWS[attr]
+    return lambda lo, node, span, expect, _attr: _ints(lo, node, span, "datetime", attr, symbol, cls, minimum, names)
+
+
+def _namedtuple_only(lo: Any, node: ast.Call, span: dict[str, Any], expect: Any, attr: str) -> dict[str, Any]:
+    lo.fail(node, "PS2002", "collections.namedtuple is only lowered in a Name = namedtuple(...) assignment")
+    raise AssertionError("unreachable")
+
+
+# Consulted before the fence tables and before `fixed_spec`.
+_EARLY: dict[tuple[str, str], Handler] = {
+    ("sys", "exit"): lambda lo, node, span, expect, attr: _exit(lo, node, span),
+    ("importlib.resources", "as_file"): lambda lo, node, span, expect, attr: _as_file_value(lo, node, span),
+    # The 1-arg form returns the tagged `str | None`; the 2-arg form returns the default instead.
+    ("os", "getenv"): lambda lo, node, span, expect, attr: _getenv(lo, node, span),
+    ("tempfile", "NamedTemporaryFile"): lambda lo, node, span, expect, attr: _named_temp(lo, node, span),
+    ("functools", "partial"): lambda lo, node, span, expect, attr: lo._partial_callable(node, span),
+}
+
+# Whole-module handlers, consulted before `fixed_spec`.
+_MODULES_BEFORE_SPEC: dict[str, Handler] = {
+    "itertools": lambda lo, node, span, expect, attr: _itertools(lo, node, span, attr),
+}
+
+# Whole-module handlers, consulted after `fixed_spec`.
+_MODULES_AFTER_SPEC: dict[str, Handler] = {
+    "random": lambda lo, node, span, expect, attr: _random_call(lo, node, span, attr),
+    "csv": lambda lo, node, span, expect, attr: _csv_call(lo, node, span, attr),
+    "textwrap": lambda lo, node, span, expect, attr: _textwrap_call(lo, node, span, attr),
+    "copy": lambda lo, node, span, expect, attr: _copy_call(lo, node, span, attr),
+}
+
+# Per-attribute handlers that run before keyword arguments are rejected.
+_BEFORE_KEYWORDS: dict[tuple[str, str], Handler] = {
+    **{("datetime", attr): _datetime_row(attr) for attr in _DATETIME_ROWS},
+    ("collections", "OrderedDict"): lambda lo, node, span, expect, attr: _ordered(lo, node, span, expect),
+    ("collections", "Counter"): lambda lo, node, span, expect, attr: _counter(lo, node, span, expect),
+    ("collections", "defaultdict"): lambda lo, node, span, expect, attr: _defaultdict(lo, node, span, expect),
+    ("collections", "namedtuple"): _namedtuple_only,
+}
+
+# Per-attribute handlers that run after keyword arguments are rejected.
+_AFTER_KEYWORDS: dict[tuple[str, str], Handler] = {
+    **{
+        ("operator", attr): (lambda lo, node, span, expect, name: _operator(lo, node, span, name)) for attr in OPERATORS
+    },
+    ("bisect", "bisect_left"): lambda lo, node, span, expect, attr: _bisect(lo, node, span, attr),
+    ("bisect", "bisect_right"): lambda lo, node, span, expect, attr: _bisect(lo, node, span, attr),
+    ("time", "sleep"): lambda lo, node, span, expect, attr: _sleep(lo, node, span),
+    ("time", "gmtime"): lambda lo, node, span, expect, attr: _clock(lo, node, span, attr),
+    ("time", "localtime"): lambda lo, node, span, expect, attr: _clock(lo, node, span, attr),
+    ("collections", "deque"): lambda lo, node, span, expect, attr: _deque(lo, node, span, expect),
+    ("functools", "reduce"): lambda lo, node, span, expect, attr: _reduce(lo, node, span),
+    ("posixpath", "join"): lambda lo, node, span, expect, attr: _join(lo, node, span),
+    ("pathlib", "Path"): lambda lo, node, span, expect, attr: _one(
+        lo, node, span, "pathlib", "Path", "ps_path_new", {"kind": "str"}, {"kind": "class", "name": "Path"}
+    ),
+    ("io", "StringIO"): lambda lo, node, span, expect, attr: _buffer(
+        lo, node, span, "io", "StringIO", "ps_io_string", "str", "TextIO"
+    ),
+    ("io", "BytesIO"): lambda lo, node, span, expect, attr: _buffer(
+        lo, node, span, "io", "BytesIO", "ps_io_bytes", "bytes", "BytesIO"
+    ),
+    ("ctypes", "sizeof"): lambda lo, node, span, expect, attr: _sizeof(lo, node, span),
+    ("hmac", "digest"): lambda lo, node, span, expect, attr: _hmac(lo, node, span, attr),
+    ("hmac", "new"): lambda lo, node, span, expect, attr: _hmac(lo, node, span, attr),
+    ("hmac", "compare_digest"): lambda lo, node, span, expect, attr: _hmac_compare(lo, node, span),
+    ("unicodedata", "name"): lambda lo, node, span, expect, attr: _unicode_name(lo, node, span),
+    ("importlib.resources", "files"): lambda lo, node, span, expect, attr: _resource_files(lo, node, span),
+    ("atexit", "register"): lambda lo, node, span, expect, attr: _atexit_register(lo, node, span),
+}
 
 
 def rest_call(
@@ -97,181 +166,85 @@ def rest_call(
     attr: str,
     expect: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    if module == "sys" and attr == "exit":
-        return _exit(lo, node, span)
-    if module == "importlib.resources" and attr == "as_file":
-        return _as_file_value(lo, node, span)
-    if module == "os" and attr == "getenv":
-        # The 1-arg form returns the tagged `str | None`; the 2-arg form
-        # returns the default instead.
-        return _getenv(lo, node, span)
-    if module == "tempfile" and attr == "NamedTemporaryFile":
-        return _named_temp(lo, node, span)
-    if module == "functools" and attr == "partial":
-        return lo._partial_callable(node, span)
-    message = CALL_FENCES.get((module, attr))
+    key = (module, attr)
+    handler = _EARLY.get(key)
+    if handler is not None:
+        return handler(lo, node, span, expect, attr)
+    message = CALL_FENCES.get(key)
     if message:
         lo.fail(node, "PS2001", message)
-    if (module, attr) in FOR_ONLY:
+    if key in FOR_ONLY:
         lo.fail(node, "PS2002", f"{module}.{attr} is only lowered as the iterator of a for")
-    if (module, attr) in WITH_ONLY:
+    if key in WITH_ONLY:
         lo.fail(node, "PS2002", f"{module}.{attr} is only lowered as a with context")
     if module == "ctypes" and attr in CTYPES:
         lo.fail(node, "PS2001", f"ctypes.{attr} is not callable in this subset")
-    if module == "itertools":
-        return _itertools(lo, node, span, attr)
+    handler = _MODULES_BEFORE_SPEC.get(module)
+    if handler is not None:
+        return handler(lo, node, span, expect, attr)
     spec = fixed_spec(module, attr)
     if spec is not None:
         return lo._fixed_call(node, span, module, attr, spec)
-    if module == "random":
-        return _random_call(lo, node, span, attr)
-    if module == "csv":
-        return _csv_call(lo, node, span, attr)
-    if module == "textwrap":
-        return _textwrap_call(lo, node, span, attr)
-    if module == "copy":
-        return _copy_call(lo, node, span, attr)
-    if module == "datetime" and attr == "date":
-        return _ints(lo, node, span, "datetime", "date", "ps_date_ymd", "Date", 3, ["year", "month", "day"])
-    if module == "datetime" and attr == "datetime":
-        return _ints(
-            lo,
-            node,
-            span,
-            "datetime",
-            "datetime",
-            "ps_dt_new",
-            "DateTime",
-            3,
-            ["year", "month", "day", "hour", "minute", "second", "microsecond"],
-        )
-    if module == "datetime" and attr == "time":
-        return _ints(
-            lo, node, span, "datetime", "time", "ps_tod_new", "Time", 0, ["hour", "minute", "second", "microsecond"]
-        )
-    if module == "datetime" and attr == "timedelta":
-        return _ints(
-            lo,
-            node,
-            span,
-            "datetime",
-            "timedelta",
-            "ps_delta_new",
-            "TimeDelta",
-            0,
-            ["days", "seconds", "microseconds"],
-        )
-    if module == "collections" and attr == "OrderedDict":
-        return _ordered(lo, node, span, expect)
-    if module == "collections" and attr == "Counter":
-        return _counter(lo, node, span, expect)
-    if module == "collections" and attr == "defaultdict":
-        return _defaultdict(lo, node, span, expect)
-    if module == "collections" and attr == "namedtuple":
-        lo.fail(node, "PS2002", "collections.namedtuple is only lowered in a Name = namedtuple(...) assignment")
+    handler = _MODULES_AFTER_SPEC.get(module)
+    if handler is not None:
+        return handler(lo, node, span, expect, attr)
+    handler = _BEFORE_KEYWORDS.get(key)
+    if handler is not None:
+        return handler(lo, node, span, expect, attr)
     lo._reject_keywords(node)
-    if module == "operator" and attr in OPERATORS:
-        return _operator(lo, node, span, attr)
-    if module == "bisect" and attr in {"bisect_left", "bisect_right"}:
-        return _bisect(lo, node, span, attr)
-    if module == "time" and attr == "sleep":
-        return _sleep(lo, node, span)
-    if module == "time" and attr in {"gmtime", "localtime"}:
-        return _clock(lo, node, span, attr)
-    if module == "collections" and attr == "deque":
-        return _deque(lo, node, span, expect)
-    if module == "functools" and attr == "reduce":
-        return _reduce(lo, node, span)
-    if module == "posixpath" and attr == "join":
-        return _join(lo, node, span)
-    if module == "pathlib" and attr == "Path":
-        return _one(
-            lo, node, span, "pathlib", "Path", "ps_path_new", {"kind": "str"}, {"kind": "class", "name": "Path"}
-        )
-    if module == "io" and attr == "StringIO":
-        return _buffer(lo, node, span, "io", "StringIO", "ps_io_string", "str", "TextIO")
-    if module == "io" and attr == "BytesIO":
-        return _buffer(lo, node, span, "io", "BytesIO", "ps_io_bytes", "bytes", "BytesIO")
-    if module == "ctypes" and attr == "sizeof":
-        return _sizeof(lo, node, span)
-    if module == "hmac" and attr in {"digest", "new"}:
-        return _hmac(lo, node, span, attr)
-    if module == "hmac" and attr == "compare_digest":
-        return _hmac_compare(lo, node, span)
-    if module == "unicodedata" and attr == "name":
-        return _unicode_name(lo, node, span)
-    if module == "importlib.resources" and attr == "files":
-        return _resource_files(lo, node, span)
-    if module == "atexit" and attr == "register":
-        return _atexit_register(lo, node, span)
+    handler = _AFTER_KEYWORDS.get(key)
+    if handler is not None:
+        return handler(lo, node, span, expect, attr)
     lo.fail(node, "PS2001", f"{module}.{attr} is not in the lowered subset of {module}")
     raise AssertionError("unreachable")
+
+
+BuiltinHandler = Callable[[Any, ast.Call, dict[str, Any], str], "dict[str, Any] | None"]
+
+# Builtins whose keyword arguments are rejected before the handler runs.
+_NO_KEYWORDS = frozenset({"isinstance", "getattr", "hasattr", "abs", "ord", "chr", "round"})
+
+_BUILTINS: dict[str, BuiltinHandler] = {
+    "open": lambda lo, node, span, name: _open(lo, node, span),
+    "print": lambda lo, node, span, name: _print(lo, node, span),
+    "input": lambda lo, node, span, name: _input(lo, node, span),
+    "isinstance": lambda lo, node, span, name: _isinstance(lo, node, span),
+    "getattr": lambda lo, node, span, name: _getattr(lo, node, span),
+    "hasattr": lambda lo, node, span, name: _hasattr(lo, node, span),
+    "abs": lambda lo, node, span, name: _abs(lo, node, span),
+    "min": _minmax,
+    "max": _minmax,
+    "sum": lambda lo, node, span, name: _sum(lo, node, span),
+    "sorted": lambda lo, node, span, name: _sorted(lo, node, span),
+    "divmod": lambda lo, node, span, name: _divmod(lo, node, span),
+    "hex": _base_repr,
+    "oct": _base_repr,
+    "bin": _base_repr,
+    "pow": lambda lo, node, span, name: _pow_call(lo, node, span),
+    "repr": lambda lo, node, span, name: _repr(lo, node, span),
+    "ord": lambda lo, node, span, name: _ord(lo, node, span),
+    "chr": lambda lo, node, span, name: _chr(lo, node, span),
+    "round": lambda lo, node, span, name: _round(lo, node, span),
+    "iter": lambda lo, node, span, name: _iter(lo, node, span),
+    "next": lambda lo, node, span, name: _next(lo, node, span),
+    "map": lambda lo, node, span, name: _map(lo, node, span),
+    "filter": lambda lo, node, span, name: _filter(lo, node, span),
+    "reversed": lambda lo, node, span, name: _reversed(lo, node, span),
+    "range": lambda lo, node, span, name: _range_value(lo, node, span),
+    "enumerate": lambda lo, node, span, name: _enumerate_value(lo, node, span),
+    "zip": lambda lo, node, span, name: _zip_value(lo, node, span),
+}
 
 
 def builtin_call(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any] | None:
     assert isinstance(node.func, ast.Name)
     name = node.func.id
-    if name == "open":
-        return _open(lo, node, span)
-    if name == "print":
-        return _print(lo, node, span)
-    if name == "input":
-        return _input(lo, node, span)
-    if node.keywords and name in {
-        "isinstance",
-        "getattr",
-        "hasattr",
-        "abs",
-        "ord",
-        "chr",
-        "round",
-    }:
+    handler = _BUILTINS.get(name)
+    if handler is None:
+        return None
+    if node.keywords and name in _NO_KEYWORDS:
         lo._reject_keywords(node)
-    if name == "isinstance":
-        return _isinstance(lo, node, span)
-    if name == "getattr":
-        return _getattr(lo, node, span)
-    if name == "hasattr":
-        return _hasattr(lo, node, span)
-    if name == "abs":
-        return _abs(lo, node, span)
-    if name in {"min", "max"}:
-        return _minmax(lo, node, span, name)
-    if name == "sum":
-        return _sum(lo, node, span)
-    if name == "sorted":
-        return _sorted(lo, node, span)
-    if name == "divmod":
-        return _divmod(lo, node, span)
-    if name in {"hex", "oct", "bin"}:
-        return _base_repr(lo, node, span, name)
-    if name == "pow":
-        return _pow_call(lo, node, span)
-    if name == "repr":
-        return _repr(lo, node, span)
-    if name == "ord":
-        return _ord(lo, node, span)
-    if name == "chr":
-        return _chr(lo, node, span)
-    if name == "round":
-        return _round(lo, node, span)
-    if name == "iter":
-        return _iter(lo, node, span)
-    if name == "next":
-        return _next(lo, node, span)
-    if name == "map":
-        return _map(lo, node, span)
-    if name == "filter":
-        return _filter(lo, node, span)
-    if name == "reversed":
-        return _reversed(lo, node, span)
-    if name == "range":
-        return _range_value(lo, node, span)
-    if name == "enumerate":
-        return _enumerate_value(lo, node, span)
-    if name == "zip":
-        return _zip_value(lo, node, span)
-    return None
+    return handler(lo, node, span, name)
 
 
 def method_spec(class_name: str, name: str) -> dict[str, Any] | None:
