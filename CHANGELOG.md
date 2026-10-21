@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.0] - 2026-10-21
+
+pyrefly is the only runtime oracle, and the release binaries work on Linux x86_64.
+
+- Fix: the Linux x86_64 release binary did nothing and exited 0. mypy's compiled extension crashed at import inside the Nuitka build; release binaries now ship without mypy and bundle the vendored typeshed.
+- The facts provider defaults to `pyrefly-tsp` (97.5% of mypy's typed positions, 85.9% kind agreement on the 14-file corpus; see `benchmarks/factsdiff.py --corpus`).
+- mypy and pyright are optional extras (`oracle-mypy`, `oracle-pyright`); `--checker mypy|pyright` without the extra stops with an install hint. See `docs/external-oracles.md`.
+- The checker's stdlib patches (`range`, `frozenset`, `str.split`) now apply to a vendored typeshed copy (`pyscriptc/_typeshed`, from mypy 2.4) through pyrefly's `typeshed-path`, so mypy is no longer needed for the default lane. Larger wheel.
+- Removed the mypy, pyright and pyright-typeserver facts adapters (about 1260 lines).
+- Release 0.2.1 published to PyPI only; its Linux x86_64 binary was broken, so there is no 0.2.1 GitHub Release.
+
 ## [0.2.1] - 2026-10-21
 
 Release binaries work. The 0.2.0 Nuitka binaries failed their smoke test because the default checker (pyrefly, a native executable) was not inside them.
