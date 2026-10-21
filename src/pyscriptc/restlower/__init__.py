@@ -9,6 +9,28 @@ from __future__ import annotations
 import ast
 from typing import Any
 
+from pyscriptc.restlower._shared import (
+    _BIN,
+    _CMP,
+    _as_float,
+    _asg,
+    _class,
+    _cmp,
+    _const_int,
+    _const_text,
+    _emit,
+    _field,
+    _incr,
+    _int,
+    _len_of,
+    _nm,
+    _pin,
+    _same,
+    _set_field,
+    _span_to,
+    _sub,
+    _tname,
+)
 from pyscriptc.stdmore import (
     CALL_FENCES,
     CLASS_METHODS,
@@ -23,8 +45,6 @@ from pyscriptc.stdmore import (
     type_alias,
 )
 
-_CMP = {"eq": ast.Eq, "ne": ast.NotEq, "lt": ast.Lt, "le": ast.LtE, "gt": ast.Gt, "ge": ast.GtE}
-_BIN = {"add": ast.Add, "sub": ast.Sub, "mul": ast.Mult, "floordiv": ast.FloorDiv}
 _OPEN = {"r": 1, "w": 2, "rb": 3, "wb": 4, "a": 5, "ab": 6}
 # NamedTemporaryFile adds the read/write `+` modes; `open` keeps _OPEN only.
 _TEMP_OPEN = {**_OPEN, "w+": 7, "w+b": 8}
@@ -215,28 +235,6 @@ def builtin_call(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any
     return None
 
 
-def _span_to(node: ast.AST, sub: ast.AST) -> ast.AST:
-    """Copy a call's source span onto a synthesized expression, like the sorted block does."""
-
-    for item in ast.walk(sub):
-        item.lineno, item.col_offset = node.lineno, node.col_offset
-        item.end_lineno, item.end_col_offset = node.end_lineno, node.end_col_offset
-    return sub
-
-
-def _pin(lo: Any, value: dict[str, Any], span: dict[str, Any], hint: str) -> dict[str, Any]:
-    """Store a call argument in a fresh local so later uses read the name."""
-
-    temp = lo._temp(hint)
-    lo.locals[temp] = value["type"]
-    lo.prelude.append({"kind": "assign", "target": temp, "value": value, "span": span})
-    return {"kind": "name", "id": temp, "type": value["type"], "span": span}
-
-
-def _const_int(value: int, span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "const", "value": str(value), "type": {"kind": "int"}, "span": span}
-
-
 _PRINT_KINDS = {"str", "int", "float", "bool", "bytes"}
 
 
@@ -333,14 +331,6 @@ def _input(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _const_text(value: str, kind: str, span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "const", "value": value, "type": {"kind": kind}, "span": span}
-
-
-def _class(name: str) -> dict[str, Any]:
-    return {"kind": "class", "name": name}
-
-
 def _ints(
     lo: Any,
     node: ast.Call,
@@ -374,14 +364,6 @@ def _bisect(lo: Any, node: ast.Call, span: dict[str, Any], attr: str) -> dict[st
         lo.fail(node, "PS1003", f"bisect.{attr} key is int")
     symbol = "ps_bisect_left" if attr == "bisect_left" else "ps_bisect_right"
     return lo._abi_call("bisect", attr, [seq, key], {"kind": "int"}, symbol, span)
-
-
-def _as_float(lo: Any, node: ast.AST, arg: dict[str, Any], span: dict[str, Any], what: str) -> dict[str, Any]:
-    if arg["type"]["kind"] == "int":
-        return {"kind": "cast", "op": "int_to_float", "value": arg, "type": {"kind": "float"}, "span": span}
-    if arg["type"]["kind"] != "float":
-        lo.fail(node, "PS1003", f"{what} argument is {arg['type']['kind']}, expected float")
-    return arg
 
 
 def _getenv(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
@@ -697,22 +679,6 @@ def _is_operator_add(lo: Any, node: ast.expr) -> bool:
         binding = lo.bindings.get(node.id)
         return binding is not None and binding.module == "operator" and binding.attr == "add"
     return False
-
-
-def _nm(name: str, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "name", "id": name, "type": typ, "span": span}
-
-
-def _int(value: int, span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "const", "value": str(value), "type": {"kind": "int"}, "span": span}
-
-
-def _asg(target: str, value: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "assign", "target": target, "value": value, "span": span}
-
-
-def _cmp(op: str, left: dict[str, Any], right: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "compare", "op": op, "left": left, "right": right, "type": {"kind": "bool"}, "span": span}
 
 
 def _join(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
@@ -1320,32 +1286,6 @@ def _round(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     return lo._abi_call("builtins", "round", [arg, digits], {"kind": "float"}, "ps_round_nd", span)
 
 
-def _field(value: dict[str, Any], name: str, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "attr", "value": value, "name": name, "type": typ, "span": span}
-
-
-def _sub(value: dict[str, Any], index: dict[str, Any], typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "subscript", "value": value, "index": index, "type": typ, "span": span}
-
-
-def _len_of(seq: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "kind": "call",
-        "callee": {"kind": "builtin", "name": "len"},
-        "args": [seq],
-        "type": {"kind": "int"},
-        "span": span,
-    }
-
-
-def _set_field(obj: dict[str, Any], name: str, value: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "setattr", "object": obj, "name": name, "value": value, "span": span}
-
-
-def _incr(left: dict[str, Any], by: int, span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "binary", "op": "+", "left": left, "right": _int(by, span), "type": {"kind": "int"}, "span": span}
-
-
 def _elem_list(lo: Any, node: ast.Call, source: dict[str, Any], span: dict[str, Any], hint: str) -> dict[str, Any]:
     """Materialize a non-list iterable into a list through the same `for`
     lowering a comprehension uses (str, bytes, files, dict keys elsewhere);
@@ -1672,21 +1612,6 @@ def _zip_value(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     )
     seq = lo._comp(_span_to(node, comp), span, None)
     return _mk_iter(lo, seq, node, span)
-
-
-def _tname(lo: Any, hint: str) -> str:
-    """A fresh temp usable as a Python identifier in generated source."""
-    return lo._temp(hint).replace(".", "_")
-
-
-def _emit(lo: Any, node: ast.AST, lines: list[str], span: dict[str, Any]) -> None:
-    """Lower generated Python source lines into the prelude, like the sorted
-    block: statements re-parse and run through `_body`."""
-    for stmt in ast.parse("\n".join(lines)).body:
-        for sub in ast.walk(stmt):
-            sub.lineno, sub.col_offset = node.lineno, node.col_offset
-            sub.end_lineno, sub.end_col_offset = node.end_lineno, node.end_col_offset
-        lo.prelude.extend(lo._body([stmt]))
 
 
 def _pool(lo: Any, node: ast.AST, source: dict[str, Any], span: dict[str, Any], hint: str) -> dict[str, Any]:
@@ -2210,12 +2135,6 @@ def _itertools(lo: Any, node: ast.Call, span: dict[str, Any], attr: str) -> dict
         return _groupby(lo, node, span)
     lo.fail(node, "PS2001", f"itertools.{attr} is not in the lowered subset of itertools")
     raise AssertionError("unreachable")
-
-
-def _same(a: dict[str, Any], b: dict[str, Any]) -> bool:
-    from pyscriptc.ir import types_equal
-
-    return types_equal(a, b)
 
 
 def method_spec(class_name: str, name: str) -> dict[str, Any] | None:
