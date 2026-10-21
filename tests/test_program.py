@@ -6,7 +6,6 @@ must produce the same stdout and exit code as the compiled binary.
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -35,9 +34,7 @@ def oracle_run(root: Path, args: list[str] | None = None) -> subprocess.Complete
     )
 
 
-def compile_run_program(
-    tmp_path: Path, root: Path, args: list[str] | None = None
-) -> subprocess.CompletedProcess[str]:
+def compile_run_program(tmp_path: Path, root: Path, args: list[str] | None = None) -> subprocess.CompletedProcess[str]:
     return run_cli(
         "compile",
         str(root),
@@ -115,11 +112,7 @@ def test_from_import_binds_module_members(tmp_path: Path) -> None:
             "util.py": "def twice(n: int) -> int:\n    return n * 2\n",
             "pkg/__init__.py": "",
             "pkg/helper.py": "NAME: str = 'helper'\n",
-            "shapes.py": (
-                "class Point:\n    x: int\n\n"
-                "    def __init__(self, x: int) -> None:\n"
-                "        self.x = x\n"
-            ),
+            "shapes.py": ("class Point:\n    x: int\n\n    def __init__(self, x: int) -> None:\n        self.x = x\n"),
         },
     )
     assert_matches_cpython(tmp_path, root)
@@ -131,10 +124,7 @@ def test_program_with_a_main_guard_still_runs_the_top_level(tmp_path: Path) -> N
         tmp_path,
         "guarded",
         {
-            "__main__.py": (
-                "import util\n\nprint('top')\n\n"
-                'if __name__ == "__main__":\n    print(util.twice(5))\n'
-            ),
+            "__main__.py": ("import util\n\nprint('top')\n\nif __name__ == \"__main__\":\n    print(util.twice(5))\n"),
             "util.py": "def twice(n: int) -> int:\n    return n * 2\n",
         },
     )
@@ -163,9 +153,7 @@ def test_a_circular_import_is_refused_with_the_cycle_path(tmp_path: Path) -> Non
             "b.py": "import a\n\nprint('init b')\n\n\ndef two() -> int:\n    return 2\n",
         },
     )
-    got = run_cli(
-        "compile", str(root), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "cycle.ir.json")
-    )
+    got = run_cli("compile", str(root), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "cycle.ir.json"))
     assert got.returncode == 3, got.stderr
     assert "circular import: a -> b -> a" in got.stderr
 
@@ -179,9 +167,7 @@ def test_a_self_import_is_refused(tmp_path: Path) -> None:
             "selfmod.py": "import selfmod\n\n\ndef f() -> int:\n    return 1\n",
         },
     )
-    got = run_cli(
-        "compile", str(root), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "self.ir.json")
-    )
+    got = run_cli("compile", str(root), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "self.ir.json"))
     assert got.returncode == 3, got.stderr
     assert "circular import: selfmod -> selfmod" in got.stderr
 
@@ -197,9 +183,7 @@ def test_a_cycle_inside_a_package_is_refused(tmp_path: Path) -> None:
             "pkg/b.py": "from pkg import a\n\n\ndef g() -> int:\n    return a.f()\n",
         },
     )
-    got = run_cli(
-        "compile", str(root), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "pc.ir.json")
-    )
+    got = run_cli("compile", str(root), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "pc.ir.json"))
     assert got.returncode == 3, got.stderr
     assert "circular import: pkg.a -> pkg.b -> pkg.a" in got.stderr
 
@@ -216,9 +200,7 @@ def test_a_package_directory_still_skips_dunder_main(tmp_path: Path) -> None:
             "__main__.py": "import argparse\n",
         },
     )
-    got = run_cli(
-        "compile", str(root), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "lib.ir.json")
-    )
+    got = run_cli("compile", str(root), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "lib.ir.json"))
     assert "skipped lib/__main__.py" in got.stderr
 
 
@@ -230,9 +212,7 @@ def test_a_missing_program_module_fences_clearly(tmp_path: Path) -> None:
             "__main__.py": "import nosuch\n\nprint(nosuch.f())\n",
         },
     )
-    got = run_cli(
-        "compile", str(root), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "m.ir.json")
-    )
+    got = run_cli("compile", str(root), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "m.ir.json"))
     assert got.returncode == 3, got.stderr
     assert "nosuch is not in the closed import table" in got.stderr
 
@@ -247,9 +227,7 @@ def test_a_relative_import_in_a_plain_sibling_is_refused(tmp_path: Path) -> None
             "other.py": "",
         },
     )
-    got = run_cli(
-        "compile", str(root), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "r.ir.json")
-    )
+    got = run_cli("compile", str(root), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "r.ir.json"))
     assert got.returncode == 3, got.stderr
     assert "no parent package" in got.stderr
 
