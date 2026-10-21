@@ -129,6 +129,12 @@ def _program_plan(
         trees[name] = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         files[name] = path
     edges: dict[str, list[str]] = {name: _program_imports(trees[name], exports) for name in trees}
+    # The statement that imports a module, so a cycle fence points at it.
+    sites: dict[tuple[str, str], ast.stmt] = {}
+    for name, tree in trees.items():
+        for stmt in tree.body:
+            for module, _local in _statement_imports(stmt, exports):
+                sites.setdefault((name, module), stmt)
     # Only a module with script statements has an `__init__` export: its body
     # runs at import. A definition-only module contributes nothing.
     inited = {name for name, bucket in exports.items() if "__init__" in bucket}
@@ -150,13 +156,7 @@ def _program_plan(
                     {
                         "code": "PS2002",
                         "message": f"circular import: {' -> '.join(cycle)}",
-                        "span": {
-                            "file": str(files[name]),
-                            "line": 1,
-                            "col": 1,
-                            "endLine": 1,
-                            "endCol": 1,
-                        },
+                        "span": _cycle_span(files[name], sites.get((name, child))),
                         "function": None,
                     }
                 )
@@ -175,6 +175,22 @@ def _program_plan(
     if fences:
         return fences, {}
     return fences, owners
+
+
+def _cycle_span(path: Path, stmt: ast.stmt | None) -> dict[str, Any]:
+    """The span of the import statement that closes a cycle."""
+
+    line = getattr(stmt, "lineno", 1) or 1
+    col = getattr(stmt, "col_offset", 0) or 0
+    end_line = getattr(stmt, "end_lineno", line) or line
+    end_col = getattr(stmt, "end_col_offset", col) or col
+    return {
+        "file": str(path),
+        "line": line,
+        "col": col + 1,
+        "endLine": end_line,
+        "endCol": end_col + 1,
+    }
 
 
 def _program_imports(tree: ast.Module, exports: dict[str, dict[str, dict[str, Any]]]) -> list[str]:
