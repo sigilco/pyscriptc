@@ -205,3 +205,41 @@ void ps_dt_now_fill(PsDateTime *out) {
     out->second = st.tm_sec;
     out->microsecond = us;
 }
+
+/* datetime.fromtimestamp: the timestamp is read as local time, like CPython.
+   The fractional part rounds to the nearest microsecond. */
+void ps_dt_fromtimestamp_fill(double ts, PsDateTime *out) {
+    double whole = floor(ts);
+    double frac = ts - whole;
+    int64_t us = (int64_t)(frac * 1000000.0 + 0.5);
+    PsStructTime st;
+    if (frac < 0) {
+        us = -(int64_t)((-frac) * 1000000.0 + 0.5);
+    }
+    if (us >= 1000000) {
+        us -= 1000000;
+        whole += 1;
+    }
+    if (us < 0) {
+        us += 1000000;
+        whole -= 1;
+    }
+    ps_local(whole, &st);
+    out->year = st.tm_year;
+    out->month = st.tm_mon;
+    out->day = st.tm_mday;
+    out->hour = st.tm_hour;
+    out->minute = st.tm_min;
+    out->second = st.tm_sec;
+    out->microsecond = us;
+}
+
+/* date.fromtimestamp: the same local-time split, without a time of day. */
+void ps_date_fromtimestamp_fill(double ts, PsDate *out) {
+    double whole = floor(ts);
+    PsStructTime st;
+    ps_local(whole, &st);
+    out->year = st.tm_year;
+    out->month = st.tm_mon;
+    out->day = st.tm_mday;
+}

@@ -1242,6 +1242,15 @@ CLASS_FIELDS: dict[str, list[dict[str, Any]]] = {
 LEX_CLASSES = frozenset({"Date", "DateTime", "Time", "TimeDelta"})
 COMPARE_CLASSES = LEX_CLASSES | {"Path"}
 
+# Class constants: `date.min` and friends read a runtime record instead of a
+# baked literal, so the values stay right when the class layout changes.
+CLASS_CONSTANTS: dict[tuple[str, str], tuple[dict[str, Any], str]] = {
+    ("datetime", "date.min"): (_DATE, "ps_date_min"),
+    ("datetime", "date.max"): (_DATE, "ps_date_max"),
+    ("datetime", "datetime.min"): (_DT, "ps_dt_min"),
+    ("datetime", "datetime.max"): (_DT, "ps_dt_max"),
+}
+
 TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("datetime", "date"): "Date",
     ("datetime", "datetime"): "DateTime",
@@ -1271,6 +1280,7 @@ CLASS_METHODS: dict[str, dict[str, dict[str, Any]]] = {
         "isoformat": _sig([], _S, "ps_dt_iso"),
         "date": _sig([], _DATE, "ps_dt_date"),
         "time": _sig([], _TOD, "ps_dt_time"),
+        "timestamp": _sig([], _F, "ps_dt_timestamp"),
     },
     "Time": {"isoformat": _sig([], _S, "ps_tod_iso")},
     "TimeDelta": {"total_seconds": _sig([], _F, "ps_delta_total")},
@@ -1337,8 +1347,12 @@ REST_FIXED: dict[str, dict[str, dict[str, Any]]] = {
         "date.today": _sig([], _DATE, "ps_date_today"),
         "date.fromisoformat": _sig([_S], _DATE, "ps_date_fromiso"),
         "date.fromordinal": _sig([_I], _DATE, "ps_date_fromord"),
+        "date.fromtimestamp": _sig([_F], _DATE, "ps_date_fromtimestamp"),
         "datetime.now": _sig([], _DT, "ps_dt_now"),
         "datetime.fromisoformat": _sig([_S], _DT, "ps_dt_fromiso"),
+        "datetime.fromtimestamp": _sig([_F], _DT, "ps_dt_fromtimestamp"),
+        "datetime.strptime": _sig([_S, _S], _DT, "ps_dt_strptime_entry"),
+        "datetime.combine": _sig([_DATE, _TOD], _DT, "ps_dt_combine"),
     },
     "time": {
         "time": _sig([], _F, "ps_time_time"),
@@ -1615,6 +1629,11 @@ CONSTANTS, SIZEOF = _load_constants()
 
 def module_constant(module: str, member: str) -> tuple[Any, dict[str, Any]] | None:
     return CONSTANTS.get((module, member))
+
+
+def class_constant(module: str, member: str) -> tuple[dict[str, Any], str] | None:
+    """The type and runtime symbol of a class constant, like `date.max`."""
+    return CLASS_CONSTANTS.get((module, member))
 
 
 def fixed_spec(module: str, member: str) -> dict[str, Any] | None:

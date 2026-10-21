@@ -13,7 +13,8 @@ SRC = ROOT / "src" / "pyscriptc"
 def test_self_census_ballpark() -> None:
     census = build_self_census(SRC)
     # doctor.py is the 28th module; log.py, telemetry.py, debug.py and rtcache.py each added a module.
-    assert census["modules"] == 48
+    # The restlower package split into handler modules (+2 more than the old pin).
+    assert census["modules"] == 50
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -32,7 +33,10 @@ def test_self_census_ballpark() -> None:
     # Telemetry privacy pass: random install id, IP-discard properties, opt-in switch (+12 fences).
     # rtcache.py (runtime object cache: threads, hashing, subprocess) adds 1 module and 33 fences.
     # First-run fix: node_text/op_text diagnostics helpers and CLI --run entry handling (+7 fences).
-    assert census["fences"] == 1434
+    # stdlib families: os/path, pathlib, shutil, subprocess, datetime rows in
+    # stdmore.py and the class_constant hook in _expr.py add 6 fences total
+    # (1442 at b07a48c, 1448 after the datetime family).
+    assert census["fences"] == 1448
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 25_000
-    assert sum(p["fences"] for p in census["packages"]) == 1434
+    assert sum(p["fences"] for p in census["packages"]) == 1448
