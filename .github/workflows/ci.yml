@@ -92,3 +92,76 @@ jobs:
       - name: Install qemu-user-static (run aarch64/riscv64 musl binaries)
         run: sudo apt-get update && sudo apt-get install -y qemu-user-static
       - run: packaging/zig/smoke.sh
+
+  # Wheel smoke: build the wheel, install it into a fresh venv, and compile a
+  # tiny program with the repo venv and pyrefly dirs off PATH. Same shape as
+  # the verify job in release.yml. On pull_request the job runs only when the
+  # diff touches the compiler entry points, pyproject.toml, or packaging/.
+  # Pushes to any branch always run it.
+  wheel-smoke:
+    name: wheel install smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Detect relevant changes
+        id: paths
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed="$(git diff --name-only "$BASE" "$HEAD")"
+          if grep -Eq '^(src/pyscriptc/(check|typefacts|cli)\.py|pyproject\.toml|packaging/)' <<<"$changed"; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: astral-sh/setup-uv@v6
+        if: steps.paths.outputs.run == 'true'
+        with:
+          enable-cache: true
+          python-version: "3.14"
+
+      - name: Stamp PostHog token
+        if: steps.paths.outputs.run == 'true'
+        env:
+          POSTHOG_PROJECT_TOKEN: ${{ vars.POSTHOG_PROJECT_TOKEN }}
+        run: printf 'TOKEN = "%s"\n' "$POSTHOG_PROJECT_TOKEN" > src/pyscriptc/_posthog_token.py
+
+      - name: Build sdist and wheel
+        if: steps.paths.outputs.run == 'true'
+        run: uv build
+
+      - name: Install clang
+        if: steps.paths.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          command -v clang >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq clang; }
+
+      - name: Fresh venv, install wheel, compile and run fixture
+        if: steps.paths.outputs.run == 'true'
+        env:
+          WORK: ${{ runner.temp }}/wheel-smoke
+        run: |
+          set -euo pipefail
+          mkdir -p "$WORK"
+          wheel="$(ls dist/pyscriptc-*-any.whl)"
+          uv venv "$WORK/venv"
+          uv pip install --python "$WORK/venv/bin/python" "$wheel"
+          printf 'def main() -> int:\n    print("hello")\n    return 0\n' > "$WORK/hello.py"
+          # Repo venv and pyrefly dirs are off PATH on purpose.
+          env -i HOME="$HOME" PATH=/usr/bin:/bin:/usr/local/bin \
+            "$WORK/venv/bin/pyscriptc" compile "$WORK/hello.py" --emit bin -o "$WORK/hello-bin"
+          out="$("$WORK/hello-bin")"
+          echo "$out"
+          [ "$out" = "hello" ]
