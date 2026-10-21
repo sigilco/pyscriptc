@@ -147,7 +147,7 @@ The kernel geomean is the original four loops. The stdlib rows time every module
 
 ## Telemetry
 
-Release builds collect anonymous usage metrics with PostHog (EU host): the subcommand you ran, pyscriptc/python versions, platform, compile duration, and the first `PSxxxx` fence code when a file fails to lower. Never sent: file names, paths, or source text. The machine id is a salted sha256 that is not reversible.
+Release builds collect anonymous usage metrics with PostHog (EU host): the subcommand you ran, pyscriptc/python versions, platform, compile duration, outcome and fence counts with diagnostic family names, keyed by a random install id (no hardware ids, IP not stored, raw events kept 90 days). Never sent: file names, paths, or source text. See [site/guide/privacy.md](site/guide/privacy.md).
 
 Telemetry is off in CI and a no-op in dev checkouts (no baked-in token). One stderr line announces it on first use. Disable it with any of:
 
@@ -155,6 +155,7 @@ Telemetry is off in CI and a no-op in dev checkouts (no baked-in token). One std
 pyscriptc telemetry disable        # writes ~/.config/pyscriptc/config.toml
 export PYSC_NO_TELEMETRY=1
 export DO_NOT_TRACK=1
+pyscriptc telemetry reset-id       # new random install id
 ```
 
 `pyscriptc telemetry status` shows the effective state and why.
