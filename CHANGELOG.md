@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.0] - 2026-10-21
+
+The rest-of-stdlib lowering moved out of one 5000-line file into a package, with no behavior change.
+
+- Refactor: `restlower.py` is now the `restlower/` package (one module per stdlib area: datetime, pathlib, hmac, time, random, csv, textwrap, copy, collections, itertools, functools, operator, min/max/sum/sorted, builtins, io, subprocess and resource, ctypes), with registry-based dispatch instead of long if-chains. Generated IR is byte-identical (IR hashes unchanged).
+- Dev: `pytest-xdist` is a dev dependency; the full suite runs in about 10 minutes with `-n 6` instead of 40.
+- Fix: the release workflow no longer counts the wheel and sdist as binaries, so the GitHub draft release is created again.
+- Self-host census re-pinned: 47 modules, 1382 fences.
+
 ## [0.3.0] - 2026-10-21
 
 pyrefly is the only runtime oracle, and the release binaries work on Linux x86_64.
