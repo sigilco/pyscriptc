@@ -1,9 +1,11 @@
-"""Anonymous usage telemetry via PostHog.
+"""Pseudonymous usage telemetry via PostHog (EU host).
 
-What is sent: a short event payload (subcommand, version, python/platform, and
+What is sent: a short event payload (subcommand, version, python major.minor, platform, and
 for `compile` a duration, an outcome, the fence count, the diagnostic family
-names behind those fences, the checker/emit/driver flags and the binary size;
-for `coverage` the aggregate fence counts and the covered-definition ratio).
+names behind those fences and the checker/emit/driver flags;
+for `coverage` the aggregate fence and definition counts). The id is a random
+uuid4 stored in `telemetry-id` next to the config file; no hardware is read.
+Every event also carries `$ip: null`, `$geoip_disable` and `$process_person_profile: false`.
 Never sent: file names, paths, source text, per-fence identifiers (the file,
 definition, line or frame a fence points at), or anything else derived from
 the compiled program.
@@ -15,6 +17,11 @@ from the environment at run time: the release workflow writes
 `uv build`. Dev checkouts and contributor installs have no such file, so
 `_token()` returns "" and every telemetry call is a silent no-op. For local
 testing set `PYSC_POSTHOG_TOKEN`; it wins over the baked-in file.
+
+First-run notice: printed once on stderr when stderr is a TTY, outside CI and
+while telemetry is enabled; it records `notice_seen = true`. No event is sent
+before the notice was shown, so non-interactive use never sends anything until
+a TTY run has shown it.
 
 Opt-out, first match wins:
 
@@ -35,11 +42,8 @@ down or break a compile.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
-import platform
-import socket
 import sys
 import threading
 import urllib.request
@@ -48,13 +52,18 @@ from pathlib import Path
 
 POSTHOG_HOST = "https://eu.i.posthog.com"
 
-_SALT = b"pyscriptc-v1"
 _TIMEOUT_S = 1.5
 
 try:  # release builds stamp this file; see the module docstring
     from pyscriptc._posthog_token import TOKEN as _BAKED_TOKEN
 except ImportError:
     _BAKED_TOKEN = ""
+
+
+# Sent with every event so PostHog does not keep the client IP or a person profile.
+# `$ip: null` and `$geoip_disable` are per-event requests; the authoritative control is the
+# PostHog project setting "Discard client IP data" (see site/guide/privacy.md).
+_PRIVACY_PROPERTIES = {"$ip": None, "$geoip_disable": True, "$process_person_profile": False}
 
 
 def _token() -> str:
@@ -98,50 +107,113 @@ def _toml_value(value: str) -> str:
     return json.dumps(value)
 
 
-def _machine_id() -> str:
-    """Stable anonymous machine hash. Not reversible, carries no raw identity."""
-    parts = [_SALT]
-    for candidate in ("/etc/machine-id", "/var/lib/dbus/machine-id"):
-        try:
-            parts.append(Path(candidate).read_bytes().strip())
-            break
-        except OSError:
-            continue
+def _id_path() -> Path:
+    return _config_path().with_name("telemetry-id")
+
+
+def _install_id() -> str:
+    """Random per-install id (uuid4), created on first send and kept in `telemetry-id` (mode 0600).
+
+    Nothing is derived from the machine: no machine id, MAC address or hostname is read.
+    Deleting the file (or `pyscriptc telemetry reset-id`) makes the next send start a new id.
+    """
+    path = _id_path()
     try:
-        parts.append(str(uuid.getnode()).encode())
-    except Exception:
+        existing = path.read_text(encoding="utf-8").strip()
+        if existing:
+            return str(uuid.UUID(existing))
+    except OSError, ValueError:
         pass
+    new_id = str(uuid.uuid4())
     try:
-        parts.append(socket.gethostname().encode())
-    except Exception:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(new_id + "\n")
+        os.chmod(path, 0o600)
+    except OSError:
         pass
-    return hashlib.sha256(b"|".join(parts)).hexdigest()
+    return new_id
 
 
 def ci() -> bool:
     return bool(os.environ.get("CI"))
 
 
+# Consent model switch. False (shipped default): on unless opted out, after a first-run notice.
+# True: off until the user runs `pyscriptc telemetry enable` (consent); the notice then asks instead of informs.
+# The owner decides; see the PR description. Flip only this constant.
+OPT_IN = False
+
+
+def _blocked() -> bool:
+    return ci() or _truthy("PYSC_NO_TELEMETRY") or _truthy("DO_NOT_TRACK") or not _token()
+
+
 def enabled() -> bool:
-    if ci() or _truthy("PYSC_NO_TELEMETRY") or _truthy("DO_NOT_TRACK"):
+    if _blocked():
         return False
-    if _read_config().get("telemetry") == "false":
+    setting = _read_config().get("telemetry")
+    if setting == "false":
         return False
-    return bool(_token())
+    return setting == "true" or not OPT_IN
+
+
+NOTICE_URL = "https://github.com/sigilco/pyscriptc/blob/master/site/guide/telemetry.md"
+
+PRIVACY_URL = "https://github.com/sigilco/pyscriptc/blob/master/site/guide/privacy.md"
+
+NOTICE = (
+    "pyscriptc sends usage metrics: command name, pyscriptc/Python/OS versions, compile outcome, "
+    "duration, fence counts and diagnostic family names, plus a random install id (no hardware ids, "
+    "no IP address stored). Never source code, file paths or names. Data goes to PostHog (EU) and is kept 90 days.\n"
+    "Opt out: PYSC_NO_TELEMETRY=1 or `pyscriptc telemetry disable`; new id: `pyscriptc telemetry reset-id`.\n"
+    "Details: " + NOTICE_URL + "  Privacy: " + PRIVACY_URL
+)
+
+NOTICE_OPT_IN = (
+    "pyscriptc can send anonymous-by-design usage metrics (command name, versions, compile outcome, duration, "
+    "fence counts and diagnostic family names, a random install id; never source code, paths or names, no IP stored). "
+    "It is OFF until you consent: run `pyscriptc telemetry enable` to turn it on.\n"
+    "Details: " + NOTICE_URL + "  Privacy: " + PRIVACY_URL
+)
+
+_notice_shown_now = False
 
 
 def maybe_print_notice() -> None:
-    """One stderr line on first non-CI, opted-in invocation; never twice."""
-    if not enabled():
+    """Print the first-run notice once, on an interactive stderr outside CI.
+
+    Nothing is sent until the notice was shown (see `track`). A non-interactive
+    run never shows it, so it never sends either.
+    """
+    global _notice_shown_now
+    if _blocked() or _read_config().get("telemetry") == "false":
         return
+    if OPT_IN and _read_config().get("telemetry") != "true":
+        if _read_config().get("notice_seen") == "true" or not _stderr_tty():
+            return
+        print(NOTICE_OPT_IN, file=sys.stderr)
+        _mark_notice_seen()
+        return
+    if _read_config().get("notice_seen") == "true":
+        return
+    if not _stderr_tty():
+        return
+    print(NOTICE, file=sys.stderr)
+    _notice_shown_now = True
+    _mark_notice_seen()
+
+
+def _stderr_tty() -> bool:
+    try:
+        return bool(sys.stderr.isatty())
+    except AttributeError, ValueError:
+        return False
+
+
+def _mark_notice_seen() -> None:
     config = _read_config()
-    if config.get("notice_seen") == "true":
-        return
-    print(
-        "pyscriptc collects anonymous usage metrics (no source/paths). "
-        "Disable: PYSC_NO_TELEMETRY=1 or `pyscriptc telemetry disable`",
-        file=sys.stderr,
-    )
     config["notice_seen"] = "true"
     try:
         _write_config(config)
@@ -149,15 +221,19 @@ def maybe_print_notice() -> None:
         pass
 
 
+def _notice_acknowledged() -> bool:
+    return _notice_shown_now or _read_config().get("notice_seen") == "true"
+
+
 def track(event: str, properties: dict | None = None) -> None:
     """Queue one event on a daemon thread. Every failure is swallowed."""
-    if not enabled():
+    if not enabled() or not _notice_acknowledged():
         return
     payload = {
         "api_key": _token(),
         "event": event,
-        "distinct_id": _machine_id(),
-        "properties": properties or {},
+        "distinct_id": _install_id(),
+        "properties": {**(properties or {}), **_PRIVACY_PROPERTIES},
     }
     thread = threading.Thread(target=_post, args=(payload,), daemon=True)
     try:
@@ -185,9 +261,8 @@ def base_properties() -> dict:
 
     return {
         "pyscriptc_version": __version__,
-        "python_version": platform.python_version(),
+        "python_version": f"{sys.version_info.major}.{sys.version_info.minor}",
         "platform": sys.platform,
-        "ci": ci(),
     }
 
 
@@ -200,7 +275,6 @@ def compile_properties(
     checker: str | None = None,
     emit: str | None = None,
     driver: str | None = None,
-    binary_bytes: int | None = None,
     skip_check: bool = False,
 ) -> dict:
     """Build the `compile.finished` property payload.
@@ -223,8 +297,6 @@ def compile_properties(
         props["checker"] = checker
     if driver:
         props["driver"] = driver
-    if binary_bytes:
-        props["binary_bytes"] = binary_bytes
     return props
 
 
@@ -245,19 +317,17 @@ def coverage_properties(summary: dict) -> dict:
         families[family] = families.get(family, 0) + count
     props = dict(base_properties())
     props.update(
-        files=int(summary.get("files", 0)),
         definitions=definitions,
         fencedDefinitions=fenced_definitions,
         fences=int(summary.get("fences", 0)),
         rootFences=int(summary.get("rootFences", 0)),
         byFamily=families,
-        coverage_ratio=fenced_definitions / definitions if definitions else 0.0,
     )
     return props
 
 
 def telemetry_cmd(action: str) -> int:
-    """Implement `pyscriptc telemetry disable|enable|status`."""
+    """Implement `pyscriptc telemetry disable|enable|status|reset-id`."""
     if action == "status":
         config = _read_config()
         print(f"telemetry: {'on' if enabled() else 'off'}")
@@ -272,12 +342,24 @@ def telemetry_cmd(action: str) -> int:
             print("reason: telemetry = false in config")
         elif not _token():
             print("reason: no PostHog token (dev install)")
+        elif OPT_IN and config.get("telemetry") != "true":
+            print("reason: opt-in build, run `pyscriptc telemetry enable` to consent")
+        return 0
+    if action == "reset-id":
+        try:
+            _id_path().unlink(missing_ok=True)
+        except OSError as exc:
+            print(f"cannot remove {_id_path()}: {exc}", file=sys.stderr)
+            return 1
+        print(f"install id removed ({_id_path()}); a new random id is created on the next send")
         return 0
     if action not in ("enable", "disable"):
-        print("usage: pyscriptc telemetry disable|enable|status", file=sys.stderr)
+        print("usage: pyscriptc telemetry disable|enable|status|reset-id", file=sys.stderr)
         return 2
     config = _read_config()
     config["telemetry"] = "true" if action == "enable" else "false"
+    if action == "enable":
+        config["notice_seen"] = "true"  # explicit consent counts as having seen the notice
     try:
         _write_config(config)
     except OSError as exc:

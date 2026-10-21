@@ -59,6 +59,7 @@ export default {
       children: [
         { title: "Debugging and logs", path: "/guide/debugging/" },
         { title: "Telemetry and privacy", path: "/guide/telemetry/" },
+        { title: "Privacy notice", path: "/guide/privacy/" },
       ],
     },
     {
