@@ -2,7 +2,7 @@
 
 Run: python -m benchmarks.compat2.fence_messages [--out FILE]
 
-Walks ``src/pyscriptc/lower/*.py`` and ``src/pyscriptc/restlower.py`` for
+Walks ``src/pyscriptc/lower/*.py`` and ``src/pyscriptc/restlower/*.py`` for
 ``.fail(...)`` calls and records every (code, message) pair with its location.
 Literal message parts are kept verbatim; interpolated or dynamic parts render
 as ``{}``. The output is a sorted JSON list of ``{code, message, file, line}``
@@ -23,7 +23,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 LOWER_DIR = ROOT / "src" / "pyscriptc" / "lower"
-EXTRA_FILES = [ROOT / "src" / "pyscriptc" / "restlower.py"]
+EXTRA_FILES = sorted((ROOT / "src" / "pyscriptc" / "restlower").glob("*.py"))
 
 
 def _render(node: ast.AST) -> str:
