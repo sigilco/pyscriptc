@@ -1,13 +1,15 @@
 # betterleaks scan config. The probe corpus is full of sha256 strings and
-# vendored CPython test fixtures; neither is a leak.
+# vendored CPython test fixtures; the vendored typeshed stubs name parameters
+# `password`; none of these is a leak.
 
 [extend]
 useDefault = true
 
 [allowlist]
-description = "IR probe hashes and vendored test fixtures"
+description = "IR probe hashes, vendored test fixtures and vendored typeshed stubs"
 paths = [
   '''benchmarks/compat2/probes/IR_HASHES\.json''',
+  '''src/pyscriptc/_typeshed/.*\.pyi''',
 ]
 regexes = [
   '''dataStoreTestQuery''',
