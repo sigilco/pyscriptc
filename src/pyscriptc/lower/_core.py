@@ -183,6 +183,34 @@ def _compare(op: str, left: dict[str, Any], right: dict[str, Any], span: dict[st
     return {"kind": "compare", "op": op, "left": left, "right": right, "type": {"kind": "bool"}, "span": span}
 
 
+_OP_SYMBOLS = {
+    "Add": "+", "Sub": "-", "Mult": "*", "Div": "/", "FloorDiv": "//", "Mod": "%", "Pow": "**",
+    "LShift": "<<", "RShift": ">>", "BitOr": "|", "BitAnd": "&", "BitXor": "^", "MatMult": "@",
+    "UAdd": "+", "USub": "-", "Invert": "~", "Not": "not",
+    "Eq": "==", "NotEq": "!=", "Lt": "<", "LtE": "<=", "Gt": ">", "GtE": ">=",
+    "Is": "is", "IsNot": "is not", "In": "in", "NotIn": "not in",
+}  # fmt: skip
+
+_NODE_WORDS = {
+    "JoinedStr": "f-string", "NamedExpr": "walrus assignment (:=)", "Starred": "starred expression",
+    "Await": "await", "Yield": "yield", "YieldFrom": "yield from", "Slice": "slice",
+    "Set": "set display", "Dict": "dict display", "Subscript": "subscript", "TemplateStr": "t-string",
+    "Interpolation": "t-string interpolation",
+}  # fmt: skip
+
+
+def _op_text(op: ast.AST) -> str:
+    """The operator as written in source (`*`, `not in`), not the AST class name (`Mult`)."""
+    name = type(op).__name__
+    return f"`{_OP_SYMBOLS[name]}`" if name in _OP_SYMBOLS else name
+
+
+def _node_text(node: ast.AST) -> str:
+    """A source-level name for an unsupported expression node, not the AST class name."""
+    name = type(node).__name__
+    return _NODE_WORDS.get(name, name)
+
+
 def _show(typ: dict[str, Any]) -> str:
     if typ["kind"] == "list":
         head = "set" if typ.get("set") else "list"

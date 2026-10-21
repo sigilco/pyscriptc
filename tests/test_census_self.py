@@ -31,7 +31,8 @@ def test_self_census_ballpark() -> None:
     # v0.4.0: restlower.py split into a package of handler modules (+19 modules, +140 fences).
     # Telemetry privacy pass: random install id, IP-discard properties, opt-in switch (+12 fences).
     # rtcache.py (runtime object cache: threads, hashing, subprocess) adds 1 module and 33 fences.
-    assert census["fences"] == 1427
+    # First-run fix: node_text/op_text diagnostics helpers and CLI --run entry handling (+7 fences).
+    assert census["fences"] == 1434
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 25_000
-    assert sum(p["fences"] for p in census["packages"]) == 1427
+    assert sum(p["fences"] for p in census["packages"]) == 1434
