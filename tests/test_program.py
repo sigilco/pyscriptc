@@ -143,6 +143,70 @@ def test_sys_argv_reaches_the_program(tmp_path: Path) -> None:
     assert_matches_cpython(tmp_path, root, ["hello", "world"])
 
 
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+def test_a_main_guard_in_an_imported_module_does_not_run(tmp_path: Path) -> None:
+    # An imported module is not `__main__`: its guard body never runs.
+    root = write_tree(
+        tmp_path,
+        "guardedmod",
+        {
+            "__main__.py": "import helper\n\nprint(helper.VALUE)\nprint(helper.make())\n",
+            "helper.py": (
+                "VALUE: str = 'constant'\n\n"
+                'if __name__ == "__main__":\n'
+                "    print('should not run')\n\n\n"
+                "def make() -> str:\n"
+                "    return VALUE + '!'\n"
+            ),
+        },
+    )
+    assert_matches_cpython(tmp_path, root)
+
+
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+def test_a_side_effect_import_runs_the_body_once(tmp_path: Path) -> None:
+    # The same module imported twice runs its body once.
+    root = write_tree(
+        tmp_path,
+        "sideeffect",
+        {
+            "__main__.py": "import side\nfrom side import MARK\n\nprint(MARK)\n",
+            "side.py": "print('side effect runs')\n\nMARK: str = 'mark'\n",
+        },
+    )
+    assert_matches_cpython(tmp_path, root)
+
+
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+def test_a_module_nobody_imports_never_runs(tmp_path: Path) -> None:
+    root = write_tree(
+        tmp_path,
+        "unreachable",
+        {
+            "__main__.py": "import shared\n\nprint('main')\n",
+            "aa.py": "import shared\n\nprint('init aa')\n",
+            "shared.py": "print('init shared')\n",
+        },
+    )
+    assert_matches_cpython(tmp_path, root)
+
+
+@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+def test_a_nested_package_resolves_by_its_plain_name(tmp_path: Path) -> None:
+    root = write_tree(
+        tmp_path,
+        "nested",
+        {
+            "__main__.py": "import pkg.sub.deep\nfrom pkg import mid\n\nprint(mid.MID)\nprint(pkg.sub.deep.DEEP)\n",
+            "pkg/__init__.py": "MID: str = 'mid'\n",
+            "pkg/mid.py": "MID: str = 'mid-module'\n",
+            "pkg/sub/__init__.py": "",
+            "pkg/sub/deep.py": "DEEP: str = 'deep'\n",
+        },
+    )
+    assert_matches_cpython(tmp_path, root)
+
+
 def test_a_circular_import_is_refused_with_the_cycle_path(tmp_path: Path) -> None:
     root = write_tree(
         tmp_path,

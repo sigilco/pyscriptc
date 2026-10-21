@@ -35,8 +35,9 @@ def test_self_census_ballpark() -> None:
     # Optional widening (Stage U): total stays 1434; 2 typefacts `X | Y | None` fences
     # move from union-types (11 to 9) into optional-types (0 to 2, PS1102).
     # Program directories (R2): the import graph walk, the init-owner map and
-    # the cycle fence add 10 self-host fences in package.py and lower/.
-    assert census["fences"] == 1444
+    # the cycle fence add 10 self-host fences in package.py and lower/; the
+    # `__main__` guard branch in lower/ adds one more.
+    assert census["fences"] == 1445
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 25_000
-    assert sum(p["fences"] for p in census["packages"]) == 1444
+    assert sum(p["fences"] for p in census["packages"]) == 1445

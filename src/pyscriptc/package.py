@@ -170,12 +170,24 @@ def _program_plan(
         stack.pop()
         state[name] = 2
 
-    for name in trees:
+    for name in _program_roots(trees):
         if state.get(name) is None:
             visit(name)
     if fences:
         return fences, {}
     return fences, owners
+
+
+def _program_roots(trees: dict[str, ast.Module]) -> list[str]:
+    """The order the graph walk starts in.
+
+    The program's entry comes first: CPython runs it, and it is what
+    reaches the other modules. The rest follow in name order.
+    """
+
+    roots = ["__main__"] if "__main__" in trees else []
+    roots.extend(sorted(name for name in trees if name not in roots))
+    return roots
 
 
 def _cycle_span(path: Path, stmt: ast.stmt | None) -> dict[str, Any]:
@@ -273,11 +285,14 @@ def _inject_inits(
     if not owned:
         return tree
     body: list[ast.stmt] = []
+    done: set[str] = set()
     for stmt in tree.body:
         body.append(stmt)
         for module, local in _statement_imports(stmt, exports):
-            if module in owned:
-                body.append(_init_call(local, stmt))
+            if module not in owned or module in done:
+                continue
+            done.add(module)
+            body.append(_init_call(local, stmt))
     tree.body = body
     ast.fix_missing_locations(tree)
     return tree
