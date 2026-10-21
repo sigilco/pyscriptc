@@ -263,6 +263,13 @@ class StdlibDispatchMixin:
     def _bind_own_from(self, stmt: ast.ImportFrom, fences: list[Fence]) -> None:
         module = stmt.module or ""
         package = self.package or {}
+        if self.program and module and module != "__main__":
+            # A program's `from pkg import x` runs pkg's body before it binds
+            # x, and that body's call is spelled `pkg.__init__()`: the module
+            # name is bound here (CPython keeps the module object reachable
+            # the same way; the name itself is this compiler's one addition).
+            head = module.split(".")[0]
+            self._bind_pkg_module(head, head, stmt, fences)
         for alias in stmt.names:
             if alias.name == "*":
                 fences.append(Fence("PS2002", "star import is not lowered", span_of(stmt, self.filename), None))

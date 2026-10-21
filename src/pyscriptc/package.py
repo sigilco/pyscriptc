@@ -32,9 +32,9 @@ from pyscriptc.ir import SUBSET, cpython_version
 from pyscriptc.lower import Lowerer
 
 
-def lower_directory(root: Path) -> tuple[dict[str, Any], str]:
-    units, skipped = _discover(root)
-    program = _is_program_dir(root)
+def lower_directory(root: Path, program_mode: bool = False) -> tuple[dict[str, Any], str]:
+    units, skipped = _discover(root, program_mode)
+    program = program_mode or _is_program_dir(root)
     exports, failed = _catalog(units, program)
 
     if program:
@@ -88,7 +88,7 @@ def lower_directory(root: Path) -> tuple[dict[str, Any], str]:
         "subset": SUBSET,
         "cpython": cpython_version(),
         "sourceFile": str(root),
-        "entry": functions[0]["name"] if functions else None,
+        "entry": _program_entry(functions) if program else (functions[0]["name"] if functions else None),
         "functions": functions,
         "classes": classes,
         "fences": fences,
@@ -96,6 +96,15 @@ def lower_directory(root: Path) -> tuple[dict[str, Any], str]:
     if skipped:
         merged["_notes"] = [_skip_note(root, rel) for rel in skipped]
     return merged, ""
+
+
+def _program_entry(functions: list[dict[str, Any]]) -> str | None:
+    """The program's entry: `__main__.main`, or the first function."""
+
+    for fn in functions:
+        if fn["name"].startswith("__main__."):
+            return fn["name"]
+    return functions[0]["name"] if functions else None
 
 
 def _fenced_module(root: Path, fences: list[dict[str, Any]]) -> dict[str, Any]:
@@ -413,7 +422,7 @@ def _is_program_dir(root: Path) -> bool:
     return (root / "__main__.py").is_file() and not (root / "__init__.py").is_file()
 
 
-def _discover(root: Path) -> tuple[list[tuple[str, Path, bool]], list[str]]:
+def _discover(root: Path, program_mode: bool = False) -> tuple[list[tuple[str, Path, bool]], list[str]]:
     """Find every module in the tree.
 
     A directory whose root holds ``__main__.py`` and no ``__init__.py`` is a
@@ -421,13 +430,18 @@ def _discover(root: Path) -> tuple[list[tuple[str, Path, bool]], list[str]]:
     reachable under its plain name. Any other directory is a package, where
     the directory name is the module root and ``__main__.py`` is the
     ``python -m`` script, not an importable module.
+
+    With ``program_mode`` the caller asked for the ``python -m pkg`` shape:
+    the root ``__main__.py`` is the entry even when the directory is a
+    package, and the modules keep the package namespace.
     """
 
     root = root.resolve()
     package = root.name
     if not package.isidentifier():
         raise IRError(f"package directory {package} is not an identifier")
-    program = _is_program_dir(root)
+    program = program_mode or _is_program_dir(root)
+    namespaced = program_mode and not _is_program_dir(root)
     found: list[tuple[str, Path, bool]] = []
     skipped: list[str] = []
     for path in sorted(root.rglob("*.py")):
@@ -443,7 +457,7 @@ def _discover(root: Path) -> tuple[list[tuple[str, Path, bool]], list[str]]:
             continue
         if path.name == "__init__.py":
             parts = relative.parts[:-1]
-            if program:
+            if program and not namespaced:
                 # A program sub-package: `pkg/__init__.py` is the module
                 # `pkg`, imported by its plain name.
                 found.append((".".join(parts), path, True))
@@ -454,7 +468,7 @@ def _discover(root: Path) -> tuple[list[tuple[str, Path, bool]], list[str]]:
         stem = relative.with_suffix("")
         if not all(part.isidentifier() for part in stem.parts):
             raise IRError(f"{relative} is not a module name")
-        if program:
+        if program and not namespaced:
             # A program sibling is imported by its plain name.
             found.append((".".join(stem.parts), path, False))
             continue
