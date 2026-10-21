@@ -12,8 +12,8 @@ SRC = ROOT / "src" / "pyscriptc"
 
 def test_self_census_ballpark() -> None:
     census = build_self_census(SRC)
-    # log.py (structured audit logging) + telemetry.py + debug.py each added a module.
-    assert census["modules"] == 27
+    # doctor.py is the 28th module; log.py (structured audit logging) + telemetry.py + debug.py each added a module.
+    assert census["modules"] == 28
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -25,7 +25,8 @@ def test_self_census_ballpark() -> None:
     # Pyrefly/TSP adapter plumbing + deprecation markers added more.
     # Checker resolver (sysconfig/which/env probing) in check.py adds 12 more.
     # Telemetry v1 events + CLI --fail-on/--print/passthrough add 14 more.
-    assert census["fences"] == 1286
+    # doctor.py, env defaults and --emit asm/obj add 1 module and 34 fences.
+    assert census["fences"] == 1320
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 25_000
-    assert sum(p["fences"] for p in census["packages"]) == 1286
+    assert sum(p["fences"] for p in census["packages"]) == 1320

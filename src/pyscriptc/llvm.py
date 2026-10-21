@@ -54,6 +54,7 @@ def link_binary(
     driver: str = "clang",
     target: str | None = None,
     record: list[list[str]] | None = None,
+    link_driver: str | None = None,
 ) -> None:
     """Link `.ll` text plus the C runtime into `output`.
 
@@ -103,13 +104,38 @@ def link_binary(
     if proc is not None and proc.returncode == 0:
         # no -O on the link line: it is a compile flag and zig's Mach-O
         # driver crashes on it (0.16.0)
-        argv = [*cc.split(), *objects, *target_flags, *tail]
+        link_cc = ("zig cc" if link_driver == "zig" else link_driver) if link_driver else cc
+        argv = [*link_cc.split(), *objects, *target_flags, *tail]
         if record is not None:
             record.append([str(arg) for arg in argv])
         proc = subprocess.run(argv, capture_output=True, text=True)
     if proc is None or proc.returncode != 0:
         detail = (proc.stderr or proc.stdout).strip() if proc is not None else ""
         raise IRError(f"{cc} failed to assemble LLVM IR: {detail}")
+
+
+def compile_unit(
+    llvm_path: Path,
+    output: Path,
+    kind: str,
+    driver: str = "clang",
+    target: str | None = None,
+    record: list[list[str]] | None = None,
+) -> None:
+    """Compile the module's `.ll` alone to assembly (`asm`) or an object (`obj`)."""
+    if target is not None and driver != "zig":
+        raise IRError("--target requires --driver zig (bundled sysroot per target)")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    cc = "zig cc" if driver == "zig" else driver
+    mode = "-S" if kind == "asm" else "-c"
+    ir_kind = ["-x", "ir"] if driver == "clang" else []
+    target_flags = ["-target", target] if target is not None else []
+    argv = [*cc.split(), "-O2", *ir_kind, mode, str(llvm_path), "-o", str(output), *target_flags]
+    if record is not None:
+        record.append(argv)
+    proc = subprocess.run(argv, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise IRError(f"{cc} failed to emit {kind}: {(proc.stderr or proc.stdout).strip()}")
 
 
 class Emitter:

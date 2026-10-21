@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import os
 import subprocess
 import sys
 import time
@@ -16,9 +17,10 @@ from pyscriptc.check import CheckFailed, run_checker
 from pyscriptc.coverage import build_report, family_of, render_text
 from pyscriptc.debug import Debug, resolve
 from pyscriptc.diagnostics import explain
+from pyscriptc.doctor import doctor_cmd
 from pyscriptc.errors import FitError, IRError, SpikeError, VersionError
 from pyscriptc.ir import validate_module
-from pyscriptc.llvm import emit_llvm, link_binary
+from pyscriptc.llvm import compile_unit, emit_llvm, link_binary
 from pyscriptc.log import enable_debug, get_logger, tail
 from pyscriptc.lower import lower_file, render_fences
 from pyscriptc.package import lower_directory
@@ -36,7 +38,12 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
     compile_parser = sub.add_parser("compile", help="lower a source file", parents=[common])
     compile_parser.add_argument("source")
-    compile_parser.add_argument("--emit", choices=("ir", "llvm", "bin"), default="llvm")
+    compile_parser.add_argument("--emit", choices=("ir", "llvm", "asm", "obj", "bin"), default="llvm")
+    compile_parser.add_argument(
+        "--out-dir",
+        metavar="DIR",
+        help="write artifacts to DIR/<source name> instead of beside the source (useful for directory compiles)",
+    )
     compile_parser.add_argument("-o", dest="output")
     compile_parser.add_argument("--call", help="function the generated main calls")
     compile_parser.add_argument(
@@ -52,12 +59,18 @@ def main(argv: list[str] | None = None) -> int:
     compile_parser.add_argument(
         "--driver",
         choices=("clang", "zig"),
-        default="clang",
-        help="C toolchain driver; zig means `zig cc` (required for --target)",
+        default=None,
+        help="C toolchain driver; zig means `zig cc` (required for --target); env PYSC_CC, default clang",
     )
     compile_parser.add_argument(
         "--target",
-        help="cross-compilation triple for `zig cc`, e.g. aarch64-linux-gnu.2.39",
+        help="cross-compilation triple for `zig cc`, e.g. aarch64-linux-gnu.2.39 (env PYSC_TARGET)",
+    )
+    compile_parser.add_argument(
+        "--linker",
+        choices=("clang", "zig"),
+        default=None,
+        help="driver for the final link step only; env PYSC_LINKER, defaults to --driver",
     )
     compile_parser.add_argument(
         "--print",
@@ -99,6 +112,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("logs", help="print the audit-log path and its last lines", parents=[common])
     telemetry_parser = sub.add_parser("telemetry", help="anonymous usage metrics opt-out")
     telemetry_parser.add_argument("action", choices=("disable", "enable", "status"))
+    doctor_parser = sub.add_parser("doctor", help="report toolchain, cache and install shape", parents=[common])
+    doctor_parser.add_argument("--json", action="store_true", help="print the report as JSON")
     try:
         raw = list(sys.argv[1:] if argv is None else argv)
         run_argv: list[str] = []
@@ -122,6 +137,8 @@ def main(argv: list[str] | None = None) -> int:
             return explain_cmd(args)
         if args.cmd == "logs":
             return logs_cmd(args)
+        if args.cmd == "doctor":
+            return doctor_cmd(args.json)
         if args.cmd == "telemetry":
             return telemetry.telemetry_cmd(args.action)
     except CheckFailed as exc:
@@ -166,6 +183,7 @@ def logs_cmd(args: argparse.Namespace) -> int:
 
 def compile_cmd(args: argparse.Namespace) -> int:
     started = time.monotonic()
+    _apply_env_defaults(args)
     state: dict[str, Any] = {
         "outcome": None,
         "stage": "lower",
@@ -194,6 +212,20 @@ def compile_cmd(args: argparse.Namespace) -> int:
                 skip_check=bool(args.skip_check),
             ),
         )
+
+
+def _apply_env_defaults(args: argparse.Namespace) -> None:
+    """Fill unset toolchain flags from PYSC_CC / PYSC_LINKER / PYSC_TARGET; explicit flags win."""
+    for attr, var in (("driver", "PYSC_CC"), ("linker", "PYSC_LINKER")):
+        if getattr(args, attr) is None:
+            value = os.environ.get(var) or None
+            if value is not None and value not in ("clang", "zig"):
+                raise IRError(f"{var} must be clang or zig, got {value!r}")
+            setattr(args, attr, value)
+    if args.target is None:
+        args.target = os.environ.get("PYSC_TARGET") or None
+    if args.driver is None:
+        args.driver = "clang"
 
 
 def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
@@ -275,10 +307,25 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         if args.emit == "llvm":
             print(ll_path)
             return 0
-        binary = Path(args.output) if args.output else source_path.with_suffix("")
+        if args.emit in ("asm", "obj"):
+            suffix = ".s" if args.emit == "asm" else ".o"
+            unit_path = _output_path(args, source_path, suffix)
+            state["stage"] = "link"
+            compile_unit(ll_path, unit_path, args.emit, driver=args.driver, target=args.target, record=dbg.commands)
+            outputs[args.emit] = str(unit_path)
+            print(unit_path)
+            return 0
+        binary = Path(args.output) if args.output else _artifact_base(args, source_path)
         state["stage"] = "link"
         dbg.begin("link")
-        link_binary(ll_path, binary, driver=args.driver, target=args.target, record=dbg.commands)
+        link_binary(
+            ll_path,
+            binary,
+            driver=args.driver,
+            target=args.target,
+            record=dbg.commands,
+            link_driver=args.linker,
+        )
         dbg.end("link")
         outputs["bin"] = str(binary)
         log.info("link.binary", output=str(binary), driver=args.driver, target=args.target)
@@ -340,13 +387,24 @@ def _parse_args(text: str) -> list[Any]:
     return list(value)
 
 
+def _artifact_base(args: argparse.Namespace, source: Path) -> Path:
+    """Extensionless artifact path: beside the source, or under --out-dir."""
+    if args.out_dir:
+        return Path(args.out_dir) / source.stem
+    return source.with_suffix("")
+
+
 def _output_path(args: argparse.Namespace, source: Path, suffix: str) -> Path:
     if args.output and args.emit == "ir" and suffix == ".ir.json":
         return Path(args.output)
     if args.output and args.emit == "llvm" and suffix == ".ll":
         return Path(args.output)
-    if args.output and suffix == ".ll":
-        return Path(str(args.output) + ".ll")
-    if args.output and suffix == ".ir.json":
-        return Path(str(args.output) + ".ir.json")
+    if args.output and args.emit == "asm" and suffix == ".s":
+        return Path(args.output)
+    if args.output and args.emit == "obj" and suffix == ".o":
+        return Path(args.output)
+    if args.output:
+        return Path(str(args.output) + suffix)
+    if args.out_dir:
+        return Path(args.out_dir) / f"{source.stem}{suffix}"
     return source.with_suffix(suffix)
