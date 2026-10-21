@@ -21,7 +21,8 @@ pyscriptc compile FILE [options]
 
 | Flag | Effect |
 | ---- | ------ |
-| `--emit ir\|llvm\|bin` | Stop after JSON IR, textual LLVM, or a linked binary (default `llvm`) |
+| `--emit ir\|llvm\|asm\|obj\|bin` | Stop after JSON IR, textual LLVM, assembly (`.s`), an object (`.o`), or a linked binary (default `llvm`) |
+| `--out-dir DIR` | Write artifacts to `DIR/<source name>.*` instead of beside the source; use for directory compiles |
 | `-o PATH` | Output path; defaults to the source stem |
 | `--call FUNC` | Emit a `main` that calls `FUNC` and prints its return |
 | `--args '[...]'` | Arguments for `--call`, a Python list literal |

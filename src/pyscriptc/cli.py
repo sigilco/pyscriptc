@@ -20,7 +20,7 @@ from pyscriptc.diagnostics import explain
 from pyscriptc.doctor import doctor_cmd
 from pyscriptc.errors import FitError, IRError, SpikeError, VersionError
 from pyscriptc.ir import validate_module
-from pyscriptc.llvm import emit_llvm, link_binary
+from pyscriptc.llvm import compile_unit, emit_llvm, link_binary
 from pyscriptc.log import enable_debug, get_logger, tail
 from pyscriptc.lower import lower_file, render_fences
 from pyscriptc.package import lower_directory
@@ -38,7 +38,12 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
     compile_parser = sub.add_parser("compile", help="lower a source file", parents=[common])
     compile_parser.add_argument("source")
-    compile_parser.add_argument("--emit", choices=("ir", "llvm", "bin"), default="llvm")
+    compile_parser.add_argument("--emit", choices=("ir", "llvm", "asm", "obj", "bin"), default="llvm")
+    compile_parser.add_argument(
+        "--out-dir",
+        metavar="DIR",
+        help="write artifacts to DIR/<source name> instead of beside the source (useful for directory compiles)",
+    )
     compile_parser.add_argument("-o", dest="output")
     compile_parser.add_argument("--call", help="function the generated main calls")
     compile_parser.add_argument(
@@ -302,7 +307,15 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         if args.emit == "llvm":
             print(ll_path)
             return 0
-        binary = Path(args.output) if args.output else source_path.with_suffix("")
+        if args.emit in ("asm", "obj"):
+            suffix = ".s" if args.emit == "asm" else ".o"
+            unit_path = _output_path(args, source_path, suffix)
+            state["stage"] = "link"
+            compile_unit(ll_path, unit_path, args.emit, driver=args.driver, target=args.target, record=dbg.commands)
+            outputs[args.emit] = str(unit_path)
+            print(unit_path)
+            return 0
+        binary = Path(args.output) if args.output else _artifact_base(args, source_path)
         state["stage"] = "link"
         dbg.begin("link")
         link_binary(
@@ -374,11 +387,24 @@ def _parse_args(text: str) -> list[Any]:
     return list(value)
 
 
+def _artifact_base(args: argparse.Namespace, source: Path) -> Path:
+    """Extensionless artifact path: beside the source, or under --out-dir."""
+    if args.out_dir:
+        return Path(args.out_dir) / source.stem
+    return source.with_suffix("")
+
+
 def _output_path(args: argparse.Namespace, source: Path, suffix: str) -> Path:
     if args.output and args.emit == "ir" and suffix == ".ir.json":
         return Path(args.output)
     if args.output and args.emit == "llvm" and suffix == ".ll":
         return Path(args.output)
+    if args.output and args.emit == "asm" and suffix == ".s":
+        return Path(args.output)
+    if args.output and args.emit == "obj" and suffix == ".o":
+        return Path(args.output)
     if args.output:
         return Path(str(args.output) + suffix)
+    if args.out_dir:
+        return Path(args.out_dir) / f"{source.stem}{suffix}"
     return source.with_suffix(suffix)

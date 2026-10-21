@@ -114,6 +114,30 @@ def link_binary(
         raise IRError(f"{cc} failed to assemble LLVM IR: {detail}")
 
 
+def compile_unit(
+    llvm_path: Path,
+    output: Path,
+    kind: str,
+    driver: str = "clang",
+    target: str | None = None,
+    record: list[list[str]] | None = None,
+) -> None:
+    """Compile the module's `.ll` alone to assembly (`asm`) or an object (`obj`)."""
+    if target is not None and driver != "zig":
+        raise IRError("--target requires --driver zig (bundled sysroot per target)")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    cc = "zig cc" if driver == "zig" else driver
+    mode = "-S" if kind == "asm" else "-c"
+    ir_kind = ["-x", "ir"] if driver == "clang" else []
+    target_flags = ["-target", target] if target is not None else []
+    argv = [*cc.split(), "-O2", *ir_kind, mode, str(llvm_path), "-o", str(output), *target_flags]
+    if record is not None:
+        record.append(argv)
+    proc = subprocess.run(argv, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise IRError(f"{cc} failed to emit {kind}: {(proc.stderr or proc.stdout).strip()}")
+
+
 class Emitter:
     def __init__(self, module: dict[str, Any]) -> None:
         self.module = module

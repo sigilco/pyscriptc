@@ -99,7 +99,7 @@ def _run_env(env_extra: dict[str, str], *args: str) -> subprocess.CompletedProce
 
 def test_env_target_without_zig_driver_is_rejected(tmp_path: Path) -> None:
     path = write_case(tmp_path, "ok.py", CLEAN)
-    got = _run_env({"PYSC_TARGET": "aarch64-linux-gnu"}, "compile", str(path), "--emit", "bin", "--skip-check")
+    got = _run_env({"PYSC_TARGET": "aarch64-linux-gnu"}, "compile", str(path), "--emit", "obj", "--skip-check")
     assert got.returncode != 0
     assert "--target requires --driver zig" in got.stderr
 
@@ -114,5 +114,25 @@ def test_env_cc_invalid_value(tmp_path: Path) -> None:
 @needs_clang
 def test_flag_wins_over_env(tmp_path: Path) -> None:
     path = write_case(tmp_path, "ok.py", CLEAN)
-    got = _run_env({"PYSC_CC": "gcc"}, "compile", str(path), "--driver", "clang", "--emit", "bin", "--skip-check")
+    got = _run_env({"PYSC_CC": "gcc"}, "compile", str(path), "--driver", "clang", "--emit", "obj", "--skip-check")
     assert got.returncode == 0, got.stderr
+
+
+@needs_clang
+@pytest.mark.parametrize(("emit", "suffix"), [("asm", ".s"), ("obj", ".o")])
+def test_emit_asm_obj_beside_source(tmp_path: Path, emit: str, suffix: str) -> None:
+    path = write_case(tmp_path, "ok.py", CLEAN)
+    got = run_cli("compile", str(path), "--emit", emit, "--skip-check")
+    assert got.returncode == 0, got.stderr
+    assert path.with_suffix(suffix).is_file()
+
+
+@needs_clang
+def test_out_dir_collects_artifacts(tmp_path: Path) -> None:
+    path = write_case(tmp_path, "ok.py", CLEAN)
+    out = tmp_path / "build"
+    got = run_cli("compile", str(path), "--emit", "obj", "--out-dir", str(out), "--skip-check")
+    assert got.returncode == 0, got.stderr
+    assert (out / "ok.o").is_file()
+    assert (out / "ok.ll").is_file()
+    assert not path.with_suffix(".o").exists()
