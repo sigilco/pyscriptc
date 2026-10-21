@@ -17,6 +17,7 @@ import ast
 import os
 from typing import Any, NoReturn
 
+from pyscriptc.coro import enabled
 from pyscriptc.errors import span_of
 from pyscriptc.ir import types_equal
 from pyscriptc.lower._core import (
@@ -304,16 +305,24 @@ class StdlibDispatchMixin:
                 if module_status(name) == "lowered":
                     self.synthetics.update(classes)
 
-    def _accept_module_function(self, fn: ast.FunctionDef, fences: list[Fence]) -> bool:
+    def _accept_module_function(self, fn: ast.FunctionDef | ast.AsyncFunctionDef, fences: list[Fence]) -> bool:
         """Module `@staticmethod` is the function the class decorator already emits.
 
         The call passes no instance. Other module decorators stay fenced.
         typing's `@overload` stubs erase (only the final undecorated
         implementation lowers); `@abstractmethod` erases off the list.
         """
+<<<<<<< HEAD
         if any(self._erased_deco_name(d) == "overload" for d in fn.decorator_list):
             return False
         fn.decorator_list = [d for d in fn.decorator_list if self._erased_deco_name(d) is None]
+||||||| parent of 8922b39 (feat(coro): await chains on coroutine frames with a C run loop)
+=======
+        if isinstance(fn, ast.AsyncFunctionDef) and not fn.decorator_list and enabled():
+            # A module-level coroutine: the coro pass owns it (PS2002 fences
+            # from its shape check already carry the precise message).
+            return True
+>>>>>>> 8922b39 (feat(coro): await chains on coroutine frames with a C run loop)
         message = self._module_decorator_fence(fn)
         if message is None:
             if fn.decorator_list and not self._is_module_staticmethod(fn):

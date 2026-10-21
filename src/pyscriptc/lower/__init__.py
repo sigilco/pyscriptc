@@ -365,7 +365,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         for stmt in live:
             if isinstance(stmt, (ast.Import, ast.ImportFrom, ast.Pass)):
                 continue
-            if isinstance(stmt, ast.FunctionDef):
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 if not self._accept_module_function(stmt, fences):
                     continue
                 functions.append(stmt)

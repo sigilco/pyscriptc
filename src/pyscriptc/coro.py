@@ -59,11 +59,14 @@ from pyscriptc.errors import span_of
 
 YIELD_MARKER = "__ps_yield__"
 AWAIT_MARKER = "__ps_await__"
+SLEEP_MARKER = "__ps_sleep__"
 RETURN_MARKER = "__ps_return__"
 STATE = ".ps_state"
 RESULT = ".ps_result"
+TASK = ".ps_task"
 SELF = ".ps_self"
 RESUME = ".ps_rs"
+AWAIT_RESULT_PREFIX = ".ps_awv_"
 DONE = -1
 PENDING = 0
 COMPLETE = 1
@@ -72,6 +75,8 @@ _INT = {"kind": "int"}
 _BOOL = {"kind": "bool"}
 _NONE = {"kind": "none"}
 _FLOAT = {"kind": "float"}
+# The resume shim's outward type: every coroutine's callable cell carries it.
+_RESUME_FUNC = {"kind": "func", "params": [{"kind": "class", "name": "@frame"}], "return": {"kind": "int"}}
 _GENERATOR_FORMS = {"Iterator", "Iterable", "Generator"}
 
 
@@ -325,6 +330,51 @@ class CoroMixin:
                 return plan
         return None
 
+    def _expr_any(self, node: ast.expr, expect: dict[str, Any] | None = None) -> dict[str, Any]:
+        if isinstance(node, ast.Await) and self._coro_current() is not None:
+            return self._coro_await(node)
+        return super()._expr_any(node, expect)
+
+    def _coro_await(self, node: ast.Await) -> dict[str, Any]:
+        """`await child()` lowers to a poll loop over the child's frame.
+
+        The awaited value is a coroutine frame (`coro.<name>`), so the await
+        keeps that frame in a local and polls it with `resume()`. The poll is
+        the parent's suspension point: while the child is pending the parent
+        suspends with status 0 and re-polls the same child on resume.
+
+        `await` of anything else (today `asyncio.gather`, whose prelude
+        already drove its tasks on the run loop) is a plain value: the pass
+        keeps the poll machinery out and the await reads straight through.
+        """
+        plan = self._coro_current()
+        assert plan is not None
+        span = span_of(node, self.filename)
+        child = self._expr(node.value)
+        child_t = child["type"]
+        if child_t.get("kind") == "class" and str(child_t.get("name", "")).startswith("coro."):
+            child_plan = self._coro_plan_for_frame(child_t["name"])
+            if child_plan is None:
+                self.fail(node, "PS2002", "await takes a compiled coroutine call")
+            # The child frame lives in a local: the parent's copy-out at the
+            # suspension keeps it alive across the resume.
+            slot = self._temp("aw")
+            self.locals[slot] = child_t
+            result = _await_result_name(slot)
+            self.locals[result] = child_plan.elem
+            self.prelude.append(_assign(slot, child, span))
+            marker = {
+                "kind": "call",
+                "callee": {"kind": "builtin", "name": AWAIT_MARKER},
+                "args": [_name(slot, child_t, span)],
+                "type": dict(_NONE),
+                "span": span,
+            }
+            self.prelude.append({"kind": "expr", "expr": marker, "span": span})
+            # The awaited value: the child's result field once it completes.
+            return _name(result, child_plan.elem, span)
+        return child
+
     def _coro_finish(self, module: dict[str, Any]) -> dict[str, Any]:
         """Run the IR pass; a module without resumables is returned as is."""
         plans = self._coro_plans()
@@ -348,11 +398,13 @@ def lower_resumables(module: dict[str, Any], plans: dict[str, FramePlan]) -> dic
             functions.append(fn)
             continue
         try:
-            wrapper, frame = _Frame(fn, plan, _KINDS[plan.kind]).build()
+            wrapper, frame, forwarder = _Frame(fn, plan, _KINDS[plan.kind], plans).build()
         except CoroError as exc:
             fences.append({"code": "PS2002", "message": exc.message, "function": fn["name"], "span": exc.span})
             continue
         functions.append(wrapper)
+        if forwarder is not None:
+            functions.append(forwarder)
         classes.append(frame)
     return {**module, "functions": functions, "classes": classes, "fences": fences}
 
@@ -425,10 +477,17 @@ _KINDS: dict[str, _Kind] = {"generator": _GeneratorKind(), "coroutine": _Corouti
 class _Frame:
     """One resumable function: guard transform plus frame synthesis."""
 
-    def __init__(self, fn: dict[str, Any], plan: FramePlan, kind: _Kind) -> None:
+    def __init__(
+        self,
+        fn: dict[str, Any],
+        plan: FramePlan,
+        kind: _Kind,
+        plans: dict[str, FramePlan] | None = None,
+    ) -> None:
         self.fn = fn
         self.plan = plan
         self.kind = kind
+        self.plans = plans or {}
         self.span = fn["span"]
         self.frame_t = {"kind": "class", "name": plan.frame}
         self.locals = [dict(local) for local in fn["locals"]]
@@ -500,7 +559,10 @@ class _Frame:
         }
         fields = [{"name": STATE, "type": _INT}]
         if self.plan.kind == "coroutine":
-            fields.append({"name": RESULT, "type": self.plan.elem})
+            # `.ps_task` is field 1 on every coroutine frame: the run loop in
+            # ps_loop.c reads the resume cell at a fixed offset.
+            fields.append({"name": TASK, "type": _RESUME_FUNC})
+        fields.append({"name": RESULT, "type": self.plan.elem})
         fields.extend(self.locals)
         frame = {
             "name": self.plan.frame,
@@ -508,7 +570,35 @@ class _Frame:
             "methods": self.kind.methods(self, resume),
             "span": span,
         }
-        return self._wrapper(), frame
+        return self._wrapper(), frame, self._forwarder(resume)
+
+    def _forwarder(self, resume: dict[str, Any]) -> dict[str, Any]:
+        """`coro.<name>.resume(frame) -> int` as a module-level function.
+
+        The run loop reaches the resume body through a callable cell (the
+        `func` type is the only function-address value in the IR), and a
+        closure cell can only name a module-level function. The frame class
+        keeps its `resume` method; this forwarder just calls it.
+        """
+        if self.plan.kind != "coroutine":
+            return None
+        span = self.span
+        self_arg = _name(SELF, self.frame_t, span)
+        call = {
+            "kind": "call",
+            "callee": {"kind": "function", "name": f"cls.{self.plan.frame}.resume"},
+            "args": [self_arg],
+            "type": dict(_INT),
+            "span": span,
+        }
+        return {
+            "name": f"{self.plan.frame}.resume",
+            "params": [{"name": SELF, "type": self.frame_t}],
+            "returnType": dict(_INT),
+            "locals": [{"name": SELF, "type": self.frame_t}],
+            "body": [{"kind": "return", "value": call, "span": span}],
+            "span": span,
+        }
 
     def _wrapper(self) -> dict[str, Any]:
         span = self.span
@@ -529,6 +619,24 @@ class _Frame:
                     "object": target,
                     "name": param["name"],
                     "value": _name(param["name"], param["type"], span),
+                    "span": span,
+                }
+            )
+        if self.plan.kind == "coroutine":
+            # The run loop reaches the resume body through this cell
+            # (ps_loop.c reads field 1).
+            body.append(
+                {
+                    "kind": "setattr",
+                    "object": target,
+                    "name": TASK,
+                    "value": {
+                        "kind": "closure",
+                        "name": f"{self.plan.frame}.resume",
+                        "env": [],
+                        "type": dict(_RESUME_FUNC),
+                        "span": span,
+                    },
                     "span": span,
                 }
             )
@@ -581,7 +689,11 @@ class _Frame:
     def _suspending(self, stmt: dict[str, Any]) -> list[dict[str, Any]]:
         span = stmt["span"]
         kind = stmt["kind"]
+        if kind == "expr" and _is_marker(stmt, SLEEP_MARKER):
+            return self._sleep(stmt, span)
         if kind == "expr" and _is_marker(stmt, self.kind.marker):
+            if self.kind.marker == AWAIT_MARKER:
+                return self._await(stmt, span)
             self.points += 1
             point = self.points
             value = stmt["expr"]["args"][0] if stmt["expr"]["args"] else _const(None, _NONE, span)
@@ -622,18 +734,105 @@ class _Frame:
             return [enter, loop]
         raise CoroError("a suspension inside try or with is not lowered yet", span)
 
+    def _await(self, stmt: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
+        """Expand `__ps_await__(child)` into the child-poll suspension.
+
+        The child frame is in the local the lowerer bound (the marker's
+        argument names it). The parent polls `child.resume()`; while the
+        child reports pending the parent suspends with status 0, setting the
+        resume point to this await so the next `resume()` re-polls the same
+        child. When the child completes, its `.ps_result` field carries the
+        awaited value into the lowerer's result temp.
+        """
+        self.points += 1
+        point = self.points
+        child = stmt["expr"]["args"][0]
+        child_t = child["type"]
+        child_frame = child_t["name"]
+        slot = child["id"]
+        result = _await_result_name(slot)
+        done = self.temp("awd", _BOOL)
+        status = self.temp("aws", _INT)
+        call = {
+            "kind": "call",
+            "callee": {"kind": "function", "name": f"cls.{child_frame}.resume"},
+            "args": [_name(slot, child_t, span)],
+            "type": dict(_INT),
+            "span": span,
+        }
+        read = _attr_expr(_name(slot, child_t, span), RESULT, self._await_result_type(child_frame), span)
+        # Fresh entry: copy out, mark the point, poll. If the child is
+        # pending the parent suspends; re-entry falls into the same poll
+        # because `rs` was reset to 0 at the await's own resume point.
+        leave = [
+            *self.copy_out(span),
+            self.field_set(STATE, _const(point, _INT, span), span),
+            _assign(status, call, span),
+            _assign(done, _compare("==", _name(status, _INT, span), _const(COMPLETE, _INT, span), span), span),
+            _if(
+                _name(done, _BOOL, span),
+                [],
+                [_if(_const(True, _BOOL, span), self.kind.suspend(self, _const(0, _INT, span), span), [], span)],
+                span,
+            ),
+        ]
+        arrive = [_assign(RESUME, _const(0, _INT, span), span)]
+        result_set = (
+            [_assign(result, read, span)] if result is not None else []
+        )
+        return [
+            _if(self.fresh(span), leave, arrive, span),
+            *result_set,
+        ]
+
+    def _await_result_type(self, child_frame: str) -> dict[str, Any]:
+        for plan in self.plans.values():
+            if plan.frame == child_frame:
+                return plan.elem
+        raise CoroError(f"await of an unknown coroutine frame {child_frame}", self.span)
+
+    def _sleep(self, stmt: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
+        """Expand `__ps_sleep__(delay)` into arm-then-suspend.
+
+        The timer table is keyed by frame; the loop re-queues this frame when
+        the deadline passes and the resume enters at this point again (the
+        state field below), falling straight through the armed call.
+        """
+        self.points += 1
+        point = self.points
+        delay = stmt["expr"]["args"][0]
+        arm = {
+            "kind": "call",
+            "callee": {"kind": "module", "module": "asyncio", "name": "sleep"},
+            "args": [_name(SELF, self.frame_t, span), delay],
+            "type": dict(_NONE),
+            "span": span,
+            "symbol": "ps_loop_sleep",
+        }
+        leave = [
+            *self.copy_out(span),
+            self.field_set(STATE, _const(point, _INT, span), span),
+            {"kind": "expr", "expr": arm, "span": span},
+            *self.kind.suspend(self, _const(0, _INT, span), span),
+        ]
+        arrive = [_assign(RESUME, _const(0, _INT, span), span)]
+        return [_if(self.fresh(span), leave, arrive, span)]
+
     def _plain(self, stmt: dict[str, Any]) -> dict[str, Any]:
         """A statement without suspensions: only `return` changes meaning."""
         kind = stmt["kind"]
         if kind == "return":
             value = stmt.get("value")
             if _is_return_marker(value):
-                # `return v` in a coroutine: the frame's result field carries v.
+                # `return v` in a coroutine: the frame's result field carries
+                # v. Wrapped in an always-true if so the caller keeps a single
+                # statement per input.
                 result = value["args"][0]
-                return [
+                leave = [
                     self.field_set(RESULT, result, stmt["span"]),
                     {"kind": "return", "value": _const(COMPLETE, _INT, stmt["span"]), "span": stmt["span"]},
                 ]
+                return _if(_const(True, _BOOL, stmt["span"]), leave, [], stmt["span"])
             finish = self.kind.finish(self, stmt["span"])
             return finish[0] if len(finish) == 1 else _if(_const(True, _BOOL, stmt["span"]), finish, [], stmt["span"])
         if kind == "if":
@@ -651,7 +850,7 @@ class _Frame:
 
 def _suspends(stmt: dict[str, Any], marker: str) -> bool:
     if stmt["kind"] == "expr":
-        return _is_marker(stmt, marker)
+        return _is_marker(stmt, marker) or _is_marker(stmt, SLEEP_MARKER)
     if stmt["kind"] == "if":
         return any(_suspends(s, marker) for s in stmt["then"]) or any(_suspends(s, marker) for s in stmt["else"])
     if stmt["kind"] == "while":
@@ -703,6 +902,20 @@ def _assign(target: str, value: dict[str, Any], span: dict[str, Any]) -> dict[st
 
 def _compare(op: str, left: dict[str, Any], right: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
     return {"kind": "compare", "op": op, "left": left, "right": right, "type": _BOOL, "span": span}
+
+
+def _attr_expr(value: dict[str, Any], name: str, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    return {"kind": "attr", "value": value, "name": name, "type": typ, "span": span}
+
+
+def _await_result_name(slot: str) -> str:
+    """The local that carries the awaited value out of the await.
+
+    The lowerer binds the child frame in `slot` (`.ps_aw_N`) and the awaited
+    value in the sibling name the IR pass derives from it, so the IR needs
+    no extra key on the marker.
+    """
+    return AWAIT_RESULT_PREFIX + slot.split("_")[-1]
 
 
 def _if(
