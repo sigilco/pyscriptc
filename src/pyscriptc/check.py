@@ -226,7 +226,15 @@ def _run_pyrefly(path: Path) -> None:
         )
         try:
             proc = subprocess.run(
-                [*argv, "check", "-c", str(config), str(source)],
+                [
+                    *argv,
+                    "check",
+                    "-c",
+                    str(config),
+                    "--python-interpreter-path",
+                    sys.executable,
+                    str(source),
+                ],
                 capture_output=True,
                 text=True,
             )

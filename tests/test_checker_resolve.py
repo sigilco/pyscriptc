@@ -110,3 +110,23 @@ def test_run_pyrefly_invokes_multi_token_fallback(tmp_path: Path, clean_env: pyt
     source.write_text("x = 1\n", encoding="utf-8")
     check._run_pyrefly(source)
     assert seen and seen[0][:4] == [sys.executable, "-m", "pyrefly", "check"]
+    flag = seen[0].index("--python-interpreter-path")
+    assert seen[0][flag + 1] == sys.executable
+
+
+def test_run_pyrefly_sees_running_interpreter(tmp_path: Path, clean_env: pytest.MonkeyPatch) -> None:
+    """pyrefly must resolve site-packages from the interpreter running pyscriptc, not the host Python."""
+    _scripts_at(clean_env, tmp_path / "empty-bin")
+    seen: list[list[str]] = []
+
+    def fake_run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        seen.append(list(argv))
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    clean_env.setattr(check.subprocess, "run", fake_run)
+    source = tmp_path / "ok.py"
+    source.write_text("x = 1\n", encoding="utf-8")
+    check._run_pyrefly(source)
+    argv = seen[0]
+    assert argv[argv.index("--python-interpreter-path") + 1] == sys.executable
+    assert argv[-1] == str(source.resolve())
