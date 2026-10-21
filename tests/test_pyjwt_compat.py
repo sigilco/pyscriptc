@@ -37,11 +37,11 @@ def test_real_pyjwt_hmac_tree_still_fences() -> None:
 
     proc = run_cli("compile", str(FIXTURE / "jwt"), "--emit", "ir", "-o", os.devnull, "--skip-check")
     assert proc.returncode == 3
-    # 107 fences after T2-3 (kw-only parameters normalize): the removed
-    # PS1202 signature fences let those defs lower further and report
-    # deeper, more accurate fences instead. Shrinking means a backlog
-    # lowering cleared fences here; update the pin when that happens.
-    assert proc.stderr.count("PS") == 107
+    # 105 fences after T2-2 (`abc` import, `ABC` base, and `@abstractmethod`
+    # erase, -2 from the 107 left by T2-3 kw-only normalization). Shrinking
+    # means a backlog lowering cleared fences here; update the pin when that
+    # happens.
+    assert proc.stderr.count("PS") == 105
 
 
 @pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
