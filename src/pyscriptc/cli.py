@@ -44,7 +44,11 @@ def main(argv: list[str] | None = None) -> int:
         default="[]",
         help="Python literal list of arguments for --call, parsed with ast.literal_eval",
     )
-    compile_parser.add_argument("--run", action="store_true", help="compile a binary and run it")
+    compile_parser.add_argument(
+        "--run",
+        action="store_true",
+        help="compile a binary and run it; arguments after `--` go to the binary",
+    )
     compile_parser.add_argument(
         "--driver",
         choices=("clang", "zig"),
@@ -54,6 +58,12 @@ def main(argv: list[str] | None = None) -> int:
     compile_parser.add_argument(
         "--target",
         help="cross-compilation triple for `zig cc`, e.g. aarch64-linux-gnu.2.39",
+    )
+    compile_parser.add_argument(
+        "--print",
+        dest="print_what",
+        choices=("diagnostics",),
+        help="print JSON instead of compiling: diagnostics is the coverage report; exit 3 when fenced",
     )
     compile_parser.add_argument("--skip-check", action="store_true")
     compile_parser.add_argument(
@@ -79,13 +89,26 @@ def main(argv: list[str] | None = None) -> int:
     coverage_parser = sub.add_parser("coverage", help="report every fence in a file or package tree", parents=[common])
     coverage_parser.add_argument("source")
     coverage_parser.add_argument("--json", action="store_true", help="print the report as JSON")
+    coverage_parser.add_argument(
+        "--fail-on",
+        choices=("blockers", "any"),
+        help="exit 1 when root fences (blockers) or any fence exist; default always exits 0",
+    )
     explain_parser = sub.add_parser("explain", help="describe a diagnostic code", parents=[common])
     explain_parser.add_argument("code")
     sub.add_parser("logs", help="print the audit-log path and its last lines", parents=[common])
     telemetry_parser = sub.add_parser("telemetry", help="anonymous usage metrics opt-out")
     telemetry_parser.add_argument("action", choices=("disable", "enable", "status"))
     try:
-        args = parser.parse_args(argv)
+        raw = list(sys.argv[1:] if argv is None else argv)
+        run_argv: list[str] = []
+        if "--" in raw:
+            split = raw.index("--")
+            raw, run_argv = raw[:split], raw[split + 1 :]
+        args = parser.parse_args(raw)
+        args.run_argv = run_argv
+        if run_argv and not (args.cmd == "compile" and args.run):
+            parser.error("arguments after `--` need `compile --run`")
         if getattr(args, "verbose", False):
             enable_debug()
         log.info("cli.invoke", cmd=args.cmd)
@@ -117,6 +140,11 @@ def coverage_cmd(args: argparse.Namespace) -> int:
     report = build_report(Path(args.source))
     log.info("coverage.report", source=args.source)
     print(json.dumps(report, indent=2) if args.json else render_text(report))
+    summary = report["summary"]
+    if args.fail_on == "any" and summary["fences"]:
+        return 1
+    if args.fail_on == "blockers" and summary["rootFences"]:
+        return 1
     return 0
 
 
@@ -162,6 +190,10 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
     if dbg is None:
         dbg = Debug(set(), None)
     source_path = Path(args.source)
+    if args.print_what == "diagnostics":
+        report = build_report(source_path)
+        print(json.dumps(report, indent=2))
+        return 3 if report["fences"] else 0
     log.info(
         "compile.start",
         source=str(source_path),
@@ -239,7 +271,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             return 0
         log.info("run.start", binary=str(binary))
         dbg.begin("run")
-        completed = subprocess.run([str(binary.absolute())])
+        completed = subprocess.run([str(binary.absolute()), *args.run_argv])
         dbg.end("run")
         code = 128 + (-completed.returncode) if completed.returncode < 0 else completed.returncode
         log.info("run.exit", binary=str(binary), code=code)
