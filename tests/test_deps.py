@@ -20,7 +20,7 @@ from typing import Any
 
 import pytest
 
-from pyscriptc import deps
+from pyscriptc import cli, deps
 from pyscriptc.deps import DepsError
 
 pytestmark = pytest.mark.skipif(sys.version_info < (3, 11), reason="tomllib")
@@ -312,6 +312,17 @@ def test_uv_no_build_failure_gets_hint(monkeypatch: pytest.MonkeyPatch, tmp_path
     monkeypatch.setenv("PYSC_UV", "uv")
     with pytest.raises(DepsError, match="never builds sdists"):
         deps.run_deps(_script(tmp_path), cache_dir=tmp_path / "c")
+
+
+def test_cli_deps_subcommand(fake: dict[str, Any], tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    script = _script(tmp_path)
+    assert cli.main(["deps", str(script), "--json", "--no-download"]) == 3
+    report = json.loads(capsys.readouterr().out)
+    assert report["lanes"] == {"native": 1, "pure": 1, "sdist": 1}
+    fake["lock"] = pylock([wheel_entry("colorama", "0.4.6", [("colorama-0.4.6-py2.py3-none-any.whl", sha(COLORAMA))])])
+    script.write_text(SCRIPT.replace('#   "PyYAML",\n', ""), encoding="utf-8")
+    assert cli.main(["deps", str(script)]) == 0
+    assert "colorama 0.4.6" in capsys.readouterr().out
 
 
 # ------------------------------------------------------------ network (opt-in)

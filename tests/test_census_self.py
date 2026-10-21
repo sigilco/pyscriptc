@@ -32,8 +32,9 @@ def test_self_census_ballpark() -> None:
     # Telemetry privacy pass: random install id, IP-discard properties, opt-in switch (+12 fences).
     # rtcache.py (runtime object cache: threads, hashing, subprocess) adds 1 module and 33 fences.
     # First-run fix: node_text/op_text diagnostics helpers and CLI --run entry handling (+7 fences).
-    # deps.py (PyPI resolver, wheel cache: subprocess/zipfile/urllib plumbing) adds 1 module and 90 fences.
-    assert census["fences"] == 1524
+    # deps.py (PyPI resolver, wheel cache: subprocess/zipfile/urllib plumbing) adds 1 module and 90 fences;
+    # its CLI hook in cli.py adds 3.
+    assert census["fences"] == 1527
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 25_000
-    assert sum(p["fences"] for p in census["packages"]) == 1524
+    assert sum(p["fences"] for p in census["packages"]) == 1527
