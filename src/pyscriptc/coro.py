@@ -1,4 +1,4 @@
-"""Resumable functions: generators now, `async def` next.
+"""Resumable functions: generators and `async def` coroutines.
 
 Design: `.agents/plans/2026-10-21-async-threads-design.md` (stackless state
 machines in existing IR, no new IR kinds). Two halves live here:
@@ -17,16 +17,34 @@ machines in existing IR, no new IR kinds). Two halves live here:
   existing IR kinds, so `llvm.py`, `canonical.py` and every IR hash of a
   program without generators are unchanged.
 
-Async plugs in as a second `_Kind`: the marker is `__ps_await__`, the resume
+A coroutine is the second `_Kind`: the marker is `__ps_await__`, the resume
 method is `resume(self) -> int` (0 pending, 1 done) and the frame carries a
 `result` field; the guard transform is shared.
 
-Scope today (everything else keeps a fence with a precise message): module
-generators annotated `Iterator[T]`, `Iterable[T]` or `Generator[T, None, None]`,
-`yield v` and `yield from <iterable>` as statements, bare `return`, yields
-under `if`/`while`/`for`. Not yet: yield inside try/with, `send`/`throw`/
-`close`, nested or generic or decorated generators, methods, package units.
-`PYSC_CORO=0` turns the lowering off (generators fence as before).
+Await protocol. `await g()` lowers to a marker call `__ps_await__(child)`
+whose argument is the awaited frame. The IR pass rewrites the marker into
+the poll loop: the parent stores the child frame in a local, calls
+`child.resume()`, and suspends with status 0 while the child is pending. On
+resume the parent re-polls the same child and, once it reports done, reads
+the child's `result` field into the awaited value. A coroutine body ends with
+`return v`, which the pass turns into `self.result = v; return 1`.
+
+The event loop lives in the C runtime (`runtime/ps_loop.c`): a task list, a
+run-to-completion driver and a monotonic clock. `asyncio.run(coro)` wraps the
+root frame in a task and drives it; `asyncio.gather` wraps several frames in
+tasks and drives them together, so the children interleave exactly like
+CPython's.
+
+Scope today: module-level generators annotated `Iterator[T]`, `Iterable[T]` or
+`Generator[T, None, None]`, module-level `async def` coroutines with a return
+annotation, `yield v` and `yield from <iterable>` as statements, bare
+`return`, yields under `if`/`while`/`for`, `await <coroutine call>` as a
+statement or the whole value of an assignment, `asyncio.run`,
+`asyncio.sleep` and `asyncio.gather`. Not yet: yield inside try/with, awaits
+inside try/with, `send`/`throw`/`close`, nested or generic or decorated
+resumables, methods, package units, `create_task` with independent lifetimes.
+`PYSC_CORO=0` turns the lowering off (generators and coroutines fence as
+before).
 """
 
 from __future__ import annotations
@@ -40,14 +58,20 @@ from typing import Any
 from pyscriptc.errors import span_of
 
 YIELD_MARKER = "__ps_yield__"
+AWAIT_MARKER = "__ps_await__"
+RETURN_MARKER = "__ps_return__"
 STATE = ".ps_state"
+RESULT = ".ps_result"
 SELF = ".ps_self"
 RESUME = ".ps_rs"
 DONE = -1
+PENDING = 0
+COMPLETE = 1
 
 _INT = {"kind": "int"}
 _BOOL = {"kind": "bool"}
 _NONE = {"kind": "none"}
+_FLOAT = {"kind": "float"}
 _GENERATOR_FORMS = {"Iterator", "Iterable", "Generator"}
 
 
@@ -64,10 +88,10 @@ class CoroError(Exception):
 class FramePlan:
     """What the lowerer decided for one resumable function."""
 
-    kind: str  # "generator" (async: "coroutine")
+    kind: str  # "generator" or "coroutine"
     function: str
     frame: str
-    elem: dict[str, Any]
+    elem: dict[str, Any]  # yield element (generator) or return value (coroutine)
     params: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -90,18 +114,21 @@ def _own_nodes(body: list[ast.stmt]):
         stack.extend(reversed(list(ast.iter_child_nodes(node))))
 
 
-def _shape_error(fn: ast.FunctionDef) -> tuple[ast.AST, str] | None:
-    """The first body construct outside today's generator scope, or None."""
+def _shape_error(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[ast.AST, str] | None:
+    """The first body construct outside today's resumable scope, or None."""
+
+    coroutine = isinstance(fn, ast.AsyncFunctionDef)
 
     def visit(stmts: list[ast.stmt], in_try: bool) -> tuple[ast.AST, str] | None:
         for stmt in stmts:
             if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                return stmt, "a nested def or class in a generator is not lowered yet"
+                return stmt, "a nested def or class in a resumable is not lowered yet"
             if isinstance(stmt, ast.Return):
                 if stmt.value is not None and not (isinstance(stmt.value, ast.Constant) and stmt.value.value is None):
-                    return stmt, "return with a value in a generator is not lowered yet"
+                    if not coroutine:
+                        return stmt, "return with a value in a generator is not lowered yet"
                 if in_try:
-                    return stmt, "return inside try or with in a generator is not lowered yet"
+                    return stmt, "return inside try or with in a resumable is not lowered yet"
             if isinstance(stmt, ast.Expr) and isinstance(stmt.value, (ast.Yield, ast.YieldFrom)):
                 if in_try:
                     return stmt, "yield inside try or with is not lowered yet"
@@ -112,10 +139,15 @@ def _shape_error(fn: ast.FunctionDef) -> tuple[ast.AST, str] | None:
                 inner = [child for child in ast.iter_child_nodes(stmt) if isinstance(child, ast.expr)]
             for expr in inner:
                 for node in ast.walk(expr):
-                    if isinstance(node, (ast.Yield, ast.YieldFrom, ast.Await)):
+                    if isinstance(node, (ast.Yield, ast.YieldFrom)):
                         return node, "yield as an expression (send) is not lowered yet"
+                    if isinstance(node, ast.Await):
+                        if not coroutine:
+                            return node, "await outside an async function is not lowered"
+                        if in_try:
+                            return node, "await inside try or with is not lowered yet"
                     if isinstance(node, ast.Lambda):
-                        return node, "a lambda in a generator is not lowered yet"
+                        return node, "a lambda in a resumable is not lowered yet"
             nested_try = in_try or isinstance(stmt, (ast.Try, ast.TryStar, ast.With, ast.AsyncWith))
             for name in ("body", "orelse", "finalbody"):
                 block = getattr(stmt, name, None)
@@ -143,14 +175,19 @@ class CoroMixin:
     def _coro_plans(self) -> dict[str, FramePlan]:
         return self.__dict__.setdefault("_coro_plan_table", {})
 
-    def _coro_signature(self, fn: ast.FunctionDef) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
-        """The outward signature of a module-level generator, or None for any
+    def _coro_signature(
+        self, fn: ast.FunctionDef | ast.AsyncFunctionDef
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
+        """The outward signature of a module-level resumable, or None for any
         other function (the caller then uses `_signature` as before)."""
         if not enabled() or self.module_name or self.cataloguing or fn.decorator_list:
             return None
-        if not isinstance(fn, ast.FunctionDef) or not is_generator(fn):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) or not (
+            is_generator(fn) or isinstance(fn, ast.AsyncFunctionDef)
+        ):
             return None
-        elem = self._coro_elem(fn)
+        coroutine = isinstance(fn, ast.AsyncFunctionDef)
+        elem = self._coro_elem(fn) if not coroutine else self._coro_result(fn)
         shape = _shape_error(fn)
         if shape is not None:
             self.fail(shape[0], "PS2002", shape[1])
@@ -160,22 +197,34 @@ class CoroMixin:
         from pyscriptc.lower._core import _has_typevar
 
         if _has_typevar(elem) or any(_has_typevar(param["type"]) for param in params):
-            self.fail(fn, "PS2002", "a generic generator is not lowered yet")
-        frame = f"gen.{fn.name}"
+            self.fail(fn, "PS2002", "a generic resumable is not lowered yet")
+        frame = f"{'coro' if coroutine else 'gen'}.{fn.name}"
         frame_t = {"kind": "class", "name": frame}
         self_t = [{"name": "self", "type": frame_t}]
+        if coroutine:
+            methods: dict[str, Any] = {"resume": (self_t, _INT)}
+        else:
+            methods = {"__iter__": (self_t, frame_t), "__next__": (self_t, elem)}
         self.classes[frame] = {
             "fields": [],
             "own_fields": [],
-            "methods": {"__iter__": (self_t, frame_t), "__next__": (self_t, elem)},
+            "methods": methods,
             "method_kind": {},
             "method_owner": {},
             "base": None,
-            "coro": "generator",
+            "coro": "coroutine" if coroutine else "generator",
         }
         self.known_classes.add(frame)
-        self._coro_plans()[fn.name] = FramePlan("generator", fn.name, frame, elem, params)
+        self._coro_plans()[fn.name] = FramePlan(
+            "coroutine" if coroutine else "generator", fn.name, frame, elem, params
+        )
         return params, frame_t
+
+    def _coro_result(self, fn: ast.AsyncFunctionDef) -> dict[str, Any]:
+        """A coroutine's result type is its return annotation."""
+        if fn.returns is None:
+            self.fail(fn, "PS1001", f"{fn.name} needs a return annotation")
+        return self._annotation(fn.returns)
 
     def _coro_elem(self, fn: ast.FunctionDef) -> dict[str, Any]:
         ann = fn.returns
@@ -195,7 +244,7 @@ class CoroMixin:
         return self._annotation(args[0])
 
     def _coro_body_sig(self, name: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        """Signature the body lowers under: a generator body returns None."""
+        """Signature the body lowers under: a resumable body returns None."""
         plan = self._coro_plans().get(name)
         self.__dict__["_coro_active"] = plan
         params, ret = self.sigs[name]
@@ -216,6 +265,19 @@ class CoroMixin:
                 return self._coro_yield_from(stmt, stmt.value)
             if isinstance(stmt, ast.Return):
                 span = span_of(stmt, self.filename)
+                if plan.kind == "coroutine" and stmt.value is not None:
+                    # The result travels in the frame's `result` field; the
+                    # body itself returns None.
+                    value = self._expr(stmt.value, plan.elem)
+                    self._expect(stmt.value, value["type"], plan.elem, "return")
+                    call = {
+                        "kind": "call",
+                        "callee": {"kind": "builtin", "name": RETURN_MARKER},
+                        "args": [value],
+                        "type": dict(_NONE),
+                        "span": span,
+                    }
+                    return [{"kind": "return", "value": call, "span": span}]
                 return [{"kind": "return", "value": _const(None, _NONE, span), "span": span}]
         return super()._stmt_core(stmt)
 
@@ -243,6 +305,25 @@ class CoroMixin:
             ast.copy_location(item, stmt)
             item.end_lineno, item.end_col_offset = stmt.end_lineno, stmt.end_col_offset
         return self._stmt(loop)
+
+    # --- await ------------------------------------------------------------
+
+    def _coro_await_type(self, node: ast.Await) -> dict[str, Any]:
+        """The result type of `await <expr>`: the awaited coroutine's result."""
+        value = self._expr(node.value)
+        kind = value["type"].get("kind")
+        if kind != "class" or not str(value["type"].get("name", "")).startswith("coro."):
+            self.fail(node, "PS2002", "await takes a coroutine call, not another value")
+        plan = self._coro_plan_for_frame(value["type"]["name"])
+        if plan is None:
+            self.fail(node, "PS2002", "await takes a coroutine call, not another value")
+        return plan.elem
+
+    def _coro_plan_for_frame(self, frame: str) -> FramePlan | None:
+        for plan in self._coro_plans().values():
+            if plan.frame == frame:
+                return plan
+        return None
 
     def _coro_finish(self, module: dict[str, Any]) -> dict[str, Any]:
         """Run the IR pass; a module without resumables is returned as is."""
@@ -318,7 +399,27 @@ class _GeneratorKind(_Kind):
         return [{"kind": "raise", "exc": "StopIteration", "message": None, "span": span}]
 
 
-_KINDS: dict[str, _Kind] = {"generator": _GeneratorKind()}
+class _CoroutineKind(_Kind):
+    """`resume(self) -> int` (0 pending, 1 done).
+
+    `await <coro>` stores the child frame in a local, polls it with
+    `child.resume()`, and suspends with status 0 while the child is pending.
+    Completion sets the frame's `result` field and returns 1.
+    """
+
+    marker = AWAIT_MARKER
+
+    def methods(self, frame: _Frame, resume: dict[str, Any]) -> list[dict[str, Any]]:
+        return [{**resume, "name": "resume", "returnType": _INT}]
+
+    def suspend(self, frame: _Frame, value: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
+        return [{"kind": "return", "value": _const(PENDING, _INT, span), "span": span}]
+
+    def finish(self, frame: _Frame, span: dict[str, Any]) -> list[dict[str, Any]]:
+        return [{"kind": "return", "value": _const(COMPLETE, _INT, span), "span": span}]
+
+
+_KINDS: dict[str, _Kind] = {"generator": _GeneratorKind(), "coroutine": _CoroutineKind()}
 
 
 class _Frame:
@@ -358,7 +459,16 @@ class _Frame:
         return name
 
     def copy_out(self, span: dict[str, Any]) -> list[dict[str, Any]]:
-        return [self.field_set(local["name"], _name(local["name"], local["type"], span), span) for local in self.locals]
+        return [
+            {
+                "kind": "setattr",
+                "object": self.self_name(span),
+                "name": local["name"],
+                "value": _name(local["name"], local["type"], span),
+                "span": span,
+            }
+            for local in self.locals
+        ]
 
     def copy_in(self, span: dict[str, Any]) -> list[dict[str, Any]]:
         return [
@@ -368,7 +478,7 @@ class _Frame:
     # build
     def build(self) -> tuple[dict[str, Any], dict[str, Any]]:
         if self.fn.get("boxed") or self.fn.get("env"):
-            raise CoroError("a generator whose locals a closure captures is not lowered yet", self.span)
+            raise CoroError("a resumable whose locals a closure captures is not lowered yet", self.span)
         span = self.span
         body = self._block(self.fn["body"])
         prologue = [
@@ -388,9 +498,13 @@ class _Frame:
             "body": [*prologue, *body, *self.kind.finish(self, span)],
             "span": span,
         }
+        fields = [{"name": STATE, "type": _INT}]
+        if self.plan.kind == "coroutine":
+            fields.append({"name": RESULT, "type": self.plan.elem})
+        fields.extend(self.locals)
         frame = {
             "name": self.plan.frame,
-            "fields": [{"name": STATE, "type": _INT}, *self.locals],
+            "fields": fields,
             "methods": self.kind.methods(self, resume),
             "span": span,
         }
@@ -512,6 +626,14 @@ class _Frame:
         """A statement without suspensions: only `return` changes meaning."""
         kind = stmt["kind"]
         if kind == "return":
+            value = stmt.get("value")
+            if _is_return_marker(value):
+                # `return v` in a coroutine: the frame's result field carries v.
+                result = value["args"][0]
+                return [
+                    self.field_set(RESULT, result, stmt["span"]),
+                    {"kind": "return", "value": _const(COMPLETE, _INT, stmt["span"]), "span": stmt["span"]},
+                ]
             finish = self.kind.finish(self, stmt["span"])
             return finish[0] if len(finish) == 1 else _if(_const(True, _BOOL, stmt["span"]), finish, [], stmt["span"])
         if kind == "if":
@@ -523,7 +645,7 @@ class _Frame:
         if kind == "while":
             return {**stmt, "body": [self._plain(s) for s in stmt["body"]]}
         if kind == "try" and _contains_kind(stmt, "return"):
-            raise CoroError("return inside try or with in a generator is not lowered yet", stmt["span"])
+            raise CoroError("return inside try or with in a resumable is not lowered yet", stmt["span"])
         return stmt
 
 
@@ -545,6 +667,13 @@ def _is_marker(stmt: dict[str, Any], marker: str) -> bool:
     expr = stmt.get("expr", {})
     callee = expr.get("callee", {}) if expr.get("kind") == "call" else {}
     return callee.get("kind") == "builtin" and callee.get("name") == marker
+
+
+def _is_return_marker(value: Any) -> bool:
+    if not isinstance(value, dict) or value.get("kind") != "call":
+        return False
+    callee = value.get("callee", {})
+    return callee.get("kind") == "builtin" and callee.get("name") == RETURN_MARKER
 
 
 def _contains_kind(stmt: dict[str, Any], kind: str) -> bool:
