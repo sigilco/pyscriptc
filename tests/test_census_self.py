@@ -29,6 +29,8 @@ def test_self_census_ballpark() -> None:
     # PyreflyTspFactsAdapter (typefacts.py) adds 23 more.
     # v0.3.1: mypy/pyright/pyright-typeserver adapters removed from typefacts.py (-1343 to 1242).
     # v0.4.0: restlower.py split into a package of handler modules (+19 modules, +140 fences).
+    # Optional widening (Stage U): total stays 1382; 2 typefacts `X | Y | None` fences
+    # move from union-types (11 to 9) into optional-types (0 to 2, PS1102).
     assert census["fences"] == 1382
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 25_000
