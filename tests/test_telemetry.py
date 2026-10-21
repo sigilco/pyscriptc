@@ -149,3 +149,133 @@ def test_cli_invoked_event_from_main(captured, monkeypatch):
     rc = main(["explain", "PS0001"])
     assert rc == 0
     assert any(p["event"] == "cli.invoked" and p["properties"]["subcommand"] == "explain" for p in captured)
+
+
+# --- v1 schema: compile.finished / coverage.reported ---------------------------------
+
+_SECRET = "zz_secret_name"
+_OK_SRC = f"def {_SECRET}(x: int) -> int:\n    return x + 1\n"
+_FENCED_SRC = "import zz_private_mod\n\n\ndef f(x: int) -> int:\n    return zz_private_mod.go(x)\n"
+
+
+def _events(captured, name):
+    return [p for p in captured if p["event"] == name]
+
+
+def _run_cli(argv):
+    from pyscriptc.cli import main
+
+    return main(argv)
+
+
+def test_compile_properties_schema():
+    props = telemetry.compile_properties(
+        duration_ms=5,
+        outcome="fences",
+        fence_count=3,
+        fence_families={"union-types": 2, "stdlib": 1},
+        checker="pyrefly",
+        emit="bin",
+        driver="cc",
+        binary_bytes=1234,
+    )
+    for key in ("pyscriptc_version", "python_version", "platform", "ci"):
+        assert key in props
+    assert props["outcome"] == "fences"
+    assert props["fence_count"] == 3
+    assert props["fence_families"] == {"union-types": 2, "stdlib": 1}
+    assert props["binary_bytes"] == 1234
+    assert props["skip_check"] is False
+    bare = telemetry.compile_properties(duration_ms=1, outcome="ok", fence_count=0, fence_families={})
+    assert "checker" not in bare and "driver" not in bare and "binary_bytes" not in bare
+
+
+def test_coverage_properties_aggregates_and_collapses_stdlib():
+    summary = {
+        "files": 2,
+        "definitions": 4,
+        "fencedDefinitions": 1,
+        "fences": 3,
+        "rootFences": 2,
+        "byCode": {"PS1101": 3},
+        "byFamily": {
+            "union-types": {"fences": 1, "derived": False},
+            "stdlib:zz_private_mod": {"fences": 1, "derived": False},
+            "stdlib:other": {"fences": 1, "derived": False},
+        },
+    }
+    props = telemetry.coverage_properties(summary)
+    assert props["byFamily"] == {"union-types": 1, "stdlib": 2}
+    assert props["coverage_ratio"] == 0.25
+    assert "byCode" not in props
+    assert "zz_private_mod" not in json.dumps(props)
+    assert telemetry.coverage_properties({})["coverage_ratio"] == 0.0
+
+
+def test_compile_ok_event(captured, monkeypatch, tmp_path):
+    monkeypatch.setattr(telemetry, "_BAKED_TOKEN", "phc_test")
+    src = tmp_path / "prog.py"
+    src.write_text(_OK_SRC)
+    assert _run_cli(["compile", str(src), "--skip-check", "--emit", "ir"]) == 0
+    (event,) = _events(captured, "compile.finished")
+    props = event["properties"]
+    assert props["outcome"] == "ok"
+    assert props["fence_count"] == 0
+    assert props["emit"] == "ir"
+    assert props["skip_check"] is True
+    assert "checker" not in props
+    blob = json.dumps(captured)
+    assert _SECRET not in blob and str(tmp_path) not in blob and "prog" not in blob.replace("pyscriptc", "")
+
+
+def test_compile_fences_event_has_no_identifiers(captured, monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(telemetry, "_BAKED_TOKEN", "phc_test")
+    src = tmp_path / "prog.py"
+    src.write_text(_FENCED_SRC)
+    rc = _run_cli(["compile", str(src), "--skip-check", "--emit", "ir"])
+    capsys.readouterr()
+    assert rc == 3
+    (event,) = _events(captured, "compile.finished")
+    props = event["properties"]
+    assert props["outcome"] == "fences"
+    assert props["fence_count"] >= 1
+    assert sum(props["fence_families"].values()) == props["fence_count"]
+    assert not any(k.startswith("stdlib:") for k in props["fence_families"])
+    blob = json.dumps(captured)
+    assert "zz_private_mod" not in blob and str(tmp_path) not in blob
+
+
+def test_compile_error_outcome(captured, monkeypatch, tmp_path):
+    monkeypatch.setattr(telemetry, "_BAKED_TOKEN", "phc_test")
+    src = tmp_path / "bad.py"
+    src.write_text("def (:\n")
+    with pytest.raises(Exception):
+        _run_cli(["compile", str(src), "--skip-check", "--emit", "ir"])
+    (event,) = _events(captured, "compile.finished")
+    assert event["properties"]["outcome"] == "lower-error"
+
+
+def test_coverage_event(captured, monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(telemetry, "_BAKED_TOKEN", "phc_test")
+    src = tmp_path / "prog.py"
+    src.write_text(_FENCED_SRC)
+    assert _run_cli(["coverage", str(src)]) == 0
+    capsys.readouterr()
+    (event,) = _events(captured, "coverage.reported")
+    props = event["properties"]
+    assert props["definitions"] >= 1
+    assert 0.0 <= props["coverage_ratio"] <= 1.0
+    blob = json.dumps(captured)
+    assert "zz_private_mod" not in blob and str(tmp_path) not in blob
+
+
+@pytest.mark.parametrize("argv_kind", ["compile", "coverage"])
+def test_new_events_respect_opt_out(captured, monkeypatch, tmp_path, capsys, argv_kind):
+    monkeypatch.setattr(telemetry, "_BAKED_TOKEN", "phc_test")
+    monkeypatch.setenv("DO_NOT_TRACK", "1")
+    src = tmp_path / "prog.py"
+    src.write_text(_OK_SRC)
+    argv = ["compile", str(src), "--skip-check", "--emit", "ir"] if argv_kind == "compile" else ["coverage", str(src)]
+    _run_cli(argv)
+    capsys.readouterr()
+    assert captured == []
