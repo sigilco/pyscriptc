@@ -66,8 +66,9 @@ cp "$src" "$work/ref/prog.py"
 # 2. compile and run, mypy preflight on. The -o target must be absolute: cli.py runs the
 # built program with `subprocess.run([str(binary)])`, and a bare name with no path
 # separator is resolved through PATH, never through the cwd.
-got="$(cd "$work/run" && env -i PATH="$PATH" HOME="$work" ./pyscriptc compile prog.py --run --call "$func" --args "$fargs" -o "$work/run/prog.bin")" \
-  || fail "compile or run failed (exit $?)"
+got="$(cd "$work/run" && env -i PATH="$PATH" HOME="$work" ./pyscriptc compile prog.py --run --call "$func" --args "$fargs" -o "$work/run/prog.bin" 2>"$work/stderr.txt")" \
+  || { cat "$work/stderr.txt" >&2; fail "compile or run failed (exit $?)"; }
+[ -n "$got" ] || { echo "--- stderr from compile --run (empty stdout) ---" >&2; cat "$work/stderr.txt" >&2; ls -la "$work/run" >&2; }
 
 # 3. the same function under CPython 3.12
 want="$(cd "$work/ref" && uv run --no-project --python 3.12 python -I -c '
