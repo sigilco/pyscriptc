@@ -93,6 +93,15 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         self.module_name = ""
         self.is_package = False
         self.cataloguing = False
+        # A program directory: sibling modules are imported by their plain
+        # names and `__main__.py` is the entry point.
+        self.program = False
+        # A program module whose body runs at import time (every program
+        # module except `__main__`): it synthesizes `<module>.__init__`.
+        self.module_init = False
+        # The program root package name, when the tree is a program. It is the
+        # prefix for the program's own package-style names.
+        self.program_root = ""
         self.package: dict[str, dict[str, dict[str, Any]]] | None = None
         self.pkg_funcs: dict[str, dict[str, Any]] = {}
         self.class_aliases: dict[str, str] = {}
@@ -444,11 +453,31 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
 
         Package units never synthesize one: a package is a library, its
         modules are namespaced, and `sigs` feeds the export table.
+
+        A program's `__main__` module does synthesize one: it is the script
+        the whole program runs, so its top-level statements are the entry.
+        A program's other modules synthesize `__init__`: their body runs when
+        the program first imports them, before the importing module's body.
         """
-        if not stmts or self.module_name or self.cataloguing:
+        if not stmts:
+            return []
+        if self.module_name and not self._is_program_main():
+            if not self.module_init:
+                return []
+            taken = {fn.name for fn in functions} | self.declared
+            name = "__init__" if "__init__" not in taken else "__init_entry__"
+            return [self._make_entry(stmts, name)]
+        if self.cataloguing:
+            # The cataloguing pass only needs the signatures. The program's
+            # entry is not an export, so it is not synthesized here.
             return []
         taken = {fn.name for fn in functions} | self.declared
         name = "main" if "main" not in taken else "__entry__"
+        return [self._make_entry(stmts, name)]
+
+    def _make_entry(self, stmts: list[ast.stmt], name: str) -> ast.FunctionDef:
+        """A synthetic no-argument function carrying `stmts` in source order."""
+
         fn = ast.FunctionDef(
             name=name,
             args=ast.arguments(
@@ -472,7 +501,12 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         fn.col_offset = 0
         fn.end_lineno = stmts[-1].end_lineno
         fn.end_col_offset = 0
-        return [fn]
+        return fn
+
+    def _is_program_main(self) -> bool:
+        """True for the `__main__` module of a program directory."""
+
+        return self.program and self.module_name == "__main__"
 
     def _ir_name(self, name: str) -> str:
         if self.module_name:
@@ -615,6 +649,24 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         if root is None or not module:
             return False
         return module == root or module.startswith(root + ".")
+
+    def _is_program_module(self, module: str | None) -> bool:
+        """A program tree's own module: a sibling, or a package inside it.
+
+        In a program the export table is keyed by plain names (`util`,
+        `pkg.x`), so any exact key match, or a dotted name whose head is a
+        program package, is the program's own module. `__main__` is the
+        entry module and never importable.
+        """
+
+        if not self.program or not module or self.package is None:
+            return False
+        if module == "__main__":
+            return True
+        if module in self.package:
+            return True
+        head = module.split(".", 1)[0]
+        return head in self.package and self.package[head] is not None
 
     def _pkg_item(self, node: ast.AST, module: str, member: str) -> dict[str, Any]:
         item = (self.package or {}).get(module, {}).get(member)

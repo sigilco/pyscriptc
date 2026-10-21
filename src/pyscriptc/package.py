@@ -4,9 +4,19 @@ Each ``.py`` file becomes a dotted module under the directory name.
 ``from .util import add`` and ``from . import VERSION`` bind a function, a
 module-level constant, or a class from another file in that tree. A class
 export is the class the defining module already emits, including a subclass
-of a class exported by another module in the tree. ``__main__.py`` is the
-``python -m`` script and is not an importable module, so it is skipped and
-the compile says so. A single file still refuses a relative import.
+of a class exported by another module in the tree.
+
+Two directory shapes exist:
+
+* A **package** directory: the tree is a library. ``__main__.py`` is the
+  ``python -m`` script and is not an importable module, so it is skipped and
+  the compile says so.
+* A **program** directory: the tree has a ``__main__.py`` at its root. That
+  file is the entry point, the sibling modules are imported by their plain
+  names (``import util``, ``from pkg import x``) exactly as ``sys.path[0]``
+  would resolve them, and the whole tree compiles into one native binary.
+
+A single file still refuses a relative import.
 """
 
 from __future__ import annotations
@@ -23,8 +33,15 @@ from pyscriptc.lower import Lowerer
 
 
 def lower_directory(root: Path) -> tuple[dict[str, Any], str]:
-    units, skipped = _discover(root)
-    exports, failed = _catalog(units)
+    units, skipped, program = _discover(root)
+    exports, failed = _catalog(units, program)
+
+    if program:
+        fences, owners = _program_plan(units, exports)
+        if fences:
+            return _fenced_module(root, fences), ""
+    else:
+        owners = {}
 
     functions: list[dict[str, Any]] = []
     classes: list[dict[str, Any]] = []
@@ -34,11 +51,15 @@ def lower_directory(root: Path) -> tuple[dict[str, Any], str]:
     for name, path, is_package in units:
         text = path.read_text(encoding="utf-8")
         tree = ast.parse(text, filename=str(path))
+        if program:
+            tree = _inject_inits(tree, owners.get(name, []), exports)
         lowerer = Lowerer(str(path), text)
         lowerer.module_name = name
         lowerer.is_package = is_package
         lowerer.package = exports
         lowerer.exc_n = exc_n
+        lowerer.program = program
+        lowerer.module_init = program and name != "__main__"
         module = lowerer.module(tree)
         exc_n = lowerer.exc_n
         for fn in module["functions"]:
@@ -76,15 +97,202 @@ def lower_directory(root: Path) -> tuple[dict[str, Any], str]:
     return merged, ""
 
 
+def _fenced_module(root: Path, fences: list[dict[str, Any]]) -> dict[str, Any]:
+    """A module that carries only fences: the compile stops before emission."""
+
+    return {
+        "irVersion": 1,
+        "subset": SUBSET,
+        "cpython": cpython_version(),
+        "sourceFile": str(root),
+        "entry": None,
+        "functions": [],
+        "classes": [],
+        "fences": fences,
+    }
+
+
+def _program_plan(
+    units: list[tuple[str, Path, bool]], exports: dict[str, dict[str, dict[str, Any]]]
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, list[str]]]]:
+    """The program's import graph: cycles refused, init owners assigned.
+
+    CPython runs a module body once, at the first import that reaches it.
+    The owner map says which module triggers each body, so the init call
+    lands in the module whose import statement performs it. A cycle is
+    refused with the path that closes it.
+    """
+
+    trees: dict[str, ast.Module] = {}
+    files: dict[str, Path] = {}
+    for name, path, _ in units:
+        trees[name] = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        files[name] = path
+    edges: dict[str, list[str]] = {name: _program_imports(trees[name], exports) for name in trees}
+    # Only a module with script statements has an `__init__` export: its body
+    # runs at import. A definition-only module contributes nothing.
+    inited = {name for name, bucket in exports.items() if "__init__" in bucket}
+
+    fences: list[dict[str, Any]] = []
+    owners: dict[str, dict[str, list[str]]] = {name: [] for name in trees}
+    state: dict[str, int] = {}
+    stack: list[str] = []
+
+    def visit(name: str) -> None:
+        state[name] = 1
+        stack.append(name)
+        for child in edges.get(name, []):
+            if child not in trees:
+                continue
+            if state.get(child) == 1:
+                cycle = stack[stack.index(child) :] + [child]
+                fences.append(
+                    {
+                        "code": "PS2002",
+                        "message": f"circular import: {' -> '.join(cycle)}",
+                        "span": {
+                            "file": str(files[name]),
+                            "line": 1,
+                            "col": 1,
+                            "endLine": 1,
+                            "endCol": 1,
+                        },
+                        "function": None,
+                    }
+                )
+                continue
+            if state.get(child) == 2:
+                continue
+            if child in inited:
+                owners[name].append(child)
+            visit(child)
+        stack.pop()
+        state[name] = 2
+
+    for name in trees:
+        if state.get(name) is None:
+            visit(name)
+    if fences:
+        return fences, {}
+    return fences, owners
+
+
+def _program_imports(tree: ast.Module, exports: dict[str, dict[str, dict[str, Any]]]) -> list[str]:
+    """The program's own modules that this module imports, in source order."""
+
+    found: list[str] = []
+
+    def note(module: str) -> None:
+        if module in exports and module not in found:
+            found.append(module)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name in exports:
+                    note(alias.name)
+                else:
+                    head = alias.name.split(".", 1)[0]
+                    if head in exports:
+                        note(head)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            if node.module in exports:
+                note(node.module)
+                for alias in node.names:
+                    child = f"{node.module}.{alias.name}"
+                    if child in exports:
+                        note(child)
+    return found
+
+
+def _statement_imports(
+    stmt: ast.stmt, exports: dict[str, dict[str, dict[str, Any]]]
+) -> list[tuple[str, str]]:
+    """The program modules one import statement brings in.
+
+    Each entry is the module and the local name the import binds for it, so
+    the init call can be spelled the way the importing module sees it.
+    """
+
+    found: list[tuple[str, str]] = []
+
+    def note(module: str, local: str) -> None:
+        if module not in exports:
+            return
+        if any(item[0] == module for item in found):
+            return
+        found.append((module, local))
+
+    if isinstance(stmt, ast.Import):
+        for alias in stmt.names:
+            if alias.asname:
+                note(alias.name, alias.asname)
+                continue
+            if alias.name in exports:
+                note(alias.name, alias.name.split(".")[0])
+                continue
+            head = alias.name.split(".", 1)[0]
+            if head in exports:
+                note(head, head)
+        return found
+    if isinstance(stmt, ast.ImportFrom) and stmt.level == 0 and stmt.module:
+        note(stmt.module, stmt.module.split(".")[0])
+        for alias in stmt.names:
+            note(f"{stmt.module}.{alias.name}", alias.asname or alias.name)
+    return found
+
+
+def _inject_inits(
+    tree: ast.Module, owned: list[str], exports: dict[str, dict[str, dict[str, Any]]]
+) -> ast.Module:
+    """Call the init of every module this one first imports.
+
+    CPython runs an imported module's body at the import statement, so the
+    call goes right after the statement that triggers it. A module this one
+    does not own (another module already imported it) is left alone: its
+    body already ran.
+    """
+
+    if not owned:
+        return tree
+    body: list[ast.stmt] = []
+    for stmt in tree.body:
+        body.append(stmt)
+        for module, local in _statement_imports(stmt, exports):
+            if module in owned:
+                body.append(_init_call(local, stmt))
+    tree.body = body
+    ast.fix_missing_locations(tree)
+    return tree
+
+
+def _init_call(local: str, anchor: ast.stmt) -> ast.stmt:
+    """`local.__init__()` as a statement, placed at the anchor's position."""
+
+    call = ast.Call(
+        func=ast.Attribute(
+            value=ast.Name(id=local, ctx=ast.Load()),
+            attr="__init__",
+            ctx=ast.Load(),
+        ),
+        args=[],
+        keywords=[],
+    )
+    ast.copy_location(call, anchor)
+    expr = ast.Expr(value=call)
+    ast.copy_location(expr, anchor)
+    return expr
+
+
 def _catalog(
-    units: list[tuple[str, Path, bool]],
+    units: list[tuple[str, Path, bool]], program: bool = False
 ) -> tuple[dict[str, dict[str, dict[str, Any]]], dict[str, dict[str, dict[str, Any]]]]:
     """Repeat until a subclass can see a base exported by an earlier pass."""
 
     exports: dict[str, dict[str, dict[str, Any]]] = {}
     failed: dict[str, dict[str, dict[str, Any]]] = {}
     for _ in range(len(units) + 1):
-        nxt, nxt_failed = _catalog_once(units, exports)
+        nxt, nxt_failed = _catalog_once(units, exports, program)
         if nxt == exports:
             return nxt, nxt_failed
         exports, failed = nxt, nxt_failed
@@ -92,7 +300,9 @@ def _catalog(
 
 
 def _catalog_once(
-    units: list[tuple[str, Path, bool]], exports: dict[str, dict[str, dict[str, Any]]]
+    units: list[tuple[str, Path, bool]],
+    exports: dict[str, dict[str, dict[str, Any]]],
+    program: bool = False,
 ) -> tuple[dict[str, dict[str, dict[str, Any]]], dict[str, dict[str, dict[str, Any]]]]:
     found: dict[str, dict[str, dict[str, Any]]] = {}
     failed: dict[str, dict[str, dict[str, Any]]] = {}
@@ -106,6 +316,8 @@ def _catalog_once(
         lowerer.cataloguing = True
         lowerer.package = exports
         lowerer.exc_n = exc_n
+        lowerer.program = program
+        lowerer.module_init = program and name != "__main__"
         module = lowerer.module(tree)
         exc_n = lowerer.exc_n
         found[name] = _exports_of(name, lowerer)
@@ -156,11 +368,25 @@ def _class_export(info: dict[str, Any]) -> dict[str, Any]:
     return exported
 
 
-def _discover(root: Path) -> tuple[list[tuple[str, Path, bool]], list[str]]:
+def _discover(root: Path) -> tuple[list[tuple[str, Path, bool]], list[str], bool]:
+    """Find every module in the tree.
+
+    A directory whose root holds ``__main__.py`` is a program: that file is
+    the entry point, and every sibling module is reachable under its plain
+    name. Any other directory is a package, where the directory name is the
+    module root and ``__main__.py`` is the ``python -m`` script, not an
+    importable module.
+    """
+
     root = root.resolve()
     package = root.name
     if not package.isidentifier():
         raise IRError(f"package directory {package} is not an identifier")
+    # A root `__init__.py` marks a library package: its `__main__.py` is the
+    # `python -m` script, not an importable module. Without it, a directory
+    # with `__main__.py` is a program: that file is the entry point and the
+    # siblings are imported by their plain names.
+    program = (root / "__main__.py").is_file() and not (root / "__init__.py").is_file()
     found: list[tuple[str, Path, bool]] = []
     skipped: list[str] = []
     for path in sorted(root.rglob("*.py")):
@@ -168,20 +394,33 @@ def _discover(root: Path) -> tuple[list[tuple[str, Path, bool]], list[str]]:
         if any(part.startswith(".") or part == "__pycache__" for part in relative.parts):
             continue
         if path.name == "__main__.py":
+            if program and len(relative.parts) == 1:
+                # The program entry. It lowers as the `__main__` module.
+                found.append(("__main__", path, False))
+                continue
             skipped.append(relative.as_posix())
             continue
         if path.name == "__init__.py":
             parts = relative.parts[:-1]
+            if program:
+                # A program sub-package: `pkg/__init__.py` is the module
+                # `pkg`, imported by its plain name.
+                found.append((".".join(parts), path, True))
+                continue
             name = ".".join((package, *parts)) if parts else package
             found.append((name, path, True))
             continue
         stem = relative.with_suffix("")
         if not all(part.isidentifier() for part in stem.parts):
             raise IRError(f"{relative} is not a module name")
+        if program:
+            # A program sibling is imported by its plain name.
+            found.append((".".join(stem.parts), path, False))
+            continue
         found.append(((".".join((package, *stem.parts))), path, False))
     if not found:
         raise IRError(f"no Python files in {root}")
-    return found, skipped
+    return found, skipped, program
 
 
 def _skip_note(root: Path, relative: str) -> str:

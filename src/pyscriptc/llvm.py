@@ -53,8 +53,12 @@ def standalone_entry(module: dict[str, Any]) -> dict[str, Any] | None:
     """The module's runnable entry (a script body or `__main__` guard), if `--run` without `--call` has one."""
     entry = module.get("entry")
     fn = next((f for f in module["functions"] if f["name"] == entry), None)
-    if fn is not None and fn["name"] in ("main", "__entry__") and not fn["params"]:
-        return fn
+    if fn is not None and not fn["params"]:
+        name = fn["name"]
+        # A script's entry is `main`/`__entry__`; a program's is the
+        # qualified `__main__.main`/`__main__.__entry__`.
+        if name in ("main", "__entry__") or name.startswith("__main__."):
+            return fn
     return None
 
 
