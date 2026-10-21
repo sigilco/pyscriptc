@@ -1193,7 +1193,8 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "datetime": ("Date", "DateTime", "Time", "TimeDelta"),
     "time": ("StructTime",),
     "pathlib": ("Path", "Stat"),
-    "os": ("Stat",),
+    "os": ("Stat", "TerminalSize"),
+    "shutil": ("TerminalSize",),
     "collections": ("Deque",),
     "hmac": ("Hmac",),
     "importlib.resources": ("Path",),
@@ -1220,6 +1221,10 @@ CLASS_FIELDS: dict[str, list[dict[str, Any]]] = {
     "Deque": [],
     "TextIO": [],
     "BytesIO": [],
+    "TerminalSize": [
+        {"name": "columns", "type": _I},
+        {"name": "lines", "type": _I},
+    ],
     "Hmac": [
         {"name": "_key", "type": _BY},
         {"name": "_msg", "type": _BY},
@@ -1245,6 +1250,7 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("csv", "_writer"): "CsvWriter",
     ("re", "Pattern"): "Pattern",
     ("re", "Match"): "Match",
+    ("os", "terminal_size"): "TerminalSize",
 }
 
 # Instance methods. `elem` means the deque's element type.
@@ -1418,6 +1424,11 @@ REST_FIXED: dict[str, dict[str, dict[str, Any]]] = {
         "copyfile": _sig([_S, _S], _S, "ps_shutil_copyfile"),
         "rmtree": _sig([_S], _N, "ps_shutil_rmtree"),
         "which": _sig([_S], _S, "ps_shutil_which"),
+        "copy": _sig([_S, _S], _S, "ps_shutil_copy"),
+        "copy2": _sig([_S, _S], _S, "ps_shutil_copy2"),
+        "copytree": _sig([_S, _S], _S, "ps_shutil_copytree"),
+        "move": _sig([_S, _S], _S, "ps_shutil_move"),
+        "get_terminal_size": _sig([], {"kind": "class", "name": "TerminalSize"}, "ps_shutil_get_terminal_size"),
     },
     "textwrap": {
         "dedent": _sig([_S], _S, "ps_wrap_dedent"),

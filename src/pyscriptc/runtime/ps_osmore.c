@@ -293,14 +293,155 @@ void ps_shutil_copyfile(int64_t sn, const char *src, int64_t dn, const char *dst
     ps_copy_bytes(in, outf);
     if (fclose(outf) != 0) {
         fclose(in);
-        free(source);
-        free(dest);
         ps_os_fail("copyfile");
     }
     fclose(in);
     ps_buf_copy(out, dest, (int64_t)strlen(dest));
     free(source);
     free(dest);
+}
+
+/* copy: copyfile plus the permission bits, and the destination path as the
+   result, like shutil.copy. */
+void ps_shutil_copy(int64_t sn, const char *src, int64_t dn, const char *dst, PsBuf *out) {
+    struct stat st;
+    ps_shutil_copyfile(sn, src, dn, dst, out);
+    if (stat(dst, &st) == 0) {
+        chmod(dst, st.st_mode & 07777);
+    }
+}
+
+/* copy2: copyfile plus the mode and the modification time. */
+void ps_shutil_copy2(int64_t sn, const char *src, int64_t dn, const char *dst, PsBuf *out) {
+    struct stat st;
+    struct stat out_st;
+    ps_shutil_copyfile(sn, src, dn, dst, out);
+    if (stat(src, &st) == 0) {
+        chmod(dst, st.st_mode & 07777);
+        if (stat(dst, &out_st) == 0) {
+            struct timespec times[2];
+            times[0] = st.st_atimespec;
+            times[1] = st.st_mtimespec;
+            utimensat(AT_FDCWD, dst, times, 0);
+        }
+    }
+}
+
+/* copytree: copy a directory tree, creating the destination. The result is
+   the destination path, like shutil.copytree. */
+static void ps_copy_tree(const char *src, const char *dst) {
+    struct stat st;
+    DIR *dir;
+    struct dirent *ent;
+    if (stat(src, &st) != 0) {
+        ps_os_fail("copytree");
+    }
+    if (mkdir(dst, st.st_mode & 07777) != 0 && errno != EEXIST) {
+        ps_os_fail("copytree");
+    }
+    dir = opendir(src);
+    if (dir == NULL) {
+        ps_os_fail("copytree");
+    }
+    while ((ent = readdir(dir)) != NULL) {
+        char child_src[4096];
+        char child_dst[4096];
+        struct stat cst;
+        if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) {
+            continue;
+        }
+        if (snprintf(child_src, sizeof child_src, "%s/%s", src, ent->d_name) >= (int)sizeof child_src) {
+            closedir(dir);
+            ps_os_fail("copytree");
+        }
+        if (snprintf(child_dst, sizeof child_dst, "%s/%s", dst, ent->d_name) >= (int)sizeof child_dst) {
+            closedir(dir);
+            ps_os_fail("copytree");
+        }
+        if (lstat(child_src, &cst) != 0) {
+            closedir(dir);
+            ps_os_fail("copytree");
+        }
+        if (S_ISDIR(cst.st_mode)) {
+            ps_copy_tree(child_src, child_dst);
+            continue;
+        }
+        if (S_ISREG(cst.st_mode)) {
+            FILE *in = fopen(child_src, "rb");
+            FILE *outf;
+            if (in == NULL) {
+                closedir(dir);
+                ps_os_fail("copytree");
+            }
+            outf = fopen(child_dst, "wb");
+            if (outf == NULL) {
+                fclose(in);
+                closedir(dir);
+                ps_os_fail("copytree");
+            }
+            ps_copy_bytes(in, outf);
+            fclose(in);
+            if (fclose(outf) != 0) {
+                closedir(dir);
+                ps_os_fail("copytree");
+            }
+            chmod(child_dst, cst.st_mode & 07777);
+            continue;
+        }
+        closedir(dir);
+        ps_os_fail("copytree");
+    }
+    closedir(dir);
+}
+
+void ps_shutil_copytree(int64_t sn, const char *src, int64_t dn, const char *dst, PsBuf *out) {
+    char *source = ps_cstr(sn, src);
+    char *dest = ps_cstr(dn, dst);
+    ps_copy_tree(source, dest);
+    free(source);
+    free(dest);
+    ps_buf_copy(out, dst, dn);
+}
+
+static void ps_rm_tree(const char *path);
+
+/* move: rename, falling back to a copy plus a remove across filesystems. */
+void ps_shutil_move(int64_t sn, const char *src, int64_t dn, const char *dst, PsBuf *out) {
+    char *source = ps_cstr(sn, src);
+    char *dest = ps_cstr(dn, dst);
+    struct stat st;
+    if (stat(source, &st) == 0 && S_ISDIR(st.st_mode)) {
+        ps_copy_tree(source, dest);
+        ps_rm_tree(source);
+    } else {
+        if (rename(source, dest) != 0) {
+            FILE *in = fopen(source, "rb");
+            FILE *outf;
+            if (in == NULL) {
+                free(source);
+                free(dest);
+                ps_os_fail("move");
+            }
+            outf = fopen(dest, "wb");
+            if (outf == NULL) {
+                fclose(in);
+                free(source);
+                free(dest);
+                ps_os_fail("move");
+            }
+            ps_copy_bytes(in, outf);
+            fclose(in);
+            if (fclose(outf) != 0) {
+                free(source);
+                free(dest);
+                ps_os_fail("move");
+            }
+            unlink(source);
+        }
+    }
+    free(source);
+    free(dest);
+    ps_buf_copy(out, dst, dn);
 }
 
 static void ps_rm_tree(const char *path) {
@@ -539,4 +680,27 @@ PsIO *ps_temp_named(int64_t mode, int64_t keep) {
         ps_os_fail("NamedTemporaryFile failed");
     }
     return ps_io_take_fd(fd, path, mode, keep);
+}
+
+/* The terminal size record: two i64 fields, columns then lines. The layout
+   matches the TerminalSize class in stdmore.CLASS_FIELDS. */
+typedef struct {
+    int64_t columns;
+    int64_t lines;
+} PsTerminalSize;
+
+/* get_terminal_size: the COLUMNS and LINES environment variables when they
+   are set, else the ioctl, else the 80x24 fallback that CPython uses when
+   the output is not a terminal. */
+void ps_shutil_get_terminal_size(PsTerminalSize *out) {
+    const char *columns = getenv("COLUMNS");
+    const char *lines = getenv("LINES");
+    out->columns = 80;
+    out->lines = 24;
+    if (columns != NULL && columns[0] != '\0') {
+        out->columns = (int64_t)strtol(columns, NULL, 10);
+    }
+    if (lines != NULL && lines[0] != '\0') {
+        out->lines = (int64_t)strtol(lines, NULL, 10);
+    }
 }
