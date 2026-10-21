@@ -64,8 +64,8 @@ def test_rest_fences_stay_closed(tmp_path: Path) -> None:
                     "",
                 ]
             ),
-            "PS2001",
-            "coroutines are not lowered",
+            "PS2002",
+            "takes a coroutine",
         ),
         (
             "loadmod.py",

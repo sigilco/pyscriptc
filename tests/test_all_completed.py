@@ -40,8 +40,8 @@ def test_all_completed_matches_cpython(tmp_path: Path) -> None:
 def test_other_asyncio_names_stay_fenced(tmp_path: Path) -> None:
     cases = [
         ("run.py", "asyncio.run", "asyncio.run is a function and is not a value"),
-        ("gather.py", "asyncio.gather", "asyncio.gather is not in the lowered subset of asyncio"),
-        ("sleep.py", "asyncio.sleep", "asyncio.sleep is not in the lowered subset of asyncio"),
+        ("gather.py", "asyncio.gather", "asyncio.gather is a function and is not a value"),
+        ("sleep.py", "asyncio.sleep", "asyncio.sleep is a function and is not a value"),
     ]
     for name, expr, text in cases:
         source = f"import asyncio\ndef probe() -> int:\n    {expr}\n    return 1\n"
