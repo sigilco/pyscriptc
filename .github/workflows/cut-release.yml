@@ -186,6 +186,16 @@ jobs:
           echo "release bar failed; fix the failing checks or re-run with bypass_reason (see the job summary)" >&2
           exit 1
 
+      - name: Refuse undrafted placeholders
+        if: ${{ inputs.stage == 'prepare' && !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if grep -E '<!-- (theme:|write 2 to 5 bullets)' /tmp/cut-release/entry.md; then
+            echo "entry.md still contains draft placeholders. Edit the entry (Highlights, theme paragraph) before the real run:" >&2
+            echo "run a dry run, copy /tmp/cut-release/entry.md, or edit the entry in the release PR before merge." >&2
+            exit 1
+          fi
+
       - name: Open the release PR
         if: ${{ inputs.stage == 'prepare' && !inputs.dry_run }}
         env:
@@ -216,6 +226,22 @@ jobs:
               text = text[: idx + 1] + entry + "\n" + text[idx + 1 :]
           path.write_text(text)
           PY
+          python3 - <<'PY2'
+          from pathlib import Path
+
+          changelog = Path("CHANGELOG.md")
+          text = changelog.read_text()
+          prev = None
+          for line in text.splitlines():
+              if line.startswith("## [") and not line.startswith("## [Unreleased]"):
+                  prev = line[4 : line.index("]")]
+                  break
+          repo = "$GITHUB_REPOSITORY"
+          link = f"[{VERSION}]: https://github.com/{repo}/compare/v{prev}...v{VERSION}" if prev else f"[{VERSION}]: https://github.com/{repo}/releases/tag/v{VERSION}"
+          if f"[{VERSION}]:" not in text:
+              text = text.rstrip() + f"\n\n{link}\n"
+              changelog.write_text(text)
+          PY2
           uv lock
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
