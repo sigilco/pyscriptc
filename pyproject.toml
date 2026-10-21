@@ -39,7 +39,7 @@ Reference = "https://github.com/vercel-labs/scriptc"
 pyscriptc = "pyscriptc.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8", "ruff>=0.14", "mypy>=2.4"]
+dev = ["pytest>=8", "pytest-xdist>=3.8", "ruff>=0.14", "mypy>=2.4"]
 # Release binary build only (packaging/). Not installed by a plain `uv sync`.
 packaging = ["nuitka>=4.0", "zstandard>=0.23", "ordered-set>=4.1"]
 
