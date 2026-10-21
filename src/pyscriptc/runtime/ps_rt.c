@@ -216,11 +216,61 @@ static PsExc *ps_exc_new(int32_t code) {
     return e;
 }
 
+/* CPython prints a str message as its repr: quoted, with the escapes. */
+static void ps_report_quoted(PsGrow *g, const PsBuf *msg) {
+    int quote = '\'';
+    if (memchr(msg->data, '\'', (size_t)msg->len) != NULL && memchr(msg->data, '"', (size_t)msg->len) == NULL) {
+        quote = '"';
+    }
+    ps_grow_byte(g, (unsigned char)quote);
+    for (int64_t i = 0; i < msg->len; i++) {
+        unsigned char c = (unsigned char)msg->data[i];
+        if (c == (unsigned char)quote || c == '\\') {
+            ps_grow_byte(g, '\\');
+            ps_grow_byte(g, c);
+        } else if (c == '\n') {
+            ps_grow_add(g, "\\n", 2);
+        } else if (c == '\r') {
+            ps_grow_add(g, "\\r", 2);
+        } else if (c == '\t') {
+            ps_grow_add(g, "\\t", 2);
+        } else if (c < 0x20 || c == 0x7f) {
+            char esc[8];
+            snprintf(esc, sizeof esc, "\\x%02x", c);
+            ps_grow_add(g, esc, 4);
+        } else {
+            ps_grow_byte(g, c);
+        }
+    }
+    ps_grow_byte(g, (unsigned char)quote);
+}
+
+/* The message a KeyError shows: CPython prints its argument as a repr. */
+static PsBuf ps_exc_quoted(const PsBuf *msg) {
+    PsGrow g;
+    PsBuf out;
+    ps_grow_init(&g);
+    ps_report_quoted(&g, msg);
+    ps_grow_finish(&g, &out);
+    return out;
+}
+
 static void ps_report_one(PsExc *e) {
-    if (e != NULL && e->message.len > 0) {
-        fprintf(stderr, "%s: %s\n", ps_exc_name(e->code), e->message.data);
+    if (e == NULL) {
+        fprintf(stderr, "RuntimeError\n");
+        return;
+    }
+    if (e->message.len > 0) {
+        if (ps_exc_isa(e->code, PS_KEY)) {
+            /* CPython prints a KeyError message as its repr: quoted. */
+            PsBuf quoted = ps_exc_quoted(&e->message);
+            fprintf(stderr, "%s: %s\n", ps_exc_name(e->code), quoted.data);
+            free(quoted.data);
+        } else {
+            fprintf(stderr, "%s: %s\n", ps_exc_name(e->code), e->message.data);
+        }
     } else {
-        fprintf(stderr, "%s\n", ps_exc_name(e != NULL ? e->code : PS_RUNTIME));
+        fprintf(stderr, "%s\n", ps_exc_name(e->code));
     }
 }
 
@@ -280,6 +330,11 @@ PsBuf ps_exc_str(PsExc *e) {
     if (e == NULL) {
         PsBuf empty = {0, &ps_empty_byte};
         return empty;
+    }
+    /* CPython's KeyError shows its argument as a repr: str(KeyError('k'))
+       is "'k'", while str(ValueError('k')) is "k". */
+    if (ps_exc_isa(e->code, PS_KEY) && e->message.len > 0) {
+        return ps_exc_quoted(&e->message);
     }
     return e->message;
 }
