@@ -57,6 +57,14 @@ pyscriptc logs
 
 Print the audit-log path and its last ~50 lines. This is the output to paste into an issue.
 
+## `doctor`
+
+```sh
+pyscriptc doctor [--json]
+```
+
+Report what the compiler would use: the type checker (argv, version, and how it was resolved: `env`, `interpreter`, `user-scheme`, `path`, or `-m-fallback`), clang and zig paths and versions, the cache and log directories, the default target, and the install shape (`wheel`, `tool`, `binary`, `source`). Paste this when filing an issue.
+
 ## `telemetry`
 
 ```sh

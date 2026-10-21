@@ -7,7 +7,7 @@ import shutil
 from pathlib import Path
 
 import pytest
-from tests.test_gates import run_cli, write_case
+from tests.test_gates import ROOT, run_cli, write_case
 
 ECHO = "import sys\n\n\ndef main() -> int:\n    return len(sys.argv)\n"
 
@@ -64,3 +64,24 @@ def test_coverage_fail_on(tmp_path: Path, source: str, mode: str | None, code: i
     path = write_case(tmp_path, "case.py", source)
     extra = ["--fail-on", mode] if mode else []
     assert run_cli("coverage", str(path), *extra).returncode == code
+
+
+def test_doctor_json_reports_toolchain() -> None:
+    got = run_cli("doctor", "--json")
+    assert got.returncode == 0, got.stderr
+    info = json.loads(got.stdout)
+    assert info["checker"]["source"] in {"env", "interpreter", "user-scheme", "path", "-m-fallback"}
+    assert info["install"] in {"wheel", "tool", "binary", "source"}
+    assert {"clang", "zig", "cache_dir", "default_target"} <= info.keys()
+
+
+def test_doctor_text_and_env_source(tmp_path: Path) -> None:
+    import os
+    import subprocess
+    import sys
+
+    env = {**os.environ, "PYREFLY_BIN": "/bin/echo"}
+    got = subprocess.run(
+        [sys.executable, "-m", "pyscriptc", "doctor"], capture_output=True, text=True, env=env, cwd=ROOT
+    )
+    assert "source: env" in got.stdout, got.stdout + got.stderr

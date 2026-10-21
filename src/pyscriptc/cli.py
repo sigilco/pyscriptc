@@ -16,6 +16,7 @@ from pyscriptc.check import CheckFailed, run_checker
 from pyscriptc.coverage import build_report, family_of, render_text
 from pyscriptc.debug import Debug, resolve
 from pyscriptc.diagnostics import explain
+from pyscriptc.doctor import doctor_cmd
 from pyscriptc.errors import FitError, IRError, SpikeError, VersionError
 from pyscriptc.ir import validate_module
 from pyscriptc.llvm import emit_llvm, link_binary
@@ -99,6 +100,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("logs", help="print the audit-log path and its last lines", parents=[common])
     telemetry_parser = sub.add_parser("telemetry", help="anonymous usage metrics opt-out")
     telemetry_parser.add_argument("action", choices=("disable", "enable", "status"))
+    doctor_parser = sub.add_parser("doctor", help="report toolchain, cache and install shape", parents=[common])
+    doctor_parser.add_argument("--json", action="store_true", help="print the report as JSON")
     try:
         raw = list(sys.argv[1:] if argv is None else argv)
         run_argv: list[str] = []
@@ -122,6 +125,8 @@ def main(argv: list[str] | None = None) -> int:
             return explain_cmd(args)
         if args.cmd == "logs":
             return logs_cmd(args)
+        if args.cmd == "doctor":
+            return doctor_cmd(args.json)
         if args.cmd == "telemetry":
             return telemetry.telemetry_cmd(args.action)
     except CheckFailed as exc:

@@ -176,27 +176,39 @@ def _resolve_tool_argv(name: str, env_var: str, fallback: list[str]) -> list[str
     PATH, then `fallback`. The result is an argv list, so `fallback` may be multi-token
     (`[sys.executable, "-m", "pyrefly"]`).
     """
+    return _resolve_tool(name, env_var, fallback)[0]
+
+
+def _resolve_tool(name: str, env_var: str, fallback: list[str]) -> tuple[list[str], str]:
+    """Like `_resolve_tool_argv` but also names the winning source.
+
+    Source is one of `env`, `interpreter`, `user-scheme`, `path`, `-m-fallback`.
+    """
     override = os.environ.get(env_var)
     if override:
-        return shlex.split(override)
+        return shlex.split(override), "env"
     exe = sysconfig.get_config_var("EXE") or ""
-    scripts_dirs = [sysconfig.get_path("scripts")]
+    scripts_dirs = [("interpreter", sysconfig.get_path("scripts"))]
     try:
-        scripts_dirs.append(sysconfig.get_path("scripts", sysconfig.get_preferred_scheme("user")))
+        scripts_dirs.append(("user-scheme", sysconfig.get_path("scripts", sysconfig.get_preferred_scheme("user"))))
     except KeyError:
         pass
-    for scripts in scripts_dirs:
+    for source, scripts in scripts_dirs:
         candidate = Path(scripts) / f"{name}{exe}"
         if candidate.is_file() and os.access(candidate, os.X_OK):
-            return [str(candidate)]
+            return [str(candidate)], source
     found = shutil.which(name)
     if found:
-        return [found]
-    return list(fallback)
+        return [found], "path"
+    return list(fallback), "-m-fallback"
 
 
 def _resolve_pyrefly_binary() -> list[str]:
-    return _resolve_tool_argv("pyrefly", "PYREFLY_BIN", [sys.executable, "-m", "pyrefly"])
+    return _resolve_pyrefly()[0]
+
+
+def _resolve_pyrefly() -> tuple[list[str], str]:
+    return _resolve_tool("pyrefly", "PYREFLY_BIN", [sys.executable, "-m", "pyrefly"])
 
 
 def _run_pyrefly(path: Path) -> None:
