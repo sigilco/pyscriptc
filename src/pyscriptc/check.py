@@ -171,11 +171,14 @@ def _patched_typeshed(dest: Path) -> Path:
 def _resolve_tool_argv(name: str, env_var: str, fallback: list[str]) -> list[str]:
     """argv that launches a checker binary, preferring the running interpreter's install.
 
-    Order: the scripts dir of the running interpreter, then the user scheme's
-    scripts dir, then `env_var` (shlex-split), then `name` on PATH, then
-    `fallback`. The result is an argv list, so `fallback` may be multi-token
+    Order: `env_var` (shlex-split, an explicit override), then the scripts dir of
+    the running interpreter, then the user scheme's scripts dir, then `name` on
+    PATH, then `fallback`. The result is an argv list, so `fallback` may be multi-token
     (`[sys.executable, "-m", "pyrefly"]`).
     """
+    override = os.environ.get(env_var)
+    if override:
+        return shlex.split(override)
     exe = sysconfig.get_config_var("EXE") or ""
     scripts_dirs = [sysconfig.get_path("scripts")]
     try:
@@ -186,9 +189,6 @@ def _resolve_tool_argv(name: str, env_var: str, fallback: list[str]) -> list[str
         candidate = Path(scripts) / f"{name}{exe}"
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return [str(candidate)]
-    override = os.environ.get(env_var)
-    if override:
-        return shlex.split(override)
     found = shutil.which(name)
     if found:
         return [found]

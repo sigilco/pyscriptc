@@ -1,4 +1,4 @@
-"""Checker binary resolution: running-interpreter scripts dir, then env, PATH, `-m` fallback."""
+"""Checker binary resolution: env override, running-interpreter scripts dir, user scheme, PATH, `-m` fallback."""
 
 from __future__ import annotations
 
@@ -46,8 +46,14 @@ def _scripts_at(monkeypatch: pytest.MonkeyPatch, default: Path, user: Path | Non
 def test_prefers_running_interpreter_scripts_dir(tmp_path: Path, clean_env: pytest.MonkeyPatch) -> None:
     binary = _executable(tmp_path / "venv" / "bin" / "pyrefly")
     _scripts_at(clean_env, binary.parent)
-    clean_env.setenv("PYREFLY_BIN", "/elsewhere/pyrefly")
     assert _resolve_pyrefly_binary() == [str(binary)]
+
+
+def test_env_override_beats_interpreter_scripts_dir(tmp_path: Path, clean_env: pytest.MonkeyPatch) -> None:
+    binary = _executable(tmp_path / "venv" / "bin" / "pyrefly")
+    _scripts_at(clean_env, binary.parent)
+    clean_env.setenv("PYREFLY_BIN", "/elsewhere/pyrefly")
+    assert _resolve_pyrefly_binary() == ["/elsewhere/pyrefly"]
 
 
 def test_uses_exe_suffix_from_config(tmp_path: Path, clean_env: pytest.MonkeyPatch) -> None:
@@ -71,7 +77,6 @@ def test_skips_non_executable_candidate(tmp_path: Path, clean_env: pytest.Monkey
 def test_user_scheme_scripts_dir_is_second(tmp_path: Path, clean_env: pytest.MonkeyPatch) -> None:
     user_binary = _executable(tmp_path / "user-bin" / "pyrefly")
     _scripts_at(clean_env, tmp_path / "empty-bin", user=user_binary.parent)
-    clean_env.setenv("PYREFLY_BIN", "/override/pyrefly")
     assert _resolve_pyrefly_binary() == [str(user_binary)]
 
 
