@@ -1435,6 +1435,8 @@ class ClassesMixin:
                 for i, part in enumerate(parts):
                     if isinstance(part, ast.Constant) and part.value is None:
                         return self._opt_type(self._annotation(parts[1 - i]), node)
+            if any(isinstance(part, ast.Constant) and part.value is None for part in parts):
+                self.fail(node, "PS1102", "an optional of a multi-arm union is not in the IR")
             self.fail(node, "PS1101", "union types are not in the IR")
         self.fail(node, "PS1103", f"{alias} is not a value type in the IR")
 
@@ -1542,13 +1544,24 @@ class ClassesMixin:
         return {"kind": "attr", "value": value, "name": field["name"], "type": field["type"], "span": span}
 
     def _optional_pipe(self, node: ast.BinOp) -> dict[str, Any] | None:
-        for side in (node.left, node.right):
-            if isinstance(side, ast.Constant) and side.value is None:
-                other = node.left if side is node.right else node.right
-                if isinstance(other, ast.BinOp) and isinstance(other.op, ast.BitOr):
-                    return None
-                return self._opt_type(self._annotation(other), node)
-        return None
+        arms = []
+        pending = [node]
+        while pending:
+            cur = pending.pop()
+            if isinstance(cur, ast.BinOp) and isinstance(cur.op, ast.BitOr):
+                pending.append(cur.right)
+                pending.append(cur.left)
+            else:
+                arms.append(cur)
+        if not any(isinstance(arm, ast.Constant) and arm.value is None for arm in arms):
+            return None
+        rest = [arm for arm in arms if not (isinstance(arm, ast.Constant) and arm.value is None)]
+        distinct = {ast.dump(arm) for arm in rest}
+        if len(distinct) > 1:
+            self.fail(node, "PS1102", "an optional of a multi-arm union is not in the IR")
+        if not rest:
+            return None
+        return self._opt_type(self._annotation(rest[0]), node)
 
     def _opt_type(self, elem: dict[str, Any], node: ast.AST) -> dict[str, Any]:
         if elem["kind"] == "none":

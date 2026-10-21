@@ -32,6 +32,8 @@ def test_self_census_ballpark() -> None:
     # Telemetry privacy pass: random install id, IP-discard properties, opt-in switch (+12 fences).
     # rtcache.py (runtime object cache: threads, hashing, subprocess) adds 1 module and 33 fences.
     # First-run fix: node_text/op_text diagnostics helpers and CLI --run entry handling (+7 fences).
+    # Optional widening (Stage U): total stays 1434; 2 typefacts `X | Y | None` fences
+    # move from union-types (11 to 9) into optional-types (0 to 2, PS1102).
     assert census["fences"] == 1434
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 25_000
