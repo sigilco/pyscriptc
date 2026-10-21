@@ -320,8 +320,13 @@ void ps_shutil_copy2(int64_t sn, const char *src, int64_t dn, const char *dst, P
         chmod(dst, st.st_mode & 07777);
         if (stat(dst, &out_st) == 0) {
             struct timespec times[2];
+#ifdef __APPLE__
             times[0] = st.st_atimespec;
             times[1] = st.st_mtimespec;
+#else
+            times[0] = st.st_atim;
+            times[1] = st.st_mtim;
+#endif
             utimensat(AT_FDCWD, dst, times, 0);
         }
     }
