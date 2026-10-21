@@ -20,7 +20,7 @@ uv run pyscriptc compile FILE --run --call FUNC --args '[...]' -o /tmp/name
 - `--args` is a Python list literal (`ast.literal_eval`). Elements can be `int`, `float`, `bool`, or `str`. A `list`, a `dict`, or `bytes` is built inside the function.
 - The printed return is an `int`, a `float` (`%.17g`), or a `str`. A `bool` return cannot be printed.
 - `--emit ir` writes JSON. `--emit llvm` writes textual LLVM. `--emit bin` writes the binary and does not run it.
-- `--skip-check` skips the checker. The default preflight is pyrefly: a single MIT-licensed binary that answers a bulk expression→type map via `pyrefly check --report-pysa`. Coverage caveat: the Pysa report only records expressions pyrefly kept for taint analysis, so nested `def`s and some sub-expressions come back without facts — `--checker mypy` stays as the coverage escape hatch for sanity-diffing (`uv run python -m benchmarks.factsdiff`). `--checker mypy` and `--checker pyright` are deprecated and warn on use; `range(...)` at `list[int]` sites and `frozenset(...)` at `set[T]` sites are mypy-plugin realignments the pyrefly lane does not reproduce.
+- `--skip-check` skips the checker. The default preflight is pyrefly, a single MIT-licensed binary. `--checker mypy` and `--checker pyright` are deprecated, warn on use, and need the `oracle-mypy` / `oracle-pyright` extras; see [cross-checking with mypy and pyright](external-oracles.md).
 
 ## When it stops
 
