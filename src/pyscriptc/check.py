@@ -6,8 +6,8 @@ annotation fails the build before LLVM emission.
 The default checker is `pyrefly` (resolved by `_resolve_pyrefly_binary`: the
 running interpreter's install, then `PYREFLY_BIN`, then PATH): a 34 MB
 MIT-licensed binary, fast enough to run per compile. It
-runs against a copy of mypy's bundled typeshed patched the same way the
-mypy plugin realigns signatures (`range(...) -> list[int]`,
+runs against a copy of the vendored `_typeshed/` stdlib stubs patched the same
+way the mypy plugin realigns signatures (`range(...) -> list[int]`,
 `frozenset[T]` subclasses `set[T]`), plus the vendored `_pyright_stubs/`
 on `search-path` so `struct.unpack` and `functools.partial` keep
 yielding `Any`. Two check kinds that reject idioms the subset defines —
@@ -152,21 +152,30 @@ def run_checker(path: Path, checker: str = "pyrefly") -> None:
 _PYRIGHT_STUBS = Path(__file__).with_name("_pyright_stubs")
 
 
+_VENDORED_TYPESHED = Path(__file__).with_name("_typeshed")
+
+_BUILTINS_FROZENSET = "class frozenset(AbstractSet[_T_co]):"
+
+
 def _patched_typeshed(dest: Path) -> Path:
-    """Copy mypy's bundled typeshed and realign builtins with the lowered contract.
+    """Copy the vendored typeshed stdlib and realign builtins with the lowered contract.
 
     `frozenset(...)` is the set list (`frozenset[T]` subclasses `set[T]`),
     and `range(...)` materializes `list[int]` (`range.__new__` yields a
-    list). Everything else stays stock mypy-typeshed — which, unlike
-    pyrefly's bundled snapshot, already types `str.split*` as `list[str]`
-    rather than `list[LiteralString]`.
+    list). Everything else stays stock typeshed. The snapshot in
+    `_typeshed/` is a pristine copy of mypy 2.4's bundled stdlib stubs: it
+    types `str.split*` as `list[str]` where pyrefly's own bundled snapshot
+    says `list[LiteralString]`, and it removes the dependency on mypy being
+    installed. A `search-path` `builtins.pyi` override does not work:
+    pyrefly then loads two `builtins` modules and `list[int]` stops matching
+    `list[int]`, so the whole tree is handed over via `typeshed-path`.
     """
-    import mypy  # local import: only needed on the pyrefly lane
-
-    shutil.copytree(Path(mypy.__file__).resolve().parent / "typeshed", dest)
+    shutil.copytree(_VENDORED_TYPESHED, dest)
     builtins = dest / "stdlib" / "builtins.pyi"
     text = builtins.read_text(encoding="utf-8")
-    text = text.replace("class frozenset(AbstractSet[_T_co]):", "class frozenset(set[_T_co]):", 1)
+    if _BUILTINS_FROZENSET not in text or "class range(" not in text:
+        raise CheckFailed("vendored typeshed builtins.pyi no longer matches the subset patch anchors")
+    text = text.replace(_BUILTINS_FROZENSET, "class frozenset(set[_T_co]):", 1)
     start = text.index("class range(")
     end = text.index("\nclass ", start)
     block = text[start:end].replace("-> Self:", "-> list[int]:")
@@ -297,7 +306,8 @@ def _run_pyright(path: Path) -> None:
             )
         except FileNotFoundError as exc:
             raise CheckFailed(
-                f"pyright is not installed (command {argv[0]!r}); set PYRIGHT_BIN or put pyright on PATH"
+                f"pyright is not installed (command {argv[0]!r}); "
+                "install the extra: pip install 'pyscriptc[oracle-pyright]', or set PYRIGHT_BIN / put pyright on PATH"
             ) from exc
     try:
         report = json.loads(proc.stdout)

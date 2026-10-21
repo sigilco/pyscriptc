@@ -20,9 +20,14 @@ classifiers = [
     "Topic :: Software Development :: Compilers",
 ]
 dependencies = [
-    "mypy>=2.4",
     "pyrefly>=1.4.0,<1.5",
 ]
+
+[project.optional-dependencies]
+# Deprecated `--checker mypy` / `--checker pyright` lanes and external
+# cross-checking (docs/external-oracles.md). Not needed for a normal compile.
+oracle-mypy = ["mypy>=2.4"]
+oracle-pyright = ["pyright>=1.1.400"]
 
 [project.urls]
 Homepage = "https://github.com/sigilco/pyscriptc"
@@ -34,7 +39,7 @@ Reference = "https://github.com/vercel-labs/scriptc"
 pyscriptc = "pyscriptc.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8", "ruff>=0.14"]
+dev = ["pytest>=8", "ruff>=0.14", "mypy>=2.4"]
 # Release binary build only (packaging/). Not installed by a plain `uv sync`.
 packaging = ["nuitka>=4.0", "zstandard>=0.23", "ordered-set>=4.1"]
 
@@ -46,7 +51,14 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-pyscriptc = ["runtime/*.c", "runtime/*.h", "_pyright_stubs/*/__init__.pyi"]
+pyscriptc = [
+    "runtime/*.c",
+    "runtime/*.h",
+    "_pyright_stubs/*/__init__.pyi",
+    "_typeshed/LICENSE",
+    "_typeshed/stdlib/VERSIONS",
+    "_typeshed/stdlib/**/*.pyi",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -69,6 +81,7 @@ extend-exclude = [
     "benchmarks/compat2/corpus/scripts",
     "benchmarks/compat2/corpus/holdout/scripts",
     "src/pyscriptc/_pyright_stubs",
+    "src/pyscriptc/_typeshed",
 ]
 
 [tool.ruff.lint]
