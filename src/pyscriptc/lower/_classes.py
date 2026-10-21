@@ -467,14 +467,22 @@ class ClassesMixin:
     def _collect_enum(self, node: ast.ClassDef, which: str) -> None:
         self.declared.add(node.name)
         members: dict[str, int] = {}
+        next_auto = 1
         for stmt in node.body:
             if _is_docstring(stmt) or isinstance(stmt, ast.Pass):
                 continue
             try:
                 target, value = self._enum_assign(stmt)
-                number = _const_int_index(value)
-                if number is None:
-                    self.fail(stmt, "PS2002", "an enum member is an integer constant")
+                auto = self._enum_auto(value)
+                if auto is None:
+                    number = _const_int_index(value)
+                    if number is None:
+                        self.fail(stmt, "PS2002", "an enum member is an integer constant")
+                else:
+                    if not auto:
+                        self.fail(stmt, "PS2003", "enum.auto takes no arguments")
+                    number = next_auto
+                next_auto = number + 1
                 if target in members:
                     self.fail(stmt, "PS2002", f"duplicate enum member {target}")
                 members[target] = number
@@ -495,6 +503,28 @@ class ClassesMixin:
             "members": members,
             "node": node,
         }
+
+    def _enum_auto(self, value: ast.expr) -> bool | None:
+        """True when the value is a bare `auto()` call with no arguments.
+
+        False means an auto() call with arguments; None means not auto().
+        Both the `from enum import auto` binding and the `enum.auto` dotted
+        spelling resolve onto the enum module table.
+        """
+        if not isinstance(value, ast.Call):
+            return None
+        func = value.func
+        if isinstance(func, ast.Name):
+            binding = self.bindings.get(func.id)
+            if binding is None or binding.module != "enum" or binding.attr != "auto":
+                return None
+        elif isinstance(func, ast.Attribute):
+            resolved = self._resolve_module(func)
+            if resolved is None or resolved[1] != "enum" or resolved[2] != "auto":
+                return None
+        else:
+            return None
+        return not value.args and not value.keywords
 
     def _enum_assign(self, stmt: ast.stmt) -> tuple[str, ast.expr]:
         if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):

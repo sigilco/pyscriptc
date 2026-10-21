@@ -334,6 +334,10 @@ class StdlibDispatchMixin:
     ) -> dict[str, Any]:
         if module == "nativeprobe":
             return self._nativeprobe_call(node, span, attr)
+        if module == "enum" and attr == "auto":
+            # enum.auto only lowers as an enum body member; a call anywhere
+            # else has no enum to draw its counter from.
+            self.fail(node, "PS2001", "enum.auto is only lowered inside an enum")
         if module == "math":
             self._reject_keywords(node)
             return self._math_call(node, span, attr)

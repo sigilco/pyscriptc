@@ -1692,7 +1692,7 @@ def member_callable(module: str, member: str) -> bool:
         return True
     if module == "atexit" and member == "register":
         return True
-    if module == "enum" and member in {"Enum", "IntEnum"}:
+    if module == "enum" and member in {"Enum", "IntEnum", "auto"}:
         return True
     if module == "dataclasses" and member == "dataclass":
         return True

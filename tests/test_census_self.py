@@ -37,7 +37,8 @@ def test_self_census_ballpark() -> None:
     # stdmore.py, the class_constant hook in _expr.py, and the itertools
     # chain/starmap/filterfalse handlers add 11 fences total (1442 at
     # b07a48c, 1453 after the itertools family).
-    assert census["fences"] == 1453
+    # enum.auto adds one fence (the enum-only auto call).
+    assert census["fences"] == 1454
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 25_000
-    assert sum(p["fences"] for p in census["packages"]) == 1453
+    assert sum(p["fences"] for p in census["packages"]) == 1454
