@@ -243,9 +243,7 @@ def _program_imports(tree: ast.Module, exports: dict[str, dict[str, dict[str, An
     return found
 
 
-def _statement_imports(
-    stmt: ast.stmt, exports: dict[str, dict[str, dict[str, Any]]]
-) -> list[tuple[str, str]]:
+def _statement_imports(stmt: ast.stmt, exports: dict[str, dict[str, dict[str, Any]]]) -> list[tuple[str, str]]:
     """The program modules one import statement brings in.
 
     Each entry is the module and the local name the import binds for it, so
@@ -280,9 +278,7 @@ def _statement_imports(
     return found
 
 
-def _inject_inits(
-    tree: ast.Module, owned: list[str], exports: dict[str, dict[str, dict[str, Any]]]
-) -> ast.Module:
+def _inject_inits(tree: ast.Module, owned: list[str], exports: dict[str, dict[str, dict[str, Any]]]) -> ast.Module:
     """Call the init of every module this one first imports.
 
     CPython runs an imported module's body at the import statement, so the
