@@ -293,6 +293,44 @@ void ps_exc_class(PsExc *e, PsBuf *out) {
     *out = e->name;
 }
 
+/* CPython repr: Name('message') or Name() when raised without one. */
+void ps_exc_repr(PsExc *e, PsBuf *out) {
+    if (e == NULL) {
+        out->len = 0;
+        out->data = &ps_empty_byte;
+        return;
+    }
+    int64_t quoted = e->message.len > 0 ? e->message.len + 2 : 0;
+    int64_t n = e->name.len + 2 + quoted;
+    char *q = malloc((size_t)n + 1);
+    if (q == NULL) {
+        abort();
+    }
+    int64_t at = 0;
+    memcpy(q + at, e->name.data, (size_t)e->name.len);
+    at += e->name.len;
+    memcpy(q + at, "(", 1);
+    at += 1;
+    if (quoted > 0) {
+        memcpy(q + at, "'", 1);
+        at += 1;
+        memcpy(q + at, e->message.data, (size_t)e->message.len);
+        at += e->message.len;
+        memcpy(q + at, "'", 1);
+        at += 1;
+    }
+    memcpy(q + at, ")", 1);
+    at += 1;
+    q[at] = '\0';
+    out->len = at;
+    out->data = q;
+}
+
+/* isinstance(e, Exc) on a caught value: the parent chain decides. */
+int32_t ps_exc_isa_value(PsExc *e, int32_t wanted) {
+    return e != NULL ? ps_exc_isa(e->code, wanted) : 0;
+}
+
 PsSeq *ps_exc_args(PsExc *e) {
     int64_t has = e != NULL && e->message.len > 0 ? 1 : 0;
     PsSeq *s = ps_seq_new((int64_t)sizeof(PsBuf), has);

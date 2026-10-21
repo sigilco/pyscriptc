@@ -19,6 +19,17 @@ def _isinstance(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]
         if lo._isinstance_holds(obj["type"]["elem"], want):
             return {"kind": "attr", "value": obj, "name": "_tag", "type": {"kind": "bool"}, "span": span}
         return {"kind": "const", "value": False, "type": {"kind": "bool"}, "span": span}
+    if obj["type"]["kind"] == "exc":
+        # `isinstance(e, Exc)` on a caught exception: the runtime parent chain
+        # decides, because the caught value carries a code, not a static type.
+        if want["kind"] != "class":
+            lo.fail(node, "PS2001", "isinstance type is not in the lowered subset")
+        name = want.get("name")
+        code = lo._exception_code_of(name) if isinstance(name, str) else None
+        if code is None:
+            # A class that is not an exception: no exception instance matches it.
+            return {"kind": "const", "value": False, "type": {"kind": "bool"}, "span": span}
+        return lo._abi_call("builtins", "exc.isa", [obj], {"kind": "bool"}, f"ps_exc_isa_value:{code}", span)
     flag = lo._isinstance_holds(obj["type"], want)
     return {"kind": "const", "value": flag, "type": {"kind": "bool"}, "span": span}
 
@@ -125,6 +136,8 @@ def _repr(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     arg = lo._expr(node.args[0])
     kind = arg["type"]["kind"]
     style = "percent"
+    if kind == "exc":
+        return lo._abi_call("builtins", "exc.repr", [arg], {"kind": "str"}, "ps_exc_repr", span)
     if kind == "dict":
         value_kinds = {"int", "float", "str", "bytes"}
         if arg["type"]["key"]["kind"] not in {"int", "str"} or arg["type"]["value"]["kind"] not in value_kinds:

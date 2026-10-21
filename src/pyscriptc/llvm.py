@@ -1028,6 +1028,14 @@ class Emitter:
             return self._emit_deque_load(expr, values)
         if expr.get("symbol") == "ps_list_push":
             return self._emit_list_push(expr, values)
+        if isinstance(expr.get("symbol"), str) and expr["symbol"].startswith("ps_exc_isa_value:"):
+            # isinstance(e, Exc): the wanted code rides in the symbol name; the
+            # runtime walks the parent chain off the caught value.
+            self.needed.add("exc")
+            code = expr["symbol"].split(":", 1)[1]
+            self._abi_decl("ps_exc_isa_value", "i32", ["ptr", "i32"])
+            raw = self._call_ret("i32", "ps_exc_isa_value", [f"ptr {values[0]}", f"i32 {code}"])
+            return self._flag(raw)
         if expr.get("symbol") == "ps_map_del":
             self.needed.add("map")
             key = self._stash(expr["args"][1]["type"], values[1])

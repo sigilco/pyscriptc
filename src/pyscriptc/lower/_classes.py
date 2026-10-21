@@ -1278,6 +1278,15 @@ class ClassesMixin:
                 return code
         return EXCEPTIONS["Exception"]
 
+    def _exception_code_of(self, name: str) -> int | None:
+        """The code of one exception class, without its subclasses."""
+
+        if name in EXCEPTIONS:
+            return EXCEPTIONS[name]
+        info = self.classes.get(name)
+        code = info.get("exc_code") if info is not None else None
+        return code if isinstance(code, int) else None
+
     def _exception_codes(self, name: str) -> list[int]:
         found: list[int] = []
         if name in EXCEPTIONS:
