@@ -13,7 +13,7 @@ from typing import Any
 
 from pyscriptc import telemetry
 from pyscriptc.check import CheckFailed, run_checker
-from pyscriptc.coverage import build_report, render_text
+from pyscriptc.coverage import build_report, family_of, render_text
 from pyscriptc.debug import Debug, resolve
 from pyscriptc.diagnostics import explain
 from pyscriptc.errors import FitError, IRError, SpikeError, VersionError
@@ -117,6 +117,7 @@ def coverage_cmd(args: argparse.Namespace) -> int:
     report = build_report(Path(args.source))
     log.info("coverage.report", source=args.source)
     print(json.dumps(report, indent=2) if args.json else render_text(report))
+    telemetry.track("coverage.reported", telemetry.coverage_properties(report["summary"]))
     return 0
 
 
@@ -137,21 +138,34 @@ def logs_cmd(args: argparse.Namespace) -> int:
 
 def compile_cmd(args: argparse.Namespace) -> int:
     started = time.monotonic()
-    state: dict[str, Any] = {"ok": False, "fence_code": None, "ran_bytes": None}
+    state: dict[str, Any] = {
+        "outcome": None,
+        "stage": "lower",
+        "fence_count": 0,
+        "fence_families": {},
+        "binary_bytes": None,
+    }
     try:
-        rc = _compile_cmd(args, state)
-        state["ok"] = rc == 0
-        return rc
+        return _compile_cmd(args, state)
+    except BaseException as exc:
+        if state["outcome"] is None:
+            state["outcome"] = _compile_outcome(exc, state["stage"])
+        raise
     finally:
-        properties: dict[str, Any] = {
-            "duration_ms": int((time.monotonic() - started) * 1000),
-            "ok": state["ok"],
-        }
-        if state["fence_code"]:
-            properties["fence_code"] = state["fence_code"]
-        telemetry.track("compile.finished", properties)
-        if state["ran_bytes"] is not None:
-            telemetry.track("compile.ran", {"binary_bytes": state["ran_bytes"]})
+        telemetry.track(
+            "compile.finished",
+            telemetry.compile_properties(
+                duration_ms=int((time.monotonic() - started) * 1000),
+                outcome=state["outcome"] or "ok",
+                fence_count=state["fence_count"],
+                fence_families=state["fence_families"],
+                checker=None if args.skip_check else args.checker,
+                emit=args.emit,
+                driver=args.driver,
+                binary_bytes=state["binary_bytes"],
+                skip_check=bool(args.skip_check),
+            ),
+        )
 
 
 def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
@@ -188,10 +202,12 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             args.emit = "bin"
         for note in module.pop("_notes", []):
             print(note, file=sys.stderr)
+        state["stage"] = "check"
         if not args.skip_check:
             dbg.begin("check")
             run_checker(source_path, args.checker)
             dbg.end("check")
+        state["stage"] = "validate"
         dbg.begin("validate")
         validate_module(module)
         dbg.end("validate")
@@ -200,7 +216,8 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         ir_path.write_text(json.dumps(module, indent=2) + "\n", encoding="utf-8")
         outputs["ir"] = str(ir_path)
         if module["fences"]:
-            state["fence_code"] = module["fences"][0].get("code")
+            state["fence_count"] = len(module["fences"])
+            state["fence_families"] = _fence_families(module["fences"])
             log.info(
                 "check.fences",
                 count=len(module["fences"]),
@@ -208,12 +225,14 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             )
             print(render_fences(module, source), file=sys.stderr)
             status = "fences"
+            state["outcome"] = "fences"
             return 3
         log.info("emit.ir", output=str(ir_path))
         if args.emit == "ir":
             print(ir_path)
             return 0
         call_args = _parse_args(args.args) if args.call else None
+        state["stage"] = "emit"
         dbg.begin("emit_llvm")
         llvm_text = emit_llvm(module, args.call, call_args, standalone=args.emit == "bin")
         dbg.end("emit_llvm")
@@ -225,18 +244,20 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             print(ll_path)
             return 0
         binary = Path(args.output) if args.output else source_path.with_suffix("")
+        state["stage"] = "link"
         dbg.begin("link")
         link_binary(ll_path, binary, driver=args.driver, target=args.target, record=dbg.commands)
         dbg.end("link")
         outputs["bin"] = str(binary)
         log.info("link.binary", output=str(binary), driver=args.driver, target=args.target)
         try:
-            state["ran_bytes"] = binary.stat().st_size
+            state["binary_bytes"] = binary.stat().st_size
         except OSError:
             pass
         if not args.run:
             print(binary)
             return 0
+        state["stage"] = "run"
         log.info("run.start", binary=str(binary))
         dbg.begin("run")
         completed = subprocess.run([str(binary.absolute())])
@@ -244,14 +265,37 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         code = 128 + (-completed.returncode) if completed.returncode < 0 else completed.returncode
         log.info("run.exit", binary=str(binary), code=code)
         return code
-    except Exception:
+    except Exception as exc:
         status = "error"
+        state["outcome"] = _compile_outcome(exc, state["stage"])
         raise
     finally:
         report = dbg.render(module, outputs)
         if report:
             print(report, file=sys.stderr)
         dbg.write_dir(module, llvm_text, outputs, status)
+
+
+def _compile_outcome(exc: BaseException, stage: str) -> str:
+    """Map a compile failure onto the telemetry outcome vocabulary."""
+    if isinstance(exc, CheckFailed):
+        return "check-failed"
+    if stage == "link":
+        return "build-error"
+    if isinstance(exc, SpikeError) or stage in ("lower", "validate", "emit"):
+        return "lower-error"
+    return "build-error"
+
+
+def _fence_families(fences: list[dict[str, Any]]) -> dict[str, int]:
+    """Count fences per diagnostic family; `stdlib:<module>` collapses to `stdlib`."""
+    counts: dict[str, int] = {}
+    for fence in fences:
+        family = family_of(fence.get("code", ""), fence.get("message", ""))
+        if family.startswith("stdlib:"):
+            family = "stdlib"
+        counts[family] = counts.get(family, 0) + 1
+    return dict(sorted(counts.items(), key=lambda item: (-item[1], item[0])))
 
 
 def _parse_args(text: str) -> list[Any]:
