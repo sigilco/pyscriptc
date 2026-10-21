@@ -761,22 +761,49 @@ class _Frame:
             "span": span,
         }
         read = _attr_expr(_name(slot, child_t, span), RESULT, self._await_result_type(child_frame), span)
-        # Fresh entry: copy out, mark the point, poll. If the child is
-        # pending the parent suspends; re-entry falls into the same poll
-        # because `rs` was reset to 0 at the await's own resume point.
-        leave = [
-            *self.copy_out(span),
-            self.field_set(STATE, _const(point, _INT, span), span),
-            _assign(status, call, span),
+        pending = [
             _assign(done, _compare("==", _name(status, _INT, span), _const(COMPLETE, _INT, span), span), span),
             _if(
                 _name(done, _BOOL, span),
                 [],
-                [_if(_const(True, _BOOL, span), self.kind.suspend(self, _const(0, _INT, span), span), [], span)],
+                [
+                    {
+                        "kind": "expr",
+                        "expr": {
+                            "kind": "call",
+                            "callee": {"kind": "module", "module": "asyncio", "name": "wait"},
+                            "args": [_name(slot, child_t, span), self.self_name(span)],
+                            "type": dict(_NONE),
+                            "span": span,
+                            "symbol": "ps_loop_wait",
+                        },
+                        "span": span,
+                    },
+                    _if(
+                        _const(True, _BOOL, span),
+                        self.kind.suspend(self, _const(0, _INT, span), span),
+                        [],
+                        span,
+                    ),
+                ],
                 span,
             ),
         ]
-        arrive = [_assign(RESUME, _const(0, _INT, span), span)]
+        # Fresh entry: copy out, mark the point, poll. Re-entry: re-poll the
+        # same child (state still names this point, so a second suspension
+        # comes back here). Both paths read the result only once the child
+        # reports done.
+        leave = [
+            *self.copy_out(span),
+            self.field_set(STATE, _const(point, _INT, span), span),
+            _assign(status, call, span),
+            *pending,
+        ]
+        arrive = [
+            _assign(RESUME, _const(0, _INT, span), span),
+            _assign(status, call, span),
+            *pending,
+        ]
         result_set = (
             [_assign(result, read, span)] if result is not None else []
         )

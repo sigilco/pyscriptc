@@ -37,15 +37,24 @@ typedef struct PsTimer {
     double deadline;
 } PsTimer;
 
+/* A waiter row: `parent` is parked until `child` completes. */
+typedef struct PsWait {
+    void *child;
+    void *parent;
+} PsWait;
+
 static PsTask *ps_ready_head;
 static PsTask *ps_ready_tail;
 static PsTimer *ps_timers;
 static int64_t ps_timer_len;
 static int64_t ps_timer_cap;
+static PsWait ps_waits[64];
+static int64_t ps_wait_len;
 
 void ps_loop_reset(void) {
     ps_ready_head = ps_ready_tail = NULL;
     ps_timer_len = 0;
+    ps_wait_len = 0;
 }
 
 static void ps_ready_push(PsTask *task) {
@@ -66,13 +75,41 @@ static void ps_task_of(void *frame, int64_t (**impl)(void *, void *), void **env
     *env = *(void **)((char *)cell + 8);
 }
 
-/* Run one ready task once. 1 when the task finished, 0 while pending. */
+static void ps_ready_task(void *frame);
+
+/* Run one ready task once. 1 when the task finished, 0 while pending. A
+finished child releases its waiter: the parent re-polls and proceeds. */
 static int64_t ps_task_step(PsTask *task) {
     int64_t status = task->impl(task->env, task->frame);
     if (status == 1) {
         task->done = 1;
+        int64_t kept = 0;
+        for (int64_t i = 0; i < ps_wait_len; i++) {
+            if (ps_waits[i].child == task->frame) {
+                ps_ready_task(ps_waits[i].parent);
+                continue;
+            }
+            ps_waits[kept++] = ps_waits[i];
+        }
+        ps_wait_len = kept;
     }
     return status;
+}
+
+/* `await child` in a coroutine that just found the child pending: park the
+parent until the child completes. */
+void ps_loop_wait(void *child, void *parent) {
+    for (int64_t i = 0; i < ps_wait_len; i++) {
+        if (ps_waits[i].parent == parent) {
+            ps_waits[i].child = child;
+            return;
+        }
+    }
+    if (ps_wait_len < 64) {
+        ps_waits[ps_wait_len].child = child;
+        ps_waits[ps_wait_len].parent = parent;
+        ps_wait_len++;
+    }
 }
 
 static double ps_now(void) {

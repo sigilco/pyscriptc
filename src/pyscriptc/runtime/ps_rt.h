@@ -317,5 +317,6 @@ void ps_loop_ready(void *frame);
 void ps_loop_run(void);
 void ps_loop_run_root(void *frame);
 void ps_loop_sleep(void *frame, double delay);
+void ps_loop_wait(void *child, void *parent);
 
 #endif

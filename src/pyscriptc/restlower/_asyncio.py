@@ -90,7 +90,9 @@ def _asyncio_gather(
         lo.locals[slot] = frame["type"]
         lo.prelude.append({"kind": "assign", "target": slot, "value": frame, "span": span})
         frames.append({"kind": "name", "id": slot, "type": frame["type"], "span": span})
-    _run_stmt(lo, span, "ps_loop_reset", [])
+    # No reset here: gather may run inside an outer loop (a gather within a
+    # coroutine), and resetting would drop the outer tasks' wait rows. The
+    # shared loop drives the new frames alongside whatever is already there.
     for frame in frames:
         _run_stmt(lo, span, "ps_loop_ready", [frame])
     _run_stmt(lo, span, "ps_loop_run", [])
