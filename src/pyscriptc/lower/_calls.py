@@ -784,7 +784,47 @@ class CallsMixin:
             self.fail(node, "PS2003", "json.dumps expects 1 argument(s)")
         arg = self._expr(node.args[0])
         self._json_type(node, arg["type"], "json.dumps")
-        return _mod_call("json", "dumps", [arg], {"kind": "str"}, span)
+        expr = _mod_call("json", "dumps", [arg], {"kind": "str"}, span)
+        flags = self._json_dumps_flags(node)
+        if flags:
+            expr["json_flags"] = flags
+        return expr
+
+    def _json_dumps_flags(self, node: ast.Call) -> int:
+        """The dumps options: bit 0 sorts the keys, bits 8-15 the indent.
+
+        The closed set is `indent`, `sort_keys` and `ensure_ascii`; the
+        other CPython options stay fenced.
+        """
+        flags = 0
+        for keyword in node.keywords:
+            if keyword.arg is None:
+                self.fail(node, "PS2002", "**kwargs are not lowered")
+            name = keyword.arg
+            if name == "indent":
+                value = keyword.value
+                if (
+                    not isinstance(value, ast.Constant)
+                    or not isinstance(value.value, int)
+                    or isinstance(value.value, bool)
+                    or value.value < 0
+                    or value.value > 255
+                ):
+                    self.fail(node, "PS2003", "json.dumps indent is an int constant")
+                flags |= value.value << 8
+            elif name == "sort_keys":
+                if not isinstance(keyword.value, ast.Constant) or not isinstance(keyword.value.value, bool):
+                    self.fail(node, "PS2003", "json.dumps sort_keys is a bool constant")
+                if keyword.value.value:
+                    flags |= 1
+            elif name == "ensure_ascii":
+                if not isinstance(keyword.value, ast.Constant) or not isinstance(keyword.value.value, bool):
+                    self.fail(node, "PS2003", "json.dumps ensure_ascii is a bool constant")
+                if not keyword.value.value:
+                    self.fail(node, "PS2003", "json.dumps ensure_ascii=False is not lowered")
+            else:
+                self.fail(node, "PS2003", f"json.dumps keyword {name} is not lowered")
+        return flags
 
     def _json_type(self, node: ast.AST, typ: dict[str, Any], what: str) -> None:
         kind = typ["kind"]

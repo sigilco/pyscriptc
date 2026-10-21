@@ -1069,7 +1069,7 @@ class Emitter:
             self.needed.add("json")
             if name == "loads":
                 return self._emit_json_loads(values[0], expr["type"])
-            return self._emit_json_dumps(values[0], args[0]["type"])
+            return self._emit_json_dumps(values[0], args[0]["type"], expr.get("json_flags", 0))
         if module == "urllib.parse":
             self.needed.add("url")
             return self._emit_url(name, values)
@@ -1353,9 +1353,11 @@ class Emitter:
         self.line(f"call void @ps_json_loads(i64 {length}, ptr {ptr}, ptr {symbol}, i32 {root}, ptr {slot})")
         return self._json_read(typ, slot)
 
-    def _emit_json_dumps(self, value: str, typ: dict[str, Any]) -> str:
+    def _emit_json_dumps(self, value: str, typ: dict[str, Any], flags: int = 0) -> str:
         symbol, root = self._json_global(typ)
         slot = self._json_write(typ, value)
+        if flags:
+            return self._buf_out("ps_json_dumps_opts", [f"ptr {symbol}", f"i32 {root}", f"ptr {slot}", f"i32 {flags}"])
         return self._buf_out("ps_json_dumps", [f"ptr {symbol}", f"i32 {root}", f"ptr {slot}"])
 
     def _json_global(self, typ: dict[str, Any]) -> tuple[str, int]:
@@ -2561,6 +2563,7 @@ def _runtime_declarations(needed: set[str]) -> list[str]:
             [
                 "declare void @ps_json_loads(i64, ptr, ptr, i32, ptr)",
                 "declare void @ps_json_dumps(ptr, i32, ptr, ptr)",
+                "declare void @ps_json_dumps_opts(ptr, i32, ptr, i32, ptr)",
             ]
         )
     if "url" in needed:

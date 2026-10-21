@@ -42,7 +42,8 @@ def test_self_census_ballpark() -> None:
     # The os fd family (open/read handlers and the ps_osfd.c rows) adds 4
     # fences through the new handler bodies.
     # The argparse handler module (restlower/_argparse.py) adds 51 fences.
-    assert census["fences"] == 1513
+    # The json dumps options fold the keyword set into one handler, -1 fence.
+    assert census["fences"] == 1512
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 25_000
-    assert sum(p["fences"] for p in census["packages"]) == 1513
+    assert sum(p["fences"] for p in census["packages"]) == 1512
