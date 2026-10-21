@@ -32,6 +32,7 @@ from pyscriptc.restlower._copy import _copy_call
 from pyscriptc.restlower._csv import _csv_call
 from pyscriptc.restlower._ctypes import _sizeof
 from pyscriptc.restlower._datetime import _ints
+from pyscriptc.restlower._folds import _eval_fold, _hash_fold, _static_builtin_fold
 from pyscriptc.restlower._functools import _reduce
 from pyscriptc.restlower._hmac import _hmac, _hmac_compare
 from pyscriptc.restlower._io import _input, _named_temp, _open, _print
@@ -66,7 +67,15 @@ from pyscriptc.stdmore import (
     type_alias,
 )
 
-__all__ = ["_mk_iter", "alias_name", "builtin_call", "method_spec", "path_attr", "rest_call"]
+__all__ = [
+    "_mk_iter",
+    "_static_builtin_fold",
+    "alias_name",
+    "builtin_call",
+    "method_spec",
+    "path_attr",
+    "rest_call",
+]
 
 # A registered handler takes the lowerer, the call, its span, the expected type
 # and the attribute name, whatever subset of those it actually needs.
@@ -235,6 +244,8 @@ _BUILTINS: dict[str, BuiltinHandler] = {
     "range": lambda lo, node, span, name: _range_value(lo, node, span),
     "enumerate": lambda lo, node, span, name: _enumerate_value(lo, node, span),
     "zip": lambda lo, node, span, name: _zip_value(lo, node, span),
+    "eval": lambda lo, node, span, name: _eval_fold(lo, node, span),
+    "hash": lambda lo, node, span, name: _hash_fold(lo, node, span),
 }
 
 

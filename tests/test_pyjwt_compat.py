@@ -37,12 +37,14 @@ def test_real_pyjwt_hmac_tree_still_fences() -> None:
 
     proc = run_cli("compile", str(FIXTURE / "jwt"), "--emit", "ir", "-o", os.devnull, "--skip-check")
     assert proc.returncode == 3
-    # 98 fences after the E2 M2 builtin exception hierarchy: `jwt/warnings.py`
+    # 105 fences after T2-2 (`abc` import, `ABC` base, and `@abstractmethod`
+    # erase, -2 from the 107 left by T2-3 kw-only normalization).
+    # 100 fences after the E2 M2 builtin exception hierarchy: `jwt/warnings.py`
     # defines warning classes on `DeprecationWarning` and `UserWarning`, which
-    # the hierarchy table now lowers, so five export fences cleared.
+    # the hierarchy table now lowers, so five export fences cleared (105 - 5).
     # Shrinking means a backlog lowering cleared fences here; update the pin
     # when that happens.
-    assert proc.stderr.count("PS") == 98
+    assert proc.stderr.count("PS") == 100
 
 
 @pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh

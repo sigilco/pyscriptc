@@ -3,8 +3,9 @@
 #
 #   packaging/smoke.sh [BINARY] [SOURCE.py] [FUNCTION] [ARGS_LITERAL]
 #
-# Defaults: BINARY=packaging/dist/pyscriptc-<os>-<arch>, SOURCE=examples/hello.py (falls back to
-# packaging/smoke/hello.py when the repo has no examples/hello.py yet), FUNCTION=hello, ARGS=[20].
+# Defaults: BINARY=packaging/dist/pyscriptc-<os>-<arch>, SOURCE=packaging/smoke/hello.py (a fixed
+# fixture that defines hello(n); examples/hello.py is a first-run demo and may change),
+# FUNCTION=hello, ARGS=[20].
 # The binary is copied to an empty temp directory and run from there, so nothing from the source
 # tree (no src/, no venv) can leak into the result. Needs clang on PATH and `uv` (for CPython 3.12).
 # Exit 0 on a match, 1 on any mismatch or failure.
@@ -16,7 +17,6 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-root="$(cd "$here/.." && pwd)"
 uname_s="$(uname -s)"
 case "$uname_s" in
   Darwin) os=macos ;;
@@ -30,8 +30,7 @@ if [ "$os" = windows ]; then
 else
   bin="${1:-$here/dist/pyscriptc-$os-$arch}"
 fi
-src="${2:-$root/examples/hello.py}"
-[ -f "$src" ] || src="$here/smoke/hello.py"
+src="${2:-$here/smoke/hello.py}"
 func="${3:-hello}"
 fargs="${4:-[20]}"
 

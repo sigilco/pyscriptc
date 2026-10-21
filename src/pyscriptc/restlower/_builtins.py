@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 from typing import Any
 
+from pyscriptc.restlower._folds import _static_builtin_fold
 from pyscriptc.restlower._shared import _pin, _span_to
 
 
@@ -64,6 +65,9 @@ def _abs(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if len(node.args) != 1:
         lo.fail(node, "PS2003", "abs expects 1 argument(s)")
     arg = lo._expr(node.args[0])
+    folded = _static_builtin_fold("abs", arg, span)
+    if folded is not None:
+        return folded
     kind = arg["type"]["kind"]
     if kind == "int":
         return lo._abi_call("builtins", "abs", [arg], {"kind": "int"}, "ps_abs_i64", span)
@@ -153,6 +157,9 @@ def _repr(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if len(node.args) != 1:
         lo.fail(node, "PS2003", "repr expects 1 argument(s)")
     arg = lo._expr(node.args[0])
+    folded = _static_builtin_fold("repr", arg, span)
+    if folded is not None:
+        return folded
     kind = arg["type"]["kind"]
     style = "percent"
     if kind == "exc":
@@ -179,6 +186,9 @@ def _ord(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if len(node.args) != 1:
         lo.fail(node, "PS2003", "ord expects 1 argument(s)")
     arg = lo._expr(node.args[0])
+    folded = _static_builtin_fold("ord", arg, span)
+    if folded is not None:
+        return folded
     if arg["type"]["kind"] != "str":
         lo.fail(node, "PS1003", "ord argument is str")
     return lo._abi_call("builtins", "ord", [arg], {"kind": "int"}, "ps_ord", span)
@@ -188,6 +198,9 @@ def _chr(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if len(node.args) != 1:
         lo.fail(node, "PS2003", "chr expects 1 argument(s)")
     arg = lo._expr(node.args[0])
+    folded = _static_builtin_fold("chr", arg, span)
+    if folded is not None:
+        return folded
     if arg["type"]["kind"] != "int":
         lo.fail(node, "PS1003", "chr argument is int")
     return lo._abi_call("builtins", "chr", [arg], {"kind": "str"}, "ps_chr", span)
