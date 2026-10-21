@@ -51,6 +51,9 @@ from pyscriptc.restlower._operator import _bisect, _join, _operator
 from pyscriptc.restlower._ospath import _relpath
 from pyscriptc.restlower._pathlib import _buffer, _one
 from pyscriptc.restlower._random import _random_call
+from pyscriptc.restlower._subprocess import _call as _sub_call
+from pyscriptc.restlower._subprocess import _check_call as _sub_check_call
+from pyscriptc.restlower._subprocess import _run as _sub_run
 from pyscriptc.restlower._system import _as_file_value, _atexit_register, _exit, _getenv, _resource_files, _unicode_name
 from pyscriptc.restlower._textwrap import _textwrap_call
 from pyscriptc.restlower._time import _clock, _sleep
@@ -125,6 +128,9 @@ _BEFORE_KEYWORDS: dict[tuple[str, str], Handler] = {
     ("collections", "Counter"): lambda lo, node, span, expect, attr: _counter(lo, node, span, expect),
     ("collections", "defaultdict"): lambda lo, node, span, expect, attr: _defaultdict(lo, node, span, expect),
     ("collections", "namedtuple"): _namedtuple_only,
+    ("subprocess", "run"): lambda lo, node, span, expect, attr: _sub_run(lo, node, span),
+    ("subprocess", "call"): lambda lo, node, span, expect, attr: _sub_call(lo, node, span),
+    ("subprocess", "check_call"): lambda lo, node, span, expect, attr: _sub_check_call(lo, node, span),
 }
 
 # Per-attribute handlers that run after keyword arguments are rejected.

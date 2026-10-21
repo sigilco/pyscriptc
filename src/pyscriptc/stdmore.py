@@ -1195,6 +1195,7 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "pathlib": ("Path", "Stat"),
     "os": ("Stat", "TerminalSize"),
     "shutil": ("TerminalSize",),
+    "subprocess": ("CompletedProcess",),
     "collections": ("Deque",),
     "hmac": ("Hmac",),
     "importlib.resources": ("Path",),
@@ -1225,6 +1226,11 @@ CLASS_FIELDS: dict[str, list[dict[str, Any]]] = {
         {"name": "columns", "type": _I},
         {"name": "lines", "type": _I},
     ],
+    "CompletedProcess": [
+        {"name": "returncode", "type": _I},
+        {"name": "stdout", "type": _BY},
+        {"name": "stderr", "type": _BY},
+    ],
     "Hmac": [
         {"name": "_key", "type": _BY},
         {"name": "_msg", "type": _BY},
@@ -1251,6 +1257,7 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("re", "Pattern"): "Pattern",
     ("re", "Match"): "Match",
     ("os", "terminal_size"): "TerminalSize",
+    ("subprocess", "CompletedProcess"): "CompletedProcess",
 }
 
 # Instance methods. `elem` means the deque's element type.
