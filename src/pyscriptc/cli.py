@@ -44,7 +44,11 @@ def main(argv: list[str] | None = None) -> int:
         default="[]",
         help="Python literal list of arguments for --call, parsed with ast.literal_eval",
     )
-    compile_parser.add_argument("--run", action="store_true", help="compile a binary and run it")
+    compile_parser.add_argument(
+        "--run",
+        action="store_true",
+        help="compile a binary and run it; arguments after `--` go to the binary",
+    )
     compile_parser.add_argument(
         "--driver",
         choices=("clang", "zig"),
@@ -85,7 +89,15 @@ def main(argv: list[str] | None = None) -> int:
     telemetry_parser = sub.add_parser("telemetry", help="anonymous usage metrics opt-out")
     telemetry_parser.add_argument("action", choices=("disable", "enable", "status"))
     try:
-        args = parser.parse_args(argv)
+        raw = list(sys.argv[1:] if argv is None else argv)
+        run_argv: list[str] = []
+        if "--" in raw:
+            split = raw.index("--")
+            raw, run_argv = raw[:split], raw[split + 1 :]
+        args = parser.parse_args(raw)
+        args.run_argv = run_argv
+        if run_argv and not (args.cmd == "compile" and args.run):
+            parser.error("arguments after `--` need `compile --run`")
         if getattr(args, "verbose", False):
             enable_debug()
         log.info("cli.invoke", cmd=args.cmd)
@@ -239,7 +251,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             return 0
         log.info("run.start", binary=str(binary))
         dbg.begin("run")
-        completed = subprocess.run([str(binary.absolute())])
+        completed = subprocess.run([str(binary.absolute()), *args.run_argv])
         dbg.end("run")
         code = 128 + (-completed.returncode) if completed.returncode < 0 else completed.returncode
         log.info("run.exit", binary=str(binary), code=code)
