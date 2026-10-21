@@ -245,12 +245,12 @@ def test_numeric_tower_stays_fenced(tmp_path: Path) -> None:
         (
             "invert_float.py",
             "def probe() -> float:\n    return ~2.0\n",
-            "unary Invert on float is not lowered",
+            "unary `~` on float is not lowered",
         ),
         (
             "band_float.py",
             "def probe() -> int:\n    return 5 & 2.0\n",
-            "BitAnd on int and float is not lowered",
+            "`&` on int and float is not lowered",
         ),
     ]
     skip_check = {"float_pow.py", "invert_float.py", "band_float.py", "percent_non_str.py"}

@@ -1,26 +1,33 @@
 # Getting started
 
-Requirements: CPython 3.14, [uv](https://docs.astral.sh/uv/), and a clang that can assemble textual LLVM IR.
+Requirements: [uv](https://docs.astral.sh/uv/) (or pipx/pip), CPython 3.10 or later (CI runs 3.14), and, to build a binary, a clang that can assemble textual LLVM IR (or `zig`). See the install table in the [README](../README.md#install-it). `pyscriptc doctor` reports what it found. Emitted programs cannot be compiled on Windows yet; use Linux, macOS or WSL.
 
 ```bash
-uv sync
-uv run pyscriptc compile examples/invoice.py --run --call charge --args '[10, 2, 50]' -o /tmp/charge
+uv tool install pyscriptc
+pyscriptc coverage your_script.py
 ```
 
-That prints `600`. The same function under CPython returns `600`.
+`coverage` lists every fence in your file and needs no C toolchain. A fence is the whole file, and the subset is small, so expect most real scripts to fence. Then try an example:
+
+```bash
+pyscriptc compile examples/hello.py --run
+pyscriptc compile examples/invoice.py --run --call charge --args '[10, 2, 50]'
+```
+
+The first prints a greeting. The second prints `600`, the value CPython returns. From a checkout, run `uv sync` and prefix commands with `uv run`.
 
 ## The command
 
 ```bash
-uv run pyscriptc compile FILE --run --call FUNC --args '[...]' -o /tmp/name
+pyscriptc compile FILE --run [--call FUNC --args '[...]'] [-o /tmp/name] [-- ARGS]
 ```
 
-- `FILE` is one Python file. Imports come from the closed standard-library table. A second file of yours is not imported.
-- `--call` is the function `main` calls. The binary prints that return value. There is no `print` in the subset.
-- `--args` is a Python list literal (`ast.literal_eval`). Elements can be `int`, `float`, `bool`, or `str`. A `list`, a `dict`, or `bytes` is built inside the function.
-- The printed return is an `int`, a `float` (`%.17g`), or a `str`. A `bool` return cannot be printed.
-- `--emit ir` writes JSON. `--emit llvm` writes textual LLVM. `--emit bin` writes the binary and does not run it.
-- `--skip-check` skips the checker. The default preflight is pyrefly, a single MIT-licensed binary. `--checker mypy` and `--checker pyright` are deprecated, warn on use, and need the `oracle-mypy` / `oracle-pyright` extras; see [cross-checking with mypy and pyright](external-oracles.md).
+- `FILE` is one Python file or a package directory. Imports come from the closed standard-library table. A second file of yours is not imported unless you compile the directory.
+- `--run` without `--call` runs the file's own script: module-level statements and the body of `if __name__ == "__main__":`, in source order. If the file has neither, it prints a note on stderr naming `--call` and exits 0.
+- `--call` runs one function instead. `--args` is a Python list literal (`ast.literal_eval`); elements can be `int`, `float`, `bool`, or `str`. A `list`, a `dict`, or `bytes` is built inside the function. The generated `main` prints the return value: an `int`, a `float` (`%.17g`), or a `str`. A `bool` return cannot be printed.
+- `print` of `str`, `int`, `float`, `bool` and `bytes` lowers (see [supported.md](supported.md)).
+- `--emit ir` writes JSON. `--emit llvm` writes textual LLVM. `--emit bin` writes the binary and does not run it. Only `ir` and `llvm` work without a C toolchain.
+- `--skip-check` skips the checker. The default preflight is pyrefly, a single MIT-licensed binary that ships with the install (and inside the release binaries). `--checker mypy` and `--checker pyright` are deprecated, warn on use, and need the `oracle-mypy` / `oracle-pyright` extras; see [cross-checking with mypy and pyright](external-oracles.md).
 
 ## When it stops
 

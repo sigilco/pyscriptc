@@ -11,7 +11,7 @@ The subset stamp is `gates-v1`. Parsing is CPython 3.14's `ast`. A lowered call 
 - A module-level constant: an annotated assignment, or a bare assignment of a literal, list, dict, or tuple of two or more constants. A function can read it. `if sys.version_info` compared with a tuple of ints (`>=`, `>`, `<=`, `<`, `==`, `!=`, either side) keeps only the taken branch. Any other `if` at module scope is a fence. `name = None` plus `global name` is a process slot of `str`, `int`, or `Path`; `name is None` is the unset flag
 - `try` / `except` for `ValueError`, `IndexError`, `KeyError`, `OverflowError`, `ZeroDivisionError`, `RuntimeError`, and `Exception`
 - `raise ValueError("message")` and the same names
-- Classes with annotated fields, `__init__`, and methods. Fields are annotations with no value. No base class
+- Classes with annotated fields, `__init__`, and methods. Fields are annotations with no value. A single base class is allowed; multiple inheritance fences
 - `import` and `from` for the modules named below
 
 `int` supports `+`, `-`, `*`, `//`, unary `-`, and comparisons. `//` is Python floor division. Overflow and division by zero abort the process.

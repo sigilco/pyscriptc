@@ -11,6 +11,7 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any
 
+from pyscriptc import rtcache
 from pyscriptc.check import _resolve_pyrefly
 from pyscriptc.log import log_dir
 
@@ -69,6 +70,7 @@ def gather() -> dict[str, Any]:
         "clang": _tool("clang"),
         "zig": _tool("zig", "version"),
         "cache_dir": str(Path.home() / ".cache" / "pyscriptc"),
+        "rt_cache": rtcache.stats(),
         "log_dir": str(log_dir()),
         "default_target": default_target(),
         "install": install_shape(),
@@ -82,6 +84,7 @@ def render(info: dict[str, Any]) -> str:
         return f"{entry['path']} ({entry['version'] or 'version unknown'})"
 
     checker = info["checker"]
+    rc = info["rt_cache"]
     return "\n".join(
         [
             f"pyscriptc {info['pyscriptc']} (python {info['python']})",
@@ -91,6 +94,8 @@ def render(info: dict[str, Any]) -> str:
             f"clang:          {tool(info['clang'])}",
             f"zig:            {tool(info['zig'])}",
             f"cache dir:      {info['cache_dir']}",
+            f"rt cache:      {'on' if rc['enabled'] else 'off (PYSC_NO_RT_CACHE)'}, "
+            f"{rc['dir']} ({rc['entries']} objects, {rc['bytes']} bytes)",
             f"log dir:        {info['log_dir']}",
             f"default target: {info['default_target']}",
         ]
