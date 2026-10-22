@@ -1,0 +1,9 @@
+{
+  "slug": "log_latest",
+  "argv": [
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/app.log"
+  ],
+  "stdout": "worker job 1\nworker job 2\nweb request 2\nweb request 3\n2 groups\n",
+  "stderr": "",
+  "exitCode": 0
+}

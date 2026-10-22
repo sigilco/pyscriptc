@@ -1,0 +1,8 @@
+5 requests, 1 unparsed
+  200 3
+  201 1
+  404 1
+top paths:
+       3 /api/users
+       1 /health
+       1 /missing

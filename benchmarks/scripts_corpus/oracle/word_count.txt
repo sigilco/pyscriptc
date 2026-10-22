@@ -1,0 +1,4 @@
+     2 alpha
+     2 beta
+     1 gamma
+4 distinct words

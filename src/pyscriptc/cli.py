@@ -15,11 +15,14 @@ from typing import Any
 
 from pyscriptc import telemetry
 from pyscriptc.check import CheckFailed, run_checker
+from pyscriptc.config import apply_to_args, load_config
 from pyscriptc.coverage import build_report, family_of, render_text
 from pyscriptc.debug import Debug, resolve
 from pyscriptc.diagnostics import explain
 from pyscriptc.doctor import doctor_cmd
 from pyscriptc.errors import FitError, IRError, SpikeError, VersionError
+from pyscriptc.imports import build_report as build_import_report
+from pyscriptc.imports import render_text as render_import_text
 from pyscriptc.ir import validate_module
 from pyscriptc.llvm import compile_unit, emit_llvm, link_binary, standalone_entry
 from pyscriptc.log import enable_debug, get_logger, tail
@@ -115,8 +118,16 @@ def main(argv: list[str] | None = None) -> int:
         choices=("blockers", "any"),
         help="exit 1 when root fences (blockers) or any fence exist; default always exits 0",
     )
+    config_parser = sub.add_parser("config", help="show the resolved config for a source", parents=[common])
+    config_parser.add_argument("source")
+    config_parser.add_argument("--json", action="store_true", help="print the resolved config as JSON")
     explain_parser = sub.add_parser("explain", help="describe a diagnostic code", parents=[common])
     explain_parser.add_argument("code")
+    imports_parser = sub.add_parser(
+        "imports", help="classify every import of a file or package tree into a compat lane", parents=[common]
+    )
+    imports_parser.add_argument("source")
+    imports_parser.add_argument("--json", action="store_true", help="print the report as JSON")
     sub.add_parser("logs", help="print the audit-log path and its last lines", parents=[common])
     telemetry_parser = sub.add_parser("telemetry", help="usage metrics opt-out")
     telemetry_parser.add_argument("action", choices=("disable", "enable", "status", "reset-id"))
@@ -142,6 +153,10 @@ def main(argv: list[str] | None = None) -> int:
             return compile_cmd(args)
         if args.cmd == "coverage":
             return coverage_cmd(args)
+        if args.cmd == "imports":
+            return imports_cmd(args)
+        if args.cmd == "config":
+            return config_cmd(args)
         if args.cmd == "explain":
             return explain_cmd(args)
         if args.cmd == "logs":
@@ -168,10 +183,54 @@ def coverage_cmd(args: argparse.Namespace) -> int:
     print(json.dumps(report, indent=2) if args.json else render_text(report))
     summary = report["summary"]
     telemetry.track("coverage.reported", telemetry.coverage_properties(summary))
-    if args.fail_on == "any" and summary["fences"]:
+    mode = args.fail_on
+    if mode is None:
+        config = load_config(Path(args.source))
+        mode = config.fail_on
+    if mode == "any" and summary["fences"]:
         return 1
-    if args.fail_on == "blockers" and summary["rootFences"]:
+    if mode == "blockers" and summary["rootFences"]:
         return 1
+    return 0
+
+
+def imports_cmd(args: argparse.Namespace) -> int:
+    report = build_import_report(Path(args.source))
+    log.info("imports.report", source=args.source)
+    print(json.dumps(report, indent=2) if args.json else render_import_text(report))
+    return 0
+
+
+def config_cmd(args: argparse.Namespace) -> int:
+    config = load_config(Path(args.source))
+    data = {
+        "source": config.source,
+        "origin": str(config.origin) if config.origin else None,
+        "entry": config.entry,
+        "src": list(config.src),
+        "checker": config.checker,
+        "driver": config.driver,
+        "target": config.target,
+        "fail-on": config.fail_on,
+        "requires-python": config.requires_python,
+        "dependencies": list(config.dependencies),
+        "imports": {name: config.lane_for(name)[0] for name in sorted(config.imports)},
+    }
+    if args.json:
+        print(json.dumps(data, indent=2))
+        return 0
+    print(f"source: {data['source']}")
+    if data["origin"]:
+        print(f"origin: {data['origin']}")
+    for key in ("entry", "checker", "driver", "target", "fail-on", "requires-python"):
+        if data[key] is not None:
+            print(f"{key}: {data[key]}")
+    if data["src"]:
+        print(f"src: {', '.join(data['src'])}")
+    if data["dependencies"]:
+        print(f"dependencies: {', '.join(data['dependencies'])}")
+    for name, lane in data["imports"].items():
+        print(f"import {name}: {lane}")
     return 0
 
 
@@ -261,6 +320,9 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         print(json.dumps(report, indent=2))
         return 3 if report["fences"] else 0
     _require_toolchain(args)
+    config = load_config(source_path)
+    for note in apply_to_args(config, args):
+        print(note, file=sys.stderr)
     log.info(
         "compile.start",
         source=str(source_path),

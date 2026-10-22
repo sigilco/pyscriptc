@@ -1,0 +1,10 @@
+{
+  "slug": "merge_dict",
+  "argv": [
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/a.env",
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/b.env"
+  ],
+  "stdout": "conflict port: 8080 != 9090\nconflict shared: one != two\nextra=yes\nhost=alpha\nport=8080\nshared=one\n4 keys, 2 conflicts\n",
+  "stderr": "",
+  "exitCode": 0
+}

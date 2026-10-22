@@ -1,0 +1,11 @@
+{
+  "slug": "shell_quote",
+  "argv": [
+    "a b",
+    "c'd",
+    "safe"
+  ],
+  "stdout": "'a b' 'c'\\''d' safe\n",
+  "stderr": "",
+  "exitCode": 0
+}

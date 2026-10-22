@@ -1,0 +1,9 @@
+{
+  "slug": "sort_lines",
+  "argv": [
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/lines.txt"
+  ],
+  "stdout": "alpha\nalpha\nbeta\nbeta\ndelta\ngamma\n6 lines\n",
+  "stderr": "",
+  "exitCode": 0
+}

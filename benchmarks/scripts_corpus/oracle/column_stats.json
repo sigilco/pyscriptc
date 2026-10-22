@@ -1,0 +1,9 @@
+{
+  "slug": "column_stats",
+  "argv": [
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/numbers.csv"
+  ],
+  "stdout": "a: min 1.50 max 7.00 mean 4.25 sum 12.75 n 3\nb: min 2.00 max 8.50 mean 5.17 sum 15.50 n 3\nc: min 3.00 max 9.00 mean 6.00 sum 18.00 n 3\n",
+  "stderr": "",
+  "exitCode": 0
+}

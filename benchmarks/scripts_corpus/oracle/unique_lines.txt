@@ -1,0 +1,5 @@
+    2 alpha
+    2 beta
+    1 gamma
+    1 delta
+4 distinct

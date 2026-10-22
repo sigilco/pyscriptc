@@ -1,0 +1,9 @@
+{
+  "slug": "find_files",
+  "argv": [
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/tree"
+  ],
+  "stdout": "{fixtures}/tree/Empty Name.TXT\n{fixtures}/tree/a.txt\n{fixtures}/tree/empty\n{fixtures}/tree/empty/.keep\n{fixtures}/tree/sub\n{fixtures}/tree/sub/b.txt\n{fixtures}/tree/sub/with space.txt\n7 paths\n",
+  "stderr": "",
+  "exitCode": 0
+}
