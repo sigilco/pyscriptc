@@ -1,6 +1,6 @@
 # Development notes
 
-These pages are for someone changing the compiler. User-facing docs live in [`docs/`](../../docs/), the design overview is [`ARCHITECTURE.md`](../../ARCHITECTURE.md), and the published site is at <https://pyscriptc.pages.dev>.
+These pages are for someone changing the compiler. User-facing docs live in [`docs/`](../../docs/), the design overview is [`ARCHITECTURE.md`](ARCHITECTURE.md), and the published site is at <https://pyscriptc.pages.dev>.
 
 Preview the internal notes with `mise run docs:internal` (a docmd dev server over this directory, no build step).
 
