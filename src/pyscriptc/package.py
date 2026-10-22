@@ -32,7 +32,7 @@ from pyscriptc.ir import SUBSET, cpython_version
 from pyscriptc.lower import Lowerer
 
 
-def lower_directory(root: Path, program_mode: bool = False) -> tuple[dict[str, Any], str]:
+def lower_directory(root: Path, program_mode: bool = False, bridge: Any = None) -> tuple[dict[str, Any], str]:
     units, skipped = _discover(root, program_mode)
     program = program_mode or _is_program_dir(root)
     exports, failed = _catalog(units, program)
@@ -61,6 +61,7 @@ def lower_directory(root: Path, program_mode: bool = False) -> tuple[dict[str, A
         lowerer.exc_n = exc_n
         lowerer.program = program
         lowerer.module_init = program and name != "__main__"
+        lowerer.bridge = bridge
         module = lowerer.module(tree)
         exc_n = lowerer.exc_n
         for fn in module["functions"]:

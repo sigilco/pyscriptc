@@ -224,9 +224,23 @@ class StmtMixin:
                     if value["type"]["kind"] == "func":
                         self.locals[target] = value["type"]
                         return [_assign(target, value, span)]
+                    if self._bridge_type(stmt.value) is not None:
+                        # Checker bridge: the checker proved the call's result
+                        # type; bind the name to it instead of fencing.
+                        value = self._expr(stmt.value)
+                        if value["type"]["kind"] != "func":
+                            self.locals[target] = value["type"]
+                            return [_assign(target, value, span)]
                     self.fail(stmt, "PS1001", f"{target} needs an annotation before use")
                 if isinstance(stmt.value, ast.Lambda):
                     self.fail(stmt, "PS1001", "a lambda needs a Callable[[args], ret] annotation")
+                if self._bridge_type(stmt.value) is not None:
+                    # Checker bridge: an unannotated assignment whose inferred
+                    # type the subset can express binds without an annotation.
+                    value = self._expr(stmt.value)
+                    self.locals[target] = value["type"]
+                    self._note_frozen(target, stmt.value)
+                    return [_assign(target, value, span)]
                 self.fail(stmt, "PS1001", f"{target} needs an annotation before use")
             value = self._expr(stmt.value, self.locals[target])
             self._expect(stmt, value["type"], self.locals[target], target)

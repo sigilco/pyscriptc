@@ -169,6 +169,43 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         self.class_queue: list[tuple[ast.ClassDef, str, dict[str, dict[str, Any]]]] = []
         # The substituted (params, ret) while an instantiation lowers.
         self.inst_sig: tuple[list[dict[str, Any]], dict[str, Any]] | None = None
+        # Optional checker bridge (issue #87): a `CheckerBridge` that answers
+        # "what type did the checker infer here" with the checker's own
+        # inferred-type map. None means no bridge: lowering keeps every
+        # inference fence exactly as before.
+        self.bridge: Any = None
+
+    def _bridge_type(self, node: ast.expr) -> dict[str, Any] | None:
+        """The IR type the checker inferred for an expression, or None.
+
+        The bridge answers only when it proved a type the lowered subset can
+        express; anything else returns None and the caller keeps its fence.
+        """
+        if self.bridge is None:
+            return None
+        inferred = self.bridge.inferred_type(node, self.classes)
+        if inferred is None:
+            return None
+        return inferred
+
+    def _bridge_def(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> Any:
+        """DefFacts the checker holds for one `def`, or None without a bridge."""
+        if self.bridge is None:
+            return None
+        return self.bridge.def_facts(node)
+
+    def _bridge_param_type(self, fn: ast.FunctionDef | ast.AsyncFunctionDef, arg: ast.arg) -> dict[str, Any] | None:
+        """The IR type the checker proved for an unannotated parameter, or None."""
+        if self.bridge is None:
+            return None
+        return self.bridge.param_type(fn, arg.arg, self.classes)
+
+    def _bridge_return_type(self, fn: ast.FunctionDef | ast.AsyncFunctionDef) -> dict[str, Any] | None:
+        """The IR type the checker inferred for a missing return annotation."""
+        if self.bridge is None:
+            return None
+        return self.bridge.return_type(fn, self.classes)
+
 
     def fail(self, node: ast.AST, code: str, message: str) -> NoReturn:
         raise Fence(code, message, span_of(node, self.filename), self.function)
@@ -1400,21 +1437,26 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             return {"kind": "str"}
         if self._is_mod(node, "importlib.resources", "as_file"):
             return {"kind": "class", "name": "Path"}
-        return None
+        # Checker bridge: the checker inferred the slot's type from the
+        # initializer expression; the literal rules above stay the fast path
+        # and everything else consults the map when a bridge is wired.
+        return self._bridge_type(node)
 
     def _temp(self, hint: str) -> str:
         self.temp_n += 1
         return f".ps_{hint}_{self.temp_n}"
 
 
-def lower_source(source: str, filename: str = "<stdin>") -> dict[str, Any]:
+def lower_source(source: str, filename: str = "<stdin>", bridge: Any = None) -> dict[str, Any]:
     tree = ast.parse(source, filename=filename)
-    return Lowerer(filename, source).module(tree)
+    lowerer = Lowerer(filename, source)
+    lowerer.bridge = bridge
+    return lowerer.module(tree)
 
 
-def lower_file(path: str) -> tuple[dict[str, Any], str]:
+def lower_file(path: str, bridge: Any = None) -> tuple[dict[str, Any], str]:
     text = open(path, encoding="utf-8").read()
-    return lower_source(text, path), text
+    return lower_source(text, path, bridge), text
 
 
 def render_fences(module: dict[str, Any], source: str) -> str:

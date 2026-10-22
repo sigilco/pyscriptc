@@ -206,8 +206,14 @@ class MypyBridge:
                 continue
             expressions.setdefault(f"{node.line}:{node.column}", _mypy_type_facts(typ))
         defs: dict[str, DefFacts] = {}
+        module_prefix = f"{module.fullname}."
         for node in _iter_mypy_nodes(module):
             if not isinstance(node, FuncDef):
+                continue
+            fullname = node.fullname or node.name
+            if fullname and not fullname.startswith(module_prefix) and fullname != module.fullname:
+                # Decorated/property accessors from imported stubs can leak
+                # through `module.defs`; keep this module's defs only.
                 continue
             params: dict[str, TypeFacts] = {}
             for arg in node.arguments:
@@ -222,11 +228,15 @@ class MypyBridge:
             if returns:
                 resolved = [result.types.get(expr) for expr in returns]
                 if all(typ is not None for typ in resolved):
-                    ret_facts = _mypy_type_facts(resolved[0])
-                    for typ in resolved[1:]:
-                        if str(typ) != str(resolved[0]):
-                            ret_facts = None
-                            break
+                    # Compare the widened facts: `return 1` / `return 2` are
+                    # `Literal[1]` / `Literal[2]`, but the def returns `int`.
+                    widened = [_mypy_type_facts(_widen_literal(typ)) for typ in resolved]
+                    if all(_same_shape(one, widened[0]) for one in widened):
+                        ret_facts = widened[0]
+                    if ret_facts is not None and ret_facts.kind in {"any", "unknown"}:
+                        # mypy could not prove a concrete return (an
+                        # unannotated parameter flows out); the fence stands.
+                        ret_facts = None
             defs[f"{node.line}:{node.column}"] = DefFacts(
                 name=node.name, params=params, return_type=ret_facts
             )
@@ -236,6 +246,36 @@ class MypyBridge:
             expressions=expressions,
             defs=defs,
         )
+
+
+def _widen_literal(typ: Any) -> Any:
+    """A literal type widens to its base type (`Literal[2]` to `int`).
+
+    mypy 2.4 keeps a literal as an `Instance` whose `last_known_value` holds
+    the constant, so the base type is already the instance's own type; older
+    shapes use `LiteralType.fallback`.
+    """
+    from mypy.types import LiteralType, get_proper_type
+
+    proper = get_proper_type(typ)
+    if isinstance(proper, LiteralType):
+        return proper.fallback
+    return proper
+
+
+def _same_shape(one: TypeFacts, other: TypeFacts) -> bool:
+    """Whether two facts name the same type, ignoring the literal value.
+
+    `Literal[1]` and `Literal[2]` are the same shape (`int`); `int` and `str`
+    are not.
+    """
+    if one.kind != other.kind:
+        return False
+    if one.optional != other.optional:
+        return False
+    if len(one.args) != len(other.args):
+        return False
+    return all(_same_shape(a, b) for a, b in zip(one.args, other.args, strict=True))
 
 
 def _collect_returns(fn: Any) -> list[Any]:
@@ -264,6 +304,91 @@ def _collect_returns(fn: Any) -> list[Any]:
     return found
 
 
+# The IR type kinds a bridged fact may translate into. Anything else (a
+# protocol, a typevar, a generic the subset cannot express) stays fenced.
+_BRIDGED_SCALARS = {"int", "float", "bool", "str", "bytes", "none"}
+
+
+def facts_to_ir(facts: TypeFacts, classes: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    """Translate one `TypeFacts` into a lowering IR type, or None.
+
+    `None` means the fact has no representation in the lowered subset, so
+    lowering keeps its fence. The translation is deliberately narrow: scalars,
+    homogeneous lists and sets, str/int-keyed dicts, tuples, user classes and
+    the `T | None` optional widening. A union with more than one non-None arm
+    is not in the IR (PS1102), so it stays None.
+    """
+    if facts.kind in _BRIDGED_SCALARS:
+        return {"kind": facts.kind}
+    if facts.kind == "literal" and facts.args:
+        return facts_to_ir(facts.args[0], classes)
+    if facts.kind == "list" and len(facts.args) == 1:
+        elem = facts_to_ir(facts.args[0], classes)
+        if elem is None:
+            return None
+        return {"kind": "list", "elem": elem}
+    if facts.kind == "set" and len(facts.args) == 1:
+        elem = facts_to_ir(facts.args[0], classes)
+        if elem is None or elem["kind"] not in {"int", "str"}:
+            return None
+        return {"kind": "list", "elem": elem, "set": True}
+    if facts.kind == "dict" and len(facts.args) == 2:
+        key = facts_to_ir(facts.args[0], classes)
+        value = facts_to_ir(facts.args[1], classes)
+        if key is None or value is None:
+            return None
+        if key["kind"] not in {"int", "str"}:
+            return None
+        return {"kind": "dict", "key": key, "value": value}
+    if facts.kind == "union":
+        arms = [arm for arm in facts.args if arm.kind != "none"]
+        optional = any(arm.kind == "none" for arm in facts.args)
+        if len(arms) != 1:
+            return None
+        base = facts_to_ir(arms[0], classes)
+        if base is None:
+            return None
+        if not optional:
+            return base
+        return {"kind": "class", "name": f"__opt_{_slug(base)}", "label": _label(base) + " | None",
+                "optional": True, "elem": base}
+    if facts.kind == "class" and classes is not None and facts.args:
+        # A generic user class: the subset erases the type argument, so the
+        # plain class name is the honest translation.
+        name = facts.runtime_repr.split("[", 1)[0].rsplit(".", 1)[-1]
+        if name in classes:
+            return {"kind": "class", "name": name}
+        return None
+    if facts.kind == "class" and not facts.args:
+        name = facts.runtime_repr.split("[", 1)[0].rsplit(".", 1)[-1]
+        if classes is not None and name not in classes:
+            return None
+        return {"kind": "class", "name": name}
+    return None
+
+
+def _label(typ: dict[str, Any]) -> str:
+    kind = typ["kind"]
+    if kind == "list":
+        return f"list[{_label(typ['elem'])}]"
+    if kind == "dict":
+        return f"dict[{_label(typ['key'])}, {_label(typ['value'])}]"
+    if kind == "class":
+        return str(typ.get("label") or typ.get("name"))
+    return kind
+
+
+def _slug(typ: dict[str, Any]) -> str:
+    kind = typ["kind"]
+    if kind == "list":
+        return f"list_{_slug(typ['elem'])}"
+    if kind == "dict":
+        return f"dict_{_slug(typ['key'])}_{_slug(typ['value'])}"
+    if kind == "class":
+        return str(typ.get("name"))
+    return kind
+
+
 class CheckerBridge:
     """Optional lowering-side consumer of checker facts (issue #87).
 
@@ -289,6 +414,40 @@ class CheckerBridge:
     def inferred_local(self, line: int, col: int) -> TypeFacts | None:
         """The inferred type of the expression starting at (line, col)."""
         return self._facts.expression_at(line, col)
+
+    def inferred_type(
+        self,
+        node: ast.expr,
+        classes: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """The IR type mypy proved for an expression, or None."""
+        facts = self._facts.expression_at(node.lineno, node.col_offset)
+        if facts is None:
+            return None
+        return facts_to_ir(facts, classes)
+
+    def param_type(
+        self,
+        fn: ast.FunctionDef | ast.AsyncFunctionDef,
+        name: str,
+        classes: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """The IR type mypy proved for a parameter, or None."""
+        facts = self._facts.def_at(fn.lineno, fn.col_offset)
+        if facts is None or name not in facts.params:
+            return None
+        return facts_to_ir(facts.params[name], classes)
+
+    def return_type(
+        self,
+        fn: ast.FunctionDef | ast.AsyncFunctionDef,
+        classes: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """The IR type mypy inferred for a `def`'s return, or None."""
+        facts = self._facts.def_at(fn.lineno, fn.col_offset)
+        if facts is None or facts.return_type is None:
+            return None
+        return facts_to_ir(facts.return_type, classes)
 
     def def_facts(self, fn: ast.FunctionDef | ast.AsyncFunctionDef) -> DefFacts | None:
         """Facts mypy proved about one `def`, or None when it has none."""
