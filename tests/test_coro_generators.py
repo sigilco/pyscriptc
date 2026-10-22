@@ -234,7 +234,7 @@ def test_unsupported_shapes_fence_precisely(monkeypatch: pytest.MonkeyPatch) -> 
         (11, "Generator[T, S, R] with send or return types is not lowered yet"),
         (17, "yield as an expression (send) is not lowered yet"),
         (22, "return with a value in a generator is not lowered yet"),
-        (26, "a nested def or class in a generator is not lowered yet"),
+        (26, "a nested def or class in a resumable is not lowered yet"),
     ]
     assert {f["code"] for f in module["fences"]} == {"PS2002"}
 

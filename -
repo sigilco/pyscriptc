@@ -1,0 +1,1911 @@
+{
+  "irVersion": 1,
+  "subset": "gates-v1",
+  "cpython": "3.14.8",
+  "sourceFile": "/tmp/btest.py",
+  "entry": "main",
+  "functions": [
+    {
+      "name": "inner",
+      "params": [],
+      "returnType": {
+        "kind": "class",
+        "name": "coro.inner"
+      },
+      "locals": [
+        {
+          "name": ".ps_coro_frame",
+          "type": {
+            "kind": "class",
+            "name": "coro.inner"
+          }
+        }
+      ],
+      "body": [
+        {
+          "kind": "assign",
+          "target": ".ps_coro_frame",
+          "value": {
+            "kind": "call",
+            "callee": {
+              "kind": "class",
+              "name": "coro.inner"
+            },
+            "args": [],
+            "type": {
+              "kind": "class",
+              "name": "coro.inner"
+            },
+            "span": {
+              "file": "/tmp/btest.py",
+              "line": 4,
+              "col": 1,
+              "endLine": 5,
+              "endCol": 13
+            }
+          },
+          "span": {
+            "file": "/tmp/btest.py",
+            "line": 4,
+            "col": 1,
+            "endLine": 5,
+            "endCol": 13
+          }
+        },
+        {
+          "kind": "setattr",
+          "object": {
+            "kind": "name",
+            "id": ".ps_coro_frame",
+            "type": {
+              "kind": "class",
+              "name": "coro.inner"
+            },
+            "span": {
+              "file": "/tmp/btest.py",
+              "line": 4,
+              "col": 1,
+              "endLine": 5,
+              "endCol": 13
+            }
+          },
+          "name": ".ps_task",
+          "value": {
+            "kind": "closure",
+            "name": "coro.inner.resume",
+            "env": [],
+            "type": {
+              "kind": "func",
+              "params": [
+                {
+                  "kind": "class",
+                  "name": "@frame"
+                }
+              ],
+              "return": {
+                "kind": "int"
+              }
+            },
+            "span": {
+              "file": "/tmp/btest.py",
+              "line": 4,
+              "col": 1,
+              "endLine": 5,
+              "endCol": 13
+            }
+          },
+          "span": {
+            "file": "/tmp/btest.py",
+            "line": 4,
+            "col": 1,
+            "endLine": 5,
+            "endCol": 13
+          }
+        },
+        {
+          "kind": "return",
+          "value": {
+            "kind": "name",
+            "id": ".ps_coro_frame",
+            "type": {
+              "kind": "class",
+              "name": "coro.inner"
+            },
+            "span": {
+              "file": "/tmp/btest.py",
+              "line": 4,
+              "col": 1,
+              "endLine": 5,
+              "endCol": 13
+            }
+          },
+          "span": {
+            "file": "/tmp/btest.py",
+            "line": 4,
+            "col": 1,
+            "endLine": 5,
+            "endCol": 13
+          }
+        }
+      ],
+      "span": {
+        "file": "/tmp/btest.py",
+        "line": 4,
+        "col": 1,
+        "endLine": 5,
+        "endCol": 13
+      }
+    },
+    {
+      "name": "coro.inner.resume",
+      "params": [
+        {
+          "name": ".ps_self",
+          "type": {
+            "kind": "class",
+            "name": "coro.inner"
+          }
+        }
+      ],
+      "returnType": {
+        "kind": "int"
+      },
+      "locals": [
+        {
+          "name": ".ps_self",
+          "type": {
+            "kind": "class",
+            "name": "coro.inner"
+          }
+        }
+      ],
+      "body": [
+        {
+          "kind": "return",
+          "value": {
+            "kind": "call",
+            "callee": {
+              "kind": "function",
+              "name": "cls.coro.inner.resume"
+            },
+            "args": [
+              {
+                "kind": "name",
+                "id": ".ps_self",
+                "type": {
+                  "kind": "class",
+                  "name": "coro.inner"
+                },
+                "span": {
+                  "file": "/tmp/btest.py",
+                  "line": 4,
+                  "col": 1,
+                  "endLine": 5,
+                  "endCol": 13
+                }
+              }
+            ],
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "/tmp/btest.py",
+              "line": 4,
+              "col": 1,
+              "endLine": 5,
+              "endCol": 13
+            }
+          },
+          "span": {
+            "file": "/tmp/btest.py",
+            "line": 4,
+            "col": 1,
+            "endLine": 5,
+            "endCol": 13
+          }
+        }
+      ],
+      "span": {
+        "file": "/tmp/btest.py",
+        "line": 4,
+        "col": 1,
+        "endLine": 5,
+        "endCol": 13
+      }
+    },
+    {
+      "name": "root",
+      "params": [],
+      "returnType": {
+        "kind": "class",
+        "name": "coro.root"
+      },
+      "locals": [
+        {
+          "name": ".ps_coro_frame",
+          "type": {
+            "kind": "class",
+            "name": "coro.root"
+          }
+        }
+      ],
+      "body": [
+        {
+          "kind": "assign",
+          "target": ".ps_coro_frame",
+          "value": {
+            "kind": "call",
+            "callee": {
+              "kind": "class",
+              "name": "coro.root"
+            },
+            "args": [],
+            "type": {
+              "kind": "class",
+              "name": "coro.root"
+            },
+            "span": {
+              "file": "/tmp/btest.py",
+              "line": 8,
+              "col": 1,
+              "endLine": 11,
+              "endCol": 13
+            }
+          },
+          "span": {
+            "file": "/tmp/btest.py",
+            "line": 8,
+            "col": 1,
+            "endLine": 11,
+            "endCol": 13
+          }
+        },
+        {
+          "kind": "setattr",
+          "object": {
+            "kind": "name",
+            "id": ".ps_coro_frame",
+            "type": {
+              "kind": "class",
+              "name": "coro.root"
+            },
+            "span": {
+              "file": "/tmp/btest.py",
+              "line": 8,
+              "col": 1,
+              "endLine": 11,
+              "endCol": 13
+            }
+          },
+          "name": ".ps_task",
+          "value": {
+            "kind": "closure",
+            "name": "coro.root.resume",
+            "env": [],
+            "type": {
+              "kind": "func",
+              "params": [
+                {
+                  "kind": "class",
+                  "name": "@frame"
+                }
+              ],
+              "return": {
+                "kind": "int"
+              }
+            },
+            "span": {
+              "file": "/tmp/btest.py",
+              "line": 8,
+              "col": 1,
+              "endLine": 11,
+              "endCol": 13
+            }
+          },
+          "span": {
+            "file": "/tmp/btest.py",
+            "line": 8,
+            "col": 1,
+            "endLine": 11,
+            "endCol": 13
+          }
+        },
+        {
+          "kind": "return",
+          "value": {
+            "kind": "name",
+            "id": ".ps_coro_frame",
+            "type": {
+              "kind": "class",
+              "name": "coro.root"
+            },
+            "span": {
+              "file": "/tmp/btest.py",
+              "line": 8,
+              "col": 1,
+              "endLine": 11,
+              "endCol": 13
+            }
+          },
+          "span": {
+            "file": "/tmp/btest.py",
+            "line": 8,
+            "col": 1,
+            "endLine": 11,
+            "endCol": 13
+          }
+        }
+      ],
+      "span": {
+        "file": "/tmp/btest.py",
+        "line": 8,
+        "col": 1,
+        "endLine": 11,
+        "endCol": 13
+      }
+    },
+    {
+      "name": "coro.root.resume",
+      "params": [
+        {
+          "name": ".ps_self",
+          "type": {
+            "kind": "class",
+            "name": "coro.root"
+          }
+        }
+      ],
+      "returnType": {
+        "kind": "int"
+      },
+      "locals": [
+        {
+          "name": ".ps_self",
+          "type": {
+            "kind": "class",
+            "name": "coro.root"
+          }
+        }
+      ],
+      "body": [
+        {
+          "kind": "return",
+          "value": {
+            "kind": "call",
+            "callee": {
+              "kind": "function",
+              "name": "cls.coro.root.resume"
+            },
+            "args": [
+              {
+                "kind": "name",
+                "id": ".ps_self",
+                "type": {
+                  "kind": "class",
+                  "name": "coro.root"
+                },
+                "span": {
+                  "file": "/tmp/btest.py",
+                  "line": 8,
+                  "col": 1,
+                  "endLine": 11,
+                  "endCol": 13
+                }
+              }
+            ],
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "/tmp/btest.py",
+              "line": 8,
+              "col": 1,
+              "endLine": 11,
+              "endCol": 13
+            }
+          },
+          "span": {
+            "file": "/tmp/btest.py",
+            "line": 8,
+            "col": 1,
+            "endLine": 11,
+            "endCol": 13
+          }
+        }
+      ],
+      "span": {
+        "file": "/tmp/btest.py",
+        "line": 8,
+        "col": 1,
+        "endLine": 11,
+        "endCol": 13
+      }
+    },
+    {
+      "name": "main",
+      "params": [],
+      "returnType": {
+        "kind": "none"
+      },
+      "locals": [
+        {
+          "name": ".ps_run_1",
+          "type": {
+            "kind": "class",
+            "name": "coro.root"
+          }
+        }
+      ],
+      "body": [
+        {
+          "kind": "assign",
+          "target": ".ps_run_1",
+          "value": {
+            "kind": "call",
+            "callee": {
+              "kind": "function",
+              "name": "root"
+            },
+            "args": [],
+            "type": {
+              "kind": "class",
+              "name": "coro.root"
+            },
+            "span": {
+              "file": "/tmp/btest.py",
+              "line": 14,
+              "col": 19,
+              "endLine": 14,
+              "endCol": 25
+            }
+          },
+          "span": {
+            "file": "/tmp/btest.py",
+            "line": 14,
+            "col": 7,
+            "endLine": 14,
+            "endCol": 26
+          }
+        },
+        {
+          "kind": "expr",
+          "expr": {
+            "kind": "call",
+            "callee": {
+              "kind": "module",
+              "module": "asyncio",
+              "name": "run"
+            },
+            "args": [
+              {
+                "kind": "name",
+                "id": ".ps_run_1",
+                "type": {
+                  "kind": "class",
+                  "name": "coro.root"
+                },
+                "span": {
+                  "file": "/tmp/btest.py",
+                  "line": 14,
+                  "col": 7,
+                  "endLine": 14,
+                  "endCol": 26
+                }
+              }
+            ],
+            "type": {
+              "kind": "none"
+            },
+            "span": {
+              "file": "/tmp/btest.py",
+              "line": 14,
+              "col": 7,
+              "endLine": 14,
+              "endCol": 26
+            },
+            "symbol": "ps_loop_run_root"
+          },
+          "span": {
+            "file": "/tmp/btest.py",
+            "line": 14,
+            "col": 7,
+            "endLine": 14,
+            "endCol": 26
+          }
+        },
+        {
+          "kind": "expr",
+          "expr": {
+            "kind": "call",
+            "callee": {
+              "kind": "builtin",
+              "name": "print"
+            },
+            "args": [
+              {
+                "kind": "attr",
+                "value": {
+                  "kind": "name",
+                  "id": ".ps_run_1",
+                  "type": {
+                    "kind": "class",
+                    "name": "coro.root"
+                  },
+                  "span": {
+                    "file": "/tmp/btest.py",
+                    "line": 14,
+                    "col": 7,
+                    "endLine": 14,
+                    "endCol": 26
+                  }
+                },
+                "name": ".ps_result",
+                "type": {
+                  "kind": "int"
+                },
+                "span": {
+                  "file": "/tmp/btest.py",
+                  "line": 14,
+                  "col": 7,
+                  "endLine": 14,
+                  "endCol": 26
+                }
+              }
+            ],
+            "type": {
+              "kind": "none"
+            },
+            "span": {
+              "file": "/tmp/btest.py",
+              "line": 14,
+              "col": 1,
+              "endLine": 14,
+              "endCol": 27
+            }
+          },
+          "span": {
+            "file": "/tmp/btest.py",
+            "line": 14,
+            "col": 1,
+            "endLine": 14,
+            "endCol": 27
+          }
+        }
+      ],
+      "span": {
+        "file": "/tmp/btest.py",
+        "line": 14,
+        "col": 1,
+        "endLine": 14,
+        "endCol": 1
+      }
+    }
+  ],
+  "classes": [
+    {
+      "name": "BytesIO",
+      "fields": [],
+      "methods": [],
+      "span": {
+        "file": "/tmp/btest.py",
+        "line": 1,
+        "col": 1,
+        "endLine": 1,
+        "endCol": 1
+      }
+    },
+    {
+      "name": "TextIO",
+      "fields": [],
+      "methods": [],
+      "span": {
+        "file": "/tmp/btest.py",
+        "line": 1,
+        "col": 1,
+        "endLine": 1,
+        "endCol": 1
+      }
+    },
+    {
+      "name": "coro.inner",
+      "fields": [
+        {
+          "name": ".ps_state",
+          "type": {
+            "kind": "int"
+          }
+        },
+        {
+          "name": ".ps_task",
+          "type": {
+            "kind": "func",
+            "params": [
+              {
+                "kind": "class",
+                "name": "@frame"
+              }
+            ],
+            "return": {
+              "kind": "int"
+            }
+          }
+        },
+        {
+          "name": ".ps_result",
+          "type": {
+            "kind": "int"
+          }
+        }
+      ],
+      "methods": [
+        {
+          "params": [
+            {
+              "name": ".ps_self",
+              "type": {
+                "kind": "class",
+                "name": "coro.inner"
+              }
+            }
+          ],
+          "locals": [
+            {
+              "name": ".ps_self",
+              "type": {
+                "kind": "class",
+                "name": "coro.inner"
+              }
+            },
+            {
+              "name": ".ps_rs",
+              "type": {
+                "kind": "int"
+              }
+            }
+          ],
+          "body": [
+            {
+              "kind": "assign",
+              "target": ".ps_rs",
+              "value": {
+                "kind": "attr",
+                "value": {
+                  "kind": "name",
+                  "id": ".ps_self",
+                  "type": {
+                    "kind": "class",
+                    "name": "coro.inner"
+                  },
+                  "span": {
+                    "file": "/tmp/btest.py",
+                    "line": 4,
+                    "col": 1,
+                    "endLine": 5,
+                    "endCol": 13
+                  }
+                },
+                "name": ".ps_state",
+                "type": {
+                  "kind": "int"
+                },
+                "span": {
+                  "file": "/tmp/btest.py",
+                  "line": 4,
+                  "col": 1,
+                  "endLine": 5,
+                  "endCol": 13
+                }
+              },
+              "span": {
+                "file": "/tmp/btest.py",
+                "line": 4,
+                "col": 1,
+                "endLine": 5,
+                "endCol": 13
+              }
+            },
+            {
+              "kind": "if",
+              "cond": {
+                "kind": "compare",
+                "op": "==",
+                "left": {
+                  "kind": "name",
+                  "id": ".ps_rs",
+                  "type": {
+                    "kind": "int"
+                  },
+                  "span": {
+                    "file": "/tmp/btest.py",
+                    "line": 4,
+                    "col": 1,
+                    "endLine": 5,
+                    "endCol": 13
+                  }
+                },
+                "right": {
+                  "kind": "const",
+                  "value": "-1",
+                  "type": {
+                    "kind": "int"
+                  },
+                  "span": {
+                    "file": "/tmp/btest.py",
+                    "line": 4,
+                    "col": 1,
+                    "endLine": 5,
+                    "endCol": 13
+                  }
+                },
+                "type": {
+                  "kind": "bool"
+                },
+                "span": {
+                  "file": "/tmp/btest.py",
+                  "line": 4,
+                  "col": 1,
+                  "endLine": 5,
+                  "endCol": 13
+                }
+              },
+              "then": [
+                {
+                  "kind": "return",
+                  "value": {
+                    "kind": "const",
+                    "value": "1",
+                    "type": {
+                      "kind": "int"
+                    },
+                    "span": {
+                      "file": "/tmp/btest.py",
+                      "line": 4,
+                      "col": 1,
+                      "endLine": 5,
+                      "endCol": 13
+                    }
+                  },
+                  "span": {
+                    "file": "/tmp/btest.py",
+                    "line": 4,
+                    "col": 1,
+                    "endLine": 5,
+                    "endCol": 13
+                  }
+                }
+              ],
+              "else": [],
+              "span": {
+                "file": "/tmp/btest.py",
+                "line": 4,
+                "col": 1,
+                "endLine": 5,
+                "endCol": 13
+              }
+            },
+            {
+              "kind": "setattr",
+              "object": {
+                "kind": "name",
+                "id": ".ps_self",
+                "type": {
+                  "kind": "class",
+                  "name": "coro.inner"
+                },
+                "span": {
+                  "file": "/tmp/btest.py",
+                  "line": 4,
+                  "col": 1,
+                  "endLine": 5,
+                  "endCol": 13
+                }
+              },
+              "name": ".ps_state",
+              "value": {
+                "kind": "const",
+                "value": "-1",
+                "type": {
+                  "kind": "int"
+                },
+                "span": {
+                  "file": "/tmp/btest.py",
+                  "line": 4,
+                  "col": 1,
+                  "endLine": 5,
+                  "endCol": 13
+                }
+              },
+              "span": {
+                "file": "/tmp/btest.py",
+                "line": 4,
+                "col": 1,
+                "endLine": 5,
+                "endCol": 13
+              }
+            },
+            {
+              "kind": "if",
+              "cond": {
+                "kind": "const",
+                "value": true,
+                "type": {
+                  "kind": "bool"
+                },
+                "span": {
+                  "file": "/tmp/btest.py",
+                  "line": 5,
+                  "col": 5,
+                  "endLine": 5,
+                  "endCol": 13
+                }
+              },
+              "then": [
+                {
+                  "kind": "setattr",
+                  "object": {
+                    "kind": "name",
+                    "id": ".ps_self",
+                    "type": {
+                      "kind": "class",
+                      "name": "coro.inner"
+                    },
+                    "span": {
+                      "file": "/tmp/btest.py",
+                      "line": 5,
+                      "col": 5,
+                      "endLine": 5,
+                      "endCol": 13
+                    }
+                  },
+                  "name": ".ps_result",
+                  "value": {
+                    "kind": "const",
+                    "value": "7",
+                    "type": {
+                      "kind": "int"
+                    },
+                    "span": {
+                      "file": "/tmp/btest.py",
+                      "line": 5,
+                      "col": 12,
+                      "endLine": 5,
+                      "endCol": 13
+                    }
+                  },
+                  "span": {
+                    "file": "/tmp/btest.py",
+                    "line": 5,
+                    "col": 5,
+                    "endLine": 5,
+                    "endCol": 13
+                  }
+                },
+                {
+                  "kind": "return",
+                  "value": {
+                    "kind": "const",
+                    "value": "1",
+                    "type": {
+                      "kind": "int"
+                    },
+                    "span": {
+                      "file": "/tmp/btest.py",
+                      "line": 5,
+                      "col": 5,
+                      "endLine": 5,
+                      "endCol": 13
+                    }
+                  },
+                  "span": {
+                    "file": "/tmp/btest.py",
+                    "line": 5,
+                    "col": 5,
+                    "endLine": 5,
+                    "endCol": 13
+                  }
+                }
+              ],
+              "else": [],
+              "span": {
+                "file": "/tmp/btest.py",
+                "line": 5,
+                "col": 5,
+                "endLine": 5,
+                "endCol": 13
+              }
+            },
+            {
+              "kind": "return",
+              "value": {
+                "kind": "const",
+                "value": "1",
+                "type": {
+                  "kind": "int"
+                },
+                "span": {
+                  "file": "/tmp/btest.py",
+                  "line": 4,
+                  "col": 1,
+                  "endLine": 5,
+                  "endCol": 13
+                }
+              },
+              "span": {
+                "file": "/tmp/btest.py",
+                "line": 4,
+                "col": 1,
+                "endLine": 5,
+                "endCol": 13
+              }
+            }
+          ],
+          "span": {
+            "file": "/tmp/btest.py",
+            "line": 4,
+            "col": 1,
+            "endLine": 5,
+            "endCol": 13
+          },
+          "name": "resume",
+          "returnType": {
+            "kind": "int"
+          }
+        }
+      ],
+      "span": {
+        "file": "/tmp/btest.py",
+        "line": 4,
+        "col": 1,
+        "endLine": 5,
+        "endCol": 13
+      }
+    },
+    {
+      "name": "coro.root",
+      "fields": [
+        {
+          "name": ".ps_state",
+          "type": {
+            "kind": "int"
+          }
+        },
+        {
+          "name": ".ps_task",
+          "type": {
+            "kind": "func",
+            "params": [
+              {
+                "kind": "class",
+                "name": "@frame"
+              }
+            ],
+            "return": {
+              "kind": "int"
+            }
+          }
+        },
+        {
+          "name": ".ps_result",
+          "type": {
+            "kind": "int"
+          }
+        },
+        {
+          "name": ".ps_aw_1",
+          "type": {
+            "kind": "class",
+            "name": "coro.inner"
+          }
+        },
+        {
+          "name": ".ps_awv_1",
+          "type": {
+            "kind": "int"
+          }
+        },
+        {
+          "name": "v",
+          "type": {
+            "kind": "int"
+          }
+        }
+      ],
+      "methods": [
+        {
+          "params": [
+            {
+              "name": ".ps_self",
+              "type": {
+                "kind": "class",
+                "name": "coro.root"
+              }
+            }
+          ],
+          "locals": [
+            {
+              "name": ".ps_self",
+              "type": {
+                "kind": "class",
+                "name": "coro.root"
+              }
+            },
+            {
+              "name": ".ps_rs",
+              "type": {
+                "kind": "int"
+              }
+            },
+            {
+              "name": ".ps_aw_1",
+              "type": {
+                "kind": "class",
+                "name": "coro.inner"
+              }
+            },
+            {
+              "name": ".ps_awv_1",
+              "type": {
+                "kind": "int"
+              }
+            },
+            {
+              "name": "v",
+              "type": {
+                "kind": "int"
+              }
+            }
+          ],
+          "body": [
+            {
+              "kind": "assign",
+              "target": ".ps_rs",
+              "value": {
+                "kind": "attr",
+                "value": {
+                  "kind": "name",
+                  "id": ".ps_self",
+                  "type": {
+                    "kind": "class",
+                    "name": "coro.root"
+                  },
+                  "span": {
+                    "file": "/tmp/btest.py",
+                    "line": 8,
+                    "col": 1,
+                    "endLine": 11,
+                    "endCol": 13
+                  }
+                },
+                "name": ".ps_state",
+                "type": {
+                  "kind": "int"
+                },
+                "span": {
+                  "file": "/tmp/btest.py",
+                  "line": 8,
+                  "col": 1,
+                  "endLine": 11,
+                  "endCol": 13
+                }
+              },
+              "span": {
+                "file": "/tmp/btest.py",
+                "line": 8,
+                "col": 1,
+                "endLine": 11,
+                "endCol": 13
+              }
+            },
+            {
+              "kind": "if",
+              "cond": {
+                "kind": "compare",
+                "op": "==",
+                "left": {
+                  "kind": "name",
+                  "id": ".ps_rs",
+                  "type": {
+                    "kind": "int"
+                  },
+                  "span": {
+                    "file": "/tmp/btest.py",
+                    "line": 8,
+                    "col": 1,
+                    "endLine": 11,
+                    "endCol": 13
+                  }
+                },
+                "right": {
+                  "kind": "const",
+                  "value": "-1",
+                  "type": {
+                    "kind": "int"
+                  },
+                  "span": {
+                    "file": "/tmp/btest.py",
+                    "line": 8,
+                    "col": 1,
+                    "endLine": 11,
+                    "endCol": 13
+                  }
+                },
+                "type": {
+                  "kind": "bool"
+                },
+                "span": {
+                  "file": "/tmp/btest.py",
+                  "line": 8,
+                  "col": 1,
+                  "endLine": 11,
+                  "endCol": 13
+                }
+              },
+              "then": [
+                {
+                  "kind": "return",
+                  "value": {
+                    "kind": "const",
+                    "value": "1",
+                    "type": {
+                      "kind": "int"
+                    },
+                    "span": {
+                      "file": "/tmp/btest.py",
+                      "line": 8,
+                      "col": 1,
+                      "endLine": 11,
+                      "endCol": 13
+                    }
+                  },
+                  "span": {
+                    "file": "/tmp/btest.py",
+                    "line": 8,
+                    "col": 1,
+                    "endLine": 11,
+                    "endCol": 13
+                  }
+                }
+              ],
+              "else": [],
+              "span": {
+                "file": "/tmp/btest.py",
+                "line": 8,
+                "col": 1,
+                "endLine": 11,
+                "endCol": 13
+              }
+            },
+            {
+              "kind": "setattr",
+              "object": {
+                "kind": "name",
+                "id": ".ps_self",
+                "type": {
+                  "kind": "class",
+                  "name": "coro.root"
+                },
+                "span": {
+                  "file": "/tmp/btest.py",
+                  "line": 8,
+                  "col": 1,
+                  "endLine": 11,
+                  "endCol": 13
+                }
+              },
+              "name": ".ps_state",
+              "value": {
+                "kind": "const",
+                "value": "-1",
+                "type": {
+                  "kind": "int"
+                },
+                "span": {
+                  "file": "/tmp/btest.py",
+                  "line": 8,
+                  "col": 1,
+                  "endLine": 11,
+                  "endCol": 13
+                }
+              },
+              "span": {
+                "file": "/tmp/btest.py",
+                "line": 8,
+                "col": 1,
+                "endLine": 11,
+                "endCol": 13
+              }
+            },
+            {
+              "kind": "assign",
+              "target": ".ps_aw_1",
+              "value": {
+                "kind": "attr",
+                "value": {
+                  "kind": "name",
+                  "id": ".ps_self",
+                  "type": {
+                    "kind": "class",
+                    "name": "coro.root"
+                  },
+                  "span": {
+                    "file": "/tmp/btest.py",
+                    "line": 8,
+                    "col": 1,
+                    "endLine": 11,
+                    "endCol": 13
+                  }
+                },
+                "name": ".ps_aw_1",
+                "type": {
+                  "kind": "class",
+                  "name": "coro.inner"
+                },
+                "span": {
+                  "file": "/tmp/btest.py",
+                  "line": 8,
+                  "col": 1,
+                  "endLine": 11,
+                  "endCol": 13
+                }
+              },
+              "span": {
+                "file": "/tmp/btest.py",
+                "line": 8,
+                "col": 1,
+                "endLine": 11,
+                "endCol": 13
+              }
+            },
+            {
+              "kind": "assign",
+              "target": ".ps_awv_1",
+              "value": {
+                "kind": "attr",
+                "value": {
+                  "kind": "name",
+                  "id": ".ps_self",
+                  "type": {
+                    "kind": "class",
+                    "name": "coro.root"
+                  },
+                  "span": {
+                    "file": "/tmp/btest.py",
+                    "line": 8,
+                    "col": 1,
+                    "endLine": 11,
+                    "endCol": 13
+                  }
+                },
+                "name": ".ps_awv_1",
+                "type": {
+                  "kind": "int"
+                },
+                "span": {
+                  "file": "/tmp/btest.py",
+                  "line": 8,
+                  "col": 1,
+                  "endLine": 11,
+                  "endCol": 13
+                }
+              },
+              "span": {
+                "file": "/tmp/btest.py",
+                "line": 8,
+                "col": 1,
+                "endLine": 11,
+                "endCol": 13
+              }
+            },
+            {
+              "kind": "assign",
+              "target": "v",
+              "value": {
+                "kind": "attr",
+                "value": {
+                  "kind": "name",
+                  "id": ".ps_self",
+                  "type": {
+                    "kind": "class",
+                    "name": "coro.root"
+                  },
+                  "span": {
+                    "file": "/tmp/btest.py",
+                    "line": 8,
+                    "col": 1,
+                    "endLine": 11,
+                    "endCol": 13
+                  }
+                },
+                "name": "v",
+                "type": {
+                  "kind": "int"
+                },
+                "span": {
+                  "file": "/tmp/btest.py",
+                  "line": 8,
+                  "col": 1,
+                  "endLine": 11,
+                  "endCol": 13
+                }
+              },
+              "span": {
+                "file": "/tmp/btest.py",
+                "line": 8,
+                "col": 1,
+                "endLine": 11,
+                "endCol": 13
+              }
+            },
+            {
+              "kind": "if",
+              "cond": {
+                "kind": "compare",
+                "op": "==",
+                "left": {
+                  "kind": "name",
+                  "id": ".ps_rs",
+                  "type": {
+                    "kind": "int"
+                  },
+                  "span": {
+                    "file": "/tmp/btest.py",
+                    "line": 9,
+                    "col": 14,
+                    "endLine": 9,
+                    "endCol": 27
+                  }
+                },
+                "right": {
+                  "kind": "const",
+                  "value": "0",
+                  "type": {
+                    "kind": "int"
+                  },
+                  "span": {
+                    "file": "/tmp/btest.py",
+                    "line": 9,
+                    "col": 14,
+                    "endLine": 9,
+                    "endCol": 27
+                  }
+                },
+                "type": {
+                  "kind": "bool"
+                },
+                "span": {
+                  "file": "/tmp/btest.py",
+                  "line": 9,
+                  "col": 14,
+                  "endLine": 9,
+                  "endCol": 27
+                }
+              },
+              "then": [
+                {
+                  "kind": "assign",
+                  "target": ".ps_aw_1",
+                  "value": {
+                    "kind": "call",
+                    "callee": {
+                      "kind": "function",
+                      "name": "inner"
+                    },
+                    "args": [],
+                    "type": {
+                      "kind": "class",
+                      "name": "coro.inner"
+                    },
+                    "span": {
+                      "file": "/tmp/btest.py",
+                      "line": 9,
+                      "col": 20,
+                      "endLine": 9,
+                      "endCol": 27
+                    }
+                  },
+                  "span": {
+                    "file": "/tmp/btest.py",
+                    "line": 9,
+                    "col": 14,
+                    "endLine": 9,
+                    "endCol": 27
+                  }
+                }
+              ],
+              "else": [],
+              "span": {
+                "file": "/tmp/btest.py",
+                "line": 9,
+                "col": 14,
+                "endLine": 9,
+                "endCol": 27
+              }
+            },
+            {
+              "kind": "if",
+              "cond": {
+                "kind": "compare",
+                "op": "==",
+                "left": {
+                  "kind": "name",
+                  "id": ".ps_rs",
+                  "type": {
+                    "kind": "int"
+                  },
+                  "span": {
+                    "file": "/tmp/btest.py",
+                    "line": 9,
+                    "col": 14,
+                    "endLine": 9,
+                    "endCol": 27
+                  }
+                },
+                "right": {
+                  "kind": "const",
+                  "value": "0",
+                  "type": {
+                    "kind": "int"
+                  },
+                  "span": {
+                    "file": "/tmp/btest.py",
+                    "line": 9,
+                    "col": 14,
+                    "endLine": 9,
+                    "endCol": 27
+                  }
+                },
+                "type": {
+                  "kind": "bool"
+                },
+                "span": {
+                  "file": "/tmp/btest.py",
+                  "line": 9,
+                  "col": 14,
+                  "endLine": 9,
+                  "endCol": 27
+                }
+              },
+              "then": [
+                {
+                  "kind": "setattr",
+                  "object": {
+                    "kind": "name",
+                    "id": ".ps_self",
+                    "type": {
+                      "kind": "class",
+                      "name": "coro.root"
+                    },
+                    "span": {
+                      "file": "/tmp/btest.py",
+                      "line": 9,
+                      "col": 14,
+                      "endLine": 9,
+                      "endCol": 27
+                    }
+                  },
+                  "name": ".ps_aw_1",
+                  "value": {
+                    "kind": "name",
+                    "id": ".ps_aw_1",
+                    "type": {
+                      "kind": "class",
+                      "name": "coro.inner"
+                    },
+                    "span": {
+                      "file": "/tmp/btest.py",
+                      "line": 9,
+                      "col": 14,
+                      "endLine": 9,
+                      "endCol": 27
+                    }
+                  },
+                  "span": {
+                    "file": "/tmp/btest.py",
+                    "line": 9,
+                    "col": 14,
+                    "endLine": 9,
+                    "endCol": 27
+                  }
+                },
+                {
+                  "kind": "setattr",
+                  "object": {
+                    "kind": "name",
+                    "id": ".ps_self",
+                    "type": {
+                      "kind": "class",
+                      "name": "coro.root"
+                    },
+                    "span": {
+                      "file": "/tmp/btest.py",
+                      "line": 9,
+                      "col": 14,
+                      "endLine": 9,
+                      "endCol": 27
+                    }
+                  },
+                  "name": ".ps_awv_1",
+                  "value": {
+                    "kind": "name",
+                    "id": ".ps_awv_1",
+                    "type": {
+                      "kind": "int"
+                    },
+                    "span": {
+                      "file": "/tmp/btest.py",
+                      "line": 9,
+                      "col": 14,
+                      "endLine": 9,
+                      "endCol": 27
+                    }
+                  },
+                  "span": {
+                    "file": "/tmp/btest.py",
+                    "line": 9,
+                    "col": 14,
+                    "endLine": 9,
+                    "endCol": 27
+                  }
+                },
+                {
+                  "kind": "setattr",
+                  "object": {
+                    "kind": "name",
+                    "id": ".ps_self",
+                    "type": {
+                      "kind": "class",
+                      "name": "coro.root"
+                    },
+                    "span": {
+                      "file": "/tmp/btest.py",
+                      "line": 9,
+                      "col": 14,
+                      "endLine": 9,
+                      "endCol": 27
+                    }
+                  },
+                  "name": "v",
+                  "value": {
+                    "kind": "name",
+                    "id": "v",
+                    "type": {
+                      "kind": "int"
+                    },
+                    "span": {
+                      "file": "/tmp/btest.py",
+                      "line": 9,
+                      "col": 14,
+                      "endLine": 9,
+                      "endCol": 27
+                    }
+                  },
+                  "span": {
+                    "file": "/tmp/btest.py",
+                    "line": 9,
+                    "col": 14,
+                    "endLine": 9,
+                    "endCol": 27
+                  }
+                },
+                {
+                  "kind": "setattr",
+                  "object": {
+                    "kind": "name",
+                    "id": ".ps_self",
+                    "type": {
+                      "kind": "class",
+                      "name": "coro.root"
+                    },
+                    "span": {
+                      "file": "/tmp/btest.py",
+                      "line": 9,
+                      "col": 14,
+                      "endLine": 9,
+                      "endCol": 27
+                    }
+                  },
+                  "name": ".ps_state",
+                  "value": {
+                    "kind": "const",
+                    "value": "1",
+                    "type": {
+                      "kind": "int"
+                    },
+                    "span": {
+                      "file": "/tmp/btest.py",
+                      "line": 9,
+                      "col": 14,
+                      "endLine": 9,
+                      "endCol": 27
+                    }
+                  },
+                  "span": {
+                    "file": "/tmp/btest.py",
+                    "line": 9,
+                    "col": 14,
+                    "endLine": 9,
+                    "endCol": 27
+                  }
+                },
+                {
+                  "kind": "return",
+                  "value": {
+                    "kind": "const",
+                    "value": "0",
+                    "type": {
+                      "kind": "int"
+                    },
+                    "span": {
+                      "file": "/tmp/btest.py",
+                      "line": 9,
+                      "col": 14,
+                      "endLine": 9,
+                      "endCol": 27
+                    }
+                  },
+                  "span": {
+                    "file": "/tmp/btest.py",
+                    "line": 9,
+                    "col": 14,
+                    "endLine": 9,
+                    "endCol": 27
+                  }
+                }
+              ],
+              "else": [
+                {
+                  "kind": "assign",
+                  "target": ".ps_rs",
+                  "value": {
+                    "kind": "const",
+                    "value": "0",
+                    "type": {
+                      "kind": "int"
+                    },
+                    "span": {
+                      "file": "/tmp/btest.py",
+                      "line": 9,
+                      "col": 14,
+                      "endLine": 9,
+                      "endCol": 27
+                    }
+                  },
+                  "span": {
+                    "file": "/tmp/btest.py",
+                    "line": 9,
+                    "col": 14,
+                    "endLine": 9,
+                    "endCol": 27
+                  }
+                }
+              ],
+              "span": {
+                "file": "/tmp/btest.py",
+                "line": 9,
+                "col": 14,
+                "endLine": 9,
+                "endCol": 27
+              }
+            },
+            {
+              "kind": "assign",
+              "target": "v",
+              "value": {
+                "kind": "name",
+                "id": ".ps_awv_1",
+                "type": {
+                  "kind": "int"
+                },
+                "span": {
+                  "file": "/tmp/btest.py",
+                  "line": 9,
+                  "col": 14,
+                  "endLine": 9,
+                  "endCol": 27
+                }
+              },
+              "span": {
+                "file": "/tmp/btest.py",
+                "line": 9,
+                "col": 5,
+                "endLine": 9,
+                "endCol": 27
+              }
+            },
+            {
+              "kind": "expr",
+              "expr": {
+                "kind": "call",
+                "callee": {
+                  "kind": "builtin",
+                  "name": "print"
+                },
+                "args": [
+                  {
+                    "kind": "const",
+                    "value": "v",
+                    "type": {
+                      "kind": "str"
+                    },
+                    "span": {
+                      "file": "/tmp/btest.py",
+                      "line": 10,
+                      "col": 11,
+                      "endLine": 10,
+                      "endCol": 14
+                    }
+                  },
+                  {
+                    "kind": "name",
+                    "id": "v",
+                    "type": {
+                      "kind": "int"
+                    },
+                    "span": {
+                      "file": "/tmp/btest.py",
+                      "line": 10,
+                      "col": 16,
+                      "endLine": 10,
+                      "endCol": 17
+                    }
+                  }
+                ],
+                "type": {
+                  "kind": "none"
+                },
+                "span": {
+                  "file": "/tmp/btest.py",
+                  "line": 10,
+                  "col": 5,
+                  "endLine": 10,
+                  "endCol": 18
+                }
+              },
+              "span": {
+                "file": "/tmp/btest.py",
+                "line": 10,
+                "col": 5,
+                "endLine": 10,
+                "endCol": 18
+              }
+            },
+            {
+              "kind": "if",
+              "cond": {
+                "kind": "const",
+                "value": true,
+                "type": {
+                  "kind": "bool"
+                },
+                "span": {
+                  "file": "/tmp/btest.py",
+                  "line": 11,
+                  "col": 5,
+                  "endLine": 11,
+                  "endCol": 13
+                }
+              },
+              "then": [
+                {
+                  "kind": "setattr",
+                  "object": {
+                    "kind": "name",
+                    "id": ".ps_self",
+                    "type": {
+                      "kind": "class",
+                      "name": "coro.root"
+                    },
+                    "span": {
+                      "file": "/tmp/btest.py",
+                      "line": 11,
+                      "col": 5,
+                      "endLine": 11,
+                      "endCol": 13
+                    }
+                  },
+                  "name": ".ps_result",
+                  "value": {
+                    "kind": "name",
+                    "id": "v",
+                    "type": {
+                      "kind": "int"
+                    },
+                    "span": {
+                      "file": "/tmp/btest.py",
+                      "line": 11,
+                      "col": 12,
+                      "endLine": 11,
+                      "endCol": 13
+                    }
+                  },
+                  "span": {
+                    "file": "/tmp/btest.py",
+                    "line": 11,
+                    "col": 5,
+                    "endLine": 11,
+                    "endCol": 13
+                  }
+                },
+                {
+                  "kind": "return",
+                  "value": {
+                    "kind": "const",
+                    "value": "1",
+                    "type": {
+                      "kind": "int"
+                    },
+                    "span": {
+                      "file": "/tmp/btest.py",
+                      "line": 11,
+                      "col": 5,
+                      "endLine": 11,
+                      "endCol": 13
+                    }
+                  },
+                  "span": {
+                    "file": "/tmp/btest.py",
+                    "line": 11,
+                    "col": 5,
+                    "endLine": 11,
+                    "endCol": 13
+                  }
+                }
+              ],
+              "else": [],
+              "span": {
+                "file": "/tmp/btest.py",
+                "line": 11,
+                "col": 5,
+                "endLine": 11,
+                "endCol": 13
+              }
+            },
+            {
+              "kind": "return",
+              "value": {
+                "kind": "const",
+                "value": "1",
+                "type": {
+                  "kind": "int"
+                },
+                "span": {
+                  "file": "/tmp/btest.py",
+                  "line": 8,
+                  "col": 1,
+                  "endLine": 11,
+                  "endCol": 13
+                }
+              },
+              "span": {
+                "file": "/tmp/btest.py",
+                "line": 8,
+                "col": 1,
+                "endLine": 11,
+                "endCol": 13
+              }
+            }
+          ],
+          "span": {
+            "file": "/tmp/btest.py",
+            "line": 8,
+            "col": 1,
+            "endLine": 11,
+            "endCol": 13
+          },
+          "name": "resume",
+          "returnType": {
+            "kind": "int"
+          }
+        }
+      ],
+      "span": {
+        "file": "/tmp/btest.py",
+        "line": 8,
+        "col": 1,
+        "endLine": 11,
+        "endCol": 13
+      }
+    }
+  ],
+  "fences": []
+}

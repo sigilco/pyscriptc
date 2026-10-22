@@ -14,6 +14,7 @@ from collections.abc import Callable
 from typing import Any
 
 from pyscriptc.restlower._argparse import _parser
+from pyscriptc.restlower._asyncio import _asyncio_gather, _asyncio_run, _asyncio_sleep
 from pyscriptc.restlower._builtins import (
     _abs,
     _base_repr,
@@ -119,6 +120,9 @@ _EARLY: dict[tuple[str, str], Handler] = {
     ("os", "getenv"): lambda lo, node, span, expect, attr: _getenv(lo, node, span),
     ("tempfile", "NamedTemporaryFile"): lambda lo, node, span, expect, attr: _named_temp(lo, node, span),
     ("functools", "partial"): lambda lo, node, span, expect, attr: lo._partial_callable(node, span),
+    ("asyncio", "run"): _asyncio_run,
+    ("asyncio", "sleep"): _asyncio_sleep,
+    ("asyncio", "gather"): _asyncio_gather,
 }
 
 # Whole-module handlers, consulted before `fixed_spec`.

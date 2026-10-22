@@ -311,4 +311,12 @@ void ps_str_partition(int64_t n, const char *p, int64_t sn, const char *sp, int6
 void ps_repr_bytes(int64_t n, const char *p, PsBuf *out);
 double ps_float_from_str(int64_t n, const char *p);
 
+/* ps_loop.c: the run-to-completion loop behind asyncio.run/sleep/gather. */
+void ps_loop_reset(void);
+void ps_loop_ready(void *frame);
+void ps_loop_run(void);
+void ps_loop_run_root(void *frame);
+void ps_loop_sleep(void *frame, double delay);
+void ps_loop_wait(void *child, void *parent);
+
 #endif

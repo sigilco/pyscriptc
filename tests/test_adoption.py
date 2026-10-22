@@ -26,8 +26,8 @@ def test_scripting_stacks_stay_fenced(tmp_path: Path) -> None:
         (
             "async.py",
             "import asyncio\n\ndef main() -> int:\n    asyncio.run(None)\n    return 1\n",
-            "PS2001",
-            "coroutines",
+            "PS2002",
+            "takes a coroutine",
         ),
         (
             "fstr.py",

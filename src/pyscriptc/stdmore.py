@@ -1497,7 +1497,6 @@ WITH_ONLY = frozenset({("contextlib", "suppress"), ("contextlib", "nullcontext")
 
 CALL_FENCES: dict[tuple[str, str], str] = {
     ("importlib", "import_module"): "import_module returns a module",
-    ("asyncio", "run"): "coroutines are not lowered",
     ("sys", "exit"): "",
     ("functools", "partial"): "functools.partial is not lowered",
     ("functools", "wraps"): "decorators are not lowered",
@@ -1706,6 +1705,8 @@ def member_callable(module: str, member: str) -> bool:
     if module == "datetime" and member in {"date", "datetime", "time", "timedelta"}:
         return True
     if module == "time" and member in {"sleep", "gmtime", "localtime"}:
+        return True
+    if module == "asyncio" and member in {"run", "sleep", "gather"}:
         return True
     if module == "collections" and member in {"deque", "OrderedDict", "Counter", "defaultdict", "namedtuple"}:
         return True
