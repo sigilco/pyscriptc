@@ -59,6 +59,33 @@ def _shim_text(python: str) -> str:
     return f'#!/bin/sh\nexec "{python}" -m ziglang "$@"\n'
 
 
+def _shim_interpreter(path: str | Path) -> str | None:
+    """The interpreter a shim execs, read back from the shim itself."""
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except OSError:
+        return None
+    marker = 'exec "'
+    start = text.find(marker)
+    if start < 0:
+        return None
+    start += len(marker)
+    end = text.find('"', start)
+    if end < 0:
+        return None
+    return text[start:end]
+
+
+def _valid_shim(path: str | Path) -> bool:
+    """A shim whose interpreter can still run `python -m ziglang`.
+
+    Shims outlive the environments that created them (a deleted venv leaves
+    a shim pointing nowhere), so a found shim is probed before it is trusted.
+    """
+    python = _shim_interpreter(path)
+    return python is not None and _python_has_ziglang(python)
+
+
 def _bat_text(python: str) -> str:
     return f'@"{python}" -m ziglang %*\n'
 
@@ -84,6 +111,9 @@ def resolve_zig() -> str | None:
     found = shutil.which("zig")
     if found:
         return found
+    existing = shim_dir() / "zig"
+    if existing.exists() and _valid_shim(existing):
+        return str(existing)
     python = find_ziglang_interpreter()
     if python is None:
         return None
@@ -93,14 +123,22 @@ def resolve_zig() -> str | None:
 def ensure_on_path() -> bool:
     """Make `zig` resolvable by name for this process and its subprocesses.
 
-    Installs the shim when needed and prepends its directory to PATH.
+    Installs the shim when needed and prepends its directory to PATH. A shim
+    whose interpreter is gone is dropped from PATH and rebuilt, so a deleted
+    venv cannot leave a broken `zig` on the path.
     Returns True when a zig is reachable afterwards.
     """
-    directory = shim_dir().as_posix()
-    entries = {Path(part).as_posix() for part in os.environ.get("PATH", "").split(os.pathsep) if part}
-    if directory not in entries:
-        os.environ["PATH"] = directory + os.pathsep + os.environ.get("PATH", "")
-    return resolve_zig() is not None
+    directory = shim_dir()
+    script = directory / "zig"
+    if script.exists() and not _valid_shim(script):
+        script.unlink(missing_ok=True)
+    resolved = resolve_zig()
+    entries = [part for part in os.environ.get("PATH", "").split(os.pathsep) if part]
+    entries = [part for part in entries if Path(part).as_posix() != directory.as_posix()]
+    if resolved is not None and Path(resolved).parent.as_posix() == directory.as_posix():
+        entries.insert(0, str(directory))
+    os.environ["PATH"] = os.pathsep.join(entries)
+    return resolved is not None
 
 
 def is_shim(path: str | None) -> bool:

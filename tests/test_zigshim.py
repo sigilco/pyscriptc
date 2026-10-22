@@ -80,3 +80,15 @@ def shutil_which(name: str) -> str | None:
     import shutil
 
     return shutil.which(name)
+
+
+def test_stale_shim_is_not_trusted(shim_home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A shim whose interpreter is gone is rebuilt, not execed blind."""
+    script = zigshim.shim_dir() / "zig"
+    zigshim.shim_dir().mkdir(parents=True)
+    script.write_text('#!/bin/sh\nexec "/gone/venv/bin/python" -m ziglang "$@"\n', encoding="utf-8")
+    script.chmod(0o755)
+    monkeypatch.setattr(zigshim, "find_ziglang_interpreter", lambda: None)
+    assert zigshim.resolve_zig() is None
+    assert zigshim.ensure_on_path() is False
+    assert not script.exists()

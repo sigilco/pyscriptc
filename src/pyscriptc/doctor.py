@@ -38,10 +38,11 @@ def _zig_tool() -> dict[str, Any]:
     A wheel-only install (`pip install ziglang`) has no `zig` on PATH; the
     shim installed here makes `which("zig")` succeed afterwards.
     """
-    interpreter = zigshim.find_ziglang_interpreter()
     path = shutil.which("zig")
-    if path is None and interpreter is not None:
-        path = str(zigshim.install_shim(interpreter))
+    if path is None:
+        path = zigshim.resolve_zig()
+        if path is not None:
+            zigshim.ensure_on_path()
     return {
         "found": path is not None,
         "path": path,

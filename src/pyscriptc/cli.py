@@ -565,10 +565,11 @@ def _require_toolchain(args: argparse.Namespace) -> None:
     if not (args.run or args.emit in ("asm", "obj", "bin")):
         return
     driver = args.driver or "clang"
-    if driver == "zig" and shutil.which("zig") is None:
+    if driver == "zig":
         # `pip install ziglang` alone satisfies this: the wheel ships the zig
         # binary but only exposes `python-zig`, so pyscriptc installs a `zig`
-        # PATH shim pointing at `python -m ziglang`.
+        # PATH shim pointing at `python -m ziglang`. A stale shim (its venv
+        # is gone) is not trusted and gets rebuilt or rejected here.
         zigshim.ensure_on_path()
     if shutil.which(driver) is None:
         hint = (
