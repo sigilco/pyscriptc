@@ -64,6 +64,7 @@ from pyscriptc.restlower._textwrap import _textwrap_call
 from pyscriptc.restlower._threading import _lock_method, _thread_method, _threading_call
 from pyscriptc.restlower._time import _clock, _sleep
 from pyscriptc.restlower._tomllib import _tomllib_call
+from pyscriptc.restlower._yaml import _yaml_call
 from pyscriptc.stdmore import (
     CALL_FENCES,
     CLASS_METHODS,
@@ -142,6 +143,7 @@ _MODULES_AFTER_SPEC: dict[str, Handler] = {
     "copy": lambda lo, node, span, expect, attr: _copy_call(lo, node, span, attr),
     "tomllib": lambda lo, node, span, expect, attr: _tomllib_call(lo, node, span, expect, attr),
     "dotenv": lambda lo, node, span, expect, attr: _dotenv_call(lo, node, span, expect, attr),
+    "yaml": lambda lo, node, span, expect, attr: _yaml_call(lo, node, span, expect, attr),
 }
 
 # Per-attribute handlers that run before keyword arguments are rejected.

@@ -1,6 +1,6 @@
 # What is supported
 
-builtins: 25 🟢 · 22 🟡 · 23 🔴 | stdlib: 0 🟢 · 49 🟡 · 2 🔴
+builtins: 25 🟢 · 22 🟡 · 23 🔴 | stdlib: 0 🟢 · 50 🟡 · 2 🔴
 
 🟢 fully supported (every probed form compiles) · 🟡 partial · 🔴 not supported.
 
@@ -93,5 +93,6 @@ Targets CPython 3.14. Deliberate differences from CPython: [divergences.md](../.
 | `unicodedata` | 🟡 | ucd_3_2_0 (also: Latin-1 only) | PS2001 |
 | `urllib.parse` | 🟡 | urlparse, urljoin, urlunsplit, parse_qsl | PS2001 |
 | `warnings` | 🟡 | warn with a category, simplefilter | PS2001 |
+| `yaml` | 🟡 | load, dump, safe_dump, keyword arguments | PS2001, PS2003 |
 
 Regenerate with `uv run python scripts/gen_support_table.py`; `tests/test_support_docs.py` fails when this file drifts from the compiler. Scripts that stay inside the supported set: [examples](../../../docs/examples/programs.md).
