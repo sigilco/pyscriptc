@@ -1,6 +1,6 @@
 # What is supported
 
-The subset stamp is `gates-v1`. Parsing is CPython 3.14's `ast`. A lowered call matches CPython on that call. The language around it is the list below.
+pyscriptc targets CPython 3.14. Behavior, probes and the frozen oracle follow 3.14.x. The subset stamp is `gates-v1`. Parsing is CPython 3.14's `ast`. A lowered call matches CPython on that call. The language around it is the list below. Deliberate differences from CPython are numbered in [divergences.md](divergences.md).
 
 ## Language
 
