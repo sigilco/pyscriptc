@@ -67,7 +67,7 @@ After an intentional emitter change, re-bless the corpus and review the diff:
 uv run pytest tests/test_emitter_goldens.py --update-goldens
 ```
 
-The fixture layout is backend-neutral: the IR input lives beside the LLVM expectation, so a second backend adds its own expectations beside the same inputs.
+The fixture layout is backend-neutral: the IR input lives beside the LLVM expectation, so a second backend adds its own expectations beside the same inputs. The specification both emitters share, one IR and one runtime ABI, is the backend contract in [`.agents/docs/design/backend-contract.md`](.agents/docs/design/backend-contract.md).
 
 ## What this is for
 

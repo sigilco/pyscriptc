@@ -82,6 +82,7 @@ export default {
       children: [
         { title: "Checker bridge", path: "/design/checker-bridge/" },
         { title: "Coroutine lowering", path: "/design/coroutine-lowering/" },
+        { title: "Backend contract", path: "/design/backend-contract/" },
       ],
     },
     {
