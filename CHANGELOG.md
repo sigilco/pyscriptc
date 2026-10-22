@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.4.1] - 2026-10-22
+
+### Added
+- erase ABC/Protocol bases and typing overloads (T2-2) (#124)
+- T2-5 static folds for builtin calls on constants (#123)
+- normalize positional-only and keyword-only parameters (T2-3) (#122)
+- Optional widening (nested None arms, PS1102 for multi-arm optionals) (#136)
+- **kwargs params lower as dict[str, T] + leftover-keyword packing (#121)
+
+### Fixed
+- smoke compiles its own hello(n) fixture, not the first-run demo (#189)
+- v0.4.1 alpha first-run package (#133)
+- first-run notice, no events before it (#56) (#131)
+
+### Performance
+- cache the Nuitka onefile payload under the user cache dir (#135)
+- runtime object cache with parallel builds (#132)
+
+### Docs
+- delegation models and subprocess harnesses (#141)
+- project board scheme, PR-only master rule, active plan pointer
+- PR-only master ruleset, cut-release bypass path, threshold explainer
+- bar-gated release policy, milestones, rehearsal requirement
+- note the retroactive GitHub releases for 0.2.x
+
+### CI
+- add content-keyed caches (zig, ccache/Nuitka, scorer) (#134)
+- rehearsal dispatch, bar-gated cut-release, publish gate (#130)
+- shard macos-safe with pytest-split and xdist (#128)
+
 ## [Unreleased]
 
 First-run fixes for the v0.4.1 alpha.
