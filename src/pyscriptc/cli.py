@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from pyscriptc import deps, telemetry
+from pyscriptc import deps, runcache, telemetry
 from pyscriptc.check import CheckFailed, run_checker
 from pyscriptc.config import apply_to_args, load_config
 from pyscriptc.coverage import build_report, family_of, render_text
@@ -110,6 +110,19 @@ def main(argv: list[str] | None = None) -> int:
         metavar="DIR",
         help="write debug artifacts (ir.json, out.ll, cc.sh, summary.json) to DIR",
     )
+    run_parser = sub.add_parser(
+        "run", help="compile (cached by content hash) and run; arguments after `--` go to the program", parents=[common]
+    )
+    run_parser.add_argument("source")
+    run_parser.add_argument("--program", action="store_true", help="treat the directory as a program (see compile)")
+    run_parser.add_argument("--call", help="function the generated main calls")
+    run_parser.add_argument("--args", default="[]", help="Python literal list of arguments for --call")
+    run_parser.add_argument("--driver", choices=("clang", "zig"), default=None)
+    run_parser.add_argument("--target", help="cross-compilation triple for `zig cc`")
+    run_parser.add_argument("--linker", choices=("clang", "zig"), default=None)
+    run_parser.add_argument("--skip-check", action="store_true")
+    run_parser.add_argument("--checker", choices=("pyrefly", "mypy", "pyright"), default="pyrefly")
+    run_parser.add_argument("--no-cache", action="store_true", help="always recompile (env PYSC_NO_RUN_CACHE=1)")
     coverage_parser = sub.add_parser("coverage", help="report every fence in a file or package tree", parents=[common])
     coverage_parser.add_argument("source")
     coverage_parser.add_argument("--json", action="store_true", help="print the report as JSON")
@@ -142,8 +155,8 @@ def main(argv: list[str] | None = None) -> int:
             raw, run_argv = raw[:split], raw[split + 1 :]
         args = parser.parse_args(raw)
         args.run_argv = run_argv
-        if run_argv and not (args.cmd == "compile" and args.run):
-            parser.error("arguments after `--` need `compile --run`")
+        if run_argv and not (args.cmd == "run" or (args.cmd == "compile" and args.run)):
+            parser.error("arguments after `--` need `run` or `compile --run`")
         if getattr(args, "verbose", False):
             enable_debug()
         log.info("cli.invoke", cmd=args.cmd)
@@ -152,6 +165,8 @@ def main(argv: list[str] | None = None) -> int:
             telemetry.track("cli.invoked", {"subcommand": args.cmd, **telemetry.base_properties()})
         if args.cmd == "compile":
             return compile_cmd(args)
+        if args.cmd == "run":
+            return run_cmd(args)
         if args.cmd == "coverage":
             return coverage_cmd(args)
         if args.cmd == "imports":
@@ -178,6 +193,90 @@ def main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 1
     return 2
+
+
+def run_cmd(args: argparse.Namespace) -> int:
+    """`pyscriptc run FILE [-- args]`: compile once per content hash, then run the cached binary."""
+    _apply_env_defaults(args)
+    source = Path(args.source)
+    if not source.exists():
+        raise IRError(f"source not found: {source}")
+    use_cache = runcache.enabled() and not args.no_cache
+    key = runcache.key_for(
+        source,
+        load_config(source).origin,
+        [
+            f"program={args.program}",
+            f"call={args.call}",
+            f"args={args.args if args.call else ''}",
+            f"driver={args.driver}",
+            f"target={args.target}",
+            f"linker={args.linker}",
+            f"skip_check={args.skip_check}",
+            f"checker={args.checker}",
+        ],
+    )
+    name = (source.resolve().name if source.is_dir() else source.stem) or "app"
+    binary = runcache.binary_path(key, name)
+    if use_cache and binary.is_file():
+        log.info("run.cache_hit", key=key, binary=str(binary))
+        return _exec_binary(binary, args.run_argv)
+    build = runcache.cache_dir() / f".build-{os.getpid()}-{key}"
+    shutil.rmtree(build, ignore_errors=True)
+    build.mkdir(parents=True, exist_ok=True)
+    try:
+        code = _build_for_run(args, build / name)
+        if code != 0:
+            return code
+        if use_cache:
+            try:
+                os.replace(build, binary.parent)
+                log.info("run.cache_store", key=key, binary=str(binary))
+            except OSError:
+                # another run stored the same content first; build stays ours to run and clean
+                if not binary.is_file():
+                    raise
+            else:
+                return _exec_binary(binary, args.run_argv)
+        return _exec_binary(build / name, args.run_argv)
+    finally:
+        shutil.rmtree(build, ignore_errors=True)
+
+
+def _build_for_run(args: argparse.Namespace, output: Path) -> int:
+    compile_args = argparse.Namespace(
+        source=args.source,
+        program=args.program,
+        emit="bin",
+        out_dir=None,
+        output=str(output),
+        call=args.call,
+        args=args.args,
+        run=False,
+        driver=args.driver,
+        target=args.target,
+        linker=args.linker,
+        print_what=None,
+        skip_check=args.skip_check,
+        checker=args.checker,
+        debug=None,
+        debug_dir=None,
+        run_argv=[],
+    )
+    # compile prints the binary path on success; keep stdout clean for the program
+    real_stdout = sys.stdout
+    sys.stdout = sys.stderr
+    try:
+        return compile_cmd(compile_args)
+    finally:
+        sys.stdout = real_stdout
+
+
+def _exec_binary(binary: Path, argv: list[str]) -> int:
+    completed = subprocess.run([str(binary.absolute()), *argv])
+    code = 128 + (-completed.returncode) if completed.returncode < 0 else completed.returncode
+    log.info("run.exit", binary=str(binary), code=code)
+    return code
 
 
 def coverage_cmd(args: argparse.Namespace) -> int:
