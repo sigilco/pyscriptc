@@ -1,4 +1,4 @@
-/* pyscriptc-sqlite thunk (docs/ffi-manifest.md section 5).
+/* pyscriptc-sqlite thunk (.agents/docs/ffi/ffi-manifest.md section 5).
 
 The manifest binds `abi = ps_ffi_sqlite_*` here, never the SQLite symbols. This
 file owns everything the ABI cannot express: the variadic-free open flags,

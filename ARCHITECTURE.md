@@ -4,7 +4,7 @@ pyscriptc compiles one annotated Python file into a native binary. The pipeline 
 
 The goal is to track CPython instead of inventing a dialect that drifts. Unknown syntax, an unknown import, and an integer that does not fit the backend are fences. A newer CPython can parse a file the subset does not lower yet, and the compiler stops with a named reason instead of guessing. The IR is stamped with `sys.version`. LLVM emission refuses a stamp from a different interpreter.
 
-The program that can ship today is a short script: annotated functions over `int`, `float`, `bool`, `str`, `bytes`, `list`, `dict`, `set` of `int` or `str`, and a class with a single base, plus the closed standard-library surface in `pyscriptc.stdlib_queue`. End-user scripts that fit live in [`examples/`](examples/README.md). How to run them is in [`docs/`](docs/README.md). Contributor notes are in [`.agents/docs/`](.agents/docs/README.md).
+The program that can ship today is a short script: annotated functions over `int`, `float`, `bool`, `str`, `bytes`, `list`, `dict`, `set` of `int` or `str`, and a class with a single base, plus the closed standard-library surface in `pyscriptc.stdlib_queue`. End-user scripts that fit live in [`examples/`](examples/README.md). How to run them is in the [documentation site](docs/getting-started/index.md). Contributor notes are in [`.agents/docs/`](.agents/docs/README.md).
 
 ## Pipeline
 
@@ -44,7 +44,7 @@ The LLVM backend stores an `int` in `i64` when the value fits. Overflow uses `ll
 
 `src/pyscriptc/lower.py` lowers the language: statements, expressions, classes, calls, and the codec modules (`re`, `json`, `urllib.parse`, `base64`, `hashlib`, `struct`). `src/pyscriptc/restlower.py` lowers the rest of the queued standard library and the builtin helpers (`abs`, `min`, `sorted`, `open`, and the rest). `src/pyscriptc/stdlib_queue.py` is the closed import table. A module outside that table is `PS2002` at the import. `src/pyscriptc/builtins.py` is the method table for `str` and `bytes`.
 
-The lowered standard library is a closed surface inside each module, not the whole module. `functools.reduce` lowers. `functools.partial` does not. The user-facing list is [`docs/supported.md`](docs/supported.md). The file map for changing it is [`.agents/docs/map.md`](.agents/docs/map.md). The language order after this queue is [`.agents/docs/roadmap.md`](.agents/docs/roadmap.md).
+The lowered standard library is a closed surface inside each module, not the whole module. `functools.reduce` lowers. `functools.partial` does not. The generated list is [`.agents/docs/support/supported.md`](.agents/docs/support/supported.md), and the user-facing summary is the [support model](docs/guide/support-model.md). The file map for changing it is [`.agents/docs/map.md`](.agents/docs/map.md). The language order after this queue is [`.agents/docs/roadmap.md`](.agents/docs/roadmap.md).
 
 ## Native libraries
 

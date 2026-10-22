@@ -1,4 +1,8 @@
-"""Support docs drift test: scripts/support_data.toml against docs/supported.md."""
+"""Support docs drift test: scripts/support_data.toml against the generated pages.
+
+The generated pages are developer data, not user docs: they live under
+`.agents/docs/support/` and the user-facing summary links to the compat site.
+"""
 
 from __future__ import annotations
 
@@ -9,8 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.gen_support_table import ROOT, build  # noqa: E402
 
-SUPPORTED = ROOT / "docs" / "supported.md"
-TOP100 = ROOT / ".agents" / "docs" / "compat-top100.md"
+SUPPORTED = ROOT / ".agents" / "docs" / "support" / "supported.md"
+TOP100 = ROOT / ".agents" / "docs" / "support" / "compat-top100.md"
 
 
 def test_build_has_no_errors() -> None:

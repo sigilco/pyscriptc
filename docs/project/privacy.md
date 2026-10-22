@@ -13,7 +13,7 @@ Contact: [PLACEHOLDER: EU postal address and email for privacy requests]
 ## What is collected
 
 A random install id, the pyscriptc and Python (major.minor) versions, the OS family, the subcommand you ran, and for `compile` and `coverage` an outcome, a duration and aggregate fence counts with diagnostic family names.
-The exact field list is the table in the [telemetry guide](/guide/telemetry/).
+The exact field list is the table in the [telemetry guide](telemetry.md).
 
 ## What is not collected
 

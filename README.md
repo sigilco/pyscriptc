@@ -21,11 +21,11 @@ pyscriptc is experimental, aims for CPython compatibility, and supports a subset
 uv tool install pyscriptc
 ```
 
-Building a binary needs a clang (or `zig`) on your PATH; `pyscriptc doctor` checks. See [getting started](https://pyscriptc.pages.dev/guide/getting-started/) for other install methods and toolchain setup.
+Building a binary needs a clang (or `zig`) on your PATH; `pyscriptc doctor` checks. See [getting started](https://pyscriptc.pages.dev/getting-started/) for other install methods and toolchain setup.
 
 ## Documentation
 
-[Documentation site](https://pyscriptc.pages.dev/), including the [CLI reference](https://pyscriptc.pages.dev/guide/cli/) and the [Python subset](https://pyscriptc.pages.dev/guide/language/).
+[Documentation site](https://pyscriptc.pages.dev/), including the [CLI reference](https://pyscriptc.pages.dev/reference/cli/) and the [Python subset](https://pyscriptc.pages.dev/guide/support-model/).
 
 ## Hello world
 
@@ -59,15 +59,15 @@ Source: [benchmarks/baseline/reference.json](https://github.com/sigilco/pyscript
 
 ## Using the stdlib
 
-The practical summary and the fenced constructs: [The Python subset](https://pyscriptc.pages.dev/guide/language/).
+The practical summary and the fenced constructs: [The Python subset](https://pyscriptc.pages.dev/guide/support-model/).
 
 ## Using PyPI packages
 
-We keep track of the share of the top 100 PyPI libraries that compiles. Mind that the compiler requires typed code. The per-library status lives in [docs/supported.md](https://github.com/sigilco/pyscriptc/blob/master/docs/supported.md) and the generated detail in [.agents/docs/compat-top100.md](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/compat-top100.md) (moving to the compat site, see [The Python subset](https://pyscriptc.pages.dev/guide/language/)).
+We keep track of the share of the top 100 PyPI libraries that compiles. Mind that the compiler requires typed code. The per-library status lives in the generated [.agents/docs/support/compat-top100.md](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/compat-top100.md) (moving to the compat site, see [The Python subset](https://pyscriptc.pages.dev/guide/support-model/)).
 
 ## Contributing
 
-See [Contributing](https://pyscriptc.pages.dev/guide/contributing/) for setup and conventions.
+See [Contributing](https://pyscriptc.pages.dev/project/contributing/) for setup and conventions.
 
 ## License
 

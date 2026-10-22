@@ -17,7 +17,7 @@
 # from a person, to start the required checks). The tag stage needs RELEASE_TOKEN, because a tag
 # pushed with GITHUB_TOKEN does not start release.yml; without it, push the tag by hand.
 #
-# The bar (see .github/scripts/release_bar.py and docs/release-process.md) runs in dry runs too.
+# The bar (see .github/scripts/release_bar.py and .agents/docs/release/release-process.md) runs in dry runs too.
 # Overriding a failing check needs bypass_reason; it is echoed in the job summary, the PR body
 # and the tag message.
 

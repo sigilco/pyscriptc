@@ -1,6 +1,11 @@
+---
+title: Example programs
+description: Programs in the repository that compile today, with the value each one prints.
+---
+
 # Example scripts
 
-The files in [`examples/`](../examples/) that start with `gates_`, `wave_probe`, `rest_probe`, and `fence_` lock compiler behavior. The programs below are an invoice, an access-log gate, a log token, a release note, a record digest, a URL allow-list, a route label, and a hostname lookup. Each one compiles, and the printed value matches CPython.
+The files in [`examples/`](https://github.com/sigilco/pyscriptc/tree/master/examples) that start with `gates_`, `wave_probe`, `rest_probe`, and `fence_` lock compiler behavior. The programs below are an invoice, an access-log gate, a log token, a release note, a record digest, a URL allow-list, a route label, and a hostname lookup. Each one compiles, and the printed value matches CPython.
 
 `--args` passes `int`, `float`, `bool`, and `str`. Lists and bytes are built inside the function.
 

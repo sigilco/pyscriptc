@@ -1,7 +1,7 @@
 """Typed extern manifest: parser and validator for the C library lane.
 
 A manifest is a hand-written TOML file that binds a Python-visible module
-surface to C ABI symbols. The schema and the design are `docs/ffi-manifest.md`.
+surface to C ABI symbols. The schema and the design are `.agents/docs/ffi/ffi-manifest.md`.
 
 This module is the F0 gate of the FFI epic: it parses a manifest, checks
 every pin and every reference between sections, and reports failures with
@@ -39,7 +39,7 @@ The parser is deliberately strict. A manifest is a contract reviewed like a
 C header, so an unknown key, a missing pin, a dangling handle reference or
 an unsupported type is an error with a code, never a warning. The compiler
 refuses a manifest before lowering starts, the same fail-closed posture the
-`ps_abi` pin requires (`docs/abi-strategy.md`).
+`ps_abi` pin requires (`.agents/docs/ffi/abi-strategy.md`).
 
 Diagnostic codes, all in the `PS4xxx` block that belongs to the FFI lane:
 
@@ -67,12 +67,12 @@ from pyscriptc.errors import SpikeError
 
 # The manifest schema version this compiler understands. A manifest with a
 # different `format` is refused, never guessed at: the schema is append-only
-# inside an epoch (`docs/ffi-manifest.md` section 6).
+# inside an epoch (`.agents/docs/ffi/ffi-manifest.md` section 6).
 SUPPORTED_FORMATS: frozenset[int] = frozenset({1})
 
 # The `PS_ABI` epoch this compiler stamps. A manifest pins the epoch it was
 # written against and the compiler refuses a mismatch before lowering
-# (`docs/abi-strategy.md`, "Single PS_ABI integer").
+# (`.agents/docs/ffi/abi-strategy.md`, "Single PS_ABI integer").
 CURRENT_PS_ABI: int = 1
 
 # The scalar types that map onto a machine value with no runtime object.

@@ -55,7 +55,7 @@ Adopt the epoch model, but bump on *contract change*, not on release:
    a CI check over a review-rule-only policy. A grep-level check suffices:
    `ps_rt.h` structs only grow, and the `ps_mix.c` dlsym set never shrinks.
 3. **`PS_ABI` is a third, independent version axis.** It never enters IR
-   hashing (see `docs/ir-canonicity.md`), stays out of `irVersion`, and
+   hashing (see `.agents/docs/spec/ir-canonicity.md`), stays out of `irVersion`, and
    stays out of `canonical-schema/2`. `irVersion` keeps doing its own job:
    it guards the IR JSON schema, which changes for its own reasons (new
    node kinds, new fields) and should stay on its own counter. `cpython`

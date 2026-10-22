@@ -1,5 +1,5 @@
 {
-  "name": "pyscriptc-site",
+  "name": "pyscriptc-docs",
   "private": true,
   "version": "0.0.0",
   "description": "docmd documentation site for pyscriptc",
@@ -8,7 +8,8 @@
   "scripts": {
     "docs:dev": "docmd dev",
     "docs:build": "docmd build",
-    "docs:validate": "docmd validate"
+    "docs:validate": "docmd validate",
+    "docs:internal": "docmd dev --config docmd.internal.config.js"
   },
   "devDependencies": {
     "@docmd/core": "^0.9.5"

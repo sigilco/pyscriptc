@@ -27,7 +27,7 @@ Master is PR-only, so a release is two runs of the `cut-release` workflow (Actio
 
 ## The bar
 
-`cut-release` computes the checks in `.github/scripts/release_bar.py`. Thresholds live in the top-level `env` block of `cut-release.yml`: `PATCH_MIN_COMMITS`, `PATCH_MIN_HOURS`, `PATCH_MIN_PRS`, `PATCH_MIN_USER_CHANGES`, `MINOR_MIN_FEATURES`, `MINOR_MIN_DAYS`, `MAX_RC`. Change one line there to tune. A user-visible change is a `feat`, `fix` or `perf` commit touching `src/` (runtime C included), `packaging/`, `README.md` or a user doc (`docs/getting-started.md`, `supported.md`, `examples.md`, `refused-features.md`, `README.md`).
+`cut-release` computes the checks in `.github/scripts/release_bar.py`. Thresholds live in the top-level `env` block of `cut-release.yml`: `PATCH_MIN_COMMITS`, `PATCH_MIN_HOURS`, `PATCH_MIN_PRS`, `PATCH_MIN_USER_CHANGES`, `MINOR_MIN_FEATURES`, `MINOR_MIN_DAYS`, `MAX_RC`. Change one line there to tune. A user-visible change is a `feat`, `fix` or `perf` commit touching `src/` (runtime C included), `packaging/`, `README.md` or a user doc (anything under `docs/`).
 
 Inputs:
 
@@ -72,7 +72,7 @@ The draft release body comes from `release.yml` and is unchanged by this process
 
 Every release body opens with this standard line:
 
-> pyscriptc targets CPython 3.14.x. Parsing, probes and the compatibility oracle follow 3.14. Compiled programs match CPython 3.14 byte-for-byte on stdout for everything that lowers; documented divergences are listed in docs/divergences.md.
+> pyscriptc targets CPython 3.14.x. Parsing, probes and the compatibility oracle follow 3.14. Compiled programs match CPython 3.14 byte-for-byte on stdout for everything that lowers; documented divergences are listed in docs/reference/divergences.md.
 
 ## Release classes and bar
 

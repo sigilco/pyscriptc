@@ -5,7 +5,7 @@ description: What pyscriptc collects, and how to turn it off.
 
 Release builds of pyscriptc send pseudonymous usage events to PostHog (EU cloud, `eu.i.posthog.com`).
 Telemetry exists to answer one question: which unsupported constructs block real users the most, so the roadmap follows demand.
-See the [privacy notice](/guide/privacy/) for the legal basis, retention and your rights.
+See the [privacy notice](privacy.md) for the legal basis, retention and your rights.
 
 ## What is sent
 

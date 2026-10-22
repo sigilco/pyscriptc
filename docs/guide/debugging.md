@@ -7,6 +7,7 @@ description: Stage timings, fence tables, IR dumps, and audit logs.
 
 `pyscriptc compile FILE --debug` prints a stage table to stderr: parse, check, lower, emit, link, each with wall time.
 Narrow it with `--debug=stages,fences,cc,paths` or set `PYSC_DEBUG=1`.
+`--timings` prints the same table on its own.
 
 ```bash
 pyscriptc compile app.py --debug=fences   # every fence with its span
@@ -35,8 +36,8 @@ Every invocation appends JSONL records to `~/.cache/pyscriptc/log/`.
 INFO records are always on; `-v` / `--verbose` or `PYSC_DEBUG=1` adds DEBUG records for each pipeline stage.
 
 ```bash
-pyscriptc logs            # tail the newest log
-pyscriptc logs --follow   # stream while compiling elsewhere
+pyscriptc logs   # print the log path and its last 50 lines
 ```
 
 Attach the log tail (or a `--debug-dir` dump) to a bug report and we can usually reproduce without your source.
+The logging directives are in [`.agents/docs/pyscriptc-debug.md`](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/pyscriptc-debug.md).

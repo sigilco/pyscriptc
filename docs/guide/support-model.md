@@ -1,0 +1,30 @@
+---
+title: The Python subset
+description: What pyscriptc compiles today, what it refuses, and where the live status lives.
+---
+
+pyscriptc compiles a deliberately strict subset of Python.
+When a construct is not supported, compilation stops with a `PSxxxx` fence that names the exact line, it never guesses.
+
+## Support model
+
+- Typed code only: functions and variables carry annotations, and a type-checker preflight ([pyrefly](https://pyrefly.org/)) runs before lowering.
+- The supported surface is builtins, standard-library modules, and language features that the compiler can prove, one construct at a time.
+- Anything the subset does not prove stops at a named fence (`PSxxxx`); the compiler never guesses.
+- Code that does not compile can run in the CPython runtime instead (the fallback tier); that runtime is not bundled and is expected on the host.
+
+## Where the live status lives
+
+The exact, per-construct, per-builtin, per-module and per-library status is tracked on the compat site, not in this page, so it cannot go stale: [pyscriptc compat site]({{PYSC_COMPAT_URL}}) (the site is not deployed yet; the URL is the `PYSC_COMPAT_URL` placeholder, default `https://pyscriptc-compat.pages.dev`).
+
+The compat site is refreshed by the [nightly CI workflow](https://github.com/sigilco/pyscriptc/actions/workflows/nightly.yml), which scores the visible corpus and records the boxed ledger window.
+The in-repo snapshot of the same data, regenerated from the compiler by `scripts/gen_support_table.py`, lives in the developer notes: [`.agents/docs/support/supported.md`](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md) (builtins and standard library) and [`.agents/docs/support/compat-top100.md`](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/compat-top100.md) (top-100 libraries).
+Both are generated output, not hand-edited pages.
+
+Deliberate differences from CPython are numbered in [Divergences](../reference/divergences.md).
+
+## Checking your own code
+
+Run `pyscriptc coverage FILE` to get a per-line fence report before compiling, or `pyscriptc explain PS2001` to look up what a fence code means and the smallest rewrite that clears it.
+
+`pyscriptc coverage` needs no C toolchain, so it is the cheapest way to find out whether a script is inside the subset.

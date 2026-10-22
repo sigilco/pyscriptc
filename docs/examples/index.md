@@ -9,4 +9,6 @@ Programs that compile and run today live in the repository:
 - [Benchmarks folder](https://github.com/sigilco/pyscriptc/tree/master/benchmarks), small kernels and stdlib calls that compile and run on every CI push.
 - [Scripts folder](https://github.com/sigilco/pyscriptc/tree/master/scripts), the repo's own tooling, which is compiled and exercised in CI where possible.
 
-Start with `pyscriptc run examples/hello.py` from a checkout (needs a C toolchain, see [Quickstart](/guide/getting-started/)).
+Start with `pyscriptc run examples/hello.py` from a checkout (needs a C toolchain, see [Quickstart](../getting-started/)).
+
+The per-program walkthrough, with the command and the value each one prints: [Example programs](programs.md).

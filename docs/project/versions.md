@@ -16,4 +16,4 @@ Two different version axes matter:
 - Binaries compiled by pyscriptc do not embed Python, so users running compiled programs are unaffected by the host floor.
 - The version axis only affects which interpreter runs the compiler and which CPython the lowering matches; it never affects the produced binaries.
 
-The detailed assessment behind the window (lifecycle table, IR stamping, oracle installs, and the host-versus-target split) is in [`docs/python-version-window.md`](https://github.com/sigilco/pyscriptc/blob/master/docs/python-version-window.md).
+The detailed assessment behind the window (lifecycle table, IR stamping, oracle installs, and the host-versus-target split) is in [`docs/python-version-window.md`](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/release/python-version-window.md).

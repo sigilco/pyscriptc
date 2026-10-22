@@ -7,7 +7,7 @@ description: Compile annotated Python to a native binary.
 
 Compile annotated Python to a native binary.
 
-[Quickstart](/guide/getting-started/) · [GitHub](https://github.com/sigilco/pyscriptc) · [PyPI](https://pypi.org/project/pyscriptc/)
+[Quickstart](/getting-started/) · [GitHub](https://github.com/sigilco/pyscriptc) · [PyPI](https://pypi.org/project/pyscriptc/)
 
 ## What it does
 
@@ -28,5 +28,8 @@ That prints `285`, the same value CPython returns, from a native binary.
 
 ## Read next
 
-- [Quickstart](/guide/getting-started/): install, compile, run.
-- [The Python subset](/guide/language/): what lowers, what fences.
+- [Quickstart](/getting-started/): install, compile, run.
+- [Install and toolchain](getting-started/install/): clang, zig, doctor.
+- [The Python subset](/guide/support-model/): what lowers, what fences.
+- [CLI](/reference/cli/): every subcommand and flag.
+- [Examples](/examples/): programs that compile today.

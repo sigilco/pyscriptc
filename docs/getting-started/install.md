@@ -1,20 +1,74 @@
-# Getting started
+---
+title: Install and toolchain
+description: Install pyscriptc, install a C toolchain, and check what the compiler found.
+---
 
-Requirements: [uv](https://docs.astral.sh/uv/) (or pipx/pip), CPython 3.14 or later (`uv tool install --python 3.14 pyscriptc` fetches it), and, to build a binary, a clang that can assemble textual LLVM IR (or `zig`). See the install table in the [README](../README.md#install-it). `pyscriptc doctor` reports what it found. Emitted programs cannot be compiled on Windows yet; use Linux, macOS or WSL.
+pyscriptc needs CPython 3.14 or later to run, and a C toolchain to link the programs it compiles.
+`pyscriptc doctor` reports exactly what it found; run it first when something does not work.
 
 ```bash
 uv tool install pyscriptc
-pyscriptc coverage your_script.py
+pyscriptc doctor
 ```
 
-`coverage` lists every fence in your file and needs no C toolchain. A fence is the whole file, and the subset is small, so expect most real scripts to fence. Then try an example:
+## Requirements
 
-```bash
-pyscriptc compile examples/hello.py --run
-pyscriptc compile examples/invoice.py --run --call charge --args '[10, 2, 50]'
+- CPython 3.14 or later to run the compiler (PyPI installs only; the prebuilt binary has no Python dependency). The parser is CPython 3.14's `ast`, and the emitted IR is stamped with the interpreter that lowered it.
+- A C toolchain to link compiled programs
+  - [`zig`](https://ziglang.org/download/) preferred (unlocks cross-compilation)
+  - [`clang`](https://clang.llvm.org/get_started.html)
+
+The preflight checker ([pyrefly](https://pyrefly.org/)) ships inside the installed package, so there is no extra setup for it.
+`coverage`, `explain`, `--emit ir` and `--emit llvm` need no C toolchain at all.
+
+### Installing clang or zig
+
+| Platform | Command |
+| --- | --- |
+| macOS | `xcode-select --install` (or `brew install llvm` / `brew install zig`) |
+| Debian / Ubuntu | `sudo apt install clang` (or `zig` on newer releases) |
+| Fedora | `sudo dnf install clang` (or `zig`) |
+| Arch | `sudo pacman -S clang` (or `zig`) |
+| Any Linux or macOS | `mise use -g zig` or `brew install zig` |
+| Windows | `winget install zig.zig` (or `scoop install zig`) |
+
+Emitted programs cannot be compiled on Windows yet; use Linux, macOS or WSL.
+
+## Install
+
+::: tabs
+
+== tab "uv"
+
+```sh
+uv tool install pyscriptc
 ```
 
-The first prints a greeting. The second prints `600`, the value CPython returns. From a checkout, run `uv sync` and prefix commands with `uv run`.
+== tab "pipx"
+
+```sh
+pipx install pyscriptc
+```
+
+== tab "pip"
+
+```sh
+pip install pyscriptc
+```
+
+== tab "binary"
+
+```sh
+mise use -g github:sigilco/pyscriptc
+```
+
+Prebuilt binaries for Linux, macOS, and an experimental Windows build ship on the
+[releases page](https://github.com/sigilco/pyscriptc/releases). The binary still
+needs `clang` (or `zig cc`) on PATH to link compiled programs.
+
+:::
+
+On a CPython older than 3.14, pip and uv refuse the install cleanly; `uv tool install --python 3.14 pyscriptc` fetches a suitable interpreter.
 
 ## The command
 
@@ -26,16 +80,19 @@ pyscriptc compile FILE --run [--call FUNC --args '[...]'] [-o /tmp/name] [-- ARG
 - A directory with a root `__main__.py` (or a root `main.py`) and no root `__init__.py` is a **program**: that file is the entry point, the siblings are imported by their plain names (`import util`, `from pkg import x`), and every module body runs once, in CPython's import order. A directory with a root `__init__.py` is a **package**: its modules are namespaced under the directory name and its `__main__.py` is the `python -m` script, which the compile skips. `--program` runs that script instead (`python -m pkg` parity). A circular import is refused with the path that closes it.
 - `--run` without `--call` runs the file's own script: module-level statements and the body of `if __name__ == "__main__":`, in source order. If the file has neither, it prints a note on stderr naming `--call` and exits 0.
 - `--call` runs one function instead. `--args` is a Python list literal (`ast.literal_eval`); elements can be `int`, `float`, `bool`, or `str`. A `list`, a `dict`, or `bytes` is built inside the function. The generated `main` prints the return value: an `int`, a `float` (`%.17g`), or a `str`. A `bool` return cannot be printed.
-- `print` of `str`, `int`, `float`, `bool` and `bytes` lowers (see [supported.md](supported.md)).
+- `print` of `str`, `int`, `float`, `bool` and `bytes` lowers (see the [support model](../guide/support-model.md)).
 - `--emit ir` writes JSON. `--emit llvm` writes textual LLVM. `--emit bin` writes the binary and does not run it. Only `ir` and `llvm` work without a C toolchain.
-- `--skip-check` skips the checker. The default preflight is pyrefly, a single MIT-licensed binary that ships with the install (and inside the release binaries). `--checker mypy` and `--checker pyright` are deprecated, warn on use, and need the `oracle-mypy` / `oracle-pyright` extras; see [cross-checking with mypy and pyright](external-oracles.md).
+- `--skip-check` skips the checker. The default preflight is pyrefly, a single MIT-licensed binary that ships with the install (and inside the release binaries). `--checker mypy` and `--checker pyright` are deprecated, warn on use, and need the `oracle-mypy` / `oracle-pyright` extras; see [cross-checking with mypy and pyright](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/external-oracles.md).
+
+`pyscriptc run FILE [-- args]` is the `uv run` shaped shortcut: it compiles once, caches the binary under `~/.cache/pyscriptc/bin` keyed on the source content, the compiler and the flags, then runs it. A second run of an unchanged script skips the compile; arguments after `--` reach `sys.argv`, and stdin, stdout and the exit code pass through. `--no-cache` (or `PYSC_NO_RUN_CACHE=1`) always recompiles.
 
 ## When it stops
 
 | Exit | Cause |
 | --- | --- |
 | 0 | The file lowered, and the binary's own status if you used `--run` |
-| 2 | the checker rejected an annotation |
+| 1 | A compiler fault (`SpikeError`) |
+| 2 | The type-checker preflight (pyrefly) rejected the file |
 | 3 | The subset refused the file. The message names a `PS` code |
 | 4 | The integer or the CPython stamp does not fit this backend |
 
@@ -47,14 +104,14 @@ A script that never calls the island links the small runtime and does not link l
 
 ## Cross-compiling
 
-`--driver zig --target TRIPLE` links through `zig cc` for another platform — zig bundles each target's sysroot, so no extra install is needed:
+`--driver zig --target TRIPLE` links through `zig cc` for another platform, zig bundles each target's sysroot, so no extra install is needed:
 
 ```bash
 uv run pyscriptc compile examples/invoice.py --emit bin --call charge --args '[10, 2, 50]' \
     --skip-check --driver zig --target aarch64-linux-gnu.2.39 -o /tmp/charge-arm64
 ```
 
-Tier A targets (CI-verified by `packaging/zig/smoke.sh`): `x86_64-linux-gnu`, `aarch64-linux-gnu`, `riscv64-linux-gnu` (optionally pinned, e.g. `gnu.2.39`), `x86_64-linux-musl`, `aarch64-linux-musl`, `riscv64-linux-musl` (static), and `aarch64-macos` / `x86_64-macos` (compile-verified only — no runner). Static-musl binaries can run foreign arches under `qemu-<arch>-static`.
+Tier A targets (CI-verified by `packaging/zig/smoke.sh`): `x86_64-linux-gnu`, `aarch64-linux-gnu`, `riscv64-linux-gnu` (optionally pinned, e.g. `gnu.2.39`), `x86_64-linux-musl`, `aarch64-linux-musl`, `riscv64-linux-musl` (static), and `aarch64-macos` / `x86_64-macos` (compile-verified only, no runner). Static-musl binaries can run foreign arches under `qemu-<arch>-static`.
 
 Not supported yet: Windows targets (a few POSIX calls in the runtime need shims), island/fallback programs on any cross target (they embed the host libpython), and the `PYSCRIPTC_MIX_SO` dlopen path on static musl. `--target` requires `--driver zig`; without `--target`, `zig` is just another host driver.
 

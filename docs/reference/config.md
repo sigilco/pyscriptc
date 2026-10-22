@@ -1,3 +1,8 @@
+---
+title: Config
+description: The pyscriptc config surface: pyscriptc.toml, pyproject.toml and PEP 723.
+---
+
 # Config
 
 One config surface feeds every rung of the adoption ladder: a single-file script, a multi-module tree, or a pyproject package. Sources, nearest first:
@@ -39,7 +44,7 @@ Unknown keys, wrong value types and unknown lanes are `PS3102` errors naming the
 |---|---|
 | `compile` | default: compile from source, fence with a lane hint on failure |
 | `replace` | a curated native replacement pack covers this import |
-| `extern` | bound through the C ABI lane (`docs/ffi-manifest.md`) |
+| `extern` | bound through the C ABI lane ([FFI manifest](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/ffi/ffi-manifest.md)) |
 | `island` | opt-in embedded CPython; the binary requires libpython |
 | `refuse` | refuse the compile with a message naming the lane |
 

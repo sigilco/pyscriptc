@@ -1,13 +1,24 @@
-// docmd site for pyscriptc. Source lives in site/ (docs/ holds internal
-// design notes that are not part of the public site). Cloudflare Pages runs
-// `pnpm install && pnpm docs:build` and publishes `docs/dist`.
+// docmd site for pyscriptc. Source lives in docs/ (the user-facing pages).
+// Internal developer notes live in .agents/docs/ and are served by
+// docmd.internal.config.js, not by this config.
+//
+// Cloudflare Pages runs `pnpm install && pnpm docs:build` and publishes
+// `dist/docs`. The output directory lives outside the source tree on purpose:
+// docmd would otherwise copy the build output into the next build.
+//
+// The `placeholders` plugin substitutes {{PYSC_COMPAT_URL}} and
+// {{PYSC_DOCS_URL}} in page sources. Each placeholder reads its environment
+// variable and falls back to the default in docmd-plugins/placeholders.js.
 export default {
   title: "pyscriptc",
   url: "https://pyscriptc.pages.dev",
-  src: "site",
-  out: "docs/dist",
+  src: "docs",
+  out: "dist/docs",
   base: "/",
   engine: "js",
+  plugins: {
+    "./docmd-plugins/placeholders.js": {},
+  },
   logo: {
     light: "/assets/logo-256.png",
     dark: "/assets/logo-256.png",
@@ -50,33 +61,43 @@ export default {
   navigation: [
     { title: "Home", path: "/", icon: "house" },
     {
-      title: "Guide",
+      title: "Getting started",
       icon: "rocket",
       collapsible: true,
       children: [
-        { title: "Quickstart", path: "/guide/getting-started/" },
-        { title: "CLI", path: "/guide/cli/" },
-        { title: "The Python subset", path: "/guide/language/" },
-        { title: "Examples", path: "/guide/examples/" },
+        { title: "Quickstart", path: "/getting-started/" },
+        { title: "Install and toolchain", path: "/getting-started/install/" },
       ],
     },
     {
-      title: "Operating",
-      icon: "wrench",
+      title: "Guide",
+      icon: "book-open",
       collapsible: true,
       children: [
+        { title: "The Python subset", path: "/guide/support-model/" },
         { title: "Debugging and logs", path: "/guide/debugging/" },
-        { title: "Telemetry and privacy", path: "/guide/telemetry/" },
-        { title: "Privacy notice", path: "/guide/privacy/" },
+        { title: "Examples", path: "/examples/" },
       ],
     },
     {
       title: "Reference",
-      icon: "book-open",
+      icon: "list",
       collapsible: true,
       children: [
-        { title: "Supported CPython versions", path: "/guide/versions/" },
-        { title: "Contributing", path: "/guide/contributing/" },
+        { title: "CLI", path: "/reference/cli/" },
+        { title: "Config", path: "/reference/config/" },
+        { title: "Divergences from CPython", path: "/reference/divergences/" },
+      ],
+    },
+    {
+      title: "Project",
+      icon: "wrench",
+      collapsible: true,
+      children: [
+        { title: "Supported CPython versions", path: "/project/versions/" },
+        { title: "Telemetry", path: "/project/telemetry/" },
+        { title: "Privacy notice", path: "/project/privacy/" },
+        { title: "Contributing", path: "/project/contributing/" },
       ],
     },
     { title: "GitHub", path: "https://github.com/sigilco/pyscriptc", icon: "github" },

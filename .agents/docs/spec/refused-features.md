@@ -189,7 +189,7 @@ Assignment rule: a construct is T2 only when every CPython-observable result is 
 | `int` overflow / `//` by zero abort | supported-with-caveat | - | real exceptions pending R10 |
 | `assert` always on (no `-O`) | supported-with-caveat | - | never put side effects in `assert` |
 | `tuple` synthetic-class repr | supported-with-caveat | - | cosmetic divergence only |
-| `@property` getter, user exception classes, `getattr`/`hasattr` literal | **supported** (post-census) | - | as documented in `docs/supported.md` |
+| `@property` getter, user exception classes, `getattr`/`hasattr` literal | **supported** (post-census) | - | as documented in `.agents/docs/support/supported.md` |
 
 ## Tier A: refuse with a diagnostic now
 
@@ -197,7 +197,7 @@ These constructs are fenced today by generic codes or are checker-caught. The pr
 
 ### PS4001 - dynamic code execution: `eval`, `exec`, `compile`, `__import__`, `importlib.import_module`
 
-A compiler that statically resolves every name cannot honor a string that becomes code at run time. `eval`/`exec` also defeat the whole point of the subset: any program accepting them is a shell, and no static guarantee survives one. `importlib.import_module` is fenced today (closed import table, `docs/supported.md`); it is listed here because it belongs to the same refusal even after the import table grows. Tier: T0 natively, T1 through the island.
+A compiler that statically resolves every name cannot honor a string that becomes code at run time. `eval`/`exec` also defeat the whole point of the subset: any program accepting them is a shell, and no static guarantee survives one. `importlib.import_module` is fenced today (closed import table, `.agents/docs/support/supported.md`); it is listed here because it belongs to the same refusal even after the import table grows. Tier: T0 natively, T1 through the island.
 
 Diagnostic: `eval()/exec()/compile()/import_module() are refused: dynamic code defeats static resolution` - hint: `name the import statically, or move the dispatch into a dict of functions`.
 

@@ -45,5 +45,5 @@ Runtime-internal awaitables (timers, fd readiness, thread futures) are hand-writ
 
 ## Related
 
-- [`ir-canonicity.md`](../ir-canonicity.md): the frozen IR rules this decision avoids touching.
-- [`e2-exception-model.md`](../e2-exception-model.md): the setjmp exception model the guard transform relies on.
+- [`ir-canonicity.md`](../spec/ir-canonicity.md): the frozen IR rules this decision avoids touching.
+- [`e2-exception-model.md`](../spec/e2-exception-model.md): the setjmp exception model the guard transform relies on.

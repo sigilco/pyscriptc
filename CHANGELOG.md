@@ -78,7 +78,7 @@
 
 First-run fixes for the v0.4.1 alpha.
 
-- New: `pyscriptc imports FILE|DIR` classifies every import of a program or package tree into its compat lane: standard library, native-backed (a C, C++ or Rust extension), curated-replacement (a planned pack) or pure Python. The verdict comes from the closed import table, a data file of known native-backed distributions, and offline distribution metadata (the wheel `RECORD`, an unpacked tree). Nothing reaches the network. See `docs/import-classifier.md`.
+- New: `pyscriptc imports FILE|DIR` classifies every import of a program or package tree into its compat lane: standard library, native-backed (a C, C++ or Rust extension), curated-replacement (a planned pack) or pure Python. The verdict comes from the closed import table, a data file of known native-backed distributions, and offline distribution metadata (the wheel `RECORD`, an unpacked tree). Nothing reaches the network. See `.agents/docs/spec/import-classifier.md`.
 - Fix: `compile FILE --run` without `--call` now runs the file's own script, including the body of `if __name__ == "__main__":` when the module also defines `main`. Before, it compiled a no-op binary and exited 0 silently. When there is nothing to run it prints a note naming `--call` on stderr.
 - `compile` checks for the C driver (clang, or zig with `--driver zig` / `PYSC_CC`) before doing any work when the output needs one, and points at `pyscriptc doctor` instead of failing deep in the link step. `--emit ir|llvm` need no toolchain.
 - Fence messages name operators and constructs as written in source (`` `*` on str and float``, `f-string`, `starred expression`) instead of AST class names (`Mult`, `JoinedStr`, `Starred`).
@@ -99,7 +99,7 @@ pyrefly is the only runtime oracle, and the release binaries work on Linux x86_6
 
 - Fix: the Linux x86_64 release binary did nothing and exited 0. mypy's compiled extension crashed at import inside the Nuitka build; release binaries now ship without mypy and bundle the vendored typeshed.
 - The facts provider defaults to `pyrefly-tsp` (97.5% of mypy's typed positions, 85.9% kind agreement on the 14-file corpus; see `benchmarks/factsdiff.py --corpus`).
-- mypy and pyright are optional extras (`oracle-mypy`, `oracle-pyright`); `--checker mypy|pyright` without the extra stops with an install hint. See `docs/external-oracles.md`.
+- mypy and pyright are optional extras (`oracle-mypy`, `oracle-pyright`); `--checker mypy|pyright` without the extra stops with an install hint. See `.agents/docs/spec/external-oracles.md`.
 - The checker's stdlib patches (`range`, `frozenset`, `str.split`) now apply to a vendored typeshed copy (`pyscriptc/_typeshed`, from mypy 2.4) through pyrefly's `typeshed-path`, so mypy is no longer needed for the default lane. Larger wheel.
 - Removed the mypy, pyright and pyright-typeserver facts adapters (about 1260 lines).
 - Release 0.2.1 went to PyPI first; its Linux x86_64 binary was broken, so its GitHub Release (added retroactively) carries only the wheel and sdist.
@@ -111,9 +111,9 @@ Release binaries work. The 0.2.0 Nuitka binaries failed their smoke test because
 - Fix: the release binaries bundle the pyrefly executable and use it by default; `PYREFLY_BIN` still overrides.
 - `pyscriptc doctor [--json]` reports the checker (path, version, resolution source), the C toolchain, cache dir, target default and install shape.
 - `PYSC_TARGET`, `PYSC_CC` and `PYSC_LINKER` set the matching flag defaults; `--linker`, `--emit asm,obj` and `--out-dir` are new.
-- Telemetry v1 (`compile.finished`, `coverage.reported`): anonymous, opt out with `PYSC_NO_TELEMETRY=1` or `pyscriptc telemetry disable`. See `site/guide/telemetry.md`.
+- Telemetry v1 (`compile.finished`, `coverage.reported`): anonymous, opt out with `PYSC_NO_TELEMETRY=1` or `pyscriptc telemetry disable`. See `docs/project/telemetry.md`.
 - GitHub Release notes are now built from the matching CHANGELOG.md section.
-- Nightly and manual cut-release workflows (`docs/release-process.md`).
+- Nightly and manual cut-release workflows (`.agents/docs/release/release-process.md`).
 
 ## [0.2.0] - 2026-10-21
 

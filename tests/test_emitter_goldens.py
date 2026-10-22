@@ -59,7 +59,7 @@ def test_golden_corpus(update_goldens: bool) -> None:
     for entry in MANIFEST["fixtures"]:
         name = entry["name"]
         ir = json.loads((BACKEND / entry["ir"]).read_text(encoding="utf-8"))
-        # The CPython stamp is incidental (see docs/ir-canonicity.md): it marks
+        # The CPython stamp is incidental (see .agents/docs/spec/ir-canonicity.md): it marks
         # the interpreter the IR was lowered on and never reaches the emitted
         # text. Re-stamp it so a fixture written on one 3.14 patch still emits
         # on another.

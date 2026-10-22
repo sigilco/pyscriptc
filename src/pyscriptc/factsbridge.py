@@ -15,7 +15,7 @@ asked for it (`compile --bridge mypy`, config key `bridge = "mypy"`). When
 mypy is not importable the bridge reports absent and lowering proceeds
 exactly as before, so the zero-dependency path is unchanged. Anything the
 map cannot prove keeps its fence: the bridge only answers, it never forces
-(design decision `.agents/docs/checker-bridge.md`, E3a).
+(design decision `.agents/docs/design/checker-bridge.md`, E3a).
 """
 
 from __future__ import annotations

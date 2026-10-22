@@ -228,7 +228,7 @@ def _resolve_pyrefly() -> tuple[list[str], str]:
 
 # PEP 765 makes a `return`, `break` or `continue` in a `finally` block an
 # error in Python 3.15. The subset targets the 3.12 window
-# (`docs/python-version-window.md`), where the same code is legal and the
+# (`.agents/docs/release/python-version-window.md`), where the same code is legal and the
 # compiler reproduces CPython's "the finally block replaces the in-flight
 # outcome" behavior, so pyrefly's diagnostics for it do not apply.
 _PEP765_MARKERS = ("in a `finally` block will silence exceptions",)

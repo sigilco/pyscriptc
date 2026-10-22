@@ -126,7 +126,7 @@ hard floor for the host.**
    (byte-identical discipline: regenerate twice, `cmp`).
 4. `docs/version-track.md`: retarget `--target-version {3.11..3.14}`, update
    the node-gate table's 3.10 row (match gating moves to "below floor" notes).
-5. `README.md` / `docs/supported.md`: state the 3.12 host floor and the
+5. `README.md` / `.agents/docs/support/supported.md`: state the 3.12 host floor and the
    3.11–3.14 target axis.
 6. CI: add a second host-version leg (3.12 floor + 3.14 newest) so the floor
    is actually exercised; the macos-safe job can take 3.12.
