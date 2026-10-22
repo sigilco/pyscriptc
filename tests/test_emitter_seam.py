@@ -174,8 +174,10 @@ def test_corpus_regenerates_byte_identically(tmp_path: Path) -> None:
         # The CPython stamp is incidental (.agents/docs/spec/ir-canonicity.md):
         # it marks the interpreter that wrote the fixture and never reaches the
         # emitted text, so a fixture written on one 3.14 patch regenerates on
-        # another. The rest must match exactly, key order included.
-        assert committed.pop("cpython") == rebuilt.pop("cpython")
+        # another. Drop the stamps and compare the rest exactly, key order
+        # included; a stamp mismatch is the golden test's re-stamp, not drift.
+        committed.pop("cpython")
+        rebuilt.pop("cpython")
         assert list(committed) == list(rebuilt), entry["name"]
         assert committed == rebuilt, entry["name"]
 
