@@ -18,13 +18,13 @@ import time
 from pathlib import Path
 from typing import Any
 
-_TOPICS = {"stages", "fences", "cc", "paths", "all"}
+_TOPICS = {"stages", "fences", "cc", "paths", "verify", "all"}
 
 
 def parse_topics(value: str | None) -> set[str]:
-    """A `--debug`/`PYSC_DEBUG` value: empty means `stages`, else a comma list."""
+    """A `--debug`/`PYSC_DEBUG` value: empty means `stages,verify`, else a comma list."""
     if value is None or not value.strip() or value.strip() in ("1", "true", "on"):
-        return {"stages"}
+        return {"stages", "verify"}
     topics = {topic.strip() for topic in value.split(",") if topic.strip()}
     unknown = topics - _TOPICS
     if unknown:
@@ -42,7 +42,10 @@ def resolve(flag: str | None, debug_dir: str | None, timings: bool = False) -> D
         return None
     topics = parse_topics(value) if (flag is not None or value) else set()
     if debug_dir is not None:
+        # The dump is the point of `--debug-dir`: it carries the verification
+        # verdicts, so the directory always turns the verifier on.
         topics.add("paths")
+        topics.add("verify")
     if timings:
         topics.add("stages")
     return Debug(topics, None if debug_dir is None else Path(debug_dir))
@@ -59,6 +62,11 @@ class Debug:
         self._starts: list[float] = []
         self._t0 = time.perf_counter()
         self.timings_map: dict[str, float] = _TimingSink(self)
+        # Verification results, recorded by the compile pipeline when the
+        # `verify` topic is on: the IR structural pass and the LLVM module
+        # verifier over the emitted text.
+        self.ir_verifications: list[dict[str, Any]] = []
+        self.llvm_verification: dict[str, Any] | None = None
 
     def wants(self, topic: str) -> bool:
         return "all" in self.topics or topic in self.topics
@@ -120,6 +128,15 @@ class Debug:
         if outputs and self.wants("paths"):
             for key, value in outputs.items():
                 lines.append(f"[debug] {key}: {value}")
+        if self.wants("verify"):
+            for entry in self.ir_verifications:
+                lines.append(f"[debug] irverify: {entry}")
+            if self.llvm_verification is not None:
+                result = self.llvm_verification
+                if result.get("ok"):
+                    lines.append(f"[debug] llvmverify: ok ({result.get('tool')})")
+                else:
+                    lines.append(f"[debug] llvmverify: {result.get('tool')}: {result.get('message')}")
         return "\n".join(lines)
 
     def summary(self, module: dict[str, Any] | None, outputs: dict[str, str], status: str) -> dict[str, Any]:
@@ -132,6 +149,10 @@ class Debug:
             "commands": self.commands,
             "outputs": outputs,
             "status": status,
+            "verify": {
+                "ir": self.ir_verifications,
+                "llvm": self.llvm_verification,
+            },
         }
 
     def write_dir(
