@@ -49,6 +49,10 @@ jobs:
           python-version: "3.14"
       - run: uv sync --frozen
       - run: uv run ruff check
+      - name: README is rendered from README.tmpl.md
+        env:
+          PYSC_DOCS_URL: ${{ vars.PYSC_DOCS_URL }}
+        run: uv run python scripts/render_readme.py --check
       - run: >-
           uv run ruff format --check
           --exclude src/pyscriptc
