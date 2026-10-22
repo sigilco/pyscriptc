@@ -1,0 +1,9 @@
+{
+  "slug": "tar_list",
+  "argv": [
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/bundle.tar"
+  ],
+  "stdout": "         4 tree/a.txt\n         3 tree/sub/b.txt\n",
+  "stderr": "",
+  "exitCode": 0
+}

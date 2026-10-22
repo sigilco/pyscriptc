@@ -1,0 +1,11 @@
+{
+  "slug": "argparse_convert",
+  "argv": [
+    "1000",
+    "--unit",
+    "mi"
+  ],
+  "stdout": "0.621 mi\n",
+  "stderr": "",
+  "exitCode": 0
+}

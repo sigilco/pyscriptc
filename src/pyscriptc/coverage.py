@@ -100,6 +100,11 @@ _FAMILIES = {
             "export-cascade", "Follows from a fence in the exporting module. Fix that definition first.", derived=True
         ),
         Family("class-cascade", "Follows from a fence inside the class. Fix the class first.", derived=True),
+        Family(
+            "import-cycle",
+            "Two modules import each other. Break the cycle: move the shared code into a third module, "
+            "or import the module that does not depend on the other one.",
+        ),
     )
 }
 
@@ -134,6 +139,7 @@ _RULES: tuple[tuple[str | None, str, str], ...] = (
     ("PS2001", r"is not in the lowered subset of ([\w.]+)", "stdlib"),
     ("PS2001", r"", "construct-other"),
     ("PS2002", r"is not exported by this package", "export-cascade"),
+    ("PS2002", r"^circular import: ", "import-cycle"),
     ("PS2002", r"^this class .+ is not lowered", "class-cascade"),
     ("PS2002", r"is not in the closed import table", "import-table"),
     ("PS2002", r"is not a local or parameter", "name-resolution"),

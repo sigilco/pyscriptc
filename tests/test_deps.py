@@ -21,6 +21,7 @@ from typing import Any
 import pytest
 
 from pyscriptc import cli, deps
+from pyscriptc.config import ConfigError, read_pep723
 from pyscriptc.deps import DepsError
 
 pytestmark = pytest.mark.skipif(sys.version_info < (3, 11), reason="tomllib")
@@ -138,19 +139,19 @@ def fake(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str, Any]:
 
 
 def test_pep723_block_is_read() -> None:
-    meta = deps.read_pep723(SCRIPT)
+    meta = read_pep723(SCRIPT)
     assert meta == {"requires-python": ">=3.11", "dependencies": ["colorama>=0.4", "PyYAML"]}
 
 
 def test_pep723_absent_and_other_block_types() -> None:
-    assert deps.read_pep723("print(1)\n") is None
-    assert deps.read_pep723("# /// tool\n# x = 1\n# ///\n") is None
+    assert read_pep723("print(1)\n") is None
+    assert read_pep723("# /// tool\n# x = 1\n# ///\n") is None
 
 
 def test_pep723_rejects_two_script_blocks() -> None:
     block = "# /// script\n# dependencies = []\n# ///\n"
-    with pytest.raises(DepsError, match="more than one"):
-        deps.read_pep723(block + "\n" + block)
+    with pytest.raises(ConfigError, match="more than one"):
+        read_pep723(block + "\n" + block)
 
 
 def test_load_spec_script_and_pyproject(tmp_path: Path) -> None:

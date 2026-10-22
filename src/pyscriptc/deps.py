@@ -42,6 +42,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from pyscriptc.config import ConfigError, read_pep723
 from pyscriptc.errors import SpikeError
 
 DEPS_CODE = "PS3101"
@@ -49,7 +50,6 @@ LOCK_TOOL_KEY = "pyscriptc"
 EXTENSION_SUFFIXES = (".so", ".pyd", ".dylib", ".dll")
 SKIPPED_DATA_DIRS = ("scripts", "headers", "data")
 
-PEP723_RE = re.compile(r"(?m)^# /// (?P<type>[a-zA-Z0-9-]+)$\s(?P<content>(^#(| .*)$\s)+)^# ///$")
 NAME_RE = re.compile(r"^\s*([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)")
 
 LANE_HINTS = {
@@ -117,19 +117,6 @@ def requirement_name(requirement: str) -> str:
     return normalize_name(match.group(1))
 
 
-def read_pep723(text: str) -> dict[str, Any] | None:
-    """The `script` block of PEP 723 inline metadata, or None when absent."""
-    blocks = [m for m in PEP723_RE.finditer(text) if m.group("type") == "script"]
-    if not blocks:
-        return None
-    if len(blocks) > 1:
-        raise DepsError("more than one `# /// script` block (PEP 723 allows one)")
-    content = "".join(
-        line[2:] if line.startswith("# ") else line[1:] for line in blocks[0].group("content").splitlines(keepends=True)
-    )
-    return _toml_loads(content)
-
-
 def _check_requirements(value: Any, where: str) -> tuple[str, ...]:
     if value is None:
         return ()
@@ -152,7 +139,10 @@ def load_spec(path: Path) -> DepSpec:
         project = _toml_loads(text).get("project", {})
         deps = _check_requirements(project.get("dependencies"), "[project].dependencies")
         return DepSpec(path, "project", project.get("requires-python"), deps)
-    meta = read_pep723(text) or {}
+    try:
+        meta = read_pep723(text) or {}
+    except ConfigError as exc:
+        raise DepsError(str(exc)) from exc
     deps = _check_requirements(meta.get("dependencies"), "PEP 723 `dependencies`")
     return DepSpec(path, "script", meta.get("requires-python"), deps)
 
