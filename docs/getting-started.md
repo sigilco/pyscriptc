@@ -68,3 +68,14 @@ uv run pyscriptc compile examples/hello.py --emit bin -o /tmp/hello-san --saniti
 ```
 
 CI runs this on every push (`ASan+UBSan smoke` in `.github/workflows/ci.yml`).
+
+## Debugging a compiled program
+
+`--debug-info` makes the emitter attach DWARF metadata to the emitted LLVM: one `DISubprogram` per function and a `DILocation` on the instructions of every statement, so a debugger names the Python file and line of a native frame instead of a generated helper. The flag works with every `--emit` mode, and `PYSC_DEBUG_INFO=1` sets it from the environment:
+
+```bash
+uv run pyscriptc compile examples/hello.py --emit bin -o /tmp/hello --debug-info
+lldb /tmp/hello
+```
+
+Without the flag the emitted text carries no metadata and the binary has no debug sections, so the default build stays unchanged. On macOS the linker moves the DWARF into the companion `hello.dSYM` bundle, which is where `lldb` finds it; on Linux the sections stay in the binary itself. `--debug-info` cannot cross-compile, because the debug info has to match the target toolchain.
