@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 import subprocess
 import tempfile
@@ -266,7 +265,8 @@ def render_report(results: list[TreeResult], with_exec: bool = False) -> str:
         "",
         f"Generated {datetime.now(UTC).date().isoformat()} by the tree runner.",
         "",
-        "Command: `uv run python -m benchmarks.scripts_corpus.trees --markdown benchmarks/scripts_corpus/REPORT_R2.md`.",
+        "Command: `uv run python -m benchmarks.scripts_corpus.trees "
+        "--markdown benchmarks/scripts_corpus/REPORT_R2.md`.",
         "",
         f"Rung R2 of the adoption ladder: {passed} of {total} multi-module trees compile with zero fences "
         f"({100 * passed // max(total, 1)}%). The corpus holds {fences} fences in total.",

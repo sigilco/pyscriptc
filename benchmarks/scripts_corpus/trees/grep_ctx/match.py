@@ -1,9 +1,8 @@
 """The matching logic."""
 
-from pathlib import Path
-
 import re
 import sys
+from pathlib import Path
 
 USAGE = "usage: grep_ctx PATTERN FILE"
 

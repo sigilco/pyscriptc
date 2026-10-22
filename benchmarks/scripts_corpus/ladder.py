@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -57,9 +56,7 @@ def _r1_metrics(exec_stage: bool) -> dict[str, Any]:
             recorded = INVOCATIONS.get(result.slug)
             if not recorded:
                 continue
-            argv = [
-                arg.replace("{fixtures}", str(fixtures_dir())).replace("{tmp}", "/tmp") for arg in recorded
-            ]
+            argv = [arg.replace("{fixtures}", str(fixtures_dir())).replace("{tmp}", "/tmp") for arg in recorded]
             exec_r1_script(result, argv, ORACLE)
     total = len(results)
     compiled = sum(1 for result in results if result.compile_pass)
