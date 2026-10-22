@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import struct
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
 
 from pyscriptc import rtcache
 from pyscriptc.builtins import EXCEPTIONS, USER_EXC_BASE
+from pyscriptc.dwarf import DwarfEmitter
 from pyscriptc.errors import FitError, IRError
 from pyscriptc.ir import assert_same_cpython, fits_i64, zdi_variants
 from pyscriptc.stdlib_queue import MATH_FUNCTIONS
@@ -40,6 +42,7 @@ def emit_llvm(
     call: str | None = None,
     args: list[Any] | None = None,
     standalone: bool = False,
+    debug_info: bool = False,
 ) -> str:
     """With `standalone` and no `call`, main does nothing: module level code is not lowered."""
     assert_same_cpython(module)
@@ -47,7 +50,8 @@ def emit_llvm(
         raise IRError("refusing to emit LLVM while fences are present")
     if not module["functions"]:
         raise IRError("module has no functions to emit")
-    return Emitter(module).emit(call, [] if args is None else args, standalone)
+    dwarf = DwarfEmitter(module["sourceFile"]) if debug_info else None
+    return Emitter(module, dwarf).emit(call, [] if args is None else args, standalone)
 
 
 def standalone_entry(module: dict[str, Any]) -> dict[str, Any] | None:
@@ -79,6 +83,7 @@ def link_binary(
     link_driver: str | None = None,
     sanitize: list[str] | None = None,
     timings: dict[str, float] | None = None,
+    debug_info: bool = False,
 ) -> None:
     """Link `.ll` text plus the C runtime into `output`.
 
@@ -90,6 +95,10 @@ def link_binary(
     `sanitize` is a `-fsanitize` name list (ASan+UBSan diagnostics for the
     runtime and the emitted code); it applies to every compile and the link,
     and the runtime object cache keys on it.
+    `debug_info` asks cc for `-g` so the DWARF metadata in the `.ll` survives
+    into the object file. On Darwin the linker moves the DWARF out of the
+    executable into a `.dSYM` bundle, so the link step runs `dsymutil` to
+    produce it; on ELF the sections stay in the binary.
     When `timings` is a dict, per-step cc/link wall milliseconds are added
     into it (`cc_compile`, `cc_link`).
     """
@@ -102,6 +111,7 @@ def link_binary(
     sources = [str(path) for path in sorted(runtime.glob("*.c"))]
     target_flags = ["-target", target] if target is not None else []
     san_flags = sanitize_flags(sanitize)
+    dbg_flags = ["-g"] if debug_info else []
     tail = [*san_flags, "-lm", "-o", str(output)]
     if "ps_island_" in text:
         if target is not None:
@@ -123,7 +133,18 @@ def link_binary(
     use_cache = rtcache.prepare()
     ll_obj = output.with_name(f"{output.name}.{llvm_path.stem}.o")
     ll_kind = ["-x", "ir"] if driver == "clang" else []
-    ll_argv = [*cc.split(), "-O2", *san_flags, *ll_kind, "-c", str(llvm_path), "-o", str(ll_obj), *target_flags]
+    ll_argv = [
+        *cc.split(),
+        "-O2",
+        *dbg_flags,
+        *san_flags,
+        *ll_kind,
+        "-c",
+        str(llvm_path),
+        "-o",
+        str(ll_obj),
+        *target_flags,
+    ]
     jobs: list[tuple[list[str], Path | None]] = [(ll_argv, None)]
     objects = [ll_obj]
     hits = 0
@@ -165,6 +186,27 @@ def link_binary(
     if proc is not None and proc.returncode != 0:
         detail = (proc.stderr or proc.stdout).strip()
         raise IRError(f"{cc} failed to assemble LLVM IR: {detail}")
+    if ok and debug_info:
+        _write_debug_symbols(output, record)
+
+
+def _write_debug_symbols(output: Path, record: list[list[str]] | None) -> None:
+    """Move the DWARF out of the linker into a `.dSYM` bundle on Darwin.
+
+    The Mach-O linker does not keep the debug sections in the executable, so
+    `lldb` finds the line table in the companion `.dSYM`. On ELF the sections
+    stay in the binary and there is nothing to do.
+    """
+    if sys.platform != "darwin":
+        return
+    bundle = output.with_name(f"{output.name}.dSYM")
+    argv = ["xcrun", "dsymutil", str(output), "-o", str(bundle)]
+    if record is not None:
+        record.append(argv)
+    proc = subprocess.run(argv, capture_output=True, text=True)
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout).strip()
+        raise IRError(f"dsymutil failed to write the debug symbols: {detail}")
 
 
 def compile_unit(
@@ -175,6 +217,7 @@ def compile_unit(
     target: str | None = None,
     record: list[list[str]] | None = None,
     timings: dict[str, float] | None = None,
+    debug_info: bool = False,
 ) -> None:
     """Compile the module's `.ll` alone to assembly (`asm`) or an object (`obj`)."""
     if target is not None and driver != "zig":
@@ -184,7 +227,8 @@ def compile_unit(
     mode = "-S" if kind == "asm" else "-c"
     ir_kind = ["-x", "ir"] if driver == "clang" else []
     target_flags = ["-target", target] if target is not None else []
-    argv = [*cc.split(), "-O2", *ir_kind, mode, str(llvm_path), "-o", str(output), *target_flags]
+    dbg_flags = ["-g"] if debug_info else []
+    argv = [*cc.split(), "-O2", *dbg_flags, *ir_kind, mode, str(llvm_path), "-o", str(output), *target_flags]
     if record is not None:
         record.append(argv)
     started = time.perf_counter()
@@ -196,8 +240,11 @@ def compile_unit(
 
 
 class Emitter:
-    def __init__(self, module: dict[str, Any]) -> None:
+    def __init__(self, module: dict[str, Any], dwarf: DwarfEmitter | None = None) -> None:
         self.module = module
+        # Off by default: without `--debug-info` the emitted text is byte-identical
+        # to the historical output, so the frozen gates and IR hashes do not move.
+        self.dwarf = dwarf
         self.functions = {fn["name"]: fn for fn in module["functions"]}
         self.out: list[str] = []
         self.globals: list[str] = []
@@ -229,6 +276,9 @@ class Emitter:
         self.partials: dict[str, dict[str, Any]] = {}
         self.partial_keys: dict[str, str] = {}
         self.partial_n = 0
+        # `--debug-info` state: the span of the statement being emitted. Every
+        # instruction the statement produces carries it as a `DILocation`.
+        self.span: dict[str, Any] | None = None
 
     def emit(self, call: str | None, args: list[Any], standalone: bool = False) -> str:
         self.class_index = {cls["name"]: cls for cls in self.module.get("classes", [])}
@@ -275,7 +325,12 @@ class Emitter:
         if decls:
             header.append("")
         header.extend(_helpers(self.needed))
-        return "\n".join(header + self.out).rstrip() + "\n"
+        body = header + self.out
+        if self.dwarf is not None:
+            # The debug metadata goes last: the named-metadata block and the
+            # `!DI*` records may reference anything the body defined.
+            body = body + self.dwarf.render()
+        return "\n".join(body).rstrip() + "\n"
 
     def emit_function(self, fn: dict[str, Any]) -> None:
         ret = _llvm_type(fn["returnType"])
@@ -284,9 +339,15 @@ class Emitter:
         plist = [f"{_llvm_type(p['type'])} %{_safe(p['name'])}" for p in fn["params"]]
         if "env" in fn:
             plist.insert(0, "ptr %env")
-        self.out.append(f"define {ret} @{_fn_symbol(fn['name'])}({', '.join(plist)}) {{")
+        symbol = _fn_symbol(fn["name"])
+        define = f"define {ret} @{symbol}({', '.join(plist)})"
+        if self.dwarf is not None:
+            self.dwarf.enter_function(fn["name"], symbol, fn["span"], fn["params"], fn["returnType"], env="env" in fn)
+            define += f" !dbg !{self.dwarf.current_subprogram}"
+        self.out.append(f"{define} {{")
         self._reset_function()
         self.block("entry")
+        self._declare_params(fn)
         self.slot_order = []
         self.slot_types = {}
         boxed = set(fn.get("boxed") or [])
@@ -324,6 +385,8 @@ class Emitter:
                 self.line("unreachable")
         self.out.append("}")
         self.out.append("")
+        if self.dwarf is not None:
+            self.dwarf.exit_function()
 
     def emit_main(self, name: str, args: list[Any]) -> None:
         fn = self.functions.get(name)
@@ -339,9 +402,20 @@ class Emitter:
                 raise FitError(f"{name} expects {len(params)} argument(s), got {len(args)}")
             filled.append(_ir_const_value(param["type"], default["value"]))
         prepared = [_prepare_arg(param, value) for param, value in zip(params, filled, strict=True)]
-        self.out.append("define i32 @main(i32 %argc, ptr %argv) {")
+        define = "define i32 @main(i32 %argc, ptr %argv)"
+        if self.dwarf is not None:
+            # The process entry point is not a Python function, so it gets a
+            # synthetic subprogram named `main` at the source file's line 1.
+            entry_span = {"file": self.module["sourceFile"], "line": 1}
+            self.dwarf.enter_function("main", "main", entry_span, [], {"kind": "none"})
+            define += f" !dbg !{self.dwarf.current_subprogram}"
+        self.out.append(f"{define} {{")
         self._reset_function()
         self.block("entry")
+        # The entry point's own instructions point at the entry function's
+        # definition, so a frame in `main` names the Python line that started
+        # the program rather than nothing at all.
+        self.span = fn.get("span") if self.dwarf is not None else None
         self._abi_decl("ps_argv_init", "void", ["i32", "ptr"])
         self._call_void("ps_argv_init", ["i32 %argc", "ptr %argv"])
         self._emit_exc_registrations()
@@ -354,6 +428,9 @@ class Emitter:
         self.line("ret i32 0")
         self.out.append("}")
         self.out.append("")
+        self.span = None
+        if self.dwarf is not None:
+            self.dwarf.exit_function()
 
     def _emit_exc_registrations(self) -> None:
         """Register the module's user exception classes with the runtime.
@@ -376,11 +453,34 @@ class Emitter:
                 [f"i32 {cls['exc_code']}", f"i32 {cls.get('exc_parent', 0)}", f"ptr {ptr}"],
             )
 
+    def _declare_params(self, fn: dict[str, Any]) -> None:
+        """`llvm.dbg.value` for each parameter, at its IR name.
+
+        Parameters are SSA values, not stack slots, so a parameter needs
+        `dbg.value` rather than `dbg.declare` (and a formal-parameter DIE with
+        its 1-based `arg:` index).
+        """
+        if self.dwarf is None:
+            return
+        self.needed.add("dbg")
+        for index, param in enumerate(fn["params"], start=1):
+            if param["type"]["kind"] == "none":
+                continue
+            var = self.dwarf.variable(param["name"], fn["span"], param["type"]["kind"], index)
+            loc = self.dwarf.location(fn["span"])
+            value = f"{_llvm_type(param['type'])} %{_safe(param['name'])}"
+            self.out.append(
+                f"  call void @llvm.dbg.value(metadata {value}, metadata !{var}, metadata !DIExpression()), !dbg !{loc}"
+            )
+
     def emit_body(self, body: list[dict[str, Any]]) -> None:
         for stmt in body:
             if self.terminated:
                 break
+            saved = self.span
+            self.span = stmt.get("span") if self.dwarf is not None else None
             self.emit_stmt(stmt)
+            self.span = saved
 
     def emit_stmt(self, stmt: dict[str, Any]) -> None:
         kind = stmt["kind"]
@@ -2432,7 +2532,23 @@ class Emitter:
         return f"%t{self.tid}"
 
     def line(self, text: str) -> None:
-        self.out.append(f"  {text}")
+        self.out.append(f"  {text}{self._dbg_suffix(text)}")
+
+    def _dbg_suffix(self, text: str) -> str:
+        """The `!dbg` attachment for an emitted instruction, or '' when off.
+
+        Only instructions can carry a location: a label or a block header is not
+        an instruction, and the terminator of an instruction that already ends
+        in a comment keeps the comment last.
+        """
+        if self.dwarf is None or self.span is None:
+            return ""
+        if ";" in text:
+            # `call void @ps_raise_code(i32 10) noreturn ; OverflowError`: the
+            # metadata goes before the comment.
+            head, _, tail = text.partition(";")
+            return f"{self.dwarf.dbg(self.span)} ;{tail}"
+        return self.dwarf.dbg(self.span)
 
     def _reset_function(self) -> None:
         self.tid = 0
@@ -2582,6 +2698,9 @@ def _declarations(needed: set[str]) -> list[str]:
     if "strconcat" in needed:
         lines.append("declare ptr @malloc(i64)")
         lines.append("declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)")
+    if "dbg" in needed:
+        lines.append("declare void @llvm.dbg.value(metadata, metadata, metadata)")
+        lines.append("declare void @llvm.dbg.declare(metadata, metadata, metadata)")
     lines.extend(_runtime_declarations(needed))
     return lines
 
