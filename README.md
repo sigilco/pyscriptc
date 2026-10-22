@@ -96,7 +96,7 @@ Windows: the `pyscriptc` binary runs there (experimental) and `coverage` works, 
 | Island | optional embedded-CPython calls, CPython-linked only when used |
 | Scoring | `benchmarks/` layout follows [scriptc](https://github.com/vercel-labs/scriptc) |
 
-The design is in [ARCHITECTURE.md](ARCHITECTURE.md). How to compile a script is in [docs/](docs/README.md). Contributor notes are in [.agents/docs/](.agents/docs/README.md). Programs that compile today, including an invoice, an access-log gate, and a URL allow-list, are in [examples/](examples/README.md). The benchmark layout is scriptc’s `benchmarks/` directory; see [benchmarks/README.md](benchmarks/README.md).
+The design is in [ARCHITECTURE.md](docs/architecture.md). How to compile a script is in [docs/](docs/README.md). Contributor notes are in [.agents/docs/](.agents/docs/README.md). Programs that compile today, including an invoice, an access-log gate, and a URL allow-list, are in [examples/](examples/README.md). The benchmark layout is scriptc’s `benchmarks/` directory; see [benchmarks/README.md](benchmarks/README.md).
 
 Licensed under Apache 2.0. Copyright 2026 Joaquin Terrasa and contributors.
 
