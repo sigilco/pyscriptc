@@ -20,7 +20,7 @@ def test_self_census_ballpark() -> None:
     # stubs.py + sigregistry.py (stub reader, signature registry, not lowered): +2 modules.
     # imports.py (per-import lane classifier for the adoption ladder) adds one more.
     # deps.py (PyPI resolver, wheel cache) adds 1 module and about 125 fences, with its cli.py hook.
-    assert census["modules"] == 55
+    assert census["modules"] == 56
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -53,7 +53,8 @@ def test_self_census_ballpark() -> None:
     # imports.py adds 1 module and 48 fences; the `pyscriptc imports` subcommand registration adds 16 fences in cli.py.
     # Program directories (R2): the import graph walk, init-owner map, cycle fence, `__main__` guard branch,
     # entry inference and `--program` plumbing add 16 self-host fences (package.py, lower/, cli.py).
-    assert census["fences"] == 1811
+    # runcache.py (binary cache for `pyscriptc run`) adds 1 module; the `run` subcommand adds fences in cli.py.
+    assert census["fences"] == 1847
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 30_000
-    assert sum(p["fences"] for p in census["packages"]) == 1811
+    assert sum(p["fences"] for p in census["packages"]) == 1847

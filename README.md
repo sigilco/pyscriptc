@@ -27,6 +27,13 @@ Hello. A script with `main()` and a `__main__` guard runs as-is with `--run` (it
 pyscriptc compile examples/hello.py --run
 ```
 
+`pyscriptc run FILE [-- args]` is the `uv run` shaped shortcut: it compiles once, caches the binary under `~/.cache/pyscriptc/bin` keyed on the source content, the compiler and the flags, then runs it. A second run of an unchanged script skips the compile; arguments after `--` reach `sys.argv`, and stdin, stdout and the exit code pass through. `--no-cache` (or `PYSC_NO_RUN_CACHE=1`) always recompiles.
+
+```bash
+pyscriptc run examples/hello.py
+pyscriptc run script.py -- first second
+```
+
 A loop. A plain function needs `--call` (and `--args`, a Python list literal); a file that also has a `__main__` guard runs that guard when you pass neither. Both print `285`, the value CPython prints:
 
 ```bash
