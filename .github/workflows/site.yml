@@ -74,6 +74,9 @@ jobs:
           python-version: "3.14"
 
       - uses: pnpm/action-setup@v4
+        with:
+          # The pnpm workspace root is docs/.docmd/, not the repo root.
+          package_json_file: docs/.docmd/package.json
 
       - uses: actions/setup-node@v5
         with:
