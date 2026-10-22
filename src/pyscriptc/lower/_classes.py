@@ -323,6 +323,10 @@ class ClassesMixin:
             info["exception"] = True
             info["exc_code"] = self.exc_n
             self.exc_n += 1
+            # The parent code lets the runtime walk the same parent chain the
+            # builtins use, so a user class matches `except Exception` and
+            # `except <its builtin base>` without a precomputed code list.
+            info["exc_parent"] = self._exception_parent_code(base, parent_name)
         if type_params:
             info["typevars"] = type_params
         if protocol:
@@ -633,12 +637,19 @@ class ClassesMixin:
         generated = self._generated_method(node, info)
         if generated is not None:
             methods.append(generated)
-        return {
+        record = {
             "name": own,
             "fields": info["fields"],
             "methods": methods,
             "span": span_of(node, self.filename),
         }
+        if info.get("exception"):
+            # The runtime registers the class so `except` matches it through
+            # the same parent chain the builtins use.
+            record["exception"] = True
+            record["exc_code"] = info["exc_code"]
+            record["exc_parent"] = info.get("exc_parent", EXCEPTIONS["Exception"])
+        return record
 
     def _emit_class_method(
         self, class_name: str, stmt: ast.FunctionDef, info: dict[str, Any], own_names: set[str]
@@ -1268,6 +1279,12 @@ class ClassesMixin:
                     "builtins", "exc.args", [obj], {"kind": "list", "elem": {"kind": "str"}}, "ps_exc_args", span
                 )
             self.fail(node, "PS2001", f"exception has no attribute {name}")
+        if obj.get("symbol") == "ps_exc_class" and obj.get("attrtype") == "type":
+            # type(e): the carrier holds the runtime class name. `.__name__`
+            # is that name; any other attribute is not in the subset.
+            if name == "__name__":
+                return obj
+            self.fail(node, "PS2001", f"type(e) has no attribute {name}")
         if obj["type"]["kind"] != "class":
             self.fail(node, "PS2001", f"attribute access is not lowered ({name})")
         class_name = obj["type"]["name"]
@@ -1369,6 +1386,31 @@ class ClassesMixin:
             parent = info.get("base")
             current = parent if isinstance(parent, str) else None
         return False
+
+    def _exception_parent_code(self, base: dict[str, str] | None, parent_name: str | None) -> int:
+        """The code a user exception class registers as its parent.
+
+        A builtin base contributes its table code. A user base contributes
+        that class's own code; the runtime resolves the chain from there.
+        """
+
+        if base is not None and base.get("kind") == "exception":
+            return EXCEPTIONS[base["name"]]
+        if parent_name is not None:
+            info = self.classes.get(parent_name)
+            code = info.get("exc_code") if info is not None else None
+            if isinstance(code, int):
+                return code
+        return EXCEPTIONS["Exception"]
+
+    def _exception_code_of(self, name: str) -> int | None:
+        """The code of one exception class, without its subclasses."""
+
+        if name in EXCEPTIONS:
+            return EXCEPTIONS[name]
+        info = self.classes.get(name)
+        code = info.get("exc_code") if info is not None else None
+        return code if isinstance(code, int) else None
 
     def _exception_codes(self, name: str) -> list[int]:
         found: list[int] = []

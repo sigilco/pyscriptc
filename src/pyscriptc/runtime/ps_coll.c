@@ -100,7 +100,7 @@ static int64_t ps_index(int64_t len, int64_t i) {
         i += len;
     }
     if (i < 0 || i >= len) {
-        ps_raise_code(PS_INDEX);
+        ps_raise_cstr(PS_INDEX, "deque index out of range");
     }
     return i;
 }

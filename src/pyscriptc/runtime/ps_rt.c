@@ -23,52 +23,179 @@ static _Thread_local PsJmp *ps_top;
 static _Thread_local PsExc *ps_current;
 char ps_empty_byte;
 
-/* Parent chain for the builtin codes: every builtin is a child of
-Exception. User codes (>= PS_USER_BASE) have no runtime parent yet; the
-emitted handler precomputes their matches (E3 registers them here). */
+/* Parent chain for the builtin codes (E2 M2): a parent always has a smaller
+code than its children, so the walk towards zero ends at the root. User
+codes (>= PS_USER_BASE) register their parent and name at module init
+through ps_exc_register. */
 static const int32_t ps_exc_parent[PS_USER_BASE] = {
-    0,
-    PS_EXCEPTION,
-    PS_EXCEPTION,
-    PS_EXCEPTION,
-    PS_EXCEPTION,
-    PS_EXCEPTION,
-    PS_EXCEPTION,
-    0,
-    PS_EXCEPTION,
-    PS_EXCEPTION,
-    PS_EXCEPTION,
-    PS_EXCEPTION,
+    0,                       /* unused index 0: the root's parent */
+    0,                       /* BaseException: the root */
+    PS_BASEEXCEPTION,        /* BaseExceptionGroup */
+    PS_BASEEXCEPTIONGROUP,   /* ExceptionGroup */
+    PS_BASEEXCEPTION,        /* GeneratorExit */
+    PS_BASEEXCEPTION,        /* KeyboardInterrupt */
+    PS_BASEEXCEPTION,        /* SystemExit */
+    PS_BASEEXCEPTION,        /* Exception */
+    PS_EXCEPTION,            /* ArithmeticError */
+    PS_ARITHMETICERROR,      /* FloatingPointError */
+    PS_ARITHMETICERROR,      /* OverflowError */
+    PS_ARITHMETICERROR,      /* ZeroDivisionError */
+    PS_EXCEPTION,            /* AssertionError */
+    PS_EXCEPTION,            /* AttributeError */
+    PS_EXCEPTION,            /* BufferError */
+    PS_EXCEPTION,            /* EOFError */
+    PS_EXCEPTION,            /* ImportError */
+    PS_IMPORTERROR,          /* ModuleNotFoundError */
+    PS_EXCEPTION,            /* LookupError */
+    PS_LOOKUPERROR,          /* IndexError */
+    PS_LOOKUPERROR,          /* KeyError */
+    PS_EXCEPTION,            /* MemoryError */
+    PS_EXCEPTION,            /* NameError */
+    PS_NAMEERROR,            /* UnboundLocalError */
+    PS_EXCEPTION,            /* OSError */
+    PS_OSERROR,              /* BlockingIOError */
+    PS_OSERROR,              /* ChildProcessError */
+    PS_OSERROR,              /* ConnectionError */
+    PS_CONNECTIONERROR,      /* BrokenPipeError */
+    PS_CONNECTIONERROR,      /* ConnectionAbortedError */
+    PS_CONNECTIONERROR,      /* ConnectionRefusedError */
+    PS_CONNECTIONERROR,      /* ConnectionResetError */
+    PS_OSERROR,              /* FileExistsError */
+    PS_OSERROR,              /* FileNotFoundError */
+    PS_OSERROR,              /* InterruptedError */
+    PS_OSERROR,              /* IsADirectoryError */
+    PS_OSERROR,              /* NotADirectoryError */
+    PS_OSERROR,              /* PermissionError */
+    PS_OSERROR,              /* ProcessLookupError */
+    PS_OSERROR,              /* TimeoutError */
+    PS_EXCEPTION,            /* ReferenceError */
+    PS_EXCEPTION,            /* RuntimeError */
+    PS_RUNTIMEERROR,         /* NotImplementedError */
+    PS_RUNTIMEERROR,         /* RecursionError */
+    PS_EXCEPTION,            /* StopAsyncIteration */
+    PS_EXCEPTION,            /* StopIteration */
+    PS_EXCEPTION,            /* SyntaxError */
+    PS_SYNTAXERROR,          /* IndentationError */
+    PS_INDENTATIONERROR,     /* TabError */
+    PS_EXCEPTION,            /* SystemError */
+    PS_EXCEPTION,            /* TypeError */
+    PS_EXCEPTION,            /* ValueError */
+    PS_VALUEERROR,           /* UnicodeError */
+    PS_UNICODEERROR,         /* UnicodeDecodeError */
+    PS_UNICODEERROR,         /* UnicodeEncodeError */
+    PS_UNICODEERROR,         /* UnicodeTranslateError */
+    PS_EXCEPTION,            /* Warning */
+    PS_WARNING,              /* BytesWarning */
+    PS_WARNING,              /* DeprecationWarning */
+    PS_WARNING,              /* EncodingWarning */
+    PS_WARNING,              /* FutureWarning */
+    PS_WARNING,              /* ImportWarning */
+    PS_WARNING,              /* PendingDeprecationWarning */
+    PS_WARNING,              /* ResourceWarning */
+    PS_WARNING,              /* RuntimeWarning */
+    PS_WARNING,              /* SyntaxWarning */
+    PS_WARNING,              /* UnicodeWarning */
+    PS_WARNING,              /* UserWarning */
 };
 
-_Static_assert(PS_USER_BASE == 12, "PS_USER_BASE is frozen: user exception codes feed IR hashes");
+/* Class names for the builtin codes, indexed by code. Index 0 is unused. */
+static const char *const ps_exc_names[PS_USER_BASE] = {
+    NULL,
+    "BaseException",
+    "BaseExceptionGroup",
+    "ExceptionGroup",
+    "GeneratorExit",
+    "KeyboardInterrupt",
+    "SystemExit",
+    "Exception",
+    "ArithmeticError",
+    "FloatingPointError",
+    "OverflowError",
+    "ZeroDivisionError",
+    "AssertionError",
+    "AttributeError",
+    "BufferError",
+    "EOFError",
+    "ImportError",
+    "ModuleNotFoundError",
+    "LookupError",
+    "IndexError",
+    "KeyError",
+    "MemoryError",
+    "NameError",
+    "UnboundLocalError",
+    "OSError",
+    "BlockingIOError",
+    "ChildProcessError",
+    "ConnectionError",
+    "BrokenPipeError",
+    "ConnectionAbortedError",
+    "ConnectionRefusedError",
+    "ConnectionResetError",
+    "FileExistsError",
+    "FileNotFoundError",
+    "InterruptedError",
+    "IsADirectoryError",
+    "NotADirectoryError",
+    "PermissionError",
+    "ProcessLookupError",
+    "TimeoutError",
+    "ReferenceError",
+    "RuntimeError",
+    "NotImplementedError",
+    "RecursionError",
+    "StopAsyncIteration",
+    "StopIteration",
+    "SyntaxError",
+    "IndentationError",
+    "TabError",
+    "SystemError",
+    "TypeError",
+    "ValueError",
+    "UnicodeError",
+    "UnicodeDecodeError",
+    "UnicodeEncodeError",
+    "UnicodeTranslateError",
+    "Warning",
+    "BytesWarning",
+    "DeprecationWarning",
+    "EncodingWarning",
+    "FutureWarning",
+    "ImportWarning",
+    "PendingDeprecationWarning",
+    "ResourceWarning",
+    "RuntimeWarning",
+    "SyntaxWarning",
+    "UnicodeWarning",
+    "UserWarning",
+};
+
+/* User exception classes register here: the parent code and the class name.
+The registry is a fixed table so the emitted module init can fill it without
+allocating, and a program never registers more classes than this holds. */
+#define PS_USER_EXC_MAX 1024
+typedef struct PsUserExc {
+    int32_t code;
+    int32_t parent;
+    const char *name;
+} PsUserExc;
+static PsUserExc ps_user_exc[PS_USER_EXC_MAX];
+static int32_t ps_user_exc_n;
+
 _Static_assert(PS_RESERVED_BASE > PS_USER_BASE, "reserved codes sit above user codes");
 _Static_assert(PS_TIMEOUT >= PS_GENERATOR_EXIT && PS_TIMEOUT < 0x7FFFFFFF, "reserved codes fit i32");
 
 _Static_assert(sizeof(PsBuf) == 16, "PsBuf must match %ps.str");
 
+/* The class name for a code: the builtin table, then the user registry. */
 static const char *ps_exc_name(int code) {
+    if (code > 0 && code < PS_USER_BASE) {
+        const char *name = ps_exc_names[code];
+        if (name != NULL) {
+            return name;
+        }
+    }
     switch (code) {
-    case PS_VALUE:
-        return "ValueError";
-    case PS_INDEX:
-        return "IndexError";
-    case PS_KEY:
-        return "KeyError";
-    case PS_OVERFLOW:
-        return "OverflowError";
-    case PS_ZERO_DIV:
-        return "ZeroDivisionError";
-    case PS_EXCEPTION:
-        return "Exception";
-    case PS_STOP:
-        return "StopIteration";
-    case PS_FILE_NOT_FOUND:
-        return "FileNotFoundError";
-    case PS_TYPE:
-        return "TypeError";
-    case PS_ATTR:
-        return "AttributeError";
     case PS_GENERATOR_EXIT:
         return "GeneratorExit";
     case PS_STOP_ASYNC:
@@ -78,8 +205,15 @@ static const char *ps_exc_name(int code) {
     case PS_TIMEOUT:
         return "TimeoutError";
     default:
-        return "RuntimeError";
+        break;
     }
+    if (code >= PS_USER_BASE) {
+        int32_t index = code - PS_USER_BASE;
+        if (index < ps_user_exc_n && ps_user_exc[index].name != NULL) {
+            return ps_user_exc[index].name;
+        }
+    }
+    return "RuntimeError";
 }
 
 static PsExc *ps_exc_new(int32_t code) {
@@ -97,11 +231,61 @@ static PsExc *ps_exc_new(int32_t code) {
     return e;
 }
 
+/* CPython prints a str message as its repr: quoted, with the escapes. */
+static void ps_report_quoted(PsGrow *g, const PsBuf *msg) {
+    int quote = '\'';
+    if (memchr(msg->data, '\'', (size_t)msg->len) != NULL && memchr(msg->data, '"', (size_t)msg->len) == NULL) {
+        quote = '"';
+    }
+    ps_grow_byte(g, (unsigned char)quote);
+    for (int64_t i = 0; i < msg->len; i++) {
+        unsigned char c = (unsigned char)msg->data[i];
+        if (c == (unsigned char)quote || c == '\\') {
+            ps_grow_byte(g, '\\');
+            ps_grow_byte(g, c);
+        } else if (c == '\n') {
+            ps_grow_add(g, "\\n", 2);
+        } else if (c == '\r') {
+            ps_grow_add(g, "\\r", 2);
+        } else if (c == '\t') {
+            ps_grow_add(g, "\\t", 2);
+        } else if (c < 0x20 || c == 0x7f) {
+            char esc[8];
+            snprintf(esc, sizeof esc, "\\x%02x", c);
+            ps_grow_add(g, esc, 4);
+        } else {
+            ps_grow_byte(g, c);
+        }
+    }
+    ps_grow_byte(g, (unsigned char)quote);
+}
+
+/* The message a KeyError shows: CPython prints its argument as a repr. */
+static PsBuf ps_exc_quoted(const PsBuf *msg) {
+    PsGrow g;
+    PsBuf out;
+    ps_grow_init(&g);
+    ps_report_quoted(&g, msg);
+    ps_grow_finish(&g, &out);
+    return out;
+}
+
 static void ps_report_one(PsExc *e) {
-    if (e != NULL && e->message.len > 0) {
-        fprintf(stderr, "%s: %s\n", ps_exc_name(e->code), e->message.data);
+    if (e == NULL) {
+        fprintf(stderr, "RuntimeError\n");
+        return;
+    }
+    if (e->message.len > 0) {
+        if (ps_exc_isa(e->code, PS_KEY) && (e->flags & PS_EXC_FLAG_PREQUOTED) == 0) {
+            /* CPython prints a KeyError message as its repr: quoted. */
+            PsBuf quoted = ps_exc_quoted(&e->message);
+            fprintf(stderr, "%s: %s\n", ps_exc_name(e->code), quoted.data);
+            free(quoted.data);
+        } else {
+            fprintf(stderr, "%s: %s\n", ps_exc_name(e->code), e->message.data);
+        }
     } else {
-        fprintf(stderr, "%s\n", ps_exc_name(e != NULL ? e->code : PS_RUNTIME));
+        fprintf(stderr, "%s\n", ps_exc_name(e->code));
     }
 }
 
@@ -162,6 +346,12 @@ PsBuf ps_exc_str(PsExc *e) {
         PsBuf empty = {0, &ps_empty_byte};
         return empty;
     }
+    /* CPython's KeyError shows its argument as a repr: str(KeyError('k'))
+       is "'k'", while str(ValueError('k')) is "k". A message that already
+       holds the repr (a missing dict key) is left alone. */
+    if (ps_exc_isa(e->code, PS_KEY) && e->message.len > 0 && (e->flags & PS_EXC_FLAG_PREQUOTED) == 0) {
+        return ps_exc_quoted(&e->message);
+    }
     return e->message;
 }
 
@@ -172,6 +362,44 @@ void ps_exc_class(PsExc *e, PsBuf *out) {
         return;
     }
     *out = e->name;
+}
+
+/* CPython repr: Name('message') or Name() when raised without one. */
+void ps_exc_repr(PsExc *e, PsBuf *out) {
+    if (e == NULL) {
+        out->len = 0;
+        out->data = &ps_empty_byte;
+        return;
+    }
+    int64_t quoted = e->message.len > 0 ? e->message.len + 2 : 0;
+    int64_t n = e->name.len + 2 + quoted;
+    char *q = malloc((size_t)n + 1);
+    if (q == NULL) {
+        abort();
+    }
+    int64_t at = 0;
+    memcpy(q + at, e->name.data, (size_t)e->name.len);
+    at += e->name.len;
+    memcpy(q + at, "(", 1);
+    at += 1;
+    if (quoted > 0) {
+        memcpy(q + at, "'", 1);
+        at += 1;
+        memcpy(q + at, e->message.data, (size_t)e->message.len);
+        at += e->message.len;
+        memcpy(q + at, "'", 1);
+        at += 1;
+    }
+    memcpy(q + at, ")", 1);
+    at += 1;
+    q[at] = '\0';
+    out->len = at;
+    out->data = q;
+}
+
+/* isinstance(e, Exc) on a caught value: the parent chain decides. */
+int32_t ps_exc_isa_value(PsExc *e, int32_t wanted) {
+    return e != NULL ? ps_exc_isa(e->code, wanted) : 0;
 }
 
 PsSeq *ps_exc_args(PsExc *e) {
@@ -190,9 +418,9 @@ __attribute__((noinline, noreturn)) void ps_raise(int32_t code) {
     if (code == 0) {
         code = PS_RUNTIME;
     }
-    if (ps_current == NULL || ps_current->code != code) {
-        ps_current = ps_exc_new(code);
-    }
+    /* A fresh record every time: reusing the pending one would carry the
+       previous message into an exception raised without one. */
+    ps_current = ps_exc_new(code);
     ps_deliver();
 }
 
@@ -217,16 +445,45 @@ int32_t ps_exc_code(void) {
 
 int32_t ps_exc_isa(int32_t raised, int32_t wanted) {
     int32_t code = raised;
-    while (code > 0) {
+    /* The chain is short (a builtin class is at most five deep), but a
+       malformed table must not spin: the walk is bounded by the code space. */
+    int32_t guard = PS_USER_BASE + PS_USER_EXC_MAX + 1;
+    while (code > 0 && guard-- > 0) {
         if (code == wanted) {
             return 1;
         }
         if (code >= PS_USER_BASE) {
-            return 0;
+            /* A user class: its parent is in the registry. */
+            int32_t index = code - PS_USER_BASE;
+            if (index >= ps_user_exc_n) {
+                return 0;
+            }
+            code = ps_user_exc[index].parent;
+            continue;
         }
         code = ps_exc_parent[code];
     }
     return 0;
+}
+
+/* Register a user exception class: its code, its parent code and its name.
+   The emitted module init calls this once per user class, so a user class
+   matches `except Exception` and `except <its builtin base>` by walking the
+   same parent chain the builtins use. */
+void ps_exc_register(int32_t code, int32_t parent, const char *name) {
+    if (code < PS_USER_BASE || name == NULL) {
+        return;
+    }
+    int32_t index = code - PS_USER_BASE;
+    if (index >= PS_USER_EXC_MAX) {
+        return;
+    }
+    if (index >= ps_user_exc_n) {
+        ps_user_exc_n = index + 1;
+    }
+    ps_user_exc[index].code = code;
+    ps_user_exc[index].parent = parent;
+    ps_user_exc[index].name = name;
 }
 
 __attribute__((noreturn)) void ps_raise_cstr(int32_t code, const char *msg) {
@@ -290,12 +547,59 @@ void *ps_alloc(int64_t n) {
     return p;
 }
 
-static int64_t ps_index(int64_t len, int64_t i) {
+/* CPython's ZeroDivisionError message names the operation up to 3.13; 3.14
+unified them all into "division by zero". The emitted division helpers pass
+the variant, and the compiler picks the variant set that matches the running
+interpreter (the one the oracle uses). */
+__attribute__((noreturn)) void ps_raise_zdi(int32_t variant) {
+    const char *msg = NULL;
+    switch (variant) {
+        case 1:
+            msg = "integer division or modulo by zero";
+            break;
+        case 2:
+            msg = "integer modulo by zero";
+            break;
+        case 3:
+            msg = "float division by zero";
+            break;
+        case 4:
+            msg = "float floor division by zero";
+            break;
+        case 5:
+            msg = "float modulo";
+            break;
+        case 6:
+            msg = "0.0 cannot be raised to a negative power";
+            break;
+        case 7:
+            msg = "division by zero";
+            break;
+        case 8:
+            msg = "zero to a negative power";
+            break;
+        default:
+            break;
+    }
+    if (msg != NULL) {
+        ps_raise_cstr(PS_ZERO_DIV, msg);
+    }
+    ps_raise_code(PS_ZERO_DIV);
+}
+
+/* CPython's IndexError message names the container kind. */
+static void ps_index_error(const char *what) {
+    char msg[64];
+    snprintf(msg, sizeof msg, "%s index out of range", what);
+    ps_raise_cstr(PS_INDEX, msg);
+}
+
+static int64_t ps_index(int64_t len, int64_t i, const char *what) {
     if (i < 0) {
         i += len;
     }
     if (i < 0 || i >= len) {
-        ps_raise_code(PS_INDEX);
+        ps_index_error(what);
     }
     return i;
 }
@@ -328,7 +632,7 @@ PsSeq *ps_seq_new(int64_t elem, int64_t n) {
 int64_t ps_seq_len(PsSeq *s) { return s->len; }
 
 void ps_seq_get(PsSeq *s, int64_t i, void *out) {
-    i = ps_index(s->len, i);
+    i = ps_index(s->len, i, "list");
     memcpy(out, (char *)s->data + (size_t)i * (size_t)s->elem, (size_t)s->elem);
 }
 
@@ -353,7 +657,7 @@ void ps_seq_push(PsSeq *s, const void *src) {
 }
 
 void ps_seq_set(PsSeq *s, int64_t i, void *src) {
-    i = ps_index(s->len, i);
+    i = ps_index(s->len, i, "list");
     memcpy((char *)s->data + (size_t)i * (size_t)s->elem, src, (size_t)s->elem);
 }
 
@@ -478,7 +782,26 @@ void ps_map_put(PsMap *m, void *key, void *val) {
 void ps_map_get(PsMap *m, void *key, void *out) {
     int64_t at = ps_map_find(m, key);
     if (at < 0) {
-        ps_raise_code(PS_KEY);
+        /* CPython's KeyError message is the key's repr: 'missing' or 42. */
+        char msg[280];
+        if (m->key_kind == 1) {
+            snprintf(msg, sizeof msg, "%lld", (long long)*(int64_t *)key);
+        } else {
+            PsBuf *k = key;
+            PsGrow g;
+            PsBuf quoted;
+            ps_grow_init(&g);
+            ps_report_quoted(&g, k);
+            ps_grow_finish(&g, &quoted);
+            snprintf(msg, sizeof msg, "%.*s", (int)(quoted.len < 250 ? quoted.len : 250), quoted.data);
+            free(quoted.data);
+        }
+        PsExc *e = ps_exc_new(PS_KEY);
+        snprintf(e->message.data, 256, "%s", msg);
+        e->message.len = (int64_t)strlen(e->message.data);
+        e->flags = PS_EXC_FLAG_PREQUOTED;
+        ps_current = e;
+        ps_deliver();
     }
     memcpy(out, (char *)m->vals + (size_t)at * (size_t)m->val_size, (size_t)m->val_size);
 }
@@ -588,12 +911,12 @@ void ps_grow_finish(PsGrow *g, PsBuf *out) {
 }
 
 void ps_str_get(int64_t n, char *p, int64_t i, PsBuf *out) {
-    i = ps_index(n, i);
+    i = ps_index(n, i, "string");
     ps_view(out, p + i, 1);
 }
 
 int64_t ps_buf_at(int64_t n, char *p, int64_t i) {
-    i = ps_index(n, i);
+    i = ps_index(n, i, "string");
     return (unsigned char)p[i];
 }
 

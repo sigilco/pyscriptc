@@ -55,7 +55,8 @@ def test_self_census_ballpark() -> None:
     # entry inference and `--program` plumbing add 16 self-host fences (package.py, lower/, cli.py).
     # runcache.py (binary cache for `pyscriptc run`) adds 1 module; the `run` subcommand adds fences in cli.py.
     # PEP 723 dependency lanes, stub-path and ffi keys add 17 self-host fences (config.py, cli.py).
-    assert census["fences"] == 1864
+    # E2 M2-M5 (exception hierarchy, object surface, ZeroDivisionError variants): +23 fences (log, telemetry, llvm).
+    assert census["fences"] == 1887
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 30_000
-    assert sum(p["fences"] for p in census["packages"]) == 1864
+    assert sum(p["fences"] for p in census["packages"]) == 1887

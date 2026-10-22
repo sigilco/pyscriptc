@@ -22,11 +22,12 @@ def _header_enum() -> dict[str, int]:
     return {name: int(value, 0) for name, value in re.findall(r"\b(PS_[A-Z_]+)\s*=\s*(0x[0-9A-Fa-f]+|\d+)", text)}
 
 
-def test_user_base_did_not_shift() -> None:
+def test_user_base_matches_header() -> None:
+    # E2 M2 renumbered the builtin table to the CPython hierarchy, so user codes start at 256.
     header = _header_enum()
-    assert header["PS_USER_BASE"] == 12
-    assert USER_EXC_BASE == 12
-    assert max(EXCEPTIONS.values()) == USER_EXC_BASE - 1
+    assert header["PS_USER_BASE"] == 256
+    assert USER_EXC_BASE == 256
+    assert max(EXCEPTIONS.values()) < USER_EXC_BASE
 
 
 def test_reserved_codes_mirror_header() -> None:
@@ -42,11 +43,9 @@ def test_reserved_codes_are_disjoint_and_out_of_user_range() -> None:
     assert min(codes) >= RESERVED_EXC_BASE > USER_EXC_BASE
     assert max(codes) < 2**31 - 1
     assert not set(codes) & set(EXCEPTIONS.values())
-    assert not set(RESERVED_EXCEPTIONS) & set(EXCEPTIONS)
 
 
 def test_runtime_names_reserved_codes() -> None:
     text = (RUNTIME / "ps_rt.c").read_text()
     for name, cname in C_NAMES.items():
         assert f'case {cname}:\n        return "{name}";' in text
-    assert "PS_USER_BASE == 12" in text

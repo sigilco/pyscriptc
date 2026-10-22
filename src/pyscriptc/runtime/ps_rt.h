@@ -9,19 +9,95 @@ data in that order; cap is appended so existing stores still line up.
 
 #include <stdint.h>
 
+/* Builtin exception codes. The full hierarchy lives here (E2 M2): a parent
+   always has a smaller code than its children, so ps_exc_isa walks the parent
+   table towards zero. User classes register at PS_USER_BASE and up through
+   ps_exc_register. The short legacy names below the table are the codes the
+   runtime C files already raise under; they are aliases, not extra codes. */
 enum {
-    PS_VALUE = 1,
-    PS_INDEX = 2,
-    PS_KEY = 3,
-    PS_OVERFLOW = 4,
-    PS_ZERO_DIV = 5,
-    PS_RUNTIME = 6,
+    PS_BASEEXCEPTION = 1,
+    PS_BASEEXCEPTIONGROUP = 2,
+    PS_EXCEPTIONGROUP = 3,
+    PS_GENERATOREXIT = 4,
+    PS_KEYBOARDINTERRUPT = 5,
+    PS_SYSTEMEXIT = 6,
     PS_EXCEPTION = 7,
-    PS_STOP = 8,
-    PS_FILE_NOT_FOUND = 9,
-    PS_TYPE = 10,
-    PS_ATTR = 11,
-    PS_USER_BASE = 12
+    PS_ARITHMETICERROR = 8,
+    PS_FLOATINGPOINTERROR = 9,
+    PS_OVERFLOWERROR = 10,
+    PS_ZERODIVISIONERROR = 11,
+    PS_ASSERTIONERROR = 12,
+    PS_ATTRIBUTEERROR = 13,
+    PS_BUFFERERROR = 14,
+    PS_EOFERROR = 15,
+    PS_IMPORTERROR = 16,
+    PS_MODULENOTFOUNDERROR = 17,
+    PS_LOOKUPERROR = 18,
+    PS_INDEXERROR = 19,
+    PS_KEYERROR = 20,
+    PS_MEMORYERROR = 21,
+    PS_NAMEERROR = 22,
+    PS_UNBOUNDLOCALERROR = 23,
+    PS_OSERROR = 24,
+    PS_BLOCKINGIOERROR = 25,
+    PS_CHILDPROCESSERROR = 26,
+    PS_CONNECTIONERROR = 27,
+    PS_BROKENPIPEERROR = 28,
+    PS_CONNECTIONABORTEDERROR = 29,
+    PS_CONNECTIONREFUSEDERROR = 30,
+    PS_CONNECTIONRESETERROR = 31,
+    PS_FILEEXISTSERROR = 32,
+    PS_FILENOTFOUNDERROR = 33,
+    PS_INTERRUPTEDERROR = 34,
+    PS_ISADIRECTORYERROR = 35,
+    PS_NOTADIRECTORYERROR = 36,
+    PS_PERMISSIONERROR = 37,
+    PS_PROCESSLOOKUPERROR = 38,
+    PS_TIMEOUTERROR = 39,
+    PS_REFERENCEERROR = 40,
+    PS_RUNTIMEERROR = 41,
+    PS_NOTIMPLEMENTEDERROR = 42,
+    PS_RECURSIONERROR = 43,
+    PS_STOPASYNCITERATION = 44,
+    PS_STOPITERATION = 45,
+    PS_SYNTAXERROR = 46,
+    PS_INDENTATIONERROR = 47,
+    PS_TABERROR = 48,
+    PS_SYSTEMERROR = 49,
+    PS_TYPEERROR = 50,
+    PS_VALUEERROR = 51,
+    PS_UNICODEERROR = 52,
+    PS_UNICODEDECODEERROR = 53,
+    PS_UNICODEENCODEERROR = 54,
+    PS_UNICODETRANSLATEERROR = 55,
+    PS_WARNING = 56,
+    PS_BYTESWARNING = 57,
+    PS_DEPRECATIONWARNING = 58,
+    PS_ENCODINGWARNING = 59,
+    PS_FUTUREWARNING = 60,
+    PS_IMPORTWARNING = 61,
+    PS_PENDINGDEPRECATIONWARNING = 62,
+    PS_RESOURCEWARNING = 63,
+    PS_RUNTIMEWARNING = 64,
+    PS_SYNTAXWARNING = 65,
+    PS_UNICODEWARNING = 66,
+    PS_USERWARNING = 67,
+    PS_USER_BASE = 256
+};
+
+/* Legacy short names kept for the existing raise sites in the runtime files.
+   Aliases only: they must keep resolving to the same class as the full name. */
+enum {
+    PS_VALUE = PS_VALUEERROR,
+    PS_INDEX = PS_INDEXERROR,
+    PS_KEY = PS_KEYERROR,
+    PS_OVERFLOW = PS_OVERFLOWERROR,
+    PS_ZERO_DIV = PS_ZERODIVISIONERROR,
+    PS_RUNTIME = PS_RUNTIMEERROR,
+    PS_STOP = PS_STOPITERATION,
+    PS_FILE_NOT_FOUND = PS_FILENOTFOUNDERROR,
+    PS_TYPE = PS_TYPEERROR,
+    PS_ATTR = PS_ATTRIBUTEERROR
 };
 
 /* Reserved codes for the coroutine exceptions. They sit at the top of the
@@ -112,20 +188,28 @@ typedef struct PsExc {
     PsSeq *args;
 } PsExc;
 
+/* The message is already a repr (a KeyError's missing key, say), so the
+report must not quote it a second time. */
+#define PS_EXC_FLAG_PREQUOTED 1
+
 extern char ps_empty_byte;
 
 __attribute__((noreturn)) void ps_raise_cstr(int32_t code, const char *msg);
 __attribute__((noreturn)) void ps_raise_code(int32_t code);
+__attribute__((noreturn)) void ps_raise_zdi(int32_t variant);
 __attribute__((noreturn)) void ps_reraise(void);
 __attribute__((noreturn)) void ps_raise_exc(PsExc *e);
 PsExc *ps_exc_current(void);
 PsExc *ps_exc_make(int32_t code, int64_t n, const char *data);
 void ps_exc_set_cause(PsExc *e, PsExc *cause);
 PsBuf ps_exc_str(PsExc *e);
+void ps_exc_repr(PsExc *e, PsBuf *out);
 void ps_exc_class(PsExc *e, PsBuf *out);
+int32_t ps_exc_isa_value(PsExc *e, int32_t wanted);
 PsSeq *ps_exc_args(PsExc *e);
 int32_t ps_exc_code(void);
 int32_t ps_exc_isa(int32_t raised, int32_t wanted);
+void ps_exc_register(int32_t code, int32_t parent, const char *name);
 void *ps_alloc(int64_t n);
 
 PsSeq *ps_seq_new(int64_t elem, int64_t n);
