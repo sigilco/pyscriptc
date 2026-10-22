@@ -1,4 +1,4 @@
-# pyscriptc-sqlite: the F3 pilot manifest (docs/ffi-manifest.md section 5).
+# pyscriptc-sqlite: the F3 pilot manifest (.agents/docs/ffi/ffi-manifest.md section 5).
 # The vendored SQLite amalgamation is fetched at build time into vendor/
 # (see vendor/VENDOR.toml); only the pin is committed.
 

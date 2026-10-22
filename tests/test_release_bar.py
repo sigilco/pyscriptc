@@ -51,8 +51,8 @@ def test_user_visible_needs_kind_and_path():
         rb.Commit("fix: y", ("tests/test_a.py",)),
         rb.Commit("refactor: z", SRC),
         rb.Commit("perf(rt): w", ("src/pyscriptc/runtime/ps.c",)),
-        rb.Commit("fix(docs): d", ("docs/getting-started.md",)),
-        rb.Commit("fix: internal doc", ("docs/release-process.md",)),
+        rb.Commit("fix(docs): d", ("docs/getting-started/index.md",)),
+        rb.Commit("fix: internal doc", (".agents/docs/release/release-process.md",)),
     ]
     assert len(rb.user_visible(cs)) == 3
 

@@ -1,11 +1,69 @@
 # Toolchain for pyscriptc dev + docs site. `mise install` once, then:
-#   uv sync            python deps (ruff, pytest, nuitka for packaging)
-#   pnpm install       docmd site deps
+#   mise run setup     first-time: uv sync + pnpm install
 # clang and a C toolchain are also required at compile/run time but are
 # system packages, not mise tools (apt install clang).
+#
+# Tasks (mise run <name>):
+#   docs:dev        public docs dev server (docs/, docmd.config.js)
+#   docs:build      build the public docs site to dist/docs
+#   docs:validate   check every internal link in docs/
+#   docs:internal   dev server for the internal notes (.agents/docs), dev-only
+#   test            python test suite (no linux_container)
+#   lint            ruff check
+#   format-check    ruff format --check
+#   check           lint + format-check + the unit (compat2) test selection
 
 [tools]
 python = "3.14"
 uv = "latest"
 node = "22"
 pnpm = "12"
+
+[tasks.setup]
+description = "First-time install of the python and node toolchains"
+run = ["uv sync", "pnpm install"]
+
+[tasks."docs:dev"]
+description = "Public docs dev server (docs/)"
+run = "pnpm exec docmd dev"
+
+[tasks."docs:build"]
+description = "Build the public docs site to dist/docs"
+run = "pnpm exec docmd build"
+
+[tasks."docs:validate"]
+description = "Validate docs/ pages and internal links"
+run = "uv run python scripts/check_doc_links.py"
+
+[tasks."docs:internal"]
+description = "Dev server for .agents/docs internal notes (no build step)"
+run = "pnpm exec docmd dev --config docmd.internal.config.js"
+
+[tasks.test]
+description = "Python test suite, linux_container excluded"
+run = "uv run pytest -n auto -m 'not linux_container'"
+
+[tasks.lint]
+description = "ruff check"
+run = "uv run ruff check"
+
+[tasks.format-check]
+description = "ruff format --check (same excludes as CI)"
+run = """
+uv run ruff format --check \
+  --exclude src/pyscriptc \
+  --exclude benchmarks/compat/score.py \
+  --exclude .agents/docs/loop.md \
+  --exclude benchmarks/runtime/workloads/pow_loop.py \
+  --exclude benchmarks/runtime/workloads/tuple_membership.py \
+  --exclude benchmarks/compat2/bundle.py \
+  --exclude benchmarks/compat2/cache.py \
+  --exclude benchmarks/compat2/corpus/spec.py \
+  --exclude benchmarks/compat2/coverage_map.py \
+  --exclude benchmarks/compat2/score.py
+"""
+
+[tasks.check]
+description = "lint + format-check + tests/compat2 (the CI unit job)"
+depends = ["lint", "format-check"]
+run = "uv run pytest -q tests/compat2 -m 'not linux_container'"

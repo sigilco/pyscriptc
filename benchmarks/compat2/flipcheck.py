@@ -3,7 +3,7 @@
 E1 boundary tool. Reads two JSON inputs:
 
   * predicted flips: a JSON list of detector records
-    (``docs/e1-entrypoint-detector-spec.md``), keyed by ``path``. A record
+    (``.agents/docs/spec/e1-entrypoint-detector-spec.md``), keyed by ``path``. A record
     predicts a flip when ``is_script`` is true (a record with an ``error``
     field, or ``is_script: false``, predicts nothing). If the permanent E1
     detector has not landed, these records are synthesized by hand from the

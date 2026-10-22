@@ -20,7 +20,7 @@ PYSC_ORACLE=$(uv python find 3.14) uv run python -m benchmarks.compat2.score --o
 baseline. The hash covers the canonical IR form from `pyscriptc.canonical` (`hash_module`): spans,
 `sourceFile`, `cpython` and `_notes` stripped, `classes` sorted by name, handler `codes` and
 `fences` sorted. It does not cover paths or the interpreter stamp; those live in the header. The
-frozen status of the hash semantics is `docs/ir-canonicity.md`.
+frozen status of the hash semantics is `.agents/docs/spec/ir-canonicity.md`.
 
 Generate:
 

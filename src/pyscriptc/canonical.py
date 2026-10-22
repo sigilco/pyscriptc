@@ -4,7 +4,7 @@ Probes compare compiler runs across invocations, so the IR they digest must
 not carry anything incidental: spans name the invocation directory, the
 cpython stamp tracks the interpreter rather than the compiler, and package
 merge notes are stderr material. The rules and the full key vocabulary live
-in docs/ir-canonicity.md; this module is that document in code.
+in .agents/docs/spec/ir-canonicity.md; this module is that document in code.
 
 The hash is schema-versioned (the sccache FORMAT_VERSION pattern): a change
 to the canonicalization rules rekeys every digest instead of masquerading as

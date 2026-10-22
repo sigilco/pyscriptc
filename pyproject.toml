@@ -21,7 +21,7 @@ dependencies = [
 
 [project.optional-dependencies]
 # Deprecated `--checker mypy` / `--checker pyright` lanes and external
-# cross-checking (docs/external-oracles.md). Not needed for a normal compile.
+# cross-checking (.agents/docs/spec/external-oracles.md). Not needed for a normal compile.
 oracle-mypy = ["mypy>=2.4,<2.5"]
 oracle-pyright = ["pyright>=1.1.400"]
 

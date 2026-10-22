@@ -25,17 +25,8 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-USER_CODE_PREFIXES = ("src/", "packaging/")
-USER_DOCS = frozenset(
-    {
-        "README.md",
-        "docs/README.md",
-        "docs/getting-started.md",
-        "docs/supported.md",
-        "docs/examples.md",
-        "docs/refused-features.md",
-    }
-)
+USER_CODE_PREFIXES = ("src/", "packaging/", "docs/")
+USER_DOCS = frozenset({"README.md"})
 RELEASE_COMMIT_FILES = frozenset({"pyproject.toml", "uv.lock", "CHANGELOG.md"})
 USER_KINDS = frozenset({"feat", "fix", "perf"})
 CONVENTIONAL = re.compile(r"^(\w+)(\([^)]*\))?(!)?: (.+)$")

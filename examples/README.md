@@ -1,6 +1,6 @@
 # Examples
 
-Programs a person can compile are documented in [`docs/examples.md`](../docs/examples.md), with the command and the value each one prints.
+Programs a person can compile are documented in [Example programs](https://pyscriptc.pages.dev/examples/programs/), with the command and the value each one prints.
 
 | File | Run |
 | --- | --- |

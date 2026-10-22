@@ -750,7 +750,7 @@ def main() -> int:
         ir["cpython"] = stamp
         call, args = CALLS.get(name, (None, []))
         text = emit_ir_text(ir, call=call, args=args)
-        # The stamp is incidental (docs/ir-canonicity.md): it never reaches the
+        # The stamp is incidental (.agents/docs/spec/ir-canonicity.md): it never reaches the
         # emitted text, so the fixture keeps the stamp of the interpreter that
         # wrote it and the test re-stamps before emitting.
         (FIXTURES / f"{name}.ir.json").write_text(_dump(ir), encoding="utf-8")

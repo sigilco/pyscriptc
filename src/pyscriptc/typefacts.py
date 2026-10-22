@@ -11,7 +11,7 @@ the fallback: it reads `pyrefly check --report-pysa` per-module JSON, which
 misses nested defs and sub-expressions but needs no long-lived server.
 The mypy, pyright (LSP / `--facts`) and pyright-typeserver adapters were
 removed in v0.3.1; run those tools externally as cross-check oracles
-(`docs/external-oracles.md`).
+(`.agents/docs/spec/external-oracles.md`).
 """
 
 from __future__ import annotations

@@ -237,13 +237,13 @@ _ENTRIES = (
         "PS4005",
         "FFI manifest key malformed",
         "A manifest key is missing, has the wrong type, or is not part of the schema.",
-        "Keep the manifest to the keys documented in docs/ffi-manifest.md.",
+        "Keep the manifest to the keys documented in .agents/docs/ffi/ffi-manifest.md.",
     ),
     Diagnostic(
         "PS4006",
         "FFI signature outside the subset",
         "A py signature or type in the manifest is outside the vocabulary the FFI lane marshals.",
-        "Use the scalar and container types, or a declared handle, from docs/ffi-manifest.md.",
+        "Use the scalar and container types, or a declared handle, from .agents/docs/ffi/ffi-manifest.md.",
     ),
     Diagnostic(
         "PS4007",

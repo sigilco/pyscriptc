@@ -12,14 +12,14 @@ The compat site is the public, always-current answer to "what does pyscriptc sup
 | measure | `benchmarks/compat2.census` | `benchmarks/compat2/census-snapshot.json` | on demand |
 | measure | `benchmarks.compat2.score` | `nightly/visible-score.json` (run artifact) | nightly cron, 06:17 UTC |
 | measure | `benchmarks.compat2.census_self` | `benchmarks/compat2/census-self.json` | on demand, pinned by `tests/test_census_self.py` |
-| aggregate | `scripts/build_compat_json.py` (new) | `site/compat-data/compat.json` | on demand and in the nightly job |
-| publish | Cloudflare Pages project `pyscriptc-compat` | `https://pyscriptc-compat.pages.dev` | on push that changes `site/compat/**` |
+| aggregate | `scripts/build_compat_json.py` (new) | `compat-data/compat.json` | on demand and in the nightly job |
+| publish | Cloudflare Pages project `pyscriptc-compat` | `https://pyscriptc-compat.pages.dev` | on push that changes `compat-site/**` |
 
 One JSON file is the contract between measurement and presentation. The site never reads the compiler, the corpus or the scorer; it reads one file.
 
 ## Data model
 
-`site/compat-data/compat.json` is the single file. It is deterministic: same inputs, same bytes. No timestamp that changes on every run unless it comes from a recorded measurement date.
+`compat-data/compat.json` is the single file. It is deterministic: same inputs, same bytes. No timestamp that changes on every run unless it comes from a recorded measurement date.
 
 ### Top level
 
@@ -129,8 +129,8 @@ One point per measurement date. The site renders it as a line chart per metric. 
 
 | path | role | committed |
 | --- | --- | --- |
-| `site/compat-data/compat.json` | the contract the site reads | yes |
-| `site/compat/index.html` | the page, fetches `compat.json` at runtime | yes |
+| `compat-data/compat.json` | the contract the site reads | yes |
+| `compat-site/index.html` | the page, fetches `compat.json` at runtime | yes |
 | `nightly/visible-score.json` | raw scorer output, nightly run artifact | no, artifact only |
 | `benchmarks/compat2/census-snapshot.json` | raw census, pinned in the tree | yes, already |
 
@@ -154,7 +154,7 @@ The builder reuses `scripts/gen_support_table.py` internals (`evaluate`, `librar
 
 | step | what it does |
 | --- | --- |
-| build | `uv run python scripts/build_compat_json.py --out site/compat-data/compat.json --score nightly/visible-score.json` |
+| build | `uv run python scripts/build_compat_json.py --out compat-data/compat.json --score nightly/visible-score.json` |
 | commit | if the file changed, `git commit` and `git push` with the bot identity |
 | deploy | push to master triggers the Pages build |
 
@@ -170,8 +170,8 @@ Two paths reach Cloudflare Pages.
 
 | path | trigger | what happens |
 | --- | --- | --- |
-| nightly | the nightly job commits `site/compat-data/compat.json` to master | the Pages build runs on the new commit |
-| pull request | a PR changes `site/compat/**` or `site/compat-data/**` | the Pages preview build runs, the owner reviews it before merge |
+| nightly | the nightly job commits `compat-data/compat.json` to master | the Pages build runs on the new commit |
+| pull request | a PR changes `compat-site/**` or `compat-data/**` | the Pages preview build runs, the owner reviews it before merge |
 
 The deploy itself is a Cloudflare Pages project build, not a GitHub Actions deploy job. That is the cheapest option and it matches the existing `pyscriptc.pages.dev` setup: the repository already has `package.json` with `docs:build` and `docmd.config.js`. The Pages project needs its build command and output directory set once, by the owner.
 
@@ -183,7 +183,7 @@ The deploy itself is a Cloudflare Pages project build, not a GitHub Actions depl
 | output directory | `dist/compat` |
 | root directory | repository root |
 
-`pnpm compat:build` is a two-line script: copy `site/compat/` to `dist/compat/` and copy `site/compat-data/` to `dist/compat/data/`. The page then fetches `data/compat.json`.
+`pnpm compat:build` is a two-line script: copy `compat-site/` to `dist/compat/` and copy `compat-data/` to `dist/compat/data/`. The page then fetches `data/compat.json`.
 
 Two things are the owner's to do, because they need the Cloudflare account: create the `pyscriptc-compat` Pages project with the settings above, and decide whether the domain is `pyscriptc-compat.pages.dev` or a custom one. The docs site links to it through the `PYSC_COMPAT_URL` placeholder, default `https://pyscriptc-compat.pages.dev`, so the URL can change without a docs edit.
 
@@ -212,7 +212,7 @@ The plain page is not a toy. It needs:
 | no build step | `pnpm install` is not even needed, the page is plain files |
 | a link check | `tests/test_compat_json.py` validates the JSON against the schema, and a separate test asserts the page references every section key |
 
-The page lives in `site/compat/` (`index.html`, `compat.css`, `compat.js`) and the data lives next to it in `site/compat-data/compat.json`. The data path is not inside `site/compat/` because docmd also builds from `site/`, and a nested build root inside a build root is a mistake the next docs change will trip over. The Pages project copies `site/compat/` as the root and `site/compat-data/` as `data/` beside it.
+The page lives in `compat-site/` (`index.html`, `compat.css`, `compat.js`) and the data lives beside it in `compat-data/compat.json`. Neither directory is a docmd source: the docs site builds from `docs/` and the compat site is a plain static page, so the two never share a build root. The Pages project copies `compat-site/` as the root and `compat-data/` as `data/` beside it.
 
 ## CI validation link from the docs
 

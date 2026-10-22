@@ -1,6 +1,6 @@
 """E1 entry-point detector: script-vs-module scan and predicted-flip list.
 
-Implements ``docs/e1-entrypoint-detector-spec.md``. Scans ``examples/`` and
+Implements ``.agents/docs/spec/e1-entrypoint-detector-spec.md``. Scans ``examples/`` and
 ``benchmarks/compat2/corpus/scripts/*/main.py`` (one ``main.py`` per script
 directory; ``corpus/src/`` is vendored packages and is never scanned), walks
 each module body once with stdlib ``ast``, inventories every statement one
