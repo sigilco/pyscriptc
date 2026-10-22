@@ -243,7 +243,7 @@ def _cached(cache_dir: Path, key: str) -> Result | None:
     data = cache.load(cache_dir, key)
     try:
         return Result(Row(**data["row"]), data["compile_s"]) if data else None
-    except (KeyError, TypeError):
+    except KeyError, TypeError:
         return None
 
 
@@ -381,7 +381,7 @@ def pinned_oracle() -> str:
         try:
             found = subprocess.run(["uv", "python", "find", pin], capture_output=True, text=True, check=True)
             candidates.append(found.stdout.strip())
-        except (OSError, subprocess.CalledProcessError):
+        except OSError, subprocess.CalledProcessError:
             pass
     if not candidates and sys.version_info[:2] == ORACLE_PIN:
         candidates.append(sys.executable)
@@ -470,7 +470,7 @@ def merge_if_complete(out: Path, total: int) -> bool:
         if any(p.get("shard") != {"index": i, "total": total} for i, p in enumerate(parts)):
             return False
         write_results(out, merge_results(parts))
-    except (ValueError, KeyError):
+    except ValueError, KeyError:
         return False  # stale shard files from another run: leave them, merge when the new ones land
     return True
 

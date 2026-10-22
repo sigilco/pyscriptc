@@ -112,7 +112,7 @@ def load(cache_dir: Path, key: str) -> dict[str, Any] | None:
     path = cache_dir / f"{key}.json"
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return None  # missing, or truncated by an interrupted run: recompute
     return data if isinstance(data, dict) else None
 

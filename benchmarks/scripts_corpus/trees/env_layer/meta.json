@@ -1,0 +1,15 @@
+{
+  "slug": "env_layer",
+  "title": "List environment variables by prefix",
+  "license": "MIT",
+  "origin": "original, written for this corpus",
+  "entry": "__main__.py",
+  "invocation": [
+    "PYSC_"
+  ],
+  "modules": [
+    "__main__.py",
+    "envreport.py",
+    "envutil.py"
+  ]
+}

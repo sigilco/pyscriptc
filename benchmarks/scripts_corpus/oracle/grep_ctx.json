@@ -1,0 +1,10 @@
+{
+  "slug": "grep_ctx",
+  "argv": [
+    "b",
+    "/Users/josocjoq/.worktrees/v06/n5chore/benchmarks/scripts_corpus/fixtures/lines.txt"
+  ],
+  "stdout": "2: beta\n4: beta\n",
+  "stderr": "",
+  "exitCode": 0
+}

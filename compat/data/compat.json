@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-23",
-  "commit": "502cd8716e11c1eff4dff946d34fb9c67533720d",
+  "commit": "420cf712a879523209894da004ca79f49ae04a90",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -13,13 +13,13 @@
     "builtins_partial": 15,
     "builtins_none": 1,
     "stdlib_full": 0,
-    "stdlib_partial": 50,
+    "stdlib_partial": 51,
     "stdlib_none": 1,
     "packages_full": 3,
     "packages_partial": 5,
     "packages_none": 10,
     "weighted_pass": 0.0,
-    "fences": 3051
+    "fences": 3043
   },
   "builtins": [
     {
@@ -477,6 +477,25 @@
       "count": 1,
       "unsupported": [
         "load, dump, safe_dump, keyword arguments"
+      ],
+      "fences": [
+        "PS2001",
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.urllib-request",
+      "kind": "stdlib",
+      "label": "`urllib.request`, `urllib.error`",
+      "names": [
+        "urllib.request",
+        "urllib.error"
+      ],
+      "status": "partial",
+      "count": 2,
+      "unsupported": [
+        "urlopen header keyword, other urllib.request members (build_opener, install_opener, urlretrieve), HTTPError attribute reads"
       ],
       "fences": [
         "PS2001",
@@ -1317,13 +1336,13 @@
       "import_name": "dotenv",
       "version": "1.2.4",
       "status": "none",
-      "fences": 127,
+      "fences": 126,
       "definitions": 75,
-      "fenced_definitions": 46,
+      "fenced_definitions": 45,
       "top_families": [
         {
           "family": "unlowered-call",
-          "count": 24
+          "count": 23
         },
         {
           "family": "name-resolution",
@@ -1337,7 +1356,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 89
+          "count": 88
         },
         {
           "code": "PS1001",
@@ -1361,25 +1380,25 @@
       "top_families": [
         {
           "family": "name-resolution",
-          "count": 172
+          "count": 171
         },
         {
           "family": "construct-other",
-          "count": 80
+          "count": 79
         },
         {
           "family": "local-inference",
-          "count": 78
+          "count": 77
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 430
+          "count": 429
         },
         {
           "code": "PS1001",
-          "count": 78
+          "count": 77
         },
         {
           "code": "PS2001",
@@ -1393,7 +1412,7 @@
       "import_name": "h11",
       "version": "0.16.0",
       "status": "none",
-      "fences": 191,
+      "fences": 192,
       "definitions": 133,
       "fenced_definitions": 76,
       "top_families": [
@@ -1413,7 +1432,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 104
+          "count": 105
         },
         {
           "code": "PS1103",
@@ -1431,17 +1450,17 @@
       "import_name": "idna",
       "version": "3.20",
       "status": "none",
-      "fences": 168,
+      "fences": 166,
       "definitions": 56,
       "fenced_definitions": 40,
       "top_families": [
         {
           "family": "name-resolution",
-          "count": 55
+          "count": 52
         },
         {
           "family": "local-inference",
-          "count": 30
+          "count": 29
         },
         {
           "family": "keyword-args",
@@ -1451,11 +1470,11 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 97
+          "count": 95
         },
         {
           "code": "PS1001",
-          "count": 30
+          "count": 29
         },
         {
           "code": "PS2003",
@@ -1469,10 +1488,14 @@
       "import_name": "iniconfig",
       "version": "2.3.1",
       "status": "partial",
-      "fences": 37,
+      "fences": 43,
       "definitions": 34,
-      "fenced_definitions": 14,
+      "fenced_definitions": 16,
       "top_families": [
+        {
+          "family": "generic-alias",
+          "count": 9
+        },
         {
           "family": "local-inference",
           "count": 7
@@ -1480,24 +1503,20 @@
         {
           "family": "name-resolution",
           "count": 7
-        },
-        {
-          "family": "generic-alias",
-          "count": 4
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 12
+          "count": 15
+        },
+        {
+          "code": "PS1103",
+          "count": 9
         },
         {
           "code": "PS1001",
           "count": 7
-        },
-        {
-          "code": "PS1103",
-          "count": 4
         }
       ],
       "pypi": "https://pypi.org/project/iniconfig/"
@@ -1513,11 +1532,11 @@
       "top_families": [
         {
           "family": "param-inference",
-          "count": 80
+          "count": 82
         },
         {
           "family": "return-inference",
-          "count": 18
+          "count": 16
         },
         {
           "family": "class-body",
@@ -1545,9 +1564,9 @@
       "import_name": "jwt",
       "version": "2.15.1",
       "status": "partial",
-      "fences": 129,
+      "fences": 131,
       "definitions": 171,
-      "fenced_definitions": 64,
+      "fenced_definitions": 65,
       "top_families": [
         {
           "family": "name-resolution",
@@ -1565,7 +1584,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 61
+          "count": 62
         },
         {
           "code": "PS1104",
@@ -1583,35 +1602,35 @@
       "import_name": "mdurl",
       "version": "0.1.2",
       "status": "none",
-      "fences": 36,
+      "fences": 28,
       "definitions": 12,
       "fenced_definitions": 9,
       "top_families": [
         {
-          "family": "local-inference",
-          "count": 11
-        },
-        {
           "family": "name-resolution",
-          "count": 11
+          "count": 4
         },
         {
-          "family": "construct-other",
-          "count": 2
+          "family": "generic-alias",
+          "count": 3
+        },
+        {
+          "family": "local-inference",
+          "count": 3
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 18
+          "count": 15
+        },
+        {
+          "code": "PS1103",
+          "count": 3
         },
         {
           "code": "PS1001",
-          "count": 11
-        },
-        {
-          "code": "PS2003",
-          "count": 2
+          "count": 3
         }
       ],
       "pypi": "https://pypi.org/project/mdurl/"
@@ -1621,35 +1640,35 @@
       "import_name": "packaging",
       "version": "26.3",
       "status": "none",
-      "fences": 635,
+      "fences": 605,
       "definitions": 558,
-      "fenced_definitions": 287,
+      "fenced_definitions": 289,
       "top_families": [
         {
           "family": "name-resolution",
-          "count": 113
+          "count": 93
         },
         {
           "family": "unlowered-type-name",
-          "count": 90
+          "count": 80
         },
         {
-          "family": "class-body",
-          "count": 52
+          "family": "generic-alias",
+          "count": 61
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 258
+          "count": 232
         },
         {
           "code": "PS1106",
-          "count": 90
+          "count": 80
         },
         {
-          "code": "PS2001",
-          "count": 54
+          "code": "PS1103",
+          "count": 61
         }
       ],
       "pypi": "https://pypi.org/project/packaging/"
@@ -1659,35 +1678,35 @@
       "import_name": "pathspec",
       "version": "1.1.1",
       "status": "none",
-      "fences": 253,
+      "fences": 257,
       "definitions": 132,
-      "fenced_definitions": 94,
+      "fenced_definitions": 95,
       "top_families": [
         {
           "family": "name-resolution",
-          "count": 45
+          "count": 39
+        },
+        {
+          "family": "decorators",
+          "count": 20
         },
         {
           "family": "local-inference",
-          "count": 24
-        },
-        {
-          "family": "unlowered-type-name",
-          "count": 22
+          "count": 20
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 131
+          "count": 136
         },
         {
           "code": "PS1001",
-          "count": 27
+          "count": 23
         },
         {
-          "code": "PS1106",
-          "count": 22
+          "code": "PS1201",
+          "count": 20
         }
       ],
       "pypi": "https://pypi.org/project/pathspec/"
@@ -1697,9 +1716,9 @@
       "import_name": "platformdirs",
       "version": "4.13.0",
       "status": "partial",
-      "fences": 323,
+      "fences": 343,
       "definitions": 388,
-      "fenced_definitions": 160,
+      "fenced_definitions": 180,
       "top_families": [
         {
           "family": "name-resolution",
@@ -1783,11 +1802,11 @@
         },
         {
           "family": "param-inference",
-          "count": 14
+          "count": 15
         },
         {
           "family": "return-inference",
-          "count": 4
+          "count": 3
         }
       ],
       "codes": [
@@ -1841,11 +1860,11 @@
       "top_families": [
         {
           "family": "param-inference",
-          "count": 32
+          "count": 33
         },
         {
           "family": "return-inference",
-          "count": 18
+          "count": 17
         },
         {
           "family": "module-value",
@@ -1870,36 +1889,88 @@
     }
   ],
   "language": [],
+  "ladder": {
+    "corpus": "benchmarks/scripts_corpus",
+    "rungs": [
+      {
+        "rung": "R1",
+        "label": "Single-file script",
+        "corpus": "benchmarks/scripts_corpus/scripts",
+        "total": 45,
+        "compiled": 15,
+        "passed": 12,
+        "measured": true
+      },
+      {
+        "rung": "R2",
+        "label": "Multi-module tree",
+        "corpus": "benchmarks/scripts_corpus/trees",
+        "total": 5,
+        "compiled": 4,
+        "passed": 4,
+        "measured": true
+      }
+    ],
+    "lanes": [
+      {
+        "lane": "native",
+        "imports": 272,
+        "share": 0.8242
+      },
+      {
+        "lane": "pack",
+        "imports": 1,
+        "share": 0.003
+      },
+      {
+        "lane": "extern",
+        "imports": 57,
+        "share": 0.1727
+      },
+      {
+        "lane": "island",
+        "imports": 0,
+        "share": 0.0
+      },
+      {
+        "lane": "absent",
+        "imports": 0,
+        "share": 0.0
+      }
+    ],
+    "selfContainedShare": 0.2222,
+    "trees": 18
+  },
   "fences": [
     {
       "code": "PS2002",
       "title": "construct not lowered",
-      "count": 1477,
+      "count": 1454,
       "packages": 15
     },
     {
       "code": "PS1001",
       "title": "annotation missing or not lowered",
-      "count": 516,
+      "count": 493,
       "packages": 15
+    },
+    {
+      "code": "PS1103",
+      "title": "generic alias annotation",
+      "count": 200,
+      "packages": 10
     },
     {
       "code": "PS1106",
       "title": "annotation names an unlowered type",
-      "count": 200,
+      "count": 187,
       "packages": 9
     },
     {
       "code": "PS2001",
       "title": "stdlib name not lowered",
-      "count": 188,
+      "count": 181,
       "packages": 14
-    },
-    {
-      "code": "PS1103",
-      "title": "generic alias annotation",
-      "count": 124,
-      "packages": 8
     },
     {
       "code": "PS1204",
@@ -1928,20 +1999,20 @@
     {
       "code": "PS1104",
       "title": "dynamic or structural annotation",
-      "count": 65,
+      "count": 58,
       "packages": 5
     },
     {
       "code": "PS1102",
       "title": "Optional annotation",
-      "count": 42,
-      "packages": 5
+      "count": 40,
+      "packages": 4
     },
     {
       "code": "PS1003",
       "title": "type mismatch",
-      "count": 38,
-      "packages": 8
+      "count": 32,
+      "packages": 7
     },
     {
       "code": "PS1203",
@@ -1952,13 +2023,13 @@
     {
       "code": "PS1105",
       "title": "forward reference annotation",
-      "count": 14,
+      "count": 12,
       "packages": 6
     },
     {
       "code": "PS2004",
       "title": "operator or operand not lowered",
-      "count": 8,
+      "count": 7,
       "packages": 5
     },
     {
@@ -1970,22 +2041,13 @@
   ],
   "history": [
     {
-      "date": "2026-10-22",
-      "commit": "ce6b8188f1b37ea4cb8150bdb4556f0c40efe9f6",
-      "weighted_pass": 0.0,
-      "packages_full": 3,
-      "packages_partial": 5,
-      "packages_none": 10,
-      "fences": 3045
-    },
-    {
       "date": "2026-10-23",
-      "commit": "502cd8716e11c1eff4dff946d34fb9c67533720d",
+      "commit": "420cf712a879523209894da004ca79f49ae04a90",
       "weighted_pass": 0.0,
       "packages_full": 3,
       "packages_partial": 5,
       "packages_none": 10,
-      "fences": 3051
+      "fences": 3043
     }
   ]
 }

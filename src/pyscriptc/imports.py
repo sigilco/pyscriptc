@@ -165,7 +165,7 @@ def collect_imports(target: Path) -> list[dict[str, Any]]:
         try:
             text = path.read_text(encoding="utf-8")
             tree = ast.parse(text, filename=str(path))
-        except (OSError, SyntaxError, UnicodeDecodeError):
+        except OSError, SyntaxError, UnicodeDecodeError:
             continue
         lines = text.splitlines()
         for node in ast.walk(tree):
@@ -235,7 +235,7 @@ def _read_wheel_record(path: Path) -> list[str] | None:
     try:
         with zipfile.ZipFile(path) as archive:
             names = archive.namelist()
-    except (OSError, zipfile.BadZipFile):
+    except OSError, zipfile.BadZipFile:
         return None
     record = ""
     for item in names:
@@ -247,7 +247,7 @@ def _read_wheel_record(path: Path) -> list[str] | None:
     try:
         with zipfile.ZipFile(path) as archive:
             body = archive.read(record).decode("utf-8", errors="replace")
-    except (OSError, KeyError, zipfile.BadZipFile):
+    except OSError, KeyError, zipfile.BadZipFile:
         return names
     files: list[str] = []
     for line in body.splitlines():

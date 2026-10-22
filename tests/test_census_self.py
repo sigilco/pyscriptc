@@ -37,7 +37,8 @@ def test_self_census_ballpark() -> None:
     # zigshim.py (#291, the `pip install ziglang` PATH shim) adds 1 module.
     # restlower/_dotenv.py (dotenv_values / load_dotenv, #253) adds 1 module and 5 fences.
     # restlower/_yaml.py (yaml.safe_load, #254) adds 1 module and 5 fences.
-    assert census["modules"] == 85
+    # restlower/_urllib.py (urlopen / Request, #225 #226) adds 1 module and 12 fences.
+    assert census["modules"] == 86
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -97,12 +98,9 @@ def test_self_census_ballpark() -> None:
     # zigshim.py (#291) adds about 45 self-host fences.
     # restlower/_dotenv.py (dotenv_values / load_dotenv, #253) adds 5 more.
     # restlower/_yaml.py (yaml.safe_load, #254) adds 5 more.
-    # Generators in package units and methods (#165): the implicit
-    # Iterator/Iterable annotations resolve in the compiler's own source
-    # and the method generator plumbing shifts fences between modules;
-    # the total holds at the same count.
-    assert census["fences"] == 2445
+    # restlower/_urllib.py (urlopen / Request, #225 #226) adds 12 more.
+    assert census["fences"] == 2457
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     assert 11_000 <= census["lines"] <= 34_000
-    assert sum(p["fences"] for p in census["packages"]) == 2445
+    assert sum(p["fences"] for p in census["packages"]) == 2457

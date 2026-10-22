@@ -270,3 +270,78 @@ def test_validate_catches_an_unknown_top_level_key() -> None:
     document["extra"] = 1
     problems = validate(document)
     assert any("extra" in problem for problem in problems)
+
+
+def test_ladder_section_matches_the_committed_document() -> None:
+    document = _document()
+    ladder = document.get("ladder")
+    assert ladder is not None
+    rungs = {row["rung"] for row in ladder["rungs"]}
+    assert rungs == {"R1", "R2"}
+    lanes = {row["lane"] for row in ladder["lanes"]}
+    assert lanes == {"native", "pack", "extern", "island", "absent"}
+    share = sum(row["share"] for row in ladder["lanes"])
+    assert abs(share - 1.0) < 0.001
+
+
+def test_ladder_rung_pass_never_exceeds_the_total() -> None:
+    document = _document()
+    for row in document["ladder"]["rungs"]:
+        assert 0 <= row["passed"] <= row["total"], row
+        assert 0 <= row["compiled"] <= row["total"], row
+
+
+def test_builder_reads_the_ladder_document(tmp_path: Path) -> None:
+    ladder = {
+        "schema": 1,
+        "rungs": [
+            {
+                "rung": "R1",
+                "label": "Single-file script",
+                "corpus": "scripts",
+                "total": 4,
+                "compiled": 3,
+                "passed": 2,
+                "measured": True,
+            }
+        ],
+        "r4": {
+            "rung": "R4",
+            "corpus": "top100",
+            "total": 10,
+            "trees": 2,
+            "treesWithForeignLane": 1,
+            "selfContainedShare": 0.5,
+            "lanes": [
+                {"lane": "native", "imports": 8, "share": 0.8},
+                {"lane": "extern", "imports": 2, "share": 0.2},
+            ],
+        },
+    }
+    path = tmp_path / "ladder.json"
+    path.write_text(json.dumps(ladder), encoding="utf-8")
+    document = build(previous_path=None, ladder_path=path)
+    ladder_row = document["ladder"]
+    assert ladder_row["corpus"] == "benchmarks/scripts_corpus"
+    assert ladder_row["rungs"][0]["passed"] == 2
+    assert ladder_row["selfContainedShare"] == 0.5
+    assert [lane["lane"] for lane in ladder_row["lanes"]] == ["native", "extern"]
+
+
+def test_builder_without_a_ladder_document_renders_an_empty_section(tmp_path: Path) -> None:
+    document = build(previous_path=None, ladder_path=tmp_path / "absent.json")
+    assert document["ladder"] == {"corpus": "", "rungs": [], "lanes": []}
+
+
+def test_validate_catches_a_bad_ladder_lane() -> None:
+    document = _document()
+    document["ladder"]["lanes"][0]["lane"] = "warp"
+    problems = validate(document)
+    assert any("lane" in problem for problem in problems)
+
+
+def test_validate_catches_a_bad_ladder_rung_count() -> None:
+    document = _document()
+    document["ladder"]["rungs"][0]["total"] = "forty-five"
+    problems = validate(document)
+    assert any("total" in problem for problem in problems)

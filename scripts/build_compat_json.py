@@ -45,6 +45,9 @@ DATA = ROOT / "scripts" / "support_data.toml"
 PINS = ROOT / "benchmarks" / "compat" / "top100" / "pins.json"
 DEFAULT_OUT = ROOT / "compat" / "data" / "compat.json"
 
+# The ladder document: the R1, R2 and R4 numbers the site publishes.
+DEFAULT_LADDER = ROOT / "compat" / "data" / "ladder.json"
+
 GREEN, YELLOW, RED = "🟢", "🟡", "🔴"
 STATUS_FULL, STATUS_PARTIAL, STATUS_NONE = "full", "partial", "none"
 
@@ -243,12 +246,19 @@ def build(
     previous_path: Path | None = None,
     date: str | None = None,
     pin: Path | None = None,
+    ladder_path: Path | None = None,
 ) -> dict[str, Any]:
     """Build the document. Raises ValueError when a source is missing or invalid.
 
     `pin` is a previous document whose `generated` date and `commit` are
     reused, so a `--check` run over an unchanged tree sees the same bytes.
+    `ladder_path` is the ladder document from
+    `benchmarks.scripts_corpus.ladder`; the committed one is the default,
+    and without any ladder document the section is empty and the page shows
+    no ladder.
     """
+    if ladder_path is None and DEFAULT_LADDER.exists():
+        ladder_path = DEFAULT_LADDER
     data = tomllib.loads(DATA.read_text(encoding="utf-8"))
     errors: list[str] = []
     builtins = _support_rows(data, "builtin", errors)
@@ -258,6 +268,7 @@ def build(
     packages, fences = _package_rows()
     score = _load_score(score_path)
     language = _language_rows(score)
+    ladder = _ladder_rows(ladder_path)
     previous = _load_previous(previous_path)
     pinned = _load_previous(pin) if pin else None
     commit = pinned["commit"] if pinned else _commit()
@@ -307,6 +318,7 @@ def build(
         "stdlib": stdlib,
         "packages": packages,
         "language": language,
+        "ladder": ladder,
         "fences": fences,
         "history": _history(previous, point),
     }
@@ -314,6 +326,46 @@ def build(
     if problems:
         raise ValueError("the document does not match the schema:\n" + "\n".join(problems))
     return document
+
+
+def _ladder_rows(path: Path | None) -> dict[str, Any]:
+    """The ladder section, from the ladder document.
+
+    The section is empty when there is no ladder document, so the site
+    renders "no ladder data yet" instead of failing.
+    """
+    empty: dict[str, Any] = {"corpus": "", "rungs": [], "lanes": []}
+    document = _load_previous(path) if path else None
+    if not document:
+        return empty
+    rungs = document.get("rungs", [])
+    r4 = document.get("r4", {})
+    lanes = r4.get("lanes", [])
+    return {
+        "corpus": "benchmarks/scripts_corpus",
+        "rungs": [
+            {
+                "rung": row.get("rung", ""),
+                "label": row.get("label", ""),
+                "corpus": row.get("corpus", ""),
+                "total": row.get("total", 0),
+                "compiled": row.get("compiled", 0),
+                "passed": row.get("passed", 0),
+                "measured": row.get("measured", False),
+            }
+            for row in rungs
+        ],
+        "lanes": [
+            {
+                "lane": row.get("lane", ""),
+                "imports": row.get("imports", 0),
+                "share": row.get("share", 0.0),
+            }
+            for row in lanes
+        ],
+        "selfContainedShare": r4.get("selfContainedShare", 0.0),
+        "trees": r4.get("trees", 0),
+    }
 
 
 def _load_score(path: Path | None) -> dict[str, Any] | None:
@@ -349,7 +401,7 @@ def render(document: dict[str, Any]) -> str:
 # Sections a `--check` compares. The generated date and the commit change with
 # every run, so the check compares what the tree measures and leaves the
 # run-time stamps to the nightly.
-_MEASURED_SECTIONS = ("builtins", "stdlib", "packages", "fences", "language", "summary")
+_MEASURED_SECTIONS = ("builtins", "stdlib", "packages", "fences", "language", "ladder", "summary")
 
 
 def check(document: dict[str, Any], out: Path, measured: bool = False) -> list[str]:
@@ -387,13 +439,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Build the compat site data file.")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT, help="output path")
     parser.add_argument("--score", type=Path, default=None, help="compat2 scorer output to read")
+    parser.add_argument("--ladder", type=Path, default=None, help="ladder document to read")
     parser.add_argument("--previous", type=Path, default=None, help="previous compat.json, for the history")
     parser.add_argument("--date", default=None, help="measurement date (YYYY-MM-DD)")
     parser.add_argument("--check", action="store_true", help="fail when the measured sections differ from the file")
     args = parser.parse_args(argv)
     previous = args.previous if args.previous is not None else args.out
     try:
-        document = build(score_path=args.score, previous_path=previous, date=args.date)
+        document = build(score_path=args.score, previous_path=previous, date=args.date, ladder_path=args.ladder)
     except ValueError as error:
         print(str(error), file=sys.stderr)
         return 1

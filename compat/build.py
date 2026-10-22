@@ -38,6 +38,10 @@ DEFAULT_DATA = COMPAT / "data" / "compat.json"
 # directory does not silently end up in the deploy tree.
 PAGE_FILES = ("index.html", "compat.css", "compat.js")
 
+# The raw ladder document travels next to compat.json, so a reader gets the
+# per-rung numbers without scraping the page.
+LADDER = COMPAT / "data" / "ladder.json"
+
 # The logo and the favicon, copied from the repository assets so the page
 # does not depend on the docs build for its images.
 ASSETS = {name: ROOT / "docs" / "assets" / name for name in ("logo-256.png", "icon-64.png")}
@@ -89,6 +93,8 @@ def build(out: Path, data: Path, base: str) -> Path:
     data_out = out / "data"
     data_out.mkdir()
     shutil.copy2(data, data_out / "compat.json")
+    if LADDER.exists():
+        shutil.copy2(LADDER, data_out / "ladder.json")
 
     for name, source in ASSETS.items():
         if not source.exists():

@@ -36,6 +36,7 @@ One JSON file is the contract between measurement and presentation. The site nev
 | `language` | array | language-feature rows from the compat2 scorer. |
 | `fences` | array | fence-code counters. |
 | `history` | array | dated history points, one per measurement date. |
+| `ladder` | object | the adoption ladder: R1 and R2 rung rows and the R4 lane shares. Absent rungs render as "not measured"; an absent `ladder` key means the page shows no ladder section. |
 
 ### Status vocabulary
 
@@ -145,6 +146,7 @@ The JSON is committed because Cloudflare Pages builds from the repository, and b
 | `language` | `benchmarks.compat2.score` over the visible probes | `uv run python -m benchmarks.compat2.score benchmarks/compat2/probes --corpus --out ...` |
 | `fences` | the same package measurement, aggregated per code | same builder command |
 | `history` | the previous `compat.json` plus the current measurement | append in the builder |
+| `ladder` | `benchmarks.scripts_corpus.ladder`, written to `compat/data/ladder.json` | `uv run python -m benchmarks.scripts_corpus.ladder --json compat/data/ladder.json` |
 
 The builder reuses `scripts/gen_support_table.py` internals (`evaluate`, `library_rows`) rather than re-implementing them, so there is one definition of "supported".
 
@@ -154,7 +156,7 @@ The builder reuses `scripts/gen_support_table.py` internals (`evaluate`, `librar
 
 | step | what it does |
 | --- | --- |
-| build | `uv run python scripts/build_compat_json.py --out compat/data/compat.json --score nightly/visible-score.json` |
+| build | `uv run python -m benchmarks.scripts_corpus.ladder --json compat/data/ladder.json` then `uv run python scripts/build_compat_json.py --out compat/data/compat.json --score nightly/visible-score.json --ladder compat/data/ladder.json` |
 | commit | if the file changed, open (or update) a bot PR with just that change via `gh`, and auto-merge if the ruleset allows |
 | deploy | the merge to master triggers the site workflow build and deploy |
 
