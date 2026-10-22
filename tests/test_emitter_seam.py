@@ -169,8 +169,14 @@ def test_corpus_regenerates_byte_identically(tmp_path: Path) -> None:
     main(fixtures_dir=scratch, manifest_path=tmp_path / "manifest.json")
 
     for entry in json.loads((BACKEND / "manifest.json").read_text(encoding="utf-8"))["fixtures"]:
-        committed = (BACKEND / entry["ir"]).read_text(encoding="utf-8")
-        rebuilt = (scratch / Path(entry["ir"]).name).read_text(encoding="utf-8")
+        committed = json.loads((BACKEND / entry["ir"]).read_text(encoding="utf-8"))
+        rebuilt = json.loads((scratch / Path(entry["ir"]).name).read_text(encoding="utf-8"))
+        # The CPython stamp is incidental (.agents/docs/spec/ir-canonicity.md):
+        # it marks the interpreter that wrote the fixture and never reaches the
+        # emitted text, so a fixture written on one 3.14 patch regenerates on
+        # another. The rest must match exactly, key order included.
+        assert committed.pop("cpython") == rebuilt.pop("cpython")
+        assert list(committed) == list(rebuilt), entry["name"]
         assert committed == rebuilt, entry["name"]
 
 
