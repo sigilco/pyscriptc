@@ -97,6 +97,7 @@ MATH_FUNCTIONS: dict[str, dict[str, Any]] = {
     "log10": _sig([_F], _F, "ps_math_log10"),
     "hypot": _sig([_F, _F], _F, "ps_math_hypot"),
     "pow": _sig([_F, _F], _F, "ps_math_pow"),
+    "atan2": _sig([_F, _F], _F, "ps_math_atan2"),
     "floor": _sig([_F], _I, "ps_math_floor"),
     "ceil": _sig([_F], _I, "ps_math_ceil"),
     "trunc": _sig([_F], _I, "ps_math_trunc"),

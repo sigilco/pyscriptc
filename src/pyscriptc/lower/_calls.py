@@ -725,6 +725,42 @@ class CallsMixin:
             args.append(arg)
         return _mod_call("math", attr, args, spec["return"], span)
 
+    def _math_gcd(self, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+        if len(node.args) != 2:
+            self.fail(node, "PS2003", "math.gcd expects 2 argument(s)")
+        args = [self._expr(arg_node) for arg_node in node.args]
+        for arg in args:
+            if arg["type"]["kind"] != "int":
+                self.fail(node, "PS1003", f"math.gcd argument is {_show(arg['type'])}, expected int")
+        return self._abi_call("math", "gcd", args, {"kind": "int"}, "ps_math_gcd", span)
+
+    def _math_isclose(self, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+        """`math.isclose(a, b, *, rel_tol=1e-09, abs_tol=0.0)`: the tolerances are keyword-only."""
+
+        if len(node.args) != 2:
+            self.fail(node, "PS2003", "math.isclose expects 2 positional argument(s)")
+        given: dict[str, ast.expr] = {}
+        for keyword in node.keywords:
+            if keyword.arg not in {"rel_tol", "abs_tol"} or keyword.arg in given:
+                self.fail(node, "PS2003", "math.isclose takes only rel_tol and abs_tol keywords")
+            given[keyword.arg] = keyword.value
+        defaults = {"rel_tol": "1e-09", "abs_tol": "0.0"}
+        args = []
+        for arg_node in [*node.args, *(given.get(name) for name in defaults)]:
+            if arg_node is None:
+                args.append(None)
+                continue
+            arg = self._expr(arg_node)
+            if arg["type"]["kind"] == "int":
+                arg = {"kind": "cast", "op": "int_to_float", "value": arg, "type": {"kind": "float"}, "span": span}
+            if arg["type"]["kind"] != "float":
+                self.fail(node, "PS1003", f"math.isclose argument is {_show(arg['type'])}, expected float")
+            args.append(arg)
+        for index, name in enumerate(defaults, start=2):
+            if args[index] is None:
+                args[index] = {"kind": "const", "value": defaults[name], "type": {"kind": "float"}, "span": span}
+        return self._abi_call("math", "isclose", args, {"kind": "bool"}, "ps_math_isclose", span)
+
     def _fixed_call(
         self, node: ast.Call, span: dict[str, Any], module: str, attr: str, spec: dict[str, Any]
     ) -> dict[str, Any]:
