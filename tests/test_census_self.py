@@ -63,7 +63,8 @@ def test_self_census_ballpark() -> None:
     # PEP 723 dependency lanes, stub-path and ffi keys add 17 self-host fences (config.py, cli.py).
     # E2 M2-M5 (exception hierarchy, object surface, ZeroDivisionError variants): +23 fences (log, telemetry, llvm).
     # math atan2/gcd/isclose handlers: +2 self-host fences in lower/_calls.py.
-    assert census["fences"] == 2029
+    # Toolchain driver resolution (prefer zig with clang fallback): +6 self-host fences (cli, llvm, doctor).
+    assert census["fences"] == 2035
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 30_000
-    assert sum(p["fences"] for p in census["packages"]) == 2029
+    assert sum(p["fences"] for p in census["packages"]) == 2035

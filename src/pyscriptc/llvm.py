@@ -7,8 +7,10 @@ that does not fit is refused: it is not truncated.
 
 from __future__ import annotations
 
+import shutil
 import struct
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -65,7 +67,7 @@ def standalone_entry(module: dict[str, Any]) -> dict[str, Any] | None:
 def link_binary(
     llvm_path: Path,
     output: Path,
-    driver: str = "clang",
+    driver: str | None = None,
     target: str | None = None,
     record: list[list[str]] | None = None,
     link_driver: str | None = None,
@@ -78,6 +80,13 @@ def link_binary(
     (`zig cc`); `target` is a zig-style triple and requires the zig driver —
     it bundles the per-target sysroot that `clang --target` does not.
     """
+    if driver is None:
+        if target is not None or sys.platform == "win32" or shutil.which("zig") is not None:
+            driver = "zig"
+        elif shutil.which("clang") is not None:
+            driver = "clang"
+        else:
+            driver = "zig"
     output.parent.mkdir(parents=True, exist_ok=True)
     if target is not None and driver != "zig":
         raise IRError("--target requires --driver zig (bundled sysroot per target)")
@@ -149,11 +158,18 @@ def compile_unit(
     llvm_path: Path,
     output: Path,
     kind: str,
-    driver: str = "clang",
+    driver: str | None = None,
     target: str | None = None,
     record: list[list[str]] | None = None,
 ) -> None:
     """Compile the module's `.ll` alone to assembly (`asm`) or an object (`obj`)."""
+    if driver is None:
+        if target is not None or sys.platform == "win32" or shutil.which("zig") is not None:
+            driver = "zig"
+        elif shutil.which("clang") is not None:
+            driver = "clang"
+        else:
+            driver = "zig"
     if target is not None and driver != "zig":
         raise IRError("--target requires --driver zig (bundled sysroot per target)")
     output.parent.mkdir(parents=True, exist_ok=True)

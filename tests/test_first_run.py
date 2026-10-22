@@ -52,7 +52,9 @@ def test_missing_toolchain_fails_up_front_and_points_at_doctor(tmp_path: Path) -
         text=True,
     )
     assert got.returncode != 0
-    assert "clang not found on PATH" in got.stderr
+    assert "no C toolchain found on PATH" in got.stderr
+    assert "neither zig nor clang" in got.stderr
+    assert "pip install ziglang" in got.stderr
     assert "pyscriptc doctor" in got.stderr
     assert not (tmp_path / "hello.ir.json").exists(), "the check must run before any work"
 
