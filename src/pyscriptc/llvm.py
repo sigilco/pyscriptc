@@ -96,6 +96,8 @@ def link_binary(
     sources = [str(path) for path in sorted(runtime.glob("*.c"))]
     target_flags = ["-target", target] if target is not None else []
     tail = ["-lm", "-o", str(output)]
+    if (target and "windows" in target) or (not target and sys.platform == "win32"):
+        tail.insert(0, "-mconsole")
     if "ps_island_" in text:
         if target is not None:
             raise IRError(

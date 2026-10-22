@@ -6,7 +6,11 @@
 
 #include "ps_rt.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <dlfcn.h>
+#endif
 #include <stdlib.h>
 
 typedef int64_t (*ps_mix_crc_fn)(const char *, int64_t);
@@ -25,6 +29,19 @@ static void ps_mix_load(void) {
     if (path == NULL || path[0] == '\0') {
         ps_raise_cstr(PS_RUNTIME, "PYSCRIPTC_MIX_SO is unset");
     }
+#ifdef _WIN32
+    ps_mix_lib = (void *)LoadLibraryA(path);
+    if (ps_mix_lib == NULL) {
+        ps_raise_cstr(PS_RUNTIME, "LoadLibrary failed");
+    }
+    ps_mix_crc = (ps_mix_crc_fn)GetProcAddress((HMODULE)ps_mix_lib, "mix_crc32");
+    ps_mix_crc_n = (ps_mix_crc_n_fn)GetProcAddress((HMODULE)ps_mix_lib, "mix_crc32_n");
+    if (ps_mix_crc == NULL || ps_mix_crc_n == NULL) {
+        FreeLibrary((HMODULE)ps_mix_lib);
+        ps_mix_lib = NULL;
+        ps_raise_cstr(PS_RUNTIME, "libmix is missing mix_crc32");
+    }
+#else
     ps_mix_lib = dlopen(path, RTLD_NOW);
     if (ps_mix_lib == NULL) {
         ps_raise_cstr(PS_RUNTIME, dlerror());
@@ -34,6 +51,7 @@ static void ps_mix_load(void) {
     if (ps_mix_crc == NULL || ps_mix_crc_n == NULL) {
         ps_raise_cstr(PS_RUNTIME, "libmix.so is missing mix_crc32");
     }
+#endif
 }
 
 int64_t ps_mix_crc32(int64_t n, const char *data) {
