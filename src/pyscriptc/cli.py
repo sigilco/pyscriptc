@@ -254,6 +254,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def run_cmd(args: argparse.Namespace) -> int:
     """`pyscriptc run FILE [-- args]`: compile once per content hash, then run the cached binary."""
+    started = time.monotonic()
     _apply_env_defaults(args)
     source = Path(args.source)
     if not source.exists():
@@ -279,7 +280,15 @@ def run_cmd(args: argparse.Namespace) -> int:
     binary = runcache.binary_path(key, name)
     if use_cache and binary.is_file():
         log.info("run.cache_hit", key=key, binary=str(binary))
-        return _exec_binary(binary, args.run_argv)
+        code = _exec_binary(binary, args.run_argv)
+        _track_run(
+            args,
+            code,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            cache_hit=True,
+            binary_bytes=_binary_size(binary),
+        )
+        return code
     build = runcache.cache_dir() / f".build-{os.getpid()}-{key}"
     shutil.rmtree(build, ignore_errors=True)
     build.mkdir(parents=True, exist_ok=True)
@@ -296,10 +305,57 @@ def run_cmd(args: argparse.Namespace) -> int:
                 if not binary.is_file():
                     raise
             else:
-                return _exec_binary(binary, args.run_argv)
-        return _exec_binary(build / name, args.run_argv)
+                code = _exec_binary(binary, args.run_argv)
+                _track_run(
+                    args,
+                    code,
+                    duration_ms=int((time.monotonic() - started) * 1000),
+                    cache_hit=False,
+                    binary_bytes=_binary_size(binary),
+                )
+                return code
+        code = _exec_binary(build / name, args.run_argv)
+        _track_run(
+            args,
+            code,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            cache_hit=False,
+            binary_bytes=_binary_size(build / name),
+        )
+        return code
     finally:
         shutil.rmtree(build, ignore_errors=True)
+
+
+def _binary_size(binary: Path) -> int | None:
+    """Size of the linked binary in bytes, or None when it is missing."""
+    try:
+        return binary.stat().st_size
+    except OSError:
+        return None
+
+
+def _track_run(
+    args: argparse.Namespace,
+    code: int,
+    *,
+    duration_ms: int,
+    cache_hit: bool,
+    binary_bytes: int | None = None,
+) -> None:
+    """Send the `run.finished` event: outcome, duration, toolchain flags, binary size only."""
+    telemetry.track(
+        "run.finished",
+        telemetry.run_properties(
+            duration_ms=duration_ms,
+            exit_code=code,
+            cache_hit=cache_hit,
+            binary_bytes=binary_bytes,
+            driver=args.driver,
+            target=args.target,
+            skip_check=bool(args.skip_check),
+        ),
+    )
 
 
 def _build_for_run(args: argparse.Namespace, output: Path) -> int:
@@ -479,6 +535,8 @@ def compile_cmd(args: argparse.Namespace) -> int:
         "stage": "lower",
         "fence_count": 0,
         "fence_families": {},
+        "fence_codes": {},
+        "binary_bytes": None,
     }
     try:
         return _compile_cmd(args, state)
@@ -494,6 +552,8 @@ def compile_cmd(args: argparse.Namespace) -> int:
                 outcome=state["outcome"] or "ok",
                 fence_count=state["fence_count"],
                 fence_families=state["fence_families"],
+                fence_codes=state["fence_codes"],
+                binary_bytes=state["binary_bytes"],
                 checker=None if args.skip_check else args.checker,
                 emit=args.emit,
                 driver=args.driver,
@@ -658,6 +718,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         if module["fences"]:
             state["fence_count"] = len(module["fences"])
             state["fence_families"] = _fence_families(module["fences"])
+            state["fence_codes"] = _histogram(module["fences"], "code")
             log.info(
                 "check.fences",
                 count=len(module["fences"]),
@@ -733,6 +794,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         )
         dbg.end("link")
         outputs["bin"] = str(binary)
+        state["binary_bytes"] = binary.stat().st_size if binary.is_file() else None
         log.info("link.binary", output=str(binary), driver=args.driver, target=args.target)
         if not args.run:
             print(binary)
@@ -788,6 +850,13 @@ def _verify_llvm(ll_path: Path, dbg: Debug, driver: str, target: str | None) -> 
     dbg.llvm_verification = result.as_dict()
     if not result.ok and not result.skipped:
         raise LLVMVerifyError(f"the emitted LLVM module did not verify: {result.message}")
+
+
+def _histogram(fences: list[dict[str, Any]], key: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for fence in fences:
+        counts[fence.get(key, "")] = counts.get(fence.get(key, ""), 0) + 1
+    return dict(sorted(counts.items(), key=lambda item: (-item[1], item[0])))
 
 
 def _fence_families(fences: list[dict[str, Any]]) -> dict[str, int]:
