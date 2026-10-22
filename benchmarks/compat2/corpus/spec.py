@@ -104,7 +104,7 @@ def package_functions(import_name: str, tree: Path) -> list[dict[str, object]]:
             continue
         try:
             module_ast = ast.parse(file.read_text(encoding="utf-8"))
-        except (SyntaxError, UnicodeDecodeError):
+        except SyntaxError, UnicodeDecodeError:
             continue
         for node in module_ast.body:
             if isinstance(node, ast.FunctionDef) and not node.name.startswith("_"):
@@ -123,7 +123,7 @@ def test_oracles(tests: Path, names: set[str]) -> dict[str, object]:
     for file in sorted(tests.rglob("*.py")) if tests.is_dir() else [tests]:
         try:
             module_ast = ast.parse(file.read_text(encoding="utf-8"))
-        except (SyntaxError, UnicodeDecodeError):
+        except SyntaxError, UnicodeDecodeError:
             continue
         defs = [n for n in ast.walk(module_ast) if isinstance(n, ast.FunctionDef) and n.name.startswith("test")]
         called = {

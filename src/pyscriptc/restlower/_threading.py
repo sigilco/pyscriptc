@@ -299,7 +299,6 @@ def _timeout_nanos(timeout: dict[str, Any], span: dict[str, Any]) -> dict[str, A
     }
 
 
-
 def _const_number(lo: Any, value: ast.expr, what: str) -> int | None:
     """A constant int, including the unary-minus spelling."""
     arg = lo._expr(value)
