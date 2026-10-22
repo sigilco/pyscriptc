@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-ADAPTER = ROOT / "adapters" / "pyscriptc-sqlite"
+ADAPTER = ROOT / "packaging" / "adapters" / "pyscriptc-sqlite"
 RUNTIME = ROOT / "src" / "pyscriptc" / "runtime"
 PS_RUNTIMEERROR = 41
 PS_VALUEERROR = 51

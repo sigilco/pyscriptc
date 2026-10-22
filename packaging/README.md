@@ -1,6 +1,8 @@
-# Packaging: the release binary
+# Packaging: the release binary and the FFI adapters
 
 One self contained executable per target, built with [Nuitka](https://nuitka.net) in onefile mode. It carries the compiler, mypy and the C runtime. It does not carry clang; see [`TOOLCHAIN.md`](TOOLCHAIN.md) for what the user machine needs.
+
+`adapters/` holds the FFI adapters (notably `pyscriptc-sqlite`), a reference layer that stays outside the installed package.
 
 Nothing here touches `src/`. Nuitka is an optional dependency group (`packaging` in `pyproject.toml`), so `uv sync` for development does not install it.
 
