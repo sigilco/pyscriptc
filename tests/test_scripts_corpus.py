@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -131,7 +132,15 @@ def test_recorded_oracle_matches_a_fresh_run(slug: str, tmp_path: Path) -> None:
         pytest.skip(f"{slug} has no recorded oracle yet")
     recorded = json.loads((oracle / f"{slug}.json").read_text())
     fresh = run_script(slug, tmp_path)
-    assert fresh["stdout"] == recorded["stdout"], f"{slug} drifted from its recorded stdout"
+    # Scripts print the fixtures path from argv verbatim, so the recording
+    # carries the machine that produced it. Compare both sides with the
+    # fixtures directory normalised to the {fixtures} placeholder.
+    fixtures_str = str(fixtures_dir())
+    fresh_out = fresh["stdout"].replace(fixtures_str, "{fixtures}")
+    recorded_out = recorded["stdout"]
+    for path in set(re.findall(r"/[^\s\"]*scripts_corpus/fixtures", recorded_out)):
+        recorded_out = recorded_out.replace(path, "{fixtures}")
+    assert fresh_out == recorded_out, f"{slug} drifted from its recorded stdout"
     assert fresh["exitCode"] == recorded["exitCode"]
 
 
