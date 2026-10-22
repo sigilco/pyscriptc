@@ -70,6 +70,10 @@ The bolo `repository_dispatch` step is a stub. It is not wired until a token dec
 
 The draft release body comes from `release.yml` and is unchanged by this process. Changelog entries are written from conventional commit subjects, so keep subjects accurate: they become the notes.
 
+Every release body opens with this standard line:
+
+> pyscriptc targets CPython 3.14.x. Parsing, probes and the compatibility oracle follow 3.14. Compiled programs match CPython 3.14 byte-for-byte on stdout for everything that lowers; documented divergences are listed in docs/divergences.md.
+
 ## Release classes and bar
 
 See the Release policy section in `AGENTS.md` for the thresholds (patch, hotfix, minor, rc) and `.agents/plans/2026-10-21-release-cadence-strategy.md` for the data behind them. The rehearsal and the automated bar are described above in "Rehearse before tagging" and "The bar".
