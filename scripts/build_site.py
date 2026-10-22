@@ -109,10 +109,10 @@ def fallback_landing() -> Path:
     return out
 
 
-def assemble(parts: dict[str, Path]) -> Path:
-    if DEPLOY.exists():
-        shutil.rmtree(DEPLOY)
-    DEPLOY.mkdir()
+def assemble(parts: dict[str, Path], out: Path = DEPLOY) -> Path:
+    if out.exists():
+        shutil.rmtree(out)
+    out.mkdir(parents=True)
 
     landing = parts["landing"]
     docs = parts["docs"]
@@ -129,19 +129,19 @@ def assemble(parts: dict[str, Path]) -> Path:
             print("run the part builds first (or drop the --skip flags)", file=sys.stderr)
             raise SystemExit(2)
 
-    shutil.copytree(landing, DEPLOY, dirs_exist_ok=True)
-    shutil.copytree(docs, DEPLOY / "docs")
-    shutil.copytree(compat, DEPLOY / "compat")
+    shutil.copytree(landing, out, dirs_exist_ok=True)
+    shutil.copytree(docs, out / "docs")
+    shutil.copytree(compat, out / "compat")
 
-    shutil.copy2(ROOT / "site" / "_headers", DEPLOY / "_headers")
-    shutil.copy2(ROOT / "site" / "_redirects", DEPLOY / "_redirects")
+    shutil.copy2(ROOT / "site" / "_headers", out / "_headers")
+    shutil.copy2(ROOT / "site" / "_redirects", out / "_redirects")
 
     # _headers and _redirects only have meaning at the deploy root; a build
     # that carries its own copy would shadow the site-wide one.
-    for shadow in sorted(DEPLOY.glob("*/_headers")) + sorted(DEPLOY.glob("*/_redirects")):
+    for shadow in sorted(out.glob("*/_headers")) + sorted(out.glob("*/_redirects")):
         shadow.unlink()
 
-    return DEPLOY
+    return out
 
 
 def validate(deploy: Path) -> int:
@@ -175,7 +175,11 @@ def validate(deploy: Path) -> int:
             print(f"site assembly: {problem}", file=sys.stderr)
         return 1
     files = sum(1 for _ in deploy.rglob("*") if _.is_file())
-    print(f"assembled {files} files in {deploy.relative_to(ROOT)}")
+    try:
+        shown = deploy.relative_to(ROOT)
+    except ValueError:
+        shown = deploy
+    print(f"assembled {files} files in {shown}")
     return 0
 
 

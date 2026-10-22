@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import json
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -184,33 +183,40 @@ def test_compat_data_lives_under_compat_data() -> None:
     assert not (ROOT / "compat-data").exists()
 
 
-def test_site_build_runs(tmp_path: Path) -> None:
-    """`scripts/build_site.py --check` assembles and validates the tree."""
-    result = subprocess.run(
-        [sys.executable, "scripts/build_site.py", "--check", "--skip-landing", "--skip-docs"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
+def test_assemble_builds_the_tree(tmp_path: Path, built: Path) -> None:
+    """The assembly lays the three parts out and validates them."""
+    from scripts.build_site import assemble
+    from scripts.build_site import validate as validate_deploy
+
+    docs = tmp_path / "docs"
+    (docs / "guide").mkdir(parents=True)
+    (docs / "index.html").write_text("<html><body>docs</body></html>", encoding="utf-8")
+    (docs / "guide" / "support-model").mkdir()
+    (docs / "guide" / "support-model" / "index.html").write_text("<html></html>", encoding="utf-8")
+
+    deploy = assemble(
+        {"landing": ROOT / "site" / "landing" / "dist" / "missing", "docs": docs, "compat": built}, tmp_path / "deploy"
     )
-    assert result.returncode == 0, result.stdout + result.stderr
+    assert (deploy / "index.html").is_file()
+    assert (deploy / "docs" / "index.html").is_file()
+    assert (deploy / "compat" / "index.html").is_file()
+    assert (deploy / "compat" / "data" / "compat.json").is_file()
+    assert (deploy / "_headers").is_file()
+    assert (deploy / "_redirects").is_file()
+    assert validate_deploy(deploy) == 0
 
 
-def test_site_build_falls_back_without_the_landing_build(tmp_path: Path) -> None:
-    """A checkout without node_modules still assembles a valid tree."""
-    landing_dist = ROOT / "site" / "landing" / "dist"
-    had_landing = landing_dist.is_dir()
-    if had_landing:
-        subprocess.run(["mv", str(landing_dist), str(landing_dist) + ".test-bak"], check=True)
-    try:
-        result = subprocess.run(
-            [sys.executable, "scripts/build_site.py", "--check", "--skip-landing", "--skip-docs"],
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-        )
-        assert result.returncode == 0, result.stdout + result.stderr
-        assert "falling back" in result.stderr
-        assert (ROOT / "deploy" / "index.html").is_file()
-    finally:
-        if had_landing:
-            subprocess.run(["mv", str(landing_dist) + ".test-bak", str(landing_dist)], check=True)
+def test_assemble_falls_back_without_the_landing_build(tmp_path: Path, built: Path) -> None:
+    """A checkout without the Astro output still assembles a valid tree."""
+    from scripts.build_site import assemble, fallback_landing
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "index.html").write_text("<html><body>docs</body></html>", encoding="utf-8")
+
+    deploy = assemble(
+        {"landing": ROOT / "site" / "landing" / "dist" / "missing", "docs": docs, "compat": built}, tmp_path / "deploy"
+    )
+    assert (deploy / "index.html").is_file()
+    assert (deploy / "logo-256.png").is_file()
+    assert fallback_landing().is_dir()
