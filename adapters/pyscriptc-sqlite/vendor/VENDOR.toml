@@ -1,0 +1,12 @@
+# Pinned SQLite amalgamation. The 9 MB sqlite3.c is not committed: fetch_vendor.py
+# downloads it, checks every hash below and writes vendor/sqlite3.c and
+# vendor/sqlite3.h (both gitignored).
+name = "sqlite"
+version = "3.54.1"
+license = "Public domain (https://sqlite.org/copyright.html)"
+url = "https://sqlite.org/2026/sqlite-amalgamation-3540100.zip"
+zip_sha256 = "0a9c8e34352dad46006aa82836d5383bff9dc6bc9ce5a60553c05aa30e6ad1f9"
+# Published by sqlite.org on https://sqlite.org/download.html
+zip_sha3_256 = "92281c86e2957f9b9305890f9ac04204caa7b677cc868dc326d942689df28e30"
+"sqlite3.c_sha256" = "0c657666d819f261cc4007526ad57e1669de9949df7a8ea847aa284a2bf0ee52"
+"sqlite3.h_sha256" = "d6c84557261893439b341d2e6c35187ae3ea24fbfd843ad94616f72d89242b8c"
