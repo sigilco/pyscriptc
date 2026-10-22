@@ -36,7 +36,7 @@ Each module below is a closed set of calls, not the whole module.
 | `math` | `sqrt`, `fabs`, `sin`, `cos`, `tan`, `exp`, `log`, `log2`, `log10`, `hypot`, `pow`, `floor`, `ceil`, `trunc`, `isnan`, `isinf`, `pi`, `e`, `tau`, `inf`, `nan` |
 | `re` | `escape`, `findall`, `sub`, `subn`, `split`, `compile`, `search`, `match`, and `fullmatch`, plus the int flags. A literal pattern with two to four groups returns a tuple of strings. Five or more groups is refused. `search`, `match`, `fullmatch`, and `Pattern`'s own methods return a `Match | None` that narrows with `is not None`; `Match` lowers `group`, `start`, `end`, and `span`, with `group` and `span` taking an optional group index. The regex flavor is the runtime's backtracking subset, documented at the top of `src/pyscriptc/runtime/ps_re.c`: `I`/`M`/`S`/`X`/`A`/`U` are honored, `L`/`T`/`DEBUG` and unknown bits raise at the call |
 | `json` | `loads`, `dumps` of ints, bools, strings, floats (incl. `NaN`/`Infinity`), `Optional[T]` (JSON `null`), lists, and dicts of those. No non-ASCII text |
-| `urllib.parse` | `quote`, `quote_plus`, `unquote`, `unquote_plus`, `urlencode`, `parse_qs`, `urlsplit` |
+| `urllib.parse` | `quote`, `quote_plus`, `unquote`, `unquote_plus`, `urlencode`, `parse_qs`, `urlsplit`, `SplitResult` (annotation and import) |
 | `base64` | `b64encode`, `b64decode`, and the standard and urlsafe pairs |
 | `hashlib` | `md5`, `sha1`, `sha256`, `sha384`, `sha512`, then `.hexdigest()` and `.digest()` |
 | `struct` | `pack` and `unpack` of a literal format. No `@`. `unpack` is a list |

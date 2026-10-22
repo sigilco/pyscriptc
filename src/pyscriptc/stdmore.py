@@ -1293,6 +1293,7 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("threading", "Event"): "Event",
     ("threading", "Condition"): "Condition",
     ("threading", "Semaphore"): "Semaphore",
+    ("urllib.parse", "SplitResult"): "SplitResult",
 }
 
 # Instance methods. `elem` means the deque's element type.
