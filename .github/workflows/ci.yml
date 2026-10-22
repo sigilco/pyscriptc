@@ -199,6 +199,15 @@ jobs:
           curl -fsSL https://github.com/bytecodealliance/wasmtime/releases/download/v50.0.0/wasmtime-v50.0.0-x86_64-linux.tar.xz -o /tmp/wasmtime.tar.xz
           tar -xJf /tmp/wasmtime.tar.xz -C /tmp
           echo "/tmp/wasmtime-v50.0.0-x86_64-linux" >> "$GITHUB_PATH"
+      # The 0.2 lane: wasm-tools wraps the p1 core module into a component,
+      # using the preview1 adapter that ships in the wasmtime release. The
+      # compiler fetches and sha256-verifies the adapter itself.
+      - name: Install wasm-tools 1.262.0
+        run: |
+          set -euo pipefail
+          curl -fsSL https://github.com/bytecodealliance/wasm-tools/releases/download/v1.262.0/wasm-tools-1.262.0-x86_64-linux.tar.gz -o /tmp/wasm-tools.tar.gz
+          tar -xzf /tmp/wasm-tools.tar.gz -C /tmp
+          echo "/tmp/wasm-tools-1.262.0-x86_64-linux" >> "$GITHUB_PATH"
       - uses: astral-sh/setup-uv@v6
         with:
           version: ">=0.13.4"  # emSign CA incident: uv 0.13.4 dropped the compromised root

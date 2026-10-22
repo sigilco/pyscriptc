@@ -96,4 +96,57 @@ got="$("$wasmtime" "$work/hello.wasm")" \
     || fail "wasmtime failed to run hello.wasm"
 [ "$got" = "42" ] || fail "hello printed '$got', expected 42"
 
+# 4. WASI 0.2: the same demo compiled to a component (wasm32-wasi-p2 wraps
+# the p1 core module with wasm-tools + the pinned wasmtime adapter) and run
+# under wasmtime; the output must be byte-identical to the native build.
+if command -v wasm-tools >/dev/null; then
+    uv run pyscriptc compile "$work/demo.py" --emit bin --skip-check \
+        --target wasm32-wasi-p2 -o "$work/demo-p2" >/dev/null \
+        || fail "wasi-p2 compile failed for demo.py"
+    [ -s "$work/demo-p2.wasm" ] || fail "wasi-p2 compile produced no demo-p2.wasm"
+    # A component's magic is the wasm magic followed by version 0x000d (13);
+    # a core module has version 0x0001. The odd byte order is the spec's.
+    magic="$(od -An -tx1 -N8 "$work/demo-p2.wasm" | tr -d ' \\n')"
+    [ "${magic:0:16}" = "0061736d0d000100" ] \
+        || fail "demo-p2.wasm is not a WASI 0.2 component (magic $magic)"
+    "$wasmtime" "$work/demo-p2.wasm" > "$work/p2.out" 2> "$work/p2.err" \
+        || fail "wasmtime failed to run the wasi-p2 component: $(cat "$work/p2.err")"
+    if ! diff -u "$work/native.out" "$work/p2.out"; then
+        fail "native and wasi-p2 output differ"
+    fi
+
+    # 5. generators on 0.2: the resumable lowering survives the wrap.
+    cat > "$work/gen.py" <<'PY'
+from typing import Iterator
+
+
+def count(n: int) -> Iterator[int]:
+    i: int = 0
+    while i < n:
+        yield i
+        i = i + 1
+
+
+def main() -> None:
+    total: int = 0
+    for v in count(5):
+        total = total + v
+    print(total)
+
+
+if __name__ == "__main__":
+    main()
+PY
+    uv run pyscriptc compile "$work/gen.py" --emit bin --skip-check \
+        --target wasm32-wasi-p2 -o "$work/gen-p2" >/dev/null \
+        || fail "wasi-p2 compile failed for gen.py"
+    got="$("$wasmtime" "$work/gen-p2.wasm")" \
+        || fail "wasmtime failed to run the generator component"
+    [ "$got" = "10" ] || fail "generator printed '$got', expected 10"
+
+    echo "wasi-p2 OK (component run + parity + generators)"
+else
+    echo "note: wasm-tools is not on PATH, the wasi-p2 lane is skipped" >&2
+fi
+
 echo "WASM SMOKE OK ($(zig version))"
