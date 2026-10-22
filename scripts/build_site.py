@@ -122,6 +122,10 @@ def validate(deploy: Path) -> int:
             problems.append(f"missing landing asset {name}")
         if not (deploy / "compat" / name).exists():
             problems.append(f"missing compat asset {name}")
+    # Only HTML pages are checked, and only for our own placeholders. The
+    # bundled JavaScript (KaTeX, mermaid) contains `{{` as literal syntax, and
+    # the llms-full.txt export carries the raw markdown of every page, so the
+    # check would false-positive on both.
     for path in sorted(deploy.rglob("*.html")):
         text = path.read_text(encoding="utf-8")
         for placeholder in ("{{BASE}}", "{{PYSC_COMPAT_URL}}", "{{PYSC_DOCS_URL}}"):

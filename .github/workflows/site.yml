@@ -98,8 +98,12 @@ jobs:
       - name: No unexpanded placeholders
         run: |
           set -euo pipefail
-          if grep -Rl '{{' deploy --include='*.html' --include='*.css' --include='*.js' --include='*.json'; then
-            echo "unexpanded placeholder in deploy/" >&2
+          # Only our own placeholders, and only in HTML. The bundled
+          # JavaScript (KaTeX, mermaid) carries `{{` as literal syntax, and
+          # the llms-full.txt export carries the raw markdown of every page.
+          hits="$(grep -RlE '\{\{(BASE|PYSC_[A-Z_]+)\}\}' deploy --include='*.html' || true)"
+          if [ -n "$hits" ]; then
+            printf 'unexpanded placeholder in:\n%s\n' "$hits" >&2
             exit 1
           fi
 
