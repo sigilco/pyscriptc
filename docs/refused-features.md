@@ -28,10 +28,100 @@ Rows that changed since PR #72 wrote the table:
 | `datetime.utcnow()` (PS4004) | fenced PS2001 | row stands, but see the tier move below |
 | `datetime.now(timezone.utc)` | **fenced** - PS2003 "now expects 0 argument(s)"; `datetime.timezone` is not in the lowered subset | the "write instead" hint in PS4004's draft message points at a construct that is itself fenced; the fix has to land first (R-row `datetime` surface) |
 
-Two probes found live divergences between the compiled binary and CPython, recorded here because they sit exactly on the T0/T3 boundary this doc draws:
+Four probes found live divergences between the compiled binary and CPython, recorded here because they sit exactly on the T0/T3 boundary this doc draws:
 
 - `a is b` on two runtime-built equal strings answers `0` where CPython answers `1` (`'he' + 'llo' is 'hello'`). The lowering compares backing-buffer pointers; CPython's constant folding made them one object. This is the `is`-on-scalars row's real hazard and the reason PS4009 keeps any claim at all.
 - `b'x' + 'y'` (str/bytes concat) is accepted by the type checker (exit 2 from the checker layer, not a fence), where the doc assumed a clean PS4010 fence. The refusal is correct; the enforcement point is the checker, not lowering.
+- A class with a `__del__` method compiles and runs, but the finalizer never fires: `del c` prints `del ran` under CPython and nothing in the binary. The method is silently dropped. PS4015 has to fence the hook, not just the `weakref`/`gc` surface.
+- A class with a `__setattr__` hook compiles and runs, and the hook is never called: `c.a = 1` writes the field directly. Same shape as the `__del__` divergence and the same PS4017 consequence: fence the hook definition, not only the dynamic-protocol surface.
+
+## Per-row probe table
+
+Every row below was probed by compiling and running a snippet against master `0b66ca2` and comparing with the CPython oracle. `fenced` means the construct is refused today (the code in the last column is what the user sees); `works` means it compiled, ran, and matched the oracle; `checker` means the type checker rejected it before lowering. The probe sources live in the issue's session report; the harness is `python -m pyscriptc compile FILE --run --call f --args ...`.
+
+| Row | Probe | Verdict | Diagnostic or result |
+| --- | --- | --- | --- |
+| PS4001 dynamic code | `eval('x + 1')` | fenced | `PS2002` |
+| PS4001 dynamic code | `exec('y = x')` | fenced | `PS2002` |
+| PS4001 dynamic code | `compile('1', '<s>', 'eval')` | fenced | `PS2002` |
+| PS4001 dynamic code | `importlib.import_module('math')` | fenced | `PS2001` |
+| PS4001 dynamic code | `__import__('math')` | fenced | `PS2002` |
+| PS4002 namespace | `globals()['x'] = 2` | fenced | `PS2002` |
+| PS4002 namespace | `len(globals())` | fenced | `PS2002` |
+| PS4002 namespace | `len(locals())` | fenced | `PS2002` |
+| PS4002 namespace | `len(vars(c))` | fenced | `PS2002` |
+| PS4002 namespace | `len(dir(c))` | fenced | `PS2002` |
+| PS4003 monkeypatch | `setattr(c, 'a', 1)` | fenced | `PS2002` |
+| PS4003 monkeypatch | `delattr(c, 'a')` | fenced | `PS2002` |
+| PS4003 monkeypatch | `C.a = 5` | fenced | `PS2002` |
+| PS4003 monkeypatch | `c.__dict__['a'] = 2` | fenced | `PS2001` |
+| PS4004 datetime | `datetime.datetime.utcnow()` | fenced | `PS2001,PS2002` |
+| PS4004 datetime | `datetime.datetime.now()` | fenced | `PS1001,PS2002` |
+| PS4004 datetime | `datetime.datetime.now(timezone.utc)` | fenced | `PS2002,PS2003` |
+| PS4004 datetime | `datetime.date.today()` | fenced | `PS1001,PS2002` |
+| PS4005 printf | `'%s' % x` | works | result `1` |
+| PS4005 printf | `'%d' % x` | works | result `1` |
+| PS4005 printf | `'%.2f' % x` | works | result `1.50` |
+| PS4005 printf | `'%(a)s' % {'a': x}` | works | result `1` |
+| PS4005 printf | `'%s %s' % (x, x)` | works | result `1 1` |
+| PS4005 printf | `'%d%%' % x` | works | result `1%` |
+| PS4006 os.path | `os.path.join('x','y')` | works | result `x/y` |
+| PS4006 os.path | `os.path.dirname('x/y')` | works | result `x` |
+| PS4006 os.path | `from os.path import join` | works | result `x/y` |
+| PS4006 os.path | `posixpath.join('x','y')` | works | result `x/y` |
+| PS4006 os.path | `from posixpath import join` | works | result `x/y` |
+| PS4006 os.path | `str(Path('x/y').parent)` | works | result `x` |
+| PS4007 mutable default | `def f(x: list[int] = [])` | fenced | `PS2002` |
+| PS4007 mutable default | `def f(x: dict[str,int] = {})` | fenced | `PS2002` |
+| PS4007 mutable default | `def f(x: int = 3)` | works | result `3` |
+| PS4008 implicit concat | `'a' 'b'` | works | result `ab` |
+| PS4009 is | `x is 5` | works | result `1` |
+| PS4009 is | `x is None` | works | result `1` |
+| PS4010 str/bytes | `b'x' == 'x'` | fenced | `PS2004` |
+| PS4010 str/bytes | `b'x' in 'xy'` | checker | Argument `Literal[b'x']` is not assignable to parameter `key` with type `str` in function  |
+| PS4010 str/bytes | `b'x' + 'y'` | checker | Protocol `Buffer` requires attribute `__buffer__` |
+| PS4011 bool arith | `True + True` | fenced | `PS2004` |
+| PS4011 bool arith | `sum([True])` | fenced | `PS2002` |
+| PS4012 mutator | `x = xs.sort()` | fenced | `PS1001` |
+| PS4012 mutator | `y = xs.append(1)` | fenced | `PS1001` |
+| PS4013 lazy | `m = map(g, [1,2])` | fenced | `PS1001` |
+| PS4013 lazy | `m = filter(g, [1,2])` | fenced | `PS1001` |
+| PS4013 lazy | `z = zip([1],[2])` | fenced | `PS1001` |
+| PS4013 lazy | `itertools.count()` | fenced | `PS2001` |
+| PS4013 lazy | `itertools.cycle([1])` | fenced | `PS2001` |
+| PS4014 hooks | `sys.setrecursionlimit(100)` | fenced | `PS2001` |
+| PS4014 hooks | `sys.settrace(None)` | fenced | `PS2001` |
+| PS4014 hooks | `sys.getrefcount(1)` | fenced | `PS2001` |
+| PS4015 finalizers | `class C: def __del__` + `del c` | works | result `0` |
+| PS4015 finalizers | `weakref.ref(c)` | fenced | `PS2002` |
+| PS4015 finalizers | `gc.collect()` | fenced | `PS2002` |
+| PS4016 identity | `id(7)` | fenced | `PS2003` |
+| PS4016 identity | `hash(7)` | works | result `7` |
+| PS4016 identity | `hash('a')` | fenced | `PS2002` |
+| PS4016 identity | `repr(C())` | fenced | `PS2004` |
+| PS4016 identity | `str(c)` | fenced | `PS2003` |
+| PS4017 attrs | `c.missing` with `__getattr__` | fenced | `PS2001` |
+| PS4017 attrs | `c.a = 1` with `__setattr__` | works | result `1` |
+| PS4017 attrs | `c.a = 5` on a `@property` | checker | \|     ^^^ |
+| PS4017 attrs | `c.d` with `__get__` | fenced | `PS1003,PS1104` |
+| PS4018 star import | `from math import *` | fenced | `PS2002` |
+| PS4018 star import | `from os.path import *` | fenced | `PS2002` |
+| PS4019 variadics | `def f(*args: int)` + `f(1,2,3)` | works | result `6` |
+| PS4019 variadics | `def f(**kwargs: int)` + `f(a=1,b=2)` | works | result `3` |
+| PS4019 variadics | `g(a=1)` keyword call | works | result `1` |
+| PS4019 variadics | `for a in args` inside `f(*args)` | works | result `1` |
+| T0 exceptions | `raise E('x')` / `except E` | works | result `1` |
+| T0 exceptions | `except:` | works | result `1` |
+| T0 exceptions | `except ValueError as e` | works | result `2` |
+| T0 generators | `def f(): yield 1` | checker | \|            ^^^ |
+| T0 async | `async def f()` | fenced | `PS2002` |
+| T0 async | `asyncio.gather()` | fenced | `PS2002` |
+| T0 scopes | `global x` | fenced | `PS2002` |
+| T0 scopes | `nonlocal x` in a nested def | works | result `2` |
+| T0 encodings | `'\u20ac'` | fenced | `PS2005` |
+| T0 encodings | `'\u00e9'` | works | result `1` |
+
+Two rows deserve a note beyond the verdict. `class C: def __del__` compiles and runs, but the compiled binary never calls the finalizer where CPython does (`del c` prints `del ran` under CPython and nothing under the compiler): the method is silently dropped, which is the divergence PS4015 has to fence. `c.a = 1` with a `__setattr__` hook also compiles and runs, and the hook is not called: the attribute write goes straight to the field. The PS4017 row therefore has to fence the *hook*, not just its definition.
 
 ## Contradiction resolved: PS4006 `os.path` vs R31 alias
 
@@ -39,7 +129,7 @@ PS4006 refuses the `os.path` string-path API; backlog R31 plans an `os.path` →
 
 Resolution: **drop PS4006 as a refusal**. `os.path` is a lowered alias of the `posixpath` table (R31's remaining half, `import` inside functions, is untouched by this). The original motivation - `str`/`Path` type drift - is a checker concern, not a lowering refusal, and it stays enforced there. `pathlib` remains the recommended surface in examples and docs; no code change is needed because nothing is fenced today. The R31 backlog row keeps only its import-form items.
 
-## The tier model (T0–T3)
+## The tier model (T0-T3)
 
 Every construct in this doc routes into exactly one support tier. The tier decides what a PS4xxx code is allowed to claim and what the fix looks like, so a refusal can never regress into claiming a lowered construct again (the failure mode this re-census just cleaned up).
 
@@ -165,7 +255,7 @@ Post-census scope. `map`/`filter` already desugar to eager comprehensions (`rest
 
 ### PS4015 - finalizers and the GC surface
 
-`__del__`, `weakref`, `gc.*` - finalizer timing is explicitly unspecified in CPython, and the runtime has no GC to control. Resource lifetime is `with` + `close()` only. (Probe note: defining a `__del__` method on a class currently compiles and runs; the refusal targets the *calling* of finalizer semantics, and the method row should be fenced when this code registers.) Tier: T0.
+`__del__`, `weakref`, `gc.*` - finalizer timing is explicitly unspecified in CPython, and the runtime has no GC to control. Resource lifetime is `with` + `close()` only. Post-census scope: `weakref.ref(c)` and `gc.collect()` fence today (PS2002), but a class that *defines* `__del__` compiles and runs with the finalizer silently dropped (probe: `del c` prints `del ran` under CPython and nothing in the binary). The code has to fence the `__del__` definition, not only the `weakref`/`gc` surface, or the binary diverges silently. Tier: T0.
 
 ### PS4016 - process-identity values: `id()`, `hash()`, default `repr`
 
@@ -173,7 +263,7 @@ Post-census scope. `map`/`filter` already desugar to eager comprehensions (`rest
 
 ### PS4017 - dynamic attribute protocol (reduced scope)
 
-`__getattr__`, `__setattr__`, `__getattribute__`, descriptors (`__get__`/`__set__`). Attribute access is resolved statically to declared fields; a hook that can intercept any name lookup defeats that resolution. Post-census: `@property` getters lower and stay (`docs/supported.md:222`); the setter and the call form fence. Tier: T0.
+`__getattr__`, `__setattr__`, `__getattribute__`, descriptors (`__get__`/`__set__`). Attribute access is resolved statically to declared fields; a hook that can intercept any name lookup defeats that resolution. Post-census scope: `@property` getters lower and stay (`docs/supported.md:222`); the setter and the call form fence; `__getattr__` fences PS2001 when it is actually reached. But a class that *defines* `__setattr__` compiles and runs with the hook never called (the write goes straight to the field), so the code has to fence the hook definition, not only the dynamic-protocol surface. Tier: T0.
 
 ### PS4018 - `from x import *` (cross-module)
 
