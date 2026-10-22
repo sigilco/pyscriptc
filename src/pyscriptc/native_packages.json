@@ -246,7 +246,7 @@
       "dist": "python-dotenv",
       "imports": ["dotenv"],
       "pack": null,
-      "note": "Pure Python. Listed so the wheel heuristic has a known pure counterexample."
+      "note": "Pure Python. The compiler lowers the dotenv import natively (stdlib queue), which shadows this entry for the import name; listed so the wheel heuristic has a known pure counterexample."
     }
   ]
 }

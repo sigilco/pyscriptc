@@ -372,10 +372,16 @@ def distribution_is_native(name: str) -> tuple[bool | None, str]:
 
 
 def _stdlib_verdict(name: str) -> dict[str, Any] | None:
-    """Classify a standard-library import, or None when it is not stdlib."""
+    """Classify a standard-library import, or None when it is not stdlib.
+
+    The closed import table wins over `sys.stdlib_module_names`, so a
+    lowered module the interpreter does not ship (the dotenv config pack)
+    still classifies by its table status.
+    """
 
     root = _top_level(name)
-    if root not in sys.stdlib_module_names:
+    in_table = module_status(canonical_module(name)) is not None
+    if root not in sys.stdlib_module_names and not in_table:
         return None
     if root in _ERASED:
         return _verdict(

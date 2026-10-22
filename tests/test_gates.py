@@ -62,6 +62,7 @@ QUEUE = (
     "copy",
     "argparse",
     "tomllib",
+    "dotenv",
 )
 
 

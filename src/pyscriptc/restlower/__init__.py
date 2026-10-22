@@ -34,6 +34,7 @@ from pyscriptc.restlower._copy import _copy_call
 from pyscriptc.restlower._csv import _csv_call
 from pyscriptc.restlower._ctypes import _sizeof
 from pyscriptc.restlower._datetime import _ints
+from pyscriptc.restlower._dotenv import _dotenv_call
 from pyscriptc.restlower._folds import _eval_fold, _hash_fold, _static_builtin_fold
 from pyscriptc.restlower._functools import _reduce
 from pyscriptc.restlower._hmac import _hmac, _hmac_compare
@@ -140,6 +141,7 @@ _MODULES_AFTER_SPEC: dict[str, Handler] = {
     "textwrap": lambda lo, node, span, expect, attr: _textwrap_call(lo, node, span, attr),
     "copy": lambda lo, node, span, expect, attr: _copy_call(lo, node, span, attr),
     "tomllib": lambda lo, node, span, expect, attr: _tomllib_call(lo, node, span, expect, attr),
+    "dotenv": lambda lo, node, span, expect, attr: _dotenv_call(lo, node, span, expect, attr),
 }
 
 # Per-attribute handlers that run before keyword arguments are rejected.
