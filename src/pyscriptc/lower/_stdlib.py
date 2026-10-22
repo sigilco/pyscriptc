@@ -283,7 +283,12 @@ class StdlibDispatchMixin:
         """Module `@staticmethod` is the function the class decorator already emits.
 
         The call passes no instance. Other module decorators stay fenced.
+        typing's `@overload` stubs erase (only the final undecorated
+        implementation lowers); `@abstractmethod` erases off the list.
         """
+        if any(self._erased_deco_name(d) == "overload" for d in fn.decorator_list):
+            return False
+        fn.decorator_list = [d for d in fn.decorator_list if self._erased_deco_name(d) is None]
         message = self._module_decorator_fence(fn)
         if message is None:
             if fn.decorator_list and not self._is_module_staticmethod(fn):

@@ -13,7 +13,9 @@ SRC = ROOT / "src" / "pyscriptc"
 def test_self_census_ballpark() -> None:
     census = build_self_census(SRC)
     # doctor.py is the 28th module; log.py, telemetry.py, debug.py and rtcache.py each added a module.
-    assert census["modules"] == 48
+    # T2-5 static folds: restlower/_folds.py adds a module (+15 fences of
+    # fold-boundary docstrings and helpers, self-host only).
+    assert census["modules"] == 49
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -32,7 +34,15 @@ def test_self_census_ballpark() -> None:
     # Telemetry privacy pass: random install id, IP-discard properties, opt-in switch (+12 fences).
     # rtcache.py (runtime object cache: threads, hashing, subprocess) adds 1 module and 33 fences.
     # First-run fix: node_text/op_text diagnostics helpers and CLI --run entry handling (+7 fences).
-    assert census["fences"] == 1434
+    # Optional widening (Stage U): total stays 1434; 2 typefacts `X | Y | None` fences
+    # move from union-types (11 to 9) into optional-types (0 to 2, PS1102).
+    # T2-3 parameter forms normalize into the named-parameter machinery (+1
+    # _classes fence for the kwarg-dict binding path).
+    # T2-5 static folds: restlower/_folds.py adds +15 fences (fold-boundary
+    # docstrings and helpers, self-host only).
+    # T2-2 ABC/Protocol erasure: +5 fences in _classes.py (the erased-base
+    # and decorator spellings are self-host fenced branches).
+    assert census["fences"] == 1455
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 25_000
-    assert sum(p["fences"] for p in census["packages"]) == 1434
+    assert sum(p["fences"] for p in census["packages"]) == 1455
