@@ -1,0 +1,607 @@
+---
+import LanguageSwitch from "./LanguageSwitch.astro";
+import { siteLinks } from "../config/links";
+import { useI18n } from "../i18n";
+
+const i18n = useI18n();
+---
+
+<header class="site-header" id="site-header">
+  <div class="header-inner">
+    <!-- Left: Brand / Logo -->
+    <a href="/" class="brand-link" aria-label="pyscriptc home">
+      <img
+        src="/logo-256.png"
+        alt={i18n.nav.logoAlt}
+        width="28"
+        height="28"
+        class="brand-logo"
+      />
+      <span class="brand-title">pyscriptc</span>
+    </a>
+
+    <!-- Middle (Desktop Navigation) -->
+    <nav class="desktop-nav" aria-label="Main navigation">
+      <a href={siteLinks.playground} class="nav-item">
+        <span>{i18n.nav.playground}</span>
+        <span class="badge-preview">{i18n.nav.playgroundBadge}</span>
+      </a>
+      <a href={siteLinks.docs} class="nav-item">
+        <span>{i18n.nav.docs}</span>
+      </a>
+      <a href={siteLinks.compat} class="nav-item">
+        <span>{i18n.nav.compat}</span>
+      </a>
+      <a
+        href={siteLinks.github}
+        target="_blank"
+        rel="noopener noreferrer"
+        class="nav-item external"
+        aria-label="GitHub repository (opens in new tab)"
+      >
+        <span>{i18n.nav.github}</span>
+        <svg
+          class="ext-icon"
+          width="11"
+          height="11"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <line x1="7" y1="17" x2="17" y2="7"></line>
+          <polyline points="7 7 17 7 17 17"></polyline>
+        </svg>
+      </a>
+    </nav>
+
+    <!-- Right: Copy Pill, Language Switch, Mobile Menu -->
+    <div class="header-right">
+      <button
+        type="button"
+        class="install-pill"
+        id="header-install-copy"
+        data-copy-cmd={i18n.nav.installCommand}
+        aria-label={`Copy install command: ${i18n.nav.installCommand}`}
+      >
+        <span class="pill-prefix">$</span>
+        <span class="pill-cmd">{i18n.nav.installCommand}</span>
+        <span class="pill-icon-wrap">
+          <svg
+            class="copy-icon"
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+          </svg>
+          <span class="copied-pill-badge">{i18n.nav.copied}</span>
+        </span>
+      </button>
+
+      <div class="lang-switch-wrapper">
+        <LanguageSwitch />
+      </div>
+
+      <button
+        type="button"
+        class="hamburger-btn"
+        id="mobile-menu-toggle"
+        aria-label="Toggle navigation menu"
+        aria-expanded="false"
+        aria-controls="mobile-nav-drawer"
+      >
+        <svg
+          class="menu-icon-bars"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <line x1="3" y1="12" x2="21" y2="12"></line>
+          <line x1="3" y1="6" x2="21" y2="6"></line>
+          <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+        <svg
+          class="menu-icon-close"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Mobile Collapsible Drawer -->
+  <div
+    class="mobile-drawer"
+    id="mobile-nav-drawer"
+    aria-hidden="true"
+  >
+    <div class="mobile-drawer-inner">
+      <nav class="mobile-nav-links">
+        <a href={siteLinks.playground} class="mobile-nav-item">
+          <span>{i18n.nav.playground}</span>
+          <span class="badge-preview">{i18n.nav.playgroundBadge}</span>
+        </a>
+        <a href={siteLinks.docs} class="mobile-nav-item">
+          <span>{i18n.nav.docs}</span>
+        </a>
+        <a href={siteLinks.compat} class="mobile-nav-item">
+          <span>{i18n.nav.compat}</span>
+        </a>
+        <a
+          href={siteLinks.github}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="mobile-nav-item"
+        >
+          <span>{i18n.nav.github}</span>
+          <svg
+            class="ext-icon"
+            width="13"
+            height="13"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <line x1="7" y1="17" x2="17" y2="7"></line>
+            <polyline points="7 7 17 7 17 17"></polyline>
+          </svg>
+        </a>
+      </nav>
+
+      <div class="mobile-drawer-footer">
+        <button
+          type="button"
+          class="mobile-install-pill"
+          id="mobile-install-copy"
+          data-copy-cmd={i18n.nav.installCommand}
+        >
+          <span class="pill-prefix">$</span>
+          <span class="pill-cmd">{i18n.nav.installCommand}</span>
+          <span class="mobile-copy-status">Copy</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<style>
+  .site-header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
+    height: 64px;
+    background: rgba(6, 8, 13, 0.82);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--color-border);
+    transition: background 0.2s ease, border-color 0.2s ease;
+  }
+
+  .header-inner {
+    max-width: 1280px;
+    height: 100%;
+    margin: 0 auto;
+    padding: 0 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  /* Left: Brand */
+  .brand-link {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    text-decoration: none;
+    color: var(--color-text-primary);
+    transition: opacity 0.15s ease;
+    user-select: none;
+  }
+
+  .brand-link:hover {
+    opacity: 0.88;
+  }
+
+  .brand-logo {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    object-fit: contain;
+  }
+
+  .brand-title {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 1.05rem;
+    letter-spacing: -0.03em;
+    color: var(--color-text-primary);
+  }
+
+  /* Middle: Desktop Nav */
+  .desktop-nav {
+    display: none;
+    align-items: center;
+    gap: 1.5rem;
+  }
+
+  @media (min-width: 860px) {
+    .desktop-nav {
+      display: flex;
+    }
+  }
+
+  .nav-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.88rem;
+    font-weight: 450;
+    color: var(--color-text-secondary);
+    text-decoration: none;
+    transition: color 0.15s ease;
+    padding: 0.25rem 0;
+  }
+
+  .nav-item:hover {
+    color: var(--color-text-primary);
+  }
+
+  .badge-preview {
+    font-size: 0.65rem;
+    font-family: var(--font-mono);
+    font-weight: 500;
+    padding: 0.1rem 0.4rem;
+    border-radius: 9999px;
+    background: rgba(0, 194, 255, 0.1);
+    border: 1px solid rgba(0, 194, 255, 0.25);
+    color: var(--color-accent-cyan);
+    letter-spacing: 0.02em;
+    line-height: 1.2;
+  }
+
+  .ext-icon {
+    opacity: 0.5;
+    transition: transform 0.15s ease, opacity 0.15s ease;
+  }
+
+  .nav-item.external:hover .ext-icon {
+    opacity: 0.9;
+    transform: translate(1px, -1px);
+  }
+
+  /* Right Side */
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  /* Install Pill */
+  .install-pill {
+    display: none;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.28rem 0.75rem;
+    border-radius: 9999px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.04);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--color-text-primary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    user-select: none;
+    position: relative;
+  }
+
+  @media (min-width: 680px) {
+    .install-pill {
+      display: inline-flex;
+    }
+  }
+
+  .install-pill:hover {
+    border-color: rgba(255, 255, 255, 0.25);
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .pill-prefix {
+    color: var(--color-accent-cyan);
+    font-weight: 600;
+  }
+
+  .pill-cmd {
+    font-weight: 400;
+  }
+
+  .pill-icon-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    margin-left: 0.25rem;
+  }
+
+  .copy-icon {
+    color: var(--color-text-muted);
+    transition: color 0.15s ease;
+  }
+
+  .install-pill:hover .copy-icon {
+    color: var(--color-text-primary);
+  }
+
+  .copied-pill-badge {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    background: var(--color-accent-cyan);
+    color: #06080d;
+    font-weight: 600;
+    font-size: 0.65rem;
+    padding: 0.1rem 0.35rem;
+    border-radius: 0.25rem;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+    white-space: nowrap;
+  }
+
+  .install-pill.is-copied {
+    border-color: var(--color-accent-cyan);
+  }
+
+  .install-pill.is-copied .copy-icon {
+    opacity: 0;
+  }
+
+  .install-pill.is-copied .copied-pill-badge {
+    opacity: 1;
+  }
+
+  .lang-switch-wrapper {
+    display: flex;
+    align-items: center;
+  }
+
+  /* Hamburger Button */
+  .hamburger-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  @media (min-width: 860px) {
+    .hamburger-btn {
+      display: none;
+    }
+  }
+
+  .hamburger-btn:hover {
+    color: var(--color-text-primary);
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .menu-icon-close {
+    display: none;
+  }
+
+  .site-header.mobile-open .menu-icon-bars {
+    display: none;
+  }
+
+  .site-header.mobile-open .menu-icon-close {
+    display: block;
+  }
+
+  /* Mobile Drawer */
+  .mobile-drawer {
+    display: none;
+    position: absolute;
+    top: 64px;
+    left: 0;
+    right: 0;
+    background: rgba(11, 15, 25, 0.98);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--color-border);
+    box-shadow: 0 16px 32px rgba(0, 0, 0, 0.6);
+  }
+
+  @media (max-width: 859px) {
+    .site-header.mobile-open .mobile-drawer {
+      display: block;
+      animation: mobileDrawerSlideDown 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+  }
+
+  @keyframes mobileDrawerSlideDown {
+    from {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .mobile-drawer-inner {
+    padding: 1.25rem 1.5rem 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .mobile-nav-links {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .mobile-nav-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 0.5rem;
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    text-decoration: none;
+    border-radius: 0.5rem;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+
+  .mobile-nav-item:hover,
+  .mobile-nav-item:active {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--color-text-primary);
+  }
+
+  .mobile-drawer-footer {
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .mobile-install-pill {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.65rem 0.85rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--color-text-primary);
+    cursor: pointer;
+  }
+
+  .mobile-install-pill:hover {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .mobile-copy-status {
+    font-size: 0.72rem;
+    color: var(--color-accent-cyan);
+    font-family: var(--font-mono);
+  }
+</style>
+
+<script>
+  function setupHeader() {
+    const header = document.getElementById("site-header");
+    const mobileToggle = document.getElementById("mobile-menu-toggle");
+    const mobileDrawer = document.getElementById("mobile-nav-drawer");
+    const headerCopyBtn = document.getElementById("header-install-copy");
+    const mobileCopyBtn = document.getElementById("mobile-install-copy");
+
+    if (!header) return;
+
+    // Mobile drawer toggle
+    if (mobileToggle && mobileDrawer) {
+      function toggleMobileMenu() {
+        const isOpen = header.classList.toggle("mobile-open");
+        mobileToggle.setAttribute("aria-expanded", isOpen ? "true" : "false");
+        mobileDrawer.setAttribute("aria-hidden", isOpen ? "false" : "true");
+      }
+
+      function closeMobileMenu() {
+        header.classList.remove("mobile-open");
+        mobileToggle.setAttribute("aria-expanded", "false");
+        mobileDrawer.setAttribute("aria-hidden", "true");
+      }
+
+      mobileToggle.addEventListener("click", toggleMobileMenu);
+
+      // Close mobile drawer when clicking any link inside it
+      mobileDrawer.querySelectorAll("a").forEach((link) => {
+        link.addEventListener("click", closeMobileMenu);
+      });
+
+      // Close on escape
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && header.classList.contains("mobile-open")) {
+          closeMobileMenu();
+          mobileToggle.focus();
+        }
+      });
+    }
+
+    // Copy command helper
+    async function copyCmd(btn, statusSelector, originalText, successText) {
+      const cmd = btn.getAttribute("data-copy-cmd") || "uv tool install pyscriptc";
+      try {
+        await navigator.clipboard.writeText(cmd);
+      } catch {
+        // Fallback handled gracefully
+      }
+      btn.classList.add("is-copied");
+      const statusEl = statusSelector ? btn.querySelector(statusSelector) : null;
+      if (statusEl) statusEl.textContent = successText;
+
+      setTimeout(() => {
+        btn.classList.remove("is-copied");
+        if (statusEl) statusEl.textContent = originalText;
+      }, 2000);
+    }
+
+    if (headerCopyBtn) {
+      headerCopyBtn.addEventListener("click", () => {
+        copyCmd(headerCopyBtn, ".copied-pill-badge", "Copied!", "Copied!");
+      });
+    }
+
+    if (mobileCopyBtn) {
+      mobileCopyBtn.addEventListener("click", () => {
+        copyCmd(mobileCopyBtn, ".mobile-copy-status", "Copy", "Copied!");
+      });
+    }
+  }
+
+  setupHeader();
+  document.addEventListener("astro:page-load", setupHeader);
+</script>
