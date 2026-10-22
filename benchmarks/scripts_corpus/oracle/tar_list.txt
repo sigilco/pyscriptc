@@ -1,0 +1,2 @@
+         4 tree/a.txt
+         3 tree/sub/b.txt

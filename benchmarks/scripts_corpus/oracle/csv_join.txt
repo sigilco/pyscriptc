@@ -1,0 +1,5 @@
+name,value,count,team
+alice,10.5,2,red
+bob,20.25,3
+carol,30.125,4
+alice,5.5,1,red

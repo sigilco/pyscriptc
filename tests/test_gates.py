@@ -60,6 +60,7 @@ QUEUE = (
     "csv",
     "textwrap",
     "copy",
+    "argparse",
 )
 
 

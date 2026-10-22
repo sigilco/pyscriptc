@@ -181,3 +181,43 @@ def test_r28_null_into_plain_int_fences_at_runtime(tmp_path: Path) -> None:
     got = compile_run(tmp_path, path, "run")
     assert got.returncode != 0
     assert "JSON value does not match the annotation" in got.stderr
+
+
+def test_json_dumps_indent_and_sort_keys(tmp_path: Path) -> None:
+    path = write_case(
+        tmp_path,
+        "dumps_opts.py",
+        "\n".join(
+            [
+                "import json",
+                "",
+                "def run() -> int:",
+                "    data: dict[str, int] = {'b': 1, 'a': 2}",
+                "    print(json.dumps(data, indent=2, sort_keys=True))",
+                "    print(json.dumps(data, sort_keys=True))",
+                "    xs: list[int] = [1, 2, 3]",
+                "    print(json.dumps(xs, indent=2))",
+                "    nested: dict[str, list[int]] = {'k': [1, 2]}",
+                "    print(json.dumps(nested, indent=2))",
+                "    empty: list[int] = []",
+                "    print(json.dumps(empty, indent=2))",
+                "    none: dict[str, int] = {}",
+                "    print(json.dumps(none, indent=2, sort_keys=True))",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+    got = compile_run(tmp_path, path, "run")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle(path, "run")
+
+
+def test_json_dumps_unknown_keyword_fences() -> None:
+    from pyscriptc.lower import lower_source
+
+    mod = lower_source("import json\njson.dumps({'a': 1}, separators=(',', ':'))\n")
+    assert [f["code"] for f in mod["fences"]] == ["PS2003"]
+    assert "json.dumps keyword separators is not lowered" in mod["fences"][0]["message"]
+    mod = lower_source("import json\njson.dumps({'a': 1}, ensure_ascii=False)\n")
+    assert [f["code"] for f in mod["fences"]] == ["PS2003"]

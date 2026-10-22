@@ -9,7 +9,8 @@ The subset stamp is `gates-v1`. Parsing is CPython 3.14's `ast`. A lowered call 
 - `if`, `while`, `for` over a `list` of scalars, over `range`, over `enumerate` of a list, or over `zip` of two lists, assignment, `return`. `if` and `while` also accept a `str`, `bytes`, `int`, `list`, or `dict` as a condition. `enumerate` and `zip` are only the iterator of a `for`, and the target is one name holding the tuple
 - `and` / `or` when both sides have the same type. The result is that value, and the right side runs only when the left side needs it
 - A module-level constant: an annotated assignment, or a bare assignment of a literal, list, dict, or tuple of two or more constants. A function can read it. `if sys.version_info` compared with a tuple of ints (`>=`, `>`, `<=`, `<`, `==`, `!=`, either side) keeps only the taken branch. Any other `if` at module scope is a fence. `name = None` plus `global name` is a process slot of `str`, `int`, or `Path`; `name is None` is the unset flag
-- `try` / `except` for `ValueError`, `IndexError`, `KeyError`, `OverflowError`, `ZeroDivisionError`, `RuntimeError`, and `Exception`
+- `try` / `except` / `else` / `finally`, with the CPython builtin exception hierarchy: `except LookupError` catches a `KeyError`, `except Exception` means "Exception and its subclasses", and `except BaseException` is the wildcard. A user class that inherits a builtin exception joins the same chain
+- `except E as e` binds the exception, and `raise E(...) from cause` chains it. A bare `raise` inside a handler re-raises
 - `raise ValueError("message")` and the same names
 - Classes with annotated fields, `__init__`, and methods. Fields are annotations with no value. A single base class is allowed; multiple inheritance fences
 - `import` and `from` for the modules named below
@@ -77,6 +78,35 @@ Each module below is a closed set of calls, not the whole module.
 
 Island calls link libpython. The constants do not.
 
+## Multi-file programs
+
+`pyscriptc compile DIR` compiles a whole tree into one native binary. The shape of the tree decides what the directory means.
+
+A **program** directory is one of two shapes: a root `__main__.py`, or a root `main.py`, either way without a root `__init__.py`. That file is the entry point, and the tree is imported the way `sys.path[0]` would import it:
+
+```python
+# mytool/__main__.py
+import util
+from pkg import x
+
+print(util.twice(21))
+print(x.NAME)
+```
+
+`util.py` is imported as `util`, and `pkg/__init__.py` as `pkg`. A module body runs once, at the first import that reaches it, in CPython's order, so the printed order of a program matches `python3 __main__.py`. A module with only definitions and constants has no body and contributes nothing. A module's own imports run before its body.
+
+A **package** directory has a root `__init__.py`. It is a library: its modules are namespaced under the directory name (`from mypkg.mod import name`), and its `__main__.py` is the `python -m` script, not an importable module. The compile skips it and says so. `--program` turns that shape into the `python -m pkg` one: the root `__main__.py` becomes the entry point and the modules keep the package namespace.
+
+A circular import is refused before anything is emitted. The fence names the path that closes it and points at the import statement:
+
+```text
+mytool/b.py:1:1: PS2002: circular import: a -> b -> a
+  import a
+  ^
+```
+
+`pyscriptc coverage DIR` walks the whole graph and reports every fence with the definition that holds it.
+
 ## Finding every fence
 
 `pyscriptc coverage FILE|DIR [--json]` lowers a file or a package tree and reports every fence, not only the first. Each entry has the PS code, a code frame, a feature family, the definition that holds it, and a refactor hint. The `chain` list ranks families by how many definitions they alone block. `compile` is unchanged and still fails closed on any fence.
@@ -92,7 +122,7 @@ Island calls link libpython. The constants do not.
 | PS1105 | forward reference (a quoted annotation) |
 | PS1106 | a name that is not a lowered type |
 
-Construct fences: PS1201 decorators, PS1202 parameter forms, PS1203 class keywords or multiple inheritance, PS1204 class body statements, PS1205 `except ... as` and bare `except`, PS1206 `with ... as`.
+Construct fences: PS1201 decorators, PS1202 parameter forms, PS1203 class keywords or multiple inheritance, PS1204 class body statements, PS1205 `except ... as` and bare `except` (both lower now), PS1206 `with ... as`.
 
 `python -m benchmarks.compat2.census` runs `coverage` over the pinned top100 sources and ranks families by set cover.
 
@@ -114,11 +144,11 @@ These refuse the whole file:
 - `str.encode("ascii")` and any other extra argument on `encode` or `decode`
 - User decorators, `**kwargs`, keyword-only and positional-only parameters, starred calls, `super()`, and multiple inheritance
 - `with ... as` except `with open(...) as name` and `with importlib.resources.as_file(...) as name`
-- A relative import in a single file. A directory compile resolves `from .mod import name`, `from . import name`, and an absolute import of that same package (`from pkg.mod import name`) for a function, a module-level constant, or a class the defining module emits, including a subclass of a class exported by another module. `__main__.py` is skipped and the compile says so: it is the `python -m` script, not an importable module. An `argparse` import in any other file stays a fence. When a class or function does not lower, the first fence is the one inside that definition, ahead of "is not exported". Two user classes with the same name and different fields stay a fence. Identical synthetic classes are skipped
+- A relative import in a single file. A directory compile resolves `from .mod import name`, `from . import name`, and an absolute import of that same package (`from pkg.mod import name`) for a function, a module-level constant, or a class the defining module emits, including a subclass of a class exported by another module. In a **program** directory (a root `__main__.py` or `main.py`, and no root `__init__.py`) that file is the entry point instead: the siblings are imported by their plain names (`import util`, `from pkg import x`), each module body runs once, in CPython's import order, and a circular import is refused with the path that closes it (`circular import: a -> b -> a`). In a **package** directory (a root `__init__.py`) `__main__.py` is skipped and the compile says so: it is the `python -m` script, not an importable module; `--program` runs it instead. An `argparse` import in any other file stays a fence. When a class or function does not lower, the first fence is the one inside that definition, ahead of "is not exported". Two user classes with the same name and different fields stay a fence. Identical synthetic classes are skipped
 - Any import outside the table (`requests`, `argparse`, …). `enum` and `dataclasses` are in the table for `Enum` / `IntEnum` and `@dataclass`
 - Lambdas, a tuple of fewer than two fields, a mixed or nested `tuple[T, ...]`, a non-constant tuple index, tuple equality, a `set` whose elements are not `int` or `str`, and a generator expression
 - String literals outside Latin-1
-- `finally`, `except ... as`
+- `finally` and `except ... as` lower; both are gone from the fence list
 
 `date + timedelta` uses the normalized day count. `datetime + timedelta` uses the whole delta. After `for i in range(0)`, a new target reads as `0` rather than raising `UnboundLocalError`.
 
@@ -190,7 +220,7 @@ A mixed `and` / `or` in an `if`, `while`, `assert`, or list-comprehension filter
 
 Int constants whose harness probe is `return module.NAME`, and whose module was already lowered, are that CPython int, including the remaining `re` flags and the int constants on `base64`, `ctypes`, `datetime`, `errno`, `inspect`, `io`, `logging`, `os`, `pathlib`, `shutil`, `socket`, `ssl`, `stat`, `subprocess`, `sys`, `tempfile`, and `time`. None of those ints fell outside signed 64-bit. Latin-1 str constants on those modules use the same `len * 1000 + ord(first)` fold as `warnings.defaultaction`, including the `os` and `posixpath` path strings, the `sys` strings, the `inspect` state names, `asyncio.FIRST_COMPLETED`, `asyncio.FIRST_EXCEPTION`, `tempfile.template`, and the `ssl` PEM header and footer. Bool constants on those modules are the CPython bool, folded by `if` to 1 or 0: the `ssl` `HAS_*` flags, the `logging` log flags, `os.supports_bytes_environ`, `posixpath.supports_unicode_filenames`, `socket.has_ipv6`, and `sys.dont_write_bytecode`. `urllib.parse.scheme_chars` stays fenced because `urllib.parse` is not a lowered module row. `ssl` contexts, sockets, and logging handlers stay fenced.
 
-A subclass `__init__` assigns the class's own fields. An inherited field that the subclass never assigns reads as `0` (or the zero value of that type), not `AttributeError`. `raise AppError("no")` stores a code and an optional `str`. It does not call `__init__`, and `except as` stays a fence. `@classmethod` and `@staticmethod` of the form `Class.method(...)` do not pass the class object. A body that reads `cls` is an unbound name. The first parameter of a classmethod is the unannotated name `cls`. `@property` is a getter. Calling it is a fence. A `@dataclass` has no base and no written `__init__`. `field(default_factory=...)` is a fence. A constant default on an annotation is an ordinary default. `enum.Enum` members are `int` constants: member equality matches CPython, and comparing a member to its integer or doing arithmetic matches `IntEnum`, not `Enum`. `*args` is a `list`, not a `tuple`. A `set` is unique and iterates in insertion order, not hash order. `list(set)` copies that insertion order, not CPython's hash order. Subscript and item assignment on a set are fences. `bool()` of a class is a fence. `list()` of a `str`, a `dict`, or no argument is a fence.
+A subclass `__init__` assigns the class's own fields. An inherited field that the subclass never assigns reads as `0` (or the zero value of that type), not `AttributeError`. `raise AppError("no")` stores a code and an optional `str`. It does not call `__init__`. `except AppError as e` binds the exception, and `isinstance(e, AppError)` walks the same parent chain the handler uses. `@classmethod` and `@staticmethod` of the form `Class.method(...)` do not pass the class object. A body that reads `cls` is an unbound name. The first parameter of a classmethod is the unannotated name `cls`. `@property` is a getter. Calling it is a fence. A `@dataclass` has no base and no written `__init__`. `field(default_factory=...)` is a fence. A constant default on an annotation is an ordinary default. `enum.Enum` members are `int` constants: member equality matches CPython, and comparing a member to its integer or doing arithmetic matches `IntEnum`, not `Enum`. `*args` is a `list`, not a `tuple`. A `set` is unique and iterates in insertion order, not hash order. `list(set)` copies that insertion order, not CPython's hash order. Subscript and item assignment on a set are fences. `bool()` of a class is a fence. `list()` of a `str`, a `dict`, or no argument is a fence.
 
 `unicodedata` is a direct Latin-1 table (Unicode 16.0.0 for those code points), not an island call per character. A normalization that would leave Latin-1 raises `ValueError`. `name` and `lookup` only know Latin-1 names. Type errors on these calls surface as `ValueError`. `importlib.resources.files` searches the compiler's `sys.path` for a directory; a zip or a missing package raises `ValueError` rather than `ModuleNotFoundError`. `shutil.copyfile` of the same path raises `RuntimeError` rather than `SameFileError`. Other `shutil` and `os` failures are `RuntimeError`. `hmac` rejects a non-bytes key or message and an unknown algorithm at compile time. `compare_digest` of mixed types is a fence. `atexit.register` takes a no-argument function and its return value is not a value.
 

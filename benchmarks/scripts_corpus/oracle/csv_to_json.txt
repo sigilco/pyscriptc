@@ -1,0 +1,1 @@
+[{"count": "2", "name": "alice", "value": "10.5"}, {"count": "3", "name": "bob", "value": "20.25"}, {"count": "4", "name": "carol", "value": "30.125"}, {"count": "1", "name": "alice", "value": "5.5"}]

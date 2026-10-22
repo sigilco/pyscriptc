@@ -8,25 +8,176 @@ from __future__ import annotations
 
 from typing import Any
 
-# Codes match ps_rt.c. Exception is the wildcard handler and a raise target.
+# The builtin exception hierarchy. Codes match ps_rt.c and the PS_* constants
+# in ps_rt.h; a parent always has a smaller code than its children, so the
+# parent chain is a walk towards zero. The root, BaseException, maps to the
+# empty string. EnvironmentError and IOError are CPython aliases of OSError
+# and share its code; WindowsError does not exist on this platform.
+EXCEPTION_PARENTS: dict[str, str] = {
+    "BaseException": "",
+    "BaseExceptionGroup": "BaseException",
+    "ExceptionGroup": "BaseExceptionGroup",
+    "GeneratorExit": "BaseException",
+    "KeyboardInterrupt": "BaseException",
+    "SystemExit": "BaseException",
+    "Exception": "BaseException",
+    "ArithmeticError": "Exception",
+    "FloatingPointError": "ArithmeticError",
+    "OverflowError": "ArithmeticError",
+    "ZeroDivisionError": "ArithmeticError",
+    "AssertionError": "Exception",
+    "AttributeError": "Exception",
+    "BufferError": "Exception",
+    "EOFError": "Exception",
+    "ImportError": "Exception",
+    "ModuleNotFoundError": "ImportError",
+    "LookupError": "Exception",
+    "IndexError": "LookupError",
+    "KeyError": "LookupError",
+    "MemoryError": "Exception",
+    "NameError": "Exception",
+    "UnboundLocalError": "NameError",
+    "OSError": "Exception",
+    "BlockingIOError": "OSError",
+    "ChildProcessError": "OSError",
+    "ConnectionError": "OSError",
+    "BrokenPipeError": "ConnectionError",
+    "ConnectionAbortedError": "ConnectionError",
+    "ConnectionRefusedError": "ConnectionError",
+    "ConnectionResetError": "ConnectionError",
+    "FileExistsError": "OSError",
+    "FileNotFoundError": "OSError",
+    "InterruptedError": "OSError",
+    "IsADirectoryError": "OSError",
+    "NotADirectoryError": "OSError",
+    "PermissionError": "OSError",
+    "ProcessLookupError": "OSError",
+    "TimeoutError": "OSError",
+    "ReferenceError": "Exception",
+    "RuntimeError": "Exception",
+    "NotImplementedError": "RuntimeError",
+    "RecursionError": "RuntimeError",
+    "StopAsyncIteration": "Exception",
+    "StopIteration": "Exception",
+    "SyntaxError": "Exception",
+    "IndentationError": "SyntaxError",
+    "TabError": "IndentationError",
+    "SystemError": "Exception",
+    "TypeError": "Exception",
+    "ValueError": "Exception",
+    "UnicodeError": "ValueError",
+    "UnicodeDecodeError": "UnicodeError",
+    "UnicodeEncodeError": "UnicodeError",
+    "UnicodeTranslateError": "UnicodeError",
+    "Warning": "Exception",
+    "BytesWarning": "Warning",
+    "DeprecationWarning": "Warning",
+    "EncodingWarning": "Warning",
+    "FutureWarning": "Warning",
+    "ImportWarning": "Warning",
+    "PendingDeprecationWarning": "Warning",
+    "ResourceWarning": "Warning",
+    "RuntimeWarning": "Warning",
+    "SyntaxWarning": "Warning",
+    "UnicodeWarning": "Warning",
+    "UserWarning": "Warning",
+}
+
+# Names that share another class's code.
+EXCEPTION_ALIASES: dict[str, str] = {
+    "EnvironmentError": "OSError",
+    "IOError": "OSError",
+}
+
+# Code per builtin exception name, in hierarchy order.
 EXCEPTIONS: dict[str, int] = {
-    "ValueError": 1,
-    "IndexError": 2,
-    "KeyError": 3,
-    "OverflowError": 4,
-    "ZeroDivisionError": 5,
-    "RuntimeError": 6,
+    "BaseException": 1,
+    "BaseExceptionGroup": 2,
+    "ExceptionGroup": 3,
+    "GeneratorExit": 4,
+    "KeyboardInterrupt": 5,
+    "SystemExit": 6,
     "Exception": 7,
-    "StopIteration": 8,
-    "FileNotFoundError": 9,
-    "TypeError": 10,
-    "AttributeError": 11,
+    "ArithmeticError": 8,
+    "FloatingPointError": 9,
+    "OverflowError": 10,
+    "ZeroDivisionError": 11,
+    "AssertionError": 12,
+    "AttributeError": 13,
+    "BufferError": 14,
+    "EOFError": 15,
+    "ImportError": 16,
+    "ModuleNotFoundError": 17,
+    "LookupError": 18,
+    "IndexError": 19,
+    "KeyError": 20,
+    "MemoryError": 21,
+    "NameError": 22,
+    "UnboundLocalError": 23,
+    "OSError": 24,
+    "BlockingIOError": 25,
+    "ChildProcessError": 26,
+    "ConnectionError": 27,
+    "BrokenPipeError": 28,
+    "ConnectionAbortedError": 29,
+    "ConnectionRefusedError": 30,
+    "ConnectionResetError": 31,
+    "FileExistsError": 32,
+    "FileNotFoundError": 33,
+    "InterruptedError": 34,
+    "IsADirectoryError": 35,
+    "NotADirectoryError": 36,
+    "PermissionError": 37,
+    "ProcessLookupError": 38,
+    "TimeoutError": 39,
+    "ReferenceError": 40,
+    "RuntimeError": 41,
+    "NotImplementedError": 42,
+    "RecursionError": 43,
+    "StopAsyncIteration": 44,
+    "StopIteration": 45,
+    "SyntaxError": 46,
+    "IndentationError": 47,
+    "TabError": 48,
+    "SystemError": 49,
+    "TypeError": 50,
+    "ValueError": 51,
+    "UnicodeError": 52,
+    "UnicodeDecodeError": 53,
+    "UnicodeEncodeError": 54,
+    "UnicodeTranslateError": 55,
+    "Warning": 56,
+    "BytesWarning": 57,
+    "DeprecationWarning": 58,
+    "EncodingWarning": 59,
+    "FutureWarning": 60,
+    "ImportWarning": 61,
+    "PendingDeprecationWarning": 62,
+    "ResourceWarning": 63,
+    "RuntimeWarning": 64,
+    "SyntaxWarning": 65,
+    "UnicodeWarning": 66,
+    "UserWarning": 67,
+    "EnvironmentError": 24,
+    "IOError": 24,
 }
 
 # User exception classes take codes from here up; matches PS_USER_BASE in
-# ps_rt.h. Exception handlers treat every code at or above it as an
-# Exception descendant, since all user exceptions inherit a lowered builtin.
-USER_EXC_BASE = 12
+# ps_rt.h. The runtime registers each class at module init, so every code at
+# or above it matches `except Exception` through the parent chain.
+USER_EXC_BASE = 256
+
+# Reserved for coroutine exceptions (issue #162). Mirrors PS_RESERVED_BASE and
+# friends in ps_rt.h: the top of the i32 code space, so USER_EXC_BASE and user
+# class codes do not shift. Deliberately not in EXCEPTIONS: nothing lowers or
+# raises them yet, and adding names there would change handler lowering.
+RESERVED_EXC_BASE = 0x7FFFFFF0
+RESERVED_EXCEPTIONS: dict[str, int] = {
+    "GeneratorExit": 0x7FFFFFF0,
+    "StopAsyncIteration": 0x7FFFFFF1,
+    "CancelledError": 0x7FFFFFF2,
+    "TimeoutError": 0x7FFFFFF3,
+}
 
 # params are type kinds. return is a type kind, or "self" for the receiver's type.
 STR_METHODS: dict[str, dict[str, Any]] = {

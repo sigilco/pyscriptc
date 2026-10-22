@@ -41,7 +41,6 @@ def test_basic_format_matches_cpython(tmp_path: Path) -> None:
 def test_other_logging_names_stay_fenced(tmp_path: Path) -> None:
     cases = [
         ("config.py", "logging.basicConfig", "logging.basicConfig is not in the lowered subset of logging"),
-        ("logger.py", "logging.getLogger", "logging.getLogger is not in the lowered subset of logging"),
         ("handler.py", "logging.Handler", "logging.Handler is not in the lowered subset of logging"),
     ]
     for name, expr, text in cases:

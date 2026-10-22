@@ -16,6 +16,7 @@ import sys
 from typing import Any, NoReturn
 
 from pyscriptc.builtins import USER_EXC_BASE
+from pyscriptc.coro import CoroMixin
 from pyscriptc.errors import format_diagnostic, span_of
 from pyscriptc.ir import SUBSET, cpython_version, types_equal
 from pyscriptc.lower._calls import CallsMixin
@@ -57,7 +58,7 @@ from pyscriptc.stdlib_queue import canonical_module, module_status
 from pyscriptc.stdmore import member_callable, module_constant
 
 
-class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixin, ClosuresMixin):
+class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixin, ClosuresMixin):
     def __init__(self, filename: str, source: str) -> None:
         self.filename = filename
         self.source = source
@@ -93,6 +94,15 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         self.module_name = ""
         self.is_package = False
         self.cataloguing = False
+        # A program directory: sibling modules are imported by their plain
+        # names and `__main__.py` is the entry point.
+        self.program = False
+        # A program module whose body runs at import time (every program
+        # module except `__main__`): it synthesizes `<module>.__init__`.
+        self.module_init = False
+        # The program root package name, when the tree is a program. It is the
+        # prefix for the program's own package-style names.
+        self.program_root = ""
         self.package: dict[str, dict[str, dict[str, Any]]] | None = None
         self.pkg_funcs: dict[str, dict[str, Any]] = {}
         self.class_aliases: dict[str, str] = {}
@@ -212,7 +222,7 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
                 continue
             try:
                 kind = "static" if self._is_module_staticmethod(fn) else "method"
-                self.sigs[fn.name] = self._signature(fn, None, kind)
+                self.sigs[fn.name] = self._coro_signature(fn) or self._signature(fn, None, kind)
             except Fence as exc:
                 fences.append(exc)
             else:
@@ -261,7 +271,7 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
             self.fn_globals = self._globals_for(fn.body)
             self.fn_nonlocals = set()
             self.captures = {}
-            params, ret = self.sigs[fn.name]
+            params, ret = self._coro_body_sig(fn.name)
             self.locals = {param["name"]: param["type"] for param in params}
             self.frozen_names = set()
             self.opt_unwrap = {}
@@ -305,6 +315,9 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         self._drain_instances(lowered, lowered_classes, fences)
         lowered.extend(self.nested_fns)
         lowered_classes.extend(self._synthetic_classes({item["name"] for item in lowered_classes}))
+        # The deferred classes (the argparse namespace) grew their fields
+        # while the statements lowered, so they close here.
+        lowered_classes.extend(self._synthetic_classes({item["name"] for item in lowered_classes}, deferred_only=True))
         self.function = None
         names = [item["name"] for item in lowered]
         module = {
@@ -321,7 +334,7 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         }
         if self.global_inits:
             module["globals"] = self.global_inits
-        return module
+        return self._coro_finish(module)
 
     def _split_entry(
         self,
@@ -444,11 +457,31 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
 
         Package units never synthesize one: a package is a library, its
         modules are namespaced, and `sigs` feeds the export table.
+
+        A program's `__main__` module does synthesize one: it is the script
+        the whole program runs, so its top-level statements are the entry.
+        A program's other modules synthesize `__init__`: their body runs when
+        the program first imports them, before the importing module's body.
         """
-        if not stmts or self.module_name or self.cataloguing:
+        if not stmts:
+            return []
+        if self.module_name and not self._is_program_main():
+            if not self.module_init:
+                return []
+            taken = {fn.name for fn in functions} | self.declared
+            name = "__init__" if "__init__" not in taken else "__init_entry__"
+            return [self._make_entry(stmts, name)]
+        if self.cataloguing:
+            # The cataloguing pass only needs the signatures. The program's
+            # entry is not an export, so it is not synthesized here.
             return []
         taken = {fn.name for fn in functions} | self.declared
         name = "main" if "main" not in taken else "__entry__"
+        return [self._make_entry(stmts, name)]
+
+    def _make_entry(self, stmts: list[ast.stmt], name: str) -> ast.FunctionDef:
+        """A synthetic no-argument function carrying `stmts` in source order."""
+
         fn = ast.FunctionDef(
             name=name,
             args=ast.arguments(
@@ -472,7 +505,17 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         fn.col_offset = 0
         fn.end_lineno = stmts[-1].end_lineno
         fn.end_col_offset = 0
-        return [fn]
+        return fn
+
+    def _is_program_main(self) -> bool:
+        """True for the `__main__` module of a program directory."""
+
+        return self.program and self.module_name == "__main__"
+
+    def _is_main_module(self) -> bool:
+        """True when this module runs as `__main__` (a script or program entry)."""
+
+        return not self.module_name or self._is_program_main()
 
     def _ir_name(self, name: str) -> str:
         if self.module_name:
@@ -615,6 +658,24 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         if root is None or not module:
             return False
         return module == root or module.startswith(root + ".")
+
+    def _is_program_module(self, module: str | None) -> bool:
+        """A program tree's own module: a sibling, or a package inside it.
+
+        In a program the export table is keyed by plain names (`util`,
+        `pkg.x`), so any exact key match, or a dotted name whose head is a
+        program package, is the program's own module. `__main__` is the
+        entry module and never importable.
+        """
+
+        if not self.program or not module or self.package is None:
+            return False
+        if module == "__main__":
+            return True
+        if module in self.package:
+            return True
+        head = module.split(".", 1)[0]
+        return head in self.package and self.package[head] is not None
 
     def _pkg_item(self, node: ast.AST, module: str, member: str) -> dict[str, Any]:
         item = (self.package or {}).get(module, {}).get(member)
@@ -1166,10 +1227,15 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
                 _release_erased_import(stmt, rebound)
                 continue
             if _is_main_guard(stmt):
-                # C3: the canonical guard's body is live script text. It joins
-                # the entry in source order; an `else` under a `__name__` test
-                # never runs as `__main__`, so it stays dropped.
-                live.extend(self._live_statements(list(stmt.body), fences, rebound))
+                if self._is_main_module():
+                    # C3: the canonical guard's body is live script text. It joins
+                    # the entry in source order; an `else` under a `__name__` test
+                    # never runs as `__main__`, so it stays dropped.
+                    live.extend(self._live_statements(list(stmt.body), fences, rebound))
+                    continue
+                # An imported module is not `__main__`: the guard body never
+                # runs there, and the `else` branch does.
+                live.extend(self._live_statements(list(stmt.orelse), fences, rebound))
                 continue
             if _is_docstring(stmt):
                 continue

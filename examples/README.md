@@ -12,5 +12,6 @@ Programs a person can compile are documented in [`docs/examples.md`](../docs/exa
 | `url_gate.py` | `--call allow` prints `1` or `0` |
 | `route_label.py` | `--call label --args '["/api/health", 201]'` prints `health 201` |
 | `hostname.py` | `--call hostname` prints the machine name and links libpython |
+| `wordcount/` | a program directory: `pyscriptc compile examples/wordcount --run` prints `three 3` |
 
 The other files here are the compiler corpus: `gates_*.py`, `wave_probe.py`, `rest_probe.py`, `sum_squares.py`, and the `fence_*.py` programs that are supposed to be refused.

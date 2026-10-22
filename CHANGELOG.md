@@ -1,9 +1,40 @@
 # Changelog
 
+## [0.4.1] - 2026-10-22
+
+### Added
+- erase ABC/Protocol bases and typing overloads (T2-2) (#124)
+- T2-5 static folds for builtin calls on constants (#123)
+- normalize positional-only and keyword-only parameters (T2-3) (#122)
+- Optional widening (nested None arms, PS1102 for multi-arm optionals) (#136)
+- **kwargs params lower as dict[str, T] + leftover-keyword packing (#121)
+
+### Fixed
+- smoke compiles its own hello(n) fixture, not the first-run demo (#189)
+- v0.4.1 alpha first-run package (#133)
+- first-run notice, no events before it (#56) (#131)
+
+### Performance
+- cache the Nuitka onefile payload under the user cache dir (#135)
+- runtime object cache with parallel builds (#132)
+
+### Docs
+- delegation models and subprocess harnesses (#141)
+- project board scheme, PR-only master rule, active plan pointer
+- PR-only master ruleset, cut-release bypass path, threshold explainer
+- bar-gated release policy, milestones, rehearsal requirement
+- note the retroactive GitHub releases for 0.2.x
+
+### CI
+- add content-keyed caches (zig, ccache/Nuitka, scorer) (#134)
+- rehearsal dispatch, bar-gated cut-release, publish gate (#130)
+- shard macos-safe with pytest-split and xdist (#128)
+
 ## [Unreleased]
 
 First-run fixes for the v0.4.1 alpha.
 
+- New: `pyscriptc imports FILE|DIR` classifies every import of a program or package tree into its compat lane: standard library, native-backed (a C, C++ or Rust extension), curated-replacement (a planned pack) or pure Python. The verdict comes from the closed import table, a data file of known native-backed distributions, and offline distribution metadata (the wheel `RECORD`, an unpacked tree). Nothing reaches the network. See `docs/import-classifier.md`.
 - Fix: `compile FILE --run` without `--call` now runs the file's own script, including the body of `if __name__ == "__main__":` when the module also defines `main`. Before, it compiled a no-op binary and exited 0 silently. When there is nothing to run it prints a note naming `--call` on stderr.
 - `compile` checks for the C driver (clang, or zig with `--driver zig` / `PYSC_CC`) before doing any work when the output needs one, and points at `pyscriptc doctor` instead of failing deep in the link step. `--emit ir|llvm` need no toolchain.
 - Fence messages name operators and constructs as written in source (`` `*` on str and float``, `f-string`, `starred expression`) instead of AST class names (`Mult`, `JoinedStr`, `Starred`).

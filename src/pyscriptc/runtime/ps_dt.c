@@ -8,6 +8,7 @@ microseconds, normalized the way CPython normalizes them.
 #include "ps_rt.h"
 
 #include <stdint.h>
+#include <time.h>
 
 typedef struct {
     int64_t year;
@@ -263,6 +264,16 @@ void ps_dt_now(PsDateTime *out) {
     ps_dt_now_fill(out);
 }
 
+void ps_dt_fromtimestamp(double ts, PsDateTime *out) {
+    extern void ps_dt_fromtimestamp_fill(double ts, PsDateTime *out);
+    ps_dt_fromtimestamp_fill(ts, out);
+}
+
+void ps_date_fromtimestamp(double ts, PsDate *out) {
+    extern void ps_date_fromtimestamp_fill(double ts, PsDate *out);
+    ps_date_fromtimestamp_fill(ts, out);
+}
+
 void ps_dt_fromiso(int64_t n, const char *s, PsDateTime *out) {
     int64_t y, m, d, h = 0, mi = 0, sec = 0, us = 0;
     if (n != 10 && n != 19 && n != 26) {
@@ -309,6 +320,68 @@ void ps_dt_iso(PsDateTime *d, PsBuf *out) {
 }
 
 void ps_dt_date(PsDateTime *d, PsDate *out) { ps_date_ymd(d->year, d->month, d->day, out); }
+
+void ps_date_min(PsDate *out) {
+    out->year = 1;
+    out->month = 1;
+    out->day = 1;
+}
+
+void ps_date_max(PsDate *out) {
+    out->year = 9999;
+    out->month = 12;
+    out->day = 31;
+}
+
+void ps_dt_min(PsDateTime *out) {
+    out->year = 1;
+    out->month = 1;
+    out->day = 1;
+    out->hour = 0;
+    out->minute = 0;
+    out->second = 0;
+    out->microsecond = 0;
+}
+
+void ps_dt_max(PsDateTime *out) {
+    out->year = 9999;
+    out->month = 12;
+    out->day = 31;
+    out->hour = 23;
+    out->minute = 59;
+    out->second = 59;
+    out->microsecond = 999999;
+}
+
+void ps_dt_combine(PsDate *d, PsTod *t, PsDateTime *out) {
+    ps_dt_new(d->year, d->month, d->day, t->hour, t->minute, t->second, t->microsecond, out);
+}
+
+/* ps_dtparse.c owns the parser; the entry point keeps the ABI shape: the
+   text comes first, the format second, like the Python call. */
+void ps_dt_strptime(int64_t flen, const char *fmt, int64_t n, const char *text, PsDateTime *out);
+
+void ps_dt_strptime_entry(int64_t n, const char *text, int64_t flen, const char *fmt, PsDateTime *out) {
+    ps_dt_strptime(flen, fmt, n, text, out);
+}
+
+double ps_dt_timestamp(PsDateTime *d) {
+    /* A naive datetime is read as local time, like CPython. */
+    struct tm tm;
+    time_t t;
+    tm.tm_year = (int)(d->year - 1900);
+    tm.tm_mon = (int)(d->month - 1);
+    tm.tm_mday = (int)d->day;
+    tm.tm_hour = (int)d->hour;
+    tm.tm_min = (int)d->minute;
+    tm.tm_sec = (int)d->second;
+    tm.tm_isdst = -1;
+    t = mktime(&tm);
+    if (t == (time_t)-1) {
+        ps_raise_cstr(PS_VALUE, "timestamp out of range");
+    }
+    return (double)t + (double)d->microsecond / 1000000.0;
+}
 
 void ps_dt_time(PsDateTime *d, PsTod *out) {
     ps_check_tod(d->hour, d->minute, d->second, d->microsecond);

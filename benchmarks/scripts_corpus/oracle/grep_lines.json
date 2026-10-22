@@ -1,0 +1,10 @@
+{
+  "slug": "grep_lines",
+  "argv": [
+    "b",
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/lines.txt"
+  ],
+  "stdout": "beta\nbeta\n",
+  "stderr": "2 matching lines\n",
+  "exitCode": 0
+}

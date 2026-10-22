@@ -1192,12 +1192,16 @@ ALWAYS_CLASSES: tuple[str, ...] = ("TextIO", "BytesIO")
 MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "datetime": ("Date", "DateTime", "Time", "TimeDelta"),
     "time": ("StructTime",),
-    "pathlib": ("Path",),
-    "os": ("Stat",),
+    "pathlib": ("Path", "Stat"),
+    "os": ("Stat", "TerminalSize"),
+    "shutil": ("TerminalSize",),
+    "subprocess": ("CompletedProcess",),
     "collections": ("Deque",),
     "hmac": ("Hmac",),
     "importlib.resources": ("Path",),
     "csv": ("CsvWriter",),
+    "argparse": ("ArgParser", "Namespace"),
+    "logging": ("Logger",),
 }
 
 CLASS_FIELDS: dict[str, list[dict[str, Any]]] = {
@@ -1220,16 +1224,44 @@ CLASS_FIELDS: dict[str, list[dict[str, Any]]] = {
     "Deque": [],
     "TextIO": [],
     "BytesIO": [],
+    "TerminalSize": [
+        {"name": "columns", "type": _I},
+        {"name": "lines", "type": _I},
+    ],
+    "CompletedProcess": [
+        {"name": "returncode", "type": _I},
+        {"name": "stdout", "type": _BY},
+        {"name": "stderr", "type": _BY},
+    ],
     "Hmac": [
         {"name": "_key", "type": _BY},
         {"name": "_msg", "type": _BY},
         {"name": "_alg", "type": _I},
     ],
+    # The parser holds the encoded spec rows; the namespace fields are
+    # declared as the options are registered, so they start empty here.
+    "ArgParser": [{"name": "_specs", "type": {"kind": "list", "elem": _S}}],
+    "Namespace": [],
+    # The logger carries the name getLogger recorded.
+    "Logger": [{"name": "_name", "type": _S}],
 }
+
+# Classes whose fields grow while the statements lower. They are emitted
+# after the functions, not with the other synthetic classes.
+DEFERRED_CLASSES = frozenset({"Namespace"})
 
 # i64 field packs compared lexicographically. Path compares its string.
 LEX_CLASSES = frozenset({"Date", "DateTime", "Time", "TimeDelta"})
 COMPARE_CLASSES = LEX_CLASSES | {"Path"}
+
+# Class constants: `date.min` and friends read a runtime record instead of a
+# baked literal, so the values stay right when the class layout changes.
+CLASS_CONSTANTS: dict[tuple[str, str], tuple[dict[str, Any], str]] = {
+    ("datetime", "date.min"): (_DATE, "ps_date_min"),
+    ("datetime", "date.max"): (_DATE, "ps_date_max"),
+    ("datetime", "datetime.min"): (_DT, "ps_dt_min"),
+    ("datetime", "datetime.max"): (_DT, "ps_dt_max"),
+}
 
 TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("datetime", "date"): "Date",
@@ -1243,10 +1275,15 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("time", "struct_time"): "StructTime",
     ("os", "stat_result"): "Stat",
     ("csv", "_writer"): "CsvWriter",
+    ("argparse", "ArgumentParser"): "ArgParser",
+    ("argparse", "Namespace"): "Namespace",
+    ("logging", "Logger"): "Logger",
     ("re", "Pattern"): "Pattern",
     ("re", "Match"): "Match",
     ("threading", "Lock"): "Lock",
     ("threading", "RLock"): "Lock",
+    ("os", "terminal_size"): "TerminalSize",
+    ("subprocess", "CompletedProcess"): "CompletedProcess",
 }
 
 # Instance methods. `elem` means the deque's element type.
@@ -1260,6 +1297,7 @@ CLASS_METHODS: dict[str, dict[str, dict[str, Any]]] = {
         "isoformat": _sig([], _S, "ps_dt_iso"),
         "date": _sig([], _DATE, "ps_dt_date"),
         "time": _sig([], _TOD, "ps_dt_time"),
+        "timestamp": _sig([], _F, "ps_dt_timestamp"),
     },
     "Time": {"isoformat": _sig([], _S, "ps_tod_iso")},
     "TimeDelta": {"total_seconds": _sig([], _F, "ps_delta_total")},
@@ -1268,12 +1306,19 @@ CLASS_METHODS: dict[str, dict[str, dict[str, Any]]] = {
         "exists": _sig([], _B, "ps_path_exists_p"),
         "is_file": _sig([], _B, "ps_path_isfile_p"),
         "is_dir": _sig([], _B, "ps_path_isdir_p"),
+        "is_absolute": _sig([], _B, "ps_path_isabs_p"),
         "read_text": _sig([], _S, "ps_path_read_text"),
         "read_bytes": _sig([], _BY, "ps_path_read_bytes"),
         "write_text": _sig([_S], _I, "ps_path_write_text"),
         "write_bytes": _sig([_BY], _I, "ps_path_write_bytes"),
         "joinpath": _sig([_S], _PATH, "ps_path_joinpath"),
         "with_name": _sig([_S], _PATH, "ps_path_with_name"),
+        "resolve": _sig([], _PATH, "ps_path_resolve"),
+        "unlink": _sig([], _N, "ps_path_unlink"),
+        "touch": _sig([], _N, "ps_path_touch"),
+        "rename": _sig([_S], _PATH, "ps_path_rename"),
+        "stat": _sig([], _STAT, "ps_path_stat"),
+        "expanduser": _sig([], _PATH, "ps_path_expanduser_p"),
         # iterdir/glob return the materialized list[Path]; lowering wraps it
         # in the R24 iterator record. mkdir is special-cased for keywords.
         "iterdir": _sig([], {"kind": "list", "elem": _PATH}, "ps_path_iterdir"),
@@ -1301,6 +1346,14 @@ CLASS_METHODS: dict[str, dict[str, dict[str, Any]]] = {
         "popleft": {"params": [], "return": "elem", "symbol": "ps_deque_popleft"},
     },
     "Hmac": {"digest": _sig([], _BY, "ps_hmac_finish")},
+    "Logger": {
+        "debug": _sig([_S], _N, "ps_log_debug"),
+        "info": _sig([_S], _N, "ps_log_info"),
+        "warning": _sig([_S], _N, "ps_log_warning"),
+        "error": _sig([_S], _N, "ps_log_error"),
+        "critical": _sig([_S], _N, "ps_log_critical"),
+        "exception": _sig([_S], _N, "ps_log_exception"),
+    },
     "CsvWriter": {
         "writerow": _sig([_LS], _N, "ps_csv_writerow"),
         "writerows": _sig([_LLS], _N, "ps_csv_writerows"),
@@ -1319,14 +1372,22 @@ REST_FIXED: dict[str, dict[str, dict[str, Any]]] = {
         "date.today": _sig([], _DATE, "ps_date_today"),
         "date.fromisoformat": _sig([_S], _DATE, "ps_date_fromiso"),
         "date.fromordinal": _sig([_I], _DATE, "ps_date_fromord"),
+        "date.fromtimestamp": _sig([_F], _DATE, "ps_date_fromtimestamp"),
         "datetime.now": _sig([], _DT, "ps_dt_now"),
         "datetime.fromisoformat": _sig([_S], _DT, "ps_dt_fromiso"),
+        "datetime.fromtimestamp": _sig([_F], _DT, "ps_dt_fromtimestamp"),
+        "datetime.strptime": _sig([_S, _S], _DT, "ps_dt_strptime_entry"),
+        "datetime.combine": _sig([_DATE, _TOD], _DT, "ps_dt_combine"),
     },
     "time": {
         "time": _sig([], _F, "ps_time_time"),
         "monotonic": _sig([], _F, "ps_time_monotonic"),
         "strftime": _sig([_S, _STM], _S, "ps_time_strftime"),
         "mktime": _sig([_STM], _F, "ps_time_mktime"),
+    },
+    "pathlib": {
+        "Path.cwd": _sig([], _PATH, "ps_path_cwd"),
+        "Path.home": _sig([], _PATH, "ps_path_home"),
     },
     "os": {
         "getcwd": _sig([], _S, "ps_os_getcwd"),
@@ -1336,6 +1397,18 @@ REST_FIXED: dict[str, dict[str, dict[str, Any]]] = {
         "rename": _sig([_S, _S], _N, "ps_os_rename"),
         "makedirs": _sig([_S], _N, "ps_os_makedirs"),
         "stat": _sig([_S], _STAT, "ps_os_stat"),
+        "access": _sig([_S, _I], _B, "ps_os_access"),
+        "getpid": _sig([], _I, "ps_os_getpid"),
+        "chdir": _sig([_S], _N, "ps_os_chdir"),
+        "chmod": _sig([_S, _I], _N, "ps_os_chmod"),
+        "mkdir": _sig([_S], _N, "ps_os_mkdir"),
+        "replace": _sig([_S, _S], _N, "ps_os_replace"),
+        "unlink": _sig([_S], _N, "ps_os_remove"),
+        "close": _sig([_I], _N, "ps_os_close"),
+        "write": _sig([_I, _BY], _I, "ps_os_write"),
+        "fstat": _sig([_I], _STAT, "ps_os_fstat"),
+        "lstat": _sig([_S], _STAT, "ps_os_lstat"),
+        "utime": _sig([_S], _N, "ps_os_utime"),
     },
     "posixpath": {
         "basename": _sig([_S], _S, "ps_path_base"),
@@ -1348,6 +1421,14 @@ REST_FIXED: dict[str, dict[str, dict[str, Any]]] = {
         "exists": _sig([_S], _B, "ps_path_exists"),
         "isfile": _sig([_S], _B, "ps_path_isfile"),
         "isdir": _sig([_S], _B, "ps_path_isdir"),
+        "expanduser": _sig([_S], _S, "ps_path_expanduser"),
+        "expandvars": _sig([_S], _S, "ps_path_expandvars"),
+        "realpath": _sig([_S], _S, "ps_path_realpath"),
+        "getmtime": _sig([_S], _F, "ps_path_getmtime"),
+        "getsize": _sig([_S], _I, "ps_path_getsize"),
+        "getatime": _sig([_S], _F, "ps_path_getatime"),
+        "islink": _sig([_S], _B, "ps_path_islink"),
+        "splitdrive": _sig([_S], _LS, "ps_path_splitdrive"),
     },
     "stat": {
         "S_ISREG": _sig([_I], _B, "ps_stat_isreg"),
@@ -1361,8 +1442,12 @@ REST_FIXED: dict[str, dict[str, dict[str, Any]]] = {
     "warnings": {"warn": _sig([_S], _N, "ps_warn")},
     "inspect": {"cleandoc": _sig([_S], _S, "ps_island_cleandoc")},
     "logging": {
+        "getLogger": _sig([_S], {"kind": "class", "name": "Logger"}, "ps_log_new"),
+        "debug": _sig([_S], _N, "ps_island_log_debug"),
         "info": _sig([_S], _N, "ps_island_log_info"),
         "warning": _sig([_S], _N, "ps_island_log_warning"),
+        "error": _sig([_S], _N, "ps_island_log_error"),
+        "critical": _sig([_S], _N, "ps_island_log_critical"),
     },
     "socket": {"gethostname": _sig([], _S, "ps_island_hostname")},
     "threading": {"active_count": _sig([], _I, "ps_thread_active_count")},
@@ -1394,6 +1479,11 @@ REST_FIXED: dict[str, dict[str, dict[str, Any]]] = {
         "copyfile": _sig([_S, _S], _S, "ps_shutil_copyfile"),
         "rmtree": _sig([_S], _N, "ps_shutil_rmtree"),
         "which": _sig([_S], _S, "ps_shutil_which"),
+        "copy": _sig([_S, _S], _S, "ps_shutil_copy"),
+        "copy2": _sig([_S, _S], _S, "ps_shutil_copy2"),
+        "copytree": _sig([_S, _S], _S, "ps_shutil_copytree"),
+        "move": _sig([_S, _S], _S, "ps_shutil_move"),
+        "get_terminal_size": _sig([], {"kind": "class", "name": "TerminalSize"}, "ps_shutil_get_terminal_size"),
     },
     "textwrap": {
         "dedent": _sig([_S], _S, "ps_wrap_dedent"),
@@ -1402,7 +1492,7 @@ REST_FIXED: dict[str, dict[str, dict[str, Any]]] = {
 }
 
 # Callable, but only in a particular statement shape.
-FOR_ONLY = frozenset({("itertools", "repeat"), ("itertools", "chain")})
+FOR_ONLY = frozenset({("itertools", "repeat")})
 WITH_ONLY = frozenset({("contextlib", "suppress"), ("contextlib", "nullcontext"), ("importlib.resources", "as_file")})
 
 CALL_FENCES: dict[tuple[str, str], str] = {
@@ -1465,6 +1555,7 @@ REST_MODULES = frozenset(
         "csv",
         "textwrap",
         "copy",
+        "argparse",
     }
 )
 
@@ -1575,6 +1666,11 @@ def module_constant(module: str, member: str) -> tuple[Any, dict[str, Any]] | No
     return CONSTANTS.get((module, member))
 
 
+def class_constant(module: str, member: str) -> tuple[dict[str, Any], str] | None:
+    """The type and runtime symbol of a class constant, like `date.max`."""
+    return CLASS_CONSTANTS.get((module, member))
+
+
 def fixed_spec(module: str, member: str) -> dict[str, Any] | None:
     return REST_FIXED.get(module, {}).get(member)
 
@@ -1631,7 +1727,7 @@ def member_callable(module: str, member: str) -> bool:
         return True
     if module == "atexit" and member == "register":
         return True
-    if module == "enum" and member in {"Enum", "IntEnum"}:
+    if module == "enum" and member in {"Enum", "IntEnum", "auto"}:
         return True
     if module == "dataclasses" and member == "dataclass":
         return True
@@ -1653,5 +1749,14 @@ def member_callable(module: str, member: str) -> bool:
     if module == "copy" and member in {"copy", "deepcopy"}:
         return True
     if module == "threading" and member in {"Lock", "RLock", "get_ident"}:
+        return True
+    if module == "itertools" and member in {
+        "chain",
+        "chain.from_iterable",
+        "starmap",
+        "filterfalse",
+    }:
+        return True
+    if module == "argparse" and member == "ArgumentParser":
         return True
     return False

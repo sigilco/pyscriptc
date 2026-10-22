@@ -1,0 +1,4 @@
+8080=port
+alpha=host
+one=shared
+3 pairs
