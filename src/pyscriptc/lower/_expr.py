@@ -183,7 +183,8 @@ class ExprMixin:
     def _name(self, node: ast.Name, span: dict[str, Any]) -> dict[str, Any]:
         if node.id in self.dead_names:
             # `except E as e` deletes e at handler end (CPython's `del e`).
-            pass
+            # CPython raises NameError there; the subset fences instead.
+            self.fail(node, "PS2002", f"{node.id} is deleted by the except handler that bound it")
         elif node.id in self.locals:
             narrowed = self.opt_unwrap.get(node.id)
             if narrowed is not None:

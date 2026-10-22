@@ -26,6 +26,7 @@ from pyscriptc.restlower._builtins import (
     _pow_call,
     _repr,
     _round,
+    _type_call,
 )
 from pyscriptc.restlower._collections import _counter, _defaultdict, _deque, _ordered
 from pyscriptc.restlower._copy import _copy_call
@@ -243,6 +244,7 @@ _BUILTINS: dict[str, BuiltinHandler] = {
     "bin": _base_repr,
     "pow": lambda lo, node, span, name: _pow_call(lo, node, span),
     "repr": lambda lo, node, span, name: _repr(lo, node, span),
+    "type": lambda lo, node, span, name: _type_call(lo, node, span),
     "ord": lambda lo, node, span, name: _ord(lo, node, span),
     "chr": lambda lo, node, span, name: _chr(lo, node, span),
     "round": lambda lo, node, span, name: _round(lo, node, span),

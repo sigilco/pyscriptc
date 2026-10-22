@@ -56,6 +56,22 @@ def cpython_version() -> str:
     return sys.version.split()[0]
 
 
+def zdi_variants() -> dict[str, int]:
+    """The ps_raise_zdi variant numbers for the running interpreter's CPython.
+
+    CPython 3.13 and earlier name the operation in a ZeroDivisionError
+    ("integer division or modulo by zero"); 3.14 unified every division
+    into "division by zero". The compiled binary has to agree with the
+    interpreter that oracles the same source, so the variant follows the
+    one that runs the compiler.
+    """
+
+    major, minor = cpython_version().split(".")[:2]
+    if int(major) > 3 or (int(major) == 3 and int(minor) >= 14):
+        return {"idiv": 7, "imod": 7, "fdiv": 7, "fmod": 7, "ffloordiv": 7, "fpow": 8}
+    return {"idiv": 1, "imod": 2, "fdiv": 3, "fmod": 5, "ffloordiv": 4, "fpow": 6}
+
+
 def type_key(typ: dict[str, Any]) -> str:
     if typ["kind"] == "list":
         head = "set" if typ.get("set") else "list"
@@ -391,6 +407,13 @@ def validate_module(module: Any) -> None:
         methods = cls.get("methods")
         if not isinstance(methods, list):
             raise IRError(f"{cls['name']}: methods must be a list")
+        if cls.get("exception") is not None:
+            if not isinstance(cls.get("exception"), bool):
+                raise IRError(f"{cls['name']}: exception must be a bool")
+            for key in ("exc_code", "exc_parent"):
+                value = cls.get(key)
+                if not isinstance(value, int) or isinstance(value, bool):
+                    raise IRError(f"{cls['name']}: {key} must be an int")
         for j, method in enumerate(methods):
             if not isinstance(method, dict) or not isinstance(method.get("name"), str):
                 raise IRError(f"{cls['name']}.methods[{j}] needs a name")

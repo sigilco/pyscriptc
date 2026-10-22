@@ -157,6 +157,12 @@ _ENTRIES = (
         "Avoid the module, or wait for the queue entry to land.",
     ),
     Diagnostic(
+        "PS3102",
+        "invalid config",
+        "A `pyscriptc.toml`, a `[tool.pyscriptc]` table, or PEP 723 script metadata failed schema validation.",
+        "Fix the key named in the message; `pyscriptc explain` lists no other config diagnostics.",
+    ),
+    Diagnostic(
         "PS3001",
         "version mismatch",
         "The running interpreter is not the CPython version the subset targets.",
@@ -167,6 +173,13 @@ _ENTRIES = (
         "does not fit",
         "The emitted program exceeds a fixed limit of the backend.",
         "Reduce the offending size or count.",
+    ),
+    Diagnostic(
+        "PS3101",
+        "dependency resolution failed",
+        "`pyscriptc deps` could not read, resolve, download or verify a PyPI dependency "
+        "(bad PEP 723 or pyproject metadata, sdist-only package, stale lock under --frozen, hash mismatch).",
+        "Fix the metadata or lock as the message says; pyscriptc never builds sdists, so pick a version with a wheel.",
     ),
 )
 

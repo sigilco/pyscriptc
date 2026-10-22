@@ -226,6 +226,46 @@ def _resolve_pyrefly() -> tuple[list[str], str]:
     return _resolve_tool("pyrefly", "PYREFLY_BIN", [sys.executable, "-m", "pyrefly"])
 
 
+# PEP 765 makes a `return`, `break` or `continue` in a `finally` block an
+# error in Python 3.15. The subset targets the 3.12 window
+# (`docs/python-version-window.md`), where the same code is legal and the
+# compiler reproduces CPython's "the finally block replaces the in-flight
+# outcome" behavior, so pyrefly's diagnostics for it do not apply.
+_PEP765_MARKERS = ("in a `finally` block will silence exceptions",)
+
+
+def _is_pep765(error):
+    """True for the PEP 765 `finally`-block diagnostics, false otherwise."""
+    if error.get("name") != "invalid-syntax":
+        return False
+    description = str(error.get("description", ""))
+    return any(marker in description for marker in _PEP765_MARKERS)
+
+
+def _pyrefly_errors(stdout):
+    """The parsed pyrefly diagnostics, or None when the output is not JSON."""
+    text = stdout.strip()
+    if not text.startswith("{"):
+        return None
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    errors = data.get("errors")
+    if not isinstance(errors, list):
+        return None
+    return [err for err in errors if isinstance(err, dict)]
+
+
+def _format_pyrefly_error(error):
+    """One diagnostic in the shape the CLI prints."""
+    path = str(error.get("path", ""))
+    line = int(error.get("line", 0) or 0)
+    rule = str(error.get("name", ""))
+    description = str(error.get("description", ""))
+    return f"{path}:{line}: error: {description} [{rule}]" if rule else f"{path}:{line}: error: {description}"
+
+
 def _run_pyrefly(path: Path) -> None:
     argv = _resolve_pyrefly_binary()
     source = path.resolve()
@@ -234,7 +274,7 @@ def _run_pyrefly(path: Path) -> None:
         search = [str(_PYRIGHT_STUBS)]
         if source.is_dir():
             # A package's own dir resolves `from .x import ...`-adjacent
-            # names; its parent resolves `import <pkg>.x`.
+            # names; its parent resolves `import pkg.x`.
             search += [str(source), str(source.parent)]
         else:
             search.append(str(source.parent))
@@ -260,6 +300,8 @@ def _run_pyrefly(path: Path) -> None:
                     str(config),
                     "--python-interpreter-path",
                     sys.executable,
+                    "--output-format",
+                    "json",
                     str(source),
                 ],
                 capture_output=True,
@@ -271,6 +313,12 @@ def _run_pyrefly(path: Path) -> None:
             ) from exc
     if proc.returncode == 0:
         return
+    errors = _pyrefly_errors(proc.stdout)
+    if errors is not None:
+        kept = [err for err in errors if not _is_pep765(err)]
+        if not kept:
+            return
+        raise CheckFailed("\n".join(_format_pyrefly_error(err) for err in kept))
     # Diagnostics go to stdout; stderr carries WARN/INFO progress lines.
     output = proc.stdout.strip() or proc.stderr.strip() or f"pyrefly exited {proc.returncode}"
     raise CheckFailed(output)

@@ -1,0 +1,4 @@
+       count        10.00
+        name         0.00
+       value        66.38
+4 rows

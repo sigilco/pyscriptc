@@ -1,0 +1,3 @@
+lines 6
+words 6
+chars 34

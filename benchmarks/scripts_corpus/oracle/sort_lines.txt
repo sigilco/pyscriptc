@@ -1,0 +1,7 @@
+alpha
+alpha
+beta
+beta
+delta
+gamma
+6 lines

@@ -1,0 +1,9 @@
+{
+  "slug": "unique_lines",
+  "argv": [
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/lines.txt"
+  ],
+  "stdout": "    2 alpha\n    2 beta\n    1 gamma\n    1 delta\n4 distinct\n",
+  "stderr": "",
+  "exitCode": 0
+}

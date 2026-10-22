@@ -76,6 +76,19 @@ Net: same fail-closed posture as scriptc, tuned to our compile model —
 epochs on real contract changes rather than per-release bumps, because our
 runtime is stable C and compile is atomic.
 
+## Exception codes (E2 decision, 2026-10-21)
+
+Exception class codes cross the `.ll` ↔ `runtime` boundary — emitted IR carries
+them as `i32` literals — so they are part of surface 1 above. The E2 renumber
+(M2, commit ba701bf) assigns the 67 builtin classes the dense range 1 to 67
+plus the three `OSError` aliases, moves `USER_EXC_BASE` to 256, and leaves
+72 to 255 as headroom for future builtins so user classes never renumber
+across releases. This was an epoch-level renumber absorbed inside E2 before
+any cross-binary `.ll` consumer depended on the old 1-to-7 values, per the
+"do not promise cross-version `.ll` compat" rule above; it is recorded here
+because the design (`docs/e2-exception-model.md`) names this document as the
+owner of the decision.
+
 ## Sources
 
 - `src/pyscriptc/runtime/ps_rt.h` (struct layout + append-only comment),
