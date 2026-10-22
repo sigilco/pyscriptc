@@ -1568,6 +1568,7 @@ REST_MODULES = frozenset(
         "copy",
         "argparse",
         "tomllib",
+        "dotenv",
     }
 )
 
@@ -1761,6 +1762,8 @@ def member_callable(module: str, member: str) -> bool:
     if module == "textwrap" and member in {"fill", "wrap", "shorten"}:
         return True
     if module == "tomllib" and member == "loads":
+        return True
+    if module == "dotenv" and member in {"dotenv_values", "load_dotenv"}:
         return True
     if module == "copy" and member in {"copy", "deepcopy"}:
         return True

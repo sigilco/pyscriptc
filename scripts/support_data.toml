@@ -189,6 +189,15 @@ ok = ['y: dict[str, int] = tomllib.loads(s)']
 no = [["load (file object)", 'y: dict[str, int] = tomllib.load(p)', "PS2001"], ["keyword arguments", 'y: dict[str, int] = tomllib.loads(s, parse_float=float)', "PS2003"]]
 
 [[stdlib]]
+names = ["dotenv"]
+ok = ['y: dict[str, str | None] = dotenv.dotenv_values(s)', 'ok: bool = dotenv.load_dotenv(s)']
+no = [
+    ["stream, verbose, interpolate, override, encoding arguments", 'y: dict[str, str | None] = dotenv.dotenv_values(p, verbose=True)', "PS2003"],
+    ["other dotenv members (find_dotenv, set_key, DotEnv)", 'dotenv.find_dotenv(p)', "PS2001"],
+    ["interpolation ($VAR stays literal)", 'y: dict[str, str | None] = dotenv.dotenv_values(p, interpolate=False)', "PS2003"],
+]
+
+[[stdlib]]
 names = ["urllib.parse"]
 ok = ['y: str = urllib.parse.quote(s)', 'y: str = urllib.parse.unquote_plus(s)']
 no = [["urlparse, urljoin, urlunsplit, parse_qsl", 'y: str = urllib.parse.urljoin(s, s)', "PS2001"]]

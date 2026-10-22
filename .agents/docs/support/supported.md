@@ -1,6 +1,6 @@
 # What is supported
 
-builtins: 25 🟢 · 22 🟡 · 23 🔴 | stdlib: 0 🟢 · 48 🟡 · 2 🔴
+builtins: 25 🟢 · 22 🟡 · 23 🔴 | stdlib: 0 🟢 · 49 🟡 · 2 🔴
 
 🟢 fully supported (every probed form compiles) · 🟡 partial · 🔴 not supported.
 
@@ -56,6 +56,7 @@ Targets CPython 3.14. Deliberate differences from CPython: [divergences.md](../.
 | `ctypes` | 🟡 | CDLL, c_int(...), sizeof of other types | PS2001 |
 | `dataclasses` | 🟡 | field(), asdict, frozen=, order= and other options | PS1201, PS2001 |
 | `datetime` | 🟡 | timezone and tzinfo, utcnow, datetime.strftime | PS2001 |
+| `dotenv` | 🟡 | stream, verbose, interpolate, override, encoding arguments, other dotenv members (find_dotenv, set_key, DotEnv), interpolation ($VAR stays literal) | PS2001, PS2003 |
 | `enum` | 🟡 | Flag, str-valued members, methods on the enum | PS2002 |
 | `errno` | 🟡 | errorcode | PS2001 |
 | `fnmatch` | 🟡 | fnmatchcase, translate | PS2001 |
