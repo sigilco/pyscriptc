@@ -8,6 +8,16 @@ return code, the captured stdout bytes, and the captured stderr bytes.
 
 #include "ps_rt.h"
 
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef _NO_W32_PSEUDO_MODIFIERS
+#define _NO_W32_PSEUDO_MODIFIERS
+#endif
+#include <windows.h>
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,6 +37,7 @@ typedef struct {
 
 static void ps_sub_fail(const char *what) { ps_raise_cstr(PS_RUNTIME, what); }
 
+#ifndef _WIN32
 static char *ps_cstr_dup(int64_t n, const char *s) {
     char *text;
     if (n < 0) {
@@ -42,6 +53,7 @@ static char *ps_cstr_dup(int64_t n, const char *s) {
     text[n] = '\0';
     return text;
 }
+#endif
 
 #ifdef _WIN32
 static char *ps_build_cmdline(PsSeq *args) {
@@ -69,12 +81,32 @@ static char *ps_build_cmdline(PsSeq *args) {
         if (!need_quote) {
             ps_grow_add(&g, item.data, item.len);
         } else {
+            /* The CommandLineToArgvW rule: a backslash run before a quote
+               is literal unless it precedes the quote itself, in which case
+               one backslash escapes the quote. */
+            int64_t slashes = 0;
             ps_grow_byte(&g, '"');
             for (j = 0; j < item.len; j++) {
+                if (item.data[j] == '\\') {
+                    slashes += 1;
+                    continue;
+                }
                 if (item.data[j] == '"') {
+                    for (int64_t k = 0; k < slashes; k++) {
+                        ps_grow_byte(&g, '\\');
+                    }
                     ps_grow_byte(&g, '\\');
+                    slashes = 0;
+                } else {
+                    for (int64_t k = 0; k < slashes; k++) {
+                        ps_grow_byte(&g, '\\');
+                    }
+                    slashes = 0;
                 }
                 ps_grow_byte(&g, item.data[j]);
+            }
+            for (int64_t k = 0; k < slashes; k++) {
+                ps_grow_byte(&g, '\\');
             }
             ps_grow_byte(&g, '"');
         }
@@ -131,8 +163,17 @@ static int ps_sub_spawn(PsSeq *args, PsBuf *out_stdout, PsBuf *out_stderr) {
     si.cb = sizeof(si);
     si.dwFlags |= STARTF_USESTDHANDLES;
     si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    if (si.hStdInput == INVALID_HANDLE_VALUE) {
+        si.hStdInput = NULL;
+    }
     si.hStdOutput = (out_stdout != NULL) ? out_write : GetStdHandle(STD_OUTPUT_HANDLE);
     si.hStdError = (out_stderr != NULL) ? err_write : GetStdHandle(STD_ERROR_HANDLE);
+    if (si.hStdOutput == INVALID_HANDLE_VALUE) {
+        si.hStdOutput = NULL;
+    }
+    if (si.hStdError == INVALID_HANDLE_VALUE) {
+        si.hStdError = NULL;
+    }
 
     ZeroMemory(&pi, sizeof(pi));
     ok = CreateProcessA(NULL, cmdline, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi);

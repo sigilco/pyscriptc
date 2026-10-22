@@ -7,6 +7,12 @@
 #include "ps_rt.h"
 
 #ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef _NO_W32_PSEUDO_MODIFIERS
+#define _NO_W32_PSEUDO_MODIFIERS
+#endif
 #include <windows.h>
 #else
 #include <dlfcn.h>

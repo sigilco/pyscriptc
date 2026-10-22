@@ -20,23 +20,24 @@ Toolchain driver selection follows this precedence in `src/pyscriptc/cli.py` (`_
 2. **Environment variable**: `PYSC_CC` (`zig` or `clang`).
 3. **Cross-compilation or Windows target**: If `--target` or `PYSC_TARGET` is set -> prefers `zig` (required for bundled sysroots).
 4. **Windows host**: If `sys.platform == "win32"` -> prefers `zig`.
-5. **Zig on PATH**: If `shutil.which("zig")` is found -> prefers `zig`.
-6. **Clang fallback**: If `shutil.which("clang")` is found on macOS/Linux -> falls back to `clang`.
-7. **Missing toolchain**: If neither is found when compiling to a binary (`--run`, `--emit bin`, `--emit obj`, `--emit asm`), fails up-front with an actionable diagnostic pointing to `pyscriptc doctor` and installation options.
+5. **Sanitizer requested**: If `--sanitize` or `PYSC_SANITIZE` is set -> prefers `clang` (`zig cc` has no linkable ASan/UBSan runtime).
+6. **Zig on PATH**: If `shutil.which("zig")` is found -> prefers `zig`.
+7. **Clang fallback**: If `shutil.which("clang")` is found on macOS/Linux -> falls back to `clang`.
+8. **Missing toolchain**: If neither is found when compiling to a binary (`--run`, `--emit bin`, `--emit obj`, `--emit asm`), fails up-front with an actionable diagnostic pointing to `pyscriptc doctor` and installation options.
 
 Commands that do not compile binary machine code (such as `--emit ir` and `--emit llvm`) require no C toolchain.
 
 ## Obtaining Zig & `ziglang` on PyPI
 
-Zig can be installed via standard system package managers or directly from PyPI:
+Zig can be installed via standard system package managers or from PyPI:
 
-- **PyPI standalone binary (`ziglang`)**:
+- **PyPI wheel (`ziglang`)**:
   ```bash
   pip install ziglang
   # or using uv:
   uv tool install ziglang
   ```
-  `ziglang` distributes prebuilt upstream Zig binaries as platform wheels on PyPI, placing a standard `zig` binary onto `PATH` without requiring root or external package managers.
+  `ziglang` repackages upstream Zig binaries as platform wheels. Caveat: its console script is `python-zig`, not `zig`, so `shutil.which("zig")` does not find it out of the box. The actual binary is at `site-packages/ziglang/zig`; add that directory to PATH or symlink it as `zig` before pyscriptc can use it.
 - **Homebrew (macOS / Linux)**:
   ```bash
   brew install zig

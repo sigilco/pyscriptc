@@ -315,7 +315,6 @@ void ps_shutil_copy(int64_t sn, const char *src, int64_t dn, const char *dst, Ps
 /* copy2: copyfile plus the mode and the modification time. */
 void ps_shutil_copy2(int64_t sn, const char *src, int64_t dn, const char *dst, PsBuf *out) {
     struct stat st;
-    struct stat out_st;
     ps_shutil_copyfile(sn, src, dn, dst, out);
     if (stat(src, &st) == 0) {
         chmod(dst, st.st_mode & 07777);
@@ -325,6 +324,7 @@ void ps_shutil_copy2(int64_t sn, const char *src, int64_t dn, const char *dst, P
         u.modtime = st.st_mtime;
         utime(dst, &u);
 #else
+        struct stat out_st;
         if (stat(dst, &out_st) == 0) {
             struct timespec times[2];
 #ifdef __APPLE__
@@ -371,7 +371,7 @@ static void ps_copy_tree(const char *src, const char *dst) {
             closedir(dir);
             ps_os_fail("copytree");
         }
-        if (lstat(child_src, &cst) != 0) {
+        if (ps_lstat(child_src, &cst) != 0) {
             closedir(dir);
             ps_os_fail("copytree");
         }
@@ -461,7 +461,7 @@ static void ps_rm_tree(const char *path) {
     struct stat st;
     DIR *dir;
     struct dirent *ent;
-    if (lstat(path, &st) != 0) {
+    if (ps_lstat(path, &st) != 0) {
         ps_os_fail("rmtree");
     }
     if (!S_ISDIR(st.st_mode)) {

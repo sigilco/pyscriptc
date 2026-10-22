@@ -75,7 +75,7 @@ Compiling a program to a binary needs a clang that can assemble textual LLVM IR 
 | Arch | `sudo pacman -S clang` (or `zig`) |
 | Any Linux or macOS | `mise use -g zig` or `brew install zig` |
 
-Windows: the `pyscriptc` binary runs there (experimental) and `coverage` works, but emitted programs cannot be compiled on Windows yet, because the C runtime needs POSIX `dlfcn.h` that MinGW-w64 lacks. Use Linux, macOS or WSL to build programs.
+Windows: the `pyscriptc` binary runs there (experimental) and `coverage` works. Emitted programs are experimental cross-compilation only: `pyscriptc compile FILE --target x86_64-windows-gnu --driver zig` builds a Windows binary from Linux or macOS, but no CI job runs the output and Windows semantics are unverified. Native Windows compiles are not supported yet; the `windows and aarch64 matrix` milestone covers that.
 
 ## What it does
 

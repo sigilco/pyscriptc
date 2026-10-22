@@ -41,6 +41,7 @@ def test_cross_compile_windows_aarch64(tmp_path: Path) -> None:
     assert _is_pe(out)
 
 
+@pytest.mark.skipif(shutil.which("zig") is None, reason="zig not on PATH")
 def test_cli_windows_target_defaults_to_exe_suffix(tmp_path: Path) -> None:
     from pyscriptc.cli import main
 
@@ -157,6 +158,39 @@ def test_apply_env_defaults_resolution_hierarchy(monkeypatch: pytest.MonkeyPatch
     args = argparse.Namespace(driver=None, linker=None, target=None)
     _apply_env_defaults(args)
     assert args.target == "x86_64-windows"
+    assert args.driver == "zig"
+
+
+def test_default_driver_prefers_clang_when_sanitizer_requested(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`zig cc` compiles with -fsanitize= but ships no linkable ASan runtime.
+
+    A sanitizer build must therefore keep the clang default instead of the
+    zig preference, or the link dies with `undefined symbol: ___asan_init`.
+    """
+
+    def fake_which(cmd: str) -> str | None:
+        return f"/usr/bin/{cmd}" if cmd in ("zig", "clang") else None
+
+    monkeypatch.setattr(shutil, "which", fake_which)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert _resolve_default_driver(sanitize=["address"]) == "clang"
+    assert _resolve_default_driver(sanitize=["address", "undefined"]) == "clang"
+    assert _resolve_default_driver(sanitize=[]) == "zig"
+
+
+def test_apply_env_defaults_sanitize_overrides_zig_preference(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(shutil, "which", lambda cmd: f"/usr/bin/{cmd}" if cmd in ("zig", "clang") else None)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.delenv("PYSC_CC", raising=False)
+    monkeypatch.delenv("PYSC_TARGET", raising=False)
+    monkeypatch.delenv("PYSC_SANITIZE", raising=False)
+
+    args = argparse.Namespace(driver=None, linker=None, target=None, sanitize="address")
+    _apply_env_defaults(args)
+    assert args.driver == "clang"
+
+    args = argparse.Namespace(driver=None, linker=None, target=None, sanitize=None)
+    _apply_env_defaults(args)
     assert args.driver == "zig"
 
 

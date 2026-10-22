@@ -1,6 +1,6 @@
 # Getting started
 
-Requirements: [uv](https://docs.astral.sh/uv/) (or pipx/pip), CPython 3.14 or later (`uv tool install --python 3.14 pyscriptc` fetches it), and, to build a binary, a clang that can assemble textual LLVM IR (or `zig`). See the install table in the [README](../README.md#install-it). `pyscriptc doctor` reports what it found. Emitted programs cannot be compiled on Windows yet; use Linux, macOS or WSL.
+Requirements: [uv](https://docs.astral.sh/uv/) (or pipx/pip), CPython 3.14 or later (`uv tool install --python 3.14 pyscriptc` fetches it), and, to build a binary, a clang that can assemble textual LLVM IR (or `zig`). See the install table in the [README](../README.md#install-it). `pyscriptc doctor` reports what it found. Windows is experimental cross-compilation only: `pyscriptc --target x86_64-windows-gnu --driver zig` builds a Windows binary from Linux or macOS, but nothing runs it in CI and no Windows-native compile is supported yet (the `windows and aarch64 matrix` milestone covers that).
 
 ```bash
 uv tool install pyscriptc
@@ -56,7 +56,7 @@ uv run pyscriptc compile examples/invoice.py --emit bin --call charge --args '[1
 
 Tier A targets (CI-verified by `packaging/zig/smoke.sh`): `x86_64-linux-gnu`, `aarch64-linux-gnu`, `riscv64-linux-gnu` (optionally pinned, e.g. `gnu.2.39`), `x86_64-linux-musl`, `aarch64-linux-musl`, `riscv64-linux-musl` (static), and `aarch64-macos` / `x86_64-macos` (compile-verified only — no runner). Static-musl binaries can run foreign arches under `qemu-<arch>-static`.
 
-Not supported yet: Windows targets (a few POSIX calls in the runtime need shims), island/fallback programs on any cross target (they embed the host libpython), and the `PYSCRIPTC_MIX_SO` dlopen path on static musl. `--target` requires `--driver zig`; without `--target`, `zig` is just another host driver.
+Not supported yet: real Windows support (Windows targets cross-compile only, experimentally: the emitted binaries are never executed anywhere, and separators, CRLF stdout, signals and threading are unverified on Windows), island/fallback programs on any cross target (they embed the host libpython), and the `PYSCRIPTC_MIX_SO` dlopen path on static musl. `--target` requires `--driver zig`; without `--target`, `zig` is just another host driver.
 
 ## Debug builds with sanitizers
 
