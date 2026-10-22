@@ -101,6 +101,9 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # A program module whose body runs at import time (every program
         # module except `__main__`): it synthesizes `<module>.__init__`.
         self.module_init = False
+        # Project mode: the entry module keeps its dotted name but plays the
+        # `__main__` role (its script body is the program's entry).
+        self.entry_module = False
         # The program root package name, when the tree is a program. It is the
         # prefix for the program's own package-style names.
         self.program_root = ""
@@ -545,9 +548,13 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         return fn
 
     def _is_program_main(self) -> bool:
-        """True for the `__main__` module of a program directory."""
+        """True for the `__main__` module of a program directory.
 
-        return self.program and self.module_name == "__main__"
+        Project mode: the named entry module plays the same role under its
+        own dotted name.
+        """
+
+        return self.program and (self.module_name == "__main__" or self.entry_module)
 
     def _is_main_module(self) -> bool:
         """True when this module runs as `__main__` (a script or program entry)."""

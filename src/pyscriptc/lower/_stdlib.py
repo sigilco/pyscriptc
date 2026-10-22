@@ -210,6 +210,10 @@ class StdlibDispatchMixin:
                 continue
             owner = ".".join(base)
             if owner and alias.name in package.get(owner, {}):
+                if owner != self.module_name and self.program and owner in package:
+                    # CPython runs the owner package's body before this
+                    # import completes; the init call needs the name bound.
+                    self._bind_pkg_module(owner.split(".")[-1], owner, stmt, fences)
                 self._bind_one_export(owner, alias.name, local, stmt, fences)
                 continue
             fences.append(
