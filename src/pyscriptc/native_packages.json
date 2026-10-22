@@ -1,0 +1,252 @@
+{
+  "schemaVersion": 1,
+  "note": "Known native-backed distributions. A distribution here ships a compiled extension (C, C++ or Rust) for some platform, so the import cannot be compiled from pure-Python source alone. `dist` is the PyPI distribution name; `imports` are the import names that reach the native code. `pack` names the curated replacement pack from the adoption plan that mirrors the library's API subset; null means no pack is planned.",
+  "packages": [
+    {
+      "dist": "numpy",
+      "imports": ["numpy"],
+      "pack": null,
+      "note": "Fortran and C core; the Python layer is a thin wrapper."
+    },
+    {
+      "dist": "scipy",
+      "imports": ["scipy"],
+      "pack": null,
+      "note": "C and Fortran core."
+    },
+    {
+      "dist": "pandas",
+      "imports": ["pandas"],
+      "pack": null,
+      "note": "Cython core; the Python layer is a wrapper."
+    },
+    {
+      "dist": "polars",
+      "imports": ["polars"],
+      "pack": null,
+      "note": "Rust core."
+    },
+    {
+      "dist": "pyarrow",
+      "imports": ["pyarrow"],
+      "pack": null,
+      "note": "C++ core."
+    },
+    {
+      "dist": "torch",
+      "imports": ["torch"],
+      "pack": null,
+      "note": "C++ and CUDA core."
+    },
+    {
+      "dist": "tensorflow",
+      "imports": ["tensorflow"],
+      "pack": null,
+      "note": "C++ core."
+    },
+    {
+      "dist": "jax",
+      "imports": ["jax"],
+      "pack": null,
+      "note": "C++ core."
+    },
+    {
+      "dist": "opencv-python",
+      "imports": ["cv2"],
+      "pack": null,
+      "note": "C++ OpenCV bindings."
+    },
+    {
+      "dist": "pillow",
+      "imports": ["PIL", "PIL.Image", "PIL.ImageDraw"],
+      "pack": null,
+      "note": "C imaging core."
+    },
+    {
+      "dist": "lxml",
+      "imports": ["lxml", "lxml.etree", "lxml.html"],
+      "pack": null,
+      "note": "libxml2 and libxslt bindings."
+    },
+    {
+      "dist": "orjson",
+      "imports": ["orjson"],
+      "pack": "pyscriptc-orjson",
+      "note": "Rust JSON codec; the plan's first curated pack."
+    },
+    {
+      "dist": "ujson",
+      "imports": ["ujson"],
+      "pack": "pyscriptc-orjson",
+      "note": "C JSON codec; the same pack surface covers the subset."
+    },
+    {
+      "dist": "simplejson",
+      "imports": ["simplejson"],
+      "pack": "pyscriptc-orjson",
+      "note": "C accelerator with a pure-Python fallback."
+    },
+    {
+      "dist": "msgpack",
+      "imports": ["msgpack"],
+      "pack": "pyscriptc-msgpack",
+      "note": "C codec; the plan lists msgpack among the pack candidates."
+    },
+    {
+      "dist": "pyyaml",
+      "imports": ["yaml", "_yaml", "yaml._yaml"],
+      "pack": null,
+      "note": "LibYAML bindings behind the C loader."
+    },
+    {
+      "dist": "tomli-w",
+      "imports": ["tomli_w"],
+      "pack": null,
+      "note": "C extension; tomli is the pure-Python reader."
+    },
+    {
+      "dist": "regex",
+      "imports": ["regex", "regex._regex"],
+      "pack": "pyscriptc-regex",
+      "note": "C extension; the plan lists PCRE2 as the pack backing."
+    },
+    {
+      "dist": "pydantic-core",
+      "imports": ["pydantic_core", "pydantic_core._pydantic_core"],
+      "pack": "pyscriptc-val",
+      "note": "Rust core of pydantic v2; the plan's dataclass validation pack covers the subset."
+    },
+    {
+      "dist": "pydantic",
+      "imports": ["pydantic"],
+      "pack": "pyscriptc-val",
+      "note": "The v1 line is pure Python; v2 depends on pydantic-core, so the import is only native-backed when v2 is installed."
+    },
+    {
+      "dist": "cryptography",
+      "imports": [
+        "cryptography",
+        "cryptography.fernet",
+        "cryptography.hazmat",
+        "cryptography.hazmat.bindings",
+        "cryptography.hazmat.bindings._rust"
+      ],
+      "pack": "pyscriptc-cryptography",
+      "note": "Rust and OpenSSL bindings; the plan's cryptography subset pack."
+    },
+    {
+      "dist": "pynacl",
+      "imports": ["nacl"],
+      "pack": "pyscriptc-cryptography",
+      "note": "libsodium bindings."
+    },
+    {
+      "dist": "pycryptodome",
+      "imports": ["Crypto", "Crypto.Cipher"],
+      "pack": "pyscriptc-cryptography",
+      "note": "C implementation."
+    },
+    {
+      "dist": "bcrypt",
+      "imports": ["bcrypt"],
+      "pack": null,
+      "note": "OpenBSD bcrypt C code."
+    },
+    {
+      "dist": "zlib",
+      "imports": ["zlib"],
+      "pack": null,
+      "note": "Bundled zlib build; the wheel is not pure Python."
+    },
+    {
+      "dist": "brotli",
+      "imports": ["brotli"],
+      "pack": null,
+      "note": "C codec."
+    },
+    {
+      "dist": "zstandard",
+      "imports": ["zstandard"],
+      "pack": null,
+      "note": "C codec; zstd is the plan's replacement direction."
+    },
+    {
+      "dist": "lz4",
+      "imports": ["lz4"],
+      "pack": null,
+      "note": "C codec."
+    },
+    {
+      "dist": "python-snappy",
+      "imports": ["snappy"],
+      "pack": null,
+      "note": "C codec."
+    },
+    {
+      "dist": "psutil",
+      "imports": ["psutil"],
+      "pack": null,
+      "note": "C extension."
+    },
+    {
+      "dist": "chardet",
+      "imports": ["chardet"],
+      "pack": null,
+      "note": "C extension for the charset detector."
+    },
+    {
+      "dist": "charset-normalizer",
+      "imports": ["charset_normalizer"],
+      "pack": null,
+      "note": "Rust core."
+    },
+    {
+      "dist": "cffi",
+      "imports": ["cffi", "_cffi_backend"],
+      "pack": null,
+      "note": "The API mode compiles a C extension; ABI mode loads the C runtime."
+    },
+    {
+      "dist": "greenlet",
+      "imports": ["greenlet"],
+      "pack": null,
+      "note": "C extension used by the async runtime."
+    },
+    {
+      "dist": "markupsafe",
+      "imports": ["markupsafe"],
+      "pack": null,
+      "note": "C extension for the speedups."
+    },
+    {
+      "dist": "xxhash",
+      "imports": ["xxhash"],
+      "pack": null,
+      "note": "C extension."
+    },
+    {
+      "dist": "aiohttp",
+      "imports": ["aiohttp"],
+      "pack": null,
+      "note": "Cython core for the HTTP layer."
+    },
+    {
+      "dist": "uvloop",
+      "imports": ["uvloop"],
+      "pack": null,
+      "note": "Cython core."
+    },
+    {
+      "dist": "pyjwt",
+      "imports": ["jwt"],
+      "pack": "pyscriptc-jwt",
+      "note": "The base distribution is pure Python; the crypto extra pulls in a native backend."
+    },
+    {
+      "dist": "python-dotenv",
+      "imports": ["dotenv"],
+      "pack": null,
+      "note": "Pure Python. Listed so the wheel heuristic has a known pure counterexample."
+    }
+  ]
+}
