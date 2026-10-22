@@ -1030,9 +1030,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         self._tuple_type([elem["type"] for elem in elems], node)
         self._store_constant(name, {"kind": "tuple-const", "elems": elems}, stmt)
 
-    def _bind_threading_global(
-        self, name: str, value: dict[str, Any], typ: dict[str, Any], node: ast.AST
-    ) -> None:
+    def _bind_threading_global(self, name: str, value: dict[str, Any], typ: dict[str, Any], node: ast.AST) -> None:
         """A module-level threading record binds a global slot.
 
         The value is a runtime pointer: a stored constant would re-emit the

@@ -67,12 +67,6 @@ def test_self_census_ballpark() -> None:
     # PEP 723 dependency lanes, stub-path and ffi keys add 17 self-host fences (config.py, cli.py).
     # E2 M2-M5 (exception hierarchy, object surface, ZeroDivisionError variants): +23 fences (log, telemetry, llvm).
     # math atan2/gcd/isclose handlers: +2 self-host fences in lower/_calls.py.
-<<<<<<< HEAD
-    assert census["fences"] == 2151
-||||||| parent of e72311e (test(census): re-pin self census for the checker bridge module, format touched files)
-    assert census["fences"] == 2016
-=======
-    # Checker bridge (#87): factsbridge.py adds 1 module and 40 self-host fences
     # Checker bridge (#87): factsbridge.py adds 1 module and 40 self-host fences
     # (the mypy adapter, the facts-to-IR translator and the bridge consumer).
     assert census["fences"] == 2191
