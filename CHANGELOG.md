@@ -1,5 +1,49 @@
 # Changelog
 
+## [0.5.0] - 2026-10-22
+
+### Added
+- checker bridge — feed mypy's inferred-type map into lowering (#202)
+- lower tomllib.loads through a C TOML-to-JSON pass (part of #62) (#252)
+- typed extern manifest parser and validator (#182)
+- pyscriptc-sqlite adapter (manifest, pyi, thunk, pinned sqlite) (#247)
+- allow urllib.parse.SplitResult in annotations and imports (#248)
+- native Thread, Event, Condition and Semaphore (P2a phase 2) (#194)
+- minimal async/await on coroutine frames (P3a) (#193)
+- native Lock, RLock, get_ident and current thread (P2a phase 1) (#190)
+- pin the scorer oracle to CPython 3.14 (#210)
+- math and operator families (#201)
+- script stdlib families (os, pathlib, shutil, subprocess, datetime, itertools) (#188)
+- exception hierarchy, object surface, and try/finally semantics (E2 M2-M5) (#186)
+- coroutine lowering decision doc and reserved coroutine exception codes (#200)
+- stub-path and ffi keys, PEP 723 dependency lanes (#199)
+- pyscriptc run FILE with a content-hash binary cache (#198)
+- resolve PyPI dependencies and cache pure-Python wheels (partial) (#138)
+- multi-file programs with __main__.py as the entry point (R2) (#191)
+- script corpus for the R1 rung of the adoption ladder (P6) (#185)
+- per-import lane classifier for the adoption ladder (#184)
+- stub discovery and typed-signature registry (partial) (#140)
+- generator frames pass skeleton (P0) (#142)
+- PEP 723 + pyproject/pyscriptc.toml config surface with imports policy table (#187)
+
+### Fixed
+- evaluate module-call arguments once (#245)
+- require Python 3.14, the version the source and parser need (#244)
+- write every fixture atomically so the tar writer never reads a truncated file (#205)
+- write bundle.tar atomically so xdist workers never read a partial archive (#197)
+
+### Docs
+- add logo assets and wire into README and docs site (#256)
+- generated support status tables (#246) (#251)
+- point to GitHub milestones and Horizon instead of release versions (#216)
+- GitHub Project line names only v0.5.0, v0.6.0 and Future (#214)
+- state the CPython 3.14 pin and parity contract (W1, W3) (#209)
+- re-census PS4xxx refused-features + T0-T3 tier model (#203)
+- plan lives in GitHub milestones and project, drop roadmap file (#206)
+
+### CI
+- regenerate IR_HASHES on Linux and enforce in CI (#212)
+
 ## [0.4.1] - 2026-10-22
 
 ### Added
