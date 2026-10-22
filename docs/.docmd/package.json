@@ -1,0 +1,17 @@
+{
+  "name": "pyscriptc-site",
+  "private": true,
+  "version": "0.0.0",
+  "description": "The docmd docs part of the pyscriptc site",
+  "type": "module",
+  "packageManager": "pnpm@12.14.0",
+  "scripts": {
+    "docs:dev": "docmd dev --config docmd.config.js",
+    "docs:build": "docmd build --config docmd.config.js",
+    "docs:validate": "uv run python ../../scripts/check_doc_links.py",
+    "docs:internal": "docmd dev --config docmd.internal.config.js"
+  },
+  "devDependencies": {
+    "@docmd/core": "^0.9.5"
+  }
+}

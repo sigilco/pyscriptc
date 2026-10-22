@@ -9,7 +9,7 @@ description: How to set up the repo and land a change.
 git clone https://github.com/sigilco/pyscriptc.git
 cd pyscriptc
 mise trust && mise install   # python, uv, node, pnpm per mise.toml
-mise run setup                # uv sync + pnpm install
+mise run setup                # uv sync + pnpm install (the node deps live in docs/.docmd)
 ```
 
 Tools already on your PATH that satisfy the `mise.toml` pins are reused, not reinstalled. You also need `clang` for linking compiled binaries.
@@ -20,7 +20,7 @@ Tools already on your PATH that satisfy the `mise.toml` pins are reused, not rei
 
 | Task | What it does |
 | --- | --- |
-| `mise run setup` | First-time install: `uv sync` and `pnpm install` |
+| `mise run setup` | First-time install: `uv sync` and `pnpm install` in `docs/.docmd/` (the node workspace root) |
 | `mise run docs:dev` | Public docs dev server over `docs/` |
 | `mise run docs:build` | Build the public site to `dist/docs` |
 | `mise run docs:validate` | Check every internal link in `docs/` |

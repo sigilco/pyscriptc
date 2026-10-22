@@ -69,9 +69,9 @@ def run(cmd: list[str]) -> None:
 
 def build_parts(args: argparse.Namespace) -> None:
     if not args.skip_landing:
-        run(["pnpm", "--filter", "pyscriptc-site-landing", "build"])
+        run(["pnpm", "--dir", "docs/.docmd", "--filter", "pyscriptc-site-landing", "build"])
     if not args.skip_docs:
-        run(["pnpm", "run", "docs:build"])
+        run(["pnpm", "--dir", "docs/.docmd", "run", "docs:build"])
     run([sys.executable, "compat/build.py"])
 
 

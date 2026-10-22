@@ -1,5 +1,5 @@
 # Toolchain for pyscriptc dev + docs site. `mise install` once, then:
-#   mise run setup     first-time: uv sync + pnpm install
+#   mise run setup     first-time: uv sync + pnpm install (docs/.docmd)
 # clang and a C toolchain are also required at compile/run time but are
 # system packages, not mise tools (apt install clang).
 #
@@ -24,7 +24,7 @@ pnpm = "12"
 
 [tasks.setup]
 description = "First-time install of the python and node toolchains"
-run = ["uv sync", "pnpm install"]
+run = ["uv sync", "pnpm --dir docs/.docmd install"]
 
 [tasks."docs:dev"]
 description = "Public docs dev server (docs/)"

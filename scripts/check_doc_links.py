@@ -21,7 +21,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DOCMD = ROOT / "node_modules" / ".bin" / "docmd"
+DOCMD = ROOT / "docs" / ".docmd" / "node_modules" / ".bin" / "docmd"
 
 PLACEHOLDERS = {
     "PYSC_COMPAT_URL": ("PYSC_COMPAT_URL", "https://pyscriptc.pages.dev/compat"),
@@ -41,7 +41,7 @@ def main() -> int:
         print(f"docs directory not found: {docs}", file=sys.stderr)
         return 2
     if not DOCMD.exists():
-        print("docmd not installed: run `pnpm install` (or `mise run setup`)", file=sys.stderr)
+        print("docmd not installed: run `pnpm --dir docs/.docmd install` (or `mise run setup`)", file=sys.stderr)
         return 2
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
