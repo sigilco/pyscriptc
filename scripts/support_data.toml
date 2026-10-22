@@ -204,6 +204,41 @@ ok = ['y: dict[str, int] = yaml.safe_load(s)']
 no = [["load, dump, safe_dump", 'y: dict[str, int] = yaml.load(p)', "PS2001"], ["keyword arguments", 'y: dict[str, int] = yaml.safe_load(s, Loader=None)', "PS2003"]]
 
 [[stdlib]]
+names = ["jwt"]
+imports = ["jwt"]
+pack = true
+ok = [
+  '''d2: dict[str, str] = {"sub": "u1"}
+@@
+y: str = jwt.encode(d2, s)''',
+  '''d2: dict[str, str] = {"sub": "u1"}
+@@
+y: str = jwt.encode(d2, s, algorithm="HS384")''',
+  '''d2: dict[str, str] = {"sub": "u1"}
+@@
+y: str = jwt.encode(d2, s, "HS512")''',
+  '''jwttok: str = "eyJhbGciOiJIUzI1NiJ9.e30.sig"
+@@
+y: dict[str, str] = jwt.decode(jwttok, s, ["HS256"])''',
+]
+no = [
+  ["RS256 and other asymmetric algorithms", '''d2: dict[str, str] = {"sub": "u1"}
+@@
+y: str = jwt.encode(d2, s, algorithm="RS256")''', "PS2001"],
+  ["non-literal algorithm", '''d2: dict[str, str] = {"sub": "u1"}
+alg: str = "HS256"
+@@
+y: str = jwt.encode(d2, s, alg)''', "PS2001"],
+  ["other jwt members (get_unverified_header, PyJWTError)", '''jwttok: str = "eyJhbGciOiJIUzI1NiJ9.e30.sig"
+@@
+jwt.get_unverified_header(jwttok)''', "PS2001"],
+  ["claims beyond str values (exp, aud)", 'y: str = jwt.encode(d, s)', "PS1003"],
+  ["options dict, headers argument", '''jwttok: str = "eyJhbGciOiJIUzI1NiJ9.e30.sig"
+@@
+y: dict[str, str] = jwt.decode(jwttok, s, ["HS256"], options={})''', "PS2003"],
+]
+
+[[stdlib]]
 names = ["urllib.request", "urllib.error"]
 imports = ["urllib.request", "urllib.error"]
 ok = ['y: urllib.request.HTTPResponse = urllib.request.urlopen(s)', 'y: urllib.request.Request = urllib.request.Request(s, data=b, method="POST")', 'y: int = urllib.request.urlopen(s).status']

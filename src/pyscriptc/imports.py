@@ -36,7 +36,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from pyscriptc.stdlib_queue import canonical_module, module_status
+from pyscriptc.stdlib_queue import PACK_MODULES, canonical_module, module_status
 
 SCHEMA_VERSION = 1
 
@@ -380,6 +380,10 @@ def _stdlib_verdict(name: str) -> dict[str, Any] | None:
     """
 
     root = _top_level(name)
+    if canonical_module(name) in PACK_MODULES or root in PACK_MODULES:
+        # A pack module rides the curated-pack lane, not the stdlib table,
+        # even though the queue lists it so the lowering binds it.
+        return None
     in_table = module_status(canonical_module(name)) is not None
     if root not in sys.stdlib_module_names and not in_table:
         return None

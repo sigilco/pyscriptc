@@ -37,7 +37,8 @@ def test_self_census_ballpark() -> None:
     # zigshim.py (#291, the `pip install ziglang` PATH shim) adds 1 module.
     # restlower/_dotenv.py (dotenv_values / load_dotenv, #253) adds 1 module and 5 fences.
     # restlower/_yaml.py (yaml.safe_load, #254) adds 1 module and 5 fences.
-    assert census["modules"] == 86
+    # restlower/_jwt.py (the jwt pack, #61) adds 1 module.
+    assert census["modules"] == 87
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -94,7 +95,6 @@ def test_self_census_ballpark() -> None:
     # Emitter split (#262): the moved emitter methods carry the same fences.
     # The new module docstrings and import surfaces add 30 more across
     # emit/_ir.py, emit/llvm/_driver.py and the mixins.
-    # zigshim.py (#291) adds about 45 self-host fences.
     # restlower/_dotenv.py (dotenv_values / load_dotenv, #253) adds 5 more.
     # restlower/_yaml.py (yaml.safe_load, #254) adds 5 more.
     # restlower/_urllib.py (urlopen / Request, #225 #226) adds 12 more.
@@ -103,8 +103,9 @@ def test_self_census_ballpark() -> None:
     # Generator protocol (#166): close/throw/send/next-default surface in
     # coro.py, lower/_calls.py, lower/_classes.py and restlower/_iterators.py
     # add 11 self-host fences (new lowering code and its annotations).
-    assert census["fences"] == 2499
+    # restlower/_jwt.py (the jwt pack, #61) adds 16 fences.
+    assert census["fences"] == 2515
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     assert 11_000 <= census["lines"] <= 36_000
-    assert sum(p["fences"] for p in census["packages"]) == 2499
+    assert sum(p["fences"] for p in census["packages"]) == 2515

@@ -55,7 +55,7 @@ from pyscriptc.lower._stmt import (
     _stmt_breaks_this_loop,
     _stmt_continues_this_loop,
 )
-from pyscriptc.stdlib_queue import canonical_module, module_status
+from pyscriptc.stdlib_queue import PACK_MODULES, canonical_module, module_status
 from pyscriptc.stdmore import THREADING_CLASSES, member_callable, module_constant
 
 
@@ -896,6 +896,8 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
 
     def _use_status(self, module: str) -> str:
         if module == "nativeprobe" and os.environ.get("PYSCRIPTC_NATIVEPROBE") == "1":
+            return "lowered"
+        if canonical_module(module) in PACK_MODULES:
             return "lowered"
         status = module_status(module)
         if status == "lowered":
