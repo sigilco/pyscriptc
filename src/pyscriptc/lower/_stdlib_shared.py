@@ -69,6 +69,8 @@ def _synth_module(class_name: str) -> str:
         return "hmac"
     if class_name == "CsvWriter":
         return "csv"
+    if class_name in {"HttpRequest", "HttpResponse"}:
+        return "urllib.request"
     return "builtins"
 
 

@@ -44,6 +44,7 @@ from pyscriptc.lower._core import (
     _tuple_assign,
     _zero,
 )
+from pyscriptc.restlower import alias_name
 
 if TYPE_CHECKING:
     from pyscriptc.lower import Lowerer
@@ -2072,6 +2073,17 @@ def _handler_names(lowerer: Lowerer, node: ast.expr) -> list[str]:
     names = node.elts if isinstance(node, ast.Tuple) else [node]
     found: list[str] = []
     for item in names:
+        if isinstance(item, ast.Attribute):
+            # A dotted spelling (urllib.error.HTTPError): resolve through the
+            # module chain and alias onto the synthetic class.
+            resolved_attr = lowerer._resolve_module(item)
+            if resolved_attr is None or resolved_attr[3] != "lowered":
+                lowerer.fail(item, "PS2002", "except names a lowered exception")
+            alias = alias_name(resolved_attr[1], resolved_attr[2])
+            if alias is None:
+                lowerer.fail(item, "PS2002", "except names a lowered exception")
+            found.append(alias)
+            continue
         if not isinstance(item, ast.Name):
             lowerer.fail(item, "PS2002", "except names a lowered exception")
         resolved = lowerer.class_aliases.get(item.id, item.id)
