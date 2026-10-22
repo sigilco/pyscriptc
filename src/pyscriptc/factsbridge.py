@@ -56,6 +56,28 @@ def mypy_available() -> bool:
     return _mypy_api() is not None
 
 
+def mypy_version() -> str | None:
+    """The pinned mypy version string, or None when no bridge lane is possible.
+
+    Abridged to `major.minor.patch`; a dev build reports None rather than a
+    version the record cannot reproduce.
+    """
+    api = _mypy_api()
+    if api is None:
+        return None
+    version = api[3]
+    if not all(part.isdigit() for part in version.split(".")[:3]):
+        return None
+    return ".".join(version.split(".")[:3])
+
+
+def provider_version(provider: str) -> str | None:
+    """The version of the named checker-bridge provider, or None when absent."""
+    if provider == "mypy":
+        return mypy_version()
+    return None
+
+
 def _iter_mypy_nodes(root: Any):
     """Yield every mypy AST node under `root`.
 
