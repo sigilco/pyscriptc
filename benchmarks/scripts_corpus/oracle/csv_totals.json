@@ -1,0 +1,9 @@
+{
+  "slug": "csv_totals",
+  "argv": [
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/columns.csv"
+  ],
+  "stdout": "       count        10.00\n        name         0.00\n       value        66.38\n4 rows\n",
+  "stderr": "",
+  "exitCode": 0
+}

@@ -1,0 +1,9 @@
+{
+  "slug": "running_median",
+  "argv": [
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/numbers.txt"
+  ],
+  "stdout": "   1     10.000\n   2      3.500\n   3      7.250\n   4      8.625\n   5      7.250\n",
+  "stderr": "",
+  "exitCode": 0
+}

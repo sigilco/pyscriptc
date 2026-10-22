@@ -1,0 +1,9 @@
+{
+  "slug": "iso_dates",
+  "argv": [
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/dates.txt"
+  ],
+  "stdout": "found 4 dates\nmondays 3\nearliest 2026-10-05\nlatest 2026-11-01\n",
+  "stderr": "",
+  "exitCode": 0
+}

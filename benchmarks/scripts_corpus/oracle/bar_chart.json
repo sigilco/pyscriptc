@@ -1,0 +1,9 @@
+{
+  "slug": "bar_chart",
+  "argv": [
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/lines.txt"
+  ],
+  "stdout": "       alpha    2 ########################################\n        beta    2 ########################################\n       delta    1 ####################\n       gamma    1 ####################\n4 words, max 2\n",
+  "stderr": "",
+  "exitCode": 0
+}

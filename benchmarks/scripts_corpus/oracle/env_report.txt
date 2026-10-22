@@ -1,0 +1,2 @@
+PYSC_CORPUS=1
+PYSC_CORPUS_NAME=scripts-corpus

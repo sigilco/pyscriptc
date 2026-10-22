@@ -1,0 +1,7 @@
+[server]
+host=localhost
+port=8000
+[client]
+timeout=30
+retries=3
+2 sections
