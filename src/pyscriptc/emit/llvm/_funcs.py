@@ -113,7 +113,7 @@ class FuncsMixin:
             if self.dwarf is not None:
                 self.dwarf.exit_function()
             return
-        define = "define i32 @main(i32 %argc, ptr %argv)"
+        define = f"define i32 @{self.entry_symbol}(i32 %argc, ptr %argv)"
         if self.dwarf is not None:
             # The process entry point is not a Python function, so it gets a
             # synthetic subprogram named `main` at the source file's line 1.

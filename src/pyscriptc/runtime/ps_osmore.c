@@ -56,7 +56,14 @@ static int ps_writable_dir(const char *dir) {
     if (!ps_is_dir(dir)) {
         return 0;
     }
-    wrote = snprintf(file, sizeof file, "%s/.ps-temp-%d-%d", dir, (int)getpid(), rand());
+    wrote =
+#ifdef __wasm__
+        /* WASI getpid is a deprecated stub; the name just needs to be unique
+           per attempt, which rand() alone provides. */
+        snprintf(file, sizeof file, "%s/.ps-temp-%d-%d", dir, 0, rand());
+#else
+        snprintf(file, sizeof file, "%s/.ps-temp-%d-%d", dir, (int)getpid(), rand());
+#endif
     if (wrote < 0 || (size_t)wrote >= sizeof file) {
         return 0;
     }
@@ -753,6 +760,10 @@ PsIO *ps_temp_named(int64_t mode, int64_t keep) {
     if (snprintf(path, sizeof path, "%s/tmpXXXXXX", dir) >= (int)sizeof path) {
         ps_os_fail("NamedTemporaryFile failed");
     }
+    /* wasi-libc declares no mkstemp (TODO(zig-0.18): still true upstream),
+       so the portable ps_mkstemp opens with O_CREAT|O_EXCL on a randomized
+       suffix: the same unique-file guarantee, and mode 0600 matches musl's
+       mkstemp. */
     fd = ps_mkstemp(path);
     if (fd < 0) {
         ps_os_fail("NamedTemporaryFile failed");

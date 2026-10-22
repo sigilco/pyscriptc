@@ -17,7 +17,6 @@
 #include <io.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-
 #define ps_mkdir(path, mode) _mkdir(path)
 #define IS_DIR_SEP(c) ((c) == '/' || (c) == '\\')
 
@@ -49,10 +48,6 @@
 #define ps_setenv(name, value, overwrite) ps_win_setenv((name), (value), (overwrite))
 int ps_win_setenv(const char *name, const char *value, int overwrite);
 
-/* Windows has no mkstemp. The portable version lives in ps_compat.c and is
-   used by every target that lacks it. */
-int ps_mkstemp(char *template_path);
-
 /* mingw has setjmp/longjmp but no sigsetjmp/siglongjmp. The runtime only
    ever uses the savemask-0 form, which saves no signal mask, so the plain
    pair is the same thing there. */
@@ -72,10 +67,18 @@ int ps_mkstemp(char *template_path);
 #define ps_lstat(path, st) lstat((path), (st))
 #define ps_realpath(path, resolved) realpath((path), (resolved))
 #define ps_setenv(name, value, overwrite) setenv((name), (value), (overwrite))
-#define ps_mkstemp(template_path) mkstemp((template_path))
 #define ps_sigjmp_buf sigjmp_buf
 #define ps_sigsetjmp(buf, savemask) sigsetjmp((buf), (savemask))
 #define ps_siglongjmp(buf, code) siglongjmp((buf), (code))
+
+/* wasi-libc declares no mkstemp: the portable version in ps_compat.c opens
+   with O_CREAT|O_EXCL on a randomized suffix. Every target that has the
+   native mkstemp keeps it. */
+#ifdef __wasi__
+int ps_mkstemp(char *template_path);
+#else
+#define ps_mkstemp(template_path) mkstemp((template_path))
+#endif
 
 #endif
 

@@ -92,17 +92,31 @@ class PrintMixin:
 
     def _print_fmt(self, name: str, data: bytes, args: list[str] | None = None, err: bool = False) -> None:
         fmt = self.format_global(name, data)
+        call_args = list(args or [])
+        if self.entry_symbol == "__main_argc_argv":
+            # wasm32 varargs are 32-bit: wasi-libc's printf reads a `%.*s`
+            # precision through an i32, and an i64 there prints `(null)`.
+            # `%lld` with i64 is fine; this truncates only `%.*s` lengths.
+            call_args = [
+                self._trunc_i32(arg) if arg.startswith("i64 ") and data.startswith(b"%.*s") else arg
+                for arg in call_args
+            ]
         if err:
             self.needed.add("fprintf")
             fd = self.tmp()
             # A helper, not `@stderr`: on Darwin `stderr` is a macro for
             # `__stderrp`, so the raw symbol never resolves at link time.
             self.line(f"{fd} = call ptr @ps_stderr_stream()")
-            rendered = ", ".join([f"ptr {fd}", f"ptr {fmt}", *(args or [])])
+            rendered = ", ".join([f"ptr {fd}", f"ptr {fmt}", *call_args])
             self.line(f"call i32 (ptr, ptr, ...) @fprintf({rendered})")
             return
-        rendered = ", ".join([f"ptr {fmt}", *(args or [])])
+        rendered = ", ".join([f"ptr {fmt}", *call_args])
         self.line(f"call i32 (ptr, ...) @printf({rendered})")
+
+    def _trunc_i32(self, arg: str) -> str:
+        reg = self.tmp()
+        self.line(f"{reg} = trunc i64 {arg[4:]} to i32")
+        return f"i32 {reg}"
 
     def _print_one(self, typ: dict[str, Any], value: str, err: bool) -> None:
         """One print argument: scalars spell directly, a tuple class recurses.
