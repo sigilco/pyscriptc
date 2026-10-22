@@ -75,16 +75,55 @@ def build_parts(args: argparse.Namespace) -> None:
     run([sys.executable, "compat/build.py"])
 
 
-def assemble() -> Path:
+def part_output(part: str) -> Path:
+    """Where a part's build output lives."""
+    if part == "landing":
+        return ROOT / "site" / "landing" / "dist"
+    if part == "docs":
+        return ROOT / "dist" / "docs"
+    return ROOT / "dist" / "compat"
+
+
+def fallback_landing() -> Path:
+    """A minimal landing tree, used when the Astro build has not run.
+
+    The landing app is a separate pnpm package. A checkout that has no
+    node_modules (a python-only CI job, for instance) cannot build it, but
+    the assembly still has to produce a valid tree, so the public assets
+    and a placeholder index stand in for the Astro output. The real build
+    replaces them.
+    """
+    out = ROOT / "dist" / "landing-fallback"
+    if out.exists():
+        shutil.rmtree(out)
+    out.mkdir(parents=True)
+    public = ROOT / "site" / "landing" / "public"
+    if public.is_dir():
+        shutil.copytree(public, out, dirs_exist_ok=True)
+    (out / "index.html").write_text(
+        '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+        "<title>pyscriptc</title>\n</head>\n<body>\n<h1>pyscriptc</h1>\n</body>\n</html>\n",
+        encoding="utf-8",
+    )
+    return out
+
+
+def assemble(parts: dict[str, Path]) -> Path:
     if DEPLOY.exists():
         shutil.rmtree(DEPLOY)
     DEPLOY.mkdir()
 
-    landing = ROOT / "site" / "landing" / "dist"
-    docs = ROOT / "dist" / "docs"
-    compat = ROOT / "dist" / "compat"
+    landing = parts["landing"]
+    docs = parts["docs"]
+    compat = parts["compat"]
 
-    for source in (landing, docs, compat):
+    if not landing.is_dir():
+        print(f"missing build output: {landing}", file=sys.stderr)
+        print("falling back to the minimal landing tree", file=sys.stderr)
+        landing = fallback_landing()
+
+    for source in (docs, compat):
         if not source.is_dir():
             print(f"missing build output: {source}", file=sys.stderr)
             print("run the part builds first (or drop the --skip flags)", file=sys.stderr)
@@ -143,7 +182,7 @@ def validate(deploy: Path) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     build_parts(args)
-    deploy = assemble()
+    deploy = assemble(parts={name: part_output(name) for name in ("landing", "docs", "compat")})
     return validate(deploy)
 
 

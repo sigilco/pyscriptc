@@ -193,3 +193,24 @@ def test_site_build_runs(tmp_path: Path) -> None:
         text=True,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_site_build_falls_back_without_the_landing_build(tmp_path: Path) -> None:
+    """A checkout without node_modules still assembles a valid tree."""
+    landing_dist = ROOT / "site" / "landing" / "dist"
+    had_landing = landing_dist.is_dir()
+    if had_landing:
+        subprocess.run(["mv", str(landing_dist), str(landing_dist) + ".test-bak"], check=True)
+    try:
+        result = subprocess.run(
+            [sys.executable, "scripts/build_site.py", "--check", "--skip-landing", "--skip-docs"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "falling back" in result.stderr
+        assert (ROOT / "deploy" / "index.html").is_file()
+    finally:
+        if had_landing:
+            subprocess.run(["mv", str(landing_dist) + ".test-bak", str(landing_dist)], check=True)
