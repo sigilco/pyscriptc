@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from tests.test_gates import compile_run, oracle, run_cli, write_case
 
-PROGRAM = '''import tomllib
+PROGRAM = """import tomllib
 
 
 def ints() -> int:
@@ -53,14 +53,24 @@ def inline() -> int:
 
 
 def multiline() -> str:
-XX
+    q3: str = chr(34) + chr(34) + chr(34)
+    s3: str = chr(39) + chr(39) + chr(39)
+    bs: str = chr(92)
+    nl: str = chr(10)
+    tab: str = chr(9)
+    doc: str = (
+        "a = " + q3 + nl + "l1" + bs + nl + "   l2" + q3 + nl
+        + "b = " + s3 + nl + "raw" + bs + "n" + nl + s3 + nl
+        + "c = " + chr(34) + "t" + bs + "t" + bs + chr(34) + "s" + chr(34) + nl
+    )
+    d: dict[str, str] = tomllib.loads(doc)
     return d["a"] + "|" + d["b"] + "|" + d["c"]
 
 
 def dottedkeys() -> int:
     d: dict[str, dict[str, int]] = tomllib.loads("a.b = 1\\na.c = 2\\n")
     return d["a"]["b"] * 10 + d["a"]["c"]
-'''
+"""
 
 FUNCS = [
     "ints",
