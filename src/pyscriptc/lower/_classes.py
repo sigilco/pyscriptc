@@ -832,7 +832,7 @@ class ClassesMixin:
         defaults = list(fn.args.defaults)
         missing = len(args) - len(defaults)
         for index, arg in enumerate(args):
-            param = _param(self, arg)
+            param = _param(self, arg, fn)
             if pos_marks[index]:
                 param["posonly"] = True
             if index >= missing:
@@ -847,7 +847,7 @@ class ClassesMixin:
                 self.fail(vararg, "PS2002", "list[bool] is not lowered")
             params.append({"name": vararg.arg, "type": {"kind": "list", "elem": elem}, "vararg": True})
         for karg, kdef in zip(fn.args.kwonlyargs, fn.args.kw_defaults, strict=True):
-            param = _param(self, karg)
+            param = _param(self, karg, fn)
             param["kwonly"] = True
             if kdef is not None:
                 self._param_default(karg, kdef, param)
@@ -867,8 +867,16 @@ class ClassesMixin:
                 }
             )
         if fn.returns is None:
-            self.fail(fn, "PS1001", f"{fn.name} needs a return annotation")
-        ret = self._annotation(fn.returns)
+            # Checker bridge: when every return statement's inferred type
+            # agrees and the subset can express it, the bridge supplies the
+            # missing annotation. Otherwise the fence stands (PS1001,
+            # return-inference family).
+            bridged = self._bridge_return_type(fn)
+            if bridged is None:
+                self.fail(fn, "PS1001", f"{fn.name} needs a return annotation")
+            ret = bridged
+        else:
+            ret = self._annotation(fn.returns)
         # A callable return is heap-allocated (`ps_alloc` pair + env), so it
         # escapes the frame safely.
         if class_name is not None and fn.name == "__init__" and ret["kind"] != "none":
@@ -1782,8 +1790,15 @@ class ClassesMixin:
         return {"kind": "class", "name": name, "label": _show(elem) + " | None", "optional": True, "elem": elem}
 
 
-def _param(lowerer: Any, arg: ast.arg) -> dict[str, Any]:
+def _param(lowerer: Any, arg: ast.arg, fn: ast.FunctionDef | None = None) -> dict[str, Any]:
     if arg.annotation is None:
+        # Checker bridge: the checker inferred the parameter's type (from the
+        # default, the callers, or the body). Without a bridged answer the
+        # fence stands (PS1001, param-inference family).
+        if fn is not None:
+            inferred = lowerer._bridge_param_type(fn, arg)
+            if inferred is not None:
+                return {"name": arg.arg, "type": inferred}
         lowerer.fail(arg, "PS1001", f"parameter {arg.arg} needs an annotation")
     return {"name": arg.arg, "type": lowerer._annotation(arg.annotation)}
 

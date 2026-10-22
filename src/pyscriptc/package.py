@@ -32,7 +32,7 @@ from pyscriptc.ir import SUBSET, cpython_version
 from pyscriptc.lower import Lowerer
 
 
-def lower_directory(root: Path, program_mode: bool = False) -> tuple[dict[str, Any], str]:
+def lower_directory(root: Path, program_mode: bool = False, bridge: Any = None) -> tuple[dict[str, Any], str]:
     units, skipped = _discover(root, program_mode)
     program = program_mode or _is_program_dir(root)
     exports, failed = _catalog(units, program)
@@ -61,6 +61,7 @@ def lower_directory(root: Path, program_mode: bool = False) -> tuple[dict[str, A
         lowerer.exc_n = exc_n
         lowerer.program = program
         lowerer.module_init = program and name != "__main__"
+        lowerer.bridge = bridge
         module = lowerer.module(tree)
         exc_n = lowerer.exc_n
         for fn in module["functions"]:
@@ -243,9 +244,7 @@ def _program_imports(tree: ast.Module, exports: dict[str, dict[str, dict[str, An
     return found
 
 
-def _statement_imports(
-    stmt: ast.stmt, exports: dict[str, dict[str, dict[str, Any]]]
-) -> list[tuple[str, str]]:
+def _statement_imports(stmt: ast.stmt, exports: dict[str, dict[str, dict[str, Any]]]) -> list[tuple[str, str]]:
     """The program modules one import statement brings in.
 
     Each entry is the module and the local name the import binds for it, so
@@ -280,9 +279,7 @@ def _statement_imports(
     return found
 
 
-def _inject_inits(
-    tree: ast.Module, owned: list[str], exports: dict[str, dict[str, dict[str, Any]]]
-) -> ast.Module:
+def _inject_inits(tree: ast.Module, owned: list[str], exports: dict[str, dict[str, dict[str, Any]]]) -> ast.Module:
     """Call the init of every module this one first imports.
 
     CPython runs an imported module's body at the import statement, so the

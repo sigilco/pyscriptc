@@ -97,6 +97,14 @@ def main(argv: list[str] | None = None) -> int:
         help="type-checker preflight; mypy and pyright are deprecated",
     )
     compile_parser.add_argument(
+        "--bridge",
+        choices=("mypy",),
+        default=None,
+        help="checker bridge: feed the checker's inferred-type map into lowering so "
+        "unannotated locals, parameters and returns stop fencing. Off by default; "
+        "needs mypy installed",
+    )
+    compile_parser.add_argument(
         "--debug",
         nargs="?",
         const="",
@@ -447,11 +455,18 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
     outputs: dict[str, str] = {}
     status = "ok"
     try:
+        bridge = None
+        if getattr(args, "bridge", None):
+            from pyscriptc.factsbridge import CheckerBridge
+
+            dbg.begin("bridge")
+            bridge = CheckerBridge.for_path(source_path, args.bridge)
+            dbg.end("bridge")
         dbg.begin("lower")
         if source_path.is_dir():
-            module, source = lower_directory(source_path, program_mode=args.program)
+            module, source = lower_directory(source_path, program_mode=args.program, bridge=bridge)
         elif source_path.is_file():
-            module, source = lower_file(str(source_path))
+            module, source = lower_file(str(source_path), bridge=bridge)
         else:
             raise IRError(f"source not found: {source_path}")
         dbg.end("lower")

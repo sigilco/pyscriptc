@@ -342,7 +342,7 @@ packaging = [
 
 [package.metadata]
 requires-dist = [
-    { name = "mypy", marker = "extra == 'oracle-mypy'", specifier = ">=2.4" },
+    { name = "mypy", marker = "extra == 'oracle-mypy'", specifier = ">=2.4,<2.5" },
     { name = "pyrefly", specifier = ">=1.4.0,<1.5" },
     { name = "pyright", marker = "extra == 'oracle-pyright'", specifier = ">=1.1.400" },
 ]
