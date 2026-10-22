@@ -59,6 +59,7 @@ from pyscriptc.restlower._subprocess import _check_call as _sub_check_call
 from pyscriptc.restlower._subprocess import _run as _sub_run
 from pyscriptc.restlower._system import _as_file_value, _atexit_register, _exit, _getenv, _resource_files, _unicode_name
 from pyscriptc.restlower._textwrap import _textwrap_call
+from pyscriptc.restlower._threading import _lock_method, _threading_call
 from pyscriptc.restlower._time import _clock, _sleep
 from pyscriptc.stdmore import (
     CALL_FENCES,
@@ -73,6 +74,7 @@ from pyscriptc.stdmore import (
 )
 
 __all__ = [
+    "_lock_method",
     "_mk_iter",
     "_static_builtin_fold",
     "alias_name",
@@ -122,6 +124,7 @@ _EARLY: dict[tuple[str, str], Handler] = {
 # Whole-module handlers, consulted before `fixed_spec`.
 _MODULES_BEFORE_SPEC: dict[str, Handler] = {
     "itertools": lambda lo, node, span, expect, attr: _itertools(lo, node, span, attr),
+    "threading": lambda lo, node, span, expect, attr: _threading_call(lo, node, span, attr),
 }
 
 # Whole-module handlers, consulted after `fixed_spec`.

@@ -21,7 +21,8 @@ def test_self_census_ballpark() -> None:
     # imports.py (per-import lane classifier for the adoption ladder) adds one more.
     # deps.py (PyPI resolver, wheel cache) adds 1 module and about 125 fences, with its cli.py hook.
     # Script stdlib families (#188): +3 modules (restlower _ospath, _subprocess, _itertools) and +127 self-host fences.
-    assert census["modules"] == 59
+    # restlower/_threading.py (native threading locks, #190) adds 1 module and 13 fences.
+    assert census["modules"] == 60
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -44,6 +45,10 @@ def test_self_census_ballpark() -> None:
     # move from union-types (11 to 9) into optional-types (0 to 2, PS1102).
     # T2-3 parameter forms normalize into the named-parameter machinery (+1
     # _classes fence for the kwarg-dict binding path).
+    # Optional widening (Stage U): total stays 1434; 2 typefacts `X | Y | None` fences
+    # move from union-types (11 to 9) into optional-types (0 to 2, PS1102).
+    # T2-3 parameter forms normalize into the named-parameter machinery (+1
+    # _classes fence for the kwarg-dict binding path).
     # T2-5 static folds: restlower/_folds.py adds +15 fences (fold-boundary
     # docstrings and helpers, self-host only).
     # T2-2 ABC/Protocol erasure: +5 fences in _classes.py (the erased-base
@@ -58,7 +63,7 @@ def test_self_census_ballpark() -> None:
     # PEP 723 dependency lanes, stub-path and ffi keys add 17 self-host fences (config.py, cli.py).
     # E2 M2-M5 (exception hierarchy, object surface, ZeroDivisionError variants): +23 fences (log, telemetry, llvm).
     # math atan2/gcd/isclose handlers: +2 self-host fences in lower/_calls.py.
-    assert census["fences"] == 2016
+    assert census["fences"] == 2029
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 30_000
-    assert sum(p["fences"] for p in census["packages"]) == 2016
+    assert sum(p["fences"] for p in census["packages"]) == 2029

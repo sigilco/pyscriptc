@@ -56,7 +56,7 @@ Each module below is a closed set of calls, not the whole module.
 | `io` | `StringIO`, `BytesIO` |
 | `sys` | `platform`, `version`, `executable`, `maxsize`, `argv` (the real process arguments as `list[str]`), `exit` |
 | `inspect` | `cleandoc` (island) and the str constant `AGEN_CLOSED` |
-| `threading` | `active_count`, `current_thread().name` (island), and the float `TIMEOUT_MAX` |
+| `threading` | `Lock`, `RLock` (native, with `acquire(blocking=, timeout=)`, `release`, `locked`), `get_ident`, `active_count`, `current_thread().name`, and the float `TIMEOUT_MAX` |
 | `logging` | `info`, `warning` of a string (island), and the str constant `BASIC_FORMAT` |
 | `subprocess` | `check_output` of a `list[str]`, returning `bytes` (island), and the int `DEVNULL` |
 | `socket` | `gethostname` (island) and the address-family constants |
@@ -210,7 +210,7 @@ A mixed `and` / `or` in an `if`, `while`, `assert`, or list-comprehension filter
 
 `inspect.AGEN_CLOSED` is the str constant `"AGEN_CLOSED"`. The harness int is that same `len` and `ord` form. `signature`, `getsource`, and `stack` stay fenced.
 
-`threading.TIMEOUT_MAX` is the float const `9223372036.0`. It is not NaN, so `value != value` is false and the harness returns 1. `Thread`, `Lock`, and `Event` stay fenced.
+`threading.TIMEOUT_MAX` is the float const `9223372036.0`. It is not NaN, so `value != value` is false and the harness returns 1. `threading.Lock()` and `threading.RLock()` are native pthread mutexes, not island calls; the compiled program runs on one thread, so the locks are single-thread correct: an uncontended acquire never blocks, `acquire(False)` and a timeout on a held lock return False, and releasing a lock the program does not hold raises `RuntimeError` with CPython's message `release unlocked lock`. `RLock` counts re-entry for the owning thread. `acquire` takes a constant `blocking` bool and a `timeout` in seconds; a negative timeout reads as block forever, and `None` is the same. `get_ident` is the stable pthread identity of the main thread. `RLock.locked()` is exposed even though CPython only added it in 3.14, a superset of the pinned oracle. `Thread`, `Event`, `Condition`, `Semaphore`, and `local` stay fenced until phase 2.
 
 `logging.BASIC_FORMAT` is the str constant `"%(levelname)s:%(name)s:%(message)s"`. `%` and parentheses are characters. `basicConfig`, `getLogger`, and handlers stay fenced.
 
