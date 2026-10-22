@@ -49,7 +49,7 @@ from pyscriptc.stdlib_queue import (
     SPECIAL_FUNCTIONS,
     wave_function,
 )
-from pyscriptc.stdmore import COMPARE_CLASSES, member_callable, module_constant
+from pyscriptc.stdmore import COMPARE_CLASSES, class_constant, member_callable, module_constant
 
 _INT_BIN = {
     ast.Add: "+",
@@ -1212,6 +1212,10 @@ class ExprMixin:
                 return {"kind": "const", "value": value, "type": typ, "span": span}
             if module == "sys" and member == "argv":
                 return self._abi_call("sys", "argv", [], {"kind": "list", "elem": {"kind": "str"}}, "ps_argv_get", span)
+            class_const = class_constant(module, member)
+            if class_const is not None:
+                typ, symbol = class_const
+                return self._abi_call(module, member, [], typ, symbol, span)
             if (module == "math" and member in MATH_FUNCTIONS) or wave_function(module, member) is not None:
                 self.fail(node, "PS2002", f"{dotted} is a function and is not a value")
             if member in SPECIAL_FUNCTIONS.get(module, frozenset()) or member_callable(module, member):

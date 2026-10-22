@@ -494,7 +494,30 @@ static void ps_dump_float(double v, PsGrow *g) {
     ps_grow_add(g, tail, wrote);
 }
 
+static void ps_dump(const PsType *types, int32_t idx, const void *value, PsGrow *g);
+
+/* The dumps options: bit 0 sorts the dict keys, bits 8-15 hold the
+   indent width (0 keeps the compact form). */
+#define PS_JSON_SORT_KEYS 1
+
+/* ps_dump_fmt writes one value. `indent` is the pad width per level and
+   `level` the current depth; a positive indent puts every item on its
+   own line, the way `json.dumps(indent=n)` does. */
+static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsGrow *g, int32_t indent, int32_t level, int32_t sort_keys);
+
 static void ps_dump(const PsType *types, int32_t idx, const void *value, PsGrow *g) {
+    ps_dump_fmt(types, idx, value, g, 0, 0, 0);
+}
+
+/* The newline and pad an indented item carries. */
+static void ps_dump_pad(PsGrow *g, int32_t indent, int32_t level) {
+    ps_grow_byte(g, '\n');
+    for (int32_t i = 0; i < level * indent; i++) {
+        ps_grow_byte(g, ' ');
+    }
+}
+
+static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsGrow *g, int32_t indent, int32_t level, int32_t sort_keys) {
     PsType typ = types[idx];
     if (typ.kind == PS_JSON_INT) {
         int64_t v = 0;
@@ -531,7 +554,7 @@ static void ps_dump(const PsType *types, int32_t idx, const void *value, PsGrow 
             return;
         }
         PsType child = types[typ.child];
-        ps_dump(types, typ.child, cell + ps_opt_off(child.kind), g);
+        ps_dump_fmt(types, typ.child, cell + ps_opt_off(child.kind), g, indent, level, sort_keys);
         return;
     }
     if (typ.kind == PS_JSON_STR) {
@@ -543,44 +566,111 @@ static void ps_dump(const PsType *types, int32_t idx, const void *value, PsGrow 
     if (typ.kind == PS_JSON_LIST) {
         PsSeq *seq = NULL;
         memcpy(&seq, value, 8);
-        PsType child = types[typ.child];
         ps_grow_byte(g, '[');
+        if (seq->len == 0) {
+            ps_grow_byte(g, ']');
+            return;
+        }
         for (int64_t i = 0; i < seq->len; i++) {
             if (i > 0) {
-                ps_grow_add(g, ", ", 2);
+                ps_grow_byte(g, indent ? ',' : ',');
+                if (!indent) {
+                    ps_grow_byte(g, ' ');
+                }
             }
-            ps_dump(types, typ.child, (char *)seq->data + (size_t)i * (size_t)seq->elem, g);
+            if (indent) {
+                ps_dump_pad(g, indent, level + 1);
+            }
+            ps_dump_fmt(types, typ.child, (char *)seq->data + (size_t)i * (size_t)seq->elem, g, indent, level + 1, sort_keys);
+        }
+        if (indent) {
+            ps_dump_pad(g, indent, level);
         }
         ps_grow_byte(g, ']');
-        (void)child;
         return;
     }
     if (typ.kind == PS_JSON_DICT) {
         PsMap *map = NULL;
         memcpy(&map, value, 8);
+        int64_t n = ps_map_len(map);
+        /* The key order the map carries, or the sorted order when the
+           caller asked for sorted keys. */
+        int64_t *order = NULL;
+        if (sort_keys && n > 1) {
+            order = malloc((size_t)n * sizeof(int64_t));
+            if (order == NULL) {
+                abort();
+            }
+            for (int64_t i = 0; i < n; i++) {
+                order[i] = i;
+            }
+            for (int64_t i = 1; i < n; i++) {
+                int64_t take = order[i];
+                int64_t j = i - 1;
+                PsBuf key;
+                ps_map_key_at(map, take, &key);
+                while (j >= 0) {
+                    PsBuf prev;
+                    ps_map_key_at(map, order[j], &prev);
+                    size_t cmp_len = (size_t)(key.len < prev.len ? key.len : prev.len);
+                    int cmp = memcmp(key.data, prev.data, cmp_len);
+                    if (cmp > 0 || (cmp == 0 && key.len >= prev.len)) {
+                        break;
+                    }
+                    order[j + 1] = order[j];
+                    j -= 1;
+                }
+                order[j + 1] = take;
+            }
+        }
         ps_grow_byte(g, '{');
-        for (int64_t i = 0; i < ps_map_len(map); i++) {
+        if (n == 0) {
+            ps_grow_byte(g, '}');
+            free(order);
+            return;
+        }
+        for (int64_t i = 0; i < n; i++) {
+            int64_t at = order ? order[i] : i;
             if (i > 0) {
-                ps_grow_add(g, ", ", 2);
+                ps_grow_byte(g, ',');
+                if (!indent) {
+                    ps_grow_byte(g, ' ');
+                }
+            }
+            if (indent) {
+                ps_dump_pad(g, indent, level + 1);
             }
             PsBuf key;
-            ps_map_key_at(map, i, &key);
+            ps_map_key_at(map, at, &key);
             ps_dump_str(key, g);
-            ps_grow_add(g, ": ", 2);
+            ps_grow_byte(g, ':');
+            ps_grow_byte(g, ' ');
             unsigned char slot[16];
             memset(slot, 0, sizeof slot);
-            ps_map_val_at(map, i, slot);
-            ps_dump(types, typ.child, slot, g);
+            ps_map_val_at(map, at, slot);
+            ps_dump_fmt(types, typ.child, slot, g, indent, level + 1, sort_keys);
+        }
+        if (indent) {
+            ps_dump_pad(g, indent, level);
         }
         ps_grow_byte(g, '}');
+        free(order);
         return;
     }
     ps_json_fail("JSON type is not lowered");
 }
 
+void ps_json_dumps_opts(const PsType *types, int32_t root, void *value, int32_t flags, PsBuf *out);
+
 void ps_json_dumps(const PsType *types, int32_t root, void *value, PsBuf *out) {
+    ps_json_dumps_opts(types, root, value, 0, out);
+}
+
+void ps_json_dumps_opts(const PsType *types, int32_t root, void *value, int32_t flags, PsBuf *out) {
     PsGrow g;
     ps_grow_init(&g);
-    ps_dump(types, root, value, &g);
+    int32_t indent = (flags >> 8) & 0xff;
+    int32_t sort_keys = flags & PS_JSON_SORT_KEYS;
+    ps_dump_fmt(types, root, value, &g, indent, 0, sort_keys);
     ps_grow_finish(&g, out);
 }

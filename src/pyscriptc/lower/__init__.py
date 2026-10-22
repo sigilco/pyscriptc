@@ -315,6 +315,9 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         self._drain_instances(lowered, lowered_classes, fences)
         lowered.extend(self.nested_fns)
         lowered_classes.extend(self._synthetic_classes({item["name"] for item in lowered_classes}))
+        # The deferred classes (the argparse namespace) grew their fields
+        # while the statements lowered, so they close here.
+        lowered_classes.extend(self._synthetic_classes({item["name"] for item in lowered_classes}, deferred_only=True))
         self.function = None
         names = [item["name"] for item in lowered]
         module = {

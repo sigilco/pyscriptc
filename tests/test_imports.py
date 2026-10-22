@@ -87,7 +87,7 @@ def test_lowered_stdlib_is_ready_to_compile() -> None:
 
 
 def test_stdlib_outside_the_table_points_at_extern() -> None:
-    verdict = classify("argparse")
+    verdict = classify("smtplib")
     assert verdict["kind"] == KIND_STDLIB
     assert verdict["lane"] == LANE_EXTERN
     assert "closed import table" in verdict["reason"]

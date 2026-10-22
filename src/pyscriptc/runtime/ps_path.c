@@ -6,8 +6,11 @@ getenv raises KeyError, which is the subset stand-in for None.
 
 #include "ps_rt.h"
 
+#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <pwd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -351,6 +354,286 @@ int32_t ps_stat_isdir(int64_t mode) { return S_ISDIR(mode) ? 1 : 0; }
 
 int32_t ps_stat_islnk(int64_t mode) { return S_ISLNK(mode) ? 1 : 0; }
 
+/* expanduser: only the leading `~` and `~user` forms, from HOME or the
+   passwd entry. This subset never raises RuntimeError for a missing user:
+   an unknown `~user` keeps its text like CPython's KeyError-free fallback
+   is not wanted, so it fails loudly instead of writing to a literal `~`
+   directory. */
+void ps_path_expanduser(int64_t n, const char *s, PsBuf *out) {
+    if (n == 0 || s[0] != '~') {
+        ps_buf_copy(out, s, n);
+        return;
+    }
+    int64_t rest_at = 1;
+    while (rest_at < n && s[rest_at] != '/') {
+        rest_at += 1;
+    }
+    PsBuf home;
+    if (rest_at == 1) {
+        const char *env = getenv("HOME");
+        if (env == NULL) {
+            ps_os_fail("expanduser has no HOME");
+        }
+        ps_buf_copy(&home, env, (int64_t)strlen(env));
+    } else {
+        char *user = ps_cstr(rest_at - 1, s + 1);
+        struct passwd *pw = getpwnam(user);
+        free(user);
+        if (pw == NULL || pw->pw_dir == NULL) {
+            ps_os_fail("expanduser found no home for the user");
+        }
+        ps_buf_copy(&home, pw->pw_dir, (int64_t)strlen(pw->pw_dir));
+    }
+    PsGrow g;
+    ps_grow_init(&g);
+    ps_grow_add(&g, home.data, home.len);
+    free(home.data);
+    if (rest_at < n) {
+        /* keep the user's separator shape: `~/x` keeps `/x`, `~` alone adds
+           nothing, and a trailing slash stays. */
+        ps_grow_add(&g, s + rest_at, n - rest_at);
+    }
+    ps_grow_finish(&g, out);
+}
+
+/* expandvars per posixpath: `$name`, `${name}` (unclosed left as-is), unset
+   names left unchanged, and `$` not followed by a name left as-is. */
+void ps_path_expandvars(int64_t n, const char *s, PsBuf *out) {
+    PsGrow g;
+    ps_grow_init(&g);
+    int64_t i = 0;
+    while (i < n) {
+        int64_t start;
+        int64_t end;
+        int braced;
+        char *name;
+        const char *value;
+        if (s[i] != '$' || i + 1 >= n) {
+            ps_grow_byte(&g, s[i]);
+            i += 1;
+            continue;
+        }
+        start = i + 1;
+        braced = s[start] == '{';
+        if (braced) {
+            start += 1;
+            end = start;
+            while (end < n && s[end] != '}') {
+                end += 1;
+            }
+            if (end >= n) {
+                /* `${name` without a close brace: keep the whole text. */
+                ps_grow_add(&g, s + i, n - i);
+                break;
+            }
+        } else {
+            end = start;
+            while (end < n && (isalnum((unsigned char)s[end]) || s[end] == '_')) {
+                end += 1;
+            }
+            if (end == start) {
+                ps_grow_byte(&g, '$');
+                i += 1;
+                continue;
+            }
+        }
+        name = ps_cstr(end - start, s + start);
+        value = getenv(name);
+        free(name);
+        if (value == NULL) {
+            ps_grow_add(&g, s + i, (braced ? end + 1 : end) - i);
+        } else {
+            ps_grow_add(&g, value, (int64_t)strlen(value));
+        }
+        i = braced ? end + 1 : end;
+    }
+    ps_grow_finish(&g, out);
+}
+
+/* realpath: resolve symlinks step by step (no strict mode in this subset). */
+void ps_path_realpath(int64_t n, const char *s, PsBuf *out) {
+    PsBuf abs;
+    char *text;
+    char *resolved;
+    ps_path_abs(n, s, &abs);
+    text = ps_cstr(abs.len, abs.data);
+    resolved = realpath(text, NULL);
+    free(text);
+    free(abs.data);
+    if (resolved == NULL) {
+        ps_os_fail("realpath failed");
+    }
+    ps_buf_copy(out, resolved, (int64_t)strlen(resolved));
+    free(resolved);
+}
+
+/* getmtime/getsize/getatime over stat; each fails like os.stat does. */
+double ps_path_getmtime(int64_t n, const char *s) {
+    struct stat st;
+    if (ps_stat_into(n, s, &st) != 0) {
+        ps_os_fail("stat failed");
+    }
+    return (double)st.st_mtime;
+}
+
+int64_t ps_path_getsize(int64_t n, const char *s) {
+    struct stat st;
+    if (ps_stat_into(n, s, &st) != 0) {
+        ps_os_fail("stat failed");
+    }
+    return (int64_t)st.st_size;
+}
+
+double ps_path_getatime(int64_t n, const char *s) {
+    struct stat st;
+    if (ps_stat_into(n, s, &st) != 0) {
+        ps_os_fail("stat failed");
+    }
+    return (double)st.st_atime;
+}
+
+int32_t ps_path_islink(int64_t n, const char *s) {
+    char *text = ps_cstr(n, s);
+    struct stat st;
+    int rc = lstat(text, &st);
+    free(text);
+    return rc == 0 && S_ISLNK(st.st_mode);
+}
+
+/* relpath(path, start=None): both made absolute and normalized first, then
+   the parts of start that path does not share become `..` prefixes, per
+   posixpath.relpath. */
+typedef struct {
+    const char *at;
+    int64_t len;
+} PsRelPart;
+
+static int64_t ps_rel_parts(const char *s, int64_t n, PsRelPart *out) {
+    int64_t count = 0;
+    int64_t i = 0;
+    while (i < n) {
+        while (i < n && s[i] == '/') {
+            i += 1;
+        }
+        int64_t start = i;
+        while (i < n && s[i] != '/') {
+            i += 1;
+        }
+        if (i > start) {
+            out[count].at = s + start;
+            out[count].len = i - start;
+            count += 1;
+        }
+    }
+    return count;
+}
+
+void ps_path_relpath(int64_t an, const char *a, int64_t bn, const char *b, PsBuf *out) {
+    PsBuf abs_a;
+    PsBuf abs_b;
+    PsRelPart pa[64];
+    PsRelPart pb[64];
+    int64_t na;
+    int64_t nb;
+    int64_t common = 0;
+    int64_t i;
+    PsGrow g;
+    ps_path_abs(an, a, &abs_a);
+    if (bn == 0) {
+        ps_os_getcwd(&abs_b);
+        {
+            PsBuf tmp;
+            ps_path_abs(abs_b.len, abs_b.data, &tmp);
+            free(abs_b.data);
+            abs_b = tmp;
+        }
+    } else {
+        ps_path_abs(bn, b, &abs_b);
+    }
+    na = ps_rel_parts(abs_a.data, abs_a.len, pa);
+    nb = ps_rel_parts(abs_b.data, abs_b.len, pb);
+    while (common < na && common < nb) {
+        if (pa[common].len != pb[common].len) {
+            break;
+        }
+        if (memcmp(pa[common].at, pb[common].at, (size_t)pa[common].len) != 0) {
+            break;
+        }
+        common += 1;
+    }
+    ps_grow_init(&g);
+    for (i = common; i < nb; i++) {
+        if (g.len > 0) {
+            ps_grow_byte(&g, '/');
+        }
+        ps_grow_add(&g, "..", 2);
+    }
+    for (i = common; i < na; i++) {
+        if (g.len > 0) {
+            ps_grow_byte(&g, '/');
+        }
+        ps_grow_add(&g, pa[i].at, pa[i].len);
+    }
+    free(abs_a.data);
+    free(abs_b.data);
+    if (g.len == 0) {
+        ps_grow_byte(&g, '.');
+    }
+    ps_grow_finish(&g, out);
+}
+
+/* splitdrive on posix always has an empty drive. */
+PsSeq *ps_path_splitdrive(int64_t n, const char *s) {
+    PsSeq *seq = ps_seq_new((int64_t)sizeof(PsBuf), 2);
+    PsBuf drive;
+    PsBuf rest;
+    ps_buf_copy(&drive, "", 0);
+    ps_buf_copy(&rest, s, n);
+    ps_seq_set(seq, 0, &drive);
+    ps_seq_set(seq, 1, &rest);
+    return seq;
+}
+
+int32_t ps_os_access(int64_t n, const char *s, int64_t mode) {
+    char *text = ps_cstr(n, s);
+    int rc = access(text, (int)mode);
+    free(text);
+    return rc == 0;
+}
+
+int64_t ps_os_getpid(void) { return (int64_t)getpid(); }
+
+void ps_os_chdir(int64_t n, const char *s) {
+    char *text = ps_cstr(n, s);
+    int rc = chdir(text);
+    free(text);
+    if (rc != 0) {
+        ps_os_fail("chdir failed");
+    }
+}
+
+void ps_os_chmod(int64_t n, const char *s, int64_t mode) {
+    char *text = ps_cstr(n, s);
+    int rc = chmod(text, (mode_t)mode);
+    free(text);
+    if (rc != 0) {
+        ps_os_fail("chmod failed");
+    }
+}
+
+void ps_os_mkdir(int64_t n, const char *s) {
+    char *text = ps_cstr(n, s);
+    int rc = mkdir(text, 0755);
+    free(text);
+    if (rc != 0) {
+        ps_os_fail("mkdir failed");
+    }
+}
+
+void ps_os_replace(int64_t an, const char *a, int64_t bn, const char *b) {
+    ps_os_rename(an, a, bn, b);
+}
+
 static int ps_match(const char *s, int64_t ns, int64_t si, const char *p, int64_t np, int64_t pi, int fuel) {
     if (fuel <= 0) {
         ps_raise_cstr(PS_RUNTIME, "fnmatch spent its fuel");
@@ -445,6 +728,73 @@ PsSeq *ps_fnfilter(PsSeq *names, int64_t pn, const char *pat) {
 }
 
 void ps_path_new(int64_t n, const char *s, PsPath *out) { ps_buf_copy(&out->path, s, n); }
+
+/* is_absolute: posix paths are absolute when they start with `/`. */
+int32_t ps_path_isabs_p(PsPath *path) {
+    return ps_abs(path->path.len, path->path.data) ? 1 : 0;
+}
+
+/* resolve: make the path absolute and normalize it. Symlinks are not
+   followed; `Path.resolve` in CPython does, but the difference only shows
+   on a path with a symlinked parent. */
+void ps_path_resolve(PsPath *path, PsPath *out) {
+    ps_path_abs(path->path.len, path->path.data, &out->path);
+}
+
+/* unlink: remove the file. `missing_ok` is not in this subset. */
+void ps_path_unlink(PsPath *path) {
+    char *text = ps_cstr(path->path.len, path->path.data);
+    int rc = unlink(text);
+    free(text);
+    if (rc != 0) {
+        ps_os_fail("unlink failed");
+    }
+}
+
+/* touch: create the file when it is missing, else update its mtime. */
+void ps_path_touch(PsPath *path, int64_t exist_ok) {
+    char *text = ps_cstr(path->path.len, path->path.data);
+    int fd = open(text, O_WRONLY | O_CREAT, 0644);
+    if (fd < 0) {
+        free(text);
+        ps_os_fail("touch failed");
+    }
+    close(fd);
+    free(text);
+    (void)exist_ok;
+}
+
+/* rename/replace: move the path, replacing the target. */
+void ps_path_rename(PsPath *path, int64_t n, const char *s, PsPath *out) {
+    char *from = ps_cstr(path->path.len, path->path.data);
+    char *to = ps_cstr(n, s);
+    int rc = rename(from, to);
+    free(from);
+    free(to);
+    if (rc != 0) {
+        ps_os_fail("rename failed");
+    }
+    ps_buf_copy(&out->path, s, n);
+}
+
+/* stat: the same Stat record os.stat returns. */
+void ps_path_stat(PsPath *path, PsStat *out) { ps_os_stat(path->path.len, path->path.data, out); }
+
+/* cwd and home: the process cwd and the user's home directory. */
+void ps_path_cwd(PsPath *out) { ps_os_getcwd(&out->path); }
+
+void ps_path_home(PsPath *out) {
+    const char *env = getenv("HOME");
+    if (env == NULL) {
+        ps_os_fail("home has no HOME");
+    }
+    ps_buf_copy(&out->path, env, (int64_t)strlen(env));
+}
+
+/* expanduser on a Path: `~` becomes the home directory. */
+void ps_path_expanduser_p(PsPath *path, PsPath *out) {
+    ps_path_expanduser(path->path.len, path->path.data, &out->path);
+}
 
 void ps_path_posix(PsPath *path, PsBuf *out) { ps_buf_copy(out, path->path.data, path->path.len); }
 

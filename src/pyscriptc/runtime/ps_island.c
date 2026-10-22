@@ -216,6 +216,12 @@ void ps_island_log_info(int64_t n, const char *s) { ps_island_log("info", n, s);
 
 void ps_island_log_warning(int64_t n, const char *s) { ps_island_log("warning", n, s); }
 
+void ps_island_log_debug(int64_t n, const char *s) { ps_island_log("debug", n, s); }
+
+void ps_island_log_error(int64_t n, const char *s) { ps_island_log("error", n, s); }
+
+void ps_island_log_critical(int64_t n, const char *s) { ps_island_log("critical", n, s); }
+
 /* nativeprobe is a PyInit_* extension over libmix. Embedded CPython loads
    it the same way a normal interpreter does. The direct path is ps_mix.c. */
 

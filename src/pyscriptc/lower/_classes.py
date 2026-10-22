@@ -31,7 +31,7 @@ from pyscriptc.lower._core import (
 from pyscriptc.lower._stmt import _always_returns, _is_docstring
 from pyscriptc.restlower import alias_name, path_attr
 from pyscriptc.restlower import method_spec as synth_method
-from pyscriptc.stdmore import ALWAYS_CLASSES, CLASS_FIELDS
+from pyscriptc.stdmore import ALWAYS_CLASSES, CLASS_FIELDS, DEFERRED_CLASSES
 
 _UNWRAP_FORMS = frozenset({"Final", "ClassVar", "Annotated", "Required", "NotRequired"})
 _DYNAMIC_ANNOTATIONS = frozenset({"object", "Any", "Protocol", "TypeVar", "Generic", "Callable", "ABC"})
@@ -83,6 +83,12 @@ class ClassesMixin:
                 specs[name] = CLASS_FIELDS[name]
         user_names = {node.name for node in class_nodes}
         for name, fields in specs.items():
+            existing = self.classes.get(name)
+            if existing is not None and existing.get("synthetic"):
+                # The argparse handlers can declare their classes while the
+                # entry is split, before this pass runs; the same class twice
+                # is a re-install, not a clash.
+                continue
             if name in user_names or name in self.declared:
                 clash = next((node for node in class_nodes if node.name == name), None)
                 fences.append(
@@ -102,6 +108,7 @@ class ClassesMixin:
                 "method_kind": {},
                 "method_owner": {},
                 "synthetic": True,
+                "deferred": name in DEFERRED_CLASSES,
                 "base": None,
             }
 
@@ -558,14 +565,22 @@ class ClassesMixin:
     def _collect_enum(self, node: ast.ClassDef, which: str) -> None:
         self.declared.add(node.name)
         members: dict[str, int] = {}
+        next_auto = 1
         for stmt in node.body:
             if _is_docstring(stmt) or isinstance(stmt, ast.Pass):
                 continue
             try:
                 target, value = self._enum_assign(stmt)
-                number = _const_int_index(value)
-                if number is None:
-                    self.fail(stmt, "PS2002", "an enum member is an integer constant")
+                auto = self._enum_auto(value)
+                if auto is None:
+                    number = _const_int_index(value)
+                    if number is None:
+                        self.fail(stmt, "PS2002", "an enum member is an integer constant")
+                else:
+                    if not auto:
+                        self.fail(stmt, "PS2003", "enum.auto takes no arguments")
+                    number = next_auto
+                next_auto = number + 1
                 if target in members:
                     self.fail(stmt, "PS2002", f"duplicate enum member {target}")
                 members[target] = number
@@ -586,6 +601,28 @@ class ClassesMixin:
             "members": members,
             "node": node,
         }
+
+    def _enum_auto(self, value: ast.expr) -> bool | None:
+        """True when the value is a bare `auto()` call with no arguments.
+
+        False means an auto() call with arguments; None means not auto().
+        Both the `from enum import auto` binding and the `enum.auto` dotted
+        spelling resolve onto the enum module table.
+        """
+        if not isinstance(value, ast.Call):
+            return None
+        func = value.func
+        if isinstance(func, ast.Name):
+            binding = self.bindings.get(func.id)
+            if binding is None or binding.module != "enum" or binding.attr != "auto":
+                return None
+        elif isinstance(func, ast.Attribute):
+            resolved = self._resolve_module(func)
+            if resolved is None or resolved[1] != "enum" or resolved[2] != "auto":
+                return None
+        else:
+            return None
+        return not value.args and not value.keywords
 
     def _enum_assign(self, stmt: ast.stmt) -> tuple[str, ast.expr]:
         if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
@@ -1596,10 +1633,14 @@ class ClassesMixin:
                 return resolved[2]
         return None
 
-    def _synthetic_classes(self, seen: set[str]) -> list[dict[str, Any]]:
+    def _synthetic_classes(self, seen: set[str], deferred_only: bool = False) -> list[dict[str, Any]]:
         found: list[dict[str, Any]] = []
         for name, info in self.classes.items():
             if name in seen or not info.get("synthetic"):
+                continue
+            # A deferred class (the argparse Namespace) grows fields while
+            # the statements lower, so only the closing pass emits it.
+            if deferred_only != bool(info.get("deferred")):
                 continue
             found.append(
                 {

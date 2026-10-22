@@ -59,6 +59,7 @@ QUEUE: tuple[str, ...] = (
     "csv",
     "textwrap",
     "copy",
+    "argparse",
 )
 
 LOWERED: frozenset[str] = frozenset(QUEUE)
@@ -101,6 +102,7 @@ MATH_FUNCTIONS: dict[str, dict[str, Any]] = {
     "trunc": _sig([_F], _I, "ps_math_trunc"),
     "isnan": _sig([_F], _B, ""),
     "isinf": _sig([_F], _B, ""),
+    "isfinite": _sig([_F], _B, ""),
 }
 
 # repr() of the CPython 3.14 constants. inf and nan go through float() at emit.

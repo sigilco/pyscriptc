@@ -388,7 +388,23 @@ def test_count_and_cycle_stay_fenced(tmp_path: Path) -> None:
 def test_unlowered_itertools_fences(tmp_path: Path) -> None:
     stderr = _fence(
         tmp_path,
-        "r30_starmap.py",
+        "r30_batched.py",
+        "\n".join(
+            [
+                "import itertools",
+                "",
+                "def probe() -> int:",
+                "    total: int = 0",
+                "    for x in itertools.batched([1, 2, 3], 2):",
+                "        total += 1",
+                "    return total",
+            ]
+        ),
+    )
+    assert "itertools.batched is not in the lowered subset of itertools" in stderr
+    stderr = _fence(
+        tmp_path,
+        "r30_starmap_builtin.py",
         "\n".join(
             [
                 "import itertools",
@@ -401,7 +417,7 @@ def test_unlowered_itertools_fences(tmp_path: Path) -> None:
             ]
         ),
     )
-    assert "itertools.starmap is not in the lowered subset of itertools" in stderr
+    assert "itertools.starmap needs a callable of known arity" in stderr
     stderr = _fence(
         tmp_path,
         "r30_takewhile_arity.py",
