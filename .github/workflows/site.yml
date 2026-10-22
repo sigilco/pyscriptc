@@ -1,0 +1,131 @@
+# Site: build, validate and deploy the assembled pyscriptc.pages.dev site.
+#
+# Three parts assembled into one tree by scripts/build_site.py:
+#   landing (Astro, site/landing) at /, docs (docmd, docs/) at /docs,
+#   compat page (compat/) at /compat.
+#
+# Pull requests that touch site paths build and validate only.
+# Pushes to master deploy with wrangler. The Pages project must be in
+# direct-upload mode with CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID
+# secrets set; the owner does that in the Cloudflare dashboard.
+#
+# The nightly workflow calls this workflow's `site` job through
+# workflow_call after a compat snapshot PR opens, so the PR check runs
+# before the owner looks at it. Design: .agents/docs/compat-site.md.
+
+name: site
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "site/**"
+      - "compat/**"
+      - "docs/**"
+      - "docmd.config.js"
+      - "docmd-plugins/**"
+      - "scripts/build_site.py"
+      - "scripts/check_site_links.py"
+      - "scripts/site_dev.py"
+      - "compat/data/compat.json"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "mise.toml"
+      - ".github/workflows/site.yml"
+  pull_request:
+    paths:
+      - "site/**"
+      - "compat/**"
+      - "docs/**"
+      - "docmd.config.js"
+      - "docmd-plugins/**"
+      - "scripts/build_site.py"
+      - "scripts/check_site_links.py"
+      - "scripts/site_dev.py"
+      - "compat/data/compat.json"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "mise.toml"
+      - ".github/workflows/site.yml"
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  site:
+    name: build, validate, deploy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"  # emSign CA incident: uv 0.13.4 dropped the compromised root
+          enable-cache: true
+          python-version: "3.14"
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: |
+          uv sync --frozen
+          pnpm install --frozen-lockfile
+
+      - name: Build the site
+        run: uv run python scripts/build_site.py
+
+      - name: Validate links
+        run: uv run python scripts/check_site_links.py
+
+      - name: No unexpanded placeholders
+        run: |
+          set -euo pipefail
+          if grep -Rl '{{' deploy --include='*.html' --include='*.css' --include='*.js' --include='*.json'; then
+            echo "unexpanded placeholder in deploy/" >&2
+            exit 1
+          fi
+
+      - name: Assemble summary
+        if: always()
+        run: |
+          pages="$(find deploy -name '*.html' | wc -l | tr -d ' ')"
+          files="$(find deploy -type f | wc -l | tr -d ' ')"
+          {
+            echo "### Site assembly"
+            echo ""
+            echo "| part | location |"
+            echo "| --- | --- |"
+            echo "| landing | / |"
+            echo "| docs | /docs |"
+            echo "| compat | /compat |"
+            echo ""
+            echo "pages: $pages, files: $files"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Deploy to Cloudflare Pages
+        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          command -v wrangler >/dev/null || pnpm add -g wrangler@4
+          wrangler pages deploy ./deploy --project-name=pyscriptc --commit-dirty=true
