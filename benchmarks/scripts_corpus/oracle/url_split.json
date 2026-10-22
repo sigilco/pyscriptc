@@ -1,0 +1,9 @@
+{
+  "slug": "url_split",
+  "argv": [
+    "https://example.com/a/b?q=1#frag"
+  ],
+  "stdout": "scheme https\nnetloc example.com\npath /a/b\nquery q=1\nfragment frag\n",
+  "stderr": "",
+  "exitCode": 0
+}

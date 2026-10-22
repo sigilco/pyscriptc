@@ -15,7 +15,12 @@ def test_self_census_ballpark() -> None:
     # doctor.py is the 28th module; log.py, telemetry.py, debug.py and rtcache.py each added a module.
     # T2-5 static folds: restlower/_folds.py adds a module (+15 fences of
     # fold-boundary docstrings and helpers, self-host only).
-    assert census["modules"] == 49
+    # config.py (config surface: PEP 723, pyscriptc.toml/pyproject tables) adds 1 module.
+    # coro.py (generator frames) adds one more.
+    # stubs.py + sigregistry.py (stub reader, signature registry, not lowered): +2 modules.
+    # imports.py (per-import lane classifier for the adoption ladder) adds one more.
+    # deps.py (PyPI resolver, wheel cache) adds 1 module and about 125 fences, with its cli.py hook.
+    assert census["modules"] == 56
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -42,14 +47,16 @@ def test_self_census_ballpark() -> None:
     # docstrings and helpers, self-host only).
     # T2-2 ABC/Protocol erasure: +5 fences in _classes.py (the erased-base
     # and decorator spellings are self-host fenced branches).
-    # E2 M2 (builtin exception hierarchy, 69 names): `except OSError` lowers in
-    # log.py and telemetry.py, so those functions now lower past their old
-    # `except names a lowered exception` fence and their next pre-existing
-    # fences surface (+15 there, -6 of the old except fences, net +9).
-    # E2 M5: the ZeroDivisionError messages track the running interpreter
-    # (zdi_variants in ir.py, consumed by _exc_codes in llvm.py), which adds
-    # 3 llvm fences.
-    assert census["fences"] == 1478
+    # config.py adds 37 self-host fences (tomllib parsing, dataclass, os/pathlib use).
+    # coro.py (generator frame pass) adds 45 fences (dict-shaped IR annotations).
+    # stubs.py + sigregistry.py (stub reader, signature registry, not lowered): +2 modules, +77 fences.
+    # imports.py adds 1 module and 48 fences; the `pyscriptc imports` subcommand registration adds 16 fences in cli.py.
+    # Program directories (R2): the import graph walk, init-owner map, cycle fence, `__main__` guard branch,
+    # entry inference and `--program` plumbing add 16 self-host fences (package.py, lower/, cli.py).
+    # runcache.py (binary cache for `pyscriptc run`) adds 1 module; the `run` subcommand adds fences in cli.py.
+    # PEP 723 dependency lanes, stub-path and ffi keys add 17 self-host fences (config.py, cli.py).
+    # E2 M2-M5 (exception hierarchy, object surface, per-interpreter ZeroDivisionError messages): +23 fences (log.py, telemetry.py, llvm.py).
+    assert census["fences"] == 1887
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
-    assert 11_000 <= census["lines"] <= 25_000
-    assert sum(p["fences"] for p in census["packages"]) == 1478
+    assert 11_000 <= census["lines"] <= 30_000
+    assert sum(p["fences"] for p in census["packages"]) == 1887

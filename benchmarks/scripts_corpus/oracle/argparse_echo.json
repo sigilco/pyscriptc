@@ -1,0 +1,12 @@
+{
+  "slug": "argparse_echo",
+  "argv": [
+    "world",
+    "--count",
+    "2",
+    "--upper"
+  ],
+  "stdout": "WORLD\nWORLD\n",
+  "stderr": "",
+  "exitCode": 0
+}

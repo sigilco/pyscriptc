@@ -1,0 +1,9 @@
+{
+  "slug": "dedupe_lines",
+  "argv": [
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/lines.txt"
+  ],
+  "stdout": "alpha\nbeta\ngamma\ndelta\n4 unique\n",
+  "stderr": "",
+  "exitCode": 0
+}

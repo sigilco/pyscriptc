@@ -60,7 +60,7 @@ class StdlibDispatchMixin:
                 # benchmark sets the env var, so a normal compile still fences.
                 self.bindings[alias.asname or "nativeprobe"] = Binding("module", "nativeprobe", "", False)
                 continue
-            if self._is_own_package(alias.name):
+            if self._is_own_package(alias.name) or self._is_program_module(alias.name):
                 self._bind_own_import(alias, stmt, fences)
                 continue
             status = module_status(alias.name)
@@ -110,7 +110,7 @@ class StdlibDispatchMixin:
                 return
             self._bind_package_import(stmt, fences)
             return
-        if self._is_own_package(stmt.module):
+        if self._is_own_package(stmt.module) or self._is_program_module(stmt.module):
             self._bind_own_from(stmt, fences)
             return
         status = module_status(stmt.module)
@@ -171,6 +171,19 @@ class StdlibDispatchMixin:
             )
 
     def _bind_package_import(self, stmt: ast.ImportFrom, fences: list[Fence]) -> None:
+        if self.program and not self.is_package and "." not in self.module_name:
+            # A program's plain sibling module is not a package: CPython
+            # refuses a relative import there ("attempted relative import
+            # with no known parent package"). Import the sibling by name.
+            fences.append(
+                Fence(
+                    "PS2002",
+                    f"relative import in {self.module_name} has no parent package; import the module by name",
+                    span_of(stmt, self.filename),
+                    None,
+                )
+            )
+            return
         base = _package_base(self.module_name, self.is_package, stmt.level)
         if base is None:
             fences.append(Fence("PS2002", "relative import is not lowered", span_of(stmt, self.filename), None))
@@ -207,6 +220,11 @@ class StdlibDispatchMixin:
             )
 
     def _bind_pkg_module(self, local: str, module: str, stmt: ast.AST, fences: list[Fence]) -> None:
+        existing = self.bindings.get(local)
+        if existing is not None and existing.kind == "pkg" and existing.module == module:
+            # The same module imported twice under the same name: CPython
+            # keeps one binding, and so does this.
+            return
         if local in self.bindings or local in self.constants or local in self.declared:
             fences.append(Fence("PS2002", f"{local} is already bound", span_of(stmt, self.filename), None))
             return
@@ -245,6 +263,13 @@ class StdlibDispatchMixin:
     def _bind_own_from(self, stmt: ast.ImportFrom, fences: list[Fence]) -> None:
         module = stmt.module or ""
         package = self.package or {}
+        if self.program and module and module != "__main__":
+            # A program's `from pkg import x` runs pkg's body before it binds
+            # x, and that body's call is spelled `pkg.__init__()`: the module
+            # name is bound here (CPython keeps the module object reachable
+            # the same way; the name itself is this compiler's one addition).
+            head = module.split(".")[0]
+            self._bind_pkg_module(head, head, stmt, fences)
         for alias in stmt.names:
             if alias.name == "*":
                 fences.append(Fence("PS2002", "star import is not lowered", span_of(stmt, self.filename), None))

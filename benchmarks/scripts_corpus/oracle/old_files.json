@@ -1,0 +1,10 @@
+{
+  "slug": "old_files",
+  "argv": [
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/tree",
+    "2020-01-01T00:00:00"
+  ],
+  "stdout": "2001-09-09T01:46:40 {fixtures}/tree/Empty Name.TXT\n2001-09-09T01:46:40 {fixtures}/tree/a.txt\n",
+  "stderr": "2 files older than 2020-01-01T00:00:00\n",
+  "exitCode": 0
+}

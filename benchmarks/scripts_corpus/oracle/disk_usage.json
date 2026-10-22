@@ -1,0 +1,10 @@
+{
+  "slug": "disk_usage",
+  "argv": [
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/lines.txt",
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/columns.csv"
+  ],
+  "stdout": "    34.0 B  {fixtures}/lines.txt\n    69.0 B  {fixtures}/columns.csv\n2 files, 103.0 B total\n",
+  "stderr": "",
+  "exitCode": 0
+}

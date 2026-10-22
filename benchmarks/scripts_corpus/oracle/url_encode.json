@@ -1,0 +1,10 @@
+{
+  "slug": "url_encode",
+  "argv": [
+    "encode",
+    "a b&c"
+  ],
+  "stdout": "a%20b%26c\n",
+  "stderr": "",
+  "exitCode": 0
+}

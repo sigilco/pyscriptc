@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -73,3 +75,12 @@ def test_route_label(tmp_path: Path) -> None:
 
 def test_hostname_matches_cpython(tmp_path: Path) -> None:
     _run(tmp_path, "hostname.py", "hostname", "[]")
+
+
+def test_wordcount_program_directory_matches_cpython(tmp_path: Path) -> None:
+    source = EXAMPLES / "wordcount"
+    got = run_cli("compile", str(source), "--run", "-o", str(tmp_path / "wordcount"))
+    assert got.returncode == 0, got.stderr
+    expected = subprocess.run([sys.executable, "__main__.py"], cwd=source, capture_output=True, text=True, check=True)
+    assert got.stdout == expected.stdout
+    assert got.stdout == "three 3\n"

@@ -1,0 +1,9 @@
+{fixtures}/tree
+|-- Empty Name.TXT
+|-- a.txt
+|-- empty
+|   `-- .keep
+`-- sub
+    |-- b.txt
+    `-- with space.txt
+7 entries

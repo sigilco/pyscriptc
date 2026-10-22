@@ -1,0 +1,5 @@
+scheme https
+netloc example.com
+path /a/b
+query q=1
+fragment frag

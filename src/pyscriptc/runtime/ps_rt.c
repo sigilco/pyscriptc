@@ -182,6 +182,9 @@ typedef struct PsUserExc {
 static PsUserExc ps_user_exc[PS_USER_EXC_MAX];
 static int32_t ps_user_exc_n;
 
+_Static_assert(PS_RESERVED_BASE > PS_USER_BASE, "reserved codes sit above user codes");
+_Static_assert(PS_TIMEOUT >= PS_GENERATOR_EXIT && PS_TIMEOUT < 0x7FFFFFFF, "reserved codes fit i32");
+
 _Static_assert(sizeof(PsBuf) == 16, "PsBuf must match %ps.str");
 
 /* The class name for a code: the builtin table, then the user registry. */
@@ -191,6 +194,18 @@ static const char *ps_exc_name(int code) {
         if (name != NULL) {
             return name;
         }
+    }
+    switch (code) {
+    case PS_GENERATOR_EXIT:
+        return "GeneratorExit";
+    case PS_STOP_ASYNC:
+        return "StopAsyncIteration";
+    case PS_CANCELLED:
+        return "CancelledError";
+    case PS_TIMEOUT:
+        return "TimeoutError";
+    default:
+        break;
     }
     if (code >= PS_USER_BASE) {
         int32_t index = code - PS_USER_BASE;

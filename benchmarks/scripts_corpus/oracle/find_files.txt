@@ -1,0 +1,8 @@
+{fixtures}/tree/Empty Name.TXT
+{fixtures}/tree/a.txt
+{fixtures}/tree/empty
+{fixtures}/tree/empty/.keep
+{fixtures}/tree/sub
+{fixtures}/tree/sub/b.txt
+{fixtures}/tree/sub/with space.txt
+7 paths

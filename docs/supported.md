@@ -78,6 +78,35 @@ Each module below is a closed set of calls, not the whole module.
 
 Island calls link libpython. The constants do not.
 
+## Multi-file programs
+
+`pyscriptc compile DIR` compiles a whole tree into one native binary. The shape of the tree decides what the directory means.
+
+A **program** directory is one of two shapes: a root `__main__.py`, or a root `main.py`, either way without a root `__init__.py`. That file is the entry point, and the tree is imported the way `sys.path[0]` would import it:
+
+```python
+# mytool/__main__.py
+import util
+from pkg import x
+
+print(util.twice(21))
+print(x.NAME)
+```
+
+`util.py` is imported as `util`, and `pkg/__init__.py` as `pkg`. A module body runs once, at the first import that reaches it, in CPython's order, so the printed order of a program matches `python3 __main__.py`. A module with only definitions and constants has no body and contributes nothing. A module's own imports run before its body.
+
+A **package** directory has a root `__init__.py`. It is a library: its modules are namespaced under the directory name (`from mypkg.mod import name`), and its `__main__.py` is the `python -m` script, not an importable module. The compile skips it and says so. `--program` turns that shape into the `python -m pkg` one: the root `__main__.py` becomes the entry point and the modules keep the package namespace.
+
+A circular import is refused before anything is emitted. The fence names the path that closes it and points at the import statement:
+
+```text
+mytool/b.py:1:1: PS2002: circular import: a -> b -> a
+  import a
+  ^
+```
+
+`pyscriptc coverage DIR` walks the whole graph and reports every fence with the definition that holds it.
+
 ## Finding every fence
 
 `pyscriptc coverage FILE|DIR [--json]` lowers a file or a package tree and reports every fence, not only the first. Each entry has the PS code, a code frame, a feature family, the definition that holds it, and a refactor hint. The `chain` list ranks families by how many definitions they alone block. `compile` is unchanged and still fails closed on any fence.
@@ -115,7 +144,7 @@ These refuse the whole file:
 - `str.encode("ascii")` and any other extra argument on `encode` or `decode`
 - User decorators, `**kwargs`, keyword-only and positional-only parameters, starred calls, `super()`, and multiple inheritance
 - `with ... as` except `with open(...) as name` and `with importlib.resources.as_file(...) as name`
-- A relative import in a single file. A directory compile resolves `from .mod import name`, `from . import name`, and an absolute import of that same package (`from pkg.mod import name`) for a function, a module-level constant, or a class the defining module emits, including a subclass of a class exported by another module. `__main__.py` is skipped and the compile says so: it is the `python -m` script, not an importable module. An `argparse` import in any other file stays a fence. When a class or function does not lower, the first fence is the one inside that definition, ahead of "is not exported". Two user classes with the same name and different fields stay a fence. Identical synthetic classes are skipped
+- A relative import in a single file. A directory compile resolves `from .mod import name`, `from . import name`, and an absolute import of that same package (`from pkg.mod import name`) for a function, a module-level constant, or a class the defining module emits, including a subclass of a class exported by another module. In a **program** directory (a root `__main__.py` or `main.py`, and no root `__init__.py`) that file is the entry point instead: the siblings are imported by their plain names (`import util`, `from pkg import x`), each module body runs once, in CPython's import order, and a circular import is refused with the path that closes it (`circular import: a -> b -> a`). In a **package** directory (a root `__init__.py`) `__main__.py` is skipped and the compile says so: it is the `python -m` script, not an importable module; `--program` runs it instead. An `argparse` import in any other file stays a fence. When a class or function does not lower, the first fence is the one inside that definition, ahead of "is not exported". Two user classes with the same name and different fields stay a fence. Identical synthetic classes are skipped
 - Any import outside the table (`requests`, `argparse`, …). `enum` and `dataclasses` are in the table for `Enum` / `IntEnum` and `@dataclass`
 - Lambdas, a tuple of fewer than two fields, a mixed or nested `tuple[T, ...]`, a non-constant tuple index, tuple equality, a `set` whose elements are not `int` or `str`, and a generator expression
 - String literals outside Latin-1

@@ -1,0 +1,7 @@
+conflict port: 8080 != 9090
+conflict shared: one != two
+extra=yes
+host=alpha
+port=8080
+shared=one
+4 keys, 2 conflicts

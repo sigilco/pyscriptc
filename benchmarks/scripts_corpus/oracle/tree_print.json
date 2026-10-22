@@ -1,0 +1,9 @@
+{
+  "slug": "tree_print",
+  "argv": [
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/tree"
+  ],
+  "stdout": "{fixtures}/tree\n|-- Empty Name.TXT\n|-- a.txt\n|-- empty\n|   `-- .keep\n`-- sub\n    |-- b.txt\n    `-- with space.txt\n7 entries\n",
+  "stderr": "",
+  "exitCode": 0
+}

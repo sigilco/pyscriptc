@@ -1,0 +1,9 @@
+{
+  "slug": "env_report",
+  "argv": [
+    "PYSC_"
+  ],
+  "stdout": "PYSC_CORPUS=1\nPYSC_CORPUS_NAME=scripts-corpus\n",
+  "stderr": "2 variables with prefix PYSC_\n",
+  "exitCode": 0
+}

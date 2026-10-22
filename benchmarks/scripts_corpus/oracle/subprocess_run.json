@@ -1,0 +1,10 @@
+{
+  "slug": "subprocess_run",
+  "argv": [
+    "echo",
+    "hello"
+  ],
+  "stdout": "hello\n",
+  "stderr": "",
+  "exitCode": 0
+}

@@ -13,13 +13,16 @@ import time
 from pathlib import Path
 from typing import Any
 
-from pyscriptc import telemetry
+from pyscriptc import deps, runcache, telemetry
 from pyscriptc.check import CheckFailed, run_checker
+from pyscriptc.config import apply_to_args, load_config
 from pyscriptc.coverage import build_report, family_of, render_text
 from pyscriptc.debug import Debug, resolve
 from pyscriptc.diagnostics import explain
 from pyscriptc.doctor import doctor_cmd
 from pyscriptc.errors import FitError, IRError, SpikeError, VersionError
+from pyscriptc.imports import build_report as build_import_report
+from pyscriptc.imports import render_text as render_import_text
 from pyscriptc.ir import validate_module
 from pyscriptc.llvm import compile_unit, emit_llvm, link_binary, standalone_entry
 from pyscriptc.log import enable_debug, get_logger, tail
@@ -39,6 +42,13 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd", required=True)
     compile_parser = sub.add_parser("compile", help="lower a source file", parents=[common])
     compile_parser.add_argument("source")
+    compile_parser.add_argument(
+        "--program",
+        action="store_true",
+        help="treat the directory as a program (`python -m pkg` parity): `__main__.py` is the "
+        "entry point even when the directory has an `__init__.py`, and its modules are "
+        "namespaced under the directory name",
+    )
     compile_parser.add_argument("--emit", choices=("ir", "llvm", "asm", "obj", "bin"), default="llvm")
     compile_parser.add_argument(
         "--out-dir",
@@ -100,6 +110,19 @@ def main(argv: list[str] | None = None) -> int:
         metavar="DIR",
         help="write debug artifacts (ir.json, out.ll, cc.sh, summary.json) to DIR",
     )
+    run_parser = sub.add_parser(
+        "run", help="compile (cached by content hash) and run; arguments after `--` go to the program", parents=[common]
+    )
+    run_parser.add_argument("source")
+    run_parser.add_argument("--program", action="store_true", help="treat the directory as a program (see compile)")
+    run_parser.add_argument("--call", help="function the generated main calls")
+    run_parser.add_argument("--args", default="[]", help="Python literal list of arguments for --call")
+    run_parser.add_argument("--driver", choices=("clang", "zig"), default=None)
+    run_parser.add_argument("--target", help="cross-compilation triple for `zig cc`")
+    run_parser.add_argument("--linker", choices=("clang", "zig"), default=None)
+    run_parser.add_argument("--skip-check", action="store_true")
+    run_parser.add_argument("--checker", choices=("pyrefly", "mypy", "pyright"), default="pyrefly")
+    run_parser.add_argument("--no-cache", action="store_true", help="always recompile (env PYSC_NO_RUN_CACHE=1)")
     coverage_parser = sub.add_parser("coverage", help="report every fence in a file or package tree", parents=[common])
     coverage_parser.add_argument("source")
     coverage_parser.add_argument("--json", action="store_true", help="print the report as JSON")
@@ -108,13 +131,22 @@ def main(argv: list[str] | None = None) -> int:
         choices=("blockers", "any"),
         help="exit 1 when root fences (blockers) or any fence exist; default always exits 0",
     )
+    config_parser = sub.add_parser("config", help="show the resolved config for a source", parents=[common])
+    config_parser.add_argument("source")
+    config_parser.add_argument("--json", action="store_true", help="print the resolved config as JSON")
     explain_parser = sub.add_parser("explain", help="describe a diagnostic code", parents=[common])
     explain_parser.add_argument("code")
+    imports_parser = sub.add_parser(
+        "imports", help="classify every import of a file or package tree into a compat lane", parents=[common]
+    )
+    imports_parser.add_argument("source")
+    imports_parser.add_argument("--json", action="store_true", help="print the report as JSON")
     sub.add_parser("logs", help="print the audit-log path and its last lines", parents=[common])
     telemetry_parser = sub.add_parser("telemetry", help="usage metrics opt-out")
     telemetry_parser.add_argument("action", choices=("disable", "enable", "status", "reset-id"))
     doctor_parser = sub.add_parser("doctor", help="report toolchain, cache and install shape", parents=[common])
     doctor_parser.add_argument("--json", action="store_true", help="print the report as JSON")
+    deps.register(sub, common)
     try:
         raw = list(sys.argv[1:] if argv is None else argv)
         run_argv: list[str] = []
@@ -123,8 +155,8 @@ def main(argv: list[str] | None = None) -> int:
             raw, run_argv = raw[:split], raw[split + 1 :]
         args = parser.parse_args(raw)
         args.run_argv = run_argv
-        if run_argv and not (args.cmd == "compile" and args.run):
-            parser.error("arguments after `--` need `compile --run`")
+        if run_argv and not (args.cmd == "run" or (args.cmd == "compile" and args.run)):
+            parser.error("arguments after `--` need `run` or `compile --run`")
         if getattr(args, "verbose", False):
             enable_debug()
         log.info("cli.invoke", cmd=args.cmd)
@@ -133,14 +165,22 @@ def main(argv: list[str] | None = None) -> int:
             telemetry.track("cli.invoked", {"subcommand": args.cmd, **telemetry.base_properties()})
         if args.cmd == "compile":
             return compile_cmd(args)
+        if args.cmd == "run":
+            return run_cmd(args)
         if args.cmd == "coverage":
             return coverage_cmd(args)
+        if args.cmd == "imports":
+            return imports_cmd(args)
+        if args.cmd == "config":
+            return config_cmd(args)
         if args.cmd == "explain":
             return explain_cmd(args)
         if args.cmd == "logs":
             return logs_cmd(args)
         if args.cmd == "doctor":
             return doctor_cmd(args.json)
+        if args.cmd == "deps":
+            return deps.deps_cmd(args)
         if args.cmd == "telemetry":
             return telemetry.telemetry_cmd(args.action)
     except CheckFailed as exc:
@@ -155,16 +195,152 @@ def main(argv: list[str] | None = None) -> int:
     return 2
 
 
+def run_cmd(args: argparse.Namespace) -> int:
+    """`pyscriptc run FILE [-- args]`: compile once per content hash, then run the cached binary."""
+    _apply_env_defaults(args)
+    source = Path(args.source)
+    if not source.exists():
+        raise IRError(f"source not found: {source}")
+    use_cache = runcache.enabled() and not args.no_cache
+    key = runcache.key_for(
+        source,
+        load_config(source).origin,
+        [
+            f"program={args.program}",
+            f"call={args.call}",
+            f"args={args.args if args.call else ''}",
+            f"driver={args.driver}",
+            f"target={args.target}",
+            f"linker={args.linker}",
+            f"skip_check={args.skip_check}",
+            f"checker={args.checker}",
+        ],
+    )
+    name = (source.resolve().name if source.is_dir() else source.stem) or "app"
+    binary = runcache.binary_path(key, name)
+    if use_cache and binary.is_file():
+        log.info("run.cache_hit", key=key, binary=str(binary))
+        return _exec_binary(binary, args.run_argv)
+    build = runcache.cache_dir() / f".build-{os.getpid()}-{key}"
+    shutil.rmtree(build, ignore_errors=True)
+    build.mkdir(parents=True, exist_ok=True)
+    try:
+        code = _build_for_run(args, build / name)
+        if code != 0:
+            return code
+        if use_cache:
+            try:
+                os.replace(build, binary.parent)
+                log.info("run.cache_store", key=key, binary=str(binary))
+            except OSError:
+                # another run stored the same content first; build stays ours to run and clean
+                if not binary.is_file():
+                    raise
+            else:
+                return _exec_binary(binary, args.run_argv)
+        return _exec_binary(build / name, args.run_argv)
+    finally:
+        shutil.rmtree(build, ignore_errors=True)
+
+
+def _build_for_run(args: argparse.Namespace, output: Path) -> int:
+    compile_args = argparse.Namespace(
+        source=args.source,
+        program=args.program,
+        emit="bin",
+        out_dir=None,
+        output=str(output),
+        call=args.call,
+        args=args.args,
+        run=False,
+        driver=args.driver,
+        target=args.target,
+        linker=args.linker,
+        print_what=None,
+        skip_check=args.skip_check,
+        checker=args.checker,
+        debug=None,
+        debug_dir=None,
+        run_argv=[],
+    )
+    # compile prints the binary path on success; keep stdout clean for the program
+    real_stdout = sys.stdout
+    sys.stdout = sys.stderr
+    try:
+        return compile_cmd(compile_args)
+    finally:
+        sys.stdout = real_stdout
+
+
+def _exec_binary(binary: Path, argv: list[str]) -> int:
+    completed = subprocess.run([str(binary.absolute()), *argv])
+    code = 128 + (-completed.returncode) if completed.returncode < 0 else completed.returncode
+    log.info("run.exit", binary=str(binary), code=code)
+    return code
+
+
 def coverage_cmd(args: argparse.Namespace) -> int:
     report = build_report(Path(args.source))
     log.info("coverage.report", source=args.source)
     print(json.dumps(report, indent=2) if args.json else render_text(report))
     summary = report["summary"]
     telemetry.track("coverage.reported", telemetry.coverage_properties(summary))
-    if args.fail_on == "any" and summary["fences"]:
+    mode = args.fail_on
+    if mode is None:
+        config = load_config(Path(args.source))
+        mode = config.fail_on
+    if mode == "any" and summary["fences"]:
         return 1
-    if args.fail_on == "blockers" and summary["rootFences"]:
+    if mode == "blockers" and summary["rootFences"]:
         return 1
+    return 0
+
+
+def imports_cmd(args: argparse.Namespace) -> int:
+    report = build_import_report(Path(args.source))
+    log.info("imports.report", source=args.source)
+    print(json.dumps(report, indent=2) if args.json else render_import_text(report))
+    return 0
+
+
+def config_cmd(args: argparse.Namespace) -> int:
+    config = load_config(Path(args.source))
+    data = {
+        "source": config.source,
+        "origin": str(config.origin) if config.origin else None,
+        "entry": config.entry,
+        "src": list(config.src),
+        "checker": config.checker,
+        "driver": config.driver,
+        "target": config.target,
+        "fail-on": config.fail_on,
+        "requires-python": config.requires_python,
+        "dependencies": list(config.dependencies),
+        "stub-path": list(config.stub_path),
+        "ffi": list(config.ffi),
+        "dependency-lanes": config.dependency_lanes(),
+        "imports": {name: config.lane_for(name)[0] for name in sorted(config.imports)},
+    }
+    if args.json:
+        print(json.dumps(data, indent=2))
+        return 0
+    print(f"source: {data['source']}")
+    if data["origin"]:
+        print(f"origin: {data['origin']}")
+    for key in ("entry", "checker", "driver", "target", "fail-on", "requires-python"):
+        if data[key] is not None:
+            print(f"{key}: {data[key]}")
+    if data["src"]:
+        print(f"src: {', '.join(data['src'])}")
+    for key in ("stub-path", "ffi"):
+        if data[key]:
+            print(f"{key}: {', '.join(data[key])}")
+    if data["dependencies"]:
+        print(f"dependencies: {', '.join(data['dependencies'])}")
+        for req, lane in data["dependency-lanes"].items():
+            print(f"  {req}: {lane}")
+    for name, lane in data["imports"].items():
+        print(f"import {name}: {lane}")
     return 0
 
 
@@ -254,6 +430,9 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         print(json.dumps(report, indent=2))
         return 3 if report["fences"] else 0
     _require_toolchain(args)
+    config = load_config(source_path)
+    for note in apply_to_args(config, args):
+        print(note, file=sys.stderr)
     log.info(
         "compile.start",
         source=str(source_path),
@@ -270,7 +449,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
     try:
         dbg.begin("lower")
         if source_path.is_dir():
-            module, source = lower_directory(source_path)
+            module, source = lower_directory(source_path, program_mode=args.program)
         elif source_path.is_file():
             module, source = lower_file(str(source_path))
         else:
