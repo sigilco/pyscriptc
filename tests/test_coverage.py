@@ -120,6 +120,34 @@ def test_compile_still_fails_closed_on_a_fence(tmp_path: Path) -> None:
     assert "PS1101" in got.stderr
 
 
+def test_coverage_walks_a_program_graph(tmp_path: Path) -> None:
+    prog = tmp_path / "prog"
+    (prog / "pkg").mkdir(parents=True)
+    (prog / "__main__.py").write_text("import util\n\nprint(util.f(1))\n", encoding="utf-8")
+    (prog / "util.py").write_text("def f(x: int | str) -> int:\n    return 1\n", encoding="utf-8")
+    (prog / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (prog / "pkg" / "a.py").write_text("def g(x: 'B') -> int:\n    return 1\n", encoding="utf-8")
+    got = run_cli("coverage", str(prog), "--json")
+    assert got.returncode == 0, got.stderr
+    report = json.loads(got.stdout)
+    assert report["summary"]["files"] == 4
+    assert report["summary"]["definitions"] == 2
+    assert {"union-types", "forward-reference"} <= {entry["family"] for entry in report["fences"]}
+
+
+def test_a_cycle_fence_carries_its_own_family(tmp_path: Path) -> None:
+    prog = tmp_path / "cyc"
+    prog.mkdir()
+    (prog / "__main__.py").write_text("import a\n\nprint(a.f())\n", encoding="utf-8")
+    (prog / "a.py").write_text("import b\n\n\ndef f() -> int:\n    return 1\n", encoding="utf-8")
+    (prog / "b.py").write_text("import a\n\n\ndef g() -> int:\n    return 2\n", encoding="utf-8")
+    got = run_cli("coverage", str(prog))
+    assert got.returncode == 0, got.stderr
+    assert "circular import: a -> b -> a" in got.stdout
+    assert "family: import-cycle" in got.stdout
+    assert "Break the cycle" in got.stdout
+
+
 def test_explain_known_and_unknown_code() -> None:
     got = run_cli("explain", "ps1101")
     assert got.returncode == 0

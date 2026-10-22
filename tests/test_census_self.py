@@ -50,7 +50,9 @@ def test_self_census_ballpark() -> None:
     # coro.py (generator frame pass) adds 45 fences (dict-shaped IR annotations).
     # stubs.py + sigregistry.py (stub reader, signature registry, not lowered): +2 modules, +77 fences.
     # imports.py adds 1 module and 48 fences; the `pyscriptc imports` subcommand registration adds 16 fences in cli.py.
-    assert census["fences"] == 1670
+    # Program directories (R2): the import graph walk, init-owner map, cycle fence, `__main__` guard branch,
+    # entry inference and `--program` plumbing add 16 self-host fences (package.py, lower/, cli.py).
+    assert census["fences"] == 1686
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 30_000
-    assert sum(p["fences"] for p in census["packages"]) == 1670
+    assert sum(p["fences"] for p in census["packages"]) == 1686
