@@ -109,7 +109,6 @@ export default {
       children: [
         { title: "Supported CPython versions", path: "/project/versions/" },
         { title: "Telemetry", path: "/project/telemetry/" },
-        { title: "Privacy notice", path: "/project/privacy/" },
         { title: "Contributing", path: "/project/contributing/" },
       ],
     },
