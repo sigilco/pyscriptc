@@ -71,7 +71,10 @@ def test_self_census_ballpark() -> None:
     # (the mypy adapter, the facts-to-IR translator and the bridge consumer).
     # --sanitize (#271): the flag parsing and the sanitize argv plumbing add 14
     # fences in cli.py and 2 in llvm.py.
-    assert census["fences"] == 2207
+    # `--timings` (#270) adds 9 self-host fences: 2 in cli.py (the flag and
+    # the timings plumbing), 2 in debug.py (the timing sink and the stage
+    # exclusion), 5 in llvm.py (the per-step cc/link measurements).
+    assert census["fences"] == 2216
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 31_000
-    assert sum(p["fences"] for p in census["packages"]) == 2207
+    assert sum(p["fences"] for p in census["packages"]) == 2216

@@ -6,6 +6,7 @@ saw, what it decided, and how long each stage took.
 ## Switches
 
 - `pyscriptc compile FILE --debug` — compact per-stage timing table on stderr.
+- `--timings` — that stage table on its own, without the other debug topics.
 - `--debug=WHAT` — comma list of topics: `stages`, `fences`, `cc`, `paths`, `all`.
 - `PYSC_DEBUG=1` — same as bare `--debug`; `PYSC_DEBUG=fences,cc` selects topics.
   `--debug` wins over the env var when both are set.
@@ -13,8 +14,10 @@ saw, what it decided, and how long each stage took.
 
 ## stderr topics
 
-- `stages` — `lower` / `check` / `validate` / `emit_llvm` / `link` / `run` in ms
-  plus a total.
+- `stages` — `parse` / `lower` / `check` / `validate` / `emit_llvm` / `link` / `run` in ms
+  plus a total. `parse` is the part of lowering that went into the Python
+  parser; `cc_compile` and `cc_link` break the `link` stage into its object
+  compiles and the final link.
 - `fences` — the fence table: count, then `file:line:col CODE message` per fence
   (the same dicts that `module["fences"]` carries; no extra computation).
 - `cc` — every clang/zig command line `link_binary` runs (the `.ll`/`.c -> .o`
@@ -28,7 +31,7 @@ saw, what it decided, and how long each stage took.
 | `ir.json` | The lowered module, identical to the `<out>.ir.json` next to the output. |
 | `out.ll` | The emitted LLVM text (present for `--emit llvm` and `--emit bin`). |
 | `cc.sh` | The exact cc invocations, one per line (only when linking ran). |
-| `summary.json` | Stage timings, fence dicts, cc commands, output paths, final status (`ok` / `fences` / `error`). |
+| `summary.json` | Stage timings (`timings` maps every stage and sub-step to ms), fence dicts, cc commands, output paths, final status (`ok` / `fences` / `error`). |
 
 Artifacts are written in a `finally`, so a fenced or failed compile still
 leaves `ir.json` and `summary.json` for inspection.

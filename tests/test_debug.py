@@ -109,3 +109,46 @@ def test_debug_rejects_unknown_topic() -> None:
     proc = run_cli("compile", str(EXAMPLES / "sum_squares.py"), "--emit", "ir", "--debug=bogus")
     assert proc.returncode == 1
     assert "unknown debug topic" in proc.stderr
+
+
+def test_timings_flag_prints_stage_table(tmp_path: Path) -> None:
+    out = tmp_path / "main.ll"
+    proc = run_cli("compile", str(EXAMPLES / "sum_squares.py"), "--emit", "llvm", "-o", str(out), "--timings")
+    assert proc.returncode == 0, proc.stderr
+    assert "[debug] stage" in proc.stderr
+    assert "[debug] parse" in proc.stderr
+    assert "[debug] lower" in proc.stderr
+    assert "[debug] check" in proc.stderr
+    assert "[debug] total" in proc.stderr
+    # parse is the part of the lower stage that went into the parser:
+    # the lower row must not repeat it.
+    lower = float(next(line for line in proc.stderr.splitlines() if line.startswith("[debug] lower")).split()[-1])
+    assert lower > 0.0
+
+
+def test_timings_no_debug_topics_beyond_stages(tmp_path: Path) -> None:
+    out = tmp_path / "main.ll"
+    proc = run_cli("compile", str(EXAMPLES / "sum_squares.py"), "--emit", "llvm", "-o", str(out), "--timings")
+    assert proc.returncode == 0, proc.stderr
+    assert "fences:" not in proc.stderr
+    assert "[debug] cc:" not in proc.stderr
+
+
+def test_summary_json_carries_timings_field(tmp_path: Path) -> None:
+    out = tmp_path / "main.bin"
+    dbg = tmp_path / "dbg"
+    proc = run_cli(
+        "compile", str(EXAMPLES / "sum_squares.py"), "--emit", "bin", "-o", str(out), "--debug-dir", str(dbg)
+    )
+    assert proc.returncode == 0, proc.stderr
+    timings = json.loads((dbg / "summary.json").read_text())["timings"]
+    for stage in ("parse", "lower", "check", "validate", "emit_llvm", "cc_compile", "cc_link", "link"):
+        assert stage in timings, timings
+        assert timings[stage] >= 0.0, timings
+
+
+def test_timings_without_debug_stays_quiet(tmp_path: Path) -> None:
+    out = tmp_path / "main.ll"
+    proc = run_cli("compile", str(EXAMPLES / "sum_squares.py"), "--emit", "llvm", "-o", str(out))
+    assert proc.returncode == 0, proc.stderr
+    assert "[debug]" not in proc.stderr
