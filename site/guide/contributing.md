@@ -12,7 +12,16 @@ mise trust && mise install   # python, uv, node, pnpm per mise.toml
 uv sync
 ```
 
-Tools already on your PATH that satisfy the `mise.toml` pins are reused, not reinstalled. You also need `clang` for linking compiled binaries, and `pnpm install` only when working on this site (`docs/` output).
+Tools already on your PATH that satisfy the `mise.toml` pins are reused, not reinstalled. You also need `clang` for linking compiled binaries.
+
+Working on this documentation site needs `node` and `pnpm` (both pinned in `mise.toml`; `bun` is not used):
+
+```bash
+pnpm install
+pnpm docs:dev      # local preview
+pnpm docs:build    # build to docs/
+pnpm docs:validate
+```
 
 Checks before a PR:
 

@@ -2,7 +2,7 @@
 
 pinned pure-Python libraries: 3 🟢 · 5 🟡 · 10 🔴
 
-🟢 compiles with no fence · 🟡 at most half of the definitions fence · 🔴 more than half fence. Counts are live `pyscriptc coverage` runs over `benchmarks/compat/top100/src` (pins and hashes in `pins.json`). A library only counts toward the score when one of its own functions runs and matches CPython. Fence codes are per construct, see [supported.md](supported.md). Tiers T0 to T3: [refused-features.md](refused-features.md). Deliberate differences: [divergences.md](divergences.md).
+🟢 compiles with no fence · 🟡 at most half of the definitions fence · 🔴 more than half fence. Counts are live `pyscriptc coverage` runs over `benchmarks/compat/top100/src` (pins and hashes in `pins.json`). A library only counts toward the score when one of its own functions runs and matches CPython. Fence codes are per construct, see [supported.md](../../docs/supported.md). Tiers T0 to T3: [refused-features.md](../../docs/refused-features.md). Deliberate differences: [divergences.md](../../docs/divergences.md).
 
 | library | version | status | fenced defs | top blocking features (fences) | top codes |
 | --- | --- | --- | --- | --- | --- |

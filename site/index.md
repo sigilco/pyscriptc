@@ -1,11 +1,11 @@
 ---
 title: pyscriptc
-description: Compile annotated Python to a native binary. No CPython at runtime.
+description: Compile annotated Python to a native binary.
 ---
 
 # pyscriptc
 
-Compile annotated Python to a native binary. No CPython at runtime.
+Compile annotated Python to a native binary.
 
 [Quickstart](/guide/getting-started/) · [GitHub](https://github.com/sigilco/pyscriptc) · [PyPI](https://pypi.org/project/pyscriptc/)
 
@@ -30,4 +30,3 @@ That prints `285`, the same value CPython returns, from a native binary.
 
 - [Quickstart](/guide/getting-started/): install, compile, run.
 - [The Python subset](/guide/language/): what lowers, what fences.
-- [Telemetry and privacy](/guide/telemetry/): anonymous usage metrics and how to opt out.

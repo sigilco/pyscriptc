@@ -11,22 +11,22 @@ See the [privacy notice](/guide/privacy/) for the legal basis, retention and you
 
 Every field of every event, in full:
 
-| Event | Field | Example | Why |
-| --- | --- | --- | --- |
-| all | `distinct_id` | `3f2b8c1e-...` (random uuid4) | counts distinct installs, not people; see below |
-| all | `pyscriptc_version` | `0.4.0` | which release has which problem |
-| all | `python_version` | `3.14` (major.minor only) | which Python versions to support |
-| all | `platform` | `darwin`, `linux` | which targets matter |
-| all | `$ip` (null), `$geoip_disable` (true), `$process_person_profile` (false) | | ask PostHog not to store the IP, not to geolocate and not to build a person profile |
-| `cli.invoked` | `subcommand` | `compile` | which commands are used |
-| `compile.finished` | `duration_ms` | `412` | performance regressions |
-| `compile.finished` | `outcome` | `fences` | `ok`, `fences`, `check-failed`, `lower-error` or `build-error` |
-| `compile.finished` | `fence_count` | `3` | how often programs are blocked |
-| `compile.finished` | `fence_families` | `{"union-types": 2, "stdlib": 1}` | which kinds of constructs block users (fixed vocabulary, `stdlib:<module>` collapsed to `stdlib`) |
-| `compile.finished` | `checker`, `emit`, `driver` | `pyrefly`, `bin`, `clang` | which toolchain options are used (flag choices from a fixed list) |
-| `compile.finished` | `skip_check` | `false` | explains an absent `checker` |
-| `coverage.reported` | `definitions`, `fencedDefinitions`, `fences`, `rootFences` | `40`, `3`, `5`, `2` | aggregate coverage only |
-| `coverage.reported` | `byFamily` | `{"union-types": 5}` | family to fence count |
+| Event               | Field                                                                    | Example                           | Why                                                                                               |
+| ------------------- | ------------------------------------------------------------------------ | --------------------------------- | ------------------------------------------------------------------------------------------------- |
+| all                 | `distinct_id`                                                            | `3f2b8c1e-...` (random uuid4)     | counts distinct installs, not people; see below                                                   |
+| all                 | `pyscriptc_version`                                                      | `0.4.0`                           | which release has which problem                                                                   |
+| all                 | `python_version`                                                         | `3.14` (major.minor only)         | which Python versions to support                                                                  |
+| all                 | `platform`                                                               | `darwin`, `linux`                 | which targets matter                                                                              |
+| all                 | `$ip` (null), `$geoip_disable` (true), `$process_person_profile` (false) |                                   | ask PostHog not to store the IP, not to geolocate and not to build a person profile               |
+| `cli.invoked`       | `subcommand`                                                             | `compile`                         | which commands are used                                                                           |
+| `compile.finished`  | `duration_ms`                                                            | `412`                             | performance regressions                                                                           |
+| `compile.finished`  | `outcome`                                                                | `fences`                          | `ok`, `fences`, `check-failed`, `lower-error` or `build-error`                                    |
+| `compile.finished`  | `fence_count`                                                            | `3`                               | how often programs are blocked                                                                    |
+| `compile.finished`  | `fence_families`                                                         | `{"union-types": 2, "stdlib": 1}` | which kinds of constructs block users (fixed vocabulary, `stdlib:<module>` collapsed to `stdlib`) |
+| `compile.finished`  | `checker`, `emit`, `driver`                                              | `pyrefly`, `bin`, `clang`         | which toolchain options are used (flag choices from a fixed list)                                 |
+| `compile.finished`  | `skip_check`                                                             | `false`                           | explains an absent `checker`                                                                      |
+| `coverage.reported` | `definitions`, `fencedDefinitions`, `fences`, `rootFences`               | `40`, `3`, `5`, `2`               | aggregate coverage only                                                                           |
+| `coverage.reported` | `byFamily`                                                               | `{"union-types": 5}`              | family to fence count                                                                             |
 
 Not sent, ever: file names or paths, user names, host names, machine ids, MAC addresses, source text or snippets, imported module names, fence codes, per-fence locations, definition names, argument values, environment variables.
 The server connection necessarily exposes your IP address to the host; the project is configured to discard it (see the privacy notice).

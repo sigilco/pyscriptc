@@ -14,7 +14,7 @@ The census in `tests/test_census_self.py` counts something else: it compiles pys
 
 The unsupported column lists probed gaps. Any other name of a 🟡 module also fences with `PS2001`. A module that is not in the closed import table fences with `PS2002` on the import.
 
-Targets CPython 3.14. Deliberate differences from CPython: [divergences.md](divergences.md). Library results: [compat-top100.md](compat-top100.md).
+Targets CPython 3.14. Deliberate differences from CPython: [divergences.md](divergences.md). Library results: [.agents/docs/compat-top100.md](../.agents/docs/compat-top100.md).
 
 ## Builtins
 

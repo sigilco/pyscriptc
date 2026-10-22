@@ -5,31 +5,17 @@ description: What pyscriptc compiles today and what it refuses.
 
 pyscriptc compiles a deliberately strict subset of Python.
 When a construct is not supported, compilation stops with a `PSxxxx` fence that names the exact line, it never guesses.
-This page is the practical summary; the full contract lives in [`docs/supported.md`](https://github.com/sigilco/pyscriptc/blob/main/docs/supported.md) in the repo.
 
-## Everyday Python that compiles
+## Support model
 
-- `print(...)`, including `sep` and `end`
-- `sys.argv` as `list[str]`, `sys.platform`, `sys.exit`
-- `with open(path) as f:` and `f.read()`, `f.write(...)`
-- `for` over `range`, lists, dict keys, and tuple literals; `break` and `continue`
-- Slices, including negative steps (`s[::-1]`)
-- `sorted(xs, key=lambda x: ...)` for the common key cases
-- `if` / `elif` / `else`, mixed `and` / `or` in value position
-- Comprehensions over one `for` without filters
-- f-strings with simple interpolations, `%s` and `%d` formatting
-- `try` / `except ValueError:` and `except Exception:` (the exception model is growing milestone by milestone)
-- Single-file programs and directories resolved as a package
-- A broad set of `str`, `list`, `dict`, `int`, `float`, `bytes`, and `pathlib.Path` methods, plus scalar casts like `int("42")`
+- Typed code only: functions and variables carry annotations, and a type-checker preflight ([pyrefly](https://pyrefly.org/)) runs before lowering.
+- The supported surface is builtins, standard-library modules, and language features that the compiler can prove, one construct at a time.
+- Anything the subset does not prove stops at a named fence (`PSxxxx`); the compiler never guesses.
+- In the future, code that does not compile can run in the CPython runtime instead (the fallback tier); that runtime is not bundled and is expected on the host.
 
-## What stays fenced
+The exact, live per-construct, per-builtin, per-module and per-library status is tracked on the compat site rather than in this page, so it cannot go stale: [pyscriptc compat site](https://pyscriptc-compat.pages.dev) (placeholder URL, `PYSC_COMPAT_URL`; the site is not deployed yet).
 
-- `argparse`, `requests`, and most imports outside the lowered stdlib table
-- `**kwargs`, user decorators, `super()`, multiple inheritance, starred calls
-- `finally`, `except ... as e` (for now)
-- `with` statements other than `open(...)` and `importlib.resources.as_file(...)`
-- Non Latin-1 string literals
-- Async, threads, dynamic `getattr` on non-literal names, `eval`/`exec`
+The in-repo reference is [`docs/supported.md`](https://github.com/sigilco/pyscriptc/blob/master/docs/supported.md).
 
 ## Checking your own code
 

@@ -15,6 +15,8 @@ pyscriptc compile app.py --debug-dir out/ # dumps ir.json, out.ll, cc.sh, summar
 
 `--debug-dir` never changes the emitted IR; it only writes the intermediates next to it, so it is safe to diff two runs.
 
+The full reference for the debug switches, the stderr topics and the `--debug-dir` artifacts lives in [`.agents/docs/debug.md`](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/debug.md) in the repo; `pyscriptc compile --help` lists the flags themselves.
+
 ## Audit logs
 
 Every invocation appends JSONL records to `~/.cache/pyscriptc/log/`.
