@@ -927,7 +927,7 @@ class Emitter:
         if callee["kind"] == "builtin":
             return self.emit_builtin(callee["name"], values, [arg["type"] for arg in expr["args"]], expr)
         if callee["kind"] == "module":
-            return self.emit_module_call(expr)
+            return self.emit_module_call(expr, values)
         if callee["kind"] == "method":
             return self.emit_method(expr, values)
         if callee["kind"] == "class":
@@ -1012,12 +1012,11 @@ class Emitter:
                 return self._buf_out("ps_path_posix", [f"ptr {values[0]}"])
         raise IRError(f"no LLVM lowering for builtin {name}")
 
-    def emit_module_call(self, expr: dict[str, Any]) -> str:
+    def emit_module_call(self, expr: dict[str, Any], values: list[str]) -> str:
         callee = expr["callee"]
         module = callee["module"]
         name = callee["name"]
         args = expr["args"]
-        values = [self.emit_expr(arg) for arg in args]
         if expr.get("fn"):
             return self._emit_reduce(expr)
         if name == "exit":
