@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-22",
-  "commit": "5de2383af9bd2815d9d68056de0983314dc7aa3c",
+  "commit": "ce6b8188f1b37ea4cb8150bdb4556f0c40efe9f6",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -13,7 +13,7 @@
     "builtins_partial": 15,
     "builtins_none": 1,
     "stdlib_full": 0,
-    "stdlib_partial": 49,
+    "stdlib_partial": 50,
     "stdlib_none": 1,
     "packages_full": 3,
     "packages_partial": 5,
@@ -441,6 +441,24 @@
       "count": 1,
       "unsupported": [
         "load (file object), keyword arguments"
+      ],
+      "fences": [
+        "PS2001",
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.dotenv",
+      "kind": "stdlib",
+      "label": "`dotenv`",
+      "names": [
+        "dotenv"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "stream, verbose, interpolate, override, encoding arguments, other dotenv members (find_dotenv, set_key, DotEnv), interpolation ($VAR stays literal)"
       ],
       "fences": [
         "PS2001",
@@ -1953,7 +1971,7 @@
   "history": [
     {
       "date": "2026-10-22",
-      "commit": "5de2383af9bd2815d9d68056de0983314dc7aa3c",
+      "commit": "ce6b8188f1b37ea4cb8150bdb4556f0c40efe9f6",
       "weighted_pass": 0.0,
       "packages_full": 3,
       "packages_partial": 5,
