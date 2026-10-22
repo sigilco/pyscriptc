@@ -5,6 +5,8 @@ description: Install pyscriptc, compile a Python file, and run the native binary
 
 # Quickstart
 
+<p align="center"><img src="/assets/logo-256.png" width="320" alt="pyscriptc"></p>
+
 pyscriptc lowers a typed Python subset to a native binary. Parsing is CPython's own `ast`; mypy is a preflight checker. Anything the subset does not prove stops at a fence (`PSxxxx`), not a guess.
 
 ## Requirements

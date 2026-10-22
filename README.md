@@ -1,3 +1,5 @@
+<p align="center"><img src="public/assets/logo-512.png" width="320" alt="pyscriptc"></p>
+
 <h1 align="center">pyscriptc</h1>
 
 <p align="center">Compile annotated Python to a native binary. No CPython at runtime.</p>
