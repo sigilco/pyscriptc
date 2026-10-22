@@ -1,6 +1,6 @@
 # Getting started
 
-Requirements: [uv](https://docs.astral.sh/uv/) (or pipx/pip), CPython 3.10 or later (CI runs 3.14), and, to build a binary, a clang that can assemble textual LLVM IR (or `zig`). See the install table in the [README](../README.md#install-it). `pyscriptc doctor` reports what it found. Emitted programs cannot be compiled on Windows yet; use Linux, macOS or WSL.
+Requirements: [uv](https://docs.astral.sh/uv/) (or pipx/pip), CPython 3.14 or later (`uv tool install --python 3.14 pyscriptc` fetches it), and, to build a binary, a clang that can assemble textual LLVM IR (or `zig`). See the install table in the [README](../README.md#install-it). `pyscriptc doctor` reports what it found. Emitted programs cannot be compiled on Windows yet; use Linux, macOS or WSL.
 
 ```bash
 uv tool install pyscriptc
