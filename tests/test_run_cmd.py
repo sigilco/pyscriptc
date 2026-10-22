@@ -81,7 +81,9 @@ def test_no_cache_flag_always_compiles(tmp_path: Path, compiles: list[str]) -> N
 
 
 @needs_clang
-def test_stdin_passes_through(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str]) -> None:
+def test_stdin_passes_through(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str]
+) -> None:
     src = _script(tmp_path, "def main() -> int:\n    print(input().upper())\n    return 0\n\nmain()\n")
     stdin = tmp_path / "in.txt"
     stdin.write_text("hello\n")
