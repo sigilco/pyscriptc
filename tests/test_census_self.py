@@ -16,7 +16,8 @@ def test_self_census_ballpark() -> None:
     # T2-5 static folds: restlower/_folds.py adds a module (+15 fences of
     # fold-boundary docstrings and helpers, self-host only).
     # config.py (config surface: PEP 723, pyscriptc.toml/pyproject tables) adds 1 module.
-    assert census["modules"] == 50
+    # coro.py (generator frames) adds one more.
+    assert census["modules"] == 51
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -44,7 +45,8 @@ def test_self_census_ballpark() -> None:
     # T2-2 ABC/Protocol erasure: +5 fences in _classes.py (the erased-base
     # and decorator spellings are self-host fenced branches).
     # config.py adds 37 self-host fences (tomllib parsing, dataclass, os/pathlib use).
-    assert census["fences"] == 1492
+    # coro.py (generator frame pass) adds 45 fences (dict-shaped IR annotations).
+    assert census["fences"] == 1537
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 25_000
-    assert sum(p["fences"] for p in census["packages"]) == 1492
+    assert sum(p["fences"] for p in census["packages"]) == 1537
