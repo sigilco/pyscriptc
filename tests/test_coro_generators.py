@@ -242,4 +242,4 @@ def test_unsupported_shapes_fence_precisely(monkeypatch: pytest.MonkeyPatch) -> 
 def test_kill_switch_restores_old_fence(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PYSC_CORO", "0")
     module = lower_source(BASIC, "basic.py")
-    assert any(f["message"] == "Yield is not lowered" for f in module["fences"])
+    assert any(f["message"] == "yield is not lowered" for f in module["fences"])
