@@ -386,7 +386,7 @@ def test_unsupported_surface_stays_fenced(tmp_path: Path) -> None:
     """Phase 2 has no local, no kwargs, no group: the fences keep it honest."""
     cases = [
         ("local.py", "threading.local", "threading.local is not in the lowered subset of threading"),
-        ("group.py", 'threading.Thread(group=None, target=probe_target, args=(1,))', "threading.Thread ignores group"),
+        ("group.py", "threading.Thread(group=None, target=probe_target, args=(1,))", "threading.Thread ignores group"),
         (
             "kwargs.py",
             "threading.Thread(target=probe_target, kwargs={'a': 1})",
@@ -398,8 +398,9 @@ def test_unsupported_surface_stays_fenced(tmp_path: Path) -> None:
             "threading.Thread needs a target",
         ),
     ]
+    header = "import threading\ndef probe_target(a: int = 0) -> None:\n    pass\n"
     for name, expr, text in cases:
-        source = f"import threading\ndef probe_target(a: int = 0) -> None:\n    pass\ndef probe() -> int:\n    {expr}\n    return 1\n"
+        source = f"{header}def probe() -> int:\n    {expr}\n    return 1\n"
         path = write_case(tmp_path, name, source)
         got = run_cli(
             "compile",
