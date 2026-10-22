@@ -79,8 +79,8 @@ def test_self_census_ballpark() -> None:
     # IR annotations on the module and function builders).
     # Toolchain driver resolution (prefer zig with clang fallback): +6 self-host fences (cli, llvm, doctor).
     # Windows target compilation: +2 self-host fences (cli, llvm).
-    assert census["fences"] == 2220
+    assert census["fences"] == 2228
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # emitter.py (the emitter seam, #273) crosses the old 31_000 bound.
     assert 11_000 <= census["lines"] <= 32_000
-    assert sum(p["fences"] for p in census["packages"]) == 2220
+    assert sum(p["fences"] for p in census["packages"]) == 2228
