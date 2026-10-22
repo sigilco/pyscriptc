@@ -8,7 +8,7 @@ from typing import Any
 _CMP = {"eq": ast.Eq, "ne": ast.NotEq, "lt": ast.Lt, "le": ast.LtE, "gt": ast.Gt, "ge": ast.GtE}
 
 
-_BIN = {"add": ast.Add, "sub": ast.Sub, "mul": ast.Mult, "floordiv": ast.FloorDiv}
+_BIN = {"add": ast.Add, "sub": ast.Sub, "mul": ast.Mult, "floordiv": ast.FloorDiv, "truediv": ast.Div, "mod": ast.Mod}
 
 
 def _span_to(node: ast.AST, sub: ast.AST) -> ast.AST:
