@@ -65,6 +65,23 @@ PLAIN_FILES: dict[str, str] = {
 }
 
 
+def write_atomic(path: Path, text: str, mtime: int | None = None) -> None:
+    """Write `path` via a same-directory temp file and `os.replace`.
+
+    pytest-xdist workers each run the generator from a session fixture while
+    others read the fixtures (the tar writer reads the tree files). An
+    in-place `write_text` truncates first, so a reader could see a short file
+    and `tarfile` would fail with "unexpected end of data".
+    """
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    partial: Path = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    partial.write_text(text, encoding="utf-8")
+    if mtime is not None:
+        os.utime(partial, (mtime, mtime))
+    os.replace(partial, path)
+
+
 def stamp_mtimes() -> None:
     """Stamp the tree fixture modification times a checkout cannot preserve.
 
@@ -86,13 +103,8 @@ def stamp_mtimes() -> None:
 def write_tree() -> None:
     for relative, text in TREE_FILES.items():
         path: Path = FIXTURES / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
-        os.utime(path, (TREE_MTIME, TREE_MTIME))
-    keep: Path = FIXTURES / "tree" / "empty" / ".keep"
-    keep.parent.mkdir(parents=True, exist_ok=True)
-    keep.write_text("", encoding="utf-8")
-    os.utime(keep, (TREE_MTIME, TREE_MTIME))
+        write_atomic(path, text, TREE_MTIME)
+    write_atomic(FIXTURES / "tree" / "empty" / ".keep", "", TREE_MTIME)
 
 
 def write_tar() -> None:
@@ -114,8 +126,7 @@ def main() -> int:
     FIXTURES.mkdir(parents=True, exist_ok=True)
     for relative, text in PLAIN_FILES.items():
         path: Path = FIXTURES / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+        write_atomic(path, text)
     write_tree()
     write_tar()
     stamp_mtimes()

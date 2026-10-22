@@ -1512,7 +1512,9 @@ CALL_FENCES: dict[tuple[str, str], str] = {
     ("threading", "current_thread"): "threading.current_thread is only lowered for .name",
 }
 
-OPERATORS = frozenset({"add", "sub", "mul", "floordiv", "neg", "eq", "ne", "lt", "le", "gt", "ge", "concat"})
+OPERATORS = frozenset(
+    {"add", "sub", "mul", "floordiv", "truediv", "mod", "neg", "eq", "ne", "lt", "le", "gt", "ge", "concat"}
+)
 
 CTYPES = frozenset({"c_char", "c_int", "c_long", "c_int64", "c_size_t", "c_void_p"})
 

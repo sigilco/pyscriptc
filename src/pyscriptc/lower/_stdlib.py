@@ -369,7 +369,11 @@ class StdlibDispatchMixin:
             # else has no enum to draw its counter from.
             self.fail(node, "PS2001", "enum.auto is only lowered inside an enum")
         if module == "math":
+            if attr == "isclose":
+                return self._math_isclose(node, span)
             self._reject_keywords(node)
+            if attr == "gcd":
+                return self._math_gcd(node, span)
             return self._math_call(node, span, attr)
         if module in REST_MODULES:
             return rest_call(self, node, span, module, attr, expect)
