@@ -12,6 +12,8 @@
 <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
 </p>
 
+pyscriptc compiles an annotated subset of Python to a native binary. Parsing is CPython's own `ast` module, and a type checker runs as a preflight. Anything the subset does not prove stops the compile with a named diagnostic (a fence), it never guesses. The resulting binary carries no interpreter and no Python dependency.
+
 ## Installation
 
 ```bash
@@ -52,17 +54,16 @@ Source: [benchmarks/baseline/reference.json](https://github.com/sigilco/pyscript
 
 ## Using the stdlib
 
-Builtins: 25 🟢, 22 🟡, 23 🔴. Stdlib: 0 🟢, 47 🟡, 2 🔴. 🟢 fully supported, 🟡 partial, 🔴 not supported. Full tables, module by module: [docs/supported.md](https://github.com/sigilco/pyscriptc/blob/master/docs/supported.md).
+Builtins: 25 🟢, 22 🟡, 23 🔴. Stdlib: 0 🟢, 48 🟡, 2 🔴. 🟢 fully supported, 🟡 partial, 🔴 not supported. The practical summary and the fenced constructs: [The Python subset](https://pyscriptc.pages.dev/guide/language/). Full tables, module by module: [docs/supported.md](https://github.com/sigilco/pyscriptc/blob/master/docs/supported.md).
 
 ## Using PyPI packages
 
 Declare dependencies in a PEP 723 `# /// script` block or `pyproject.toml`, then run `pyscriptc deps script.py`.
 
-| Package | Status | Note |
+| Wheel lane | Status | Note |
 | --- | --- | --- |
-| six, attrs, idna | 🟡 | pure wheel, resolved and unpacked by `pyscriptc deps` |
-| orjson | 🔴 | native wheel, replacement pack planned |
-| numpy | 🔴 | native wheel, needs the C lane or the CPython island |
+| pure (`none-any`), for example six, attrs, idna | 🟡 | resolved, locked and cached by `pyscriptc deps`, then compiled from source |
+| native (ABI or platform wheels), for example orjson, numpy | 🔴 | refused by default: a native wheel needs a C ABI extern manifest |
 
 Top 100 PyPI libraries: [docs/compat-top100.md](https://github.com/sigilco/pyscriptc/blob/master/docs/compat-top100.md).
 
