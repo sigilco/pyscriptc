@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from pyscriptc import deps, runcache, telemetry
+from pyscriptc import deps, reduce, runcache, telemetry
 from pyscriptc.check import CheckFailed, run_checker
 from pyscriptc.config import apply_to_args, load_config
 from pyscriptc.coverage import build_report, family_of, render_text
@@ -169,6 +169,27 @@ def main(argv: list[str] | None = None) -> int:
     )
     imports_parser.add_argument("source")
     imports_parser.add_argument("--json", action="store_true", help="print the report as JSON")
+    reduce_parser = sub.add_parser(
+        "reduce", help="delta-debug a source to a minimal reproducer of a fence or crash", parents=[common]
+    )
+    reduce_parser.add_argument("source", help="the Python file to shrink")
+    group = reduce_parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
+        "--predicate",
+        metavar="CMD",
+        help="shell command run on each candidate file; it exits 0 when the candidate still "
+        "reproduces (the candidate path arrives in $PSC_SOURCE)",
+    )
+    group.add_argument("--fence", metavar="CODE", help="shorthand: lowering still reports a fence with this code")
+    group.add_argument("--crash", action="store_true", help="shorthand: lowering still raises a non-fence error")
+    reduce_parser.add_argument(
+        "--timeout", type=float, default=reduce.DEFAULT_TIMEOUT, help="seconds per --predicate command"
+    )
+    reduce_parser.add_argument("--steps", type=int, default=10_000, help="cap on removal attempts")
+    reduce_parser.add_argument(
+        "--print", action="store_true", help="print the reduced source instead of writing FILE.min.py"
+    )
+    reduce_parser.add_argument("--json", action="store_true", help="print the removal log as JSON")
     sub.add_parser("logs", help="print the audit-log path and its last lines", parents=[common])
     telemetry_parser = sub.add_parser("telemetry", help="usage metrics opt-out")
     telemetry_parser.add_argument("action", choices=("disable", "enable", "status", "reset-id"))
@@ -201,6 +222,8 @@ def main(argv: list[str] | None = None) -> int:
             return imports_cmd(args)
         if args.cmd == "config":
             return config_cmd(args)
+        if args.cmd == "reduce":
+            return reduce_cmd(args)
         if args.cmd == "explain":
             return explain_cmd(args)
         if args.cmd == "logs":
@@ -372,6 +395,57 @@ def config_cmd(args: argparse.Namespace) -> int:
     for name, lane in data["imports"].items():
         print(f"import {name}: {lane}")
     return 0
+
+
+def _reduce_predicate(args: argparse.Namespace) -> reduce.Predicate:
+    """The predicate the reducer checks on every candidate."""
+    if args.predicate:
+        source = Path(args.source)
+        return reduce.CommandPredicate(
+            args.predicate,
+            directory=source.parent if source.parent.is_dir() else Path.cwd(),
+            suffix=source.suffix or ".py",
+            timeout=args.timeout,
+        )
+    if args.fence:
+        return reduce.FencePredicate(args.fence)
+    return reduce.CrashPredicate()
+
+
+def reduce_cmd(args: argparse.Namespace) -> int:
+    """`pyscriptc reduce FILE`: shrink FILE to a minimal reproducer."""
+    predicate = _reduce_predicate(args)
+    out_path = Path(args.source).with_name(f"{Path(args.source).stem}.min.py")
+    target = out_path if not args.print and not args.json else None
+    result = reduce.reduce_file(args.source, predicate, output=target, max_steps=args.steps)
+    kept = sum(1 for step in result.steps if step.kept)
+    log.info(
+        "reduce.done",
+        source=args.source,
+        candidates=result.candidates,
+        kept=kept,
+        verdict=str(result.verdict),
+    )
+    telemetry.track(
+        "reduce.finished",
+        {
+            "candidates": result.candidates,
+            "steps": len(result.steps),
+            "kept": kept,
+            "changed": result.changed,
+            "mode": "predicate" if args.predicate else "fence" if args.fence else "crash",
+        },
+    )
+    if args.json:
+        print(json.dumps(result.as_dict(), indent=2))
+    elif args.print:
+        print(result.source, end="")
+    else:
+        print(f"predicate: {result.predicate}")
+        print(f"{result.candidates} candidates, {len(result.steps)} steps, {kept} kept")
+        print(f"wrote {out_path} ({'changed' if result.changed else 'no reduction found'})")
+        print(f"verdict: {result.verdict}")
+    return 0 if result.verdict.holds else 1
 
 
 def explain_cmd(args: argparse.Namespace) -> int:

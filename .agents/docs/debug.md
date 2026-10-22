@@ -75,3 +75,46 @@ Debug mode never mutates the module or the emitted text, and `--emit
 ir`/`llvm`/`bin` outputs stay byte-identical to a plain run. The two
 verifiers are the exception: they read the module and the emitted text, and
 they fail the compile when they find a problem.
+
+## Reducer: `pyscriptc reduce`
+
+Delta-debugging for failing sources. Given a file that reproduces a bug
+(a fence you did not expect, a lowering crash, a wrong binary), `reduce`
+mechanically deletes what the bug does not need and writes the smallest
+variant it found to `FILE.min.py` beside the input.
+
+```
+pyscriptc reduce FILE --fence PS1104        # still fences with PS1104
+pyscriptc reduce FILE --crash               # still raises a non-fence error
+pyscriptc reduce FILE --predicate CMD       # CMD exits 0 on the candidate file
+```
+
+- `--predicate CMD` runs `CMD` (a shell command) after every removal. The
+  candidate's path arrives in `$PSC_SOURCE`; exit 0 keeps the removal.
+  `--timeout S` caps each run (default 120).
+- `--fence CODE` is shorthand for "lowering the candidate still reports at
+  least one fence with code CODE".
+- `--crash` is shorthand for "lowering the candidate still raises a non-fence
+  error" (any exception `lower_source` raises that is not a fence).
+- `--print` prints the reduced source instead of writing `FILE.min.py`;
+  `--json` prints the removal log (`step`, `kind`, `detail`, `kept`, `reason`)
+  and writes nothing. Exit code is 0 when the final variant still satisfies
+  the predicate, 1 otherwise.
+
+The loop is AST-level and monotone. Each pass collects every statement in the
+module (module level, function bodies, class bodies, branches), skips the ones
+whose names are still read later, re-lowers with `lower_source`, and keeps a
+removal only when the predicate still holds. No LLVM, no link, no C toolchain:
+a pass is fast.
+
+The input file is never modified. `--steps N` caps removal attempts.
+
+Typical flow after a bad fence in a large script:
+
+```
+pyscriptc reduce big.py --fence PS1104 --json > reduction.json
+cat big.min.py
+```
+
+`reduction.json` shows which removals were kept, so a fence report can carry
+the minimal reproducer instead of a 400-line file.
