@@ -24,6 +24,18 @@ enum {
     PS_USER_BASE = 12
 };
 
+/* Reserved codes for the coroutine exceptions. They sit at the top of the
+i32 code space so PS_USER_BASE (and every user exception number) stays put.
+Nothing raises them yet; user class codes count up from PS_USER_BASE and can
+never reach this range. Mirrored in builtins.RESERVED_EXCEPTIONS. */
+enum {
+    PS_RESERVED_BASE = 0x7FFFFFF0,
+    PS_GENERATOR_EXIT = 0x7FFFFFF0,
+    PS_STOP_ASYNC = 0x7FFFFFF1,
+    PS_CANCELLED = 0x7FFFFFF2,
+    PS_TIMEOUT = 0x7FFFFFF3
+};
+
 /* longjmp payload once an exception is pending; the class code lives on the
 PsExc record, not on the wire. */
 enum { PS_RAISED = -1 };

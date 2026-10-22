@@ -41,6 +41,10 @@ static const int32_t ps_exc_parent[PS_USER_BASE] = {
     PS_EXCEPTION,
 };
 
+_Static_assert(PS_USER_BASE == 12, "PS_USER_BASE is frozen: user exception codes feed IR hashes");
+_Static_assert(PS_RESERVED_BASE > PS_USER_BASE, "reserved codes sit above user codes");
+_Static_assert(PS_TIMEOUT >= PS_GENERATOR_EXIT && PS_TIMEOUT < 0x7FFFFFFF, "reserved codes fit i32");
+
 _Static_assert(sizeof(PsBuf) == 16, "PsBuf must match %ps.str");
 
 static const char *ps_exc_name(int code) {
@@ -65,6 +69,14 @@ static const char *ps_exc_name(int code) {
         return "TypeError";
     case PS_ATTR:
         return "AttributeError";
+    case PS_GENERATOR_EXIT:
+        return "GeneratorExit";
+    case PS_STOP_ASYNC:
+        return "StopAsyncIteration";
+    case PS_CANCELLED:
+        return "CancelledError";
+    case PS_TIMEOUT:
+        return "TimeoutError";
     default:
         return "RuntimeError";
     }
