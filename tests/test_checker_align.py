@@ -14,7 +14,7 @@ import pytest
 from tests.test_gates import ENV, compile_run, oracle, run_cli, write_case
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_getenv_str_annotation_compiles(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     source = """
 import os

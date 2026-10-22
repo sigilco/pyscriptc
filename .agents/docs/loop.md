@@ -73,14 +73,14 @@ After E0, two epics may proceed only when they do not touch the same files. E0 i
 
 ## Heavy runs
 
-A heavy run is `HEAVY=1 .agents/docker/run.sh ...`. It takes `/tmp/pyscriptc-heavy.lock` and runs one container. This file does not authorize a second heavy job beside one that is still running. Start the next only after the first container has exited. If a heavy pane shows no change for about 5 minutes, ask the user to check it for a trust prompt.
+A heavy run is `HEAVY=1 docker/run.sh ...`. It takes `/tmp/pyscriptc-heavy.lock` and runs one container. This file does not authorize a second heavy job beside one that is still running. Start the next only after the first container has exited. If a heavy pane shows no change for about 5 minutes, ask the user to check it for a trust prompt.
 
 Scratch JSON below is written under `.agents/` because the container mounts the repo at `/work` and discards its own `/tmp` on exit. Do not commit scratch files. Stage paths by name. `chmod` lines keep the files writable after the container (it runs as root).
 
 Write the baseline score with the interpreter this branch runs. Do this on the clean parent, before the edit:
 
 ```bash
-HEAVY=1 .agents/docker/run.sh sh -c 'uv run python -m benchmarks.compat2.score benchmarks/compat2/probes --corpus --out .agents/scratch-iter-baseline.json && chmod a+rw .agents/scratch-iter-baseline.json'
+HEAVY=1 docker/run.sh sh -c 'uv run python -m benchmarks.compat2.score benchmarks/compat2/probes --corpus --out .agents/scratch-iter-baseline.json && chmod a+rw .agents/scratch-iter-baseline.json'
 ```
 
 One process, default shard `0/1`, probes in `benchmarks/compat2/probes/*.jsonl` plus the visible corpus (`--corpus`). Do not pass a holdout switch. Do not point the scorer at `benchmarks/compat2/continuity/`. If the scorer exits 2 because rows are capped, stop. That is a freeze problem, and this iteration does not edit the scorer to clear it. The full run is the Tier 1 score.
@@ -194,7 +194,7 @@ Name the focused pytest in step 4 above. Run the narrowest file or node that fai
 After the light checks pass, make one conventional commit for the iteration. No `Co-authored-by` trailer. Then score that commit. Wait until the baseline container has exited. Same probe set, with the interpreter this branch runs:
 
 ```bash
-HEAVY=1 .agents/docker/run.sh sh -c 'uv run python -m benchmarks.compat2.score benchmarks/compat2/probes --corpus --out .agents/scratch-iter-candidate.json && chmod a+rw .agents/scratch-iter-candidate.json'
+HEAVY=1 docker/run.sh sh -c 'uv run python -m benchmarks.compat2.score benchmarks/compat2/probes --corpus --out .agents/scratch-iter-candidate.json && chmod a+rw .agents/scratch-iter-candidate.json'
 ```
 
 Build the candidate census after that container exits:
@@ -210,7 +210,7 @@ Definitions unblocked are the baseline `fencedDefinitions` entries missing from 
 Run the verdict inside the heavy container. It shells out to `python -m benchmarks.baseline.run --check` for the perf gate. Leave `--skip-perf` off. Default compile budget is 1.25 (candidate `compile_s` may be at most 1.25 times the baseline). E0 passes `--compile-budget 1.0` so any rise in `compile_s` fails.
 
 ```bash
-HEAVY=1 .agents/docker/run.sh sh -c 'uv run python -m benchmarks.compat2.verdict --baseline .agents/scratch-iter-baseline.json --candidate .agents/scratch-iter-candidate.json --census-before .agents/scratch-census-before.json --census-after .agents/scratch-census-after.json --compile-budget 1.25 > .agents/scratch-verdict.json; status=$?; chmod a+rw .agents/scratch-verdict.json; exit $status'
+HEAVY=1 docker/run.sh sh -c 'uv run python -m benchmarks.compat2.verdict --baseline .agents/scratch-iter-baseline.json --candidate .agents/scratch-iter-candidate.json --census-before .agents/scratch-census-before.json --census-after .agents/scratch-census-after.json --compile-budget 1.25 > .agents/scratch-verdict.json; status=$?; chmod a+rw .agents/scratch-verdict.json; exit $status'
 ```
 
 For E0, change `--compile-budget 1.25` in that command to `--compile-budget 1.0`.
@@ -285,7 +285,7 @@ Then append one JSON object as a single line to `benchmarks/compat2/failed.jsonl
 Score the epic tip with the candidate command if that pair is not already the tip. Judge it against the epic-start copies. For every epic except E0, use `--compile-budget 1.25`. E0 uses `--compile-budget 1.0` and the E0 section.
 
 ```bash
-HEAVY=1 .agents/docker/run.sh sh -c 'uv run python -m benchmarks.compat2.verdict --baseline .agents/scratch-epic-<name>-baseline.json --candidate .agents/scratch-iter-candidate.json --census-before .agents/scratch-epic-<name>-census.json --census-after .agents/scratch-census-after.json --compile-budget 1.25 > .agents/scratch-verdict-boundary.json; status=$?; chmod a+rw .agents/scratch-verdict-boundary.json; exit $status'
+HEAVY=1 docker/run.sh sh -c 'uv run python -m benchmarks.compat2.verdict --baseline .agents/scratch-epic-<name>-baseline.json --candidate .agents/scratch-iter-candidate.json --census-before .agents/scratch-epic-<name>-census.json --census-after .agents/scratch-census-after.json --compile-budget 1.25 > .agents/scratch-verdict-boundary.json; status=$?; chmod a+rw .agents/scratch-verdict-boundary.json; exit $status'
 ```
 
 Hit rate, from the tip score and the predicted flip list in the epic file:

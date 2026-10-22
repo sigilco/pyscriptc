@@ -1,7 +1,7 @@
 """Generate the v2 probe set: `uv run python -m benchmarks.compat2.probes.generate [--oracle 3.12]`.
 
 The oracle is CPython 3.12 by default. Every worker (stdlib surface, language profile, version axis) runs on
-the oracle interpreter found under `PYSC_ORACLE_DIR` (uv installs, see `.agents/docker/Dockerfile`), while this
+the oracle interpreter found under `PYSC_ORACLE_DIR` (uv installs, see `docker/Dockerfile`), while this
 orchestrator runs on whatever interpreter started it.
 
 Writes builtins.jsonl, surface.jsonl, modules.jsonl, language.jsonl and MANIFEST.json. The 3.12 set goes next to this

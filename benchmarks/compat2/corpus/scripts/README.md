@@ -4,7 +4,7 @@ Pure Python programs with deterministic stdout and no third party dependencies. 
 
 These are original implementations of well known kernels (pyperformance, Benchmarks Game, Shed Skin and Codon style examples). No upstream source was copied, so every program is MIT licensed under `meta.json`.
 
-Regenerate an `expected.txt` only inside the Linux container: `.agents/docker/run.sh /opt/venv/bin/python -I main.py`.
+Regenerate an `expected.txt` only inside the Linux container: `docker/run.sh /opt/venv/bin/python -I main.py`.
 
 ## Applies to
 

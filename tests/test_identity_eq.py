@@ -140,7 +140,7 @@ def selfeq() -> int:
 """
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_identity_eq_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "identity_eq.py", _PROBE)
     for func in ["seq", "sets", "maps", "pairs", "refs", "classes", "scalars", "ids", "selfeq"]:

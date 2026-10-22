@@ -113,7 +113,7 @@ def checklist() -> int:
 """
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_lock_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "lock.py", _LOCK_SOURCE)
     got = compile_run(tmp_path, path, "checklist")
@@ -122,7 +122,7 @@ def test_lock_matches_cpython(tmp_path: Path) -> None:
     assert got.stdout == "0\n"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_rlock_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "rlock.py", _RLOCK_SOURCE)
     got = compile_run(tmp_path, path, "checklist")
@@ -131,7 +131,7 @@ def test_rlock_matches_cpython(tmp_path: Path) -> None:
     assert got.stdout == "0\n"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_acquire_timeout_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "timeout.py", _TIMEOUT_SOURCE)
     got = compile_run(tmp_path, path, "checklist")
@@ -140,7 +140,7 @@ def test_acquire_timeout_matches_cpython(tmp_path: Path) -> None:
     assert got.stdout == "0\n"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_thread_identity_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "ident.py", _IDENT_SOURCE)
     got = compile_run(tmp_path, path, "checklist")
@@ -149,7 +149,7 @@ def test_thread_identity_matches_cpython(tmp_path: Path) -> None:
     assert got.stdout == "0\n"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_from_import_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "from_import.py", _FROM_IMPORT_SOURCE)
     got = compile_run(tmp_path, path, "checklist")
@@ -158,7 +158,7 @@ def test_from_import_matches_cpython(tmp_path: Path) -> None:
     assert got.stdout == "0\n"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_release_of_an_unheld_lock_raises(tmp_path: Path) -> None:
     """CPython raises RuntimeError; the compiled program raises the same class."""
     path = write_case(tmp_path, "unheld.py", _UNHELD_RELEASE_SOURCE)

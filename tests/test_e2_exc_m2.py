@@ -16,7 +16,7 @@ import pytest
 from tests.test_gates import compile_run, oracle, write_case
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_builtin_parent_catches_child(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -60,7 +60,7 @@ def test_builtin_parent_catches_child(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_exception_does_not_catch_base_exception_only(tmp_path: Path) -> None:
     """`except Exception` must not swallow a `BaseException` descendant."""
     path = write_case(
@@ -97,7 +97,7 @@ def test_exception_does_not_catch_base_exception_only(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_user_class_inherits_the_chain(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -141,7 +141,7 @@ def test_user_class_inherits_the_chain(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_user_class_on_a_builtin_base(tmp_path: Path) -> None:
     """A user class on a builtin base matches that base's parents too."""
     path = write_case(
@@ -179,7 +179,7 @@ def test_user_class_on_a_builtin_base(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_oserror_aliases_share_the_class(tmp_path: Path) -> None:
     """`EnvironmentError` and `IOError` are CPython aliases of `OSError`."""
     path = write_case(
@@ -212,7 +212,7 @@ def test_oserror_aliases_share_the_class(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_uncaught_user_class_names_itself(tmp_path: Path) -> None:
     """The uncaught report names the user class, not a builtin."""
     path = write_case(
@@ -234,7 +234,7 @@ def test_uncaught_user_class_names_itself(tmp_path: Path) -> None:
     assert "AppError: boom" in got.stderr
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_every_builtin_name_lowers(tmp_path: Path) -> None:
     """Every builtin exception name raises and catches under its own name."""
     names = [

@@ -8,7 +8,7 @@ import pytest
 from tests.test_gates import compile_run, oracle, run_cli, write_case
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_object_base_matches_a_bare_class(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -44,7 +44,7 @@ def test_object_base_matches_a_bare_class(tmp_path: Path) -> None:
     assert '"name": "object"' not in text
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_a_user_class_named_object_stays_a_base(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -69,7 +69,7 @@ def test_a_user_class_named_object_stays_a_base(tmp_path: Path) -> None:
     assert got.stdout == "6\n"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_single_inheritance_matches_cpython(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -127,7 +127,7 @@ def test_single_inheritance_matches_cpython(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_method_decorators_match_cpython(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -159,7 +159,7 @@ def test_method_decorators_match_cpython(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "total")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_flat_dataclass_matches_cpython(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -184,7 +184,7 @@ def test_flat_dataclass_matches_cpython(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "total")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_integer_enum_matches_where_cpython_agrees(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -214,7 +214,7 @@ def test_integer_enum_matches_where_cpython_agrees(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "total")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_varargs_match_cpython(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -239,7 +239,7 @@ def test_varargs_match_cpython(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "run")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_set_matches_cpython_without_order(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -270,7 +270,7 @@ def test_set_matches_cpython_without_order(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "total")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_dict_keys_match_cpython_insertion_order(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,

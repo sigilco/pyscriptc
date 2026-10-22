@@ -16,7 +16,7 @@ import pytest
 from tests.test_gates import compile_run, oracle, write_case
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_except_as_binds_exception_and_str(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -42,7 +42,7 @@ def test_except_as_binds_exception_and_str(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_bare_except_and_bare_reraise(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -77,7 +77,7 @@ def test_bare_except_and_bare_reraise(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_raise_from_caught_shows_outer(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -104,7 +104,7 @@ def test_raise_from_caught_shows_outer(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_raise_from_uncaught_reports_cause(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -124,7 +124,7 @@ def test_raise_from_uncaught_reports_cause(tmp_path: Path) -> None:
     assert "RuntimeError: outer" in got.stderr
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_non_str_arg_ctor_str(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -170,7 +170,7 @@ def test_multi_arg_ctor_fences() -> None:
     assert any(fence["code"] == "PS2003" for fence in module["fences"])
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_try_else_runs_only_without_exception(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -202,7 +202,7 @@ def test_try_else_runs_only_without_exception(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_finally_fallthrough_handled_and_return(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -235,7 +235,7 @@ def test_finally_fallthrough_handled_and_return(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_finally_on_break_and_continue(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -265,7 +265,7 @@ def test_finally_on_break_and_continue(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_finally_runs_before_unhandled_propagates(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -278,7 +278,7 @@ def test_finally_runs_before_unhandled_propagates(tmp_path: Path) -> None:
     assert "ValueError: escapes" in got.stderr
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_raise_inside_finally_replaces(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -305,7 +305,7 @@ def test_raise_inside_finally_replaces(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_else_and_finally_together(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -341,7 +341,7 @@ def test_else_and_finally_together(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_else_skipped_when_try_breaks(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,

@@ -8,7 +8,7 @@ import pytest
 from tests.test_gates import EXAMPLES, compile_run, oracle, run_cli, write_case
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_rest_probe_matches_cpython(tmp_path: Path) -> None:
     path = EXAMPLES / "rest_probe.py"
     got = compile_run(tmp_path, path, "probe")
@@ -17,7 +17,7 @@ def test_rest_probe_matches_cpython(tmp_path: Path) -> None:
     assert got.stdout == "0\n"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_invalid_date_raises(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -29,7 +29,7 @@ def test_invalid_date_raises(tmp_path: Path) -> None:
     assert "ValueError" in got.stderr
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_sys_exit_propagates(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,

@@ -138,7 +138,7 @@ def test_r7_for_over_bytes(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "run")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_r7_for_over_file_lines(tmp_path: Path) -> None:
     note = tmp_path / "lines.txt"
     path = write_case(

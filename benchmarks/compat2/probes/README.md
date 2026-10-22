@@ -5,10 +5,10 @@ Executable denominator for scorer v2. One JSON object per line, the fields of `o
 Regenerate (Linux only, because generation executes stdlib calls in forked children with a temp cwd):
 
 ```
-HEAVY=1 .agents/docker/run.sh uv run python -m benchmarks.compat2.probes.generate [--oracle 3.12]
+HEAVY=1 docker/run.sh uv run python -m benchmarks.compat2.probes.generate [--oracle 3.12]
 ```
 
-The primary oracle is CPython 3.12. Workers run on the oracle interpreter from `PYSC_ORACLE_DIR` (uv installs of 3.10 to 3.14, pinned by patch version in `.agents/docker/Dockerfile`). The secondary set, `--oracle 3.14`, goes to `../oracle-3.14/` (outside this directory, so a directory load never counts it twice) and uses the v3.14.8 pins in `cpython_tests/py314/`.
+The primary oracle is CPython 3.12. Workers run on the oracle interpreter from `PYSC_ORACLE_DIR` (uv installs of 3.10 to 3.14, pinned by patch version in `docker/Dockerfile`). The secondary set, `--oracle 3.14`, goes to `../oracle-3.14/` (outside this directory, so a directory load never counts it twice) and uses the v3.14.8 pins in `cpython_tests/py314/`.
 
 Output is sorted by id and workers run with `PYTHONHASHSEED=0`, so the same interpreters and mypy typeshed reproduce it byte for byte. `MANIFEST.json` holds counts per area and category, kinds, fold types, mention reasons, GUI exclusions, the language node coverage, the names the oracle does not have (`absent_in_oracle`) and the version axis counts.
 

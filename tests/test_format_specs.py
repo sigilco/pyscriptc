@@ -49,7 +49,7 @@ def probe() -> str:
 """
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_percent_specs_match_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "percent_specs.py", _PERCENT)
     got = compile_run(tmp_path, path, "probe")
@@ -57,7 +57,7 @@ def test_percent_specs_match_cpython(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "probe")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_percent_mapping_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "percent_map.py", _MAP)
     got = compile_run(tmp_path, path, "probe")
@@ -65,7 +65,7 @@ def test_percent_mapping_matches_cpython(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "probe")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_str_format_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "str_format.py", _DOT)
     got = compile_run(tmp_path, path, "probe")

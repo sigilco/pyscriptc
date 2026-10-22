@@ -8,7 +8,7 @@ import pytest
 from tests.test_gates import compile_run, oracle, run_cli, write_case
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_module_fstring_of_str_constants_matches_cpython(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -31,7 +31,7 @@ def test_module_fstring_of_str_constants_matches_cpython(tmp_path: Path) -> None
     assert got.stdout.strip() == "2014 Ada"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_function_fstring_still_matches_cpython(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,

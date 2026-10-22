@@ -12,7 +12,7 @@ def test_compat_denominators_match_this_interpreter() -> None:
     assert self_check() == []
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_a_package_counts_only_when_its_function_matches(tmp_path: Path) -> None:
     root = tmp_path / "sample"
     root.mkdir()

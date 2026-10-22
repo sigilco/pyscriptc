@@ -3,7 +3,7 @@
 Assessment for the CPython versions pyscriptc declares, oracles against, and
 plans to target with `--target-version`. Sources: [endoflife.date
 python](https://endoflife.date/python) (queried 2026-10-17), the release PEPs,
-and the repo's own files (`pyproject.toml`, `.agents/docker/Dockerfile`,
+and the repo's own files (`pyproject.toml`, `docker/Dockerfile`,
 `benchmarks/compat2/probes/`, `docs/version-track.md`, `README.md`).
 
 ## CPython lifecycle (verified)
@@ -27,7 +27,7 @@ a real version on endoflife.date's cycle list with EOL 2031-10-31.
 The version axis touches the repo in these places:
 
 - `pyproject.toml`: `requires-python = ">=3.10"`, five classifiers (3.10–3.14).
-- Oracle installs: `.agents/docker/Dockerfile` runs
+- Oracle installs: `docker/Dockerfile` runs
   `uv python install 3.10.22 3.11.17 3.12.15 3.13.16 3.14.8` into
   `PYSC_ORACLE_DIR`; `~/oracles` on dev boxes mirrors this. Each axis version
   is one pinned interpreter install to keep updated.
@@ -118,7 +118,7 @@ hard floor for the host.**
 
 1. `pyproject.toml`: `requires-python = ">=3.12"`; classifiers drop
    3.10/3.11, add 3.15.
-2. `.agents/docker/Dockerfile`: drop `3.10.22` from the `uv python install`
+2. `docker/Dockerfile`: drop `3.10.22` from the `uv python install`
    line (keep 3.11.17 while 3.11 is in the axis).
 3. `benchmarks/compat2/probes/generate.py`: `AXIS` loses `"3.10"`;
    `probes/versions.py` docstring floor 3.10 → 3.11;

@@ -54,7 +54,7 @@ Environment knobs: `NUITKA_LOW_MEMORY=1` and `NUITKA_JOBS=N` for small hosts, `M
 The dev container image has `clang` and `uv` but not `patchelf`, so install it inside the run (nothing persists):
 
 ```bash
-.agents/docker/run.sh bash -c 'apt-get update -qq && apt-get install -y -qq patchelf ccache >/dev/null && NUITKA_LOW_MEMORY=1 packaging/build.sh'
+docker/run.sh bash -c 'apt-get update -qq && apt-get install -y -qq patchelf ccache >/dev/null && NUITKA_LOW_MEMORY=1 packaging/build.sh'
 ```
 
 The container mounts the worktree at `/work`, so the binary lands in `packaging/dist/` on the host. A Nuitka build is not a light run; on a 1 CPU container expect it to take a long time.

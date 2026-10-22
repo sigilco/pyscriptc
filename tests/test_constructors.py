@@ -8,7 +8,7 @@ import pytest
 from tests.test_gates import compile_run, oracle, run_cli, write_case
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_bool_and_list_match_cpython(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,

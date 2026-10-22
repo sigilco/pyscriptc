@@ -9,7 +9,7 @@ import pytest
 from tests.test_gates import compile_run, oracle, run_cli, write_case
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_dunder_str_repr_len_eq(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -48,7 +48,7 @@ def test_dunder_str_repr_len_eq(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "probe")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_super_and_multiple_inheritance(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -98,7 +98,7 @@ def test_super_and_multiple_inheritance(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "probe")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_dunder_iter_next(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -138,7 +138,7 @@ def test_dunder_iter_next(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "probe")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_with_custom_context_manager(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,

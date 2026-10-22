@@ -22,7 +22,7 @@ Registered in `pyproject.toml`:
 ```toml
 [tool.pytest.ini_options]
 markers = [
-    "linux_container: Linux dev container suite (HEAVY=1 .agents/docker/run.sh). Shells out to clang or only passes on Linux. CI does not run these.",
+    "linux_container: Linux dev container suite (HEAVY=1 docker/run.sh). Shells out to clang or only passes on Linux. CI does not run these.",
 ]
 ```
 
@@ -132,7 +132,7 @@ Both macOS-safe band tests **passed** in job 116297224807.
 
 1. **Heavy tests embed `tmp_path` absolutes into generated Python** (e.g. `test_tempfile_and_shutil_match`, `test_atexit_runs_on_the_way_out`). They assume a POSIX layout and, in tempfile, a hard-coded `'/'` when checking `mkdtemp` prefix (`tempfile.gettempdir() + '/' + tempfile.gettempprefix()`). Fine on Linux CI container; on native macOS this is a common footgun if temp paths or separators differ.
 2. **`test_small_names_stay_fenced` reuses one function-scoped `tmp_path` for four writes** in a loop. Safe today at function scope; breaks if someone moves these cases into a **class** with `scope="class"` fixtures (pytest forbids class-scoped tests consuming function-scoped `tmp_path`).
-3. **Marker split:** most band coverage only runs under `HEAVY=1 .agents/docker/run.sh` (`linux_container`). Running the full file on macOS without the container (or without Xcode/clang on `PATH`) would fail for toolchain reasons—not observed in macOS-safe CI because those tests are deselected.
+3. **Marker split:** most band coverage only runs under `HEAVY=1 docker/run.sh` (`linux_container`). Running the full file on macOS without the container (or without Xcode/clang on `PATH`) would fail for toolchain reasons—not observed in macOS-safe CI because those tests are deselected.
 
 Minimal repro for the two macOS-safe band tests:
 
@@ -143,7 +143,7 @@ uv run pytest tests/test_band.py -m "not linux_container" -v
 Full module (needs Linux container / clang stack):
 
 ```bash
-# in dev container / HEAVY=1 .agents/docker/run.sh environment
+# in dev container / HEAVY=1 docker/run.sh environment
 uv run pytest tests/test_band.py -v
 ```
 
