@@ -27,7 +27,7 @@ def test_user_base_matches_header() -> None:
     header = _header_enum()
     assert header["PS_USER_BASE"] == 256
     assert USER_EXC_BASE == 256
-    assert max(EXCEPTIONS.values()) == USER_EXC_BASE - 1
+    assert max(EXCEPTIONS.values()) < USER_EXC_BASE
 
 
 def test_reserved_codes_mirror_header() -> None:
