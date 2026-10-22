@@ -11,7 +11,7 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any
 
-from pyscriptc import rtcache
+from pyscriptc import rtcache, zigshim
 from pyscriptc.check import _resolve_pyrefly
 from pyscriptc.log import log_dir
 
@@ -30,6 +30,24 @@ def _version(argv: list[str], flag: str = "--version") -> str | None:
 def _tool(name: str, flag: str = "--version") -> dict[str, Any]:
     path = shutil.which(name)
     return {"found": path is not None, "path": path, "version": _version([path], flag) if path else None}
+
+
+def _zig_tool() -> dict[str, Any]:
+    """Zig entry for doctor: like `_tool`, but the `ziglang` wheel counts.
+
+    A wheel-only install (`pip install ziglang`) has no `zig` on PATH; the
+    shim installed here makes `which("zig")` succeed afterwards.
+    """
+    interpreter = zigshim.find_ziglang_interpreter()
+    path = shutil.which("zig")
+    if path is None and interpreter is not None:
+        path = str(zigshim.install_shim(interpreter))
+    return {
+        "found": path is not None,
+        "path": path,
+        "version": _version([path], "version") if path else None,
+        "via_shim": zigshim.is_shim(path),
+    }
 
 
 def install_shape() -> str:
@@ -68,7 +86,7 @@ def gather() -> dict[str, Any]:
             "version": _version(argv),
         },
         "clang": _tool("clang"),
-        "zig": _tool("zig", "version"),
+        "zig": _zig_tool(),
         "cache_dir": str(Path.home() / ".cache" / "pyscriptc"),
         "rt_cache": rtcache.stats(),
         "log_dir": str(log_dir()),
@@ -83,6 +101,14 @@ def render(info: dict[str, Any]) -> str:
             return "not found"
         return f"{entry['path']} ({entry['version'] or 'version unknown'})"
 
+    def zig_line(entry: dict[str, Any]) -> str:
+        if not entry["found"]:
+            return "not found"
+        text = tool(entry)
+        if entry.get("via_shim"):
+            text += " [PATH shim for `pip install ziglang`]"
+        return text
+
     checker = info["checker"]
     rc = info["rt_cache"]
     return "\n".join(
@@ -92,7 +118,7 @@ def render(info: dict[str, Any]) -> str:
             f"checker:        {' '.join(checker['argv'])} ({checker['version'] or 'version unknown'}), "
             f"source: {checker['source']}",
             f"clang:          {tool(info['clang'])}",
-            f"zig:            {tool(info['zig'])}",
+            f"zig:            {zig_line(info['zig'])}",
             f"cache dir:      {info['cache_dir']}",
             f"rt cache:      {'on' if rc['enabled'] else 'off (PYSC_NO_RT_CACHE)'}, "
             f"{rc['dir']} ({rc['entries']} objects, {rc['bytes']} bytes)",
