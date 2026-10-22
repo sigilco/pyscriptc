@@ -108,7 +108,9 @@ def evaluate(entry: dict[str, Any], kind: str, errors: list[str]) -> dict[str, A
         codes.add(code)
         labels.append(text)
     status = status_of(bool(ok_snippets), bool(labels))
-    if "works" in entry and status != GREEN:
+    if status == RED:
+        missing = entry.get("note", "all")
+    elif "works" in entry:
         missing = "only " + entry["works"]
     else:
         missing = ", ".join(labels)

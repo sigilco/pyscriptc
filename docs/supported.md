@@ -43,7 +43,7 @@ Targets CPython 3.14. Deliberate differences from CPython: [divergences.md](dive
 
 | module | status | not supported | fences |
 | --- | --- | --- | --- |
-| `typing`, `typing_extensions` | 🔴 |  |  |
+| `typing`, `typing_extensions` | 🔴 | annotation-only: imports are free, values are checked, there is no runtime surface |  |
 | `argparse` | 🟡 | subparsers, nargs=, choices= | PS2003 |
 | `asyncio` | 🟡 | Queue, Event, Lock, create_task, wait_for, get_event_loop, sleep outside a coroutine | PS1106, PS2001, PS2002 |
 | `atexit` | 🟡 | register of a function with arguments, unregister | PS2001 |
