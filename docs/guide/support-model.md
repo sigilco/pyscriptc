@@ -23,6 +23,10 @@ Both are generated output, not hand-edited pages.
 
 Deliberate differences from CPython are numbered in [Divergences](../reference/divergences.md).
 
+## HTTP
+
+HTTP and HTTPS work today through a `curl` subprocess bridge, not a native client. The shape, the caveats and the planned replacement are on the [HTTP today](../guide/http.md) page.
+
 ## Checking your own code
 
 Run `pyscriptc coverage FILE` to get a per-line fence report before compiling, or `pyscriptc explain PS2001` to look up what a fence code means and the smallest rewrite that clears it.
