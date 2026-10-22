@@ -1092,6 +1092,16 @@ class Emitter:
                     f"i64 {style}",
                 ],
             )
+        if expr.get("symbol") == "ps_thread_new":
+            return self._emit_thread_new(expr)
+        if expr.get("symbol") == "ps_cond_init":
+            # `Condition()`: the runtime owns the record; the value is its
+            # pointer, allocated here and initialized by ps_cond_init.
+            self.needed.add("alloc")
+            slot = self._call_ret("ptr", "ps_alloc", ["i64 96"])
+            self._abi_decl("ps_cond_init", "void", ["ptr"])
+            self._call_void("ps_cond_init", [f"ptr {slot}"])
+            return slot
         if expr.get("symbol"):
             return self._emit_abi(expr, values)
         if module == "math":
@@ -1556,11 +1566,25 @@ class Emitter:
             self._abi_decl(symbol, "ptr", types)
             return self._call_ret("ptr", symbol, rendered)
         if kind == "class":
+            if symbol in {"ps_global_get_ptr", "ps_global_get_path"} or symbol in {"ps_event_new", "ps_sem_new"}:
+                # The runtime owns the record: the value is the record pointer.
+                self._abi_decl(symbol, "ptr", types)
+                return self._call_ret("ptr", symbol, rendered)
             self._abi_decl(symbol, "void", [*types, "ptr"])
             mem = self._alloc_class(ret["name"])
             self._call_void(symbol, [*rendered, f"ptr {mem}"])
             return mem
         raise IRError(f"cannot emit {symbol}")
+
+    def _emit_thread_new(self, expr: dict[str, Any]) -> str:
+        """`Thread(...)`: build the target's callable pair (bound args inside
+        the env), then hand it to the runtime with the name and daemon bits."""
+        meta = expr["thread"]
+        pair = self.emit_closure(meta["closure"])
+        self._abi_decl("ps_thread_new", "ptr", ["ptr", "i64", "ptr"])
+        name = self.string_value(meta["name"])
+        name_len, name_ptr = self._buf_parts(name)
+        return self._call_ret("ptr", "ps_thread_new", [f"ptr {pair}", f"i64 {meta['daemon']}", f"ptr {name_ptr}"])
 
     def _emit_list_push(self, expr: dict[str, Any], values: list[str]) -> str:
         seq, elem = values
