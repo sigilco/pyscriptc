@@ -45,7 +45,7 @@ def test_shards_merge_by_themselves(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     out = tmp_path / "r.json"
     base = [str(tmp_path / "p.jsonl"), "--out", str(out), "--no-cache"]
 
-    def passes(p: Probe, timeout: float) -> scorer.Result:
+    def passes(p: Probe, timeout: float, oracle: str | None = None) -> scorer.Result:
         return scorer.Result(scorer.Row(id=p.id, area=p.area, category=p.category, outcome="pass"))
 
     real = scorer.score

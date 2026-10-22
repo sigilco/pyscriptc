@@ -344,25 +344,72 @@ def counts_by_version(probes: list[Probe], rows: list[Row]) -> dict[str, dict[st
     return dict(sorted(out.items()))
 
 
-def resolve_oracle(target: str | None) -> tuple[str, str] | None:
-    """The (executable, cache-key version) pair for `--target-version`; None means this interpreter.
+ORACLE_PIN = (3, 14)
+PIN_NAME = "CPython 3.14"
 
-    Allowed targets come from the generation axis (probes.generate.AXIS); the interpreter
-    resolves the same way generation does (PYSC_ORACLE_DIR, else this interpreter).
-    """
 
-    if target is None:
-        return None
-    from benchmarks.compat2.probes import generate
-
-    executable = generate.interpreter(target)
+def _probe_version(executable: str) -> tuple[tuple[int, int], str]:
     out = subprocess.run(
         [executable, "-c", "import platform;print(platform.python_version())"],
         capture_output=True,
         text=True,
         check=True,
     )
-    return executable, f"{cache.SCORER_VERSION}/cpython-{out.stdout.strip()}"
+    full = out.stdout.strip()
+    major, minor = full.split(".")[:2]
+    return (int(major), int(minor)), full
+
+
+def pinned_oracle() -> str:
+    """The pinned oracle executable: PYSC_ORACLE, else PYSC_ORACLE_DIR, else `uv python find 3.14`.
+
+    The running interpreter is used only when it is itself the pin. Anything else hard-fails
+    naming the pin, so a contributor on another CPython never silently scores against it.
+    """
+
+    pin = ".".join(map(str, ORACLE_PIN))
+    candidates: list[str] = []
+    explicit = os.environ.get("PYSC_ORACLE")
+    if explicit:
+        if not os.path.isfile(explicit) or not os.access(explicit, os.X_OK):
+            raise SystemExit(f"PYSC_ORACLE={explicit!r} is not an executable path; the oracle must be {PIN_NAME}")
+        candidates.append(explicit)
+    oracle_dir = os.environ.get("PYSC_ORACLE_DIR")
+    if oracle_dir:
+        candidates += [str(p) for p in sorted(Path(oracle_dir).glob(f"cpython-{pin}.*/bin/python3"))[-1:]]
+    if not candidates:
+        try:
+            found = subprocess.run(["uv", "python", "find", pin], capture_output=True, text=True, check=True)
+            candidates.append(found.stdout.strip())
+        except (OSError, subprocess.CalledProcessError):
+            pass
+    if not candidates and sys.version_info[:2] == ORACLE_PIN:
+        candidates.append(sys.executable)
+    if not candidates:
+        raise SystemExit(
+            f"no {PIN_NAME} interpreter for the oracle: set PYSC_ORACLE=/path/to/python3.14, "
+            f"set PYSC_ORACLE_DIR, or run `uv python install {pin}`"
+        )
+    version, full = _probe_version(candidates[0])
+    if version != ORACLE_PIN:
+        raise SystemExit(f"oracle {candidates[0]} is CPython {full}; the oracle is pinned to {PIN_NAME}")
+    return candidates[0]
+
+
+def resolve_oracle(target: str | None) -> tuple[str, str]:
+    """The (executable, cache-key version) pair for the oracle.
+
+    No target means the pinned CPython 3.14 (`pinned_oracle`). `--target-version` picks a
+    generation-axis interpreter (probes.generate.AXIS) the way generation does (PYSC_ORACLE_DIR).
+    """
+
+    if target is None:
+        executable = pinned_oracle()
+    else:
+        from benchmarks.compat2.probes import generate
+
+        executable = generate.interpreter(target)
+    return executable, f"{cache.SCORER_VERSION}/cpython-{_probe_version(executable)[1]}"
 
 
 def weighted_pass(results: dict[str, Any]) -> float:

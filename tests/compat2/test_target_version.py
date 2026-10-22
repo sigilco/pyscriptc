@@ -25,8 +25,9 @@ def fake_oracle_dir(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def test_resolve_oracle_defaults_to_running_interpreter() -> None:
-    assert resolve_oracle(None) is None
+def test_resolve_oracle_defaults_to_the_pin() -> None:
+    executable, version = resolve_oracle(None)
+    assert version.startswith(f"{cache.SCORER_VERSION}/cpython-3.14.")
 
 
 def test_resolve_oracle_finds_pinned_interpreter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -154,7 +155,7 @@ def test_cli_threads_target_version(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert seen[0][1].startswith(f"{cache.SCORER_VERSION}/cpython-")
 
 
-def test_cli_without_target_uses_running_interpreter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cli_without_target_uses_pinned_oracle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[tuple[str, str] | None] = []
 
     def fake_score(probes: list[Probe], **kw: Any) -> dict[str, Any]:
@@ -174,4 +175,4 @@ def test_cli_without_target_uses_running_interpreter(tmp_path: Path, monkeypatch
     monkeypatch.setattr(score_module, "score", fake_score)
     dump_probes(tmp_path / "p.jsonl", [probe("builtins.abs")])
     assert score_module.main([str(tmp_path / "p.jsonl"), "--out", str(tmp_path / "r.json")]) == 0
-    assert seen == [None]
+    assert seen[0] is not None and seen[0][1].startswith(f"{cache.SCORER_VERSION}/cpython-3.14.")
