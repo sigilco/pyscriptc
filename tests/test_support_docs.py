@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts.gen_support_table import ROOT, build  # noqa: E402
 
 SUPPORTED = ROOT / "docs" / "supported.md"
-TOP100 = ROOT / "docs" / "compat-top100.md"
+TOP100 = ROOT / ".agents" / "docs" / "compat-top100.md"
 
 
 def test_build_has_no_errors() -> None:

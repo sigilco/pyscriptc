@@ -1,4 +1,4 @@
-"""Generate docs/supported.md and docs/compat-top100.md from the compiler.
+"""Generate docs/supported.md and .agents/docs/compat-top100.md from the compiler.
 
 Status comes from compile probes (`pyscriptc.lower.lower_file`, parse-only, no
 LLVM) listed in `scripts/support_data.toml`, from the closed import table in
@@ -32,7 +32,7 @@ from pyscriptc.stdlib_queue import LOWERED, QUEUE  # noqa: E402
 
 DATA = ROOT / "scripts" / "support_data.toml"
 SUPPORTED = ROOT / "docs" / "supported.md"
-TOP100 = ROOT / "docs" / "compat-top100.md"
+TOP100 = ROOT / ".agents" / "docs" / "compat-top100.md"
 GREEN, YELLOW, RED = "🟢", "🟡", "🔴"
 
 PRELUDE = """\
@@ -187,8 +187,9 @@ def render_top100(data: dict[str, Any]) -> str:
         f"{GREEN} compiles with no fence · {YELLOW} at most half of the definitions fence · {RED} more than half"
         " fence. Counts are live `pyscriptc coverage` runs over `benchmarks/compat/top100/src` (pins and hashes in"
         " `pins.json`). A library only counts toward the score when one of its own functions runs and matches CPython."
-        " Fence codes are per construct, see [supported.md](supported.md). Tiers T0 to T3:"
-        " [refused-features.md](refused-features.md). Deliberate differences: [divergences.md](divergences.md).",
+        " Fence codes are per construct, see [supported.md](../../docs/supported.md). Tiers T0 to T3:"
+        " [refused-features.md](../../docs/refused-features.md). Deliberate differences:"
+        " [divergences.md](../../docs/divergences.md).",
         "",
         "| library | version | status | fenced defs | top blocking features (fences) | top codes |",
         "| --- | --- | --- | --- | --- | --- |",
