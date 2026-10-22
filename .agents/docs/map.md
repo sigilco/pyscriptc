@@ -15,6 +15,7 @@
 | `src/pyscriptc/builtins.py` | `str` / `bytes` methods, `len`, `int(float)`, `float(int)`, exception codes |
 | `src/pyscriptc/emit/_ir.py` | The shared IR-reading seam: type mapping, symbol naming, literal rules |
 | `src/pyscriptc/emit/llvm/` | Textual LLVM, split by concern (`_core`, `_funcs`, `_stmts`, `_exprs`, `_calls`, `_stdlib`, `_abi`, `_print`, `_runtime`), plus `_driver` (the `main` entry, the clang link line) |
+| `.agents/docs/design/backend-contract.md` | The backend contract: one IR, two emitters, shared runtime ABI. What a second backend must reproduce |
 | `src/pyscriptc/runtime/*.c` | Implementations the LLVM text calls |
 | `src/pyscriptc/runtime/ps_island.c` | Embedded CPython. Linked only when the text contains `ps_island_` |
 | `tests/test_gates.py` | Language gates and the original example corpus |
