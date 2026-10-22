@@ -16,3 +16,6 @@ benchmarks/compat2/.cache/
 src/pyscriptc/_posthog_token.py
 node_modules/
 benchmarks/factsdiff-report.json
+
+# closed to generator agents; keeps rg and the Grep tool out (moved from .ignore)
+benchmarks/compat2/corpus/holdout/
