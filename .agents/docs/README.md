@@ -59,6 +59,6 @@ The two pages below are generated from the compiler by `scripts/gen_support_tabl
 
 These files are the in-repo snapshot of the data the compat site publishes.
 
-The pipeline that feeds the site is in `scripts/build_compat_json.py` and `scripts/compat_schema.py`; it reads the same `support_data.toml` through the same `evaluate` function, so the tree keeps one definition of "supported". Its output is `compat-data/compat.json`, rebuilt and committed by the nightly workflow. The design is in [Compat site](compat-site.md).
+The pipeline that feeds the site is in `scripts/build_compat_json.py` and `scripts/compat_schema.py`; it reads the same `support_data.toml` through the same `evaluate` function, so the tree keeps one definition of "supported". Its output is `compat/data/compat.json`, rebuilt by the nightly workflow and landed through a bot PR. The design is in [Compat site](compat-site.md).
 
-The site itself (`PYSC_COMPAT_URL`, default `https://pyscriptc-compat.pages.dev`) is not deployed yet. Until it is, these two generated pages and `compat-data/compat.json` are the machine-readable status in the tree.
+The site itself is one Cloudflare Pages project at `https://pyscriptc.pages.dev`, with the compat page at `/compat` (linked from the docs through the `PYSC_COMPAT_URL` placeholder, default `https://pyscriptc.pages.dev/compat`). Until it is deployed, these two generated pages and `compat/data/compat.json` are the machine-readable status in the tree.
