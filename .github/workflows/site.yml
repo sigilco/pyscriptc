@@ -124,12 +124,17 @@ jobs:
             echo "pages: $pages, files: $files"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Install wrangler
+        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+        run: pnpm add -g wrangler@4
+
       - name: Deploy to Cloudflare Pages
         if: github.ref == 'refs/heads/master' && github.event_name == 'push'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          PNPM_HOME: /home/runner/setup-pnpm
         run: |
           set -euo pipefail
-          command -v wrangler >/dev/null || pnpm add -g wrangler@4
+          export PATH="$PNPM_HOME/node_modules/.bin:$PATH"
           wrangler pages deploy ./deploy --project-name=pyscriptc --commit-dirty=true
