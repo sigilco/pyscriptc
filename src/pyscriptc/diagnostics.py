@@ -21,6 +21,47 @@ _ENTRIES = (
         "Fix the input path or syntax error named in the message.",
     ),
     Diagnostic(
+        "PS0101",
+        "IR type inconsistency",
+        (
+            "The lowered IR mixes types the emitter cannot pair: operands of one "
+            "operator disagree, a compare does not yield bool, a condition is not "
+            "bool, or a returned value has another type than the function returns. "
+            "Debug-mode verification reports this before the backend runs."
+        ),
+        "This is a compiler bug: reduce the source and report it with the debug dump.",
+    ),
+    Diagnostic(
+        "PS0102",
+        "IR name is not defined",
+        (
+            "A name the IR reads is not a parameter, local or env slot of its "
+            "function, or a call names a function or class the module does not "
+            "define. Debug-mode verification reports this before the backend runs."
+        ),
+        "This is a compiler bug: reduce the source and report it with the debug dump.",
+    ),
+    Diagnostic(
+        "PS0103",
+        "IR terminator missing",
+        (
+            "A statement follows a return or raise that ends its body, or a "
+            "function with a value return type has a path that reaches the end "
+            "without one. Debug-mode verification reports this before the backend runs."
+        ),
+        "This is a compiler bug: reduce the source and report it with the debug dump.",
+    ),
+    Diagnostic(
+        "PS0104",
+        "emitted LLVM did not verify",
+        (
+            "The LLVM module verifier rejected the emitted text (a missing "
+            "terminator, an undefined value, a malformed instruction). Debug mode "
+            "runs the verifier over the .ll it dumps."
+        ),
+        "This is a compiler bug: attach the --debug-dir dump when reporting it.",
+    ),
+    Diagnostic(
         "PS1001",
         "annotation missing or not lowered",
         (

@@ -24,7 +24,9 @@ from pyscriptc.errors import FitError, IRError, SpikeError, VersionError
 from pyscriptc.imports import build_report as build_import_report
 from pyscriptc.imports import render_text as render_import_text
 from pyscriptc.ir import validate_module
+from pyscriptc.irverify import verify_module
 from pyscriptc.llvm import compile_unit, emit_llvm, link_binary, standalone_entry
+from pyscriptc.llvverify import LLVMVerifyError, verify_module_text
 from pyscriptc.log import enable_debug, get_logger, tail
 from pyscriptc.lower import lower_file, render_fences
 from pyscriptc.package import lower_directory
@@ -533,6 +535,11 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         dbg.begin("validate")
         validate_module(module)
         dbg.end("validate")
+        if dbg.wants("verify"):
+            state["stage"] = "verify"
+            dbg.begin("verify")
+            _verify_ir(module, dbg)
+            dbg.end("verify")
         ir_path = _output_path(args, source_path, ".ir.json")
         ir_path.parent.mkdir(parents=True, exist_ok=True)
         ir_path.write_text(json.dumps(module, indent=2) + "\n", encoding="utf-8")
@@ -568,6 +575,11 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         ll_path.write_text(llvm_text, encoding="utf-8")
         outputs["ll"] = str(ll_path)
         log.info("emit.llvm", output=str(ll_path))
+        if dbg.wants("verify"):
+            state["stage"] = "llvmverify"
+            dbg.begin("llvmverify")
+            _verify_llvm(ll_path, dbg, driver=args.driver, target=args.target)
+            dbg.end("llvmverify")
         if args.emit == "llvm":
             print(ll_path)
             return 0
@@ -634,6 +646,29 @@ def _compile_outcome(exc: BaseException, stage: str) -> str:
     if isinstance(exc, SpikeError) or stage in ("lower", "validate", "emit"):
         return "lower-error"
     return "build-error"
+
+
+def _verify_ir(module: dict[str, Any], dbg: Debug) -> None:
+    """Run the structural IR verifier and record (or raise) its verdict.
+
+    Debug only: a violation means lowering produced an IR the emitter would
+    misread, so fail the compile with the verifier's own diagnostic instead
+    of letting the drift surface as a wrong binary or a cc error.
+    """
+
+    errors = verify_module(module)
+    dbg.ir_verifications.extend([{"code": error.code, "message": error.message} for error in errors])
+    if errors:
+        raise errors[0]
+
+
+def _verify_llvm(ll_path: Path, dbg: Debug, driver: str, target: str | None) -> None:
+    """Verify the emitted LLVM module and record (or raise) its verdict."""
+
+    result = verify_module_text(ll_path, driver=driver, target=target)
+    dbg.llvm_verification = result.as_dict()
+    if not result.ok and not result.skipped:
+        raise LLVMVerifyError(f"the emitted LLVM module did not verify: {result.message}")
 
 
 def _fence_families(fences: list[dict[str, Any]]) -> dict[str, int]:
