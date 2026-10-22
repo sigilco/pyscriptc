@@ -1155,6 +1155,36 @@ double ps_math_hypot(double x, double y) {
     return r;
 }
 
+double ps_math_atan2(double y, double x) { return atan2(y, x); }
+
+int64_t ps_math_gcd(int64_t a, int64_t b) {
+    uint64_t x = a < 0 ? 0 - (uint64_t)a : (uint64_t)a;
+    uint64_t y = b < 0 ? 0 - (uint64_t)b : (uint64_t)b;
+    while (y != 0) {
+        uint64_t t = x % y;
+        x = y;
+        y = t;
+    }
+    if (x > (uint64_t)INT64_MAX) {
+        ps_raise_cstr(PS_OVERFLOW, "Python int too large to convert to C long");
+    }
+    return (int64_t)x;
+}
+
+int32_t ps_math_isclose(double a, double b, double rel_tol, double abs_tol) {
+    if (rel_tol < 0.0 || abs_tol < 0.0) {
+        ps_raise_cstr(PS_VALUE, "tolerances must be non-negative");
+    }
+    if (a == b) {
+        return 1;
+    }
+    if (isinf(a) || isinf(b)) {
+        return 0;
+    }
+    double diff = fabs(b - a);
+    return (diff <= fabs(rel_tol * b) || diff <= fabs(rel_tol * a) || diff <= abs_tol) ? 1 : 0;
+}
+
 double ps_math_pow(double x, double y) {
     if (isnan(x)) {
         return pow(x, y);
