@@ -1,10 +1,12 @@
 # Static FFI manifest design
 
-Epic F design doc, report only. `--ffi <manifest>` binds `.pyi`-style
-signature declarations to C ABI symbols and links the C library into the
-single binary. The plan line is `.agents/plans/2026-10-14-waves-after-scorer-v2.md:79`;
+Epic F design doc. `--ffi <manifest>` binds `.pyi`-style signature
+declarations to C ABI symbols and links the C library into the single
+binary. The plan line is `.agents/plans/2026-10-14-waves-after-scorer-v2.md:79`;
 the seam and ownership model are `docs/http-seam-design.md`; the ABI rules it
-must respect are `docs/abi-strategy.md`. Nothing here ships code.
+must respect are `docs/abi-strategy.md`. The F0 gate (manifest parser and
+validator, `src/pyscriptc/ffi_manifest.py`) ships as a draft PR ahead of the
+v0.7.0 milestone; the lowering and linker work below it is not wired yet.
 
 ## 1. Manifest shape
 
@@ -76,6 +78,52 @@ Field rules:
   `frees`-like calls (`close`, `finalize`) list `consumes`. There is no
   refcounting — this is the sqlite precedent's opaque-handle discipline,
   not ctypes.
+
+## 1a. The schema the validator enforces
+
+`src/pyscriptc/ffi_manifest.py` is the F0 gate: it parses a manifest and
+refuses anything the lowering could not honour. Nothing lowers yet; the
+module is the contract the later gates build on. The API is three calls:
+
+```python
+from pyscriptc.ffi_manifest import load_manifest, load_manifests, parse_manifest_text
+
+manifest = load_manifest(Path("ffi.toml"))  # one file, raises FfiManifestError
+manifests = load_manifests([Path("a.toml"), ...])  # several files, refuses duplicate module claims
+parsed = parse_manifest_text(text)  # the same, from a string
+```
+
+`load_manifest` returns an `FfiManifest` with `module`, `ps_abi`, `format`,
+`path`, `sources`, `handles`, `consts` and `functions`. Each `[[fn]]` becomes
+a `ManifestFunction` with the parsed `params` (`ManifestParam`: name, type,
+default), the `returns` type, the `c_symbol` documentation string and the
+`abi` thunk name. Ownership annotations become `HandleRef` values that keep
+the argument name and the handle type apart, so two arguments of one handle
+type stay distinct.
+
+The type vocabulary is the subset's, and the validator refuses anything
+outside it: `int`, `float`, `bool`, `str`, `bytes`, `list`, `dict`, plus the
+handles the manifest declares. `Any`, `object`, `Optional[T]`, `list[int]`
+and every other annotation are rejected at parse time, because the emitter
+never inspects a value at runtime and the marshalling has to be fixed at
+lower time.
+
+Every failure raises `FfiManifestError` (a `SpikeError` subclass, so the
+CLI's existing handler catches it) with a stable code:
+
+| code | meaning |
+|---|---|
+| `PS4001` | the manifest could not be read or is not valid TOML |
+| `PS4002` | the `[manifest]` header is missing or malformed |
+| `PS4003` | the `format` pin is missing or unsupported |
+| `PS4004` | the `ps_abi` pin is missing or stale |
+| `PS4005` | a key is unknown, missing or has the wrong type |
+| `PS4006` | a signature or type is outside the vocabulary |
+| `PS4007` | a name is declared twice, or two manifests claim one module |
+| `PS4008` | a reference names something the manifest does not declare |
+
+The codes are registered in `src/pyscriptc/diagnostics.py`, so
+`pyscriptc explain PS4004` names the fix.
 
 ## 2. ABI discipline
 
@@ -288,6 +336,53 @@ Each gate is mergeable alone; F3 is the seam the largest-blocker count points
 at (`docs/compile-rate-essence-method.md` — sqlite3 is the single largest
 seam win, 13 rows). F4 exists because a seam designed for exactly one
 consumer rots into a special case.
+
+## 7. Integration points (open)
+
+The F0 parser ships first; these are the seams the later gates plug into.
+
+Lowering (`lower/`, F1):
+
+- `load_manifests` runs in `cli.py` before `lower_file`: the compiler loads
+  each `--ffi` manifest, validates the pins, and hands the lowerer the
+  module table. A `FfiManifestError` surfaces through the existing
+  `SpikeError` handler as exit 1 with the `PS4xxx` code.
+- A manifest-loaded module gets a synthetic entry in the closed import table
+  (`QUEUE`/`LOWERED`, `stdlib_queue.py`), so `import pyscriptc_sqlite` binds
+  `Binding("module", ...)` exactly like a stdlib module.
+- In `_module_call`, a new clause before the `wave_function` fallback looks
+  the call up in the manifest's `[[fn]]` table, checks args against the
+  parsed `params` (same positional/min/defaults rules `_fixed_call` applies),
+  and returns `_abi_call(module, attr, args, ret, fn.abi, span)`. The parsed
+  `ManifestParam` list is the input; no signature string is re-parsed there.
+- The `py` types map onto the IR type dicts the lowerer already uses:
+  `int`/`float`/`bool`/`str`/`bytes` to `{"kind": ...}`, `list`/`dict` to
+  their `elem`/`key`/`value` forms, a handle to `{"kind": "class", "name":
+  ...}` riding the `ptr` path (`llvm.py:1072-1074`).
+- `[[const]]` entries inline as `{"kind": "const"}` nodes at the use site.
+
+Linking (`llvm.py`, F2):
+
+- `link_binary` merges each manifest's `unit_paths()` into the per-unit `.o`
+  loop (`.c` units compile, `objects` archives go straight on the link line),
+  resolved relative to the manifest file. `ManifestSource.resolved` already
+  produces the absolute paths.
+
+Configuration (`pyscriptc.toml`, P3/v0.5.0):
+
+- The planned config surface carries `ffi = ["adapters/sqlite/ffi.toml"]`:
+  a list of manifest paths resolved relative to the config file and passed
+  to `load_manifests`. The per-import policy table maps a module to the
+  `"extern"` lane (`.agents/plans/2026-10-21-adoption-compat-ffi-strategy.md`,
+  section B); the manifest's `module` claim is what binds them.
+
+Tooling:
+
+- `pyscriptc coverage` lists the lane per import (`native`, `pack`, `extern`,
+  `island`, `absent`) once the classifier lands (P7); a manifest-loaded
+  module reports `extern`.
+- `pyscriptc bind header.h` (P18, v0.8.0) generates a manifest in this
+  format; the validator is the acceptance test for its output.
 
 ## Risks
 

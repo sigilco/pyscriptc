@@ -23,7 +23,8 @@ def test_self_census_ballpark() -> None:
     # Script stdlib families (#188): +3 modules (restlower _ospath, _subprocess, _itertools) and +127 self-host fences.
     # restlower/_threading.py (native threading locks, #190) adds 1 module and 13 fences.
     # restlower/_asyncio.py (minimal async/await, #193) adds 1 module and 23 fences.
-    assert census["modules"] == 61
+    # ffi_manifest.py (typed extern manifest parser, F0) adds 1 module and 77 fences.
+    assert census["modules"] == 62
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -64,7 +65,7 @@ def test_self_census_ballpark() -> None:
     # PEP 723 dependency lanes, stub-path and ffi keys add 17 self-host fences (config.py, cli.py).
     # E2 M2-M5 (exception hierarchy, object surface, ZeroDivisionError variants): +23 fences (log, telemetry, llvm).
     # math atan2/gcd/isclose handlers: +2 self-host fences in lower/_calls.py.
-    assert census["fences"] == 2071
+    assert census["fences"] == 2148
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
-    assert 11_000 <= census["lines"] <= 30_000
-    assert sum(p["fences"] for p in census["packages"]) == 2071
+    assert 11_000 <= census["lines"] <= 31_000
+    assert sum(p["fences"] for p in census["packages"]) == 2148
