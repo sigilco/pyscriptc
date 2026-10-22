@@ -241,6 +241,8 @@ def _lower(target: Path, bridge: Any = None) -> tuple[dict[str, Any], list[str]]
         files = [str(path) for _, path, _ in _discover(target)[0]]
         return module, files
     if target.is_file():
+        if bridge is not None and not hasattr(bridge, "inferred_type"):
+            bridge = bridge.for_file(target)
         module, _ = lower_file(str(target), bridge=bridge)
         return module, [str(target)]
     raise IRError(f"source not found: {target}")

@@ -31,7 +31,7 @@ INFERENCE_FAMILIES = ("param-inference", "local-inference", "return-inference", 
 
 
 def bridged_package_census(path: Path, provider: str) -> dict[str, Any]:
-    """The coverage report of one package lowered through the bridge."""
+    """The coverage report of one package or file lowered through the bridge."""
     report = build_report(path, bridge=BridgeProvider(provider, strict=False))
     families = Counter(fence["family"] for fence in report["fences"])
     return {
@@ -67,14 +67,16 @@ def delta(plain: dict[str, Any], bridged: dict[str, Any]) -> dict[str, Any]:
 
 def build_bridged_census(src: Path, provider: str) -> dict[str, Any]:
     dirs = sorted(path for path in src.iterdir() if path.is_dir())
+    files = sorted(path for path in src.iterdir() if path.is_file() and path.suffix == ".py")
+    targets = [(path.name, path) for path in dirs] + [(path.stem, path) for path in files]
     packages: list[dict[str, Any]] = []
     retired_total: Counter[str] = Counter()
     plain_total: Counter[str] = Counter()
     bridged_total: Counter[str] = Counter()
-    for path in dirs:
+    for name, path in targets:
         plain = build_report(path)
         plain_summary = {
-            "package": path.name,
+            "package": name,
             "fences": plain["summary"]["fences"],
             "families": dict(Counter(fence["family"] for fence in plain["fences"])),
         }
