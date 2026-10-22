@@ -19,7 +19,7 @@ def test_self_census_ballpark() -> None:
     # coro.py (generator frames) adds one more.
     # stubs.py + sigregistry.py (stub reader, signature registry, not lowered): +2 modules.
     # imports.py (per-import lane classifier for the adoption ladder) adds one more.
-    # deps.py (PyPI resolver, wheel cache: subprocess/zipfile/urllib plumbing) adds 1 module and about 125 fences (incl. its cli.py hook).
+    # deps.py (PyPI resolver, wheel cache) adds 1 module and about 125 fences, with its cli.py hook.
     assert census["modules"] == 55
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
