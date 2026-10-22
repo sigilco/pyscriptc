@@ -99,7 +99,7 @@ def test_manifest_matches_files() -> None:
 def test_generator_is_current() -> None:
     """The committed manifest is what `scripts/gen_emitter_goldens.py` builds."""
 
-    from scripts.gen_emitter_goldens import CALLS, COVERAGE, FIXTURE_BUILDERS, STRUCTURAL
+    from scripts.gen_emitter_goldens import CALLS, COVERAGE, FIXTURE_BUILDERS, STRUCTURAL, SURFACE
 
     expected = [
         {
@@ -107,9 +107,28 @@ def test_generator_is_current() -> None:
             "ir": f"llvm/{name}.ir.json",
             "ll": f"llvm/{name}.ll",
             "covers": COVERAGE[name],
+            "surface": SURFACE[name],
             "structural": STRUCTURAL.get(name),
             "call": CALLS.get(name, (None, []))[0],
         }
         for name in FIXTURE_BUILDERS
     ]
     assert MANIFEST["fixtures"] == expected
+
+
+def test_surface_coverage() -> None:
+    """The corpus covers every emitter dispatch branch, and reports the gaps.
+
+    The manifest records the dispatch branch each fixture pins (const type,
+    binary op family, compare family, callee kind, try shape, raise shape).
+    A branch losing its fixture fails here with the uncovered list, which is
+    the emitter coverage metric.
+    """
+
+    from scripts.gen_emitter_goldens import EXPECTED_SURFACE
+
+    covered = {branch for entry in MANIFEST["fixtures"] for branch in entry["surface"]}
+    uncovered = sorted(EXPECTED_SURFACE - covered)
+    assert not uncovered, f"emitter dispatch branches with no golden fixture: {uncovered}"
+    stale = sorted(covered - EXPECTED_SURFACE)
+    assert not stale, f"manifest names dispatch branches the emitter no longer has: {stale}"

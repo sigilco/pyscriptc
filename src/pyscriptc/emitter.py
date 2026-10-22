@@ -25,8 +25,16 @@ def make_module(
 
     The stamp uses the running interpreter, as `lower` would, so the module
     passes the same cross-version check a whole-program compile does.
+
+    The IR schema requires the entry to name a function when the module has
+    one, so a module with functions and no explicit entry takes the first
+    function as its entry. The entry is only the runnable entry when it is
+    named `main` or `__entry__`; a fragment's first function is just a name
+    the schema can point at.
     """
 
+    if entry is None and functions:
+        entry = functions[0]["name"]
     module: dict[str, Any] = {
         "irVersion": IR_VERSION,
         "subset": SUBSET,

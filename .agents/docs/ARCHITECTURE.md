@@ -59,7 +59,7 @@ A third-party `.so` from a wheel exports `PyInit_<module>`. That symbol builds a
 
 The LLVM emitter is a single large module, so it is tested per IR node kind rather than only through a whole compile. `src/pyscriptc/emitter.py` is the seam: `emit_ir_text` validates one IR module the way a compile does and renders it to LLVM text in memory, with no file, no subprocess and no toolchain.
 
-`tests/fixtures/backend/llvm/` holds one fixture pair per node kind: `<name>.ir.json` is the IR module the emitter sees, `<name>.ll` is the byte-exact text it must produce. `tests/fixtures/backend/manifest.json` records which IR node kind each fixture covers, and `tests/test_emitter_goldens.py` fails with the missing kinds listed if the corpus stops covering the emitter's dispatch surface.
+`tests/fixtures/backend/llvm/` holds one fixture pair per node kind, plus a fixture per emitter dispatch branch (const type, binary op family, compare family, callee kind, try and raise shape): `<name>.ir.json` is the IR module the emitter sees, `<name>.ll` is the byte-exact text it must produce. `tests/fixtures/backend/manifest.json` records which IR node kind and which dispatch branch each fixture covers, and `tests/test_emitter_goldens.py` fails with the missing kinds or branches listed if the corpus stops covering the emitter's dispatch surface. The determinism test re-runs the generator in a scratch directory and asserts the corpus rebuilds byte-identically, so a golden diff is always a reviewed emitter change, never hash-order noise.
 
 After an intentional emitter change, re-bless the corpus and review the diff:
 

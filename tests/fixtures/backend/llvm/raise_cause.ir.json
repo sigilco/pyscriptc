@@ -1,0 +1,50 @@
+{
+  "irVersion": 1,
+  "subset": "gates-v1",
+  "cpython": "3.14.8",
+  "sourceFile": "<golden>",
+  "entry": "raise_cause",
+  "functions": [
+    {
+      "name": "raise_cause",
+      "params": [],
+      "returnType": {
+        "kind": "none"
+      },
+      "locals": [],
+      "body": [
+        {
+          "kind": "raise",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "exc": "ValueError",
+          "message": {
+            "kind": "const",
+            "type": {
+              "kind": "str"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "value": "bad"
+          },
+          "cause": {
+            "kind": "excmake",
+            "exc": "TypeError"
+          }
+        }
+      ]
+    }
+  ],
+  "classes": [],
+  "fences": []
+}

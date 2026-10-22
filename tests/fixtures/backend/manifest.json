@@ -8,6 +8,9 @@
       "covers": [
         "assign"
       ],
+      "surface": [
+        "assign:int"
+      ],
       "structural": null,
       "call": null
     },
@@ -17,6 +20,9 @@
       "ll": "llvm/const.ll",
       "covers": [
         "const"
+      ],
+      "surface": [
+        "const:int"
       ],
       "structural": null,
       "call": null
@@ -28,6 +34,9 @@
       "covers": [
         "name"
       ],
+      "surface": [
+        "name:local"
+      ],
       "structural": null,
       "call": null
     },
@@ -37,6 +46,9 @@
       "ll": "llvm/unary.ll",
       "covers": [
         "unary"
+      ],
+      "surface": [
+        "unary:int-neg"
       ],
       "structural": null,
       "call": null
@@ -48,6 +60,9 @@
       "covers": [
         "binary"
       ],
+      "surface": [
+        "binary:int-add"
+      ],
       "structural": null,
       "call": null
     },
@@ -57,6 +72,9 @@
       "ll": "llvm/compare.ll",
       "covers": [
         "compare"
+      ],
+      "surface": [
+        "compare:int"
       ],
       "structural": null,
       "call": null
@@ -68,6 +86,9 @@
       "covers": [
         "call"
       ],
+      "surface": [
+        "call:function"
+      ],
       "structural": null,
       "call": null
     },
@@ -77,6 +98,9 @@
       "ll": "llvm/list.ll",
       "covers": [
         "list"
+      ],
+      "surface": [
+        "list:int-elem"
       ],
       "structural": null,
       "call": null
@@ -88,6 +112,9 @@
       "covers": [
         "dict"
       ],
+      "surface": [
+        "dict:str-int"
+      ],
       "structural": null,
       "call": null
     },
@@ -97,6 +124,9 @@
       "ll": "llvm/subscript.ll",
       "covers": [
         "subscript"
+      ],
+      "surface": [
+        "subscript:list"
       ],
       "structural": null,
       "call": null
@@ -108,6 +138,9 @@
       "covers": [
         "attr"
       ],
+      "surface": [
+        "attr:class-field"
+      ],
       "structural": null,
       "call": null
     },
@@ -117,6 +150,9 @@
       "ll": "llvm/cast.ll",
       "covers": [
         "cast"
+      ],
+      "surface": [
+        "cast:int-to-float"
       ],
       "structural": null,
       "call": null
@@ -128,6 +164,9 @@
       "covers": [
         "contains"
       ],
+      "surface": [
+        "contains:list"
+      ],
       "structural": null,
       "call": null
     },
@@ -137,6 +176,9 @@
       "ll": "llvm/closure.ll",
       "covers": [
         "closure"
+      ],
+      "surface": [
+        "closure:env-first"
       ],
       "structural": null,
       "call": null
@@ -148,6 +190,9 @@
       "covers": [
         "if"
       ],
+      "surface": [
+        "if:else"
+      ],
       "structural": null,
       "call": null
     },
@@ -156,6 +201,9 @@
       "ir": "llvm/while.ir.json",
       "ll": "llvm/while.ll",
       "covers": [
+        "while"
+      ],
+      "surface": [
         "while"
       ],
       "structural": null,
@@ -168,6 +216,9 @@
       "covers": [
         "return"
       ],
+      "surface": [
+        "return:int"
+      ],
       "structural": null,
       "call": null
     },
@@ -178,6 +229,9 @@
       "covers": [
         "expr"
       ],
+      "surface": [
+        "expr:call"
+      ],
       "structural": null,
       "call": null
     },
@@ -186,6 +240,9 @@
       "ir": "llvm/pass.ir.json",
       "ll": "llvm/pass.ll",
       "covers": [
+        "pass"
+      ],
+      "surface": [
         "pass"
       ],
       "structural": null,
@@ -198,6 +255,9 @@
       "covers": [
         "setitem"
       ],
+      "surface": [
+        "setitem:list"
+      ],
       "structural": null,
       "call": null
     },
@@ -207,6 +267,9 @@
       "ll": "llvm/setattr.ll",
       "covers": [
         "setattr"
+      ],
+      "surface": [
+        "setattr:class-field"
       ],
       "structural": null,
       "call": null
@@ -218,6 +281,9 @@
       "covers": [
         "try"
       ],
+      "surface": [
+        "try:handlers"
+      ],
       "structural": null,
       "call": null
     },
@@ -228,6 +294,9 @@
       "covers": [
         "raise"
       ],
+      "surface": [
+        "raise:plain"
+      ],
       "structural": null,
       "call": null
     },
@@ -236,6 +305,7 @@
       "ir": "llvm/class_layout.ir.json",
       "ll": "llvm/class_layout.ll",
       "covers": [],
+      "surface": [],
       "structural": "class type layout, constructor and method emission",
       "call": null
     },
@@ -244,6 +314,7 @@
       "ir": "llvm/env_closure.ir.json",
       "ll": "llvm/env_closure.ll",
       "covers": [],
+      "surface": [],
       "structural": "env-first function with a captured cell",
       "call": null
     },
@@ -252,6 +323,7 @@
       "ir": "llvm/main_entry.ir.json",
       "ll": "llvm/main_entry.ll",
       "covers": [],
+      "surface": [],
       "structural": "the main entry function and its caller",
       "call": "main"
     },
@@ -260,8 +332,134 @@
       "ir": "llvm/exception_registration.ir.json",
       "ll": "llvm/exception_registration.ll",
       "covers": [],
+      "surface": [],
       "structural": "user exception class registration preamble",
       "call": "raises_custom"
+    },
+    {
+      "name": "const_types",
+      "ir": "llvm/const_types.ir.json",
+      "ll": "llvm/const_types.ll",
+      "covers": [],
+      "surface": [
+        "const:bool",
+        "const:float",
+        "const:str",
+        "const:bytes"
+      ],
+      "structural": "every constant type spelling",
+      "call": null
+    },
+    {
+      "name": "unary_ops",
+      "ir": "llvm/unary_ops.ir.json",
+      "ll": "llvm/unary_ops.ll",
+      "covers": [],
+      "surface": [
+        "unary:not",
+        "unary:int-invert"
+      ],
+      "structural": "every unary op",
+      "call": null
+    },
+    {
+      "name": "binary_ops",
+      "ir": "llvm/binary_ops.ir.json",
+      "ll": "llvm/binary_ops.ll",
+      "covers": [],
+      "surface": [
+        "binary:int-sub",
+        "binary:int-mul",
+        "binary:int-floordiv",
+        "binary:int-mod",
+        "binary:int-shl",
+        "binary:int-shr",
+        "binary:int-and",
+        "binary:int-or",
+        "binary:int-xor",
+        "binary:float-add",
+        "binary:float-div",
+        "binary:str-add"
+      ],
+      "structural": "every binary op family",
+      "call": null
+    },
+    {
+      "name": "compare_ops",
+      "ir": "llvm/compare_ops.ir.json",
+      "ll": "llvm/compare_ops.ll",
+      "covers": [],
+      "surface": [
+        "compare:int-lte",
+        "compare:int-gt",
+        "compare:int-gte",
+        "compare:int-eq",
+        "compare:int-neq",
+        "compare:float",
+        "compare:str",
+        "compare:is"
+      ],
+      "structural": "every compare op family",
+      "call": null
+    },
+    {
+      "name": "call_callees",
+      "ir": "llvm/call_callees.ir.json",
+      "ll": "llvm/call_callees.ll",
+      "covers": [],
+      "surface": [
+        "call:builtin",
+        "call:module",
+        "call:method",
+        "call:class"
+      ],
+      "structural": "every call callee kind",
+      "call": null
+    },
+    {
+      "name": "call_value",
+      "ir": "llvm/call_value.ir.json",
+      "ll": "llvm/call_value.ll",
+      "covers": [],
+      "surface": [
+        "call:value"
+      ],
+      "structural": "indirect call through a callable value",
+      "call": null
+    },
+    {
+      "name": "try_finally",
+      "ir": "llvm/try_finally.ir.json",
+      "ll": "llvm/try_finally.ll",
+      "covers": [],
+      "surface": [
+        "try:finally"
+      ],
+      "structural": "try with a finally body",
+      "call": null
+    },
+    {
+      "name": "raise_cause",
+      "ir": "llvm/raise_cause.ir.json",
+      "ll": "llvm/raise_cause.ll",
+      "covers": [],
+      "surface": [
+        "raise:cause"
+      ],
+      "structural": "raise with a cause chain",
+      "call": null
+    },
+    {
+      "name": "contains_kinds",
+      "ir": "llvm/contains_kinds.ir.json",
+      "ll": "llvm/contains_kinds.ll",
+      "covers": [],
+      "surface": [
+        "contains:str",
+        "contains:dict"
+      ],
+      "structural": "every containment haystack kind",
+      "call": null
     }
   ]
 }
