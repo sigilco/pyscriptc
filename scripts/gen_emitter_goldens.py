@@ -663,6 +663,371 @@ def _fixture_exception_registration() -> dict[str, Any]:
     )
 
 
+# --- dispatch-surface gaps ---------------------------------------------------
+#
+# The node-kind corpus above covers one fixture per IR node kind. The emitter
+# dispatches further than the node kind: a constant has a type, a binary has
+# an op and a type, a call has a callee kind, a try has a finally, a raise has
+# a cause. Each fixture below closes one of those branches, so an emitter
+# change in any of them shows up as a reviewed golden diff.
+
+
+def _fixture_const_types() -> dict[str, Any]:
+    """Every constant type the emitter can spell: int, bool, float, str, bytes."""
+
+    return module(
+        [
+            fn(
+                "const_types",
+                [
+                    stmt("assign", target="i", value=const("7")),
+                    stmt("assign", target="b", value=const(True, "bool")),
+                    stmt("assign", target="f", value=const("1.5", "float")),
+                    stmt("assign", target="s", value=const("hi", "str")),
+                    stmt("assign", target="y", value=const("ab", "bytes")),
+                ],
+                locals_=[
+                    {"name": "i", "type": typ("int")},
+                    {"name": "b", "type": typ("bool")},
+                    {"name": "f", "type": typ("float")},
+                    {"name": "s", "type": typ("str")},
+                    {"name": "y", "type": typ("bytes")},
+                ],
+            )
+        ]
+    )
+
+
+def _fixture_unary_ops() -> dict[str, Any]:
+    """Every unary op: `-` on an int, `not` on a bool, `~` on an int."""
+
+    return module(
+        [
+            fn(
+                "unary_ops",
+                [
+                    stmt("assign", target="a", value=expr("unary", typ("int"), op="-", operand=const("3"))),
+                    stmt("assign", target="b", value=expr("unary", typ("bool"), op="not", operand=const(True, "bool"))),
+                    stmt("assign", target="c", value=expr("unary", typ("int"), op="~", operand=const("3"))),
+                ],
+                locals_=[
+                    {"name": "a", "type": typ("int")},
+                    {"name": "b", "type": typ("bool")},
+                    {"name": "c", "type": typ("int")},
+                ],
+            )
+        ]
+    )
+
+
+def _fixture_binary_ops() -> dict[str, Any]:
+    """Every binary op family: the int helpers, the int bitwise ins, the float
+    ops and the string concat."""
+
+    return module(
+        [
+            fn(
+                "binary_ops",
+                [
+                    stmt("assign", target="a", value=binary("+", const("1"), const("2"))),
+                    stmt("assign", target="b", value=binary("-", const("1"), const("2"))),
+                    stmt("assign", target="c", value=binary("*", const("1"), const("2"))),
+                    stmt("assign", target="d", value=binary("//", const("1"), const("2"))),
+                    stmt("assign", target="e", value=binary("%", const("1"), const("2"))),
+                    stmt("assign", target="f", value=binary("&", const("1"), const("2"))),
+                    stmt("assign", target="g", value=binary("|", const("1"), const("2"))),
+                    stmt("assign", target="h", value=binary("^", const("1"), const("2"))),
+                    stmt("assign", target="i", value=binary("<<", const("1"), const("2"))),
+                    stmt("assign", target="j", value=binary(">>", const("1"), const("2"))),
+                    stmt(
+                        "assign",
+                        target="k",
+                        value=binary("+", const("1.5", "float"), const("2.5", "float"), kind="float"),
+                    ),
+                    stmt(
+                        "assign",
+                        target="l",
+                        value=binary("/", const("1.5", "float"), const("2.5", "float"), kind="float"),
+                    ),
+                    stmt(
+                        "assign",
+                        target="m",
+                        value=binary("+", const("a", "str"), const("b", "str"), kind="str"),
+                    ),
+                ],
+                locals_=[{"name": name, "type": typ("int")} for name in "abcdefghij"]
+                + [
+                    {"name": "k", "type": typ("float")},
+                    {"name": "l", "type": typ("float")},
+                    {"name": "m", "type": typ("str")},
+                ],
+            )
+        ]
+    )
+
+
+def _fixture_compare_ops() -> dict[str, Any]:
+    """Every compare op: the int predicates, the float predicates, the string
+    predicates and the identity comparison."""
+
+    return module(
+        [
+            fn(
+                "compare_ops",
+                [
+                    stmt("assign", target="a", value=compare("<", const("1"), const("2"))),
+                    stmt("assign", target="b", value=compare("<=", const("1"), const("2"))),
+                    stmt("assign", target="c", value=compare(">", const("1"), const("2"))),
+                    stmt("assign", target="d", value=compare(">=", const("1"), const("2"))),
+                    stmt("assign", target="e", value=compare("==", const("1"), const("2"))),
+                    stmt("assign", target="f", value=compare("!=", const("1"), const("2"))),
+                    stmt(
+                        "assign",
+                        target="g",
+                        value=compare("<", const("1.5", "float"), const("2.5", "float")),
+                    ),
+                    stmt("assign", target="h", value=compare("==", const("a", "str"), const("b", "str"))),
+                    stmt(
+                        "assign",
+                        target="i",
+                        value=expr(
+                            "compare",
+                            typ("bool"),
+                            op="is",
+                            left=expr("name", list_type(), id="xs"),
+                            right=expr("name", list_type(), id="xs"),
+                        ),
+                    ),
+                ],
+                locals_=[{"name": name, "type": typ("bool")} for name in "abcdefghi"]
+                + [{"name": "xs", "type": list_type()}],
+            )
+        ]
+    )
+
+
+def _fixture_call_callees() -> dict[str, Any]:
+    """Every callee kind the emitter dispatches on: builtin, function, module,
+    method and class."""
+
+    return module(
+        [
+            fn(
+                "call_callees",
+                [
+                    stmt(
+                        "assign",
+                        target="a",
+                        value=expr(
+                            "call",
+                            typ("int"),
+                            callee={"kind": "builtin", "name": "len"},
+                            args=[expr("name", list_type(), id="xs")],
+                        ),
+                    ),
+                    stmt(
+                        "assign",
+                        target="b",
+                        value=expr(
+                            "call",
+                            typ("int"),
+                            callee={"kind": "function", "name": "helper"},
+                            args=[const("1")],
+                        ),
+                    ),
+                    stmt(
+                        "assign",
+                        target="c",
+                        value=expr(
+                            "call",
+                            typ("int"),
+                            callee={"kind": "module", "module": "math", "name": "sqrt"},
+                            args=[const("2.0", "float")],
+                        ),
+                    ),
+                    stmt(
+                        "assign",
+                        target="d",
+                        value=expr(
+                            "call",
+                            typ("str"),
+                            callee={"kind": "method", "receiver": "str", "name": "upper"},
+                            args=[const("a", "str")],
+                        ),
+                    ),
+                    stmt(
+                        "assign",
+                        target="e",
+                        value=expr(
+                            "call",
+                            typ("class", name="Point"),
+                            callee={"kind": "class", "name": "Point"},
+                            args=[const("1")],
+                        ),
+                    ),
+                ],
+                locals_=[
+                    {"name": "xs", "type": list_type()},
+                    {"name": "a", "type": typ("int")},
+                    {"name": "b", "type": typ("int")},
+                    {"name": "c", "type": typ("int")},
+                    {"name": "d", "type": typ("str")},
+                    {"name": "e", "type": typ("class", name="Point")},
+                ],
+            ),
+            fn(
+                "helper",
+                [stmt("return", value=const("0"))],
+                params=[{"name": "x", "type": typ("int")}],
+                locals_=[{"name": "x", "type": typ("int")}],
+                return_type=typ("int"),
+            ),
+        ],
+        classes=[point_class()],
+    )
+
+
+def _fixture_call_value() -> dict[str, Any]:
+    """A call through a callable value: the indirect env-first call path."""
+
+    return module(
+        [
+            fn(
+                "call_value",
+                [
+                    stmt(
+                        "assign",
+                        target="f",
+                        value=expr(
+                            "closure",
+                            func_type(),
+                            name="call_value.inner",
+                            env=[{"name": "n", "type": typ("int")}],
+                        ),
+                    ),
+                    stmt(
+                        "assign",
+                        target="r",
+                        value=expr(
+                            "call",
+                            typ("int"),
+                            callee={"kind": "value", "target": expr("name", func_type(), id="f")},
+                            args=[],
+                        ),
+                    ),
+                ],
+                locals_=[
+                    {"name": "n", "type": typ("int")},
+                    {"name": "f", "type": func_type()},
+                    {"name": "r", "type": typ("int")},
+                ],
+            ),
+            fn(
+                "call_value.inner",
+                [stmt("return", value=name("n"))],
+                locals_=[{"name": "n", "type": typ("int")}],
+                return_type=typ("int"),
+                env=[{"name": "n", "type": typ("int")}],
+            ),
+        ]
+    )
+
+
+def _fixture_try_finally() -> dict[str, Any]:
+    """A try with a finally body: the outline-and-propagate path."""
+
+    return module(
+        [
+            fn(
+                "try_finally",
+                [
+                    stmt(
+                        "try",
+                        body=[stmt("assign", target="x", value=const("1"))],
+                        handlers=[{"exc": ["ValueError"], "body": [stmt("assign", target="x", value=const("2"))]}],
+                        finalbody=[stmt("assign", target="x", value=const("3"))],
+                    )
+                ],
+                locals_=[{"name": "x", "type": typ("int")}],
+            )
+        ]
+    )
+
+
+def _fixture_raise_cause() -> dict[str, Any]:
+    """A raise with a cause: the exception record is built and linked."""
+
+    return module(
+        [
+            fn(
+                "raise_cause",
+                [
+                    stmt(
+                        "raise",
+                        exc="ValueError",
+                        message=const("bad", "str"),
+                        cause={"kind": "excmake", "exc": "TypeError"},
+                    )
+                ],
+            )
+        ]
+    )
+
+
+def _fixture_contains_kinds() -> dict[str, Any]:
+    """Every containment haystack the emitter handles: str, list and dict."""
+
+    return module(
+        [
+            fn(
+                "contains_kinds",
+                [
+                    stmt(
+                        "assign",
+                        target="a",
+                        value=expr(
+                            "contains",
+                            typ("bool"),
+                            hay=const("ab", "str"),
+                            needle=const("a", "str"),
+                            negated=False,
+                        ),
+                    ),
+                    stmt(
+                        "assign",
+                        target="b",
+                        value=expr(
+                            "contains",
+                            typ("bool"),
+                            hay=expr("name", list_type(), id="xs"),
+                            needle=const("1"),
+                            negated=False,
+                        ),
+                    ),
+                    stmt(
+                        "assign",
+                        target="c",
+                        value=expr(
+                            "contains",
+                            typ("bool"),
+                            hay=expr("name", typ("dict", key=typ("str"), value=typ("int")), id="d"),
+                            needle=const("k", "str"),
+                            negated=True,
+                        ),
+                    ),
+                ],
+                locals_=[
+                    {"name": "xs", "type": list_type()},
+                    {"name": "d", "type": typ("dict", key=typ("str"), value=typ("int"))},
+                    {"name": "a", "type": typ("bool")},
+                    {"name": "b", "type": typ("bool")},
+                    {"name": "c", "type": typ("bool")},
+                ],
+            )
+        ]
+    )
+
+
 FIXTURE_BUILDERS: dict[str, Any] = {
     "assign": _fixture_assign,
     "const": _fixture_const,
@@ -691,6 +1056,15 @@ FIXTURE_BUILDERS: dict[str, Any] = {
     "env_closure": _fixture_env_closure,
     "main_entry": _fixture_main_entry,
     "exception_registration": _fixture_exception_registration,
+    "const_types": _fixture_const_types,
+    "unary_ops": _fixture_unary_ops,
+    "binary_ops": _fixture_binary_ops,
+    "compare_ops": _fixture_compare_ops,
+    "call_callees": _fixture_call_callees,
+    "call_value": _fixture_call_value,
+    "try_finally": _fixture_try_finally,
+    "raise_cause": _fixture_raise_cause,
+    "contains_kinds": _fixture_contains_kinds,
 }
 
 # The function the `main` entry calls, per fixture. A fixture without one
@@ -731,6 +1105,144 @@ COVERAGE: dict[str, list[str]] = {
     "env_closure": [],
     "main_entry": [],
     "exception_registration": [],
+    "const_types": [],
+    "unary_ops": [],
+    "binary_ops": [],
+    "compare_ops": [],
+    "call_callees": [],
+    "call_value": [],
+    "try_finally": [],
+    "raise_cause": [],
+    "contains_kinds": [],
+}
+
+# Which emitter dispatch branch each fixture covers. The emitter dispatches
+# further than the node kind: a constant has a type, a binary has an op and a
+# type, a call has a callee kind, a try has a finally, a raise has a cause.
+# This map is the emitter coverage metric; `tests/test_emitter_goldens.py`
+# fails with the uncovered branches listed if one loses its fixture.
+SURFACE: dict[str, list[str]] = {
+    "assign": ["assign:int"],
+    "const": ["const:int"],
+    "const_types": ["const:bool", "const:float", "const:str", "const:bytes"],
+    "name": ["name:local"],
+    "unary": ["unary:int-neg"],
+    "unary_ops": ["unary:not", "unary:int-invert"],
+    "binary": ["binary:int-add"],
+    "binary_ops": [
+        "binary:int-sub",
+        "binary:int-mul",
+        "binary:int-floordiv",
+        "binary:int-mod",
+        "binary:int-shl",
+        "binary:int-shr",
+        "binary:int-and",
+        "binary:int-or",
+        "binary:int-xor",
+        "binary:float-add",
+        "binary:float-div",
+        "binary:str-add",
+    ],
+    "compare": ["compare:int"],
+    "compare_ops": [
+        "compare:int-lte",
+        "compare:int-gt",
+        "compare:int-gte",
+        "compare:int-eq",
+        "compare:int-neq",
+        "compare:float",
+        "compare:str",
+        "compare:is",
+    ],
+    "call": ["call:function"],
+    "call_callees": ["call:builtin", "call:module", "call:method", "call:class"],
+    "call_value": ["call:value"],
+    "list": ["list:int-elem"],
+    "dict": ["dict:str-int"],
+    "subscript": ["subscript:list"],
+    "attr": ["attr:class-field"],
+    "cast": ["cast:int-to-float"],
+    "contains": ["contains:list"],
+    "contains_kinds": ["contains:str", "contains:dict"],
+    "closure": ["closure:env-first"],
+    "if": ["if:else"],
+    "while": ["while"],
+    "return": ["return:int"],
+    "expr": ["expr:call"],
+    "pass": ["pass"],
+    "setitem": ["setitem:list"],
+    "setattr": ["setattr:class-field"],
+    "try": ["try:handlers"],
+    "try_finally": ["try:finally"],
+    "raise": ["raise:plain"],
+    "raise_cause": ["raise:cause"],
+    "class_layout": [],
+    "env_closure": [],
+    "main_entry": [],
+    "exception_registration": [],
+}
+
+# Every dispatch branch the emitter can take. A branch with no fixture is
+# reported by the coverage test.
+EXPECTED_SURFACE: set[str] = {
+    "assign:int",
+    "const:int",
+    "const:bool",
+    "const:float",
+    "const:str",
+    "const:bytes",
+    "name:local",
+    "unary:int-neg",
+    "unary:not",
+    "unary:int-invert",
+    "binary:int-add",
+    "binary:int-sub",
+    "binary:int-mul",
+    "binary:int-floordiv",
+    "binary:int-mod",
+    "binary:int-shl",
+    "binary:int-shr",
+    "binary:int-and",
+    "binary:int-or",
+    "binary:int-xor",
+    "binary:float-add",
+    "binary:float-div",
+    "binary:str-add",
+    "compare:int",
+    "compare:int-lte",
+    "compare:int-gt",
+    "compare:int-gte",
+    "compare:int-eq",
+    "compare:int-neq",
+    "compare:float",
+    "compare:str",
+    "compare:is",
+    "call:function",
+    "call:builtin",
+    "call:module",
+    "call:method",
+    "call:class",
+    "call:value",
+    "list:int-elem",
+    "dict:str-int",
+    "subscript:list",
+    "attr:class-field",
+    "cast:int-to-float",
+    "contains:list",
+    "contains:str",
+    "contains:dict",
+    "closure:env-first",
+    "if:else",
+    "while",
+    "return:int",
+    "expr:call",
+    "pass",
+    "setitem:list",
+    "setattr:class-field",
+    "try:handlers",
+    "try:finally",
+    "raise:plain",
+    "raise:cause",
 }
 
 # Structural cases that are not IR node kinds but must be covered all the same.
@@ -739,12 +1251,26 @@ STRUCTURAL: dict[str, str] = {
     "env_closure": "env-first function with a captured cell",
     "main_entry": "the main entry function and its caller",
     "exception_registration": "user exception class registration preamble",
+    "const_types": "every constant type spelling",
+    "unary_ops": "every unary op",
+    "binary_ops": "every binary op family",
+    "compare_ops": "every compare op family",
+    "call_callees": "every call callee kind",
+    "call_value": "indirect call through a callable value",
+    "try_finally": "try with a finally body",
+    "raise_cause": "raise with a cause chain",
+    "contains_kinds": "every containment haystack kind",
 }
 
 
-def main() -> int:
+def main(fixtures_dir: Path | None = None, manifest_path: Path | None = None) -> int:
+    """Regenerate the corpus. A scratch target keeps the committed files intact,
+    which is how the determinism test runs the builder without touching goldens."""
+
     stamp = cpython_version()
-    FIXTURES.mkdir(parents=True, exist_ok=True)
+    fixtures = fixtures_dir if fixtures_dir is not None else FIXTURES
+    manifest_file = manifest_path if manifest_path is not None else MANIFEST
+    fixtures.mkdir(parents=True, exist_ok=True)
     for name, builder in FIXTURE_BUILDERS.items():
         ir = builder()
         ir["cpython"] = stamp
@@ -753,8 +1279,8 @@ def main() -> int:
         # The stamp is incidental (.agents/docs/spec/ir-canonicity.md): it never reaches the
         # emitted text, so the fixture keeps the stamp of the interpreter that
         # wrote it and the test re-stamps before emitting.
-        (FIXTURES / f"{name}.ir.json").write_text(_dump(ir), encoding="utf-8")
-        (FIXTURES / f"{name}.ll").write_text(text, encoding="utf-8")
+        (fixtures / f"{name}.ir.json").write_text(_dump(ir), encoding="utf-8")
+        (fixtures / f"{name}.ll").write_text(text, encoding="utf-8")
 
     manifest = {
         "backend": "llvm",
@@ -764,15 +1290,16 @@ def main() -> int:
                 "ir": f"llvm/{name}.ir.json",
                 "ll": f"llvm/{name}.ll",
                 "covers": COVERAGE[name],
+                "surface": SURFACE[name],
                 "structural": STRUCTURAL.get(name),
                 "call": CALLS.get(name, (None, []))[0],
             }
             for name in FIXTURE_BUILDERS
         ],
     }
-    MANIFEST.parent.mkdir(parents=True, exist_ok=True)
-    MANIFEST.write_text(_dump(manifest), encoding="utf-8")
-    print(f"wrote {len(FIXTURE_BUILDERS)} fixtures to {FIXTURES}")
+    manifest_file.parent.mkdir(parents=True, exist_ok=True)
+    manifest_file.write_text(_dump(manifest), encoding="utf-8")
+    print(f"wrote {len(FIXTURE_BUILDERS)} fixtures to {fixtures}")
     return 0
 
 

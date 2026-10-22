@@ -1,0 +1,157 @@
+{
+  "irVersion": 1,
+  "subset": "gates-v1",
+  "cpython": "3.14.8",
+  "sourceFile": "<golden>",
+  "entry": "unary_ops",
+  "functions": [
+    {
+      "name": "unary_ops",
+      "params": [],
+      "returnType": {
+        "kind": "none"
+      },
+      "locals": [
+        {
+          "name": "a",
+          "type": {
+            "kind": "int"
+          }
+        },
+        {
+          "name": "b",
+          "type": {
+            "kind": "bool"
+          }
+        },
+        {
+          "name": "c",
+          "type": {
+            "kind": "int"
+          }
+        }
+      ],
+      "body": [
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "a",
+          "value": {
+            "kind": "unary",
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "op": "-",
+            "operand": {
+              "kind": "const",
+              "type": {
+                "kind": "int"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "3"
+            }
+          }
+        },
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "b",
+          "value": {
+            "kind": "unary",
+            "type": {
+              "kind": "bool"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "op": "not",
+            "operand": {
+              "kind": "const",
+              "type": {
+                "kind": "bool"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": true
+            }
+          }
+        },
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "c",
+          "value": {
+            "kind": "unary",
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "op": "~",
+            "operand": {
+              "kind": "const",
+              "type": {
+                "kind": "int"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "3"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "classes": [],
+  "fences": []
+}

@@ -1,0 +1,789 @@
+{
+  "irVersion": 1,
+  "subset": "gates-v1",
+  "cpython": "3.14.8",
+  "sourceFile": "<golden>",
+  "entry": "binary_ops",
+  "functions": [
+    {
+      "name": "binary_ops",
+      "params": [],
+      "returnType": {
+        "kind": "none"
+      },
+      "locals": [
+        {
+          "name": "a",
+          "type": {
+            "kind": "int"
+          }
+        },
+        {
+          "name": "b",
+          "type": {
+            "kind": "int"
+          }
+        },
+        {
+          "name": "c",
+          "type": {
+            "kind": "int"
+          }
+        },
+        {
+          "name": "d",
+          "type": {
+            "kind": "int"
+          }
+        },
+        {
+          "name": "e",
+          "type": {
+            "kind": "int"
+          }
+        },
+        {
+          "name": "f",
+          "type": {
+            "kind": "int"
+          }
+        },
+        {
+          "name": "g",
+          "type": {
+            "kind": "int"
+          }
+        },
+        {
+          "name": "h",
+          "type": {
+            "kind": "int"
+          }
+        },
+        {
+          "name": "i",
+          "type": {
+            "kind": "int"
+          }
+        },
+        {
+          "name": "j",
+          "type": {
+            "kind": "int"
+          }
+        },
+        {
+          "name": "k",
+          "type": {
+            "kind": "float"
+          }
+        },
+        {
+          "name": "l",
+          "type": {
+            "kind": "float"
+          }
+        },
+        {
+          "name": "m",
+          "type": {
+            "kind": "str"
+          }
+        }
+      ],
+      "body": [
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "a",
+          "value": {
+            "kind": "binary",
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "op": "+",
+            "left": {
+              "kind": "const",
+              "type": {
+                "kind": "int"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "1"
+            },
+            "right": {
+              "kind": "const",
+              "type": {
+                "kind": "int"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "2"
+            }
+          }
+        },
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "b",
+          "value": {
+            "kind": "binary",
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "op": "-",
+            "left": {
+              "kind": "const",
+              "type": {
+                "kind": "int"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "1"
+            },
+            "right": {
+              "kind": "const",
+              "type": {
+                "kind": "int"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "2"
+            }
+          }
+        },
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "c",
+          "value": {
+            "kind": "binary",
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "op": "*",
+            "left": {
+              "kind": "const",
+              "type": {
+                "kind": "int"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "1"
+            },
+            "right": {
+              "kind": "const",
+              "type": {
+                "kind": "int"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "2"
+            }
+          }
+        },
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "d",
+          "value": {
+            "kind": "binary",
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "op": "//",
+            "left": {
+              "kind": "const",
+              "type": {
+                "kind": "int"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "1"
+            },
+            "right": {
+              "kind": "const",
+              "type": {
+                "kind": "int"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "2"
+            }
+          }
+        },
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "e",
+          "value": {
+            "kind": "binary",
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "op": "%",
+            "left": {
+              "kind": "const",
+              "type": {
+                "kind": "int"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "1"
+            },
+            "right": {
+              "kind": "const",
+              "type": {
+                "kind": "int"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "2"
+            }
+          }
+        },
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "f",
+          "value": {
+            "kind": "binary",
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "op": "&",
+            "left": {
+              "kind": "const",
+              "type": {
+                "kind": "int"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "1"
+            },
+            "right": {
+              "kind": "const",
+              "type": {
+                "kind": "int"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "2"
+            }
+          }
+        },
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "g",
+          "value": {
+            "kind": "binary",
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "op": "|",
+            "left": {
+              "kind": "const",
+              "type": {
+                "kind": "int"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "1"
+            },
+            "right": {
+              "kind": "const",
+              "type": {
+                "kind": "int"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "2"
+            }
+          }
+        },
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "h",
+          "value": {
+            "kind": "binary",
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "op": "^",
+            "left": {
+              "kind": "const",
+              "type": {
+                "kind": "int"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "1"
+            },
+            "right": {
+              "kind": "const",
+              "type": {
+                "kind": "int"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "2"
+            }
+          }
+        },
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "i",
+          "value": {
+            "kind": "binary",
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "op": "<<",
+            "left": {
+              "kind": "const",
+              "type": {
+                "kind": "int"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "1"
+            },
+            "right": {
+              "kind": "const",
+              "type": {
+                "kind": "int"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "2"
+            }
+          }
+        },
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "j",
+          "value": {
+            "kind": "binary",
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "op": ">>",
+            "left": {
+              "kind": "const",
+              "type": {
+                "kind": "int"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "1"
+            },
+            "right": {
+              "kind": "const",
+              "type": {
+                "kind": "int"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "2"
+            }
+          }
+        },
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "k",
+          "value": {
+            "kind": "binary",
+            "type": {
+              "kind": "float"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "op": "+",
+            "left": {
+              "kind": "const",
+              "type": {
+                "kind": "float"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "1.5"
+            },
+            "right": {
+              "kind": "const",
+              "type": {
+                "kind": "float"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "2.5"
+            }
+          }
+        },
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "l",
+          "value": {
+            "kind": "binary",
+            "type": {
+              "kind": "float"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "op": "/",
+            "left": {
+              "kind": "const",
+              "type": {
+                "kind": "float"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "1.5"
+            },
+            "right": {
+              "kind": "const",
+              "type": {
+                "kind": "float"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "2.5"
+            }
+          }
+        },
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "m",
+          "value": {
+            "kind": "binary",
+            "type": {
+              "kind": "str"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "op": "+",
+            "left": {
+              "kind": "const",
+              "type": {
+                "kind": "str"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "a"
+            },
+            "right": {
+              "kind": "const",
+              "type": {
+                "kind": "str"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "b"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "classes": [],
+  "fences": []
+}

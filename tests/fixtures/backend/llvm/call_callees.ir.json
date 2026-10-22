@@ -1,0 +1,349 @@
+{
+  "irVersion": 1,
+  "subset": "gates-v1",
+  "cpython": "3.14.8",
+  "sourceFile": "<golden>",
+  "entry": "call_callees",
+  "functions": [
+    {
+      "name": "call_callees",
+      "params": [],
+      "returnType": {
+        "kind": "none"
+      },
+      "locals": [
+        {
+          "name": "xs",
+          "type": {
+            "kind": "list",
+            "elem": {
+              "kind": "int"
+            }
+          }
+        },
+        {
+          "name": "a",
+          "type": {
+            "kind": "int"
+          }
+        },
+        {
+          "name": "b",
+          "type": {
+            "kind": "int"
+          }
+        },
+        {
+          "name": "c",
+          "type": {
+            "kind": "int"
+          }
+        },
+        {
+          "name": "d",
+          "type": {
+            "kind": "str"
+          }
+        },
+        {
+          "name": "e",
+          "type": {
+            "kind": "class",
+            "name": "Point"
+          }
+        }
+      ],
+      "body": [
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "a",
+          "value": {
+            "kind": "call",
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "callee": {
+              "kind": "builtin",
+              "name": "len"
+            },
+            "args": [
+              {
+                "kind": "name",
+                "type": {
+                  "kind": "list",
+                  "elem": {
+                    "kind": "int"
+                  }
+                },
+                "span": {
+                  "file": "<golden>",
+                  "line": 1,
+                  "col": 1,
+                  "endLine": 1,
+                  "endCol": 2
+                },
+                "id": "xs"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "b",
+          "value": {
+            "kind": "call",
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "callee": {
+              "kind": "function",
+              "name": "helper"
+            },
+            "args": [
+              {
+                "kind": "const",
+                "type": {
+                  "kind": "int"
+                },
+                "span": {
+                  "file": "<golden>",
+                  "line": 1,
+                  "col": 1,
+                  "endLine": 1,
+                  "endCol": 2
+                },
+                "value": "1"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "c",
+          "value": {
+            "kind": "call",
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "callee": {
+              "kind": "module",
+              "module": "math",
+              "name": "sqrt"
+            },
+            "args": [
+              {
+                "kind": "const",
+                "type": {
+                  "kind": "float"
+                },
+                "span": {
+                  "file": "<golden>",
+                  "line": 1,
+                  "col": 1,
+                  "endLine": 1,
+                  "endCol": 2
+                },
+                "value": "2.0"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "d",
+          "value": {
+            "kind": "call",
+            "type": {
+              "kind": "str"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "callee": {
+              "kind": "method",
+              "receiver": "str",
+              "name": "upper"
+            },
+            "args": [
+              {
+                "kind": "const",
+                "type": {
+                  "kind": "str"
+                },
+                "span": {
+                  "file": "<golden>",
+                  "line": 1,
+                  "col": 1,
+                  "endLine": 1,
+                  "endCol": 2
+                },
+                "value": "a"
+              }
+            ]
+          }
+        },
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "e",
+          "value": {
+            "kind": "call",
+            "type": {
+              "kind": "class",
+              "name": "Point"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "callee": {
+              "kind": "class",
+              "name": "Point"
+            },
+            "args": [
+              {
+                "kind": "const",
+                "type": {
+                  "kind": "int"
+                },
+                "span": {
+                  "file": "<golden>",
+                  "line": 1,
+                  "col": 1,
+                  "endLine": 1,
+                  "endCol": 2
+                },
+                "value": "1"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "helper",
+      "params": [
+        {
+          "name": "x",
+          "type": {
+            "kind": "int"
+          }
+        }
+      ],
+      "returnType": {
+        "kind": "int"
+      },
+      "locals": [
+        {
+          "name": "x",
+          "type": {
+            "kind": "int"
+          }
+        }
+      ],
+      "body": [
+        {
+          "kind": "return",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "value": {
+            "kind": "const",
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "value": "0"
+          }
+        }
+      ]
+    }
+  ],
+  "classes": [
+    {
+      "name": "Point",
+      "fields": [
+        {
+          "name": "x",
+          "type": {
+            "kind": "int"
+          }
+        }
+      ],
+      "methods": []
+    }
+  ],
+  "fences": []
+}

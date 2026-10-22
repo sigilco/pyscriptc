@@ -1,0 +1,177 @@
+{
+  "irVersion": 1,
+  "subset": "gates-v1",
+  "cpython": "3.14.8",
+  "sourceFile": "<golden>",
+  "entry": "const_types",
+  "functions": [
+    {
+      "name": "const_types",
+      "params": [],
+      "returnType": {
+        "kind": "none"
+      },
+      "locals": [
+        {
+          "name": "i",
+          "type": {
+            "kind": "int"
+          }
+        },
+        {
+          "name": "b",
+          "type": {
+            "kind": "bool"
+          }
+        },
+        {
+          "name": "f",
+          "type": {
+            "kind": "float"
+          }
+        },
+        {
+          "name": "s",
+          "type": {
+            "kind": "str"
+          }
+        },
+        {
+          "name": "y",
+          "type": {
+            "kind": "bytes"
+          }
+        }
+      ],
+      "body": [
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "i",
+          "value": {
+            "kind": "const",
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "value": "7"
+          }
+        },
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "b",
+          "value": {
+            "kind": "const",
+            "type": {
+              "kind": "bool"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "value": true
+          }
+        },
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "f",
+          "value": {
+            "kind": "const",
+            "type": {
+              "kind": "float"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "value": "1.5"
+          }
+        },
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "s",
+          "value": {
+            "kind": "const",
+            "type": {
+              "kind": "str"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "value": "hi"
+          }
+        },
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "y",
+          "value": {
+            "kind": "const",
+            "type": {
+              "kind": "bytes"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "value": "ab"
+          }
+        }
+      ]
+    }
+  ],
+  "classes": [],
+  "fences": []
+}

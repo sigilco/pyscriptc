@@ -1,0 +1,176 @@
+{
+  "irVersion": 1,
+  "subset": "gates-v1",
+  "cpython": "3.14.8",
+  "sourceFile": "<golden>",
+  "entry": "call_value",
+  "functions": [
+    {
+      "name": "call_value",
+      "params": [],
+      "returnType": {
+        "kind": "none"
+      },
+      "locals": [
+        {
+          "name": "n",
+          "type": {
+            "kind": "int"
+          }
+        },
+        {
+          "name": "f",
+          "type": {
+            "kind": "func",
+            "params": [],
+            "return": {
+              "kind": "int"
+            }
+          }
+        },
+        {
+          "name": "r",
+          "type": {
+            "kind": "int"
+          }
+        }
+      ],
+      "body": [
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "f",
+          "value": {
+            "kind": "closure",
+            "type": {
+              "kind": "func",
+              "params": [],
+              "return": {
+                "kind": "int"
+              }
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "name": "call_value.inner",
+            "env": [
+              {
+                "name": "n",
+                "type": {
+                  "kind": "int"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "r",
+          "value": {
+            "kind": "call",
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "callee": {
+              "kind": "value",
+              "target": {
+                "kind": "name",
+                "type": {
+                  "kind": "func",
+                  "params": [],
+                  "return": {
+                    "kind": "int"
+                  }
+                },
+                "span": {
+                  "file": "<golden>",
+                  "line": 1,
+                  "col": 1,
+                  "endLine": 1,
+                  "endCol": 2
+                },
+                "id": "f"
+              }
+            },
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "call_value.inner",
+      "params": [],
+      "returnType": {
+        "kind": "int"
+      },
+      "locals": [
+        {
+          "name": "n",
+          "type": {
+            "kind": "int"
+          }
+        }
+      ],
+      "body": [
+        {
+          "kind": "return",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "value": {
+            "kind": "name",
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "id": "n"
+          }
+        }
+      ],
+      "env": [
+        {
+          "name": "n",
+          "type": {
+            "kind": "int"
+          }
+        }
+      ]
+    }
+  ],
+  "classes": [],
+  "fences": []
+}
