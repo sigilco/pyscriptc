@@ -1123,6 +1123,8 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             print(unit_path)
             return 0
         binary = Path(args.output) if args.output else _artifact_base(args, source_path)
+        if ((args.target and "windows" in args.target) or sys.platform == "win32") and not binary.suffix:
+            binary = binary.with_suffix(".exe")
         state["stage"] = "link"
         dbg.begin("link")
         link_binary(

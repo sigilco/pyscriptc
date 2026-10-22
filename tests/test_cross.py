@@ -17,6 +17,45 @@ from pyscriptc.llvm import link_binary
 HELLO_LL = ROOT / "packaging" / "zig" / "hello.ll"
 
 
+def _is_pe(path: Path) -> bool:
+    data = path.read_bytes()
+    if len(data) < 0x40 or data[:2] != b"MZ":
+        return False
+    pe_offset = int.from_bytes(data[0x3C:0x40], "little")
+    return len(data) >= pe_offset + 4 and data[pe_offset : pe_offset + 4] == b"PE\0\0"
+
+
+@pytest.mark.skipif(shutil.which("zig") is None, reason="zig not on PATH")
+def test_cross_compile_windows_x86_64(tmp_path: Path) -> None:
+    out = tmp_path / "hello_x64.exe"
+    link_binary(HELLO_LL, out, driver="zig", target="x86_64-windows-gnu")
+    assert out.is_file()
+    assert _is_pe(out)
+
+
+@pytest.mark.skipif(shutil.which("zig") is None, reason="zig not on PATH")
+def test_cross_compile_windows_aarch64(tmp_path: Path) -> None:
+    out = tmp_path / "hello_arm64.exe"
+    link_binary(HELLO_LL, out, driver="zig", target="aarch64-windows-gnu")
+    assert out.is_file()
+    assert _is_pe(out)
+
+
+def test_cli_windows_target_defaults_to_exe_suffix(tmp_path: Path) -> None:
+    from pyscriptc.cli import main
+
+    src = tmp_path / "test.py"
+    src.write_text("print(42)\n")
+    out = tmp_path / "myprog"
+    ret = main(
+        ["compile", str(src), "--emit", "bin", "-o", str(out), "--target", "x86_64-windows-gnu", "--driver", "zig"]
+    )
+    assert ret == 0
+    exe = tmp_path / "myprog.exe"
+    assert exe.is_file()
+    assert _is_pe(exe)
+
+
 def test_target_requires_zig_driver(tmp_path: Path) -> None:
     with pytest.raises(IRError, match="--target requires --driver zig"):
         link_binary(HELLO_LL, tmp_path / "h", driver="clang", target="aarch64-macos")
