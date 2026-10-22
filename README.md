@@ -84,6 +84,7 @@ Windows: the `pyscriptc` binary runs there (experimental) and `coverage` works, 
 - `int` is a Python int: `i64` only when the value fits, traps on overflow, refuses literals that would truncate. `//` is floor division.
 - Island calls (`subprocess.check_output`, `socket.gethostname`, `threading`, `logging`) embed CPython on first use — and only binaries that call them link libpython.
 - `--emit ir` / `--emit llvm` dump the intermediate forms; `--run` compiles and executes (a `__main__` guard runs by itself, anything else needs `--call`); `--target` + `--driver zig` cross-compiles.
+- `--sanitize=address,undefined` builds the C runtime and the emitted code with the ASan and UBSan runtimes, so a memory or undefined-behaviour bug in the runtime shims reports itself instead of corrupting a result. It needs `--emit bin` and cannot cross-compile.
 
 ## Stack
 

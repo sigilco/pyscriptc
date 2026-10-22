@@ -84,6 +84,13 @@ def main(argv: list[str] | None = None) -> int:
         help="driver for the final link step only; env PYSC_LINKER, defaults to --driver",
     )
     compile_parser.add_argument(
+        "--sanitize",
+        metavar="LIST",
+        default=None,
+        help="comma list of sanitizers for the C runtime and the emitted code, e.g. "
+        "address,undefined (env PYSC_SANITIZE); needs a binary, so --emit bin only",
+    )
+    compile_parser.add_argument(
         "--print",
         dest="print_what",
         choices=("diagnostics",),
@@ -128,6 +135,12 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--driver", choices=("clang", "zig"), default=None)
     run_parser.add_argument("--target", help="cross-compilation triple for `zig cc`")
     run_parser.add_argument("--linker", choices=("clang", "zig"), default=None)
+    run_parser.add_argument(
+        "--sanitize",
+        metavar="LIST",
+        default=None,
+        help="comma list of sanitizers for the C runtime and the emitted code (env PYSC_SANITIZE)",
+    )
     run_parser.add_argument("--skip-check", action="store_true")
     run_parser.add_argument("--checker", choices=("pyrefly", "mypy", "pyright"), default="pyrefly")
     run_parser.add_argument("--no-cache", action="store_true", help="always recompile (env PYSC_NO_RUN_CACHE=1)")
@@ -220,6 +233,7 @@ def run_cmd(args: argparse.Namespace) -> int:
             f"driver={args.driver}",
             f"target={args.target}",
             f"linker={args.linker}",
+            f"sanitize={args.sanitize}",
             f"skip_check={args.skip_check}",
             f"checker={args.checker}",
         ],
@@ -264,6 +278,7 @@ def _build_for_run(args: argparse.Namespace, output: Path) -> int:
         driver=args.driver,
         target=args.target,
         linker=args.linker,
+        sanitize=args.sanitize,
         print_what=None,
         skip_check=args.skip_check,
         checker=args.checker,
@@ -410,6 +425,34 @@ def _apply_env_defaults(args: argparse.Namespace) -> None:
         args.target = os.environ.get("PYSC_TARGET") or None
     if args.driver is None:
         args.driver = "clang"
+    if getattr(args, "sanitize", None) is None:
+        args.sanitize = os.environ.get("PYSC_SANITIZE") or None
+
+
+def _sanitize_list(value: str | None) -> list[str]:
+    """Split a `--sanitize` list into names, rejecting empty or malformed entries."""
+    if not value:
+        return []
+    names = [part.strip() for part in value.split(",")]
+    if any(not name for name in names):
+        raise IRError(f"--sanitize needs a comma separated list of sanitizer names, got {value!r}")
+    seen: list[str] = []
+    for name in names:
+        if name not in seen:
+            seen.append(name)
+    return seen
+
+
+def _require_sanitize(args: argparse.Namespace) -> list[str]:
+    """Resolve `--sanitize` and refuse the combinations that cannot honor it."""
+    names = _sanitize_list(getattr(args, "sanitize", None))
+    if not names:
+        return []
+    if args.emit != "bin":
+        raise IRError(f"--sanitize needs a linked binary, so it works with --emit bin only (got --emit {args.emit})")
+    if args.target is not None:
+        raise IRError("--sanitize cannot cross-compile: the sanitizer runtime must match the host")
+    return names
 
 
 def _require_toolchain(args: argparse.Namespace) -> None:
@@ -438,6 +481,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         print(json.dumps(report, indent=2))
         return 3 if report["fences"] else 0
     _require_toolchain(args)
+    sanitize = _require_sanitize(args)
     config = load_config(source_path)
     for note in apply_to_args(config, args):
         print(note, file=sys.stderr)
@@ -539,6 +583,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             target=args.target,
             record=dbg.commands,
             link_driver=args.linker,
+            sanitize=sanitize,
         )
         dbg.end("link")
         outputs["bin"] = str(binary)

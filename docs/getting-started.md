@@ -57,3 +57,14 @@ uv run pyscriptc compile examples/invoice.py --emit bin --call charge --args '[1
 Tier A targets (CI-verified by `packaging/zig/smoke.sh`): `x86_64-linux-gnu`, `aarch64-linux-gnu`, `riscv64-linux-gnu` (optionally pinned, e.g. `gnu.2.39`), `x86_64-linux-musl`, `aarch64-linux-musl`, `riscv64-linux-musl` (static), and `aarch64-macos` / `x86_64-macos` (compile-verified only — no runner). Static-musl binaries can run foreign arches under `qemu-<arch>-static`.
 
 Not supported yet: Windows targets (a few POSIX calls in the runtime need shims), island/fallback programs on any cross target (they embed the host libpython), and the `PYSCRIPTC_MIX_SO` dlopen path on static musl. `--target` requires `--driver zig`; without `--target`, `zig` is just another host driver.
+
+## Debug builds with sanitizers
+
+`--sanitize=address,undefined` compiles the C runtime and the emitted code with the ASan and UBSan runtimes: a memory bug or undefined behaviour in the runtime shims reports itself with a stack trace instead of corrupting a result. It needs a binary (`--emit bin`), cannot be combined with `--target` (the sanitizer runtime must match the host), and `PYSC_SANITIZE=address,undefined` sets it from the environment:
+
+```bash
+uv run pyscriptc compile examples/hello.py --emit bin -o /tmp/hello-san --sanitize=address,undefined
+/tmp/hello-san
+```
+
+CI runs this on every push (`ASan+UBSan smoke` in `.github/workflows/ci.yml`).

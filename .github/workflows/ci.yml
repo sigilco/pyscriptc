@@ -182,3 +182,51 @@ jobs:
           out="$("$WORK/hello-bin")"
           echo "$out"
           [ "$out" = "hello" ]
+
+  # ASan+UBSan smoke: compile a small program with --sanitize=address,undefined
+  # and run it. The sanitizer runtime must stay silent: any reported error or
+  # nonzero exit fails the job. Covers the C runtime and the emitted code.
+  sanitize-smoke:
+    name: ASan+UBSan smoke
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"  # emSign CA incident: uv 0.13.4 dropped the compromised root
+          enable-cache: true
+          python-version: "3.14"
+      - run: uv sync --frozen
+      - name: Install clang (sanitizer runtime)
+        run: |
+          set -euo pipefail
+          command -v clang >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq clang; }
+      - name: Compile with --sanitize and run
+        env:
+          WORK: ${{ runner.temp }}/sanitize-smoke
+        run: |
+          set -euo pipefail
+          mkdir -p "$WORK"
+          cat > "$WORK/hello.py" <<'PY'
+          def main() -> None:
+              xs: list[int] = [1, 2, 3]
+              total: int = 0
+              for x in xs:
+                  total = total + x
+              print("total", total)
+
+
+          if __name__ == "__main__":
+              main()
+          PY
+          uv run pyscriptc compile "$WORK/hello.py" --emit bin -o "$WORK/hello-san" --sanitize=address,undefined
+          ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
+            "$WORK/hello-san" 2> "$WORK/sanitizer.err" | tee "$WORK/out.txt"
+          out="$(cat "$WORK/out.txt")"
+          [ "$out" = "total 6" ]
+          [ ! -s "$WORK/sanitizer.err" ] || { cat "$WORK/sanitizer.err"; exit 1; }
+      - name: Sanitizer also passes the local test
+        run: uv run pytest -q tests/test_sanitize.py -m "not linux_container"

@@ -69,7 +69,9 @@ def test_self_census_ballpark() -> None:
     # math atan2/gcd/isclose handlers: +2 self-host fences in lower/_calls.py.
     # Checker bridge (#87): factsbridge.py adds 1 module and 40 self-host fences
     # (the mypy adapter, the facts-to-IR translator and the bridge consumer).
-    assert census["fences"] == 2191
+    # --sanitize (#271): the flag parsing and the sanitize argv plumbing add 14
+    # fences in cli.py and 2 in llvm.py.
+    assert census["fences"] == 2207
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 31_000
-    assert sum(p["fences"] for p in census["packages"]) == 2191
+    assert sum(p["fences"] for p in census["packages"]) == 2207
