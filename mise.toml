@@ -4,7 +4,7 @@
 # system packages, not mise tools (apt install clang).
 #
 # Tasks (mise run <name>):
-#   docs:dev        public docs dev server (docs/, docmd.config.js)
+#   docs:dev        public docs dev server (docs/, docs/.docmd/docmd.config.js)
 #   docs:build      build the public docs site to dist/docs
 #   docs:validate   check every internal link in docs/
 #   docs:internal   dev server for the internal notes (.agents/docs), dev-only
@@ -28,11 +28,11 @@ run = ["uv sync", "pnpm install"]
 
 [tasks."docs:dev"]
 description = "Public docs dev server (docs/)"
-run = "pnpm exec docmd dev"
+run = "pnpm --dir docs/.docmd exec docmd dev --config docmd.config.js"
 
 [tasks."docs:build"]
 description = "Build the public docs site to dist/docs"
-run = "pnpm exec docmd build"
+run = "pnpm --dir docs/.docmd exec docmd build --config docmd.config.js"
 
 [tasks."docs:validate"]
 description = "Validate docs/ pages and internal links"
@@ -40,7 +40,7 @@ run = "uv run python scripts/check_doc_links.py"
 
 [tasks."docs:internal"]
 description = "Dev server for .agents/docs internal notes (no build step)"
-run = "pnpm exec docmd dev --config docmd.internal.config.js"
+run = "pnpm --dir docs/.docmd exec docmd dev --config docmd.internal.config.js"
 
 [tasks."compat:build"]
 description = "Build the compat page to dist/compat"

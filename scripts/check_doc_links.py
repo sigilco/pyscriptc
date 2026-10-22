@@ -4,10 +4,11 @@
 docmd's link validator reads the raw markdown and does not run docmd plugins,
 so `{{PYSC_COMPAT_URL}}` would be reported as a broken relative link. This
 script copies docs/ to a temp directory, expands the placeholders the same way
-the site build does, and runs docmd's own validator over the copy.
+the site build does, and runs docmd's build (which validates every link) over
+the copy.
 
-Placeholders and their defaults live in docmd-plugins/placeholders.js; the
-environment variable overrides the default in both. Keep the two in sync.
+Placeholders and their defaults live in docs/.docmd/plugins/placeholders.js;
+the environment variable overrides the default in both. Keep the two in sync.
 """
 
 from __future__ import annotations
@@ -48,10 +49,11 @@ def main() -> int:
         for path in sorted((work / "docs").rglob("*.md")):
             text = path.read_text(encoding="utf-8")
             path.write_text(expand(text), encoding="utf-8")
-        shutil.copy(ROOT / "docmd.config.js", work / "docmd.config.js")
+        # The docmd config lives in docs/.docmd/ and resolves src relative to
+        # its own directory, so the validator runs from there.
         result = subprocess.run(
             [str(DOCMD), "validate"],
-            cwd=work,
+            cwd=work / "docs" / ".docmd",
             capture_output=True,
             text=True,
         )

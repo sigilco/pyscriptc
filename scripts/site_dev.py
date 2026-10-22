@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 COMMANDS = {
     "landing": ["pnpm", "--dir", "site/landing", "dev"],
-    "docs": ["pnpm", "exec", "docmd", "dev"],
+    "docs": ["pnpm", "--dir", "docs/.docmd", "exec", "docmd", "dev", "--config", "docmd.config.js"],
 }
 
 

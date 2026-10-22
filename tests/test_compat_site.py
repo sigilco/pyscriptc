@@ -173,7 +173,7 @@ def test_docs_link_to_the_compat_placeholder() -> None:
 
 
 def test_placeholder_default_is_the_single_site() -> None:
-    plugin = (ROOT / "docmd-plugins" / "placeholders.js").read_text(encoding="utf-8")
+    plugin = (ROOT / "docs" / ".docmd" / "plugins" / "placeholders.js").read_text(encoding="utf-8")
     assert "https://pyscriptc.pages.dev/compat" in plugin
     assert "pyscriptc-compat.pages.dev" not in plugin
 
