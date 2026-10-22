@@ -13,6 +13,7 @@ from __future__ import annotations
 import ast
 import os
 import sys
+import time
 from typing import Any, NoReturn
 
 from pyscriptc.builtins import USER_EXC_BASE
@@ -1444,16 +1445,21 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         return f".ps_{hint}_{self.temp_n}"
 
 
-def lower_source(source: str, filename: str = "<stdin>", bridge: Any = None) -> dict[str, Any]:
+def lower_source(
+    source: str, filename: str = "<stdin>", bridge: Any = None, timings: dict[str, float] | None = None
+) -> dict[str, Any]:
+    started = time.perf_counter()
     tree = ast.parse(source, filename=filename)
+    if timings is not None:
+        timings["parse"] = round((time.perf_counter() - started) * 1000.0, 3)
     lowerer = Lowerer(filename, source)
     lowerer.bridge = bridge
     return lowerer.module(tree)
 
 
-def lower_file(path: str, bridge: Any = None) -> tuple[dict[str, Any], str]:
+def lower_file(path: str, bridge: Any = None, timings: dict[str, float] | None = None) -> tuple[dict[str, Any], str]:
     text = open(path, encoding="utf-8").read()
-    return lower_source(text, path, bridge), text
+    return lower_source(text, path, bridge, timings), text
 
 
 def render_fences(module: dict[str, Any], source: str) -> str:

@@ -125,6 +125,11 @@ def main(argv: list[str] | None = None) -> int:
         metavar="DIR",
         help="write debug artifacts (ir.json, out.ll, cc.sh, summary.json) to DIR",
     )
+    compile_parser.add_argument(
+        "--timings",
+        action="store_true",
+        help="print per-stage wall times (parse, check, lower, emit, cc/link) to stderr",
+    )
     run_parser = sub.add_parser(
         "run", help="compile (cached by content hash) and run; arguments after `--` go to the program", parents=[common]
     )
@@ -470,7 +475,7 @@ def _require_toolchain(args: argparse.Namespace) -> None:
 
 def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
     try:
-        dbg = resolve(args.debug, args.debug_dir)
+        dbg = resolve(args.debug, args.debug_dir, getattr(args, "timings", False))
     except ValueError as exc:
         raise IRError(str(exc)) from exc
     if dbg is None:
@@ -510,10 +515,11 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         if source_path.is_dir():
             module, source = lower_directory(source_path, program_mode=args.program, bridge=bridge)
         elif source_path.is_file():
-            module, source = lower_file(str(source_path), bridge=bridge)
+            module, source = lower_file(str(source_path), bridge=bridge, timings=dbg.timings_map)
         else:
             raise IRError(f"source not found: {source_path}")
         dbg.end("lower")
+        dbg.exclude("lower", "parse")
         if args.run:
             args.emit = "bin"
         for note in module.pop("_notes", []):
@@ -569,7 +575,15 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             suffix = ".s" if args.emit == "asm" else ".o"
             unit_path = _output_path(args, source_path, suffix)
             state["stage"] = "link"
-            compile_unit(ll_path, unit_path, args.emit, driver=args.driver, target=args.target, record=dbg.commands)
+            compile_unit(
+                ll_path,
+                unit_path,
+                args.emit,
+                driver=args.driver,
+                target=args.target,
+                record=dbg.commands,
+                timings=dbg.timings_map,
+            )
             outputs[args.emit] = str(unit_path)
             print(unit_path)
             return 0
@@ -584,6 +598,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             record=dbg.commands,
             link_driver=args.linker,
             sanitize=sanitize,
+            timings=dbg.timings_map,
         )
         dbg.end("link")
         outputs["bin"] = str(binary)

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import struct
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -77,6 +78,7 @@ def link_binary(
     record: list[list[str]] | None = None,
     link_driver: str | None = None,
     sanitize: list[str] | None = None,
+    timings: dict[str, float] | None = None,
 ) -> None:
     """Link `.ll` text plus the C runtime into `output`.
 
@@ -88,6 +90,8 @@ def link_binary(
     `sanitize` is a `-fsanitize` name list (ASan+UBSan diagnostics for the
     runtime and the emitted code); it applies to every compile and the link,
     and the runtime object cache keys on it.
+    When `timings` is a dict, per-step cc/link wall milliseconds are added
+    into it (`cc_compile`, `cc_link`).
     """
     output.parent.mkdir(parents=True, exist_ok=True)
     if target is not None and driver != "zig":
@@ -142,7 +146,10 @@ def link_binary(
         state = f"on dir={rtcache.cache_dir()}" if use_cache else "off"
         record.append(["#", f"rtcache {state} hit={hits} miss={len(jobs) - 1}"])
         record.extend([str(arg) for arg in argv] for argv, _ in jobs)
+    cc_started = time.perf_counter()
     proc = rtcache.run_jobs(jobs)
+    if timings is not None:
+        timings["cc_compile"] = round((time.perf_counter() - cc_started) * 1000.0, 3)
     ok = proc is None
     if ok:
         # no -O on the link line: it is a compile flag and zig's Mach-O
@@ -151,7 +158,10 @@ def link_binary(
         argv = [*link_cc.split(), *objects, *target_flags, *tail]
         if record is not None:
             record.append([str(arg) for arg in argv])
+        link_started = time.perf_counter()
         proc = subprocess.run(argv, capture_output=True, text=True)
+        if timings is not None:
+            timings["cc_link"] = round((time.perf_counter() - link_started) * 1000.0, 3)
     if proc is not None and proc.returncode != 0:
         detail = (proc.stderr or proc.stdout).strip()
         raise IRError(f"{cc} failed to assemble LLVM IR: {detail}")
@@ -164,6 +174,7 @@ def compile_unit(
     driver: str = "clang",
     target: str | None = None,
     record: list[list[str]] | None = None,
+    timings: dict[str, float] | None = None,
 ) -> None:
     """Compile the module's `.ll` alone to assembly (`asm`) or an object (`obj`)."""
     if target is not None and driver != "zig":
@@ -176,7 +187,10 @@ def compile_unit(
     argv = [*cc.split(), "-O2", *ir_kind, mode, str(llvm_path), "-o", str(output), *target_flags]
     if record is not None:
         record.append(argv)
+    started = time.perf_counter()
     proc = subprocess.run(argv, capture_output=True, text=True)
+    if timings is not None:
+        timings["cc_compile"] = round((time.perf_counter() - started) * 1000.0, 3)
     if proc.returncode != 0:
         raise IRError(f"{cc} failed to emit {kind}: {(proc.stderr or proc.stdout).strip()}")
 
