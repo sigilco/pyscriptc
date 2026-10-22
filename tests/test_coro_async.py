@@ -167,6 +167,37 @@ async def root() -> int:
 print(asyncio.run(root()))
 """
 
+# Distinct deadlines, one late wake: if the loop sleeps past several deadlines
+# at once, they must fire in deadline order (CPython pops a timer heap), not
+# in arming order.
+TIMER_ORDER = """\
+import asyncio
+
+
+async def leaf(n: int, delay: float) -> int:
+    await asyncio.sleep(delay)
+    print("leaf", n)
+    return n * 10
+
+
+async def mid(n: int) -> int:
+    first: int = await leaf(n, 0.03)
+    second: int = await leaf(n + 1, 0.01)
+    return first + second
+
+
+async def root() -> int:
+    parts: tuple[int, ...] = await asyncio.gather(mid(1), mid(3), leaf(9, 0.02))
+    print("gather [", ",".join(str(p) for p in parts), "]")
+    await asyncio.sleep(0.01)
+    print("done")
+    return parts[0]
+
+
+run_result: int = asyncio.run(root())
+print("result", run_result)
+"""
+
 FENCED = """\
 import asyncio
 
@@ -228,12 +259,29 @@ def _run_both(tmp_path: Path, name: str, source: str) -> tuple[str, str]:
         ("gather", GATHER),
         ("mixed", MIXED),
         ("conditional", CONDITIONAL),
+        ("timer_order", TIMER_ORDER),
     ],
 )
 def test_coroutine_matches_cpython(tmp_path: Path, name: str, source: str) -> None:
     got, expected = _run_both(tmp_path, name, source)
     assert expected
     assert got == expected
+
+
+def test_equal_deadline_wakes_in_arm_order(tmp_path: Path) -> None:
+    """A late wake past several equal deadlines fires them in arm order.
+
+    The loop's nanosleep overshoots by scheduler granularity, so three equal
+    0.05s sleeps usually become due in one pass; CPython's stable timer heap
+    wakes them armed-first, and a swap-remove in the timer table must not
+    reorder ties (regression: gather of equal sleeps woke 1, 3, 2)."""
+    got, expected = _run_both(tmp_path, "equal_deadlines", GATHER)
+    assert got == expected
+    binary = tmp_path / "equal_deadlines"
+    assert binary.exists()
+    for _ in range(5):
+        again = subprocess.run([str(binary)], capture_output=True, text=True, check=True).stdout
+        assert again == expected
 
 
 def test_coroutine_ir_is_plain_classes(monkeypatch: pytest.MonkeyPatch) -> None:

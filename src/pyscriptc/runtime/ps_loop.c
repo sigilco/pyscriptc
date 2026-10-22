@@ -35,6 +35,7 @@ struct PsTask {
 typedef struct PsTimer {
     void *frame;
     double deadline;
+    int64_t seq;
 } PsTimer;
 
 /* A waiter row: `parent` is parked until `child` completes. */
@@ -48,12 +49,14 @@ static PsTask *ps_ready_tail;
 static PsTimer *ps_timers;
 static int64_t ps_timer_len;
 static int64_t ps_timer_cap;
+static int64_t ps_timer_seq;
 static PsWait ps_waits[64];
 static int64_t ps_wait_len;
 
 void ps_loop_reset(void) {
     ps_ready_head = ps_ready_tail = NULL;
     ps_timer_len = 0;
+    ps_timer_seq = 0;
     ps_wait_len = 0;
 }
 
@@ -130,30 +133,50 @@ static void ps_arm(void *frame, double delay) {
     }
     ps_timers[ps_timer_len].frame = frame;
     ps_timers[ps_timer_len].deadline = ps_now() + delay;
+    ps_timers[ps_timer_len].seq = ps_timer_seq++;
     ps_timer_len++;
 }
 
-/* Move every due timer's frame back onto the ready queue. */
+/* Move due timers' frames back onto the ready queue, earliest deadline first
+(sleeping past several deadlines fires them in deadline order, like CPython's
+timer heap). */
 static int32_t ps_fire_due(void) {
     double now = ps_now();
-    int64_t kept = 0;
     int32_t fired = 0;
-    for (int64_t i = 0; i < ps_timer_len; i++) {
-        if (ps_timers[i].deadline <= now) {
-            PsTask *task = malloc(sizeof(PsTask));
-            if (task == NULL) {
-                abort();
+    for (;;) {
+        int64_t best = -1;
+        for (int64_t i = 0; i < ps_timer_len; i++) {
+            if (ps_timers[i].deadline > now) {
+                continue;
             }
-            ps_task_of(ps_timers[i].frame, &task->impl, &task->env);
-            task->frame = ps_timers[i].frame;
-            task->done = 0;
-            ps_ready_push(task);
-            fired = 1;
-            continue;
+            if (best == -1) {
+                best = i;
+                continue;
+            }
+            int32_t better = ps_timers[i].deadline < ps_timers[best].deadline;
+            if (!better && ps_timers[i].deadline == ps_timers[best].deadline) {
+                /* Ties break by arm order, like CPython's stable timer heap. */
+                better = ps_timers[i].seq < ps_timers[best].seq;
+            }
+            if (better) {
+                best = i;
+            }
         }
-        ps_timers[kept++] = ps_timers[i];
+        if (best == -1) {
+            break;
+        }
+        PsTask *task = malloc(sizeof(PsTask));
+        if (task == NULL) {
+            abort();
+        }
+        ps_task_of(ps_timers[best].frame, &task->impl, &task->env);
+        task->frame = ps_timers[best].frame;
+        task->done = 0;
+        ps_ready_push(task);
+        fired = 1;
+        ps_timers[best] = ps_timers[ps_timer_len - 1];
+        ps_timer_len--;
     }
-    ps_timer_len = kept;
     return fired;
 }
 
