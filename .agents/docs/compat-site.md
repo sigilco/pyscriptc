@@ -98,7 +98,7 @@ One row per compat2 probe area group, aggregated from the scorer output.
 
 ### Section: `fences`
 
-Fence-code counters for the whole compiler, taken from the census.
+Fence-code counters over the pinned packages, from the same measurement that produces the `packages` section. One measurement, so the two sections can never disagree.
 
 | field | type | meaning |
 | --- | --- | --- |
@@ -108,6 +108,8 @@ Fence-code counters for the whole compiler, taken from the census.
 | `packages` | int | how many packages carry it |
 
 This is the "census fence counts per code" table. It answers "what blocks the top-100" and it is the section that moves most as the compiler improves.
+
+The pinned `benchmarks/compat2/census-snapshot.json` is the input to that table in the current tree. The builder measures the same trees directly, because the snapshot is dated and the table must be current. The snapshot stays the record of the ranked family set-cover (`benchmarks/compat2/corpus/README.md`).
 
 ### Section: `history`
 
@@ -139,9 +141,9 @@ The JSON is committed because Cloudflare Pages builds from the repository, and b
 | section | source | command |
 | --- | --- | --- |
 | `builtins`, `stdlib` | `scripts/support_data.toml` probed through the compiler | `uv run python scripts/gen_support_table.py` |
-| `packages` | `benchmarks/compat/top100/pins.json` plus `pyscriptc coverage` | `uv run python -m benchmarks.compat2.census --json ...` |
+| `packages` | `benchmarks/compat/top100/pins.json` plus `pyscriptc coverage` | `uv run python scripts/build_compat_json.py` |
 | `language` | `benchmarks.compat2.score` over the visible probes | `uv run python -m benchmarks.compat2.score benchmarks/compat2/probes --corpus --out ...` |
-| `fences` | `benchmarks/compat2/census-snapshot.json` plus `src/pyscriptc/diagnostics.py` | same census command |
+| `fences` | the same package measurement, aggregated per code | same builder command |
 | `history` | the previous `compat.json` plus the current measurement | append in the builder |
 
 The builder reuses `scripts/gen_support_table.py` internals (`evaluate`, `library_rows`) rather than re-implementing them, so there is one definition of "supported".
@@ -253,5 +255,5 @@ Slice 1 does not publish anything. The JSON lands in the repository and the nigh
 | the nightly gains `contents: write` | the owner approves before merge, and the job only ever pushes one file |
 | a nightly pushes to master and bypasses review | the file is generated, the build is reproducible, and the diff shows the movement; a bad push is reverted with one commit |
 | the JSON grows without bound | `history` is capped at 180 points, the rest is a fixed number of rows |
-| the census takes minutes | the census is the slow part, it already runs in the nightly budget |
+| the coverage pass takes minutes | it lowers every pinned package, the same work `benchmarks.compat2.census` does |
 | the docs and the site disagree | both read the same builder output, and the docs table test fails when either drifts |

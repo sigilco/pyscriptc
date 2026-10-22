@@ -83,6 +83,14 @@ def test_package_status_follows_the_fence_ratio() -> None:
         assert row["status"] == (STATUS_PARTIAL if half else STATUS_NONE), row["name"]
 
 
+def test_fence_counts_match_the_package_rows() -> None:
+    document = _document()
+    counted = sum(row["count"] for row in document["fences"])
+    total = sum(row["fences"] for row in document["packages"])
+    assert counted == total
+    assert document["summary"]["fences"] == total
+
+
 def test_fence_codes_are_known_diagnostics() -> None:
     from pyscriptc.diagnostics import DIAGNOSTICS
 

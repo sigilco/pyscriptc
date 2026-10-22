@@ -13,7 +13,7 @@ Sources:
 | builtins, stdlib | `scripts/support_data.toml`, probed through the compiler |
 | packages | `benchmarks/compat/top100/pins.json` plus `pyscriptc coverage` |
 | language | the compat2 scorer output over the visible probes |
-| fences | `benchmarks/compat2/census-snapshot.json` plus the diagnostic registry |
+| fences | the same package measurement, aggregated per `PSxxxx` code |
 | history | the previous `compat.json` plus the current measurement |
 
 Design doc: .agents/docs/compat-site.md
@@ -43,7 +43,6 @@ from pyscriptc.diagnostics import DIAGNOSTICS  # noqa: E402
 
 DATA = ROOT / "scripts" / "support_data.toml"
 PINS = ROOT / "benchmarks" / "compat" / "top100" / "pins.json"
-CENSUS = ROOT / "benchmarks" / "compat2" / "census-snapshot.json"
 DEFAULT_OUT = ROOT / "site" / "compat-data" / "compat.json"
 
 GREEN, YELLOW, RED = "🟢", "🟡", "🔴"
@@ -133,10 +132,16 @@ def _support_rows(data: dict[str, Any], kind: str, errors: list[str]) -> list[di
 
 
 def _package_rows() -> list[dict[str, Any]]:
-    """One row per pinned package, measured with `pyscriptc coverage`."""
+    """One row per pinned package, measured with `pyscriptc coverage`.
+
+    Returns the package rows and the fence-code counters from the same
+    measurement, so the two sections can never disagree.
+    """
     pins = json.loads(PINS.read_text(encoding="utf-8"))["packages"]
     versions = {p["import_name"]: (name, p["version"]) for name, p in pins.items()}
     rows: list[dict[str, Any]] = []
+    code_counts: Counter[str] = Counter()
+    code_packages: Counter[str] = Counter()
     for tree in sorted(DEFAULT_SRC.iterdir()):
         if not tree.is_dir():
             continue
@@ -144,6 +149,8 @@ def _package_rows() -> list[dict[str, Any]]:
         summary = report["summary"]
         roots = Counter(f["family"] for f in report["fences"] if not f["derived"])
         codes = Counter(f["code"] for f in report["fences"])
+        code_counts.update(codes)
+        code_packages.update(set(codes))
         definitions = summary["definitions"]
         fenced = summary["fencedDefinitions"]
         if summary["fences"] == 0:
@@ -167,19 +174,16 @@ def _package_rows() -> list[dict[str, Any]]:
                 "pypi": f"https://pypi.org/project/{name}/",
             }
         )
-    return rows
+    fence_rows = _fence_rows(code_counts, code_packages)
+    return rows, fence_rows
 
 
-def _fence_rows() -> list[dict[str, Any]]:
-    """Fence-code counters over the pinned packages."""
-    census = json.loads(CENSUS.read_text(encoding="utf-8"))
-    counts: Counter[str] = Counter()
-    packages: Counter[str] = Counter()
-    for package in census.get("packages", []):
-        for family, count in package.get("rootFamilies", {}).items():
-            code = _code_for_family(family)
-            counts[code] += count
-            packages[code] += 1
+def _fence_rows(counts: Counter[str], packages: Counter[str]) -> list[dict[str, Any]]:
+    """Fence-code counters from the package measurement.
+
+    `counts` maps a code to how often the pinned trees emit it, `packages`
+    maps a code to how many trees carry it.
+    """
     rows = []
     for code, count in counts.most_common():
         entry = DIAGNOSTICS.get(code)
@@ -192,21 +196,6 @@ def _fence_rows() -> list[dict[str, Any]]:
             }
         )
     return rows
-
-
-def _code_for_family(family: str) -> str:
-    """The fence code a family maps back to.
-
-    The census stores root families. A family groups the messages of one code,
-    so the first coverage rule that names the family carries its code. A family
-    without a rule, for example the `stdlib:mod` spellings, reports PS2001.
-    """
-    from pyscriptc.coverage import _RULES
-
-    for rule_code, _pattern, rule_family in _RULES:
-        if rule_family == family and rule_code:
-            return rule_code
-    return "PS2001"
 
 
 def _language_rows(score: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -266,8 +255,7 @@ def build(
     stdlib = _support_rows(data, "stdlib", errors)
     if errors:
         raise ValueError("support probe errors:\n" + "\n".join(errors))
-    packages = _package_rows()
-    fences = _fence_rows()
+    packages, fences = _package_rows()
     score = _load_score(score_path)
     language = _language_rows(score)
     previous = _load_previous(previous_path)
@@ -299,7 +287,7 @@ def build(
         "sources": {
             "support_data": "scripts/support_data.toml",
             "pins": "benchmarks/compat/top100/pins.json",
-            "census": "benchmarks/compat2/census-snapshot.json",
+            "coverage": "pyscriptc coverage over benchmarks/compat/top100/src",
             "score": _relative(score_path),
         },
         "summary": {

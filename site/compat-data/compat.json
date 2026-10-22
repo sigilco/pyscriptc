@@ -1,11 +1,11 @@
 {
   "schema": "1",
   "generated": "2026-10-22",
-  "commit": "2f0c8ee7cebeaaaaf31e3c32e16ba9c924be80cb",
+  "commit": "766ab28b3229bf315d93a62a73595d87e83e9813",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
-    "census": "benchmarks/compat2/census-snapshot.json",
+    "coverage": "pyscriptc coverage over benchmarks/compat/top100/src",
     "score": ""
   },
   "summary": {
@@ -1838,122 +1838,104 @@
     {
       "code": "PS2002",
       "title": "construct not lowered",
-      "count": 492,
-      "packages": 71
+      "count": 1456,
+      "packages": 15
     },
     {
       "code": "PS1001",
       "title": "annotation missing or not lowered",
-      "count": 335,
-      "packages": 27
-    },
-    {
-      "code": "PS2001",
-      "title": "stdlib name not lowered",
-      "count": 196,
-      "packages": 49
-    },
-    {
-      "code": "PS1101",
-      "title": "union annotation",
-      "count": 184,
-      "packages": 8
-    },
-    {
-      "code": "PS1106",
-      "title": "annotation names an unlowered type",
-      "count": 172,
-      "packages": 9
+      "count": 493,
+      "packages": 15
     },
     {
       "code": "PS1103",
       "title": "generic alias annotation",
-      "count": 140,
+      "count": 200,
       "packages": 10
+    },
+    {
+      "code": "PS1106",
+      "title": "annotation names an unlowered type",
+      "count": 187,
+      "packages": 9
+    },
+    {
+      "code": "PS2001",
+      "title": "stdlib name not lowered",
+      "count": 181,
+      "packages": 14
     },
     {
       "code": "PS1204",
       "title": "class body statement",
-      "count": 103,
-      "packages": 7
+      "count": 116,
+      "packages": 8
     },
     {
-      "code": "PS1202",
-      "title": "parameter form",
-      "count": 102,
+      "code": "PS1101",
+      "title": "union annotation",
+      "count": 92,
       "packages": 9
-    },
-    {
-      "code": "PS1201",
-      "title": "decorator",
-      "count": 93,
-      "packages": 11
-    },
-    {
-      "code": "PS1203",
-      "title": "class header form",
-      "count": 40,
-      "packages": 10
-    },
-    {
-      "code": "PS1104",
-      "title": "dynamic or structural annotation",
-      "count": 37,
-      "packages": 5
     },
     {
       "code": "PS2003",
       "title": "call arguments not lowered",
-      "count": 35,
-      "packages": 9
+      "count": 72,
+      "packages": 8
+    },
+    {
+      "code": "PS1201",
+      "title": "decorator",
+      "count": 70,
+      "packages": 8
+    },
+    {
+      "code": "PS1104",
+      "title": "dynamic or structural annotation",
+      "count": 58,
+      "packages": 5
     },
     {
       "code": "PS1102",
       "title": "Optional annotation",
-      "count": 21,
+      "count": 40,
       "packages": 4
     },
     {
-      "code": "PS2004",
-      "title": "operator or operand not lowered",
-      "count": 9,
+      "code": "PS1003",
+      "title": "type mismatch",
+      "count": 32,
+      "packages": 7
+    },
+    {
+      "code": "PS1203",
+      "title": "class header form",
+      "count": 25,
       "packages": 5
     },
     {
       "code": "PS1105",
       "title": "forward reference annotation",
-      "count": 8,
+      "count": 12,
+      "packages": 6
+    },
+    {
+      "code": "PS2004",
+      "title": "operator or operand not lowered",
+      "count": 7,
       "packages": 5
-    },
-    {
-      "code": "PS1003",
-      "title": "type mismatch",
-      "count": 6,
-      "packages": 4
-    },
-    {
-      "code": "PS1206",
-      "title": "with-as binding",
-      "count": 5,
-      "packages": 3
-    },
-    {
-      "code": "PS1205",
-      "title": "except form",
-      "count": 2,
-      "packages": 2
     },
     {
       "code": "PS2005",
       "title": "string literal outside Latin-1",
-      "count": 2,
+      "count": 4,
       "packages": 2
     }
   ],
   "history": [
     {
       "date": "2026-10-22",
-      "commit": "2f0c8ee7cebeaaaaf31e3c32e16ba9c924be80cb",
+      "commit": "766ab28b3229bf315d93a62a73595d87e83e9813",
       "weighted_pass": 0.0,
       "packages_full": 3,
       "packages_partial": 5,
