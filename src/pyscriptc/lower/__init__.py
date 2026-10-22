@@ -16,6 +16,7 @@ import sys
 from typing import Any, NoReturn
 
 from pyscriptc.builtins import USER_EXC_BASE
+from pyscriptc.coro import CoroMixin
 from pyscriptc.errors import format_diagnostic, span_of
 from pyscriptc.ir import SUBSET, cpython_version, types_equal
 from pyscriptc.lower._calls import CallsMixin
@@ -57,7 +58,7 @@ from pyscriptc.stdlib_queue import canonical_module, module_status
 from pyscriptc.stdmore import member_callable, module_constant
 
 
-class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixin, ClosuresMixin):
+class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixin, ClosuresMixin):
     def __init__(self, filename: str, source: str) -> None:
         self.filename = filename
         self.source = source
@@ -212,7 +213,7 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
                 continue
             try:
                 kind = "static" if self._is_module_staticmethod(fn) else "method"
-                self.sigs[fn.name] = self._signature(fn, None, kind)
+                self.sigs[fn.name] = self._coro_signature(fn) or self._signature(fn, None, kind)
             except Fence as exc:
                 fences.append(exc)
             else:
@@ -261,7 +262,7 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
             self.fn_globals = self._globals_for(fn.body)
             self.fn_nonlocals = set()
             self.captures = {}
-            params, ret = self.sigs[fn.name]
+            params, ret = self._coro_body_sig(fn.name)
             self.locals = {param["name"]: param["type"] for param in params}
             self.frozen_names = set()
             self.opt_unwrap = {}
@@ -321,7 +322,7 @@ class Lowerer(StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixi
         }
         if self.global_inits:
             module["globals"] = self.global_inits
-        return module
+        return self._coro_finish(module)
 
     def _split_entry(
         self,
