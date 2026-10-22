@@ -141,6 +141,64 @@ jobs:
           retention-days: 90
           if-no-files-found: warn
 
+  # Publishes the baseline numbers (speedup and memory versus the CPython of the
+  # runner) in the job summary and as an artifact. Informational only: it is not
+  # in report-failure's needs, does not run --check, and never fails the run.
+  baseline-summary:
+    name: benchmark summary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"  # emSign CA incident: uv 0.13.4 dropped the compromised root
+          enable-cache: true
+          python-version: "3.14"
+
+      - name: Install clang
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq clang
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Baseline run
+        continue-on-error: true
+        run: |
+          mkdir -p nightly
+          uv run python -m benchmarks.baseline.run --json nightly/baseline.json
+
+      - name: Summary table
+        if: always()
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, os
+          from pathlib import Path
+          p = Path("nightly/baseline.json")
+          if not p.exists():
+              print("Baseline run produced no JSON.")
+              raise SystemExit
+          d = json.loads(p.read_text())
+          print(f"### Baseline versus CPython {d.get('cpython')} ({d.get('machine')}, {d.get('runs')} runs)")
+          print()
+          print("| Group | Time (x CPython) | Memory (x smaller) |")
+          print("| --- | --- | --- |")
+          rows = [(d.get("geomean_group", "kernel"), d)] + list(d.get("group_geomeans", {}).items())
+          for name, g in rows:
+              t, r = g.get("geomean_time_ratio"), g.get("geomean_rss_ratio")
+              if t and r:
+                  print(f"| {name} | {1 / t:.1f} | {1 / r:.1f} |")
+          PY
+
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: nightly-baseline-${{ github.run_id }}
+          path: nightly/
+          retention-days: 90
+          if-no-files-found: warn
+
   # Failure reporting. One open issue per label; repeat failures add a comment.
   report-failure:
     name: open or update nightly-failure issue
