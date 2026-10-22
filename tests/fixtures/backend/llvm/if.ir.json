@@ -1,0 +1,159 @@
+{
+  "irVersion": 1,
+  "subset": "gates-v1",
+  "cpython": "3.14.8",
+  "sourceFile": "<golden>",
+  "entry": "if_stmt",
+  "functions": [
+    {
+      "name": "if_stmt",
+      "params": [
+        {
+          "name": "a",
+          "type": {
+            "kind": "int"
+          }
+        },
+        {
+          "name": "b",
+          "type": {
+            "kind": "int"
+          }
+        }
+      ],
+      "returnType": {
+        "kind": "none"
+      },
+      "locals": [
+        {
+          "name": "a",
+          "type": {
+            "kind": "int"
+          }
+        },
+        {
+          "name": "b",
+          "type": {
+            "kind": "int"
+          }
+        },
+        {
+          "name": "x",
+          "type": {
+            "kind": "int"
+          }
+        }
+      ],
+      "body": [
+        {
+          "kind": "if",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "cond": {
+            "kind": "compare",
+            "type": {
+              "kind": "bool"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "op": "<",
+            "left": {
+              "kind": "name",
+              "type": {
+                "kind": "int"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "id": "a"
+            },
+            "right": {
+              "kind": "name",
+              "type": {
+                "kind": "int"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "id": "b"
+            }
+          },
+          "then": [
+            {
+              "kind": "assign",
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "target": "x",
+              "value": {
+                "kind": "const",
+                "type": {
+                  "kind": "int"
+                },
+                "span": {
+                  "file": "<golden>",
+                  "line": 1,
+                  "col": 1,
+                  "endLine": 1,
+                  "endCol": 2
+                },
+                "value": "1"
+              }
+            }
+          ],
+          "else": [
+            {
+              "kind": "assign",
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "target": "x",
+              "value": {
+                "kind": "const",
+                "type": {
+                  "kind": "int"
+                },
+                "span": {
+                  "file": "<golden>",
+                  "line": 1,
+                  "col": 1,
+                  "endLine": 1,
+                  "endCol": 2
+                },
+                "value": "2"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "classes": [],
+  "fences": []
+}

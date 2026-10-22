@@ -1,0 +1,267 @@
+{
+  "backend": "llvm",
+  "fixtures": [
+    {
+      "name": "assign",
+      "ir": "llvm/assign.ir.json",
+      "ll": "llvm/assign.ll",
+      "covers": [
+        "assign"
+      ],
+      "structural": null,
+      "call": null
+    },
+    {
+      "name": "const",
+      "ir": "llvm/const.ir.json",
+      "ll": "llvm/const.ll",
+      "covers": [
+        "const"
+      ],
+      "structural": null,
+      "call": null
+    },
+    {
+      "name": "name",
+      "ir": "llvm/name.ir.json",
+      "ll": "llvm/name.ll",
+      "covers": [
+        "name"
+      ],
+      "structural": null,
+      "call": null
+    },
+    {
+      "name": "unary",
+      "ir": "llvm/unary.ir.json",
+      "ll": "llvm/unary.ll",
+      "covers": [
+        "unary"
+      ],
+      "structural": null,
+      "call": null
+    },
+    {
+      "name": "binary",
+      "ir": "llvm/binary.ir.json",
+      "ll": "llvm/binary.ll",
+      "covers": [
+        "binary"
+      ],
+      "structural": null,
+      "call": null
+    },
+    {
+      "name": "compare",
+      "ir": "llvm/compare.ir.json",
+      "ll": "llvm/compare.ll",
+      "covers": [
+        "compare"
+      ],
+      "structural": null,
+      "call": null
+    },
+    {
+      "name": "call",
+      "ir": "llvm/call.ir.json",
+      "ll": "llvm/call.ll",
+      "covers": [
+        "call"
+      ],
+      "structural": null,
+      "call": null
+    },
+    {
+      "name": "list",
+      "ir": "llvm/list.ir.json",
+      "ll": "llvm/list.ll",
+      "covers": [
+        "list"
+      ],
+      "structural": null,
+      "call": null
+    },
+    {
+      "name": "dict",
+      "ir": "llvm/dict.ir.json",
+      "ll": "llvm/dict.ll",
+      "covers": [
+        "dict"
+      ],
+      "structural": null,
+      "call": null
+    },
+    {
+      "name": "subscript",
+      "ir": "llvm/subscript.ir.json",
+      "ll": "llvm/subscript.ll",
+      "covers": [
+        "subscript"
+      ],
+      "structural": null,
+      "call": null
+    },
+    {
+      "name": "attr",
+      "ir": "llvm/attr.ir.json",
+      "ll": "llvm/attr.ll",
+      "covers": [
+        "attr"
+      ],
+      "structural": null,
+      "call": null
+    },
+    {
+      "name": "cast",
+      "ir": "llvm/cast.ir.json",
+      "ll": "llvm/cast.ll",
+      "covers": [
+        "cast"
+      ],
+      "structural": null,
+      "call": null
+    },
+    {
+      "name": "contains",
+      "ir": "llvm/contains.ir.json",
+      "ll": "llvm/contains.ll",
+      "covers": [
+        "contains"
+      ],
+      "structural": null,
+      "call": null
+    },
+    {
+      "name": "closure",
+      "ir": "llvm/closure.ir.json",
+      "ll": "llvm/closure.ll",
+      "covers": [
+        "closure"
+      ],
+      "structural": null,
+      "call": null
+    },
+    {
+      "name": "if",
+      "ir": "llvm/if.ir.json",
+      "ll": "llvm/if.ll",
+      "covers": [
+        "if"
+      ],
+      "structural": null,
+      "call": null
+    },
+    {
+      "name": "while",
+      "ir": "llvm/while.ir.json",
+      "ll": "llvm/while.ll",
+      "covers": [
+        "while"
+      ],
+      "structural": null,
+      "call": null
+    },
+    {
+      "name": "return",
+      "ir": "llvm/return.ir.json",
+      "ll": "llvm/return.ll",
+      "covers": [
+        "return"
+      ],
+      "structural": null,
+      "call": null
+    },
+    {
+      "name": "expr",
+      "ir": "llvm/expr.ir.json",
+      "ll": "llvm/expr.ll",
+      "covers": [
+        "expr"
+      ],
+      "structural": null,
+      "call": null
+    },
+    {
+      "name": "pass",
+      "ir": "llvm/pass.ir.json",
+      "ll": "llvm/pass.ll",
+      "covers": [
+        "pass"
+      ],
+      "structural": null,
+      "call": null
+    },
+    {
+      "name": "setitem",
+      "ir": "llvm/setitem.ir.json",
+      "ll": "llvm/setitem.ll",
+      "covers": [
+        "setitem"
+      ],
+      "structural": null,
+      "call": null
+    },
+    {
+      "name": "setattr",
+      "ir": "llvm/setattr.ir.json",
+      "ll": "llvm/setattr.ll",
+      "covers": [
+        "setattr"
+      ],
+      "structural": null,
+      "call": null
+    },
+    {
+      "name": "try",
+      "ir": "llvm/try.ir.json",
+      "ll": "llvm/try.ll",
+      "covers": [
+        "try"
+      ],
+      "structural": null,
+      "call": null
+    },
+    {
+      "name": "raise",
+      "ir": "llvm/raise.ir.json",
+      "ll": "llvm/raise.ll",
+      "covers": [
+        "raise"
+      ],
+      "structural": null,
+      "call": null
+    },
+    {
+      "name": "class_layout",
+      "ir": "llvm/class_layout.ir.json",
+      "ll": "llvm/class_layout.ll",
+      "covers": [],
+      "structural": "class type layout, constructor and method emission",
+      "call": null
+    },
+    {
+      "name": "env_closure",
+      "ir": "llvm/env_closure.ir.json",
+      "ll": "llvm/env_closure.ll",
+      "covers": [],
+      "structural": "env-first function with a captured cell",
+      "call": null
+    },
+    {
+      "name": "main_entry",
+      "ir": "llvm/main_entry.ir.json",
+      "ll": "llvm/main_entry.ll",
+      "covers": [],
+      "structural": "the main entry function and its caller",
+      "call": "main"
+    },
+    {
+      "name": "exception_registration",
+      "ir": "llvm/exception_registration.ir.json",
+      "ll": "llvm/exception_registration.ll",
+      "covers": [],
+      "structural": "user exception class registration preamble",
+      "call": "raises_custom"
+    }
+  ]
+}

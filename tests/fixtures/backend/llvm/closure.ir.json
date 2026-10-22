@@ -1,0 +1,149 @@
+{
+  "irVersion": 1,
+  "subset": "gates-v1",
+  "cpython": "3.14.8",
+  "sourceFile": "<golden>",
+  "entry": "outer",
+  "functions": [
+    {
+      "name": "outer",
+      "params": [],
+      "returnType": {
+        "kind": "none"
+      },
+      "locals": [
+        {
+          "name": "x",
+          "type": {
+            "kind": "int"
+          }
+        },
+        {
+          "name": "inner",
+          "type": {
+            "kind": "func",
+            "params": [],
+            "return": {
+              "kind": "int"
+            }
+          }
+        }
+      ],
+      "body": [
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "x",
+          "value": {
+            "kind": "const",
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "value": "1"
+          }
+        },
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "inner",
+          "value": {
+            "kind": "closure",
+            "type": {
+              "kind": "func",
+              "params": [],
+              "return": {
+                "kind": "int"
+              }
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "name": "outer.inner",
+            "env": [
+              {
+                "name": "x",
+                "type": {
+                  "kind": "int"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "outer.inner",
+      "params": [],
+      "returnType": {
+        "kind": "int"
+      },
+      "locals": [
+        {
+          "name": "x",
+          "type": {
+            "kind": "int"
+          }
+        }
+      ],
+      "body": [
+        {
+          "kind": "return",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "value": {
+            "kind": "name",
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "id": "x"
+          }
+        }
+      ],
+      "env": [
+        {
+          "name": "x",
+          "type": {
+            "kind": "int"
+          }
+        }
+      ]
+    }
+  ],
+  "classes": [],
+  "fences": []
+}

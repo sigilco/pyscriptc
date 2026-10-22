@@ -1,0 +1,166 @@
+{
+  "irVersion": 1,
+  "subset": "gates-v1",
+  "cpython": "3.14.8",
+  "sourceFile": "<golden>",
+  "entry": "use_point",
+  "functions": [
+    {
+      "name": "use_point",
+      "params": [],
+      "returnType": {
+        "kind": "none"
+      },
+      "locals": [
+        {
+          "name": "p",
+          "type": {
+            "kind": "class",
+            "name": "Point"
+          }
+        }
+      ],
+      "body": [
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "p",
+          "value": {
+            "kind": "call",
+            "type": {
+              "kind": "class",
+              "name": "Point"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "callee": {
+              "kind": "class",
+              "name": "Point"
+            },
+            "args": [
+              {
+                "kind": "const",
+                "type": {
+                  "kind": "int"
+                },
+                "span": {
+                  "file": "<golden>",
+                  "line": 1,
+                  "col": 1,
+                  "endLine": 1,
+                  "endCol": 2
+                },
+                "value": "1"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "classes": [
+    {
+      "name": "Point",
+      "fields": [
+        {
+          "name": "x",
+          "type": {
+            "kind": "int"
+          }
+        }
+      ],
+      "methods": [
+        {
+          "name": "__init__",
+          "params": [
+            {
+              "name": "self",
+              "type": {
+                "kind": "class",
+                "name": "Point"
+              }
+            },
+            {
+              "name": "x",
+              "type": {
+                "kind": "int"
+              }
+            }
+          ],
+          "returnType": {
+            "kind": "none"
+          },
+          "locals": [
+            {
+              "name": "self",
+              "type": {
+                "kind": "class",
+                "name": "Point"
+              }
+            },
+            {
+              "name": "x",
+              "type": {
+                "kind": "int"
+              }
+            }
+          ],
+          "body": [
+            {
+              "kind": "setattr",
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "object": {
+                "kind": "name",
+                "type": {
+                  "kind": "class",
+                  "name": "Point"
+                },
+                "span": {
+                  "file": "<golden>",
+                  "line": 1,
+                  "col": 1,
+                  "endLine": 1,
+                  "endCol": 2
+                },
+                "id": "self"
+              },
+              "name": "x",
+              "value": {
+                "kind": "name",
+                "type": {
+                  "kind": "int"
+                },
+                "span": {
+                  "file": "<golden>",
+                  "line": 1,
+                  "col": 1,
+                  "endLine": 1,
+                  "endCol": 2
+                },
+                "id": "x"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "fences": []
+}
