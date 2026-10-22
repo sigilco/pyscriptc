@@ -1,14 +1,29 @@
 # Toolchain contract for the release binary
 
-The release binary is the compiler, not the toolchain. It lowers Python to textual LLVM IR and then shells out to the system `clang` to turn that IR plus the C runtime into a native executable. This file is the contract between the binary and the machine it runs on.
+The release binary is the compiler, not the toolchain. It lowers Python to textual LLVM IR and then shells out to a C compiler driver (`zig cc` preferred, `clang` fallback) to turn that IR plus the C runtime into a native executable. This file is the contract between the binary and the machine it runs on.
 
 ## What the user must have
 
 | Requirement | Why | Minimum |
 | --- | --- | --- |
-| `clang` on `PATH` | `link_binary` in `src/pyscriptc/llvm.py` runs `clang -O2 -x ir prog.ll -x c <runtime>/*.c -lm -o out` | LLVM 15 (see below) |
-| A C library with headers and `libm` | the runtime includes `stdio.h`, `math.h`, `dirent.h`, `dlfcn.h` and friends | Linux: glibc 2.34 or newer plus `libc6-dev` (or the distro equivalent) |
+| `zig` (preferred) or `clang` on `PATH` | `link_binary` in `src/pyscriptc/llvm.py` compiles `.ll` and runtime `*.c` objects and links the executable | Zig >= 0.13 (wraps Clang 18+) or Clang >= 15 |
+| A C library with headers and `libm` | the runtime includes `stdio.h`, `math.h`, `dirent.h`, `dlfcn.h` and friends | Linux: glibc 2.34 or newer plus `libc6-dev` (or distro equivalent) |
 | Nothing else | no Python install, no `pip`, no mypy install | none |
+
+### Obtaining Zig
+
+Zig is the preferred toolchain driver across all platforms (macOS, Linux, Windows), and is required for cross-compilation (`--target`).
+It can be installed via:
+- Python package manager (standalone official Zig binary distribution on PyPI):
+  ```bash
+  pip install ziglang
+  # or via uv:
+  uv tool install ziglang
+  ```
+- System package managers:
+  - macOS: `brew install zig`
+  - Windows: `winget install zig.zig`
+  - Linux: distro packages (`apt install zig`, `pacman -S zig`, etc.) or official tarballs.
 
 Tested clangs: Apple clang 21.0.0 (Xcode, macOS arm64) and Debian trixie `clang` 19 (the dev container). Not tested on anything older.
 
@@ -20,13 +35,21 @@ The emitted IR uses opaque pointers (`ptr`, 98 call sites in `llvm.py`) and no t
 
 `runtime/ps_mix.c` calls `dlopen`. glibc before 2.34 keeps it in `libdl`, and the link line has no `-ldl`. Alpine and musl are not a documented target.
 
-## How the binary finds clang
+## How the binary finds the compiler driver
 
-It does not search. `link_binary` passes the bare name `clang` to `subprocess.run`, so the OS resolves it through `PATH` of the process that started the binary. There is no `CC` variable, no `--clang` flag and no bundled fallback. Consequences:
+The driver resolution order is:
+1. Explicit `--driver` argument (`zig` or `clang`).
+2. `PYSC_CC` environment variable (`zig` or `clang`).
+3. If `--target` or `PYSC_TARGET` is set (or cross-compiling) -> `zig` (required for bundled sysroots).
+4. If running on Windows (`win32`) -> `zig`.
+5. If `zig` is found on `PATH` -> `zig`.
+6. Fallback to `clang` on macOS/Linux if found on `PATH`.
+7. If neither is found, fails up front with an actionable diagnostic pointing to `pyscriptc doctor` and installation options (`pip install ziglang`, `brew install zig`, `winget install zig`, or `clang`).
 
-- Xcode command line tools on macOS put `clang` at `/usr/bin/clang` (a shim that forwards to the active developer directory). That works.
-- Homebrew LLVM or a mise toolchain works if its `bin` comes first on `PATH`.
-- A missing `clang` surfaces as a `FileNotFoundError` traceback, not a friendly message. The smoke test checks `command -v clang` first for that reason. Making this a named diagnostic is a compiler change and is out of scope for `packaging/`.
+Notes:
+- Xcode command line tools on macOS put `clang` at `/usr/bin/clang`.
+- `pip install ziglang` puts a standalone `zig` binary into the active Python environment's `bin`/`Scripts` directory.
+- `pyscriptc doctor` reports the detected clang and zig paths, versions, and current preferred driver.
 
 ## Data files the binary must carry
 

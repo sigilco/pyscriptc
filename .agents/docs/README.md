@@ -10,6 +10,7 @@ Preview the internal notes with `mise run docs:internal` (a docmd dev server ove
 - [Debug mode](debug.md) — `compile --debug`, `PYSC_DEBUG`, `--debug-dir` artifacts
 - [Audit logging](pyscriptc-debug.md) — the JSONL audit log and its directives
 - [Map](map.md) — which file owns a fence, a runtime call, or a test
+- [Toolchain](toolchain.md) — C compiler driver resolution, Zig preference, and `ziglang`
 - [Roadmap](roadmap.md) — language order after the stdlib queue, and where native `.so` files sit
 - [Benchmark audit](benchmarks-audit.md) — what the benchmark suite measures and what it does not
 - [Compat site](compat-site.md) — the data file, the builder and the deploy
