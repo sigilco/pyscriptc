@@ -8,6 +8,14 @@ export default {
   out: "docs/dist",
   base: "/",
   engine: "js",
+  logo: {
+    light: "/assets/logo-256.png",
+    dark: "/assets/logo-256.png",
+    href: "/",
+    alt: "pyscriptc",
+    height: "28px",
+  },
+  favicon: "/assets/icon-64.png",
   layout: {
     spa: true,
     header: {
