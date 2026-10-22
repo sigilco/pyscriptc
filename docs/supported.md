@@ -86,7 +86,7 @@ Targets CPython 3.14. Deliberate differences from CPython: [divergences.md](dive
 | `sys` | 🟡 | stdin, path, modules, getsizeof, getrecursionlimit, stdout.flush | PS2001 |
 | `tempfile` | 🟡 | mkstemp, TemporaryDirectory | PS2001 |
 | `textwrap` | 🟡 | TextWrapper | PS2001 |
-| `threading` | 🟡 | Event, main_thread, Thread(target=...), Semaphore, Timer, Lock in `with` | PS1106, PS2001, PS2002, PS2003 |
+| `threading` | 🟡 | main_thread, Thread target is a callable, Timer, Lock in `with` | PS1003, PS1106, PS2001, PS2002 |
 | `time` | 🟡 | perf_counter, time_ns, ctime, process_time | PS2001 |
 | `unicodedata` | 🟡 | ucd_3_2_0 (also: Latin-1 only) | PS2001 |
 | `urllib.parse` | 🟡 | urlparse, urljoin, urlunsplit, parse_qsl | PS2001 |

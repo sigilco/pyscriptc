@@ -41,9 +41,9 @@ def test_timeout_max_matches_cpython(tmp_path: Path) -> None:
 
 def test_other_threading_names_stay_fenced(tmp_path: Path) -> None:
     cases = [
-        ("thread.py", "threading.Thread", "threading.Thread is not in the lowered subset of threading"),
         ("lock.py", "threading.Lock", "threading.Lock is a function and is not a value"),
-        ("event.py", "threading.Event", "threading.Event is not in the lowered subset of threading"),
+        ("local.py", "threading.local", "threading.local is not in the lowered subset of threading"),
+        ("timer.py", "threading.Timer", "threading.Timer is not in the lowered subset of threading"),
     ]
     for name, expr, text in cases:
         source = f"import threading\ndef probe() -> int:\n    {expr}\n    return 1\n"

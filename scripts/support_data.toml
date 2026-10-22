@@ -292,7 +292,7 @@ no = [["getsource, isclass, signature, iscoroutinefunction", 'y: str = inspect.g
 [[stdlib]]
 names = ["threading"]
 ok = ['y: int = threading.get_ident()', 'y: str = threading.current_thread().name', 'y: int = threading.active_count()']
-no = [["Event, main_thread", 'y: int = threading.main_thread()', "PS2001"], ["Thread(target=...)", 'y: int = threading.Thread(target=n)', "PS2003"], ["Semaphore, Timer", 'y: threading.Semaphore = threading.Semaphore(1)', "PS1106"], ["Lock in `with`", 'with threading.Lock(): pass', "PS2002"]]
+no = [["main_thread", 'y: int = threading.main_thread()', "PS2001"], ["Thread target is a callable", 'y: int = threading.Thread(target=n)', "PS1003"], ["Timer", 'y: threading.Timer = threading.Timer(1, f)', "PS1106"], ["Lock in `with`", 'with threading.Lock(): pass', "PS2002"]]
 
 [[stdlib]]
 names = ["logging"]

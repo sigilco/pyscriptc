@@ -1325,6 +1325,12 @@ class ClassesMixin:
         if obj["type"]["kind"] != "class":
             self.fail(node, "PS2001", f"attribute access is not lowered ({name})")
         class_name = obj["type"]["name"]
+        if class_name == "Semaphore" and name == "_value":
+            return self._abi_call("threading", "Semaphore._value", [obj], {"kind": "int"}, "ps_sem_value", span)
+        if class_name == "Thread" and name == "name":
+            return self._abi_call("threading", "Thread.name", [obj], {"kind": "str"}, "ps_thread_name2", span)
+        if class_name == "Thread" and name == "daemon":
+            return self._abi_call("threading", "Thread.daemon", [obj], {"kind": "bool"}, "ps_thread_daemon", span)
         info = self.classes.get(class_name)
         if info is None:
             self.fail(node, "PS2001", f"{class_name} has no fields")

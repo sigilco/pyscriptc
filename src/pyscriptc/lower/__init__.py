@@ -55,7 +55,7 @@ from pyscriptc.lower._stmt import (
     _stmt_continues_this_loop,
 )
 from pyscriptc.stdlib_queue import canonical_module, module_status
-from pyscriptc.stdmore import member_callable, module_constant
+from pyscriptc.stdmore import THREADING_CLASSES, member_callable, module_constant
 
 
 class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixin, ClosuresMixin):
@@ -994,6 +994,26 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         self._tuple_type([elem["type"] for elem in elems], node)
         self._store_constant(name, {"kind": "tuple-const", "elems": elems}, stmt)
 
+    def _bind_threading_global(
+        self, name: str, value: dict[str, Any], typ: dict[str, Any], node: ast.AST
+    ) -> None:
+        """A module-level threading record binds a global slot.
+
+        The value is a runtime pointer: a stored constant would re-emit the
+        constructor at every read, so the record's identity would not hold.
+        The slot keeps one pointer for the life of the process.
+        """
+        slot = self.global_slots.get(name)
+        if slot is not None:
+            if slot.get("type") is not None and not types_equal(slot["type"], typ):
+                self.fail(node, "PS2002", f"global {name} is already bound")
+            slot["type"] = typ
+        else:
+            self.global_slots[name] = {"type": typ, "active": False}
+        self._activate_slot(name, node)
+        init = self._global_set(name, value, span_of(node, self.filename))
+        self.global_inits.append(init["expr"])
+
     def _activate_slot(self, name: str, node: ast.AST) -> None:
         slot = self.global_slots[name]
         if slot.get("conflict") or slot.get("type") is None:
@@ -1028,6 +1048,8 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_path", span)
         if typ["kind"] == "func":
             return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_ptr", span)
+        if typ["kind"] == "class" and typ.get("name") in THREADING_CLASSES:
+            return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_ptr", span)
         self.fail(ast.Pass(), "PS2002", f"global {name} of {_show(typ)} is not lowered")
         raise AssertionError("unreachable")
 
@@ -1041,6 +1063,8 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         elif typ["kind"] == "class" and typ.get("name") == "Path":
             symbol = "ps_global_set_path"
         elif typ["kind"] == "func":
+            symbol = "ps_global_set_ptr"
+        elif typ["kind"] == "class" and typ.get("name") in THREADING_CLASSES:
             symbol = "ps_global_set_ptr"
         else:
             self.fail(ast.Pass(), "PS2002", f"global {name} of {_show(typ)} is not lowered")

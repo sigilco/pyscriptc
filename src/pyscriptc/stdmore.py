@@ -1189,6 +1189,7 @@ _BOOL_SURFACE: dict[str, tuple[str, ...]] = {
 # are installed for every module because builtin open returns them.
 ALWAYS_CLASSES: tuple[str, ...] = ("TextIO", "BytesIO")
 
+
 MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "datetime": ("Date", "DateTime", "Time", "TimeDelta"),
     "time": ("StructTime",),
@@ -1263,6 +1264,10 @@ CLASS_CONSTANTS: dict[tuple[str, str], tuple[dict[str, Any], str]] = {
     ("datetime", "datetime.max"): (_DT, "ps_dt_max"),
 }
 
+# The threading records are runtime pointers. A module-level binding keeps
+# its identity through the global slot, not through a re-emitted call.
+THREADING_CLASSES: frozenset[str] = frozenset({"Thread", "Event", "Condition", "Semaphore", "Lock"})
+
 TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("datetime", "date"): "Date",
     ("datetime", "datetime"): "DateTime",
@@ -1284,6 +1289,11 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("threading", "RLock"): "Lock",
     ("os", "terminal_size"): "TerminalSize",
     ("subprocess", "CompletedProcess"): "CompletedProcess",
+    ("threading", "Thread"): "Thread",
+    ("threading", "Event"): "Event",
+    ("threading", "Condition"): "Condition",
+    ("threading", "Semaphore"): "Semaphore",
+    ("urllib.parse", "SplitResult"): "SplitResult",
 }
 
 # Instance methods. `elem` means the deque's element type.
@@ -1751,7 +1761,15 @@ def member_callable(module: str, member: str) -> bool:
         return True
     if module == "copy" and member in {"copy", "deepcopy"}:
         return True
-    if module == "threading" and member in {"Lock", "RLock", "get_ident"}:
+    if module == "threading" and member in {
+        "Lock",
+        "RLock",
+        "get_ident",
+        "Thread",
+        "Event",
+        "Condition",
+        "Semaphore",
+    }:
         return True
     if module == "itertools" and member in {
         "chain",

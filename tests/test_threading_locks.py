@@ -170,10 +170,8 @@ def test_release_of_an_unheld_lock_raises(tmp_path: Path) -> None:
 def test_thread_creation_stays_fenced(tmp_path: Path) -> None:
     """Phase 1 has no Thread: the fence keeps the surface honest."""
     cases = [
-        ("thread.py", "threading.Thread", "threading.Thread is not in the lowered subset of threading"),
-        ("event.py", "threading.Event", "threading.Event is not in the lowered subset of threading"),
-        ("condition.py", "threading.Condition", "threading.Condition is not in the lowered subset of threading"),
-        ("semaphore.py", "threading.Semaphore", "threading.Semaphore is not in the lowered subset of threading"),
+        ("local.py", "threading.local", "threading.local is not in the lowered subset of threading"),
+        ("current.py", "threading.current_thread()", "threading.current_thread is only lowered for .name"),
     ]
     for name, expr, text in cases:
         source = f"import threading\ndef probe() -> int:\n    {expr}\n    return 1\n"
