@@ -71,6 +71,8 @@ def test_self_census_ballpark() -> None:
     # math atan2/gcd/isclose handlers: +2 self-host fences in lower/_calls.py.
     # Checker bridge (#87): factsbridge.py adds 1 module and 40 self-host fences
     # (the mypy adapter, the facts-to-IR translator and the bridge consumer).
+    # --sanitize (#271): the flag parsing and the sanitize argv plumbing add 14
+    # fences in cli.py and 2 in llvm.py.
     # --timings (#277): the stage-table refactor adds 9 fences in cli.py and debug.py.
     # Emitter seam (#273): emitter.py adds 4 self-host fences (the dict-shaped
     # IR annotations on the module and function builders).

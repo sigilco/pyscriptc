@@ -28,7 +28,8 @@ from pyscriptc.irverify import (
     verify_module,
     verify_or_raise,
 )
-from pyscriptc.llvverify import CODE_LLVM_VERIFY, LLVMVerifyError, verify_module_text, verify_or_raise as verify_ll
+from pyscriptc.llvverify import CODE_LLVM_VERIFY, LLVMVerifyError, verify_module_text
+from pyscriptc.llvverify import verify_or_raise as verify_ll
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES = ROOT / "examples"
@@ -57,7 +58,9 @@ def name(ident: str, kind: str = "int") -> dict[str, Any]:
     return {"kind": "name", "id": ident, "type": {"kind": kind}, "span": span()}
 
 
-def module_with(body: list[dict[str, Any]], return_type: str = "int", locals_: list[str] | None = None) -> dict[str, Any]:
+def module_with(
+    body: list[dict[str, Any]], return_type: str = "int", locals_: list[str] | None = None
+) -> dict[str, Any]:
     return {
         "irVersion": 1,
         "subset": "gates-v1",
