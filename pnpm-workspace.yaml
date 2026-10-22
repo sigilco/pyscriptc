@@ -1,6 +1,11 @@
+packages:
+  - site/landing
+
 allowBuilds:
   '@docmd/engine-rust': true
   esbuild: true
+  sharp: true
 onlyBuiltDependencies:
   - "@docmd/engine-rust"
   - esbuild
+  - sharp

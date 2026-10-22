@@ -27,10 +27,11 @@ jobs:
     name: visible corpus score
     runs-on: ubuntu-24.04
     timeout-minutes: 120
-    # contents: write is for the compat data commit only. The job pushes
-    # compat-data/compat.json and nothing else.
+    # contents: write and pull-requests: write are for the compat snapshot
+    # bot PR only. The PR carries compat/data/compat.json and nothing else.
     permissions:
       contents: write
+      pull-requests: write
     outputs:
       failed: ${{ steps.result.outputs.failed }}
     steps:
@@ -73,33 +74,71 @@ jobs:
             --out nightly/visible-score.json 2>&1 | tee nightly/visible-score.log
 
       # Rebuild the compat site data file from the tree plus the score that
-      # just ran, then commit it when it changed. The push to master is what
-      # triggers the Cloudflare Pages build of pyscriptc-compat. Only this one
-      # file is ever committed. Design: .agents/docs/compat-site.md.
+      # just ran. When it changed, open (or update) one bot PR that carries
+      # only that file: master is PR-only, so the nightly never pushes to it.
+      # The PR merges, the site workflow rebuilds and deploys. When the
+      # ruleset blocks auto-merge, the PR stays open for the owner and the
+      # raw JSON ships as an artifact. Design: .agents/docs/compat-site.md.
       - name: Compat site data
         id: compat
         if: steps.score.outcome == 'success'
         run: |
           set -euo pipefail
           uv run python scripts/build_compat_json.py \
-            --out compat-data/compat.json \
+            --out compat/data/compat.json \
             --score nightly/visible-score.json
-          if git diff --quiet -- compat-data/compat.json; then
+          if git diff --quiet -- compat/data/compat.json; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "compat data unchanged"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
+          # The artifact carries the raw JSON too, so the owner can refresh the
+          # data by hand when the bot PR cannot be opened.
+          mkdir -p nightly
+          cp compat/data/compat.json nightly/compat.json
 
-      - name: Commit compat data
+      - name: Open the compat snapshot PR
+        id: pr
         if: steps.compat.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          DATE: $(date -u +%Y-%m-%d)
         run: |
           set -euo pipefail
+          branch="bot/compat-snapshot"
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git add compat-data/compat.json
-          git commit -m "ci: nightly compat snapshot $(date -u +%Y-%m-%d)"
-          git push
+          git add compat/data/compat.json
+          git commit -m "ci: nightly compat snapshot ${DATE}"
+          git push --force origin "HEAD:${branch}"
+          body="$(mktemp)"
+          printf 'Nightly compat snapshot for %s.\n\nThis PR carries only `compat/data/compat.json`, rebuilt from the tree by `scripts/build_compat_json.py`.\nThe commit is the bot identity, so it merges without review; a bad change is reverted with one revert commit.\n' "${DATE}" > "$body"
+          number="$(gh pr list --repo "$REPO" --head "$branch" --state open \
+            --json number --jq '.[0].number // empty')"
+          if [ -n "$number" ]; then
+            gh pr edit "$number" --repo "$REPO" --body-file "$body" >/dev/null
+          else
+            number="$(gh pr create --repo "$REPO" --head "$branch" --base master \
+              --title "ci: nightly compat snapshot ${DATE}" --body-file "$body" \
+              --json number --jq '.number')"
+          fi
+          echo "number=${number}" >> "$GITHUB_OUTPUT"
+          echo "url=$(gh pr view "$number" --repo "$REPO" --json url --jq '.url')" >> "$GITHUB_OUTPUT"
+
+      - name: Auto-merge the compat snapshot PR
+        if: steps.pr.outputs.number != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          set -euo pipefail
+          gh pr merge "$NUMBER" --repo "$REPO" --squash --auto \
+            --delete-branch 2>&1 || \
+            echo "auto-merge is blocked by the ruleset; the PR stays open for the owner"
 
       - name: Record outcome
         id: result
@@ -115,8 +154,8 @@ jobs:
             echo "Visible score failed. See nightly/visible-score.log in the artifact." >> "$GITHUB_STEP_SUMMARY"
           fi
           mkdir -p nightly
-          printf '{"date":"%s","commit":"%s","score_outcome":"%s"}\n' \
-            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$GITHUB_SHA" "${{ steps.score.outcome }}" > nightly/run.json
+          printf '{"date":"%s","commit":"%s","score_outcome":"%s","snapshot_pr":"%s"}\n' \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$GITHUB_SHA" "${{ steps.score.outcome }}" "${{ steps.pr.outputs.url }}" > nightly/run.json
 
       - uses: actions/upload-artifact@v6
         if: always()

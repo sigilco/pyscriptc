@@ -8,6 +8,9 @@
 #   docs:build      build the public docs site to dist/docs
 #   docs:validate   check every internal link in docs/
 #   docs:internal   dev server for the internal notes (.agents/docs), dev-only
+#   site:build      build the three site parts and assemble deploy/
+#   site:check      link check over deploy/
+#   site:dev        run one part dev server (landing, docs or compat)
 #   test            python test suite (no linux_container)
 #   lint            ruff check
 #   format-check    ruff format --check
@@ -38,6 +41,22 @@ run = "uv run python scripts/check_doc_links.py"
 [tasks."docs:internal"]
 description = "Dev server for .agents/docs internal notes (no build step)"
 run = "pnpm exec docmd dev --config docmd.internal.config.js"
+
+[tasks."compat:build"]
+description = "Build the compat page to dist/compat"
+run = "uv run python compat/build.py"
+
+[tasks."site:build"]
+description = "Build landing, docs and compat, assemble deploy/"
+run = "uv run python scripts/build_site.py"
+
+[tasks."site:check"]
+description = "Link check over the assembled deploy/ tree"
+run = "uv run python scripts/check_site_links.py --external"
+
+[tasks."site:dev"]
+description = "Dev server for one site part: mise run site:dev landing|docs|compat"
+run = "uv run python scripts/site_dev.py"
 
 [tasks.test]
 description = "Python test suite, linux_container excluded"

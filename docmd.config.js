@@ -2,31 +2,33 @@
 // Internal developer notes live in .agents/docs/ and are served by
 // docmd.internal.config.js, not by this config.
 //
-// Cloudflare Pages runs `pnpm install && pnpm docs:build` and publishes
-// `dist/docs`. The output directory lives outside the source tree on purpose:
-// docmd would otherwise copy the build output into the next build.
+// The docs are the /docs/ part of the single site at pyscriptc.pages.dev
+// (the root is the landing page, /compat/ is the compat page). The base is
+// /docs/ so every asset, link, canonical URL and the sitemap point into the
+// /docs/ subtree; the site assembly (scripts/build_site.py) copies this
+// build to deploy/docs.
 //
 // The `placeholders` plugin substitutes {{PYSC_COMPAT_URL}} and
 // {{PYSC_DOCS_URL}} in page sources. Each placeholder reads its environment
 // variable and falls back to the default in docmd-plugins/placeholders.js.
 export default {
   title: "pyscriptc",
-  url: "https://pyscriptc.pages.dev",
+  url: "https://pyscriptc.pages.dev/docs",
   src: "docs",
   out: "dist/docs",
-  base: "/",
+  base: "/docs/",
   engine: "js",
   plugins: {
     "./docmd-plugins/placeholders.js": {},
   },
   logo: {
-    light: "/assets/logo-256.png",
-    dark: "/assets/logo-256.png",
+    light: "./assets/logo-256.png",
+    dark: "./assets/logo-256.png",
     href: "/",
     alt: "pyscriptc",
     height: "28px",
   },
-  favicon: "/assets/icon-64.png",
+  favicon: "./assets/icon-64.png",
   layout: {
     spa: true,
     header: {

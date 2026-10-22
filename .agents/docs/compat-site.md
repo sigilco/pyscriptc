@@ -1,6 +1,6 @@
 # Compat site
 
-Status: design, 2026-10-22. Owner decisions pending (Cloudflare project, deploy secret, docmd versus plain page).
+Status: assembled, 2026-10-22. The compat page is part of the single pyscriptc.pages.dev site (landing at `/`, docs at `/docs`, compat at `/compat`). Owner decisions pending: Cloudflare secrets and switching the existing git-connected Pages project to direct upload.
 
 The compat site is the public, always-current answer to "what does pyscriptc support right now?". It renders the same numbers the compiler produces, so it cannot drift from the docs the way a hand-written table can.
 
@@ -12,14 +12,14 @@ The compat site is the public, always-current answer to "what does pyscriptc sup
 | measure | `benchmarks/compat2.census` | `benchmarks/compat2/census-snapshot.json` | on demand |
 | measure | `benchmarks.compat2.score` | `nightly/visible-score.json` (run artifact) | nightly cron, 06:17 UTC |
 | measure | `benchmarks.compat2.census_self` | `benchmarks/compat2/census-self.json` | on demand, pinned by `tests/test_census_self.py` |
-| aggregate | `scripts/build_compat_json.py` (new) | `compat-data/compat.json` | on demand and in the nightly job |
-| publish | Cloudflare Pages project `pyscriptc-compat` | `https://pyscriptc-compat.pages.dev` | on push that changes `compat-site/**` |
+| aggregate | `scripts/build_compat_json.py` (new) | `compat/data/compat.json` | on demand and in the nightly job |
+| publish | Cloudflare Pages project `pyscriptc` | `https://pyscriptc.pages.dev/compat` | on push that changes site, compat or docs paths |
 
 One JSON file is the contract between measurement and presentation. The site never reads the compiler, the corpus or the scorer; it reads one file.
 
 ## Data model
 
-`compat-data/compat.json` is the single file. It is deterministic: same inputs, same bytes. No timestamp that changes on every run unless it comes from a recorded measurement date.
+`compat/data/compat.json` is the single file. It is deterministic: same inputs, same bytes. No timestamp that changes on every run unless it comes from a recorded measurement date.
 
 ### Top level
 
@@ -129,8 +129,8 @@ One point per measurement date. The site renders it as a line chart per metric. 
 
 | path | role | committed |
 | --- | --- | --- |
-| `compat-data/compat.json` | the contract the site reads | yes |
-| `compat-site/index.html` | the page, fetches `compat.json` at runtime | yes |
+| `compat/data/compat.json` | the contract the site reads | yes |
+| `compat/site/index.html` | the page, fetches `{{BASE}}data/compat.json` at runtime | yes |
 | `nightly/visible-score.json` | raw scorer output, nightly run artifact | no, artifact only |
 | `benchmarks/compat2/census-snapshot.json` | raw census, pinned in the tree | yes, already |
 
@@ -154,15 +154,15 @@ The builder reuses `scripts/gen_support_table.py` internals (`evaluate`, `librar
 
 | step | what it does |
 | --- | --- |
-| build | `uv run python scripts/build_compat_json.py --out compat-data/compat.json --score nightly/visible-score.json` |
-| commit | if the file changed, `git commit` and `git push` with the bot identity |
-| deploy | push to master triggers the Pages build |
+| build | `uv run python scripts/build_compat_json.py --out compat/data/compat.json --score nightly/visible-score.json` |
+| commit | if the file changed, open (or update) a bot PR with just that change via `gh`, and auto-merge if the ruleset allows |
+| deploy | the merge to master triggers the site workflow build and deploy |
 
-The nightly job needs `contents: write` for the commit step. That is a permissions change on an existing workflow, so the owner must approve it before the PR merges.
+The nightly job needs `contents: write` and `pull-requests: write` for the bot PR step. That is a permissions change on an existing workflow, so the owner must approve it before the PR merges.
 
-The commit message follows the pattern `ci: nightly compat snapshot YYYY-MM-DD`, so the history of the file is a readable timeline. The builder writes the file atomically (write to a temp path, then rename), so an interrupted run never leaves a half-written JSON.
+The PR branch follows the pattern `bot/compat-snapshot`, and the commit message the pattern `ci: nightly compat snapshot YYYY-MM-DD`, so the history of the file is a readable timeline. The builder writes the file atomically (write to a temp path, then rename), so an interrupted run never leaves a half-written JSON.
 
-The commit never touches anything else. A nightly that finds the same numbers produces no commit and no deploy.
+The PR never touches anything else. A nightly that finds the same numbers produces no PR and no deploy. When auto-merge is blocked, the PR stays open for the owner and the raw JSON is attached as a workflow artifact.
 
 ## How a data change triggers a rebuild and a deploy
 
@@ -170,22 +170,21 @@ Two paths reach Cloudflare Pages.
 
 | path | trigger | what happens |
 | --- | --- | --- |
-| nightly | the nightly job commits `compat-data/compat.json` to master | the Pages build runs on the new commit |
-| pull request | a PR changes `compat-site/**` or `compat-data/**` | the Pages preview build runs, the owner reviews it before merge |
+| nightly | the nightly job opens a bot PR with `compat/data/compat.json` | the merge to master triggers the site workflow build and deploy |
+| pull request | a PR changes `compat/**`, `site/**` or `docs/**` | the site workflow builds and validates, the owner reviews it before merge |
 
-The deploy itself is a Cloudflare Pages project build, not a GitHub Actions deploy job. That is the cheapest option and it matches the existing `pyscriptc.pages.dev` setup: the repository already has `package.json` with `docs:build` and `docmd.config.js`. The Pages project needs its build command and output directory set once, by the owner.
+The deploy is a GitHub Actions job in `.github/workflows/site.yml` using `wrangler pages deploy` against the existing Pages project switched to direct upload. The project is `pyscriptc`, already serving `https://pyscriptc.pages.dev`; the workflow assembles the three parts (landing, docs, compat) into one `deploy/` tree and publishes it.
 
-| Pages setting | value |
+| setting | value |
 | --- | --- |
-| project name | `pyscriptc-compat` |
-| production branch | `main` (the repository default branch) |
-| build command | `pnpm install && pnpm compat:build` |
-| output directory | `dist/compat` |
-| root directory | repository root |
+| project name | `pyscriptc` |
+| deployment mode | direct upload (`wrangler pages deploy`), git connection removed |
+| secrets | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
+| assembly | `mise run site:build` produces `deploy/` (landing at root, docs at `/docs`, compat at `/compat`) |
 
-`pnpm compat:build` is a two-line script: copy `compat-site/` to `dist/compat/` and copy `compat-data/` to `dist/compat/data/`. The page then fetches `data/compat.json`.
+`mise run compat:build` runs `compat/build.py`, which renders `compat/site/` into `dist/compat/` and copies `compat/data/compat.json` to `dist/compat/data/`. The page then fetches `{{BASE}}data/compat.json` with `{{BASE}}` baked at build time.
 
-Two things are the owner's to do, because they need the Cloudflare account: create the `pyscriptc-compat` Pages project with the settings above, and decide whether the domain is `pyscriptc-compat.pages.dev` or a custom one. The docs site links to it through the `PYSC_COMPAT_URL` placeholder, default `https://pyscriptc-compat.pages.dev`, so the URL can change without a docs edit.
+Two things are the owner's to do, because they need the Cloudflare account: add the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets, and switch the existing `pyscriptc` Pages project from git connection to direct upload. The docs site links to the compat page through the `PYSC_COMPAT_URL` placeholder, default `https://pyscriptc.pages.dev/compat`, so the URL can change without a docs edit.
 
 ## Static site generator choice
 
@@ -212,7 +211,7 @@ The plain page is not a toy. It needs:
 | no build step | `pnpm install` is not even needed, the page is plain files |
 | a link check | `tests/test_compat_json.py` validates the JSON against the schema, and a separate test asserts the page references every section key |
 
-The page lives in `compat-site/` (`index.html`, `compat.css`, `compat.js`) and the data lives beside it in `compat-data/compat.json`. Neither directory is a docmd source: the docs site builds from `docs/` and the compat site is a plain static page, so the two never share a build root. The Pages project copies `compat-site/` as the root and `compat-data/` as `data/` beside it.
+The page lives in `compat/site/` (`index.html`, `compat.css`, `compat.js`) and the data lives in `compat/data/compat.json`. Neither directory is a docmd source: the docs site builds from `docs/` and the compat page is a plain static page, so the two never share a build root. The site workflow assembles all three parts into `deploy/` and publishes the whole tree as one deployment.
 
 ## CI validation link from the docs
 
@@ -221,7 +220,7 @@ The docs link to the site in two places.
 | place | link | text |
 | --- | --- | --- |
 | `docs/` support model page | `{{PYSC_COMPAT_URL}}` | "the compat site has the live numbers" |
-| `site/guide/language.md` | `{{PYSC_COMPAT_URL}}` | same |
+| `docs/guide/support-model.md` | `{{PYSC_COMPAT_URL}}` | same |
 
 The placeholder is defined the same way as the other template variables the docs already use, so one substitution covers both. A test asserts the docs link to the placeholder and not a hard-coded host, so a stale URL cannot land.
 
@@ -235,25 +234,26 @@ CI validation, in this order.
 
 `--check` is the same shape as `gen_support_table.py --check` and `benchmarks.baseline.run --check`, so the repo keeps one convention.
 
-## Slice 1, what ships first
+## Slices, what shipped when
 
-| item | detail |
-| --- | --- |
-| builder | `scripts/build_compat_json.py`, deterministic, schema-validated, `--check` mode, `--out` path |
-| schema | `scripts/compat_schema.py`, the schema and the validator, no third-party dependency |
-| tests | `tests/test_compat_json.py`, unit tests over the builder and the schema |
-| nightly | one step in `.github/workflows/nightly.yml` that builds the JSON and commits it |
-| docs | `.agents/docs/compat-site.md` (this file) |
-| not in slice 1 | the page itself, the Pages project, the deploy, the docs links |
+| item | detail | status |
+| --- | --- | --- |
+| builder | `scripts/build_compat_json.py`, deterministic, schema-validated, `--check` mode, `--out` path | shipped |
+| schema | `scripts/compat_schema.py`, the schema and the validator, no third-party dependency | shipped |
+| tests | `tests/test_compat_json.py`, unit tests over the builder and the schema | shipped |
+| page | `compat/site/` plus `compat/build.py`, one page with search, filters and the history chart | shipped |
+| assembly | `scripts/build_site.py`, `mise run site:build`, `deploy/` with `_headers` and `_redirects` | shipped |
+| nightly | bot PR via `gh` instead of direct master push | shipped |
+| deploy | `.github/workflows/site.yml`, wrangler direct upload | in review |
 
-Slice 1 does not publish anything. The JSON lands in the repository and the nightly commits it. The site and the deploy are slice 2, after the owner creates the Pages project.
+The PR that carries the page and the assembly is the single reviewable unit; the deploy goes live when the owner adds the Cloudflare secrets and switches the Pages project to direct upload.
 
 ## Risks
 
 | risk | mitigation |
 | --- | --- |
-| the nightly gains `contents: write` | the owner approves before merge, and the job only ever pushes one file |
-| a nightly pushes to master and bypasses review | the file is generated, the build is reproducible, and the diff shows the movement; a bad push is reverted with one commit |
+| the nightly gains `contents: write` and `pull-requests: write` | the owner approves before merge, and the bot PR only ever carries the one file |
+| a nightly merges a change without review | the file is generated, the build is reproducible, and the PR diff shows the movement; a bad change is reverted with one commit |
 | the JSON grows without bound | `history` is capped at 180 points, the rest is a fixed number of rows |
 | the coverage pass takes minutes | it lowers every pinned package, the same work `benchmarks.compat2.census` does |
 | the docs and the site disagree | both read the same builder output, and the docs table test fails when either drifts |
