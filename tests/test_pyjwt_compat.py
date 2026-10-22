@@ -42,9 +42,12 @@ def test_real_pyjwt_hmac_tree_still_fences() -> None:
     # 100 fences after the E2 M2 builtin exception hierarchy: `jwt/warnings.py`
     # defines warning classes on `DeprecationWarning` and `UserWarning`, which
     # the hierarchy table now lowers, so five export fences cleared (105 - 5).
+    # 96 after the generator work (#165): the `collections.abc` import and
+    # the Iterator/Sequence annotations lower, so four fences clear; one
+    # SigOptions annotation fence reshapes.
     # Shrinking means a backlog lowering cleared fences here; update the pin
     # when that happens.
-    assert proc.stderr.count("PS") == 100
+    assert proc.stderr.count("PS") == 96
 
 
 @pytest.mark.linux_container  # HEAVY=1 docker/run.sh

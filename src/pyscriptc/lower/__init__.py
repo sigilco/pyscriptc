@@ -677,6 +677,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             self.pkg_funcs[local] = item
             self.bindings[local] = Binding("pyfunc", module, name, False, item["return"])
             self.declared.add(local)
+            self._install_return_class(module, item["return"], stmt, fences)
             return
         if item["kind"] == "class":
             self._install_class_export(local, item, stmt, fences)
@@ -684,6 +685,22 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         fences.append(
             Fence("PS2002", f"{module}.{name} is not a function or constant", span_of(stmt, self.filename), None)
         )
+
+    def _install_return_class(self, module: str, typ: dict[str, Any], stmt: ast.AST, fences: list[Fence]) -> None:
+        """Install a function export's class result alongside the function.
+
+        A generator function's outward type is its frame class (`gen.<name>`,
+        with `__iter__`/`__next__`), so consuming the function needs the
+        class shape even when the user never names the class. The defining
+        module still emits it; the consumer sees it imported, like any other
+        class export.
+        """
+        if typ.get("kind") != "class" or typ["name"] in self.classes:
+            return
+        item = (self.package or {}).get(module, {}).get(typ["name"])
+        if item is None or item["kind"] != "class":
+            return
+        self._install_class_export(typ["name"], item, stmt, fences)
 
     def _package_root(self) -> str | None:
         if self.package is None or not self.module_name:

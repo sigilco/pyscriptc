@@ -97,6 +97,10 @@ def test_self_census_ballpark() -> None:
     # zigshim.py (#291) adds about 45 self-host fences.
     # restlower/_dotenv.py (dotenv_values / load_dotenv, #253) adds 5 more.
     # restlower/_yaml.py (yaml.safe_load, #254) adds 5 more.
+    # Generators in package units and methods (#165): the implicit
+    # Iterator/Iterable annotations resolve in the compiler's own source
+    # and the method generator plumbing shifts fences between modules;
+    # the total holds at the same count.
     assert census["fences"] == 2445
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.

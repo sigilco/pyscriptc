@@ -98,6 +98,7 @@ class FramePlan:
     frame: str
     elem: dict[str, Any]  # yield element (generator) or return value (coroutine)
     params: list[dict[str, Any]] = field(default_factory=list)
+    ir_name: str = ""  # the wrapper's IR name (`pkg.mod.g` in a package unit)
 
 
 def enabled() -> bool:
@@ -185,7 +186,9 @@ class CoroMixin:
     ) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
         """The outward signature of a module-level resumable, or None for any
         other function (the caller then uses `_signature` as before)."""
-        if not enabled() or self.module_name or self.cataloguing or fn.decorator_list:
+        if not enabled() or fn.decorator_list:
+            return None
+        if self.cataloguing and not (is_generator(fn) or isinstance(fn, ast.AsyncFunctionDef)):
             return None
         if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) or not (
             is_generator(fn) or isinstance(fn, ast.AsyncFunctionDef)
@@ -220,7 +223,14 @@ class CoroMixin:
             "coro": "coroutine" if coroutine else "generator",
         }
         self.known_classes.add(frame)
-        self._coro_plans()[fn.name] = FramePlan("coroutine" if coroutine else "generator", fn.name, frame, elem, params)
+        self._coro_plans()[fn.name] = FramePlan(
+            "coroutine" if coroutine else "generator",
+            fn.name,
+            frame,
+            elem,
+            params,
+            self._ir_name(fn.name),
+        )
         return params, frame_t
 
     def _coro_result(self, fn: ast.AsyncFunctionDef) -> dict[str, Any]:
@@ -251,6 +261,57 @@ class CoroMixin:
         plan = self._coro_plans().get(name)
         self.__dict__["_coro_active"] = plan
         params, ret = self.sigs[name]
+        return (params, dict(_NONE)) if plan is not None else (params, ret)
+
+    def _coro_method_signature(
+        self, fn: ast.FunctionDef, class_name: str
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
+        """The outward signature of a generator method, or None for a plain method.
+
+        A generator method returns its frame class: `C.items()` yields a
+        `gen.C.items` frame, and the caller consumes it through the same
+        `__iter__`/`__next__` path a module-level generator uses.
+        """
+        if not enabled() or not is_generator(fn) or fn.decorator_list:
+            return None
+        elem = self._coro_elem(fn)
+        shape = _shape_error(fn)
+        if shape is not None:
+            self.fail(shape[0], "PS2002", shape[1])
+        plain = copy.copy(fn)
+        plain.returns = ast.Constant(value=None)
+        params, _ = self._signature(plain, class_name, "method")
+        from pyscriptc.lower._core import _has_typevar
+
+        if _has_typevar(elem) or any(_has_typevar(param["type"]) for param in params):
+            self.fail(fn, "PS2002", "a generic resumable is not lowered yet")
+        frame = f"gen.{class_name}.{fn.name}"
+        frame_t = {"kind": "class", "name": frame}
+        self_t = [{"name": "self", "type": frame_t}]
+        self.classes[frame] = {
+            "fields": [],
+            "own_fields": [],
+            "methods": {"__iter__": (self_t, frame_t), "__next__": (self_t, elem)},
+            "method_kind": {},
+            "method_owner": {},
+            "base": None,
+            "coro": "generator",
+        }
+        self.known_classes.add(frame)
+        key = f"{class_name}.{fn.name}"
+        self._coro_plans()[key] = FramePlan("generator", key, frame, elem, params, "")
+        return params, frame_t
+
+    def _coro_method_body_sig(
+        self, class_name: str, method: str, params: list[dict[str, Any]], ret: dict[str, Any]
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """The signature a generator method's body lowers under.
+
+        The body returns None (the frame carries the values), so the method
+        signature's frame type is replaced by None for the body.
+        """
+        plan = self._coro_plans().get(f"{class_name}.{method}")
+        self.__dict__["_coro_active"] = plan
         return (params, dict(_NONE)) if plan is not None else (params, ret)
 
     def _coro_current(self) -> FramePlan | None:
@@ -391,7 +452,7 @@ def lower_resumables(module: dict[str, Any], plans: dict[str, FramePlan]) -> dic
     classes = list(module["classes"])
     fences = list(module["fences"])
     for fn in module["functions"]:
-        plan = plans.get(fn["name"])
+        plan = plans.get(fn["name"]) or _plan_by_ir_name(plans, fn["name"])
         if plan is None:
             functions.append(fn)
             continue
@@ -404,7 +465,50 @@ def lower_resumables(module: dict[str, Any], plans: dict[str, FramePlan]) -> dic
         if forwarder is not None:
             functions.append(forwarder)
         classes.append(frame)
+    classes = _lower_method_resumables(classes, plans, fences)
     return {**module, "functions": functions, "classes": classes, "fences": fences}
+
+
+def _lower_method_resumables(
+    classes: list[dict[str, Any]], plans: dict[str, FramePlan], fences: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Rewrite generator methods the same way module functions rewrite.
+
+    A planned method's body record is the resume body: the pass swaps in the
+    frame-allocating wrapper as the method and appends the frame class. The
+    plan is keyed `Class.method`, the same qualified name the body lowered
+    under.
+    """
+    out: list[dict[str, Any]] = []
+    for cls in classes:
+        methods: list[dict[str, Any]] = []
+        for method in cls["methods"]:
+            plan = plans.get(f"{cls['name']}.{method['name']}")
+            if plan is None or plan.frame != f"gen.{cls['name']}.{method['name']}":
+                methods.append(method)
+                continue
+            try:
+                wrapper, frame, _forwarder = _Frame(method, plan, _KINDS[plan.kind], plans).build()
+            except CoroError as exc:
+                fences.append({"code": "PS2002", "message": exc.message, "function": method["name"], "span": exc.span})
+                methods.append(method)
+                continue
+            methods.append(wrapper)
+            out.append(frame)
+        out.append({**cls, "methods": methods})
+    return out
+
+
+def _plan_by_ir_name(plans: dict[str, FramePlan], ir_name: str) -> FramePlan | None:
+    """The plan whose wrapper carries this IR name.
+
+    A package unit's functions are named `pkg.mod.g` in the IR, while the
+    plan is keyed by the source name `g`.
+    """
+    for plan in plans.values():
+        if plan.ir_name and plan.ir_name == ir_name:
+            return plan
+    return None
 
 
 class _Kind:
