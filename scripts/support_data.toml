@@ -198,6 +198,12 @@ no = [
 ]
 
 [[stdlib]]
+names = ["yaml"]
+imports = ["yaml"]
+ok = ['y: dict[str, int] = yaml.safe_load(s)']
+no = [["load, dump, safe_dump", 'y: dict[str, int] = yaml.load(p)', "PS2001"], ["keyword arguments", 'y: dict[str, int] = yaml.safe_load(s, Loader=None)', "PS2003"]]
+
+[[stdlib]]
 names = ["urllib.parse"]
 ok = ['y: str = urllib.parse.quote(s)', 'y: str = urllib.parse.unquote_plus(s)']
 no = [["urlparse, urljoin, urlunsplit, parse_qsl", 'y: str = urllib.parse.urljoin(s, s)', "PS2001"]]
