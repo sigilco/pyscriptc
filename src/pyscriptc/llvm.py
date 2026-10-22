@@ -112,6 +112,8 @@ def link_binary(
     target_flags = ["-target", target] if target is not None else []
     san_flags = sanitize_flags(sanitize)
     tail = [*san_flags, "-lm", "-o", str(output)]
+    if (target and "windows" in target) or (not target and sys.platform == "win32"):
+        tail.insert(0, "-mconsole")
     if "ps_island_" in text:
         if target is not None:
             raise IRError(

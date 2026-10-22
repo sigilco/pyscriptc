@@ -11,8 +11,10 @@ return code, the captured stdout bytes, and the captured stderr bytes.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
 #include <sys/wait.h>
 #include <unistd.h>
+#endif
 
 /* The CompletedProcess record: the layout the CompletedProcess class in
    stdmore.CLASS_FIELDS uses. The field order is returncode, stdout, stderr,
@@ -41,6 +43,139 @@ static char *ps_cstr_dup(int64_t n, const char *s) {
     return text;
 }
 
+#ifdef _WIN32
+static char *ps_build_cmdline(PsSeq *args) {
+    PsGrow g;
+    int64_t i;
+    ps_grow_init(&g);
+    for (i = 0; i < args->len; i++) {
+        PsBuf item;
+        int64_t j;
+        int need_quote = 0;
+        memcpy(&item, (char *)args->data + (size_t)i * (size_t)args->elem, sizeof item);
+        if (i > 0) {
+            ps_grow_byte(&g, ' ');
+        }
+        if (item.len == 0) {
+            need_quote = 1;
+        } else {
+            for (j = 0; j < item.len; j++) {
+                if (item.data[j] == ' ' || item.data[j] == '\t' || item.data[j] == '"') {
+                    need_quote = 1;
+                    break;
+                }
+            }
+        }
+        if (!need_quote) {
+            ps_grow_add(&g, item.data, item.len);
+        } else {
+            ps_grow_byte(&g, '"');
+            for (j = 0; j < item.len; j++) {
+                if (item.data[j] == '"') {
+                    ps_grow_byte(&g, '\\');
+                }
+                ps_grow_byte(&g, item.data[j]);
+            }
+            ps_grow_byte(&g, '"');
+        }
+    }
+    ps_grow_byte(&g, '\0');
+    return g.data;
+}
+
+static void ps_sub_readhandle(HANDLE h, PsBuf *out) {
+    PsGrow g;
+    char chunk[4096];
+    DWORD bytesRead;
+    ps_grow_init(&g);
+    while (ReadFile(h, chunk, sizeof chunk, &bytesRead, NULL) && bytesRead > 0) {
+        ps_grow_add(&g, chunk, (int64_t)bytesRead);
+    }
+    ps_grow_finish(&g, out);
+}
+
+static int ps_sub_spawn(PsSeq *args, PsBuf *out_stdout, PsBuf *out_stderr) {
+    char *cmdline = ps_build_cmdline(args);
+    SECURITY_ATTRIBUTES sa;
+    HANDLE out_read = NULL, out_write = NULL;
+    HANDLE err_read = NULL, err_write = NULL;
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+    DWORD exit_code = 0;
+    BOOL ok;
+
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+    sa.lpSecurityDescriptor = NULL;
+
+    if (out_stdout != NULL) {
+        if (!CreatePipe(&out_read, &out_write, &sa, 0)) {
+            free(cmdline);
+            ps_sub_fail("subprocess pipe failed");
+        }
+        SetHandleInformation(out_read, HANDLE_FLAG_INHERIT, 0);
+    }
+    if (out_stderr != NULL) {
+        if (!CreatePipe(&err_read, &err_write, &sa, 0)) {
+            if (out_stdout != NULL) {
+                CloseHandle(out_read);
+                CloseHandle(out_write);
+            }
+            free(cmdline);
+            ps_sub_fail("subprocess pipe failed");
+        }
+        SetHandleInformation(err_read, HANDLE_FLAG_INHERIT, 0);
+    }
+
+    ZeroMemory(&si, sizeof(si));
+    si.cb = sizeof(si);
+    si.dwFlags |= STARTF_USESTDHANDLES;
+    si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    si.hStdOutput = (out_stdout != NULL) ? out_write : GetStdHandle(STD_OUTPUT_HANDLE);
+    si.hStdError = (out_stderr != NULL) ? err_write : GetStdHandle(STD_ERROR_HANDLE);
+
+    ZeroMemory(&pi, sizeof(pi));
+    ok = CreateProcessA(NULL, cmdline, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi);
+    free(cmdline);
+
+    if (out_stdout != NULL) {
+        CloseHandle(out_write);
+    }
+    if (out_stderr != NULL) {
+        CloseHandle(err_write);
+    }
+
+    if (!ok) {
+        if (out_stdout != NULL) {
+            CloseHandle(out_read);
+        }
+        if (out_stderr != NULL) {
+            CloseHandle(err_read);
+        }
+        ps_sub_fail("subprocess CreateProcess failed");
+    }
+
+    if (out_stdout != NULL) {
+        ps_sub_readhandle(out_read, out_stdout);
+        CloseHandle(out_read);
+    }
+    if (out_stderr != NULL) {
+        ps_sub_readhandle(err_read, out_stderr);
+        CloseHandle(err_read);
+    }
+
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    GetExitCodeProcess(pi.hProcess, &exit_code);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+
+    return (int)exit_code;
+}
+
+static int64_t ps_sub_code(int status) {
+    return (int64_t)status;
+}
+#else
 /* Read a whole pipe into a grow buffer, then hand it out as a PsBuf. */
 static void ps_sub_readall(int fd, PsBuf *out) {
     PsGrow g;
@@ -129,6 +264,7 @@ static int64_t ps_sub_code(int status) {
     }
     return -1;
 }
+#endif
 
 /* call(cmd): the exit code of the child. */
 int64_t ps_sub_call(PsSeq *args) { return ps_sub_code(ps_sub_spawn(args, NULL, NULL)); }
