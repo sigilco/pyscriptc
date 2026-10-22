@@ -20,12 +20,12 @@ from pyscriptc.coverage import build_report, family_of, render_text
 from pyscriptc.debug import Debug, resolve
 from pyscriptc.diagnostics import explain
 from pyscriptc.doctor import doctor_cmd
+from pyscriptc.emit.llvm import compile_unit, emit_llvm, link_binary, standalone_entry
 from pyscriptc.errors import FitError, IRError, SpikeError, VersionError
 from pyscriptc.imports import build_report as build_import_report
 from pyscriptc.imports import render_text as render_import_text
 from pyscriptc.ir import validate_module
 from pyscriptc.irverify import verify_module
-from pyscriptc.llvm import compile_unit, emit_llvm, link_binary, standalone_entry
 from pyscriptc.llvverify import LLVMVerifyError, verify_module_text
 from pyscriptc.log import enable_debug, get_logger, tail
 from pyscriptc.lower import lower_file, render_fences

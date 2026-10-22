@@ -30,7 +30,10 @@ def test_self_census_ballpark() -> None:
     # IR verifier (#272): irverify.py and llvverify.py add 2 modules.
     # Reducer (#275): reduce.py adds 1 module.
     # dwarf.py (the DWARF metadata, #280) adds one more.
-    assert census["modules"] == 69
+    # Emitter split (#262): llvm.py becomes a shim and the emitter moves into
+    # the emit/ package: 13 modules (emit/_ir.py, emit/llvm/_driver.py and the
+    # eight area mixins, plus the two package inits) replace the one file.
+    assert census["modules"] == 82
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -84,8 +87,11 @@ def test_self_census_ballpark() -> None:
     # DWARF metadata (#280): dwarf.py adds a module with 10 self-host fences
     # (the metadata records), and the `--debug-info` plumbing adds 5 in
     # cli.py and 11 in llvm.py.
-    assert census["fences"] == 2360
+    # Emitter split (#262): the moved emitter methods carry the same fences.
+    # The new module docstrings and import surfaces add 30 more across
+    # emit/_ir.py, emit/llvm/_driver.py and the mixins.
+    assert census["fences"] == 2390
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     assert 11_000 <= census["lines"] <= 34_000
-    assert sum(p["fences"] for p in census["packages"]) == 2360
+    assert sum(p["fences"] for p in census["packages"]) == 2390

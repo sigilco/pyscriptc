@@ -13,7 +13,8 @@
 | `src/pyscriptc/stdlib_queue.py` | Import table, `math` signatures, codec signatures |
 | `src/pyscriptc/stdmore.py` | Rest-of-queue signatures, baked constants, island call list |
 | `src/pyscriptc/builtins.py` | `str` / `bytes` methods, `len`, `int(float)`, `float(int)`, exception codes |
-| `src/pyscriptc/llvm.py` | Textual LLVM, `main`, clang link line |
+| `src/pyscriptc/emit/_ir.py` | The shared IR-reading seam: type mapping, symbol naming, literal rules |
+| `src/pyscriptc/emit/llvm/` | Textual LLVM, split by concern (`_core`, `_funcs`, `_stmts`, `_exprs`, `_calls`, `_stdlib`, `_abi`, `_print`, `_runtime`), plus `_driver` (the `main` entry, the clang link line) |
 | `src/pyscriptc/runtime/*.c` | Implementations the LLVM text calls |
 | `src/pyscriptc/runtime/ps_island.c` | Embedded CPython. Linked only when the text contains `ps_island_` |
 | `tests/test_gates.py` | Language gates and the original example corpus |
@@ -30,7 +31,7 @@
 1. Put the module in `QUEUE` in `stdlib_queue.py` if it is new. `LOWERED` is `frozenset(QUEUE)`. A name in the queue and missing from the lowered set is `PS2101`. Tests lock the queue order.
 2. Add a fixed signature in `stdlib_queue.py` (codec wave) or `stdmore.py` (everything else), or a special case in `lower.py` / `restlower.py` when the type depends on an annotation or a literal.
 3. Implement the C function in the matching `runtime/ps_*.c` file. Declare it in `runtime/ps_rt.h`. Return aggregates through pointers.
-4. Teach `llvm.py` the symbol if the call is not already a generic runtime call.
+4. Teach `emit/llvm/_calls.py` the symbol if the call is not already a generic runtime call.
 5. Add a probe assertion in `examples/wave_probe.py` or `examples/rest_probe.py`, and a case in `tests/test_gates.py` or `tests/test_stdlib_bench.py`. The probe returns `0` when the call matches CPython.
 6. If the call is worth timing, add a workload under `benchmarks/runtime/workloads/`, a catalog row, and a suite row. Merge the measured row into `benchmarks/baseline/reference.json` by appending it. Do not replace the four kernel ratios.
 

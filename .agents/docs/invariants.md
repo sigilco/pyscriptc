@@ -10,7 +10,7 @@ The checker runs as a subprocess (`src/pyscriptc/check.py`); pyrefly is the defa
 
 ## Stamp
 
-The subset string stays `gates-v1` until a deliberate revision of the language. The IR records `sys.version` of the interpreter that lowered the file. `llvm.py` refuses a different stamp (`PS3001`). Re-lower the file on the interpreter you are emitting with.
+The subset string stays `gates-v1` until a deliberate revision of the language. The IR records `sys.version` of the interpreter that lowered the file. The emitter refuses a different stamp (`PS3001`). Re-lower the file on the interpreter you are emitting with.
 
 ## Integers
 

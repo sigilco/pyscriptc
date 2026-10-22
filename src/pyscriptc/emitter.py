@@ -3,7 +3,7 @@
 The golden corpus (`tests/test_emitter_goldens.py`) and the future C backend
 emit one fixture at a time through `emit_ir_text`: no file, no subprocess, no
 `cc`. The emitter contract is unchanged; this module only packages what
-`llvm.emit_llvm` already does for whole programs into a form a fragment can
+`emit_llvm` already does for whole programs into a form a fragment can
 use.
 """
 
@@ -58,7 +58,7 @@ def emit_ir_text(
     interpreter.
     """
 
-    from pyscriptc.llvm import Emitter
+    from pyscriptc.emit.llvm import Emitter
 
     assert_same_cpython(module)
     if module["fences"]:

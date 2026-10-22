@@ -57,8 +57,8 @@ def test_build_records_modules_and_reuses_entries(tmp_path: Path) -> None:
     path = tmp_path / "map.json"
     data = cm.build(probes, path)
     ok, fenced = data["probes"]["ok"], data["probes"]["fenced"]
-    assert "lower/__init__.py" in ok["touches"] and "llvm.py" in ok["touches"]
-    assert "llvm.py" not in fenced["touches"]  # a fenced probe never reaches the emitter
+    assert "lower/__init__.py" in ok["touches"] and "emit/llvm/_driver.py" in ok["touches"]
+    assert "emit/llvm/_driver.py" not in fenced["touches"]  # a fenced probe never reaches the emitter
     assert not any(f.startswith("runtime/") for f in fenced["key"])  # and never reaches clang
     assert "runtime/ps_rt.c" in ok["key"] and "cli.py" in fenced["key"]
     assert cm.load(path) == data

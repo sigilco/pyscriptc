@@ -13,7 +13,7 @@ source.py
   CPython ast
   mypy preflight          (discarded; annotations on the AST are what lowering reads)
   lower.py                JSON IR, subset gates-v1, stamped with sys.version
-  llvm.py                 textual LLVM
+  emit/llvm/              textual LLVM
   clang -O2               runtime/*.c linked beside the IR
   binary                  --call prints the function's return value
 ```
