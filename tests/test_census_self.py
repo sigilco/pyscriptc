@@ -27,7 +27,8 @@ def test_self_census_ballpark() -> None:
     # restlower/_tomllib.py (tomllib.loads, #62) adds 1 module and 3 fences.
     # Checker bridge (#87): factsbridge.py adds 1 module.
     # emitter.py (the emitter seam, #273) adds one more.
-    assert census["modules"] == 65
+    # IR verifier (#272): irverify.py and llvverify.py add 2 modules.
+    assert census["modules"] == 67
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -70,15 +71,12 @@ def test_self_census_ballpark() -> None:
     # math atan2/gcd/isclose handlers: +2 self-host fences in lower/_calls.py.
     # Checker bridge (#87): factsbridge.py adds 1 module and 40 self-host fences
     # (the mypy adapter, the facts-to-IR translator and the bridge consumer).
-    # --sanitize (#271): the flag parsing and the sanitize argv plumbing add 14
-    # fences in cli.py and 2 in llvm.py.
-    # `--timings` (#270) adds 9 self-host fences: 2 in cli.py (the flag and
-    # the timings plumbing), 2 in debug.py (the timing sink and the stage
-    # exclusion), 5 in llvm.py (the per-step cc/link measurements).
+    # --timings (#277): the stage-table refactor adds 9 fences in cli.py and debug.py.
     # Emitter seam (#273): emitter.py adds 4 self-host fences (the dict-shaped
     # IR annotations on the module and function builders).
-    assert census["fences"] == 2220
+    # IR verifier (#272): irverify.py and llvverify.py add 2 modules and 42 self-host fences.
+    assert census["fences"] == 2262
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
-    # emitter.py (the emitter seam, #273) crosses the old 31_000 bound.
-    assert 11_000 <= census["lines"] <= 32_000
-    assert sum(p["fences"] for p in census["packages"]) == 2220
+    # IR verifier (#272): the two verifier modules add about 900 lines.
+    assert 11_000 <= census["lines"] <= 34_000
+    assert sum(p["fences"] for p in census["packages"]) == 2262

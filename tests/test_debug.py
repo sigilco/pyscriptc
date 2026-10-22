@@ -51,8 +51,17 @@ def test_debug_dir_writes_artifacts(tmp_path: Path) -> None:
     assert (dbg / "out.ll").read_text() == out.read_text()
     summary = json.loads((dbg / "summary.json").read_text())
     assert summary["status"] == "ok"
-    assert [stage["name"] for stage in summary["stages"]] == ["lower", "check", "validate", "emit_llvm"]
+    assert [stage["name"] for stage in summary["stages"]] == [
+        "lower",
+        "check",
+        "validate",
+        "verify",
+        "emit_llvm",
+        "llvmverify",
+    ]
     assert summary["fences"] == []
+    assert summary["verify"]["ir"] == []
+    assert summary["verify"]["llvm"]["ok"] is True
 
 
 def test_debug_does_not_flip_ir(tmp_path: Path) -> None:
