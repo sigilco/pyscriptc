@@ -1,0 +1,70 @@
+# pyscriptc-sqlite: the F3 pilot manifest (docs/ffi-manifest.md section 5).
+# The vendored SQLite amalgamation is fetched at build time into vendor/
+# (see vendor/VENDOR.toml); only the pin is committed.
+
+[manifest]
+module = "pyscriptc_sqlite"
+ps_abi = 1
+format = 1
+
+[[source]]
+path = "vendor/sqlite3.c"
+
+[[source]]
+path = "ps_ffi_sqlite.c"
+
+# The pointer behind a handle is a thunk-owned wrapper around sqlite3 *, so a
+# closed handle is detectable and raises instead of touching freed memory.
+[[handle]]
+name = "Connection"
+c_type = "ps_sqlite_conn *"
+frees = "sqlite3_close_v2"
+
+[[const]]
+name = "OK"
+type = "int"
+value = 0
+
+[[const]]
+name = "ROW"
+type = "int"
+value = 100
+
+[[const]]
+name = "DONE"
+type = "int"
+value = 101
+
+[[fn]]
+name = "connect"
+py = "(path: str) -> Connection"
+c_symbol = "sqlite3_open_v2"
+abi = "ps_ffi_sqlite_connect"
+
+[[fn]]
+name = "execute"
+py = "(db: Connection, sql: str) -> int"
+c_symbol = "sqlite3_exec"
+abi = "ps_ffi_sqlite_execute"
+borrows = ["db"]
+
+[[fn]]
+name = "query"
+py = "(db: Connection, sql: str) -> list"
+c_symbol = "sqlite3_prepare_v2 + sqlite3_step + sqlite3_finalize"
+abi = "ps_ffi_sqlite_query"
+borrows = ["db"]
+
+[[fn]]
+name = "commit"
+py = "(db: Connection) -> int"
+c_symbol = "sqlite3_exec COMMIT"
+abi = "ps_ffi_sqlite_commit"
+borrows = ["db"]
+
+[[fn]]
+name = "close"
+py = "(db: Connection) -> None"
+c_symbol = "sqlite3_close_v2"
+abi = "ps_ffi_sqlite_close"
+consumes = ["db"]
