@@ -1,4 +1,4 @@
-<p align="center"><img src="public/assets/logo-512.png" width="270" alt="pyscriptc"></p>
+<p align="center"><img src="docs/assets/logo-512.png" width="270" alt="pyscriptc"></p>
 
 <h1 align="center">pyscriptc</h1>
 

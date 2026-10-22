@@ -370,7 +370,7 @@ Linking (`llvm.py`, F2):
 
 Configuration (`pyscriptc.toml`, P3/v0.5.0):
 
-- The planned config surface carries `ffi = ["adapters/sqlite/ffi.toml"]`:
+- The planned config surface carries `ffi = ["packaging/adapters/pyscriptc-sqlite/ffi.toml"]`:
   a list of manifest paths resolved relative to the config file and passed
   to `load_manifests`. The per-import policy table maps a module to the
   `"extern"` lane (`.agents/plans/2026-10-21-adoption-compat-ffi-strategy.md`,

@@ -76,7 +76,11 @@ def build_parts(args: argparse.Namespace) -> None:
 
 
 def part_output(part: str) -> Path:
-    """Where a part's build output lives."""
+    """Where a part's build output lives.
+
+    The landing fallback mirrors the repo-wide `docs/assets` dir at the
+    deploy root, matching Astro's `publicDir` below.
+    """
     if part == "landing":
         return ROOT / "site" / "landing" / "dist"
     if part == "docs":
@@ -89,7 +93,7 @@ def fallback_landing() -> Path:
 
     The landing app is a separate pnpm package. A checkout that has no
     node_modules (a python-only CI job, for instance) cannot build it, but
-    the assembly still has to produce a valid tree, so the public assets
+    the assembly still has to produce a valid tree, so the shared repo assets
     and a placeholder index stand in for the Astro output. The real build
     replaces them.
     """
@@ -97,9 +101,9 @@ def fallback_landing() -> Path:
     if out.exists():
         shutil.rmtree(out)
     out.mkdir(parents=True)
-    public = ROOT / "site" / "landing" / "public"
-    if public.is_dir():
-        shutil.copytree(public, out, dirs_exist_ok=True)
+    assets = ROOT / "docs" / "assets"
+    if assets.is_dir():
+        shutil.copytree(assets, out, dirs_exist_ok=True)
     (out / "index.html").write_text(
         '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'

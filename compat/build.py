@@ -40,7 +40,7 @@ PAGE_FILES = ("index.html", "compat.css", "compat.js")
 
 # The logo and the favicon, copied from the repository assets so the page
 # does not depend on the docs build for its images.
-ASSETS = {name: ROOT / "public" / "assets" / name for name in ("logo-256.png", "icon-64.png")}
+ASSETS = {name: ROOT / "docs" / "assets" / name for name in ("logo-256.png", "icon-64.png")}
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
