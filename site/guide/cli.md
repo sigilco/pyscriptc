@@ -61,6 +61,26 @@ pyscriptc logs
 
 Print the audit-log path and its last ~50 lines. This is the output to paste into an issue.
 
+## `reduce`
+
+Delta-debug a source down to a minimal reproducer of a fence or a crash.
+
+```sh
+pyscriptc reduce FILE (--predicate CMD | --fence PSxxxx | --crash) [--print] [--json]
+```
+
+| Flag | Effect |
+| ---- | ------ |
+| `--predicate CMD` | Shell command run on each candidate; exit 0 keeps the removal. The candidate path arrives in `$PSC_SOURCE` |
+| `--fence PSxxxx` | Shorthand: lowering the candidate still reports a fence with that code |
+| `--crash` | Shorthand: lowering the candidate still raises a non-fence error |
+| `--timeout S` | Seconds per `--predicate` command (default 120) |
+| `--steps N` | Cap on removal attempts (default 10000) |
+| `--print` | Print the reduced source instead of writing `FILE.min.py` |
+| `--json` | Print the removal log as JSON and write nothing |
+
+The result is written to `FILE.min.py` beside the input; the input is never modified. Exit code is 0 when the final variant still satisfies the predicate.
+
 ## `doctor`
 
 ```sh
