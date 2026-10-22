@@ -1,0 +1,10 @@
+{
+  "slug": "word_count_pkg",
+  "argv": [
+    "/Users/josocjoq/.worktrees/v06/n5chore/benchmarks/scripts_corpus/fixtures/lines.txt",
+    "3"
+  ],
+  "stdout": "alpha: 2\nbeta: 2\ngamma: 1\n",
+  "stderr": "",
+  "exitCode": 0
+}

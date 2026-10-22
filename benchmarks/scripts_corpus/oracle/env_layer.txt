@@ -1,0 +1,2 @@
+PYSC_CORPUS=<set>
+PYSC_CORPUS_NAME=<set>

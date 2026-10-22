@@ -37,6 +37,7 @@ REQUIRED = (
     "docs/index.html",
     "compat/index.html",
     "compat/data/compat.json",
+    "compat/data/ladder.json",
 )
 
 

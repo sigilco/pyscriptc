@@ -155,8 +155,9 @@ def test_recorded_oracle_matches_a_fresh_run(slug: str, tmp_path: Path) -> None:
 def test_every_script_directory_has_an_oracle() -> None:
     oracle = ROOT / "benchmarks" / "scripts_corpus" / "oracle"
     slugs = {path.name for path in SCRIPTS.iterdir() if path.is_dir()}
+    tree_slugs = {path.name for path in (ROOT / "benchmarks" / "scripts_corpus" / "trees").iterdir() if path.is_dir()}
     recorded = {path.stem for path in oracle.glob("*.txt")}
-    assert slugs == recorded, f"scripts and recordings differ: {slugs ^ recorded}"
+    assert slugs == recorded - tree_slugs, f"scripts and recordings differ: {slugs ^ (recorded - tree_slugs)}"
 
 
 needs_cc = pytest.mark.skipif(
@@ -190,3 +191,63 @@ def test_exec_stage_skips_a_fenced_script() -> None:
     assert not result.compile_pass
     exec_script(result, [str(fixtures_dir() / "lines.txt")], ROOT / "benchmarks" / "scripts_corpus" / "oracle")
     assert result.exec_outcome == ""
+
+
+TREES = ROOT / "benchmarks" / "scripts_corpus" / "trees"
+
+
+def test_every_tree_directory_has_an_oracle() -> None:
+    oracle = ROOT / "benchmarks" / "scripts_corpus" / "oracle"
+    slugs = {path.name for path in TREES.iterdir() if path.is_dir()}
+    recorded = {path.stem for path in oracle.glob("*.txt")}
+    assert slugs <= recorded, f"trees without a recording: {slugs - recorded}"
+    assert not (slugs & {path.name for path in SCRIPTS.iterdir() if path.is_dir()}), (
+        "a tree slug collides with a script slug; the oracle directory is shared"
+    )
+
+
+def test_every_tree_has_a_meta_and_an_entry() -> None:
+    for path in TREES.iterdir():
+        if not path.is_dir():
+            continue
+        assert (path / "meta.json").is_file(), path.name
+        assert (path / "__main__.py").is_file(), path.name
+        meta = json.loads((path / "meta.json").read_text(encoding="utf-8"))
+        for name in meta["modules"]:
+            assert (path / name).is_file(), (path.name, name)
+
+
+def test_tree_runner_reports_the_corpus() -> None:
+    from benchmarks.scripts_corpus.trees import analyse_all, tree_dirs
+
+    results = analyse_all(TREES)
+    assert len(results) == len(tree_dirs(TREES))
+    for result in results:
+        assert result.fences >= 0
+        assert result.slug
+
+
+def test_tree_runner_renders_a_report() -> None:
+    from benchmarks.scripts_corpus.trees import analyse_all, render_report
+
+    report = render_report(analyse_all(TREES), with_exec=False)
+    assert "R2" in report
+    assert "multi-module trees" in report
+
+
+def test_ladder_document_has_the_three_parts() -> None:
+    from benchmarks.scripts_corpus.ladder import build
+
+    document = build(exec_stage=False)
+    assert document["schema"] == 1
+    rungs = {rung["rung"]: rung for rung in document["rungs"]}
+    assert set(rungs) == {"R1", "R2"}
+    for rung in rungs.values():
+        assert rung["total"] > 0
+        assert rung["compiled"] <= rung["total"]
+    r4 = document["r4"]
+    assert r4["trees"] > 0
+    lanes = {lane["lane"]: lane for lane in r4["lanes"]}
+    assert set(lanes) == {"native", "pack", "extern", "island", "absent"}
+    share = sum(lane["share"] for lane in lanes.values())
+    assert abs(share - 1.0) < 0.001

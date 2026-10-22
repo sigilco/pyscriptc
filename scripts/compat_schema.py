@@ -40,6 +40,7 @@ _TOP_LEVEL_KEYS = (
     "commit",
     "sources",
     "summary",
+    "ladder",
     "builtins",
     "stdlib",
     "packages",
@@ -180,6 +181,65 @@ def _check_history(row: Any, where: str, problems: list[str]) -> None:
             problems.append(f"{where}: {key} is not an integer")
 
 
+# The lanes of the per-import policy table in the adoption plan.
+LANES = ("native", "pack", "extern", "island", "absent")
+
+
+def _check_ladder_rung(row: Any, where: str, problems: list[str]) -> None:
+    """One ladder rung row (R1, R2)."""
+    if not _is_dict(row):
+        problems.append(f"{where}: expected an object")
+        return
+    for key in ("rung", "label", "corpus", "total", "compiled", "passed", "measured"):
+        if key not in row:
+            problems.append(f"{where}: missing key {key!r}")
+    for key in ("total", "compiled", "passed"):
+        if not _is_int(row.get(key)):
+            problems.append(f"{where}: {key} is not an integer")
+    for key in ("rung", "label", "corpus"):
+        if not _is_str(row.get(key)):
+            problems.append(f"{where}: {key} is not a string")
+    if not isinstance(row.get("measured"), bool):
+        problems.append(f"{where}: measured is not a boolean")
+
+
+def _check_ladder_lane(row: Any, where: str, problems: list[str]) -> None:
+    """One R4 lane-share row."""
+    if not _is_dict(row):
+        problems.append(f"{where}: expected an object")
+        return
+    for key in ("lane", "imports", "share"):
+        if key not in row:
+            problems.append(f"{where}: missing key {key!r}")
+    if row.get("lane") not in LANES:
+        problems.append(f"{where}: lane {row.get('lane')!r} is not one of {list(LANES)}")
+    if not _is_int(row.get("imports")):
+        problems.append(f"{where}: imports is not an integer")
+    if not _is_number(row.get("share")):
+        problems.append(f"{where}: share is not a number")
+
+
+def _check_ladder(ladder: Any, where: str, problems: list[str]) -> None:
+    """The ladder section: the R1, R2 and R4 rows."""
+    if not _is_dict(ladder):
+        problems.append(f"{where} is not an object")
+        return
+    rungs = ladder.get("rungs")
+    if not _is_list(rungs):
+        problems.append(f"{where}.rungs is not a list")
+    else:
+        for index, row in enumerate(rungs):
+            _check_ladder_rung(row, f"{where}.rungs[{index}]", problems)
+    lanes = ladder.get("lanes")
+    if not _is_list(lanes):
+        problems.append(f"{where}.lanes is not a list")
+    else:
+        for index, row in enumerate(lanes):
+            _check_ladder_lane(row, f"{where}.lanes[{index}]", problems)
+    if not _is_str(ladder.get("corpus")):
+        problems.append(f"{where}.corpus is not a string")
+
+
 def validate(document: Any) -> list[str]:
     """Problems in `document`, empty when it matches the schema."""
     problems: list[str] = []
@@ -226,6 +286,9 @@ def validate(document: Any) -> list[str]:
     else:
         for index, row in enumerate(fences):
             _check_fence(row, f"fences[{index}]", problems)
+    ladder = document.get("ladder")
+    if ladder is not None:
+        _check_ladder(ladder, "ladder", problems)
     history = document.get("history")
     if not _is_list(history):
         problems.append("history is not a list")

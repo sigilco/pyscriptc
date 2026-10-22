@@ -1,0 +1,15 @@
+{
+  "slug": "grep_ctx",
+  "title": "Grep with line numbers",
+  "license": "MIT",
+  "origin": "original, written for this corpus",
+  "entry": "__main__.py",
+  "invocation": [
+    "b",
+    "{fixtures}/lines.txt"
+  ],
+  "modules": [
+    "__main__.py",
+    "match.py"
+  ]
+}
