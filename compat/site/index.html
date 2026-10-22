@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Are We Native Yet? · pyscriptc</title>
+  <meta name="description" content="Live compatibility status of pyscriptc: which builtins, standard-library modules, language features and PyPI packages compile to native code today.">
+  <link rel="icon" type="image/png" href="{{BASE}}icon-64.png">
+  <link rel="stylesheet" href="{{BASE}}compat.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/">
+      <img src="{{BASE}}logo-256.png" alt="" width="28" height="28">
+      <span>pyscriptc</span>
+    </a>
+    <nav aria-label="Site">
+      <a href="/">Home</a>
+      <a href="/docs/">Docs</a>
+      <a href="{{BASE}}" aria-current="page">Compat</a>
+      <a href="https://github.com/sigilco/pyscriptc">GitHub</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <h1>Are We Native Yet?</h1>
+      <p class="tagline">Live compatibility status of <a href="https://github.com/sigilco/pyscriptc">pyscriptc</a>: which builtins, standard-library modules, language features and PyPI packages compile to native code today.</p>
+      <p class="meta" id="meta">loading&hellip;</p>
+    </section>
+
+    <noscript>
+      <p class="noscript">This page renders its tables with JavaScript. The raw data behind it is plain JSON: <a href="{{BASE}}data/compat.json">data/compat.json</a>.</p>
+    </noscript>
+
+    <p class="error" id="error" hidden></p>
+
+    <section class="summary" id="summary" hidden>
+      <div class="cards">
+        <div class="card" id="card-builtins"><h2>Builtins</h2><p class="counts"></p></div>
+        <div class="card" id="card-stdlib"><h2>Standard library</h2><p class="counts"></p></div>
+        <div class="card" id="card-packages"><h2>PyPI top 100</h2><p class="counts"></p></div>
+        <div class="card" id="card-score"><h2>Weighted pass</h2><p class="big"></p><p class="sub">compat2 visible corpus</p></div>
+        <div class="card" id="card-fences"><h2>Fences</h2><p class="big"></p><p class="sub">in the measured packages</p></div>
+      </div>
+    </section>
+
+    <nav class="toc" aria-label="Sections">
+      <a href="#language">Language features</a>
+      <a href="#builtins">Builtins</a>
+      <a href="#stdlib">Standard library</a>
+      <a href="#pypi">PyPI top 100</a>
+      <a href="#fences">Fence census</a>
+      <a href="#history">History</a>
+    </nav>
+
+    <section id="language" hidden>
+      <h2>Language features</h2>
+      <p class="section-note">compat2 probe groups over the visible corpus. Weighted pass is the scorer&rsquo;s weighted share of passing probes. Look a fence code up with <code>pyscriptc explain PSxxxx</code>.</p>
+      <div class="controls">
+        <input type="search" id="language-filter" placeholder="Filter groups&hellip;" aria-label="Filter language feature groups">
+        <span class="count" id="language-count" aria-live="polite"></span>
+      </div>
+      <div class="table-wrap">
+        <table id="language-table" aria-describedby="language-note"></table>
+      </div>
+    </section>
+
+    <section id="builtins" hidden>
+      <h2>Builtins</h2>
+      <p class="section-note">One row per probed group of Python builtins. &ldquo;Not supported&rdquo; lists the forms that stop at a fence.</p>
+      <div class="controls">
+        <input type="search" id="builtins-filter" placeholder="Filter builtins&hellip;" aria-label="Filter builtins">
+        <div class="chips" role="group" aria-label="Filter builtins by status" data-for="builtins">
+          <button type="button" class="chip" data-status="all" aria-pressed="true">All</button>
+          <button type="button" class="chip" data-status="full" aria-pressed="false">Full</button>
+          <button type="button" class="chip" data-status="partial" aria-pressed="false">Partial</button>
+          <button type="button" class="chip" data-status="none" aria-pressed="false">None</button>
+        </div>
+        <span class="count" id="builtins-count" aria-live="polite"></span>
+      </div>
+      <div class="table-wrap">
+        <table id="builtins-table"></table>
+      </div>
+    </section>
+
+    <section id="stdlib" hidden>
+      <h2>Standard library</h2>
+      <p class="section-note">One row per probed module. &ldquo;Not supported&rdquo; lists the module surface that stops at a fence.</p>
+      <div class="controls">
+        <input type="search" id="stdlib-filter" placeholder="Filter modules&hellip;" aria-label="Filter standard-library modules">
+        <div class="chips" role="group" aria-label="Filter standard library by status" data-for="stdlib">
+          <button type="button" class="chip" data-status="all" aria-pressed="true">All</button>
+          <button type="button" class="chip" data-status="full" aria-pressed="false">Full</button>
+          <button type="button" class="chip" data-status="partial" aria-pressed="false">Partial</button>
+          <button type="button" class="chip" data-status="none" aria-pressed="false">None</button>
+        </div>
+        <span class="count" id="stdlib-count" aria-live="polite"></span>
+      </div>
+      <div class="table-wrap">
+        <table id="stdlib-table"></table>
+      </div>
+    </section>
+
+    <section id="pypi" hidden>
+      <h2>PyPI top 100</h2>
+      <p class="section-note">The pinned top-100 packages, measured with <code>pyscriptc coverage</code>. Status: no fences is full, at most half the definitions fenced is partial, more is none.</p>
+      <div class="controls">
+        <input type="search" id="packages-filter" placeholder="Filter packages&hellip;" aria-label="Filter packages">
+        <div class="chips" role="group" aria-label="Filter packages by status" data-for="packages">
+          <button type="button" class="chip" data-status="all" aria-pressed="true">All</button>
+          <button type="button" class="chip" data-status="full" aria-pressed="false">Full</button>
+          <button type="button" class="chip" data-status="partial" aria-pressed="false">Partial</button>
+          <button type="button" class="chip" data-status="none" aria-pressed="false">None</button>
+        </div>
+        <span class="count" id="packages-count" aria-live="polite"></span>
+      </div>
+      <div class="table-wrap">
+        <table id="packages-table"></table>
+      </div>
+    </section>
+
+    <section id="fences" hidden>
+      <h2>Fence census</h2>
+      <p class="section-note">Fence codes over the measured packages, from the same run as the table above. Look a code up with <code>pyscriptc explain PSxxxx</code>.</p>
+      <div class="controls">
+        <input type="search" id="fences-filter" placeholder="Filter fence codes&hellip;" aria-label="Filter fence codes">
+        <span class="count" id="fences-count" aria-live="polite"></span>
+      </div>
+      <div class="table-wrap">
+        <table id="fences-table"></table>
+      </div>
+    </section>
+
+    <section id="history" hidden>
+      <h2>History</h2>
+      <p class="section-note">One point per nightly measurement. One point means the trend just started.</p>
+      <div class="controls">
+        <label for="history-metric">Metric</label>
+        <select id="history-metric">
+          <option value="weighted_pass">Weighted pass</option>
+          <option value="packages_full">Packages full</option>
+          <option value="packages_partial">Packages partial</option>
+          <option value="packages_none">Packages none</option>
+          <option value="fences">Fences</option>
+        </select>
+      </div>
+      <div id="chart" class="chart" role="img" aria-label="History chart of the selected metric"></div>
+    </section>
+  </main>
+
+  <footer>
+    <p>Measured <span id="generated"></span> at commit <a id="commit" href="#"></a> by the <a href="https://github.com/sigilco/pyscriptc/actions/workflows/nightly.yml">nightly workflow</a>. Data: <a href="{{BASE}}data/compat.json">compat.json</a>.</p>
+    <p><a href="https://pyscriptc.pages.dev">pyscriptc</a> compiles typed Python to native binaries. The support model and what the statuses mean: <a href="https://pyscriptc.pages.dev/docs/guide/support-model/">the Python subset</a>.</p>
+  </footer>
+
+  <script>window.__COMPAT_BASE = "{{BASE}}";</script>
+  <script src="{{BASE}}compat.js"></script>
+</body>
+</html>
