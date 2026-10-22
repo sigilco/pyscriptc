@@ -37,7 +37,9 @@ def test_self_census_ballpark() -> None:
     # zigshim.py (#291, the `pip install ziglang` PATH shim) adds 1 module.
     # restlower/_dotenv.py (dotenv_values / load_dotenv, #253) adds 1 module and 5 fences.
     # restlower/_yaml.py (yaml.safe_load, #254) adds 1 module and 5 fences.
-    assert census["modules"] == 86
+    # restlower/_urllib.py (urlopen / Request, #225 #226) adds 1 module and 12 fences.
+    # Project mode (#150): project.py adds 1 module.
+    assert census["modules"] == 87
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -105,8 +107,11 @@ def test_self_census_ballpark() -> None:
     # add 11 self-host fences (new lowering code and its annotations).
     # Telemetry v2 (#257): the PSxxxx histogram, the binary size and the
     # run.finished event add 10 self-host fences in telemetry.py and cli.py.
-    assert census["fences"] == 2509
+    # Project mode (#150): project.py adds about 107 self-host fences (the
+    # pyproject discovery, the entry-point reader and the entry wrapper).
+    assert census["fences"] == 2616
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
+    # Project mode (#150): project.py adds about 240 lines.
     assert 11_000 <= census["lines"] <= 36_000
-    assert sum(p["fences"] for p in census["packages"]) == 2509
+    assert sum(p["fences"] for p in census["packages"]) == 2616

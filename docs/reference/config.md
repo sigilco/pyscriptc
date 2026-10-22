@@ -65,8 +65,27 @@ Each dependency is also mapped to an import lane, shown by `pyscriptc config` an
 
 `stub-path` and `ffi` are resolved against the config file directory and exposed on the config (`stub_paths`, `ffi_manifests`); the compile path consumes them in later work.
 
+## Project mode (P8)
+
+A pyproject with a `[project.scripts]` table builds one binary per console script:
+
+```bash
+pyscriptc build [DIR]            # every script, or --script NAME
+```
+
+The binary is written to `<project>/build/<name>` (or `--out-dir`). The
+console script's contract is the binary's contract: CPython runs
+`module:attr` and exits with the attribute's return value, so the built
+binary imports the module (its body runs at import time, in the same order
+CPython reaches it), calls the attribute, and exits with its return value.
+
+The module path resolves against the project's module roots: `[tool.pyscriptc]`
+`src`, default `src`, falling back to the project root when the directory does
+not exist (a flat layout). `pyscriptc config DIR --json` reports the scripts.
+
 ## CLI
 
-- `pyscriptc config SOURCE [--json]`: show the resolved config for a source file or directory.
+- `pyscriptc config SOURCE [--json]`: show the resolved config for a source file or directory, including the pyproject's console scripts.
+- `pyscriptc build [DIR] [--script NAME] [--out-dir DIR]`: project mode, one binary per `[project.scripts]` entry point.
 - `pyscriptc compile SOURCE`: fills unset `--checker`, `--driver`, `--target` and `--fail-on` from config; an explicit flag always wins. Notes on stderr name the config origin.
 - `pyscriptc coverage SOURCE`: `--fail-on` defaults from config when the flag is absent.
