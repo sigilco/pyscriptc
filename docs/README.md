@@ -10,4 +10,4 @@ pyscriptc compiles one annotated Python file to a native binary. The file has to
 - [Config](config.md)
 - [Cross-checking with mypy and pyright](external-oracles.md)
 
-The design of the compiler is in [`ARCHITECTURE.md`](../ARCHITECTURE.md).
+The design of the compiler is in [`architecture.md`](architecture.md).
