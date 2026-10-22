@@ -1,4 +1,4 @@
-"""Schema for the compat site data file (`compat-data/compat.json`).
+"""Schema for the compat site data file (`compat/data/compat.json`).
 
 The schema is plain data plus a small validator, so the check has no third-party
 dependency and runs in the same venv as the compiler.

@@ -8,7 +8,7 @@
 // `mise run docs:validate` uses to check links with the placeholders already
 // expanded. Keep the two in sync.
 const PLACEHOLDERS = {
-  PYSC_COMPAT_URL: { env: "PYSC_COMPAT_URL", default: "https://pyscriptc-compat.pages.dev" },
+  PYSC_COMPAT_URL: { env: "PYSC_COMPAT_URL", default: "https://pyscriptc.pages.dev/compat" },
   PYSC_DOCS_URL: { env: "PYSC_DOCS_URL", default: "https://pyscriptc.pages.dev" },
 };
 

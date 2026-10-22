@@ -23,7 +23,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DOCMD = ROOT / "node_modules" / ".bin" / "docmd"
 
 PLACEHOLDERS = {
-    "PYSC_COMPAT_URL": ("PYSC_COMPAT_URL", "https://pyscriptc-compat.pages.dev"),
+    "PYSC_COMPAT_URL": ("PYSC_COMPAT_URL", "https://pyscriptc.pages.dev/compat"),
     "PYSC_DOCS_URL": ("PYSC_DOCS_URL", "https://pyscriptc.pages.dev"),
 }
 

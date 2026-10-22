@@ -1,6 +1,6 @@
 """The compat site data file: builder, schema and drift.
 
-`compat-data/compat.json` is the contract between the compiler and the public
+`compat/data/compat.json` is the contract between the compiler and the public
 compat site. These tests keep it honest: the schema is enforced, the builder
 is deterministic, and the committed file matches what the tree measures.
 
