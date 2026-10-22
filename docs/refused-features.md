@@ -140,7 +140,7 @@ Every construct in this doc routes into exactly one support tier. The tier decid
 | **T2** | build-time desugar - provably result-identical rewrite before lowering | lowered; no diagnostic | none |
 | **T3** | warning lane - legal and deterministic, refused only as style | warning (channel does not exist yet); fence until it does | PS4xxx while fenced, warning later |
 
-Assignment rule: a construct is T2 only when every CPython-observable result is preserved by the rewrite (same value, same order, same exceptions, same side-effect timing); anything that depends on interpreter state, addresses or laziness is T0; anything whose only objection is style is T3; anything that needs a real CPython to be correct is T1. The boxed ledger (`benchmarks/compat2/boxed_cost.py`) arbitrates T1: if the island's cost share rises or the drop flag trips, the T1 rows convert to T0 rather than growing the runtime.
+Assignment rule: a construct is T2 only when every CPython-observable result is preserved by the rewrite (same value, same order, same exceptions, same side-effect timing); anything that depends on interpreter state, addresses or laziness is T0; anything whose only objection is style is T3; anything that needs a real CPython to be correct is T1. The boxed ledger (`benchmarks/compat2/boxed_cost.py`) arbitrates T1: if the island's cost share rises or the drop flag trips, the T1 rows convert to T0 rather than growing the runtime. Latest window (2026-10-22, at this re-census): code 0.7%, churn 0.0%, bug 0.0%, tax 0.0%, drop_flag false - the T1 tier is affordable as of this doc.
 
 ### Tier assignment
 
