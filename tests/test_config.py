@@ -173,3 +173,45 @@ LANE_CASES = [
 @pytest.mark.parametrize(("imports", "name", "lane", "key"), LANE_CASES)
 def test_lane_lookup(imports: dict, name: str, lane: str, key: str) -> None:
     assert lane_for(name, imports) == (lane, key)
+
+
+def test_stub_path_and_ffi_keys(tmp_path: Path) -> None:
+    script = _project(tmp_path, "[tool.pyscriptc]\nstub-path = 'stubs'\nffi = ['a/ffi.toml', 'b.toml']\n")
+    cfg = load_config(script)
+    assert cfg.stub_path == ("stubs",)
+    assert cfg.ffi == ("a/ffi.toml", "b.toml")
+    assert cfg.stub_paths == ((tmp_path / "stubs").resolve(),)
+    assert cfg.ffi_manifests[0] == (tmp_path / "a" / "ffi.toml").resolve()
+
+
+def test_stub_path_wrong_type_refused(tmp_path: Path) -> None:
+    script = _project(tmp_path, "[tool.pyscriptc]\nffi = 3\n")
+    with pytest.raises(ConfigError, match="ffi"):
+        load_config(script)
+    script = _project(tmp_path, "[tool.pyscriptc]\nstub-path = [1]\n")
+    with pytest.raises(ConfigError, match="list of strings"):
+        load_config(script)
+
+
+def test_dependencies_mapped_to_lanes(tmp_path: Path) -> None:
+    script = _project(tmp_path, "[tool.pyscriptc.imports]\nrich = 'refuse'\nattrs = 'island'\n")
+    script.write_text(
+        "# /// script\n"
+        "# dependencies = ['orjson>=3', 'rich', 'attrs', 'My-Pure.Pkg[x]; python_version>\"3\"']\n"
+        "# ///\nx = 1\n",
+        encoding="utf-8",
+    )
+    lanes = load_config(script).dependency_lanes()
+    assert lanes["orjson>=3"] == "pack"
+    assert lanes["rich"] == "refused"
+    assert lanes["attrs"] == "island"
+    assert lanes['My-Pure.Pkg[x]; python_version>"3"'] == "native"
+
+
+def test_dependency_lane_star_and_invalid() -> None:
+    from pyscriptc.config import dependency_lanes
+
+    assert dependency_lanes(("zzzpure",), {"*": "refuse"}) == {"zzzpure": "refused"}
+    assert dependency_lanes(("zzzpure",), {"*": "compile"}) == {"zzzpure": "native"}
+    with pytest.raises(ConfigError, match="not a valid requirement"):
+        dependency_lanes(("==1",))

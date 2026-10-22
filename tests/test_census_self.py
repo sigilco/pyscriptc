@@ -54,7 +54,8 @@ def test_self_census_ballpark() -> None:
     # Program directories (R2): the import graph walk, init-owner map, cycle fence, `__main__` guard branch,
     # entry inference and `--program` plumbing add 16 self-host fences (package.py, lower/, cli.py).
     # runcache.py (binary cache for `pyscriptc run`) adds 1 module; the `run` subcommand adds fences in cli.py.
-    assert census["fences"] == 1847
+    # PEP 723 dependency lanes, stub-path and ffi keys add 17 self-host fences (config.py, cli.py).
+    assert census["fences"] == 1864
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 30_000
-    assert sum(p["fences"] for p in census["packages"]) == 1847
+    assert sum(p["fences"] for p in census["packages"]) == 1864
