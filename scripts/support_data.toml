@@ -1,0 +1,406 @@
+# Hand-written part of docs/supported.md. Every `ok` snippet must compile
+# (no fence), every `no` entry is [label, snippet, expected fence code] and
+# must fence with that code. scripts/gen_support_table.py checks both, so a
+# wrong note fails the drift test. Snippets run inside a typed function with
+# params s:str b:bytes n:int x:float t:bool xs:list[int] ss:list[str]
+# d:dict[str,int] st:set[int] p:P. A line `@@` splits module-level code from the body.
+
+[text]
+how_to_read = """
+🟢 fully supported (every probed form compiles) · 🟡 partial · 🔴 not supported.
+
+A **fence** is a coded refusal: when a construct is outside the supported subset, the compiler stops with a `PSxxxx` diagnostic (`pyscriptc explain PSxxxx`, `pyscriptc coverage FILE` lists every fence in a file).
+
+Tiers [T0 to T3](refused-features.md): T0 refuse forever, T1 island only, T2 build-time desugar, T3 warning lane.
+
+**Fence codes are per construct, not per module.** There is no per-module code table. `PS1xxx` annotations and types, `PS2001` a name missing from an otherwise lowered module (`math.asin`), `PS2002` an unlowered construct or an import outside the closed table, `PS2003` unlowered call arguments (keywords, arity), `PS2004` operators. `PS2101` (queued module) exists but no module is queued today. `PS4xxx` (refused by design) is a spec in [refused-features.md](refused-features.md) and not yet emitted. The fences column below is measured: the codes the compiler really emits for the unsupported forms listed in that row.
+
+The census in `tests/test_census_self.py` counts something else: it compiles pyscriptc's own source (61 compiler modules, 2052 fences) to track self-hosting, not stdlib support.
+
+The unsupported column lists probed gaps. Any other name of a 🟡 module also fences with `PS2001`. A module that is not in the closed import table fences with `PS2002` on the import.
+
+Targets CPython 3.14. Deliberate differences from CPython: [divergences.md](divergences.md). Library results: [compat-top100.md](compat-top100.md).
+"""
+footer = """
+Regenerate with `uv run python scripts/gen_support_table.py`; `tests/test_support_docs.py` fails when this file drifts from the compiler. Scripts that stay inside the supported set: [examples.md](examples.md).
+"""
+
+# ---------------------------------------------------------------- builtins
+
+[[builtin]]
+names = ["abs", "all", "any", "bin", "chr", "divmod", "enumerate", "getattr", "hasattr", "hex", "iter", "len", "map", "next", "oct", "ord", "pow", "range", "repr", "reversed", "round", "sum", "bool", "set"]
+ok = [
+  'y: int = abs(n)',
+  'y: bool = all(xs)',
+  'y: bool = any(xs)',
+  'y: str = bin(n)',
+  'y: str = chr(n)',
+  'a, c = divmod(n, 3)',
+  'for i, v in enumerate(xs): pass',
+  'y: int = getattr(p, "a")',
+  'y: bool = hasattr(p, "a")',
+  'y: str = hex(n)',
+  'y: int = len(d)',
+  'y: list[str] = list(map(str, xs))',
+  'y: int = next(iter(xs))',
+  'y: str = oct(n)',
+  'y: int = ord(s)',
+  'y: int = pow(n, 2)',
+  'y: list[int] = list(range(1, n, 2))',
+  'y: str = repr(s)',
+  'y: list[int] = list(reversed(xs))',
+  'y: float = round(x, 2)',
+  'y: int = sum(xs, 1)',
+  'y: bool = bool(n)',
+  'y: set[int] = set(xs)',
+]
+
+[[builtin]]
+names = ["print"]
+ok = ['print(s, n, x)']
+no = [["file= other than sys.stdout or sys.stderr", 'print(s, file=None)', "PS2002"]]
+
+[[builtin]]
+names = ["input"]
+ok = ['y: str = input()']
+no = [["prompt argument", 'y: str = input("p")', "PS2003"]]
+
+[[builtin]]
+names = ["int"]
+ok = ['y: int = int(s)', 'y: int = int(x)', 'y: int = int(b)']
+no = [["base argument", 'y: int = int(s, 16)', "PS2003"], ["int(bool)", 'y: int = int(t)', "PS2003"]]
+
+[[builtin]]
+names = ["float"]
+ok = ['y: float = float(n)', 'y: float = float(s)']
+no = [["float(bool)", 'y: float = float(t)', "PS2003"]]
+
+[[builtin]]
+names = ["str"]
+ok = ['y: str = str(n)', 'y: str = str(x)', 'y: str = str(b)', 'y: str = str(None)']
+no = [["str of a user class", 'y: str = str(p)', "PS2003"]]
+
+[[builtin]]
+names = ["list"]
+ok = ['y: list[int] = list(xs)', 'y: list[str] = list(ss)']
+no = [["list(str)", 'y: list[str] = list(s)', "PS2002"]]
+
+[[builtin]]
+names = ["min", "max"]
+ok = ['y: int = max(xs)', 'y: int = min(n, 3)', 'y: int = max(xs, key=lambda v: -v)']
+no = [["key= a function name", 'y: int = max(xs, key=abs)', "PS2003"]]
+
+[[builtin]]
+names = ["sorted"]
+ok = ['y: list[int] = sorted(xs, reverse=True)', 'y: list[int] = sorted(xs, key=lambda v: -v)']
+no = [["key= a function name", 'y: list[int] = sorted(xs, key=abs)', "PS2003"], ["sorted(dict)", 'y: list[str] = sorted(d)', "PS2003"]]
+
+[[builtin]]
+names = ["zip"]
+ok = ['for i, v in zip(xs, ss): pass']
+no = [["more than 2 lists", 'y: int = len(list(zip(xs, xs, xs)))', "PS2003"]]
+
+[[builtin]]
+names = ["filter"]
+ok = ['y: list[int] = list(filter(lambda v: v > 0, xs))']
+no = [["filter(None, ...)", 'y: list[int] = list(filter(None, xs))', "PS2003"]]
+
+[[builtin]]
+names = ["isinstance"]
+ok = ['y: bool = isinstance(p, P)', 'y: bool = isinstance(n, int)']
+no = [["tuple of types", 'y: bool = isinstance(n, (int, str))', "PS2001"]]
+
+[[builtin]]
+names = ["open"]
+ok = ['with open(s) as fh: pass', 'with open(s, "w") as fh: pass', 'for line in open(s): pass']
+no = [["encoding= and other keywords", 'with open(s, "r", encoding="utf-8") as fh: pass', "PS2003"]]
+
+[[builtin]]
+names = ["id"]
+ok = ['y: int = id(p)']
+no = [["id of int", 'y: int = id(n)', "PS2003"]]
+
+[[builtin]]
+names = ["frozenset"]
+ok = ['y: int = len(frozenset([1, 2]))']
+no = [["non-constant argument", 'y: int = len(frozenset(xs))', "PS2002"]]
+
+[[builtin]]
+names = ["eval"]
+ok = ['y: int = eval("1")']
+no = [["anything but a constant expression", 'y: int = eval("1+1")', "PS2002"]]
+
+[[builtin]]
+names = ["BaseException and subclasses"]
+ok = ['try:\n    raise ValueError("a")\nexcept (ValueError, KeyError) as e:\n    pass']
+no = [["ExceptionGroup", 'raise ExceptionGroup("a", [ValueError("x")])', "PS2003"]]
+
+[[builtin]]
+names = ["bytes", "bytearray", "memoryview", "callable", "complex", "dict", "format", "tuple", "type", "object", "super", "vars", "dir", "globals", "locals", "exec", "issubclass", "ascii", "setattr", "delattr", "slice", "hash", "__import__"]
+red = true
+note = "all (`dict` displays and `{}` work; `dict(...)` does not)"
+imports = []
+probes = [
+  ['y: bytes = bytes(3)', "PS2002"],
+  ['y: bytes = bytearray(3)', "PS2002"],
+  ['y: int = memoryview(b)', "PS2002"],
+  ['y: bool = callable(p)', "PS2002"],
+  ['y: dict[str, int] = dict(d)', "PS2002"],
+  ['y: str = format(n, "x")', "PS2002"],
+  ['y: int = tuple(xs)', "PS2002"],
+  ['y: int = type(n)', "PS2002"],
+  ['y: int = vars(p)', "PS2002"],
+  ['y: int = dir(p)', "PS2002"],
+  ['y: int = globals()', "PS2002"],
+  ['y: int = locals()', "PS2002"],
+  ['exec("1")', "PS2002"],
+  ['y: bool = issubclass(P, P)', "PS2002"],
+  ['y: str = ascii(s)', "PS2002"],
+  ['setattr(p, "a", 1)', "PS2002"],
+  ['delattr(p, "a")', "PS2002"],
+  ['y: int = slice(1, 2)', "PS2002"],
+  ['y: int = hash(s)', "PS2002"],
+  ['y: int = __import__("math")', "PS2002"],
+]
+
+# ----------------------------------------------------------------- stdlib
+
+[[stdlib]]
+names = ["math"]
+ok = ['y: float = math.sqrt(x)', 'y: float = math.atan2(x, x)', 'y: int = math.gcd(n, n)', 'y: bool = math.isclose(x, x)', 'y: float = math.pi', 'y: bool = math.isfinite(x)', 'y: int = math.floor(x)']
+no = [["asin, sinh, degrees, fsum, factorial, comb, isqrt, copysign, fmod, cbrt", 'y: float = math.asin(x)', "PS2001"], ["log with a base", 'y: float = math.log(x, 2.0)', "PS2003"]]
+
+[[stdlib]]
+names = ["re"]
+ok = ['y: list[str] = re.findall("a", s)', 'y: str = re.sub("a", "b", s)', 'y: list[str] = re.split("a", s)', 'y: bool = re.search("a", s) is not None', 'y: str = re.escape(s)', 'y: int = re.IGNORECASE']
+no = [["finditer", 'for m in re.finditer("a", s): pass', "PS2001"], ["5+ groups", 'y: list[str] = re.findall("(a)(b)(c)(d)(e)", s)', "PS2002"], ["sub with a function", 'y: str = re.sub("a", lambda m: "b", s)', "PS1001"]]
+
+[[stdlib]]
+names = ["json"]
+ok = ['y: list[int] = json.loads(s)', 'y: str = json.dumps(xs, indent=2)', 'y: str = json.dumps(d, sort_keys=True)']
+no = [["load, dump (files)", 'y: dict[str, int] = json.load(p)', "PS2001"], ["ensure_ascii=False", 'y: str = json.dumps(xs, ensure_ascii=False)', "PS2003"], ["JSONDecodeError", 'y: json.JSONDecodeError', "PS1106"]]
+
+[[stdlib]]
+names = ["urllib.parse"]
+ok = ['y: str = urllib.parse.quote(s)', 'y: str = urllib.parse.unquote_plus(s)']
+no = [["urlparse, urljoin, urlunsplit, parse_qsl", 'y: str = urllib.parse.urljoin(s, s)', "PS2001"]]
+
+[[stdlib]]
+names = ["base64"]
+ok = ['y: bytes = base64.b64encode(b)', 'y: bytes = base64.urlsafe_b64decode(b)']
+no = [["b32, b16, a85, encodebytes", 'y: bytes = base64.b32encode(b)', "PS2001"]]
+
+[[stdlib]]
+names = ["hashlib"]
+ok = ['y: str = hashlib.sha256(b).hexdigest()', 'y: bytes = hashlib.md5(b).digest()']
+no = [["blake2, sha3, sha224, new, pbkdf2_hmac", 'y: str = hashlib.blake2b(b).hexdigest()', "PS2001"], ["incremental update (no-argument constructor)", 'y: int = hashlib.sha256()', "PS2003"]]
+
+[[stdlib]]
+names = ["struct"]
+ok = ['y: bytes = struct.pack("<I", n)', 'y: list[int] = struct.unpack("<I", b)']
+no = [["calcsize, unpack_from", 'y: int = struct.calcsize("<I")', "PS2001"], ["non-literal format", 'y: bytes = struct.pack(s, n)', "PS2001"]]
+
+[[stdlib]]
+names = ["datetime"]
+ok = ['y: str = datetime.date(2020, 1, 2).isoformat()', 'y: str = datetime.datetime.now().isoformat()', 'y: float = datetime.timedelta(days=1).total_seconds()', 'y: str = datetime.datetime.fromisoformat(s).isoformat()', 'y: str = datetime.datetime.strptime(s, "%Y").isoformat()']
+no = [["timezone and tzinfo", 'y: str = datetime.timezone.utc', "PS2001"], ["utcnow", 'y: str = datetime.datetime.utcnow().isoformat()', "PS2001"], ["datetime.strftime", 'y: str = datetime.datetime(2020, 1, 2).strftime("%Y")', "PS2001"]]
+
+[[stdlib]]
+names = ["time"]
+ok = ['y: float = time.time()', 'time.sleep(x)', 'y: str = time.strftime("%Y", time.localtime())', 'y: float = time.mktime(time.localtime())']
+no = [["perf_counter, time_ns, ctime, process_time", 'y: float = time.perf_counter()', "PS2001"]]
+
+[[stdlib]]
+names = ["collections"]
+ok = ['y: collections.deque[int] = collections.deque()', 'y: collections.OrderedDict[str, int] = collections.OrderedDict()']
+no = [["ChainMap", 'y: collections.ChainMap = collections.ChainMap()', "PS1106"]]
+
+[[stdlib]]
+names = ["functools"]
+ok = ['y: int = functools.reduce(operator.add, xs)']
+imports = ["operator"]
+no = [["reduce with a lambda or an initializer", 'y: int = functools.reduce(lambda a, c: a + c, xs)', "PS2001"], ["partial, wraps, lru_cache, cmp_to_key", 'y: int = functools.partial', "PS2002"], ["cache, total_ordering", 'y: int = functools.cache', "PS2001"]]
+
+[[stdlib]]
+names = ["itertools"]
+ok = ['for v in itertools.chain(xs, xs): pass', 'y: list[int] = list(itertools.islice(xs, 2))', 'y: list[int] = list(itertools.accumulate(xs))', 'y: list[int] = list(itertools.takewhile(lambda v: v > 0, xs))']
+no = [["count, cycle (infinite)", 'y: list[int] = list(itertools.count())', "PS2001"], ["permutations, pairwise, batched, tee, dropwhile, compress", 'y: list[int] = list(itertools.permutations(xs))', "PS2001"]]
+
+[[stdlib]]
+names = ["operator"]
+ok = ['y: int = operator.add(n, n)', 'y: bool = operator.eq(n, n)', 'y: int = operator.mod(n, n)']
+no = [["itemgetter, attrgetter, methodcaller", 'y: int = operator.itemgetter(0)(xs)', "PS2001"], ["and_, not_, getitem", 'y: int = operator.and_(n, n)', "PS2001"]]
+
+[[stdlib]]
+names = ["contextlib"]
+ok = ['with contextlib.suppress(KeyError): pass', 'with contextlib.nullcontext(): pass']
+no = [["closing, redirect_stdout, ExitStack, contextmanager", 'with contextlib.closing(p): pass', "PS2001"]]
+
+[[stdlib]]
+names = ["os"]
+ok = ['y: str = os.getcwd()', 'y: list[str] = os.listdir(s)', 'y: str = os.environ["A"]', 'y: str = os.path.join(s, s)', 'y: int = os.getpid()', 'y: str = os.sep']
+no = [["walk, scandir, system, urandom, cpu_count, kill, symlink, rmdir, getuid", 'for r, ds, fs in os.walk(s): pass', "PS2001"], ["keyword arguments (makedirs exist_ok)", 'os.makedirs(s, exist_ok=True)', "PS2003"]]
+
+[[stdlib]]
+names = ["posixpath"]
+ok = ['y: str = posixpath.join(s, s)', 'y: str = posixpath.relpath(s)', 'y: str = posixpath.sep']
+no = [["commonpath, ismount, lexists", 'y: str = posixpath.commonpath(ss)', "PS2001"]]
+
+[[stdlib]]
+names = ["pathlib"]
+ok = ['y: str = pathlib.Path(s).read_text()', 'y: bool = pathlib.Path(s).exists()', 'y: str = pathlib.Path(s).suffix', 'pathlib.Path(s).mkdir(parents=True, exist_ok=True)', 'y: str = str(pathlib.Path(s) / s)', 'y: int = pathlib.Path(s).stat().st_size']
+no = [["rglob, absolute, rmdir, with_suffix, relative_to, resolve to str", 'y: int = len(list(pathlib.Path(s).rglob("*")))', "PS2001"], ["PurePath", 'y: str = pathlib.PurePath(s).name', "PS2001"]]
+
+[[stdlib]]
+names = ["stat"]
+ok = ['y: bool = stat.S_ISREG(n)', 'y: int = stat.S_IRUSR', 'y: int = stat.ST_MTIME']
+no = [["S_IMODE, S_ISFIFO, S_ISSOCK, filemode", 'y: int = stat.S_IMODE(n)', "PS2001"]]
+
+[[stdlib]]
+names = ["fnmatch"]
+ok = ['y: bool = fnmatch.fnmatch(s, s)', 'y: list[str] = fnmatch.filter(ss, s)']
+no = [["fnmatchcase, translate", 'y: bool = fnmatch.fnmatchcase(s, s)', "PS2001"]]
+
+[[stdlib]]
+names = ["warnings"]
+ok = ['warnings.warn(s)', 'y: str = warnings.defaultaction']
+no = [["warn with a category, simplefilter", 'warnings.simplefilter("ignore")', "PS2001"]]
+
+[[stdlib]]
+names = ["io"]
+ok = ['y: io.StringIO = io.StringIO(s)', 'y: io.BytesIO = io.BytesIO()', 'y: str = io.StringIO().getvalue()', 'y: int = io.DEFAULT_BUFFER_SIZE']
+no = [["TextIOWrapper, BufferedReader, io.open", 'y: io.TextIOWrapper = io.TextIOWrapper(io.BytesIO())', "PS1106"]]
+
+[[stdlib]]
+names = ["sys"]
+ok = ['y: list[str] = sys.argv', 'sys.stdout.write(s)', 'sys.stderr.write(s)', 'sys.exit(1)', 'y: str = sys.platform', 'y: int = sys.maxsize']
+no = [["stdin, path, modules, getsizeof, getrecursionlimit, stdout.flush", 'y: str = sys.stdin.read()', "PS2001"]]
+
+[[stdlib]]
+names = ["importlib"]
+ok = ['pass']
+no = [["import_module, reload", 'y: int = importlib.import_module(s)', "PS2001"]]
+
+[[stdlib]]
+names = ["inspect"]
+ok = ['y: str = inspect.cleandoc(s)']
+no = [["getsource, isclass, signature, iscoroutinefunction", 'y: str = inspect.getsource(p)', "PS2001"]]
+
+[[stdlib]]
+names = ["threading"]
+ok = ['y: int = threading.get_ident()', 'y: str = threading.current_thread().name', 'y: int = threading.active_count()']
+no = [["Event, main_thread", 'y: int = threading.main_thread()', "PS2001"], ["Thread(target=...)", 'y: int = threading.Thread(target=n)', "PS2003"], ["Semaphore, Timer", 'y: threading.Semaphore = threading.Semaphore(1)', "PS1106"], ["Lock in `with`", 'with threading.Lock(): pass', "PS2002"]]
+
+[[stdlib]]
+names = ["logging"]
+ok = ['logging.info(s)', 'logging.error(s)', 'y: int = logging.INFO', 'logging.getLogger(s).info(s)']
+no = [["basicConfig(level=...)", 'logging.basicConfig(level=logging.INFO)', "PS2003"], ["format args (`logging.info(fmt, a)`)", 'logging.info("a %s", s)', "PS2003"], ["exception, handlers (StreamHandler)", 'logging.exception(s)', "PS2001"]]
+
+[[stdlib]]
+names = ["asyncio"]
+ok = ['pass']
+no = [["Queue, Event, Lock", 'y: asyncio.Queue = asyncio.Queue()', "PS1106"], ["create_task, wait_for, get_event_loop", 'asyncio.create_task(n)', "PS2001"], ["sleep outside a coroutine", 'asyncio.sleep(x)', "PS2002"]]
+
+[[stdlib]]
+names = ["subprocess"]
+ok = ['y: bytes = subprocess.check_output(ss)', 'subprocess.run(ss)', 'y: int = subprocess.run(ss).returncode', 'y: bytes = subprocess.run(ss, capture_output=True).stdout', 'y: int = subprocess.DEVNULL']
+no = [["Popen, getoutput", 'y: int = subprocess.Popen(ss)', "PS2001"], ["text=True", 'y: str = subprocess.run(ss, capture_output=True, text=True).stdout', "PS1003"]]
+
+[[stdlib]]
+names = ["socket"]
+ok = ['y: str = socket.gethostname()', 'y: int = socket.AF_INET']
+no = [["socket(), gethostbyname", 'y: int = socket.socket()', "PS2001"]]
+
+[[stdlib]]
+names = ["ssl"]
+ok = ['y: str = ssl.OPENSSL_VERSION', 'y: bool = ssl.HAS_SNI']
+no = [["contexts (create_default_context)", 'y: int = ssl.create_default_context()', "PS2001"]]
+
+[[stdlib]]
+names = ["ctypes"]
+ok = ['y: int = ctypes.sizeof(ctypes.c_int)']
+no = [["CDLL, c_int(...), sizeof of other types", 'y: int = ctypes.CDLL(s)', "PS2001"]]
+
+[[stdlib]]
+names = ["string"]
+ok = ['y: str = string.ascii_letters', 'y: str = string.digits']
+no = [["capwords, Template", 'y: str = string.capwords(s)', "PS2001"]]
+
+[[stdlib]]
+names = ["bisect"]
+ok = ['y: int = bisect.bisect_left(xs, n)', 'y: int = bisect.bisect_right(xs, n)']
+no = [["insort, bisect, key=, list[str]", 'bisect.insort(xs, n)', "PS2001"]]
+
+[[stdlib]]
+names = ["errno"]
+ok = ['y: int = errno.ENOENT', 'y: int = errno.ECONNREFUSED']
+no = [["errorcode", 'y: str = errno.errorcode', "PS2001"]]
+
+[[stdlib]]
+names = ["importlib.resources"]
+ok = ['y: str = importlib.resources.files(s).read_text()', 'with importlib.resources.as_file(importlib.resources.files(s)) as pp: pass']
+no = [["read_text, is_resource", 'y: str = importlib.resources.read_text(s, s)', "PS2001"]]
+
+[[stdlib]]
+names = ["hmac"]
+ok = ['y: bytes = hmac.digest(b, b, "sha256")', 'y: bool = hmac.compare_digest(b, b)', 'y: bytes = hmac.new(b, b, "sha256").digest()']
+no = [["hexdigest, digestmod=", 'y: str = hmac.new(b, b, "sha256").hexdigest()', "PS2001"]]
+
+[[stdlib]]
+names = ["unicodedata"]
+ok = ['y: str = unicodedata.normalize("NFC", s)', 'y: str = unicodedata.category(s)', 'y: str = unicodedata.name(s)']
+no = [["ucd_3_2_0 (also: Latin-1 only)", 'y: str = unicodedata.ucd_3_2_0', "PS2001"]]
+
+[[stdlib]]
+names = ["tempfile"]
+ok = ['y: str = tempfile.gettempdir()', 'y: str = tempfile.mkdtemp()', 'with tempfile.NamedTemporaryFile() as tf2: pass']
+no = [["mkstemp, TemporaryDirectory", 'y: str = tempfile.mkstemp()', "PS2001"]]
+
+[[stdlib]]
+names = ["atexit"]
+ok = ['pass']
+no = [["register of a function with arguments, unregister", 'atexit.unregister(n)', "PS2001"]]
+
+[[stdlib]]
+names = ["shutil"]
+ok = ['shutil.copyfile(s, s)', 'shutil.rmtree(s)', 'y: str = shutil.which(s)', 'shutil.move(s, s)', 'shutil.copytree(s, s)', 'y: int = shutil.get_terminal_size().columns']
+no = [["make_archive, disk_usage, chown", 'shutil.disk_usage(s)', "PS2001"]]
+
+[[stdlib]]
+names = ["enum"]
+ok = ['pass']
+no = [["Flag, str-valued members, methods on the enum", 'class Fl(enum.Flag):\n    A = 1\n@@\ny: int = 1', "PS2002"]]
+
+[[stdlib]]
+names = ["dataclasses"]
+ok = ['@dataclasses.dataclass\nclass D:\n    a: int\n    b: str = "x"\n@@\ny: int = D(1).a']
+no = [["field(), asdict", '@dataclasses.dataclass\nclass D:\n    a: int\n@@\ny: dict[str, int] = dataclasses.asdict(D(1))', "PS2001"], ["frozen=, order= and other options", '@dataclasses.dataclass(frozen=True)\nclass D:\n    a: int\n@@\ny: int = 1', "PS1201"]]
+
+[[stdlib]]
+names = ["random"]
+ok = ['y: float = random.random()', 'y: int = random.randint(1, 2)', 'random.seed(1)', 'random.shuffle(xs)', 'y: int = random.choice(xs)', 'y: float = random.uniform(1.0, 2.0)']
+no = [["sample, gauss, Random", 'y: int = random.gauss(0.0, 1.0)', "PS2001"], ["choices(k=)", 'y: int = random.choices(xs, k=2)', "PS2003"]]
+
+[[stdlib]]
+names = ["csv"]
+ok = ['for row in csv.reader(ss): pass']
+no = [["DictReader, writer on a non-file", 'y: int = csv.DictReader(ss)', "PS2001"]]
+
+[[stdlib]]
+names = ["textwrap"]
+ok = ['y: str = textwrap.dedent(s)', 'y: str = textwrap.fill(s, 20)', 'y: list[str] = textwrap.wrap(s, 20)', 'y: str = textwrap.shorten(s, 20)', 'y: str = textwrap.indent(s, s)']
+no = [["TextWrapper", 'y: int = textwrap.TextWrapper()', "PS2001"]]
+
+[[stdlib]]
+names = ["copy"]
+ok = ['y: list[int] = copy.copy(xs)', 'y: list[int] = copy.deepcopy(xs)']
+no = [["copy of a user class", 'y: P = copy.copy(p)', "PS2001"]]
+
+[[stdlib]]
+names = ["argparse"]
+ok = ['ap: argparse.ArgumentParser = argparse.ArgumentParser()\nap.add_argument("--x")']
+no = [["subparsers, nargs=, choices=", 'ap: argparse.ArgumentParser = argparse.ArgumentParser()\nap.add_argument("--x", nargs="+")', "PS2003"]]
+
+[[stdlib]]
+names = ["typing", "typing_extensions"]
+red = false
