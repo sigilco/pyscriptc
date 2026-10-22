@@ -1,10 +1,14 @@
 ---
-// The landing page is intentionally blank: a title and the logo, nothing else.
-// The owner designs it later; this page only holds the slot and proves the
-// build works. Keep it that way until then.
+import Header from "../components/Header.astro";
+import Hero from "../components/Hero.astro";
+import Metrics from "../components/Metrics.astro";
+import ParitySection from "../components/ParitySection.astro";
+import SurfacesSection from "../components/SurfacesSection.astro";
+import CrossCompileSection from "../components/CrossCompileSection.astro";
+import FinalCTA from "../components/FinalCTA.astro";
+import Footer from "../components/Footer.astro";
+import PlaygroundModal from "../components/PlaygroundModal.astro";
 import "../styles/global.css";
-
-const title = "pyscriptc";
 ---
 
 <!doctype html>
@@ -12,14 +16,46 @@ const title = "pyscriptc";
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{title}</title>
-    <meta name="description" content="Compile annotated Python to a native binary. No CPython at runtime." />
+    <title>pyscriptc — Python to Native Compiler</title>
+    <meta
+      name="description"
+      content="Compile standard annotated Python to standalone native binaries. Zero CPython at runtime."
+    />
     <link rel="icon" type="image/png" href="/icon-64.png" />
+    <meta property="og:title" content="pyscriptc — Python to Native Compiler" />
+    <meta
+      property="og:description"
+      content="Compile standard annotated Python to standalone native binaries. Zero CPython at runtime."
+    />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="pyscriptc — Python to Native Compiler" />
+    <meta
+      name="twitter:description"
+      content="Compile standard annotated Python to standalone native binaries. Zero CPython at runtime."
+    />
   </head>
   <body>
-    <main>
-      <img src="/logo-256.png" alt="pyscriptc" width="128" height="128" />
-      <h1>{title}</h1>
+    <Header />
+    <main id="main-content">
+      <Hero />
+      <Metrics />
+      <ParitySection />
+      <SurfacesSection />
+      <CrossCompileSection />
+      <FinalCTA />
     </main>
+    <Footer />
+    <PlaygroundModal />
   </body>
 </html>
+
+<style>
+  #main-content {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    position: relative;
+    overflow-x: hidden;
+  }
+</style>
