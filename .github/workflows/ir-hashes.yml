@@ -13,8 +13,6 @@ name: ir-hashes
 
 on:
   workflow_dispatch:
-  push:
-    branches: [fix/ir-hashes-linux]
   pull_request:
     paths:
       - "src/pyscriptc/**"
