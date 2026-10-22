@@ -342,11 +342,12 @@ static PsCondRec *ps_cond_of(void *box) {
     return (PsCondRec *)box;
 }
 
-void ps_cond_acquire(void *box) {
+int32_t ps_cond_acquire(void *box) {
     PsCondRec *rec = ps_cond_of(box);
     if (pthread_mutex_lock(&rec->mutex) != 0) {
         ps_raise_cstr(PS_RUNTIME, "cannot lock the condition");
     }
+    return 1;
 }
 
 void ps_cond_release(void *box) {
@@ -426,7 +427,7 @@ void *ps_sem_new(int64_t value) {
         ps_raise_cstr(PS_RUNTIME, "cannot create a semaphore");
     }
     if (value < 0) {
-        ps_raise_cstr(PS_RUNTIME, "semaphore initial value must be >= 0");
+        ps_raise_cstr(PS_VALUE, "semaphore initial value must be >= 0");
     }
     rec->value = value;
     return rec;

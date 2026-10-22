@@ -57,7 +57,7 @@ def _threading_call(lo: Any, node: ast.Call, span: dict[str, Any], attr: str) ->
         lo._reject_keywords(node)
         if node.args:
             lo.fail(node, "PS2003", "threading.Condition expects 0 argument(s)")
-        return lo._cond_value(lo, node, span)
+        return _cond_value(lo, node, span)
     if attr == "Semaphore":
         return _semaphore_value(lo, node, span)
     if attr == "Thread":
@@ -84,21 +84,11 @@ def _semaphore_value(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str,
     for keyword in node.keywords:
         if keyword.arg != "value":
             lo.fail(node, "PS2003", f"threading.Semaphore has no keyword argument {keyword.arg}")
-        arg = lo._expr(keyword.value)
-        if arg["kind"] == "const" and arg["type"]["kind"] in {"int", "bool"}:
-            value = int(arg["value"])
-        else:
-            lo.fail(keyword.value, "PS1003", "threading.Semaphore value is a constant int")
+        value = _const_number(lo, keyword.value, "threading.Semaphore value")
     if node.args:
         if len(node.args) > 1:
             lo.fail(node, "PS2003", "threading.Semaphore expects at most 1 argument(s)")
-        arg = lo._expr(node.args[0])
-        if arg["kind"] == "const" and arg["type"]["kind"] in {"int", "bool"}:
-            value = int(arg["value"])
-        else:
-            lo.fail(node.args[0], "PS1003", "threading.Semaphore value is a constant int")
-    if value < 0:
-        lo.fail(node, "PS1003", "semaphore initial value must be >= 0")
+        value = _const_number(lo, node.args[0], "threading.Semaphore value")
     return lo._abi_call("threading", "Semaphore", [_const_int(value, span)], _SEM, "ps_sem_new", span)
 
 
@@ -116,11 +106,12 @@ def _thread_value(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, An
     args_node: ast.expr | None = None
     daemon = False
     name_value: str | None = None
-    params = ["group", "target", "name", "args", "kwargs"]
-    slots: list[ast.expr | None] = [None] * 5
+    params = ["group", "target", "name", "args", "kwargs", "daemon"]
+    slots: list[ast.expr | None] = [None] * 6
     for index, arg in enumerate(node.args):
         if index >= 5:
             lo.fail(node, "PS2003", "threading.Thread expects at most 5 argument(s)")
+        # daemon has no positional spelling in CPython's Thread.__init__.
         slots[index] = arg
     seen: set[str] = set()
     for keyword in node.keywords:
@@ -133,6 +124,12 @@ def _thread_value(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, An
         slots[params.index(keyword.arg)] = keyword.value
     if slots[0] is not None:
         lo.fail(slots[0], "PS2002", "threading.Thread ignores group")
+    if slots[5] is not None:
+        arg = lo._expr(slots[5])
+        if arg["kind"] == "const" and arg["type"]["kind"] in {"bool", "int"}:
+            daemon = bool(arg["value"])
+        else:
+            lo.fail(slots[5], "PS1003", "threading.Thread daemon is a constant bool")
     if slots[4] is not None:
         lo.fail(slots[4], "PS2002", "threading.Thread kwargs are not lowered")
     if slots[1] is not None:
@@ -303,6 +300,19 @@ def _timeout_nanos(timeout: dict[str, Any], span: dict[str, Any]) -> dict[str, A
 
 
 
+def _const_number(lo: Any, value: ast.expr, what: str) -> int | None:
+    """A constant int, including the unary-minus spelling."""
+    arg = lo._expr(value)
+    if arg["kind"] == "const" and arg["type"]["kind"] in {"int", "bool"}:
+        return int(arg["value"])
+    if isinstance(value, ast.UnaryOp) and isinstance(value.op, ast.USub):
+        inner = lo._expr(value.operand)
+        if inner["kind"] == "const" and inner["type"]["kind"] == "int":
+            return -int(inner["value"])
+    lo.fail(value, "PS1003", f"{what} is a constant int")
+    raise AssertionError("unreachable")
+
+
 def _no_args(lo: Any, node: ast.Call, what: str) -> None:
     """A method that takes no positional argument and no keyword."""
     if node.args:
@@ -324,11 +334,23 @@ def _wait_call(
     symbol: str,
     what: str,
 ) -> dict[str, Any]:
-    """`wait()` on Event or Condition: timeout in seconds, None blocks."""
-    lo._reject_keywords(node)
-    wait = _timeout_seconds(lo, node, 0, span)
-    if len(node.args) > 1:
-        lo.fail(node, "PS2003", f"{what} expects at most 1 argument(s)")
+    """`wait()` on Event or Condition: `timeout` in seconds, None blocks.
+
+    The timeout accepts the CPython keyword spelling or the positional one.
+    """
+    timeout = None
+    for keyword in node.keywords:
+        if keyword.arg != "timeout":
+            lo.fail(node, "PS2003", f"{what} has no keyword argument {keyword.arg}")
+        timeout = keyword.value
+    if node.args:
+        if len(node.args) > 1:
+            lo.fail(node, "PS2003", f"{what} expects at most 1 argument(s)")
+        timeout = node.args[0]
+    if timeout is None:
+        wait = _const_int(-1, span)
+    else:
+        wait = _timeout_nanos(lo._expr(timeout), span)
     return lo._abi_call("threading", what, [receiver, wait], _BOOL, symbol, span)
 
 
@@ -347,10 +369,19 @@ def _thread_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict
             _no_args(lo, node, "Thread.start")
             return call(_NONE, "ps_thread_start2", [], "Thread.start")
         if attr == "join":
-            lo._reject_keywords(node)
-            wait = _timeout_seconds(lo, node, 0, span)
-            if len(node.args) > 1:
-                lo.fail(node, "PS2003", "Thread.join expects at most 1 argument(s)")
+            timeout = None
+            for keyword in node.keywords:
+                if keyword.arg != "timeout":
+                    lo.fail(node, "PS2003", f"Thread.join has no keyword argument {keyword.arg}")
+                timeout = keyword.value
+            if node.args:
+                if len(node.args) > 1:
+                    lo.fail(node, "PS2003", "Thread.join expects at most 1 argument(s)")
+                timeout = node.args[0]
+            if timeout is None:
+                wait = _const_int(-1, span)
+            else:
+                wait = _timeout_nanos(lo._expr(timeout), span)
             return call(_NONE, "ps_thread_join2", [wait], "Thread.join")
         if attr == "is_alive":
             lo._reject_keywords(node)
@@ -385,7 +416,7 @@ def _thread_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict
         if attr == "acquire":
             lo._reject_keywords(node)
             _no_args(lo, node, "Condition.acquire")
-            return call(_NONE, "ps_cond_acquire", [], "Condition.acquire")
+            return call(_BOOL, "ps_cond_acquire", [], "Condition.acquire")
         if attr == "release":
             lo._reject_keywords(node)
             _no_args(lo, node, "Condition.release")
