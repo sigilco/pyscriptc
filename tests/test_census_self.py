@@ -29,7 +29,8 @@ def test_self_census_ballpark() -> None:
     # emitter.py (the emitter seam, #273) adds one more.
     # IR verifier (#272): irverify.py and llvverify.py add 2 modules.
     # Reducer (#275): reduce.py adds 1 module.
-    assert census["modules"] == 68
+    # dwarf.py (the DWARF metadata, #280) adds one more.
+    assert census["modules"] == 69
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -80,8 +81,11 @@ def test_self_census_ballpark() -> None:
     # IR verifier (#272): irverify.py and llvverify.py add 2 modules and 42 self-host fences.
     # Reducer (#275): reduce.py adds 43 self-host fences; the `reduce`
     # subcommand adds 29 more in cli.py.
-    assert census["fences"] == 2334
+    # DWARF metadata (#280): dwarf.py adds a module with 10 self-host fences
+    # (the metadata records), and the `--debug-info` plumbing adds 5 in
+    # cli.py and 11 in llvm.py.
+    assert census["fences"] == 2360
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     assert 11_000 <= census["lines"] <= 34_000
-    assert sum(p["fences"] for p in census["packages"]) == 2334
+    assert sum(p["fences"] for p in census["packages"]) == 2360
