@@ -27,6 +27,10 @@ jobs:
     name: visible corpus score
     runs-on: ubuntu-24.04
     timeout-minutes: 120
+    # contents: write is for the compat data commit only. The job pushes
+    # site/compat-data/compat.json and nothing else.
+    permissions:
+      contents: write
     outputs:
       failed: ${{ steps.result.outputs.failed }}
     steps:
@@ -67,6 +71,35 @@ jobs:
           mkdir -p nightly
           uv run python -m benchmarks.compat2.score benchmarks/compat2/probes --corpus \
             --out nightly/visible-score.json 2>&1 | tee nightly/visible-score.log
+
+      # Rebuild the compat site data file from the tree plus the score that
+      # just ran, then commit it when it changed. The push to master is what
+      # triggers the Cloudflare Pages build of pyscriptc-compat. Only this one
+      # file is ever committed. Design: .agents/docs/compat-site.md.
+      - name: Compat site data
+        id: compat
+        if: steps.score.outcome == 'success'
+        run: |
+          set -euo pipefail
+          uv run python scripts/build_compat_json.py \
+            --out site/compat-data/compat.json \
+            --score nightly/visible-score.json
+          if git diff --quiet -- site/compat-data/compat.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "compat data unchanged"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit compat data
+        if: steps.compat.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add site/compat-data/compat.json
+          git commit -m "ci: nightly compat snapshot $(date -u +%Y-%m-%d)"
+          git push
 
       - name: Record outcome
         id: result
