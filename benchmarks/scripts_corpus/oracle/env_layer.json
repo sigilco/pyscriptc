@@ -1,0 +1,9 @@
+{
+  "slug": "env_layer",
+  "argv": [
+    "PYSC_"
+  ],
+  "stdout": "PYSC_CORPUS=<set>\nPYSC_CORPUS_NAME=<set>\n",
+  "stderr": "",
+  "exitCode": 0
+}

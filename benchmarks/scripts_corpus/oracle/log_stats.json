@@ -1,0 +1,9 @@
+{
+  "slug": "log_stats",
+  "argv": [
+    "/Users/josocjoq/.worktrees/v06/n5chore/benchmarks/scripts_corpus/fixtures/app.log"
+  ],
+  "stdout": "web: 4\nworker: 3\ntotal: 7\nlast: request 3\n",
+  "stderr": "",
+  "exitCode": 0
+}

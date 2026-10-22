@@ -1,0 +1,18 @@
+{
+  "slug": "csv_join_pkg",
+  "title": "Join two CSV files on a shared column",
+  "license": "MIT",
+  "origin": "original, written for this corpus",
+  "entry": "__main__.py",
+  "invocation": [
+    "{fixtures}/columns.csv",
+    "{fixtures}/people.csv",
+    "name"
+  ],
+  "modules": [
+    "__main__.py",
+    "join.py",
+    "tables.py",
+    "util.py"
+  ]
+}

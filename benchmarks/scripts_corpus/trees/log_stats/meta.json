@@ -1,0 +1,16 @@
+{
+  "slug": "log_stats",
+  "title": "Count log lines per source",
+  "license": "MIT",
+  "origin": "original, written for this corpus",
+  "entry": "__main__.py",
+  "invocation": [
+    "{fixtures}/app.log"
+  ],
+  "modules": [
+    "__main__.py",
+    "report.py",
+    "reader.py",
+    "parse.py"
+  ]
+}

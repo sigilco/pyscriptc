@@ -1,0 +1,16 @@
+{
+  "slug": "word_count_pkg",
+  "title": "Count words with a helper module",
+  "license": "MIT",
+  "origin": "original, written for this corpus",
+  "entry": "__main__.py",
+  "invocation": [
+    "{fixtures}/lines.txt",
+    "3"
+  ],
+  "modules": [
+    "__main__.py",
+    "counter.py",
+    "counts.py"
+  ]
+}
