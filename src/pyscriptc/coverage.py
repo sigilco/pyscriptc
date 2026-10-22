@@ -235,19 +235,19 @@ def _read(path: str, cache: dict[str, str | None]) -> str | None:
     return cache[path]
 
 
-def _lower(target: Path) -> tuple[dict[str, Any], list[str]]:
+def _lower(target: Path, bridge: Any = None) -> tuple[dict[str, Any], list[str]]:
     if target.is_dir():
-        module, _ = lower_directory(target)
+        module, _ = lower_directory(target, bridge=bridge)
         files = [str(path) for _, path, _ in _discover(target)[0]]
         return module, files
     if target.is_file():
-        module, _ = lower_file(str(target))
+        module, _ = lower_file(str(target), bridge=bridge)
         return module, [str(target)]
     raise IRError(f"source not found: {target}")
 
 
-def build_report(target: Path) -> dict[str, Any]:
-    module, files = _lower(target)
+def build_report(target: Path, bridge: Any = None) -> dict[str, Any]:
+    module, files = _lower(target, bridge)
     sources: dict[str, str | None] = {}
     trees: dict[str, list[_Def]] = {}
     total_defs: dict[str, int] = {}
