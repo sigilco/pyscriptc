@@ -1,0 +1,67 @@
+{
+  "irVersion": 1,
+  "subset": "gates-v1",
+  "cpython": "3.14.8",
+  "sourceFile": "<golden>",
+  "entry": "unary_neg",
+  "functions": [
+    {
+      "name": "unary_neg",
+      "params": [],
+      "returnType": {
+        "kind": "none"
+      },
+      "locals": [
+        {
+          "name": "y",
+          "type": {
+            "kind": "int"
+          }
+        }
+      ],
+      "body": [
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "y",
+          "value": {
+            "kind": "unary",
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "op": "-",
+            "operand": {
+              "kind": "const",
+              "type": {
+                "kind": "int"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "3"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "classes": [],
+  "fences": []
+}

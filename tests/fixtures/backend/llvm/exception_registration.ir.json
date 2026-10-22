@@ -1,0 +1,42 @@
+{
+  "irVersion": 1,
+  "subset": "gates-v1",
+  "cpython": "3.14.8",
+  "sourceFile": "<golden>",
+  "entry": "raises_custom",
+  "functions": [
+    {
+      "name": "raises_custom",
+      "params": [],
+      "returnType": {
+        "kind": "none"
+      },
+      "locals": [],
+      "body": [
+        {
+          "kind": "raise",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "exc": "MyError",
+          "code": 900
+        }
+      ]
+    }
+  ],
+  "classes": [
+    {
+      "name": "MyError",
+      "fields": [],
+      "methods": [],
+      "exception": true,
+      "exc_code": 900,
+      "exc_parent": 0
+    }
+  ],
+  "fences": []
+}

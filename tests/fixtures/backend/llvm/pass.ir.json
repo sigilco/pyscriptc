@@ -1,0 +1,31 @@
+{
+  "irVersion": 1,
+  "subset": "gates-v1",
+  "cpython": "3.14.8",
+  "sourceFile": "<golden>",
+  "entry": "pass_stmt",
+  "functions": [
+    {
+      "name": "pass_stmt",
+      "params": [],
+      "returnType": {
+        "kind": "none"
+      },
+      "locals": [],
+      "body": [
+        {
+          "kind": "pass",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          }
+        }
+      ]
+    }
+  ],
+  "classes": [],
+  "fences": []
+}

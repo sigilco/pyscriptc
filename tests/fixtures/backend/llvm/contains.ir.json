@@ -1,0 +1,93 @@
+{
+  "irVersion": 1,
+  "subset": "gates-v1",
+  "cpython": "3.14.8",
+  "sourceFile": "<golden>",
+  "entry": "contains_expr",
+  "functions": [
+    {
+      "name": "contains_expr",
+      "params": [],
+      "returnType": {
+        "kind": "none"
+      },
+      "locals": [
+        {
+          "name": "xs",
+          "type": {
+            "kind": "list",
+            "elem": {
+              "kind": "int"
+            }
+          }
+        },
+        {
+          "name": "has",
+          "type": {
+            "kind": "bool"
+          }
+        }
+      ],
+      "body": [
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "has",
+          "value": {
+            "kind": "contains",
+            "type": {
+              "kind": "bool"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "hay": {
+              "kind": "name",
+              "type": {
+                "kind": "list",
+                "elem": {
+                  "kind": "int"
+                }
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "id": "xs"
+            },
+            "needle": {
+              "kind": "const",
+              "type": {
+                "kind": "int"
+              },
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "value": "1"
+            },
+            "negated": false
+          }
+        }
+      ]
+    }
+  ],
+  "classes": [],
+  "fences": []
+}

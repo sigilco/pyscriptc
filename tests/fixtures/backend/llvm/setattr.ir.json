@@ -1,0 +1,82 @@
+{
+  "irVersion": 1,
+  "subset": "gates-v1",
+  "cpython": "3.14.8",
+  "sourceFile": "<golden>",
+  "entry": "setattr_stmt",
+  "functions": [
+    {
+      "name": "setattr_stmt",
+      "params": [],
+      "returnType": {
+        "kind": "none"
+      },
+      "locals": [
+        {
+          "name": "p",
+          "type": {
+            "kind": "class",
+            "name": "Point"
+          }
+        }
+      ],
+      "body": [
+        {
+          "kind": "setattr",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "object": {
+            "kind": "name",
+            "type": {
+              "kind": "class",
+              "name": "Point"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "id": "p"
+          },
+          "name": "x",
+          "value": {
+            "kind": "const",
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "value": "1"
+          }
+        }
+      ]
+    }
+  ],
+  "classes": [
+    {
+      "name": "Point",
+      "fields": [
+        {
+          "name": "x",
+          "type": {
+            "kind": "int"
+          }
+        }
+      ],
+      "methods": []
+    }
+  ],
+  "fences": []
+}

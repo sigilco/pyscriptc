@@ -1,0 +1,59 @@
+{
+  "irVersion": 1,
+  "subset": "gates-v1",
+  "cpython": "3.14.8",
+  "sourceFile": "<golden>",
+  "entry": "name_expr",
+  "functions": [
+    {
+      "name": "name_expr",
+      "params": [],
+      "returnType": {
+        "kind": "none"
+      },
+      "locals": [
+        {
+          "name": "x",
+          "type": {
+            "kind": "int"
+          }
+        },
+        {
+          "name": "y",
+          "type": {
+            "kind": "int"
+          }
+        }
+      ],
+      "body": [
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "y",
+          "value": {
+            "kind": "name",
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "id": "x"
+          }
+        }
+      ]
+    }
+  ],
+  "classes": [],
+  "fences": []
+}

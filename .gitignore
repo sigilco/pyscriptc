@@ -9,6 +9,8 @@ dist/
 *.egg-info/
 *.ll
 *.ir.json
+# Emitter golden corpus (#273): committed fixture pairs, not compiler dumps.
+!tests/fixtures/backend/**
 *.so
 .agents/baseline-*.log
 benchmarks/compat2/.cache/

@@ -1,0 +1,64 @@
+{
+  "irVersion": 1,
+  "subset": "gates-v1",
+  "cpython": "3.14.8",
+  "sourceFile": "<golden>",
+  "entry": "expr_stmt",
+  "functions": [
+    {
+      "name": "expr_stmt",
+      "params": [],
+      "returnType": {
+        "kind": "none"
+      },
+      "locals": [],
+      "body": [
+        {
+          "kind": "expr",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "expr": {
+            "kind": "call",
+            "type": {
+              "kind": "none"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "callee": {
+              "kind": "builtin",
+              "name": "print"
+            },
+            "args": [
+              {
+                "kind": "const",
+                "type": {
+                  "kind": "int"
+                },
+                "span": {
+                  "file": "<golden>",
+                  "line": 1,
+                  "col": 1,
+                  "endLine": 1,
+                  "endCol": 2
+                },
+                "value": "1"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "classes": [],
+  "fences": []
+}

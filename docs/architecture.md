@@ -55,6 +55,20 @@ A third-party `.so` from a wheel exports `PyInit_<module>`. That symbol builds a
 
 `import nativeprobe` lowers only when `PYSCRIPTC_NATIVEPROBE=1`. It is the probe behind [`benchmarks/native/`](benchmarks/native/README.md), not a supported module. A normal compile still refuses it with `PS2002`.
 
+## The emitter golden corpus
+
+The LLVM emitter is a single large module, so it is tested per IR node kind rather than only through a whole compile. `src/pyscriptc/emitter.py` is the seam: `emit_ir_text` validates one IR module the way a compile does and renders it to LLVM text in memory, with no file, no subprocess and no toolchain.
+
+`tests/fixtures/backend/llvm/` holds one fixture pair per node kind: `<name>.ir.json` is the IR module the emitter sees, `<name>.ll` is the byte-exact text it must produce. `tests/fixtures/backend/manifest.json` records which IR node kind each fixture covers, and `tests/test_emitter_goldens.py` fails with the missing kinds listed if the corpus stops covering the emitter's dispatch surface.
+
+After an intentional emitter change, re-bless the corpus and review the diff:
+
+```bash
+uv run pytest tests/test_emitter_goldens.py --update-goldens
+```
+
+The fixture layout is backend-neutral: the IR input lives beside the LLVM expectation, so a second backend adds its own expectations beside the same inputs.
+
 ## What this is for
 
 The distribution story is one command:

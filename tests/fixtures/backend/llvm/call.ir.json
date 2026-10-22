@@ -1,0 +1,91 @@
+{
+  "irVersion": 1,
+  "subset": "gates-v1",
+  "cpython": "3.14.8",
+  "sourceFile": "<golden>",
+  "entry": "call_helper",
+  "functions": [
+    {
+      "name": "call_helper",
+      "params": [],
+      "returnType": {
+        "kind": "none"
+      },
+      "locals": [
+        {
+          "name": "y",
+          "type": {
+            "kind": "int"
+          }
+        }
+      ],
+      "body": [
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "y",
+          "value": {
+            "kind": "call",
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "callee": {
+              "kind": "function",
+              "name": "helper"
+            },
+            "args": []
+          }
+        }
+      ]
+    },
+    {
+      "name": "helper",
+      "params": [],
+      "returnType": {
+        "kind": "int"
+      },
+      "locals": [],
+      "body": [
+        {
+          "kind": "return",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "value": {
+            "kind": "const",
+            "type": {
+              "kind": "int"
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "value": "0"
+          }
+        }
+      ]
+    }
+  ],
+  "classes": [],
+  "fences": []
+}

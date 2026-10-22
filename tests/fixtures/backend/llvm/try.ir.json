@@ -1,0 +1,99 @@
+{
+  "irVersion": 1,
+  "subset": "gates-v1",
+  "cpython": "3.14.8",
+  "sourceFile": "<golden>",
+  "entry": "try_stmt",
+  "functions": [
+    {
+      "name": "try_stmt",
+      "params": [],
+      "returnType": {
+        "kind": "none"
+      },
+      "locals": [
+        {
+          "name": "x",
+          "type": {
+            "kind": "int"
+          }
+        }
+      ],
+      "body": [
+        {
+          "kind": "try",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "body": [
+            {
+              "kind": "assign",
+              "span": {
+                "file": "<golden>",
+                "line": 1,
+                "col": 1,
+                "endLine": 1,
+                "endCol": 2
+              },
+              "target": "x",
+              "value": {
+                "kind": "const",
+                "type": {
+                  "kind": "int"
+                },
+                "span": {
+                  "file": "<golden>",
+                  "line": 1,
+                  "col": 1,
+                  "endLine": 1,
+                  "endCol": 2
+                },
+                "value": "1"
+              }
+            }
+          ],
+          "handlers": [
+            {
+              "exc": [
+                "ValueError"
+              ],
+              "body": [
+                {
+                  "kind": "assign",
+                  "span": {
+                    "file": "<golden>",
+                    "line": 1,
+                    "col": 1,
+                    "endLine": 1,
+                    "endCol": 2
+                  },
+                  "target": "x",
+                  "value": {
+                    "kind": "const",
+                    "type": {
+                      "kind": "int"
+                    },
+                    "span": {
+                      "file": "<golden>",
+                      "line": 1,
+                      "col": 1,
+                      "endLine": 1,
+                      "endCol": 2
+                    },
+                    "value": "2"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "classes": [],
+  "fences": []
+}

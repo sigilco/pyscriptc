@@ -1,0 +1,96 @@
+{
+  "irVersion": 1,
+  "subset": "gates-v1",
+  "cpython": "3.14.8",
+  "sourceFile": "<golden>",
+  "entry": "dict_expr",
+  "functions": [
+    {
+      "name": "dict_expr",
+      "params": [],
+      "returnType": {
+        "kind": "none"
+      },
+      "locals": [
+        {
+          "name": "d",
+          "type": {
+            "kind": "dict",
+            "key": {
+              "kind": "str"
+            },
+            "value": {
+              "kind": "int"
+            }
+          }
+        }
+      ],
+      "body": [
+        {
+          "kind": "assign",
+          "span": {
+            "file": "<golden>",
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 2
+          },
+          "target": "d",
+          "value": {
+            "kind": "dict",
+            "type": {
+              "kind": "dict",
+              "key": {
+                "kind": "str"
+              },
+              "value": {
+                "kind": "int"
+              }
+            },
+            "span": {
+              "file": "<golden>",
+              "line": 1,
+              "col": 1,
+              "endLine": 1,
+              "endCol": 2
+            },
+            "pairs": [
+              {
+                "key": {
+                  "kind": "const",
+                  "type": {
+                    "kind": "str"
+                  },
+                  "span": {
+                    "file": "<golden>",
+                    "line": 1,
+                    "col": 1,
+                    "endLine": 1,
+                    "endCol": 2
+                  },
+                  "value": "k"
+                },
+                "value": {
+                  "kind": "const",
+                  "type": {
+                    "kind": "int"
+                  },
+                  "span": {
+                    "file": "<golden>",
+                    "line": 1,
+                    "col": 1,
+                    "endLine": 1,
+                    "endCol": 2
+                  },
+                  "value": "1"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "classes": [],
+  "fences": []
+}
