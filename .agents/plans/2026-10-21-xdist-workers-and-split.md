@@ -15,7 +15,7 @@ CI selection is `tests --ignore=tests/compat2 -m "not linux_container"`: 534 pas
 
 The knee is at 6. Going to 8 adds 14% user CPU and 50% memory for no wall gain, which is contention (sys time also climbs). Per worker, the tree costs about 0.1 GB; the largest single process seen was 0.2 GB (maximum resident set size, 180 to 214 MB across runs). Four slow `*_matches_cpython` tests run serially peaked at 207 MB for the whole tree. No test needs more than a few hundred MB, so CPU, not memory, is the binding limit on any runner. Memory only matters on a loaded 8 GB laptop.
 
-The slowest single test in this selection is 22.6s (`test_r33_raises`), not 165s; `test_numeric_tower_stays_fenced` is 1.4s. The 165s figure does not appear in `.test_durations`. Sum of recorded durations for the selection: 721s.
+The slowest single test in this selection is 22.6s (`test_r33_raises`), not 165s; `test_numeric_tower_stays_fenced` is 1.4s. The 165s figure does not appear in `tests/.test_durations`. Sum of recorded durations for the selection: 721s.
 
 ## Runner specs (GitHub docs, repo sigilco/pyscriptc is public, org plan is free)
 
@@ -36,4 +36,4 @@ Verification: with the final thresholds the CI selection under `-n auto` chose 6
 
 ## Composition with pytest-split
 
-Each shard is its own runner job, so workers per shard equal that runner's cores (3 on macos-14) and shards never share a machine; N shards times W workers does not oversubscribe. Shards help only until the longest test dominates. Critical path estimate is `max(total / (N * W), longest)` with total 721s, W=3, longest 22.6s: N=1 240s, N=2 120s, N=3 80s, N=4 60s, N=6 40s, N=8 30s. Each shard also pays about a minute of checkout, uv sync and cache restore, so returns fall off past 3 or 4. Recommendation: keep 3 shards on macos-14 (about 80s of tests); go to 4 only if shard setup is cheaper than the 20s it saves, which it is not. The test floor is the 22.6s test, reached near N=8, never worth it. Refresh durations with `uv run pytest -n 6 -m "not linux_container" --store-durations --durations-path .test_durations`.
+Each shard is its own runner job, so workers per shard equal that runner's cores (3 on macos-14) and shards never share a machine; N shards times W workers does not oversubscribe. Shards help only until the longest test dominates. Critical path estimate is `max(total / (N * W), longest)` with total 721s, W=3, longest 22.6s: N=1 240s, N=2 120s, N=3 80s, N=4 60s, N=6 40s, N=8 30s. Each shard also pays about a minute of checkout, uv sync and cache restore, so returns fall off past 3 or 4. Recommendation: keep 3 shards on macos-14 (about 80s of tests); go to 4 only if shard setup is cheaper than the 20s it saves, which it is not. The test floor is the 22.6s test, reached near N=8, never worth it. Refresh durations with `uv run pytest -n 6 -m "not linux_container" --store-durations --durations-path tests/.test_durations`.
