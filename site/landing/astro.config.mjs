@@ -6,4 +6,7 @@ import { defineConfig } from "astro/config";
 export default defineConfig({
   outDir: "dist",
   base: "/",
+  // Shared repo assets live at the repo root (docs/assets); the fallback
+  // landing in scripts/build_site.py mirrors them the same way.
+  publicDir: "../../docs/assets",
 });

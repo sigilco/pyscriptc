@@ -2,9 +2,9 @@
 
 Usage: uv run --with pillow python scripts/make_logo_sizes.py
 
-Reads public/assets/logo.png (RGBA) and writes:
-  public/assets/logo-<w>.png for w in {1024, 512, 256, 128} (aspect preserved)
-  public/assets/icon-<n>.png for n in {32, 64, 180, 512} (square, transparent pad)
+Reads scripts/logo/logo.png (RGBA) and writes to docs/assets/:
+  logo-<w>.png for w in {1024, 512, 256, 128} (aspect preserved)
+  icon-<n>.png for n in {32, 64, 180, 512} (square, transparent pad)
 PNGs are written with optimize=True. Deterministic: fixed resampling and padding.
 """
 
@@ -15,8 +15,8 @@ from pathlib import Path
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
-SRC = ROOT / "public" / "assets" / "logo.png"
-OUT_DIR = SRC.parent
+SRC = ROOT / "scripts" / "logo" / "logo.png"
+OUT_DIR = ROOT / "docs" / "assets"
 
 LOGO_WIDTHS = (1024, 512, 256, 128)
 ICON_SIZES = (32, 64, 180, 512)
