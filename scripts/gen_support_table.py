@@ -24,6 +24,7 @@ sys.path.insert(0, str(ROOT))
 
 from benchmarks.compat2.census import DEFAULT_SRC  # noqa: E402
 from pyscriptc.coverage import build_report  # noqa: E402
+from pyscriptc.imports import _ERASED as ERASED  # noqa: E402
 from pyscriptc.diagnostics import DIAGNOSTICS  # noqa: E402
 from pyscriptc.lower import lower_file  # noqa: E402
 from pyscriptc.stdlib_queue import LOWERED, QUEUE  # noqa: E402
@@ -66,12 +67,15 @@ def status_of(ok: bool, no: bool) -> str:
 
 def evaluate(entry: dict[str, Any], kind: str, errors: list[str]) -> dict[str, Any]:
     names: list[str] = entry["names"]
-    label = ", ".join(f"`{n}`" for n in names)
-    imports = names if kind == "stdlib" else entry.get("imports", [])
+    label = entry.get("label", ", ".join(f"`{n}`" for n in names))
+    imports = (names if kind == "stdlib" else []) + entry.get("imports", [])
     if kind == "stdlib":
         for name in names:
             inside = name in LOWERED
-            if entry.get("red", False) == inside:
+            erased = name in ERASED
+            if erased and entry.get("red", False):
+                errors.append(f"{name}: annotation-only import, cannot be red")
+            if not erased and entry.get("red", False) == inside:
                 errors.append(f"{name}: import table says lowered={inside}, data says red={entry.get('red', False)}")
     codes: set[str] = set()
     if entry.get("red"):
@@ -234,7 +238,7 @@ def main() -> int:
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1
-    stale = [p for p, text in files.items() if Path(p).read_text(encoding="utf-8") != text]
+    stale = [p for p, text in files.items() if not Path(p).exists() or Path(p).read_text(encoding="utf-8") != text]
     if args.check:
         if stale:
             print("stale (run scripts/gen_support_table.py): " + ", ".join(stale), file=sys.stderr)

@@ -102,8 +102,7 @@ no = [["more than 2 lists", 'y: int = len(list(zip(xs, xs, xs)))', "PS2003"]]
 
 [[builtin]]
 names = ["filter"]
-ok = ['y: list[int] = list(filter(lambda v: v > 0, xs))']
-no = [["filter(None, ...)", 'y: list[int] = list(filter(None, xs))', "PS2003"]]
+ok = ['y: list[int] = list(filter(lambda v: v > 0, xs))', 'y: list[int] = list(filter(None, xs))']
 
 [[builtin]]
 names = ["isinstance"]
@@ -131,8 +130,12 @@ ok = ['y: int = eval("1")']
 no = [["anything but a constant expression", 'y: int = eval("1+1")', "PS2002"]]
 
 [[builtin]]
-names = ["BaseException and subclasses"]
-ok = ['try:\n    raise ValueError("a")\nexcept (ValueError, KeyError) as e:\n    pass']
+names = ["BaseException", "Exception", "ValueError", "KeyError", "RuntimeError", "TypeError", "StopIteration"]
+label = "`BaseException` and subclasses"
+ok = ['''try:
+    raise ValueError("a")
+except (ValueError, KeyError) as e:
+    pass''']
 no = [["ExceptionGroup", 'raise ExceptionGroup("a", [ValueError("x")])', "PS2003"]]
 
 [[builtin]]
@@ -217,9 +220,9 @@ no = [["ChainMap", 'y: collections.ChainMap = collections.ChainMap()', "PS1106"]
 
 [[stdlib]]
 names = ["functools"]
-ok = ['y: int = functools.reduce(operator.add, xs)']
 imports = ["operator"]
-no = [["reduce with a lambda or an initializer", 'y: int = functools.reduce(lambda a, c: a + c, xs)', "PS2001"], ["partial, wraps, lru_cache, cmp_to_key", 'y: int = functools.partial', "PS2002"], ["cache, total_ordering", 'y: int = functools.cache', "PS2001"]]
+ok = ['y: int = functools.reduce(operator.add, xs)']
+no = [["reduce with a lambda", 'y: int = functools.reduce(lambda a, c: a + c, xs)', "PS2001"], ["reduce with an initializer", 'y: int = functools.reduce(operator.add, xs, 0)', "PS2002"], ["partial, wraps, lru_cache, cmp_to_key", 'y: int = functools.partial', "PS2002"], ["cache, total_ordering", 'y: int = functools.cache', "PS2001"]]
 
 [[stdlib]]
 names = ["itertools"]
@@ -369,12 +372,28 @@ no = [["make_archive, disk_usage, chown", 'shutil.disk_usage(s)', "PS2001"]]
 [[stdlib]]
 names = ["enum"]
 ok = ['pass']
-no = [["Flag, str-valued members, methods on the enum", 'class Fl(enum.Flag):\n    A = 1\n@@\ny: int = 1', "PS2002"]]
+no = [["Flag, str-valued members, methods on the enum", '''class Fl(enum.Flag):
+    A = 1
+@@
+y: int = 1''', "PS2002"]]
 
 [[stdlib]]
 names = ["dataclasses"]
-ok = ['@dataclasses.dataclass\nclass D:\n    a: int\n    b: str = "x"\n@@\ny: int = D(1).a']
-no = [["field(), asdict", '@dataclasses.dataclass\nclass D:\n    a: int\n@@\ny: dict[str, int] = dataclasses.asdict(D(1))', "PS2001"], ["frozen=, order= and other options", '@dataclasses.dataclass(frozen=True)\nclass D:\n    a: int\n@@\ny: int = 1', "PS1201"]]
+ok = ['''@dataclasses.dataclass
+class D:
+    a: int
+    b: str = "x"
+@@
+y: int = D(1).a''']
+no = [["field(), asdict", '''@dataclasses.dataclass
+class D:
+    a: int
+@@
+y: dict[str, int] = dataclasses.asdict(D(1))''', "PS2001"], ["frozen=, order= and other options", '''@dataclasses.dataclass(frozen=True)
+class D:
+    a: int
+@@
+y: int = 1''', "PS1201"]]
 
 [[stdlib]]
 names = ["random"]
@@ -398,9 +417,12 @@ no = [["copy of a user class", 'y: P = copy.copy(p)', "PS2001"]]
 
 [[stdlib]]
 names = ["argparse"]
-ok = ['ap: argparse.ArgumentParser = argparse.ArgumentParser()\nap.add_argument("--x")']
-no = [["subparsers, nargs=, choices=", 'ap: argparse.ArgumentParser = argparse.ArgumentParser()\nap.add_argument("--x", nargs="+")', "PS2003"]]
+ok = ['''ap: argparse.ArgumentParser = argparse.ArgumentParser()
+ap.add_argument("--x")''']
+no = [["subparsers, nargs=, choices=", '''ap: argparse.ArgumentParser = argparse.ArgumentParser()
+ap.add_argument("--x", nargs="+")''', "PS2003"]]
 
 [[stdlib]]
 names = ["typing", "typing_extensions"]
 red = false
+note = "annotation-only: imports are free, values are checked, there is no runtime surface"
