@@ -7,24 +7,27 @@ description: Install pyscriptc, compile a Python file, and run the native binary
 
 <p align="center"><img src="/assets/logo-256.png" width="320" alt="pyscriptc"></p>
 
-pyscriptc lowers a typed Python subset to a native binary. Parsing is CPython's own `ast`; mypy is a preflight checker. Anything the subset does not prove stops at a fence (`PSxxxx`), not a guess.
+pyscriptc lowers a typed Python subset to a native binary. Parsing is CPython's own `ast`; [pyrefly](https://pyrefly.org/) is a preflight checker. Anything the subset does not prove stops at a fence (`PSxxxx`), not a guess.
 
 ## Requirements
 
-- CPython 3.10 or later (PyPI installs only; the prebuilt binary has no Python dependency). The emitted IR is stamped with the interpreter that lowered it.
-- A C toolchain to link compiled programs: `clang`, or `zig` which also unlocks cross-compilation via `--driver zig`.
-- The preflight checker, `mypy`, ships inside the installed package. No extra setup.
+- CPython 3.14 or later to run the compiler (PyPI installs only; the prebuilt binary has no Python dependency). The parser is CPython 3.14's `ast`, and the emitted IR is stamped with the interpreter that lowered it.
+- A C toolchain to link compiled programs
+  - [`zig`](https://ziglang.org/download/) preferred (unlocks cross-compilation)
+  - [`clang`](https://clang.llvm.org/get_started.html)
+
+The preflight checker ships inside the installed package. No extra setup.
 
 ### Installing clang or zig
 
-| Platform | Command |
-| --- | --- |
-| macOS | `xcode-select --install` (or `brew install llvm` / `brew install zig`) |
-| Debian / Ubuntu | `sudo apt install clang` (or `zig` on newer releases) |
-| Fedora | `sudo dnf install clang` (or `zig`) |
-| Arch | `sudo pacman -S clang` (or `zig`) |
-| Any Linux or macOS | `mise use -g zig` or `brew install zig` |
-| Windows | `winget install zig.zig` (or `scoop install zig`) |
+| Platform           | Command                                                                |
+| ------------------ | ---------------------------------------------------------------------- |
+| macOS              | `xcode-select --install` (or `brew install llvm` / `brew install zig`) |
+| Debian / Ubuntu    | `sudo apt install clang` (or `zig` on newer releases)                  |
+| Fedora             | `sudo dnf install clang` (or `zig`)                                    |
+| Arch               | `sudo pacman -S clang` (or `zig`)                                      |
+| Any Linux or macOS | `mise use -g zig` or `brew install zig`                                |
+| Windows            | `winget install zig.zig` (or `scoop install zig`)                      |
 
 ## Install
 
@@ -82,12 +85,12 @@ pyscriptc compile FILE --run --call FUNC --args '[...]' -o /tmp/name
 
 ## When it stops
 
-| Exit | Cause |
-| ---- | ----- |
-| 0 | Compiled, plus the binary's own status if you used `--run` |
-| 1 | A compiler fault (`SpikeError`) |
-| 2 | The mypy preflight rejected the file |
-| 3 | One or more fences (`PSxxxx`) — see the printed table |
-| 4 | A version or ABI mismatch |
+| Exit | Cause                                                      |
+| ---- | ---------------------------------------------------------- |
+| 0    | Compiled, plus the binary's own status if you used `--run` |
+| 1    | A compiler fault (`SpikeError`)                            |
+| 2    | The type-checker preflight (pyrefly) rejected the file     |
+| 3    | One or more fences (`PSxxxx`) — see the printed table      |
+| 4    | A version or ABI mismatch                                  |
 
 A fence output names the construct and the code. `pyscriptc explain PS2003` prints what the code means.

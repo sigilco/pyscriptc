@@ -75,7 +75,7 @@ export default {
       icon: "book-open",
       collapsible: true,
       children: [
-        { title: "Version policy", path: "/guide/versions/" },
+        { title: "Supported CPython versions", path: "/guide/versions/" },
         { title: "Contributing", path: "/guide/contributing/" },
       ],
     },

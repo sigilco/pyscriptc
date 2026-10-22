@@ -19,21 +19,21 @@ Lower a source file or package directory.
 pyscriptc compile FILE [options]
 ```
 
-| Flag | Effect |
-| ---- | ------ |
+| Flag                             | Effect                                                                                                   |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | `--emit ir\|llvm\|asm\|obj\|bin` | Stop after JSON IR, textual LLVM, assembly (`.s`), an object (`.o`), or a linked binary (default `llvm`) |
-| `--out-dir DIR` | Write artifacts to `DIR/<source name>.*` instead of beside the source; use for directory compiles |
-| `-o PATH` | Output path; defaults to the source stem |
-| `--call FUNC` | Emit a `main` that calls `FUNC` and prints its return |
-| `--args '[...]'` | Arguments for `--call`, a Python list literal |
-| `--run` | Emit a binary and run it immediately |
-| `--driver clang\|zig` | C toolchain driver; `zig` enables `--target` (default `clang`, env `PYSC_CC`) |
-| `--linker clang\|zig` | Driver for the final link step only (env `PYSC_LINKER`, defaults to `--driver`) |
-| `--target TRIPLE` | Cross-compile triple for `zig cc`, e.g. `aarch64-linux-gnu.2.39` (env `PYSC_TARGET`) |
-| `--skip-check` | Skip the mypy preflight |
-| `--checker mypy\|pyright` | Preflight checker (default `mypy`); `pyright` resolves via `PYRIGHT_BIN` then PATH |
-| `--debug[=WHAT]` | Print a stage table; `WHAT` is a comma list of `stages,fences,cc,paths,all` |
-| `--debug-dir DIR` | Write `ir.json`, `out.ll`, `cc.sh`, `summary.json` to `DIR` |
+| `--out-dir DIR`                  | Write artifacts to `DIR/<source name>.*` instead of beside the source; use for directory compiles        |
+| `-o PATH`                        | Output path; defaults to the source stem                                                                 |
+| `--call FUNC`                    | Emit a `main` that calls `FUNC` and prints its return                                                    |
+| `--args '[...]'`                 | Arguments for `--call`, a Python list literal                                                            |
+| `--run`                          | Emit a binary and run it immediately                                                                     |
+| `--driver clang\|zig`            | C toolchain driver; `zig` enables `--target` (default `clang`, env `PYSC_CC`)                            |
+| `--linker clang\|zig`            | Driver for the final link step only (env `PYSC_LINKER`, defaults to `--driver`)                          |
+| `--target TRIPLE`                | Cross-compile triple for `zig cc`, e.g. `aarch64-linux-gnu.2.39` (env `PYSC_TARGET`)                     |
+| `--skip-check`                   | Skip the type-checker preflight                                                                          |
+| `--checker pyrefly\|mypy\|pyright` | Preflight checker (default `pyrefly`; mypy and pyright are deprecated); `pyright` resolves via `PYRIGHT_BIN` then PATH |
+| `--debug[=WHAT]`                 | Print a stage table; `WHAT` is a comma list of `stages,fences,cc,paths,all`                              |
+| `--debug-dir DIR`                | Write `ir.json`, `out.ll`, `cc.sh`, `summary.json` to `DIR`                                              |
 
 Environment defaults: `PYSC_CC`, `PYSC_LINKER` and `PYSC_TARGET` fill `--driver`, `--linker` and `--target` when the flag is absent. An explicit flag always wins.
 
