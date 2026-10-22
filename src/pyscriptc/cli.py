@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from pyscriptc import telemetry
+from pyscriptc import deps, telemetry
 from pyscriptc.check import CheckFailed, run_checker
 from pyscriptc.config import apply_to_args, load_config
 from pyscriptc.coverage import build_report, family_of, render_text
@@ -133,6 +133,7 @@ def main(argv: list[str] | None = None) -> int:
     telemetry_parser.add_argument("action", choices=("disable", "enable", "status", "reset-id"))
     doctor_parser = sub.add_parser("doctor", help="report toolchain, cache and install shape", parents=[common])
     doctor_parser.add_argument("--json", action="store_true", help="print the report as JSON")
+    deps.register(sub, common)
     try:
         raw = list(sys.argv[1:] if argv is None else argv)
         run_argv: list[str] = []
@@ -163,6 +164,8 @@ def main(argv: list[str] | None = None) -> int:
             return logs_cmd(args)
         if args.cmd == "doctor":
             return doctor_cmd(args.json)
+        if args.cmd == "deps":
+            return deps.deps_cmd(args)
         if args.cmd == "telemetry":
             return telemetry.telemetry_cmd(args.action)
     except CheckFailed as exc:
