@@ -1,0 +1,402 @@
+---
+import { siteLinks } from "../config/links";
+import { useI18n } from "../i18n";
+
+const i18n = useI18n();
+const { title, desc, cmd, close } = i18n.playgroundModal;
+---
+
+<div
+  id="playground-modal"
+  class="playground-modal-backdrop"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="playground-modal-title"
+  aria-hidden="true"
+>
+  <div class="playground-modal-card">
+    <div class="modal-header">
+      <div class="modal-tag">
+        <span class="tag-pulse"></span>
+        <span>WASM Runtime Preview</span>
+      </div>
+      <button
+        type="button"
+        class="modal-close-icon"
+        id="playground-modal-close-btn"
+        aria-label="Close dialog"
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      </button>
+    </div>
+
+    <div class="modal-body">
+      <h3 id="playground-modal-title" class="modal-title">{title}</h3>
+      <p class="modal-desc">{desc}</p>
+
+      <div class="install-box">
+        <div class="install-code">
+          <span class="prompt">$</span>
+          <code id="modal-install-text">{cmd}</code>
+        </div>
+        <button
+          type="button"
+          class="copy-btn"
+          id="modal-copy-btn"
+          aria-label="Copy install command"
+          title="Copy command"
+        >
+          <svg
+            class="copy-icon"
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+          </svg>
+          <span class="copy-text">Copy</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <a href={siteLinks.docs} class="modal-docs-link">
+        Explore Documentation ↗
+      </a>
+      <button type="button" class="modal-action-btn" id="playground-modal-confirm-btn">
+        {close}
+      </button>
+    </div>
+  </div>
+</div>
+
+<style>
+  .playground-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.25rem;
+    background: rgba(3, 5, 10, 0.75);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+                visibility 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .playground-modal-backdrop.is-open {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+  }
+
+  .playground-modal-card {
+    position: relative;
+    width: 100%;
+    max-width: 480px;
+    background: var(--color-bg-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 1rem;
+    padding: 1.5rem;
+    box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.7),
+                0 0 0 1px rgba(255, 255, 255, 0.05);
+    transform: scale(0.96) translateY(8px);
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .playground-modal-backdrop.is-open .playground-modal-card {
+    transform: scale(1) translateY(0);
+  }
+
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+  }
+
+  .modal-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.2rem 0.55rem;
+    border-radius: 9999px;
+    background: rgba(0, 194, 255, 0.08);
+    border: 1px solid rgba(0, 194, 255, 0.25);
+    color: var(--color-accent-cyan);
+    font-size: 0.7rem;
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .tag-pulse {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-accent-cyan);
+    box-shadow: 0 0 8px var(--color-accent-cyan);
+  }
+
+  .modal-close-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 0.375rem;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .modal-close-icon:hover {
+    color: var(--color-text-primary);
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .modal-title {
+    margin: 0 0 0.5rem 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--color-text-primary);
+  }
+
+  .modal-desc {
+    margin: 0 0 1.25rem 0;
+    font-size: 0.88rem;
+    line-height: 1.55;
+    color: var(--color-text-secondary);
+  }
+
+  .install-box {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.65rem 0.85rem;
+    border-radius: 0.5rem;
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    gap: 0.75rem;
+  }
+
+  .install-code {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  .prompt {
+    color: var(--color-accent-cyan);
+    user-select: none;
+  }
+
+  .install-code code {
+    color: var(--color-text-primary);
+  }
+
+  .copy-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.3rem 0.6rem;
+    border-radius: 0.375rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--color-text-secondary);
+    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+  }
+
+  .copy-btn:hover {
+    border-color: rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--color-text-primary);
+  }
+
+  .copy-btn.copied {
+    border-color: rgba(0, 194, 255, 0.4);
+    background: rgba(0, 194, 255, 0.1);
+    color: var(--color-accent-cyan);
+  }
+
+  .modal-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .modal-docs-link {
+    font-size: 0.82rem;
+    color: var(--color-text-muted);
+    text-decoration: none;
+    transition: color 0.15s ease;
+  }
+
+  .modal-docs-link:hover {
+    color: var(--color-accent-cyan);
+  }
+
+  .modal-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.45rem 1rem;
+    border-radius: 9999px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--color-text-primary);
+    font-size: 0.82rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .modal-action-btn:hover {
+    border-color: rgba(255, 255, 255, 0.3);
+    background: rgba(255, 255, 255, 0.14);
+  }
+</style>
+
+<script>
+  function setupPlaygroundModal() {
+    const modal = document.getElementById("playground-modal");
+    const closeBtn = document.getElementById("playground-modal-close-btn");
+    const confirmBtn = document.getElementById("playground-modal-confirm-btn");
+    const copyBtn = document.getElementById("modal-copy-btn");
+    const cmdText = document.getElementById("modal-install-text");
+
+    if (!modal) return;
+
+    let previouslyFocused = null;
+
+    function openModal() {
+      previouslyFocused = document.activeElement;
+      modal.classList.add("is-open");
+      modal.setAttribute("aria-hidden", "false");
+      document.body.style.overflow = "hidden";
+      if (confirmBtn) confirmBtn.focus();
+    }
+
+    function closeModal() {
+      modal.classList.remove("is-open");
+      modal.setAttribute("aria-hidden", "true");
+      document.body.style.overflow = "";
+      if (window.location.hash === "#playground") {
+        history.pushState(null, "", window.location.pathname + window.location.search);
+      }
+      if (previouslyFocused && typeof previouslyFocused.focus === "function") {
+        previouslyFocused.focus();
+      }
+    }
+
+    // Intercept clicks on links targeting #playground
+    document.addEventListener("click", (e) => {
+      const target = e.target;
+      const link = target.closest("a");
+      if (link) {
+        const href = link.getAttribute("href");
+        if (href === "#playground" || (href && href.endsWith("#playground"))) {
+          e.preventDefault();
+          openModal();
+        }
+      }
+    });
+
+    // Check on initial load if hash is #playground
+    if (window.location.hash === "#playground") {
+      openModal();
+    }
+
+    // Hash change listener
+    window.addEventListener("hashchange", () => {
+      if (window.location.hash === "#playground") {
+        openModal();
+      }
+    });
+
+    // Close buttons
+    if (closeBtn) closeBtn.addEventListener("click", closeModal);
+    if (confirmBtn) confirmBtn.addEventListener("click", closeModal);
+
+    // Click outside card to close
+    modal.addEventListener("click", (e) => {
+      if (e.target === modal) {
+        closeModal();
+      }
+    });
+
+    // Esc key to close
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && modal.classList.contains("is-open")) {
+        closeModal();
+      }
+    });
+
+    // Copy command
+    if (copyBtn && cmdText) {
+      copyBtn.addEventListener("click", async () => {
+        const text = cmdText.textContent?.trim() || "";
+        try {
+          await navigator.clipboard.writeText(text);
+          const copyText = copyBtn.querySelector(".copy-text");
+          if (copyText) copyText.textContent = "Copied!";
+          copyBtn.classList.add("copied");
+          setTimeout(() => {
+            if (copyText) copyText.textContent = "Copy";
+            copyBtn.classList.remove("copied");
+          }, 2000);
+        } catch {
+          // Fallback if clipboard API blocked
+          const copyText = copyBtn.querySelector(".copy-text");
+          if (copyText) copyText.textContent = "Copied!";
+          copyBtn.classList.add("copied");
+          setTimeout(() => {
+            if (copyText) copyText.textContent = "Copy";
+            copyBtn.classList.remove("copied");
+          }, 2000);
+        }
+      });
+    }
+  }
+
+  setupPlaygroundModal();
+  document.addEventListener("astro:page-load", setupPlaygroundModal);
+</script>
