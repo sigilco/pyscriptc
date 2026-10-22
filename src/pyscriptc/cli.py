@@ -93,6 +93,12 @@ def main(argv: list[str] | None = None) -> int:
         "address,undefined (env PYSC_SANITIZE); needs a binary, so --emit bin only",
     )
     compile_parser.add_argument(
+        "--debug-info",
+        action="store_true",
+        help="emit DWARF debug metadata (source file and line per function and "
+        "statement) so lldb/gdb can step in the Python source (env PYSC_DEBUG_INFO)",
+    )
+    compile_parser.add_argument(
         "--print",
         dest="print_what",
         choices=("diagnostics",),
@@ -264,6 +270,7 @@ def run_cmd(args: argparse.Namespace) -> int:
             f"target={args.target}",
             f"linker={args.linker}",
             f"sanitize={args.sanitize}",
+            f"debug_info={getattr(args, 'debug_info', False)}",
             f"skip_check={args.skip_check}",
             f"checker={args.checker}",
         ],
@@ -309,6 +316,7 @@ def _build_for_run(args: argparse.Namespace, output: Path) -> int:
         target=args.target,
         linker=args.linker,
         sanitize=args.sanitize,
+        debug_info=getattr(args, "debug_info", False),
         print_what=None,
         skip_check=args.skip_check,
         checker=args.checker,
@@ -508,6 +516,8 @@ def _apply_env_defaults(args: argparse.Namespace) -> None:
         args.driver = "clang"
     if getattr(args, "sanitize", None) is None:
         args.sanitize = os.environ.get("PYSC_SANITIZE") or None
+    if not getattr(args, "debug_info", False):
+        args.debug_info = os.environ.get("PYSC_DEBUG_INFO", "") not in ("", "0", "false", "no")
 
 
 def _sanitize_list(value: str | None) -> list[str]:
@@ -534,6 +544,20 @@ def _require_sanitize(args: argparse.Namespace) -> list[str]:
     if args.target is not None:
         raise IRError("--sanitize cannot cross-compile: the sanitizer runtime must match the host")
     return names
+
+
+def _require_debug_info(args: argparse.Namespace) -> bool:
+    """Resolve `--debug-info` and refuse the combinations that cannot honor it.
+
+    The DWARF metadata lands in the emitted LLVM, so every emit mode can
+    carry it. A cross-compiled binary would need the DWARF of the target
+    toolchain, which the host `cc` does not produce, so that is refused.
+    """
+    if not getattr(args, "debug_info", False):
+        return False
+    if args.target is not None:
+        raise IRError("--debug-info cannot cross-compile: the debug info must match the target toolchain")
+    return True
 
 
 def _require_toolchain(args: argparse.Namespace) -> None:
@@ -563,6 +587,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         return 3 if report["fences"] else 0
     _require_toolchain(args)
     sanitize = _require_sanitize(args)
+    debug_info = _require_debug_info(args)
     config = load_config(source_path)
     for note in apply_to_args(config, args):
         print(note, file=sys.stderr)
@@ -643,7 +668,13 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             )
         state["stage"] = "emit"
         dbg.begin("emit_llvm")
-        llvm_text = emit_llvm(module, args.call, call_args, standalone=args.emit == "bin")
+        llvm_text = emit_llvm(
+            module,
+            args.call,
+            call_args,
+            standalone=args.emit == "bin",
+            debug_info=debug_info,
+        )
         dbg.end("emit_llvm")
         ll_path = _output_path(args, source_path, ".ll")
         ll_path.write_text(llvm_text, encoding="utf-8")
@@ -669,6 +700,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                 target=args.target,
                 record=dbg.commands,
                 timings=dbg.timings_map,
+                debug_info=debug_info,
             )
             outputs[args.emit] = str(unit_path)
             print(unit_path)
@@ -685,6 +717,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             link_driver=args.linker,
             sanitize=sanitize,
             timings=dbg.timings_map,
+            debug_info=debug_info,
         )
         dbg.end("link")
         outputs["bin"] = str(binary)
