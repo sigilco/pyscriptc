@@ -287,6 +287,69 @@
     draw();
   }
 
+  function renderLadder(doc) {
+    var ladder = doc.ladder;
+    if (!ladder) return;
+    var section = document.getElementById("ladder");
+    var rungs = ladder.rungs || [];
+    var lanes = ladder.lanes || [];
+    if (!rungs.length && !lanes.length) return;
+    section.hidden = false;
+
+    var table = document.getElementById("ladder-table");
+    table.textContent = "";
+    var thead = el("thead");
+    var hr = el("tr");
+    ["Rung", "Corpus", "Compiles", "Matches CPython"].forEach(function (c) {
+      hr.appendChild(el("th", null, c));
+    });
+    thead.appendChild(hr);
+    table.appendChild(thead);
+    var tbody = el("tbody");
+    rungs.forEach(function (r) {
+      var tr = el("tr");
+      tr.appendChild(cell("td name", r.rung + " " + r.label));
+      tr.appendChild(cell("td", r.corpus));
+      tr.appendChild(cellNum(r.compiled + " of " + r.total));
+      var outcome;
+      if (r.measured) {
+        var pct = r.total ? Math.round(1000 * r.passed / r.total) / 10 : 0;
+        outcome = pct + "% (" + r.passed + " of " + r.total + ")";
+      } else {
+        outcome = "not measured";
+      }
+      tr.appendChild(cellNum(outcome));
+      tbody.appendChild(tr);
+    });
+    if (!rungs.length) {
+      var tr = el("tr");
+      var td = el("td", "empty", "no ladder data yet");
+      td.colSpan = 4;
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+
+    var laneTable = document.getElementById("lanes-table");
+    laneTable.textContent = "";
+    var lthead = el("thead");
+    var lhr = el("tr");
+    ["Lane", "Imports", "Share"].forEach(function (c) {
+      lhr.appendChild(el("th", null, c));
+    });
+    lthead.appendChild(lhr);
+    laneTable.appendChild(lthead);
+    var ltbody = el("tbody");
+    lanes.forEach(function (r) {
+      var tr = el("tr");
+      tr.appendChild(cell("td name", r.lane));
+      tr.appendChild(cellNum(r.imports));
+      tr.appendChild(cellNum(Math.round(1000 * r.share) / 10 + "%"));
+      ltbody.appendChild(tr);
+    });
+    laneTable.appendChild(ltbody);
+  }
+
   function renderMeta(doc) {
     var meta = document.getElementById("meta");
     var generated = document.getElementById("generated");
@@ -311,6 +374,7 @@
   function reveal(doc) {
     renderMeta(doc);
     renderSummary(doc);
+    renderLadder(doc);
     var anyRows = false;
     Object.keys(SECTIONS).forEach(function (key) {
       var rows = doc[key] || [];

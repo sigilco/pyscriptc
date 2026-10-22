@@ -46,6 +46,7 @@
     </section>
 
     <nav class="toc" aria-label="Sections">
+      <a href="#ladder">Adoption ladder</a>
       <a href="#language">Language features</a>
       <a href="#builtins">Builtins</a>
       <a href="#stdlib">Standard library</a>
@@ -53,6 +54,19 @@
       <a href="#fences">Fence census</a>
       <a href="#history">History</a>
     </nav>
+
+    <section id="ladder" hidden>
+      <h2>Adoption ladder</h2>
+      <p class="section-note">One rate per rung of the adoption ladder, measured against CPython recordings: a single-file script (R1), a multi-module tree (R2), and the dependency lanes the locked top-100 trees reach (R4). There is never one overall &ldquo;Python compat percent&rdquo;.</p>
+      <div class="table-wrap">
+        <table id="ladder-table" aria-describedby="ladder-note"></table>
+      </div>
+      <h3>Lane shares</h3>
+      <p class="section-note">How the third-party imports of the pinned trees resolve by lane today. <code>native</code> compiles from source, <code>pack</code> swaps in a curated replacement, <code>extern</code> goes through a C ABI manifest, <code>island</code> is the opt-in embedded-CPython tier, <code>absent</code> compiles the ImportError branch.</p>
+      <div class="table-wrap">
+        <table id="lanes-table" aria-describedby="lanes-note"></table>
+      </div>
+    </section>
 
     <section id="language" hidden>
       <h2>Language features</h2>

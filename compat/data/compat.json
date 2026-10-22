@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-10-22",
-  "commit": "ce6b8188f1b37ea4cb8150bdb4556f0c40efe9f6",
+  "generated": "2026-10-23",
+  "commit": "f69b180f850dc9b5aeff7b616a729dbe10e03cfa",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -1870,6 +1870,58 @@
     }
   ],
   "language": [],
+  "ladder": {
+    "corpus": "benchmarks/scripts_corpus",
+    "rungs": [
+      {
+        "rung": "R1",
+        "label": "Single-file script",
+        "corpus": "benchmarks/scripts_corpus/scripts",
+        "total": 45,
+        "compiled": 15,
+        "passed": 12,
+        "measured": true
+      },
+      {
+        "rung": "R2",
+        "label": "Multi-module tree",
+        "corpus": "benchmarks/scripts_corpus/trees",
+        "total": 5,
+        "compiled": 4,
+        "passed": 4,
+        "measured": true
+      }
+    ],
+    "lanes": [
+      {
+        "lane": "native",
+        "imports": 272,
+        "share": 0.8242
+      },
+      {
+        "lane": "pack",
+        "imports": 1,
+        "share": 0.003
+      },
+      {
+        "lane": "extern",
+        "imports": 57,
+        "share": 0.1727
+      },
+      {
+        "lane": "island",
+        "imports": 0,
+        "share": 0.0
+      },
+      {
+        "lane": "absent",
+        "imports": 0,
+        "share": 0.0
+      }
+    ],
+    "selfContainedShare": 0.2222,
+    "trees": 18
+  },
   "fences": [
     {
       "code": "PS2002",
@@ -1972,6 +2024,15 @@
     {
       "date": "2026-10-22",
       "commit": "ce6b8188f1b37ea4cb8150bdb4556f0c40efe9f6",
+      "weighted_pass": 0.0,
+      "packages_full": 3,
+      "packages_partial": 5,
+      "packages_none": 10,
+      "fences": 3045
+    },
+    {
+      "date": "2026-10-23",
+      "commit": "f69b180f850dc9b5aeff7b616a729dbe10e03cfa",
       "weighted_pass": 0.0,
       "packages_full": 3,
       "packages_partial": 5,

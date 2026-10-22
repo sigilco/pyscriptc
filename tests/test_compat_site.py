@@ -36,7 +36,7 @@ COMPAT_PAGE = ROOT / "compat" / "site" / "index.html"
 DATA = ROOT / "compat" / "data" / "compat.json"
 
 # The page sections, one per section of the schema.
-SECTIONS = ("language", "builtins", "stdlib", "pypi", "fences", "history")
+SECTIONS = ("ladder", "language", "builtins", "stdlib", "pypi", "fences", "history")
 
 
 @pytest.fixture(scope="module")
