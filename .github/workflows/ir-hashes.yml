@@ -1,0 +1,57 @@
+name: ir-hashes
+
+# Canonical IR folds host constants (socket, errno, os, ssl, time, sys, ctypes,
+# pathlib), so IR_HASHES.json is only valid when generated on Linux. Not a
+# required check. See .agents/notes/2026-10-22-ir-hashes-regen.md.
+#
+# generate (workflow_dispatch): two runs (A, B), fails unless byte-identical,
+# uploads the file as the `ir-hashes` artifact. Copy it to
+# benchmarks/compat2/probes/IR_HASHES.json to regenerate the baseline.
+# compare (pull_request): fails on any diff against the committed baseline.
+# The baseline header carries oracle `2/cpython-3.14.<micro>`, so a runner
+# micro bump reports exit 2 (stale header): regenerate then.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "src/pyscriptc/**"
+      - "benchmarks/compat2/probes/**"
+      - "benchmarks/compat2/canonical.py"
+      - "benchmarks/compat2/irscore.py"
+      - ".github/workflows/ir-hashes.yml"
+
+jobs:
+  ir-hashes:
+    name: ir hashes (${{ github.event_name == 'pull_request' && 'compare' || 'generate' }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"
+          enable-cache: true
+          python-version: "3.14"
+      - run: uv sync --frozen
+      - name: oracle is CPython 3.14
+        run: uv run python -c "import sys; assert sys.version_info[:2] == (3, 14), sys.version"
+      - name: compare against committed baseline
+        if: github.event_name == 'pull_request'
+        run: uv run python -m benchmarks.compat2.irscore benchmarks/compat2/probes --baseline benchmarks/compat2/probes/IR_HASHES.json
+      - name: generate A and B
+        if: github.event_name != 'pull_request'
+        run: |
+          set -euo pipefail
+          uv run python -m benchmarks.compat2.irscore benchmarks/compat2/probes --out "$RUNNER_TEMP/A.json"
+          uv run python -m benchmarks.compat2.irscore benchmarks/compat2/probes --out "$RUNNER_TEMP/B.json"
+          cmp "$RUNNER_TEMP/A.json" "$RUNNER_TEMP/B.json"
+          cp "$RUNNER_TEMP/A.json" IR_HASHES.json
+          head -5 IR_HASHES.json
+      - name: upload
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ir-hashes
+          path: IR_HASHES.json
+          if-no-files-found: error
