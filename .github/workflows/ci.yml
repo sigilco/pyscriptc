@@ -88,26 +88,73 @@ jobs:
       - run: uv run pytest -q tests --ignore=tests/compat2 -m "not linux_container" -n auto --splits 3 --group ${{ matrix.group }} --durations-path tests/.test_durations
 
   zig-smoke:
-    name: zig cc emitted-IR smoke
+    name: zig cc emitted-IR smoke (${{ matrix.zig }})
     runs-on: ubuntu-24.04
+    # Supported zig range (packaging/TOOLCHAIN.md): >= 0.13 claimed, CI-verified
+    # floor and ceiling pinned here. Adding a version: pin its sha256 from
+    # https://ziglang.org/download/index.json and extend this matrix.
+    strategy:
+      fail-fast: false
+      matrix:
+        zig: ["0.16.0", "0.17.0"]
     steps:
       - uses: actions/checkout@v5
       - name: Cache zig tarball
         uses: actions/cache@v5
         with:
-          path: /tmp/zig.tar.xz
-          key: zig-0.16.0-x86_64-linux
-      - name: Install zig 0.16.0
+          path: /tmp/zig-${{ matrix.zig }}.tar.xz
+          key: zig-${{ matrix.zig }}-x86_64-linux
+      - name: Install zig ${{ matrix.zig }}
         run: |
           set -euo pipefail
-          [ -f /tmp/zig.tar.xz ] || \
-            curl -fsSL https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz -o /tmp/zig.tar.xz
-          echo "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00  /tmp/zig.tar.xz" | sha256sum -c -
-          sudo tar -xJf /tmp/zig.tar.xz -C /usr/local
-          echo "/usr/local/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
+          version="${{ matrix.zig }}"
+          case "$version" in
+            0.16.0) sha="70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00" ;;
+            0.17.0) sha="1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026" ;;
+            *) echo "no pinned sha256 for zig $version" >&2; exit 1 ;;
+          esac
+          [ -f "/tmp/zig-$version.tar.xz" ] || \
+            curl -fsSL "https://ziglang.org/download/$version/zig-x86_64-linux-$version.tar.xz" -o "/tmp/zig-$version.tar.xz"
+          echo "$sha  /tmp/zig-$version.tar.xz" | sha256sum -c -
+          sudo tar -xJf "/tmp/zig-$version.tar.xz" -C /usr/local
+          echo "/usr/local/zig-x86_64-linux-$version" >> "$GITHUB_PATH"
       - name: Install qemu-user-static (run aarch64/riscv64 musl binaries)
         run: sudo apt-get update && sudo apt-get install -y qemu-user-static
       - run: packaging/zig/smoke.sh
+
+  # The `pip install ziglang` path: the wheel ships the zig binary but only
+  # exposes a `python-zig` console script, so `which("zig")` misses it.
+  # pyscriptc installs a `zig` PATH shim that runs `python -m ziglang`;
+  # this job proves that a wheel-only install can cross-compile.
+  ziglang-wheel:
+    name: ziglang wheel PATH shim
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"
+          enable-cache: true
+          python-version: "3.14"
+      - run: uv sync --frozen
+      - name: Install the ziglang wheel (no zig on PATH)
+        run: uv pip install --python .venv ziglang==0.17.0
+      - name: The shim resolves and cross-compiles
+        run: |
+          set -euo pipefail
+          # No zig on PATH at this point: the wheel is the only source.
+          uv run python -c "
+          from pyscriptc import zigshim
+          import shutil, sys
+          path = zigshim.resolve_zig()
+          assert path, 'zig did not resolve from the ziglang wheel'
+          zigshim.ensure_on_path()
+          assert shutil.which('zig'), 'zig is not on PATH after the shim'
+          print('zig resolved:', shutil.which('zig'))
+          "
+          uv run pyscriptc compile examples/hello.py --emit bin --skip-check \
+            --driver zig --target x86_64-linux-musl -o /tmp/hello-musl
+          file /tmp/hello-musl
 
   # Wheel smoke: build the wheel, install it into a fresh venv, and compile a
   # tiny program with the repo venv and pyrefly dirs off PATH. Same shape as

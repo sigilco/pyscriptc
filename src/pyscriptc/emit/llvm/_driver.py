@@ -8,13 +8,14 @@ emitted text into a binary (`link_binary`, `compile_unit`).
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
 from typing import Any
 
-from pyscriptc import rtcache
+from pyscriptc import rtcache, zigshim
 from pyscriptc.dwarf import DwarfEmitter
 from pyscriptc.emit.llvm._abi import AbiMixin
 from pyscriptc.emit.llvm._calls import CallsMixin
@@ -26,6 +27,24 @@ from pyscriptc.emit.llvm._stdlib import StdlibMixin
 from pyscriptc.emit.llvm._stmts import StmtsMixin
 from pyscriptc.errors import IRError
 from pyscriptc.ir import assert_same_cpython
+
+
+def _cc_argv(cc: str) -> list[str]:
+    """The cc prefix argv, with `zig` resolved through the ziglang shim.
+
+    `pip install ziglang` ships the zig binary without a `zig` console
+    script, so a wheel-only install has nothing on PATH. When the name does
+    not resolve and the ziglang package does, the shim installed by
+    `pyscriptc.zigshim` is used directly.
+    """
+    argv = cc.split()
+    if argv and argv[0] == "zig" and shutil.which("zig") is None:
+        resolved = zigshim.resolve_zig()
+        if resolved is not None:
+            argv[0] = resolved
+            if len(argv) < 2 or argv[1] != "cc":
+                argv.insert(1, "cc")
+    return argv
 
 
 class Emitter(
@@ -129,6 +148,7 @@ def link_binary(
     use_cache = rtcache.prepare()
     ll_obj = output.with_name(f"{output.name}.{llvm_path.stem}.o")
     ll_kind = ["-x", "ir"] if driver == "clang" else []
+    ll_argv = _cc_argv(cc)
     ll_argv = [
         *cc.split(),
         "-O2",
@@ -154,11 +174,11 @@ def link_binary(
                 hits += 1
                 continue
             tmp = rtcache.temp_for(final)
-            jobs.append(([*cc.split(), *flags, "-c", source, "-o", str(tmp)], final))
+            jobs.append((_cc_argv(cc) + [*flags, "-c", source, "-o", str(tmp)], final))
         else:
             obj = output.with_name(f"{output.name}.{src.stem}.o")
             objects.append(obj)
-            jobs.append(([*cc.split(), *flags, "-c", source, "-o", str(obj)], None))
+            jobs.append((_cc_argv(cc) + [*flags, "-c", source, "-o", str(obj)], None))
     if record is not None:
         state = f"on dir={rtcache.cache_dir()}" if use_cache else "off"
         record.append(["#", f"rtcache {state} hit={hits} miss={len(jobs) - 1}"])
@@ -172,7 +192,7 @@ def link_binary(
         # no -O on the link line: it is a compile flag and zig's Mach-O
         # driver crashes on it (0.16.0)
         link_cc = ("zig cc" if link_driver == "zig" else link_driver) if link_driver else cc
-        argv = [*link_cc.split(), *objects, *target_flags, *tail]
+        argv = [*_cc_argv(link_cc), *objects, *target_flags, *tail]
         if record is not None:
             record.append([str(arg) for arg in argv])
         link_started = time.perf_counter()
@@ -233,7 +253,8 @@ def compile_unit(
     ir_kind = ["-x", "ir"] if driver == "clang" else []
     target_flags = ["-target", target] if target is not None else []
     dbg_flags = ["-g"] if debug_info else []
-    argv = [*cc.split(), "-O2", *dbg_flags, *ir_kind, mode, str(llvm_path), "-o", str(output), *target_flags]
+    argv = _cc_argv(cc)
+    argv = [*argv, "-O2", *dbg_flags, *ir_kind, mode, str(llvm_path), "-o", str(output), *target_flags]
     if record is not None:
         record.append(argv)
     started = time.perf_counter()

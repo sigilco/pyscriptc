@@ -68,6 +68,7 @@ def test_missing_zig_driver_names_zig(tmp_path: Path) -> None:
     )
     assert got.returncode != 0
     assert "zig not found on PATH" in got.stderr
+    assert "pip install ziglang" in got.stderr
 
 
 def test_emit_llvm_needs_no_toolchain(tmp_path: Path) -> None:

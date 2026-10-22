@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from pyscriptc import deps, reduce, runcache, telemetry
+from pyscriptc import deps, reduce, runcache, telemetry, zigshim
 from pyscriptc.check import CheckFailed, run_checker
 from pyscriptc.config import apply_to_args, load_config
 from pyscriptc.coverage import build_report, family_of, render_text
@@ -565,11 +565,23 @@ def _require_toolchain(args: argparse.Namespace) -> None:
     if not (args.run or args.emit in ("asm", "obj", "bin")):
         return
     driver = args.driver or "clang"
+    if driver == "zig":
+        # `pip install ziglang` alone satisfies this: the wheel ships the zig
+        # binary but only exposes `python-zig`, so pyscriptc installs a `zig`
+        # PATH shim pointing at `python -m ziglang`. A stale shim (its venv
+        # is gone) is not trusted and gets rebuilt or rejected here.
+        zigshim.ensure_on_path()
     if shutil.which(driver) is None:
+        hint = (
+            zigshim.install_hint()
+            if driver == "zig"
+            else ("install clang (xcode-select --install, apt install clang, ...) or pick zig with --driver zig")
+        )
         raise IRError(
             f"{driver} not found on PATH, and compiling to a binary needs a C toolchain "
-            f"(clang or zig; select with --driver or PYSC_CC). Run `pyscriptc doctor` to see what was found "
-            f"and the README for install commands. `--emit ir` and `--emit llvm` need no toolchain."
+            f"(clang or zig; select with --driver or PYSC_CC). {hint} "
+            f"Run `pyscriptc doctor` to see what was found. "
+            f"`--emit ir` and `--emit llvm` need no toolchain."
         )
 
 
