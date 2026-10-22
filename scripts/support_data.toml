@@ -184,6 +184,11 @@ ok = ['y: list[int] = json.loads(s)', 'y: str = json.dumps(xs, indent=2)', 'y: s
 no = [["load, dump (files)", 'y: dict[str, int] = json.load(p)', "PS2001"], ["ensure_ascii=False", 'y: str = json.dumps(xs, ensure_ascii=False)', "PS2003"], ["JSONDecodeError", 'y: json.JSONDecodeError', "PS1106"]]
 
 [[stdlib]]
+names = ["tomllib"]
+ok = ['y: dict[str, int] = tomllib.loads(s)']
+no = [["load (file object)", 'y: dict[str, int] = tomllib.load(p)', "PS2001"], ["keyword arguments", 'y: dict[str, int] = tomllib.loads(s, parse_float=float)', "PS2003"]]
+
+[[stdlib]]
 names = ["urllib.parse"]
 ok = ['y: str = urllib.parse.quote(s)', 'y: str = urllib.parse.unquote_plus(s)']
 no = [["urlparse, urljoin, urlunsplit, parse_qsl", 'y: str = urllib.parse.urljoin(s, s)', "PS2001"]]

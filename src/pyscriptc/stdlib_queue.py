@@ -60,6 +60,7 @@ QUEUE: tuple[str, ...] = (
     "textwrap",
     "copy",
     "argparse",
+    "tomllib",
 )
 
 LOWERED: frozenset[str] = frozenset(QUEUE)

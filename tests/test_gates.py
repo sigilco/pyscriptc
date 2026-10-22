@@ -61,6 +61,7 @@ QUEUE = (
     "textwrap",
     "copy",
     "argparse",
+    "tomllib",
 )
 
 

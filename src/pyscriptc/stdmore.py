@@ -1567,6 +1567,7 @@ REST_MODULES = frozenset(
         "textwrap",
         "copy",
         "argparse",
+        "tomllib",
     }
 )
 
@@ -1758,6 +1759,8 @@ def member_callable(module: str, member: str) -> bool:
     if module == "csv" and member in {"reader", "writer"}:
         return True
     if module == "textwrap" and member in {"fill", "wrap", "shorten"}:
+        return True
+    if module == "tomllib" and member == "loads":
         return True
     if module == "copy" and member in {"copy", "deepcopy"}:
         return True

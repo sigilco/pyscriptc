@@ -69,10 +69,11 @@ def test_user_stub_cannot_retype_stdlib(project: Path) -> None:
 
 
 def test_typeshed_subset_and_versions() -> None:
-    assert "tomllib" not in STDLIB_SUBSET
-    assert _registry().module("tomllib") is None
-    assert _registry(stdlib_allow=None).module("tomllib") is not None
-    assert stdlib_available("tomllib", (3, 11)) and not stdlib_available("tomllib", (3, 10))
+    assert "graphlib" not in STDLIB_SUBSET
+    assert _registry().module("graphlib") is None
+    assert _registry(stdlib_allow=None).module("graphlib") is not None
+    assert stdlib_available("graphlib", (3, 9)) and not stdlib_available("graphlib", (3, 8))
+    assert "tomllib" in STDLIB_SUBSET and _registry().module("tomllib") is not None
 
 
 def test_no_typeshed_root() -> None:
