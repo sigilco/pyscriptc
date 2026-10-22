@@ -43,7 +43,7 @@ pip install 'ziglang==0.17.0'  # pin the zig version
 
 Supported zig versions: >= 0.13 (the floor zig 0.13 wraps clang 18, which clears the LLVM 15 opaque-pointer floor), CI-verified on 0.16.0 and 0.17.0. The full matrix is in [TOOLCHAIN.md](https://github.com/sigilco/pyscriptc/blob/master/packaging/TOOLCHAIN.md). The `ziglang` wheel has no Windows build, so on Windows install zig from [ziglang.org](https://ziglang.org/download/) instead.
 
-Emitted programs cannot be compiled on Windows yet; use Linux, macOS or WSL.
+Windows is experimental cross-compilation only: `--target x86_64-windows-gnu --driver zig` builds a Windows binary from Linux or macOS, but nothing runs the output in CI and no Windows-native compile is supported yet.
 
 ## Install
 
@@ -124,7 +124,12 @@ uv run pyscriptc compile examples/invoice.py --emit bin --call charge --args '[1
 
 Tier A targets (CI-verified by `packaging/zig/smoke.sh`): `x86_64-linux-gnu`, `aarch64-linux-gnu`, `riscv64-linux-gnu` (optionally pinned, e.g. `gnu.2.39`), `x86_64-linux-musl`, `aarch64-linux-musl`, `riscv64-linux-musl` (static), and `aarch64-macos` / `x86_64-macos` (compile-verified only, no runner). Static-musl binaries can run foreign arches under `qemu-<arch>-static`.
 
-Not supported yet: Windows targets (a few POSIX calls in the runtime need shims), island/fallback programs on any cross target (they embed the host libpython), and the `PYSCRIPTC_MIX_SO` dlopen path on static musl. `--target` requires `--driver zig`; without `--target`, `zig` is just another host driver.
+Experimental cross-compilation targets, both stated as divergences rather than support claims:
+
+- Windows (`x86_64-windows-gnu`, `aarch64-windows-gnu`): builds a PE binary from Linux or macOS, but nothing executes the output anywhere, and the Win32 gaps are divergences 31 and 32 in [divergences](https://pyscriptc.pages.dev/reference/divergences/) (no `lstat`, no winsock, separators and home-resolution differences). Native Windows compiles are not supported yet.
+- `wasm32-wasi-musl` (and `wasm32-wasi-p2`): produces a WASI command module for `wasmtime` >= v50, stdout-identical to the native binary on the same program. Preview1 only: no subprocess, no mix, runtime-dead threads, preopen-only filesystem (divergence 31).
+
+Not supported yet: native Windows compiles (the pyscriptc compiler itself runs on Windows as an experimental build, but emitted programs are cross-compilation only), island/fallback programs on any cross target (they embed the host libpython), and the `PYSCRIPTC_MIX_SO` dlopen path on static musl. `--target` requires `--driver zig`; without `--target`, `zig` is just another host driver.
 
 ## Debug builds with sanitizers
 

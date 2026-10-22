@@ -118,3 +118,16 @@ cat big.min.py
 
 `reduction.json` shows which removals were kept, so a fence report can carry
 the minimal reproducer instead of a 400-line file.
+
+## wasm targets
+
+With `--target wasm32-wasi-musl`, the `cc` table shows the wasm specifics:
+
+- Every unit (the `.ll` and each runtime `.c`) carries the
+  `-mllvm -wasm-enable-sjlj` flag set plus `-mllvm -wasm-use-legacy-eh=false`
+  and the `+exception-handling` target feature: `try`/`except` lowers through
+  wasm exception handling via setjmp/longjmp.
+- The compile list includes `runtime/wasm/rt_wasm.c`, the vendored wasi-libc
+  setjmp runtime (zig ships the source but never builds it).
+- The `-mconsole` flag that a Windows target inserts into the link line is
+  absent on wasm.

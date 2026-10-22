@@ -34,8 +34,19 @@ runtime C files.
 | `riscv64-linux-gnu.2.39` | builds (ELF riscv64) | local spike |
 | `x86_64-linux-musl` | static binary, runs, prints 42 | local spike |
 | `aarch64-macos` | builds (Mach-O arm64) via 2-stage | local spike, see zig bug below |
-| `x86_64-windows-gnu` | 4/17 runtime files fail | local spike, POSIX gaps below |
-| `aarch64-windows-gnu` | same 4 files | local spike |
+| `x86_64-windows-gnu` | builds (PE32+ x86_64), never executed | experimental cross-compilation, see below |
+| `aarch64-windows-gnu` | builds (PE32+ arm64), never executed | experimental cross-compilation, see below |
+| `wasm32-wasi-musl` (zig 0.16.0) | builds + runs under wasmtime v50, stdout byte-identical to native on the smoke demo | wasm lane |
+| `wasm32-wasi-musl` (zig 0.17.0) | same | wasm lane |
+
+The wasm lane is the only target that changes emitter output: on `wasm32*`
+the entry point is `@__main_argc_argv` (wasm-ld resolves a C-style `main`
+only through that name), `%.*s` printf lengths truncate to i32 (wasm32
+varargs are 32-bit), and `try`/`except` lowers through the WebAssembly
+exception-handling proposal via setjmp/longjmp, so the resulting module
+needs an engine that implements that proposal (wasmtime >= v50). The
+setjmp runtime comes from the vendored `runtime/wasm/rt_wasm.c` because zig
+bundles the wasi-libc source but never builds it.
 
 Two findings from the spike that shape the design:
 
@@ -46,7 +57,9 @@ Two findings from the spike that shape the design:
    targets are unaffected, but the two-stage flow is the safer recipe
    everywhere: `driver -c prog.ll -o prog.o` then `driver prog.o rt/*.c -o out`.
 2. **The Windows gap is 4 files, not a redesign.** Per-file compile scan of
-   `runtime/` for `x86_64-windows-gnu`:
+   `runtime/` for `x86_64-windows-gnu` (the shims have since landed, so both
+   Windows targets build; the emitted binaries are still never executed
+   anywhere, so the Windows semantics are unverified rather than claimed):
    - `ps_mix.c` — `dlfcn.h`/`dlopen` → `LoadLibrary`/`GetProcAddress` shim,
      or mark the mix path dead on Windows (same class of limitation as
      static-musl, where it is already documented dead).
@@ -64,6 +77,12 @@ Two findings from the spike that shape the design:
 - **Mix on static musl.** `dlopen` cannot work in a static binary; already
   documented dead there. Same verdict will apply to Windows unless the mix
   seam is ported.
+- **Subprocess and mix on wasm.** WASI preview1 has no `fork`/`exec` and no
+  `dlopen`, so `subprocess` calls and mix-seam calls (`zlib.crc32`) are
+  refused at link time with a diagnostic naming the target, not silently
+  broken in the emitted module. Threads compile but are runtime-dead on
+  preview1 (wasi-libc pthread stubs never block). See divergence 16 in
+  [divergences.md](divergences.md).
 - **Windows-native beyond mingw.** If MSVC ABI is ever wanted, that is a
   separate sysroot/linker story; `windows-gnu` covers the realistic surface.
 
