@@ -1203,6 +1203,8 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "csv": ("CsvWriter",),
     "argparse": ("ArgParser", "Namespace"),
     "logging": ("Logger",),
+    "urllib.request": ("HttpRequest", "HttpResponse"),
+    "urllib.error": ("HTTPError", "URLError"),
 }
 
 CLASS_FIELDS: dict[str, list[dict[str, Any]]] = {
@@ -1245,11 +1247,37 @@ CLASS_FIELDS: dict[str, list[dict[str, Any]]] = {
     "Namespace": [],
     # The logger carries the name getLogger recorded.
     "Logger": [{"name": "_name", "type": _S}],
+    # The request record carries what urlopen sends; the response carries what
+    # came back. The headers ride as the wire block ("Name: value\n" rows).
+    "HttpRequest": [
+        {"name": "url", "type": _S},
+        {"name": "method", "type": _S},
+        {"name": "body", "type": _BY},
+        {"name": "headers", "type": _S},
+        {"name": "timeout", "type": _F},
+    ],
+    "HttpResponse": [
+        {"name": "status", "type": _I},
+        {"name": "headers", "type": _S},
+        {"name": "body", "type": _BY},
+    ],
+    # HTTPError keeps the response the server sent: the body stays readable
+    # through read(), the status is the .code CPython puts on the error.
+    "HTTPError": [
+        {"name": "status", "type": _I},
+        {"name": "headers", "type": _S},
+        {"name": "body", "type": _BY},
+    ],
+    "URLError": [],
 }
 
 # Classes whose fields grow while the statements lower. They are emitted
 # after the functions, not with the other synthetic classes.
 DEFERRED_CLASSES = frozenset({"Namespace"})
+
+# Synthetic classes that lower as exceptions. The runtime registers each at
+# module init, so `except` matches through the builtin parent chain.
+SYNTHETIC_EXCEPTIONS: dict[str, int] = {"HTTPError": 24, "URLError": 24}
 
 # i64 field packs compared lexicographically. Path compares its string.
 LEX_CLASSES = frozenset({"Date", "DateTime", "Time", "TimeDelta"})
@@ -1294,6 +1322,12 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("threading", "Condition"): "Condition",
     ("threading", "Semaphore"): "Semaphore",
     ("urllib.parse", "SplitResult"): "SplitResult",
+    ("urllib.request", "HTTPResponse"): "HttpResponse",
+    ("urllib.request", "HttpResponse"): "HttpResponse",
+    ("urllib.request", "HttpRequest"): "HttpRequest",
+    ("urllib.request", "Request"): "HttpRequest",
+    ("urllib.error", "HTTPError"): "HTTPError",
+    ("urllib.error", "URLError"): "URLError",
 }
 
 # Instance methods. `elem` means the deque's element type.
@@ -1368,6 +1402,12 @@ CLASS_METHODS: dict[str, dict[str, dict[str, Any]]] = {
         "writerow": _sig([_LS], _N, "ps_csv_writerow"),
         "writerows": _sig([_LLS], _N, "ps_csv_writerows"),
     },
+    "HttpResponse": {
+        "getcode": _sig([], _I, "ps_http_getcode"),
+        "info": _sig([], _S, "ps_http_info"),
+        "read": _sig([], _BY, "ps_http_read"),
+    },
+    "HttpRequest": {},
 }
 
 PATH_ATTRS: dict[str, tuple[dict[str, Any], str]] = {
@@ -1570,6 +1610,7 @@ REST_MODULES = frozenset(
         "tomllib",
         "dotenv",
         "yaml",
+        "urllib.request",
     }
 )
 
@@ -1788,5 +1829,7 @@ def member_callable(module: str, member: str) -> bool:
     }:
         return True
     if module == "argparse" and member == "ArgumentParser":
+        return True
+    if module == "urllib.request" and member in {"urlopen", "Request"}:
         return True
     return False

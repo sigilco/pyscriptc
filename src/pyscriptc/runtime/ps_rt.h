@@ -201,6 +201,7 @@ __attribute__((noreturn)) void ps_reraise(void);
 __attribute__((noreturn)) void ps_raise_exc(PsExc *e);
 PsExc *ps_exc_current(void);
 PsExc *ps_exc_make(int32_t code, int64_t n, const char *data);
+int32_t ps_exc_code_by_name(const char *name);
 void ps_exc_set_cause(PsExc *e, PsExc *cause);
 PsBuf ps_exc_str(PsExc *e);
 void ps_exc_repr(PsExc *e, PsBuf *out);
