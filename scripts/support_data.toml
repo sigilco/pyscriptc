@@ -204,6 +204,16 @@ ok = ['y: dict[str, int] = yaml.safe_load(s)']
 no = [["load, dump, safe_dump", 'y: dict[str, int] = yaml.load(p)', "PS2001"], ["keyword arguments", 'y: dict[str, int] = yaml.safe_load(s, Loader=None)', "PS2003"]]
 
 [[stdlib]]
+names = ["urllib.request", "urllib.error"]
+imports = ["urllib.request", "urllib.error"]
+ok = ['y: urllib.request.HTTPResponse = urllib.request.urlopen(s)', 'y: urllib.request.Request = urllib.request.Request(s, data=b, method="POST")', 'y: int = urllib.request.urlopen(s).status']
+no = [
+    ["urlopen header keyword", 'y: urllib.request.HTTPResponse = urllib.request.urlopen(s, headers=d)', "PS2003"],
+    ["other urllib.request members (build_opener, install_opener, urlretrieve)", 'urllib.request.urlretrieve(s, s)', "PS2001"],
+    ["HTTPError attribute reads", 'y: int = urllib.request.urlopen(s).fp', "PS2001"],
+]
+
+[[stdlib]]
 names = ["urllib.parse"]
 ok = ['y: str = urllib.parse.quote(s)', 'y: str = urllib.parse.unquote_plus(s)']
 no = [["urlparse, urljoin, urlunsplit, parse_qsl", 'y: str = urllib.parse.urljoin(s, s)', "PS2001"]]

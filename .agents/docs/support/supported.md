@@ -1,6 +1,6 @@
 # What is supported
 
-builtins: 25 🟢 · 22 🟡 · 23 🔴 | stdlib: 0 🟢 · 50 🟡 · 2 🔴
+builtins: 25 🟢 · 22 🟡 · 23 🔴 | stdlib: 0 🟢 · 52 🟡 · 2 🔴
 
 🟢 fully supported (every probed form compiles) · 🟡 partial · 🔴 not supported.
 
@@ -92,6 +92,7 @@ Targets CPython 3.14. Deliberate differences from CPython: [divergences.md](../.
 | `tomllib` | 🟡 | load (file object), keyword arguments | PS2001, PS2003 |
 | `unicodedata` | 🟡 | ucd_3_2_0 (also: Latin-1 only) | PS2001 |
 | `urllib.parse` | 🟡 | urlparse, urljoin, urlunsplit, parse_qsl | PS2001 |
+| `urllib.request`, `urllib.error` | 🟡 | urlopen header keyword, other urllib.request members (build_opener, install_opener, urlretrieve), HTTPError attribute reads | PS2001, PS2003 |
 | `warnings` | 🟡 | warn with a category, simplefilter | PS2001 |
 | `yaml` | 🟡 | load, dump, safe_dump, keyword arguments | PS2001, PS2003 |
 
