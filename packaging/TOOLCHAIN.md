@@ -52,6 +52,38 @@ Not supported under zig cc: Windows-native emitted programs (the runtime needs `
 
 Release-note blurb, matching release.yml's draft-body style: "Emitted programs may also be compiled with `zig cc` >= 0.13 instead of `clang`, on macOS and Linux only. `zig cc -O2 prog.ll <runtime>/*.c -target x86_64-linux-gnu.2.39 -lm -o out` builds a binary pinned to glibc 2.39. Windows-native programs, static-musl mix programs, and cross-libc mix .so files are not supported. The released compiler binary is still built with the native per-runner toolchains."
 
+### Supported zig versions
+
+| Range | Status | Evidence |
+| --- | --- | --- |
+| < 0.13 | unsupported | wraps clang < 18, below the LLVM 15 opaque-pointer floor |
+| >= 0.13 | claimed floor | derived from the clang version zig wraps, not from a run |
+| 0.16.0 | CI-verified floor | `zig cc emitted-IR smoke (0.16.0)` in `.github/workflows/ci.yml` |
+| 0.17.0 | CI-verified ceiling | `zig cc emitted-IR smoke (0.17.0)`, same job, one matrix leg per version |
+
+The CI job runs `packaging/zig/smoke.sh` on every supported version (the tier-A cross matrix, the mix `dlopen` path and the host build), so the range is verified on more than one zig version. A new version enters the range by adding it to that matrix with its sha256 pinned from `https://ziglang.org/download/index.json`.
+
+### Installing zig: `pip install ziglang`
+
+`pip install ziglang` is a supported way to get zig, but the wheel does not install a `zig` executable. It ships the upstream binary at `site-packages/ziglang/zig` and registers only the console script `python-zig` (`ziglang.__main__:dummy`), so `shutil.which("zig")` misses it and a bare `zig` command does not exist.
+
+`src/pyscriptc/zigshim.py` closes that gap: when no `zig` is on PATH, pyscriptc finds an interpreter that can `import ziglang`, writes a `zig` shim into `~/.cache/pyscriptc/shim` that execs `python -m ziglang`, and puts that directory on PATH for the compiler and its children. `pyscriptc doctor` then reports the shim and the version it wraps. The shim is what `--driver zig` and `--target` use, so after `pip install ziglang` the cross-compilation path works with no PATH surgery by the user.
+
+The wheel is a version of zig in its own right: `pip install ziglang==0.17.0` pins zig 0.17.0. The supported version range is the table above, and the wheel version and the zig version are the same number.
+
+### Wheel platform coverage
+
+The `ziglang` wheel ships platform wheels for macOS (x86_64, arm64), Linux (x86_64, aarch64, i686, armv7l) and musl Linux. There is no Windows wheel, so on Windows the wheel path does not apply: install zig with `winget install zig.zig`, `scoop install zig` or `mise use -g zig`, and put it on PATH. The PATH shim is POSIX-only (`#!/bin/sh`) and is not used on Windows.
+
+### Support matrix
+
+| Platform | `pip install ziglang` | System zig | Verified zig versions |
+| --- | --- | --- | --- |
+| Linux x86_64 / aarch64 | yes (wheel) | yes | 0.16.0, 0.17.0 |
+| Linux musl | yes (musllinux wheel) | yes | 0.16.0, 0.17.0 |
+| macOS arm64 / x86_64 | yes (wheel) | yes | 0.16.0, 0.17.0 |
+| Windows | no wheel | yes (`winget`, `scoop`, `mise`) | not verified |
+
 ## Known issues
 
 - **Platform constants (A0).** `src/pyscriptc/stdmore.py` reads every `errno` name, and some `os` names, at import time. macOS lacks `errno.EADV` and `os.CLONE_FILES`, so an unpatched binary dies on start. The fix is being made in the `pyscriptc-a0-macos` worktree. Until it lands, `entry.py` retries the import and sets each missing name to `-1`. A script that names such a constant on macOS gets `-1`, which is wrong. Delete `_load_cli` from `entry.py` once A0 is merged; it is inert on a tree where the import already works.

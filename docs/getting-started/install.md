@@ -15,7 +15,7 @@ pyscriptc doctor
 
 - CPython 3.14 or later to run the compiler (PyPI installs only; the prebuilt binary has no Python dependency). The parser is CPython 3.14's `ast`, and the emitted IR is stamped with the interpreter that lowered it.
 - A C toolchain to link compiled programs
-  - [`zig`](https://ziglang.org/download/) preferred (unlocks cross-compilation)
+  - [`zig`](https://ziglang.org/download/) preferred (unlocks cross-compilation), installable with `pip install ziglang`
   - [`clang`](https://clang.llvm.org/get_started.html)
 
 The preflight checker ([pyrefly](https://pyrefly.org/)) ships inside the installed package, so there is no extra setup for it.
@@ -31,6 +31,17 @@ The preflight checker ([pyrefly](https://pyrefly.org/)) ships inside the install
 | Arch | `sudo pacman -S clang` (or `zig`) |
 | Any Linux or macOS | `mise use -g zig` or `brew install zig` |
 | Windows | `winget install zig.zig` (or `scoop install zig`) |
+
+### Installing zig with pip
+
+`pip install ziglang` is also a supported way to get zig, and it needs no PATH surgery: the wheel ships the zig binary, and pyscriptc installs a `zig` shim for it (the wheel itself only registers a `python-zig` console script, so `zig` is not on PATH by itself). The shim lives in `~/.cache/pyscriptc/shim`, and `pyscriptc doctor` reports it.
+
+```bash
+pip install ziglang          # any zig version the wheel ships
+pip install 'ziglang==0.17.0'  # pin the zig version
+```
+
+Supported zig versions: >= 0.13 (the floor zig 0.13 wraps clang 18, which clears the LLVM 15 opaque-pointer floor), CI-verified on 0.16.0 and 0.17.0. The full matrix is in [TOOLCHAIN.md](https://github.com/sigilco/pyscriptc/blob/master/packaging/TOOLCHAIN.md). The `ziglang` wheel has no Windows build, so on Windows install zig from [ziglang.org](https://ziglang.org/download/) instead.
 
 Emitted programs cannot be compiled on Windows yet; use Linux, macOS or WSL.
 
