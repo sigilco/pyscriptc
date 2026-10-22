@@ -14,7 +14,7 @@ Rows that changed since PR #72 wrote the table:
 | --- | --- | --- |
 | `def f(*args: int)` iterating `args` (PS4019) | **works** - lowers as a `list`, internal calls `f(1, 2)` and iteration match CPython | `*args` half of PS4019 is stale; only starred call sites (`g(*xs)`) stay fenced |
 | `**kwargs` (PS4019) | **works** - `def f(**kwargs: int)` with `f(a=1, b=2)` returns 3 | the whole PS4019 row is stale; keyword passing at call sites also works |
-| `@property` getter (PS4017) | **works** - attribute read calls the getter (`docs/supported.md:222` already says so); only calling `C.a` and the setter stay fenced | PS4017 narrows to `__getattr__`/`__setattr__`/descriptors |
+| `@property` getter (PS4017) | **works** - attribute read calls the getter (see the Tier C list in this file); only calling `C.a` and the setter stay fenced | PS4017 narrows to `__getattr__`/`__setattr__`/descriptors |
 | `class E(Exception)` user exceptions | **works** - raise and catch of a user exception class match CPython | not a refusal row; recorded as supported |
 | `bare except` (listed "currently PS1205") | **works** - E2 M3 landed, bare `except` and `except E as e` both run | the PS1205 note is stale; PS1205 now only fires on a name conflict |
 | `eval`/`exec` (PS4001) | fenced PS2002/PS2001 as claimed | row stands |
@@ -22,7 +22,7 @@ Rows that changed since PR #72 wrote the table:
 | `os.path.join` (PS4006 refuses the whole API) | **works** - `import os; os.path.join('x','y')`, `from os.path import join`, and `posixpath` all return `x/y` identical to CPython | PS4006 as written would claim a lowered surface; see the contradiction resolution below |
 | `'%s' % x` with specs and mappings (PS4005 refuses everything beyond `'%s'`/`'%d'`) | **works** - `'%.2f' % x`, `'%(a)s' % {'a': x}`, `'%s %s' % (x, x)`, `'%d%%' % x` all match CPython | PS4005 is stale beyond repair: the whole printf surface that was supposed to refuse is lowered; only the warning-lane argument survives |
 | `map`/`filter` as values (PS4013 refuses laziness) | **eager lowering exists** - `map`/`filter` desugar to comprehensions (`restlower/_iterators.py:187`), `list(map(g, xs))` matches CPython; binding `m = map(...)` without a use fences PS1001 | PS4013's premise (no eager form) is false; the row narrows to `itertools.count`/`cycle`, which fence PS2001 "infinite iterators are not lowered" |
-| `is` on scalars (PS4009 says "already fenced") | **lowers** - `x is 5`, `x is 1000`, `x is 'abc'` compile and run; `_identity` in `lower/_expr.py:526` lowers scalar `is` to `==` and heap `is` to pointer compare | `docs/supported.md:168` ("`is` against anything else stays fenced") is stale too; PS4009 keeps a reduced claim, see the divergence note in Tier C |
+| `is` on scalars (PS4009 says "already fenced") | **lowers** - `x is 5`, `x is 1000`, `x is 'abc'` compile and run; `_identity` in `lower/_expr.py:526` lowers scalar `is` to `==` and heap `is` to pointer compare | PS4009 keeps a reduced claim, see the divergence note in Tier C |
 | implicit concat `"a" "b"` (PS4008) | **compiles** - and cannot be detected after `ast.parse`, which merges it into one `Constant` | PS4008 as written is unimplementable at the AST level; see Tier 2 |
 | mutable default argument (PS4007) | fenced PS2002 for `list[int] = []` and `dict[str, int] = {}`; `int = 3` lowers | row stands |
 | `datetime.utcnow()` (PS4004) | fenced PS2001 | row stands, but see the tier move below |
@@ -231,7 +231,7 @@ Unimplementable at the lowering layer: `ast.parse` merges `"a" "b"` into one `Co
 
 ### PS4009 - `is` on runtime-built values (reduced scope)
 
-Post-census scope. Literal-and-scalar `is` (`x is 5`, `x is 'abc'`) lowers to value equality and matches CPython for the interned/small-int cases; heap `is` compares pointers. The refusal keeps only the divergent half: runtime-built operands, where the compiled binary's pointer answer differs from CPython's folded-constant answer (probe: `('he' + 'llo') is 'hello'` → `0` compiled, `1` CPython). Tier: T0 for the general form. `docs/supported.md:168`'s "is against anything else stays fenced" needs the same correction.
+Post-census scope. Literal-and-scalar `is` (`x is 5`, `x is 'abc'`) lowers to value equality and matches CPython for the interned/small-int cases; heap `is` compares pointers. The refusal keeps only the divergent half: runtime-built operands, where the compiled binary's pointer answer differs from CPython's folded-constant answer (probe: `('he' + 'llo') is 'hello'` → `0` compiled, `1` CPython). Tier: T0 for the general form.
 
 ### PS4010 - `str`/`bytes` mixing
 
@@ -263,7 +263,7 @@ Post-census scope. `map`/`filter` already desugar to eager comprehensions (`rest
 
 ### PS4017 - dynamic attribute protocol (reduced scope)
 
-`__getattr__`, `__setattr__`, `__getattribute__`, descriptors (`__get__`/`__set__`). Attribute access is resolved statically to declared fields; a hook that can intercept any name lookup defeats that resolution. Post-census scope: `@property` getters lower and stay (`docs/supported.md:222`); the setter and the call form fence; `__getattr__` fences PS2001 when it is actually reached. But a class that *defines* `__setattr__` compiles and runs with the hook never called (the write goes straight to the field), so the code has to fence the hook definition, not only the dynamic-protocol surface. Tier: T0.
+`__getattr__`, `__setattr__`, `__getattribute__`, descriptors (`__get__`/`__set__`). Attribute access is resolved statically to declared fields; a hook that can intercept any name lookup defeats that resolution. Post-census scope: `@property` getters lower and stay; the setter and the call form fence; `__getattr__` fences PS2001 when it is actually reached. But a class that *defines* `__setattr__` compiles and runs with the hook never called (the write goes straight to the field), so the code has to fence the hook definition, not only the dynamic-protocol surface. Tier: T0.
 
 ### PS4018 - `from x import *` (cross-module)
 
@@ -284,7 +284,7 @@ Deliberate divergences that are already lowered and documented; kept because the
 - `x is None` lowers as `==` against `None`. Caveat: correct only because `None` is a singleton; runtime-built operands are the PS4009 divergence.
 - Scalar/heap `is` on literals lowers to value equality or pointer compare (`lower/_expr.py:526`). Caveat: runtime-built equal strings diverge from CPython (compiled answers `0`, CPython `1`); the general form is the PS4009 refusal.
 - `*args` lowers as a `list` (not a `tuple`), `**kwargs` lowers as a `dict`; internal calls and iteration match CPython. Caveat: starred call sites `g(*xs)` still fence. Post-census.
-- `@property` getters lower; user exception classes raise and catch; `getattr`/`hasattr` with a string literal lower; bare `except` and `except E as e` lower (E2 M3). Post-census; `docs/supported.md` already carries these rows.
+- `@property` getters lower; user exception classes raise and catch; `getattr`/`hasattr` with a string literal lower; bare `except` and `except E as e` lower (E2 M3). Post-census.
 - `os.path.*` is a live alias of the `posixpath` table. Post-census; `pathlib` remains the recommended style.
 - Set iteration is insertion order, not hash order. Caveat: deterministic and stable, but different from CPython - use `sorted()` where order matters.
 - `int` overflow and `//` by zero `abort()` instead of raising. Caveat: a known trap-vs-raise gap, tracked for E2.
