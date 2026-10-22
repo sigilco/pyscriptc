@@ -13,6 +13,7 @@ import pytest
 from pyscriptc.coro import YIELD_MARKER
 from pyscriptc.ir import validate_module
 from pyscriptc.lower import lower_source
+from pyscriptc.package import lower_directory
 
 ROOT = Path(__file__).resolve().parents[1]
 ENV = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
@@ -243,3 +244,173 @@ def test_kill_switch_restores_old_fence(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setenv("PYSC_CORO", "0")
     module = lower_source(BASIC, "basic.py")
     assert any(f["message"] == "yield is not lowered" for f in module["fences"])
+
+
+# --- Package units and methods (issue #165) ---------------------------------
+
+METHOD = """\
+from typing import Iterator
+
+
+class Counter:
+    n: int
+
+    def __init__(self, n: int) -> None:
+        self.n = n
+
+    def upto(self) -> Iterator[int]:
+        i: int = 0
+        while i < self.n:
+            yield i
+            i += 1
+
+
+def go() -> int:
+    c: Counter = Counter(4)
+    s: int = 0
+    for v in c.upto():
+        s += v
+    return s
+
+
+print(go())
+"""
+
+PKG_MOD = """\
+from collections.abc import Iterator
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+
+def count(n: int) -> Iterator[int]:
+    i: int = 0
+    while i < n:
+        yield i
+        i += 1
+
+
+def total(xs: Sequence[int]) -> int:
+    s: int = 0
+    for x in xs:
+        s += x
+    return s
+"""
+
+PKG_USER = """\
+from .mod import count
+
+
+def run() -> int:
+    s: int = 0
+    n: int = 0
+    for v in count(5):
+        if n == 4:
+            break
+        s += v
+        n += 1
+    return s
+"""
+
+
+def test_generator_method_matches_cpython(tmp_path: Path) -> None:
+    got, expected = _run_both(tmp_path, "method", METHOD)
+    assert got == expected == "6\n"
+
+
+def test_generator_method_ir_is_plain_classes() -> None:
+    module = lower_source(METHOD, "method.py")
+    assert module["fences"] == []
+    validate_module(module)
+    frames = {cls["name"] for cls in module["classes"] if cls["name"].startswith("gen.")}
+    assert frames == {"gen.Counter.upto"}
+    frame = next(cls for cls in module["classes"] if cls["name"] == "gen.Counter.upto")
+    assert {m["name"] for m in frame["methods"]} == {"__iter__", "__next__"}
+
+
+def test_package_generator_lowers_and_cross_module_consumes(tmp_path: Path) -> None:
+    root = tmp_path / "pkg"
+    root.mkdir()
+    (root / "__init__.py").write_text("", encoding="utf-8")
+    (root / "mod.py").write_text(PKG_MOD, encoding="utf-8")
+    (root / "user.py").write_text(PKG_USER, encoding="utf-8")
+
+    module, _ = lower_directory(root)
+    assert module["fences"] == []
+    validate_module(module)
+    assert YIELD_MARKER not in json.dumps(module)
+
+    names = {fn["name"] for fn in module["functions"]}
+    assert "pkg.mod.count" in names
+    assert "pkg.user.run" in names
+    frames = {cls["name"] for cls in module["classes"] if cls["name"].startswith("gen.")}
+    assert frames == {"gen.count"}
+    # The consumer module binds the frame class through the export table
+    # (its for-loop local `.ps_it_1` carries the `gen.count` shape).
+    user = next(fn for fn in module["functions"] if fn["name"] == "pkg.user.run")
+    assert any(local["type"] == {"kind": "class", "name": "gen.count"} for local in user["locals"])
+
+
+def test_package_generator_runs_across_modules(tmp_path: Path) -> None:
+    root = tmp_path / "pkg"
+    root.mkdir()
+    (root / "__init__.py").write_text("", encoding="utf-8")
+    (root / "mod.py").write_text(PKG_MOD, encoding="utf-8")
+    (root / "user.py").write_text(PKG_USER, encoding="utf-8")
+    built = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pyscriptc",
+            "compile",
+            str(root),
+            "--run",
+            "--call",
+            "pkg.user.run",
+            "-o",
+            str(tmp_path / "out"),
+        ],
+        cwd=ROOT,
+        env=ENV,
+        capture_output=True,
+        text=True,
+    )
+    assert built.returncode == 0, built.stderr
+    assert built.stdout == "6\n"
+
+
+def test_type_checking_iterator_annotation_is_not_a_fence() -> None:
+    source = """\
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator, Sequence
+
+
+def count(n: int) -> Iterator[int]:
+    i: int = 0
+    while i < n:
+        yield i
+        i += 1
+
+
+def total(xs: Sequence[int]) -> int:
+    s: int = 0
+    for x in xs:
+        s += x
+    return s
+
+
+def go() -> int:
+    s: int = 0
+    for v in count(3):
+        s += v
+    return s + total([1, 2])
+
+
+print(go())
+"""
+    module = lower_source(source, "tc.py")
+    assert module["fences"] == []
+    assert YIELD_MARKER not in json.dumps(module)

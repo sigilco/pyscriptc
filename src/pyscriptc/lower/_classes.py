@@ -260,7 +260,9 @@ class ClassesMixin:
         sig_fences = 0
         for method, kind in methods:
             try:
-                method_sigs[method.name] = self._signature(method, node.name, kind)
+                method_sigs[method.name] = self._coro_method_signature(method, node.name) or self._signature(
+                    method, node.name, kind
+                )
                 kinds[method.name] = kind
                 owners[method.name] = node.name
                 if method.name == "__init__":
@@ -717,6 +719,9 @@ class ClassesMixin:
         kind = info["method_kind"].get(stmt.name, "method")
         if params and params[0]["name"] == "self":
             params = [{"name": "self", "type": {"kind": "class", "name": class_name}}, *params[1:]]
+        # A generator method's body lowers under the None-returning resume
+        # signature; the outward frame type rides in the method signature.
+        params, ret = self._coro_method_body_sig(class_name, stmt.name, params, ret)
         self.locals = {param["name"]: param["type"] for param in params}
         self.frozen_names = set()
         self.fn_body = list(stmt.body)
@@ -1623,7 +1628,7 @@ class ClassesMixin:
             return {"kind": "func", "params": params, "return": ret}
         if alias == "Tuple":
             return self._tuple_annotation(node)
-        if alias == "Iterable":
+        if alias == "Iterable" or alias == "Sequence":
             typ = {"kind": "list", "elem": self._annotation(node.slice)}
             self._reject_banned_type(node, typ)
             return typ
@@ -1650,9 +1655,17 @@ class ClassesMixin:
             self.fail(node, "PS1101", "union types are not in the IR")
         self.fail(node, "PS1103", f"{alias} is not a value type in the IR")
 
+    # Spellings of `collections.abc` / `typing` iterator forms that appear in
+    # annotations even when the import sat under `if TYPE_CHECKING:` and was
+    # never bound at runtime. A user class of the same name still wins.
+    _IMPLICIT_ITER_FORMS = frozenset({"Iterator", "Iterable", "Generator", "Sequence"})
+
     def _typing_alias(self, node: ast.AST) -> str | None:
-        if isinstance(node, ast.Name) and node.id in self.type_aliases:
-            return self.type_aliases[node.id]
+        if isinstance(node, ast.Name):
+            if node.id in self.type_aliases:
+                return self.type_aliases[node.id]
+            if node.id in self._IMPLICIT_ITER_FORMS and node.id not in self.classes and node.id not in self.declared:
+                return node.id
         if isinstance(node, ast.Attribute):
             resolved = self._resolve_module(node)
             if resolved is not None and resolved[3] == "erased":
