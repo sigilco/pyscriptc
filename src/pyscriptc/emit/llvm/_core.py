@@ -1,0 +1,219 @@
+"""The emitter core: the module state, the emit driver, and the low-level
+primitives (slots, temporaries, lines, calls) the other areas share.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from pyscriptc.dwarf import DwarfEmitter
+from pyscriptc.emit._ir import _fn_symbol, _llvm_type, _safe, standalone_entry
+from pyscriptc.emit.llvm._runtime import _declarations, _helpers
+from pyscriptc.errors import IRError
+
+
+class CoreMixin:
+    def __init__(self, module: dict[str, Any], dwarf: DwarfEmitter | None = None) -> None:
+        self.module = module
+        # Off by default: without `--debug-info` the emitted text is byte-identical
+        # to the historical output, so the frozen gates and IR hashes do not move.
+        self.dwarf = dwarf
+        self.functions = {fn["name"]: fn for fn in module["functions"]}
+        self.out: list[str] = []
+        self.globals: list[str] = []
+        self.needed: set[str] = set()
+        self.string_data: list[bytes] = []
+        self.tid = 0
+        self.lid = 0
+        self.slots: dict[str, tuple[str, dict[str, Any]]] = {}
+        self.terminated = False
+        self.try_depth = 0
+        self.outline_depth = 0
+        self.outline_n = 0
+        self.outline_lines: list[str] = []
+        self.slot_order: list[str] = []
+        self.slot_types: dict[str, dict[str, Any]] = {}
+        self.ret_ptr: str | None = None
+        self.ret_llvm: str | None = None
+        self.flow_ptr: str | None = None
+        self.class_index: dict[str, dict[str, Any]] = {}
+        self.json_n = 0
+        self.copy_n = 0
+        self.atexit_n = 0
+        self.abi_decls: dict[str, tuple[str, list[str]]] = {}
+        # Function names that need a lazy env-first `name.clo` wrapper because
+        # they are referenced as values.
+        self.clo_wrappers: set[str] = set()
+        # Synthesized env-first `functools.partial` shims: symbol -> spec,
+        # deduplicated on the spec key.
+        self.partials: dict[str, dict[str, Any]] = {}
+        self.partial_keys: dict[str, str] = {}
+        self.partial_n = 0
+        # `--debug-info` state: the span of the statement being emitted. Every
+        # instruction the statement produces carries it as a `DILocation`.
+        self.span: dict[str, Any] | None = None
+
+    def emit(self, call: str | None, args: list[Any], standalone: bool = False) -> str:
+        self.class_index = {cls["name"]: cls for cls in self.module.get("classes", [])}
+        for cls in self.module.get("classes", []):
+            body = "i8" if not cls["fields"] else ", ".join(_llvm_type(field["type"]) for field in cls["fields"])
+            self.globals.append(f"%cls.{cls['name']} = type {{ {body} }}")
+            for method in cls["methods"]:
+                symbol = f"cls.{cls['name']}.{method['name']}"
+                self.functions[symbol] = {**method, "name": symbol}
+        for fn in self.module["functions"]:
+            self.emit_function(fn)
+        for cls in self.module.get("classes", []):
+            for method in cls["methods"]:
+                self.emit_function(self.functions[f"cls.{cls['name']}.{method['name']}"])
+        if call is not None:
+            self.emit_main(call, args)
+        elif standalone:
+            # A script's synthesized entry (E1 item 1) is the program: run it
+            # in source order. A definition-only module keeps the no-op main.
+            entry_fn = standalone_entry(self.module)
+            if entry_fn is not None:
+                self.emit_main(entry_fn["name"], [])
+            else:
+                self.out.append("define i32 @main(i32 %argc, ptr %argv) {")
+                self._reset_function()
+                self.block("entry")
+                self._emit_exc_registrations()
+                self.line("ret i32 0")
+                self.out.extend(["}", ""])
+        # Shims go last: a closure inside a module global initializer (emitted
+        # in @main) can still register one.
+        for name in sorted(self.clo_wrappers):
+            self._emit_clo_wrapper(self.functions[name])
+        for symbol in sorted(self.partials):
+            self._emit_partial_stub(symbol, self.partials[symbol])
+        self.out.extend(self.outline_lines)
+        header = ["%ps.str = type { i64, ptr }", ""]
+        header.extend(self.globals)
+        if self.globals:
+            header.append("")
+        decls = _declarations(self.needed)
+        decls.extend(self._abi_lines())
+        header.extend(decls)
+        if decls:
+            header.append("")
+        header.extend(_helpers(self.needed))
+        body = header + self.out
+        if self.dwarf is not None:
+            # The debug metadata goes last: the named-metadata block and the
+            # `!DI*` records may reference anything the body defined.
+            body = body + self.dwarf.render()
+        return "\n".join(body).rstrip() + "\n"
+
+    def _field(self, class_name: str, name: str) -> dict[str, Any]:
+        for index, field in enumerate(self.class_index[class_name]["fields"]):
+            if field["name"] == name:
+                return {**field, "index": index}
+        raise IRError(f"{class_name}.{name} is not a field")
+
+    def _field_ptr(self, class_name: str, obj: str, field: dict[str, Any]) -> str:
+        reg = self.tmp()
+        self.line(f"{reg} = getelementptr %cls.{class_name}, ptr {obj}, i32 0, i32 {field['index']}")
+        return reg
+
+    def _stash(self, typ: dict[str, Any], value: str) -> str:
+        slot = self._alloca(_llvm_type(typ))
+        self.line(f"store {_llvm_type(typ)} {value}, ptr {slot}")
+        return slot
+
+    def _alloca(self, llvm_type: str) -> str:
+        slot = self.tmp()
+        self.line(f"{slot} = alloca {llvm_type}")
+        return slot
+
+    def _load(self, llvm_type: str, slot: str) -> str:
+        reg = self.tmp()
+        self.line(f"{reg} = load {llvm_type}, ptr {slot}")
+        return reg
+
+    def _call_ret(self, ret: str, name: str, args: list[str]) -> str:
+        reg = self.tmp()
+        self.line(f"{reg} = call {ret} @{name}({', '.join(args)})")
+        return reg
+
+    def _buf_parts(self, value: str) -> tuple[str, str]:
+        length = self.tmp()
+        ptr = self.tmp()
+        self.line(f"{length} = extractvalue %ps.str {value}, 0")
+        self.line(f"{ptr} = extractvalue %ps.str {value}, 1")
+        return length, ptr
+
+    def _buf_cmp(self, left: str, right: str) -> str:
+        self.needed.add("str")
+        left_len, left_ptr = self._buf_parts(left)
+        right_len, right_ptr = self._buf_parts(right)
+        return self._call_ret(
+            "i32", "ps_str_cmp", [f"i64 {left_len}", f"ptr {left_ptr}", f"i64 {right_len}", f"ptr {right_ptr}"]
+        )
+
+    def _emit_clo_wrapper(self, fn: dict[str, Any]) -> None:
+        """`name.clo(env, params...) -> name(params...)`: env-first shim for a
+        plain function referenced as a value."""
+        ret = _llvm_type(fn["returnType"])
+        symbol = _fn_symbol(fn["name"])
+        plist = ["ptr %env"] + [f"{_llvm_type(p['type'])} %{_safe(p['name'])}" for p in fn["params"]]
+        args = ", ".join(f"{_llvm_type(p['type'])} %{_safe(p['name'])}" for p in fn["params"])
+        self.out.append(f"define internal {ret} @{symbol}.clo({', '.join(plist)}) {{")
+        self.out.append("entry:")
+        if ret == "void":
+            self.out.append(f"  call void @{symbol}({args})")
+            self.out.append("  ret void")
+        else:
+            self.out.append(f"  %r = call {ret} @{symbol}({args})")
+            self.out.append(f"  ret {ret} %r")
+        self.out.append("}")
+        self.out.append("")
+
+    def store(self, name: str, value: str) -> None:
+        ptr, typ = self.slots[name]
+        self.line(f"store {_llvm_type(typ)} {value}, ptr {ptr}")
+
+    def load(self, name: str) -> str:
+        ptr, typ = self.slots[name]
+        reg = self.tmp()
+        self.line(f"{reg} = load {_llvm_type(typ)}, ptr {ptr}")
+        return reg
+
+    def block(self, name: str) -> None:
+        self.out.append(f"{name}:")
+        self.terminated = False
+
+    def fresh(self, hint: str) -> str:
+        self.lid += 1
+        return f"L{self.lid}.{hint}"
+
+    def tmp(self) -> str:
+        self.tid += 1
+        return f"%t{self.tid}"
+
+    def line(self, text: str) -> None:
+        self.out.append(f"  {text}{self._dbg_suffix(text)}")
+
+    def _dbg_suffix(self, text: str) -> str:
+        """The `!dbg` attachment for an emitted instruction, or '' when off.
+
+        Only instructions can carry a location: a label or a block header is not
+        an instruction, and the terminator of an instruction that already ends
+        in a comment keeps the comment last.
+        """
+        if self.dwarf is None or self.span is None:
+            return ""
+        if ";" in text:
+            # `call void @ps_raise_code(i32 10) noreturn ; OverflowError`: the
+            # metadata goes before the comment.
+            head, _, tail = text.partition(";")
+            return f"{self.dwarf.dbg(self.span)} ;{tail}"
+        return self.dwarf.dbg(self.span)
+
+    def _reset_function(self) -> None:
+        self.tid = 0
+        self.lid = 0
+        self.slots = {}
+        self.terminated = False
+        self.try_depth = 0
+        self.outline_depth = 0
