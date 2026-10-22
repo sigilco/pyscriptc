@@ -15,7 +15,7 @@ import pytest
 from tests.test_gates import compile_run, oracle, write_case
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_repr_of_exception_is_the_cpython_spelling(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -37,7 +37,7 @@ def test_repr_of_exception_is_the_cpython_spelling(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_repr_without_a_message_has_no_argument(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -59,7 +59,7 @@ def test_repr_without_a_message_has_no_argument(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_repr_of_a_user_class_names_the_class(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -85,7 +85,7 @@ def test_repr_of_a_user_class_names_the_class(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_isinstance_matches_the_raised_class(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -109,7 +109,7 @@ def test_isinstance_matches_the_raised_class(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_isinstance_walks_the_parent_chain(tmp_path: Path) -> None:
     """A `KeyError` is a `LookupError`, so `isinstance(e, LookupError)` is true."""
 
@@ -135,7 +135,7 @@ def test_isinstance_walks_the_parent_chain(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_isinstance_is_false_for_a_sibling_class(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -159,7 +159,7 @@ def test_isinstance_is_false_for_a_sibling_class(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_isinstance_of_a_user_class_walks_to_exception(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -187,7 +187,7 @@ def test_isinstance_of_a_user_class_walks_to_exception(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_args_holds_the_message(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -209,7 +209,7 @@ def test_args_holds_the_message(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_type_name_gives_the_runtime_class(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -231,7 +231,7 @@ def test_type_name_gives_the_runtime_class(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_type_name_of_a_user_class_names_the_class(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,

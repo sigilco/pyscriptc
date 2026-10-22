@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from tests.test_gates import compile_run, oracle, write_case
 
-pytestmark = pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+pytestmark = pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 
 _PROBE = """
 import math

@@ -9,7 +9,7 @@ import pytest
 from tests.test_gates import compile_run, oracle, run_cli, write_case
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_typing_imports_are_erased(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -86,7 +86,7 @@ def test_every_statement_fence_is_reported(tmp_path: Path) -> None:
     assert "list[bool]" in got.stderr
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_keywords_defaults_and_timedelta(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -115,7 +115,7 @@ def test_keywords_defaults_and_timedelta(tmp_path: Path) -> None:
     assert seconds.stdout == "1\n"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_truthiness_and_same_type_boolop(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -147,7 +147,7 @@ def test_truthiness_and_same_type_boolop(tmp_path: Path) -> None:
     assert compile_run(tmp_path, path, "keep").stdout == "a\n"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_strings_slices_formats_and_comprehensions(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -215,7 +215,7 @@ def test_strings_slices_formats_and_comprehensions(tmp_path: Path) -> None:
     assert compile_run(tmp_path, path, "showf").stdout == "1.5\n"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_module_constants_string_and_bisect(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -255,7 +255,7 @@ def test_module_constants_string_and_bisect(tmp_path: Path) -> None:
     assert compile_run(tmp_path, path, "capped").stdout == "3\n"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_with_open_closes_on_the_way_out(tmp_path: Path) -> None:
     source = write_case(
         tmp_path,
@@ -287,7 +287,7 @@ def test_with_open_closes_on_the_way_out(tmp_path: Path) -> None:
     assert out.read_text(encoding="utf-8") == "no"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_tuples_and_grouped_findall(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -313,7 +313,7 @@ def test_tuples_and_grouped_findall(tmp_path: Path) -> None:
     assert compile_run(tmp_path, path, "groups").stdout == "3id\n"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_tuples_longer_than_four_fields(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -342,7 +342,7 @@ def test_tuples_longer_than_four_fields(tmp_path: Path) -> None:
     assert got.stdout == oracle(same, "same")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_all_any_enumerate_and_zip_match(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -375,7 +375,7 @@ def test_all_any_enumerate_and_zip_match(tmp_path: Path) -> None:
     assert got.stdout == "15\n"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_version_check_and_global_slot(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,

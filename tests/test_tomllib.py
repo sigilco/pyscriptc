@@ -86,7 +86,7 @@ FUNCS = [
 ]
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 @pytest.mark.parametrize("func", FUNCS)
 def test_tomllib_matches_cpython(tmp_path: Path, func: str) -> None:
     path = write_case(tmp_path, "toml_case.py", PROGRAM)
@@ -111,7 +111,7 @@ BAD_DOCS = [
 ]
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 @pytest.mark.parametrize("doc", BAD_DOCS)
 def test_tomllib_bad_documents_raise_value_error(tmp_path: Path, doc: str) -> None:
     source = (

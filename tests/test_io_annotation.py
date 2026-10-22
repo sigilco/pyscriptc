@@ -72,7 +72,7 @@ _PROBE = [
 ]
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_io_annotation_read_matches_cpython(tmp_path: Path) -> None:
     note = tmp_path / "note.txt"
     path = write_case(tmp_path, "io_ann.py", "\n".join(_PROBE).format(path=repr(str(note))))

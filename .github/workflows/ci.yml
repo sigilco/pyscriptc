@@ -5,7 +5,7 @@ on:
   pull_request:
 
 # `linux_container` is the Linux dev container suite:
-# HEAVY=1 .agents/docker/run.sh
+# HEAVY=1 docker/run.sh
 # Those tests shell out to clang or only pass on Linux. This workflow does
 # not run that marker, and it does not run the heavy container, the full
 # compiler suite, or probe calibration.

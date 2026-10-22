@@ -33,7 +33,7 @@ EVALUATOR_ENV = "PYSCRIPTC_EVALUATOR"
 def holdout_open() -> bool:
     """True only for the evaluator: the env flag is set and the holdout is on disk.
 
-    Generator agents never get the flag (see .claude/hooks/holdout_guard.py and .agents/docker/run.sh), and
+    Generator agents never get the flag (see .claude/hooks/holdout_guard.py and docker/run.sh), and
     their containers see an empty directory over the holdout.
     """
 

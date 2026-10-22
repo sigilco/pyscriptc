@@ -44,14 +44,14 @@ These gaps sit in the core value model and the statement set. Every probe area a
 
 ## 2. Waves
 
-Effort: S under 1 day, M 1 to 3 days, L about a week, XL more than a week. All runs go through `.agents/docker/run.sh`, and heavy runs use `HEAVY=1`, one at a time. Worktrees come from `.agents/bin/agent-checkout <name>`.
+Effort: S under 1 day, M 1 to 3 days, L about a week, XL more than a week. All runs go through `docker/run.sh`, and heavy runs use `HEAVY=1`, one at a time. Worktrees come from `.agents/bin/agent-checkout <name>`.
 
 ### Wave A. Make the scorer trustworthy, then freeze it (`gates-v2`)
 
 | Id | Work | Effort | Exit criteria | Files |
 | --- | --- | --- | --- | --- |
 | A0 | Fix the macOS crash (`errno.EADV` in `stdmore.py`: guard platform only errno names with `getattr`) | S | `pyscriptc compile examples/hello.py` runs on macOS arm64. The full suite still passes in the container | `src/pyscriptc/stdmore.py` |
-| A1 | Retarget the oracle to 3.12 and add the version axis | L | The generator takes `--oracle 3.12`. The typeshed surface is filtered by `stdlib/VERSIONS` for the target. The language profile uses 3.12 `ast` nodes, and 3.13/3.14 only nodes are tagged `min_version`. `cpython_tests/` is re-pinned from the latest v3.12 tag. Every row carries `versions` (the subset of 3.10 to 3.14 where the name exists and the oracle value agrees). Regeneration is byte for byte reproducible, and the 3.14 set is kept as a secondary column | `benchmarks/compat2/probes/{generate,typeshed,surface,language,cpython_adapter,fold}.py`, `.agents/docker/` (add uv interpreters 3.10 to 3.14) |
+| A1 | Retarget the oracle to 3.12 and add the version axis | L | The generator takes `--oracle 3.12`. The typeshed surface is filtered by `stdlib/VERSIONS` for the target. The language profile uses 3.12 `ast` nodes, and 3.13/3.14 only nodes are tagged `min_version`. `cpython_tests/` is re-pinned from the latest v3.12 tag. Every row carries `versions` (the subset of 3.10 to 3.14 where the name exists and the oracle value agrees). Regeneration is byte for byte reproducible, and the 3.14 set is kept as a secondary column | `benchmarks/compat2/probes/{generate,typeshed,surface,language,cpython_adapter,fold}.py`, `docker/` (add uv interpreters 3.10 to 3.14) |
 | A2 | Calibration reconciliation | M | Run calibration on the full set in shards that merge automatically. Each of the 189 v1 lowered fence rows lands in a triage table, `probes/TRIAGE.md`, as one of: probe wrong (fixed in the generator), stricter than v1 (kept and explained), or compiler gap (kept). Zero unexplained rows. Per category calibration has at least 10 sampled rows in every cell | `probes/calibrate.py`, generator fixes |
 | A3 | Weak probe classes (decision in section 4) | S | The manifest shows the new weights. Headroom reports 0 capped rows among weighted rows | `probes/fold.py`, `ledger.py`, `headroom.py`, `score.py` weights |
 | A4 | Tier 0 and caching (section 4) | M | Measured in the container and recorded in `benchmarks/compat2/TIMINGS.md`: Tier 0 under 30 s, Tier 1 under 3 min with a warm cache | `score.py`, `engine.py`, new `coverage_map.py`, `cache.py` |

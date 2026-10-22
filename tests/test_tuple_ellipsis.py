@@ -46,7 +46,7 @@ def probe() -> int:
 """
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_tuple_ellipsis_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "tuple_ellipsis.py", _PROBE)
     got = compile_run(tmp_path, path, "probe")

@@ -4,7 +4,7 @@ Plan: `.agents/plans/2026-10-14-waves-after-scorer-v2.md` (adopted in commit 93a
 
 ## Baseline (rule 9c)
 
-`/tmp/pyscriptc-master-baseline-*.log`: 326 passed, 2 skipped, 0 failed, 17m20s on master c6ad189 (the plan commit adds no code). No known pre-existing failures. `/tmp` may be cleaned, so rerun `HEAVY=1 .agents/docker/run.sh uv run pytest -q` once if the log is gone. Delete it when Wave A lands.
+`/tmp/pyscriptc-master-baseline-*.log`: 326 passed, 2 skipped, 0 failed, 17m20s on master c6ad189 (the plan commit adds no code). No known pre-existing failures. `/tmp` may be cleaned, so rerun `HEAVY=1 docker/run.sh uv run pytest -q` once if the log is gone. Delete it when Wave A lands.
 
 ## Status per plan row
 

@@ -14,7 +14,7 @@ from benchmarks.harness import measure_command, versus_cpython
 ROOT = Path(__file__).resolve().parents[1]
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_measure_command_reports_time_and_rss() -> None:
     sample = measure_command([sys.executable, "-c", "blob = bytearray(20_000_000); print(len(blob))"])
     assert sample.returncode == 0
@@ -62,7 +62,7 @@ def test_versus_cpython_inverts_the_ratio() -> None:
     assert versus_cpython(0.04857) == "20.6x CPython"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_baseline_run_records_time_and_rss(tmp_path: Path) -> None:
     report_path = tmp_path / "baseline.json"
     completed = subprocess.run(

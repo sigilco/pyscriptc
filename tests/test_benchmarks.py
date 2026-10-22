@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+pytestmark = pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 
 ROOT = Path(__file__).resolve().parents[1]
 

@@ -61,7 +61,7 @@ pyscriptc = [
 testpaths = ["tests"]
 pythonpath = ["src", "."]
 markers = [
-    "linux_container: Linux dev container suite (HEAVY=1 .agents/docker/run.sh). Shells out to clang or only passes on Linux. CI does not run these.",
+    "linux_container: Linux dev container suite (HEAVY=1 docker/run.sh). Shells out to clang or only passes on Linux. CI does not run these.",
 ]
 
 [tool.ruff]

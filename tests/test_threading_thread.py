@@ -256,7 +256,7 @@ def checklist() -> int:
 """
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_thread_start_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "start.py", _THREAD_START_SOURCE)
     got = compile_run(tmp_path, path, "checklist")
@@ -265,7 +265,7 @@ def test_thread_start_matches_cpython(tmp_path: Path) -> None:
     assert got.stdout == "0\n"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_thread_join_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "join.py", _THREAD_JOIN_SOURCE)
     got = compile_run(tmp_path, path, "checklist")
@@ -274,7 +274,7 @@ def test_thread_join_matches_cpython(tmp_path: Path) -> None:
     assert got.stdout == "0\n"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_thread_name_and_daemon_match_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "name.py", _THREAD_NAME_DAEMON_SOURCE)
     got = compile_run(tmp_path, path, "checklist")
@@ -283,7 +283,7 @@ def test_thread_name_and_daemon_match_cpython(tmp_path: Path) -> None:
     assert got.stdout == "0\n"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_event_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "event.py", _EVENT_SOURCE)
     got = compile_run(tmp_path, path, "checklist")
@@ -292,7 +292,7 @@ def test_event_matches_cpython(tmp_path: Path) -> None:
     assert got.stdout == "0\n"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_event_handshake_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "handshake.py", _EVENT_ACROSS_THREADS_SOURCE)
     got = compile_run(tmp_path, path, "checklist")
@@ -301,7 +301,7 @@ def test_event_handshake_matches_cpython(tmp_path: Path) -> None:
     assert got.stdout == "0\n"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_condition_acquire_release_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "condition.py", _CONDITION_SOURCE)
     got = compile_run(tmp_path, path, "checklist")
@@ -310,7 +310,7 @@ def test_condition_acquire_release_matches_cpython(tmp_path: Path) -> None:
     assert got.stdout == "0\n"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_condition_wait_timeout_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "cond_wait.py", _CONDITION_WAIT_TIMEOUT_SOURCE)
     got = compile_run(tmp_path, path, "checklist")
@@ -319,7 +319,7 @@ def test_condition_wait_timeout_matches_cpython(tmp_path: Path) -> None:
     assert got.stdout == "0\n"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_semaphore_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "semaphore.py", _SEMAPHORE_SOURCE)
     got = compile_run(tmp_path, path, "checklist")
@@ -328,7 +328,7 @@ def test_semaphore_matches_cpython(tmp_path: Path) -> None:
     assert got.stdout == "0\n"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_semaphore_default_value_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "sem_default.py", _SEMAPHORE_DEFAULT_SOURCE)
     got = compile_run(tmp_path, path, "checklist")
@@ -337,7 +337,7 @@ def test_semaphore_default_value_matches_cpython(tmp_path: Path) -> None:
     assert got.stdout == "0\n"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_semaphore_producer_consumer_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "prodcon.py", _SEMAPHORE_ACROSS_THREADS_SOURCE)
     got = compile_run(tmp_path, path, "checklist")
@@ -346,7 +346,7 @@ def test_semaphore_producer_consumer_matches_cpython(tmp_path: Path) -> None:
     assert got.stdout == "0\n"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_from_import_matches_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "from_import.py", _FROM_IMPORT_SOURCE)
     got = compile_run(tmp_path, path, "checklist")
@@ -355,7 +355,7 @@ def test_from_import_matches_cpython(tmp_path: Path) -> None:
     assert got.stdout == "0\n"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_join_before_start_raises(tmp_path: Path) -> None:
     """CPython raises RuntimeError; the compiled program raises the same class."""
     path = write_case(tmp_path, "join_early.py", _JOIN_BEFORE_START_SOURCE)
@@ -364,7 +364,7 @@ def test_join_before_start_raises(tmp_path: Path) -> None:
     assert "RuntimeError" in got.stderr, got.stderr
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_double_start_raises(tmp_path: Path) -> None:
     """CPython raises RuntimeError; the compiled program raises the same class."""
     path = write_case(tmp_path, "double_start.py", _DOUBLE_START_SOURCE)
@@ -373,7 +373,7 @@ def test_double_start_raises(tmp_path: Path) -> None:
     assert "RuntimeError" in got.stderr, got.stderr
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_negative_semaphore_raises(tmp_path: Path) -> None:
     """CPython raises ValueError; the compiled program raises the same class."""
     path = write_case(tmp_path, "sem_neg.py", _SEM_NEGATIVE_SOURCE)

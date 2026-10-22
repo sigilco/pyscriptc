@@ -14,7 +14,7 @@ import pytest
 from tests.test_gates import compile_run, oracle, write_case
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_full_ordering_fallthrough_raises_and_returns(tmp_path: Path) -> None:
     """One log per arm: fallthrough runs try+else+finally; a raise runs
     except+finally and skips else; a return skips else but runs finally."""
@@ -59,7 +59,7 @@ def test_full_ordering_fallthrough_raises_and_returns(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_else_runs_only_on_a_clean_fallthrough(tmp_path: Path) -> None:
     """The body fell through with no exception: else runs, then finally."""
 
@@ -89,7 +89,7 @@ def test_else_runs_only_on_a_clean_fallthrough(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_else_is_skipped_when_the_body_raises(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -117,7 +117,7 @@ def test_else_is_skipped_when_the_body_raises(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_else_is_skipped_when_the_body_returns(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -145,7 +145,7 @@ def test_else_is_skipped_when_the_body_returns(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_finally_runs_before_the_unhandled_exception_escapes(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -158,7 +158,7 @@ def test_finally_runs_before_the_unhandled_exception_escapes(tmp_path: Path) -> 
     assert "KeyError: 'escapes'" in got.stderr
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_finally_around_break_and_continue(tmp_path: Path) -> None:
     """finally wraps each non-local exit; else is skipped when the body jumps."""
 
@@ -193,7 +193,7 @@ def test_finally_around_break_and_continue(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_nested_finally_with_inner_catch(tmp_path: Path) -> None:
     """An inner finally runs while the exception is on its way to the outer catch."""
 
@@ -222,7 +222,7 @@ def test_nested_finally_with_inner_catch(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_raise_inside_finally_replaces_the_in_flight_exception(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -249,7 +249,7 @@ def test_raise_inside_finally_replaces_the_in_flight_exception(tmp_path: Path) -
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_handler_chains_through_finally(tmp_path: Path) -> None:
     """A caught inner exception does not stop the outer finally from running."""
 
@@ -281,7 +281,7 @@ def test_handler_chains_through_finally(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_try_inside_finally_nests_normally(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -307,7 +307,7 @@ def test_try_inside_finally_nests_normally(tmp_path: Path) -> None:
     assert "ValueError: v" in got.stderr
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_finally_sees_the_state_the_handler_left(tmp_path: Path) -> None:
     """A handler's assignments are visible to the finally block."""
 
@@ -335,7 +335,7 @@ def test_finally_sees_the_state_the_handler_left(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_nested_try_finally_chain_runs_both_finallys(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -366,7 +366,7 @@ def test_nested_try_finally_chain_runs_both_finallys(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_bare_except_still_runs_the_finally(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -392,7 +392,7 @@ def test_bare_except_still_runs_the_finally(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_return_inside_finally_replaces_the_in_flight_exception(tmp_path: Path) -> None:
     """CPython lets a `return` in `finally` swallow the exception.
 
@@ -421,7 +421,7 @@ def test_return_inside_finally_replaces_the_in_flight_exception(tmp_path: Path) 
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_break_inside_finally_leaves_the_loop(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,

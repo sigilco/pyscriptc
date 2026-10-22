@@ -44,7 +44,7 @@ def oracle_report(path: Path, func: str) -> tuple[int, str]:
     return proc.returncode, "\n".join(lines)
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_uncaught_exception_prints_name_and_message(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -57,7 +57,7 @@ def test_uncaught_exception_prints_name_and_message(tmp_path: Path) -> None:
     assert oracle_report(path, "measure") == (1, "ValueError: boom")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_uncaught_exception_without_a_message_prints_the_name(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -70,7 +70,7 @@ def test_uncaught_exception_without_a_message_prints_the_name(tmp_path: Path) ->
     assert oracle_report(path, "measure") == (1, "ValueError")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_uncaught_keyerror_quotes_its_key(tmp_path: Path) -> None:
     """CPython shows a KeyError's argument as a repr: KeyError: 'missing'."""
 
@@ -85,7 +85,7 @@ def test_uncaught_keyerror_quotes_its_key(tmp_path: Path) -> None:
     assert oracle_report(path, "measure") == (1, "KeyError: 'missing'")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_uncaught_user_exception_names_the_class(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -110,7 +110,7 @@ def test_uncaught_user_exception_names_the_class(tmp_path: Path) -> None:
     assert oracle_report(path, "measure") == (1, "mod.AppError: nope")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_a_user_exception_subclass_names_its_own_class(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -136,7 +136,7 @@ def test_a_user_exception_subclass_names_its_own_class(tmp_path: Path) -> None:
     assert got.stderr.strip() == "Sub: nope"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_the_cause_prints_before_the_exception(tmp_path: Path) -> None:
     """`raise X from e` prints the cause, then the link, then the exception."""
 
@@ -165,7 +165,7 @@ def test_the_cause_prints_before_the_exception(tmp_path: Path) -> None:
     )
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_raise_from_none_suppresses_the_chain(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -187,7 +187,7 @@ def test_raise_from_none_suppresses_the_chain(tmp_path: Path) -> None:
     assert oracle_report(path, "measure") == (1, "RuntimeError: second")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_a_bare_raise_reports_the_original_exception(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -209,7 +209,7 @@ def test_a_bare_raise_reports_the_original_exception(tmp_path: Path) -> None:
     assert oracle_report(path, "measure") == (1, "ValueError: boom")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_an_unmatched_handler_lets_the_exception_escape(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -232,7 +232,7 @@ def test_an_unmatched_handler_lets_the_exception_escape(tmp_path: Path) -> None:
     assert oracle_report(path, "measure") == (1, "ValueError: boom")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_a_runtime_index_error_names_the_container(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -252,7 +252,7 @@ def test_a_runtime_index_error_names_the_container(tmp_path: Path) -> None:
     assert oracle_report(path, "measure") == (1, "IndexError: list index out of range")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_a_runtime_string_index_error_names_the_container(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -272,7 +272,7 @@ def test_a_runtime_string_index_error_names_the_container(tmp_path: Path) -> Non
     assert oracle_report(path, "measure") == (1, "IndexError: string index out of range")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_a_missing_dict_key_reports_the_key(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -292,7 +292,7 @@ def test_a_missing_dict_key_reports_the_key(tmp_path: Path) -> None:
     assert oracle_report(path, "measure") == (1, "KeyError: 'missing'")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_a_missing_int_dict_key_reports_the_key(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -312,7 +312,7 @@ def test_a_missing_int_dict_key_reports_the_key(tmp_path: Path) -> None:
     assert oracle_report(path, "measure") == (1, "KeyError: 42")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_a_division_by_zero_names_the_operation(tmp_path: Path) -> None:
     """CPython 3.13 and earlier name the operation; 3.14 unified them."""
 
@@ -334,7 +334,7 @@ def test_a_division_by_zero_names_the_operation(tmp_path: Path) -> None:
     assert got.stderr.strip() == report
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_a_float_division_by_zero_names_the_operation(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -354,7 +354,7 @@ def test_a_float_division_by_zero_names_the_operation(tmp_path: Path) -> None:
     assert got.stderr.strip() == report
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_the_report_goes_to_stderr_and_stdout_stays_clean(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -374,7 +374,7 @@ def test_the_report_goes_to_stderr_and_stdout_stays_clean(tmp_path: Path) -> Non
     assert got.stderr.strip() == "ValueError: boom"
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_the_uncaught_report_does_not_print_a_traceback(tmp_path: Path) -> None:
     """The subset has no frames to list, so the report is the one line."""
 
@@ -389,7 +389,7 @@ def test_the_uncaught_report_does_not_print_a_traceback(tmp_path: Path) -> None:
     assert len(got.stderr.strip().splitlines()) == 1
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_a_caught_exception_prints_nothing(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,

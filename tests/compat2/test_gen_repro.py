@@ -18,7 +18,7 @@ from benchmarks.compat2.probes import typeshed
 ROOT = Path(__file__).resolve().parents[2]
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_surface_worker_output_is_reproducible() -> None:
     env = {
         **os.environ,

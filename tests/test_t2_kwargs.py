@@ -163,7 +163,7 @@ def run() -> int:
     assert any(fence["code"] == "PS1003" for fence in fences)
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_kwargs_capture_iteration_membership_match_cpython(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -190,7 +190,7 @@ def test_kwargs_capture_iteration_membership_match_cpython(tmp_path: Path) -> No
     assert got.stdout == oracle(path, "run")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_kwargs_with_varargs_matches_cpython(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,

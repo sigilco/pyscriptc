@@ -47,7 +47,7 @@ def test_real_pyjwt_hmac_tree_still_fences() -> None:
     assert proc.stderr.count("PS") == 100
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_jwt_compat_roundtrip_matches_real_pyjwt(tmp_path: Path) -> None:
     package = FIXTURE / "jwtapp"
     out = tmp_path / "jwtapp-bin"

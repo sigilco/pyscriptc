@@ -14,7 +14,7 @@ import pytest
 from tests.test_gates import compile_run, oracle, write_case
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_int_traps_are_catchable(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -50,7 +50,7 @@ def test_int_traps_are_catchable(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_float_traps_are_catchable(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -86,7 +86,7 @@ def test_float_traps_are_catchable(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_widened_exception_names(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -122,7 +122,7 @@ def test_widened_exception_names(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_uncaught_trap_reports_name(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,

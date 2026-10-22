@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# usage: .agents/docker/run.sh <cmd...>        light run in the Linux dev container (git toplevel mounted at /work)
-#        HEAVY=1 .agents/docker/run.sh <cmd>   full suite, corpus or perf run: queues behind other heavy runs
+# usage: docker/run.sh <cmd...>        light run in the Linux dev container (git toplevel mounted at /work)
+#        HEAVY=1 docker/run.sh <cmd>   full suite, corpus or perf run: queues behind other heavy runs
 # The Dory VM is small (2 GB, 3 CPUs). Parallel heavy runs wedge the engine, so heavy runs take a lock.
 # The holdout directory is masked with an empty tmpfs unless PYSCRIPTC_EVALUATOR=1 (evaluator sessions only).
 set -euo pipefail

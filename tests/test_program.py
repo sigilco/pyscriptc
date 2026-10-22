@@ -54,7 +54,7 @@ def assert_matches_cpython(tmp_path: Path, root: Path, args: list[str] | None = 
     assert got.returncode == expected.returncode
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_program_entry_and_plain_imports_match_cpython(tmp_path: Path) -> None:
     root = write_tree(
         tmp_path,
@@ -69,7 +69,7 @@ def test_program_entry_and_plain_imports_match_cpython(tmp_path: Path) -> None:
     assert_matches_cpython(tmp_path, root)
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_module_bodies_run_in_import_order(tmp_path: Path) -> None:
     root = write_tree(
         tmp_path,
@@ -84,7 +84,7 @@ def test_module_bodies_run_in_import_order(tmp_path: Path) -> None:
     assert_matches_cpython(tmp_path, root)
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_a_module_body_runs_once_when_imported_twice(tmp_path: Path) -> None:
     root = write_tree(
         tmp_path,
@@ -98,7 +98,7 @@ def test_a_module_body_runs_once_when_imported_twice(tmp_path: Path) -> None:
     assert_matches_cpython(tmp_path, root)
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_from_import_binds_module_members(tmp_path: Path) -> None:
     root = write_tree(
         tmp_path,
@@ -118,7 +118,7 @@ def test_from_import_binds_module_members(tmp_path: Path) -> None:
     assert_matches_cpython(tmp_path, root)
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_program_with_a_main_guard_still_runs_the_top_level(tmp_path: Path) -> None:
     root = write_tree(
         tmp_path,
@@ -131,7 +131,7 @@ def test_program_with_a_main_guard_still_runs_the_top_level(tmp_path: Path) -> N
     assert_matches_cpython(tmp_path, root)
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_sys_argv_reaches_the_program(tmp_path: Path) -> None:
     root = write_tree(
         tmp_path,
@@ -143,7 +143,7 @@ def test_sys_argv_reaches_the_program(tmp_path: Path) -> None:
     assert_matches_cpython(tmp_path, root, ["hello", "world"])
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_a_main_guard_in_an_imported_module_does_not_run(tmp_path: Path) -> None:
     # An imported module is not `__main__`: its guard body never runs.
     root = write_tree(
@@ -163,7 +163,7 @@ def test_a_main_guard_in_an_imported_module_does_not_run(tmp_path: Path) -> None
     assert_matches_cpython(tmp_path, root)
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_a_side_effect_import_runs_the_body_once(tmp_path: Path) -> None:
     # The same module imported twice runs its body once.
     root = write_tree(
@@ -177,7 +177,7 @@ def test_a_side_effect_import_runs_the_body_once(tmp_path: Path) -> None:
     assert_matches_cpython(tmp_path, root)
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_a_module_nobody_imports_never_runs(tmp_path: Path) -> None:
     root = write_tree(
         tmp_path,
@@ -191,7 +191,7 @@ def test_a_module_nobody_imports_never_runs(tmp_path: Path) -> None:
     assert_matches_cpython(tmp_path, root)
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_a_nested_package_resolves_by_its_plain_name(tmp_path: Path) -> None:
     root = write_tree(
         tmp_path,
@@ -207,7 +207,7 @@ def test_a_nested_package_resolves_by_its_plain_name(tmp_path: Path) -> None:
     assert_matches_cpython(tmp_path, root)
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_a_main_py_directory_is_a_program_too(tmp_path: Path) -> None:
     # The other R2 shape: main.py plus sibling modules, no __init__.py.
     root = write_tree(
@@ -270,7 +270,7 @@ def test_a_cycle_inside_a_package_is_refused(tmp_path: Path) -> None:
     assert "circular import: pkg.a -> pkg.b -> pkg.a" in got.stderr
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_program_flag_matches_python_dash_m(tmp_path: Path) -> None:
     # A package directory with --program is the `python -m pkg` shape: the
     # root __main__.py is the entry and the modules keep the namespace.

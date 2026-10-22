@@ -14,7 +14,7 @@ import pytest
 from tests.test_gates import compile_run, oracle, write_case
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_value_error_caught_by_name_and_parent(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -49,7 +49,7 @@ def test_value_error_caught_by_name_and_parent(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_user_exception_still_matches_exception(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
@@ -92,7 +92,7 @@ def test_user_exception_still_matches_exception(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "measure")
 
 
-@pytest.mark.linux_container  # HEAVY=1 .agents/docker/run.sh
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_uncaught_reports_name_and_message(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
