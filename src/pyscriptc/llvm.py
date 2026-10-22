@@ -7,8 +7,10 @@ that does not fit is refused: it is not truncated.
 
 from __future__ import annotations
 
+import shutil
 import struct
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -73,7 +75,7 @@ def sanitize_flags(sanitize: list[str] | None) -> list[str]:
 def link_binary(
     llvm_path: Path,
     output: Path,
-    driver: str = "clang",
+    driver: str | None = None,
     target: str | None = None,
     record: list[list[str]] | None = None,
     link_driver: str | None = None,
@@ -93,6 +95,13 @@ def link_binary(
     When `timings` is a dict, per-step cc/link wall milliseconds are added
     into it (`cc_compile`, `cc_link`).
     """
+    if driver is None:
+        if target is not None or sys.platform == "win32" or shutil.which("zig") is not None:
+            driver = "zig"
+        elif shutil.which("clang") is not None:
+            driver = "clang"
+        else:
+            driver = "zig"
     output.parent.mkdir(parents=True, exist_ok=True)
     if target is not None and driver != "zig":
         raise IRError("--target requires --driver zig (bundled sysroot per target)")
@@ -171,12 +180,19 @@ def compile_unit(
     llvm_path: Path,
     output: Path,
     kind: str,
-    driver: str = "clang",
+    driver: str | None = None,
     target: str | None = None,
     record: list[list[str]] | None = None,
     timings: dict[str, float] | None = None,
 ) -> None:
     """Compile the module's `.ll` alone to assembly (`asm`) or an object (`obj`)."""
+    if driver is None:
+        if target is not None or sys.platform == "win32" or shutil.which("zig") is not None:
+            driver = "zig"
+        elif shutil.which("clang") is not None:
+            driver = "clang"
+        else:
+            driver = "zig"
     if target is not None and driver != "zig":
         raise IRError("--target requires --driver zig (bundled sysroot per target)")
     output.parent.mkdir(parents=True, exist_ok=True)

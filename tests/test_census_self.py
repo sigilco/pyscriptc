@@ -77,6 +77,8 @@ def test_self_census_ballpark() -> None:
     # exclusion), 5 in llvm.py (the per-step cc/link measurements).
     # Emitter seam (#273): emitter.py adds 4 self-host fences (the dict-shaped
     # IR annotations on the module and function builders).
+    # Toolchain driver resolution (prefer zig with clang fallback): +6 self-host fences (cli, llvm, doctor).
+    # Windows target compilation: +2 self-host fences (cli, llvm).
     assert census["fences"] == 2220
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # emitter.py (the emitter seam, #273) crosses the old 31_000 bound.

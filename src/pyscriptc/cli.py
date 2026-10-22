@@ -71,7 +71,8 @@ def main(argv: list[str] | None = None) -> int:
         "--driver",
         choices=("clang", "zig"),
         default=None,
-        help="C toolchain driver; zig means `zig cc` (required for --target); env PYSC_CC, default clang",
+        help="C toolchain driver; zig means `zig cc` (preferred, required for --target); "
+        "env PYSC_CC, defaults to zig if found, else clang",
     )
     compile_parser.add_argument(
         "--target",
@@ -418,6 +419,25 @@ def compile_cmd(args: argparse.Namespace) -> int:
         )
 
 
+def _resolve_default_driver(target: str | None = None) -> str | None:
+    """Resolve the default C driver when not explicitly specified via --driver or PYSC_CC.
+
+    Rules:
+    - If target is set (or targets Windows) -> prefer zig.
+    - If sys.platform == "win32" -> prefer zig.
+    - If shutil.which("zig") is found on PATH -> prefer zig.
+    - Otherwise, fall back to clang on macOS/Linux if found on PATH.
+    - If neither is found, return None.
+    """
+    if target is not None or sys.platform == "win32":
+        return "zig"
+    if shutil.which("zig") is not None:
+        return "zig"
+    if shutil.which("clang") is not None:
+        return "clang"
+    return None
+
+
 def _apply_env_defaults(args: argparse.Namespace) -> None:
     """Fill unset toolchain flags from PYSC_CC / PYSC_LINKER / PYSC_TARGET; explicit flags win."""
     for attr, var in (("driver", "PYSC_CC"), ("linker", "PYSC_LINKER")):
@@ -429,7 +449,7 @@ def _apply_env_defaults(args: argparse.Namespace) -> None:
     if args.target is None:
         args.target = os.environ.get("PYSC_TARGET") or None
     if args.driver is None:
-        args.driver = "clang"
+        args.driver = _resolve_default_driver(args.target)
     if getattr(args, "sanitize", None) is None:
         args.sanitize = os.environ.get("PYSC_SANITIZE") or None
 
@@ -464,11 +484,21 @@ def _require_toolchain(args: argparse.Namespace) -> None:
     """Fail before any work when the requested output needs a C driver that is not on PATH."""
     if not (args.run or args.emit in ("asm", "obj", "bin")):
         return
-    driver = args.driver or "clang"
+    driver = args.driver
+    if driver is None:
+        raise IRError(
+            "no C toolchain found on PATH (neither zig nor clang), and compiling to a binary needs a C toolchain. "
+            "Install zig (`brew install zig`, `winget install zig`, or `pip install ziglang`) or clang. "
+            "Run `pyscriptc doctor` to see what was found and the README for install commands. "
+            "`--emit ir` and `--emit llvm` need no toolchain."
+        )
     if shutil.which(driver) is None:
+        hint = ""
+        if driver == "zig":
+            hint = " (install via `brew install zig`, `winget install zig`, or `pip install ziglang`)"
         raise IRError(
             f"{driver} not found on PATH, and compiling to a binary needs a C toolchain "
-            f"(clang or zig; select with --driver or PYSC_CC). Run `pyscriptc doctor` to see what was found "
+            f"(clang or zig; select with --driver or PYSC_CC){hint}. Run `pyscriptc doctor` to see what was found "
             f"and the README for install commands. `--emit ir` and `--emit llvm` need no toolchain."
         )
 
