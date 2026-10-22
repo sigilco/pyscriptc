@@ -44,6 +44,7 @@ from pyscriptc.stdlib_queue import (
 from pyscriptc.stdmore import (
     MODULE_CLASSES,
     REST_MODULES,
+    THREADING_CLASSES,
     member_callable,
     module_constant,
 )
@@ -555,6 +556,12 @@ class StdlibDispatchMixin:
                     # An optional target keeps its raw constant: each read
                     # boxes it into the tagged cell.
                     value = self._expr(stmt.value, None if typ.get("optional") else typ)
+                if typ["kind"] == "class" and typ.get("name") in THREADING_CLASSES:
+                    # A threading record is a runtime pointer. A module-level
+                    # binding must keep its identity, so it takes a global
+                    # slot instead of a stored constant that re-emits per read.
+                    self._bind_threading_global(stmt.target.id, value, typ, stmt)
+                    return
                 if not _module_closed(value):
                     self.fail(stmt, "PS2002", "a module assignment must be a constant")
                 if typ.get("optional") and not (
