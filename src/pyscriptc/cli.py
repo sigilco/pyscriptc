@@ -316,6 +316,9 @@ def config_cmd(args: argparse.Namespace) -> int:
         "fail-on": config.fail_on,
         "requires-python": config.requires_python,
         "dependencies": list(config.dependencies),
+        "stub-path": list(config.stub_path),
+        "ffi": list(config.ffi),
+        "dependency-lanes": config.dependency_lanes(),
         "imports": {name: config.lane_for(name)[0] for name in sorted(config.imports)},
     }
     if args.json:
@@ -329,8 +332,13 @@ def config_cmd(args: argparse.Namespace) -> int:
             print(f"{key}: {data[key]}")
     if data["src"]:
         print(f"src: {', '.join(data['src'])}")
+    for key in ("stub-path", "ffi"):
+        if data[key]:
+            print(f"{key}: {', '.join(data[key])}")
     if data["dependencies"]:
         print(f"dependencies: {', '.join(data['dependencies'])}")
+        for req, lane in data["dependency-lanes"].items():
+            print(f"  {req}: {lane}")
     for name, lane in data["imports"].items():
         print(f"import {name}: {lane}")
     return 0

@@ -38,6 +38,8 @@ _KEYS: dict[str, tuple[type, ...]] = {
     "driver": (str,),
     "target": (str,),
     "fail-on": (str,),
+    "stub-path": (str, list),
+    "ffi": (str, list),
     "imports": (dict,),
 }
 _CHOICES = {
@@ -84,6 +86,8 @@ class Config:
     driver: str | None = None
     target: str | None = None
     fail_on: str | None = None
+    stub_path: tuple[str, ...] = ()
+    ffi: tuple[str, ...] = ()
     imports: dict[str, str] = field(default_factory=dict)
     requires_python: str | None = None
     dependencies: tuple[str, ...] = ()
@@ -91,6 +95,24 @@ class Config:
     def lane_for(self, name: str) -> tuple[str, str]:
         """(lane, matched key) for an imported top-level name."""
         return lane_for(name, self.imports)
+
+    def _resolve(self, paths: tuple[str, ...]) -> tuple[Path, ...]:
+        base = self.origin.parent if self.origin is not None else Path.cwd()
+        return tuple((base / p).resolve() for p in paths)
+
+    @property
+    def stub_paths(self) -> tuple[Path, ...]:
+        """`stub-path` entries resolved against the config file's directory."""
+        return self._resolve(self.stub_path)
+
+    @property
+    def ffi_manifests(self) -> tuple[Path, ...]:
+        """`ffi` manifest paths resolved against the config file's directory."""
+        return self._resolve(self.ffi)
+
+    def dependency_lanes(self) -> dict[str, str]:
+        """Lane of each PEP 723 dependency, keyed by requirement string."""
+        return dependency_lanes(self.dependencies, self.imports)
 
 
 def lane_for(name: str, imports: dict[str, str]) -> tuple[str, str]:
@@ -104,6 +126,54 @@ def lane_for(name: str, imports: dict[str, str]) -> tuple[str, str]:
     if "*" in imports:
         return imports["*"], "*"
     return DEFAULT_LANE, "default"
+
+
+# Policy-table lane to the lane vocabulary of the import classifier.
+_POLICY_TO_DEP_LANE = {
+    "compile": "native",
+    "replace": "pack",
+    "extern": "extern",
+    "island": "island",
+    "refuse": "refused",
+}
+
+_REQ_NAME_RE = re.compile(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
+
+
+def requirement_name(requirement: str) -> str:
+    """The distribution name of a PEP 508 requirement string."""
+    match = _REQ_NAME_RE.match(requirement)
+    if match is None:
+        raise ConfigError(f"PEP 723 dependency {requirement!r} is not a valid requirement")
+    return match.group(1)
+
+
+def dependency_lanes(dependencies: tuple[str, ...], imports: dict[str, str] | None = None) -> dict[str, str]:
+    """Map each dependency to `native`, `pack`, `extern`, `island` or `refused`.
+
+    The `imports` policy table wins (by distribution name or by the import
+    name it most likely provides, `-` read as `_`); a `*` entry applies only
+    when it is not the `compile` default. Otherwise the offline import
+    classifier decides from the known-native data and installed metadata.
+    """
+    from pyscriptc.imports import classify
+
+    policy = imports or {}
+    star = policy.get("*")
+    lanes: dict[str, str] = {}
+    for requirement in dependencies:
+        dist = requirement_name(requirement)
+        module = dist.lower().replace("-", "_").replace(".", "_")
+        chosen = next((policy[k] for k in (dist, dist.lower(), module) if k in policy), None)
+        if chosen is None and star not in (None, "compile"):
+            chosen = star
+        if chosen is not None:
+            lanes[requirement] = _POLICY_TO_DEP_LANE[chosen]
+            continue
+        verdict = classify(module, distribution=dist)
+        lane = verdict["lane"]
+        lanes[requirement] = "native" if lane == "absent" else lane
+    return lanes
 
 
 def _toml(path: Path) -> dict[str, Any]:
@@ -134,6 +204,9 @@ def _validate(table: str, data: dict[str, Any]) -> dict[str, Any]:
             raise ConfigError(f"{_where(table, key)} must be {want}, got {type(value).__name__}")
         if key in _CHOICES and value not in _CHOICES[key]:
             raise ConfigError(f"{_where(table, key)} must be one of {'|'.join(_CHOICES[key])}, got {value!r}")
+    for key in ("src", "stub-path", "ffi"):
+        if isinstance(data.get(key), list) and not all(isinstance(i, str) for i in data[key]):
+            raise ConfigError(f"{_where(table, key)} must be a list of strings")
     if "imports" in data:
         imports = data["imports"]
         for name, lane in imports.items():
@@ -142,6 +215,12 @@ def _validate(table: str, data: dict[str, Any]) -> dict[str, Any]:
             if not isinstance(lane, str) or lane not in LANES:
                 raise ConfigError(f"{_where(table, 'imports')}.{name} must be one of {'|'.join(LANES)}, got {lane!r}")
     return data
+
+
+def _paths(value: Any) -> tuple[str, ...]:
+    if isinstance(value, str):
+        return (value,)
+    return tuple(value)
 
 
 def _from_table(table: dict[str, Any], origin: Path, source: str) -> Config:
@@ -158,6 +237,8 @@ def _from_table(table: dict[str, Any], origin: Path, source: str) -> Config:
         driver=table.get("driver"),
         target=table.get("target"),
         fail_on=table.get("fail-on"),
+        stub_path=_paths(table.get("stub-path", ())),
+        ffi=_paths(table.get("ffi", ())),
         imports=dict(table.get("imports", {})),
     )
 
@@ -234,6 +315,8 @@ def load_config(source: Path) -> Config:
             driver=project.driver,
             target=project.target,
             fail_on=project.fail_on,
+            stub_path=project.stub_path,
+            ffi=project.ffi,
             imports=project.imports,
             requires_python=requires,
             dependencies=deps,

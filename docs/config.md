@@ -18,6 +18,8 @@ checker = "pyrefly"   # pyrefly | mypy | pyright, default preflight
 driver = "clang"      # clang | zig, C toolchain driver
 target = ""           # zig cc cross-compilation triple
 fail-on = "any"       # blockers | any, default exit code for `pyscriptc coverage`
+stub-path = "stubs"   # extra stub roots, string or list, relative to this file
+ffi = "ffi.toml"      # FFI manifests, string or list, relative to this file
 
 [tool.pyscriptc.imports]
 orjson = "replace"    # curated native replacement pack
@@ -53,6 +55,10 @@ A script may open with:
 ```
 
 The block is parsed as TOML. More than one `# /// script` block is an error. `requires-python` and `dependencies` are validated and reported by `pyscriptc config`; dependency resolution itself is the separate `deps` work (PR #138).
+
+Each dependency is also mapped to an import lane, shown by `pyscriptc config` and as `dependency-lanes` in its JSON: `native`, `pack`, `extern`, `island` or `refused`. The `[imports]` table wins when it names the distribution or its import name (`compile` is `native`, `replace` is `pack`, `refuse` is `refused`); otherwise the offline import classifier decides (known native-backed distributions go to `pack` when a curated pack exists, else `extern`; everything else is `native`).
+
+`stub-path` and `ffi` are resolved against the config file directory and exposed on the config (`stub_paths`, `ffi_manifests`); the compile path consumes them in later work.
 
 ## CLI
 
