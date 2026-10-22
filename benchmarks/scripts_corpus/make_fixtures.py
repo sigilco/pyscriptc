@@ -100,10 +100,14 @@ def write_tar() -> None:
 
     archive_path: Path = FIXTURES / "bundle.tar"
     names: list[str] = ["tree/a.txt", "tree/sub/b.txt"]
-    with tarfile.open(archive_path, "w") as archive:
+    # Build beside the target and rename: pytest-xdist workers each run this
+    # via the session fixture, and a reader must never see a truncated tar.
+    partial: Path = archive_path.with_name(f"{archive_path.name}.{os.getpid()}.tmp")
+    with tarfile.open(partial, "w") as archive:
         for name in names:
             source: Path = FIXTURES / name
             archive.add(source, arcname=name)
+    os.replace(partial, archive_path)
 
 
 def main() -> int:
