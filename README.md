@@ -23,6 +23,8 @@ uv tool install pyscriptc
 
 Building a binary needs a clang (or `zig`) on your PATH; `pyscriptc doctor` checks. See [getting started](https://pyscriptc.pages.dev/getting-started/) for other install methods and toolchain setup.
 
+Windows: the `pyscriptc` binary runs there (experimental) and `coverage` works. Emitted programs are experimental cross-compilation only: `pyscriptc compile FILE --target x86_64-windows-gnu --driver zig` builds a Windows binary from Linux or macOS, but no CI job runs the output and Windows semantics are unverified. Native Windows compiles are not supported yet.
+
 ## Documentation
 
 [Documentation site](https://pyscriptc.pages.dev/), including the [CLI reference](https://pyscriptc.pages.dev/reference/cli/) and the [Python subset](https://pyscriptc.pages.dev/guide/support-model/).

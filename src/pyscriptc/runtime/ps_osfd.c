@@ -89,7 +89,7 @@ void ps_os_lstat(int64_t n, const char *s, PsFdStat *out) {
     memcpy(text, s, (size_t)n);
     text[n] = '\0';
     struct stat st;
-    int rc = lstat(text, &st);
+    int rc = ps_lstat(text, &st);
     free(text);
     if (rc != 0) {
         ps_fd_fail("lstat failed");

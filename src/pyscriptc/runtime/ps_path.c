@@ -539,7 +539,7 @@ void ps_path_realpath(int64_t n, const char *s, PsBuf *out) {
     char *resolved;
     ps_path_abs(n, s, &abs);
     text = ps_cstr(abs.len, abs.data);
-    resolved = realpath(text, NULL);
+    resolved = ps_realpath(text, NULL);
     free(text);
     free(abs.data);
     if (resolved == NULL) {
@@ -577,7 +577,7 @@ double ps_path_getatime(int64_t n, const char *s) {
 int32_t ps_path_islink(int64_t n, const char *s) {
     char *text = ps_cstr(n, s);
     struct stat st;
-    int rc = lstat(text, &st);
+    int rc = ps_lstat(text, &st);
     free(text);
     return rc == 0 && S_ISLNK(st.st_mode);
 }

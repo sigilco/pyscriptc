@@ -14,16 +14,11 @@ The release binary is the compiler, not the toolchain. It lowers Python to textu
 
 Zig is the preferred toolchain driver across all platforms (macOS, Linux, Windows), and is required for cross-compilation (`--target`).
 It can be installed via:
-- Python package manager (standalone official Zig binary distribution on PyPI):
-  ```bash
-  pip install ziglang
-  # or via uv:
-  uv tool install ziglang
-  ```
 - System package managers:
   - macOS: `brew install zig`
   - Windows: `winget install zig.zig`
   - Linux: distro packages (`apt install zig`, `pacman -S zig`, etc.) or official tarballs.
+- The PyPI `ziglang` wheel: `pip install ziglang` installs the Zig toolchain but its console script is `python-zig`, not `zig`, so the compiler will not find it on PATH until you add the wheel's `zig` binary (inside `site-packages/ziglang/`) to PATH yourself, or symlink it. The upstream tracker is the place for a `zig` entry point request; treat `pip install ziglang` as a source of the binary, not as a PATH install.
 
 Tested clangs: Apple clang 21.0.0 (Xcode, macOS arm64) and Debian trixie `clang` 19 (the dev container). Not tested on anything older.
 
@@ -42,13 +37,14 @@ The driver resolution order is:
 2. `PYSC_CC` environment variable (`zig` or `clang`).
 3. If `--target` or `PYSC_TARGET` is set (or cross-compiling) -> `zig` (required for bundled sysroots).
 4. If running on Windows (`win32`) -> `zig`.
-5. If `zig` is found on `PATH` -> `zig`.
-6. Fallback to `clang` on macOS/Linux if found on `PATH`.
-7. If neither is found, fails up front with an actionable diagnostic pointing to `pyscriptc doctor` and installation options (`pip install ziglang`, `brew install zig`, `winget install zig`, or `clang`).
+5. If a sanitizer is requested (`--sanitize` or `PYSC_SANITIZE`) -> `clang`: `zig cc` compiles with `-fsanitize=` but has no linkable sanitizer runtime, so the link fails with `undefined symbol: ___asan_init`.
+6. If `zig` is found on `PATH` -> `zig`.
+7. Fallback to `clang` on macOS/Linux if found on `PATH`.
+8. If neither is found, fails up front with an actionable diagnostic pointing to `pyscriptc doctor` and installation options (`brew install zig`, `winget install zig`, `pip install ziglang` (see the note above), or `clang`).
 
 Notes:
 - Xcode command line tools on macOS put `clang` at `/usr/bin/clang`.
-- `pip install ziglang` puts a standalone `zig` binary into the active Python environment's `bin`/`Scripts` directory.
+- `pip install ziglang` puts a `python-zig` console script on PATH, not `zig`; the real binary sits inside `site-packages/ziglang/` and needs a PATH entry or a symlink.
 - `pyscriptc doctor` reports the detected clang and zig paths, versions, and current preferred driver.
 
 ## Data files the binary must carry
@@ -71,9 +67,9 @@ If a new file type appears in `runtime/`, extend both `--include-data-files` lin
 
 `zig cc` can replace `clang` for emitted user programs on macOS and Linux: it is a clang front end, and zig 0.13 or newer wraps clang 18+, which clears the LLVM 15 opaque-pointer floor. Floor: zig >= 0.13 (clang 18); zig >= 0.15 wraps clang 20. Verified on zig 0.16.0 with `-target x86_64-linux-gnu.2.39`, which also pins the exact glibc the output binary needs (`zig targets` lists valid versions). Two usage notes: pass `.ll` files by extension, `zig cc` does not accept clang's `-x ir` flag; and glibc pins need the matching loader at run time, same as any cross-built binary. `packaging/zig/smoke.sh` proves the non-mix and mix paths on every CI run.
 
-Not supported under zig cc: Windows-native emitted programs (the runtime needs `dlfcn.h`/`dlopen` and `dirent.h`/`unistd.h`; mingw-w64 provides none of them, that is runtime code, not a flag). Static musl targets for mix programs (static musl cannot `dlopen`, so `PYSCRIPTC_MIX_SO` is dead there). A mix `.so` built against a different libc than the emitted binary. Also not in scope: compiling the compiler itself with zig (Nuitka-on-zig is experimental) and changing `link_binary` to use zig (a `src/pyscriptc` change, planned as a `CC` override after gates-v2).
+Not supported under zig cc: Windows-native emitted programs on a Windows host (no Windows runner builds or executes emitted programs anywhere; Windows is experimental cross-compilation from Linux/macOS only, and semantics on Windows are unverified). Static musl targets for mix programs (static musl cannot `dlopen`, so `PYSCRIPTC_MIX_SO` is dead there). A mix `.so` built against a different libc than the emitted binary. Also not in scope: compiling the compiler itself with zig (Nuitka-on-zig is experimental).
 
-Release-note blurb, matching release.yml's draft-body style: "Emitted programs may also be compiled with `zig cc` >= 0.13 instead of `clang`, on macOS and Linux only. `zig cc -O2 prog.ll <runtime>/*.c -target x86_64-linux-gnu.2.39 -lm -o out` builds a binary pinned to glibc 2.39. Windows-native programs, static-musl mix programs, and cross-libc mix .so files are not supported. The released compiler binary is still built with the native per-runner toolchains."
+Release-note blurb, matching release.yml's draft-body style: "Emitted programs may also be compiled with `zig cc` >= 0.13 instead of `clang`, on macOS and Linux. `zig cc -O2 prog.ll <runtime>/*.c -target x86_64-linux-gnu.2.39 -lm -o out` builds a binary pinned to glibc 2.39. Windows targets (`x86_64-windows-gnu`, `aarch64-windows-gnu`) are experimental cross-compilation: the compiler builds them but no CI job runs the output, and real Windows support is a later milestone. Static-musl mix programs and cross-libc mix .so files are not supported. The released compiler binary is still built with the native per-runner toolchains."
 
 ### Supported zig versions
 
