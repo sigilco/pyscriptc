@@ -38,6 +38,7 @@ SOURCE = textwrap.dedent(
     """
 )
 
+
 def _write(tmp_path: Path, source: str = SOURCE) -> Path:
     path = tmp_path / "probe.py"
     path.write_text(source, encoding="utf-8")

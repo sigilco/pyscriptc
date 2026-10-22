@@ -44,7 +44,7 @@ def _mypy_api():
         return None
     try:
         parsed = tuple(int(part) for part in mypy_version.__version__.split(".")[:2])
-    except (AttributeError, ValueError):
+    except AttributeError, ValueError:
         return None
     if not _MYPY_MIN <= parsed < _MYPY_MAX:
         return None
@@ -173,8 +173,7 @@ class MypyBridge:
         api = _mypy_api()
         if api is None:
             raise CheckFailed(
-                "the mypy bridge needs mypy>=2.4,<2.5; install the extra: "
-                "pip install 'pyscriptc[oracle-mypy]'"
+                "the mypy bridge needs mypy>=2.4,<2.5; install the extra: pip install 'pyscriptc[oracle-mypy]'"
             )
         mypy_build, build_source, options_cls, _version = api
         from mypy.nodes import Expression, FuncDef
@@ -237,9 +236,7 @@ class MypyBridge:
                         # mypy could not prove a concrete return (an
                         # unannotated parameter flows out); the fence stands.
                         ret_facts = None
-            defs[f"{node.line}:{node.column}"] = DefFacts(
-                name=node.name, params=params, return_type=ret_facts
-            )
+            defs[f"{node.line}:{node.column}"] = DefFacts(name=node.name, params=params, return_type=ret_facts)
         return BridgeFacts(
             path=path,
             provider=self.name,
@@ -350,8 +347,13 @@ def facts_to_ir(facts: TypeFacts, classes: dict[str, Any] | None = None) -> dict
             return None
         if not optional:
             return base
-        return {"kind": "class", "name": f"__opt_{_slug(base)}", "label": _label(base) + " | None",
-                "optional": True, "elem": base}
+        return {
+            "kind": "class",
+            "name": f"__opt_{_slug(base)}",
+            "label": _label(base) + " | None",
+            "optional": True,
+            "elem": base,
+        }
     if facts.kind == "class" and classes is not None and facts.args:
         # A generic user class: the subset erases the type argument, so the
         # plain class name is the honest translation.

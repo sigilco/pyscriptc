@@ -25,7 +25,8 @@ def test_self_census_ballpark() -> None:
     # restlower/_asyncio.py (minimal async/await, #193) adds 1 module and 23 fences.
     # ffi_manifest.py (typed extern manifest parser, F0) adds 1 module and 77 fences.
     # restlower/_tomllib.py (tomllib.loads, #62) adds 1 module and 3 fences.
-    assert census["modules"] == 63
+    # Checker bridge (#87): factsbridge.py adds 1 module.
+    assert census["modules"] == 64
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -66,7 +67,15 @@ def test_self_census_ballpark() -> None:
     # PEP 723 dependency lanes, stub-path and ffi keys add 17 self-host fences (config.py, cli.py).
     # E2 M2-M5 (exception hierarchy, object surface, ZeroDivisionError variants): +23 fences (log, telemetry, llvm).
     # math atan2/gcd/isclose handlers: +2 self-host fences in lower/_calls.py.
+<<<<<<< HEAD
     assert census["fences"] == 2151
+||||||| parent of e72311e (test(census): re-pin self census for the checker bridge module, format touched files)
+    assert census["fences"] == 2016
+=======
+    # Checker bridge (#87): factsbridge.py adds 1 module and 40 self-host fences
+    # Checker bridge (#87): factsbridge.py adds 1 module and 40 self-host fences
+    # (the mypy adapter, the facts-to-IR translator and the bridge consumer).
+    assert census["fences"] == 2191
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     assert 11_000 <= census["lines"] <= 31_000
-    assert sum(p["fences"] for p in census["packages"]) == 2151
+    assert sum(p["fences"] for p in census["packages"]) == 2191
