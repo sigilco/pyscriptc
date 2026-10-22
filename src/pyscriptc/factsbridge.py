@@ -31,6 +31,10 @@ from pyscriptc.typefacts import TypeFacts
 
 _MYPY_MIN = (2, 4)
 _MYPY_MAX = (2, 5)
+# How deep a type argument tree is reduced before it bottoms out as
+# `unknown`. A recursive type (a protocol whose member mentions the
+# protocol) would otherwise recurse forever.
+_TYPE_DEPTH_CAP = 12
 
 
 def _mypy_api():
@@ -54,6 +58,44 @@ def _mypy_api():
 def mypy_available() -> bool:
     """True when a pinned mypy (>=2.4,<2.5) is importable in this interpreter."""
     return _mypy_api() is not None
+
+
+def _warn_bridge_errors(path: Path, errors: list[str]) -> None:
+    """Report the checker's diagnostics without failing the bridge.
+
+    The bridge answers lowering's inference questions; it is not a type
+    checker. A file that does not type-check still carries the types the
+    bridge needs, so the diagnostics go to stderr and the bridge keeps
+    going. A file the checker could not read at all (a syntax error) has no
+    facts either, and the bridge answers nothing for it.
+    """
+    import sys
+
+    print(f"bridge: {path}: {len(errors)} checker diagnostics", file=sys.stderr)
+    for error in errors[:10]:
+        print(f"bridge: {error}", file=sys.stderr)
+
+
+def _module_identity(path: Path) -> tuple[str, Path]:
+    """The module name mypy should give this file, and its search root.
+
+    A package file (`pkg/__init__.py`, `pkg/mod.py`) is named `pkg` or
+    `pkg.mod` with the parent of `pkg` as the search root, so a relative
+    import resolves the way it does at runtime. A loose file (no
+    `__init__.py` above it) is named after its stem.
+    """
+    path = path.resolve()
+    parent = path.parent
+    if parent.name == "__init__":
+        return parent.name, parent.parent
+    parts = [] if path.stem == "__init__" else [path.stem]
+    root = parent
+    while (root / "__init__.py").is_file():
+        parts.insert(0, root.name)
+        root = root.parent
+    if not parts:
+        parts = [root.name]
+    return ".".join(parts), root
 
 
 def mypy_version() -> str | None:
@@ -123,8 +165,13 @@ def _iter_mypy_nodes(root: Any):
                 stack.extend(item for item in value if isinstance(item, Node))
 
 
-def _mypy_type_facts(typ: Any) -> TypeFacts:
-    """Reduce one mypy `Type` to the checker-agnostic `TypeFacts` IR."""
+def _mypy_type_facts(typ: Any, _depth: int = 0) -> TypeFacts:
+    """Reduce one mypy `Type` to the checker-agnostic `TypeFacts` IR.
+
+    A recursive type (a class whose own type appears in its bases, common
+    in protocol-heavy stubs) bottoms out at `_TYPE_DEPTH_CAP`: deeper than
+    that the fact is `unknown`, which keeps the fence instead of hanging.
+    """
     from mypy.types import (
         AnyType,
         CallableType,
@@ -140,17 +187,20 @@ def _mypy_type_facts(typ: Any) -> TypeFacts:
         get_proper_type,
     )
 
+    if _depth > _TYPE_DEPTH_CAP:
+        return TypeFacts(kind="unknown", runtime_repr="...")
+
     proper = get_proper_type(typ)
     if isinstance(proper, Instance):
         return TypeFacts(
             kind=proper.type.name,
-            args=tuple(_mypy_type_facts(arg) for arg in proper.args),
+            args=tuple(_mypy_type_facts(arg, _depth + 1) for arg in proper.args),
             protocols=frozenset([proper.type.fullname]) if proper.type.is_protocol else frozenset(),
             runtime_repr=str(proper),
         )
     if isinstance(proper, UnionType):
         items = proper.relevant_items()
-        members = tuple(_mypy_type_facts(item) for item in items)
+        members = tuple(_mypy_type_facts(item, _depth + 1) for item in items)
         optional = any(
             isinstance(get_proper_type(item), NoneType) or member.optional
             for item, member in zip(items, members, strict=True)
@@ -165,17 +215,19 @@ def _mypy_type_facts(typ: Any) -> TypeFacts:
     if isinstance(proper, TupleType):
         return TypeFacts(
             kind="tuple",
-            args=tuple(_mypy_type_facts(item) for item in proper.items),
+            args=tuple(_mypy_type_facts(item, _depth + 1) for item in proper.items),
             runtime_repr=str(proper),
         )
     if isinstance(proper, LiteralType):
-        return TypeFacts(kind="literal", args=(_mypy_type_facts(proper.fallback),), runtime_repr=str(proper))
+        return TypeFacts(
+            kind="literal", args=(_mypy_type_facts(proper.fallback, _depth + 1),), runtime_repr=str(proper)
+        )
     if isinstance(proper, TypeVarType):
         return TypeFacts(kind="typevar", runtime_repr=proper.name)
     if isinstance(proper, TypeType):
-        return TypeFacts(kind="type", args=(_mypy_type_facts(proper.item),), runtime_repr=str(proper))
+        return TypeFacts(kind="type", args=(_mypy_type_facts(proper.item, _depth + 1),), runtime_repr=str(proper))
     if isinstance(proper, TypeAliasType):
-        return _mypy_type_facts(get_proper_type(proper))
+        return _mypy_type_facts(get_proper_type(proper), _depth + 1)
     if isinstance(proper, AnyType):
         return TypeFacts(kind="any", runtime_repr=str(proper))
     return TypeFacts(kind="unknown", runtime_repr=str(proper))
@@ -207,9 +259,20 @@ class BridgeFacts:
 
 
 class MypyBridge:
-    """`FactsProvider`-shaped adapter that feeds mypy's inference to lowering."""
+    """`FactsProvider`-shaped adapter that feeds mypy's inference to lowering.
+
+    `strict` (the default) reports the checker's diagnostics as a
+    `CheckFailed`: a compile that asked for the bridge wants the checker's
+    word. The census runs the bridge in lenient mode, where the diagnostics
+    go to stderr and the bridge keeps the types it did read, because the
+    census asks "what does the bridge retire on this corpus", not "does this
+    corpus type-check".
+    """
 
     name = "mypy"
+
+    def __init__(self, strict: bool = True) -> None:
+        self.strict = strict
 
     def facts(self, path: Path) -> BridgeFacts:
         api = _mypy_api()
@@ -221,6 +284,7 @@ class MypyBridge:
         from mypy.nodes import Expression, FuncDef
 
         path = path.resolve()
+        module_name, search_root = _module_identity(path)
         with tempfile.TemporaryDirectory(prefix="pyscriptc-bridge-") as cache:
             options = options_cls()
             options.incremental = False
@@ -229,9 +293,19 @@ class MypyBridge:
             options.preserve_asts = True
             options.export_types = True
             options.plugins = ["pyscriptc.check"]
-            result = mypy_build(sources=[build_source(str(path), None, None)], options=options)
-        if result.errors:
-            raise CheckFailed("\n".join(result.errors))
+            # A relative import (`from .core import ...`) resolves against the
+            # module name, so the file needs its package name and the search
+            # root that holds the package.
+            options.mypy_path = [str(search_root)]
+            # The bridge reads types, not diagnostics: a file that does not
+            # type-check still carries the types the bridge needs, so the
+            # errors are reported but do not stop the bridge.
+            result = mypy_build(sources=[build_source(str(path), module_name, None)], options=options)
+        errors = list(result.errors)
+        if errors:
+            if self.strict:
+                raise CheckFailed("\n".join(errors))
+            _warn_bridge_errors(path, errors)
         module = next((tree for tree in result.files.values() if Path(tree.path) == path), None)
         if module is None:
             raise CheckFailed(f"mypy did not produce a module for {path}")
@@ -466,13 +540,15 @@ def _same_shape(one: TypeFacts, other: TypeFacts) -> bool:
 
 def _collect_returns(fn: Any) -> list[Any]:
     """Every `return expr` expression node in a mypy function body."""
-    from mypy.nodes import ReturnStmt
+    from mypy.nodes import Block, ReturnStmt
 
     found: list[Any] = []
 
     def walk(block: Any) -> None:
         body = getattr(block, "body", None)
-        if body is None:
+        if isinstance(body, Block):
+            body = body.body
+        if not isinstance(body, (list, tuple)):
             return
         for stmt in body:
             if isinstance(stmt, ReturnStmt) and stmt.expr is not None:
@@ -604,6 +680,23 @@ def _slug(typ: dict[str, Any]) -> str:
     return kind
 
 
+class BridgeProvider:
+    """A provider name that builds one bridge per file of a package tree.
+
+    A checker covers one module at a time, so a directory compile needs a
+    bridge per file. This handle carries the lane name and builds the
+    per-file bridges on demand; `lower_directory` asks for them through
+    `for_file`.
+    """
+
+    def __init__(self, provider: str, strict: bool = True) -> None:
+        self.provider = provider
+        self.strict = strict
+
+    def for_file(self, path: Path) -> CheckerBridge:
+        return CheckerBridge.for_path(path, self.provider, strict=self.strict)
+
+
 class CheckerBridge:
     """Optional lowering-side consumer of checker facts (issue #87).
 
@@ -621,12 +714,21 @@ class CheckerBridge:
         return self._facts.provider
 
     @classmethod
-    def for_path(cls, path: Path, provider: str = "mypy") -> CheckerBridge:
+    def for_path(cls, path: Path, provider: str = "mypy", strict: bool = True) -> CheckerBridge:
         if provider == "mypy":
-            return cls(MypyBridge().facts(path))
+            return cls(MypyBridge(strict=strict).facts(path))
         if provider == "pyrefly":
             return cls(PyreflyBridge().facts(path))
         raise CheckFailed(f"checker bridge {provider!r} is not wired; use 'mypy' or 'pyrefly'")
+
+    def for_file(self, path: Path) -> CheckerBridge:
+        """A bridge for one file of a package tree, built by the same provider.
+
+        A checker covers one module at a time, so a package tree needs one
+        bridge per file. The provider is remembered so the per-file bridge
+        is the same lane as the one the compile asked for.
+        """
+        return BridgeProvider(self.provider).for_file(path)
 
     def inferred_local(self, line: int, col: int) -> TypeFacts | None:
         """The inferred type of the expression starting at (line, col)."""

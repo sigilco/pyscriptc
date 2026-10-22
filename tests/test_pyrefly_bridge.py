@@ -122,3 +122,15 @@ def test_pyrefly_version_is_none_without_pyrefly(monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr(factsbridge, "pyrefly_version", lambda: None)
     assert factsbridge.provider_version("pyrefly") is None
     assert factsbridge.provider_version("nope") is None
+
+
+def test_checker_bridge_per_file_package_tree(tmp_path: Path) -> None:
+    """A package tree builds one bridge per file through the same provider."""
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("from .core import answer\n", encoding="utf-8")
+    (pkg / "core.py").write_text("def answer() -> int:\n    return 42\n", encoding="utf-8")
+    bridge = CheckerBridge.for_path(pkg / "__init__.py")
+    inner = bridge.for_file(pkg / "core.py")
+    assert inner.provider == bridge.provider
+    assert inner is not bridge

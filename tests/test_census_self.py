@@ -97,8 +97,10 @@ def test_self_census_ballpark() -> None:
     # zigshim.py (#291) adds about 45 self-host fences.
     # restlower/_dotenv.py (dotenv_values / load_dotenv, #253) adds 5 more.
     # restlower/_yaml.py (yaml.safe_load, #254) adds 5 more.
-    assert census["fences"] == 2445
+    # Checker bridge follow-ups (#258): the pyrefly lane and the package-tree
+    # per-file bridges add 31 more in factsbridge.py.
+    assert census["fences"] == 2476
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     assert 11_000 <= census["lines"] <= 34_000
-    assert sum(p["fences"] for p in census["packages"]) == 2445
+    assert sum(p["fences"] for p in census["packages"]) == 2476

@@ -46,6 +46,39 @@ fences without inventing a second inference engine inside lowering.
   else proved it (a stub-driven overload result), which today means:
   param-inference fences stay. The family shrinks later, not here.
 
+## The follow-up families, measured (issue #258)
+
+The four inference families after the bridge landed, measured on mypy 2.4.0
+and pyrefly 1.4.x and on the compat2 sources (the bridged census,
+`benchmarks/compat2/census_bridged.py`):
+
+- `local-inference` and `return-inference`: retired by the bridge wherever
+  the checker proves a type the subset can express. This is the win the
+  bridge exists for.
+- `param-inference`: stays checker-bounded, permanently. Measured on both
+  lanes: mypy types an unannotated parameter `Any` and never revises it
+  from the body, a default, or a call site; the callee type at a call site
+  is `(a: Any, b: Any) -> Any` for an unannotated callee, and a
+  protocol-typed context reports the argument as incompatible rather than
+  back-propagating a type into the def. The stub-driven overload result the
+  design hoped for exists (e.g. `sorted`'s `key` parameter resolves through
+  the typevar), but it answers the stub's parameter, not the user def's, and
+  a def is only provable when mypy checks its caller with the def as the
+  argument - which mypy does not do for unannotated functions. Verdict: the
+  family is not retire-able by either lane without inventing types; the fix
+  is annotations, not inference.
+- `uninitialized-field`: stays a lowering-side rule. The expression TypeMap
+  does not carry flow/init analysis, and mypy's init map is not exposed
+  through `BuildResult` (`narrowed_type` is per-reference, not per-field, and
+  requires re-walking every read). Pricing the extraction: a second
+  module-level walk of mypy's symbol table per file, to answer a question
+  lowering already answers in one pass over `__init__`'s assigned names. The
+  bridge would add cost and a second source of truth for no retired fence.
+  Verdict: the family stays lowering-side.
+
+Both verdicts keep the acceptance bar: no default-path change, no invented
+types, the frozen v2 gates untouched.
+
 ## Determinism
 
 IR now depends on the pinned mypy version, not just the source. Consequences:
