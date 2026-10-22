@@ -167,6 +167,46 @@ jobs:
             --driver zig --target x86_64-linux-musl -o /tmp/hello-musl
           file /tmp/hello-musl
 
+
+  # wasm smoke: compile the wasm32-wasi-musl target and run it under wasmtime.
+  # try/except lowers through the WebAssembly exception-handling proposal, so
+  # the runtime must be wasmtime >= v50; older runtimes fail with "exceptions
+  # proposal not enabled".
+  # continue-on-error while the lane settles; it becomes required once it has
+  # been green for 3 consecutive runs.
+  wasm-smoke:
+    name: wasm32-wasi-musl smoke
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+      - name: Cache zig tarball
+        uses: actions/cache@v5
+        with:
+          path: /tmp/zig.tar.xz
+          key: zig-0.16.0-x86_64-linux
+      - name: Install zig 0.16.0
+        run: |
+          set -euo pipefail
+          [ -f /tmp/zig.tar.xz ] || \
+            curl -fsSL https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz -o /tmp/zig.tar.xz
+          echo "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00  /tmp/zig.tar.xz" | sha256sum -c -
+          sudo tar -xJf /tmp/zig.tar.xz -C /usr/local
+          echo "/usr/local/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
+      - name: Install wasmtime v50.0.0
+        run: |
+          set -euo pipefail
+          curl -fsSL https://github.com/bytecodealliance/wasmtime/releases/download/v50.0.0/wasmtime-v50.0.0-x86_64-linux.tar.xz -o /tmp/wasmtime.tar.xz
+          tar -xJf /tmp/wasmtime.tar.xz -C /tmp
+          echo "/tmp/wasmtime-v50.0.0-x86_64-linux" >> "$GITHUB_PATH"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"  # emSign CA incident: uv 0.13.4 dropped the compromised root
+          enable-cache: true
+          python-version: "3.14"
+      - run: uv sync --frozen
+      - run: packaging/zig/wasm-smoke.sh
+
   # Wheel smoke: build the wheel, install it into a fresh venv, and compile a
   # tiny program with the repo venv and pyrefly dirs off PATH. Same shape as
   # the verify job in release.yml. On pull_request the job runs only when the

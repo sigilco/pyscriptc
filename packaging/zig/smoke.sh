@@ -37,8 +37,10 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 # The non-island link set: every runtime C file except ps_island.c, which needs
-# Python.h. Same rule as link_binary for programs with no ps_island_ symbols.
-mapfile -t rt < <(find "$root/src/pyscriptc/runtime" -name '*.c' ! -name 'ps_island.c' | sort)
+# Python.h, and the wasm-only runtime/wasm/rt_wasm.c (a wasm32 EH setjmp shim,
+# not part of the tier-A link set). Same rule as link_binary for programs with
+# no ps_island_ symbols.
+mapfile -t rt < <(find "$root/src/pyscriptc/runtime" -maxdepth 1 -name '*.c' ! -name 'ps_island.c' | sort)
 
 # build <ll> <target> <out> [extra C units...]: every unit to .o, then objects
 # link. C sources and -O on the link line both crash zig's Mach-O driver on
