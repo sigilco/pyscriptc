@@ -23,9 +23,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from benchmarks.compat2.census import DEFAULT_SRC  # noqa: E402
+
 from pyscriptc.coverage import build_report  # noqa: E402
-from pyscriptc.imports import _ERASED as ERASED  # noqa: E402
 from pyscriptc.diagnostics import DIAGNOSTICS  # noqa: E402
+from pyscriptc.imports import _ERASED as ERASED  # noqa: E402
 from pyscriptc.lower import lower_file  # noqa: E402
 from pyscriptc.stdlib_queue import LOWERED, QUEUE  # noqa: E402
 
@@ -181,7 +182,11 @@ def render_top100(data: dict[str, Any]) -> str:
         "",
         f"pinned pure-Python libraries: {c[GREEN]} {GREEN} · {c[YELLOW]} {YELLOW} · {c[RED]} {RED}",
         "",
-        f"{GREEN} compiles with no fence · {YELLOW} at most half of the definitions fence · {RED} more than half fence. Counts are live `pyscriptc coverage` runs over `benchmarks/compat/top100/src` (pins and hashes in `pins.json`). A library only counts toward the score when one of its own functions runs and matches CPython. Fence codes are per construct, see [supported.md](supported.md). Tiers T0 to T3: [refused-features.md](refused-features.md). Deliberate differences: [divergences.md](divergences.md).",
+        f"{GREEN} compiles with no fence · {YELLOW} at most half of the definitions fence · {RED} more than half"
+        " fence. Counts are live `pyscriptc coverage` runs over `benchmarks/compat/top100/src` (pins and hashes in"
+        " `pins.json`). A library only counts toward the score when one of its own functions runs and matches CPython."
+        " Fence codes are per construct, see [supported.md](supported.md). Tiers T0 to T3:"
+        " [refused-features.md](refused-features.md). Deliberate differences: [divergences.md](divergences.md).",
         "",
         "| library | version | status | fenced defs | top blocking features (fences) | top codes |",
         "| --- | --- | --- | --- | --- | --- |",
