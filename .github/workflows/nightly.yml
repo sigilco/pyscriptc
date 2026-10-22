@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     # contents: write is for the compat data commit only. The job pushes
-    # site/compat-data/compat.json and nothing else.
+    # compat-data/compat.json and nothing else.
     permissions:
       contents: write
     outputs:
@@ -82,9 +82,9 @@ jobs:
         run: |
           set -euo pipefail
           uv run python scripts/build_compat_json.py \
-            --out site/compat-data/compat.json \
+            --out compat-data/compat.json \
             --score nightly/visible-score.json
-          if git diff --quiet -- site/compat-data/compat.json; then
+          if git diff --quiet -- compat-data/compat.json; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "compat data unchanged"
           else
@@ -97,7 +97,7 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git add site/compat-data/compat.json
+          git add compat-data/compat.json
           git commit -m "ci: nightly compat snapshot $(date -u +%Y-%m-%d)"
           git push
 

@@ -17,7 +17,7 @@ When a construct is not supported, compilation stops with a `PSxxxx` fence that 
 
 The exact, per-construct, per-builtin, per-module and per-library status is tracked on the compat site, not in this page, so it cannot go stale: [pyscriptc compat site]({{PYSC_COMPAT_URL}}) (the site is not deployed yet; the URL is the `PYSC_COMPAT_URL` placeholder, default `https://pyscriptc-compat.pages.dev`).
 
-The compat site is refreshed by the [nightly CI workflow](https://github.com/sigilco/pyscriptc/actions/workflows/nightly.yml), which scores the visible corpus and records the boxed ledger window.
+The compat site is fed by the [nightly CI workflow](https://github.com/sigilco/pyscriptc/actions/workflows/nightly.yml), which scores the visible corpus, records the boxed ledger window, and rebuilds the site data file from the tree.
 The in-repo snapshot of the same data, regenerated from the compiler by `scripts/gen_support_table.py`, lives in the developer notes: [`.agents/docs/support/supported.md`](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md) (builtins and standard library) and [`.agents/docs/support/compat-top100.md`](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/compat-top100.md) (top-100 libraries).
 Both are generated output, not hand-edited pages.
 

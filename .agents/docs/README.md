@@ -12,6 +12,7 @@ Preview the internal notes with `mise run docs:internal` (a docmd dev server ove
 - [Map](map.md) — which file owns a fence, a runtime call, or a test
 - [Roadmap](roadmap.md) — language order after the stdlib queue, and where native `.so` files sit
 - [Benchmark audit](benchmarks-audit.md) — what the benchmark suite measures and what it does not
+- [Compat site](compat-site.md) — the data file, the builder and the deploy
 
 ## Specs
 
@@ -56,4 +57,8 @@ The two pages below are generated from the compiler by `scripts/gen_support_tabl
 - [Supported surface](support/supported.md) — builtins and standard library, probe-checked
 - [Top-100 library compatibility](support/compat-top100.md) — live `coverage` runs over the pinned top-100 sources
 
-These files are the in-repo snapshot of the data the compat site publishes. The site itself (`PYSC_COMPAT_URL`, default `https://pyscriptc-compat.pages.dev`) is the live surface and is not deployed yet; the JSON pipeline that feeds it is a separate work item, so until it lands these two generated pages are the only machine-readable status in the tree. When that pipeline ships, these files become the fallback snapshot and this note goes away with it.
+These files are the in-repo snapshot of the data the compat site publishes.
+
+The pipeline that feeds the site is in `scripts/build_compat_json.py` and `scripts/compat_schema.py`; it reads the same `support_data.toml` through the same `evaluate` function, so the tree keeps one definition of "supported". Its output is `compat-data/compat.json`, rebuilt and committed by the nightly workflow. The design is in [Compat site](compat-site.md).
+
+The site itself (`PYSC_COMPAT_URL`, default `https://pyscriptc-compat.pages.dev`) is not deployed yet. Until it is, these two generated pages and `compat-data/compat.json` are the machine-readable status in the tree.
