@@ -25,6 +25,7 @@ def test_self_census_ballpark() -> None:
     # restlower/_asyncio.py (minimal async/await, #193) adds 1 module and 23 fences.
     # ffi_manifest.py (typed extern manifest parser, F0) adds 1 module and 77 fences.
     # restlower/_tomllib.py (tomllib.loads, #62) adds 1 module and 3 fences.
+    # restlower/_yaml.py (yaml.safe_load, #254) adds 1 module and 5 fences.
     # Checker bridge (#87): factsbridge.py adds 1 module.
     # emitter.py (the emitter seam, #273) adds one more.
     # IR verifier (#272): irverify.py and llvverify.py add 2 modules.
@@ -35,7 +36,8 @@ def test_self_census_ballpark() -> None:
     # eight area mixins, plus the two package inits) replace the one file.
     # zigshim.py (#291, the `pip install ziglang` PATH shim) adds 1 module.
     # restlower/_dotenv.py (dotenv_values / load_dotenv, #253) adds 1 module and 5 fences.
-    assert census["modules"] == 84
+    # restlower/_yaml.py (yaml.safe_load, #254) adds 1 module and 5 fences.
+    assert census["modules"] == 85
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -94,8 +96,9 @@ def test_self_census_ballpark() -> None:
     # emit/_ir.py, emit/llvm/_driver.py and the mixins.
     # zigshim.py (#291) adds about 45 self-host fences.
     # restlower/_dotenv.py (dotenv_values / load_dotenv, #253) adds 5 more.
-    assert census["fences"] == 2440
+    # restlower/_yaml.py (yaml.safe_load, #254) adds 5 more.
+    assert census["fences"] == 2445
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     assert 11_000 <= census["lines"] <= 34_000
-    assert sum(p["fences"] for p in census["packages"]) == 2440
+    assert sum(p["fences"] for p in census["packages"]) == 2445

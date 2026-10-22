@@ -63,6 +63,7 @@ QUEUE = (
     "argparse",
     "tomllib",
     "dotenv",
+    "yaml",
 )
 
 
