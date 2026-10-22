@@ -1,33 +1,113 @@
-/* Intentionally minimal: the owner designs the landing page later.
-   This only centers the placeholder so the blank page is not broken-looking. */
-body {
-  margin: 0;
-  min-height: 100vh;
-  display: grid;
-  place-items: center;
-  background: #ffffff;
-  color: #16181d;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+@import "tailwindcss";
+
+:root {
+  /* Backgrounds */
+  --color-bg-base: #06080d;
+  --color-bg-surface: #0b0f19;
+  --color-bg-card: rgba(17, 22, 37, 0.75);
+
+  /* Borders */
+  --color-border: rgba(255, 255, 255, 0.08);
+
+  /* Text */
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #94a3b8;
+  --color-text-muted: #64748b;
+
+  /* Brand accents (from logo) */
+  --color-accent-cyan: #00c2ff;
+  --color-accent-azure: #0284c7;
+  --color-accent-slate: #cbd5e1;
+
+  /* Hero glows (authentic Python accents) */
+  --glow-blue: #38bdf8;
+  --glow-yellow: #fbbf24;
+
+  /* Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  body {
-    background: #101317;
-    color: #e6e9ef;
+[data-theme="light"] {
+  --color-bg-base: #f8fafc;
+  --color-bg-surface: #ffffff;
+  --color-bg-card: rgba(255, 255, 255, 0.85);
+
+  --color-border: rgba(15, 23, 42, 0.08);
+
+  --color-text-primary: #0f172a;
+  --color-text-secondary: #475569;
+  --color-text-muted: #94a3b8;
+
+  --color-accent-cyan: #0284c7;
+  --color-accent-azure: #0369a1;
+  --color-accent-slate: #334155;
+
+  --glow-blue: #0284c7;
+  --glow-yellow: #d97706;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color-scheme: dark;
+}
+
+[data-theme="light"] html {
+  color-scheme: light;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  background-color: var(--color-bg-base);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  line-height: 1.5;
+}
+
+/* Custom classes */
+.glow-cyan {
+  box-shadow: 0 0 40px -10px rgba(0, 194, 255, 0.35);
+}
+
+.glow-yellow {
+  box-shadow: 0 0 40px -10px rgba(251, 191, 36, 0.35);
+}
+
+.faint-word {
+  opacity: 0.35;
+  font-weight: 300;
+}
+
+.dot-grid {
+  background-image: radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+[data-theme="light"] .dot-grid {
+  background-image: radial-gradient(rgba(0, 0, 0, 0.06) 1px, transparent 1px);
+}
+
+@keyframes pulse-anim {
+  0%, 100% {
+    opacity: 0.85;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.02);
   }
 }
 
-main {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 1rem;
-  padding: 2rem;
-}
-
-h1 {
-  margin: 0;
-  font-size: 1.6rem;
-  font-weight: 600;
-  letter-spacing: -0.02em;
+.pulse-anim {
+  animation: pulse-anim 3s ease-in-out infinite;
 }
