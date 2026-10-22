@@ -62,6 +62,13 @@ def standalone_entry(module: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+def sanitize_flags(sanitize: list[str] | None) -> list[str]:
+    """`-fsanitize=a,b` argv fragment, or [] when no sanitizers are requested."""
+    if not sanitize:
+        return []
+    return ["-fsanitize=" + ",".join(sanitize)]
+
+
 def link_binary(
     llvm_path: Path,
     output: Path,
@@ -69,6 +76,7 @@ def link_binary(
     target: str | None = None,
     record: list[list[str]] | None = None,
     link_driver: str | None = None,
+    sanitize: list[str] | None = None,
 ) -> None:
     """Link `.ll` text plus the C runtime into `output`.
 
@@ -77,6 +85,9 @@ def link_binary(
     and keeps per-target artifacts clean. `driver` is `clang` or `zig`
     (`zig cc`); `target` is a zig-style triple and requires the zig driver —
     it bundles the per-target sysroot that `clang --target` does not.
+    `sanitize` is a `-fsanitize` name list (ASan+UBSan diagnostics for the
+    runtime and the emitted code); it applies to every compile and the link,
+    and the runtime object cache keys on it.
     """
     output.parent.mkdir(parents=True, exist_ok=True)
     if target is not None and driver != "zig":
@@ -86,7 +97,8 @@ def link_binary(
     text = llvm_path.read_text(encoding="utf-8")
     sources = [str(path) for path in sorted(runtime.glob("*.c"))]
     target_flags = ["-target", target] if target is not None else []
-    tail = ["-lm", "-o", str(output)]
+    san_flags = sanitize_flags(sanitize)
+    tail = [*san_flags, "-lm", "-o", str(output)]
     if "ps_island_" in text:
         if target is not None:
             raise IRError(
@@ -107,13 +119,13 @@ def link_binary(
     use_cache = rtcache.prepare()
     ll_obj = output.with_name(f"{output.name}.{llvm_path.stem}.o")
     ll_kind = ["-x", "ir"] if driver == "clang" else []
-    ll_argv = [*cc.split(), "-O2", *ll_kind, "-c", str(llvm_path), "-o", str(ll_obj), *target_flags]
+    ll_argv = [*cc.split(), "-O2", *san_flags, *ll_kind, "-c", str(llvm_path), "-o", str(ll_obj), *target_flags]
     jobs: list[tuple[list[str], Path | None]] = [(ll_argv, None)]
     objects = [ll_obj]
     hits = 0
     for source in sources:
         src = Path(source)
-        flags = ["-O2", *target_flags]
+        flags = ["-O2", *san_flags, *target_flags]
         if use_cache:
             final = rtcache.object_path(src, runtime, cc.split(), flags)
             objects.append(final)
