@@ -22,15 +22,13 @@ on:
       - "site/**"
       - "compat/**"
       - "docs/**"
-      - "docmd.config.js"
-      - "docmd-plugins/**"
       - "scripts/build_site.py"
       - "scripts/check_site_links.py"
       - "scripts/site_dev.py"
       - "compat/data/compat.json"
-      - "package.json"
-      - "pnpm-lock.yaml"
-      - "pnpm-workspace.yaml"
+      - "docs/.docmd/package.json"
+      - "docs/.docmd/pnpm-lock.yaml"
+      - "docs/.docmd/pnpm-workspace.yaml"
       - "mise.toml"
       - ".github/workflows/site.yml"
   pull_request:
@@ -38,15 +36,13 @@ on:
       - "site/**"
       - "compat/**"
       - "docs/**"
-      - "docmd.config.js"
-      - "docmd-plugins/**"
       - "scripts/build_site.py"
       - "scripts/check_site_links.py"
       - "scripts/site_dev.py"
       - "compat/data/compat.json"
-      - "package.json"
-      - "pnpm-lock.yaml"
-      - "pnpm-workspace.yaml"
+      - "docs/.docmd/package.json"
+      - "docs/.docmd/pnpm-lock.yaml"
+      - "docs/.docmd/pnpm-workspace.yaml"
       - "mise.toml"
       - ".github/workflows/site.yml"
   workflow_dispatch:
@@ -78,16 +74,20 @@ jobs:
           python-version: "3.14"
 
       - uses: pnpm/action-setup@v4
+        with:
+          # The pnpm workspace root is docs/.docmd/, not the repo root.
+          package_json_file: docs/.docmd/package.json
 
       - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: pnpm
+          cache-dependency-path: docs/.docmd/pnpm-lock.yaml
 
       - name: Install dependencies
         run: |
           uv sync --frozen
-          pnpm install --frozen-lockfile
+          pnpm --dir docs/.docmd install --frozen-lockfile
 
       - name: Build the site
         run: uv run python scripts/build_site.py

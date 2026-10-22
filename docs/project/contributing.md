@@ -9,7 +9,7 @@ description: How to set up the repo and land a change.
 git clone https://github.com/sigilco/pyscriptc.git
 cd pyscriptc
 mise trust && mise install   # python, uv, node, pnpm per mise.toml
-mise run setup                # uv sync + pnpm install
+mise run setup                # uv sync + pnpm install (the node deps live in docs/.docmd)
 ```
 
 Tools already on your PATH that satisfy the `mise.toml` pins are reused, not reinstalled. You also need `clang` for linking compiled binaries.
@@ -20,7 +20,7 @@ Tools already on your PATH that satisfy the `mise.toml` pins are reused, not rei
 
 | Task | What it does |
 | --- | --- |
-| `mise run setup` | First-time install: `uv sync` and `pnpm install` |
+| `mise run setup` | First-time install: `uv sync` and `pnpm install` in `docs/.docmd/` (the node workspace root) |
 | `mise run docs:dev` | Public docs dev server over `docs/` |
 | `mise run docs:build` | Build the public site to `dist/docs` |
 | `mise run docs:validate` | Check every internal link in `docs/` |
@@ -30,11 +30,11 @@ Tools already on your PATH that satisfy the `mise.toml` pins are reused, not rei
 | `mise run format-check` | `ruff format --check`, with the same excludes as CI |
 | `mise run check` | `lint` + `format-check` + the `tests/compat2` unit selection |
 
-The same commands are available without mise (`uv run pytest`, `pnpm exec docmd build`, `pnpm exec docmd validate`), but mise pins the toolchain versions.
+The same commands are available without mise (`uv run pytest`, `pnpm run docs:build`, `uv run python scripts/check_doc_links.py`), but mise pins the toolchain versions.
 
 ## The documentation site
 
-The public site is built from `docs/` with [docmd](https://docmd.io); the internal developer notes in `.agents/docs/` are served by a second config, `docmd.internal.config.js`.
+The public site is built from `docs/` with [docmd](https://docmd.io). The docmd configuration lives at `docs/.docmd/` (with the placeholders plugin), and the internal developer notes in `.agents/docs/` are served by a second config, `docs/.docmd/docmd.internal.config.js`.
 
 ```bash
 mise run docs:dev        # preview the public site
@@ -46,7 +46,7 @@ mise run docs:internal   # preview the internal notes
 Two details worth knowing before you edit a page:
 
 - The output directory is `dist/docs`, outside the source tree. Cloudflare Pages must publish `dist/docs`, not `docs/dist`.
-- Pages may use the `{{PYSC_COMPAT_URL}}` and `{{PYSC_DOCS_URL}}` placeholders. They are expanded at build time from the environment variable of the same name, falling back to the default in `docmd-plugins/placeholders.js`.
+- Pages may use the `{{PYSC_COMPAT_URL}}` and `{{PYSC_DOCS_URL}}` placeholders. They are expanded at build time from the environment variable of the same name, falling back to the default in `docs/.docmd/plugins/placeholders.js`.
 
 ## Checks before a PR
 

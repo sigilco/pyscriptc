@@ -4,16 +4,19 @@
 //   mise run docs:internal
 //
 // Serves the same docmd UI over .agents/docs with its own navigation.
-// The `placeholders` plugin is shared with the public site.
+// The `placeholders` plugin is shared with the public site. Paths are
+// relative to docs/.docmd (this file's directory): src/out resolve against
+// it, and the build runs with docs/.docmd as its cwd so local plugin
+// paths resolve the same way.
 export default {
   title: "pyscriptc dev notes",
   url: "",
-  src: ".agents/docs",
-  out: "dist/agents-docs",
+  src: "../../.agents/docs",
+  out: "../../dist/agents-docs",
   base: "/",
   engine: "js",
   plugins: {
-    "./docmd-plugins/placeholders.js": {},
+    "./plugins/placeholders.js": {},
   },
   layout: {
     spa: true,

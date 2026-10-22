@@ -1,10 +1,10 @@
 # Toolchain for pyscriptc dev + docs site. `mise install` once, then:
-#   mise run setup     first-time: uv sync + pnpm install
+#   mise run setup     first-time: uv sync + pnpm install (docs/.docmd)
 # clang and a C toolchain are also required at compile/run time but are
 # system packages, not mise tools (apt install clang).
 #
 # Tasks (mise run <name>):
-#   docs:dev        public docs dev server (docs/, docmd.config.js)
+#   docs:dev        public docs dev server (docs/, docs/.docmd/docmd.config.js)
 #   docs:build      build the public docs site to dist/docs
 #   docs:validate   check every internal link in docs/
 #   docs:internal   dev server for the internal notes (.agents/docs), dev-only
@@ -24,15 +24,15 @@ pnpm = "12"
 
 [tasks.setup]
 description = "First-time install of the python and node toolchains"
-run = ["uv sync", "pnpm install"]
+run = ["uv sync", "pnpm --dir docs/.docmd install"]
 
 [tasks."docs:dev"]
 description = "Public docs dev server (docs/)"
-run = "pnpm exec docmd dev"
+run = "pnpm --dir docs/.docmd exec docmd dev --config docmd.config.js"
 
 [tasks."docs:build"]
 description = "Build the public docs site to dist/docs"
-run = "pnpm exec docmd build"
+run = "pnpm --dir docs/.docmd exec docmd build --config docmd.config.js"
 
 [tasks."docs:validate"]
 description = "Validate docs/ pages and internal links"
@@ -40,7 +40,7 @@ run = "uv run python scripts/check_doc_links.py"
 
 [tasks."docs:internal"]
 description = "Dev server for .agents/docs internal notes (no build step)"
-run = "pnpm exec docmd dev --config docmd.internal.config.js"
+run = "pnpm --dir docs/.docmd exec docmd dev --config docmd.internal.config.js"
 
 [tasks."compat:build"]
 description = "Build the compat page to dist/compat"

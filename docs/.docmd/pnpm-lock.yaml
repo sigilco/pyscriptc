@@ -170,7 +170,7 @@ importers:
         specifier: ^0.9.5
         version: 0.9.7
 
-  site/landing:
+  ../../site/landing:
     dependencies:
       astro:
         specifier: ^5.18.2

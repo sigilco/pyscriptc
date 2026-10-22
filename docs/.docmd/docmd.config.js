@@ -1,4 +1,8 @@
-// docmd site for pyscriptc. Source lives in docs/ (the user-facing pages).
+// docmd site for pyscriptc. Source lives in docs/ (the user-facing pages);
+// this config lives at docs/.docmd/ and every path in it is relative to that
+// directory. docmd resolves src/out against the config file's directory and
+// local plugin paths against the process working directory, so the build has
+// to run with docs/.docmd as its cwd (see mise.toml docs:* tasks).
 // Internal developer notes live in .agents/docs/ and are served by
 // docmd.internal.config.js, not by this config.
 //
@@ -10,16 +14,17 @@
 //
 // The `placeholders` plugin substitutes {{PYSC_COMPAT_URL}} and
 // {{PYSC_DOCS_URL}} in page sources. Each placeholder reads its environment
-// variable and falls back to the default in docmd-plugins/placeholders.js.
+// variable and falls back to the default in plugins/placeholders.js (next to
+// this config).
 export default {
   title: "pyscriptc",
   url: "https://pyscriptc.pages.dev/docs",
-  src: "docs",
-  out: "dist/docs",
+  src: "..",
+  out: "../../dist/docs",
   base: "/docs/",
   engine: "js",
   plugins: {
-    "./docmd-plugins/placeholders.js": {},
+    "./plugins/placeholders.js": {},
   },
   logo: {
     light: "./assets/logo-256.png",

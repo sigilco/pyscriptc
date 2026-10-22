@@ -1,5 +1,5 @@
 packages:
-  - site/landing
+  - ../../site/landing
 
 allowBuilds:
   '@docmd/engine-rust': true
