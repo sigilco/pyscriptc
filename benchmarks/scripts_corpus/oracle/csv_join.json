@@ -1,8 +1,8 @@
 {
   "slug": "csv_join",
   "argv": [
-    "/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/columns.csv",
-    "/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/people.csv",
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/columns.csv",
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/people.csv",
     "name"
   ],
   "stdout": "name,value,count,team\nalice,10.5,2,red\nbob,20.25,3\ncarol,30.125,4\nalice,5.5,1,red\n",

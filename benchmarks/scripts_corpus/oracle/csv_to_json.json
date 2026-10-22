@@ -1,7 +1,7 @@
 {
   "slug": "csv_to_json",
   "argv": [
-    "/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/columns.csv"
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/columns.csv"
   ],
   "stdout": "[{\"count\": \"2\", \"name\": \"alice\", \"value\": \"10.5\"}, {\"count\": \"3\", \"name\": \"bob\", \"value\": \"20.25\"}, {\"count\": \"4\", \"name\": \"carol\", \"value\": \"30.125\"}, {\"count\": \"1\", \"name\": \"alice\", \"value\": \"5.5\"}]\n",
   "stderr": "4 records\n",

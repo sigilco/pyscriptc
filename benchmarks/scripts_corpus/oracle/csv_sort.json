@@ -1,7 +1,7 @@
 {
   "slug": "csv_sort",
   "argv": [
-    "/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/columns.csv",
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/columns.csv",
     "1"
   ],
   "stdout": "name,value,count\nalice,10.5,2\nbob,20.25,3\ncarol,30.125,4\nalice,5.5,1\n",

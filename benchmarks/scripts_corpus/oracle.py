@@ -115,10 +115,21 @@ def run_script(slug: str, tmp: Path) -> dict[str, Any]:
     return {
         "slug": slug,
         "argv": expanded(slug, tmp),
-        "stdout": completed.stdout,
+        "stdout": machine_free(completed.stdout),
         "stderr": completed.stderr,
         "exitCode": completed.returncode,
     }
+
+
+def machine_free(text: str) -> str:
+    """Rewrite checkout-specific paths in a recording to the placeholders.
+
+    The corpus scripts echo their argv verbatim, so a recording would
+    otherwise carry the absolute fixtures path of the machine that
+    produced it and no other checkout could reproduce it.
+    """
+
+    return text.replace(str(fixtures_dir()), "{fixtures}")
 
 
 def main(argv: list[str] | None = None) -> int:

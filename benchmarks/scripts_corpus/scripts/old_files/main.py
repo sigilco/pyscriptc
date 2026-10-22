@@ -2,7 +2,7 @@
 
 import os
 import sys
-from datetime import datetime
+from datetime import UTC, datetime
 
 
 def main() -> int:
@@ -17,7 +17,8 @@ def main() -> int:
         if not os.path.isfile(path):
             continue
         st: os.stat_result = os.stat(path)
-        modified: datetime = datetime.fromtimestamp(st.st_mtime)
+        # UTC, so the recording does not depend on the runner's timezone.
+        modified: datetime = datetime.fromtimestamp(st.st_mtime, tz=UTC).replace(tzinfo=None)
         if modified < cutoff:
             old = old + 1
             print(f"{modified.isoformat()} {path}")

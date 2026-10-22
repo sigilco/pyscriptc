@@ -1,4 +1,4 @@
-/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/tree
+{fixtures}/tree
 |-- Empty Name.TXT
 |-- a.txt
 |-- empty

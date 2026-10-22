@@ -1,7 +1,7 @@
 {
   "slug": "json_select",
   "argv": [
-    "/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/records.json",
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/records.json",
     "name"
   ],
   "stdout": "alice\nbob\ncarol\n",

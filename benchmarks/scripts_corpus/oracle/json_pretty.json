@@ -1,7 +1,7 @@
 {
   "slug": "json_pretty",
   "argv": [
-    "/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/flat.json"
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/flat.json"
   ],
   "stdout": "{\n  \"a\": [\n    \"1\",\n    \"2\"\n  ],\n  \"b\": [\n    \"3\"\n  ],\n  \"c\": [\n    \"4\",\n    \"5\",\n    \"6\"\n  ]\n}\n",
   "stderr": "",

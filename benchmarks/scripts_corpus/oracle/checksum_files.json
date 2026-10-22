@@ -1,7 +1,7 @@
 {
   "slug": "checksum_files",
   "argv": [
-    "/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/lines.txt"
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/lines.txt"
   ],
   "stdout": "e241be7452321a960919da309591def086d1edd3c2f6b8870243ac99ac735fe9  lines.txt\n",
   "stderr": "",

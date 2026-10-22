@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 import json
-import re
 import shutil
 from pathlib import Path
 
@@ -14,6 +13,21 @@ from benchmarks.scripts_corpus.run import analyse_all, family_ranking, render_re
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "benchmarks" / "scripts_corpus" / "scripts"
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _stamped_fixture_mtimes() -> None:
+    """Restamp the tree fixture mtimes.
+
+    A git checkout cannot preserve mtimes and `old_files` reads them, so
+    the corpus fixtures are restamped to the fixed value before any
+    script runs. `make_fixtures.main` writes the same bytes it already
+    committed, so the checkout content does not change.
+    """
+
+    from benchmarks.scripts_corpus.make_fixtures import main as make_fixtures
+
+    make_fixtures()
 
 
 def test_every_script_has_an_invocation() -> None:
@@ -132,15 +146,9 @@ def test_recorded_oracle_matches_a_fresh_run(slug: str, tmp_path: Path) -> None:
         pytest.skip(f"{slug} has no recorded oracle yet")
     recorded = json.loads((oracle / f"{slug}.json").read_text())
     fresh = run_script(slug, tmp_path)
-    # Scripts print the fixtures path from argv verbatim, so the recording
-    # carries the machine that produced it. Compare both sides with the
-    # fixtures directory normalised to the {fixtures} placeholder.
-    fixtures_str = str(fixtures_dir())
-    fresh_out = fresh["stdout"].replace(fixtures_str, "{fixtures}")
-    recorded_out = recorded["stdout"]
-    for path in set(re.findall(r"/[^\s\"]*scripts_corpus/fixtures", recorded_out)):
-        recorded_out = recorded_out.replace(path, "{fixtures}")
-    assert fresh_out == recorded_out, f"{slug} drifted from its recorded stdout"
+    # run_script rewrites the fixtures path to the {fixtures} placeholder,
+    # so a recording from any machine stays comparable.
+    assert fresh["stdout"] == recorded["stdout"], f"{slug} drifted from its recorded stdout"
     assert fresh["exitCode"] == recorded["exitCode"]
 
 

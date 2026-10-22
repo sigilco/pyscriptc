@@ -1,7 +1,7 @@
 {
   "slug": "slugify_names",
   "argv": [
-    "/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/tree"
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/tree"
   ],
   "stdout": "Empty Name.TXT -> empty-name.TXT\n",
   "stderr": "1 files would be renamed\n",

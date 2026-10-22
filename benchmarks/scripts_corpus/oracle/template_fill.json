@@ -1,7 +1,7 @@
 {
   "slug": "template_fill",
   "argv": [
-    "/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/template.txt",
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/template.txt",
     "NAME=world",
     "VERSION=1.2"
   ],

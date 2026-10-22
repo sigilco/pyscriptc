@@ -1,7 +1,7 @@
 {
   "slug": "table_render",
   "argv": [
-    "/Users/josocjoq/.worktrees/compat/script-corpus/benchmarks/scripts_corpus/fixtures/table.txt"
+    "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/table.txt"
   ],
   "stdout": "| id | name  | size |\n| 1  | alpha | 10   |\n| 2  | beta  | 20   |\n| 30 | gamma | 300  |\n4 rows, 3 columns\n",
   "stderr": "",

@@ -65,6 +65,24 @@ PLAIN_FILES: dict[str, str] = {
 }
 
 
+def stamp_mtimes() -> None:
+    """Stamp the tree fixture modification times a checkout cannot preserve.
+
+    `old_files` reads the modification time of the tree fixture and prints
+    it, so a fresh checkout (whose mtimes are the checkout time) would
+    report no old files at all. This restores the fixed value without
+    rewriting the fixture content.
+    """
+
+    for relative in TREE_FILES:
+        path: Path = FIXTURES / relative
+        if path.is_file():
+            os.utime(path, (TREE_MTIME, TREE_MTIME))
+    keep: Path = FIXTURES / "tree" / "empty" / ".keep"
+    if keep.is_file():
+        os.utime(keep, (TREE_MTIME, TREE_MTIME))
+
+
 def write_tree() -> None:
     for relative, text in TREE_FILES.items():
         path: Path = FIXTURES / relative
@@ -96,6 +114,7 @@ def main() -> int:
         path.write_text(text, encoding="utf-8")
     write_tree()
     write_tar()
+    stamp_mtimes()
     print(f"fixtures written to {FIXTURES}")
     return 0
 
