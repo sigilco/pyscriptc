@@ -131,3 +131,8 @@ With `--target wasm32-wasi-musl`, the `cc` table shows the wasm specifics:
   setjmp runtime (zig ships the source but never builds it).
 - The `-mconsole` flag that a Windows target inserts into the link line is
   absent on wasm.
+- On `wasm32-wasi-p2` there is one more line after the link: the
+  `wasm-tools component new` invocation with the pinned preview1 adapter.
+  Its output replaces the core module, so the `.wasm` in the dump is the
+  component, and the `--debug=cc` command list is the whole story of how it
+  got there.

@@ -38,6 +38,8 @@ runtime C files.
 | `aarch64-windows-gnu` | builds (PE32+ arm64), never executed | experimental cross-compilation, see below |
 | `wasm32-wasi-musl` (zig 0.16.0) | builds + runs under wasmtime v50, stdout byte-identical to native on the smoke demo | wasm lane |
 | `wasm32-wasi-musl` (zig 0.17.0) | same | wasm lane |
+| `wasm32-wasi-p2` (zig 0.16.0 + wasm-tools 1.262.0) | the same core module wrapped into a WASI 0.2 component; runs under wasmtime v50, stdout byte-identical to native; generators survive the wrap | wasm lane, `_wrap_wasi_p2` |
+| `wasm32-wasi-p2` (zig 0.17.0) | same | wasm lane |
 
 The wasm lane is the only target that changes emitter output: on `wasm32*`
 the entry point is `@__main_argc_argv` (wasm-ld resolves a C-style `main`
@@ -47,6 +49,14 @@ exception-handling proposal via setjmp/longjmp, so the resulting module
 needs an engine that implements that proposal (wasmtime >= v50). The
 setjmp runtime comes from the vendored `runtime/wasm/rt_wasm.c` because zig
 bundles the wasi-libc source but never builds it.
+
+`wasm32-wasi-p2` is a wrapper step, not a new backend: the core module is
+byte-for-byte the 0.1 build, and `wasm-tools component new --adapt` wraps it
+into a 0.2 component importing `wasi:cli/run@0.2.x`. The adapter ships in the
+wasmtime release bundles; the pin (URL, version, sha256) lives in
+`src/pyscriptc/wasm_adapter.py` and a fetched adapter that does not match the
+pin is refused. The component behaves like the 0.1 module for every program
+constraint, plus no thread world (see divergence 17).
 
 Two findings from the spike that shape the design:
 

@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from pyscriptc.errors import IRError
 from pyscriptc.llvm import emit_llvm
 from pyscriptc.lower import lower_file
 
@@ -173,3 +174,85 @@ def test_wasm_output_matches_native(tmp_path: Path) -> None:
     assert ran_wasm.returncode == 0, ran_wasm.stderr
     assert ran_wasm.stdout == ran_native.stdout
     assert ran_wasm.stdout.startswith("fib(10) = 55")
+
+
+# --- the WASI 0.2 lane ---------------------------------------------------
+
+
+def _wasm_tools() -> str | None:
+    return shutil.which("wasm-tools")
+
+
+def test_adapter_pin_is_recorded() -> None:
+    """The adapter provenance is part of the contract: URL, version, sha256."""
+    from pyscriptc import wasm_adapter
+
+    assert wasm_adapter.ADAPTER_URL.endswith(f"v{wasm_adapter.WASMTIME_VERSION}/{wasm_adapter.ADAPTER_NAME}")
+    assert len(wasm_adapter.ADAPTER_SHA256) == 64
+    assert wasm_adapter.WASMTIME_VERSION == "50.0.0"
+    assert wasm_adapter.WASM_TOOLS_VERSION == "1.262.0"
+
+
+def test_adapter_fetch_rejects_a_wrong_digest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A fetched adapter that does not match the pin is refused, not used."""
+    from pyscriptc import wasm_adapter
+
+    monkeypatch.setenv("PYSC_WASI_CACHE_DIR", str(tmp_path))
+    monkeypatch.setenv("PYSC_WASI_P1_ADAPTER", str(tmp_path / "missing.wasm"))
+    with pytest.raises(IRError, match="missing file"):
+        wasm_adapter.adapter_path()
+
+
+def test_wasm_tools_missing_names_the_install(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from pyscriptc import wasm_adapter
+
+    monkeypatch.setattr(shutil, "which", lambda _cmd: None)
+    with pytest.raises(IRError, match="wasm-tools is not on PATH"):
+        wasm_adapter.wasm_tools()
+
+
+@pytest.mark.skipif(shutil.which("zig") is None, reason="zig not on PATH")
+@pytest.mark.skipif(_wasm_tools() is None, reason="wasm-tools not on PATH")
+@pytest.mark.skipif(_wasmtime() is None, reason="wasmtime not on PATH (set PYSC_WASMTIME)")
+def test_wasi_p2_produces_a_component(tmp_path: Path) -> None:
+    """The 0.2 lane: a component that runs, with the native output byte for byte."""
+    src = _write(DEMO, tmp_path)
+    from pyscriptc.cli import main
+
+    native = tmp_path / "demo-native"
+    p2 = tmp_path / "demo-p2"
+    assert main(["compile", str(src), "--emit", "bin", "--skip-check", "-o", str(native)]) == 0
+    assert (
+        main(["compile", str(src), "--emit", "bin", "--skip-check", "--target", "wasm32-wasi-p2", "-o", str(p2)]) == 0
+    )
+    data = (tmp_path / "demo-p2.wasm").read_bytes()
+    # a component is the wasm magic plus version 0x000d; a core module has 0x0001
+    assert data[:8] == b"\x00asm\x0d\x00\x01\x00"
+    ran_native = subprocess.run([str(native)], capture_output=True, text=True)
+    ran_p2 = subprocess.run([_wasmtime(), str(tmp_path / "demo-p2.wasm")], capture_output=True, text=True)
+    assert ran_p2.returncode == 0, ran_p2.stderr
+    assert ran_p2.stdout == ran_native.stdout
+
+
+@pytest.mark.skipif(shutil.which("zig") is None, reason="zig not on PATH")
+def test_wasi_p2_link_refuses_subprocess(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    src = _write(SUBPROCESS, tmp_path)
+    from pyscriptc.cli import main
+
+    ret = main(
+        [
+            "compile",
+            str(src),
+            "--emit",
+            "bin",
+            "--skip-check",
+            "--target",
+            "wasm32-wasi-p2",
+            "-o",
+            str(tmp_path / "sub"),
+        ]
+    )
+    assert ret != 0
+    err = capsys.readouterr().err
+    assert "refuses ps_sub" in err
+    assert "wasm32-wasi-musl" in err
