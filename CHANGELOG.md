@@ -13,6 +13,10 @@
 - `jwt.encode` / `jwt.decode` for the HS* family through the `pyscriptc-jwt` pack (#328)
 - `orjson.dumps` / `orjson.loads` through the `pyscriptc-orjson` pack over `ps_json` (#330)
 - PSxxxx fence-code histogram, binary size and the `run.finished` telemetry event (#331)
+- asyncio `Lock`, `Event`, `Semaphore`, `Queue` and `to_thread` (#379)
+- Windows and `wasm32-wasi` cross-compilation via zig cc, experimental (#249, #283, #313); see divergences 30-33
+- FFI F3 sqlite pilot (#367)
+- `PRIVACY.md` at the repo root documenting telemetry (#297)
 - beta channel tooling: `v0.6.0-beta.N` tags, a beta bar, tester docs (#362)
 
 ### Fixed
@@ -21,10 +25,17 @@
 - tempdir trailing slash and stderr print link on Darwin (#344)
 - master test failures: typeshed `Iterator` rows and the `jwtapp` package shape (#340)
 
+- `ps_http.c` is guarded on WASI and Windows and raises `URLError` there (#376)
+- ASan exit-registry fix for runtime allocations (#370)
+- nightly snapshot PR number capture (#397)
+
 ### Changed
+- coverage `SHARED_CORE` prefix helper (#375)
+- `.python-version` pins 3.14 (#393)
 - `mise.toml` is the default task runner (#360)
 
 ### Performance
+- network receipt (#389), compiled client vs CPython wall, median of 5: sequential GET 56.7 vs 99.2 ms, POST 40.4 vs 84.3 ms, threaded GET 55.6 vs 95.8 ms, POST 30.4 vs 76.0 ms (1.3x to 2.5x). Run `uv run python -m benchmarks.net.run`
 - generator receipt tool and three perf fixes in the try path (#351)
 
 ### Docs
@@ -33,7 +44,7 @@
 ### Internal
 - generator and contextmanager coverage families split (#336), bridged fence census (#329), PyreflyBridge checker lane (#327), checker version in the irscore baseline header (#326)
 
-<!-- OWNER: measured receipt pending before release (census delta, boxed ledger window, or perf number with a baseline) -->
+Receipt: the network benchmark above (perf number with a CPython baseline).
 
 ## [0.5.1] - 2026-10-23
 
