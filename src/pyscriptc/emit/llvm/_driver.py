@@ -89,6 +89,50 @@ def sanitize_flags(sanitize: list[str] | None) -> list[str]:
     return ["-fsanitize=" + ",".join(sanitize)]
 
 
+# The runtime's thread primitives are pthreads. A wasm target has no
+# working pthread_create: wasi-libc stubs it to return EAGAIN, and its
+# pthread_cond_wait traps. The link would succeed and the program would fail
+# at run time with a libc error that names neither the target nor the reason.
+# The refusal names both, at link time, before the sysroot is touched.
+_WASM_TARGETS = ("wasm32",)
+# The symbols that need a second thread. `ps_lock_*` is not here: a lock on
+# the one thread a WASI program has is a working mutex.
+_THREAD_SYMBOLS = (
+    "ps_thread_start2",
+    "ps_thread_new",
+    "ps_queue_new",
+    "ps_cond_init",
+    "ps_sem_new",
+    "ps_event_new",
+)
+
+
+def refuse_unsupported_target(text: str, target: str | None) -> None:
+    """Refuse a target that cannot run the runtime's thread primitives.
+
+    The check is on the emitted text, not on the source: the runtime links
+    every `.c` file, but the thread primitives only reach the binary when
+    the program uses them. A program that never starts a thread links fine
+    for wasm; a program that does gets the refusal instead of a libc error
+    at run time.
+    """
+    if target is None:
+        return
+    if not target.startswith(_WASM_TARGETS):
+        return
+    # The IR names a global as `@symbol(`, both in its declaration and in
+    # every call. Anchoring on that form keeps a colliding name (say
+    # `not_ps_thread_start2`) from reading as a use of the runtime symbol.
+    used = [symbol for symbol in _THREAD_SYMBOLS if f"@{symbol}(" in text]
+    if not used:
+        return
+    raise IRError(
+        f"the {target} target has no working pthreads, so the runtime's "
+        f"thread primitives ({', '.join(used)}) cannot be used there; "
+        "threads are a native-only surface for now (issue #172)"
+    )
+
+
 def link_binary(
     llvm_path: Path,
     output: Path,
@@ -138,6 +182,9 @@ def link_binary(
     cc = "zig cc" if driver == "zig" else driver
     runtime = runtime_dir()
     text = llvm_path.read_text(encoding="utf-8")
+    # The refusal comes before the sysroot is touched: a program that
+    # cannot run threads on the target should not reach the compiler at all.
+    refuse_unsupported_target(text, target)
     sources = [str(path) for path in sorted(runtime.glob("*.c"))]
     target_flags = ["-target", target] if target is not None else []
     san_flags = sanitize_flags(sanitize)

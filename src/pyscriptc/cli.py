@@ -21,7 +21,13 @@ from pyscriptc.coverage import build_report, family_of, render_text
 from pyscriptc.debug import Debug, resolve
 from pyscriptc.diagnostics import explain
 from pyscriptc.doctor import doctor_cmd
-from pyscriptc.emit.llvm import compile_unit, emit_llvm, link_binary, standalone_entry
+from pyscriptc.emit.llvm import (
+    compile_unit,
+    emit_llvm,
+    link_binary,
+    refuse_unsupported_target,
+    standalone_entry,
+)
 from pyscriptc.errors import FitError, IRError, SpikeError, VersionError
 from pyscriptc.ffi_manifest import FfiManifestError, load_manifests
 from pyscriptc.imports import build_report as build_import_report
@@ -916,6 +922,9 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             debug_info=debug_info,
         )
         dbg.end("emit_llvm")
+        # The wasm thread refusal fires before the link, so a program that
+        # cannot run threads on the target never reaches the compiler.
+        refuse_unsupported_target(llvm_text, args.target)
         ll_path = _output_path(args, source_path, ".ll")
         ll_path.write_text(llvm_text, encoding="utf-8")
         outputs["ll"] = str(ll_path)
