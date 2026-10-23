@@ -5,18 +5,19 @@
   "type": "module",
   "description": "Landing page of the pyscriptc site",
   "scripts": {
-    "build": "astro build",
+    "build": "paraglide-js compile --project ./project.inlang --outdir ./src/paraglide && astro build",
     "dev": "astro dev",
     "preview": "astro preview"
   },
   "dependencies": {
     "astro": "^5.18.2"
   },
-  "engines": {
-    "node": ">=22.0.0"
-  },
   "devDependencies": {
+    "@inlang/paraglide-js": "^2.29.1",
     "@tailwindcss/vite": "^4.3.3",
     "tailwindcss": "^4.3.3"
+  },
+  "engines": {
+    "node": ">=22.0.0"
   }
 }
