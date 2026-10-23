@@ -107,6 +107,16 @@ _FAMILIES = {
         ),
         Family("construct-other", "Rewrite the statement with lowered constructs."),
         Family(
+            "refused-dynamic-attrs",
+            "Attribute access is resolved statically to declared fields, so the hook never runs. "
+            "Use plain annotated fields and methods; `@property` getters lower.",
+        ),
+        Family(
+            "refused-finalizer",
+            "Finalizer timing is unspecified and the runtime has no GC to call it. "
+            "Use `with` and an explicit `close()`.",
+        ),
+        Family(
             "export-cascade", "Follows from a fence in the exporting module. Fix that definition first.", derived=True
         ),
         Family("class-cascade", "Follows from a fence inside the class. Fix the class first.", derived=True),
@@ -169,6 +179,9 @@ _RULES: tuple[tuple[str | None, str, str], ...] = (
     ("PS2004", r"", "operator"),
     ("PS2005", r"", "non-latin1"),
     ("PS2101", r"", "queued-stdlib"),
+    ("PS4201", r"", "refused-dynamic-attrs"),
+    ("PS4202", r"", "refused-dynamic-attrs"),
+    ("PS4203", r"", "refused-finalizer"),
 )
 
 

@@ -2,11 +2,13 @@
 
 The features pyscriptc rejects by design: constructs that are legal CPython but make compiled programs less reliable, less predictable, or unverifiable statically. Spec only - nothing here is implemented. This is the same posture vercel-labs/scriptc takes against TypeScript reflection and experimental decorators: a closed subset is only trustworthy when it also refuses the host language's footguns, not only its unimplemented surface.
 
-A fence today answers "not lowered yet" (PS2xxx, the epics in `.agents/plans/`). A refusal answers "never, and here is what to write instead". The distinction matters to users: a PS2101 row is a queue position, a refusal is a decision. This document proposes a dedicated diagnostic range, **PS4xxx - refused by design**, registered in `src/pyscriptc/diagnostics.py` with the same `title` / `why` / `fix` shape as existing entries. Existing fence codes and messages are untouched; PS4xxx codes are a later rollout gated on this census.
+A fence today answers "not lowered yet" (PS2xxx, the epics in `.agents/plans/`). A refusal answers "never, and here is what to write instead". The distinction matters to users: a PS2101 row is a queue position, a refusal is a decision. Refusals live in a dedicated diagnostic range, **PS42xx - refused by design**, registered in `src/pyscriptc/diagnostics.py` with the same `title` / `why` / `fix` shape as existing entries. Existing fence codes and messages are untouched; a PS42xx code is a later rollout gated on this census.
+
+The `PS4xxx` numbers this document first proposed are taken: `PS4001`-`PS4016` are the FFI manifest range (`src/pyscriptc/ffi_manifest.py`) and `PS4101` is the mobile-target refusal. The refusal range therefore starts at `PS4201`.
 
 ## Re-census (2026-10-22, master `0b66ca2`)
 
-Before registering any PS4xxx code, every row below was re-verified by compiling and running a probe against master `0b66ca2` (Python 3.14, `uv run python -m pyscriptc compile FILE --run --call f --args ...`), comparing against the CPython oracle. A refusal may only claim a construct that is actually fenced today; a row that already lowers moves to Tier C (supported with caveat) or gets a bug filed.
+Before registering any refusal code, every row below was re-verified by compiling and running a probe against master `0b66ca2` (Python 3.14, `uv run python -m pyscriptc compile FILE --run --call f --args ...`), comparing against the CPython oracle. A refusal may only claim a construct that is actually fenced today; a row that already lowers moves to Tier C (supported with caveat) or gets a bug filed.
 
 Rows that changed since PR #72 wrote the table:
 
@@ -14,7 +16,7 @@ Rows that changed since PR #72 wrote the table:
 | --- | --- | --- |
 | `def f(*args: int)` iterating `args` (PS4019) | **works** - lowers as a `list`, internal calls `f(1, 2)` and iteration match CPython | `*args` half of PS4019 is stale; only starred call sites (`g(*xs)`) stay fenced |
 | `**kwargs` (PS4019) | **works** - `def f(**kwargs: int)` with `f(a=1, b=2)` returns 3 | the whole PS4019 row is stale; keyword passing at call sites also works |
-| `@property` getter (PS4017) | **works** - attribute read calls the getter (see the Tier C list in this file); only calling `C.a` and the setter stay fenced | PS4017 narrows to `__getattr__`/`__setattr__`/descriptors |
+| `@property` getter (PS4201) | **works** - attribute read calls the getter (see the Tier C list in this file); only calling `C.a` and the setter stay fenced | PS4201 narrows to `__getattr__`/`__setattr__`/descriptors |
 | `class E(Exception)` user exceptions | **works** - raise and catch of a user exception class match CPython | not a refusal row; recorded as supported |
 | `bare except` (listed "currently PS1205") | **works** - E2 M3 landed, bare `except` and `except E as e` both run | the PS1205 note is stale; PS1205 now only fires on a name conflict |
 | `eval`/`exec` (PS4001) | fenced PS2002/PS2001 as claimed | row stands |
@@ -32,8 +34,8 @@ Four probes found live divergences between the compiled binary and CPython, reco
 
 - `a is b` on two runtime-built equal strings answers `0` where CPython answers `1` (`'he' + 'llo' is 'hello'`). The lowering compares backing-buffer pointers; CPython's constant folding made them one object. This is the `is`-on-scalars row's real hazard and the reason PS4009 keeps any claim at all.
 - `b'x' + 'y'` (str/bytes concat) is accepted by the type checker (exit 2 from the checker layer, not a fence), where the doc assumed a clean PS4010 fence. The refusal is correct; the enforcement point is the checker, not lowering.
-- A class with a `__del__` method compiles and runs, but the finalizer never fires: `del c` prints `del ran` under CPython and nothing in the binary. The method is silently dropped. PS4015 has to fence the hook, not just the `weakref`/`gc` surface.
-- A class with a `__setattr__` hook compiles and runs, and the hook is never called: `c.a = 1` writes the field directly. Same shape as the `__del__` divergence and the same PS4017 consequence: fence the hook definition, not only the dynamic-protocol surface.
+- A class with a `__del__` method compiles and runs, but the finalizer never fires: `del c` prints `del ran` under CPython and nothing in the binary. The method is silently dropped. The hook has to be fenced, not just the `weakref`/`gc` surface.
+- A class with a `__setattr__` hook compiles and runs, and the hook is never called: `c.a = 1` writes the field directly. Same shape as the `__del__` divergence and the same consequence: fence the hook definition, not only the dynamic-protocol surface.
 
 ## Per-row probe table
 
@@ -92,7 +94,7 @@ Every row below was probed by compiling and running a snippet against master `0b
 | PS4014 hooks | `sys.setrecursionlimit(100)` | fenced | `PS2001` |
 | PS4014 hooks | `sys.settrace(None)` | fenced | `PS2001` |
 | PS4014 hooks | `sys.getrefcount(1)` | fenced | `PS2001` |
-| PS4015 finalizers | `class C: def __del__` + `del c` | works | result `0` |
+| PS4015 finalizers | `class C: def __del__` + `del c` | fenced | `PS4203` (registered #432) |
 | PS4015 finalizers | `weakref.ref(c)` | fenced | `PS2002` |
 | PS4015 finalizers | `gc.collect()` | fenced | `PS2002` |
 | PS4016 identity | `id(7)` | fenced | `PS2003` |
@@ -100,10 +102,10 @@ Every row below was probed by compiling and running a snippet against master `0b
 | PS4016 identity | `hash('a')` | fenced | `PS2002` |
 | PS4016 identity | `repr(C())` | fenced | `PS2004` |
 | PS4016 identity | `str(c)` | fenced | `PS2003` |
-| PS4017 attrs | `c.missing` with `__getattr__` | fenced | `PS2001` |
-| PS4017 attrs | `c.a = 1` with `__setattr__` | works | result `1` |
-| PS4017 attrs | `c.a = 5` on a `@property` | checker | \|     ^^^ |
-| PS4017 attrs | `c.d` with `__get__` | fenced | `PS1003,PS1104` |
+| PS4201 attrs | `c.missing` with `__getattr__` | fenced | `PS2001` |
+| PS4201 attrs | `c.a = 1` with `__setattr__` | fenced | `PS4201` (registered #432) |
+| PS4201 attrs | `c.a = 5` on a `@property` | checker | \|     ^^^ |
+| PS4201 attrs | `c.d` with `__get__` | fenced | `PS1003,PS1104` |
 | PS4018 star import | `from math import *` | fenced | `PS2002` |
 | PS4018 star import | `from os.path import *` | fenced | `PS2002` |
 | PS4019 variadics | `def f(*args: int)` + `f(1,2,3)` | works | result `6` |
@@ -121,7 +123,7 @@ Every row below was probed by compiling and running a snippet against master `0b
 | T0 encodings | `'\u20ac'` | fenced | `PS2005` |
 | T0 encodings | `'\u00e9'` | works | result `1` |
 
-Two rows deserve a note beyond the verdict. `class C: def __del__` compiles and runs, but the compiled binary never calls the finalizer where CPython does (`del c` prints `del ran` under CPython and nothing under the compiler): the method is silently dropped, which is the divergence PS4015 has to fence. `c.a = 1` with a `__setattr__` hook also compiles and runs, and the hook is not called: the attribute write goes straight to the field. The PS4017 row therefore has to fence the *hook*, not just its definition.
+Two rows deserve a note beyond the verdict. `class C: def __del__` compiles and runs, but the compiled binary never calls the finalizer where CPython does (`del c` prints `del ran` under CPython and nothing under the compiler): the method is silently dropped, which is the divergence PS4015 has to fence. `c.a = 1` with a `__setattr__` hook also compiles and runs, and the hook is not called: the attribute write goes straight to the field. Both divergences are closed by issue #432: the hook definitions refuse (`PS4203` and `PS4201`), so a class that defines them no longer compiles.
 
 ## Contradiction resolved: PS4006 `os.path` vs R31 alias
 
@@ -135,16 +137,16 @@ Every construct in this doc routes into exactly one support tier. The tier decid
 
 | Tier | Meaning | Enforcement | Codes |
 | --- | --- | --- | --- |
-| **T0** | refuse forever - semantics cannot be made deterministic or statically resolvable | hard fence, dedicated PS4xxx row | PS4xxx, permanent |
-| **T1** | island-only - correct only through the CPython island (`--fallback=cpython`), never native | fence in native builds, allowed through the island | PS4xxx with island hint |
+| **T0** | refuse forever - semantics cannot be made deterministic or statically resolvable | hard fence, dedicated PS42xx row | PS42xx, permanent |
+| **T1** | island-only - correct only through the CPython island (`--fallback=cpython`), never native | fence in native builds, allowed through the island | PS42xx with island hint |
 | **T2** | build-time desugar - provably result-identical rewrite before lowering | lowered; no diagnostic | none |
-| **T3** | warning lane - legal and deterministic, refused only as style | warning (channel does not exist yet); fence until it does | PS4xxx while fenced, warning later |
+| **T3** | warning lane - legal and deterministic, refused only as style | warning (channel does not exist yet); fence until it does | PS42xx while fenced, warning later |
 
 Assignment rule: a construct is T2 only when every CPython-observable result is preserved by the rewrite (same value, same order, same exceptions, same side-effect timing); anything that depends on interpreter state, addresses or laziness is T0; anything whose only objection is style is T3; anything that needs a real CPython to be correct is T1. The boxed ledger (`benchmarks/compat2/boxed_cost.py`) arbitrates T1: if the island's cost share rises or the drop flag trips, the T1 rows convert to T0 rather than growing the runtime. Latest window (2026-10-22, at this re-census): code 0.7%, churn 0.0%, bug 0.0%, tax 0.0%, drop_flag false - the T1 tier is affordable as of this doc.
 
 ### Tier assignment
 
-**T0 - refuse forever.** Interpreter hooks (`setrecursionlimit`, `settrace`, `setprofile`, `getrefcount`, PS4014); `__del__`/`weakref`/`gc` (PS4015); `id()`/default `repr` (PS4016 - process identity is non-reproducible by construction); `__getattr__`/`__setattr__`/descriptors on classes (PS4017, post-census scope); non-literal monkeypatching and `__dict__` writes (PS4003); `globals()`/`locals()`/`vars()`/`dir()` (PS4002); `itertools.count`/`cycle` (PS4013's surviving half - an unbounded iterator is a hang with no stack); `asyncio.gather` (if async ever lands); generators-as-values outside the lowered lanes (R24 territory); scalar `is` where the operands are runtime-built (the divergence above; the eager literal case is T2-adjacent but the pointer semantics make the general form T0); full UTF-8 `str` (Latin-1 by design - the one epic-sized refusal, documented as bounded rather than refused row-by-row); async/await (unchartered epic).
+**T0 - refuse forever.** Interpreter hooks (`setrecursionlimit`, `settrace`, `setprofile`, `getrefcount`); `__del__`/`weakref`/`gc` (PS4203 for the hook, `weakref`/`gc` calls still PS2002); `id()`/default `repr` - process identity is non-reproducible by construction; `__getattr__`/`__setattr__`/`__getattribute__`/descriptors on classes (PS4201, post-census scope); non-literal monkeypatching and `__dict__` writes; `globals()`/`locals()`/`vars()`/`dir()`; `itertools.count`/`cycle` - an unbounded iterator is a hang with no stack; `asyncio.gather` (if async ever lands); generators-as-values outside the lowered lanes (R24 territory); scalar `is` where the operands are runtime-built (the divergence above; the eager literal case is T2-adjacent but the pointer semantics make the general form T0); full UTF-8 `str` (Latin-1 by design - the one epic-sized refusal, documented as bounded rather than refused row-by-row); async/await (unchartered epic).
 
 **T1 - island-only.** `eval`/`exec`/`compile` (PS4001's native half stays T0; the island lane is a ~30-line `PyRun_String` shim); `importlib.import_module`/`__import__` (needs a `ps_island_call(mod, fn, args)` trampoline over lowered types only). These never lower natively: dynamic code defeats static resolution, which is a T0 property, but the island can honor it, which is a T1 property. The boxed ledger decides whether libpython linkage is worth carrying; if it is dropped, these convert to T0.
 
@@ -174,9 +176,9 @@ Assignment rule: a construct is T2 only when every CPython-observable result is 
 | In-place mutator used as a value (`x = xs.sort()`) | refuse (PS4012) | T3 | `sorted(xs)` / the method, then the name |
 | Lazy/infinite iterators as values: `itertools.count`, `itertools.cycle` | refuse (PS4013, reduced) | T0 | comprehensions; `map`/`filter` are already eager |
 | Interpreter hooks (`setrecursionlimit`, `settrace`, `setprofile`, `getrefcount`) | refuse (PS4014) | T0 | none - compiler-owned process |
-| `__del__`, `weakref`, `gc` module | refuse (PS4015) | T0 | `with` / explicit `close()` |
+| `__del__`, `weakref`, `gc` module | refuse (PS4203 for the hook) | T0 | `with` / explicit `close()` |
 | `id()`, `hash()` of str/bytes, default `repr` addresses | refuse (PS4016) | T0 (`hash` of int/bool is T3) | a field that carries the identity you need |
-| `__getattr__` / `__setattr__`, descriptors on classes | refuse (PS4017, reduced: property getters lower) | T0 | plain annotated fields and methods |
+| `__getattr__` / `__setattr__` / `__getattribute__`, `__delattr__`, descriptors on classes | refuse (PS4201, PS4202; property getters lower) | T0 | plain annotated fields and methods |
 | `from x import *` (cross-module) | refuse (PS4018) | T0 | named imports |
 | `*args` / `**kwargs` signatures | **supported** (lower as list/dict) | - | plain positional parameters still preferred |
 | `asyncio.gather` | refuse if async ever lands | T0 | structured concurrency only (`TaskGroup`) |
@@ -261,9 +263,19 @@ Post-census scope. `map`/`filter` already desugar to eager comprehensions (`rest
 
 `hash()` of `str`/`bytes` is salted by `PYTHONHASHSEED` and differs between runs; `id()` is an address; a default `<object at 0x...>` repr embeds both. Programs that print or compare these are non-reproducible by construction. Tier: T0 for `id`/default repr and str/bytes `hash`; T3 for `hash()` of `int`/`bool` (deterministic own-hash is feasible; the refusal is a reproducibility policy choice).
 
-### PS4017 - dynamic attribute protocol (reduced scope)
+### PS4201 - dynamic attribute protocol (reduced scope)
 
 `__getattr__`, `__setattr__`, `__getattribute__`, descriptors (`__get__`/`__set__`). Attribute access is resolved statically to declared fields; a hook that can intercept any name lookup defeats that resolution. Post-census scope: `@property` getters lower and stay; the setter and the call form fence; `__getattr__` fences PS2001 when it is actually reached. But a class that *defines* `__setattr__` compiles and runs with the hook never called (the write goes straight to the field), so the code has to fence the hook definition, not only the dynamic-protocol surface. Tier: T0.
+
+**Registered (issue #432, D1/O1).** The hook *definition* now fences with `PS4201` at the definition site, so the silent `__setattr__` divergence is gone: a class that defines the hook no longer compiles and runs with the hook never called. The refusal is on the hook names only; `@property` getters keep lowering and the getter is still called at the read site. Coverage family: `refused-dynamic-attrs`.
+
+### PS4202 - attribute deletion protocol
+
+`__delattr__` intercepts `del obj.name`. The lowered subset has no attribute deletion (fields are fixed at lowering and never removed), so the hook would never run. Tier: T0. **Registered (issue #432)**: the definition fences with `PS4202`, coverage family `refused-dynamic-attrs`.
+
+### PS4203 - finalizer hook
+
+`__del__` is the finalizer half of the PS4015 row (finalizers and the GC surface). CPython calls it when the object is garbage-collected and that timing is explicitly unspecified; the runtime has no GC to trigger it, so the method was silently dropped (probe: `del c` prints `del ran` under CPython and nothing in the binary). The `weakref` and `gc` surfaces already fence; the hook definition now fences too. Tier: T0. **Registered (issue #432)**: the definition fences with `PS4203`, coverage family `refused-finalizer`.
 
 ### PS4018 - `from x import *` (cross-module)
 
@@ -293,10 +305,10 @@ Deliberate divergences that are already lowered and documented; kept because the
 
 ## Does refusing change the corpus scorer?
 
-Mostly no. compat2 scores probe *outcomes* against the CPython oracle; every refused construct above is fenced today, so flipping a PS2002 to a PS4001 leaves the weighted pass untouched - a fence is a fence either way. The two ways a refusal moves the score:
+Mostly no. compat2 scores probe *outcomes* against the CPython oracle; every refused construct above is fenced today, so flipping a PS2002 to a PS4201 leaves the weighted pass untouched - a fence is a fence either way. The two ways a refusal moves the score:
 
 1. **Refusing something that currently lowers** (e.g. a row this census just moved to Tier C) flips its probes from pass to fence - a real score regression. This is exactly what the re-census prevents: PS4005 and PS4006 were about to claim lowered surfaces.
-2. **`coverage`/`census` families.** `family_of` in `src/pyscriptc/coverage.py` maps codes to families; each PS4xxx code needs a family row so refusals don't collapse into `construct-other` - cheap, and it makes the census report "refused-by-design" as its own blocker class, which is honest signal for the top100 port lanes.
+2. **`coverage`/`census` families.** `family_of` in `src/pyscriptc/coverage.py` maps codes to families; each PS42xx code needs a family row so refusals don't collapse into `construct-other` - cheap, and it makes the census report "refused-by-design" as its own blocker class, which is honest signal for the top100 port lanes.
 
 Net: refusal is a *diagnostic* change, not a capability change - provided the refuse list only claims constructs already fenced, which is now enforced by the tier model rather than by hope.
 
@@ -305,12 +317,22 @@ Net: refusal is a *diagnostic* change, not a capability change - provided the re
 Recommendation: **hard fences for every T0 row, no warning tier yet.**
 
 - Fences for silent-divergence semantics (the T0 rows above): if a compiled program could produce a different result than CPython - or a result that is unspecified - continuing the compile is exactly the failure mode this list exists to prevent. The whole value of pyscriptc is "the binary does what the source says"; a warning on a runtime-built `is` compare abandons that.
-- The T3 candidates - `utcnow()`, bool arithmetic, mutator-as-value, int/bool `hash()` - are legal, deterministic CPython; a warning would suffice. But there is no warning channel today: the IR has `fences`, `errors.py` has `IRError`, and nothing emits a non-fatal diagnostic. Adding one is a small epic (IR `warnings` field, `pyscriptc compile --warn` surface, `coverage` classification) and should not smuggle itself into the PS4xxx rollout. Until it lands, the T3 rows keep their current fence or lowered state and carry no new code.
+- The T3 candidates - `utcnow()`, bool arithmetic, mutator-as-value, int/bool `hash()` - are legal, deterministic CPython; a warning would suffice. But there is no warning channel today: the IR has `fences`, `errors.py` has `IRError`, and nothing emits a non-fatal diagnostic. Adding one is a small epic (IR `warnings` field, `pyscriptc compile --warn` surface, `coverage` classification) and should not smuggle itself into the PS42xx rollout. Until it lands, the T3 rows keep their current fence or lowered state and carry no new code.
 - If a warning tier lands later, the split is the tier column above: T0 semantics stay fences forever; T3 style migrates from fence (or lowered-with-caveat) to warning.
 
 ## Implementation notes
 
 - Register the codes in `src/pyscriptc/diagnostics.py` (`title`/`why`/`fix`), add a `_RULES` row per code in `src/pyscriptc/coverage.py` mapping to new `refused-*` families with the substitute as the hint.
 - Lowering emits them at the same sites that produce the generic fence today - the detection points already exist (`builtins.py` name table, `stdmore.py` sig table, `_stmt.py`/`_expr.py` construct checks); only the code and message change. No existing fence message is edited.
-- Registration order follows the tiers: T0 rows first (PS4001–PS4004, PS4007, PS4009–PS4019 as reduced), because those constructs are fenced today and the code only renames the fence. PS4005, PS4006 and PS4008 are **not** registered - their target surface is either lowered or undetectable.
-- `pyscriptc explain PS4xxx` then answers "why is this refused" directly, which is the deliverable: a diagnostic that teaches the substitute instead of reporting a gap.
+- Registration order follows the tiers: T0 rows first, because those constructs are fenced today and the code only renames the fence. Rows whose target surface is lowered or undetectable are **not** registered.
+- `pyscriptc explain PS42xx` then answers "why is this refused" directly, which is the deliverable: a diagnostic that teaches the substitute instead of reporting a gap.
+
+### Registered so far
+
+| Code | Row | Fences at | Family |
+| --- | --- | --- | --- |
+| `PS4201` | dynamic attribute protocol (`__getattr__`, `__setattr__`, `__getattribute__`, `__get__`, `__set__`) | the hook definition in a class body | `refused-dynamic-attrs` |
+| `PS4202` | attribute deletion protocol (`__delattr__`) | the hook definition in a class body | `refused-dynamic-attrs` |
+| `PS4203` | finalizer hook (`__del__`) | the hook definition in a class body | `refused-finalizer` |
+
+The rows landed with issue #432 (plan D1, OOP plan O1). The remaining rows keep their numbers from the tables above until they land, so a reader can tell a registered code from a proposed one.

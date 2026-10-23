@@ -170,7 +170,11 @@ def test_self_census_ballpark() -> None:
     # fences.
     # wasm32-wasi-p2 (the WASI 0.2 component lane): the component wrapper and
     # the adapter module add 42 more.
-    assert census["fences"] == 2913
+    # D1/O1 (#432): the dynamic attribute protocol is refused by design, so
+    # the `__del__` finalizer in typefacts.py (the pyrefly TSP adapter) is
+    # now a PS4203 fence in the `refused-finalizer` family: +1 fence, the
+    # module count is unchanged.
+    assert census["fences"] == 2914
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     # Project mode (#150): project.py adds about 240 lines.
@@ -178,4 +182,4 @@ def test_self_census_ballpark() -> None:
     # adds about 150 lines in coro.py. The asyncio primitives (#180 D3) add
     # about 400 in ps_async.c and restlower/_asyncio_sync.py.
     assert 11_000 <= census["lines"] <= 40_500
-    assert sum(p["fences"] for p in census["packages"]) == 2913
+    assert sum(p["fences"] for p in census["packages"]) == 2914

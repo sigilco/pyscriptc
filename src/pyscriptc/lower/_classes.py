@@ -51,6 +51,24 @@ _DYNAMIC_ANNOTATIONS = frozenset({"object", "Any", "Protocol", "TypeVar", "Gener
 _ERASED_BASES = frozenset({"ABC", "ABCMeta", "Protocol"})
 _ERASED_DECORATORS = frozenset({"abstractmethod", "overload"})
 _IO_HANDLES = {"BinaryIO": "BytesIO", "TextIO": "TextIO"}
+# The dynamic attribute protocol is refused by design (issue #432, the
+# PS4xxx refusal family). A hook that intercepts attribute access or writes
+# has nothing to run in: attribute access resolves statically to declared
+# fields, so the hook would be silently dropped (`__del__`) or silently
+# bypassed (`__setattr__` wrote straight to the field). The refusal names
+# the hook instead of letting the divergence through.
+#
+# `@property` getters are not in this table: they lower, and the getter is
+# called at the read site.
+_REFUSED_HOOKS: dict[str, str] = {
+    "__getattr__": "PS4201",
+    "__setattr__": "PS4201",
+    "__getattribute__": "PS4201",
+    "__get__": "PS4201",
+    "__set__": "PS4201",
+    "__delattr__": "PS4202",
+    "__del__": "PS4203",
+}
 
 
 class ClassesMixin:
@@ -243,6 +261,9 @@ class ClassesMixin:
                         # abstractmethod declares the method; there is no
                         # body to emit and no runtime check to honor.
                         continue
+                    code = _REFUSED_HOOKS.get(stmt.name)
+                    if code is not None:
+                        self.fail(stmt, code, f"the {stmt.name} hook is refused by design")
                     kind = self._method_decorator(stmt)  # type: ignore[arg-type]
                     if stmt.name == "__init__" and kind != "method":
                         self.fail(stmt, "PS1201", "decorators are not lowered")
