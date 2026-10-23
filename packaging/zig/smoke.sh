@@ -8,6 +8,9 @@
 #   3. cross matrix: build hello.ll + runtime for each tier-A target. Static
 #      musl binaries run natively (x86_64) or under qemu-<arch>-static when it
 #      is installed; gnu/macOS binaries are compile-only (no sysroot / runner).
+#   4. manifest: the cross matrix builds hello.ll again with one `[[source]]`
+#      unit from packaging/zig/ffiprobe/ffi.toml (the F2 static-link path,
+#      issue #220); x86_64-musl runs it and prints 63.
 #
 # The .ll files are standalone emissions (compiled with --emit bin --call).
 # Regenerate with: packaging/zig/emit.sh
@@ -33,19 +36,23 @@ trap 'rm -rf "$work"' EXIT
 # Python.h. Same rule as link_binary for programs with no ps_island_ symbols.
 mapfile -t rt < <(find "$root/src/pyscriptc/runtime" -name '*.c' ! -name 'ps_island.c' | sort)
 
-# build <ll> <target> <out>: every unit to .o, then objects link. C sources
-# and -O on the link line both crash zig's Mach-O driver on 0.16.
+# build <ll> <target> <out> [extra C units...]: every unit to .o, then objects
+# link. C sources and -O on the link line both crash zig's Mach-O driver on
+# 0.16. The extra units are the manifest `[[source]]` entries: they ride the
+# same compile loop and the same link line, no second link shape (issue #220).
 build() {
+    local ll="$1" target="$2" out="$3"
+    shift 3
     local objects=()
     local unit name
-    for unit in "$1" "${rt[@]}"; do
+    for unit in "$ll" "${rt[@]}" "$@"; do
         name="$(basename "$unit")"
-        zig cc -O2 -c "$unit" -target "$2" -o "$work/${name%.*}.o" 2>/dev/null \
-            || fail "zig cc -c failed on $unit ($2)"
+        zig cc -O2 -c "$unit" -target "$target" -o "$work/${name%.*}.o" 2>/dev/null \
+            || fail "zig cc -c failed on $unit ($target)"
         objects+=("$work/${name%.*}.o")
     done
-    zig cc "${objects[@]}" -target "$2" -lm -o "$3" 2>/dev/null \
-        || fail "zig cc failed on $1 ($2)"
+    zig cc "${objects[@]}" -target "$target" -lm -o "$out" 2>/dev/null \
+        || fail "zig cc failed on $ll ($target)"
 }
 
 # 1. non-mix program, host glibc: builds and prints 42.
@@ -90,6 +97,30 @@ for entry in "${matrix[@]}"; do
             fi ;;
     esac
     echo "ok: $name ($target)"
+done
+
+# 4. the manifest-built unit in the cross matrix (issue #220). ffi.c comes from
+# the `[[source]]` entry of packaging/zig/ffiprobe/ffi.toml, so it is compiled
+# with the target cc and linked statically, on the same link line as the
+# runtime. Every target compiles it; the ones with a runner also run it.
+for entry in "${matrix[@]}"; do
+    IFS='|' read -r name target runner <<<"$entry"
+    out="$work/ffiprobe-$name"
+    build "$here/ffiprobe.ll" "$target" "$out" "$here/ffiprobe/ffi.c"
+    [ -s "$out" ] || fail "empty manifest output for $name"
+    case "$runner" in
+        native)
+            got="$("$out")" || fail "manifest $name did not run"
+            [ "$got" = "63" ] || fail "manifest $name printed '$got', expected 63" ;;
+        qemu-*)
+            if command -v "$runner" >/dev/null; then
+                got="$("$runner" "$out")" || fail "manifest $name did not run under $runner"
+                [ "$got" = "63" ] || fail "manifest $name printed '$got' under $runner, expected 63"
+            else
+                echo "note: $runner not installed, manifest $name is compile-only" >&2
+            fi ;;
+    esac
+    echo "ok: manifest $name ($target)"
 done
 
 echo "ZIG SMOKE OK ($(zig version), tier-A matrix ${#matrix[@]} targets)"

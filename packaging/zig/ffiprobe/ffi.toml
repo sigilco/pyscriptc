@@ -1,0 +1,18 @@
+# The F2 smoke manifest: `[[source]]` declares ffi.c, and the linker compiles
+# it with the target cc and links it statically (issue #220). This is the
+# manifest-built unit of the zig cross matrix; the sqlite pilot is separate
+# (issue #66).
+
+[manifest]
+module = "ffiprobe"
+ps_abi = 1
+format = 1
+
+[[source]]
+path = "ffi.c"
+
+[[fn]]
+name = "add3"
+py = "(a: int, b: int, c: int) -> int"
+c_symbol = "ffi_add3"
+abi = "ffi_add3"
