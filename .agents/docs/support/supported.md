@@ -1,6 +1,6 @@
 # What is supported
 
-builtins: 25 🟢 · 22 🟡 · 23 🔴 | stdlib: 0 🟢 · 53 🟡 · 2 🔴
+builtins: 25 🟢 · 22 🟡 · 23 🔴 | stdlib: 0 🟢 · 54 🟡 · 2 🔴
 
 🟢 fully supported (every probed form compiles) · 🟡 partial · 🔴 not supported.
 
@@ -73,6 +73,7 @@ Targets CPython 3.14. Deliberate differences from CPython: [divergences.md](../.
 | `logging` | 🟡 | basicConfig(level=...), format args (`logging.info(fmt, a)`), exception, handlers (StreamHandler) | PS2001, PS2003 |
 | `math` | 🟡 | asin, sinh, degrees, fsum, factorial, comb, isqrt, copysign, fmod, cbrt, log with a base | PS2001, PS2003 |
 | `operator` | 🟡 | itemgetter, attrgetter, methodcaller, and_, not_, getitem | PS2001 |
+| `orjson` | 🟡 | default callable, other OPT_ flags, other orjson members (Fragment, JSONDecodeError) | PS2001, PS2003 |
 | `os` | 🟡 | walk, scandir, system, urandom, cpu_count, kill, symlink, rmdir, getuid, keyword arguments (makedirs exist_ok) | PS2001, PS2003 |
 | `pathlib` | 🟡 | rglob, absolute, rmdir, with_suffix, relative_to, resolve to str, PurePath | PS2001 |
 | `posixpath` | 🟡 | commonpath, ismount, lexists | PS2001 |

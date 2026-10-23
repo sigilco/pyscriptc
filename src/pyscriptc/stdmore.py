@@ -1612,6 +1612,7 @@ REST_MODULES = frozenset(
         "yaml",
         "urllib.request",
         "jwt",
+        "orjson",
     }
 )
 
@@ -1811,6 +1812,8 @@ def member_callable(module: str, member: str) -> bool:
     if module == "yaml" and member == "safe_load":
         return True
     if module == "jwt" and member in {"encode", "decode"}:
+        return True
+    if module == "orjson" and member in {"dumps", "loads"}:
         return True
     if module == "copy" and member in {"copy", "deepcopy"}:
         return True

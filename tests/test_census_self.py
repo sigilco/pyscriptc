@@ -39,8 +39,9 @@ def test_self_census_ballpark() -> None:
     # restlower/_yaml.py (yaml.safe_load, #254) adds 1 module and 5 fences.
     # restlower/_urllib.py (urlopen / Request, #225 #226) adds 1 module and 12 fences.
     # Project mode (#150): project.py adds 1 module.
-    # restlower/_jwt.py (the jwt pack, #61) adds 1 module.
-    assert census["modules"] == 88
+    # restlower/_jwt.py and restlower/_orjson.py (the jwt and orjson packs,
+    # #61 and #153) add 2 modules.
+    assert census["modules"] == 89
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -109,10 +110,11 @@ def test_self_census_ballpark() -> None:
     # run.finished event add 10 self-host fences in telemetry.py and cli.py.
     # Project mode (#150): project.py adds about 107 self-host fences (the
     # pyproject discovery, the entry-point reader and the entry wrapper).
-    # restlower/_jwt.py (the jwt pack, #61) adds 16 fences.
-    assert census["fences"] == 2632
+    # restlower/_jwt.py (the jwt pack, #61) adds 16 fences; the orjson pack
+    # (#153) adds 8 more (the handler and the emit branch).
+    assert census["fences"] == 2640
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     # Project mode (#150): project.py adds about 240 lines.
     assert 11_000 <= census["lines"] <= 36_000
-    assert sum(p["fences"] for p in census["packages"]) == 2632
+    assert sum(p["fences"] for p in census["packages"]) == 2640

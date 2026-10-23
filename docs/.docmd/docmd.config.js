@@ -84,6 +84,8 @@ export default {
         { title: "The Python subset", path: "/guide/support-model/" },
         { title: "Reading .env files", path: "/guide/dotenv/" },
         { title: "Signing and verifying JWTs", path: "/guide/jwt/" },
+        { title: "Fast JSON with orjson", path: "/guide/orjson/" },
+
         { title: "HTTP today", path: "/guide/http/" },
         { title: "Debugging and logs", path: "/guide/debugging/" },
         { title: "Examples", path: "/examples/" },

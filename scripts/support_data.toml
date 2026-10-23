@@ -239,6 +239,23 @@ y: dict[str, str] = jwt.decode(jwttok, s, ["HS256"], options={})''', "PS2003"],
 ]
 
 [[stdlib]]
+names = ["orjson"]
+imports = ["orjson"]
+pack = true
+ok = [
+  'y: bytes = orjson.dumps(d)',
+  'y: bytes = orjson.dumps(d, option=orjson.OPT_SORT_KEYS)',
+  'y: bytes = orjson.dumps(d, option=orjson.OPT_INDENT_2)',
+  'y: dict[str, int] = orjson.loads(s)',
+  'y: dict[str, int] = orjson.loads(b)',
+]
+no = [
+  ["default callable", 'y: bytes = orjson.dumps(d, default=str)', "PS2003"],
+  ["other OPT_ flags", 'y: bytes = orjson.dumps(d, option=orjson.OPT_NAIVE_UTC)', "PS2003"],
+  ["other orjson members (Fragment, JSONDecodeError)", 'y: bytes = orjson.Fragment(b)', "PS2001"],
+]
+
+[[stdlib]]
 names = ["urllib.request", "urllib.error"]
 imports = ["urllib.request", "urllib.error"]
 ok = ['y: urllib.request.HTTPResponse = urllib.request.urlopen(s)', 'y: urllib.request.Request = urllib.request.Request(s, data=b, method="POST")', 'y: int = urllib.request.urlopen(s).status']
