@@ -46,9 +46,13 @@ method, and in package units) lowers to a `cm.<name>` wrapper whose
 `try`/`except`/`else`/`finally` lowers: the guard transform re-enters the
 try, the `finally` is guarded by the suspension, and an `except` body that
 suspends keeps the exception it caught in the frame (`ps_exc_restore` puts it
-back on the resume). Not yet: yield inside with, awaits inside with, nested
-or generic resumables, `async with`, `async for`, async generators,
-`contextmanager` used as a call.
+back on the resume). An `await` inside a `with` lowers too: the `with`
+desugars into a `try`, and the guard transform handles that shape. A child
+coroutine that raises after a suspension reaches its awaiter: the loop parks
+the exception against the child frame and the awaiter re-raises it at its
+own await point, so a `try` around the await sees it. Not yet: yield inside
+with, nested or generic resumables, `async with`, `async for`, async
+generators, `contextmanager` used as a call.
 `PYSC_CORO=0` turns the lowering off (generators and coroutines fence as
 before).
 """

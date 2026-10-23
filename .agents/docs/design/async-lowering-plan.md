@@ -11,6 +11,8 @@ What is merged:
 - #165 (merged as #324): generator frames lower in package units and as methods. The method path (`_coro_method_signature`, `_lower_method_resumables`) is the template every later stage copies.
 - #193 (merged): minimal async and await on coroutine frames, module level only.
 - #166 (open as #333, in flight in the `feat/generators` worktree): the generator protocol surface (`send`, `throw`, `close`, `next` with a default). It touches `coro.py`, so it conflicts with any async change to the same file.
+- #164 (merged as #345): a suspension inside `try`/`except`/`else`/`finally` lowers, with the `finally` guarded by the suspension and `ps_exc_restore` carrying the handled exception in the frame.
+- Stage C (this lane): an `await` inside a `with` lowers (the `with` desugars into a `try`), and a child coroutine that raises after a suspension reaches its awaiter, so a `try` around the await sees the exception. The loop parks the failure against the child frame (`ps_await_poll` / `ps_await_raise`); a task handle keeps its own failure (`ps_task_failure`).
 
 What does not lower yet, measured on origin/master with the pinned corpus:
 
@@ -56,7 +58,7 @@ Exit: a package with `mod.py` defining an `async def` and `main.py` awaiting it 
 
 ### Stage C: await inside `try` and `with` (PR 3, needs the exception work)
 
-An `await` inside a `try` is the shape real async code uses (the design doc says so explicitly). The generator side of this is issue #164 ("yield inside try/except/finally"), which is not merged.
+An `await` inside a `try` is the shape real async code uses (the design doc says so explicitly). The generator side of this is issue #164 ("yield inside try/except/finally"), which merged as #345.
 
 - `coro.py`: the guard transform has to re-enter a `try` block. The design decision is that re-entering a structured `try` re-runs `ps_try_call` and re-establishes the setjmp frame, which is what a suspended frame needs, but the `finally` body must be guarded with `if not self.susp` so a suspension does not run it.
 - The exception machinery needs `ps_exc_restore`: Python keeps one handled exception per generator frame, so the pass saves `ps_current` into the frame on suspend inside an `except` body and restores it on resume.
@@ -64,6 +66,17 @@ An `await` inside a `try` is the shape real async code uses (the design doc says
 This stage is blocked on #164 for the generator half. The async half can be built on the same primitives but should land after it so the two do not fight over the guard transform.
 
 Exit: a coroutine that awaits inside a `try` and a `finally` matches CPython, including the exception path.
+
+#### Stage C breakdown (this lane, 2026-10-23)
+
+**C1: await inside `with` and the child's failure.**
+
+The `try` half landed with #345. Two things were left:
+
+- An `await` inside a `with` was fenced at the AST level (`await inside try or with is not lowered yet`). The fence was unnecessary: every `with` the lowerer supports (`open`, a user context manager, `contextlib.suppress`, `contextlib.nullcontext`, `importlib.resources.as_file`) desugars into a `try` before the emitter sees it, and the guard transform already handles that shape. Removing the fence is the whole change on the compiler side.
+- The exception path was broken. A child coroutine that raises after a suspension runs on the loop's own stack, where no awaiter lives: the exception unwound through the loop's C frames, found no handler, and killed the process, so a `try` around the await never saw it (and an uncaught one exited 0, silently). The poll now goes through the loop (`ps_await_poll`), which catches the child's exception (`ps_exc_catch`), parks it against the child frame, and reports a third status, failed. The awaiter re-raises it at its own await point (`ps_await_raise`), inside its own body, so its `try` sees it exactly where CPython's awaiter sees it. A task handle keeps its own failure (`ps_task_failure`), so `await task` and `task.result()` raise it too.
+
+Receipt: a coroutine that awaits inside a `try`, a `finally` and a `with` matches CPython stdout byte for byte, including the exception path; an uncaught child failure exits 1 with the error reported.
 
 ### Stage D: `asyncio` surface beyond run/sleep/gather (PR 4)
 
