@@ -152,19 +152,7 @@ run = "uv run pyscriptc run"
 # Same shape as the wheel-smoke job in ci.yml and the verify job in release.yml.
 [tasks."wheel:smoke"]
 description = "Build the wheel, install it in a fresh venv, compile and run hello"
-run = """
-set -e
-uv build
-work="$(mktemp -d)"
-uv venv "$work/venv"
-uv pip install --python "$work/venv/bin/python" dist/pyscriptc-*-any.whl
-printf 'def main() -> None:\n    print("hello")\n' > "$work/hello.py"
-"$work/venv/bin/pyscriptc" compile "$work/hello.py" --emit bin -o "$work/hello-bin"
-out="$("$work/hello-bin")"
-echo "$out"
-[ "$out" = "hello" ]
-rm -rf "$work"
-"""
+run = "bash scripts/wheel_smoke.sh"
 
 # The rehearsal is a workflow_dispatch of release.yml on the full SHA. Only a
 # run titled "rehearsal <full SHA>" counts for the cut-release and publish gates.
