@@ -13,11 +13,11 @@ This page shows the shape that lowers, the caveats that remain, and the `curl` e
 
 ```python
 import json
-from urllib.request import urlopen
+import urllib.request
 
 
 def fetch(url: str) -> str:
-    resp = urlopen(url)
+    resp: urllib.request.HTTPResponse = urllib.request.urlopen(url)
     body: bytes = resp.read()
     return body.decode("utf-8")
 
@@ -47,7 +47,17 @@ Chunked transfer-encoding is decoded.
 
 ## The curl escape hatch
 
-For the cases the native client does not cover, such as an unusual TLS configuration or a proxy setup, `subprocess.check_output` with a `curl` argument list still works through the island runtime.
+For the cases the native client does not cover, such as an unusual TLS configuration or a proxy setup, the `curl` bridge still works through the island runtime:
+
+```python
+import subprocess
+
+
+def fetch(url: str) -> str:
+    out: bytes = subprocess.check_output(["curl", "-s", url])
+    return out.decode("utf-8")
+```
+
 It needs `curl` on `PATH` at run time and the libpython-linked binary shape; see divergence 15 in the [divergence list](../reference/divergences.md).
 
 ## Keeping the example honest

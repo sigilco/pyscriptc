@@ -1,13 +1,15 @@
-"""The subprocess curl bridge, documented and kept from rotting.
+"""HTTP docs, documented and kept from rotting.
 
 The user-facing page is docs/guide/http.md. This test compiles the page's
-example (the network-free GET against a local listener) and checks the
-round trip the page promises: curl output in, bytes, decode, json.loads.
+native-client example (a GET through urllib.request against a local
+listener) and the curl escape-hatch example, and checks the round trips
+the page promises.
 
-The bridge is `subprocess.check_output(["curl", ...])`: the island call
-runs curl from the embedded CPython, so HTTP and HTTPS work without a
-native client. POSIX only: ps_sub.c forks, and the binary must stay
-libpython-linked for the island call to exist.
+The native path is `urlopen` over `ps_http.c`; the escape hatch is
+`subprocess.check_output(["curl", ...])`, an island call that runs curl
+from the embedded CPython. POSIX only for the escape hatch: ps_sub.c
+forks, and the binary must stay libpython-linked for the island call to
+exist.
 """
 
 from __future__ import annotations
@@ -41,6 +43,21 @@ def post(url: str, payload: str) -> str:
         ["curl", "-s", "-X", "POST", "-H", "Content-Type: application/json", "-d", payload, url]
     )
     return out.decode("utf-8")
+"""
+
+NATIVE_PROGRAM = """import json
+import urllib.request
+
+
+def fetch(url: str) -> str:
+    resp: urllib.request.HTTPResponse = urllib.request.urlopen(url)
+    body: bytes = resp.read()
+    return body.decode("utf-8")
+
+
+def status(body: str) -> str:
+    doc: dict[str, str] = json.loads(body)
+    return doc["status"]
 """
 
 
@@ -102,11 +119,26 @@ class TestCurlBridge:
         assert got.stdout == "ok\n"
 
     def test_doc_example_stays_in_sync(self) -> None:
-        """The GET example on the guide page is the program this test compiles."""
+        """The native GET example on the guide page is the program this test compiles."""
 
         page = Path(__file__).resolve().parents[1] / "docs" / "guide" / "http.md"
         text = page.read_text(encoding="utf-8")
-        assert "def fetch(url: str) -> str:" in text
-        assert 'subprocess.check_output(["curl", "-s", url])' in text
-        assert 'out.decode("utf-8")' in text
+        assert "import urllib.request" in text
+        assert "resp: urllib.request.HTTPResponse = urllib.request.urlopen(url)" in text
+        assert 'body: bytes = resp.read()' in text
+        assert 'body.decode("utf-8")' in text
         assert 'doc["status"]' in text
+        # The escape hatch stays on the page with its exact call shape.
+        assert 'subprocess.check_output(["curl", "-s", url])' in text
+
+    def test_native_get_round_trip(self, tmp_path: Path, local_json_server: str) -> None:
+        source = write_case(tmp_path, "http_native.py", NATIVE_PROGRAM)
+        got = compile_run(tmp_path, source, "fetch", repr([local_json_server]))
+        assert got.returncode == 0, got.stderr
+        assert got.stdout == json.dumps({"status": "ok", "echo": None}) + "\n"
+
+    def test_native_status_json_loads_round_trip(self, tmp_path: Path, local_json_server: str) -> None:
+        source = write_case(tmp_path, "http_native_status.py", NATIVE_PROGRAM)
+        got = compile_run(tmp_path, source, "status", repr([json.dumps({"status": "ok"})]))
+        assert got.returncode == 0, got.stderr
+        assert got.stdout == "ok\n"
