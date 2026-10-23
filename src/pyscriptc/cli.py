@@ -947,8 +947,11 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         report = build_report(source_path)
         print(json.dumps(report, indent=2))
         return 3 if report["fences"] else 0
-    _require_toolchain(args)
+    # The mobile refusal is a property of the request, not of the host: it
+    # fires before the toolchain check, so a mobile triple reports PS4101
+    # even on a machine without zig or clang.
     _require_mobile_refusals(args)
+    _require_toolchain(args)
     sanitize = _require_sanitize(args)
     debug_info = _require_debug_info(args)
     config = load_config(source_path)
