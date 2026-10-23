@@ -211,8 +211,12 @@ async def main() -> int:
 print(asyncio.run(main()))
 """
 
-# Two `to_thread` calls run while the loop spins: both finish, in either
-# worker order, and each awaiter gets its own value.
+# Two `to_thread` calls run while the loop spins: each runner task awaits
+# its own call, so two records are live at once and the pump wakes two
+# different tasks. The completion order is racy (CPython's thread pool is
+# racy too), so the results are sorted before they print.
+# (`create_task(to_thread(...))` is a later stage: the awaitable is not a
+# coroutine frame yet.)
 TO_THREAD_TWO = """\
 import asyncio
 
@@ -221,12 +225,19 @@ def work(n: int) -> int:
     return n + 1
 
 
+async def run(n: int) -> int:
+    v: int = await asyncio.to_thread(work, n)
+    return v
+
+
 async def main() -> int:
-    a: asyncio.Task[int] = asyncio.create_task(asyncio.to_thread(work, 1))
-    b: asyncio.Task[int] = asyncio.create_task(asyncio.to_thread(work, 2))
+    a: asyncio.Task[int] = asyncio.create_task(run(1))
+    b: asyncio.Task[int] = asyncio.create_task(run(2))
     ra: int = await a
     rb: int = await b
-    print("results", ra, rb)
+    results: list[int] = [ra, rb]
+    results.sort()
+    print("results", results[0], results[1])
     return 0
 
 

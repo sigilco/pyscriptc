@@ -45,7 +45,7 @@ Targets CPython 3.14. Deliberate differences from CPython: [divergences.md](../.
 | --- | --- | --- | --- |
 | `typing`, `typing_extensions` | 🔴 | annotation-only: imports are free, values are checked, there is no runtime surface |  |
 | `argparse` | 🟡 | subparsers, nargs=, choices= | PS2003 |
-| `asyncio` | 🟡 | Queue, Event, Lock, get_event_loop, sleep outside a coroutine | PS1106, PS2001, PS2002 |
+| `asyncio` | 🟡 | bare Queue annotation (element type needed), get_event_loop, sleep outside a coroutine | PS1001, PS2001, PS2002 |
 | `atexit` | 🟡 | register of a function with arguments, unregister | PS2001 |
 | `base64` | 🟡 | b32, b16, a85, encodebytes | PS2001 |
 | `bisect` | 🟡 | insort, bisect, key=, list[str] | PS2001 |

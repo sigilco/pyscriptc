@@ -183,7 +183,9 @@ The queue's elements live in one byte array, the shape `ps_queue.c` uses: the el
 
 The honest boundary: the loop does not poll the thread, so the awaiting task is re-queued by a completion flag the loop checks at the top of every iteration. That means the loop spins while the thread runs, which is a divergence from CPython's `to_thread` (where the loop keeps running other tasks). The divergence is measured and recorded, not hidden: the loop's spin is a busy wait, and a program that awaits a slow thread burns CPU. A later stage can replace the spin with a condvar and the poller.
 
-`to_thread` returns the thread's return value through the same out-pointer shape `ps_task_result` uses, so the awaited value is read out of the record after the completion.
+ `to_thread` returns the thread's return value through the same out-pointer shape `ps_task_result` uses, so the awaited value is read out of the record after the completion.
+
+The stage boundary (2026-10-23, updated after the D3 work): `to_thread` is an awaitable, not a coroutine frame, so `asyncio.create_task(asyncio.to_thread(...))` fences with `create_task takes a coroutine, not another value`. Making the call a synthesized frame (a `coro.to_thread.N` class whose `resume` starts the worker on the first poll and parks on the record after) is the follow-up, and it is what lets `gather(to_thread(...), ...)` and `wait_for(to_thread(...), d)` work too. The corpus receipt only needs the awaited form (filelock's `_async_read_write.py` awaits it directly).
 
 **The poller is not in this stage.** The design doc's poller (kqueue, epoll, `poll()` fallback) exists for socket and file readiness. None of the D1 to D3 surface needs it: the only sources of wakeups are timers and completions, both of which the loop already handles. The poller lands with the IO stage, when there is a socket to wait on.
 
