@@ -110,6 +110,19 @@ def test_stub_branch_is_the_one_compiled(target: str, family: bytes, tmp_path: P
     assert b"connect" not in data
 
 
+def _artifact(target: str, stem: str, tmp_path: Path) -> Path:
+    """The artifact the compiler writes for a target.
+
+    A wasm target writes `.wasm`, whatever suffix the caller asked for: the
+    wasm module has to carry the wasm extension. A windows target keeps the
+    caller's suffix (the `.exe` suffix is only added to a name that has
+    none).
+    """
+    if target.startswith("wasm32"):
+        return (tmp_path / f"{stem}-{target}.out").with_suffix(".wasm")
+    return tmp_path / f"{stem}-{target}.out"
+
+
 @pytest.mark.skipif(ZIG is None, reason="zig not on PATH")
 @pytest.mark.parametrize("target", [WASI, WINDOWS])
 def test_hello_world_link_has_no_http_failure(target: str, tmp_path: Path) -> None:
@@ -123,8 +136,7 @@ def test_hello_world_link_has_no_http_failure(target: str, tmp_path: Path) -> No
         assert "arpa/inet.h" not in proc.stderr, proc.stderr
         assert "undeclared function 'socket'" not in proc.stderr, proc.stderr
         pytest.skip(f"the {target} link still needs the other runtime units: {proc.stderr.splitlines()[-1]}")
-    out = tmp_path / f"hello-{target}.out"
-    assert out.is_file()
+    assert _artifact(target, "hello", tmp_path).is_file()
 
 
 @pytest.mark.skipif(ZIG is None, reason="zig not on PATH")
@@ -149,7 +161,7 @@ def test_urlopen_program_has_no_http_failure(target: str, tmp_path: Path) -> Non
         assert "ps_http" not in proc.stderr, proc.stderr
         assert "arpa/inet.h" not in proc.stderr, proc.stderr
         pytest.skip(f"the {target} link still needs the other runtime units: {proc.stderr.splitlines()[-1]}")
-    assert (tmp_path / f"url-{target}.out").is_file()
+    assert _artifact(target, "url", tmp_path).is_file()
 
 
 def test_urlopen_ir_links_on_the_host(tmp_path: Path) -> None:
