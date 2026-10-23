@@ -158,6 +158,33 @@ Receipt: `wait_for` on a slow coroutine raises `TimeoutError` and the compiled s
 
 Receipt: a lock serializes two tasks the way CPython's does; a `to_thread` call returns the thread's return value.
 
+##### D3 breakdown (this lane, 2026-10-23)
+
+The primitives live in a new runtime file `runtime/ps_async.c`, next to `ps_loop.c`, because they are loop records: the waiter list, the wakeup and the task handoff are the loop's business, not the pthread business `ps_thread.c` owns.
+
+**The cooperative wait.** A `threading.Lock` blocks the thread that waits on it; an `asyncio.Lock` parks the task. The park is a *task* park, not a frame park: the task record is what the loop re-queues when the lock is released, and the task's frame is what carries the suspension. The primitive holds a waiter list of task pointers, the same shape the task record's own waiter list has.
+
+The await on a primitive needs a new suspension marker, `__ps_await_prim__`, beside the existing `__ps_await_task__` and `__ps_wait_for__`. The marker carries the primitive and the operation (`acquire`, `wait`, `get`), and the IR pass expands it the way `wait_for` expands: the runtime call returns 0 while the task has to park and 1 when the operation completed right away, and the frame suspends with status 0 only in the 0 case.
+
+The wakeup is the other half. `lock.release()` hands the lock to the first waiter and re-queues that waiter's task, so the resumed frame falls through the marker and continues. The waiter list is FIFO, like CPython's `asyncio.Lock` (which wakes the first waiter in order).
+
+**The records.** One record per primitive, all opaque runtime pointers:
+
+| Primitive | Record | Operations |
+|---|---|---|
+| `asyncio.Lock` | `PsALock` (locked flag, waiter list) | `acquire`, `release`, `locked` |
+| `asyncio.Event` | `PsAEvent` (set flag, waiter list) | `set`, `clear`, `is_set`, `wait` |
+| `asyncio.Semaphore` | `PsASem` (count, waiter list) | `acquire`, `release`, `_value` |
+| `asyncio.Queue` | `PsAQueue` (element slots, waiter lists) | `put`, `get`, `qsize`, `empty`, `full` |
+
+The queue's elements live in one byte array, the shape `ps_queue.c` uses: the element type rides on the class, the compiler knows the slot size, and the record never sees the Python type.
+
+**`asyncio.to_thread`.** The callable is a `func` value in the IR, so it is a callable pair `{impl, env}`, the same shape `threading.Thread(target=...)` builds. The pool is a small set of worker threads (one per call in this stage: `to_thread` starts one pthread per call and the record holds the result), and the completion is delivered back to the loop: the worker writes the result into the record and marks it done, and the loop re-queues the awaiting task.
+
+The honest boundary: the loop does not poll the thread, so the awaiting task is re-queued by a completion flag the loop checks at the top of every iteration. That means the loop spins while the thread runs, which is a divergence from CPython's `to_thread` (where the loop keeps running other tasks). The divergence is measured and recorded, not hidden: the loop's spin is a busy wait, and a program that awaits a slow thread burns CPU. A later stage can replace the spin with a condvar and the poller.
+
+`to_thread` returns the thread's return value through the same out-pointer shape `ps_task_result` uses, so the awaited value is read out of the record after the completion.
+
 **The poller is not in this stage.** The design doc's poller (kqueue, epoll, `poll()` fallback) exists for socket and file readiness. None of the D1 to D3 surface needs it: the only sources of wakeups are timers and completions, both of which the loop already handles. The poller lands with the IO stage, when there is a socket to wait on.
 
 ### Stage E: async generators, `async for`, `async with` (PR 5)

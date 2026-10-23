@@ -366,4 +366,38 @@ int64_t ps_task_wait_for(void *task, double delay, void *frame);
    Clears the frame's rows either way. */
 int64_t ps_task_wait_outcome(void *frame);
 
+/* ps_async.c: the asyncio primitives (Lock, Event, Semaphore, Queue) and
+   `to_thread`. The wait is cooperative: the primitive parks the running
+   task and the loop re-queues it when the primitive releases the waiter. */
+void *ps_alock_new(void);
+int64_t ps_alock_acquire(void *box);
+void ps_alock_release(void *box);
+int32_t ps_alock_locked(void *box);
+void *ps_aevent_new(void);
+int64_t ps_aevent_wait(void *box);
+void ps_aevent_set(void *box);
+void ps_aevent_clear(void *box);
+int32_t ps_aevent_is_set(void *box);
+void *ps_asem_new(int64_t value);
+int64_t ps_asem_acquire(void *box);
+void ps_asem_release(void *box);
+int64_t ps_asem_value(void *box);
+void *ps_aqueue_new(int64_t maxsize, int64_t elem);
+int64_t ps_aqueue_put(void *box, void *src);
+int64_t ps_aqueue_take(void *box);
+void ps_aqueue_taken(void *box, int64_t size, void *out);
+int64_t ps_aqueue_qsize(void *box);
+int32_t ps_aqueue_empty(void *box);
+int32_t ps_aqueue_full(void *box);
+/* `to_thread`: the record owns the result slot; the worker stores the
+   callable's result into it and marks the record done. */
+void *ps_to_thread_new(int64_t size);
+void ps_to_thread_start(void *box, void *pair);
+void ps_to_thread_store(void *box, void *src, int64_t size);
+int64_t ps_to_thread_poll(void *box);
+void ps_to_thread_result(void *box, int64_t size, void *out);
+void ps_to_thread_pump(void);
+void ps_to_thread_park(void *box);
+int32_t ps_threads_pending(void);
+
 #endif

@@ -1317,9 +1317,14 @@ THREADING_CLASSES: frozenset[str] = frozenset({"Thread", "Event", "Condition", "
 # SimpleQueue: the element type rides on the class, like Deque's does.
 QUEUE_CLASSES: frozenset[str] = frozenset({"Queue"})
 
+# The asyncio primitives are runtime pointers too, one shape each: Lock,
+# Event, Semaphore and Queue. The wait is cooperative, so the records hold a
+# waiter list of tasks rather than a pthread condvar.
+ASYNC_CLASSES: frozenset[str] = frozenset({"AsyncLock", "AsyncEvent", "AsyncSemaphore", "AsyncQueue"})
+
 # The records that live in a global slot: a runtime pointer whose identity
 # has to hold across reads, the threading records and the queue records.
-PTR_CLASSES: frozenset[str] = THREADING_CLASSES | QUEUE_CLASSES
+PTR_CLASSES: frozenset[str] = THREADING_CLASSES | QUEUE_CLASSES | ASYNC_CLASSES
 
 TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("datetime", "date"): "Date",
@@ -1360,6 +1365,10 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("urllib.error", "URLError"): "URLError",
     ("asyncio", "Task"): "Task",
     ("asyncio", "CancelledError"): "CancelledError",
+    ("asyncio", "Lock"): "AsyncLock",
+    ("asyncio", "Event"): "AsyncEvent",
+    ("asyncio", "Semaphore"): "AsyncSemaphore",
+    ("asyncio", "Queue"): "AsyncQueue",
 }
 
 # Instance methods. `elem` means the deque's element type.
@@ -1795,7 +1804,18 @@ def member_callable(module: str, member: str) -> bool:
         return True
     if module == "time" and member in {"sleep", "gmtime", "localtime"}:
         return True
-    if module == "asyncio" and member in {"run", "sleep", "gather"}:
+    if module == "asyncio" and member in {
+        "run",
+        "sleep",
+        "gather",
+        "create_task",
+        "wait_for",
+        "to_thread",
+        "Lock",
+        "Event",
+        "Semaphore",
+        "Queue",
+    }:
         return True
     if module == "collections" and member in {"deque", "OrderedDict", "Counter", "defaultdict", "namedtuple"}:
         return True

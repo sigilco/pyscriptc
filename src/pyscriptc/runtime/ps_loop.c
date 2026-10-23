@@ -135,6 +135,12 @@ static int64_t ps_task_cap;
    the loop to know which task to park, so the frame records it. */
 static void *ps_current_task;
 
+/* The task that is running right now. The cooperative primitives in
+ps_async.c park the running task, so they need to name it. */
+void *ps_loop_current_task(void) {
+    return ps_current_task;
+}
+
 void ps_loop_reset(void) {
     ps_ready_head = ps_ready_tail = NULL;
     ps_timer_len = 0;
@@ -161,6 +167,19 @@ static void ps_ready_push(PsTask *task) {
     }
     ps_ready_tail->next = task;
     ps_ready_tail = task;
+}
+
+/* Re-queue a task that a primitive woke up. The task is not on the ready
+queue yet (the primitive parked it), so the push is unconditional. */
+void ps_loop_wake_task(void *task) {
+    if (task == NULL) {
+        return;
+    }
+    PsTask *t = (PsTask *)task;
+    if (t->queued) {
+        return;
+    }
+    ps_ready_push(t);
 }
 
 /* Read `.ps_task` (field 1) out of a frame: the callable cell holding the
@@ -578,6 +597,10 @@ static void ps_loop_drive(int32_t blocking) {
            so an awaiter parked on a past deadline never reads a result
            ahead of the timeout. */
         ps_fire_deadlines();
+        /* The `to_thread` calls poll here: a worker that finished wakes
+           the task that parked on it, so the wakeup lands before the next
+           drain. */
+        ps_to_thread_pump();
         while (ps_ready_head != NULL) {
             PsTask *task = ps_ready_head;
             ps_ready_head = task->next;
@@ -590,7 +613,7 @@ static void ps_loop_drive(int32_t blocking) {
             ps_task_step(task);
             ps_current_task = saved;
         }
-        if (ps_timer_len == 0 && !ps_deadlines_pending()) {
+        if (ps_timer_len == 0 && !ps_deadlines_pending() && !ps_threads_pending()) {
             return;
         }
         if (!blocking) {
@@ -611,7 +634,17 @@ static void ps_loop_drive(int32_t blocking) {
             }
         }
         if (earliest < 0.0) {
-            return;
+            /* No timer to wait on, but a thread call may still be running.
+               The loop spins until the worker finishes: the loop does not
+               poll the thread, so this is the honest boundary of the
+               `to_thread` stage (the stage D3 breakdown records it). */
+            if (!ps_threads_pending()) {
+                return;
+            }
+            struct timespec pause = {0, 1000000};
+            nanosleep(&pause, NULL);
+            ps_fire_deadlines();
+            continue;
         }
         double now = ps_now();
         if (earliest > now) {
