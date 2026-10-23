@@ -15,6 +15,7 @@ emitted IR never depends on the pthread_mutex_t layout.
 #include <errno.h>
 #include <pthread.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -181,6 +182,7 @@ typedef struct PsThreadRec {
     int64_t daemon;
     int64_t started;
     int64_t alive;
+    int64_t failed;
 } PsThreadRec;
 
 /* The callable pair and the try machinery live in ps_rt.c. */
@@ -188,6 +190,7 @@ typedef int32_t (*ps_try_fn)(void *);
 
 extern int32_t ps_try_call(ps_try_fn fn, void *env, int32_t *flow);
 extern void *ps_alloc(int64_t n);
+extern void ps_report_current(const char *prefix);
 
 /* The pair's impl is env-first: `impl(env)`. */
 typedef void (*ps_call_fn)(void *env);
@@ -195,13 +198,30 @@ typedef void (*ps_call_fn)(void *env);
 static int64_t ps_active_threads = 0;
 static pthread_mutex_t ps_active_lock = PTHREAD_MUTEX_INITIALIZER;
 
-static void *ps_thread_trampoline(void *arg) {
+/* The body the root frame runs. ps_try_call pushes this thread's first
+   PsJmp, so an exception in the target unwinds here instead of reaching
+   ps_deliver's exit(1), which would kill the whole process. */
+static int32_t ps_thread_body(void *arg) {
     PsThreadRec *rec = (PsThreadRec *)arg;
     void *pair = rec->pair;
     void **slots = (void **)pair;
     ps_call_fn impl = (ps_call_fn)slots[0];
-    void *env = slots[1];
-    impl(env);
+    impl(slots[1]);
+    return 0;
+}
+
+static void *ps_thread_trampoline(void *arg) {
+    PsThreadRec *rec = (PsThreadRec *)arg;
+    int32_t flow = 0;
+    /* The root frame: CPython's excepthook prints and keeps the process
+       running, so the joiner sees the report on stderr and the main thread
+       keeps its own exit code. */
+    if (ps_try_call(ps_thread_body, rec, &flow) != 0) {
+        rec->failed = 1;
+        char prefix[128];
+        snprintf(prefix, sizeof prefix, "Exception in thread %s:", rec->name);
+        ps_report_current(prefix);
+    }
     /* Publish completion: unlock the latch the joiner waits on. */
     pthread_mutex_unlock(&rec->latch);
     pthread_mutex_lock(&ps_active_lock);

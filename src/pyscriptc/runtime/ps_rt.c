@@ -289,15 +289,26 @@ static void ps_report_one(PsExc *e) {
     }
 }
 
+/* Print the current exception the way the last-resort handler does. The
+   prefix is an optional line printed first (the thread excepthook shape).
+   The caller decides what happens next: the main path exits, a thread
+   keeps the process running. */
+void ps_report_current(const char *prefix) {
+    PsExc *e = ps_current;
+    if (prefix != NULL && prefix[0] != '\0') {
+        fprintf(stderr, "%s\n", prefix);
+    }
+    if (e != NULL && e->cause != NULL) {
+        ps_report_one(e->cause);
+        fprintf(stderr, "The above exception was the direct cause of the following exception.\n");
+    }
+    ps_report_one(e);
+}
+
 /* Deliver ps_current: unwind to the innermost handler, or report and exit. */
 __attribute__((noinline, noreturn)) static void ps_deliver(void) {
-    PsExc *e = ps_current;
     if (ps_top == NULL) {
-        if (e != NULL && e->cause != NULL) {
-            ps_report_one(e->cause);
-            fprintf(stderr, "The above exception was the direct cause of the following exception.\n");
-        }
-        ps_report_one(e);
+        ps_report_current(NULL);
         exit(1);
     }
     longjmp(ps_top->buf, PS_RAISED);
