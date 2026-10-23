@@ -106,5 +106,6 @@ def test_self_census_ballpark() -> None:
     assert census["fences"] == 2481
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
-    assert 11_000 <= census["lines"] <= 34_000
+    # Telemetry v2 (#257) and the bridge/pyrefly work push the tree past 34k.
+    assert 11_000 <= census["lines"] <= 36_000
     assert sum(p["fences"] for p in census["packages"]) == 2481
