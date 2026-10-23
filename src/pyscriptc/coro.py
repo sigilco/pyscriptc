@@ -237,6 +237,7 @@ class CoroMixin:
             "method_owner": {},
             "base": None,
             "coro": "coroutine" if coroutine else "generator",
+            "coro_elem": copy.deepcopy(elem),
         }
         self.known_classes.add(frame)
         self._coro_plans()[fn.name] = FramePlan(
@@ -346,6 +347,7 @@ class CoroMixin:
             "method_owner": {},
             "base": None,
             "coro": "coroutine" if coroutine else "generator",
+            "coro_elem": copy.deepcopy(elem),
         }
         self.known_classes.add(frame)
         key = f"{class_name}.{fn.name}"
@@ -480,9 +482,32 @@ class CoroMixin:
         return plan.elem
 
     def _coro_plan_for_frame(self, frame: str) -> FramePlan | None:
+        """The plan for a frame class: the local plan table first, then the
+        export table (a frame another package unit defined, stage B)."""
         for plan in self._coro_plans().values():
             if plan.frame == frame:
                 return plan
+        return self._coro_plan_from_exports(frame)
+
+    def _coro_plan_from_exports(self, frame: str) -> FramePlan | None:
+        """Build a plan for a foreign frame from the export table.
+
+        The export table carries what the await needs: the frame class shape
+        (the imported class info names `resume` as its only method and `coro`
+        as its kind) and `coro_elem`, the coroutine's result type. The
+        consumer reads the same shape the defining module emitted; only the
+        poll side runs here, so `params` and `ir_name` stay empty.
+        """
+        for exports in (self.package or {}).values():
+            item = exports.get(frame)
+            if item is None or item.get("kind") != "class":
+                continue
+            info = item.get("info") or {}
+            if info.get("coro") != "coroutine" or info.get("coro_elem") is None:
+                continue
+            plan = FramePlan("coroutine", "", frame, info["coro_elem"])
+            self._coro_plans()[f"@foreign.{frame}"] = plan
+            return plan
         return None
 
     def _expr_any(self, node: ast.expr, expect: dict[str, Any] | None = None) -> dict[str, Any]:

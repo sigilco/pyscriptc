@@ -25,9 +25,9 @@ def _frame_of(lo: Any, node: ast.expr, what: str) -> tuple[dict[str, Any], dict[
     if value["type"].get("kind") != "class" or not name.startswith("coro."):
         lo.fail(node, "PS2002", f"{what} takes a coroutine, not another value")
     elem = None
-    for plan in lo._coro_plans().values():
-        if plan.frame == name:
-            elem = plan.elem
+    plan = lo._coro_plan_for_frame(name)
+    if plan is not None:
+        elem = plan.elem
     if elem is None:
         lo.fail(node, "PS2002", f"{what} takes a compiled coroutine call")
     return value, elem

@@ -8,6 +8,7 @@ nested inside a coroutine.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -18,6 +19,7 @@ import pytest
 from pyscriptc.coro import AWAIT_MARKER, RESULT, SLEEP_MARKER, STATE, TASK
 from pyscriptc.ir import validate_module
 from pyscriptc.lower import lower_source
+from pyscriptc.package import lower_directory
 
 ROOT = Path(__file__).resolve().parents[1]
 ENV = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
@@ -411,6 +413,155 @@ def test_kill_switch_restores_old_method_fence(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setenv("PYSC_CORO", "0")
     module = lower_source(METHOD, "method.py")
     assert any(f["message"] == "AsyncFunctionDef in a class body is not lowered" for f in module["fences"])
+
+
+# Package-unit coroutines (issue #178, stage B): the coroutine lives in one
+# package unit, the await happens in another. The frame class and its result
+# type travel through the export table, so the consumer builds a foreign plan.
+PKG_MOD = """\
+async def value() -> int:
+    return 40
+
+
+async def add(n: int) -> int:
+    return n + 2
+"""
+
+PKG_USER = """\
+import asyncio
+
+from .mod import add, value
+
+
+async def run() -> int:
+    a: int = await value()
+    b: int = await add(a)
+    print("a", a, "b", b)
+    return b
+
+
+def drive() -> int:
+    return asyncio.run(run())
+"""
+
+PKG_MAIN = """\
+import asyncio
+
+from pkg.user import run
+
+print(asyncio.run(run()))
+"""
+
+
+def _run_both_package(tmp_path: Path, pkg: str, sources: dict[str, str], main: str | None) -> tuple[str, str]:
+    root = tmp_path / pkg
+    root.mkdir()
+    (root / "__init__.py").write_text("", encoding="utf-8")
+    for name, source in sources.items():
+        (root / f"{name}.py").write_text(source, encoding="utf-8")
+    source_root = tmp_path
+    if main is not None:
+        (source_root / "main.py").write_text(main, encoding="utf-8")
+        cpython = source_root
+        compile_dir: Path = source_root
+    else:
+        cpython = source_root / pkg
+        compile_dir = root
+    expected = subprocess.run(
+        [sys.executable, "-m", f"{pkg}.user"] if main is None else [sys.executable, str(source_root / "main.py")],
+        cwd=cpython if main is None else cpython,
+        capture_output=True,
+        text=True,
+        check=True,
+        env={**ENV, "PYTHONPATH": str(cpython)},
+    ).stdout
+    built = subprocess.run(
+        [sys.executable, "-m", "pyscriptc", "compile", str(compile_dir), "--run", "-o", str(tmp_path / "out")],
+        cwd=ROOT,
+        env=ENV,
+        capture_output=True,
+        text=True,
+    )
+    assert built.returncode == 0, built.stderr
+    return built.stdout, expected
+
+
+def test_package_coroutine_cross_module_await_runs(tmp_path: Path) -> None:
+    """Stage B: a coroutine awaited from another package unit matches CPython."""
+    got, expected = _run_both_package(tmp_path, "pkg", {"mod": PKG_MOD, "user": PKG_USER}, PKG_MAIN)
+    assert expected == "a 40 b 42\n42\n"
+    assert got == expected
+
+
+def test_package_coroutine_library_entry_runs(tmp_path: Path) -> None:
+    """The same shape compiled as a library package, driven through --call.
+
+    The `--call` entry is the sync driver: a bare `--call` of a coroutine
+    returns the frame, which the process entry cannot print (the honest
+    boundary for today; awaiting it is the lowered path)."""
+    root = tmp_path / "pkg"
+    root.mkdir()
+    (root / "__init__.py").write_text("", encoding="utf-8")
+    (root / "mod.py").write_text(PKG_MOD, encoding="utf-8")
+    (root / "user.py").write_text(PKG_USER, encoding="utf-8")
+    built = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pyscriptc",
+            "compile",
+            str(root),
+            "--run",
+            "--call",
+            "pkg.user.drive",
+            "-o",
+            str(tmp_path / "out"),
+        ],
+        cwd=ROOT,
+        env=ENV,
+        capture_output=True,
+        text=True,
+    )
+    assert built.returncode == 0, built.stderr
+    assert built.stdout == "a 40 b 42\n42\n"
+
+
+def test_package_coroutine_ir_carries_foreign_plan(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The consumer's cross-module await lowers through the export table.
+
+    The defining module keeps the frame class and the wrapper; the consumer
+    only polls. Its await marker names the foreign frame, and the plan the
+    consumer builds carries the exported result type (`int` here).
+    """
+    monkeypatch.delenv("PYSC_CORO", raising=False)
+    module, _ = _lower_stageb()
+    assert module["fences"] == []
+    validate_module(module)
+    names = {fn["name"] for fn in module["functions"]}
+    assert {"pkg.mod.value", "coro.value.resume", "pkg.user.run", "coro.run.resume"} <= names
+    frames = {cls["name"]: cls for cls in module["classes"] if cls["name"].startswith("coro.")}
+    assert set(frames) == {"coro.value", "coro.add", "coro.run"}
+    # The consumer's await never emits a raw marker into the IR.
+    assert AWAIT_MARKER not in json.dumps(module)
+    # The awaited foreign frame travels in the resume body as a local typed
+    # as the exporting module's frame class, and the result local carries the
+    # exported result type.
+    resume = next(meth for meth in frames["coro.run"]["methods"] if meth["name"] == "resume")
+    locals_ = {local["name"]: local["type"] for local in resume["locals"]}
+    assert locals_[".ps_aw_1"] == {"kind": "class", "name": "coro.value"}
+    assert locals_[".ps_awv_1"] == {"kind": "int"}
+
+
+def _lower_stageb():
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "pkg"
+        root.mkdir()
+        (root / "__init__.py").write_text("", encoding="utf-8")
+        (root / "mod.py").write_text(PKG_MOD, encoding="utf-8")
+        (root / "user.py").write_text(PKG_USER, encoding="utf-8")
+        return lower_directory(root)
 
 
 def test_method_frame_fences_precisely(monkeypatch: pytest.MonkeyPatch) -> None:

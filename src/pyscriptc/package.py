@@ -148,6 +148,9 @@ def _program_entry(functions: list[dict[str, Any]], entry: str | None = None) ->
             if fn["name"].startswith(entry + "."):
                 return fn["name"]
     for fn in functions:
+        if fn["name"] in {"__main__.main", "__main__.__entry__"}:
+            return fn["name"]
+    for fn in functions:
         if fn["name"].startswith("__main__."):
             return fn["name"]
     return functions[0]["name"] if functions else None
@@ -536,6 +539,13 @@ def _class_export(info: dict[str, Any]) -> dict[str, Any]:
     if info.get("enum"):
         exported["enum"] = True
         exported["members"] = dict(info.get("members") or {})
+    if info.get("coro"):
+        # A coroutine frame class (issue #178, stage B). The consumer needs
+        # the kind to tell a frame from a user class, and `coro_elem` (the
+        # coroutine's result type) to know what the awaited value's type is.
+        exported["coro"] = info["coro"]
+        if info.get("coro_elem") is not None:
+            exported["coro_elem"] = copy.deepcopy(info["coro_elem"])
     return exported
 
 
