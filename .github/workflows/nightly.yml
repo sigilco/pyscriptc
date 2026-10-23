@@ -130,7 +130,7 @@ jobs:
           else
             number="$(gh pr create --repo "$REPO" --head "$branch" --base master \
               --title "ci: nightly compat snapshot ${DATE}" --body-file "$body" \
-              --json number --jq '.number')"
+              | sed -E 's|.*/pull/([0-9]+)$|\1|')"
           fi
           echo "number=${number}" >> "$GITHUB_OUTPUT"
           echo "url=$(gh pr view "$number" --repo "$REPO" --json url --jq '.url')" >> "$GITHUB_OUTPUT"
