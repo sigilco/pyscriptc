@@ -23,6 +23,7 @@ import pytest
 from pyscriptc import cli, deps
 from pyscriptc.config import ConfigError, read_pep723
 from pyscriptc.deps import DepsError
+from pyscriptc.log import log_path
 
 pytestmark = pytest.mark.skipif(sys.version_info < (3, 11), reason="tomllib")
 
@@ -313,6 +314,103 @@ def test_uv_no_build_failure_gets_hint(monkeypatch: pytest.MonkeyPatch, tmp_path
     monkeypatch.setenv("PYSC_UV", "uv")
     with pytest.raises(DepsError, match="never builds sdists"):
         deps.run_deps(_script(tmp_path), cache_dir=tmp_path / "c")
+
+
+def test_materialise_skips_tests_and_dist_info(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PYSC_LOG_DIR", str(tmp_path / "audit"))
+    wheel = make_wheel(
+        "pkg",
+        {
+            "pkg/__init__.py": b"def hello() -> str:\n    return 'world'\n",
+            "pkg/core.py": b"x: int = 1\n",
+            "tests/test_unit.py": b"import unittest\n",
+            "pkg/test/test_nested.py": b"import unittest\n",
+            "test_root.py": b"import unittest\n",
+            "conftest.py": b"# pytest config\n",
+            "docs/index.md": b"# Docs\n",
+            "examples/sample.py": b"print('demo')\n",
+            "pkg-1.0.data/scripts/cli_tool": b"#!/bin/sh\necho hi\n",
+            "pkg-1.0.data/headers/pkg.h": b"#define FOO 1\n",
+        },
+    )
+    cache = tmp_path / "cache"
+    dest = deps.materialise(wheel, sha(wheel), cache, name="pkg")
+    assert (dest / "pkg" / "__init__.py").is_file()
+    assert (dest / "pkg" / "core.py").is_file()
+    assert not (dest / "tests").exists()
+    assert not (dest / "pkg" / "test").exists()
+    assert not (dest / "test_root.py").exists()
+    assert not (dest / "conftest.py").exists()
+    assert not (dest / "docs").exists()
+    assert not (dest / "examples").exists()
+    assert not (dest / "pkg-1.0.dist-info").exists()
+    assert not (dest / "pkg-1.0.data").exists()
+
+    from pyscriptc.package import lower_directory
+
+    module, fences = lower_directory(dest / "pkg")
+    assert fences == ""
+    assert module is not None
+
+    records = [json.loads(line) for line in log_path().read_text(encoding="utf-8").splitlines()]
+    mat_records = [r for r in records if r.get("event") == "deps.materialise"]
+    assert len(mat_records) == 1
+    rec = mat_records[0]
+    assert rec["name"] == "pkg"
+    assert rec["sha256"] == sha(wheel)
+    assert rec["source_root"] == str(dest)
+    skipped = rec["skipped"]
+    assert skipped["count"] == len(skipped["paths"])
+    paths = set(skipped["paths"])
+    assert "tests/test_unit.py" in paths
+    assert "pkg/test/test_nested.py" in paths
+    assert "test_root.py" in paths
+    assert "conftest.py" in paths
+    assert "docs/index.md" in paths
+    assert "examples/sample.py" in paths
+    assert "pkg-1.0.data/scripts/cli_tool" in paths
+    assert "pkg-1.0.data/headers/pkg.h" in paths
+    assert "pkg-1.0.dist-info/METADATA" in paths
+    assert "pkg-1.0.dist-info/RECORD" in paths
+    assert "pkg/__init__.py" not in paths
+    assert "pkg/core.py" not in paths
+
+
+def test_inspect_wheel_rejects_tampered_skipped_file() -> None:
+    wheel = make_wheel(
+        "tampered",
+        {
+            "tampered/__init__.py": b"",
+            "tests/test_tampered.py": b"pass\n",
+        },
+        record_override={"tests/test_tampered.py": "sha256=" + "a" * 43},
+    )
+    with pytest.raises(DepsError, match="does not match its RECORD hash"):
+        deps.inspect_wheel(wheel)
+
+
+def test_materialise_certifi_lowers_with_zero_fences(tmp_path: Path) -> None:
+    wheel = make_wheel(
+        "certifi",
+        {
+            "certifi/__init__.py": b"from certifi.core import where\n__all__ = ['where']\n",
+            "certifi/core.py": b"def where() -> str:\n    return '/etc/ssl/cert.pem'\n",
+            "certifi/tests/__init__.py": b"",
+            "certifi/tests/test_certify.py": b"import unittest\nclass TestCertifi(unittest.TestCase):\n    pass\n",
+        },
+    )
+    cache = tmp_path / "cache"
+    dest = deps.materialise(wheel, sha(wheel), cache, name="certifi")
+    assert (dest / "certifi" / "__init__.py").is_file()
+    assert (dest / "certifi" / "core.py").is_file()
+    assert not (dest / "certifi" / "tests").exists()
+    assert not (dest / "certifi-1.0.dist-info").exists()
+
+    from pyscriptc.package import lower_directory
+
+    module, fences = lower_directory(dest / "certifi")
+    assert fences == ""
+    assert module is not None
 
 
 def test_cli_deps_subcommand(fake: dict[str, Any], tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

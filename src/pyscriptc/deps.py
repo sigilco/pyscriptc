@@ -44,11 +44,15 @@ from typing import Any
 
 from pyscriptc.config import ConfigError, read_pep723
 from pyscriptc.errors import SpikeError
+from pyscriptc.log import get_logger
 
 DEPS_CODE = "PS3101"
 LOCK_TOOL_KEY = "pyscriptc"
 EXTENSION_SUFFIXES = (".so", ".pyd", ".dylib", ".dll")
 SKIPPED_DATA_DIRS = ("scripts", "headers", "data")
+SKIPPED_DIR_NAMES = ("tests", "test", "docs", "examples")
+
+log = get_logger()
 
 NAME_RE = re.compile(r"^\s*([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)")
 
@@ -408,13 +412,33 @@ def fetch_wheel(wheel: LockedWheel, cache: Path, *, offline: bool = False) -> by
     return data
 
 
-def materialise(data: bytes, sha256: str, cache: Path) -> Path:
+def _should_skip_member(parts: tuple[str, ...]) -> bool:
+    if not parts:
+        return True
+    if any(part.endswith(".dist-info") for part in parts):
+        return True
+    if parts[0].endswith(".data"):
+        if len(parts) < 3 or parts[1] in SKIPPED_DATA_DIRS:
+            return True
+        parts = parts[2:]
+        if not parts:
+            return True
+    if any(part in SKIPPED_DIR_NAMES for part in parts[:-1]):
+        return True
+    filename = parts[-1]
+    if (filename.startswith("test_") and filename.endswith(".py")) or filename == "conftest.py":
+        return True
+    return False
+
+
+def materialise(data: bytes, sha256: str, cache: Path, *, name: str | None = None) -> Path:
     """Unpack a verified pure wheel into `src/<sha256>/` once; returns the import root."""
     dest = cache / "src" / sha256
     if (dest / ".complete").is_file():
         return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = Path(tempfile.mkdtemp(dir=dest.parent, prefix=".tmp-"))
+    skipped: list[str] = []
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
             for info in zf.infolist():
@@ -422,9 +446,10 @@ def materialise(data: bytes, sha256: str, cache: Path) -> Path:
                 if info.is_dir():
                     continue
                 parts = PurePosixPath(info.filename).parts
+                if _should_skip_member(parts):
+                    skipped.append(info.filename)
+                    continue
                 if parts[0].endswith(".data"):
-                    if len(parts) < 3 or parts[1] in SKIPPED_DATA_DIRS:
-                        continue
                     parts = parts[2:]  # purelib/platlib content lands at the root
                 target = tmp.joinpath(*parts)
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -433,6 +458,13 @@ def materialise(data: bytes, sha256: str, cache: Path) -> Path:
         if dest.exists():
             shutil.rmtree(dest)
         os.replace(tmp, dest)
+        log.info(
+            "deps.materialise",
+            name=name or "",
+            sha256=sha256,
+            source_root=str(dest),
+            skipped={"count": len(skipped), "paths": skipped},
+        )
     finally:
         if tmp.exists():
             shutil.rmtree(tmp, ignore_errors=True)
@@ -473,7 +505,7 @@ def analyse(
                 pure, reason = inspect_wheel(data)
                 result.reason = reason
                 if pure:
-                    result.source_root = str(materialise(data, wheel.sha256, cache))
+                    result.source_root = str(materialise(data, wheel.sha256, cache, name=pkg.name))
                 else:
                     result.lane = "native"
                     result.hint = LANE_HINTS["native"]
