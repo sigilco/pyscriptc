@@ -198,6 +198,60 @@ run_result: int = asyncio.run(root())
 print("result", run_result)
 """
 
+# Coroutine methods (issue #178, stage A): an `async def` in a class body
+# lowers like a generator method, a frame class per `Class.method`, and the
+# caller awaits the frame the call returns.
+METHOD = """\
+import asyncio
+
+
+class Worker:
+    async def run(self, n: int) -> int:
+        await asyncio.sleep(0.01)
+        print("run", n)
+        return n + 10
+
+
+async def main() -> int:
+    w: Worker = Worker()
+    r: int = await w.run(3)
+    print("got", r)
+    return r
+
+
+asyncio.run(main())
+"""
+
+METHOD_NESTED = """\
+import asyncio
+
+
+async def helper(x: int) -> int:
+    await asyncio.sleep(0.01)
+    return x * 2
+
+
+class Worker:
+    async def run(self, n: int) -> int:
+        v: int = await helper(n)
+        return v + 1
+
+    async def twice(self, n: int) -> int:
+        v: int = await self.run(n)
+        return v * 10
+
+
+async def main() -> int:
+    w: Worker = Worker()
+    a: int = await w.run(3)
+    b: int = await w.twice(4)
+    print(a, b)
+    return a + b
+
+
+asyncio.run(main())
+"""
+
 FENCED = """\
 import asyncio
 
@@ -260,6 +314,8 @@ def _run_both(tmp_path: Path, name: str, source: str) -> tuple[str, str]:
         ("mixed", MIXED),
         ("conditional", CONDITIONAL),
         ("timer_order", TIMER_ORDER),
+        ("method", METHOD),
+        ("method_nested", METHOD_NESTED),
     ],
 )
 def test_coroutine_matches_cpython(tmp_path: Path, name: str, source: str) -> None:
@@ -305,6 +361,26 @@ def test_coroutine_ir_is_plain_classes(monkeypatch: pytest.MonkeyPatch) -> None:
     assert {"coro.inner.resume", "coro.outer.resume", "coro.root.resume"} <= names
 
 
+def test_coroutine_method_ir_is_plain_classes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PYSC_CORO", raising=False)
+    module = lower_source(METHOD_NESTED, "method.py")
+    assert module["fences"] == []
+    validate_module(module)
+    dumped = str(module)
+    assert AWAIT_MARKER not in dumped
+    frames = {cls["name"]: cls for cls in module["classes"] if cls["name"].startswith("coro.")}
+    assert set(frames) == {"coro.helper", "coro.Worker.run", "coro.Worker.twice", "coro.main"}
+    for frame in frames.values():
+        assert {m["name"] for m in frame["methods"]} == {"resume"}
+        names = [field["name"] for field in frame["fields"]]
+        # The same fixed layout the run loop reads, function or method frame.
+        assert names[:3] == [STATE, TASK, RESULT]
+    # A method frame's resume cell names the same module-level forwarder
+    # shape a function frame uses, so ps_loop.c cannot tell them apart.
+    names = {fn["name"] for fn in module["functions"]}
+    assert {"coro.helper.resume", "coro.Worker.run.resume", "coro.Worker.twice.resume", "coro.main.resume"} <= names
+
+
 def test_module_without_coroutines_is_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
     source = "def f(n: int) -> int:\n    return n + 1\n\n\nprint(f(2))\n"
     monkeypatch.setenv("PYSC_CORO", "0")
@@ -329,3 +405,27 @@ def test_kill_switch_restores_old_fence(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setenv("PYSC_CORO", "0")
     module = lower_source(NESTED, "nested.py")
     assert any(f["message"] == "await is not lowered" for f in module["fences"])
+
+
+def test_kill_switch_restores_old_method_fence(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PYSC_CORO", "0")
+    module = lower_source(METHOD, "method.py")
+    assert any(f["message"] == "AsyncFunctionDef in a class body is not lowered" for f in module["fences"])
+
+
+def test_method_frame_fences_precisely(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PYSC_CORO", raising=False)
+    fenced = """\\
+import asyncio
+
+
+class Worker:
+    async def run(self, n: int) -> int:
+        try:
+            await asyncio.sleep(0.01)
+        finally:
+            print("done")
+        return n
+"""
+    module = lower_source(fenced, "fenced_method.py")
+    assert any(f["message"] == "await inside try or with is not lowered yet" for f in module["fences"])
