@@ -19,7 +19,7 @@ def _declarations(needed: set[str]) -> list[str]:
         lines.append("declare i32 @printf(ptr, ...)")
     if "fprintf" in needed:
         lines.append("declare i32 @fprintf(ptr, ptr, ...)")
-        lines.append("@stderr = external global ptr")
+        lines.append("declare ptr @ps_stderr_stream()")
     traps = needed & {
         "iadd",
         "isub",
