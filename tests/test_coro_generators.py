@@ -578,3 +578,157 @@ def go() -> int:
     module = lower_source(source, "gs.py")
     assert module["fences"] == []
     validate_module(module)
+
+
+CONTEXT_MANAGER = """\
+from contextlib import contextmanager
+from typing import Iterator
+
+
+@contextmanager
+def track(name: str) -> Iterator[str]:
+    print("open", name)
+    yield name.upper()
+    print("close", name)
+
+
+def main() -> None:
+    with track("a") as value:
+        print("body", value)
+    with track("b") as value:
+        print("body", value)
+
+
+main()
+"""
+
+CONTEXT_MANAGER_RAISES = """\
+from contextlib import contextmanager
+from typing import Iterator
+
+
+@contextmanager
+def track(name: str) -> Iterator[str]:
+    print("open", name)
+    yield name.upper()
+    print("close", name)
+
+
+def main() -> None:
+    try:
+        with track("a") as value:
+            print("body", value)
+            raise ValueError("boom")
+    except ValueError as exc:
+        print("caught", str(exc))
+    with track("b") as value:
+        print("body", value)
+
+
+main()
+"""
+
+CONTEXT_MANAGER_METHOD = """\
+from contextlib import contextmanager
+from typing import Iterator
+
+
+class Holder:
+    base: int
+
+    def __init__(self, base: int) -> None:
+        self.base = base
+
+    @contextmanager
+    def scope(self, extra: int) -> Iterator[int]:
+        print("open", self.base)
+        yield self.base + extra
+        print("close", self.base)
+
+
+def main() -> None:
+    holder: Holder = Holder(3)
+    with holder.scope(5) as value:
+        print("body", value)
+
+
+main()
+"""
+
+
+@pytest.mark.parametrize(
+    ("name", "source"),
+    [
+        ("cm_plain", CONTEXT_MANAGER),
+        ("cm_raises", CONTEXT_MANAGER_RAISES),
+        ("cm_method", CONTEXT_MANAGER_METHOD),
+    ],
+)
+def test_contextmanager_matches_cpython(tmp_path: Path, name: str, source: str) -> None:
+    got, expected = _run_both(tmp_path, name, source)
+    assert expected
+    assert got == expected
+
+
+def test_contextmanager_ir_has_manager_class() -> None:
+    module = lower_source(CONTEXT_MANAGER, "cm.py")
+    assert module["fences"] == []
+    validate_module(module)
+    manager = next(cls for cls in module["classes"] if cls["name"] == "cm.track")
+    assert {m["name"] for m in manager["methods"]} == {"__enter__", "__exit__"}
+    # The manager holds the generator frame and the yielded value.
+    assert [field["name"] for field in manager["fields"]] == [".ps_gen", ".ps_val"]
+    # The outward type of `track` is the manager, not the generator frame.
+    wrapper = next(fn for fn in module["functions"] if fn["name"].endswith("track"))
+    assert wrapper["returnType"]["name"] == "cm.track"
+    assert YIELD_MARKER not in json.dumps(module)
+
+
+def test_contextmanager_method_ir_has_manager_class() -> None:
+    module = lower_source(CONTEXT_MANAGER_METHOD, "cmm.py")
+    assert module["fences"] == []
+    validate_module(module)
+    manager = next(cls for cls in module["classes"] if cls["name"] == "cm.gen.Holder.scope")
+    assert {m["name"] for m in manager["methods"]} == {"__enter__", "__exit__"}
+
+
+def test_contextmanager_without_yield_is_not_a_manager() -> None:
+    source = """\
+from contextlib import contextmanager
+from typing import Iterator
+
+
+@contextmanager
+def track(name: str) -> Iterator[str]:
+    print(name)
+    yield name
+"""
+    # A generator that yields once still lowers; the fence that matters is
+    # the decorator, not the yield count.
+    module = lower_source(source, "cm1.py")
+    assert module["fences"] == []
+
+
+def test_contextmanager_kill_switch_restores_the_old_fence(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PYSC_CORO", "0")
+    module = lower_source(CONTEXT_MANAGER, "cm.py")
+    messages = [fence["message"] for fence in module["fences"]]
+    assert any("decorators are not lowered" in message for message in messages)
+
+
+def test_contextmanager_decorator_must_resolve_to_the_stdlib() -> None:
+    source = """\
+from typing import Iterator
+
+
+def contextmanager(fn: object) -> object:
+    return fn
+
+
+@contextmanager
+def track(name: str) -> Iterator[str]:
+    yield name
+"""
+    module = lower_source(source, "cm_local.py")
+    messages = [fence["message"] for fence in module["fences"]]
+    assert any("decorators are not lowered" in message for message in messages)
