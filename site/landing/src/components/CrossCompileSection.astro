@@ -25,7 +25,7 @@ const targets: TargetSurface[] = [
   {
     arch: "aarch64-macos",
     name: "macOS ARM64",
-    note: "Apple Silicon (M1/M2/M3/M4)",
+    note: "Apple Silicon (M1–M4)",
     format: "Mach-O binary",
     runtime: "Native Metal & CoreFoundation",
   },
@@ -65,28 +65,33 @@ const targets: TargetSurface[] = [
     </p>
   </div>
 
-  <!-- Minimalist Listing Table / List Component -->
-  <div class="w-full divide-y divide-white/10 border-t border-b border-white/10 font-mono text-xs">
-    {
-      targets.map((t) => (
-        <div class="py-4.5 sm:py-5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-6 hover:bg-white/[0.015] transition-colors">
-          <div class="flex items-center gap-3 min-w-[200px]">
-            <span class="text-white font-semibold text-sm font-sans">{t.name}</span>
-            <span class="text-slate-500 font-mono text-xs">({t.arch})</span>
-          </div>
-
-          <div class="text-slate-400 font-light text-xs sm:flex-1">
-            {t.note}
-          </div>
-
-          <div class="flex items-center gap-6 sm:justify-end text-slate-400 text-xs">
-            <span class="text-slate-300">{t.format}</span>
-            <span class="text-slate-500 hidden md:inline">·</span>
-            <span class="text-slate-400 hidden md:inline">{t.runtime}</span>
-            <span class="text-slate-400">✓ Built-in</span>
-          </div>
-        </div>
-      ))
-    }
+  <!-- Minimal Table (no heavy borders, clean tabular data) -->
+  <div class="w-full overflow-x-auto">
+    <table class="w-full border-collapse text-left font-mono text-xs">
+      <thead>
+        <tr class="border-b border-white/10 text-slate-500 uppercase tracking-wider text-[11px]">
+          <th class="py-3 pr-4 font-medium">Architecture</th>
+          <th class="py-3 px-4 font-medium">Platform</th>
+          <th class="py-3 px-4 font-medium">Environment</th>
+          <th class="py-3 px-4 font-medium">Format</th>
+          <th class="py-3 pl-4 font-medium text-right">Toolchain</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-white/5 text-slate-300">
+        {
+          targets.map((t) => (
+            <tr class="hover:bg-white/[0.02] transition-colors">
+              <td class="py-4 pr-4 font-bold text-white whitespace-nowrap">{t.arch}</td>
+              <td class="py-4 px-4 font-sans text-sm text-slate-200 whitespace-nowrap">{t.name}</td>
+              <td class="py-4 px-4 text-slate-400">{t.note}</td>
+              <td class="py-4 px-4 text-slate-300 whitespace-nowrap">{t.format}</td>
+              <td class="py-4 pl-4 text-right whitespace-nowrap text-cyan-400 font-semibold">
+                ✓ Built-in
+              </td>
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
   </div>
 </section>

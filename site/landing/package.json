@@ -12,6 +12,9 @@
     "cosmos:export": "cosmos-export"
   },
   "dependencies": {
+    "@visx/group": "^4.0.0",
+    "@visx/scale": "^4.0.0",
+    "@visx/shape": "^4.0.0",
     "astro": "^5.18.2",
     "daisyui": "^5.7.50"
   },
@@ -26,6 +29,7 @@
     "react-cosmos": "^7.4.1",
     "react-cosmos-plugin-vite": "^7.4.0",
     "react-dom": "^19.3.1",
+    "shiki": "^4.5.0",
     "tailwindcss": "^4.3.3",
     "vite": "^8.3.5"
   },

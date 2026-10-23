@@ -70,14 +70,26 @@ export const HeaderPillNav: React.FC<HeaderPillNavProps> = ({
           </a>
         </div>
 
-        {/* Mobile Breadcrumb Menu Button */}
+        {/* Mobile Hamburger Menu Button */}
         <div className="md:hidden flex items-center">
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             className="flex items-center justify-center w-7 h-7 rounded-full bg-white/10 hover:bg-white/15 text-slate-200 transition-colors"
             aria-label="Toggle Navigation Menu"
           >
-            <span className="font-mono text-sm leading-none font-bold">···</span>
+            <svg
+              className="w-3.5 h-3.5"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="4" y1="6" x2="20" y2="6" />
+              <line x1="4" y1="12" x2="20" y2="12" />
+              <line x1="4" y1="18" x2="20" y2="18" />
+            </svg>
           </button>
         </div>
       </nav>

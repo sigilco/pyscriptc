@@ -1,34 +1,38 @@
-import React from "react";
+import React, { useState, useEffect, useRef } from "react";
 
 export interface BenchmarkRowProps {
   theme?: "dark" | "light";
   benchmarkUrl?: string;
 }
 
-interface BenchmarkMetric {
+interface BenchmarkSeries {
+  name: string;
+  shortName: string;
+  value: string;
+  numericVal: number;
+  heightPct: number; // 0 - 100 percentage of max bar height (100px)
+  color: string;
+  isFlagship?: boolean;
+}
+
+interface BenchmarkCardData {
   title: string;
   subtitle: string;
   unit: string;
   better: "Higher is better" | "Lower is better";
-  series: {
-    name: string;
-    value: string;
-    rawHeightPct: number;
-    color: string;
-    isFlagship?: boolean;
-  }[];
+  series: BenchmarkSeries[];
 }
 
-const BENCHMARKS: BenchmarkMetric[] = [
+const BENCHMARKS: BenchmarkCardData[] = [
   {
     title: "Throughput",
     subtitle: "Compute kernels geometric mean",
     unit: "Speedup vs CPython",
     better: "Higher is better",
     series: [
-      { name: "CPython 3.14", value: "1.0x", rawHeightPct: 10, color: "#334155" },
-      { name: "Island Fallback", value: "4.2x", rawHeightPct: 30, color: "#fbbf24" },
-      { name: "Pure Native", value: "29.2x", rawHeightPct: 100, color: "#00c2ff", isFlagship: true },
+      { name: "CPython 3.14", shortName: "CPython", value: "1.0x", numericVal: 1.0, heightPct: 10, color: "#334155" },
+      { name: "Island Fallback", shortName: "Island", value: "4.2x", numericVal: 4.2, heightPct: 32, color: "#fbbf24" },
+      { name: "Pure Native", shortName: "Native", value: "29.2x", numericVal: 29.2, heightPct: 100, color: "#00c2ff", isFlagship: true },
     ],
   },
   {
@@ -37,9 +41,9 @@ const BENCHMARKS: BenchmarkMetric[] = [
     unit: "Megabytes (MB)",
     better: "Lower is better",
     series: [
-      { name: "CPython 3.14", value: "84 MB", rawHeightPct: 100, color: "#334155" },
-      { name: "Island Fallback", value: "38 MB", rawHeightPct: 45, color: "#fbbf24" },
-      { name: "Pure Native", value: "14 MB", rawHeightPct: 17, color: "#00c2ff", isFlagship: true },
+      { name: "CPython 3.14", shortName: "CPython", value: "84 MB", numericVal: 84, heightPct: 100, color: "#334155" },
+      { name: "Island Fallback", shortName: "Island", value: "38 MB", numericVal: 38, heightPct: 45, color: "#fbbf24" },
+      { name: "Pure Native", shortName: "Native", value: "14 MB", numericVal: 14, heightPct: 17, color: "#00c2ff", isFlagship: true },
     ],
   },
   {
@@ -48,25 +52,80 @@ const BENCHMARKS: BenchmarkMetric[] = [
     unit: "Milliseconds (ms)",
     better: "Lower is better",
     series: [
-      { name: "CPython 3.14", value: "17.8 ms", rawHeightPct: 100, color: "#334155" },
-      { name: "Island Fallback", value: "4.2 ms", rawHeightPct: 24, color: "#fbbf24" },
-      { name: "Pure Native", value: "0.6 ms", rawHeightPct: 8, color: "#00c2ff", isFlagship: true },
+      { name: "CPython 3.14", shortName: "CPython", value: "17.8 ms", numericVal: 17.8, heightPct: 100, color: "#334155" },
+      { name: "Island Fallback", shortName: "Island", value: "4.2 ms", numericVal: 4.2, heightPct: 24, color: "#fbbf24" },
+      { name: "Pure Native", shortName: "Native", value: "0.6 ms", numericVal: 0.6, heightPct: 7, color: "#00c2ff", isFlagship: true },
     ],
   },
 ];
+
+// Exact SVG dimensions & coordinate scale constants
+const SVG_WIDTH = 300;
+const SVG_HEIGHT = 180;
+const BASELINE_Y = 142; // Shared horizontal baseline for all bars
+const MAX_BAR_HEIGHT = 100; // Max bar height in pixels (from baseline upwards)
+const BAR_WIDTH = 58;
+const BAR_CENTERS = [60, 150, 240];
 
 export const BenchmarkRow: React.FC<BenchmarkRowProps> = ({
   theme = "dark",
   benchmarkUrl = "https://github.com/sigilco/pyscriptc/tree/master/benchmarks",
 }) => {
+  const [animProgress, setAnimProgress] = useState(0);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // Smooth ease-out cubic animation triggered via IntersectionObserver
+  useEffect(() => {
+    let animationFrameId: number;
+    let startTime: number | null = null;
+    const duration = 900; // 900ms smooth animation
+
+    const startAnimation = () => {
+      const step = (timestamp: number) => {
+        if (!startTime) startTime = timestamp;
+        const elapsed = timestamp - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        // Ease-out cubic: 1 - (1 - t)^3
+        const eased = 1 - Math.pow(1 - progress, 3);
+        setAnimProgress(eased);
+
+        if (progress < 1) {
+          animationFrameId = requestAnimationFrame(step);
+        }
+      };
+      animationFrameId = requestAnimationFrame(step);
+    };
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          startAnimation();
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.2 }
+    );
+
+    if (containerRef.current) {
+      observer.observe(containerRef.current);
+    } else {
+      startAnimation();
+    }
+
+    return () => {
+      observer.disconnect();
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
+    };
+  }, []);
+
   return (
-    <section className="w-full max-w-6xl mx-auto px-6 py-20 lg:py-24 text-left">
+    <section ref={containerRef} className="w-full max-w-6xl mx-auto px-6 py-20 lg:py-24 text-left">
       {/* 1x3 Vertical Bar Charts Row */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-12 lg:gap-16">
         {BENCHMARKS.map((b) => (
           <div key={b.title} className="flex flex-col justify-between">
-            {/* Minimal Header */}
-            <div className="mb-8">
+            {/* Header info */}
+            <div className="mb-6">
               <div className="flex items-baseline justify-between mb-1">
                 <h3 className="text-lg font-bold text-white tracking-tight">{b.title}</h3>
                 <span className="text-[11px] font-mono text-slate-500 uppercase tracking-wider">
@@ -76,45 +135,77 @@ export const BenchmarkRow: React.FC<BenchmarkRowProps> = ({
               <p className="text-xs text-slate-400 font-light">{b.subtitle}</p>
             </div>
 
-            {/* Vertical Bars Stage */}
-            <div className="h-44 flex items-end justify-between gap-4 border-b border-white/10 pb-3 pt-6">
-              {b.series.map((item) => (
-                <div key={item.name} className="flex-1 flex flex-col items-center h-full justify-end">
-                  {/* Metric Value Label on Top of Bar */}
-                  <span
-                    className={`font-mono text-xs mb-2 ${
-                      item.isFlagship ? "text-cyan-400 font-bold" : "text-slate-300"
-                    }`}
-                  >
-                    {item.value}
-                  </span>
+            {/* Cartesian Coordinate SVG Visualizer (Visx / Observable Plot Architecture) */}
+            <div className="w-full select-none">
+              <svg
+                viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
+                className="w-full h-auto overflow-visible"
+                aria-label={`${b.title} benchmark bar chart`}
+              >
+                {/* Horizontal Baseline (Shared exact pixel alignment) */}
+                <line
+                  x1="16"
+                  y1={BASELINE_Y}
+                  x2={SVG_WIDTH - 16}
+                  y2={BASELINE_Y}
+                  stroke="rgba(255, 255, 255, 0.15)"
+                  strokeWidth="1"
+                />
 
-                  {/* Rectangular Vertical Bar */}
-                  <div className="w-full bg-white/[0.03] flex items-end h-32 relative">
-                    <div
-                      className="w-full transition-all duration-700 ease-out"
-                      style={{
-                        height: `${item.rawHeightPct}%`,
-                        backgroundColor: item.color,
-                        opacity: item.isFlagship ? 1 : 0.85,
-                      }}
-                    />
-                  </div>
+                {/* Render Bars and Labels on Shared Coordinate Grid */}
+                {b.series.map((item, idx) => {
+                  const centerX = BAR_CENTERS[idx];
+                  const barX = centerX - BAR_WIDTH / 2;
+                  const targetHeight = (item.heightPct / 100) * MAX_BAR_HEIGHT;
+                  const currentHeight = Math.max(targetHeight * animProgress, 2);
+                  const currentY = BASELINE_Y - currentHeight;
 
-                  {/* Series Name Below Baseline */}
-                  <span className="font-mono text-[11px] text-slate-400 mt-2.5 text-center leading-tight">
-                    {item.name.replace("pyscriptc ", "")}
-                  </span>
-                </div>
-              ))}
+                  return (
+                    <g key={item.name} className="transition-opacity duration-300 hover:opacity-90">
+                      {/* Metric Value Text (Directly Above Bar) */}
+                      <text
+                        x={centerX}
+                        y={currentY - 7}
+                        textAnchor="middle"
+                        fill={item.isFlagship ? "#00c2ff" : "#cbd5e1"}
+                        className={`font-mono text-xs ${item.isFlagship ? "font-bold" : "font-normal"}`}
+                        style={{ opacity: animProgress > 0.1 ? 1 : 0 }}
+                      >
+                        {item.value}
+                      </text>
+
+                      {/* Pure Rectangular Vertical Bar (Strict rx=0, ry=0) */}
+                      <rect
+                        x={barX}
+                        y={currentY}
+                        width={BAR_WIDTH}
+                        height={currentHeight}
+                        fill={item.color}
+                        opacity={item.isFlagship ? 1 : 0.85}
+                      />
+
+                      {/* Fixed Baseline Label Text Below Rule */}
+                      <text
+                        x={centerX}
+                        y={BASELINE_Y + 20}
+                        textAnchor="middle"
+                        fill="#94a3b8"
+                        className="font-mono text-[11px]"
+                      >
+                        {item.shortName}
+                      </text>
+                    </g>
+                  );
+                })}
+              </svg>
             </div>
           </div>
         ))}
       </div>
 
       {/* Reproducible Benchmark Link */}
-      <div className="mt-10 pt-6 border-t border-white/5 flex items-center justify-between text-xs text-slate-400">
-        <span>Workload tested on Apple M3 Max / Linux x86_64 host</span>
+      <div className="mt-10 pt-6 border-t border-white/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-slate-400">
+        <span>Workload tested on Apple M3 Max & Linux x86_64 host</span>
         <a
           href={benchmarkUrl}
           target="_blank"
