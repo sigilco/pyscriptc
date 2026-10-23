@@ -1,0 +1,27 @@
+# The F1c aggregate fixture manifest: typed list and dict returns for
+# manifest functions (issue #236). The abi thunks live in ps_ffi_ffx_agg.c
+# beside this file; the test links that file through link_binary's
+# compile_units seam next to the runtime.
+
+[manifest]
+module = "ffx"
+ps_abi = 1
+format = 1
+
+[[fn]]
+name = "names"
+py = "() -> list[str]"
+c_symbol = "names"
+abi = "ps_ffi_ffx_names"
+
+[[fn]]
+name = "row"
+py = "() -> dict[str, str]"
+c_symbol = "row"
+abi = "ps_ffi_ffx_row"
+
+[[fn]]
+name = "rows"
+py = "() -> list[dict[str, str]]"
+c_symbol = "rows"
+abi = "ps_ffi_ffx_rows"
