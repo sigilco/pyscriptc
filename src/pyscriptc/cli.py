@@ -9,13 +9,14 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
 
 from pyscriptc import deps, reduce, runcache, telemetry, zigshim
 from pyscriptc.check import CheckFailed, run_checker
-from pyscriptc.config import apply_to_args, load_config
+from pyscriptc.config import apply_to_args, entry_points, load_config
 from pyscriptc.coverage import build_report, family_of, render_text
 from pyscriptc.debug import Debug, resolve
 from pyscriptc.diagnostics import explain
@@ -196,6 +197,22 @@ def main(argv: list[str] | None = None) -> int:
         "--print", action="store_true", help="print the reduced source instead of writing FILE.min.py"
     )
     reduce_parser.add_argument("--json", action="store_true", help="print the removal log as JSON")
+    build_parser = sub.add_parser(
+        "build", help="project mode: one binary per [project.scripts] entry point", parents=[common]
+    )
+    build_parser.add_argument(
+        "directory",
+        nargs="?",
+        default=".",
+        help="the project directory (with a pyproject.toml); default .",
+    )
+    build_parser.add_argument("--script", help="build only this console script; default every script")
+    build_parser.add_argument("--out-dir", metavar="DIR", help="write the binaries to DIR instead of <project>/build")
+    build_parser.add_argument("--driver", choices=("clang", "zig"), default=None)
+    build_parser.add_argument("--target", help="cross-compilation triple for `zig cc`")
+    build_parser.add_argument("--linker", choices=("clang", "zig"), default=None)
+    build_parser.add_argument("--skip-check", action="store_true")
+    build_parser.add_argument("--checker", choices=("pyrefly", "mypy", "pyright"), default="pyrefly")
     sub.add_parser("logs", help="print the audit-log path and its last lines", parents=[common])
     telemetry_parser = sub.add_parser("telemetry", help="usage metrics opt-out")
     telemetry_parser.add_argument("action", choices=("disable", "enable", "status", "reset-id"))
@@ -230,6 +247,8 @@ def main(argv: list[str] | None = None) -> int:
             return config_cmd(args)
         if args.cmd == "reduce":
             return reduce_cmd(args)
+        if args.cmd == "build":
+            return build_cmd(args)
         if args.cmd == "explain":
             return explain_cmd(args)
         if args.cmd == "logs":
@@ -422,6 +441,7 @@ def imports_cmd(args: argparse.Namespace) -> int:
 
 def config_cmd(args: argparse.Namespace) -> int:
     config = load_config(Path(args.source))
+    scripts = _scripts_of(Path(args.source))
     data = {
         "source": config.source,
         "origin": str(config.origin) if config.origin else None,
@@ -437,6 +457,7 @@ def config_cmd(args: argparse.Namespace) -> int:
         "ffi": list(config.ffi),
         "dependency-lanes": config.dependency_lanes(),
         "imports": {name: config.lane_for(name)[0] for name in sorted(config.imports)},
+        "scripts": scripts,
     }
     if args.json:
         print(json.dumps(data, indent=2))
@@ -458,7 +479,26 @@ def config_cmd(args: argparse.Namespace) -> int:
             print(f"  {req}: {lane}")
     for name, lane in data["imports"].items():
         print(f"import {name}: {lane}")
+    if data["scripts"]:
+        print("scripts:")
+        for name, target in data["scripts"].items():
+            print(f"  {name}: {target}")
     return 0
+
+
+def _scripts_of(source: Path) -> dict[str, str]:
+    """The console scripts of the pyproject above `source`, if any."""
+
+    from pyscriptc import project
+
+    try:
+        pyproject = project.discover_pyproject(source)
+    except project.ProjectError:
+        return {}
+    try:
+        return entry_points(pyproject)
+    except Exception:
+        return {}
 
 
 def _reduce_predicate(args: argparse.Namespace) -> reduce.Predicate:
@@ -525,6 +565,77 @@ def explain_cmd(args: argparse.Namespace) -> int:
 def logs_cmd(args: argparse.Namespace) -> int:
     tail()
     return 0
+
+
+def build_cmd(args: argparse.Namespace) -> int:
+    """`pyscriptc build [DIR]`: one binary per [project.scripts] entry point."""
+
+    from pyscriptc import project
+
+    started = time.monotonic()
+    _apply_env_defaults(args)
+    if args.target is not None and args.driver != "zig":
+        raise IRError("--target requires --driver zig (bundled sysroot per target)")
+    directory = Path(args.directory)
+    pyproject = project.discover_pyproject(directory)
+    scripts = entry_points(pyproject)
+    if not scripts:
+        print(f"{pyproject}: no [project.scripts] table, nothing to build", file=sys.stderr)
+        return 1
+    names = sorted(scripts) if args.script is None else [args.script]
+    for name in names:
+        if name not in scripts:
+            known = ", ".join(sorted(scripts))
+            print(f"{pyproject}: no console script {name!r} (known: {known})", file=sys.stderr)
+            return 2
+    state: dict[str, Any] = {"outcome": None, "stage": "lower", "fence_count": 0, "fence_families": {}}
+    try:
+        out_dir = Path(args.out_dir) if args.out_dir else pyproject.parent / "build"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        built: list[Path] = []
+        for name in names:
+            module_ir, _ = project.lower_script(pyproject, name)
+            if module_ir["fences"]:
+                state["fence_count"] = len(module_ir["fences"])
+                state["fence_families"] = _fence_families(module_ir["fences"])
+                print(render_fences(module_ir, module_ir["sourceFile"]), file=sys.stderr)
+                state["outcome"] = "fences"
+                return 3
+            state["stage"] = "check"
+            if not args.skip_check:
+                run_checker(Path(module_ir["sourceFile"]), args.checker)
+            state["stage"] = "emit"
+            llvm_text = emit_llvm(module_ir, None, [], standalone=True)
+            with tempfile.TemporaryDirectory(prefix="pyscriptc-build-") as scratch:
+                ll_path = Path(scratch) / f"{name}.ll"
+                ll_path.write_text(llvm_text, encoding="utf-8")
+                state["stage"] = "link"
+                # The link step writes its object files next to the output, so
+                # it runs in the scratch directory and the binary moves.
+                staged = Path(scratch) / name
+                link_binary(
+                    ll_path,
+                    staged,
+                    driver=args.driver,
+                    target=args.target,
+                    link_driver=args.linker,
+                )
+                binary = out_dir / name
+                shutil.move(str(staged), str(binary))
+            built.append(binary)
+            print(binary)
+        state["outcome"] = "ok"
+        log.info(
+            "build.finished",
+            scripts=len(built),
+            out_dir=str(out_dir),
+            ms=int((time.monotonic() - started) * 1000),
+        )
+        return 0
+    except BaseException as exc:
+        if state["outcome"] is None:
+            state["outcome"] = _compile_outcome(exc, state["stage"])
+        raise
 
 
 def compile_cmd(args: argparse.Namespace) -> int:
