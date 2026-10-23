@@ -142,11 +142,6 @@ FENCED = """\
 from typing import Generator, Iterator
 
 
-def in_with(n: int) -> Iterator[int]:
-    with open("f") as fh:
-        yield n
-
-
 def sends() -> Generator[int, int, None]:
     yield 1
 
@@ -156,9 +151,8 @@ def expr_yield() -> Iterator[int]:
     print((yield x))
 
 
-def valued() -> Iterator[int]:
-    yield 1
-    return 5
+def bare_yield() -> Iterator[int]:
+    yield
 
 
 def closure(n: int) -> Iterator[int]:
@@ -229,10 +223,9 @@ def test_unsupported_shapes_fence_precisely(monkeypatch: pytest.MonkeyPatch) -> 
     module = lower_source(FENCED, "fenced.py")
     got = sorted((f["span"]["line"], f["message"]) for f in module["fences"])
     assert got == [
-        (6, "yield inside try or with is not lowered yet"),
-        (15, "yield as an expression (send) is not lowered yet"),
-        (20, "return with a value in a generator is not lowered yet"),
-        (24, "a nested def or class in a resumable is not lowered yet"),
+        (10, "yield as an expression (send) is not lowered yet"),
+        (14, "a bare yield needs an Optional element type"),
+        (18, "a nested def or class in a resumable is not lowered yet"),
     ]
     assert {f["code"] for f in module["fences"]} == {"PS2002"}
 
