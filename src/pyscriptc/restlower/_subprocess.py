@@ -38,6 +38,7 @@ def _capture_output(node: ast.Call) -> bool:
 
 
 def _run(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    lo.mobile_guard(node, "subprocess.run", "subprocess")
     for keyword in node.keywords:
         if keyword.arg is None:
             lo.fail(node, "PS2002", "**kwargs are not lowered")
@@ -57,12 +58,14 @@ def _run(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
 
 
 def _call(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    lo.mobile_guard(node, "subprocess.call", "subprocess")
     lo._reject_keywords(node)
     argv = _argv(lo, node, span)
     return lo._abi_call("subprocess", "call", [argv], {"kind": "int"}, "ps_sub_call", span)
 
 
 def _check_call(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    lo.mobile_guard(node, "subprocess.check_call", "subprocess")
     lo._reject_keywords(node)
     argv = _argv(lo, node, span)
     return lo._abi_call("subprocess", "check_call", [argv], {"kind": "int"}, "ps_sub_check_call", span)

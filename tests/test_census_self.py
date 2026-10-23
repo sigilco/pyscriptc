@@ -43,7 +43,9 @@ def test_self_census_ballpark() -> None:
     # #61 and #153) add 2 modules.
     # restlower/_queue.py (queue.Queue / LifoQueue / SimpleQueue, #172
     # Stage C) adds 1 module.
-    assert census["modules"] == 90
+    # mobile.py and emitlib.py (#356, --emit lib and the mobile triples)
+    # add 2 modules.
+    assert census["modules"] == 92
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -143,11 +145,13 @@ def test_self_census_ballpark() -> None:
     # FFI F1c (#236): the typed container checks in ffi_manifest.py and the
     # dict-elem loop guard in lower/_stmt.py add 26 self-host fences. The
     # module count is unchanged.
-    assert census["fences"] == 2755
+    # mobile.py and emitlib.py (#356): the mobile registry, the library build
+    # and the target-aware fences add 59 self-host fences.
+    assert census["fences"] == 2814
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     # Project mode (#150): project.py adds about 240 lines.
     # yield inside try (#164): the re-entrant try in the coro guard transform
     # adds about 150 lines in coro.py.
     assert 11_000 <= census["lines"] <= 39_000
-    assert sum(p["fences"] for p in census["packages"]) == 2755
+    assert sum(p["fences"] for p in census["packages"]) == 2814

@@ -58,9 +58,13 @@ class CoreMixin:
         # `--debug-info` state: the span of the statement being emitted. Every
         # instruction the statement produces carries it as a `DILocation`.
         self.span: dict[str, Any] | None = None
+        # `--emit lib` state: definitions are hidden and the module entry is
+        # the exported `pyscriptc_main` instead of a process `main`.
+        self.library = False
 
-    def emit(self, call: str | None, args: list[Any], standalone: bool = False) -> str:
+    def emit(self, call: str | None, args: list[Any], standalone: bool = False, library: bool = False) -> str:
         self.class_index = {cls["name"]: cls for cls in self.module.get("classes", [])}
+        self.library = library
         for cls in self.module.get("classes", []):
             body = "i8" if not cls["fields"] else ", ".join(_llvm_field_type(field["type"]) for field in cls["fields"])
             self.globals.append(f"%cls.{cls['name']} = type {{ {body} }}")
@@ -73,7 +77,7 @@ class CoreMixin:
             for method in cls["methods"]:
                 self.emit_function(self.functions[f"cls.{cls['name']}.{method['name']}"])
         if call is not None:
-            self.emit_main(call, args)
+            self.emit_main(call, args, library=library)
         elif standalone:
             # A script's synthesized entry (E1 item 1) is the program: run it
             # in source order. A definition-only module keeps the no-op main.
@@ -87,6 +91,17 @@ class CoreMixin:
                 self._emit_exc_registrations()
                 self.line("ret i32 0")
                 self.out.extend(["}", ""])
+        elif library:
+            # `--emit lib`: the module entry becomes an exported
+            # pyscriptc_main instead of a process main. A definition-only
+            # module still defines it: the host gets an entry that
+            # initializes and returns 0, so the ABI does not depend on the
+            # script having a body.
+            entry_fn = standalone_entry(self.module)
+            if entry_fn is not None:
+                self.emit_main(entry_fn["name"], [], library=True)
+            else:
+                self.emit_noop_library_main()
         # Shims go last: a closure inside a module global initializer (emitted
         # in @main) can still register one.
         for name in sorted(self.clo_wrappers):

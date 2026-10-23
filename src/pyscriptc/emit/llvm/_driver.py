@@ -71,15 +71,22 @@ def emit_llvm(
     args: list[Any] | None = None,
     standalone: bool = False,
     debug_info: bool = False,
+    library: bool = False,
 ) -> str:
-    """With `standalone` and no `call`, main does nothing: module level code is not lowered."""
+    """With `standalone` and no `call`, main does nothing: module level code is not lowered.
+
+    `library` is the `--emit lib` shape: no `main`, an exported
+    `pyscriptc_main` that initializes the runtime and runs the module entry,
+    and default visibility on the exported symbols while everything else
+    stays hidden.
+    """
     assert_same_cpython(module)
     if module["fences"]:
         raise IRError("refusing to emit LLVM while fences are present")
     if not module["functions"]:
         raise IRError("module has no functions to emit")
     dwarf = DwarfEmitter(module["sourceFile"]) if debug_info else None
-    return Emitter(module, dwarf).emit(call, [] if args is None else args, standalone)
+    return Emitter(module, dwarf).emit(call, [] if args is None else args, standalone, library=library)
 
 
 def sanitize_flags(sanitize: list[str] | None) -> list[str]:
