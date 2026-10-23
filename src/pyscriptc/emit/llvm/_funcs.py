@@ -62,6 +62,7 @@ class FuncsMixin:
                 self.line("ret void")
             else:
                 self.line("unreachable")
+        self._flush_allocas()
         self.out.append("}")
         self.out.append("")
         if self.dwarf is not None:
@@ -105,6 +106,7 @@ class FuncsMixin:
         if fn["returnType"]["kind"] != "none":
             self.print_value(fn["returnType"], result)
         self.line("ret i32 0")
+        self._flush_allocas()
         self.out.append("}")
         self.out.append("")
         self.span = None
