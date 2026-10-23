@@ -22,6 +22,7 @@ from pyscriptc.ffi_manifest import (
     load_manifest,
     load_manifests,
     parse_manifest_text,
+    type_ir,
 )
 
 HEADER = """
@@ -700,13 +701,56 @@ def test_dynamic_types_are_refused() -> None:
         )
 
 
-def test_generic_containers_are_refused() -> None:
+def test_typed_containers_carry_the_annotation() -> None:
+    """A typed container annotation maps onto the subset's elem/key/value IR
+    forms, so a returned list or dict is a regular subset value (issue #236)."""
+    parsed = parse_manifest_text(
+        manifest(
+            '[[fn]]\nname = "f"\npy = "() -> list[str]"\nc_symbol = "f"\nabi = "ps_f"\n'
+            '[[fn]]\nname = "g"\npy = "() -> dict[str, int]"\nc_symbol = "g"\nabi = "ps_g"\n'
+            '[[fn]]\nname = "h"\npy = "() -> list[dict[str, str]]"\nc_symbol = "h"\nabi = "ps_h"\n'
+        )
+    )
+    assert type_ir(parsed.function("f").returns) == {"kind": "list", "elem": {"kind": "str"}}
+    assert type_ir(parsed.function("g").returns) == {
+        "kind": "dict",
+        "key": {"kind": "str"},
+        "value": {"kind": "int"},
+    }
+    assert type_ir(parsed.function("h").returns) == {
+        "kind": "list",
+        "elem": {"kind": "dict", "key": {"kind": "str"}, "value": {"kind": "str"}},
+    }
+
+
+def test_typed_containers_stay_one_level() -> None:
     fails(
-        manifest('[[fn]]\nname = "f"\npy = "(x: list[int]) -> int"\nc_symbol = "f"\nabi = "ps_f"\n'),
+        manifest('[[fn]]\nname = "f"\npy = "() -> list[list[int]]"\nc_symbol = "f"\nabi = "ps_f"\n'),
         "PS4006",
     )
     fails(
-        manifest('[[fn]]\nname = "f"\npy = "(x: dict[str, int]) -> int"\nc_symbol = "f"\nabi = "ps_f"\n'),
+        manifest('[[fn]]\nname = "f"\npy = "() -> dict[str, dict[str, int]]"\nc_symbol = "f"\nabi = "ps_f"\n'),
+        "PS4006",
+    )
+    fails(
+        manifest('[[fn]]\nname = "f"\npy = "() -> list[str, int]"\nc_symbol = "f"\nabi = "ps_f"\n'),
+        "PS4006",
+    )
+    fails(
+        manifest('[[fn]]\nname = "f"\npy = "() -> dict[str]"\nc_symbol = "f"\nabi = "ps_f"\n'),
+        "PS4006",
+    )
+    fails(
+        manifest('[[fn]]\nname = "f"\npy = "() -> list[dict]"\nc_symbol = "f"\nabi = "ps_f"\n'),
+        "PS4006",
+    )
+    # A handle is an opaque token: a container of handles has no subset
+    # representation (the elem would be a bare ptr the subset cannot touch).
+    fails(
+        manifest(
+            '[[fn]]\nname = "f"\npy = "() -> list[Connection]"\nc_symbol = "f"\nabi = "ps_f"\n'
+            '[[handle]]\nname = "Connection"\nc_type = "conn *"\n'
+        ),
         "PS4006",
     )
 

@@ -930,7 +930,7 @@ class StmtMixin:
             elem = {"kind": "int"}
         elif kind == "list":
             elem = iterable["type"]["elem"]
-            if elem["kind"] not in _SCALAR | {"list"} and not (
+            if elem["kind"] not in _SCALAR | {"list", "dict"} and not (
                 elem["kind"] == "class" and self.classes.get(elem["name"], {}).get("tuple")
             ):
                 self.fail(stmt, "PS2002", f"for over list[{_show(elem)}] is not lowered")
