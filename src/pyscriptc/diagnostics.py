@@ -260,6 +260,61 @@ _ENTRIES = (
         "A [[source]] entry lands with the F2 static-link gate (#220).",
     ),
     Diagnostic(
+        "PS4010",
+        "use of a consumed FFI handle",
+        "A call whose manifest entry lists consumes took ownership of the handle, so the variable is "
+        "dead: reading it would use a freed pointer.",
+        "Do not use the handle after its consuming call. Open the resource again, or use what the "
+        "consuming call returns.",
+    ),
+    Diagnostic(
+        "PS4011",
+        "FFI consume needs an owned variable",
+        "The call consumes a handle, but the argument is not a handle variable this function owns (a "
+        "literal, a call result, or a temporary), so the compiler cannot prove the value is dead "
+        "afterwards.",
+        "Bind the handle to a local variable first, then pass that variable to the consuming call.",
+    ),
+    Diagnostic(
+        "PS4012",
+        "wrong FFI handle type",
+        "Two handle types are both opaque pointers at the ABI, so passing one for the other would be "
+        "accepted by the link and corrupt memory.",
+        "Pass the handle type the manifest signature names; open the resource with the right connect call if needed.",
+    ),
+    Diagnostic(
+        "PS4013",
+        "FFI handle has no consuming function",
+        "The manifest declares a handle but no function consumes it, so a scope-exit free has no thunk "
+        "to call and the handle would leak.",
+        "Add a [[fn]] whose consumes names this handle (a close or finalize wrapper), or pass every "
+        "handle to the consuming call explicitly.",
+    ),
+    Diagnostic(
+        "PS4014",
+        "FFI handle used as a value",
+        "A manifest handle names a type, like a class name. The value is an opaque pointer that only "
+        "crosses FFI calls.",
+        "Annotate a variable with the handle type, or pass it to a manifest function; never use the "
+        "handle name itself as a value.",
+    ),
+    Diagnostic(
+        "PS4015",
+        "FFI handle attribute access",
+        "A handle is an opaque pointer at the ABI: it has no fields, and a read would be a wild "
+        "access into foreign memory.",
+        "Pass the handle to a manifest function instead of reading its fields; the adapter's thunk is "
+        "where the C struct is touched.",
+    ),
+    Diagnostic(
+        "PS4016",
+        "FFI handle arithmetic",
+        "Arithmetic on a handle is pointer arithmetic on a foreign object. The ABI passes handles as "
+        "opaque tokens and never computes with them.",
+        "Use the handle only as a token: pass it to manifest calls. Convert a C-side value to an int "
+        "through a manifest function if you need a number.",
+    ),
+    Diagnostic(
         "PS3002",
         "does not fit",
         "The emitted program exceeds a fixed limit of the backend.",
