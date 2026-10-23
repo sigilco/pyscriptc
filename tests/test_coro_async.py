@@ -262,10 +262,12 @@ async def no_result():
     return 1
 
 
-async def in_with() -> int:
-    with open("f") as fh:
+async def in_try() -> int:
+    try:
         await asyncio.sleep(0.01)
-    return 1
+        return 1
+    finally:
+        print("fin")
 
 
 def plain_await() -> int:
@@ -395,8 +397,8 @@ def test_unsupported_shapes_fence_precisely(monkeypatch: pytest.MonkeyPatch) -> 
     got = sorted((f["span"]["line"], f["message"]) for f in module["fences"])
     assert got == [
         (4, "no_result needs a return annotation"),
-        (10, "await inside try or with is not lowered yet"),
-        (19, "asyncio.sleep is only lowered inside a coroutine"),
+        (11, "return inside try or with in a resumable is not lowered yet"),
+        (21, "asyncio.sleep is only lowered inside a coroutine"),
     ]
     assert {f["code"] for f in module["fences"]} <= {"PS1001", "PS2002"}
 
@@ -562,9 +564,9 @@ def _lower_stageb():
         return lower_directory(root)
 
 
-def test_method_frame_fences_precisely(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_method_frame_with_lowers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("PYSC_CORO", raising=False)
-    fenced = """\\
+    source = """\
 import asyncio
 
 
@@ -573,9 +575,16 @@ class Worker:
         with open("f") as fh:
             await asyncio.sleep(0.01)
         return n
+
+
+def main() -> None:
+    print("ok")
 """
-    module = lower_source(fenced, "fenced_method.py")
-    assert any(f["message"] == "await inside try or with is not lowered yet" for f in module["fences"])
+    module = lower_source(source, "with_method.py")
+    assert module["fences"] == []
+    validate_module(module)
+    frame = next(cls for cls in module["classes"] if cls["name"] == "coro.Worker.run")
+    assert any(method["name"] == "resume" for method in frame["methods"])
 
 
 # --- await inside try/except/finally (issue #164) ----------------------------
@@ -630,3 +639,155 @@ def test_coroutine_try_ir_is_plain_classes() -> None:
     assert module["fences"] == []
     validate_module(module)
     assert AWAIT_MARKER not in json.dumps(module)
+
+
+# --- stage C: await inside try/with and the child's failure (issue #337) -----
+
+ASYNC_WITH = """\
+import asyncio
+
+
+async def child() -> int:
+    await asyncio.sleep(0.01)
+    print("child")
+    return 5
+
+
+async def in_with() -> int:
+    with open("with.txt", "w") as fh:
+        v: int = await child()
+        print("inside", v)
+    return v
+
+
+async def in_with_and_try() -> int:
+    try:
+        with open("with.txt", "w") as fh:
+            v: int = await child()
+            print("inside", v)
+    finally:
+        print("fin")
+    return v
+
+
+async def main() -> int:
+    print("with", await in_with())
+    print("both", await in_with_and_try())
+    return 1
+
+
+print(asyncio.run(main()))
+"""
+
+
+ASYNC_FAILURE = """\
+import asyncio
+
+
+async def boom() -> int:
+    await asyncio.sleep(0.01)
+    print("boom")
+    raise ValueError("late")
+
+
+async def caught() -> int:
+    try:
+        await boom()
+    except ValueError as e:
+        print("caught", str(e))
+    return 1
+
+
+async def caught_in_finally() -> int:
+    try:
+        try:
+            await boom()
+        finally:
+            print("inner fin")
+    except ValueError as e:
+        print("caught", str(e))
+    return 1
+
+
+async def uncaught() -> int:
+    await boom()
+    return 0
+
+
+async def main() -> int:
+    print("caught", await caught())
+    print("finally", await caught_in_finally())
+    try:
+        await uncaught()
+    except ValueError as e:
+        print("outer caught", str(e))
+    return 1
+
+
+print(asyncio.run(main()))
+"""
+
+
+def test_coroutine_with_matches_cpython(tmp_path: Path) -> None:
+    got, expected = _run_both(tmp_path, "async_with", ASYNC_WITH)
+    assert expected
+    assert got == expected
+
+
+def test_coroutine_failure_matches_cpython(tmp_path: Path) -> None:
+    got, expected = _run_both(tmp_path, "async_failure", ASYNC_FAILURE)
+    assert expected
+    assert got == expected
+
+
+def test_coroutine_with_ir_is_plain_classes() -> None:
+    module = lower_source(ASYNC_WITH, "async_with.py")
+    assert module["fences"] == []
+    validate_module(module)
+    assert AWAIT_MARKER not in json.dumps(module)
+
+
+def test_the_await_polls_through_the_loop() -> None:
+    """The await goes through the loop's poll, not a direct resume call.
+
+    The poll is what carries a child's failure back to the awaiter, so the
+    IR names the loop's poll and not the child's resume method.
+    """
+    module = lower_source(ASYNC_FAILURE, "async_failure.py")
+    assert module["fences"] == []
+    blob = json.dumps(module)
+    assert "ps_await_poll" in blob
+    assert "ps_await_raise" in blob
+
+
+def test_a_child_that_fails_does_not_kill_the_process() -> None:
+    """A child that raises after a suspension reaches the awaiter.
+
+    The child runs on the loop's stack once it suspends, so its exception
+    has no handler below it: the loop parks it and the awaiter re-raises it.
+    Without that, the exception unwound through the loop and the process
+    died, so a `try` around the await never saw it.
+    """
+    module = lower_source(ASYNC_FAILURE, "async_failure.py")
+    assert module["fences"] == []
+    validate_module(module)
+
+
+def test_the_with_shape_no_longer_fences() -> None:
+    """`await` inside a `with` lowers: the with desugars into a try.
+
+    The generator side keeps its fence: a `yield` inside a `with` is still
+    issue #164's scope.
+    """
+    source = """\
+import asyncio
+
+
+async def in_with() -> int:
+    with open("f") as fh:
+        await asyncio.sleep(0.01)
+    return 1
+"""
+    module = lower_source(source, "with_ok.py")
+    assert module["fences"] == []
+    validate_module(module)
