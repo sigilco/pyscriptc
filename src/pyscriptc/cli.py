@@ -28,6 +28,7 @@ from pyscriptc.emit.llvm import (
     refuse_unsupported_target,
     standalone_entry,
 )
+from pyscriptc.emitlib import build_library
 from pyscriptc.errors import FitError, IRError, SpikeError, VersionError
 from pyscriptc.ffi_manifest import FfiManifestError, load_manifests
 from pyscriptc.imports import build_report as build_import_report
@@ -37,6 +38,12 @@ from pyscriptc.irverify import verify_module
 from pyscriptc.llvverify import LLVMVerifyError, verify_module_text
 from pyscriptc.log import enable_debug, get_logger, tail
 from pyscriptc.lower import lower_file, render_fences
+from pyscriptc.mobile import (
+    ANDROID_PAGE_FLAGS,
+    MobileRefusal,
+    is_mobile_target,
+    require_mobile_target,
+)
 from pyscriptc.package import lower_directory
 
 log = get_logger()
@@ -59,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
         "entry point even when the directory has an `__init__.py`, and its modules are "
         "namespaced under the directory name",
     )
-    compile_parser.add_argument("--emit", choices=("ir", "llvm", "asm", "obj", "bin"), default="llvm")
+    compile_parser.add_argument("--emit", choices=("ir", "llvm", "asm", "obj", "bin", "lib"), default="llvm")
     compile_parser.add_argument(
         "--out-dir",
         metavar="DIR",
@@ -667,7 +674,7 @@ def build_cmd(args: argparse.Namespace) -> int:
 
 def compile_cmd(args: argparse.Namespace) -> int:
     started = time.monotonic()
-    _apply_env_defaults(args)
+    _compile_env_defaults(args)
     state: dict[str, Any] = {
         "outcome": None,
         "stage": "lower",
@@ -718,6 +725,21 @@ def _apply_env_defaults(args: argparse.Namespace) -> None:
         args.debug_info = os.environ.get("PYSC_DEBUG_INFO", "") not in ("", "0", "false", "no")
 
 
+def _compile_env_defaults(args: argparse.Namespace) -> None:
+    """The compile-time flag defaults: env first, then the mode-specific ones.
+
+    `--emit lib` compiles through clang with an explicit sysroot (Xcode SDK
+    or NDK); zig bundles neither bionic nor the Apple SDKs, so the library
+    mode defaults the driver to clang. An explicit `--driver zig` is left in
+    place so `build_library` refuses it with the message that says why.
+    """
+    explicit_driver = args.driver is not None
+    _apply_env_defaults(args)
+    if args.emit == "lib" and not explicit_driver:
+        args.driver = "clang"
+        args.linker = "clang"
+
+
 def _sanitize_list(value: str | None) -> list[str]:
     """Split a `--sanitize` list into names, rejecting empty or malformed entries."""
     if not value:
@@ -758,9 +780,47 @@ def _require_debug_info(args: argparse.Namespace) -> bool:
     return True
 
 
+def _library_dir(args: argparse.Namespace, source: Path) -> Path:
+    """The directory a library build writes into.
+
+    `-o DIR` names the directory; without it the build lands in
+    `<stem>lib` beside the source (or under --out-dir), so it never
+    collides with the `--emit bin` artifact of the same stem.
+    """
+    if args.output:
+        return Path(args.output)
+    base = (Path(args.out_dir) / source.stem) if args.out_dir else source.with_suffix("")
+    return base.with_name(base.name + "lib")
+
+
+def _require_mobile_refusals(args: argparse.Namespace) -> None:
+    """Refuse the mobile-target shapes that have no meaning before any work runs.
+
+    An executable build on a mobile triple is the main one: a phone app links
+    a static library, not a standalone binary, so `--emit bin` (and `--run`,
+    which implies it) points at `--emit lib` with the stable PS4101 code.
+    The other direction refuses too: `--emit lib` on a desktop triple has no
+    consumer story yet (a desktop app links a binary or a shared object, and
+    the desktop cross matrix already has `--emit obj`), so the mode names the
+    three triples it works for.
+    """
+    if args.emit == "lib":
+        require_mobile_target(args.target, "--emit lib")
+    if not is_mobile_target(args.target):
+        return
+    if args.emit == "bin" or args.run:
+        raise MobileRefusal(
+            f"{args.target} has no executable build: a mobile app links a static library. Use --emit lib."
+        )
+
+
 def _require_toolchain(args: argparse.Namespace) -> None:
     """Fail before any work when the requested output needs a C driver that is not on PATH."""
-    if not (args.run or args.emit in ("asm", "obj", "bin")):
+    if not (args.run or args.emit in ("asm", "obj", "bin", "lib")):
+        return
+    if args.emit == "lib":
+        # The library mode resolves its own toolchain (the Xcode SDK clang or
+        # the NDK clang), and the resolution errors name what is missing.
         return
     driver = args.driver or "clang"
     if driver == "zig":
@@ -830,6 +890,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         print(json.dumps(report, indent=2))
         return 3 if report["fences"] else 0
     _require_toolchain(args)
+    _require_mobile_refusals(args)
     sanitize = _require_sanitize(args)
     debug_info = _require_debug_info(args)
     config = load_config(source_path)
@@ -859,9 +920,21 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             dbg.end("bridge")
         dbg.begin("lower")
         if source_path.is_dir():
-            module, source = lower_directory(source_path, program_mode=args.program, bridge=bridge, ffi=manifests)
+            module, source = lower_directory(
+                source_path,
+                program_mode=args.program,
+                bridge=bridge,
+                ffi=manifests,
+                target=args.target,
+            )
         elif source_path.is_file():
-            module, source = lower_file(str(source_path), bridge=bridge, timings=dbg.timings_map, ffi=manifests)
+            module, source = lower_file(
+                str(source_path),
+                bridge=bridge,
+                timings=dbg.timings_map,
+                ffi=manifests,
+                target=args.target,
+            )
         else:
             raise IRError(f"source not found: {source_path}")
         dbg.end("lower")
@@ -920,12 +993,19 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             call_args,
             standalone=args.emit == "bin",
             debug_info=debug_info,
+            library=args.emit == "lib",
         )
         dbg.end("emit_llvm")
         # The wasm thread refusal fires before the link, so a program that
         # cannot run threads on the target never reaches the compiler.
         refuse_unsupported_target(llvm_text, args.target)
-        ll_path = _output_path(args, source_path, ".ll")
+        if args.emit == "lib":
+            # The library bundle carries its own .ll: the archive's module
+            # member is <stem>.o, so the stem must not be the -o directory.
+            ll_path = _library_dir(args, source_path) / f"{source_path.stem}.ll"
+        else:
+            ll_path = _output_path(args, source_path, ".ll")
+        ll_path.parent.mkdir(parents=True, exist_ok=True)
         ll_path.write_text(llvm_text, encoding="utf-8")
         outputs["ll"] = str(ll_path)
         log.info("emit.llvm", output=str(ll_path))
@@ -936,6 +1016,36 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             dbg.end("llvmverify")
         if args.emit == "llvm":
             print(ll_path)
+            return 0
+        if args.emit == "lib":
+            state["stage"] = "archive"
+            dbg.begin("archive")
+            mobile = require_mobile_target(args.target, "--emit lib")
+            artifacts = build_library(
+                ll_path,
+                _library_dir(args, source_path),
+                target=mobile,
+                driver=args.driver or "clang",
+                sanitize=sanitize,
+                record=dbg.commands,
+                timings=dbg.timings_map,
+                debug_info=debug_info,
+            )
+            dbg.end("archive")
+            outputs["lib"] = str(artifacts["archive"])
+            outputs["header"] = str(artifacts["header"])
+            outputs["modulemap"] = str(artifacts["modulemap"])
+            log.info("archive.library", output=str(artifacts["archive"]), target=args.target)
+            print(artifacts["archive"])
+            if mobile.family == "android":
+                # The archive has no program headers; the 16 KB alignment is
+                # the consumer's link-time decision, so say it where the
+                # build finishes.
+                print(
+                    "note: link the archive into a shared object with "
+                    + " ".join(ANDROID_PAGE_FLAGS)
+                    + " (Google Play 16 KB page rule)"
+                )
             return 0
         if args.emit in ("asm", "obj"):
             suffix = ".s" if args.emit == "asm" else ".o"

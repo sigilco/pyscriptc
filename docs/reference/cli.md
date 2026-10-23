@@ -21,7 +21,7 @@ pyscriptc compile FILE [options]
 
 | Flag | Effect |
 | ---- | ------ |
-| `--emit ir\|llvm\|asm\|obj\|bin` | Stop after JSON IR, textual LLVM, assembly (`.s`), an object (`.o`), or a linked binary (default `llvm`) |
+| `--emit ir\|llvm\|asm\|obj\|bin\|lib` | Stop after JSON IR, textual LLVM, assembly (`.s`), an object (`.o`), a linked binary, or a static library (default `llvm`) |
 | `--out-dir DIR` | Write artifacts to `DIR/<source name>` instead of beside the source; use for directory compiles |
 | `-o PATH` | Output path; defaults to the source stem |
 | `--call FUNC` | Emit a `main` that calls `FUNC` and prints its return |
@@ -31,6 +31,7 @@ pyscriptc compile FILE [options]
 | `--driver clang\|zig` | C toolchain driver; `zig` enables `--target` (default `clang`, env `PYSC_CC`) |
 | `--linker clang\|zig` | Driver for the final link step only (env `PYSC_LINKER`, defaults to `--driver`) |
 | `--target TRIPLE` | Cross-compile triple for `zig cc`, e.g. `aarch64-linux-gnu.2.39` (env `PYSC_TARGET`) |
+| `--emit lib` | Build a static library instead of a binary; needs a mobile `--target` (`aarch64-apple-ios`, `aarch64-apple-ios-simulator`, `aarch64-linux-android`); see below |
 | `--sanitize LIST` | Comma list of sanitizers for the C runtime and emitted code, e.g. `address,undefined` (env `PYSC_SANITIZE`); needs `--emit bin` |
 | `--skip-check` | Skip the type-checker preflight |
 | `--checker pyrefly\|mypy\|pyright` | Preflight checker (default `pyrefly`; mypy and pyright are deprecated) |
@@ -40,6 +41,20 @@ pyscriptc compile FILE [options]
 | `--debug-dir DIR` | Write `ir.json`, `out.ll`, `cc.sh`, `summary.json` to `DIR` |
 
 Environment defaults: `PYSC_CC`, `PYSC_LINKER` and `PYSC_TARGET` fill `--driver`, `--linker` and `--target` when the flag is absent. An explicit flag always wins.
+
+### Static libraries for mobile (`--emit lib`)
+
+```sh
+pyscriptc compile FILE --emit lib --target aarch64-apple-ios-simulator -o LIBDIR
+```
+
+`-o` names a directory receiving `libpyscriptc.a`, `pyscriptc.h` and `module.modulemap`. The build compiles through clang with the SDK sysroot (`xcrun --show-sdk-path` on Apple, the NDK at `PYSC_ANDROID_NDK` on Android, API level `PYSC_ANDROID_API`, default 24). `--driver zig` is refused: zig bundles neither bionic nor the Apple SDKs.
+
+The exported surface is exactly `pyscriptc_init` plus `pyscriptc_main`; everything else is hidden. Link the archive, call `pyscriptc_init()` once, then `pyscriptc_main()` per run.
+
+Android consumers must link the archive into a shared object carrying `-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384` (the Google Play 16 KB rule for Android 15+). The archive itself has no program headers, so the flags belong to the shared-object link.
+
+`--emit bin` and `--run` refuse mobile targets with `PS4101` (see `pyscriptc explain PS4101`).
 
 ## `run`
 

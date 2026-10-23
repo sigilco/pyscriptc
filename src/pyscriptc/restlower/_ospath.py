@@ -34,6 +34,7 @@ def _relpath(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
 
 def _os_open(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     """`os.open(path, flags, mode=0o777)`: mode only matters with O_CREAT."""
+    lo.mobile_guard(node, "os.open", "osfd")
     lo._reject_keywords(node)
     if len(node.args) not in {2, 3}:
         lo.fail(node, "PS2003", "os.open expects 2 or 3 argument(s)")
@@ -54,6 +55,7 @@ def _os_open(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
 
 def _os_read(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     """`os.read(fd, n)`: n bytes into a fresh buffer."""
+    lo.mobile_guard(node, "os.read", "osfd")
     lo._reject_keywords(node)
     if len(node.args) != 2:
         lo.fail(node, "PS2003", "os.read expects 2 argument(s)")
