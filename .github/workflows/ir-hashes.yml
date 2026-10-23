@@ -10,6 +10,11 @@ name: ir-hashes
 # compare (pull_request): fails on any diff against the committed baseline.
 # The baseline header carries oracle `2/cpython-3.14.<micro>`, so a runner
 # micro bump reports exit 2 (stale header): regenerate then.
+#
+# The compare and generate steps run the raw commands, not `mise run <task>`,
+# for the same reason as ci.yml: the mise uv pin (`latest`) would drop the
+# `>= 0.13.4` uv floor this workflow holds. The compare command is the one
+# the `ir:hashes` task wraps.
 
 on:
   workflow_dispatch:

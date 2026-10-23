@@ -89,6 +89,50 @@ def sanitize_flags(sanitize: list[str] | None) -> list[str]:
     return ["-fsanitize=" + ",".join(sanitize)]
 
 
+# The runtime's thread primitives are pthreads. A wasm target has no
+# working pthread_create: wasi-libc stubs it to return EAGAIN, and its
+# pthread_cond_wait traps. The link would succeed and the program would fail
+# at run time with a libc error that names neither the target nor the reason.
+# The refusal names both, at link time, before the sysroot is touched.
+_WASM_TARGETS = ("wasm32",)
+# The symbols that need a second thread. `ps_lock_*` is not here: a lock on
+# the one thread a WASI program has is a working mutex.
+_THREAD_SYMBOLS = (
+    "ps_thread_start2",
+    "ps_thread_new",
+    "ps_queue_new",
+    "ps_cond_init",
+    "ps_sem_new",
+    "ps_event_new",
+)
+
+
+def refuse_unsupported_target(text: str, target: str | None) -> None:
+    """Refuse a target that cannot run the runtime's thread primitives.
+
+    The check is on the emitted text, not on the source: the runtime links
+    every `.c` file, but the thread primitives only reach the binary when
+    the program uses them. A program that never starts a thread links fine
+    for wasm; a program that does gets the refusal instead of a libc error
+    at run time.
+    """
+    if target is None:
+        return
+    if not target.startswith(_WASM_TARGETS):
+        return
+    # The IR names a global as `@symbol(`, both in its declaration and in
+    # every call. Anchoring on that form keeps a colliding name (say
+    # `not_ps_thread_start2`) from reading as a use of the runtime symbol.
+    used = [symbol for symbol in _THREAD_SYMBOLS if f"@{symbol}(" in text]
+    if not used:
+        return
+    raise IRError(
+        f"the {target} target has no working pthreads, so the runtime's "
+        f"thread primitives ({', '.join(used)}) cannot be used there; "
+        "threads are a native-only surface for now (issue #172)"
+    )
+
+
 def link_binary(
     llvm_path: Path,
     output: Path,
@@ -99,7 +143,10 @@ def link_binary(
     sanitize: list[str] | None = None,
     timings: dict[str, float] | None = None,
     debug_info: bool = False,
-    extra_units: list[Path] | None = None,
+    compile_units: list[Path] | None = None,
+    link_units: list[Path] | None = None,
+    link_flags: list[str] | None = None,
+    include_dirs: list[Path] | None = None,
 ) -> None:
     """Link `.ll` text plus the C runtime into `output`.
 
@@ -117,6 +164,17 @@ def link_binary(
     produce it; on ELF the sections stay in the binary.
     When `timings` is a dict, per-step cc/link wall milliseconds are added
     into it (`cc_compile`, `cc_link`).
+
+    The `--ffi` manifest units join the same link shape as the runtime
+    (`.agents/docs/ffi/ffi-manifest.md` section 4): `compile_units` are C
+    sources the target cc compiles in the per-unit `.o` loop, `link_units`
+    are prebuilt archives and objects that go straight on the link line, and
+    `link_flags` are the per-manifest `-L`/`-l` arguments. Every one of them
+    is optional, so a build with no manifest produces exactly the link line
+    it produced before the FFI gate.
+    `include_dirs` are added as `-I` to the manifest unit compiles only, so a
+    vendored header next to the manifest resolves without touching the
+    runtime's own include surface.
     """
     output.parent.mkdir(parents=True, exist_ok=True)
     if target is not None and driver != "zig":
@@ -124,6 +182,9 @@ def link_binary(
     cc = "zig cc" if driver == "zig" else driver
     runtime = runtime_dir()
     text = llvm_path.read_text(encoding="utf-8")
+    # The refusal comes before the sysroot is touched: a program that
+    # cannot run threads on the target should not reach the compiler at all.
+    refuse_unsupported_target(text, target)
     sources = [str(path) for path in sorted(runtime.glob("*.c"))]
     target_flags = ["-target", target] if target is not None else []
     san_flags = sanitize_flags(sanitize)
@@ -144,15 +205,15 @@ def link_binary(
         tail = [f"-L{libdir}", f"-lpython{version}", f"-Wl,-rpath,{libdir}", *tail]
     else:
         sources = [source for source in sources if not source.endswith("ps_island.c")]
-    # `--ffi` manifest units join the same per-unit compile loop as the
+    # The `--ffi` manifest units join the same per-unit compile loop as the
     # runtime: a `.c` unit compiles like a runtime file, an archive goes
     # straight on the link line (`.agents/docs/ffi/ffi-manifest.md` section 4).
-    ffi_archives: list[Path] = []
-    for unit in extra_units or []:
-        if unit.suffix in (".a", ".o"):
-            ffi_archives.append(unit)
-        else:
-            sources.append(str(unit))
+    # A missing unit is refused before the compiler runs, so the failure names
+    # the manifest that declared it instead of surfacing as a cc error.
+    _require_units(compile_units, link_units)
+    ffi_sources = [str(unit) for unit in compile_units or []]
+    ffi_archives = [str(unit) for unit in link_units or []]
+    sources.extend(ffi_sources)
     # zig cannot compile C sources inside a link invocation for Mach-O, so
     # every unit goes to .o first and the link line carries objects only.
     use_cache = rtcache.prepare()
@@ -174,11 +235,25 @@ def link_binary(
     jobs: list[tuple[list[str], Path | None]] = [(ll_argv, None)]
     objects = [ll_obj]
     hits = 0
+    # A manifest unit compiles against the manifest's own directory (vendored
+    # headers) and against the runtime directory (ps_rt.h, the contract the
+    # thunk is written against). The runtime units gain nothing.
+    ffi_include_flags = ["-I", str(runtime)]
+    for directory in include_dirs or []:
+        ffi_include_flags.extend(["-I", str(directory)])
+    # The manifest units carry the manifest's own include dirs; the runtime
+    # units keep the flags they always had, so a manifest-free build compiles
+    # the runtime exactly as it did before the FFI gate.
+    manifest_sources = frozenset(ffi_sources)
     for source in sources:
         src = Path(source)
         flags = ["-O2", *san_flags, *target_flags]
+        extra_dirs: tuple[Path, ...] = ()
+        if source in manifest_sources:
+            flags.extend(ffi_include_flags)
+            extra_dirs = (runtime, *(include_dirs or []))
         if use_cache:
-            final = rtcache.object_path(src, runtime, cc.split(), flags)
+            final = rtcache.object_path(src, runtime, cc.split(), flags, extra_dirs)
             objects.append(final)
             if final.exists():
                 hits += 1
@@ -202,7 +277,14 @@ def link_binary(
         # no -O on the link line: it is a compile flag and zig's Mach-O
         # driver crashes on it (0.16.0)
         link_cc = ("zig cc" if link_driver == "zig" else link_driver) if link_driver else cc
-        argv = [*_cc_argv(link_cc), *objects, *[str(path) for path in ffi_archives], *target_flags, *tail]
+        argv = [
+            *_cc_argv(link_cc),
+            *objects,
+            *ffi_archives,
+            *target_flags,
+            *(link_flags or []),
+            *tail,
+        ]
         if record is not None:
             record.append([str(arg) for arg in argv])
         link_started = time.perf_counter()
@@ -223,6 +305,17 @@ def runtime_dir() -> Path:
     modules, so the package can grow without moving the data files.
     """
     return Path(__file__).resolve().parents[2] / "runtime"
+
+
+def _require_units(compile_units: list[Path] | None, link_units: list[Path] | None) -> None:
+    """Refuse a declared unit that is not on disk, before the compiler runs.
+
+    A missing file would otherwise surface as a cc error halfway through the
+    build, which names the compiler and not the manifest that declared it.
+    """
+    for unit in [*(compile_units or []), *(link_units or [])]:
+        if not unit.exists():
+            raise IRError(f"the declared unit {unit} does not exist")
 
 
 def _write_debug_symbols(output: Path, record: list[list[str]] | None) -> None:

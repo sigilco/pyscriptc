@@ -16,7 +16,7 @@ Tools already on your PATH that satisfy the `mise.toml` pins are reused, not rei
 
 ## Tasks
 
-`mise.toml` is the task runner for the mixed python and node toolchain. Every task is one command:
+`mise` is the default task runner. Every command in this document is `mise run <task>` first, with the raw command it wraps shown once below the table. The task names and what they do:
 
 | Task | What it does |
 | --- | --- |
@@ -29,8 +29,23 @@ Tools already on your PATH that satisfy the `mise.toml` pins are reused, not rei
 | `mise run lint` | `ruff check` |
 | `mise run format-check` | `ruff format --check`, with the same excludes as CI |
 | `mise run check` | `lint` + `format-check` + the `tests/compat2` unit selection |
+| `mise run bench:baseline` | The perf regression gate against `benchmarks/baseline/reference*.json` |
+| `mise run compat:json` | Rebuild `compat/data/compat.json` (append `--check` to compare) |
+| `mise run compat:ladder` | Rebuild `compat/data/ladder.json` |
+| `mise run compat:census` | Compat2 census over the visible corpus (append `--top N` to limit) |
+| `mise run support:table` | Regenerate the supported-API tables under `.agents/docs/support` (append `--check` to compare) |
+| `mise run boxed:cost` | The boxed ledger window, per `AGENTS.md` |
+| `mise run ir:hashes` | Canonical IR hash compare against the committed baseline (linux oracle; see the note in `mise.toml` for the 3.14 micro stamp and macOS behavior) |
+| `mise run compile` | `pyscriptc compile`, extra args pass through: `mise run compile examples/hello.py --emit bin` |
+| `mise run run` | `pyscriptc run` (content-cached compile and execute), args pass through |
+| `mise run wheel:smoke` | Build the wheel, install it in a fresh venv, compile and run hello |
+| `mise run release:rehearse` | Dispatch `release.yml` on the master tip (the rehearsal run, about 20 minutes) |
 
-The same commands are available without mise (`uv run pytest`, `pnpm run docs:build`, `uv run python scripts/check_doc_links.py`), but mise pins the toolchain versions.
+Extra args after the task name are appended to the wrapped command, so `mise run compat:json --check` is `uv run python scripts/build_compat_json.py --check`.
+
+The same raw commands are available without mise (`uv run pytest`, `pnpm --dir docs/.docmd exec docmd build --config docmd.config.js`, `uv run python scripts/check_doc_links.py`), but mise pins the toolchain versions and is what a local checkout is set up for.
+
+CI runs the raw commands, not `mise run`. `mise.toml` pins `uv = "latest"`, and the workflows hold a `>= 0.13.4` uv floor from the emSign CA incident, so routing CI through mise would change which uv the checks run under. The job names and the required check names are the same either way, since the commands are identical.
 
 ## The documentation site
 
@@ -53,8 +68,10 @@ Two details worth knowing before you edit a page:
 ```bash
 mise run check
 mise run test
-uv run python -m benchmarks.baseline.run --check
+mise run bench:baseline
 ```
+
+`mise run check` wraps `uv run ruff check`, `uv run ruff format --check` and `uv run pytest -q tests/compat2 -m "not linux_container"`, and `mise run bench:baseline` wraps `uv run python -m benchmarks.baseline.run --check`. The raw commands work too.
 
 ## Conventions
 

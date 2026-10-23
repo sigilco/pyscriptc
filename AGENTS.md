@@ -6,7 +6,7 @@
 - v1 scorer (`benchmarks/compat/`) is frozen history. v2 lives in `benchmarks/compat2/`; shared contract is `benchmarks/compat2/outcomes.py`.
 - Frozen v2 gates (tag `gates-v2`, 2026-10-16). Changes need a recorded decision first: `outcomes.py`, `score.py` weights, `coverage_map.py`, `cache.py`, `calibrate.py`, `CALIBRATION.json`, `TRIAGE.md`, `probes/*.jsonl`, `probes/IR_HASHES.json`, `canonical.py` rules (`.agents/docs/spec/ir-canonicity.md`). Regenerating `IR_HASHES.json` requires the A/B byte-identical discipline (`python -m benchmarks.compat2.irscore` twice, `cmp`).
 - Sweep evidence for the 3.12 corpus: #22 (triage zero-deltas, verdict replays), #23 (calibration cells >= 26, headroom 0 capped), #24 (generation byte-identical). Boxed ledger at the boundary (2026-10-16, window `06ed55b`): code 1.39%, churn 0%, bugs 0%, tax 0%, drop_flag false.
-- Package manager: `uv`. Checks: `uv run pytest`, `uv run ruff check`, `uv run ruff format --check`, `uv run python -m benchmarks.baseline.run --check`.
+- Package manager: `uv`. The default task runner is `mise`: `mise run check` (lint, format-check and the compat2 unit selection), `mise run test` (the full suite) and `mise run bench:baseline` (the perf gate). Each task wraps one raw command, `uv run pytest`, `uv run ruff check`, `uv run ruff format --check` and `uv run python -m benchmarks.baseline.run --check` respectively. CI runs the raw commands, not through mise: the mise uv pin (`latest`) would drop the `>= 0.13.4` uv floor the workflows hold, so the job names and the required check names stay as they are.
 - Compiler debug mode: `pyscriptc compile FILE --debug[=stages,fences,cc,paths,all]` (env `PYSC_DEBUG`) prints a stage/fence/cc table to stderr; `--debug-dir DIR` dumps `ir.json`, `out.ll`, `cc.sh`, `summary.json`. Details in `.agents/docs/debug.md`.
 - Master changes come from PRs: the ruleset `master: PR only` requires a PR and the CI checks `betterleaks`, `ruff and compat2`, `zig cc emitted-IR smoke`, `wheel install smoke`, blocks force push and deletion, and lets only the repository admin role bypass. Direct push is exceptional (emergency only; `cut-release` opens a release PR and pushes only the tag); give the reason in the commit message. Details in `.agents/docs/release/release-process.md`.
 - Running tests: `uv run pytest -n 6 -m "not linux_container"` (CI selection adds `--ignore=tests/compat2`). `-n auto` is bounded by CPU and free memory via `tests/conftest.py` + `scripts/pytest_workers.py`; override with `PYTEST_WORKERS=N`. Details: `.agents/plans/2026-10-21-xdist-workers-and-split.md`.
@@ -23,12 +23,14 @@ The opt-in `--fallback=cpython` tier is isolated so it can be deleted. Boxed cod
 Measure at every epic boundary and in every iteration report:
 
 ```
-uv run python benchmarks/compat2/boxed_cost.py --window-commits 10 [--reach reach.json] [--probe-times times.json]
+mise run boxed:cost
 ```
+
+That wraps `uv run python benchmarks/compat2/boxed_cost.py --window-commits 10`, and the optional `--reach reach.json` and `--probe-times times.json` flags are appended to the task call.
 
 It reports, per window, code share, churn share, bug share (`fix` commits) and iteration tax (commits that touch boxed code without naming boxed, island or fallback in the subject). Record the latest values and their trend here after each run.
 
-Latest measurement (2026-10-22, newest window covers the async-minimal branch): code 0.7%, churn 0.0%, bug 0.0%, tax 0.0%, drop_flag false, three windows flat (previous windows 1.0%/1.1%, then 0.8%). Baseline at snapshot 046: `ps_island.c` is about 1.4% of compiler lines, all other metrics are zero.
+Latest measurement (2026-10-23, newest window covers the threading stages): code 0.5%, churn 1.9%, bug 33.3% (1 of 3 fixes), tax 10.0% (1 commit), drop_flag false. The boxed commit in that window is fd44b4ee (the squash merge of the threading PR #342), which carries the island thread-safety fix (`ps_island.c`, 43 lines added, 10 removed); the inner commit named island, the squashed subject did not, so the ledger scores it as tax. Windows 1 and 2 are flat (0.5%/0.0%/0.0%/0.0%). Neither threshold is met (churn 20% and bug 25% need two consecutive windows, and windows 1-2 are zero) and the newest tax (10.0%) is under the 15% limit, so the flag stays false. Baseline at snapshot 046: `ps_island.c` is about 1.4% of compiler lines, all other metrics are zero.
 
 Drop flag rules. Raise the flag in the iteration report when any holds:
 

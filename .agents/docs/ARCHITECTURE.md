@@ -74,7 +74,7 @@ The fixture layout is backend-neutral: the IR input lives beside the LLVM expect
 The distribution story is one command:
 
 ```bash
-uv run pyscriptc compile examples/access_log.py --run --call admit --args '["{\"method\":\"GET\",\"path\":\"/api/health\",\"status\":\"200\"}"]' -o /tmp/admit
+mise run compile examples/access_log.py --run --call admit --args '["{\"method\":\"GET\",\"path\":\"/api/health\",\"status\":\"200\"}"]' -o /tmp/admit
 ```
 
 The binary prints the return value. There is no `print` in the subset. Scripts whose work is integer cents, a JSON record, a date, a URL, a digest, or a path label fit. Keywords, stored defaults, same-type `and`/`or`, Latin-1 strings, step-1 slices, plain f-strings, `with open(...) as f`, and tuples of two or more fields lower. Tuple equality stays a fence. A directory compile resolves relative imports of functions, module-level constants, and classes the defining module emits, including a subclass of an exported class. `__main__.py` is skipped; the compile says it is the `python -m` script, not an importable module. A class or function that does not lower reports that definition's fence ahead of "is not exported". A module-level `if sys.version_info` compared with a tuple of ints keeps the taken branch. `global` of a module `None` slot, and `as_file(...).__enter__`, lower without libpython. A class may have one base. `@property`, `@staticmethod`, `@classmethod`, a flat `@dataclass`, and an integer `enum` lower. `super()`, multiple inheritance, and any other decorator stay fences. That boundary is written down in [`benchmarks/adoption/README.md`](benchmarks/adoption/README.md).

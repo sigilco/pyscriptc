@@ -419,6 +419,71 @@ def test_source_path_must_be_a_string() -> None:
     fails(manifest("[[source]]\npath = 3\n"), "PS4005")
 
 
+# --- link flags ------------------------------------------------------------
+
+
+def test_manifest_without_link_flags_has_none() -> None:
+    parsed = parse_manifest_text(manifest())
+    assert parsed.libs == ()
+    assert parsed.lib_dirs == ()
+    assert parsed.link_flags() == []
+
+
+def test_manifest_link_flags_are_read() -> None:
+    parsed = parse_manifest_text(manifest('libs = ["z"]\nlib_dirs = ["/opt/ffi/lib"]\n'))
+    assert parsed.libs == ("z",)
+    assert parsed.lib_dirs == ("/opt/ffi/lib",)
+    assert parsed.link_flags() == ["-L/opt/ffi/lib", "-lz"]
+
+
+def test_a_lib_entry_with_the_dash_is_refused() -> None:
+    """The `libs` entry is the bare soname: `-lz` would become `--lz`."""
+    error = fails(manifest('libs = ["-lz"]\n'), "PS4005")
+    assert "bare library name" in error.message
+
+
+def test_a_lib_entry_with_the_file_name_is_refused() -> None:
+    fails(manifest('libs = ["libz.so"]\n'), "PS4005")
+
+
+def test_a_lib_dir_entry_with_the_dash_is_refused() -> None:
+    error = fails(manifest('lib_dirs = ["-L/opt"]\n'), "PS4005")
+    assert "bare directory path" in error.message
+
+
+def test_libs_must_be_a_list_of_strings() -> None:
+    fails(manifest("libs = 3\n"), "PS4005")
+    fails(manifest('libs = ["z", 3]\n'), "PS4005")
+
+
+def test_lib_dirs_must_be_a_list_of_strings() -> None:
+    fails(manifest("lib_dirs = 3\n"), "PS4005")
+    fails(manifest('lib_dirs = ["/opt", 3]\n'), "PS4005")
+
+
+# --- the unit split --------------------------------------------------------
+
+
+def test_the_units_split_into_compile_and_link(tmp_path: Path) -> None:
+    path = write(
+        tmp_path,
+        manifest(
+            """
+            [[source]]
+            path = "vendor/sqlite3.c"
+            [[source]]
+            objects = ["vendor/prebuilt.a", "vendor/other.o"]
+            """
+        ),
+    )
+    parsed = load_manifest(path)
+    assert parsed.compile_units() == [tmp_path / "vendor" / "sqlite3.c"]
+    assert parsed.link_units() == [
+        tmp_path / "vendor" / "prebuilt.a",
+        tmp_path / "vendor" / "other.o",
+    ]
+
+
 # --- handles --------------------------------------------------------------
 
 

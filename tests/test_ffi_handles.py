@@ -6,8 +6,8 @@ this file covers the parts that need a real binary: the handle lifecycle
 including a bytes value with an embedded NUL.
 
 The fixture C file (tests/fixtures/ffi/ps_ffi_fixture.c) is linked through
-link_binary's extra_units seam, because the manifest [[source]] gate is F2
-(issue #220) and refuses manifest-declared C units for now.
+link_binary's compile_units seam, which is the F2 gate (issue #220): a
+manifest [[source]] unit compiles exactly like this.
 """
 
 from __future__ import annotations
@@ -73,7 +73,7 @@ def _build(tmp_path: Path, source: str, *, sanitize: list[str] | None = None) ->
     ll = tmp_path / "program.ll"
     ll.write_text(emit_llvm(module, standalone=True), encoding="utf-8")
     binary = tmp_path / "program"
-    link_binary(ll, binary, extra_units=[CFILE], sanitize=sanitize)
+    link_binary(ll, binary, compile_units=[CFILE], sanitize=sanitize)
     return binary
 
 

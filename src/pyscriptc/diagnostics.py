@@ -254,10 +254,14 @@ _ENTRIES = (
     Diagnostic(
         "PS4008",
         "FFI manifest dangling reference",
-        "An ownership annotation or handle reference names something the manifest does not declare, "
-        "or the manifest declares a C source this compiler does not link yet.",
-        "Declare the handle, or fix the reference to a declared handle or parameter. "
-        "A [[source]] entry lands with the F2 static-link gate (#220).",
+        "An ownership annotation or handle reference names something the manifest does not declare.",
+        "Declare the handle, or fix the reference to a declared handle or parameter.",
+    ),
+    Diagnostic(
+        "PS4009",
+        "FFI manifest unit missing",
+        "A [[source]] entry names a C file, archive or object that does not exist on disk.",
+        "Point the manifest at the file that ships with the adapter, or fetch the vendored C first.",
     ),
     Diagnostic(
         "PS4010",

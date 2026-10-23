@@ -12,6 +12,11 @@
 # The nightly workflow calls this workflow's `site` job through
 # workflow_call after a compat snapshot PR opens, so the PR check runs
 # before the owner looks at it. Design: .agents/docs/compat-site.md.
+#
+# The build and validate steps run the raw commands, not `mise run <task>`,
+# for the same reason as ci.yml: the mise uv pin (`latest`) would drop the
+# `>= 0.13.4` uv floor this workflow holds, and the setup steps here are
+# already the cached ones. The commands are the ones the tasks wrap.
 
 name: site
 

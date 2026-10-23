@@ -13,6 +13,7 @@ from pyscriptc.emit.llvm._driver import (
     compile_unit,
     emit_llvm,
     link_binary,
+    refuse_unsupported_target,
     runtime_dir,
     sanitize_flags,
 )
@@ -22,6 +23,7 @@ __all__ = [
     "compile_unit",
     "emit_llvm",
     "link_binary",
+    "refuse_unsupported_target",
     "runtime_dir",
     "sanitize_flags",
     "standalone_entry",

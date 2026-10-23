@@ -151,7 +151,16 @@ def test_two_manifests_cannot_claim_one_module(tmp_path: Path) -> None:
     assert exc.value.code == "PS4007"
 
 
-def test_manifest_sources_are_refused_until_f2(tmp_path: Path) -> None:
+def test_manifest_sources_are_linked_after_f2(tmp_path: Path) -> None:
+    """A manifest that declares `[[source]]` is accepted and the unit links (#220).
+
+    The F2 gate removed the PS4008 refusal: the manifest reaches the link
+    step, which compiles the declared C with the target cc and links it
+    statically.
+    """
+    vendor = tmp_path / "vendor"
+    vendor.mkdir()
+    (vendor / "demo.c").write_text("int demo_zero(void) { return 0; }\n", encoding="utf-8")
     source = tmp_path / "use.py"
     source.write_text("import demo_math\n\ndef main() -> int:\n    return 0\n", encoding="utf-8")
     manifest = tmp_path / "demo.toml"
@@ -163,9 +172,9 @@ def test_manifest_sources_are_refused_until_f2(tmp_path: Path) -> None:
         text=True,
         check=False,
     )
-    assert proc.returncode == 1
-    assert "PS4008" in proc.stderr
-    assert "#220" in proc.stderr
+    assert proc.returncode == 0, proc.stderr
+    assert "PS4008" not in proc.stderr
+    assert "PS4009" not in proc.stderr
 
 
 def _first_call(module: dict):

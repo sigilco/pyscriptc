@@ -9,8 +9,10 @@ Every release, including rc and hotfix, needs a successful rehearsal of the exac
 Dispatch it on the commit you intend to release (the tip of master) with the full SHA, so the run title is `rehearsal <full SHA>`:
 
 ```sh
-gh workflow run release.yml --ref master -f ref="$(git rev-parse origin/master)"
+mise run release:rehearse
 ```
+
+That wraps `gh workflow run release.yml --ref master -f ref="$(git rev-parse origin/master)"`.
 
 Leaving `ref` empty rehearses the dispatched commit, which has the same title. A branch name works for a trial run, but only a run titled `rehearsal <full SHA>` counts for the gates below. The matrix takes about 20 minutes.
 
