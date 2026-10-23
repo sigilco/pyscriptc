@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pyscriptc.builtins import EXCEPTIONS, USER_EXC_BASE
+from pyscriptc.builtins import EXCEPTIONS, RESERVED_EXCEPTIONS, USER_EXC_BASE
 from pyscriptc.emit._ir import _llvm_type
 from pyscriptc.errors import IRError
 
@@ -384,9 +384,11 @@ class StmtsMixin:
         names = handler if isinstance(handler, list) else handler["exc"]
         checks: list[str] = []
         for name in names:
-            if name not in EXCEPTIONS:
+            wanted = EXCEPTIONS.get(name)
+            if wanted is None:
+                wanted = RESERVED_EXCEPTIONS.get(name)
+            if wanted is None:
                 continue
-            wanted = EXCEPTIONS[name]
             call = self._call_ret("i32", "ps_exc_isa", [f"i32 {code}", f"i32 {wanted}"])
             checks.append(self._flag(call))
         numbers = handler.get("codes") if isinstance(handler, dict) else None

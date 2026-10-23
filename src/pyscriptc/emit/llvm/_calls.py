@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from pyscriptc.emit._ir import _llvm_type
 from pyscriptc.errors import IRError
 
 
@@ -116,6 +117,18 @@ class CallsMixin:
             return self._emit_deque_store(expr, values)
         if expr.get("symbol") in {"ps_deque_pop", "ps_deque_popleft"}:
             return self._emit_deque_load(expr, values)
+        if expr.get("symbol") == "ps_queue_put":
+            # The item travels as a pointer to a stashed slot, the shape
+            # `deque.append` uses: the queue stores element-sized slots.
+            slot = self._stash(expr["args"][2]["type"], values[2])
+            self._abi_decl("ps_queue_put", "void", ["ptr", "i64", "ptr"])
+            self._call_void("ps_queue_put", [f"ptr {values[0]}", f"i64 {values[1]}", f"ptr {slot}"])
+            return ""
+        if expr.get("symbol") == "ps_queue_get":
+            out = self._alloca(_llvm_type(expr["type"]))
+            self._abi_decl("ps_queue_get", "void", ["ptr", "i64", "ptr"])
+            self._call_void("ps_queue_get", [f"ptr {values[0]}", f"i64 {values[1]}", f"ptr {out}"])
+            return self._load(_llvm_type(expr["type"]), out)
         if expr.get("symbol") == "ps_list_push":
             return self._emit_list_push(expr, values)
         if isinstance(expr.get("symbol"), str) and expr["symbol"].startswith("ps_exc_isa_value:"):
