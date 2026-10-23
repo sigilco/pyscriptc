@@ -75,7 +75,27 @@ def provider_version(provider: str) -> str | None:
     """The version of the named checker-bridge provider, or None when absent."""
     if provider == "mypy":
         return mypy_version()
+    if provider == "pyrefly":
+        return pyrefly_version()
     return None
+
+
+def pyrefly_version() -> str | None:
+    """The installed pyrefly version string, or None when pyrefly is absent.
+
+    Read from the `pyrefly` package metadata, not from the binary: the
+    bridge lane runs pyrefly as a subprocess, and the record must name the
+    version the answers came from.
+    """
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+    except ImportError:  # pragma: no cover - 3.8 and older only
+        return None
+    try:
+        found = version("pyrefly")
+    except PackageNotFoundError:
+        return None
+    return found if found else None
 
 
 def _iter_mypy_nodes(root: Any):
@@ -163,7 +183,7 @@ def _mypy_type_facts(typ: Any) -> TypeFacts:
 
 @dataclass(frozen=True)
 class DefFacts:
-    """What mypy proved about one `def`, keyed by position (1-based line, 0-based col)."""
+    """What the checker proved about one `def`, keyed by position (1-based line, 0-based col)."""
 
     name: str
     params: dict[str, TypeFacts]
@@ -267,6 +287,153 @@ class MypyBridge:
         )
 
 
+class PyreflyBridge:
+    """`FactsProvider`-shaped adapter that feeds pyrefly's TSP facts to lowering.
+
+    The fallback lane the checker-bridge design doc names: the same
+    `CheckerBridge` surface as the mypy lane, but the facts come from
+    `pyrefly tsp` (the `pyrefly/typeFacts` bulk request plus the per-def
+    `typeServer/getComputedType` signature), not from mypy's TypeMap.
+
+    What pyrefly proves and what it does not, measured on pyrefly 1.4.x
+    (issue #258):
+
+    - Expressions: the bulk request answers the same `line:col` keys as the
+      mypy lane, with the same value shapes (`int`, `list[int]`,
+      `dict[str, int]`, `Literal[...]`).
+    - Parameters: pyrefly resolves an annotated parameter to its type, and
+      resolves an unannotated one to `Any` exactly like mypy does. It does
+      not infer an unannotated parameter from its uses or its callers.
+    - Returns: an unannotated `def` gets `Any` as its computed return type
+      even when every `return` statement agrees on a type. The bridge
+      recovers it the same way the mypy lane does, from the return
+      expressions' own facts, and only when they all agree.
+
+    So the two lanes answer the same questions with the same limits: the
+    bridge is a second opinion on the checker, not a second inference
+    engine.
+    """
+
+    name = "pyrefly"
+
+    def facts(self, path: Path) -> BridgeFacts:
+        from pyscriptc.typefacts import PyreflyTspFactsAdapter
+
+        path = path.resolve()
+        try:
+            source = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise CheckFailed(f"cannot read {path}: {exc}") from exc
+        try:
+            tree = ast.parse(source, filename=str(path))
+        except SyntaxError as exc:
+            raise CheckFailed(f"cannot parse {path}: {exc}") from exc
+        lines = source.splitlines()
+        with PyreflyTspFactsAdapter() as adapter:
+            module_facts = adapter.facts(path)
+            expressions = dict(module_facts.expressions)
+            defs = self._def_facts(adapter, path, tree, lines, expressions)
+        return BridgeFacts(
+            path=path,
+            provider=self.name,
+            expressions=expressions,
+            defs=defs,
+        )
+
+    def _def_facts(
+        self,
+        adapter: Any,
+        path: Path,
+        tree: ast.Module,
+        lines: list[str],
+        expressions: dict[str, TypeFacts],
+    ) -> dict[str, DefFacts]:
+        """Per-def facts: the resolved parameters and the agreed return type."""
+
+        connection = adapter._connection
+        if connection is None:
+            return {}
+        uri = path.as_uri()
+        snapshot = adapter._snapshot_now(connection)
+        defs: dict[str, DefFacts] = {}
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            params: dict[str, TypeFacts] = {}
+            signature = self._computed_signature(adapter, connection, uri, snapshot, node, lines)
+            if signature is not None:
+                for param, arg in zip(signature.parameters, node.args.args, strict=False):
+                    if param.type.kind in {"any", "unknown"}:
+                        continue
+                    params[arg.arg] = param.type
+            ret_facts = self._return_facts(node, expressions, signature)
+            defs[f"{node.lineno}:{node.col_offset}"] = DefFacts(
+                name=node.name,
+                params=params,
+                return_type=ret_facts,
+            )
+        return defs
+
+    def _computed_signature(
+        self,
+        adapter: Any,
+        connection: Any,
+        uri: str,
+        snapshot: int,
+        node: ast.FunctionDef | ast.AsyncFunctionDef,
+        lines: list[str],
+    ) -> Any:
+        """The computed signature of one `def`, or None when pyrefly gives none."""
+        from pyscriptc.typefacts import _def_name_range, _tsp_type
+
+        rng = _def_name_range(node, lines)
+        if rng is None:
+            return None
+        computed = connection.request(
+            "typeServer/getComputedType",
+            {"arg": {"uri": uri, "range": rng}, "snapshot": snapshot},
+            timeout=30,
+        )
+        if computed is None:
+            return None
+        facts = _tsp_type(computed, {})
+        return facts.callable
+
+    def _return_facts(
+        self,
+        node: ast.FunctionDef | ast.AsyncFunctionDef,
+        expressions: dict[str, TypeFacts],
+        signature: Any,
+    ) -> TypeFacts | None:
+        """The return type pyrefly proved, or None when it proved none.
+
+        An annotated `def` carries its own return type. An unannotated one
+        gets `Any` from pyrefly, so the bridge recovers it from the return
+        expressions' own facts and answers only when they all agree.
+        """
+        if signature is not None and signature.return_type.kind not in {"any", "unknown"}:
+            return signature.return_type
+        returns = _collect_ast_returns(node)
+        if not returns:
+            return None
+        resolved = [expressions.get(f"{expr.lineno}:{expr.col_offset}") for expr in returns]
+        if not all(facts is not None for facts in resolved):
+            return None
+        widened = [_widen_literal_facts(facts) for facts in resolved if facts is not None]
+        if not all(_same_shape(one, widened[0]) for one in widened):
+            return None
+        if widened[0].kind in {"any", "unknown"}:
+            return None
+        return widened[0]
+
+
+def _widen_literal_facts(facts: TypeFacts) -> TypeFacts:
+    """A literal fact widens to its base type (`Literal[1]` to `int`)."""
+    if facts.kind == "literal" and facts.args:
+        return facts.args[0]
+    return facts
+
+
 def _widen_literal(typ: Any) -> Any:
     """A literal type widens to its base type (`Literal[2]` to `int`).
 
@@ -298,7 +465,7 @@ def _same_shape(one: TypeFacts, other: TypeFacts) -> bool:
 
 
 def _collect_returns(fn: Any) -> list[Any]:
-    """Every `return expr` expression node in a function body."""
+    """Every `return expr` expression node in a mypy function body."""
     from mypy.nodes import ReturnStmt
 
     found: list[Any] = []
@@ -320,6 +487,30 @@ def _collect_returns(fn: Any) -> list[Any]:
                             walk(item)
 
     walk(getattr(fn, "body", None))
+    return found
+
+
+def _collect_ast_returns(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast.expr]:
+    """Every `return expr` expression node in an ast function body.
+
+    The ast twin of `_collect_returns`: it descends into the nested blocks
+    an ast body can hold (if, for, while, with, try), so a return inside a
+    branch is found too.
+    """
+    found: list[ast.expr] = []
+
+    def walk(body: list[ast.stmt]) -> None:
+        for stmt in body:
+            if isinstance(stmt, ast.Return) and stmt.value is not None:
+                found.append(stmt.value)
+            for field in ("body", "orelse", "finalbody"):
+                nested = getattr(stmt, field, None)
+                if isinstance(nested, list):
+                    walk(nested)
+            for handler in getattr(stmt, "handlers", []) or []:
+                walk(handler.body)
+
+    walk(fn.body)
     return found
 
 
@@ -433,7 +624,9 @@ class CheckerBridge:
     def for_path(cls, path: Path, provider: str = "mypy") -> CheckerBridge:
         if provider == "mypy":
             return cls(MypyBridge().facts(path))
-        raise CheckFailed(f"checker bridge {provider!r} is not wired; use 'mypy'")
+        if provider == "pyrefly":
+            return cls(PyreflyBridge().facts(path))
+        raise CheckFailed(f"checker bridge {provider!r} is not wired; use 'mypy' or 'pyrefly'")
 
     def inferred_local(self, line: int, col: int) -> TypeFacts | None:
         """The inferred type of the expression starting at (line, col)."""
