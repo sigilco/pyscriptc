@@ -34,11 +34,11 @@ def test_a_package_counts_only_when_its_function_matches(tmp_path: Path) -> None
 
     broken = tmp_path / "broken"
     broken.mkdir()
-    (broken / "__init__.py").write_text("import argparse\n", encoding="utf-8")
+    (broken / "__init__.py").write_text("import sqlite3\n", encoding="utf-8")
     refused = classify_tree("broken", broken)
     assert refused["status"] == "fenced"
     assert refused["detail"].startswith("PS")
-    assert "argparse" in refused["detail"]
+    assert "sqlite3" in refused["detail"]
 
     script = tmp_path / "scripted"
     script.mkdir()
