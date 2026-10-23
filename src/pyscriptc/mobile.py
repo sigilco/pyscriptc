@@ -116,9 +116,7 @@ def mobile_target(target: str) -> MobileTarget:
     for known in MOBILE_TARGETS.values():
         if target == known.cc_target or target.startswith(known.name.split("-ios")[0] + "-ios"):
             return known
-    raise MobileRefusal(
-        f"{target!r} is not a mobile target: one of {', '.join(sorted(MOBILE_TARGETS))}"
-    )
+    raise MobileRefusal(f"{target!r} is not a mobile target: one of {', '.join(sorted(MOBILE_TARGETS))}")
 
 
 def require_mobile_target(target: str | None, what: str) -> MobileTarget:
@@ -129,8 +127,7 @@ def require_mobile_target(target: str | None, what: str) -> MobileTarget:
     """
     if not is_mobile_target(target):
         raise MobileRefusal(
-            f"{what} needs a mobile target: one of "
-            f"{', '.join(sorted(MOBILE_TARGETS))} (got {target!r})"
+            f"{what} needs a mobile target: one of {', '.join(sorted(MOBILE_TARGETS))} (got {target!r})"
         )
     assert target is not None
     return mobile_target(target)

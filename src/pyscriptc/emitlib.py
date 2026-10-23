@@ -33,9 +33,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pyscriptc import rtcache
+from pyscriptc.emit.llvm._driver import runtime_dir, sanitize_flags
 from pyscriptc.errors import IRError
 from pyscriptc.mobile import ANDROID_API_DEFAULT, MobileTarget, excluded_sources
-from pyscriptc.emit.llvm._driver import runtime_dir, sanitize_flags
 
 # The archive name and the header name are the surface an app links against.
 LIB_NAME = "libpyscriptc.a"
@@ -84,6 +84,7 @@ def _ndk_sysroot() -> tuple[Path, tuple[str, ...]]:
             "toolchains/llvm/prebuilt). zig cc does not bundle bionic, so the "
             "Android objects always compile through the NDK clang."
         )
+    _android_api()
     ndk = Path(root)
     host_tag = "darwin-x86_64" if os.uname().sysname == "Darwin" else "linux-x86_64"
     prebuilt = ndk / "toolchains" / "llvm" / "prebuilt" / host_tag
@@ -163,9 +164,7 @@ def runtime_sources(target: MobileTarget) -> list[Path]:
     """
     runtime = runtime_dir()
     excluded = set(excluded_sources(runtime))
-    return sorted(
-        path for path in runtime.glob("*.c") if path not in excluded and path.name != "ps_island.c"
-    )
+    return sorted(path for path in runtime.glob("*.c") if path not in excluded and path.name != "ps_island.c")
 
 
 def build_library(
@@ -206,7 +205,7 @@ def build_library(
     objects: list[Path] = []
     ll_obj = output / f"{llvm_path.stem}.o"
     ll_kind = ["-x", "ir"]
-    jobs.append(([ *cc_argv, *ll_kind, "-c", str(llvm_path), "-o", str(ll_obj)], None))
+    jobs.append(([*cc_argv, *ll_kind, "-c", str(llvm_path), "-o", str(ll_obj)], None))
     objects.append(ll_obj)
 
     if use_cache is None:

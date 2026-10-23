@@ -24,7 +24,6 @@ from pyscriptc.doctor import doctor_cmd
 from pyscriptc.emit.llvm import compile_unit, emit_llvm, link_binary, standalone_entry
 from pyscriptc.emitlib import build_library
 from pyscriptc.errors import FitError, IRError, SpikeError, VersionError
-from pyscriptc.mobile import MobileRefusal, is_mobile_target, require_mobile_target
 from pyscriptc.ffi_manifest import FfiManifestError, load_manifests
 from pyscriptc.imports import build_report as build_import_report
 from pyscriptc.imports import render_text as render_import_text
@@ -33,6 +32,7 @@ from pyscriptc.irverify import verify_module
 from pyscriptc.llvverify import LLVMVerifyError, verify_module_text
 from pyscriptc.log import enable_debug, get_logger, tail
 from pyscriptc.lower import lower_file, render_fences
+from pyscriptc.mobile import MobileRefusal, is_mobile_target, require_mobile_target
 from pyscriptc.package import lower_directory
 
 log = get_logger()
@@ -719,10 +719,12 @@ def _compile_env_defaults(args: argparse.Namespace) -> None:
 
     `--emit lib` compiles through clang with an explicit sysroot (Xcode SDK
     or NDK); zig bundles neither bionic nor the Apple SDKs, so the library
-    mode pins the driver to clang.
+    mode defaults the driver to clang. An explicit `--driver zig` is left in
+    place so `build_library` refuses it with the message that says why.
     """
+    explicit_driver = args.driver is not None
     _apply_env_defaults(args)
-    if args.emit == "lib":
+    if args.emit == "lib" and not explicit_driver:
         args.driver = "clang"
         args.linker = "clang"
 
@@ -797,8 +799,7 @@ def _require_mobile_refusals(args: argparse.Namespace) -> None:
         return
     if args.emit == "bin" or args.run:
         raise MobileRefusal(
-            f"{args.target} has no executable build: a mobile app links a static library. "
-            "Use --emit lib."
+            f"{args.target} has no executable build: a mobile app links a static library. Use --emit lib."
         )
 
 
@@ -972,7 +973,13 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             library=args.emit == "lib",
         )
         dbg.end("emit_llvm")
-        ll_path = _output_path(args, source_path, ".ll")
+        if args.emit == "lib":
+            # The library bundle carries its own .ll: the archive's module
+            # member is <stem>.o, so the stem must not be the -o directory.
+            ll_path = _library_dir(args, source_path) / f"{source_path.stem}.ll"
+        else:
+            ll_path = _output_path(args, source_path, ".ll")
+        ll_path.parent.mkdir(parents=True, exist_ok=True)
         ll_path.write_text(llvm_text, encoding="utf-8")
         outputs["ll"] = str(ll_path)
         log.info("emit.llvm", output=str(ll_path))
