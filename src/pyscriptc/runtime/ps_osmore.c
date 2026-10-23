@@ -78,6 +78,23 @@ static int ps_temp_ready = 0;
 /* A second thread can reach gettempdir. The one-time fill runs once. */
 static pthread_mutex_t ps_temp_lock = PTHREAD_MUTEX_INITIALIZER;
 
+/* CPython runs every tempdir candidate through os.path.abspath before it
+tests it, and abspath normalizes: a trailing slash goes away and a relative
+path is joined to the cwd. macOS launchd sets TMPDIR with a trailing slash
+(".../T/"), so returning the raw value would not match CPython's gettempdir.
+ps_path_abs is the same normalization the posixpath surface uses. */
+static void ps_temp_abspath(const char *dir, char *out, size_t cap) {
+    PsBuf abs;
+    ps_path_abs((int64_t)strlen(dir), dir, &abs);
+    if (abs.len + 1 > cap) {
+        free(abs.data);
+        ps_os_fail("tempdir");
+    }
+    memcpy(out, abs.data, (size_t)abs.len);
+    out[abs.len] = '\0';
+    free(abs.data);
+}
+
 static void ps_copy_tempdir(char *out, size_t cap) {
     const char *env_names[] = {"TMPDIR", "TEMP", "TMP"};
     const char *fallback[] = {"/tmp", "/var/tmp", "/usr/tmp"};
@@ -96,11 +113,7 @@ static void ps_copy_tempdir(char *out, size_t cap) {
     for (i = 0; i < 3; i++) {
         const char *env = getenv(env_names[i]);
         if (env != NULL && env[0] != '\0' && ps_writable_dir(env)) {
-            if (strlen(env) + 1 > cap) {
-                pthread_mutex_unlock(&ps_temp_lock);
-                ps_os_fail("tempdir");
-            }
-            memcpy(out, env, strlen(env) + 1);
+            ps_temp_abspath(env, out, cap);
             goto cache;
         }
     }
@@ -111,11 +124,7 @@ static void ps_copy_tempdir(char *out, size_t cap) {
         }
     }
     if (getcwd(cwd, sizeof cwd) != NULL && ps_writable_dir(cwd)) {
-        if (strlen(cwd) + 1 > cap) {
-            pthread_mutex_unlock(&ps_temp_lock);
-            ps_os_fail("tempdir");
-        }
-        memcpy(out, cwd, strlen(cwd) + 1);
+        ps_temp_abspath(cwd, out, cap);
         goto cache;
     }
     pthread_mutex_unlock(&ps_temp_lock);
