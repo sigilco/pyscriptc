@@ -19,7 +19,11 @@ class FuncsMixin:
         if "env" in fn:
             plist.insert(0, "ptr %env")
         symbol = _fn_symbol(fn["name"])
-        define = f"define {ret} @{symbol}({', '.join(plist)})"
+        # In library mode only pyscriptc_main is exported; every other
+        # definition is hidden, so an app link does not inherit the whole
+        # module namespace.
+        visibility = "hidden " if self.library else ""
+        define = f"define {visibility}{ret} @{symbol}({', '.join(plist)})"
         if self.dwarf is not None:
             self.dwarf.enter_function(fn["name"], symbol, fn["span"], fn["params"], fn["returnType"], env="env" in fn)
             define += f" !dbg !{self.dwarf.current_subprogram}"
@@ -67,7 +71,7 @@ class FuncsMixin:
         if self.dwarf is not None:
             self.dwarf.exit_function()
 
-    def emit_main(self, name: str, args: list[Any]) -> None:
+    def emit_main(self, name: str, args: list[Any], library: bool = False) -> None:
         fn = self.functions.get(name)
         if fn is None:
             raise IRError(f"no function {name} to call")
@@ -81,6 +85,33 @@ class FuncsMixin:
                 raise FitError(f"{name} expects {len(params)} argument(s), got {len(args)}")
             filled.append(_ir_const_value(param["type"], default["value"]))
         prepared = [_prepare_arg(param, value) for param, value in zip(params, filled, strict=True)]
+        if library:
+            # The library entry: no argv, an explicit runtime init call, the
+            # exception table, the module globals, then the entry function.
+            # The return value is not printed: a library has no console.
+            define = "define i32 @pyscriptc_main()"
+            if self.dwarf is not None:
+                entry_span = {"file": self.module["sourceFile"], "line": 1}
+                self.dwarf.enter_function("pyscriptc_main", "pyscriptc_main", entry_span, [], {"kind": "none"})
+                define += f" !dbg !{self.dwarf.current_subprogram}"
+            self.out.append(f"{define} {{")
+            self._reset_function()
+            self.block("entry")
+            self.span = fn.get("span") if self.dwarf is not None else None
+            self._abi_decl("pyscriptc_init", "i32", [])
+            self._call_void("pyscriptc_init", [])
+            self._emit_exc_registrations()
+            for init in self.module.get("globals", []):
+                self.emit_expr(init)
+            values = [self.materialize_arg(param["type"], value) for param, value in zip(params, prepared, strict=True)]
+            self.call_function(fn, values)
+            self.line("ret i32 0")
+            self.out.append("}")
+            self.out.append("")
+            self.span = None
+            if self.dwarf is not None:
+                self.dwarf.exit_function()
+            return
         define = "define i32 @main(i32 %argc, ptr %argv)"
         if self.dwarf is not None:
             # The process entry point is not a Python function, so it gets a
@@ -108,6 +139,32 @@ class FuncsMixin:
         self.out.append("}")
         self.out.append("")
         self.span = None
+        if self.dwarf is not None:
+            self.dwarf.exit_function()
+
+    def emit_noop_library_main(self) -> None:
+        """The `pyscriptc_main` of a definition-only module.
+
+        The host still gets its entry: runtime init, the exception table and
+        the globals run, then it returns 0. Keeping the symbol unconditional
+        means the ABI does not depend on the script having a body.
+        """
+        define = "define i32 @pyscriptc_main()"
+        if self.dwarf is not None:
+            entry_span = {"file": self.module["sourceFile"], "line": 1}
+            self.dwarf.enter_function("pyscriptc_main", "pyscriptc_main", entry_span, [], {"kind": "none"})
+            define += f" !dbg !{self.dwarf.current_subprogram}"
+        self.out.append(f"{define} {{")
+        self._reset_function()
+        self.block("entry")
+        self._abi_decl("pyscriptc_init", "i32", [])
+        self._call_void("pyscriptc_init", [])
+        self._emit_exc_registrations()
+        for init in self.module.get("globals", []):
+            self.emit_expr(init)
+        self.line("ret i32 0")
+        self.out.append("}")
+        self.out.append("")
         if self.dwarf is not None:
             self.dwarf.exit_function()
 

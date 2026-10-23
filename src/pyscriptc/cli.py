@@ -717,12 +717,14 @@ def _apply_env_defaults(args: argparse.Namespace) -> None:
 def _compile_env_defaults(args: argparse.Namespace) -> None:
     """The compile-time flag defaults: env first, then the mode-specific ones.
 
-    `--emit lib` needs the zig driver (the target sysroot comes from zig), so
-    the driver default follows the mode, not the other way around.
+    `--emit lib` compiles through clang with an explicit sysroot (Xcode SDK
+    or NDK); zig bundles neither bionic nor the Apple SDKs, so the library
+    mode pins the driver to clang.
     """
     _apply_env_defaults(args)
-    if args.driver == "clang" and args.emit == "lib":
-        args.driver = "zig"
+    if args.emit == "lib":
+        args.driver = "clang"
+        args.linker = "clang"
 
 
 def _sanitize_list(value: str | None) -> list[str]:
@@ -768,14 +770,14 @@ def _require_debug_info(args: argparse.Namespace) -> bool:
 def _library_dir(args: argparse.Namespace, source: Path) -> Path:
     """The directory a library build writes into.
 
-    `-o DIR` is the directory (it names the artifact bundle); without it the
-    build lands beside the source, or under --out-dir.
+    `-o DIR` names the directory; without it the build lands in
+    `<stem>lib` beside the source (or under --out-dir), so it never
+    collides with the `--emit bin` artifact of the same stem.
     """
     if args.output:
         return Path(args.output)
-    if args.out_dir:
-        return Path(args.out_dir) / source.stem
-    return source.with_suffix("")
+    base = (Path(args.out_dir) / source.stem) if args.out_dir else source.with_suffix("")
+    return base.with_name(base.name + "lib")
 
 
 def _require_mobile_refusals(args: argparse.Namespace) -> None:
@@ -784,7 +786,13 @@ def _require_mobile_refusals(args: argparse.Namespace) -> None:
     An executable build on a mobile triple is the main one: a phone app links
     a static library, not a standalone binary, so `--emit bin` (and `--run`,
     which implies it) points at `--emit lib` with the stable PS4101 code.
+    The other direction refuses too: `--emit lib` on a desktop triple has no
+    consumer story yet (a desktop app links a binary or a shared object, and
+    the desktop cross matrix already has `--emit obj`), so the mode names the
+    three triples it works for.
     """
+    if args.emit == "lib":
+        require_mobile_target(args.target, "--emit lib")
     if not is_mobile_target(args.target):
         return
     if args.emit == "bin" or args.run:
@@ -797,6 +805,10 @@ def _require_mobile_refusals(args: argparse.Namespace) -> None:
 def _require_toolchain(args: argparse.Namespace) -> None:
     """Fail before any work when the requested output needs a C driver that is not on PATH."""
     if not (args.run or args.emit in ("asm", "obj", "bin", "lib")):
+        return
+    if args.emit == "lib":
+        # The library mode resolves its own toolchain (the Xcode SDK clang or
+        # the NDK clang), and the resolution errors name what is missing.
         return
     driver = args.driver or "clang"
     if driver == "zig":
@@ -957,6 +969,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             call_args,
             standalone=args.emit == "bin",
             debug_info=debug_info,
+            library=args.emit == "lib",
         )
         dbg.end("emit_llvm")
         ll_path = _output_path(args, source_path, ".ll")
@@ -978,8 +991,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                 ll_path,
                 _library_dir(args, source_path),
                 target=require_mobile_target(args.target, "--emit lib"),
-                entry=module.get("entry"),
-                driver=args.driver or "zig",
+                driver=args.driver or "clang",
                 sanitize=sanitize,
                 record=dbg.commands,
                 timings=dbg.timings_map,

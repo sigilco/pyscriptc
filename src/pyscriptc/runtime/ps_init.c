@@ -7,8 +7,10 @@ dropped without a link error: the app links, runs, and the initialization
 never happened.
 
 So a library build has one explicit init call. `pyscriptc_init()` prepares
-the runtime state the emitted module needs (the exception table, the module
-globals) and is idempotent, so a host may call it from more than one place.
+the runtime state the emitted module needs and is idempotent, so a host may
+call it from more than one place. The emitted module's own entry
+(`pyscriptc_main`, defined in the .ll of a `--emit lib` build) calls it
+before anything else runs.
 
 The binary build does not use it: `main` runs the module's globals directly,
 the way it always has. Both paths share the same runtime state, so a program
@@ -19,10 +21,13 @@ built one way and a library built the other behave the same.
 
 #include <stddef.h>
 
-/* The runtime state a module needs before its first call. The exception
-   table is a compile-time constant, so the only per-process state is the
-   argv list (empty in a library: there is no process argv) and the user
-   exception registrations the emitted module performs in its own init. */
+/* The runtime state a library build needs: an empty argv list. The exception
+   table is a compile-time constant and the user exception classes register
+   from the emitted module entry, so there is nothing else to seed here. */
+
+__attribute__((visibility("default"))) int pyscriptc_init(void);
+
+void ps_argv_init(int32_t argc, char **argv);
 
 static int ps_init_done;
 
