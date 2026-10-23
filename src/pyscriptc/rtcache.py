@@ -63,12 +63,39 @@ def headers_digest(runtime: Path) -> str:
     return _headers_digest(runtime, stamp)
 
 
-def key_for(source: Path, runtime: Path, cc: list[str], flags: list[str]) -> str:
+def extra_headers_digest(dirs: tuple[Path, ...]) -> str:
+    """The digest of the `*.h` files in the include dirs of a manifest unit.
+
+    A manifest unit compiles against the headers next to the manifest, not
+    only against the runtime's own, so the object cache has to see them: a
+    changed vendored header must not reuse the object built against the old
+    one.
+    """
+    digest = hashlib.sha256()
+    for directory in dirs:
+        if not directory.is_dir():
+            continue
+        for header in sorted(directory.glob("*.h")):
+            digest.update(str(header).encode())
+            digest.update(b"\0")
+            digest.update(header.read_bytes())
+            digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def key_for(
+    source: Path,
+    runtime: Path,
+    cc: list[str],
+    flags: list[str],
+    extra_dirs: tuple[Path, ...] = (),
+) -> str:
     digest = hashlib.sha256()
     for part in (
         source.name,
         hashlib.sha256(source.read_bytes()).hexdigest(),
         headers_digest(runtime),
+        extra_headers_digest(extra_dirs),
         compiler_identity(tuple(cc)),
         "\0".join(flags),
     ):
@@ -77,8 +104,10 @@ def key_for(source: Path, runtime: Path, cc: list[str], flags: list[str]) -> str
     return digest.hexdigest()[:32]
 
 
-def object_path(source: Path, runtime: Path, cc: list[str], flags: list[str]) -> Path:
-    return cache_dir() / f"{source.stem}-{key_for(source, runtime, cc, flags)}.o"
+def object_path(
+    source: Path, runtime: Path, cc: list[str], flags: list[str], extra_dirs: tuple[Path, ...] = ()
+) -> Path:
+    return cache_dir() / f"{source.stem}-{key_for(source, runtime, cc, flags, extra_dirs)}.o"
 
 
 def run_jobs(jobs: list[tuple[list[str], Path | None]]) -> subprocess.CompletedProcess[str] | None:

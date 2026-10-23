@@ -24,6 +24,8 @@ writer ergonomics decide.
 module = "pyscriptc_sqlite"   # importable module name this file claims
 ps_abi = 1                    # REQUIRED: the epoch this manifest was written against
 format = 1                    # manifest schema version; bumps independently of ps_abi
+# libs = ["z"]                # system libraries: each entry becomes one -l flag
+# lib_dirs = ["/opt/local/lib"]  # search dirs: each entry becomes one -L flag
 
 [[source]]                    # C units / archives added to the link line
 path = "vendor/sqlite3.c"     # relative to the manifest file
@@ -72,6 +74,14 @@ Field rules:
 - `[[const]]` values are compile-time literals; `type` is one of `int`,
   `float`, `str`. Enum-style constants (`SQLITE_OK`, `Z_OK`) inline as
   `{"kind": "const"}` nodes and never reach the link.
+- `libs` and `lib_dirs` are the system-library escape hatch, added by the F2
+  gate (decision below). `libs` holds bare sonames (`z`, not `-lz` or
+  `libz.so`); `lib_dirs` holds directories. Both are optional, and a manifest
+  that declares neither contributes nothing to the link line.
+- `[[source]]` is either `path` (one C source the target cc compiles) or
+  `objects` (prebuilt archives and objects that go straight on the link
+  line), never both. The compiler refuses a declared unit that is not on
+  disk (`PS4009`) before the build starts.
 - Ownership is per-arg, not per-call: a `[[fn]]` entry may carry
   `borrows = ["db"]` / `consumes = ["stmt"]` annotations listing which
   `[[handle]]` args the call borrows vs frees. Default is borrow; only
@@ -121,6 +131,7 @@ CLI's existing handler catches it) with a stable code:
 | `PS4006` | a signature or type is outside the vocabulary |
 | `PS4007` | a name is declared twice, or two manifests claim one module |
 | `PS4008` | a reference names something the manifest does not declare |
+| `PS4009` | a declared source or object path does not exist on disk |
 
 The codes are registered in `src/pyscriptc/diagnostics.py`, so
 `pyscriptc explain PS4004` names the fix.
@@ -210,17 +221,24 @@ Changes are additive, in `link_binary` only:
   resolved before `lower_file`: the compiler loads each manifest, checks
   `ps_abi`/`format`, and hands the lowerer the module table and the linker
   the manifest's `[[source]]` list.
-- The unit list becomes `runtime/*.c` + each manifest's `source`/`objects`
-  paths (resolved relative to the manifest file). They enter the same
-  per-unit `.o` loop — no second link shape. Per target this is free: `zig
-  cc -c` already cross-compiles C for every tier-A triple, so a vendored
-  `sqlite3.c` builds for macOS arm64 and linux x64/aarch64 with no extra
-  tooling. Archives (`*.a` members listed under `objects=`) go straight on
-  the final link line with the other objects.
-- `tail` gains per-manifest `-l`/`-L` flags only when a manifest declares a
-  system library (e.g. `-lsqlite3` is *not* how sqlite ships — the pilot
-  vendors it — but `-lz` for a zlib manifest that does not vendor is).
-  Default stays `-lm` only.
+- The unit lists become `runtime/*.c` plus each manifest's
+  `compile_units()` (C sources, the target cc compiles them) and
+  `link_units()` (archives and objects, straight on the link line),
+  resolved relative to the manifest file. They enter the same
+  per-unit `.o` loop, so there is no second link shape. Per target this is
+  free: `zig cc -c` already cross-compiles C for every tier-A triple, so a
+  vendored `sqlite3.c` builds for macOS arm64 and linux x64/aarch64 with no
+  extra tooling. `ManifestSource.is_compile_unit` is the split, not the
+  suffix: `libfoo.a` declared under `objects=` links, one declared under
+  `path=` would try to compile and fail loudly.
+- `link_binary` refuses a declared unit that is not on disk
+  (`_require_units`) before any cc runs, and `cli.py` refuses it earlier
+  still (`PS4009`): a missing file names the manifest, not a cc invocation
+  halfway through the link.
+- `tail` gains per-manifest `-l`/`-L` flags only when a manifest declares
+  `libs` or `lib_dirs` (e.g. `-lsqlite3` is *not* how sqlite ships, since
+  the pilot vendors it, but `-lz` for a zlib manifest that does not vendor
+  is). Default stays `-lm` only.
 - `ps_mix.c`-style dlopen is explicitly rejected for FFI manifests: the
   whole point is self-contained binaries, and dlopen already fails on static
   musl (`smoke.sh` header; `ps_mix.c` is one of the POSIX blockers for
@@ -328,7 +346,7 @@ Notes:
 |---|---|---|
 | F0 | manifest parser + `ps_abi`/`format` validation; `--ffi` flag wired to `compile` | unit tests: reject bad pin, unknown format, duplicate module claim |
 | F1 | lowerer clause + synthetic import-table entry; `nativeprobe` re-expressed as a manifest | `mixdemo` compiles through `--ffi` instead of the env-var gate; `packaging/zig` smoke still passes |
-| F2 | `link_binary` source/object merge + per-manifest link flags | zig smoke extended: one manifest-built unit in the cross matrix (compile-only macOS OK) |
+| F2 | `link_binary` source/object merge + per-manifest link flags | zig smoke extended: one manifest-built unit in the cross matrix (compile-only macOS OK); shipped as `feat/ffi-f2` (#220) |
 | F3 | `pyscriptc-sqlite` pilot: `connect/execute/query/commit/close` | fixture script does open → create → insert → select → close; asserts rows; runs on host + `x86_64-linux-musl` |
 | F4 | zlib or libm manifest by an outside-of-compiler adapter | proves the seam is not sqlite-shaped; CI gate = the same fixture pattern |
 
@@ -363,10 +381,16 @@ Lowering (`lower/`, F1):
 
 Linking (`llvm.py`, F2):
 
-- `link_binary` merges each manifest's `unit_paths()` into the per-unit `.o`
-  loop (`.c` units compile, `objects` archives go straight on the link line),
-  resolved relative to the manifest file. `ManifestSource.resolved` already
-  produces the absolute paths.
+- `link_binary` merges each manifest's `compile_units()` into the per-unit
+  `.o` loop (`.c` units compile) and each manifest's `link_units()` onto the
+  final link line (archives and objects), resolved relative to the manifest
+  file. `ManifestSource.resolved` already produces the absolute paths.
+- `FfiManifest.link_flags()` produces the per-manifest `-L` and `-l`
+  arguments; `cli.py` concatenates them across manifests and hands them to
+  `link_binary` as `link_flags`.
+- A manifest-free build produces a byte-identical link line: the manifest
+  inputs are all optional, and the regression guard is
+  `tests/test_ffi_link.py::test_a_build_with_no_manifest_has_the_master_link_line`.
 
 Configuration (`pyscriptc.toml`, P3/v0.5.0):
 

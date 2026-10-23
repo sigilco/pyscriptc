@@ -131,11 +131,14 @@ def test_self_census_ballpark() -> None:
     # restlower/_asyncio.py, the task-await marker and the task method
     # dispatch add 10 self-host fences; the emitter's none-field fix removes
     # one in emit/llvm/_stmts.py.
-    assert census["fences"] == 2710
+    # FFI F2 (#220): the link-step wiring in cli.py, emit/llvm/_driver.py and
+    # ffi_manifest.py adds 11 self-host fences (the manifest unit split, the
+    # PS4009 pre-build check and the link inputs). The module count is unchanged.
+    assert census["fences"] == 2721
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     # Project mode (#150): project.py adds about 240 lines.
     # yield inside try (#164): the re-entrant try in the coro guard transform
     # adds about 150 lines in coro.py.
-    assert 11_000 <= census["lines"] <= 38_000
-    assert sum(p["fences"] for p in census["packages"]) == 2710
+    assert 11_000 <= census["lines"] <= 39_000
+    assert sum(p["fences"] for p in census["packages"]) == 2721

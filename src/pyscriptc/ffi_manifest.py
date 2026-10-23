@@ -53,6 +53,7 @@ Diagnostic codes, all in the `PS4xxx` block that belongs to the FFI lane:
 | `PS4006` | a signature or type in the manifest is outside the lowered vocabulary |
 | `PS4007` | a name is declared twice, or two manifests claim the same module |
 | `PS4008` | a reference names a symbol, handle or constant that does not exist |
+| `PS4009` | a declared source or object path does not exist on disk |
 """
 
 from __future__ import annotations
@@ -92,7 +93,7 @@ ALLOWED_TYPE_NAMES: frozenset[str] = SCALAR_TYPES | CONTAINER_TYPES
 CONST_TYPES: frozenset[str] = frozenset({"int", "float", "str"})
 
 # The keys each section accepts. Anything else is `PS4005`.
-_MANIFEST_KEYS = frozenset({"module", "ps_abi", "format"})
+_MANIFEST_KEYS = frozenset({"module", "ps_abi", "format", "libs", "lib_dirs"})
 _SOURCE_KEYS = frozenset({"path", "objects"})
 _HANDLE_KEYS = frozenset({"name", "c_type", "frees"})
 _CONST_KEYS = frozenset({"name", "type", "value"})
@@ -105,6 +106,11 @@ _MODULE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$")
 
 # A C identifier, the shape of a symbol or a thunk name.
 _C_SYMBOL = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+# A system library soname: the `z` of `-lz`. Dashes, pluses and underscores
+# are allowed (`stdc++`, `foo-1`); a dot is not (`libz.so` means the author
+# wrote the file name where `-l` wants the bare name).
+_LIB_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_+-]*$")
 
 # A C type spelling for a handle, `sqlite3 *` or `struct foo *`.
 _C_TYPE = re.compile(r"^[A-Za-z_][A-Za-z0-9_ ]*\*$|^[A-Za-z_][A-Za-z0-9_]*$")
@@ -135,7 +141,12 @@ class FfiManifestError(SpikeError):
 
 @dataclass(frozen=True)
 class ManifestSource:
-    """A C unit or archive that the link line gains."""
+    """A C unit or archive that the link line gains.
+
+    `path` names one C source the target cc compiles; `objects` names
+    prebuilt archives or objects that go straight on the link line. The two
+    are mutually exclusive (the validator refuses both or neither).
+    """
 
     path: str = ""
     objects: tuple[str, ...] = ()
@@ -145,6 +156,11 @@ class ManifestSource:
         if self.path:
             return [base / self.path]
         return [base / obj for obj in self.objects]
+
+    @property
+    def is_compile_unit(self) -> bool:
+        """True when the target cc compiles this unit; False for prebuilt objects."""
+        return bool(self.path)
 
 
 @dataclass(frozen=True)
@@ -239,7 +255,13 @@ class ManifestFunction:
 
 @dataclass(frozen=True)
 class FfiManifest:
-    """A validated manifest: the module surface plus the link inputs."""
+    """A validated manifest: the module surface plus the link inputs.
+
+    `libs` and `lib_dirs` are the per-manifest system-library flags: each
+    `libs` entry becomes one `-l` argument and each `lib_dirs` entry one
+    `-L` argument, emitted only when the manifest declares them (a manifest
+    that vendors its C adds nothing to the default `-lm` tail).
+    """
 
     module: str
     ps_abi: int
@@ -250,6 +272,8 @@ class FfiManifest:
     consts: tuple[ManifestConst, ...] = ()
     functions: tuple[ManifestFunction, ...] = ()
     handle_names: frozenset[str] = field(default_factory=frozenset)
+    libs: tuple[str, ...] = ()
+    lib_dirs: tuple[str, ...] = ()
 
     def function(self, name: str) -> ManifestFunction | None:
         """The function bound to a Python-visible name, if any."""
@@ -278,12 +302,40 @@ class FfiManifest:
         return None
 
     def unit_paths(self) -> list[Path]:
-        """Every C unit and archive the manifest adds to the link line."""
+        """Every C unit and archive the manifest adds to the link line.
+
+        Flat and order-preserving. The linker itself wants the two lists
+        apart, so it calls `compile_units()` and `link_units()` instead.
+        """
         base = self.path.parent
         units: list[Path] = []
         for source in self.sources:
             units.extend(source.resolved(base))
         return units
+
+    def compile_units(self) -> list[Path]:
+        """The C sources the target cc compiles, resolved against the manifest file."""
+        base = self.path.parent
+        return [unit for source in self.sources if source.is_compile_unit for unit in source.resolved(base)]
+
+    def link_units(self) -> list[Path]:
+        """The prebuilt archives and objects that go straight on the link line."""
+        base = self.path.parent
+        return [unit for source in self.sources if not source.is_compile_unit for unit in source.resolved(base)]
+
+    def link_flags(self) -> list[str]:
+        """The `-L` and `-l` arguments this manifest adds, in that order.
+
+        A manifest that vendors its C contributes nothing here, so the link
+        line of a manifest-free build stays exactly the shape it had before
+        the FFI gate.
+        """
+        flags: list[str] = []
+        for directory in self.lib_dirs:
+            flags.append(f"-L{directory}")
+        for library in self.libs:
+            flags.append(f"-l{library}")
+        return flags
 
 
 def parse_manifest_text(text: str, *, path: Path | None = None, ps_abi: int = CURRENT_PS_ABI) -> FfiManifest:
@@ -362,6 +414,12 @@ def _build(data: dict[str, Any], *, path: Path | None, ps_abi: int) -> FfiManife
         )
 
     _reject_unknown_keys(header, _MANIFEST_KEYS, path=path, where=where)
+    libs = _optional_str_list(header, "libs", path=path, where=where)
+    lib_dirs = _optional_str_list(header, "lib_dirs", path=path, where=where)
+    for library in libs:
+        _check_link_name(library, key="libs", path=path, where=where)
+    for directory in lib_dirs:
+        _check_lib_dir(directory, path=path, where=where)
 
     sources = _build_sources(data, path=path)
     handles = _build_handles(data, path=path)
@@ -385,7 +443,31 @@ def _build(data: dict[str, Any], *, path: Path | None, ps_abi: int) -> FfiManife
         consts=consts,
         functions=functions,
         handle_names=frozenset(handle.name for handle in handles),
+        libs=libs,
+        lib_dirs=lib_dirs,
     )
+
+
+def _check_link_name(library: str, *, key: str, path: Path | None, where: str) -> None:
+    """A `libs` entry is the bare soname: `z`, not `-lz` or `libz.so`."""
+    if not _LIB_NAME.match(library):
+        raise FfiManifestError(
+            "PS4005",
+            f"the {key} entry {library!r} is not a bare library name (write z, not -lz or libz)",
+            path=path,
+            where=where,
+        )
+
+
+def _check_lib_dir(directory: str, *, path: Path | None, where: str) -> None:
+    """A `lib_dirs` entry is a directory path, not a flag."""
+    if directory.startswith("-") or not directory.strip():
+        raise FfiManifestError(
+            "PS4005",
+            f"the lib_dirs entry {directory!r} is not a bare directory path",
+            path=path,
+            where=where,
+        )
 
 
 def _build_sources(data: dict[str, Any], *, path: Path | None) -> tuple[ManifestSource, ...]:
