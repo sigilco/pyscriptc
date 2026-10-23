@@ -595,6 +595,7 @@ class StdlibDispatchMixin:
             return body
         frees = [{"kind": "expr", "expr": self._free_call(name, typ, span), "span": span} for name, typ in owned]
         return [{"kind": "try", "body": body, "handlers": [], "finalbody": frees, "span": span}]
+
     def _module_decorator_fence(self, fn: ast.FunctionDef) -> str | None:
         if not fn.decorator_list:
             return None
