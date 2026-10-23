@@ -58,7 +58,13 @@ def _opt_command(ll_path: Path, opt: str) -> list[str]:
 def _driver_command(ll_path: Path, driver: str, target: str | None) -> list[str]:
     """The driver's own module check: `clang -c` on a `.ll` verifies the module."""
     cc = "zig cc" if driver == "zig" else driver
-    argv = [*cc.split(), "-c", "-x", "ir", str(ll_path), "-o", os.devnull]
+    argv = [*cc.split(), "-c"]
+    if driver != "zig":
+        # clang needs `-x ir` to read a `.ll` as IR. zig rejects the flag
+        # ("language not recognized: ir") and reads the file as IR by its
+        # `.ll` extension, so the flag is clang-only.
+        argv.extend(["-x", "ir"])
+    argv.extend([str(ll_path), "-o", os.devnull])
     if target is not None:
         argv.extend(["-target", target])
     return argv

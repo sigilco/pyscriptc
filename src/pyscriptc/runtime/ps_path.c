@@ -10,7 +10,9 @@ getenv raises KeyError, which is the subset stand-in for None.
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#ifndef _WIN32
 #include <pwd.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -47,7 +49,19 @@ static char *ps_cstr(int64_t n, const char *s) {
     return text;
 }
 
-static int ps_abs(int64_t n, const char *s) { return n > 0 && s[0] == '/'; }
+static int ps_abs(int64_t n, const char *s) {
+#ifdef _WIN32
+    if (n >= 3 && ((s[0] >= 'a' && s[0] <= 'z') || (s[0] >= 'A' && s[0] <= 'Z')) && s[1] == ':' && IS_DIR_SEP(s[2])) {
+        return 1;
+    }
+    if (n >= 2 && IS_DIR_SEP(s[0]) && IS_DIR_SEP(s[1])) {
+        return 1;
+    }
+    return n > 0 && IS_DIR_SEP(s[0]);
+#else
+    return n > 0 && s[0] == '/';
+#endif
+}
 
 int32_t ps_path_isabs(int64_t n, const char *s) { return ps_abs(n, s) ? 1 : 0; }
 
@@ -55,7 +69,7 @@ static void ps_copy_slice(const char *s, int64_t at, int64_t n, PsBuf *out) { ps
 
 void ps_path_base(int64_t n, const char *s, PsBuf *out) {
     int64_t i = n;
-    while (i > 0 && s[i - 1] != '/') {
+    while (i > 0 && !IS_DIR_SEP(s[i - 1])) {
         i -= 1;
     }
     ps_copy_slice(s, i, n - i, out);
@@ -64,12 +78,12 @@ void ps_path_base(int64_t n, const char *s, PsBuf *out) {
 void ps_path_dir(int64_t n, const char *s, PsBuf *out) {
     int64_t i = n;
     int64_t end;
-    while (i > 0 && s[i - 1] != '/') {
+    while (i > 0 && !IS_DIR_SEP(s[i - 1])) {
         i -= 1;
     }
     end = i;
     if (end > 1) {
-        while (end > 1 && s[end - 1] == '/') {
+        while (end > 1 && IS_DIR_SEP(s[end - 1])) {
             end -= 1;
         }
     }
@@ -87,7 +101,7 @@ void ps_path_join(PsBuf *parts, int64_t n, PsBuf *out) {
             ps_grow_add(&g, part.data, part.len);
             continue;
         }
-        if (g.len > 0 && g.data[g.len - 1] != '/') {
+        if (g.len > 0 && !IS_DIR_SEP(g.data[g.len - 1])) {
             ps_grow_byte(&g, '/');
         }
         ps_grow_add(&g, part.data, part.len);
@@ -114,7 +128,7 @@ PsSeq *ps_path_splitext(int64_t n, const char *s) {
     PsBuf ext;
     PsSeq *seq;
     for (i = 0; i < n; i++) {
-        if (s[i] == '/') {
+        if (IS_DIR_SEP(s[i])) {
             slash = i;
             dot = -1;
         } else if (s[i] == '.') {
@@ -142,13 +156,20 @@ void ps_path_norm(int64_t n, const char *s, PsBuf *out) {
     int64_t i = 0;
     PsGrow g;
     int p;
+#ifdef _WIN32
+    int64_t drive_len = 0;
+    if (n >= 2 && s[1] == ':' && ((s[0] >= 'a' && s[0] <= 'z') || (s[0] >= 'A' && s[0] <= 'Z'))) {
+        drive_len = 2;
+        i = 2;
+    }
+#endif
     while (i < n) {
         int64_t start;
-        while (i < n && s[i] == '/') {
+        while (i < n && IS_DIR_SEP(s[i])) {
             i += 1;
         }
         start = i;
-        while (i < n && s[i] != '/') {
+        while (i < n && !IS_DIR_SEP(s[i])) {
             i += 1;
         }
         if (start == i) {
@@ -178,18 +199,37 @@ void ps_path_norm(int64_t n, const char *s, PsBuf *out) {
         count += 1;
     }
     ps_grow_init(&g);
+#ifdef _WIN32
+    if (drive_len > 0) {
+        ps_grow_add(&g, s, drive_len);
+    }
+#endif
     if (absolute) {
         ps_grow_byte(&g, '/');
     }
+#ifdef _WIN32
+    if (count == 0 && !absolute && drive_len == 0) {
+        ps_grow_byte(&g, '.');
+    }
+#else
     if (count == 0 && !absolute) {
         ps_grow_byte(&g, '.');
     }
+#endif
     for (p = 0; p < count; p++) {
-        if (!(absolute && p == 0)) {
-            if (g.len > 0 && g.data[g.len - 1] != '/') {
+#ifdef _WIN32
+        if (!(absolute && p == 0 && drive_len == 0)) {
+            if (g.len > 0 && !IS_DIR_SEP(g.data[g.len - 1])) {
                 ps_grow_byte(&g, '/');
             }
         }
+#else
+        if (!(absolute && p == 0)) {
+            if (g.len > 0 && !IS_DIR_SEP(g.data[g.len - 1])) {
+                ps_grow_byte(&g, '/');
+            }
+        }
+#endif
         ps_grow_add(&g, s + parts_at[p], parts_n[p]);
     }
     ps_grow_finish(&g, out);
@@ -269,12 +309,20 @@ void ps_os_makedirs(int64_t n, const char *s) {
     for (i = 1; i <= n; i++) {
         int rc;
         char save;
-        if (i < n && text[i] != '/') {
+        if (i < n && !IS_DIR_SEP(text[i])) {
+            continue;
+        }
+#ifdef _WIN32
+        if (i <= 3 && text[1] == ':') {
+            continue;
+        }
+#endif
+        if (i == 1 && IS_DIR_SEP(text[0])) {
             continue;
         }
         save = text[i];
         text[i] = '\0';
-        rc = mkdir(text, 0755);
+        rc = ps_mkdir(text, 0755);
         if (rc != 0 && errno == EEXIST && i == n) {
             free(text);
             ps_os_fail("makedirs failed");
@@ -365,10 +413,43 @@ void ps_path_expanduser(int64_t n, const char *s, PsBuf *out) {
         return;
     }
     int64_t rest_at = 1;
-    while (rest_at < n && s[rest_at] != '/') {
+    while (rest_at < n && !IS_DIR_SEP(s[rest_at])) {
         rest_at += 1;
     }
     PsBuf home;
+#ifdef _WIN32
+    if (rest_at == 1) {
+        const char *env = getenv("USERPROFILE");
+        if (env != NULL) {
+            ps_buf_copy(&home, env, (int64_t)strlen(env));
+        } else {
+            const char *drive = getenv("HOMEDRIVE");
+            const char *path = getenv("HOMEPATH");
+            if (drive != NULL && path != NULL) {
+                size_t dlen = strlen(drive);
+                size_t plen = strlen(path);
+                char *comb = malloc(dlen + plen + 1);
+                if (comb == NULL) {
+                    abort();
+                }
+                memcpy(comb, drive, dlen);
+                memcpy(comb + dlen, path, plen);
+                comb[dlen + plen] = '\0';
+                ps_buf_copy(&home, comb, (int64_t)(dlen + plen));
+                free(comb);
+            } else {
+                env = getenv("HOME");
+                if (env != NULL) {
+                    ps_buf_copy(&home, env, (int64_t)strlen(env));
+                } else {
+                    ps_os_fail("expanduser has no HOME");
+                }
+            }
+        }
+    } else {
+        ps_os_fail("expanduser found no home for the user");
+    }
+#else
     if (rest_at == 1) {
         const char *env = getenv("HOME");
         if (env == NULL) {
@@ -384,6 +465,7 @@ void ps_path_expanduser(int64_t n, const char *s, PsBuf *out) {
         }
         ps_buf_copy(&home, pw->pw_dir, (int64_t)strlen(pw->pw_dir));
     }
+#endif
     PsGrow g;
     ps_grow_init(&g);
     ps_grow_add(&g, home.data, home.len);
@@ -457,7 +539,7 @@ void ps_path_realpath(int64_t n, const char *s, PsBuf *out) {
     char *resolved;
     ps_path_abs(n, s, &abs);
     text = ps_cstr(abs.len, abs.data);
-    resolved = realpath(text, NULL);
+    resolved = ps_realpath(text, NULL);
     free(text);
     free(abs.data);
     if (resolved == NULL) {
@@ -495,7 +577,7 @@ double ps_path_getatime(int64_t n, const char *s) {
 int32_t ps_path_islink(int64_t n, const char *s) {
     char *text = ps_cstr(n, s);
     struct stat st;
-    int rc = lstat(text, &st);
+    int rc = ps_lstat(text, &st);
     free(text);
     return rc == 0 && S_ISLNK(st.st_mode);
 }
@@ -512,11 +594,11 @@ static int64_t ps_rel_parts(const char *s, int64_t n, PsRelPart *out) {
     int64_t count = 0;
     int64_t i = 0;
     while (i < n) {
-        while (i < n && s[i] == '/') {
+        while (i < n && IS_DIR_SEP(s[i])) {
             i += 1;
         }
         int64_t start = i;
-        while (i < n && s[i] != '/') {
+        while (i < n && !IS_DIR_SEP(s[i])) {
             i += 1;
         }
         if (i > start) {
@@ -587,8 +669,18 @@ PsSeq *ps_path_splitdrive(int64_t n, const char *s) {
     PsSeq *seq = ps_seq_new((int64_t)sizeof(PsBuf), 2);
     PsBuf drive;
     PsBuf rest;
+#ifdef _WIN32
+    if (n >= 2 && s[1] == ':' && ((s[0] >= 'a' && s[0] <= 'z') || (s[0] >= 'A' && s[0] <= 'Z'))) {
+        ps_buf_copy(&drive, s, 2);
+        ps_buf_copy(&rest, s + 2, n - 2);
+    } else {
+        ps_buf_copy(&drive, "", 0);
+        ps_buf_copy(&rest, s, n);
+    }
+#else
     ps_buf_copy(&drive, "", 0);
     ps_buf_copy(&rest, s, n);
+#endif
     ps_seq_set(seq, 0, &drive);
     ps_seq_set(seq, 1, &rest);
     return seq;
@@ -623,7 +715,7 @@ void ps_os_chmod(int64_t n, const char *s, int64_t mode) {
 
 void ps_os_mkdir(int64_t n, const char *s) {
     char *text = ps_cstr(n, s);
-    int rc = mkdir(text, 0755);
+    int rc = ps_mkdir(text, 0755);
     free(text);
     if (rc != 0) {
         ps_os_fail("mkdir failed");
@@ -940,7 +1032,7 @@ void ps_path_with_name(PsPath *path, int64_t n, const char *s, PsPath *out) {
     PsBuf parts[2];
     int64_t i;
     for (i = 0; i < n; i++) {
-        if (s[i] == '/') {
+        if (IS_DIR_SEP(s[i])) {
             ps_raise_cstr(PS_VALUE, "Invalid name");
         }
     }
@@ -969,12 +1061,20 @@ void ps_path_mkdir(PsPath *path, int64_t mode, int64_t parents, int64_t exist_ok
         int64_t i;
         for (i = 1; i <= path->path.len; i++) {
             char save;
-            if (i < path->path.len && text[i] != '/') {
+            if (i < path->path.len && !IS_DIR_SEP(text[i])) {
+                continue;
+            }
+#ifdef _WIN32
+            if (i <= 3 && text[1] == ':') {
+                continue;
+            }
+#endif
+            if (i == 1 && IS_DIR_SEP(text[0])) {
                 continue;
             }
             save = text[i];
             text[i] = '\0';
-            rc = mkdir(text, (mode_t)mode);
+            rc = ps_mkdir(text, (mode_t)mode);
             if (rc != 0) {
                 if (errno == EEXIST && i == path->path.len) {
                     leaf_exists = 1;
@@ -991,7 +1091,7 @@ void ps_path_mkdir(PsPath *path, int64_t mode, int64_t parents, int64_t exist_ok
         }
         return;
     }
-    rc = mkdir(text, (mode_t)mode);
+    rc = ps_mkdir(text, (mode_t)mode);
     free(text);
     if (rc != 0) {
         if (exist_ok && errno == EEXIST && ps_path_isdir(path->path.len, path->path.data)) {
@@ -1092,7 +1192,7 @@ static void ps_glob_seg(PsBuf *base, const char *seg, int64_t ns, const char *re
 
 static void ps_glob_pat(PsBuf *base, const char *pat, int64_t np, PsSeq *out) {
     int64_t slash = 0;
-    while (slash < np && pat[slash] != '/') {
+    while (slash < np && !IS_DIR_SEP(pat[slash])) {
         slash += 1;
     }
     /* PurePath parsing drops empty and '.' segments. */
@@ -1108,20 +1208,20 @@ static void ps_glob_pat(PsBuf *base, const char *pat, int64_t np, PsSeq *out) {
 PsSeq *ps_path_glob(PsPath *path, int64_t np, const char *pat) {
     int64_t at;
     PsSeq *out;
-    while (np > 0 && pat[np - 1] == '/') {
+    while (np > 0 && IS_DIR_SEP(pat[np - 1])) {
         np -= 1;
     }
     if (np == 0) {
         ps_raise_cstr(PS_VALUE, "Unacceptable pattern");
     }
-    if (pat[0] == '/') {
+    if (IS_DIR_SEP(pat[0])) {
         ps_raise_cstr(PS_VALUE, "Non-relative patterns are unsupported");
     }
     for (at = 0; at < np;) {
         int64_t ns = 0;
         int64_t i;
         int deep = 0;
-        while (at + ns < np && pat[at + ns] != '/') {
+        while (at + ns < np && !IS_DIR_SEP(pat[at + ns])) {
             ns += 1;
         }
         for (i = 0; i + 1 < ns; i++) {

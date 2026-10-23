@@ -15,6 +15,7 @@ are not searched. as_file of one of these paths is the path itself.
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <utime.h>
 
 typedef struct PsPath {
     PsBuf path;
@@ -176,7 +177,7 @@ void ps_temp_mkdtemp(PsBuf *out) {
             path[base + 4 + i] = alphabet[rnd[i] % 37];
         }
         path[base + 12] = '\0';
-        if (mkdir(path, 0700) == 0) {
+        if (ps_mkdir(path, 0700) == 0) {
             fclose(random);
             ps_buf_copy(out, path, (int64_t)strlen(path));
             return;
@@ -333,10 +334,16 @@ void ps_shutil_copy(int64_t sn, const char *src, int64_t dn, const char *dst, Ps
 /* copy2: copyfile plus the mode and the modification time. */
 void ps_shutil_copy2(int64_t sn, const char *src, int64_t dn, const char *dst, PsBuf *out) {
     struct stat st;
-    struct stat out_st;
     ps_shutil_copyfile(sn, src, dn, dst, out);
     if (stat(src, &st) == 0) {
         chmod(dst, st.st_mode & 07777);
+#ifdef _WIN32
+        struct utimbuf u;
+        u.actime = st.st_atime;
+        u.modtime = st.st_mtime;
+        utime(dst, &u);
+#else
+        struct stat out_st;
         if (stat(dst, &out_st) == 0) {
             struct timespec times[2];
 #ifdef __APPLE__
@@ -348,6 +355,7 @@ void ps_shutil_copy2(int64_t sn, const char *src, int64_t dn, const char *dst, P
 #endif
             utimensat(AT_FDCWD, dst, times, 0);
         }
+#endif
     }
 }
 
@@ -360,7 +368,7 @@ static void ps_copy_tree(const char *src, const char *dst) {
     if (stat(src, &st) != 0) {
         ps_os_fail("copytree");
     }
-    if (mkdir(dst, st.st_mode & 07777) != 0 && errno != EEXIST) {
+    if (ps_mkdir(dst, st.st_mode & 07777) != 0 && errno != EEXIST) {
         ps_os_fail("copytree");
     }
     dir = opendir(src);
@@ -382,7 +390,7 @@ static void ps_copy_tree(const char *src, const char *dst) {
             closedir(dir);
             ps_os_fail("copytree");
         }
-        if (lstat(child_src, &cst) != 0) {
+        if (ps_lstat(child_src, &cst) != 0) {
             closedir(dir);
             ps_os_fail("copytree");
         }
@@ -472,7 +480,7 @@ static void ps_rm_tree(const char *path) {
     struct stat st;
     DIR *dir;
     struct dirent *ent;
-    if (lstat(path, &st) != 0) {
+    if (ps_lstat(path, &st) != 0) {
         ps_os_fail("rmtree");
     }
     if (!S_ISDIR(st.st_mode)) {
@@ -745,7 +753,7 @@ PsIO *ps_temp_named(int64_t mode, int64_t keep) {
     if (snprintf(path, sizeof path, "%s/tmpXXXXXX", dir) >= (int)sizeof path) {
         ps_os_fail("NamedTemporaryFile failed");
     }
-    fd = mkstemp(path);
+    fd = ps_mkstemp(path);
     if (fd < 0) {
         ps_os_fail("NamedTemporaryFile failed");
     }

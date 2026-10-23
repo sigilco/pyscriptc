@@ -159,12 +159,18 @@ def test_self_census_ballpark() -> None:
     # would have dropped 25 fences instead: an empty tuple is not a lowered
     # constant, so the lowerer abandons the whole function body and the
     # fences inside it never reach the census. The `None` default keeps them.
-    assert census["fences"] == 2846
+    # Toolchain driver resolution (prefer zig with clang fallback): +5
+    # self-host fences (cli.py +1, doctor.py +2, llvverify.py +2). The
+    # emit/llvm/_driver.py lines carry no annotations the census counts.
+    # Windows target compilation: +0 fences (the runtime C and the ps_path
+    # surface are not self-hosted by the compiler; the `.exe` suffix branch
+    # is plain Python with no annotations).
+    assert census["fences"] == 2851
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     # Project mode (#150): project.py adds about 240 lines.
     # yield inside try (#164): the re-entrant try in the coro guard transform
     # adds about 150 lines in coro.py. The asyncio primitives (#180 D3) add
     # about 400 in ps_async.c and restlower/_asyncio_sync.py.
-    assert 11_000 <= census["lines"] <= 39_500
-    assert sum(p["fences"] for p in census["packages"]) == 2846
+    assert 11_000 <= census["lines"] <= 40_500
+    assert sum(p["fences"] for p in census["packages"]) == 2851

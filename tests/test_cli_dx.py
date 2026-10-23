@@ -99,7 +99,14 @@ def _run_env(env_extra: dict[str, str], *args: str) -> subprocess.CompletedProce
 
 def test_env_target_without_zig_driver_is_rejected(tmp_path: Path) -> None:
     path = write_case(tmp_path, "ok.py", CLEAN)
-    got = _run_env({"PYSC_TARGET": "aarch64-linux-gnu"}, "compile", str(path), "--emit", "obj", "--skip-check")
+    got = _run_env(
+        {"PYSC_TARGET": "aarch64-linux-gnu", "PYSC_CC": "clang"},
+        "compile",
+        str(path),
+        "--emit",
+        "obj",
+        "--skip-check",
+    )
     assert got.returncode != 0
     assert "--target requires --driver zig" in got.stderr
 

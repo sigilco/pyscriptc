@@ -15,7 +15,7 @@ frame is still live if the body raises. Arithmetic overflow stays an LLVM trap.
 #include <string.h>
 
 typedef struct PsJmp {
-    sigjmp_buf buf;
+    ps_sigjmp_buf buf;
     struct PsJmp *prev;
 } PsJmp;
 
@@ -323,7 +323,7 @@ __attribute__((noinline, noreturn)) static void ps_deliver(void) {
         ps_report_current(NULL);
         exit(1);
     }
-    siglongjmp(ps_top->buf, PS_RAISED);
+    ps_siglongjmp(ps_top->buf, PS_RAISED);
 }
 
 PsExc *ps_exc_current(void) {
@@ -565,7 +565,7 @@ __attribute__((noinline)) int32_t ps_try_call(ps_try_fn fn, void *env, int32_t *
     }
     slot->prev = ps_top;
     ps_top = slot;
-    int code = sigsetjmp(slot->buf, 0);
+    int code = ps_sigsetjmp(slot->buf, 0);
     if (code != 0) {
         PsJmp *cur = ps_top;
         ps_top = cur->prev;
@@ -602,7 +602,7 @@ __attribute__((noinline)) int32_t ps_exc_catch(ps_try_fn fn, void *env, int32_t 
     }
     slot->prev = ps_top;
     ps_top = slot;
-    int code = sigsetjmp(slot->buf, 0);
+    int code = ps_sigsetjmp(slot->buf, 0);
     if (code != 0) {
         PsJmp *cur = ps_top;
         ps_top = cur->prev;

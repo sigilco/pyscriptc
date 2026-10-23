@@ -184,6 +184,12 @@ def link_binary(
     runtime's own include surface.
     """
     output.parent.mkdir(parents=True, exist_ok=True)
+    if driver == "zig":
+        # `pip install ziglang` alone satisfies this: the wheel ships the zig
+        # binary but only exposes `python-zig`, so pyscriptc installs a `zig`
+        # PATH shim pointing at `python -m ziglang`. A stale shim (its venv
+        # is gone) is not trusted and gets rebuilt or rejected here.
+        zigshim.ensure_on_path()
     if target is not None and driver != "zig":
         raise IRError("--target requires --driver zig (bundled sysroot per target)")
     cc = "zig cc" if driver == "zig" else driver
@@ -355,6 +361,8 @@ def compile_unit(
     debug_info: bool = False,
 ) -> None:
     """Compile the module's `.ll` alone to assembly (`asm`) or an object (`obj`)."""
+    if driver == "zig":
+        zigshim.ensure_on_path()
     if target is not None and driver != "zig":
         raise IRError("--target requires --driver zig (bundled sysroot per target)")
     output.parent.mkdir(parents=True, exist_ok=True)

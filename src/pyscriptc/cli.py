@@ -96,7 +96,8 @@ def main(argv: list[str] | None = None) -> int:
         "--driver",
         choices=("clang", "zig"),
         default=None,
-        help="C toolchain driver; zig means `zig cc` (required for --target); env PYSC_CC, default clang",
+        help="C toolchain driver; zig means `zig cc` (preferred, required for --target); "
+        "env PYSC_CC, defaults to zig if found, else clang",
     )
     compile_parser.add_argument(
         "--target",
@@ -650,7 +651,7 @@ def build_cmd(args: argparse.Namespace) -> int:
                 link_binary(
                     ll_path,
                     staged,
-                    driver=args.driver,
+                    driver=args.driver or "clang",
                     target=args.target,
                     link_driver=args.linker,
                 )
@@ -707,6 +708,32 @@ def compile_cmd(args: argparse.Namespace) -> int:
         )
 
 
+def _resolve_default_driver(target: str | None = None, sanitize: list[str] | None = None) -> str | None:
+    """Resolve the default C driver when not explicitly specified via --driver or PYSC_CC.
+
+    Rules:
+    - If target is set (or targets Windows) -> prefer zig.
+    - If sys.platform == "win32" -> prefer zig.
+    - If a sanitizer is requested -> prefer clang: `zig cc` compiles with
+      `-fsanitize=` but ships no linkable sanitizer runtime, so the link
+      fails with `undefined symbol: __asan_init`.
+    - If shutil.which("zig") is found on PATH -> prefer zig.
+    - Otherwise, fall back to clang on macOS/Linux if found on PATH.
+    - If neither is found, return None.
+    """
+    if target is not None or sys.platform == "win32":
+        return "zig"
+    if sanitize:
+        if shutil.which("clang") is not None:
+            return "clang"
+        return None
+    if shutil.which("zig") is not None:
+        return "zig"
+    if shutil.which("clang") is not None:
+        return "clang"
+    return None
+
+
 def _apply_env_defaults(args: argparse.Namespace) -> None:
     """Fill unset toolchain flags from PYSC_CC / PYSC_LINKER / PYSC_TARGET; explicit flags win."""
     for attr, var in (("driver", "PYSC_CC"), ("linker", "PYSC_LINKER")):
@@ -717,10 +744,10 @@ def _apply_env_defaults(args: argparse.Namespace) -> None:
             setattr(args, attr, value)
     if args.target is None:
         args.target = os.environ.get("PYSC_TARGET") or None
-    if args.driver is None:
-        args.driver = "clang"
     if getattr(args, "sanitize", None) is None:
         args.sanitize = os.environ.get("PYSC_SANITIZE") or None
+    if args.driver is None:
+        args.driver = _resolve_default_driver(args.target, _sanitize_list(args.sanitize))
     if not getattr(args, "debug_info", False):
         args.debug_info = os.environ.get("PYSC_DEBUG_INFO", "") not in ("", "0", "false", "no")
 
@@ -822,7 +849,14 @@ def _require_toolchain(args: argparse.Namespace) -> None:
         # The library mode resolves its own toolchain (the Xcode SDK clang or
         # the NDK clang), and the resolution errors name what is missing.
         return
-    driver = args.driver or "clang"
+    driver = args.driver
+    if driver is None:
+        raise IRError(
+            "no C toolchain found on PATH (neither zig nor clang), and compiling to a binary needs a C toolchain. "
+            f"Install one of: {zigshim.install_hint()}, or clang (xcode-select --install, apt install clang, ...). "
+            "Run `pyscriptc doctor` to see what was found and the README for install commands. "
+            "`--emit ir` and `--emit llvm` need no toolchain."
+        )
     if driver == "zig":
         # `pip install ziglang` alone satisfies this: the wheel ships the zig
         # binary but only exposes `python-zig`, so pyscriptc installs a `zig`
@@ -913,8 +947,11 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         report = build_report(source_path)
         print(json.dumps(report, indent=2))
         return 3 if report["fences"] else 0
-    _require_toolchain(args)
+    # The mobile refusal is a property of the request, not of the host: it
+    # fires before the toolchain check, so a mobile triple reports PS4101
+    # even on a machine without zig or clang.
     _require_mobile_refusals(args)
+    _require_toolchain(args)
     sanitize = _require_sanitize(args)
     debug_info = _require_debug_info(args)
     config = load_config(source_path)
@@ -1036,7 +1073,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         if dbg.wants("verify"):
             state["stage"] = "llvmverify"
             dbg.begin("llvmverify")
-            _verify_llvm(ll_path, dbg, driver=args.driver, target=args.target)
+            _verify_llvm(ll_path, dbg, driver=args.driver or "clang", target=args.target)
             dbg.end("llvmverify")
         if args.emit == "llvm":
             print(ll_path)
@@ -1089,12 +1126,14 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             print(unit_path)
             return 0
         binary = Path(args.output) if args.output else _artifact_base(args, source_path)
+        if ((args.target and "windows" in args.target) or sys.platform == "win32") and not binary.suffix:
+            binary = binary.with_suffix(".exe")
         state["stage"] = "link"
         dbg.begin("link")
         link_binary(
             ll_path,
             binary,
-            driver=args.driver,
+            driver=args.driver or "clang",
             target=args.target,
             record=dbg.commands,
             link_driver=args.linker,

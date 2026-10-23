@@ -67,8 +67,20 @@ def install_shape() -> str:
     return "wheel"
 
 
+def default_driver() -> str:
+    if sys.platform == "win32":
+        return "zig"
+    if shutil.which("zig") is not None:
+        return "zig"
+    if shutil.which("clang") is not None:
+        return "clang"
+    return "none"
+
+
 def default_target() -> str:
-    return f"{platform.machine()}-{platform.system().lower()} (host, via clang)"
+    driver = default_driver()
+    driver_str = f"via {driver}" if driver != "none" else "no C toolchain found"
+    return f"{platform.machine()}-{platform.system().lower()} (host, {driver_str})"
 
 
 def gather() -> dict[str, Any]:
@@ -86,6 +98,7 @@ def gather() -> dict[str, Any]:
             "source": source,
             "version": _version(argv),
         },
+        "driver": default_driver(),
         "clang": _tool("clang"),
         "zig": _zig_tool(),
         "cache_dir": str(Path.home() / ".cache" / "pyscriptc"),
@@ -112,12 +125,15 @@ def render(info: dict[str, Any]) -> str:
 
     checker = info["checker"]
     rc = info["rt_cache"]
+    driver = info.get("driver", "zig")
+    driver_str = f"{driver} (preferred)" if driver != "none" else "none (install zig or clang)"
     return "\n".join(
         [
             f"pyscriptc {info['pyscriptc']} (python {info['python']})",
             f"install:        {info['install']}",
             f"checker:        {' '.join(checker['argv'])} ({checker['version'] or 'version unknown'}), "
             f"source: {checker['source']}",
+            f"driver:         {driver_str}",
             f"clang:          {tool(info['clang'])}",
             f"zig:            {zig_line(info['zig'])}",
             f"cache dir:      {info['cache_dir']}",

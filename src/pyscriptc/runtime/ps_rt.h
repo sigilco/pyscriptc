@@ -8,6 +8,7 @@ data in that order; cap is appended so existing stores still line up.
 #define PYSCRIPTC_PS_RT_H
 
 #include <stdint.h>
+#include "ps_compat.h"
 
 /* Builtin exception codes. The full hierarchy lives here (E2 M2): a parent
    always has a smaller code than its children, so ps_exc_isa walks the parent

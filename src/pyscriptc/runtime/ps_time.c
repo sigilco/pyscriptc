@@ -112,7 +112,7 @@ void ps_time_sleep(double seconds) {
 static void ps_gm(double ts, PsStructTime *out) {
     time_t t = ps_as_time(ts);
     struct tm tm;
-    if (gmtime_r(&t, &tm) == NULL) {
+    if (ps_gmtime_r(&t, &tm) == NULL) {
         ps_raise_cstr(PS_VALUE, "timestamp out of range");
     }
     ps_fill_stm(&tm, out);
@@ -121,7 +121,7 @@ static void ps_gm(double ts, PsStructTime *out) {
 static void ps_local(double ts, PsStructTime *out) {
     time_t t = ps_as_time(ts);
     struct tm tm;
-    if (localtime_r(&t, &tm) == NULL) {
+    if (ps_localtime_r(&t, &tm) == NULL) {
         ps_raise_cstr(PS_VALUE, "timestamp out of range");
     }
     ps_fill_stm(&tm, out);

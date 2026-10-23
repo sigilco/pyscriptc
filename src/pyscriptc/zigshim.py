@@ -153,5 +153,5 @@ def install_hint() -> str:
     return (
         "Install one of: `pip install ziglang` (the wheel ships zig and pyscriptc "
         "installs a `zig` PATH shim for it), `mise use -g zig`, `brew install zig`, "
-        "or the download at https://ziglang.org/download/"
+        "`winget install zig`, or the download at https://ziglang.org/download/"
     )
