@@ -1,0 +1,7 @@
+{
+  "$schema": "http://json.schemastore.org/cosmos-config",
+  "plugins": ["react-cosmos-plugin-vite"],
+  "port": 5050,
+  "rendererUrl": "http://localhost:5051",
+  "fixtureFileSuffix": "fixture"
+}

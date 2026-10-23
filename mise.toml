@@ -32,6 +32,10 @@ run = ["uv sync", "pnpm --dir docs/.docmd install"]
 description = "Landing page dev server (site/landing)"
 run = "pnpm --dir docs/.docmd --filter pyscriptc-site-landing dev"
 
+[tasks."landing:cosmos"]
+description = "React Cosmos sandbox for landing components"
+run = "pnpm --dir docs/.docmd --filter pyscriptc-site-landing cosmos"
+
 [tasks."landing:build"]
 description = "Build the landing page to site/landing/dist"
 run = "pnpm --dir docs/.docmd --filter pyscriptc-site-landing build"

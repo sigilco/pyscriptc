@@ -7,15 +7,26 @@
   "scripts": {
     "build": "paraglide-js compile --project ./project.inlang --outdir ./src/paraglide && astro build",
     "dev": "astro dev",
-    "preview": "astro preview"
+    "preview": "astro preview",
+    "cosmos": "cosmos",
+    "cosmos:export": "cosmos-export"
   },
   "dependencies": {
     "astro": "^5.18.2"
   },
   "devDependencies": {
+    "@astrojs/react": "^7.1.1",
     "@inlang/paraglide-js": "^2.29.1",
     "@tailwindcss/vite": "^4.3.3",
-    "tailwindcss": "^4.3.3"
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "react": "^19.3.1",
+    "react-cosmos": "^7.4.1",
+    "react-cosmos-plugin-vite": "^7.4.0",
+    "react-dom": "^19.3.1",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.3.5"
   },
   "engines": {
     "node": ">=22.0.0"
