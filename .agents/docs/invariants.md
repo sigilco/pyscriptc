@@ -45,10 +45,12 @@ Printed speed is `Nx CPython`, the reciprocal of the stored native/CPython ratio
 ## Checks
 
 ```bash
-uv run ruff check .
-uv run ruff format --check .
-uv run pytest
-uv run python -m benchmarks.baseline.run --check
+mise run lint
+mise run format-check
+mise run test
+mise run bench:baseline
 ```
+
+Each task wraps one raw command: `uv run ruff check`, `uv run ruff format --check`, `uv run pytest` and `uv run python -m benchmarks.baseline.run --check`.
 
 Use the project interpreter (`uv run`, or `.venv/bin/python`). The system `python3` on a developer machine may be older than 3.14.

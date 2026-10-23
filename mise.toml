@@ -8,6 +8,7 @@
 #   docs:build      build the public docs site to dist/docs
 #   docs:validate   check every internal link in docs/
 #   docs:internal   dev server for the internal notes (.agents/docs), dev-only
+#   compat:build    build the compat page to dist/compat
 #   site:build      build the three site parts and assemble deploy/
 #   site:check      link check over deploy/
 #   site:dev        run one part dev server (landing, docs or compat)
@@ -19,6 +20,7 @@
 #   compat:json     rebuild compat/data/compat.json (add --check to compare)
 #   compat:ladder   rebuild compat/data/ladder.json
 #   compat:census   compat2 census over the visible corpus (--top N)
+#   support:table   regenerate the supported-API tables under .agents/docs/support
 #   boxed:cost      boxed ledger window (add --reach/--probe-times when you have them)
 #   ir:hashes       canonical IR hash compare against the committed baseline (linux only, see below)
 #   compile         pyscriptc compile, args pass through (mise run compile FILE --emit bin)
@@ -115,6 +117,10 @@ run = "uv run python scripts/build_compat_json.py"
 [tasks."compat:ladder"]
 description = "Rebuild compat/data/ladder.json"
 run = "uv run python -m benchmarks.scripts_corpus.ladder --json compat/data/ladder.json"
+
+[tasks."support:table"]
+description = "Regenerate the supported-API tables under .agents/docs/support (add --check to compare)"
+run = "uv run python scripts/gen_support_table.py"
 
 [tasks."compat:census"]
 description = "Compat2 census over the visible corpus (append --top N to limit)"
