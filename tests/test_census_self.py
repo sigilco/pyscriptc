@@ -123,11 +123,14 @@ def test_self_census_ballpark() -> None:
     # save/restore and the per-part guards).
     # restlower/_queue.py (queue.Queue, LifoQueue and SimpleQueue, #172) adds
     # 1 module and 15 self-host fences (the lowerer and its annotations).
-    assert census["fences"] == 2686
+    # FFI F1b (#224): the handle ownership checks in lower/ and the manifest
+    # handle helpers add 14 self-host fences (the consume, borrow, free and
+    # scope-exit clauses). The module count is unchanged.
+    assert census["fences"] == 2700
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     # Project mode (#150): project.py adds about 240 lines.
     # yield inside try (#164): the re-entrant try in the coro guard transform
     # adds about 150 lines in coro.py.
-    assert 11_000 <= census["lines"] <= 37_000
-    assert sum(p["fences"] for p in census["packages"]) == 2686
+    assert 11_000 <= census["lines"] <= 38_000
+    assert sum(p["fences"] for p in census["packages"]) == 2700
