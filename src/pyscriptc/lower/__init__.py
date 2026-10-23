@@ -11,7 +11,6 @@ closed set of calls. Unknown syntax and queued stdlib modules stay fences.
 from __future__ import annotations
 
 import ast
-import os
 import sys
 import time
 from typing import Any, NoReturn
@@ -55,7 +54,7 @@ from pyscriptc.lower._stmt import (
     _stmt_breaks_this_loop,
     _stmt_continues_this_loop,
 )
-from pyscriptc.stdlib_queue import canonical_module, module_status
+from pyscriptc.stdlib_queue import PACK_MODULES, canonical_module, ffi_modules, module_status
 from pyscriptc.stdmore import THREADING_CLASSES, member_callable, module_constant
 
 
@@ -101,6 +100,9 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # A program module whose body runs at import time (every program
         # module except `__main__`): it synthesizes `<module>.__init__`.
         self.module_init = False
+        # Project mode: the entry module keeps its dotted name but plays the
+        # `__main__` role (its script body is the program's entry).
+        self.entry_module = False
         # The program root package name, when the tree is a program. It is the
         # prefix for the program's own package-style names.
         self.program_root = ""
@@ -545,9 +547,13 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         return fn
 
     def _is_program_main(self) -> bool:
-        """True for the `__main__` module of a program directory."""
+        """True for the `__main__` module of a program directory.
 
-        return self.program and self.module_name == "__main__"
+        Project mode: the named entry module plays the same role under its
+        own dotted name.
+        """
+
+        return self.program and (self.module_name == "__main__" or self.entry_module)
 
     def _is_main_module(self) -> bool:
         """True when this module runs as `__main__` (a script or program entry)."""
@@ -895,7 +901,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             self.fail(node, "PS1003", f"{what} is {_show(got)}, annotation says {_show(want)}")
 
     def _use_status(self, module: str) -> str:
-        if module == "nativeprobe" and os.environ.get("PYSCRIPTC_NATIVEPROBE") == "1":
+        if canonical_module(module) in PACK_MODULES:
             return "lowered"
         status = module_status(module)
         if status == "lowered":
@@ -1463,20 +1469,34 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
 
 
 def lower_source(
-    source: str, filename: str = "<stdin>", bridge: Any = None, timings: dict[str, float] | None = None
+    source: str,
+    filename: str = "<stdin>",
+    bridge: Any = None,
+    timings: dict[str, float] | None = None,
+    ffi: list[Any] | None = None,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     tree = ast.parse(source, filename=filename)
     if timings is not None:
         timings["parse"] = round((time.perf_counter() - started) * 1000.0, 3)
+    if ffi:
+        with ffi_modules(ffi):
+            lowerer = Lowerer(filename, source)
+            lowerer.bridge = bridge
+            return lowerer.module(tree)
     lowerer = Lowerer(filename, source)
     lowerer.bridge = bridge
     return lowerer.module(tree)
 
 
-def lower_file(path: str, bridge: Any = None, timings: dict[str, float] | None = None) -> tuple[dict[str, Any], str]:
+def lower_file(
+    path: str,
+    bridge: Any = None,
+    timings: dict[str, float] | None = None,
+    ffi: list[Any] | None = None,
+) -> tuple[dict[str, Any], str]:
     text = open(path, encoding="utf-8").read()
-    return lower_source(text, path, bridge, timings), text
+    return lower_source(text, path, bridge, timings, ffi), text
 
 
 def render_fences(module: dict[str, Any], source: str) -> str:

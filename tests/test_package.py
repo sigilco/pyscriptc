@@ -226,16 +226,16 @@ def test_dunder_main_is_skipped_and_a_library_import_still_fences(tmp_path: Path
         "def add(left: int, right: int) -> int:\n    return left + right\n",
         encoding="utf-8",
     )
-    (root / "__main__.py").write_text("import argparse\n", encoding="utf-8")
+    (root / "__main__.py").write_text("import sqlite3\n", encoding="utf-8")
     got = compile_run(tmp_path, root, "pkg.util.add", "[2, 2]")
     assert got.returncode == 0, got.stderr
     assert got.stdout == "4\n"
     assert "skipped pkg/__main__.py" in got.stderr
     assert "not an importable module" in got.stderr
-    (root / "cli.py").write_text("import argparse\n", encoding="utf-8")
+    (root / "cli.py").write_text("import sqlite3\n", encoding="utf-8")
     refused = run_cli("compile", str(root), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "refused.ir.json"))
     assert refused.returncode == 3, refused.stderr
-    assert "argparse" in refused.stderr
+    assert "sqlite3" in refused.stderr
 
 
 def test_a_single_file_still_refuses_a_relative_import(tmp_path: Path) -> None:

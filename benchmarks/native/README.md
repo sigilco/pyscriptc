@@ -8,7 +8,7 @@ uv run python -m benchmarks.native.run
 
 `libmix.so` exports `mix_crc32` and `mix_crc32_n`. That is the C ABI, the shape of a Rust `cdylib` with `extern "C"`. `nativeprobe*.so` is a Python extension: `nm -D` shows `PyInit_nativeprobe` defined and `mix_crc32` undefined. cryptography, numpy, pydantic-core, and the other native wheels in the top 100 look like `nativeprobe`, not like `libmix`.
 
-pyscriptc has two ways to reach the checksum. `nativeprobe.crc32` is `dlopen` of `libmix.so` from the small runtime (`ps_mix.c`). No libpython. `nativeprobe.crc32_island` asks embedded CPython to import the extension (`ps_island_mix_crc32`), which is how a `PyInit_*` wheel has to run. The import lowers only when `PYSCRIPTC_NATIVEPROBE=1`. A normal compile still fences it.
+pyscriptc has two ways to reach the checksum. `nativeprobe.crc32` is `dlopen` of `libmix.so` from the small runtime (`ps_mix.c`). No libpython. `nativeprobe.crc32_island` asks embedded CPython to import the extension (`ps_island_mix_crc32`), which is how a `PyInit_*` wheel has to run. The import lowers only through the probe's FFI manifest: pass `--ffi benchmarks/native/nativeprobe.toml` to the compile. A compile without the manifest still fences it.
 
 Five interleaved runs, median wall time, this host. Speedup is `Nx CPython` (higher is faster, or lighter for RSS). The `.so` loop is two million passes so process startup is not the result.
 

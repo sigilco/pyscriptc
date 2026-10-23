@@ -10,8 +10,42 @@ the scalar, str, bytes, and list set the rest of the runtime already uses.
 
 #include "ps_rt.h"
 
+#include <pthread.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* The island tier embeds CPython, so every line of this file is boxed code
+   (the ledger counts `src/pyscriptc/runtime/ps_island*` whole). */
+
+/* The GIL: Py_InitializeEx leaves the calling thread holding it, so every
+   other native thread would block forever. SaveThread releases it after the
+   one-time init, and each entry point re-enters through PyGILState_Ensure.
+   The once-guard stops two threads from racing the init itself (the second
+   Py_InitializeEx aborts with "global import state already initialized"). */
+static pthread_once_t ps_island_once = PTHREAD_ONCE_INIT;
+
+static void ps_island_init(void) {
+    Py_InitializeEx(0);
+    if (!Py_IsInitialized()) {
+        /* No exception state to report from here: abort loudly. */
+        fprintf(stderr, "CPython island failed to initialize\n");
+        abort();
+    }
+    PyEval_SaveThread();
+}
+
+static void ps_island_ensure(void) {
+    pthread_once(&ps_island_once, ps_island_init);
+    PyGILState_Ensure();
+}
+
+/* Leave the island. Release the GIL the entry point took. Failure paths
+   release through ps_island_fail before the raise unwinds the thread, so a
+   thread that unwinds never leaves the interpreter locked. */
+static void ps_island_done(void) {
+    PyGILState_Release(PyGILState_UNLOCKED);
+}
 
 static void ps_island_fail(void) {
     PyObject *typ = NULL;
@@ -30,17 +64,9 @@ static void ps_island_fail(void) {
             }
         }
     }
+    /* The GIL goes back before the raise unwinds the thread. */
+    ps_island_done();
     ps_raise_cstr(PS_RUNTIME, msg);
-}
-
-static void ps_island_ensure(void) {
-    if (Py_IsInitialized()) {
-        return;
-    }
-    Py_InitializeEx(0);
-    if (!Py_IsInitialized()) {
-        ps_raise_cstr(PS_RUNTIME, "CPython island failed to initialize");
-    }
 }
 
 static PyObject *ps_import(const char *name) {
@@ -104,6 +130,7 @@ void ps_island_check_output(PsSeq *args, PsBuf *out) {
     }
     ps_take_bytes(result, out);
     Py_DECREF(result);
+    ps_island_done();
 }
 
 void ps_island_hostname(PsBuf *out) {
@@ -118,6 +145,7 @@ void ps_island_hostname(PsBuf *out) {
     }
     ps_take_unicode(result, out);
     Py_DECREF(result);
+    ps_island_done();
 }
 
 int64_t ps_island_threads(void) {
@@ -136,6 +164,7 @@ int64_t ps_island_threads(void) {
     if (value == -1 && PyErr_Occurred()) {
         ps_island_fail();
     }
+    ps_island_done();
     return (int64_t)value;
 }
 
@@ -157,6 +186,7 @@ void ps_island_thread_name(PsBuf *out) {
     }
     ps_take_unicode(name, out);
     Py_DECREF(name);
+    ps_island_done();
 }
 
 void ps_island_cleandoc(int64_t n, const char *s, PsBuf *out) {
@@ -184,6 +214,7 @@ void ps_island_cleandoc(int64_t n, const char *s, PsBuf *out) {
     }
     ps_take_unicode(result, out);
     Py_DECREF(result);
+    ps_island_done();
 }
 
 static void ps_island_log(const char *level, int64_t n, const char *s) {
@@ -210,6 +241,7 @@ static void ps_island_log(const char *level, int64_t n, const char *s) {
     if (result == NULL) {
         ps_island_fail();
     }
+    ps_island_done();
 }
 
 void ps_island_log_info(int64_t n, const char *s) { ps_island_log("info", n, s); }
@@ -266,6 +298,7 @@ static int64_t ps_island_mix_call(const char *name, int64_t n, const char *data,
     if (value == -1 && PyErr_Occurred()) {
         ps_island_fail();
     }
+    ps_island_done();
     return value;
 }
 

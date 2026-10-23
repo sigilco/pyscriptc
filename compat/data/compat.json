@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-23",
-  "commit": "f01f6a6c63e9e47e07eb4fb89d35c102629a6fee",
+  "commit": "ba011d664c8de3b530b99f2e0b74e59d4b412a7c",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -13,13 +13,13 @@
     "builtins_partial": 15,
     "builtins_none": 1,
     "stdlib_full": 0,
-    "stdlib_partial": 51,
+    "stdlib_partial": 53,
     "stdlib_none": 1,
     "packages_full": 3,
     "packages_partial": 5,
     "packages_none": 10,
     "weighted_pass": 0.0,
-    "fences": 3041
+    "fences": 3035
   },
   "builtins": [
     {
@@ -477,6 +477,43 @@
       "count": 1,
       "unsupported": [
         "load, dump, safe_dump, keyword arguments"
+      ],
+      "fences": [
+        "PS2001",
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.jwt",
+      "kind": "stdlib",
+      "label": "`jwt`",
+      "names": [
+        "jwt"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "RS256 and other asymmetric algorithms, non-literal algorithm, other jwt members (get_unverified_header, PyJWTError), claims beyond str values (exp, aud), options dict, headers argument"
+      ],
+      "fences": [
+        "PS1003",
+        "PS2001",
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.orjson",
+      "kind": "stdlib",
+      "label": "`orjson`",
+      "names": [
+        "orjson"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "default callable, other OPT_ flags, other orjson members (Fragment, JSONDecodeError)"
       ],
       "fences": [
         "PS2001",
@@ -1304,11 +1341,11 @@
       "top_families": [
         {
           "family": "param-inference",
-          "count": 38
+          "count": 39
         },
         {
           "family": "return-inference",
-          "count": 16
+          "count": 15
         },
         {
           "family": "class-body",
@@ -1356,7 +1393,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 92
+          "count": 89
         },
         {
           "code": "PS1001",
@@ -1364,7 +1401,7 @@
         },
         {
           "code": "PS1106",
-          "count": 8
+          "count": 10
         }
       ],
       "pypi": "https://pypi.org/project/python-dotenv/"
@@ -1374,9 +1411,9 @@
       "import_name": "filelock",
       "version": "4.1.1",
       "status": "partial",
-      "fences": 765,
+      "fences": 752,
       "definitions": 641,
-      "fenced_definitions": 258,
+      "fenced_definitions": 245,
       "top_families": [
         {
           "family": "name-resolution",
@@ -1384,7 +1421,7 @@
         },
         {
           "family": "construct-other",
-          "count": 80
+          "count": 86
         },
         {
           "family": "local-inference",
@@ -1394,15 +1431,15 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 432
+          "count": 439
         },
         {
           "code": "PS1001",
-          "count": 78
+          "count": 79
         },
         {
           "code": "PS2001",
-          "count": 71
+          "count": 68
         }
       ],
       "pypi": "https://pypi.org/project/filelock/"
@@ -1640,9 +1677,9 @@
       "import_name": "packaging",
       "version": "26.3",
       "status": "none",
-      "fences": 627,
+      "fences": 634,
       "definitions": 558,
-      "fenced_definitions": 283,
+      "fenced_definitions": 287,
       "top_families": [
         {
           "family": "name-resolution",
@@ -1660,15 +1697,15 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 262
+          "count": 259
         },
         {
           "code": "PS1106",
           "count": 90
         },
         {
-          "code": "PS1001",
-          "count": 52
+          "code": "PS2001",
+          "count": 54
         }
       ],
       "pypi": "https://pypi.org/project/packaging/"
@@ -1736,7 +1773,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 171
+          "count": 170
         },
         {
           "code": "PS1001",
@@ -1802,11 +1839,11 @@
         },
         {
           "family": "param-inference",
-          "count": 13
+          "count": 14
         },
         {
           "family": "return-inference",
-          "count": 5
+          "count": 4
         }
       ],
       "codes": [
@@ -1951,49 +1988,49 @@
     {
       "code": "PS1001",
       "title": "annotation missing or not lowered",
-      "count": 516,
+      "count": 517,
       "packages": 15
     },
     {
       "code": "PS1106",
       "title": "annotation names an unlowered type",
-      "count": 197,
+      "count": 200,
       "packages": 9
     },
     {
       "code": "PS2001",
       "title": "stdlib name not lowered",
-      "count": 184,
+      "count": 185,
       "packages": 14
     },
     {
       "code": "PS1103",
       "title": "generic alias annotation",
-      "count": 122,
-      "packages": 8
-    },
-    {
-      "code": "PS1204",
-      "title": "class body statement",
-      "count": 116,
+      "count": 126,
       "packages": 8
     },
     {
       "code": "PS1101",
       "title": "union annotation",
-      "count": 91,
+      "count": 92,
       "packages": 9
     },
     {
-      "code": "PS2003",
-      "title": "call arguments not lowered",
-      "count": 71,
-      "packages": 8
+      "code": "PS1204",
+      "title": "class body statement",
+      "count": 87,
+      "packages": 7
     },
     {
       "code": "PS1201",
       "title": "decorator",
-      "count": 66,
+      "count": 76,
+      "packages": 8
+    },
+    {
+      "code": "PS2003",
+      "title": "call arguments not lowered",
+      "count": 72,
       "packages": 8
     },
     {
@@ -2037,17 +2074,23 @@
       "title": "string literal outside Latin-1",
       "count": 4,
       "packages": 2
+    },
+    {
+      "code": "PS1206",
+      "title": "with-as binding",
+      "count": 2,
+      "packages": 1
     }
   ],
   "history": [
     {
       "date": "2026-10-23",
-      "commit": "f01f6a6c63e9e47e07eb4fb89d35c102629a6fee",
+      "commit": "ba011d664c8de3b530b99f2e0b74e59d4b412a7c",
       "weighted_pass": 0.0,
       "packages_full": 3,
       "packages_partial": 5,
       "packages_none": 10,
-      "fences": 3041
+      "fences": 3035
     }
   ]
 }

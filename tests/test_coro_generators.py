@@ -471,22 +471,25 @@ def go() -> str:
 print(go())
 """
 
+# The generator frame carries close() and throw(), so the variables are
+# annotated `Generator[int, None, None]`: that is the stock typeshed
+# spelling for a generator, and the one that types close() and throw().
 CLOSE_THROW = """\
-from typing import Iterator
+from typing import Generator
 
 
-def g() -> Iterator[int]:
+def g() -> Generator[int, None, None]:
     yield 1
     yield 2
 
 
 def go() -> str:
-    a: Iterator[int] = g()
+    a: Generator[int, None, None] = g()
     out: str = str(next(a))
     a.close()
     out += "," + str(next(a, None))
     a.close()
-    b: Iterator[int] = g()
+    b: Generator[int, None, None] = g()
     next(b)
     try:
         b.throw(ValueError)

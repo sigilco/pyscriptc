@@ -4,6 +4,7 @@
    seed() with no argument is nondeterministic (time/clock/address mix). */
 #include "ps_rt.h"
 
+#include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,6 +16,10 @@
 static uint32_t mt[MT_N];
 static int mt_idx = MT_N;
 static int mt_seeded = 0;
+/* CPython's module-level random is one shared instance, so its sequence is
+   shared across threads. One mutex keeps the state coherent; interleaved
+   draws stay ordered, which is all CPython promises. */
+static pthread_mutex_t ps_rand_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static void mt_init(uint32_t s) {
     mt[0] = s;
@@ -84,7 +89,8 @@ static uint32_t mt_next(void) {
     return y;
 }
 
-void ps_rand_seed_auto(void) {
+/* The unlocked seeds: the caller holds ps_rand_lock. */
+static void ps_rand_seed_auto_locked(void) {
     uint64_t x = (uint64_t)time(NULL);
     uint32_t key[2];
     x = x * 0x9e3779b97f4a7c15ULL + 0x165667b19e3779f9ULL;
@@ -96,7 +102,7 @@ void ps_rand_seed_auto(void) {
     mt_seeded = 1;
 }
 
-void ps_rand_seed(int64_t v) {
+static void ps_rand_seed_locked(int64_t v) {
     uint64_t u = v < 0 ? (uint64_t) ~ (uint64_t)v + 1 : (uint64_t)v;
     uint32_t key[2];
     int klen = 1;
@@ -109,33 +115,52 @@ void ps_rand_seed(int64_t v) {
     mt_seeded = 1;
 }
 
-static uint32_t rand_gen(void) {
-    if (!mt_seeded) {
-        ps_rand_seed_auto();
-    }
-    return mt_next();
+/* The public seeds: the lowerer calls these, so they take the lock. */
+void ps_rand_seed_auto(void) {
+    pthread_mutex_lock(&ps_rand_lock);
+    ps_rand_seed_auto_locked();
+    pthread_mutex_unlock(&ps_rand_lock);
+}
+
+void ps_rand_seed(int64_t v) {
+    pthread_mutex_lock(&ps_rand_lock);
+    ps_rand_seed_locked(v);
+    pthread_mutex_unlock(&ps_rand_lock);
 }
 
 int64_t ps_rand_bits(int64_t k) {
+    int64_t out;
     if (k < 0 || k > 64) {
         ps_raise_cstr(PS_VALUE, "number of bits must be 0 to 64");
     }
     if (k == 0) {
         return 0;
     }
+    pthread_mutex_lock(&ps_rand_lock);
+    if (!mt_seeded) {
+        ps_rand_seed_auto_locked();
+    }
     if (k <= 32) {
-        return (int64_t)(rand_gen() >> (32 - k));
+        out = (int64_t)(mt_next() >> (32 - k));
+    } else {
+        uint64_t lo = mt_next();
+        uint64_t hi = mt_next() >> (64 - k);
+        out = (int64_t)((hi << 32) | lo);
     }
-    {
-        uint64_t lo = rand_gen();
-        uint64_t hi = rand_gen() >> (64 - k);
-        return (int64_t)((hi << 32) | lo);
-    }
+    pthread_mutex_unlock(&ps_rand_lock);
+    return out;
 }
 
 double ps_rand_f64(void) {
-    uint32_t a = rand_gen() >> 5;
-    uint32_t b = rand_gen() >> 6;
+    uint32_t a;
+    uint32_t b;
+    pthread_mutex_lock(&ps_rand_lock);
+    if (!mt_seeded) {
+        ps_rand_seed_auto_locked();
+    }
+    a = mt_next() >> 5;
+    b = mt_next() >> 6;
+    pthread_mutex_unlock(&ps_rand_lock);
     return ((double)a * 67108864.0 + (double)b) / 9007199254740992.0;
 }
 

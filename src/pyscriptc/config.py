@@ -54,6 +54,65 @@ class ConfigError(SpikeError):
         super().__init__(CONFIG_CODE, message)
 
 
+def entry_points(pyproject: Path) -> dict[str, str]:
+    """`[project.scripts]` of a pyproject.toml: console script name -> module:attr.
+
+    An absent `[project]` or `[project.scripts]` table is an empty dict; a
+    malformed table is a PS3102. Values are checked for the `module:attr`
+    shape the compiler needs (PEP 621 allows any string, the lowered subset
+    does not).
+    """
+
+    try:
+        data = _toml(pyproject)
+    except ConfigError:
+        raise
+    project = data.get("project")
+    if project is None:
+        return {}
+    if not isinstance(project, dict):
+        raise ConfigError(f"{pyproject}: [project] must be a table")
+    scripts = project.get("scripts")
+    if scripts is None:
+        return {}
+    if not isinstance(scripts, dict):
+        raise ConfigError(f"{pyproject}: [project.scripts] must be a table")
+    out: dict[str, str] = {}
+    for name, target in scripts.items():
+        if not isinstance(name, str) or not name.isidentifier():
+            raise ConfigError(f"{pyproject}: [project.scripts].{name!r} is not a valid console script name")
+        if not isinstance(target, str) or target.count(":") != 1:
+            raise ConfigError(
+                f"{pyproject}: [project.scripts].{name} must be 'module:attribute' (a dotted module, a function name)"
+            )
+        module, attr = target.split(":")
+        if not module or not all(part.isidentifier() for part in module.split(".")):
+            raise ConfigError(f"{pyproject}: [project.scripts].{name}: {module!r} is not a module path")
+        if not attr.isidentifier():
+            raise ConfigError(f"{pyproject}: [project.scripts].{name}: {attr!r} is not an attribute name")
+        out[name] = target
+    return out
+
+
+def project_roots(pyproject: Path) -> tuple[str, ...]:
+    """The module roots of a pyproject project: [tool.pyscriptc] src, default 'src'.
+
+    A configured root that exists wins. When none of them exists the project
+    root itself is the root, so a flat layout (packages beside the
+    pyproject) still resolves.
+    """
+
+    base = pyproject.parent
+    data = _toml(pyproject)
+    table = _project_table(data, pyproject)
+    configured = table.get("src") if table else None
+    if configured is None:
+        configured = "src"
+    roots = (configured,) if isinstance(configured, str) else tuple(configured)
+    present = tuple(root for root in roots if (base / root).is_dir())
+    return present or (".",)
+
+
 def read_pep723(text: str) -> dict[str, Any] | None:
     """The parsed `# /// script` metadata block, or None when absent.
 

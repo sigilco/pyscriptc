@@ -9,19 +9,21 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
 
 from pyscriptc import deps, reduce, runcache, telemetry, zigshim
 from pyscriptc.check import CheckFailed, run_checker
-from pyscriptc.config import apply_to_args, load_config
+from pyscriptc.config import apply_to_args, entry_points, load_config
 from pyscriptc.coverage import build_report, family_of, render_text
 from pyscriptc.debug import Debug, resolve
 from pyscriptc.diagnostics import explain
 from pyscriptc.doctor import doctor_cmd
 from pyscriptc.emit.llvm import compile_unit, emit_llvm, link_binary, standalone_entry
 from pyscriptc.errors import FitError, IRError, SpikeError, VersionError
+from pyscriptc.ffi_manifest import FfiManifestError, load_manifests
 from pyscriptc.imports import build_report as build_import_report
 from pyscriptc.imports import render_text as render_import_text
 from pyscriptc.ir import validate_module
@@ -58,6 +60,14 @@ def main(argv: list[str] | None = None) -> int:
         help="write artifacts to DIR/<source name> instead of beside the source (useful for directory compiles)",
     )
     compile_parser.add_argument("-o", dest="output")
+    compile_parser.add_argument(
+        "--ffi",
+        action="append",
+        metavar="MANIFEST",
+        default=[],
+        help="bind a typed extern manifest (TOML) and link its C sources; repeatable. "
+        "Also read from the `ffi` key of pyscriptc.toml / PEP 723 metadata",
+    )
     compile_parser.add_argument("--call", help="function the generated main calls")
     compile_parser.add_argument(
         "--args",
@@ -157,6 +167,13 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--skip-check", action="store_true")
     run_parser.add_argument("--checker", choices=("pyrefly", "mypy", "pyright"), default="pyrefly")
     run_parser.add_argument("--no-cache", action="store_true", help="always recompile (env PYSC_NO_RUN_CACHE=1)")
+    run_parser.add_argument(
+        "--ffi",
+        action="append",
+        metavar="MANIFEST",
+        default=[],
+        help="bind a typed extern manifest (TOML) and link its C sources; repeatable",
+    )
     coverage_parser = sub.add_parser("coverage", help="report every fence in a file or package tree", parents=[common])
     coverage_parser.add_argument("source")
     coverage_parser.add_argument("--json", action="store_true", help="print the report as JSON")
@@ -196,6 +213,22 @@ def main(argv: list[str] | None = None) -> int:
         "--print", action="store_true", help="print the reduced source instead of writing FILE.min.py"
     )
     reduce_parser.add_argument("--json", action="store_true", help="print the removal log as JSON")
+    build_parser = sub.add_parser(
+        "build", help="project mode: one binary per [project.scripts] entry point", parents=[common]
+    )
+    build_parser.add_argument(
+        "directory",
+        nargs="?",
+        default=".",
+        help="the project directory (with a pyproject.toml); default .",
+    )
+    build_parser.add_argument("--script", help="build only this console script; default every script")
+    build_parser.add_argument("--out-dir", metavar="DIR", help="write the binaries to DIR instead of <project>/build")
+    build_parser.add_argument("--driver", choices=("clang", "zig"), default=None)
+    build_parser.add_argument("--target", help="cross-compilation triple for `zig cc`")
+    build_parser.add_argument("--linker", choices=("clang", "zig"), default=None)
+    build_parser.add_argument("--skip-check", action="store_true")
+    build_parser.add_argument("--checker", choices=("pyrefly", "mypy", "pyright"), default="pyrefly")
     sub.add_parser("logs", help="print the audit-log path and its last lines", parents=[common])
     telemetry_parser = sub.add_parser("telemetry", help="usage metrics opt-out")
     telemetry_parser.add_argument("action", choices=("disable", "enable", "status", "reset-id"))
@@ -230,6 +263,8 @@ def main(argv: list[str] | None = None) -> int:
             return config_cmd(args)
         if args.cmd == "reduce":
             return reduce_cmd(args)
+        if args.cmd == "build":
+            return build_cmd(args)
         if args.cmd == "explain":
             return explain_cmd(args)
         if args.cmd == "logs":
@@ -260,6 +295,8 @@ def run_cmd(args: argparse.Namespace) -> int:
     if not source.exists():
         raise IRError(f"source not found: {source}")
     use_cache = runcache.enabled() and not args.no_cache
+    ffi_paths = [str(p) for p in getattr(args, "ffi", None) or []]
+    ffi_paths.extend(str(p) for p in load_config(source).ffi_manifests)
     key = runcache.key_for(
         source,
         load_config(source).origin,
@@ -274,6 +311,7 @@ def run_cmd(args: argparse.Namespace) -> int:
             f"debug_info={getattr(args, 'debug_info', False)}",
             f"skip_check={args.skip_check}",
             f"checker={args.checker}",
+            f"ffi={','.join(ffi_paths)}",
         ],
     )
     name = (source.resolve().name if source.is_dir() else source.stem) or "app"
@@ -380,6 +418,8 @@ def _build_for_run(args: argparse.Namespace, output: Path) -> int:
         debug_dir=None,
         run_argv=[],
     )
+    compile_args.ffi = [*getattr(args, "ffi", [])]
+    compile_args.ffi.extend(str(p) for p in load_config(Path(args.source)).ffi_manifests)
     # compile prints the binary path on success; keep stdout clean for the program
     real_stdout = sys.stdout
     sys.stdout = sys.stderr
@@ -422,6 +462,7 @@ def imports_cmd(args: argparse.Namespace) -> int:
 
 def config_cmd(args: argparse.Namespace) -> int:
     config = load_config(Path(args.source))
+    scripts = _scripts_of(Path(args.source))
     data = {
         "source": config.source,
         "origin": str(config.origin) if config.origin else None,
@@ -437,6 +478,7 @@ def config_cmd(args: argparse.Namespace) -> int:
         "ffi": list(config.ffi),
         "dependency-lanes": config.dependency_lanes(),
         "imports": {name: config.lane_for(name)[0] for name in sorted(config.imports)},
+        "scripts": scripts,
     }
     if args.json:
         print(json.dumps(data, indent=2))
@@ -458,7 +500,26 @@ def config_cmd(args: argparse.Namespace) -> int:
             print(f"  {req}: {lane}")
     for name, lane in data["imports"].items():
         print(f"import {name}: {lane}")
+    if data["scripts"]:
+        print("scripts:")
+        for name, target in data["scripts"].items():
+            print(f"  {name}: {target}")
     return 0
+
+
+def _scripts_of(source: Path) -> dict[str, str]:
+    """The console scripts of the pyproject above `source`, if any."""
+
+    from pyscriptc import project
+
+    try:
+        pyproject = project.discover_pyproject(source)
+    except project.ProjectError:
+        return {}
+    try:
+        return entry_points(pyproject)
+    except Exception:
+        return {}
 
 
 def _reduce_predicate(args: argparse.Namespace) -> reduce.Predicate:
@@ -525,6 +586,77 @@ def explain_cmd(args: argparse.Namespace) -> int:
 def logs_cmd(args: argparse.Namespace) -> int:
     tail()
     return 0
+
+
+def build_cmd(args: argparse.Namespace) -> int:
+    """`pyscriptc build [DIR]`: one binary per [project.scripts] entry point."""
+
+    from pyscriptc import project
+
+    started = time.monotonic()
+    _apply_env_defaults(args)
+    if args.target is not None and args.driver != "zig":
+        raise IRError("--target requires --driver zig (bundled sysroot per target)")
+    directory = Path(args.directory)
+    pyproject = project.discover_pyproject(directory)
+    scripts = entry_points(pyproject)
+    if not scripts:
+        print(f"{pyproject}: no [project.scripts] table, nothing to build", file=sys.stderr)
+        return 1
+    names = sorted(scripts) if args.script is None else [args.script]
+    for name in names:
+        if name not in scripts:
+            known = ", ".join(sorted(scripts))
+            print(f"{pyproject}: no console script {name!r} (known: {known})", file=sys.stderr)
+            return 2
+    state: dict[str, Any] = {"outcome": None, "stage": "lower", "fence_count": 0, "fence_families": {}}
+    try:
+        out_dir = Path(args.out_dir) if args.out_dir else pyproject.parent / "build"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        built: list[Path] = []
+        for name in names:
+            module_ir, _ = project.lower_script(pyproject, name)
+            if module_ir["fences"]:
+                state["fence_count"] = len(module_ir["fences"])
+                state["fence_families"] = _fence_families(module_ir["fences"])
+                print(render_fences(module_ir, module_ir["sourceFile"]), file=sys.stderr)
+                state["outcome"] = "fences"
+                return 3
+            state["stage"] = "check"
+            if not args.skip_check:
+                run_checker(Path(module_ir["sourceFile"]), args.checker)
+            state["stage"] = "emit"
+            llvm_text = emit_llvm(module_ir, None, [], standalone=True)
+            with tempfile.TemporaryDirectory(prefix="pyscriptc-build-") as scratch:
+                ll_path = Path(scratch) / f"{name}.ll"
+                ll_path.write_text(llvm_text, encoding="utf-8")
+                state["stage"] = "link"
+                # The link step writes its object files next to the output, so
+                # it runs in the scratch directory and the binary moves.
+                staged = Path(scratch) / name
+                link_binary(
+                    ll_path,
+                    staged,
+                    driver=args.driver,
+                    target=args.target,
+                    link_driver=args.linker,
+                )
+                binary = out_dir / name
+                shutil.move(str(staged), str(binary))
+            built.append(binary)
+            print(binary)
+        state["outcome"] = "ok"
+        log.info(
+            "build.finished",
+            scripts=len(built),
+            out_dir=str(out_dir),
+            ms=int((time.monotonic() - started) * 1000),
+        )
+        return 0
+    except BaseException as exc:
+        if state["outcome"] is None:
+            state["outcome"] = _compile_outcome(exc, state["stage"])
+        raise
 
 
 def compile_cmd(args: argparse.Namespace) -> int:
@@ -645,6 +777,30 @@ def _require_toolchain(args: argparse.Namespace) -> None:
         )
 
 
+def _load_ffi(args: argparse.Namespace, config: Any) -> list[Any]:
+    """The `--ffi` manifests of this compile, CLI first then the config file.
+
+    The manifests are validated before lowering starts, so a bad pin or a
+    duplicate module claim fails with its `PS4xxx` code and exit 1 (the
+    `SpikeError` handler) instead of a link error later.
+    """
+    paths = [Path(item) for item in getattr(args, "ffi", None) or []]
+    paths.extend(config.ffi_manifests)
+    if not paths:
+        return []
+    manifests = load_manifests(paths)
+    for manifest in manifests:
+        if manifest.sources:
+            raise FfiManifestError(
+                "PS4008",
+                f"the manifest declares [[source]] units, which the compiler does not link yet "
+                f"(the F2 static-link gate, sigilco/pyscriptc#220): "
+                f"{', '.join(str(unit) for unit in manifest.unit_paths())}",
+                path=manifest.path,
+            )
+    return manifests
+
+
 def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
     try:
         dbg = resolve(args.debug, args.debug_dir, getattr(args, "timings", False))
@@ -663,6 +819,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
     config = load_config(source_path)
     for note in apply_to_args(config, args):
         print(note, file=sys.stderr)
+    manifests = _load_ffi(args, config)
     log.info(
         "compile.start",
         source=str(source_path),
@@ -686,9 +843,9 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             dbg.end("bridge")
         dbg.begin("lower")
         if source_path.is_dir():
-            module, source = lower_directory(source_path, program_mode=args.program, bridge=bridge)
+            module, source = lower_directory(source_path, program_mode=args.program, bridge=bridge, ffi=manifests)
         elif source_path.is_file():
-            module, source = lower_file(str(source_path), bridge=bridge, timings=dbg.timings_map)
+            module, source = lower_file(str(source_path), bridge=bridge, timings=dbg.timings_map, ffi=manifests)
         else:
             raise IRError(f"source not found: {source_path}")
         dbg.end("lower")
@@ -791,6 +948,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             sanitize=sanitize,
             timings=dbg.timings_map,
             debug_info=debug_info,
+            extra_units=[path for manifest in manifests for path in manifest.unit_paths()],
         )
         dbg.end("link")
         outputs["bin"] = str(binary)

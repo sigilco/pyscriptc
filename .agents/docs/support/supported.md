@@ -1,6 +1,6 @@
 # What is supported
 
-builtins: 25 🟢 · 22 🟡 · 23 🔴 | stdlib: 0 🟢 · 52 🟡 · 2 🔴
+builtins: 25 🟢 · 22 🟡 · 23 🔴 | stdlib: 0 🟢 · 54 🟡 · 2 🔴
 
 🟢 fully supported (every probed form compiles) · 🟡 partial · 🔴 not supported.
 
@@ -69,9 +69,11 @@ Targets CPython 3.14. Deliberate differences from CPython: [divergences.md](../.
 | `io` | 🟡 | TextIOWrapper, BufferedReader, io.open | PS1106 |
 | `itertools` | 🟡 | count, cycle (infinite), permutations, pairwise, batched, tee, dropwhile, compress | PS2001 |
 | `json` | 🟡 | load, dump (files), ensure_ascii=False, JSONDecodeError | PS1106, PS2001, PS2003 |
+| `jwt` | 🟡 | RS256 and other asymmetric algorithms, non-literal algorithm, other jwt members (get_unverified_header, PyJWTError), claims beyond str values (exp, aud), options dict, headers argument | PS1003, PS2001, PS2003 |
 | `logging` | 🟡 | basicConfig(level=...), format args (`logging.info(fmt, a)`), exception, handlers (StreamHandler) | PS2001, PS2003 |
 | `math` | 🟡 | asin, sinh, degrees, fsum, factorial, comb, isqrt, copysign, fmod, cbrt, log with a base | PS2001, PS2003 |
 | `operator` | 🟡 | itemgetter, attrgetter, methodcaller, and_, not_, getitem | PS2001 |
+| `orjson` | 🟡 | default callable, other OPT_ flags, other orjson members (Fragment, JSONDecodeError) | PS2001, PS2003 |
 | `os` | 🟡 | walk, scandir, system, urandom, cpu_count, kill, symlink, rmdir, getuid, keyword arguments (makedirs exist_ok) | PS2001, PS2003 |
 | `pathlib` | 🟡 | rglob, absolute, rmdir, with_suffix, relative_to, resolve to str, PurePath | PS2001 |
 | `posixpath` | 🟡 | commonpath, ismount, lexists | PS2001 |

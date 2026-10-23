@@ -1,0 +1,36 @@
+# The nativeprobe manifest: the env-gated dlopen seam of the benchmark
+# probe, re-expressed as a typed extern manifest (issue #218, F1a).
+#
+# This file is proof harness material, not an adapter: the benchmark compile
+# passes `--ffi benchmarks/native/nativeprobe.toml` and sets PYSCRIPTC_MIX_SO
+# for the dlopen shim (`ps_mix.c`, which stays the test seam). The crc32
+# values come from the same libmix.so the island rows link.
+
+[manifest]
+module = "nativeprobe"
+ps_abi = 1
+format = 1
+
+[[fn]]
+name = "crc32"
+py = "(data: bytes) -> int"
+c_symbol = "mix_crc32"
+abi = "ps_mix_crc32"
+
+[[fn]]
+name = "crc32_n"
+py = "(data: bytes, times: int) -> int"
+c_symbol = "mix_crc32_n"
+abi = "ps_mix_crc32_n"
+
+[[fn]]
+name = "crc32_island"
+py = "(data: bytes) -> int"
+c_symbol = "mix_crc32 (via PyInit_nativeprobe)"
+abi = "ps_island_mix_crc32"
+
+[[fn]]
+name = "crc32_n_island"
+py = "(data: bytes, times: int) -> int"
+c_symbol = "mix_crc32_n (via PyInit_nativeprobe)"
+abi = "ps_island_mix_crc32_n"

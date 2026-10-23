@@ -39,7 +39,6 @@ def prepare() -> Path:
     lib, _ext = ensure()
     root = repo_root()
     native = root / "benchmarks" / "native"
-    os.environ["PYSCRIPTC_NATIVEPROBE"] = "1"
     os.environ["PYSCRIPTC_MIX_SO"] = str(lib)
     previous = os.environ.get("PYTHONPATH", "")
     os.environ["PYTHONPATH"] = str(native) if not previous else str(native) + os.pathsep + previous
@@ -53,11 +52,12 @@ def main() -> int:
     native = prepare()
     out = Path("/tmp/pyscriptc-native")
     out.mkdir(exist_ok=True)
+    manifest = native / "nativeprobe.toml"
     print(f"{'workload':16} {'time':>16} {'rss':>14}  native vs CPython")
     for name, filename, call, count, route in WORK:
         source = native / "workloads" / filename
         binary = out / name
-        compiled = compile_call(source, call, [count], binary, skip_check=True)
+        compiled = compile_call(source, call, [count], binary, skip_check=True, ffi=[manifest])
         if compiled.returncode != 0:
             print(compiled.stderr, file=sys.stderr)
             return compiled.returncode

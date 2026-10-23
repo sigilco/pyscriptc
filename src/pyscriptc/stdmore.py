@@ -1611,6 +1611,8 @@ REST_MODULES = frozenset(
         "dotenv",
         "yaml",
         "urllib.request",
+        "jwt",
+        "orjson",
     }
 )
 
@@ -1808,6 +1810,10 @@ def member_callable(module: str, member: str) -> bool:
     if module == "dotenv" and member in {"dotenv_values", "load_dotenv"}:
         return True
     if module == "yaml" and member == "safe_load":
+        return True
+    if module == "jwt" and member in {"encode", "decode"}:
+        return True
+    if module == "orjson" and member in {"dumps", "loads"}:
         return True
     if module == "copy" and member in {"copy", "deepcopy"}:
         return True

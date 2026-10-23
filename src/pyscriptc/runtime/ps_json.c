@@ -497,16 +497,18 @@ static void ps_dump_float(double v, PsGrow *g) {
 static void ps_dump(const PsType *types, int32_t idx, const void *value, PsGrow *g);
 
 /* The dumps options: bit 0 sorts the dict keys, bits 8-15 hold the
-   indent width (0 keeps the compact form). */
+   indent width (0 keeps the compact form), bit 16 drops the space after
+   the separators (the orjson form). */
 #define PS_JSON_SORT_KEYS 1
+#define PS_JSON_COMPACT 0x10000
 
 /* ps_dump_fmt writes one value. `indent` is the pad width per level and
    `level` the current depth; a positive indent puts every item on its
    own line, the way `json.dumps(indent=n)` does. */
-static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsGrow *g, int32_t indent, int32_t level, int32_t sort_keys);
+static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsGrow *g, int32_t indent, int32_t level, int32_t sort_keys, int32_t compact);
 
 static void ps_dump(const PsType *types, int32_t idx, const void *value, PsGrow *g) {
-    ps_dump_fmt(types, idx, value, g, 0, 0, 0);
+    ps_dump_fmt(types, idx, value, g, 0, 0, 0, 0);
 }
 
 /* The newline and pad an indented item carries. */
@@ -517,7 +519,7 @@ static void ps_dump_pad(PsGrow *g, int32_t indent, int32_t level) {
     }
 }
 
-static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsGrow *g, int32_t indent, int32_t level, int32_t sort_keys) {
+static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsGrow *g, int32_t indent, int32_t level, int32_t sort_keys, int32_t compact) {
     PsType typ = types[idx];
     if (typ.kind == PS_JSON_INT) {
         int64_t v = 0;
@@ -554,7 +556,7 @@ static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsG
             return;
         }
         PsType child = types[typ.child];
-        ps_dump_fmt(types, typ.child, cell + ps_opt_off(child.kind), g, indent, level, sort_keys);
+        ps_dump_fmt(types, typ.child, cell + ps_opt_off(child.kind), g, indent, level, sort_keys, compact);
         return;
     }
     if (typ.kind == PS_JSON_STR) {
@@ -573,15 +575,15 @@ static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsG
         }
         for (int64_t i = 0; i < seq->len; i++) {
             if (i > 0) {
-                ps_grow_byte(g, indent ? ',' : ',');
-                if (!indent) {
+                ps_grow_byte(g, ',');
+                if (!indent && !compact) {
                     ps_grow_byte(g, ' ');
                 }
             }
             if (indent) {
                 ps_dump_pad(g, indent, level + 1);
             }
-            ps_dump_fmt(types, typ.child, (char *)seq->data + (size_t)i * (size_t)seq->elem, g, indent, level + 1, sort_keys);
+            ps_dump_fmt(types, typ.child, (char *)seq->data + (size_t)i * (size_t)seq->elem, g, indent, level + 1, sort_keys, compact);
         }
         if (indent) {
             ps_dump_pad(g, indent, level);
@@ -633,7 +635,7 @@ static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsG
             int64_t at = order ? order[i] : i;
             if (i > 0) {
                 ps_grow_byte(g, ',');
-                if (!indent) {
+                if (!indent && !compact) {
                     ps_grow_byte(g, ' ');
                 }
             }
@@ -644,11 +646,15 @@ static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsG
             ps_map_key_at(map, at, &key);
             ps_dump_str(key, g);
             ps_grow_byte(g, ':');
-            ps_grow_byte(g, ' ');
+            /* The indented forms keep the space after the colon, the way
+               json.dumps(indent=n) and orjson's OPT_INDENT_2 do. */
+            if (!compact || indent) {
+                ps_grow_byte(g, ' ');
+            }
             unsigned char slot[16];
             memset(slot, 0, sizeof slot);
             ps_map_val_at(map, at, slot);
-            ps_dump_fmt(types, typ.child, slot, g, indent, level + 1, sort_keys);
+            ps_dump_fmt(types, typ.child, slot, g, indent, level + 1, sort_keys, compact);
         }
         if (indent) {
             ps_dump_pad(g, indent, level);
@@ -671,6 +677,7 @@ void ps_json_dumps_opts(const PsType *types, int32_t root, void *value, int32_t 
     ps_grow_init(&g);
     int32_t indent = (flags >> 8) & 0xff;
     int32_t sort_keys = flags & PS_JSON_SORT_KEYS;
-    ps_dump_fmt(types, root, value, &g, indent, 0, sort_keys);
+    int32_t compact = flags & PS_JSON_COMPACT;
+    ps_dump_fmt(types, root, value, &g, indent, 0, sort_keys, compact);
     ps_grow_finish(&g, out);
 }

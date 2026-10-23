@@ -99,6 +99,7 @@ def link_binary(
     sanitize: list[str] | None = None,
     timings: dict[str, float] | None = None,
     debug_info: bool = False,
+    extra_units: list[Path] | None = None,
 ) -> None:
     """Link `.ll` text plus the C runtime into `output`.
 
@@ -143,6 +144,15 @@ def link_binary(
         tail = [f"-L{libdir}", f"-lpython{version}", f"-Wl,-rpath,{libdir}", *tail]
     else:
         sources = [source for source in sources if not source.endswith("ps_island.c")]
+    # `--ffi` manifest units join the same per-unit compile loop as the
+    # runtime: a `.c` unit compiles like a runtime file, an archive goes
+    # straight on the link line (`.agents/docs/ffi/ffi-manifest.md` section 4).
+    ffi_archives: list[Path] = []
+    for unit in extra_units or []:
+        if unit.suffix in (".a", ".o"):
+            ffi_archives.append(unit)
+        else:
+            sources.append(str(unit))
     # zig cannot compile C sources inside a link invocation for Mach-O, so
     # every unit goes to .o first and the link line carries objects only.
     use_cache = rtcache.prepare()
@@ -192,7 +202,7 @@ def link_binary(
         # no -O on the link line: it is a compile flag and zig's Mach-O
         # driver crashes on it (0.16.0)
         link_cc = ("zig cc" if link_driver == "zig" else link_driver) if link_driver else cc
-        argv = [*_cc_argv(link_cc), *objects, *target_flags, *tail]
+        argv = [*_cc_argv(link_cc), *objects, *[str(path) for path in ffi_archives], *target_flags, *tail]
         if record is not None:
             record.append([str(arg) for arg in argv])
         link_started = time.perf_counter()
