@@ -126,8 +126,8 @@ Tier A targets (CI-verified by `packaging/zig/smoke.sh`): `x86_64-linux-gnu`, `a
 
 Experimental cross-compilation targets, both stated as divergences rather than support claims:
 
-- Windows (`x86_64-windows-gnu`, `aarch64-windows-gnu`): builds a PE binary from Linux or macOS, but nothing executes the output anywhere, and the Win32 gaps are divergences 31 and 32 in [divergences](https://pyscriptc.pages.dev/reference/divergences/) (no `lstat`, no winsock, separators and home-resolution differences). Native Windows compiles are not supported yet.
-- `wasm32-wasi-musl` (and `wasm32-wasi-p2`): produces a WASI command module for `wasmtime` >= v50, stdout-identical to the native binary on the same program. Preview1 only: no subprocess, no mix, runtime-dead threads, preopen-only filesystem (divergence 31).
+- Windows (`x86_64-windows-gnu`, `aarch64-windows-gnu`): builds a PE binary from Linux or macOS, but nothing executes the output anywhere, and the Win32 gaps are divergences 32 and 33 in [divergences](https://pyscriptc.pages.dev/reference/divergences/) (no `lstat`, no winsock, separators and home-resolution differences). Native Windows compiles are not supported yet.
+- `wasm32-wasi-musl` (and `wasm32-wasi-p2`): produces a WASI command module for `wasmtime` >= v50, stdout-identical to the native binary on the same program. Preview1 only: no subprocess, no mix, runtime-dead threads, preopen-only filesystem (divergence 31; the `wasi-p2` component wrapper is divergence 33).
 
 Not supported yet: native Windows compiles (the pyscriptc compiler itself runs on Windows as an experimental build, but emitted programs are cross-compilation only), island/fallback programs on any cross target (they embed the host libpython), and the `PYSCRIPTC_MIX_SO` dlopen path on static musl. `--target` requires `--driver zig`; without `--target`, `zig` is just another host driver.
 
