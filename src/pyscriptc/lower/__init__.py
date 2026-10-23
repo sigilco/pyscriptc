@@ -18,6 +18,7 @@ from typing import Any, NoReturn
 from pyscriptc.builtins import USER_EXC_BASE
 from pyscriptc.coro import CoroMixin
 from pyscriptc.errors import format_diagnostic, span_of
+from pyscriptc.ffi_manifest import is_handle_type
 from pyscriptc.ir import SUBSET, cpython_version, types_equal
 from pyscriptc.lower._calls import CallsMixin
 from pyscriptc.lower._classes import ClassesMixin
@@ -91,6 +92,21 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         self.exc_stack: list[str] = []
         # `except ... as name` deletes the name at handler end (CPython del).
         self.dead_names: set[str] = set()
+        # Manifest handle ownership (issue #224): local name -> the handle
+        # type it carries. A consumed name moves here-then-out: `_ffi_call`
+        # removes the entry on consume so a later read is a fence, and the
+        # function-end pass frees what is still owned.
+        self.handle_locals: dict[str, dict[str, Any]] = {}
+        # Names a consuming call killed. A later read of one fences with
+        # PS4010 (use after consume).
+        self.consumed_handles: set[str] = set()
+        # Handle names this function returned. A returned handle belongs to
+        # the caller, so the scope exit does not free it (issue #224).
+        self.returned_handles: set[str] = set()
+        # Names holding a borrowed handle: the function got it from its caller
+        # (a handle-typed parameter, or an alias of one) and must hand it back
+        # alive, so the scope exit never frees it (issue #224).
+        self.borrowed_handles: set[str] = set()
         self.module_name = ""
         self.is_package = False
         self.cataloguing = False
@@ -316,6 +332,15 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             self.opt_unwrap = {}
             self.boxed_names = set()
             self.fn_body = list(fn.body)
+            # Manifest handle ownership is per-function scope: a fresh
+            # function owns nothing (issue #224). Its handle parameters are
+            # borrows: the caller keeps ownership.
+            self.handle_locals = {}
+            self.consumed_handles = set()
+            self.returned_handles = set()
+            self.borrowed_handles = {
+                name for name, typ in self.locals.items() if isinstance(typ, dict) and is_handle_type(typ)
+            }
             # Function-local imports rebind module names: snapshot the
             # compile-time binding tables so they restore when the body ends.
             saved_bindings = dict(self.bindings)
@@ -323,7 +348,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             saved_declared = set(self.declared)
             saved_typevars = dict(self.typevars)
             try:
-                body = self._body(list(fn.body))
+                body = self._scope_exit_frees(self._body(list(fn.body)), span_of(fn, self.filename))
                 if self.caught:
                     fences.extend(self.caught)
                     # The entry is not a user function: its fences are already
