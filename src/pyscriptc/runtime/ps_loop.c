@@ -1,5 +1,5 @@
-/* The single-threaded run-to-completion loop behind `asyncio.run`, sleep and
-gather.
+/* The single-threaded event loop behind `asyncio.run`, sleep, gather and
+create_task.
 
 A coroutine frame is a heap object the compiler builds (coro.py). The loop
 never names its layout beyond two fixed slots the IR pass guarantees on every
@@ -8,6 +8,12 @@ callable cell `{ impl, env }` whose implementation is the frame's env-first
 resume shim `coro.<name>.resume.clo(env, frame) -> i32`. Status 0 means the
 coroutine is pending, 1 means done — the same numbers the guard transform
 uses.
+
+A task is the loop's unit of scheduling. It wraps a frame and outlives a
+single step: the task record survives a suspension, so a handle to it stays
+valid and `asyncio.create_task` can hand one to the caller. The handle the
+program sees is the task pointer itself, so `await task` and `task.result()`
+read the same record the loop drives.
 
 `asyncio.sleep(d)` arms a timer row keyed by frame; the loop re-queues the
 frame when the deadline passes. `asyncio.gather` registers several frames and
@@ -30,6 +36,17 @@ struct PsTask {
     void *frame;
     PsTask *next;
     int32_t done;
+    /* Set when the task is cancelled: the loop raises CancelledError into it
+       at its next suspension point. */
+    int32_t cancelled;
+    /* The result the task produced, for `task.result()`. The record holds the
+       raw value; the caller reads it through the same ABI the frame uses. */
+    void *result;
+    int64_t result_size;
+    /* The exception the task raised, if any. A task that fails does not kill
+       the process: the exception waits in the record for whoever awaits it. */
+    int32_t exc_code;
+    void *exc;
 };
 
 typedef struct PsTimer {
@@ -52,12 +69,21 @@ static int64_t ps_timer_cap;
 static int64_t ps_timer_seq;
 static PsWait ps_waits[64];
 static int64_t ps_wait_len;
+/* Every task the loop knows about, so `asyncio.run` can wait for the
+   outstanding ones and free them at the end. */
+static PsTask **ps_tasks;
+static int64_t ps_task_len;
+static int64_t ps_task_cap;
 
 void ps_loop_reset(void) {
     ps_ready_head = ps_ready_tail = NULL;
     ps_timer_len = 0;
     ps_timer_seq = 0;
     ps_wait_len = 0;
+    for (int64_t i = 0; i < ps_task_len; i++) {
+        free(ps_tasks[i]);
+    }
+    ps_task_len = 0;
 }
 
 static void ps_ready_push(PsTask *task) {
@@ -79,6 +105,20 @@ static void ps_task_of(void *frame, int64_t (**impl)(void *, void *), void **env
 }
 
 static void ps_ready_task(void *frame);
+
+/* Track a task so the loop can wait for it and free it later. */
+static void ps_track_task(PsTask *task) {
+    if (ps_task_len == ps_task_cap) {
+        int64_t cap = ps_task_cap == 0 ? 16 : ps_task_cap * 2;
+        PsTask **grown = realloc(ps_tasks, (size_t)cap * sizeof(PsTask *));
+        if (grown == NULL) {
+            abort();
+        }
+        ps_tasks = grown;
+        ps_task_cap = cap;
+    }
+    ps_tasks[ps_task_len++] = task;
+}
 
 /* Run one ready task once. 1 when the task finished, 0 while pending. A
 finished child releases its waiter: the parent re-polls and proceeds. */
@@ -172,6 +212,11 @@ static int32_t ps_fire_due(void) {
         ps_task_of(ps_timers[best].frame, &task->impl, &task->env);
         task->frame = ps_timers[best].frame;
         task->done = 0;
+        task->cancelled = 0;
+        task->result = NULL;
+        task->result_size = 0;
+        task->exc_code = 0;
+        task->exc = NULL;
         ps_ready_push(task);
         fired = 1;
         ps_timers[best] = ps_timers[ps_timer_len - 1];
@@ -188,6 +233,11 @@ static void ps_ready_task(void *frame) {
     ps_task_of(frame, &task->impl, &task->env);
     task->frame = frame;
     task->done = 0;
+    task->cancelled = 0;
+    task->result = NULL;
+    task->result_size = 0;
+    task->exc_code = 0;
+    task->exc = NULL;
     ps_ready_push(task);
 }
 
@@ -262,4 +312,139 @@ void ps_loop_ready(void *frame) {
 
 void ps_loop_run(void) {
     ps_loop_drive(1);
+}
+
+/* --- the task lifetime ------------------------------------------------- */
+
+/* The task the running coroutine belongs to. A coroutine that awaits
+   something that is not a plain child frame (a task handle, a lock) needs
+   the loop to know which task to park, so the frame records it. */
+static void *ps_current_task;
+
+void *ps_task_new(void *frame) {
+    PsTask *task = calloc(1, sizeof(PsTask));
+    if (task == NULL) {
+        abort();
+    }
+    ps_task_of(frame, &task->impl, &task->env);
+    task->frame = frame;
+    task->done = 0;
+    task->cancelled = 0;
+    task->result = NULL;
+    task->result_size = 0;
+    task->exc_code = 0;
+    task->exc = NULL;
+    ps_track_task(task);
+    return task;
+}
+
+void *ps_task_current(void) {
+    return ps_current_task;
+}
+
+void ps_task_set_current(void *task) {
+    ps_current_task = task;
+}
+
+int64_t ps_task_done(void *task) {
+    if (task == NULL) {
+        return 1;
+    }
+    return ((PsTask *)task)->done;
+}
+
+int64_t ps_task_cancel(void *task) {
+    if (task == NULL) {
+        return 0;
+    }
+    PsTask *t = (PsTask *)task;
+    if (t->done) {
+        return 0;
+    }
+    t->cancelled = 1;
+    return 1;
+}
+
+int64_t ps_task_cancelled(void *task) {
+    if (task == NULL) {
+        return 0;
+    }
+    return ((PsTask *)task)->cancelled;
+}
+
+/* Step a task once outside the ready queue: `create_task` schedules the task
+   instead of running it inline, but a caller that wants the task to make
+   progress right now (the root task, or a task awaited from outside the
+   loop) drives it through this. */
+int64_t ps_task_step_task(void *task) {
+    if (task == NULL) {
+        return 1;
+    }
+    PsTask *t = (PsTask *)task;
+    void *saved = ps_current_task;
+    ps_current_task = t;
+    int64_t status = ps_task_step(t);
+    ps_current_task = saved;
+    return status;
+}
+
+void ps_task_store_result(void *task, void *value, int64_t size) {
+    if (task == NULL) {
+        return;
+    }
+    PsTask *t = (PsTask *)task;
+    free(t->result);
+    t->result = NULL;
+    t->result_size = 0;
+    if (value != NULL && size > 0) {
+        t->result = malloc((size_t)size);
+        if (t->result == NULL) {
+            abort();
+        }
+        memcpy(t->result, value, (size_t)size);
+        t->result_size = size;
+    }
+}
+
+int64_t ps_task_result_size(void *task) {
+    if (task == NULL) {
+        return 0;
+    }
+    return ((PsTask *)task)->result_size;
+}
+
+void ps_task_load_result(void *task, void *out) {
+    if (task == NULL) {
+        return;
+    }
+    PsTask *t = (PsTask *)task;
+    if (t->result != NULL && t->result_size > 0) {
+        memcpy(out, t->result, (size_t)t->result_size);
+    }
+}
+
+int64_t ps_task_exc_code(void *task) {
+    if (task == NULL) {
+        return 0;
+    }
+    return ((PsTask *)task)->exc_code;
+}
+
+void ps_task_set_exc(void *task, int32_t code) {
+    if (task == NULL) {
+        return;
+    }
+    ((PsTask *)task)->exc_code = code;
+}
+
+/* Raise the exception a failed task holds. The awaiting side calls this when
+   it reads a task that failed: the exception belongs to the awaiter, not to
+   the task. */
+void ps_task_raise_exc(void *task) {
+    if (task == NULL) {
+        return;
+    }
+    PsTask *t = (PsTask *)task;
+    int32_t code = t->exc_code != 0 ? t->exc_code : PS_RUNTIME;
+    ps_raise_code(code);
 }
