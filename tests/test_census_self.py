@@ -99,8 +99,11 @@ def test_self_census_ballpark() -> None:
     # restlower/_dotenv.py (dotenv_values / load_dotenv, #253) adds 5 more.
     # restlower/_yaml.py (yaml.safe_load, #254) adds 5 more.
     # restlower/_urllib.py (urlopen / Request, #225 #226) adds 12 more.
-    assert census["fences"] == 2457
+    # Generator protocol (#166): close/throw/send/next-default surface in
+    # coro.py, lower/_calls.py, lower/_classes.py and restlower/_iterators.py
+    # add 11 self-host fences (new lowering code and its annotations).
+    assert census["fences"] == 2468
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
-    assert 11_000 <= census["lines"] <= 34_000
-    assert sum(p["fences"] for p in census["packages"]) == 2457
+    assert 11_000 <= census["lines"] <= 36_000
+    assert sum(p["fences"] for p in census["packages"]) == 2468
