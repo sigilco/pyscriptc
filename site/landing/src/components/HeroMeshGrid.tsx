@@ -54,8 +54,8 @@ interface ActiveCellPulse {
 export const HeroMeshGrid: React.FC<HeroMeshGridProps> = ({
   state = "active",
   theme = "dark",
-  activeCount = 16,
-  showGridLines = true,
+  activeCount = 0,
+  showGridLines = false,
   interactiveHover = true,
   className = "",
   children,
@@ -85,7 +85,8 @@ export const HeroMeshGrid: React.FC<HeroMeshGridProps> = ({
 
       const targetIndex = Math.floor(Math.random() * packages.length);
       const color = Math.random() > 0.45 ? PYTHON_BLUE : PYTHON_YELLOW;
-      const durationMs = 2000 + Math.random() * 1200; // 2.0s - 3.2s breathing cycle
+      // Elegant, slower breathing cycle (3.5s - 5.0s)
+      const durationMs = 3500 + Math.random() * 1500;
       pulseKeyRef.current += 1;
       const pulseId = pulseKeyRef.current;
 
@@ -119,10 +120,11 @@ export const HeroMeshGrid: React.FC<HeroMeshGridProps> = ({
       timeouts.push(window.setTimeout(fireCell, delay));
     }
 
-    // Continuous rhythmic replenishment
+    // Continuous organic replenishment (slower pace when activeCount is 0 or low)
+    const intervalMs = activeCount === 0 ? 1100 : Math.max(240, 1600 / activeCount);
     const interval = window.setInterval(() => {
       fireCell();
-    }, 240);
+    }, intervalMs);
 
     return () => {
       isMounted = false;

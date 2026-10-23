@@ -462,7 +462,11 @@ export const VariationsStudio: React.FC<VariationsStudioProps> = ({
       {/* Shared Minimal Footer */}
       <footer className="w-full border-t border-white/10 py-12 px-6 text-center text-xs font-mono text-slate-500">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div>pyscriptc :: Ahead-of-time Python compiler for native systems</div>
+          <div className="flex items-center gap-1.5">
+            <span>Made with</span>
+            <span className="text-rose-500 inline-block animate-pulse">❤️</span>
+            <span>from Spain</span>
+          </div>
           <div className="flex items-center gap-6">
             <a href="/docs" className="hover:text-white transition-colors">Docs</a>
             <a href="/compat" className="hover:text-white transition-colors">Compat</a>
