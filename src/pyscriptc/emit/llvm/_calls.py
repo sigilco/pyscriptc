@@ -195,7 +195,10 @@ class CallsMixin:
         if module == "re":
             self.needed.add("re")
             return self._emit_re(name, values)
-        if module == "json":
+        if module in {"json", "orjson"}:
+            # orjson is the pack over the same writer and reader: dumps comes
+            # back as bytes, loads accepts str or bytes through the same
+            # (len, ptr) ABI.
             self.needed.add("json")
             if name == "loads":
                 return self._emit_json_loads(values[0], expr["type"])

@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-23",
-  "commit": "5a7d60acc99d4124ea1662a2c85c49708b8240f9",
+  "commit": "ba011d664c8de3b530b99f2e0b74e59d4b412a7c",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -13,7 +13,7 @@
     "builtins_partial": 15,
     "builtins_none": 1,
     "stdlib_full": 0,
-    "stdlib_partial": 52,
+    "stdlib_partial": 53,
     "stdlib_none": 1,
     "packages_full": 3,
     "packages_partial": 5,
@@ -498,6 +498,24 @@
       ],
       "fences": [
         "PS1003",
+        "PS2001",
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.orjson",
+      "kind": "stdlib",
+      "label": "`orjson`",
+      "names": [
+        "orjson"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "default callable, other OPT_ flags, other orjson members (Fragment, JSONDecodeError)"
+      ],
+      "fences": [
         "PS2001",
         "PS2003"
       ],
@@ -2067,7 +2085,7 @@
   "history": [
     {
       "date": "2026-10-23",
-      "commit": "5a7d60acc99d4124ea1662a2c85c49708b8240f9",
+      "commit": "ba011d664c8de3b530b99f2e0b74e59d4b412a7c",
       "weighted_pass": 0.0,
       "packages_full": 3,
       "packages_partial": 5,

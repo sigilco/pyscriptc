@@ -54,6 +54,7 @@ from pyscriptc.restlower._itertools import _itertools
 from pyscriptc.restlower._jwt import _jwt_call
 from pyscriptc.restlower._minmax import _minmax, _sorted, _sum
 from pyscriptc.restlower._operator import _bisect, _join, _operator
+from pyscriptc.restlower._orjson import _orjson_call
 from pyscriptc.restlower._ospath import _os_open, _os_read, _relpath
 from pyscriptc.restlower._pathlib import _buffer, _one
 from pyscriptc.restlower._random import _random_call
@@ -148,6 +149,7 @@ _MODULES_AFTER_SPEC: dict[str, Handler] = {
     "yaml": lambda lo, node, span, expect, attr: _yaml_call(lo, node, span, expect, attr),
     "urllib.request": lambda lo, node, span, expect, attr: _urllib_request_call(lo, node, span, expect, attr),
     "jwt": lambda lo, node, span, expect, attr: _jwt_call(lo, node, span, expect, attr),
+    "orjson": lambda lo, node, span, expect, attr: _orjson_call(lo, node, span, expect, attr),
 }
 
 # Per-attribute handlers that run before keyword arguments are rejected.
