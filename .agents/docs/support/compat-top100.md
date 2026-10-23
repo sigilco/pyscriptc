@@ -13,7 +13,7 @@ pinned pure-Python libraries: 3 🟢 · 5 🟡 · 10 🔴
 | `mdurl` | 0.1.2 | 🔴 | 9/12 | local-inference (11), name-resolution (11), construct-other (2) | PS2002, PS1001, PS2003 |
 | `packaging` | 26.3 | 🔴 | 287/558 | name-resolution (113), unlowered-type-name (90), class-body (52) | PS2002, PS1106, PS2001 |
 | `pathspec` | 1.1.1 | 🔴 | 94/132 | name-resolution (45), local-inference (24), unlowered-type-name (22) | PS2002, PS1001, PS1106 |
-| `python-dotenv` | 1.2.4 | 🔴 | 46/75 | unlowered-call (24), name-resolution (21), construct-other (18) | PS2002, PS1001, PS1106 |
+| `python-dotenv` | 1.2.4 | 🔴 | 46/75 | unlowered-call (24), name-resolution (21), construct-other (17) | PS2002, PS1001, PS1106 |
 | `shellingham` | 1.5.4 | 🔴 | 19/25 | module-value (19), param-inference (14), return-inference (4) | PS2002, PS1001, PS2001 |
 | `zipp` | 4.1.1 | 🔴 | 57/75 | param-inference (32), return-inference (18), module-value (3) | PS1001, PS2002, PS2001 |
 | `filelock` | 4.1.1 | 🟡 | 258/641 | name-resolution (172), construct-other (80), local-inference (78) | PS2002, PS1001, PS2001 |
