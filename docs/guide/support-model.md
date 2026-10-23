@@ -25,7 +25,9 @@ Deliberate differences from CPython are numbered in [Divergences](../reference/d
 
 ## HTTP
 
-HTTP and HTTPS work today through a `curl` subprocess bridge, not a native client. The shape, the caveats and the planned replacement are on the [HTTP today](../guide/http.md) page.
+`urllib.request` and `urllib.error` lower to a native client (`ps_http.c`): `urlopen` with `data`, `timeout`, headers and method via `Request`, redirects and error types over the `OSError` chain.
+`https://` raises `OSError` until TLS lands, `http.client` and `http.server` are not lowered, and the rest of the module fences.
+The shape and its divergences are on the [HTTP](../guide/http.md) page; the remaining network work (TLS, `http.client`, inbound servers, the event loop) is tracked on epic [#219](https://github.com/sigilco/pyscriptc/issues/219).
 
 ## Checking your own code
 

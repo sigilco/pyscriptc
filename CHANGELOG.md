@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.6.0] - Unreleased
+
+### Added
+- `urllib.request` and `urllib.error` through a native HTTP/1.1 client (`ps_http.c`): `urlopen` with `data`, `timeout`, headers and method via `Request`, redirects, chunked decoding, `HTTPError` and `URLError`; `https://` stays fenced until TLS (#235) lands (#322)
+- threads: `threading.Thread`, `Condition`, `Semaphore`, `Event` and `queue.Queue`, `LifoQueue`, `SimpleQueue`; on `wasm32` the link is refused with a diagnostic (#172 stages C/D, #353, #346)
+- asyncio surface: `asyncio.run`, `asyncio.sleep`, `asyncio.gather`, `asyncio.create_task` with `Task` handles, `asyncio.wait_for`, `task.cancel` and `CancelledError`, `async def` as a class method, cross-module await through the export table, `await` inside `with` (#335, #338, #350, #363, #365)
+- generators: the protocol surface (`send`, `throw`, `close`, `next` with default), `yield` inside `try`/`except`/`finally` with a suspension-guarded `finally`, and `@contextmanager` through the generator frame (#333, #343, #345, #367)
+- FFI: the `--ffi` flag with scalar manifest-call lowering, `nativeprobe` as a manifest, `str`/`bytes`/opaque-handle marshalling with borrows and consumes, list and dict marshalling, and linking manifest sources and archives in `link_binary` (#339, #348, #361, #349)
+- project mode: one binary per `[project.scripts]` entry point (#325)
+- `--emit lib` static-library mode for the mobile triples (iOS, iOS simulator, Android), a smaller artifact than the full mobile build (#364)
+- `jwt.encode` / `jwt.decode` for the HS* family through the `pyscriptc-jwt` pack (#328)
+- `orjson.dumps` / `orjson.loads` through the `pyscriptc-orjson` pack over `ps_json` (#330)
+- PSxxxx fence-code histogram, binary size and the `run.finished` telemetry event (#331)
+- beta channel tooling: `v0.6.0-beta.N` tags, a beta bar, tester docs (#362)
+
+### Fixed
+- a thread target that raises no longer kills the process (#342)
+- a `wasm32` target refuses the thread primitives at link time with a diagnostic instead of a link failure (#353)
+- tempdir trailing slash and stderr print link on Darwin (#344)
+- master test failures: typeshed `Iterator` rows and the `jwtapp` package shape (#340)
+
+### Changed
+- `mise.toml` is the default task runner (#360)
+
+### Performance
+- generator receipt tool and three perf fixes in the try path (#351)
+
+### Docs
+- the boxed window after the threading stages (#359)
+
+### Internal
+- generator and contextmanager coverage families split (#336), bridged fence census (#329), PyreflyBridge checker lane (#327), checker version in the irscore baseline header (#326)
+
+<!-- OWNER: measured receipt pending before release (census delta, boxed ledger window, or perf number with a baseline) -->
+
 ## [0.5.1] - 2026-10-23
 
 ### Added

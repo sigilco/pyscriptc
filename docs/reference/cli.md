@@ -34,6 +34,7 @@ pyscriptc compile FILE [options]
 | `--emit lib` | Build a static library instead of a binary; needs a mobile `--target` (`aarch64-apple-ios`, `aarch64-apple-ios-simulator`, `aarch64-linux-android`); see below |
 | `--sanitize LIST` | Comma list of sanitizers for the C runtime and emitted code, e.g. `address,undefined` (env `PYSC_SANITIZE`); needs `--emit bin` |
 | `--skip-check` | Skip the type-checker preflight |
+| `--ffi MANIFEST` | Bind a typed extern manifest (TOML) and link its C sources; repeatable. Also read from the `ffi` key of the config or PEP 723 metadata |
 | `--checker pyrefly\|mypy\|pyright` | Preflight checker (default `pyrefly`; mypy and pyright are deprecated) |
 | `--bridge mypy` | Feed the checker's inferred-type map into lowering so unannotated code stops fencing; needs mypy installed |
 | `--timings` | Print the per-stage wall-time table on its own |
@@ -62,7 +63,7 @@ Android consumers must link the archive into a shared object carrying `-Wl,-z,ma
 pyscriptc run FILE [-- args]
 ```
 
-Compile (cached by content hash under `~/.cache/pyscriptc/bin`) and run in one step. Arguments after `--` go to the program as `sys.argv`. Flags mirror `compile` (`--call`, `--args`, `--program`, `--driver`, `--target`, `--linker`, `--sanitize`, `--skip-check`, `--checker`), plus `--no-cache` to always recompile (env `PYSC_NO_RUN_CACHE=1`).
+Compile (cached by content hash under `~/.cache/pyscriptc/bin`) and run in one step. Arguments after `--` go to the program as `sys.argv`. Flags mirror `compile` (`--call`, `--args`, `--program`, `--driver`, `--target`, `--linker`, `--sanitize`, `--skip-check`, `--checker`), plus `--no-cache` to always recompile (env `PYSC_NO_RUN_CACHE=1`) and `--ffi MANIFEST` (repeatable) for extern manifests.
 
 ## `coverage`
 
