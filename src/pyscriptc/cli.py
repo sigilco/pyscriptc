@@ -651,7 +651,7 @@ def build_cmd(args: argparse.Namespace) -> int:
                 link_binary(
                     ll_path,
                     staged,
-                    driver=args.driver,
+                    driver=args.driver or "clang",
                     target=args.target,
                     link_driver=args.linker,
                 )
@@ -1130,7 +1130,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         link_binary(
             ll_path,
             binary,
-            driver=args.driver,
+            driver=args.driver or "clang",
             target=args.target,
             record=dbg.commands,
             link_driver=args.linker,

@@ -140,27 +140,10 @@ def refuse_unsupported_target(text: str, target: str | None) -> None:
     )
 
 
-def _default_driver(target: str | None = None) -> str:
-    """The driver to use when the caller did not pick one.
-
-    A cross-compilation target needs the zig driver (it bundles the per-target
-    sysroot), so a target always means zig. On a Windows host zig is the
-    driver that works. Otherwise zig is preferred when it is on PATH and
-    clang is the fallback.
-    """
-    if target is not None or sys.platform == "win32":
-        return "zig"
-    if shutil.which("zig") is not None:
-        return "zig"
-    if shutil.which("clang") is not None:
-        return "clang"
-    return "zig"
-
-
 def link_binary(
     llvm_path: Path,
     output: Path,
-    driver: str | None = None,
+    driver: str = "clang",
     target: str | None = None,
     record: list[list[str]] | None = None,
     link_driver: str | None = None,
@@ -201,8 +184,6 @@ def link_binary(
     runtime's own include surface.
     """
     output.parent.mkdir(parents=True, exist_ok=True)
-    if driver is None:
-        driver = _default_driver(target)
     if driver == "zig":
         # `pip install ziglang` alone satisfies this: the wheel ships the zig
         # binary but only exposes `python-zig`, so pyscriptc installs a `zig`
@@ -373,15 +354,13 @@ def compile_unit(
     llvm_path: Path,
     output: Path,
     kind: str,
-    driver: str | None = None,
+    driver: str = "clang",
     target: str | None = None,
     record: list[list[str]] | None = None,
     timings: dict[str, float] | None = None,
     debug_info: bool = False,
 ) -> None:
     """Compile the module's `.ll` alone to assembly (`asm`) or an object (`obj`)."""
-    if driver is None:
-        driver = _default_driver(target)
     if driver == "zig":
         zigshim.ensure_on_path()
     if target is not None and driver != "zig":
