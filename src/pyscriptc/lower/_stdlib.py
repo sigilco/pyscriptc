@@ -18,7 +18,7 @@ from typing import Any, NoReturn
 
 from pyscriptc.coro import enabled
 from pyscriptc.errors import span_of
-from pyscriptc.ffi_manifest import type_ir
+from pyscriptc.ffi_manifest import handle_type, is_handle_type, type_ir
 from pyscriptc.ir import types_equal
 from pyscriptc.lower._core import (
     _FUTURE_OK,
@@ -28,6 +28,7 @@ from pyscriptc.lower._core import (
     _const_truthy,
     _is_none_expr,
     _module_closed,
+    _name,
     _package_base,
     _show,
 )
@@ -156,6 +157,14 @@ class StdlibDispatchMixin:
             if manifest is not None:
                 if manifest.function(alias.name) is not None:
                     self.bindings[alias.asname or alias.name] = Binding("func", module, alias.name, False)
+                    continue
+                if manifest.handle(alias.name) is not None:
+                    # A handle binds as a type name: annotations on it lower
+                    # to the opaque ptr path (`from demo import Conn` then
+                    # `c: Conn`). It is not a value (issue #224).
+                    self.bindings[alias.asname or alias.name] = Binding(
+                        "handle", module, alias.name, False, handle_type(alias.name)
+                    )
                     continue
                 if manifest.const(alias.name) is not None:
                     typ = type_ir(manifest.const(alias.name).type, manifest.handle_names)
@@ -417,13 +426,57 @@ class StdlibDispatchMixin:
         if count < fn.required_arity or count > fn.arity:
             self.fail(node, "PS2003", f"{module}.{attr} expects {fn.required_arity} argument(s)")
         args: list[dict[str, Any]] = []
+        consumed_locals: list[str] = []
         for index, arg_node in enumerate(node.args):
             param = fn.params[index]
             want = type_ir(param.type, manifest.handle_names)
             arg = self._expr(arg_node, want)
             if not types_equal(arg["type"], want):
+                if is_handle_type(arg["type"]) and is_handle_type(want):
+                    # Both opaque, the values are bare pointers: refusing at
+                    # the type is the only protection the ABI gives.
+                    self.fail(
+                        node,
+                        "PS4012",
+                        f"{module}.{attr} argument {param.name} expects the handle {want['name']}, "
+                        f"not {_show(arg['type'])}",
+                    )
                 self.fail(node, "PS1003", f"{module}.{attr} argument {param.name} is {_show(arg['type'])}")
+            # Ownership is per-argument: a consumed parameter must carry a
+            # handle whose owner (the local it came from) dies with the call
+            # (issue #224). Borrowed or unknown-origin handles pass as is.
+            if param.name in fn.consumed_params():
+                owner = arg.get("id") if arg["kind"] == "name" else None
+                if owner is None:
+                    self.fail(
+                        node,
+                        "PS4011",
+                        f"{module}.{attr} consumes {param.name}; the argument must be a handle variable this "
+                        "function owns, so the compiler can prove it is dead afterwards",
+                    )
+                if owner in self.borrowed_handles:
+                    self.fail(
+                        node,
+                        "PS4011",
+                        f"{owner} is borrowed here (it is a handle parameter or an alias of one), so this "
+                        f"function cannot consume it; the caller still owns the value",
+                    )
+                if owner not in self.handle_locals:
+                    self.fail(
+                        node,
+                        "PS4011",
+                        f"{module}.{attr} consumes {param.name}; the argument must be a handle variable this "
+                        "function owns, so the compiler can prove it is dead afterwards",
+                    )
+                if owner in consumed_locals:
+                    self.fail(node, "PS4011", f"{owner} is consumed twice in one call")
+                consumed_locals.append(owner)
             args.append(arg)
+        for owner in consumed_locals:
+            # The consumed name is dead from here on: a later read fences
+            # with PS4010 before the IR ever emits.
+            del self.handle_locals[owner]
+            self.consumed_handles.add(owner)
         return self._abi_call(module, attr, args, type_ir(fn.returns, manifest.handle_names), fn.abi, span)
 
     def _is_contextmanager_deco(self, fn: ast.FunctionDef) -> bool:
@@ -444,6 +497,104 @@ class StdlibDispatchMixin:
             resolved = self._resolve_module(target)
             return resolved is not None and resolved[1] == "contextlib" and resolved[2] == "contextmanager"
         return False
+
+    def _own_handle(self, name: str, typ: dict[str, Any]) -> None:
+        """Record that a local owns a manifest handle.
+
+        Ownership is per-name and per-scope: a name bound to a handle value
+        owns it until a consuming call takes it, or until the scope ends
+        (where the `frees` symbol runs). A name already borrowed (a handle
+        parameter, or an alias of one) stays a borrow: the value belongs to
+        the caller, so neither the rebinding nor the scope exit frees it
+        (issue #224). Rebinding the name drops the old ownership, so the old
+        handle is not freed twice.
+        """
+        if not is_handle_type(typ):
+            return
+        if name in self.borrowed_handles:
+            return
+        self.handle_locals[name] = typ
+        self.consumed_handles.discard(name)
+
+    def _rebind_handle(
+        self, name: str, typ: dict[str, Any], value_node: ast.expr, span: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """The free of a handle a rebinding drops, plus the new ownership.
+
+        `r = other` replaces the value `r` holds. There is no refcounting
+        (the design doc's rule), so the compiler frees the old handle at the
+        rebinding point instead of leaking it (issue #224). A name that was
+        never a handle has nothing to free, and `r = r` frees nothing: the
+        value keeps its owner.
+
+        A value copied from a borrowed name stays a borrow: `x = res` where
+        `res` is a handle parameter aliases the caller's handle, so the
+        scope exit must not free `x` (issue #224). The value the rebinding
+        drops is still freed there: ownership of that one died with the
+        rebinding, borrow or not.
+        """
+        old = self.handle_locals.get(name)
+        borrowed_source = isinstance(value_node, ast.Name) and value_node.id in self.borrowed_handles
+        self._own_handle(name, typ)
+        if borrowed_source:
+            # The new value is the caller's handle: `x` borrows it too.
+            self.borrowed_handles.add(name)
+            self.handle_locals.pop(name, None)
+        if old is None or (isinstance(value_node, ast.Name) and value_node.id == name):
+            return []
+        return [{"kind": "expr", "expr": self._free_call(name, old, span), "span": span}]
+
+    def _free_call(self, name: str, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+        """The IR call that releases one owned handle.
+
+        The free rides the manifest's own consuming thunk: the `[[fn]]` that
+        declares `consumes` for this handle type is the one whose abi thunk
+        releases it (the design doc's `frees` symbol is what that thunk
+        calls, not what the compiler calls). Without such a thunk there is
+        nothing to call, and the compiler refuses the program (PS4013)
+        rather than leak the handle silently.
+        """
+        module, fn = self._consuming_fn(typ["name"])
+        if fn is None:
+            self.fail(
+                ast.Pass(),
+                "PS4013",
+                f"the handle {typ['name']} has no consuming function in its manifest, so scope-exit free "
+                "has nothing to call; declare a [[fn]] with consumes = [this handle]",
+            )
+        arg = _name(name, typ, span)
+        return self._abi_call(module, fn.name, [arg], {"kind": "none"}, fn.abi, span)
+
+    def _consuming_fn(self, handle: str) -> tuple[str, Any] | None:
+        """The manifest function that consumes this handle type, if one exists."""
+        for module, manifest in ffi_manifests().items():
+            for fn in manifest.functions:
+                if any(ref.handle == handle for ref in fn.consumes):
+                    return module, fn
+        return None
+
+    def _scope_exit_frees(self, body: list[dict[str, Any]], span: dict[str, Any]) -> list[dict[str, Any]]:
+        """Wrap a body so owned handles free on every exit path.
+
+        The IR has no per-scope destructor, so the free rides `try`/`finally`
+        semantics: the body becomes the try body and the frees the
+        finalbody, which the emitter runs on the normal path and on every
+        propagation path (issue #224). A handle the scope still owns and
+        did not return frees here; a consumed one already went with its
+        call, a returned one belongs to the caller, and a borrowed one
+        (a handle parameter or an alias of one) stays the caller's.
+        """
+        owned = [
+            (name, typ)
+            for name, typ in self.handle_locals.items()
+            if name not in self.consumed_handles
+            and name not in self.returned_handles
+            and name not in self.borrowed_handles
+        ]
+        if not owned:
+            return body
+        frees = [{"kind": "expr", "expr": self._free_call(name, typ, span), "span": span} for name, typ in owned]
+        return [{"kind": "try", "body": body, "handlers": [], "finalbody": frees, "span": span}]
 
     def _module_decorator_fence(self, fn: ast.FunctionDef) -> str | None:
         if not fn.decorator_list:

@@ -186,6 +186,15 @@ class ExprMixin:
             # `except E as e` deletes e at handler end (CPython's `del e`).
             # CPython raises NameError there; the subset fences instead.
             self.fail(node, "PS2002", f"{node.id} is deleted by the except handler that bound it")
+        if node.id in self.consumed_handles:
+            # A consuming call already took this handle: the value is a dead
+            # pointer, and reading it would use a freed handle (#224).
+            self.fail(
+                node,
+                "PS4010",
+                f"{node.id} was consumed by an ffi call and is dead; open the resource again or use the "
+                "handle the consuming call returned",
+            )
         elif node.id in self.locals:
             narrowed = self.opt_unwrap.get(node.id)
             if narrowed is not None:
@@ -214,6 +223,10 @@ class ExprMixin:
                 self._queued(node, f"{binding.module}.{binding.attr}" if binding.attr else binding.module)
             if binding.kind == "erased":
                 self.fail(node, "PS2002", f"{node.id} is a typing name and is not a value")
+            if binding.kind == "handle":
+                # A handle name is a type, not a value: `Conn` in an
+                # annotation is the handle type; as a value it is opaque.
+                self.fail(node, "PS4014", f"{node.id} is a handle type, not a value")
             if binding.kind == "const":
                 manifest = self._ffi_module(binding.module)
                 if manifest is not None:
@@ -1240,6 +1253,9 @@ class ExprMixin:
                         "type": type_ir(found_const.type, manifest.handle_names),
                         "span": span,
                     }
+                if manifest.handle(member) is not None:
+                    # A handle name is a type, not a value (issue #224).
+                    self.fail(node, "PS4014", f"{dotted} is a handle type, not a value")
                 if manifest.function(member) is not None:
                     self.fail(node, "PS2002", f"{dotted} is a function and is not a value")
                 self.fail(node, "PS2001", f"{dotted} is not in the FFI manifest of {module}")

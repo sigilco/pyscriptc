@@ -1,0 +1,64 @@
+# The F1b fixture manifest: opaque handles with borrows and consumes, plus
+# the str and bytes round trips. The abi thunks live in ps_ffi_fixture.c
+# beside this file; the test links that file through link_binary's
+# extra_units seam (the [[source]] gate is F2, issue #220).
+
+[manifest]
+module = "ffx"
+ps_abi = 1
+format = 1
+
+[[handle]]
+name = "Resource"
+c_type = "FfxResource *"
+frees = "free"
+
+[[fn]]
+name = "open"
+py = "(name: str) -> Resource"
+c_symbol = "calloc"
+abi = "ps_ffi_ffx_open"
+
+[[fn]]
+name = "use"
+py = "(res: Resource, n: int) -> int"
+c_symbol = "res->uses"
+abi = "ps_ffi_ffx_use"
+borrows = ["res"]
+
+[[fn]]
+name = "close"
+py = "(res: Resource) -> None"
+c_symbol = "free"
+abi = "ps_ffi_ffx_close"
+consumes = ["res"]
+
+[[fn]]
+name = "take"
+py = "(res: Resource) -> Resource"
+c_symbol = "identity"
+abi = "ps_ffi_ffx_take"
+
+[[fn]]
+name = "echo"
+py = "(s: str) -> str"
+c_symbol = "memcpy"
+abi = "ps_ffi_ffx_echo"
+
+[[fn]]
+name = "bounce"
+py = "(b: bytes) -> bytes"
+c_symbol = "memcpy"
+abi = "ps_ffi_ffx_bounce"
+
+[[fn]]
+name = "open_count"
+py = "() -> int"
+c_symbol = "ffx_open_count"
+abi = "ps_ffi_ffx_open_count"
+
+[[fn]]
+name = "close_count"
+py = "() -> int"
+c_symbol = "ffx_close_count"
+abi = "ps_ffi_ffx_close_count"

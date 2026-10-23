@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 from pyscriptc.builtins import EXCEPTIONS, RESERVED_EXCEPTIONS
 from pyscriptc.errors import span_of
+from pyscriptc.ffi_manifest import is_handle_type
 from pyscriptc.ir import types_equal
 from pyscriptc.lower._core import (
     _SCALAR,
@@ -181,8 +182,11 @@ class StmtMixin:
                 # synthetic cursor.
                 typ = value["type"]
             self.locals[stmt.target.id] = typ
+            # A re-annotated assignment rebinds the handle: the dropped
+            # value is freed first (issue #224).
+            dropped = self._rebind_handle(stmt.target.id, typ, stmt.value, span)
             self._note_frozen(stmt.target.id, stmt.value)
-            return [_assign(stmt.target.id, value, span)]
+            return [*dropped, _assign(stmt.target.id, value, span)]
         if isinstance(stmt, ast.Global):
             for name in stmt.names:
                 slot = self.global_slots.get(name)
@@ -251,8 +255,11 @@ class StmtMixin:
                 self.fail(stmt, "PS1001", f"{target} needs an annotation before use")
             value = self._expr(stmt.value, self.locals[target])
             self._expect(stmt, value["type"], self.locals[target], target)
+            # Rebinding a handle frees the dropped value first: the new
+            # value overwrites the slot after the free read it (issue #224).
+            dropped = self._rebind_handle(target, value["type"], stmt.value, span)
             self._note_frozen(target, stmt.value)
-            return [_assign(target, value, span)]
+            return [*dropped, _assign(target, value, span)]
         if isinstance(stmt, ast.AugAssign):
             return self._aug_assign(stmt, span)
         if isinstance(stmt, ast.If):
@@ -378,6 +385,10 @@ class StmtMixin:
                 return [{"kind": "return", "value": _const_none(span), "span": span}]
             value = self._expr(stmt.value, ret)
             self._expect(stmt, value["type"], ret, "return")
+            # A returned handle transfers ownership to the caller: the scope
+            # exit must not free it too (issue #224).
+            if value["kind"] == "name" and is_handle_type(value["type"]):
+                self.returned_handles.add(value["id"])
             return [{"kind": "return", "value": value, "span": span}]
         if isinstance(stmt, ast.Expr):
             return [{"kind": "expr", "expr": self._expr(stmt.value), "span": span}]
