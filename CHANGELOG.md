@@ -1,5 +1,50 @@
 # Changelog
 
+## [0.5.1] - 2026-10-23
+
+### Added
+- bridged fence census, with the measured param-inference and uninitialized-field verdicts (#329)
+- PyreflyBridge, the pyrefly lane behind the CheckerBridge surface (#327)
+- record the checker version in the irscore baseline header (#326)
+- lower generators in package units and as methods (#165) (#324)
+- native HTTP client with redirects and request control (#322)
+- the R2 tree corpus and the adoption ladder on the compat page (#323)
+- lower yaml.safe_load through a C YAML-to-JSON pass (part of #62) (#315)
+- lower dotenv_values / load_dotenv through a C dotenv-to-JSON pass (#314)
+- assemble one site: landing, docs and compat at pyscriptc.pages.dev (#305)
+- --debug-info emits DWARF so a debugger names the Python line (#299)
+- add a test-case reducer (pyscriptc reduce) (#300)
+- build the compat site data file and update it nightly (#298)
+- --timings per-stage wall times (#277)
+
+### Fixed
+- regenerate compat.json after the generator census change (#332)
+
+### Changed
+- move docmd build and node workspace under docs/.docmd (#310)
+- split llvm.py into the emit package with an IR-reader seam (#303)
+
+### Docs
+- move ARCHITECTURE.md into .agents/docs (#308)
+- unify the documentation sources (#302)
+- minimal hand-edited README, generator retired (#296)
+- add security policy (#281)
+
+### Build
+- move .agents/docker to top-level docker/ (#282)
+
+### CI
+- install wrangler with npm, not pnpm (#307)
+- put the pnpm global bin on PATH for wrangler (#306)
+
+### Other
+- D3: emitter seam tests and per-branch golden corpus (#317)
+- Docs: backend contract and the curl HTTP bridge (#316)
+- Make pip install ziglang satisfy which(zig): PATH shim, version pin, support matrix (#311)
+- IR verifier in debug mode plus LLVM verification of the emitted .ll (#278)
+- D3: emitter unit-test seam and per-node-kind golden IR corpus (#279)
+- Add --sanitize=address,undefined to compile plus an ASan+UBSan CI job (#276)
+
 ## [0.5.0] - 2026-10-22
 
 ### Added
