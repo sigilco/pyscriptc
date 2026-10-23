@@ -139,6 +139,18 @@ typedef struct PsSeq {
     int64_t elem;
     void *data;
     int64_t cap;
+    /* The membership index (#382). A set is a sequence whose `in` test was
+       a linear scan, so `s.add` was O(n) and a build of n members was
+       O(n^2). The index is built on demand once the sequence is long
+       enough to pay for it, and it is dropped by any mutation that moves
+       the cells around. The slots hold the cell position plus one; the
+       hashes cache the hash of every indexed cell, so a lookup does not
+       re-hash a string. */
+    int32_t *idx_slots;
+    int32_t idx_mask;
+    int64_t idx_count; /* slots in use */
+    int64_t *idx_hashes;
+    int32_t idx_kind; /* 1 int, 2 str; 0 when there is no index */
 } PsSeq;
 
 typedef struct PsMap {
@@ -257,6 +269,14 @@ int64_t ps_seq_len(PsSeq *s);
 void ps_seq_get(PsSeq *s, int64_t i, void *out);
 void ps_seq_set(PsSeq *s, int64_t i, void *src);
 void ps_seq_push(PsSeq *s, const void *src);
+/* The membership index of a sequence used as a set: a mutation that moves
+   cells around drops the index, and the next containment test rebuilds
+   it. */
+void ps_seq_index_invalidate(PsSeq *s);
+void ps_seq_index_reserve(PsSeq *s, int64_t cap);
+int32_t ps_seq_has_i64(PsSeq *s, int64_t needle);
+int32_t ps_seq_has_f64(PsSeq *s, double needle);
+int32_t ps_seq_has_buf(PsSeq *s, int64_t n, char *p);
 
 PsMap *ps_map_new(int32_t key_kind, int64_t key_size, int64_t val_size, int64_t cap);
 void ps_map_put(PsMap *m, void *key, void *val);

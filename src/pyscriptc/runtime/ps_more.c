@@ -92,6 +92,7 @@ void ps_seq_insert(PsSeq *s, int64_t i, void *src) {
     memmove(ps_cell(s, i + 1), ps_cell(s, i), (size_t)(s->len - i) * (size_t)s->elem);
     memcpy(ps_cell(s, i), src, (size_t)s->elem);
     s->len += 1;
+    ps_seq_index_invalidate(s);
 }
 
 void ps_seq_reverse(PsSeq *s) {
@@ -108,6 +109,7 @@ void ps_seq_reverse(PsSeq *s) {
         memcpy(b, tmp, (size_t)s->elem);
     }
     free(tmp);
+    ps_seq_index_invalidate(s);
 }
 
 static int ps_cmp_i64(const void *a, const void *b) {
@@ -138,6 +140,7 @@ void ps_seq_sort_i64(PsSeq *s, int64_t desc) {
     if (desc) {
         ps_seq_reverse(s);
     }
+    ps_seq_index_invalidate(s);
 }
 
 void ps_seq_sort_f64(PsSeq *s, int64_t desc) {
@@ -145,6 +148,7 @@ void ps_seq_sort_f64(PsSeq *s, int64_t desc) {
     if (desc) {
         ps_seq_reverse(s);
     }
+    ps_seq_index_invalidate(s);
 }
 
 void ps_seq_sort_buf(PsSeq *s, int64_t desc) {
@@ -152,6 +156,7 @@ void ps_seq_sort_buf(PsSeq *s, int64_t desc) {
     if (desc) {
         ps_seq_reverse(s);
     }
+    ps_seq_index_invalidate(s);
 }
 
 int64_t ps_seq_index_i64(PsSeq *s, int64_t needle) {
@@ -219,6 +224,7 @@ int64_t ps_seq_count_buf(PsSeq *s, int64_t n, char *p) {
 static void ps_seq_drop(PsSeq *s, int64_t i) {
     memmove(ps_cell(s, i), ps_cell(s, i + 1), (size_t)(s->len - i - 1) * (size_t)s->elem);
     s->len -= 1;
+    ps_seq_index_invalidate(s);
 }
 
 void ps_seq_remove_i64(PsSeq *s, int64_t needle) {
