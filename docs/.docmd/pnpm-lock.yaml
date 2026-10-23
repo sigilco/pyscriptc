@@ -175,6 +175,9 @@ importers:
       astro:
         specifier: ^5.18.2
         version: 5.18.2(@types/node@26.6.5)(jiti@2.7.0)(lightningcss@1.32.0)(rollup@4.64.12)(supports-color@7.2.0)(typescript@5.9.3)(yaml@2.9.1)
+      daisyui:
+        specifier: ^5.7.50
+        version: 5.7.50
     devDependencies:
       '@astrojs/react':
         specifier: ^7.1.1
@@ -1970,6 +1973,9 @@ packages:
 
   csstype@3.2.3:
     resolution: {integrity: sha512-z1HGKcYy2xA8AGQfwrn0PAy+PB7X/GSj3UVJW9qKyn43xWa+gl5nXmU4qqLMRzWVLFC8KusUX8T/0kCiOYpAIQ==}
+
+  daisyui@5.7.50:
+    resolution: {integrity: sha512-+/LRqnTCoc7s/bJEKKwtJSwzeXCVdAmRdNmZeZzgHCaQ9PJyl7j+2V2U32GQDMyD+VDkP9e/+JGoC72Y1hLk7w==}
 
   debug@4.4.3:
     resolution: {integrity: sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==}
@@ -5015,6 +5021,8 @@ snapshots:
       css-tree: 2.2.1
 
   csstype@3.2.3: {}
+
+  daisyui@5.7.50: {}
 
   debug@4.4.3(supports-color@7.2.0):
     dependencies:
