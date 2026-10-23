@@ -30,11 +30,16 @@ export const HeaderPillNav: React.FC<HeaderPillNavProps> = ({
         {/* Brand Group (Logomark + Name Combo) */}
         <a
           href="/"
-          className="flex items-center gap-2 py-0.5 rounded-full hover:opacity-80 transition-opacity"
+          className="flex items-center gap-2.5 py-0.5 rounded-full hover:opacity-85 transition-opacity"
+          aria-label="pyscriptc home"
         >
-          <div className="w-5 h-5 rounded-full bg-gradient-to-tr from-cyan-400 to-sky-300 flex items-center justify-center shadow-[0_0_10px_rgba(56,189,248,0.4)]">
-            <span className="font-mono font-bold text-[9px] text-slate-950">py</span>
-          </div>
+          <img
+            src="/icon-64.png"
+            alt="pyscriptc logo"
+            width={22}
+            height={22}
+            className="w-[22px] h-[22px] object-contain shrink-0"
+          />
           <span className="font-semibold text-sm tracking-tight text-white">pyscriptc</span>
         </a>
 
