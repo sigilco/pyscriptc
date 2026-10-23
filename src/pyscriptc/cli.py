@@ -22,7 +22,9 @@ from pyscriptc.debug import Debug, resolve
 from pyscriptc.diagnostics import explain
 from pyscriptc.doctor import doctor_cmd
 from pyscriptc.emit.llvm import compile_unit, emit_llvm, link_binary, standalone_entry
+from pyscriptc.emitlib import build_library
 from pyscriptc.errors import FitError, IRError, SpikeError, VersionError
+from pyscriptc.mobile import MobileRefusal, is_mobile_target, require_mobile_target
 from pyscriptc.ffi_manifest import FfiManifestError, load_manifests
 from pyscriptc.imports import build_report as build_import_report
 from pyscriptc.imports import render_text as render_import_text
@@ -53,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
         "entry point even when the directory has an `__init__.py`, and its modules are "
         "namespaced under the directory name",
     )
-    compile_parser.add_argument("--emit", choices=("ir", "llvm", "asm", "obj", "bin"), default="llvm")
+    compile_parser.add_argument("--emit", choices=("ir", "llvm", "asm", "obj", "bin", "lib"), default="llvm")
     compile_parser.add_argument(
         "--out-dir",
         metavar="DIR",
@@ -661,7 +663,7 @@ def build_cmd(args: argparse.Namespace) -> int:
 
 def compile_cmd(args: argparse.Namespace) -> int:
     started = time.monotonic()
-    _apply_env_defaults(args)
+    _compile_env_defaults(args)
     state: dict[str, Any] = {
         "outcome": None,
         "stage": "lower",
@@ -712,6 +714,17 @@ def _apply_env_defaults(args: argparse.Namespace) -> None:
         args.debug_info = os.environ.get("PYSC_DEBUG_INFO", "") not in ("", "0", "false", "no")
 
 
+def _compile_env_defaults(args: argparse.Namespace) -> None:
+    """The compile-time flag defaults: env first, then the mode-specific ones.
+
+    `--emit lib` needs the zig driver (the target sysroot comes from zig), so
+    the driver default follows the mode, not the other way around.
+    """
+    _apply_env_defaults(args)
+    if args.driver == "clang" and args.emit == "lib":
+        args.driver = "zig"
+
+
 def _sanitize_list(value: str | None) -> list[str]:
     """Split a `--sanitize` list into names, rejecting empty or malformed entries."""
     if not value:
@@ -752,9 +765,38 @@ def _require_debug_info(args: argparse.Namespace) -> bool:
     return True
 
 
+def _library_dir(args: argparse.Namespace, source: Path) -> Path:
+    """The directory a library build writes into.
+
+    `-o DIR` is the directory (it names the artifact bundle); without it the
+    build lands beside the source, or under --out-dir.
+    """
+    if args.output:
+        return Path(args.output)
+    if args.out_dir:
+        return Path(args.out_dir) / source.stem
+    return source.with_suffix("")
+
+
+def _require_mobile_refusals(args: argparse.Namespace) -> None:
+    """Refuse the mobile-target shapes that have no meaning before any work runs.
+
+    An executable build on a mobile triple is the main one: a phone app links
+    a static library, not a standalone binary, so `--emit bin` (and `--run`,
+    which implies it) points at `--emit lib` with the stable PS4101 code.
+    """
+    if not is_mobile_target(args.target):
+        return
+    if args.emit == "bin" or args.run:
+        raise MobileRefusal(
+            f"{args.target} has no executable build: a mobile app links a static library. "
+            "Use --emit lib."
+        )
+
+
 def _require_toolchain(args: argparse.Namespace) -> None:
     """Fail before any work when the requested output needs a C driver that is not on PATH."""
-    if not (args.run or args.emit in ("asm", "obj", "bin")):
+    if not (args.run or args.emit in ("asm", "obj", "bin", "lib")):
         return
     driver = args.driver or "clang"
     if driver == "zig":
@@ -824,6 +866,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         print(json.dumps(report, indent=2))
         return 3 if report["fences"] else 0
     _require_toolchain(args)
+    _require_mobile_refusals(args)
     sanitize = _require_sanitize(args)
     debug_info = _require_debug_info(args)
     config = load_config(source_path)
@@ -927,6 +970,27 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             dbg.end("llvmverify")
         if args.emit == "llvm":
             print(ll_path)
+            return 0
+        if args.emit == "lib":
+            state["stage"] = "archive"
+            dbg.begin("archive")
+            artifacts = build_library(
+                ll_path,
+                _library_dir(args, source_path),
+                target=require_mobile_target(args.target, "--emit lib"),
+                entry=module.get("entry"),
+                driver=args.driver or "zig",
+                sanitize=sanitize,
+                record=dbg.commands,
+                timings=dbg.timings_map,
+                debug_info=debug_info,
+            )
+            dbg.end("archive")
+            outputs["lib"] = str(artifacts["archive"])
+            outputs["header"] = str(artifacts["header"])
+            outputs["modulemap"] = str(artifacts["modulemap"])
+            log.info("archive.library", output=str(artifacts["archive"]), target=args.target)
+            print(artifacts["archive"])
             return 0
         if args.emit in ("asm", "obj"):
             suffix = ".s" if args.emit == "asm" else ".o"

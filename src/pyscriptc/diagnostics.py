@@ -319,6 +319,17 @@ _ENTRIES = (
         "through a manifest function if you need a number.",
     ),
     Diagnostic(
+        "PS4101",
+        "no executable build on a mobile target",
+        (
+            "The target (an iOS device, the iOS simulator or Android) has no standalone "
+            "executable: a mobile app links a static library, so a `--emit bin` build has "
+            "nothing to run on the device."
+        ),
+        "Use `--emit lib --target <triple>` to produce libpyscriptc.a plus pyscriptc.h "
+        "and module.modulemap, and call pyscriptc_init() from the app.",
+    ),
+    Diagnostic(
         "PS3002",
         "does not fit",
         "The emitted program exceeds a fixed limit of the backend.",
