@@ -391,7 +391,10 @@ export const VariationsStudio: React.FC<VariationsStudioProps> = ({
         <div className="w-full">
           {/* Extremely Sparse Minimal Header */}
           <nav className="w-full max-w-5xl mx-auto px-6 py-10 flex items-center justify-between">
-            <span className="font-semibold text-base tracking-tight">pyscriptc</span>
+            <a href="/" className="flex items-center gap-2.5">
+              <img src="/icon-64.png" alt="pyscriptc" className="w-5 h-5 object-contain" />
+              <span className="font-semibold text-base tracking-tight">pyscriptc</span>
+            </a>
             <div className="flex items-center gap-8 text-xs font-normal text-slate-400">
               <a href="/docs" className="hover:text-white transition-colors">Docs</a>
               <a href="/compat" className="hover:text-white transition-colors">Compat</a>
