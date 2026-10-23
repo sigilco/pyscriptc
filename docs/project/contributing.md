@@ -43,7 +43,9 @@ Tools already on your PATH that satisfy the `mise.toml` pins are reused, not rei
 
 Extra args after the task name are appended to the wrapped command, so `mise run compat:json --check` is `uv run python scripts/build_compat_json.py --check`.
 
-The same raw commands are available without mise (`uv run pytest`, `pnpm --dir docs/.docmd exec docmd build --config docmd.config.js`, `uv run python scripts/check_doc_links.py`), but mise pins the toolchain versions and is what CI's own scripts assume locally. CI itself runs the raw commands, not `mise run`, so the workflows keep their own pinned uv, node and pnpm setup.
+The same raw commands are available without mise (`uv run pytest`, `pnpm --dir docs/.docmd exec docmd build --config docmd.config.js`, `uv run python scripts/check_doc_links.py`), but mise pins the toolchain versions and is what a local checkout is set up for.
+
+CI runs the raw commands, not `mise run`. `mise.toml` pins `uv = "latest"`, and the workflows hold a `>= 0.13.4` uv floor from the emSign CA incident, so routing CI through mise would change which uv the checks run under. The job names and the required check names are the same either way, since the commands are identical.
 
 ## The documentation site
 
