@@ -69,9 +69,64 @@ Exit: a coroutine that awaits inside a `try` and a `finally` matches CPython, in
 
 `asyncio.create_task`, `wait_for`, `timeout`, `Lock`, `Event`, `Queue`, `Semaphore`, `to_thread` are issue #179 and #180, in the `Future` milestone. They need the loop to grow a poller (kqueue, epoll, poll fallback) and a real task lifetime, which `ps_loop.c` does not have yet: today the loop is run-to-completion over a fixed set of frames.
 
+#### Stage D breakdown (this lane, 2026-10-23)
+
+The stage splits into three pull requests, each with its own receipt. The order is fixed by dependency: the task lifetime comes first, because everything else is a consumer of it.
+
+**D1: the task lifetime (issue #179, PR 4a).**
+
+Today `ps_loop.c` has no task object. `ps_ready_task(frame)` reads the resume cell out of the frame and pushes a fresh `PsTask` on the ready queue; `ps_task_step` runs it once and frees it. A task therefore lives for exactly one step, which is why `asyncio.gather` has to drive the loop itself and why nothing can hold a handle to a running coroutine.
+
+D1 gives the loop a task that survives:
+
+- `ps_loop.c`: a `PsTask` becomes a long-lived record (frame, resume cell, state, result slot, waiters, cancel flag, deadline). The ready queue holds task pointers, and `ps_task_step` re-queues the same task instead of freeing it. The task owns its result, so a task handle can be read after the task is done.
+- The task handle the user sees is a runtime pointer, like `threading.Lock` is: the value of `asyncio.create_task(coro)` is an opaque record the runtime owns. The compiler sees it as a `class` type named `Task`, so `await task` and `task.result()` lower like the other runtime-backed classes.
+- `asyncio.create_task(coro)` allocates the frame, wraps it in a task and schedules the task. The task starts on the next loop iteration, not immediately, so `create_task` never runs the coroutine inline (CPython's semantics).
+- The loop drives the task to completion even when the caller does not await it. `asyncio.run` waits for every outstanding task before it returns, which is CPython's behaviour and the reason a bare `create_task` is not a fire-and-forget leak.
+- `asyncio.gather` keeps its current shape (drive the loop, collect in argument order) but now goes through the task lifetime, so a gather inside a gather nests correctly.
+
+Receipt: a program that creates a task and awaits it later matches CPython stdout; a program that creates a task and never awaits it still runs the task to completion before `asyncio.run` returns.
+
+**D2: timeouts and cancellation (issue #179, PR 4b).**
+
+- `asyncio.wait_for(aw, timeout)`: awaits the awaitable with a deadline. On expiry the task is cancelled and `TimeoutError` is raised in the awaiting coroutine.
+- `asyncio.timeout(seconds)`: the async-context-manager form of the same deadline.
+- Cancellation: a cancelled task raises `CancelledError` (the reserved code `PS_CANCELLED` in `ps_rt.h`) at its next suspension point. The cancel flag lives in the task record, and the loop checks it when it re-queues a suspended task.
+- The reserved exception codes already exist (`PS_CANCELLED`, `PS_TIMEOUT`, `PS_STOP_ASYNC`), so no new codes are needed. They are not in `builtins.EXCEPTIONS`, so the compiler needs a way to raise them: the `raise` statement takes an optional `code` in the IR, and the emitter already honours `stmt["code"]`.
+
+The honest boundary: a cancellation that has to cross an `await` inside a `try` needs the exception work from Stage C (owned by #164), so `except asyncio.CancelledError:` inside a coroutine stays fenced until that lands. The cancellation itself (the task stopping and the awaiting side seeing `TimeoutError`) does not cross an `await`, so it lands in D2.
+
+Receipt: `wait_for` on a slow coroutine raises `TimeoutError` and the compiled stdout matches CPython.
+
+**D3: the sync primitives (issue #180, PR 4c).**
+
+- `asyncio.Lock`, `Event`, `Queue`, `Semaphore`: runtime records like the `threading` ones (`ps_thread.c` already has the pthread shapes), but the wait is cooperative instead of blocking. The `await` on a locked lock parks the task on the lock's waiter list and the loop re-queues it when the lock is released.
+- `asyncio.to_thread(fn, *args)`: the thread pool from the threads design (`ps_thread.c` has the pthread machinery), with the result delivered back to the loop as a completed task.
+
+Receipt: a lock serializes two tasks the way CPython's does; a `to_thread` call returns the thread's return value.
+
+**The poller is not in this stage.** The design doc's poller (kqueue, epoll, `poll()` fallback) exists for socket and file readiness. None of the D1 to D3 surface needs it: the only sources of wakeups are timers and completions, both of which the loop already handles. The poller lands with the IO stage, when there is a socket to wait on.
+
 ### Stage E: async generators, `async for`, `async with` (PR 5)
 
 Issue #181, in the `Future` milestone. `async for` lowers to the `_for_dunder` shape with `await it.__anext__()` and `StopAsyncIteration`; `async with` lowers like a sync `with` with awaited `__aenter__`/`__aexit__`. Both need `StopAsyncIteration` and the reserved exception codes from #162 (merged, `ps_rt.h` carries the reserved codes).
+
+#### Stage E breakdown (this lane, 2026-10-23)
+
+**E1: async generators and `async for` (issue #181, PR 5a).**
+
+An async generator is a frame with two suspension kinds: `yield` suspends with a value, `await` suspends with status 0. The status tells them apart, so the frame needs a third status value and the generator kind needs the `__anext__` method.
+
+- `coro.py`: a new `AsyncGeneratorKind` whose `resume` returns 0 (pending), 1 (done) or 2 (yielded a value). The `yield` marker in an `async def` lowers to status 2; the `await` marker still lowers to status 0.
+- `__anext__` returns the yielded value and raises `StopAsyncIteration` when the frame is done, the same shape `__next__` has for a sync generator.
+- `async for` lowers to the `_for_dunder` shape: the loop calls `await it.__anext__()` and exits on `StopAsyncIteration`.
+- `__aiter__` returns the generator itself.
+
+**E2: `async with` (issue #181, PR 5b).**
+
+`async with` lowers like a sync `with`, with the `__aenter__` and `__aexit__` calls awaited. The sync `with` path is the `try`/`finally` desugar, and a suspension inside a `try` is fenced until Stage C lands (#164), so `async with` inherits that fence. E2 therefore only lands if the `try`-suspension work is in; otherwise it stays as a fence with a precise message.
+
+The order is E1 then E2, because `async with` on an async generator needs `__aenter__`/`__aexit__` on the generator class.
 
 ## What is needed from the generator lanes
 
@@ -94,4 +149,6 @@ The async work is a thin layer over the generator work, so three things matter.
 
 - `asyncio.gather` lowers only for a homogeneous list of coroutines of one result type, and returns `list[T]` in argument order. The tuple form for a fixed-arity heterogeneous gather is not lowered.
 - The loop is run-to-completion. There is no fairness guarantee between tasks beyond the CPython-like deadline ordering of the timer queue, and `gather` does not yet support a coroutine that awaits a foreign future.
-- `asyncio.sleep` is the only timer. There is no `wait_for`, no `timeout`, no cancellation.
+- `asyncio.sleep` is the only timer. There is no `wait_for`, no `timeout`, no cancellation. (Stage D2 adds the timeout and cancellation.)
+- The loop has no poller in this stage. Timers and completions are the only wakeup sources, so kqueue and epoll land with the IO stage, not with the task lifetime.
+- `asyncio.create_task` schedules the task but does not start it inline: the coroutine body runs on the next loop iteration, like CPython.
