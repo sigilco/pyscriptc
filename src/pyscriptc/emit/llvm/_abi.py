@@ -133,7 +133,10 @@ class AbiMixin:
             return ""
         if kind in {"list", "dict", "func"} or (
             kind == "class"
-            and ret.get("name") in {"Deque", "TextIO", "BytesIO", "CsvWriter", "Lock", "HttpResponse", "HttpRequest"}
+            and (
+                ret.get("name") in {"Deque", "TextIO", "BytesIO", "CsvWriter", "Lock", "HttpResponse", "HttpRequest"}
+                or symbol.startswith("ps_ffi_")
+            )
         ):
             self._abi_decl(symbol, "ptr", types)
             return self._call_ret("ptr", symbol, rendered)

@@ -81,6 +81,7 @@ def compile_call(
     output: Path,
     *,
     skip_check: bool = False,
+    ffi: list[Path] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     command = [
         sys.executable,
@@ -97,6 +98,8 @@ def compile_call(
         "-o",
         str(output),
     ]
+    for manifest in ffi or []:
+        command += ["--ffi", str(manifest)]
     if skip_check:
         command.append("--skip-check")
     return subprocess.run(command, capture_output=True, text=True)

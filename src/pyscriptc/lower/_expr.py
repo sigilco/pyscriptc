@@ -19,6 +19,7 @@ from typing import Any
 
 from pyscriptc.builtins import EXCEPTIONS
 from pyscriptc.errors import span_of
+from pyscriptc.ffi_manifest import type_ir
 from pyscriptc.ir import types_equal
 from pyscriptc.lower._core import (
     _CMP,
@@ -214,6 +215,17 @@ class ExprMixin:
             if binding.kind == "erased":
                 self.fail(node, "PS2002", f"{node.id} is a typing name and is not a value")
             if binding.kind == "const":
+                manifest = self._ffi_module(binding.module)
+                if manifest is not None:
+                    found_const = manifest.const(binding.attr)
+                    if found_const is None:
+                        self.fail(node, "PS2001", f"{binding.module}.{binding.attr} is not a constant")
+                    return {
+                        "kind": "const",
+                        "value": found_const.value,
+                        "type": type_ir(found_const.type, manifest.handle_names),
+                        "span": span,
+                    }
                 if binding.module == "math":
                     value: Any = MATH_CONSTANTS[binding.attr]
                     typ: dict[str, Any] = {"kind": "float"}
@@ -1218,6 +1230,19 @@ class ExprMixin:
                 self.fail(node, "PS2002", f"{dotted} is a function and is not a value")
             if member in SPECIAL_FUNCTIONS.get(module, frozenset()) or member_callable(module, member):
                 self.fail(node, "PS2002", f"{dotted} is a function and is not a value")
+            manifest = self._ffi_module(module)
+            if manifest is not None:
+                found_const = manifest.const(member)
+                if found_const is not None:
+                    return {
+                        "kind": "const",
+                        "value": found_const.value,
+                        "type": type_ir(found_const.type, manifest.handle_names),
+                        "span": span,
+                    }
+                if manifest.function(member) is not None:
+                    self.fail(node, "PS2002", f"{dotted} is a function and is not a value")
+                self.fail(node, "PS2001", f"{dotted} is not in the FFI manifest of {module}")
             self.fail(node, "PS2001", f"{dotted} is not in the lowered subset of {module}")
         class_name = self.class_aliases.get(node.value.id, node.value.id) if isinstance(node.value, ast.Name) else None
         if class_name is not None and class_name in self.classes:

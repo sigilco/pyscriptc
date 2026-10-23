@@ -30,6 +30,7 @@ from pyscriptc.builtins import USER_EXC_BASE
 from pyscriptc.errors import IRError
 from pyscriptc.ir import SUBSET, cpython_version
 from pyscriptc.lower import Lowerer
+from pyscriptc.stdlib_queue import ffi_modules
 
 
 def lower_directory(
@@ -38,6 +39,7 @@ def lower_directory(
     bridge: Any = None,
     entry: str | None = None,
     prefix: str = "",
+    ffi: list[Any] | None = None,
 ) -> tuple[dict[str, Any], str]:
     """Lower a directory tree into one IR module.
 
@@ -80,41 +82,42 @@ def lower_directory(
     fences: list[dict[str, Any]] = []
     class_names: dict[str, dict[str, Any]] = {}
     exc_n = USER_EXC_BASE
-    for name, path, is_package in units:
-        text = path.read_text(encoding="utf-8")
-        tree = ast.parse(text, filename=str(path))
-        if program:
-            tree = _inject_inits(tree, owners.get(name, []), exports, name, is_package)
-        lowerer = Lowerer(str(path), text)
-        lowerer.module_name = name
-        lowerer.is_package = is_package
-        lowerer.package = exports
-        lowerer.exc_n = exc_n
-        lowerer.program = program
-        lowerer.module_init = program and name != "__main__" and name != entry
-        lowerer.entry_module = entry is not None and name == entry
-        lowerer.bridge = bridge_for(path)
-        module = lowerer.module(tree)
-        exc_n = lowerer.exc_n
-        for fn in module["functions"]:
-            functions.append(fn)
-        for cls in module["classes"]:
-            previous = class_names.get(cls["name"])
-            if previous is not None:
-                if previous["fields"] == cls["fields"] and previous["methods"] == cls["methods"]:
+    with ffi_modules(ffi or []):
+        for name, path, is_package in units:
+            text = path.read_text(encoding="utf-8")
+            tree = ast.parse(text, filename=str(path))
+            if program:
+                tree = _inject_inits(tree, owners.get(name, []), exports, name, is_package)
+            lowerer = Lowerer(str(path), text)
+            lowerer.module_name = name
+            lowerer.is_package = is_package
+            lowerer.package = exports
+            lowerer.exc_n = exc_n
+            lowerer.program = program
+            lowerer.module_init = program and name != "__main__" and name != entry
+            lowerer.entry_module = entry is not None and name == entry
+            lowerer.bridge = bridge_for(path)
+            module = lowerer.module(tree)
+            exc_n = lowerer.exc_n
+            for fn in module["functions"]:
+                functions.append(fn)
+            for cls in module["classes"]:
+                previous = class_names.get(cls["name"])
+                if previous is not None:
+                    if previous["fields"] == cls["fields"] and previous["methods"] == cls["methods"]:
+                        continue
+                    fences.append(
+                        {
+                            "code": "PS2002",
+                            "message": f"class {cls['name']} is defined in more than one module",
+                            "span": cls["span"],
+                            "function": None,
+                        }
+                    )
                     continue
-                fences.append(
-                    {
-                        "code": "PS2002",
-                        "message": f"class {cls['name']} is defined in more than one module",
-                        "span": cls["span"],
-                        "function": None,
-                    }
-                )
-                continue
-            class_names[cls["name"]] = cls
-            classes.append(cls)
-        fences.extend(module["fences"])
+                class_names[cls["name"]] = cls
+                classes.append(cls)
+            fences.extend(module["fences"])
     fences = _promote_definition_fences(fences, failed)
     merged = {
         "irVersion": 1,

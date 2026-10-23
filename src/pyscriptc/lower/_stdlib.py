@@ -14,11 +14,11 @@ directions stay `self._method()` so the move is behavior-identical.
 from __future__ import annotations
 
 import ast
-import os
 from typing import Any, NoReturn
 
 from pyscriptc.coro import enabled
 from pyscriptc.errors import span_of
+from pyscriptc.ffi_manifest import type_ir
 from pyscriptc.ir import types_equal
 from pyscriptc.lower._core import (
     _FUTURE_OK,
@@ -39,6 +39,7 @@ from pyscriptc.stdlib_queue import (
     PACK_MODULES,
     SPECIAL_FUNCTIONS,
     canonical_module,
+    ffi_manifests,
     module_status,
     wave_function,
 )
@@ -58,10 +59,7 @@ class StdlibDispatchMixin:
             if root in _ERASED_MODULES:
                 self.bindings[alias.asname or root] = Binding("erased", root, "", False)
                 continue
-            if alias.name == "nativeprobe" and os.environ.get("PYSCRIPTC_NATIVEPROBE") == "1":
-                # Benchmark probe, not a stdlib module. Off unless the native
-                # benchmark sets the env var, so a normal compile still fences.
-                self.bindings[alias.asname or "nativeprobe"] = Binding("module", "nativeprobe", "", False)
+            if self._bind_ffi(alias.name, alias.asname or root):
                 continue
             if self._is_own_package(alias.name) or self._is_program_module(alias.name):
                 self._bind_own_import(alias, stmt, fences)
@@ -150,9 +148,27 @@ class StdlibDispatchMixin:
         # Aliased spellings (os.path -> posixpath) bind against the canonical
         # table so later calls reach the lowered rows under the real module.
         module = canonical_module(stmt.module)
+        manifest = self._ffi_module(module)
         for alias in stmt.names:
             if alias.name == "*":
                 fences.append(Fence("PS2002", "star import is not lowered", span_of(stmt, self.filename), None))
+                continue
+            if manifest is not None:
+                if manifest.function(alias.name) is not None:
+                    self.bindings[alias.asname or alias.name] = Binding("func", module, alias.name, False)
+                    continue
+                if manifest.const(alias.name) is not None:
+                    typ = type_ir(manifest.const(alias.name).type, manifest.handle_names)
+                    self.bindings[alias.asname or alias.name] = Binding("const", module, alias.name, False, typ)
+                    continue
+                fences.append(
+                    Fence(
+                        "PS2001",
+                        f"{module}.{alias.name} is not in the FFI manifest of {module}",
+                        span_of(stmt, self.filename),
+                        None,
+                    )
+                )
                 continue
             local = alias.asname or alias.name
             if status == "queued":
@@ -369,6 +385,43 @@ class StdlibDispatchMixin:
             and fn.decorator_list[0].id == "staticmethod"
         )
 
+    def _bind_ffi(self, name: str, bound: str) -> bool:
+        """Bind a `--ffi` manifest module, or return False when it is not one.
+
+        A manifest module binds like a lowered stdlib module (one synthetic
+        import-table row, `.agents/docs/ffi/ffi-manifest.md` section 3). Without
+        the manifest loaded the import falls through to the normal fence: the
+        closed-table refusal with its lane hint stays today's behavior.
+        """
+        manifest = self._ffi_module(name)
+        if manifest is None:
+            return False
+        self.bindings[bound or name] = Binding("module", name, "", False)
+        return True
+
+    def _ffi_module(self, name: str) -> Any:
+        return ffi_manifests().get(name)
+
+    def _ffi_call(self, node: ast.Call, span: dict[str, Any], module: str, attr: str) -> dict[str, Any]:
+        """Lower a call into a `--ffi` manifest module against its `py` signature."""
+        manifest = self._ffi_module(module)
+        fn = manifest.function(attr) if manifest is not None else None
+        if fn is None:
+            self.fail(node, "PS2001", f"{module}.{attr} is not in the FFI manifest of {module}")
+        self._reject_keywords(node)
+        count = len(node.args)
+        if count < fn.required_arity or count > fn.arity:
+            self.fail(node, "PS2003", f"{module}.{attr} expects {fn.required_arity} argument(s)")
+        args: list[dict[str, Any]] = []
+        for index, arg_node in enumerate(node.args):
+            param = fn.params[index]
+            want = type_ir(param.type, manifest.handle_names)
+            arg = self._expr(arg_node, want)
+            if not types_equal(arg["type"], want):
+                self.fail(node, "PS1003", f"{module}.{attr} argument {param.name} is {_show(arg['type'])}")
+            args.append(arg)
+        return self._abi_call(module, attr, args, type_ir(fn.returns, manifest.handle_names), fn.abi, span)
+
     def _module_decorator_fence(self, fn: ast.FunctionDef) -> str | None:
         if not fn.decorator_list:
             return None
@@ -399,8 +452,8 @@ class StdlibDispatchMixin:
         attr: str,
         expect: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        if module == "nativeprobe":
-            return self._nativeprobe_call(node, span, attr)
+        if self._ffi_module(module) is not None:
+            return self._ffi_call(node, span, module, attr)
         if module == "enum" and attr == "auto":
             # enum.auto only lowers as an enum body member; a call anywhere
             # else has no enum to draw its counter from.

@@ -8,6 +8,8 @@ with PS2101 on use.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from typing import Any
 
 # Iterative order from the top-100 import scan. Do not reorder casually:
@@ -211,6 +213,9 @@ def module_status(name: str) -> str | None:
     """
 
     name = canonical_module(name)
+    manifest = _FFI_MANIFESTS.get(name)
+    if manifest is not None:
+        return "lowered"
     if name in LOWERED:
         return "lowered"
     if name in QUEUE:
@@ -229,3 +234,30 @@ def queue_index(name: str) -> int:
         if item == name or item == root or item.startswith(root + "."):
             return i
     return -1
+
+
+# The `--ffi` manifests of the running compile, set by `with ffi_modules(...)`
+# around lowering. This is the one registration point for manifest modules:
+# the closed import table is frozen, so a manifest binds through the same
+# membership checks the stdlib rows do, scoped to one compile (`.agents/docs/
+# ffi/ffi-manifest.md` section 7). Module-level on purpose: a subprocess or a
+# long-lived process (the CLI runs one lower per process; the tests use the
+# context manager) never sees a stale table.
+_FFI_MANIFESTS: dict[str, Any] = {}
+
+
+def ffi_manifests() -> dict[str, Any]:
+    """The manifest modules of the running compile, keyed by module name."""
+    return _FFI_MANIFESTS
+
+
+@contextmanager
+def ffi_modules(manifests: Iterable[Any]) -> Iterator[None]:
+    """Install `--ffi` manifests for the duration of one lowering pass."""
+    global _FFI_MANIFESTS
+    saved = _FFI_MANIFESTS
+    _FFI_MANIFESTS = {manifest.module: manifest for manifest in manifests}
+    try:
+        yield
+    finally:
+        _FFI_MANIFESTS = saved

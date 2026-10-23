@@ -5,7 +5,7 @@ they share the `_call_name` / `_call_attr` dispatch). `Lowerer` composes this
 mixin in. The area owns the name-call and attribute-call dispatchers, the
 argument fitters, the builtin container calls (`set`, `frozenset`, `bool`,
 `list`, `dict.keys`, set methods), and the intrinsic family bodies for
-nativeprobe, math, json, struct, hashlib, re patterns, and synthetic classes.
+math, json, struct, hashlib, re patterns, and synthetic classes.
 
 Module-level helpers used only here moved verbatim (`_const_set`,
 `_const_dict_keys`, `_float_special_arg`, `_const_text`, `_capturing_groups`,
@@ -121,6 +121,8 @@ class CallsMixin:
                 return self._module_call(node, span, binding.module, binding.attr, expect)
             if binding.kind == "pyfunc":
                 return self._linked_call(node, span, self.pkg_funcs[name], name)
+            if binding.kind == "const" and self._ffi_module(binding.module) is not None:
+                self.fail(node, "PS2002", f"{name} is a constant and is not a function")
             self.fail(node, "PS2002", f"{name} is not a function")
         if name in self.class_aliases or name in self.classes:
             return self._construct(node, span, self.class_aliases.get(name, name))
@@ -420,6 +422,10 @@ class CallsMixin:
             if status != "lowered":
                 self.fail(node, "PS2001", f"{dotted} is not in the lowered subset of {module}")
             return self._module_call(node, span, module, member, expect)
+        if isinstance(node.func.value, ast.Name):
+            bound = self.bindings.get(node.func.value.id)
+            if bound is not None and bound.kind == "module" and self._ffi_module(bound.module) is not None:
+                return self._ffi_call(node, span, bound.module, node.func.attr)
         named = None
         if isinstance(node.func.value, ast.Name):
             named = self.class_aliases.get(node.func.value.id, node.func.value.id)
@@ -700,28 +706,6 @@ class CallsMixin:
             return self._method_call(node, span, receiver)
         self.fail(node, "PS2001", f"call of attribute is not lowered ({_dotted(node.func)})")
         raise AssertionError("unreachable")
-
-    def _nativeprobe_call(self, node: ast.Call, span: dict[str, Any], attr: str) -> dict[str, Any]:
-        specs = {
-            "crc32": ("ps_mix_crc32", [{"kind": "bytes"}]),
-            "crc32_island": ("ps_island_mix_crc32", [{"kind": "bytes"}]),
-            "crc32_n": ("ps_mix_crc32_n", [{"kind": "bytes"}, {"kind": "int"}]),
-            "crc32_n_island": ("ps_island_mix_crc32_n", [{"kind": "bytes"}, {"kind": "int"}]),
-        }
-        found = specs.get(attr)
-        if found is None:
-            self.fail(node, "PS2001", f"nativeprobe.{attr} is not in the lowered subset of nativeprobe")
-        symbol, params = found
-        self._reject_keywords(node)
-        if len(node.args) != len(params):
-            self.fail(node, "PS2003", f"nativeprobe.{attr} expects {len(params)} argument(s)")
-        args = []
-        for arg_node, want in zip(node.args, params, strict=True):
-            arg = self._expr(arg_node, want)
-            if not types_equal(arg["type"], want):
-                self.fail(node, "PS1003", f"nativeprobe.{attr} argument is {_show(arg['type'])}")
-            args.append(arg)
-        return self._abi_call("nativeprobe", attr, args, {"kind": "int"}, symbol, span)
 
     def _math_call(self, node: ast.Call, span: dict[str, Any], attr: str) -> dict[str, Any]:
         spec = MATH_FUNCTIONS.get(attr)

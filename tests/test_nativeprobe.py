@@ -12,6 +12,7 @@ from benchmarks.native.build import ensure
 
 ROOT = Path(__file__).resolve().parents[1]
 WORK = ROOT / "benchmarks" / "native" / "workloads"
+MANIFEST = ROOT / "benchmarks" / "native" / "nativeprobe.toml"
 
 
 def _env(lib: Path) -> dict[str, str]:
@@ -20,7 +21,6 @@ def _env(lib: Path) -> dict[str, str]:
     pythonpath = native if not previous else native + os.pathsep + previous
     return {
         **os.environ,
-        "PYSCRIPTC_NATIVEPROBE": "1",
         "PYSCRIPTC_MIX_SO": str(lib),
         "PYTHONPATH": pythonpath,
     }
@@ -34,6 +34,8 @@ def _compile(env: dict[str, str], source: Path, call: str, args: str, binary: Pa
             "pyscriptc",
             "compile",
             str(source),
+            "--ffi",
+            str(MANIFEST),
             "--skip-check",
             "--run",
             "--call",
@@ -72,10 +74,9 @@ def _oracle(env: dict[str, str], source: Path, call: str, args: str) -> str:
     return proc.stdout
 
 
-def test_nativeprobe_stays_fenced_without_the_probe_flag(tmp_path: Path) -> None:
+def test_nativeprobe_stays_fenced_without_the_manifest(tmp_path: Path) -> None:
     source = tmp_path / "use.py"
     source.write_text("import nativeprobe\n\ndef main() -> int:\n    return 0\n", encoding="utf-8")
-    env = {key: value for key, value in os.environ.items() if key != "PYSCRIPTC_NATIVEPROBE"}
     proc = subprocess.run(
         [
             sys.executable,
@@ -90,7 +91,6 @@ def test_nativeprobe_stays_fenced_without_the_probe_flag(tmp_path: Path) -> None
             str(tmp_path / "use.ll"),
         ],
         cwd=ROOT,
-        env=env,
         capture_output=True,
         text=True,
         check=False,

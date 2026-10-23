@@ -254,8 +254,10 @@ _ENTRIES = (
     Diagnostic(
         "PS4008",
         "FFI manifest dangling reference",
-        "An ownership annotation or handle reference names something the manifest does not declare.",
-        "Declare the handle, or fix the reference to a declared handle or parameter.",
+        "An ownership annotation or handle reference names something the manifest does not declare, "
+        "or the manifest declares a C source this compiler does not link yet.",
+        "Declare the handle, or fix the reference to a declared handle or parameter. "
+        "A [[source]] entry lands with the F2 static-link gate (#220).",
     ),
     Diagnostic(
         "PS3002",
