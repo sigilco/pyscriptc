@@ -293,17 +293,24 @@ class CoroMixin:
         return (params, dict(_NONE)) if plan is not None else (params, ret)
 
     def _coro_method_signature(
-        self, fn: ast.FunctionDef, class_name: str
+        self, fn: ast.FunctionDef | ast.AsyncFunctionDef, class_name: str
     ) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
-        """The outward signature of a generator method, or None for a plain method.
+        """The outward signature of a resumable method, or None for a plain method.
 
         A generator method returns its frame class: `C.items()` yields a
         `gen.C.items` frame, and the caller consumes it through the same
-        `__iter__`/`__next__` path a module-level generator uses.
+        `__iter__`/`__next__` path a module-level generator uses. A coroutine
+        method (`async def`) returns its `coro.C.<name>` frame the same way;
+        the caller awaits it (issue #178, stage A).
         """
-        if not enabled() or not is_generator(fn) or fn.decorator_list:
+        coroutine = isinstance(fn, ast.AsyncFunctionDef)
+        if not enabled() or fn.decorator_list or not (is_generator(fn) or coroutine):
             return None
-        elem, send = self._coro_types(fn)
+        if coroutine:
+            elem = self._coro_result(fn)
+            send = dict(_NONE)
+        else:
+            elem, send = self._coro_types(fn)
         shape = _shape_error(fn)
         if shape is not None:
             self.fail(shape[0], "PS2002", shape[1])
@@ -314,13 +321,14 @@ class CoroMixin:
 
         if _has_typevar(elem) or any(_has_typevar(param["type"]) for param in params):
             self.fail(fn, "PS2002", "a generic resumable is not lowered yet")
-        frame = f"gen.{class_name}.{fn.name}"
+        prefix = "coro" if coroutine else "gen"
+        frame = f"{prefix}.{class_name}.{fn.name}"
         frame_t = {"kind": "class", "name": frame}
         self_t = [{"name": "self", "type": frame_t}]
-        self.classes[frame] = {
-            "fields": [],
-            "own_fields": [],
-            "methods": {
+        if coroutine:
+            method_sigs: dict[str, Any] = {"resume": (self_t, _INT)}
+        else:
+            method_sigs = {
                 "__iter__": (self_t, frame_t),
                 "__next__": (self_t, elem),
                 "close": (self_t, _NONE),
@@ -329,15 +337,27 @@ class CoroMixin:
                     if send.get("kind") != "none"
                     else {}
                 ),
-            },
+            }
+        self.classes[frame] = {
+            "fields": [],
+            "own_fields": [],
+            "methods": method_sigs,
             "method_kind": {},
             "method_owner": {},
             "base": None,
-            "coro": "generator",
+            "coro": "coroutine" if coroutine else "generator",
         }
         self.known_classes.add(frame)
         key = f"{class_name}.{fn.name}"
-        self._coro_plans()[key] = FramePlan("generator", key, frame, elem, params, "", send)
+        self._coro_plans()[key] = FramePlan(
+            "coroutine" if coroutine else "generator",
+            key,
+            frame,
+            elem,
+            params,
+            "",
+            send,
+        )
         return params, frame_t
 
     def _coro_method_body_sig(
@@ -541,38 +561,49 @@ def lower_resumables(module: dict[str, Any], plans: dict[str, FramePlan]) -> dic
         if forwarder is not None:
             functions.append(forwarder)
         classes.append(frame)
-    classes = _lower_method_resumables(classes, plans, fences)
+    classes, method_functions = _lower_method_resumables(classes, plans, fences)
+    functions.extend(method_functions)
     return {**module, "functions": functions, "classes": classes, "fences": fences}
 
 
 def _lower_method_resumables(
     classes: list[dict[str, Any]], plans: dict[str, FramePlan], fences: list[dict[str, Any]]
-) -> list[dict[str, Any]]:
-    """Rewrite generator methods the same way module functions rewrite.
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Rewrite resumable methods the same way module functions rewrite.
 
     A planned method's body record is the resume body: the pass swaps in the
     frame-allocating wrapper as the method and appends the frame class. The
     plan is keyed `Class.method`, the same qualified name the body lowered
-    under.
+    under. Both kinds rewrite here; a coroutine method's forwarder comes
+    back so the run loop can drive it like a function frame.
     """
     out: list[dict[str, Any]] = []
+    method_functions: list[dict[str, Any]] = []
     for cls in classes:
         methods: list[dict[str, Any]] = []
         for method in cls["methods"]:
             plan = plans.get(f"{cls['name']}.{method['name']}")
-            if plan is None or plan.frame != f"gen.{cls['name']}.{method['name']}":
+            if (
+                plan is None
+                or plan.frame != f"{'coro' if plan.kind == 'coroutine' else 'gen'}.{cls['name']}.{method['name']}"
+            ):
                 methods.append(method)
                 continue
             try:
-                wrapper, frame, _forwarder = _Frame(method, plan, _KINDS[plan.kind], plans).build()
+                wrapper, frame, forwarder = _Frame(method, plan, _KINDS[plan.kind], plans).build()
             except CoroError as exc:
                 fences.append({"code": "PS2002", "message": exc.message, "function": method["name"], "span": exc.span})
                 methods.append(method)
                 continue
             methods.append(wrapper)
             out.append(frame)
+            if forwarder is not None:
+                # A coroutine method's resume cell names this module-level
+                # forwarder, the same symbol shape a module-level coroutine
+                # uses (`coro.<name>.resume`), so ps_loop.c stays uniform.
+                method_functions.append(forwarder)
         out.append({**cls, "methods": methods})
-    return out
+    return out, method_functions
 
 
 def _plan_by_ir_name(plans: dict[str, FramePlan], ir_name: str) -> FramePlan | None:
