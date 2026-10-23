@@ -191,6 +191,11 @@ SPECIAL_FUNCTIONS: dict[str, frozenset[str]] = {
     "re": frozenset({"search", "match", "fullmatch", "subn"}),
 }
 
+# The pack surface: a curated pyscriptc-<pack> name the import classifier
+# already lists in native_packages.json. The calls lower onto the pack's
+# runtime symbols, not onto a stdlib module the host interpreter ships.
+PACK_MODULES: frozenset[str] = frozenset({"jwt"})
+
 
 def wave_function(module: str, name: str) -> dict[str, Any] | None:
     return WAVE_FUNCTIONS.get(module, {}).get(name)

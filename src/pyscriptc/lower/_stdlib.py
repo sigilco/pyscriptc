@@ -36,6 +36,7 @@ from pyscriptc.restlower import alias_name, rest_call
 from pyscriptc.stdlib_queue import (
     MATH_CONSTANTS,
     MATH_FUNCTIONS,
+    PACK_MODULES,
     SPECIAL_FUNCTIONS,
     canonical_module,
     module_status,
@@ -64,6 +65,10 @@ class StdlibDispatchMixin:
                 continue
             if self._is_own_package(alias.name) or self._is_program_module(alias.name):
                 self._bind_own_import(alias, stmt, fences)
+                continue
+            if alias.name.split(".", 1)[0] in PACK_MODULES:
+                self.bindings[alias.asname or alias.name] = Binding("module", alias.name, "", False)
+                self._note_module(alias.name)
                 continue
             status = module_status(alias.name)
             if status is None:
@@ -114,6 +119,22 @@ class StdlibDispatchMixin:
             return
         if self._is_own_package(stmt.module) or self._is_program_module(stmt.module):
             self._bind_own_from(stmt, fences)
+            return
+        if canonical_module(stmt.module) in PACK_MODULES:
+            for alias in stmt.names:
+                local = alias.asname or alias.name
+                if member_callable(stmt.module, alias.name):
+                    self.bindings[local] = Binding("func", stmt.module, alias.name, False)
+                    self._note_module(stmt.module)
+                    continue
+                fences.append(
+                    Fence(
+                        "PS2001",
+                        f"{stmt.module}.{alias.name} is not in the lowered subset of {stmt.module}",
+                        span_of(stmt, self.filename),
+                        None,
+                    )
+                )
             return
         status = module_status(stmt.module)
         if status is None:

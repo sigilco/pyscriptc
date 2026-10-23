@@ -51,6 +51,7 @@ from pyscriptc.restlower._iterators import (
     _zip_value,
 )
 from pyscriptc.restlower._itertools import _itertools
+from pyscriptc.restlower._jwt import _jwt_call
 from pyscriptc.restlower._minmax import _minmax, _sorted, _sum
 from pyscriptc.restlower._operator import _bisect, _join, _operator
 from pyscriptc.restlower._ospath import _os_open, _os_read, _relpath
@@ -146,6 +147,7 @@ _MODULES_AFTER_SPEC: dict[str, Handler] = {
     "dotenv": lambda lo, node, span, expect, attr: _dotenv_call(lo, node, span, expect, attr),
     "yaml": lambda lo, node, span, expect, attr: _yaml_call(lo, node, span, expect, attr),
     "urllib.request": lambda lo, node, span, expect, attr: _urllib_request_call(lo, node, span, expect, attr),
+    "jwt": lambda lo, node, span, expect, attr: _jwt_call(lo, node, span, expect, attr),
 }
 
 # Per-attribute handlers that run before keyword arguments are rejected.

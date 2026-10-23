@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-23",
-  "commit": "3948b3301c24921864e38ab5df4aae71bd441c23",
+  "commit": "5a7d60acc99d4124ea1662a2c85c49708b8240f9",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -13,7 +13,7 @@
     "builtins_partial": 15,
     "builtins_none": 1,
     "stdlib_full": 0,
-    "stdlib_partial": 51,
+    "stdlib_partial": 52,
     "stdlib_none": 1,
     "packages_full": 3,
     "packages_partial": 5,
@@ -479,6 +479,25 @@
         "load, dump, safe_dump, keyword arguments"
       ],
       "fences": [
+        "PS2001",
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.jwt",
+      "kind": "stdlib",
+      "label": "`jwt`",
+      "names": [
+        "jwt"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "RS256 and other asymmetric algorithms, non-literal algorithm, other jwt members (get_unverified_header, PyJWTError), claims beyond str values (exp, aud), options dict, headers argument"
+      ],
+      "fences": [
+        "PS1003",
         "PS2001",
         "PS2003"
       ],
@@ -2048,7 +2067,7 @@
   "history": [
     {
       "date": "2026-10-23",
-      "commit": "3948b3301c24921864e38ab5df4aae71bd441c23",
+      "commit": "5a7d60acc99d4124ea1662a2c85c49708b8240f9",
       "weighted_pass": 0.0,
       "packages_full": 3,
       "packages_partial": 5,
