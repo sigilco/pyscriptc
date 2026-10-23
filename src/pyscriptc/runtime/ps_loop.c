@@ -419,83 +419,6 @@ int64_t ps_task_cancelled(void *task) {
     return ((PsTask *)task)->cancelled;
 }
 
-/* Step a task once outside the ready queue: `create_task` schedules the task
-   instead of running it inline, but a caller that wants the task to make
-   progress right now (the root task, or a task awaited from outside the
-   loop) drives it through this. */
-int64_t ps_task_step_task(void *task) {
-    if (task == NULL) {
-        return 1;
-    }
-    PsTask *t = (PsTask *)task;
-    void *saved = ps_current_task;
-    ps_current_task = t;
-    int64_t status = ps_task_step(t);
-    ps_current_task = saved;
-    return status;
-}
-
-void ps_task_store_result(void *task, void *value, int64_t size) {
-    if (task == NULL) {
-        return;
-    }
-    PsTask *t = (PsTask *)task;
-    free(t->result);
-    t->result = NULL;
-    t->result_size = 0;
-    if (value != NULL && size > 0) {
-        t->result = malloc((size_t)size);
-        if (t->result == NULL) {
-            abort();
-        }
-        memcpy(t->result, value, (size_t)size);
-        t->result_size = size;
-    }
-}
-
-int64_t ps_task_result_size(void *task) {
-    if (task == NULL) {
-        return 0;
-    }
-    return ((PsTask *)task)->result_size;
-}
-
-void ps_task_load_result(void *task, void *out) {
-    if (task == NULL) {
-        return;
-    }
-    PsTask *t = (PsTask *)task;
-    if (t->result != NULL && t->result_size > 0) {
-        memcpy(out, t->result, (size_t)t->result_size);
-    }
-}
-
-int64_t ps_task_exc_code(void *task) {
-    if (task == NULL) {
-        return 0;
-    }
-    return ((PsTask *)task)->exc_code;
-}
-
-void ps_task_set_exc(void *task, int32_t code) {
-    if (task == NULL) {
-        return;
-    }
-    ((PsTask *)task)->exc_code = code;
-}
-
-/* Raise the exception a failed task holds. The awaiting side calls this when
-   it reads a task that failed: the exception belongs to the awaiter, not to
-   the task. */
-void ps_task_raise_exc(void *task) {
-    if (task == NULL) {
-        return;
-    }
-    PsTask *t = (PsTask *)task;
-    int32_t code = t->exc_code != 0 ? t->exc_code : PS_RUNTIME;
-    ps_raise_code(code);
-}
-
 /* `await task`: park the calling frame until the task completes. The task
    may already be done, in which case the caller does not park at all. */
 int64_t ps_task_await(void *task, void *frame) {
@@ -508,4 +431,15 @@ int64_t ps_task_await(void *task, void *frame) {
     }
     ps_task_add_waiter(t, frame);
     return 0;
+}
+
+/* Read the result the task's coroutine produced. The frame's field 2 is
+   `.ps_result` (field 0 `.ps_state`, field 1 `.ps_task` — the layout coro.py
+   guarantees), and `size` is the element size the caller's type carries. */
+void ps_task_result(void *task, int64_t size, void *out) {
+    if (task == NULL || out == NULL || size <= 0) {
+        return;
+    }
+    PsTask *t = (PsTask *)task;
+    memcpy(out, (char *)t->frame + 16, (size_t)size);
 }

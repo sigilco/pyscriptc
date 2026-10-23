@@ -65,6 +65,9 @@ from pyscriptc.errors import span_of
 
 YIELD_MARKER = "__ps_yield__"
 AWAIT_MARKER = "__ps_await__"
+# `await task` on a task handle (asyncio.create_task): the loop parks the
+# frame on the task's waiter list instead of polling a child frame.
+AWAIT_TASK_MARKER = "__ps_await_task__"
 SLEEP_MARKER = "__ps_sleep__"
 RETURN_MARKER = "__ps_return__"
 STATE = ".ps_state"
@@ -75,6 +78,9 @@ RESUME = ".ps_rs"
 SEND = ".ps_send"
 GEN = ".ps_gen"
 VALUE = ".ps_val"
+# The task handle class (asyncio.create_task). A class type with `elem`: the
+# coroutine's result type, so `task.result()` reads the right shape.
+TASK_CLASS = "Task"
 AWAIT_RESULT_PREFIX = ".ps_awv_"
 DONE = -1
 PENDING = 0
@@ -657,6 +663,24 @@ class CoroMixin:
             self.prelude.append({"kind": "expr", "expr": marker, "span": span})
             # The awaited value: the child's result field once it completes.
             return _name(result, child_plan.elem, span)
+        if child_t.get("kind") == "class" and child_t.get("name") == TASK_CLASS:
+            # `await task`: the awaited value is a task handle, not a frame.
+            # The task keeps the result, so the await reads it out of the
+            # task once the task completes.
+            slot = self._temp("awt")
+            self.locals[slot] = child_t
+            result = _await_result_name(slot)
+            self.locals[result] = child_t["elem"]
+            self.prelude.append(_assign(slot, child, span))
+            marker = {
+                "kind": "call",
+                "callee": {"kind": "builtin", "name": AWAIT_TASK_MARKER},
+                "args": [_name(slot, child_t, span)],
+                "type": dict(_NONE),
+                "span": span,
+            }
+            self.prelude.append({"kind": "expr", "expr": marker, "span": span})
+            return _name(result, child_t["elem"], span)
         return child
 
     def _coro_finish(self, module: dict[str, Any]) -> dict[str, Any]:
@@ -1272,6 +1296,8 @@ class _Frame:
         kind = stmt["kind"]
         if kind == "expr" and _is_marker(stmt, SLEEP_MARKER):
             return self._sleep(stmt, span)
+        if kind == "expr" and _is_marker(stmt, AWAIT_TASK_MARKER):
+            return self._await_task(stmt, span)
         if kind == "expr" and _is_marker(stmt, self.kind.marker):
             if self.kind.marker == AWAIT_MARKER:
                 return self._await(stmt, span)
@@ -1616,6 +1642,57 @@ class _Frame:
                 return plan.elem
         raise CoroError(f"await of an unknown coroutine frame {child_frame}", self.span)
 
+    def _await_task(self, stmt: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
+        """Expand `__ps_await_task__(task)` into the task-await suspension.
+
+        The task is in the local the lowerer bound (the marker's argument
+        names it). The parent asks the loop to park it on the task: the call
+        returns 0 while the task is still running, and the parent suspends
+        with status 0. The loop re-queues the parent when the task finishes,
+        and the parent then reads the result out of the task.
+        """
+        self.points += 1
+        point = self.points
+        task = stmt["expr"]["args"][0]
+        task_t = task["type"]
+        slot = task["id"]
+        result = _await_result_name(slot)
+        elem = task_t["elem"]
+        park = {
+            "kind": "call",
+            "callee": {"kind": "module", "module": "asyncio", "name": "task_await"},
+            "args": [_name(slot, task_t, span), self.self_name(span)],
+            "type": dict(_INT),
+            "span": span,
+            "symbol": "ps_task_await",
+        }
+        read = {
+            "kind": "call",
+            "callee": {"kind": "module", "module": "asyncio", "name": "task_result"},
+            "args": [_name(slot, task_t, span)],
+            "type": elem,
+            "span": span,
+            "symbol": "ps_task_result",
+        }
+        # Fresh entry: copy out, mark the point, park. Re-entry: the task
+        # finished and the loop woke the parent, so fall through to the read.
+        leave = [
+            *self.copy_out(span),
+            self.field_set(STATE, _const(point, _INT, span), span),
+            _if(
+                _compare("==", park, _const(0, _INT, span), span),
+                self.kind.suspend(self, _const(0, _INT, span), span),
+                [],
+                span,
+            ),
+        ]
+        arrive = [_assign(RESUME, _const(0, _INT, span), span)]
+        result_set = [_assign(result, read, span)] if elem.get("kind") != "none" else []
+        return [
+            _if(self.fresh(span), leave, arrive, span),
+            *result_set,
+        ]
+
     def _sleep(self, stmt: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
         """Expand `__ps_sleep__(delay)` into arm-then-suspend.
 
@@ -1675,7 +1752,7 @@ class _Frame:
 
 def _suspends(stmt: dict[str, Any], marker: str) -> bool:
     if stmt["kind"] == "expr":
-        return _is_marker(stmt, marker) or _is_marker(stmt, SLEEP_MARKER)
+        return _is_marker(stmt, marker) or _is_marker(stmt, SLEEP_MARKER) or _is_marker(stmt, AWAIT_TASK_MARKER)
     if stmt["kind"] == "if":
         return any(_suspends(s, marker) for s in stmt["then"]) or any(_suspends(s, marker) for s in stmt["else"])
     if stmt["kind"] == "while":

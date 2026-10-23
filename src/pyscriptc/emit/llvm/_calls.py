@@ -117,6 +117,8 @@ class CallsMixin:
             return self._emit_deque_store(expr, values)
         if expr.get("symbol") in {"ps_deque_pop", "ps_deque_popleft"}:
             return self._emit_deque_load(expr, values)
+        if expr.get("symbol") == "ps_task_result":
+            return self._emit_task_result(expr, values)
         if expr.get("symbol") == "ps_queue_put":
             # The item travels as a pointer to a stashed slot, the shape
             # `deque.append` uses: the queue stores element-sized slots.

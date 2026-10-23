@@ -14,7 +14,7 @@ from collections.abc import Callable
 from typing import Any
 
 from pyscriptc.restlower._argparse import _parser
-from pyscriptc.restlower._asyncio import _asyncio_gather, _asyncio_run, _asyncio_sleep
+from pyscriptc.restlower._asyncio import _asyncio_create_task, _asyncio_gather, _asyncio_run, _asyncio_sleep
 from pyscriptc.restlower._builtins import (
     _abs,
     _base_repr,
@@ -132,6 +132,7 @@ _EARLY: dict[tuple[str, str], Handler] = {
     ("asyncio", "run"): _asyncio_run,
     ("asyncio", "sleep"): _asyncio_sleep,
     ("asyncio", "gather"): _asyncio_gather,
+    ("asyncio", "create_task"): _asyncio_create_task,
 }
 
 # Whole-module handlers, consulted before `fixed_spec`.

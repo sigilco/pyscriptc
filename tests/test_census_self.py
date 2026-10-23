@@ -41,7 +41,8 @@ def test_self_census_ballpark() -> None:
     # Project mode (#150): project.py adds 1 module.
     # restlower/_jwt.py and restlower/_orjson.py (the jwt and orjson packs,
     # #61 and #153) add 2 modules.
-    # restlower/_queue.py (queue.Queue, LifoQueue and SimpleQueue, #172) adds 1 module.
+    # restlower/_queue.py (queue.Queue / LifoQueue / SimpleQueue, #172
+    # Stage C) adds 1 module.
     assert census["modules"] == 90
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
@@ -121,13 +122,15 @@ def test_self_census_ballpark() -> None:
     # yield inside try (#164): the re-entrant try in the coro guard transform
     # adds 5 self-host fences in coro.py (the body re-raise, the handler
     # save/restore and the per-part guards).
-    # restlower/_queue.py (queue.Queue, LifoQueue and SimpleQueue, #172) adds
-    # 1 module and 15 self-host fences (the lowerer and its annotations).
-    assert census["fences"] == 2686
+    # Task lifetime (#179, stage D1): the create_task lowering in
+    # restlower/_asyncio.py, the task-await marker and the task method
+    # dispatch add 10 self-host fences; the emitter's none-field fix removes
+    # one in emit/llvm/_stmts.py.
+    assert census["fences"] == 2696
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     # Project mode (#150): project.py adds about 240 lines.
     # yield inside try (#164): the re-entrant try in the coro guard transform
     # adds about 150 lines in coro.py.
     assert 11_000 <= census["lines"] <= 37_000
-    assert sum(p["fences"] for p in census["packages"]) == 2686
+    assert sum(p["fences"] for p in census["packages"]) == 2696

@@ -12,7 +12,7 @@ from __future__ import annotations
 import ast
 from typing import Any
 
-from pyscriptc.coro import SLEEP_MARKER, enabled
+from pyscriptc.coro import SLEEP_MARKER, TASK_CLASS, enabled
 from pyscriptc.ir import types_equal
 from pyscriptc.restlower._shared import _as_float
 
@@ -36,6 +36,30 @@ def _frame_of(lo: Any, node: ast.expr, what: str) -> tuple[dict[str, Any], dict[
 def _run_stmt(lo: Any, span: dict[str, Any], symbol: str, args: list[dict[str, Any]]) -> None:
     call = lo._abi_call("asyncio", "run", args, {"kind": "none"}, symbol, span)
     lo.prelude.append({"kind": "expr", "expr": call, "span": span})
+
+
+def _asyncio_create_task(
+    lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = None, attr: str = ""
+) -> dict[str, Any]:
+    """`asyncio.create_task(coro)`: wrap the coroutine frame in a task.
+
+    The task is a runtime record that outlives a step, so the handle stays
+    valid across a suspension. The task starts on the next loop iteration,
+    never inline: that is CPython's `create_task` semantics. The handle's
+    type is the `Task` class, parameterized by the coroutine's result type,
+    so `await task` reads the right shape.
+    """
+    if len(node.args) != 1:
+        lo.fail(node, "PS2003", "asyncio.create_task expects 1 argument(s)")
+    lo._reject_keywords(node)
+    frame, elem = _frame_of(lo, node.args[0], "asyncio.create_task")
+    # Pin the frame: the task wraps one frame object, not a fresh call.
+    slot = lo._temp("tsk")
+    lo.locals[slot] = frame["type"]
+    lo.prelude.append({"kind": "assign", "target": slot, "value": frame, "span": span})
+    pinned = {"kind": "name", "id": slot, "type": frame["type"], "span": span}
+    task_t = {"kind": "class", "name": TASK_CLASS, "elem": elem}
+    return lo._abi_call("asyncio", "create_task", [pinned], task_t, "ps_task_new", span)
 
 
 def _asyncio_run(lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = None, attr: str = "") -> dict[str, Any]:
@@ -73,6 +97,28 @@ def _asyncio_sleep(lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = 
         "type": {"kind": "none"},
         "span": span,
     }
+
+
+def _task_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
+    """Method dispatch for a task handle: `done()` and `result()`."""
+    assert isinstance(node.func, ast.Attribute)
+    attr = node.func.attr
+    elem = receiver["type"]["elem"]
+
+    if attr == "done":
+        lo._reject_keywords(node)
+        if node.args:
+            lo.fail(node, "PS2003", "Task.done expects 0 argument(s)")
+        return lo._abi_call("asyncio", "task.done", [receiver], {"kind": "bool"}, "ps_task_done", span)
+    if attr == "result":
+        lo._reject_keywords(node)
+        if node.args:
+            lo.fail(node, "PS2003", "Task.result expects 0 argument(s)")
+        # Same symbol as the await's read: the emitter hands back the value
+        # out of the task's frame, at the element size `elem` carries.
+        return lo._abi_call("asyncio", "task.result", [receiver], elem, "ps_task_result", span)
+    lo.fail(node, "PS2001", f"Task.{attr} is not lowered")
+    raise AssertionError("unreachable")
 
 
 def _asyncio_gather(

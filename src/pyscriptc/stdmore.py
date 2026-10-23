@@ -1355,6 +1355,7 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("urllib.request", "Request"): "HttpRequest",
     ("urllib.error", "HTTPError"): "HTTPError",
     ("urllib.error", "URLError"): "URLError",
+    ("asyncio", "Task"): "Task",
 }
 
 # Instance methods. `elem` means the deque's element type.
