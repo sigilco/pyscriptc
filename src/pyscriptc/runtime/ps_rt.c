@@ -15,13 +15,20 @@ frame is still live if the body raises. Arithmetic overflow stays an LLVM trap.
 #include <string.h>
 
 typedef struct PsJmp {
-    jmp_buf buf;
+    sigjmp_buf buf;
     struct PsJmp *prev;
 } PsJmp;
 
 static _Thread_local PsJmp *ps_top;
 static _Thread_local PsExc *ps_current;
 char ps_empty_byte;
+
+/* Free list for the jump slots. A `try` runs once per loop iteration in hot
+code (a generator's `for` body is a try), so the slot allocation must not be
+a malloc/free pair per iteration: the free list reuses the last slot in
+amortized constant time. Slots are thread-local and never freed back to the
+heap, so a deep nesting peak sets the high-water mark. */
+static _Thread_local PsJmp *ps_jmp_free;
 
 /* Parent chain for the builtin codes (E2 M2): a parent always has a smaller
 code than its children, so the walk towards zero ends at the root. User
@@ -316,7 +323,7 @@ __attribute__((noinline, noreturn)) static void ps_deliver(void) {
         ps_report_current(NULL);
         exit(1);
     }
-    longjmp(ps_top->buf, PS_RAISED);
+    siglongjmp(ps_top->buf, PS_RAISED);
 }
 
 PsExc *ps_exc_current(void) {
@@ -537,25 +544,40 @@ __attribute__((noreturn)) void ps_raise_cstr(int32_t code, const char *msg) {
 typedef int32_t (*ps_try_fn)(void *);
 
 /* `fn` runs the try body. 0 means the body fell through; 1 means it returned.
-The longjmp target is this frame, so `fn` must be called before we return. */
+The longjmp target is this frame, so `fn` must be called before we return.
+
+The jump buffer is installed with `sigsetjmp(buf, 0)`, not with `setjmp`.
+POSIX `setjmp` saves the signal mask on every call, which costs about half a
+microsecond; `sigsetjmp` with a savemask of 0 saves no mask and costs a few
+nanoseconds. The runtime never blocks or unblocks signals around an unwind, so
+the mask save buys nothing and dominated the cost of every `try` body: a
+generator loop over ten million items spent five seconds in the mask save
+alone. */
 __attribute__((noinline)) int32_t ps_try_call(ps_try_fn fn, void *env, int32_t *flow) {
-    PsJmp *slot = malloc(sizeof(PsJmp));
-    if (slot == NULL) {
-        abort();
+    PsJmp *slot = ps_jmp_free;
+    if (slot != NULL) {
+        ps_jmp_free = slot->prev;
+    } else {
+        slot = malloc(sizeof(PsJmp));
+        if (slot == NULL) {
+            abort();
+        }
     }
     slot->prev = ps_top;
     ps_top = slot;
-    int code = setjmp(slot->buf);
+    int code = sigsetjmp(slot->buf, 0);
     if (code != 0) {
         PsJmp *cur = ps_top;
         ps_top = cur->prev;
-        free(cur);
+        cur->prev = ps_jmp_free;
+        ps_jmp_free = cur;
         return (int32_t)code;
     }
     int32_t status = fn(env);
     PsJmp *cur = ps_top;
     ps_top = cur->prev;
-    free(cur);
+    cur->prev = ps_jmp_free;
+    ps_jmp_free = cur;
     *flow = status;
     return 0;
 }
