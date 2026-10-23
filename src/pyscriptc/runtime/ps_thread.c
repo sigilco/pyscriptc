@@ -213,6 +213,11 @@ static int32_t ps_thread_body(void *arg) {
 static void *ps_thread_trampoline(void *arg) {
     PsThreadRec *rec = (PsThreadRec *)arg;
     int32_t flow = 0;
+    /* Detach self: the record's latch is the join, not pthread_join, so the
+       pthread has to release its own stack and its TSan bookkeeping when it
+       exits. Detaching from inside the thread avoids the race with the
+       creator, where the thread could already be gone. */
+    pthread_detach(pthread_self());
     /* The root frame: CPython's excepthook prints and keeps the process
        running, so the joiner sees the report on stderr and the main thread
        keeps its own exit code. */
