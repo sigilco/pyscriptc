@@ -7,6 +7,11 @@
 #
 # Results are uploaded as a run artifact (retention 90 days). The job summary
 # carries the weighted pass so the trend is readable without downloading.
+#
+# The score and ledger steps run the raw commands, not `mise run <task>`, for
+# the same reason as ci.yml: the mise uv pin (`latest`) would drop the
+# `>= 0.13.4` uv floor this workflow holds. The commands are the ones the
+# `compat:json`, `compat:ladder` and `boxed:cost` tasks wrap.
 
 name: nightly
 

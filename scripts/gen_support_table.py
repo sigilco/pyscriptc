@@ -203,7 +203,7 @@ def render_top100(data: dict[str, Any]) -> str:
         out.append(
             f"| `{r['name']}` | {r['version']} | {r['status']} | {r['ratio']} | {r['blocking']} | {r['codes']} |"
         )
-    out += ["", "Regenerate: `uv run python scripts/gen_support_table.py`.", ""]
+    out += ["", "Regenerate: `mise run support:table`.", ""]
     return "\n".join(out)
 
 

@@ -18,6 +18,15 @@ on:
 # Linux (unit): ruff plus compat2 under tests/compat2.
 # macOS (macos-safe): the rest of the test tree on macos-14, excluding
 # compat2 and any test marked linux_container.
+#
+# These steps run the raw commands, not `mise run <task>`, even though mise is
+# the default task runner locally. Two reasons. First, `mise.toml` pins
+# `uv = "latest"` while CI must hold the `>= 0.13.4` uv floor from the emSign
+# CA incident, so routing through mise would change which uv the checks run
+# under. Second, `mise install` plus a mise-action step per job buys nothing
+# over the existing setup-uv and setup-node steps, which are already cached.
+# The job names and the required check names stay as they are either way,
+# since the commands are identical.
 
 jobs:
   secrets:
