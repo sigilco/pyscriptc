@@ -19,7 +19,7 @@ from __future__ import annotations
 import ast
 from typing import TYPE_CHECKING, Any
 
-from pyscriptc.builtins import EXCEPTIONS
+from pyscriptc.builtins import EXCEPTIONS, RESERVED_EXCEPTIONS
 from pyscriptc.errors import span_of
 from pyscriptc.ir import types_equal
 from pyscriptc.lower._core import (
@@ -1240,6 +1240,15 @@ class StmtMixin:
                 self.fail(stmt, "PS2002", "raise names a lowered exception")
             if exc.id in EXCEPTIONS:
                 node = {"kind": "raise", "exc": exc.id, "message": message, "span": span}
+            elif exc.id in RESERVED_EXCEPTIONS:
+                # A reserved class (queue.Empty): the code rides the node.
+                node = {
+                    "kind": "raise",
+                    "exc": exc.id,
+                    "code": RESERVED_EXCEPTIONS[exc.id],
+                    "message": message,
+                    "span": span,
+                }
             else:
                 resolved = self.class_aliases.get(exc.id, exc.id)
                 info = self.classes.get(resolved)
@@ -2095,7 +2104,13 @@ def _handler_names(lowerer: Lowerer, node: ast.expr) -> list[str]:
         resolved = lowerer.class_aliases.get(item.id, item.id)
         info = lowerer.classes.get(resolved)
         user_exception = info is not None and bool(info.get("exception"))
-        if resolved not in EXCEPTIONS and item.id not in EXCEPTIONS and not user_exception:
+        if (
+            resolved not in EXCEPTIONS
+            and item.id not in EXCEPTIONS
+            and resolved not in RESERVED_EXCEPTIONS
+            and item.id not in RESERVED_EXCEPTIONS
+            and not user_exception
+        ):
             lowerer.fail(item, "PS2002", "except names a lowered exception")
         found.append(resolved if user_exception else item.id)
     return found

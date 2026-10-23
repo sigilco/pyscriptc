@@ -167,16 +167,19 @@ EXCEPTIONS: dict[str, int] = {
 # or above it matches `except Exception` through the parent chain.
 USER_EXC_BASE = 256
 
-# Reserved for coroutine exceptions (issue #162). Mirrors PS_RESERVED_BASE and
-# friends in ps_rt.h: the top of the i32 code space, so USER_EXC_BASE and user
-# class codes do not shift. Deliberately not in EXCEPTIONS: nothing lowers or
-# raises them yet, and adding names there would change handler lowering.
+# Reserved for the coroutine exceptions (issue #162) and the queue
+# exceptions (issue #172). Mirrors PS_RESERVED_BASE and friends in ps_rt.h:
+# the top of the i32 code space, so USER_EXC_BASE and user class codes do not
+# shift. Deliberately not in EXCEPTIONS: nothing lowers or raises them yet,
+# and adding names there would change handler lowering.
 RESERVED_EXC_BASE = 0x7FFFFFF0
 RESERVED_EXCEPTIONS: dict[str, int] = {
     "GeneratorExit": 0x7FFFFFF0,
     "StopAsyncIteration": 0x7FFFFFF1,
     "CancelledError": 0x7FFFFFF2,
     "TimeoutError": 0x7FFFFFF3,
+    "Empty": 0x7FFFFFF4,
+    "Full": 0x7FFFFFF5,
 }
 
 # params are type kinds. return is a type kind, or "self" for the receiver's type.

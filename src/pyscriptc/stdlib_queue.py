@@ -67,6 +67,7 @@ QUEUE: tuple[str, ...] = (
     "yaml",
     "urllib.request",
     "urllib.error",
+    "queue",
 )
 
 LOWERED: frozenset[str] = frozenset(QUEUE)
