@@ -18,11 +18,17 @@ What does not lower yet, measured on origin/master with the pinned corpus:
 
 | Shape | Current fence | Corpus weight |
 |---|---|---|
-| `async def` as a class method | `PS1204 AsyncFunctionDef in a class body is not lowered` | 29 definitions in filelock, 1 package |
-| `async def` in a package unit, awaited from another unit | `PS2002 await takes a compiled coroutine call` | every cross-module coroutine |
-| `await` inside `try` or `with` | `PS2002 await inside try or with is not lowered yet` | filelock `_async.py:291` |
+| `async with` | `PS2002 AsyncWith is not lowered` | filelock `_async_read_write.py`, `_soft_rw/_async.py` |
+| `async for`, async generators | `PS2002 AsyncFor is not lowered` | filelock `_async_read_write.py`, `_soft_rw/_async.py` |
 | `async def` without a return annotation | `PS1001 <name> needs a return annotation` | all of them |
-| `async with`, `async for`, async generators | `PS1204 AsyncFunctionDef in a class body is not lowered` plus `__aenter__`/`__aexit__` | filelock `_async_read_write.py`, `_soft_rw/_async.py` |
+| a local bound to an unannotated call result | `PS1001 <name> needs an annotation before use` | every unannotated local |
+
+The three shapes that used to be in this table are down: `async def` as a class
+method lowers (#324), `async def` in a package unit awaited from another unit
+lowers (#333, in flight on the `feat/generators` branch), and `await` inside
+`try` or `with` lowers (stage C, #365). The `with` half was only an AST
+fence: every `with` the lowerer supports desugars into a `try` before the
+emitter sees it, and the #164 guard transform already handled that shape.
 
 The P3 exit criterion on the issue is "filelock `async` fences go from 4 to 0, and its async defs lower except the island-bound ones". The 4 root fences in the package census are the four modules that hold `async def`; the per-definition count is 51 `async def` in filelock and 0 anywhere else in the corpus, so filelock is the whole visible async corpus.
 
@@ -77,6 +83,35 @@ The `try` half landed with #345. Two things were left:
 - The exception path was broken. A child coroutine that raises after a suspension runs on the loop's own stack, where no awaiter lives: the exception unwound through the loop's C frames, found no handler, and killed the process, so a `try` around the await never saw it (and an uncaught one exited 0, silently). The poll now goes through the loop (`ps_await_poll`), which catches the child's exception (`ps_exc_catch`), parks it against the child frame, and reports a third status, failed. The awaiter re-raises it at its own await point (`ps_await_raise`), inside its own body, so its `try` sees it exactly where CPython's awaiter sees it. A task handle keeps its own failure (`ps_task_failure`), so `await task` and `task.result()` raise it too.
 
 Receipt: a coroutine that awaits inside a `try`, a `finally` and a `with` matches CPython stdout byte for byte, including the exception path; an uncaught child failure exits 1 with the error reported.
+
+**C2: the oracle result set for the stage C shapes.**
+
+C1 landed the mechanism and the receipt, but the plan asks for more than one
+sample per stage: "the P3 receipt should also be a CPython-oracle result set in
+`tests/test_coro_async.py`, not only a fence count." The samples that came
+with C1 covered the `try`, the `with` and the child's failure. What they did
+not cover were the shapes the guard transform has to get right, and each one
+is a place where a wrong resume point shows up as a wrong answer rather than
+a crash:
+
+- a suspension in the `except` body (the handler keeps the exception it
+  caught in the frame, and the resume restores it),
+- a suspension in the `finally` body (the `finally` is guarded by the
+  suspension, so it does not run twice),
+- a `try` with an `else`,
+- a nested `try` (the resume has to pick the right part),
+- a suspension inside a loop that sits in the `try` body (the loop guard and
+  the `try` guard have to agree on the resume point),
+- a `raise` after a suspension (the exception belongs to the frame that is
+  running, not to the child),
+- a bare `raise` after a suspension (it re-raises the exception the handler
+  caught, not something else).
+
+`tests/test_coro_stage_c.py` holds the result set: every sample runs under
+CPython and compiled, and the compiled stdout must match byte for byte.
+
+Receipt: the twelve stage C shapes match CPython stdout byte for byte, and
+the fence table above no longer lists a stage C shape.
 
 ### Stage D: `asyncio` surface beyond run/sleep/gather (PR 4)
 
