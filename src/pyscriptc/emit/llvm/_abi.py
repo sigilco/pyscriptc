@@ -476,6 +476,9 @@ class AbiMixin:
         params = spec["params"]
         ret = _llvm_type(spec["return"])
         plist = ["ptr %env"] + [f"{_llvm_type(p)} %p{index}" for index, p in enumerate(params)]
+        # The stub is emitted outside the abi machinery, so it declares the
+        # runtime call it makes itself.
+        self._abi_decl("ps_to_thread_store", "void", ["ptr", "ptr", "i64"])
         self.out.append(f"define internal {ret} @{symbol}({', '.join(plist)}) {{")
         self.out.append("entry:")
         args: list[str] = []
@@ -494,9 +497,11 @@ class AbiMixin:
         self.out.append("  %impl = load ptr, ptr %pp")
         self.out.append("  %ip2 = getelementptr ptr, ptr %pp, i64 1")
         self.out.append("  %env2 = load ptr, ptr %ip2")
-        # The thread record sits after the inner pair.
+        # The thread record sits after the inner pair. The env entry packs
+        # the record into a heap cell, so the stub loads it out of the cell.
         self.out.append(f"  %ip3 = getelementptr ptr, ptr %env, i64 {len(bound) + 1}")
-        self.out.append("  %rec = load ptr, ptr %ip3")
+        self.out.append("  %reccell = load ptr, ptr %ip3")
+        self.out.append("  %rec = load ptr, ptr %reccell")
         call_args = ["ptr %env2", *args] + [f"{_llvm_type(p)} %p{index}" for index, p in enumerate(params)]
         if ret == "void":
             self.out.append(f"  call void %impl({', '.join(call_args)})")

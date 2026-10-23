@@ -26,7 +26,7 @@ from __future__ import annotations
 import ast
 from typing import Any
 
-from pyscriptc.coro import PRIM_MARKER, THREAD_MARKER, enabled
+from pyscriptc.coro import PRIM_MARKER, THREAD_MARKER, _await_result_name, enabled
 from pyscriptc.restlower._shared import _const_int
 
 # The primitive records. Each one is a runtime pointer.
@@ -104,7 +104,6 @@ def _prim_call(lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = None
         maxsize = _const_number(lo, node.args[0], "asyncio.Queue maxsize")
     if maxsize < 0:
         lo.fail(node, "PS1003", "asyncio.Queue maxsize is a non-negative int")
-    expect = lo._expect_type(node)
     if expect is None or expect.get("name") != "AsyncQueue" or "elem" not in expect:
         lo.fail(node, "PS1001", "asyncio.Queue() needs a queue annotation")
     from pyscriptc.stdmore import slot_size
@@ -153,7 +152,7 @@ def _await_prim(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[st
         lo.fail(node, "PS2002", f"awaiting {receiver['type'].get('name')} is only lowered inside a coroutine")
     marker = _prim_marker(lo, span, receiver, op)
     lo.prelude.append({"kind": "expr", "expr": marker, "span": span})
-    result = lo._temp("prv")
+    result = _await_result_name(marker["args"][0]["id"])
     lo.locals[result] = dict(_NONE)
     return {"kind": "name", "id": result, "type": dict(_NONE), "span": span}
 
@@ -186,7 +185,7 @@ def _await_queue_get(lo: Any, node: ast.Call, span: dict[str, Any], receiver: di
         "prim_elem": elem,
     }
     lo.prelude.append({"kind": "expr", "expr": marker, "span": span})
-    result = lo._temp("prv")
+    result = _await_result_name(slot)
     lo.locals[result] = elem
     return {"kind": "name", "id": result, "type": elem, "span": span}
 
@@ -352,10 +351,15 @@ def _to_thread(lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = None
     slot = lo._temp("thc")
     lo.locals[slot] = {"kind": "class", "name": "ThreadCall"}
     # The record rides in the pair's env, after the inner pair, so the
-    # worker stub can store the result into it. The env names the slot by
-    # address: the record is assigned before the pair is built, and the
-    # worker reads the slot when it runs.
-    env.append({"name": slot, "type": {"kind": "class", "name": "ThreadCall"}})
+    # worker stub can store the result into it. The `init` form packs the
+    # record into a heap cell: a stack slot would die when the coroutine
+    # wrapper suspends, and the worker reads the env after that.
+    env.append(
+        {
+            "init": {"kind": "name", "id": slot, "type": {"kind": "class", "name": "ThreadCall"}, "span": span},
+            "type": {"kind": "class", "name": "ThreadCall"},
+        }
+    )
     # The record comes first: the pair's env names its slot, so the slot
     # has to hold the record before the pair is built.
     made = {
@@ -399,6 +403,6 @@ def _to_thread(lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = None
         "thread_elem": ret,
     }
     lo.prelude.append({"kind": "expr", "expr": marker, "span": span})
-    result = lo._temp("thr")
+    result = _await_result_name(slot)
     lo.locals[result] = ret
     return {"kind": "name", "id": result, "type": ret, "span": span}

@@ -473,9 +473,10 @@ void ps_to_thread_start(void *box, void *pair) {
 /* The loop polls the live calls: a call the worker finished wakes the task
    that parked on it. The loop calls this between iterations, so the wakeup
    lands before the next drain. */
-void ps_to_thread_pump(void) {    PsThreadCall *call = ps_thread_calls;
+void ps_to_thread_pump(void) {
+    PsThreadCall *call = ps_thread_calls;
     while (call != NULL) {
-        if (!call->done && call->waiter != NULL) {
+        if (call->done && call->waiter != NULL) {
             pthread_mutex_lock(&call->lock);
             int64_t done = call->done ? 1 : 0;
             pthread_mutex_unlock(&call->lock);
