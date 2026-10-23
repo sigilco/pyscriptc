@@ -498,8 +498,6 @@ class StdlibDispatchMixin:
             return resolved is not None and resolved[1] == "contextlib" and resolved[2] == "contextmanager"
         return False
 
-||||||| parent of 12d48e6 (feat(ffi): str, bytes and handle marshalling with borrows and consumes)
-
     def _own_handle(self, name: str, typ: dict[str, Any]) -> None:
         """Record that a local owns a manifest handle.
 
