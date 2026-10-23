@@ -46,9 +46,13 @@ method, and in package units) lowers to a `cm.<name>` wrapper whose
 `try`/`except`/`else`/`finally` lowers: the guard transform re-enters the
 try, the `finally` is guarded by the suspension, and an `except` body that
 suspends keeps the exception it caught in the frame (`ps_exc_restore` puts it
-back on the resume). Not yet: yield inside with, awaits inside with, nested
-or generic resumables, `async with`, `async for`, async generators,
-`contextmanager` used as a call.
+back on the resume). An `await` inside a `with` lowers too: the `with`
+desugars into a `try`, and the guard transform handles that shape. A child
+coroutine that raises after a suspension reaches its awaiter: the loop parks
+the exception against the child frame and the awaiter re-raises it at its
+own await point, so a `try` around the await sees it. Not yet: yield inside
+with, nested or generic resumables, `async with`, `async for`, async
+generators, `contextmanager` used as a call.
 `PYSC_CORO=0` turns the lowering off (generators and coroutines fence as
 before).
 """
@@ -89,6 +93,13 @@ AWAIT_RESULT_PREFIX = ".ps_awv_"
 DONE = -1
 PENDING = 0
 COMPLETE = 1
+# The poll's third outcome: the child raised. The loop parks the exception
+# against the child frame and the awaiter re-raises it in its own body.
+FAILED = 2
+# The task await's fourth outcome: the task was cancelled, so the awaiting
+# frame raises CancelledError instead of reading a result. It is distinct
+# from FAILED so one park call can carry both.
+CANCELLED = 3
 # The exception a suspended `except` body keeps in its frame. Python holds one
 # exception per generator frame, so the frame carries it across the
 # suspension and the runtime puts it back on the resume.
@@ -202,8 +213,6 @@ def _shape_error(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[ast.AST, s
                     if isinstance(node, ast.Await):
                         if not coroutine:
                             return node, "await outside an async function is not lowered"
-                        if in_with:
-                            return node, "await inside try or with is not lowered yet"
                     if isinstance(node, ast.Lambda):
                         return node, "a lambda in a resumable is not lowered yet"
             nested_try = in_try or isinstance(stmt, (ast.Try, ast.TryStar))
@@ -1591,11 +1600,19 @@ class _Frame:
         """Expand `__ps_await__(child)` into the child-poll suspension.
 
         The child frame is in the local the lowerer bound (the marker's
-        argument names it). The parent polls `child.resume()`; while the
-        child reports pending the parent suspends with status 0, setting the
-        resume point to this await so the next `resume()` re-polls the same
-        child. When the child completes, its `.ps_result` field carries the
-        awaited value into the lowerer's result temp.
+        argument names it). The parent polls the child through the loop
+        (`ps_await_poll`); while the child reports pending the parent
+        suspends with status 0, setting the resume point to this await so the
+        next `resume()` re-polls the same child. When the child completes,
+        its `.ps_result` field carries the awaited value into the lowerer's
+        result temp.
+
+        The poll reports three outcomes: pending (0), done (1) and failed
+        (2). A failure means the child raised. The child may have raised on
+        the loop's own stack, where no awaiter lives, so the loop parks the
+        exception against the child frame; the parent re-raises it here
+        (`ps_await_raise`), inside the parent's own body, so a `try` around
+        the await sees it exactly where CPython's awaiter sees it.
         """
         self.points += 1
         point = self.points
@@ -1605,17 +1622,41 @@ class _Frame:
         slot = child["id"]
         result = _await_result_name(slot)
         done = self.temp("awd", _BOOL)
+        failed = self.temp("awf", _BOOL)
         status = self.temp("aws", _INT)
-        call = {
+        poll = {
             "kind": "call",
-            "callee": {"kind": "function", "name": f"cls.{child_frame}.resume"},
-            "args": [_name(slot, child_t, span)],
+            "callee": {"kind": "module", "module": "asyncio", "name": "await"},
+            "args": [_name(slot, child_t, span), self.self_name(span)],
             "type": dict(_INT),
             "span": span,
+            "symbol": "ps_await_poll",
         }
         read = _attr_expr(_name(slot, child_t, span), RESULT, self._await_result_type(child_frame), span)
         pending = [
             _assign(done, _compare("==", _name(status, _INT, span), _const(COMPLETE, _INT, span), span), span),
+            _assign(failed, _compare("==", _name(status, _INT, span), _const(FAILED, _INT, span), span), span),
+            # A failed child re-raises here, before the parent parks: the
+            # exception belongs to the parent's frame, not to the child's.
+            _if(
+                _name(failed, _BOOL, span),
+                [
+                    {
+                        "kind": "expr",
+                        "expr": {
+                            "kind": "call",
+                            "callee": {"kind": "module", "module": "asyncio", "name": "raise"},
+                            "args": [_name(slot, child_t, span)],
+                            "type": dict(_NONE),
+                            "span": span,
+                            "symbol": "ps_await_raise",
+                        },
+                        "span": span,
+                    }
+                ],
+                [],
+                span,
+            ),
             _if(
                 _name(done, _BOOL, span),
                 [],
@@ -1649,12 +1690,12 @@ class _Frame:
         leave = [
             *self.copy_out(span),
             self.field_set(STATE, _const(point, _INT, span), span),
-            _assign(status, call, span),
+            _assign(status, poll, span),
             *pending,
         ]
         arrive = [
             _assign(RESUME, _const(0, _INT, span), span),
-            _assign(status, call, span),
+            _assign(status, poll, span),
             *pending,
         ]
         result_set = [_assign(result, read, span)] if result is not None else []
@@ -1677,6 +1718,11 @@ class _Frame:
         returns 0 while the task is still running, and the parent suspends
         with status 0. The loop re-queues the parent when the task finishes,
         and the parent then reads the result out of the task.
+
+        Status 2 means the task failed: the task runs on the loop's own
+        stack, so its exception was parked in the record, and the awaiting
+        parent re-raises it here (ps_task_failure) inside the parent's own
+        body, where its try sees it.
         """
         self.points += 1
         point = self.points
@@ -1685,6 +1731,8 @@ class _Frame:
         slot = task["id"]
         result = _await_result_name(slot)
         elem = task_t["elem"]
+        failed = self.temp("awtf", _BOOL)
+        status = self.temp("awts", _INT)
         park = {
             "kind": "call",
             "callee": {"kind": "module", "module": "asyncio", "name": "task_await"},
@@ -1701,23 +1749,33 @@ class _Frame:
             "span": span,
             "symbol": "ps_task_result",
         }
+        raise_here = {
+            "kind": "expr",
+            "expr": {
+                "kind": "call",
+                "callee": {"kind": "module", "module": "asyncio", "name": "task_failure"},
+                "args": [_name(slot, task_t, span)],
+                "type": dict(_NONE),
+                "span": span,
+                "symbol": "ps_task_failure",
+            },
+            "span": span,
+        }
         # Fresh entry: copy out, mark the point, park. Re-entry: the task
         # finished and the loop woke the parent, so fall through to the read.
         leave = [
             *self.copy_out(span),
             self.field_set(STATE, _const(point, _INT, span), span),
-            _if(
-                _compare("==", park, _const(0, _INT, span), span),
-                self.kind.suspend(self, _const(0, _INT, span), span),
-                [],
-                span,
-            ),
+            *self._task_park(park, raise_here, failed, status, span),
         ]
-        arrive = [_assign(RESUME, _const(0, _INT, span), span)]
+        arrive = [
+            _assign(RESUME, _const(0, _INT, span), span),
+            *self._task_park(park, raise_here, failed, status, span),
+        ]
         # A cancelled task raises CancelledError in the awaiting frame
         # instead of producing a result.
         cancelled = _if(
-            _compare("==", park, _const(2, _INT, span), span),
+            _compare("==", _name(status, _INT, span), _const(CANCELLED, _INT, span), span),
             [
                 {
                     "kind": "raise",
@@ -1803,6 +1861,22 @@ class _Frame:
         return [
             _if(self.fresh(span), leave, arrive, span),
             *result_set,
+        ]
+
+    def _task_park(
+        self, park: dict[str, Any], raise_here: dict[str, Any], failed: str, status: str, span: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """Park on the task, or re-raise its failure before the parent parks."""
+        return [
+            _assign(status, park, span),
+            _assign(failed, _compare("==", _name(status, _INT, span), _const(FAILED, _INT, span), span), span),
+            _if(_name(failed, _BOOL, span), [raise_here], [], span),
+            _if(
+                _compare("==", _name(status, _INT, span), _const(0, _INT, span), span),
+                self.kind.suspend(self, _const(0, _INT, span), span),
+                [],
+                span,
+            ),
         ]
 
     def _sleep(self, stmt: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:

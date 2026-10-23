@@ -582,6 +582,43 @@ __attribute__((noinline)) int32_t ps_try_call(ps_try_fn fn, void *env, int32_t *
     return 0;
 }
 
+/* Run `fn(env)` and catch the Python-level exception it raises. 0 when the
+call returned (its status lands in `*status`), 1 when it raised (`*out` then
+holds the record, still the thread's current exception). The event loop uses
+this to drive a child coroutine that runs on its own: an exception the child
+raises must travel to the awaiting parent, not unwind through the loop's C
+frame, where no handler lives and the process would report and exit. The
+slot joins the same free list ps_try_call uses, so the cost per poll is the
+sigsetjmp alone. */
+__attribute__((noinline)) int32_t ps_exc_catch(ps_try_fn fn, void *env, int32_t *status, PsExc **out) {
+    PsJmp *slot = ps_jmp_free;
+    if (slot != NULL) {
+        ps_jmp_free = slot->prev;
+    } else {
+        slot = malloc(sizeof(PsJmp));
+        if (slot == NULL) {
+            abort();
+        }
+    }
+    slot->prev = ps_top;
+    ps_top = slot;
+    int code = sigsetjmp(slot->buf, 0);
+    if (code != 0) {
+        PsJmp *cur = ps_top;
+        ps_top = cur->prev;
+        cur->prev = ps_jmp_free;
+        ps_jmp_free = cur;
+        *out = ps_exc_current();
+        return 1;
+    }
+    *status = fn(env);
+    PsJmp *cur = ps_top;
+    ps_top = cur->prev;
+    cur->prev = ps_jmp_free;
+    ps_jmp_free = cur;
+    return 0;
+}
+
 void ps_raise_msg(int32_t code, int64_t n, const char *data) {
     if (n < 0) {
         n = 0;

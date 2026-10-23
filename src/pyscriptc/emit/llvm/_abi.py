@@ -417,9 +417,15 @@ class AbiMixin:
         `.ps_state`, field 1 `.ps_task`, the layout coro.py guarantees); the
         size is the element size the awaited type carries. The read goes
         straight out of the frame, so the task record copies nothing.
+
+        A failed task has no result: the read is preceded by the failure
+        check (`ps_task_failure` re-raises the record's exception), so
+        `task.result()` on a failed task raises, the way CPython's does.
         """
         elem = expr["args"][0]["type"]["elem"]
         out = self._alloca(_llvm_type(elem))
+        self._abi_decl("ps_task_failure", "void", ["ptr"])
+        self._call_void("ps_task_failure", [f"ptr {values[0]}"])
         symbol = expr["symbol"]
         self._abi_decl(symbol, "void", ["ptr", "i64", "ptr"])
         self._call_void(symbol, [f"ptr {values[0]}", f"i64 {_elem_size(elem)}", f"ptr {out}"])

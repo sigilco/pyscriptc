@@ -54,6 +54,11 @@ struct PsTask {
     /* Set when the task is cancelled: the loop raises CancelledError into it
        at its next suspension point. */
     int32_t cancelled;
+    /* Set when the record backs a task handle (`asyncio.create_task`). A
+       handle outlives its awaiter, so its failure waits in the record for
+       whoever awaits the task or reads its result. A plain child frame has
+       no handle, and its failure waits in the ps_fail table instead. */
+    int32_t handle;
     /* The result the task produced, for `task.result()`. The record holds the
        raw value; the caller reads it through the same ABI the frame uses. */
     void *result;
@@ -98,6 +103,20 @@ typedef struct PsWait {
     void *parent;
 } PsWait;
 
+/* The failure of a child coroutine. A child that raises after a suspension
+   is driven by the loop, not by its awaiter, so the exception cannot unwind
+   into the awaiter's frame on its own: the loop catches it, parks it here,
+   and the awaiter re-raises it at its own await point. The record is keyed
+   by the child frame, because that is the handle the awaiter holds. */
+typedef struct PsFail {
+    void *child;
+    PsExc *exc;
+} PsFail;
+
+static PsFail *ps_fails;
+static int64_t ps_fail_len;
+static int64_t ps_fail_cap;
+
 static PsTask *ps_ready_head;
 static PsTask *ps_ready_tail;
 static PsTimer *ps_timers;
@@ -123,6 +142,7 @@ void ps_loop_reset(void) {
     ps_wait_len = 0;
     ps_deadline_len = 0;
     ps_deadline_seq = 0;
+    ps_fail_len = 0;
     for (int64_t i = 0; i < ps_task_len; i++) {
         free(ps_tasks[i]->waiters);
         free(ps_tasks[i]->result);
@@ -149,6 +169,20 @@ static void ps_task_of(void *frame, int64_t (**impl)(void *, void *), void **env
     void *cell = *(void **)((char *)frame + PS_TASK_OFF);
     *impl = *(int64_t (**)(void *, void *))cell;
     *env = *(void **)((char *)cell + 8);
+}
+
+/* Adapters for ps_exc_catch, which calls a `fn(payload)` shape: the task
+   carries its own impl/env, the bare frame reads its cell. */
+static int32_t ps_task_shim(void *payload) {
+    PsTask *task = payload;
+    return (int32_t)task->impl(task->env, task->frame);
+}
+
+static int32_t ps_frame_shim(void *payload) {
+    int64_t (*impl)(void *, void *);
+    void *env;
+    ps_task_of(payload, &impl, &env);
+    return (int32_t)impl(env, payload);
 }
 
 /* Put a frame on the ready queue. The frame keeps its task when it has one
@@ -194,8 +228,22 @@ static void ps_task_add_waiter(PsTask *task, void *frame) {
     task->waiters[task->waiter_len++] = frame;
 }
 
+/* Park a failure the loop caught: the child raised, so its awaiter must see
+   the exception at its own await point. One row per child frame. */
+static void ps_fail_store(void *child, PsExc *exc);
+
 /* Run one ready task once. 1 when the task finished, 0 while pending. A
-finished child releases its waiter: the parent re-polls and proceeds. */
+finished child releases its waiter: the parent re-polls and proceeds.
+
+A task that raises is caught here: the frame runs on the loop's own stack,
+with no awaiter below it, so an exception that unwound further would find
+no handler and kill the process. The exception is parked against the frame
+instead (ps_fail_store), and the frame's awaiter re-raises it at its own
+await point.
+
+A failure with no awaiter is unhandled: nothing will ever re-raise it, so
+the loop reports it and exits, the way an exception that reaches the top of
+the program does. */
 static int64_t ps_task_step(PsTask *task) {
     if (task->cancelled) {
         /* A cancelled task stops at its next step: the coroutine does not
@@ -209,13 +257,19 @@ static int64_t ps_task_step(PsTask *task) {
         return 1;
     }
     task->ran = 1;
-    int64_t status = task->impl(task->env, task->frame);
-    if (status == 1) {
+    PsExc *caught = NULL;
+    int32_t status = 0;
+    if (ps_exc_catch(ps_task_shim, task, &status, &caught) != 0) {
+        status = 2;
+    }
+    if (status == 1 || status == 2) {
         task->done = 1;
         int64_t kept = 0;
+        int64_t awaiters = 0;
         for (int64_t i = 0; i < ps_wait_len; i++) {
             if (ps_waits[i].child == task->frame) {
                 ps_ready_task(ps_waits[i].parent);
+                awaiters++;
                 continue;
             }
             ps_waits[kept++] = ps_waits[i];
@@ -226,6 +280,24 @@ static int64_t ps_task_step(PsTask *task) {
             ps_ready_task(task->waiters[i]);
         }
         task->waiter_len = 0;
+        if (status == 2) {
+            if (task->handle) {
+                /* A task handle keeps its own failure: whoever awaits the
+                   task (or reads its result) is the one who sees it, so the
+                   exception waits in the record. */
+                task->exc = caught;
+                task->exc_code = caught != NULL ? caught->code : 0;
+            } else if (awaiters == 0) {
+                /* Nothing awaits this frame, so the exception has no place to
+                   go: report it and leave, like an exception that reaches the
+                   top of the program. */
+                ps_exc_restore(caught);
+                ps_report_current(NULL);
+                exit(1);
+            } else {
+                ps_fail_store(task->frame, caught);
+            }
+        }
     }
     return status;
 }
@@ -245,6 +317,86 @@ void ps_loop_wait(void *child, void *parent) {
         ps_wait_len++;
     }
 }
+
+/* --- the child failure channel ------------------------------------------ */
+
+/* Park a failure the loop caught: the child raised, so its awaiter must see
+   the exception at its own await point. One row per child frame. */
+static void ps_fail_store(void *child, PsExc *exc) {
+    for (int64_t i = 0; i < ps_fail_len; i++) {
+        if (ps_fails[i].child == child) {
+            ps_fails[i].exc = exc;
+            return;
+        }
+    }
+    if (ps_fail_len == ps_fail_cap) {
+        int64_t cap = ps_fail_cap == 0 ? 8 : ps_fail_cap * 2;
+        PsFail *grown = realloc(ps_fails, (size_t)cap * sizeof(PsFail));
+        if (grown == NULL) {
+            abort();
+        }
+        ps_fails = grown;
+        ps_fail_cap = cap;
+    }
+    ps_fails[ps_fail_len].child = child;
+    ps_fails[ps_fail_len].exc = exc;
+    ps_fail_len++;
+}
+
+static PsExc *ps_fail_take(void *child) {
+    for (int64_t i = 0; i < ps_fail_len; i++) {
+        if (ps_fails[i].child == child) {
+            PsExc *exc = ps_fails[i].exc;
+            ps_fail_len--;
+            for (int64_t j = i; j < ps_fail_len; j++) {
+                ps_fails[j] = ps_fails[j + 1];
+            }
+            return exc;
+        }
+    }
+    return NULL;
+}
+
+/* `await child` (coro.py's poll): drive the child once and tell the parent
+   how it went. 0 pending, 1 done, 2 failed.
+
+   The child's exception is the whole point of status 2. A child that raises
+   while the loop drives it has no awaiter on the C stack, so the unwinder
+   would walk into the loop's frames, find no handler, and kill the process
+   (that was the bug: a `try` around `await` never caught the child's
+   failure). Under `ps_exc_catch` the raise lands here instead: the loop
+   parks the exception against the child frame and reports status 2. The
+   parent then re-raises it at its own await point (ps_await_raise), where
+   the parent's own try outline sees it. A child that raises on the parent's
+   first poll unwinds into the parent directly and never reaches this. */
+int64_t ps_await_poll(void *child, void *parent) {
+    (void)parent;
+    /* A failure parked by an earlier step: the parent is re-polling the same
+       child, so report the failure again without driving the frame. */
+    for (int64_t i = 0; i < ps_fail_len; i++) {
+        if (ps_fails[i].child == child) {
+            return 2;
+        }
+    }
+    PsExc *caught = NULL;
+    int32_t status = 0;
+    if (ps_exc_catch(ps_frame_shim, child, &status, &caught) != 0) {
+        ps_fail_store(child, caught);
+        return 2;
+    }
+    return status;
+}
+
+/* Re-raise the child's failure in the caller (the awaiting parent). The
+   parent runs this inside its own resume body, so its try outline sees the
+   exception exactly where CPython's awaiter would. */
+void ps_await_raise(void *child) {
+    PsExc *exc = ps_fail_take(child);
+    if (exc != NULL) {
+        ps_raise_exc(exc);
+    }
+}
+
 
 static double ps_now(void) {
     struct timespec ts;
@@ -520,6 +672,7 @@ void *ps_task_new(void *frame) {
     task->frame = frame;
     task->done = 0;
     task->cancelled = 0;
+    task->handle = 1;
     task->result = NULL;
     task->result_size = 0;
     task->exc_code = 0;
@@ -591,8 +744,9 @@ int64_t ps_task_cancelled(void *task) {
 
 /* `await task`: park the calling frame until the task completes. The task
    may already be done, in which case the caller does not park at all.
-   Return: 1 done, 0 parked, 2 the task was cancelled (the caller raises
-   CancelledError instead of reading a result). */
+   Return: 1 done, 0 parked, 2 done and failed (ps_task_failure re-raises
+   it), 3 the task was cancelled (the caller raises CancelledError instead
+   of reading a result). */
 int64_t ps_task_await(void *task, void *frame) {
     if (task == NULL) {
         return 1;
@@ -601,13 +755,26 @@ int64_t ps_task_await(void *task, void *frame) {
     if (t->cancelled) {
         /* Cancelled before it ran, or at a step: the awaiter sees
            CancelledError, the coroutine body never continues. */
-        return 2;
+        return 3;
     }
     if (t->done) {
-        return 1;
+        return t->exc != NULL ? 2 : 1;
     }
     ps_task_add_waiter(t, frame);
     return 0;
+}
+
+/* Re-raise the failure a task handle holds, in the awaiting frame. The
+   awaiter runs this inside its own resume body, so its try outline sees the
+   exception exactly where CPython's awaiter would. */
+void ps_task_failure(void *task) {
+    if (task == NULL) {
+        return;
+    }
+    PsTask *t = (PsTask *)task;
+    if (t->exc != NULL) {
+        ps_raise_exc(t->exc);
+    }
 }
 
 /* Read the result the task's coroutine produced. The frame's field 2 is

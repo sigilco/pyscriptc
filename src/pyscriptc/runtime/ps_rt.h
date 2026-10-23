@@ -208,6 +208,11 @@ void ps_report_current(const char *prefix);
 PsExc *ps_exc_current(void);
 void ps_exc_restore(PsExc *e);
 PsExc *ps_exc_make(int32_t code, int64_t n, const char *data);
+/* Run `fn(env)` and catch the exception it raises: 0 returned (its status
+   lands in `*status`), 1 raised (the record lands in `*out`). The event loop
+   drives a child coroutine through this, so its failure travels to the
+   awaiting parent instead of unwinding through the loop's C frame. */
+int32_t ps_exc_catch(int32_t (*fn)(void *), void *env, int32_t *status, PsExc **out);
 int32_t ps_exc_code_by_name(const char *name);
 void ps_exc_set_cause(PsExc *e, PsExc *cause);
 PsBuf ps_exc_str(PsExc *e);
@@ -327,6 +332,11 @@ void ps_loop_run(void);
 void ps_loop_run_root(void *frame);
 void ps_loop_sleep(void *frame, double delay);
 void ps_loop_wait(void *child, void *parent);
+/* `await child`: drive the child once under the loop's catch. 0 pending,
+   1 done, 2 failed (the child raised; ps_await_raise re-raises it in the
+   awaiting parent, whose own try sees it). */
+int64_t ps_await_poll(void *child, void *parent);
+void ps_await_raise(void *child);
 
 /* ps_loop.c: the task lifetime behind asyncio.create_task. A task wraps a
    coroutine frame and outlives a single step, so a handle to it stays valid
@@ -338,8 +348,11 @@ int64_t ps_task_done(void *task);
 int64_t ps_task_cancel(void *task);
 int64_t ps_task_cancelled(void *task);
 /* `await task`: park the frame until the task completes. 1 when the task is
-   already done, so the caller does not park. */
+   already done, so the caller does not park; 2 when the task failed, so the
+   caller re-raises it with ps_task_failure. */
 int64_t ps_task_await(void *task, void *frame);
+/* Re-raise the failure a task handle holds, in the awaiting frame. */
+void ps_task_failure(void *task);
 /* Read the result the task's coroutine produced. The frame's field 2 is
    `.ps_result`, and `size` is the element size the caller's type carries. */
 void ps_task_result(void *task, int64_t size, void *out);
