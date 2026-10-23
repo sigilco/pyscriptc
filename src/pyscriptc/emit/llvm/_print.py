@@ -95,7 +95,9 @@ class PrintMixin:
         if err:
             self.needed.add("fprintf")
             fd = self.tmp()
-            self.line(f"{fd} = load ptr, ptr @stderr")
+            # A helper, not `@stderr`: on Darwin `stderr` is a macro for
+            # `__stderrp`, so the raw symbol never resolves at link time.
+            self.line(f"{fd} = call ptr @ps_stderr_stream()")
             rendered = ", ".join([f"ptr {fd}", f"ptr {fmt}", *(args or [])])
             self.line(f"call i32 (ptr, ptr, ...) @fprintf({rendered})")
             return

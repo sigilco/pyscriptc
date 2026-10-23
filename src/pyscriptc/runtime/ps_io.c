@@ -293,6 +293,11 @@ void ps_io_value(PsIO *io, PsBuf *out) {
 
 /* `sys.stdout.write`/`sys.stderr.write` return the chars written, like CPython. */
 
+/* The stderr stream for `print(file=sys.stderr)`. On Darwin `stderr` is a
+macro for `__stderrp`, so the emitted code cannot name the symbol; the
+runtime hands the FILE* over instead. */
+void *ps_stderr_stream(void) { return stderr; }
+
 int64_t ps_stdout_write(int64_t n, const char *s) {
     if (n < 0) {
         ps_raise_code(PS_VALUE);

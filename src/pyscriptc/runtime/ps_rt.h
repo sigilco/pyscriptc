@@ -161,6 +161,9 @@ PsIO *ps_temp_named(int64_t mode, int64_t keep);
 void ps_io_read(PsIO *io, PsBuf *out);
 int64_t ps_io_write(PsIO *io, int64_t n, const char *s);
 
+/* ps_path.c: abspath normalization, shared with the tempfile tempdir pick. */
+void ps_path_abs(int64_t n, const char *s, PsBuf *out);
+
 typedef struct PsArg {
     int32_t kind;
     int32_t pad;
@@ -279,6 +282,7 @@ void ps_seq_del(PsSeq *s, int64_t i);
 void ps_seq_splice(PsSeq *s, int64_t start, int64_t stop, int64_t has_start, int64_t has_stop, PsSeq *items);
 int64_t ps_stdout_write(int64_t n, const char *s);
 int64_t ps_stderr_write(int64_t n, const char *s);
+void *ps_stderr_stream(void);
 void ps_input_line(PsBuf *out);
 void ps_map_del(PsMap *m, void *key);
 void ps_map_clear(PsMap *m);

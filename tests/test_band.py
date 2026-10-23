@@ -240,6 +240,56 @@ def test_tempfile_and_shutil_match(tmp_path: Path) -> None:
 
 
 @pytest.mark.linux_container  # HEAVY=1 docker/run.sh
+def test_gettempdir_strips_trailing_slash(tmp_path: Path) -> None:
+    """TMPDIR with a trailing slash (macOS launchd sets it) reads back normalized.
+
+    CPython abspath-normalizes every tempdir candidate before returning it,
+    so `gettempdir()` never carries the trailing slash. The runtime must do
+    the same, or gettempdir() and mkdtemp() disagree with the oracle.
+    """
+    slash_tmp = tmp_path / "tslash"
+    slash_tmp.mkdir()
+    probe = write_case(
+        tmp_path,
+        "tempdir.py",
+        "\n".join(
+            [
+                "import tempfile",
+                "def probe() -> str:",
+                "    made: str = tempfile.mkdtemp()",
+                "    if not made.startswith(tempfile.gettempdir()):",
+                "        return 'bad'",
+                "    return tempfile.gettempdir()",
+                "",
+            ]
+        ),
+    )
+    env = {**os.environ, "TMPDIR": str(slash_tmp) + "/"}
+    got = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pyscriptc",
+            "compile",
+            str(probe),
+            "--run",
+            "--call",
+            "probe",
+            "-o",
+            str(tmp_path / "p"),
+        ],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="latin-1",
+    )
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == str(slash_tmp) + "\n"
+    assert not got.stdout.startswith(str(slash_tmp) + "/")
+
+
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_atexit_runs_on_the_way_out(tmp_path: Path) -> None:
     marker = tmp_path / "bye.txt"
     path = write_case(
