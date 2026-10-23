@@ -98,8 +98,11 @@ def test_counts_match_spec_tables():
     records = entrypoints.scan(with_fences=False)
     examples = [r for r in records if r["path"].startswith("examples/")]
     scripts = [r for r in records if r["path"].startswith("benchmarks/compat2/corpus/scripts/")]
-    assert len(examples) == 28
-    assert sum(1 for r in examples if r["is_script"]) == 4
+    # The sqlite pilot example (#66) is the 29th example and the fifth
+    # script: its `__main__` guard calls `main()`, so the detector
+    # classifies it as a script.
+    assert len(examples) == 29
+    assert sum(1 for r in examples if r["is_script"]) == 5
     assert len(scripts) == 20
     assert sum(1 for r in scripts if r["is_script"]) == 20
 

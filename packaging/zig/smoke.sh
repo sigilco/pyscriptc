@@ -11,6 +11,10 @@
 #   4. manifest: the cross matrix builds hello.ll again with one `[[source]]`
 #      unit from packaging/zig/ffiprobe/ffi.toml (the F2 static-link path,
 #      issue #220); x86_64-musl runs it and prints 63.
+#   5. sqlite pilot: the cross matrix builds sqlite.ll with the vendored
+#      amalgamation and the adapter thunk (the F3 pilot, issue #66);
+#      x86_64-musl runs it and prints the two rows. The amalgamation is
+#      fetched and hash-pinned by fetch_vendor.py; offline hosts skip.
 #
 # The .ll files are standalone emissions (compiled with --emit bin --call).
 # Regenerate with: packaging/zig/emit.sh
@@ -40,15 +44,27 @@ mapfile -t rt < <(find "$root/src/pyscriptc/runtime" -name '*.c' ! -name 'ps_isl
 # link. C sources and -O on the link line both crash zig's Mach-O driver on
 # 0.16. The extra units are the manifest `[[source]]` entries: they ride the
 # same compile loop and the same link line, no second link shape (issue #220).
+# The units compile with the manifest's own include dirs, like the compiler's
+# per-unit loop: the runtime dir (ps_rt.h) plus any dir after a `--include`.
 build() {
     local ll="$1" target="$2" out="$3"
     shift 3
+    local includes=()
+    while [ "${1:-}" = "--include" ]; do
+        includes+=("-I" "$2")
+        shift 2
+    done
     local objects=()
     local unit name
     for unit in "$ll" "${rt[@]}" "$@"; do
         name="$(basename "$unit")"
-        zig cc -O2 -c "$unit" -target "$target" -o "$work/${name%.*}.o" 2>/dev/null \
-            || fail "zig cc -c failed on $unit ($target)"
+        if [ ${#includes[@]} -gt 0 ]; then
+            zig cc -O2 "${includes[@]}" -c "$unit" -target "$target" -o "$work/${name%.*}.o" 2>/dev/null \
+                || fail "zig cc -c failed on $unit ($target)"
+        else
+            zig cc -O2 -c "$unit" -target "$target" -o "$work/${name%.*}.o" 2>/dev/null \
+                || fail "zig cc -c failed on $unit ($target)"
+        fi
         objects+=("$work/${name%.*}.o")
     done
     zig cc "${objects[@]}" -target "$target" -lm -o "$out" 2>/dev/null \
@@ -122,5 +138,39 @@ for entry in "${matrix[@]}"; do
     esac
     echo "ok: manifest $name ($target)"
 done
+
+# 5. the sqlite pilot in the cross matrix (issue #66). The vendored
+# amalgamation and the adapter thunk are the manifest's own `[[source]]`
+# units; the thunk includes "ps_rt.h" and "vendor/sqlite3.h", so the adapter
+# directory is on the include path. The amalgamation is fetched by
+# fetch_vendor.py and hash-pinned; without it the pilot is skipped, so an
+# offline host still passes the rest of the smoke.
+adapter="$root/packaging/adapters/pyscriptc-sqlite"
+# the pilot prints one name per row, two rows: ada then bo
+rows=$'ada\nbo'
+if [ -f "$adapter/vendor/sqlite3.c" ] && [ -f "$adapter/vendor/sqlite3.h" ]; then
+    for entry in "${matrix[@]}"; do
+        IFS='|' read -r name target runner <<<"$entry"
+        out="$work/sqlite-$name"
+        build "$here/sqlite.ll" "$target" "$out" --include "$root/src/pyscriptc/runtime" --include "$adapter" \
+            "$adapter/vendor/sqlite3.c" "$adapter/ps_ffi_sqlite.c" \
+            || fail "sqlite $name did not build"
+        case "$runner" in
+            native)
+                got="$($out)" || fail "sqlite $name did not run"
+                [ "$got" = "$rows" ] || fail "sqlite $name printed '$got', expected two rows" ;;
+            qemu-*)
+                if command -v "$runner" >/dev/null; then
+                    got="$($runner "$out")" || fail "sqlite $name did not run under $runner"
+                    [ "$got" = "$rows" ] || fail "sqlite $name printed '$got' under $runner, expected two rows"
+                else
+                    echo "note: $runner not installed, sqlite $name is compile-only" >&2
+                fi ;;
+        esac
+        echo "ok: sqlite $name ($target)"
+    done
+else
+    echo "note: vendored sqlite amalgamation missing, run packaging/adapters/pyscriptc-sqlite/fetch_vendor.py; sqlite pilot skipped" >&2
+fi
 
 echo "ZIG SMOKE OK ($(zig version), tier-A matrix ${#matrix[@]} targets)"
