@@ -161,12 +161,12 @@ def link_binary(
     # The `--ffi` manifest units join the same per-unit compile loop as the
     # runtime: a `.c` unit compiles like a runtime file, an archive goes
     # straight on the link line (`.agents/docs/ffi/ffi-manifest.md` section 4).
-    ffi_sources = [str(unit) for unit in compile_units or []]
-    ffi_archives = [str(unit) for unit in link_units or []]
-    sources.extend(ffi_sources)
     # A missing unit is refused before the compiler runs, so the failure names
     # the manifest that declared it instead of surfacing as a cc error.
     _require_units(compile_units, link_units)
+    ffi_sources = [str(unit) for unit in compile_units or []]
+    ffi_archives = [str(unit) for unit in link_units or []]
+    sources.extend(ffi_sources)
     # zig cannot compile C sources inside a link invocation for Mach-O, so
     # every unit goes to .o first and the link line carries objects only.
     use_cache = rtcache.prepare()
@@ -188,20 +188,23 @@ def link_binary(
     jobs: list[tuple[list[str], Path | None]] = [(ll_argv, None)]
     objects = [ll_obj]
     hits = 0
-    ffi_include_flags: list[str] = []
+    # A manifest unit compiles against the manifest's own directory (vendored
+    # headers) and against the runtime directory (ps_rt.h, the contract the
+    # thunk is written against). The runtime units gain nothing.
+    ffi_include_flags = ["-I", str(runtime)]
     for directory in include_dirs or []:
         ffi_include_flags.extend(["-I", str(directory)])
     # The manifest units carry the manifest's own include dirs; the runtime
     # units keep the flags they always had, so a manifest-free build compiles
     # the runtime exactly as it did before the FFI gate.
-    ffi_sources = set(ffi_sources)
+    manifest_sources = frozenset(ffi_sources)
     for source in sources:
         src = Path(source)
         flags = ["-O2", *san_flags, *target_flags]
         extra_dirs: tuple[Path, ...] = ()
-        if source in ffi_sources:
+        if source in manifest_sources:
             flags.extend(ffi_include_flags)
-            extra_dirs = tuple(include_dirs or [])
+            extra_dirs = (runtime, *(include_dirs or []))
         if use_cache:
             final = rtcache.object_path(src, runtime, cc.split(), flags, extra_dirs)
             objects.append(final)

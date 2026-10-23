@@ -206,6 +206,49 @@ def test_a_manifest_source_is_linked_into_the_binary(tmp_path: Path) -> None:
     assert proc.stdout == "6\n"
 
 
+@needs_clang
+def test_a_manifest_source_includes_ps_rt_h(tmp_path: Path) -> None:
+    """A thunk written against the runtime contract compiles: ps_rt.h resolves.
+
+    The sqlite adapter's thunk does exactly this (`#include "ps_rt.h"`), so
+    the manifest units get the runtime directory on their include path; the
+    vendored headers next to the manifest resolve too.
+    """
+    unit = tmp_path / "vendor" / "thunk.c"
+    unit.parent.mkdir(parents=True)
+    unit.write_text(
+        '#include "ps_rt.h"\n#include "vendor/vendored.h"\nint demo(void) { return DEMO + 1; }\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "vendor" / "vendored.h").write_text("#define DEMO 41\n", encoding="utf-8")
+    source = tmp_path / "use.py"
+    source.write_text("def main() -> int:\n    return 0\n", encoding="utf-8")
+    manifest = tmp_path / "ffi.toml"
+    manifest.write_text(
+        '[manifest]\nmodule = "demo"\nps_abi = 1\nformat = 1\n[[source]]\npath = "vendor/thunk.c"\n',
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pyscriptc",
+            "compile",
+            str(source),
+            "--ffi",
+            str(manifest),
+            "--emit",
+            "bin",
+            "--skip-check",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+
+
 def test_a_manifest_with_a_missing_source_is_refused(tmp_path: Path) -> None:
     """The CLI refuses a manifest whose unit is not on disk, before the build."""
     source = tmp_path / "use.py"
