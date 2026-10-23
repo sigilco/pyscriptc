@@ -601,6 +601,22 @@ class ClassesMixin:
         next_ret = frame["methods"].get("__next__", (None, None))[1]
         return next_ret is not None and types_equal(next_ret, want.get("elem"))
 
+    def _narrows_to_agen(self, want: dict[str, Any], got: dict[str, Any]) -> bool:
+        """True when an `AsyncGenerator[T, None]` annotation holds an async
+        generator frame.
+
+        The `@agen` placeholder type is not a real class; a local of that
+        annotation holding a frame keeps the frame type, so `__anext__` and
+        `async for` dispatch on the real shape.
+        """
+        if want.get("kind") != "class" or want.get("name") != "@agen" or got.get("kind") != "class":
+            return False
+        frame = self.classes.get(got.get("name"))
+        if frame is None or frame.get("coro") != "asyncgenerator":
+            return False
+        anext_t = frame["methods"].get("__anext__", (None, None))
+        return anext_t is not None
+
     def _resolve_base(self, node: ast.expr) -> dict[str, str]:
         enum = self._enum_base_name(node)
         if enum is not None:
@@ -1772,6 +1788,9 @@ class ClassesMixin:
             return self._iter_type(self._annotation(node.slice), node)
         if alias == "Generator":
             return self._generator_annotation(node)
+        agen = self._agen_annotation(node)
+        if agen is not None:
+            return agen
         if alias in _UNWRAP_FORMS:
             inner = node.slice
             if alias == "Annotated":
@@ -1867,6 +1886,30 @@ class ClassesMixin:
         elif not existing.get("tuple"):
             self.fail(node, "PS2002", f"{name} clashes with a tuple type")
         return {"kind": "class", "name": name, "label": label}
+
+    def _agen_annotation(self, node: ast.Subscript) -> dict[str, Any] | None:
+        """`AsyncGenerator[Y, S]` / `AsyncIterator[Y]` as a value annotation.
+
+        The send type stays None (an async generator cannot be sent into),
+        so only the yield type matters. There is no materialized cursor for
+        the async shape: the value is a frame class, and the narrowing rule
+        (`_narrows_to_agen`) keeps the frame type on assignment, the way a
+        `Generator[T, None, None]` local keeps the `gen.` frame type.
+        """
+        alias = self._typing_alias(node.value)
+        if alias not in {"AsyncGenerator", "AsyncIterator"}:
+            return None
+        if alias == "AsyncGenerator":
+            if not isinstance(node.slice, ast.Tuple) or not 1 <= len(node.slice.elts) <= 2:
+                self.fail(node, "PS1001", "AsyncGenerator is AsyncGenerator[Y, S]")
+            if len(node.slice.elts) == 2 and not (
+                isinstance(node.slice.elts[1], ast.Constant) and node.slice.elts[1].value is None
+            ):
+                self.fail(node, "PS2002", "an async generator with a send type is not lowered yet")
+            elem_node = node.slice.elts[0]
+        else:
+            elem_node = node.slice
+        return {"kind": "class", "name": "@agen", "elem": self._annotation(elem_node)}
 
     def _generator_annotation(self, node: ast.Subscript) -> dict[str, Any]:
         """`Generator[T, S, R]` as a value annotation is the iterator cursor

@@ -175,11 +175,13 @@ class StmtMixin:
                 return [_assign(stmt.target.id, _zero(typ, span), span)]
             value = self._expr(stmt.value, typ)
             self._expect(stmt, value["type"], typ, stmt.target.id)
-            if self._narrows_to_generator(typ, value["type"]):
+            if self._narrows_to_generator(typ, value["type"]) or self._narrows_to_agen(typ, value["type"]):
                 # An Iterator[T]/Generator[T, None, None] local holding a
                 # generator keeps the frame type: every later use (next,
                 # send, for) dispatches on the frame's real shape, not the
-                # synthetic cursor.
+                # synthetic cursor. An AsyncGenerator[T, None] local holding
+                # an async generator frame does the same (the `@agen`
+                # placeholder is not a real class).
                 typ = value["type"]
             self.locals[stmt.target.id] = typ
             # A re-annotated assignment rebinds the handle: the dropped

@@ -83,6 +83,11 @@ PRIM_MARKER = "__ps_await_prim__"
 # `await asyncio.to_thread(fn, ...)`: the callable runs on a worker thread
 # and the awaiting frame parks until the worker marks the call done.
 THREAD_MARKER = "__ps_await_thread__"
+# `await it.__anext__()`: the async generator's next value. The poll returns
+# 0 (the generator awaited, so the caller parks), 1 (the generator is done,
+# so the await raises StopAsyncIteration) or 2 (the generator yielded, and
+# the value sits in the frame's `.ps_ayield` field).
+ANEXT_MARKER = "__ps_await_anext__"
 SLEEP_MARKER = "__ps_sleep__"
 RETURN_MARKER = "__ps_return__"
 STATE = ".ps_state"
@@ -93,6 +98,10 @@ RESUME = ".ps_rs"
 SEND = ".ps_send"
 GEN = ".ps_gen"
 VALUE = ".ps_val"
+# The value an async generator yielded. The frame carries it between the
+# yield and the next `__anext__`, the way a sync generator carries the
+# value it yielded.
+AGYIELD = ".ps_ayield"
 # The task handle class (asyncio.create_task). A class type with `elem`: the
 # coroutine's result type, so `task.result()` reads the right shape.
 TASK_CLASS = "Task"
@@ -103,6 +112,10 @@ COMPLETE = 1
 # The poll's third outcome: the child raised. The loop parks the exception
 # against the child frame and the awaiter re-raises it in its own body.
 FAILED = 2
+# The async generator's third outcome: the frame yielded a value. The
+# status tells the `await` and the `yield` apart, so one frame can carry
+# both suspension kinds.
+YIELDED = 2
 # The task await's fourth outcome: the task was cancelled, so the awaiting
 # frame raises CancelledError instead of reading a result. It is distinct
 # from FAILED so one park call can carry both.
@@ -129,6 +142,9 @@ _PRIM_SYMBOLS: dict[str, str] = {
 # The resume shim's outward type: every coroutine's callable cell carries it.
 _RESUME_FUNC = {"kind": "func", "params": [{"kind": "class", "name": "@frame"}], "return": {"kind": "int"}}
 _GENERATOR_FORMS = {"Iterator", "Iterable", "Generator"}
+# The async generator's annotation forms. CPython spells it
+# `AsyncGenerator[Y, S]` (or `AsyncIterator[Y]`); the send type stays None.
+_ASYNC_GENERATOR_FORMS = {"AsyncGenerator", "AsyncIterator"}
 
 
 class CoroError(Exception):
@@ -160,6 +176,16 @@ def enabled() -> bool:
 
 def is_generator(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     return any(isinstance(node, (ast.Yield, ast.YieldFrom)) for node in _own_nodes(fn.body))
+
+
+def is_async_generator(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """True for an `async def` that yields: an async generator.
+
+    CPython's rule is the same one the sync side uses: a function whose body
+    yields is a generator, whatever the `def` says. An `async def` with a
+    `yield` is an async generator, and `await` inside it is legal too.
+    """
+    return isinstance(fn, ast.AsyncFunctionDef) and is_generator(fn)
 
 
 def is_contextmanager(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
@@ -275,8 +301,16 @@ class CoroMixin:
         ):
             return None
         coroutine = isinstance(fn, ast.AsyncFunctionDef)
-        elem = self._coro_types(fn)[0] if not coroutine else self._coro_result(fn)
-        send = dict(_NONE) if coroutine else self._coro_types(fn)[1]
+        if coroutine and is_generator(fn):
+            # An async generator: the elem is the yield type, the shape the
+            # `AsyncGenerator[T, S]` annotation carries. A `return v` with a
+            # value stays fenced (the sync generator rule).
+            agen = True
+            elem, send = self._coro_types(fn)
+        else:
+            agen = False
+            elem = self._coro_types(fn)[0] if not coroutine else self._coro_result(fn)
+            send = dict(_NONE) if coroutine else self._coro_types(fn)[1]
         shape = _shape_error(fn)
         if shape is not None:
             self.fail(shape[0], "PS2002", shape[1])
@@ -288,11 +322,17 @@ class CoroMixin:
 
         if _has_typevar(elem) or any(_has_typevar(param["type"]) for param in params):
             self.fail(fn, "PS2002", "a generic resumable is not lowered yet")
-        frame = f"{'coro' if coroutine else 'gen'}.{fn.name}"
+        frame = f"{'agen' if agen else 'coro' if coroutine else 'gen'}.{fn.name}"
         frame_t = {"kind": "class", "name": frame}
         self_t = [{"name": "self", "type": frame_t}]
-        if coroutine:
-            methods: dict[str, Any] = {"resume": (self_t, _INT)}
+        if agen:
+            methods = {
+                "__aiter__": (self_t, frame_t),
+                "__anext__": (self_t, _INT),
+                "aclose": (self_t, dict(_NONE)),
+            }
+        elif coroutine:
+            methods = {"resume": (self_t, _INT)}
         else:
             methods = {
                 "__iter__": (self_t, frame_t),
@@ -308,7 +348,7 @@ class CoroMixin:
             "method_kind": {},
             "method_owner": {},
             "base": None,
-            "coro": "coroutine" if coroutine else "generator",
+            "coro": "asyncgenerator" if agen else "coroutine" if coroutine else "generator",
             "coro_elem": copy.deepcopy(elem),
         }
         self.known_classes.add(frame)
@@ -345,7 +385,7 @@ class CoroMixin:
             }
             self.known_classes.add(manager)
         self._coro_plans()[fn.name] = FramePlan(
-            "coroutine" if coroutine else "generator",
+            "asyncgenerator" if agen else "coroutine" if coroutine else "generator",
             fn.name,
             frame,
             elem,
@@ -375,6 +415,16 @@ class CoroMixin:
         if ann is None:
             self.fail(fn, "PS1001", f"{fn.name} needs a return annotation")
         form = self._typing_alias(ann.value) if isinstance(ann, ast.Subscript) else None
+        if form in _ASYNC_GENERATOR_FORMS:
+            # `AsyncGenerator[Y, S]` / `AsyncIterator[Y]`: the yield type is
+            # the first argument, the send type stays None (an async
+            # generator cannot be sent into).
+            args = list(ann.slice.elts) if isinstance(ann.slice, ast.Tuple) else [ann.slice]
+            if not args or len(args) > 2:
+                self.fail(ann, "PS1001", "AsyncGenerator is AsyncGenerator[Y, S]")
+            if len(args) == 2 and not (isinstance(args[1], ast.Constant) and args[1].value is None):
+                self.fail(ann, "PS2002", "an async generator with a send type is not lowered yet")
+            return self._annotation(args[0]), dict(_NONE)
         if form not in _GENERATOR_FORMS:
             self.fail(ann, "PS1001", "a generator is annotated Iterator[T], Iterable[T] or Generator[T, None, None]")
         args = list(ann.slice.elts) if isinstance(ann.slice, ast.Tuple) else [ann.slice]
@@ -1078,7 +1128,72 @@ class _CoroutineKind(_Kind):
         return [{"kind": "return", "value": _const(COMPLETE, _INT, span), "span": span}]
 
 
-_KINDS: dict[str, _Kind] = {"generator": _GeneratorKind(), "coroutine": _CoroutineKind()}
+class _AsyncGeneratorKind(_Kind):
+    """`__anext__` returns the yielded value; completion raises
+    StopAsyncIteration, which `async for` turns into the loop exit.
+
+    An async generator carries two suspension kinds: a `yield` suspends with
+    a value, an `await` suspends with status 0. The status tells them apart,
+    so `resume` returns three outcomes: 0 (pending, the frame awaited), 1
+    (done) and 2 (the frame yielded a value, which sits in the frame's
+    `.ps_ayield` field).
+
+    The frame is driven by `__anext__`, not by the loop: the caller awaits
+    `__anext__`, and the await polls the frame the way a coroutine await
+    polls a child. `__aiter__` returns the frame itself.
+    """
+
+    marker = YIELD_MARKER
+
+    def methods(self, frame: _Frame, resume: dict[str, Any]) -> list[dict[str, Any]]:
+        span = frame.span
+        this = frame.self_name(span)
+        aiter_m = {
+            "name": "__aiter__",
+            "params": [{"name": SELF, "type": frame.frame_t}],
+            "returnType": frame.frame_t,
+            "locals": [{"name": SELF, "type": frame.frame_t}],
+            "body": [{"kind": "return", "value": this, "span": span}],
+            "span": span,
+        }
+        # `__anext__` is the resume body under a different name: the await
+        # calls it and reads the frame's `.ps_ayield` field out of it.
+        anext_m = {**resume, "name": "__anext__", "returnType": _INT}
+        close_m = {
+            "name": "aclose",
+            "params": [{"name": SELF, "type": frame.frame_t}],
+            "returnType": dict(_NONE),
+            "locals": [{"name": SELF, "type": frame.frame_t}],
+            "body": [frame.field_set(STATE, _const(DONE, _INT, span), span)],
+            "span": span,
+        }
+        return [aiter_m, anext_m, close_m]
+
+    def suspend(self, frame: _Frame, value: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
+        """A `yield` in an async generator: the value rides in the frame and
+        the status is 2, so the awaiter knows a value is waiting."""
+        return [
+            frame.field_set(AGYIELD, value, span),
+            {"kind": "return", "value": _const(YIELDED, _INT, span), "span": span, "suspend": True},
+        ]
+
+    def finish(self, frame: _Frame, span: dict[str, Any]) -> list[dict[str, Any]]:
+        return [
+            {
+                "kind": "raise",
+                "exc": "StopAsyncIteration",
+                "code": RESERVED_EXCEPTIONS["StopAsyncIteration"],
+                "message": None,
+                "span": span,
+            }
+        ]
+
+
+_KINDS: dict[str, _Kind] = {
+    "generator": _GeneratorKind(),
+    "coroutine": _CoroutineKind(),
+    "asyncgenerator": _AsyncGeneratorKind(),
+}
 
 
 class _Frame:
@@ -1175,6 +1290,10 @@ class _Frame:
             # ps_loop.c reads the resume cell at a fixed offset.
             fields.append({"name": TASK, "type": _RESUME_FUNC})
         fields.append({"name": RESULT, "type": self.plan.elem})
+        if self.plan.kind == "asyncgenerator":
+            # The value the frame yielded. `__anext__` returns the status and
+            # the awaiter reads the field out of the frame.
+            fields.append({"name": AGYIELD, "type": self.plan.elem})
         if self.plan.send.get("kind") != "none":
             # The value a `send()` delivers into the generator.
             fields.append({"name": SEND, "type": self.plan.send})
@@ -1353,6 +1472,8 @@ class _Frame:
             return self._await_prim(stmt, span)
         if kind == "expr" and _is_marker(stmt, THREAD_MARKER):
             return self._await_thread(stmt, span)
+        if kind == "expr" and _is_marker(stmt, ANEXT_MARKER):
+            return self._await_anext(stmt, span)
         if kind == "expr" and _is_marker(stmt, self.kind.marker):
             if self.kind.marker == AWAIT_MARKER:
                 return self._await(stmt, span)
@@ -1971,6 +2092,81 @@ class _Frame:
                 out.append(_assign(_await_result_name(slot), read, span))
         return out
 
+    def _await_anext(self, stmt: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
+        """Expand `__ps_await_anext__(agen)` into the async-generator poll.
+
+        The generator frame is in the local the lowerer bound. The poll
+        drives the frame's `__anext__` body and reads the status: 0 (the
+        generator awaited, so the caller parks), 1 (the generator is done,
+        so the await raises StopAsyncIteration) or 2 (the generator yielded,
+        and the value sits in the frame's `.ps_ayield` field).
+
+        The poll is the caller's suspension point: while the generator is
+        pending the caller suspends with status 0 and re-polls the same
+        generator on the resume.
+        """
+        self.points += 1
+        point = self.points
+        expr = stmt["expr"]
+        agen = expr["args"][0]
+        agen_t = agen["type"]
+        slot = agen["id"]
+        elem = expr.get("agen_elem") or dict(_NONE)
+        status = self.temp("axs", _INT)
+        poll = {
+            "kind": "call",
+            "callee": {"kind": "module", "module": "asyncio", "name": "anext"},
+            "args": [_name(slot, agen_t, span)],
+            "type": dict(_INT),
+            "span": span,
+            "symbol": "ps_agen_next",
+        }
+        # The generator is done: the await raises StopAsyncIteration, the
+        # exception `async for` catches to end the loop.
+        done = _if(
+            _compare("==", _name(status, _INT, span), _const(COMPLETE, _INT, span), span),
+            [
+                {
+                    "kind": "raise",
+                    "exc": "StopAsyncIteration",
+                    "code": RESERVED_EXCEPTIONS["StopAsyncIteration"],
+                    "message": None,
+                    "span": span,
+                }
+            ],
+            [],
+            span,
+        )
+        leave = [
+            *self.copy_out(span),
+            self.field_set(STATE, _const(point, _INT, span), span),
+            _assign(status, poll, span),
+            done,
+            _if(
+                _compare("==", _name(status, _INT, span), _const(PENDING, _INT, span), span),
+                self.kind.suspend(self, _const(0, _INT, span), span),
+                [],
+                span,
+            ),
+        ]
+        arrive = [
+            _assign(RESUME, _const(0, _INT, span), span),
+            _assign(status, poll, span),
+            done,
+            _if(
+                _compare("==", _name(status, _INT, span), _const(PENDING, _INT, span), span),
+                self.kind.suspend(self, _const(0, _INT, span), span),
+                [],
+                span,
+            ),
+        ]
+        out: list[dict[str, Any]] = [_if(self.fresh(span), leave, arrive, span)]
+        if elem.get("kind") != "none":
+            # The value the generator yielded rides in the frame's field.
+            read = _attr_expr(_name(slot, agen_t, span), AGYIELD, elem, span)
+            out.append(_assign(_await_result_name(slot), read, span))
+        return out
+
     def _await_thread(self, stmt: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
         """Expand `__ps_await_thread__(call)` into the thread park.
 
@@ -2093,6 +2289,7 @@ def _suspends(stmt: dict[str, Any], marker: str) -> bool:
             or _is_marker(stmt, WAIT_FOR_MARKER)
             or _is_marker(stmt, PRIM_MARKER)
             or _is_marker(stmt, THREAD_MARKER)
+            or _is_marker(stmt, ANEXT_MARKER)
         )
     if stmt["kind"] == "if":
         return any(_suspends(s, marker) for s in stmt["then"]) or any(_suspends(s, marker) for s in stmt["else"])
