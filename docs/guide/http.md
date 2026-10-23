@@ -1,25 +1,25 @@
 ---
-title: HTTP today
-description: The interim HTTP and HTTPS path, a curl bridge through subprocess, with its caveats and the native client that replaces it.
+title: HTTP
+description: The native urllib.request client, what it covers, and where it still diverges from CPython.
 ---
 
-pyscriptc has no native HTTP client yet.
-HTTP and HTTPS work today through a bridge: `subprocess.check_output` runs `curl` on the host, and the bytes come back into the compiled program.
-This page shows the shape that works, the caveats it has, and what replaces it.
+HTTP goes through a native client: `urllib.request` and `urllib.error` lower to `urlopen` calls served by `ps_http.c`, with no subprocess and no host `curl`.
+This page shows the shape that lowers, the caveats that remain, and the `curl` escape hatch for the cases the client does not cover.
 
-## HTTP today
+## The shape that lowers
 
-The bridge is one call to `subprocess.check_output` with a `curl` argument list.
-The result is `bytes`, so it decodes to `str` and then goes through `json.loads` when the answer is JSON.
+`urlopen(url)` returns an `HttpResponse` with `status`, `headers` and `body` (`bytes`), plus `getcode()`, `info()` and `read()`.
+`data` sends a POST, `timeout` bounds the whole request and raises `TimeoutError` on expiry.
 
 ```python
 import json
-import subprocess
+from urllib.request import urlopen
 
 
 def fetch(url: str) -> str:
-    out: bytes = subprocess.check_output(["curl", "-s", url])
-    return out.decode("utf-8")
+    resp = urlopen(url)
+    body: bytes = resp.read()
+    return body.decode("utf-8")
 
 
 def status(body: str) -> str:
@@ -27,46 +27,32 @@ def status(body: str) -> str:
     return doc["status"]
 ```
 
-A JSON POST is the same call with the method, the header and the payload in the argument list.
-
-```python
-def post(url: str, payload: str) -> str:
-    out: bytes = subprocess.check_output(
-        ["curl", "-s", "-X", "POST", "-H", "Content-Type: application/json", "-d", payload, url]
-    )
-    return out.decode("utf-8")
-```
-
-The flags are plain `curl` flags, so anything `curl` accepts works: `-s` silences the progress meter, `-L` follows redirects, `-m` sets a timeout.
-The argument list must be a `list[str]`, which is what the `subprocess` subset accepts.
-
-The round trip is the whole shape of the path: fetch bytes, decode them, parse them.
 `json.loads` needs the result annotation (`dict[str, str]` above), and the decoded string must be UTF-8, since `bytes.decode` lowers the `utf-8` encoding only.
 
-The compiled program runs `curl` as a child process.
-That means the request is made by `curl`, not by pyscriptc: the TLS stack, the proxy handling, the certificate store and the redirect policy are `curl`'s, and the version on the host decides the behavior.
+`Request(url, data=..., headers=..., method=...)` builds the request record that `urlopen` consumes, for methods beyond GET and POST and for custom headers.
+Redirects (301, 302, 303, 307, 308) follow CPython's method rules, relative `Location` resolution included, with a 10-hop cap.
+Chunked transfer-encoding is decoded.
 
-## Caveats
+## Divergences from CPython
 
-- `curl` must be on `PATH` at run time.
-  A binary compiled on a machine with `curl` fails on a machine without it.
-- POSIX only.
-  The `subprocess` runtime uses `fork()` (`src/pyscriptc/runtime/ps_sub.c:85`), so this path does not work on Windows.
-- The binary must be the libpython-linked shape.
-  `subprocess.check_output` is an island call, so the link adds the embedded CPython (`ps_island.c`) and `-lpython3.14`.
-  A binary that only needs the small runtime cannot make this call.
-- No streaming.
-  The whole body arrives as one `bytes` value, so the response is held in memory and there is no incremental read.
-- The island follows the interpreter the binary links, not the CPython version the script was written against.
-  That is divergence 15 in the [divergence list](../reference/divergences.md).
+- TLS is not there yet: an `https://` URL raises `OSError`.
+  TLS via mbedTLS is [#235](https://github.com/sigilco/pyscriptc/issues/235).
+- `urlopen` takes `url`, `data` and `timeout`; other keywords fence.
+  Headers go on the `Request`, as a dict display with constant string keys and values; runtime-built header dicts fence.
+- 4xx and 5xx raise `HTTPError` carrying `status`, `headers` and a readable body; malformed URLs and connection failures raise `URLError`.
+  Both catch through the `OSError` chain like CPython, but the error types are synthetic records, not the full `urllib.error` class surface.
+- Only `urlopen` and `Request` lower; the rest of `urllib.request` (`urlretrieve`, openers, proxies) fences, and `http.client` is not lowered (#237).
+- No streaming: the whole body arrives as one `bytes` value.
+- These are the numbered divergences 27 and 28 in the [divergence list](../reference/divergences.md).
 
-## What replaces it
+## The curl escape hatch
 
-A native HTTP client is planned and this bridge is the interim path.
-The design survey is in the developer notes (`.agents/docs/spec/http-seam-design.md`): a statically linked client, plaintext first, TLS bound to mbedTLS through the FFI manifest, owned by a separate `pyscriptc-http` adapter package.
-The epic is [#219](https://github.com/sigilco/pyscriptc/issues/219) and the native client task is [#60](https://github.com/sigilco/pyscriptc/issues/60).
+For the cases the native client does not cover, such as an unusual TLS configuration or a proxy setup, `subprocess.check_output` with a `curl` argument list still works through the island runtime.
+It needs `curl` on `PATH` at run time and the libpython-linked binary shape; see divergence 15 in the [divergence list](../reference/divergences.md).
 
-When the native client ships, this page keeps its escape-hatch note: `curl` remains available for the cases the native client does not cover, such as an unusual TLS configuration.
+## Keeping the example honest
+
+The example on this page is compiled and run by the test suite against a local HTTP listener, so it cannot rot without the suite failing.
 
 ## Keeping the example honest
 
