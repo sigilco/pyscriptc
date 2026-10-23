@@ -16,6 +16,11 @@
 # Dispatch runs are named "rehearsal <ref>". The publish job and cut-release.yml look for a
 # successful run with the title "rehearsal <full SHA>", so pass the full SHA (or dispatch from
 # the branch and leave `ref` empty) when the rehearsal must count as a release gate.
+#
+# Tag spellings: tags are SemVer-style (v0.6.0, v0.6.0-beta.1, v0.6.0-rc.2) while
+# pyproject.toml carries the PEP 440 form (0.6.0, 0.6.0b1, 0.6.0rc2). On a tag push the
+# verify job maps the tag with release_bar.py and refuses a mismatch. b and rc tags get a
+# prerelease (never Latest) GitHub Release, still draft; the owner publishes it by hand.
 name: release
 
 run-name: ${{ github.event_name == 'workflow_dispatch' && format('rehearsal {0}', inputs.ref || github.sha) || format('release {0}', github.ref_name) }}
@@ -145,7 +150,7 @@ jobs:
 
   release:
     name: checksums and draft release
-    needs: build
+    needs: [build, verify]
     runs-on: ubuntu-24.04
     if: ${{ !cancelled() && needs.build.result == 'success' }}
     permissions:
@@ -168,7 +173,7 @@ jobs:
 
       - name: Release notes from CHANGELOG.md
         if: github.ref_type == 'tag'
-        run: python3 .github/scripts/release_notes.py "$TAG" CHANGELOG.md .github/release-footer.md > release-notes.md
+        run: python3 .github/scripts/release_notes.py "$TAG" CHANGELOG.md .github/release-footer.md "$GITHUB_REPOSITORY" > release-notes.md
 
       - name: sha256sums.txt
         run: |
@@ -198,6 +203,9 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           draft: true
+          # Prerelease for b and rc tags so it can never become the Latest release; the owner
+          # flips the flag by hand when promoting the stable build.
+          prerelease: ${{ needs.verify.outputs.is_prerelease == 'true' }}
           name: ${{ github.ref_name }}
           generate_release_notes: false
           fail_on_unmatched_files: true
@@ -215,6 +223,8 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+    outputs:
+      is_prerelease: ${{ steps.tagver.outputs.is-prerelease }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -274,12 +284,15 @@ jobs:
           fi
 
       - name: Verify tag matches pyproject version
+        id: tagver
         if: github.event_name == 'push'
         run: |
           set -euo pipefail
-          VER="${TAG#v}"
-          V="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
-          [ "$V" = "$VER" ] || { echo "version mismatch: pyproject $V, tag $TAG"; exit 1; }
+          V="$(python3 .github/scripts/release_bar.py tag "$TAG")"
+          P="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          [ "$P" = "$V" ] || { echo "version mismatch: tag $TAG maps to PEP 440 $V, pyproject says $P"; exit 1; }
+          echo "tag-version=$V" >> "$GITHUB_OUTPUT"
+          echo "is-prerelease=$([[ "$V" =~ (b|rc)[0-9]+$ ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v6
         with:

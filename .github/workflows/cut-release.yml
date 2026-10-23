@@ -3,7 +3,13 @@
 #   stage=prepare (default): run the release bar, then open a PR from release/vX.Y.Z that bumps
 #                    pyproject.toml, uv.lock and CHANGELOG.md. Merge it like any PR.
 #   stage=tag:       after the release PR is merged, verify the merged release commit and push the
-#                    annotated tag vX.Y.Z. Tags are not covered by the ruleset.
+#                    annotated tag (vX.Y.Z, vX.Y.Z-beta.N or vX.Y.Z-rc.N). Tags are not covered by
+#                    the ruleset.
+#
+# Tag and version spellings: the tag is SemVer-style (v0.6.0-beta.1, what the release title
+# says), pyproject.toml carries the PEP 440 form (0.6.0b1, what pip, uv and PyPI normalize the
+# tag to). The mapping lives in release_bar.py (tag_version / release_tag, `tag` subcommand);
+# the tag stage re-derives the version from the subject tag and checks it against pyproject.toml.
 #
 # This workflow NEVER publishes. Pushing the tag triggers release.yml, which builds the binaries,
 # drafts the GitHub Release and runs the PyPI verify job. The PyPI publish job refuses to run
@@ -32,16 +38,21 @@ on:
         options: [prepare, tag]
         default: prepare
       bump:
-        description: "Which part of the version to bump (prerelease cuts an X.Y.ZrcN)"
+        description: "Which part of the version to bump (prerelease cuts an X.Y.ZrcN or X.Y.ZbN)"
         type: choice
         options: [patch, minor, major, prerelease]
         default: patch
         required: true
-      rc_of:
-        description: "prerelease only: which release the first rc is for (ignored when already on an rc)"
+      pre_of:
+        description: "prerelease only: which release the first prerelease is for (ignored when already on one)"
         type: choice
         options: [patch, minor, major]
         default: patch
+      pre_kind:
+        description: "prerelease only: cut a beta (vX.Y.Z-beta.N) or an rc (vX.Y.Z-rc.N); ignored when already on one"
+        type: choice
+        options: [beta, rc]
+        default: beta
       hotfix:
         description: "Hotfix patch: skips the content and gap checks only (install or first-run break)"
         type: boolean
@@ -70,7 +81,7 @@ env:
   PATCH_MIN_USER_CHANGES: "1"
   MINOR_MIN_FEATURES: "2"
   MINOR_MIN_DAYS: "5"
-  MAX_RC: "2"
+  MAX_PRE: "4"
 
 jobs:
   cut:
@@ -125,11 +136,12 @@ jobs:
         id: plan
         env:
           BUMP: ${{ inputs.bump }}
-          RC_OF: ${{ inputs.rc_of }}
+          PRE_OF: ${{ inputs.pre_of }}
+          PRE_KIND: ${{ inputs.pre_kind }}
           HOTFIX: ${{ inputs.hotfix }}
         run: |
           set -euo pipefail
-          args=(plan --bump "$BUMP" --rc-of "$RC_OF" --repo "$GITHUB_REPOSITORY" --out-dir /tmp/cut-release --bypass-reason "$BYPASS_REASON")
+          args=(plan --bump "$BUMP" --pre-of "$PRE_OF" --pre-kind "$PRE_KIND" --repo "$GITHUB_REPOSITORY" --out-dir /tmp/cut-release --bypass-reason "$BYPASS_REASON")
           if [ "$HOTFIX" = "true" ]; then args+=(--hotfix); fi
           python3 .github/scripts/release_bar.py "${args[@]}"
 
@@ -241,24 +253,26 @@ jobs:
         run: |
           set -euo pipefail
           subject="$(git log -1 --format=%s HEAD)"
-          if ! [[ "$subject" =~ ^chore\(release\):\ v([0-9]+\.[0-9]+\.[0-9]+(rc[0-9]+)?)(\ \(\#[0-9]+\))?$ ]]; then
+          if ! [[ "$subject" =~ ^chore\(release\):\ v([0-9]+\.[0-9]+\.[0-9]+(-(beta|rc)\.[0-9]+)?)(\ \(\#[0-9]+\))?$ ]]; then
             echo "master HEAD is not a release commit (subject: $subject). Merge the release PR first; tag only the release commit." >&2
             exit 1
           fi
-          version="${BASH_REMATCH[1]}"
+          tag="v${BASH_REMATCH[1]}"
+          version="$(python3 .github/scripts/release_bar.py tag "$tag")"
           pyver="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
-          [ "$pyver" = "$version" ] || { echo "pyproject version $pyver does not match $version" >&2; exit 1; }
+          [ "$pyver" = "$version" ] || { echo "pyproject version $pyver does not match $version (tag $tag)" >&2; exit 1; }
           extra="$(git diff --name-only HEAD~1 HEAD | grep -vxE 'pyproject.toml|uv.lock|CHANGELOG.md' || true)"
           if [ -n "$extra" ]; then
             echo "release commit touches more than pyproject.toml, uv.lock and CHANGELOG.md:" >&2
             echo "$extra" >&2
             exit 1
           fi
-          if git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null 2>&1; then
-            echo "tag v$version already exists on origin" >&2
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "tag $tag already exists on origin" >&2
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Require a rehearsal of the release commit
         if: ${{ inputs.stage == 'tag' }}
@@ -267,21 +281,21 @@ jobs:
       - name: Tag dry run summary
         if: ${{ inputs.stage == 'tag' && inputs.dry_run }}
         run: |
-          echo "Dry run: would tag v${{ steps.merged.outputs.version }} at $(git rev-parse HEAD). No tag was pushed." >> "$GITHUB_STEP_SUMMARY"
+          echo "Dry run: would tag ${{ steps.merged.outputs.tag }} at $(git rev-parse HEAD). No tag was pushed." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Tag and push
         if: ${{ inputs.stage == 'tag' && !inputs.dry_run }}
         env:
-          VERSION: ${{ steps.merged.outputs.version }}
+          TAG: ${{ steps.merged.outputs.tag }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          msg="v$VERSION"
+          msg="$TAG"
           if [ -n "${BYPASS_REASON//[[:space:]]/}" ]; then msg="$msg"$'\n\n'"Bar bypassed: $BYPASS_REASON"; fi
-          git tag -a "v$VERSION" -m "$msg"
-          git push origin "refs/tags/v$VERSION"
+          git tag -a "$TAG" -m "$msg"
+          git push origin "refs/tags/$TAG"
           {
-            echo "Tag v$VERSION pushed. release.yml builds the binaries and drafts the release. Publish waits for pypi-publish approval."
+            echo "Tag $TAG pushed. release.yml builds the binaries and drafts the release. Publish waits for pypi-publish approval."
             if [ -n "${BYPASS_REASON//[[:space:]]/}" ]; then echo; echo "Bar bypassed: $BYPASS_REASON"; fi
           } >> "$GITHUB_STEP_SUMMARY"

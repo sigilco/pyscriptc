@@ -4,13 +4,18 @@
 The decision logic is pure (commit and run lists in, checks out) so it is unit tested
 without network. The CLI wraps it with git and gh calls.
 
+Versions follow PEP 440: pyproject.toml says 0.6.0b1 or 0.6.0rc1, the public tag and
+release title use the SemVer-style spelling v0.6.0-beta.1 / v0.6.0-rc.2 (what
+PyPI normalizes them to). `tag_version` and `release_tag` map between the two.
+
 Subcommands:
   plan              compute the next version, the changelog entry and the bar report
   check-rehearsal   fail unless a rehearsal run covers the parent of a tagged release commit
+  tag               map a release tag to its PEP 440 version (--check verifies the spelling)
 
 Thresholds come from the environment (set in the top-level env block of cut-release.yml):
 PATCH_MIN_COMMITS, PATCH_MIN_HOURS, PATCH_MIN_PRS, PATCH_MIN_USER_CHANGES, MINOR_MIN_FEATURES,
-MINOR_MIN_DAYS, MAX_RC.
+MINOR_MIN_DAYS, MAX_PRE.
 """
 
 from __future__ import annotations
@@ -30,8 +35,12 @@ USER_DOCS = frozenset({"README.md"})
 RELEASE_COMMIT_FILES = frozenset({"pyproject.toml", "uv.lock", "CHANGELOG.md"})
 USER_KINDS = frozenset({"feat", "fix", "perf"})
 CONVENTIONAL = re.compile(r"^(\w+)(\([^)]*\))?(!)?: (.+)$")
-VERSION = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:rc(\d+))?$")
+VERSION = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:(b|rc)(\d+))?$")
 STABLE_TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
+# Public spelling of a prerelease tag: v0.6.0-beta.1, v0.6.0-rc.2 (the 0.6.0b1 / 0.6.0rc2 forms).
+TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)(?:-(beta|rc)\.(\d+))?$")
+KIND_PUBLIC = {"b": "beta", "rc": "rc"}
+KIND_PEP440 = {"beta": "b", "rc": "rc"}
 
 
 @dataclass(frozen=True)
@@ -42,7 +51,7 @@ class Thresholds:
     patch_min_user_changes: int = 1
     minor_min_features: int = 2
     minor_min_days: float = 5
-    max_rc: int = 2
+    max_pre: int = 2
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> Thresholds:
@@ -55,7 +64,7 @@ class Thresholds:
             patch_min_user_changes=int(e.get("PATCH_MIN_USER_CHANGES", d.patch_min_user_changes)),
             minor_min_features=int(e.get("MINOR_MIN_FEATURES", d.minor_min_features)),
             minor_min_days=float(e.get("MINOR_MIN_DAYS", d.minor_min_days)),
-            max_rc=int(e.get("MAX_RC", d.max_rc)),
+            max_pre=int(e.get("MAX_PRE", e.get("MAX_RC", d.max_pre))),
         )
 
 
@@ -97,12 +106,30 @@ def user_visible(commits: list[Commit], kinds: frozenset[str] = USER_KINDS) -> l
     return [c for c in commits if commit_kind(c.subject) in kinds and any(is_user_path(f) for f in c.files)]
 
 
-def parse_version(text: str) -> tuple[int, int, int, int | None]:
+def parse_version(text: str) -> tuple[int, int, int, str | None, int | None]:
+    """Parse X.Y.Z, X.Y.ZrcN or X.Y.ZbN into (major, minor, patch, kind, num)."""
     m = VERSION.match(text)
     if not m:
-        raise ValueError(f"unsupported version {text!r}; expected X.Y.Z or X.Y.ZrcN")
-    rc = m.group(4)
-    return int(m.group(1)), int(m.group(2)), int(m.group(3)), None if rc is None else int(rc)
+        raise ValueError(f"unsupported version {text!r}; expected X.Y.Z, X.Y.ZbN or X.Y.ZrcN")
+    kind, num = m.group(4), m.group(5)
+    return int(m.group(1)), int(m.group(2)), int(m.group(3)), kind, None if num is None else int(num)
+
+
+def tag_version(version: str) -> str:
+    """Public tag/public spelling for a version: 0.6.0b1 -> v0.6.0-beta.1."""
+    major, minor, patch, kind, num = parse_version(version)
+    pre = "" if kind is None else f"-{KIND_PUBLIC[kind]}.{num}"
+    return f"v{major}.{minor}.{patch}{pre}"
+
+
+def release_tag(tag: str) -> str:
+    """Inverse of tag_version: v0.6.0-beta.1 -> 0.6.0b1 (the PEP 440 spelling)."""
+    m = TAG_RE.match(tag)
+    if not m:
+        raise ValueError(f"unsupported tag {tag!r}; expected vX.Y.Z, vX.Y.Z-beta.N or vX.Y.Z-rc.N")
+    major, minor, patch, kind, num = m.groups()
+    pre = "" if kind is None else KIND_PEP440[kind] + num
+    return f"{major}.{minor}.{patch}{pre}"
 
 
 def _bumped(major: int, minor: int, patch: int, part: str) -> tuple[int, int, int]:
@@ -113,23 +140,24 @@ def _bumped(major: int, minor: int, patch: int, part: str) -> tuple[int, int, in
     return major, minor, patch + 1
 
 
-def next_version(current: str, bump: str, rc_of: str = "patch") -> str:
-    """Next version. An rc promotes to its base for stable bumps and counts up for prerelease."""
-    major, minor, patch, rc = parse_version(current)
+def next_version(current: str, bump: str, pre_of: str = "patch", kind: str = "rc") -> str:
+    """Next version. A prerelease counts up in its kind; a stable bump promotes it to its base."""
+    major, minor, patch, cur_kind, num = parse_version(current)
     if bump == "prerelease":
-        if rc is not None:
-            return f"{major}.{minor}.{patch}rc{rc + 1}"
-        major, minor, patch = _bumped(major, minor, patch, rc_of)
-        return f"{major}.{minor}.{patch}rc1"
-    if rc is not None:
-        return f"{major}.{minor}.{patch}"
+        if cur_kind is not None:
+            return f"{major}.{minor}.{patch}{cur_kind}{num + 1}"
+        major, minor, patch = _bumped(major, minor, patch, pre_of)
+        pre = "b" if kind == "beta" else "rc"
+        return f"{major}.{minor}.{patch}{pre}1"
+    if cur_kind is not None:
+        return f"{major}.{minor}.{patch}{cur_kind}{num}"
     major, minor, patch = _bumped(major, minor, patch, bump)
     return f"{major}.{minor}.{patch}"
 
 
 def release_class(version: str, hotfix: bool = False) -> str:
-    major, minor, patch, rc = parse_version(version)
-    if rc is not None:
+    major, minor, patch, kind, _num = parse_version(version)
+    if kind is not None:
         return "prerelease"
     if hotfix:
         return "hotfix"
@@ -263,8 +291,31 @@ def evaluate(cls: str, version: str, stats: Stats, th: Thresholds, *, bump: str 
             )
         )
     elif cls == "prerelease":
-        rc = parse_version(version)[3] or 0
-        out.append(_chk("rc count", rc <= th.max_rc, f"rc{rc} (at most {th.max_rc} iterations, then fix the cause)"))
+        kind, num = parse_version(version)[3:]
+        n = num or 0
+        name = "rc count" if kind == "rc" else "beta count"
+        out.append(
+            _chk(
+                name,
+                n <= th.max_pre,
+                f"{kind}{n} (at most {th.max_pre} iterations, then fix the cause)",
+            )
+        )
+        if kind == "b":
+            out.append(
+                _chk(
+                    "features",
+                    n_feat >= th.minor_min_features,
+                    f"{n_feat} user-visible feat commits since the last stable (need {th.minor_min_features})",
+                )
+            )
+            out.append(
+                Check(
+                    "triage",
+                    "manual",
+                    "every open milestone issue is in the beta or moved to Future (issue link in the notes)",
+                )
+            )
     else:
         raise ValueError(f"unknown release class {cls!r}")
 
@@ -375,14 +426,20 @@ def gh_runs(repo: str) -> list[dict]:
     return json.loads(out)
 
 
+def tag_for_version(version: str) -> str:
+    """Annotated-tag helper kept trivial so callers do not re-derive the public spelling."""
+    return tag_version(version)
+
+
 def cmd_plan(a: argparse.Namespace) -> int:
     th = Thresholds.from_env()
     import tomllib
 
     text = Path("pyproject.toml").read_text()
     cur = tomllib.loads(text)["project"]["version"]
-    new = next_version(cur, a.bump, a.rc_of)
+    new = next_version(cur, a.bump, a.pre_of, a.pre_kind)
     cls = release_class(new, a.hotfix)
+    tag = tag_version(new)
     tags = stable_tags()
     last = tags[0] if tags else ""
     rng = f"{last}..HEAD" if last else "HEAD"
@@ -419,7 +476,7 @@ def cmd_plan(a: argparse.Namespace) -> int:
     checks = evaluate(cls, new, stats, th, bump=a.bump)
     ok = passed(checks)
     report = render_report(checks, new, cls, a.bypass_reason)
-    print(f"version {cur} -> {new} ({cls}); base commit {head}")
+    print(f"version {cur} -> {new} ({cls}); tag {tag}; base commit {head}")
     print(report)
     if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(summary, "a") as f:
@@ -435,9 +492,10 @@ def cmd_plan(a: argparse.Namespace) -> int:
         print(entry)
     (out / "pyproject.toml").write_text(re.sub(r'^version = "[^"]+"', f'version = "{new}"', text, count=1, flags=re.M))
     (out / "version").write_text(new)
+    (out / "tag").write_text(tag + "\n")
     if gho := os.environ.get("GITHUB_OUTPUT"):
         with open(gho, "a") as f:
-            f.write(f"version={new}\nclass={cls}\nbar_passed={'true' if ok else 'false'}\n")
+            f.write(f"version={new}\nclass={cls}\ntag={tag}\nbar_passed={'true' if ok else 'false'}\n")
             f.write(f"releasable={'true' if entry else 'false'}\nbase_sha={head}\n")
     return 0
 
@@ -460,12 +518,32 @@ def cmd_check_rehearsal(a: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
+def cmd_tag(a: argparse.Namespace) -> int:
+    """Map between a tag and its PEP 440 version. With --check, both must agree."""
+    try:
+        version = release_tag(a.tag)
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        return 2
+    print(version)
+    if a.check:
+        expected = tag_version(version)
+        if expected != a.tag:
+            print(
+                f"tag and version disagree: {a.tag} maps to {version}, but {version} maps back to {expected}",
+                file=sys.stderr,
+            )
+            return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
     pl = sub.add_parser("plan")
     pl.add_argument("--bump", required=True, choices=["patch", "minor", "major", "prerelease"])
-    pl.add_argument("--rc-of", default="patch", choices=["patch", "minor", "major"])
+    pl.add_argument("--pre-of", default="patch", choices=["patch", "minor", "major"])
+    pl.add_argument("--pre-kind", default="rc", choices=["beta", "rc"])
     pl.add_argument("--hotfix", action="store_true")
     pl.add_argument("--bypass-reason", default="")
     pl.add_argument("--repo", required=True)
@@ -475,6 +553,10 @@ def main(argv: list[str] | None = None) -> int:
     cr.add_argument("--sha", required=True, help="the tagged (release) commit")
     cr.add_argument("--repo", required=True)
     cr.set_defaults(fn=cmd_check_rehearsal)
+    tg = sub.add_parser("tag")
+    tg.add_argument("tag", help="a release tag: vX.Y.Z, vX.Y.Z-beta.N or vX.Y.Z-rc.N")
+    tg.add_argument("--check", action="store_true", help="also verify the tag is the canonical spelling")
+    tg.set_defaults(fn=cmd_tag)
     args = p.parse_args(argv)
     return args.fn(args)
 

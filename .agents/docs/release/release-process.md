@@ -29,12 +29,13 @@ Master is PR-only, so a release is two runs of the `cut-release` workflow (Actio
 
 ## The bar
 
-`cut-release` computes the checks in `.github/scripts/release_bar.py`. Thresholds live in the top-level `env` block of `cut-release.yml`: `PATCH_MIN_COMMITS`, `PATCH_MIN_HOURS`, `PATCH_MIN_PRS`, `PATCH_MIN_USER_CHANGES`, `MINOR_MIN_FEATURES`, `MINOR_MIN_DAYS`, `MAX_RC`. Change one line there to tune. A user-visible change is a `feat`, `fix` or `perf` commit touching `src/` (runtime C included), `packaging/`, `README.md` or a user doc (anything under `docs/`).
+`cut-release` computes the checks in `.github/scripts/release_bar.py`. Thresholds live in the top-level `env` block of `cut-release.yml`: `PATCH_MIN_COMMITS`, `PATCH_MIN_HOURS`, `PATCH_MIN_PRS`, `PATCH_MIN_USER_CHANGES`, `MINOR_MIN_FEATURES`, `MINOR_MIN_DAYS`, `MAX_PRE` (the cap shared by beta and rc iterations). Change one line there to tune. A user-visible change is a `feat`, `fix` or `perf` commit touching `src/` (runtime C included), `packaging/`, `README.md` or a user doc (anything under `docs/`).
 
 Inputs:
 
-- `bump`: `patch`, `minor`, `major` or `prerelease`. On an rc version, a stable bump promotes it to its base version (`0.5.0rc2` becomes `0.5.0`), and `prerelease` counts up (`rc3`).
-- `rc_of`: with `prerelease` from a stable version, which release the first rc is for (`patch` gives `0.4.2rc1`, `minor` gives `0.5.0rc1`).
+- `bump`: `patch`, `minor`, `major` or `prerelease`. On a prerelease version, a stable bump keeps it a prerelease of the same base and kind (`0.6.0b2` stays `0.6.0b2`); promote by cutting a stable from a stable checkout, or run the stable bar against the base version.
+- `pre_of`: with `prerelease` from a stable version, which release the first prerelease is for (`patch` gives `0.4.2rc1`, `minor` gives `0.5.0rc1`).
+- `pre_kind`: `beta` or `rc` (default `beta`). Only used when cutting the first prerelease off a stable version; an existing prerelease always counts up in its own kind. A beta of `0.6.0` is tagged `v0.6.0-beta.1` and carries `0.6.0b1` in `pyproject.toml`.
 - `hotfix`: patch only. Skips the content and gap checks, keeps the rehearsal. It needs a linked issue labelled `hotfix` that reproduces an install or first-run break; this is a manual check.
 - `bypass_reason`: required to proceed past any failing check. It is echoed in the job summary, the release PR and the release commit, and the tag message. Nothing is bypassed silently. A bypass cannot fix "nothing releasable" (only chore, test and style commits) and does not skip the publish gate.
 - `dry_run` (default on) and `stage` (`prepare` or `tag`).
@@ -44,7 +45,8 @@ Checks by class:
 - Patch: user-visible change count or merged PR count, commits since the last stable tag, hours since it, and a rehearsal of the base commit.
 - Hotfix: patch bump and a rehearsal; the evidence line is manual.
 - Minor and major: user-visible `feat` count, days since the previous minor, 0 open issues in the milestone titled `vX.Y.Z` (a title like `v0.5.0` or `v0.4.1 alpha` matches; no milestone is a failure), and a rehearsal. The measured receipt is a manual line.
-- Prerelease: rc number at most `MAX_RC`, and a rehearsal. Use an rc for packaging changes and before any minor.
+- Prerelease, rc: rc number at most `MAX_PRE`, and a rehearsal. Use an rc for packaging changes and before any minor.
+- Prerelease, beta: beta number at most `MAX_PRE`, at least `MINOR_MIN_FEATURES` user-visible `feat` commits since the last stable tag, a rehearsal, and the manual triage line: every open issue on the milestone is either in the beta or moved to `Future`. The minor-only gates (0 open issues, 5-day gap, measured receipt) do not apply to a beta; they apply again when the beta is promoted to the stable minor.
 
 ## Guards
 

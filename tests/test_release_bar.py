@@ -13,6 +13,13 @@ rb = importlib.util.module_from_spec(_SPEC)
 sys.modules["release_bar"] = rb
 _SPEC.loader.exec_module(rb)
 
+_SPEC_NOTES = importlib.util.spec_from_file_location(
+    "release_notes", Path(__file__).resolve().parent.parent / ".github" / "scripts" / "release_notes.py"
+)
+rn = importlib.util.module_from_spec(_SPEC_NOTES)
+sys.modules["release_notes"] = rn
+_SPEC_NOTES.loader.exec_module(rn)
+
 TH = rb.Thresholds()
 SRC = ("src/pyscriptc/cli.py",)
 
@@ -32,9 +39,38 @@ def test_next_version():
     assert rb.next_version("0.4.1", "prerelease") == "0.4.2rc1"
     assert rb.next_version("0.4.1", "prerelease", "minor") == "0.5.0rc1"
     assert rb.next_version("0.5.0rc1", "prerelease") == "0.5.0rc2"
-    assert rb.next_version("0.5.0rc2", "minor") == "0.5.0"
+    # A stable bump off a prerelease promotes it to its base, keeping the kind so the
+    # same bump re-cut on the promoted version is idempotent.
+    assert rb.next_version("0.5.0rc2", "minor") == "0.5.0rc2"
+    assert rb.next_version("0.6.0b2", "minor") == "0.6.0b2"
+    assert rb.next_version("0.5.0rc2", "patch") == "0.5.0rc2"
     with pytest.raises(ValueError):
         rb.next_version("0.5", "patch")
+
+
+def test_next_version_beta_kind():
+    # prerelease with kind=beta cuts a beta of --pre-of, then counts up in kind; kind is
+    # ignored while already on a prerelease (rc stays rc, beta stays beta).
+    assert rb.next_version("0.6.0", "prerelease", "minor", "beta") == "0.7.0b1"
+    assert rb.next_version("0.6.0", "prerelease", "minor", "rc") == "0.7.0rc1"
+    assert rb.next_version("0.6.0b1", "prerelease", kind="beta") == "0.6.0b2"
+    assert rb.next_version("0.6.0rc1", "prerelease", kind="beta") == "0.6.0rc2"
+
+
+def test_tag_version_round_trip():
+    assert rb.tag_version("0.6.0b1") == "v0.6.0-beta.1"
+    assert rb.tag_version("0.6.0b4") == "v0.6.0-beta.4"
+    assert rb.tag_version("0.6.0rc2") == "v0.6.0-rc.2"
+    assert rb.tag_version("0.5.1") == "v0.5.1"
+    assert rb.release_tag("v0.6.0-beta.1") == "0.6.0b1"
+    assert rb.release_tag("v0.6.0-rc.2") == "0.6.0rc2"
+    assert rb.release_tag("v0.5.1") == "0.5.1"
+    for v in ("0.6.0b1", "0.6.0rc2", "0.5.1"):
+        assert rb.release_tag(rb.tag_version(v)) == v
+    with pytest.raises(ValueError):
+        rb.release_tag("v0.6.0b1")  # PEP 440 spelling is not a tag
+    with pytest.raises(ValueError):
+        rb.release_tag("v0.6.0-alpha.1")
 
 
 def test_release_class():
@@ -43,6 +79,7 @@ def test_release_class():
     assert rb.release_class("0.5.0") == "minor"
     assert rb.release_class("1.0.0") == "major"
     assert rb.release_class("0.5.0rc1", hotfix=True) == "prerelease"
+    assert rb.release_class("0.6.0b1") == "prerelease"
 
 
 def test_user_visible_needs_kind_and_path():
@@ -116,10 +153,28 @@ def test_minor_bar():
     assert failing(rb.evaluate("minor", "0.5.0", nomile, TH)) == {"milestone"}
 
 
-def test_prerelease_caps_rc_iterations():
+def test_prerelease_caps_pre_iterations():
     s = rb.Stats(rehearsed=True)
     assert rb.passed(rb.evaluate("prerelease", "0.5.0rc2", s, TH))
     assert failing(rb.evaluate("prerelease", "0.5.0rc3", s, TH)) == {"rc count"}
+
+
+def test_beta_bar():
+    feats = commits(2, "feat(x): y", SRC)
+    ok = rb.Stats(commits=feats, rehearsed=True)
+    checks = rb.evaluate("prerelease", "0.6.0b1", ok, TH)
+    assert rb.passed(checks)
+    assert any(c.name == "beta count" and c.status == "pass" for c in checks)
+    assert any(c.name == "triage" and c.status == "manual" for c in checks)
+    # rc: no features line and no triage line.
+    rc = rb.evaluate("prerelease", "0.6.0rc1", rb.Stats(rehearsed=True), TH)
+    assert not any(c.name in ("features", "triage") for c in rc)
+    # beta gates: iteration cap and the >=2 features, no minor-style milestone/gap lines.
+    capped = rb.evaluate("prerelease", "0.6.0b5", ok, TH)
+    assert "beta count" in failing(capped)
+    one_feat = rb.Stats(commits=feats[:1], rehearsed=True)
+    assert "features" in failing(rb.evaluate("prerelease", "0.6.0b1", one_feat, TH))
+    assert not any(c.name in ("milestone", "minor gap", "content", "commits", "gap") for c in capped)
 
 
 def test_thresholds_from_env():
@@ -127,6 +182,10 @@ def test_thresholds_from_env():
     assert th.patch_min_commits == 5
     assert th.minor_min_days == 1.5
     assert th.patch_min_hours == 12
+    assert rb.Thresholds.from_env({"MAX_PRE": "7"}).max_pre == 7
+    # MAX_RC is the old name, still read so an env left over from before the rename keeps working.
+    assert rb.Thresholds.from_env({"MAX_RC": "3"}).max_pre == 3
+    assert rb.Thresholds.from_env({}).max_pre == 2
 
 
 def run(sha, conclusion="success", title=None):
@@ -174,3 +233,19 @@ def test_report_marks_bypass():
     checks = [rb.Check("gap", "fail", "0.1 h"), rb.Check("rehearsal", "pass", "ok")]
     assert "BYPASSED with reason: broken install" in rb.render_report(checks, "0.4.1", "patch", "broken install")
     assert "re-run with bypass_reason" in rb.render_report(checks, "0.4.1", "patch")
+
+
+def test_release_notes_beta_gets_how_to_test():
+    changelog = "## [0.6.0b1] - 2026-10-25\n\n### Added\n- project mode\n\n## [0.5.1] - 2026-10-01\n\n### Fixed\n- x\n"
+    body = rn.section(changelog, "0.6.0b1")
+    assert "project mode" in body and "0.5.1" not in body
+    text = f"## v0.6.0-beta.1\n\n{body}\n"
+    assert "v0.6.0-beta.1" in text
+
+
+def test_release_notes_tag_parsing():
+    # The beta block keys off the tag spelling, not the changelog heading.
+    m = rn.PRE_TAG.match("v0.6.0-beta.1")
+    assert m and m.group(2) == "beta"
+    assert rn.PRE_TAG.match("v0.6.0-rc.2").group(2) == "rc"
+    assert rn.PRE_TAG.match("v0.5.1") is None

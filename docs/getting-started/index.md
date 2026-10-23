@@ -17,7 +17,7 @@ uv tool install pyscriptc
 
 `pipx install pyscriptc` and `pip install pyscriptc` work the same way, and prebuilt binaries ship on the [releases page](https://github.com/sigilco/pyscriptc/releases).
 
-Compiling to a binary needs a C toolchain on PATH: `clang`, or `zig` which also unlocks cross-compilation. `coverage`, `explain`, `--emit ir` and `--emit llvm` do not. If the driver is missing, `compile` stops before doing any work and points at `pyscriptc doctor`. The full toolchain setup, including per-platform install commands, is in [Install and toolchain](install.md).
+Compiling to a binary needs a C toolchain on PATH: `clang`, or `zig` which also unlocks cross-compilation. `coverage`, `explain`, `--emit ir` and `--emit llvm` do not. If the driver is missing, `compile` stops before doing any work and points at `pyscriptc doctor`. The full toolchain setup, including per-platform install commands, is in [Install and toolchain](install.md). Testing an unreleased build is covered in [Trying the beta](beta.md).
 
 ## Compile and run
 
