@@ -152,6 +152,31 @@ def test_print_file_kwarg_lowers() -> None:
         assert mod["fences"] == [], stream
 
 
+def test_print_to_stderr_links_and_writes_to_stderr(tmp_path: Path) -> None:
+    """`print(file=sys.stderr)` must link and write to the stderr stream.
+
+    On Darwin `stderr` is a macro for `__stderrp`, so naming the symbol
+    directly failed the link; the runtime hands the FILE* over instead.
+    """
+    path = write_case(
+        tmp_path,
+        "to_stderr.py",
+        "\n".join(
+            [
+                "import sys",
+                "def report() -> None:",
+                "    print('to-stderr', file=sys.stderr)",
+                "    print('to-stdout', file=sys.stdout)",
+                "",
+            ]
+        ),
+    )
+    got = run_cli("compile", str(path), "--run", "--call", "report", "-o", str(tmp_path / "to_stderr"))
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == "to-stdout\n"
+    assert got.stderr == "to-stderr\n"
+
+
 def test_print_value_outside_the_scalar_set_fences() -> None:
     mod = lower_source(
         """
