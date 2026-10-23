@@ -877,6 +877,30 @@ def _require_manifest_units(manifest: Any) -> None:
             )
 
 
+def _manifest_stub_roots(manifests: list[Any]) -> list[Path]:
+    """The directories the checker searches for a manifest module's stub.
+
+    An adapter ships its surface as a `.pyi` beside the manifest (the
+    sqlite adapter's `pyscriptc_sqlite.pyi`). The checker has to find it,
+    or the import is a false `missing-import` (issue #66). The root is the
+    directory that holds the stub file, not the manifest's own directory:
+    a manifest may sit in the adapter's root while the stub sits in a
+    subdirectory.
+    """
+    roots: list[Path] = []
+    for manifest in manifests:
+        # Absolute: the checker runs with its own working directory, so a
+        # relative root would resolve against the wrong place.
+        base = manifest.path.parent.resolve()
+        roots.append(base)
+        module = manifest.module.replace(".", "/")
+        for candidate in (base / f"{module}.pyi", base / module / "__init__.pyi"):
+            if candidate.is_file():
+                roots.append(candidate.parent)
+                break
+    return roots
+
+
 def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
     try:
         dbg = resolve(args.debug, args.debug_dir, getattr(args, "timings", False))
@@ -946,7 +970,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         state["stage"] = "check"
         if not args.skip_check:
             dbg.begin("check")
-            run_checker(source_path, args.checker)
+            run_checker(source_path, args.checker, _manifest_stub_roots(manifests))
             dbg.end("check")
         state["stage"] = "validate"
         dbg.begin("validate")

@@ -36,7 +36,7 @@ import sys
 import sysconfig
 import tempfile
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 
@@ -106,14 +106,22 @@ _DEPRECATED_CHECKERS = {
 }
 
 
-def run_checker(path: Path, checker: str = "pyrefly") -> None:
+def run_checker(path: Path, checker: str = "pyrefly", extra_paths: Sequence[Path] = ()) -> None:
+    """Run the checker over `path`.
+
+    `extra_paths` are roots the checker searches besides the source's own
+    directory: the `--ffi` manifest's directory, where the adapter's `.pyi`
+    lives. A manifest module the checker cannot import is a false
+    `missing-import` error, so the manifest directory rides the same search
+    path the stub roots use (issue #66).
+    """
     if checker in _DEPRECATED_CHECKERS:
         warnings.warn(_DEPRECATED_CHECKERS[checker], DeprecationWarning, stacklevel=2)
     if checker == "pyright":
-        _run_pyright(path)
+        _run_pyright(path, extra_paths)
         return
     if checker == "pyrefly":
-        _run_pyrefly(path)
+        _run_pyrefly(path, extra_paths)
         return
     if checker != "mypy":
         raise CheckFailed(f"checker {checker!r} is not wired; the preflight uses pyrefly")
@@ -266,7 +274,7 @@ def _format_pyrefly_error(error):
     return f"{path}:{line}: error: {description} [{rule}]" if rule else f"{path}:{line}: error: {description}"
 
 
-def _run_pyrefly(path: Path) -> None:
+def _run_pyrefly(path: Path, extra_paths: Sequence[Path] = ()) -> None:
     argv = _resolve_pyrefly_binary()
     source = path.resolve()
     with tempfile.TemporaryDirectory(prefix="pyscriptc-pyrefly-") as tmp:
@@ -278,6 +286,7 @@ def _run_pyrefly(path: Path) -> None:
             search += [str(source), str(source.parent)]
         else:
             search.append(str(source.parent))
+        search += [str(root) for root in extra_paths]
         config = Path(tmp) / "pyrefly.toml"
         config.write_text(
             f'typeshed-path = "{typeshed}"\n'
@@ -324,7 +333,7 @@ def _run_pyrefly(path: Path) -> None:
     raise CheckFailed(output)
 
 
-def _run_pyright(path: Path) -> None:
+def _run_pyright(path: Path, extra_paths: Sequence[Path] = ()) -> None:
     argv = _resolve_tool_argv("pyright", "PYRIGHT_BIN", ["pyright"])
     source = path.resolve()
     with tempfile.TemporaryDirectory(prefix="pyscriptc-pyright-") as tmp:
@@ -333,6 +342,7 @@ def _run_pyright(path: Path) -> None:
             json.dumps(
                 {
                     "stubPath": str(_PYRIGHT_STUBS),
+                    "extraPaths": [str(root) for root in extra_paths],
                     "executionEnvironments": [{"root": str(source.parent)}],
                 }
             ),
