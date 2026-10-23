@@ -53,7 +53,7 @@ A third-party `.so` from a wheel exports `PyInit_<module>`. That symbol builds a
 - **C ABI.** The library exports ordinary functions (`mix_crc32`, or the same symbols from a Rust `cdylib`). `ps_mix.c` loads that file with `dlopen`. The binary does not link libpython. This is what "link the native dependency" means.
 - **Extension module.** `ps_island_mix_crc32` asks embedded CPython to `import` the extension, the same way `subprocess.check_output` already runs on the island. The binary links libpython. This is the only path for cryptography, numpy, pydantic-core, and the other `PyInit_*` wheels.
 
-`import nativeprobe` lowers only when `PYSCRIPTC_NATIVEPROBE=1`. It is the probe behind [`benchmarks/native/`](benchmarks/native/README.md), not a supported module. A normal compile still refuses it with `PS2002`.
+`import nativeprobe` lowers only through the benchmark's FFI manifest: `pyscriptc compile demo.py --ffi benchmarks/native/nativeprobe.toml` (issue #218). It is the probe behind [`benchmarks/native/`](benchmarks/native/README.md), not a supported module. A compile without the manifest still refuses it with `PS2002`.
 
 ## The emitter golden corpus
 

@@ -23,6 +23,7 @@ from pyscriptc.diagnostics import explain
 from pyscriptc.doctor import doctor_cmd
 from pyscriptc.emit.llvm import compile_unit, emit_llvm, link_binary, standalone_entry
 from pyscriptc.errors import FitError, IRError, SpikeError, VersionError
+from pyscriptc.ffi_manifest import FfiManifestError, load_manifests
 from pyscriptc.imports import build_report as build_import_report
 from pyscriptc.imports import render_text as render_import_text
 from pyscriptc.ir import validate_module
@@ -59,6 +60,14 @@ def main(argv: list[str] | None = None) -> int:
         help="write artifacts to DIR/<source name> instead of beside the source (useful for directory compiles)",
     )
     compile_parser.add_argument("-o", dest="output")
+    compile_parser.add_argument(
+        "--ffi",
+        action="append",
+        metavar="MANIFEST",
+        default=[],
+        help="bind a typed extern manifest (TOML) and link its C sources; repeatable. "
+        "Also read from the `ffi` key of pyscriptc.toml / PEP 723 metadata",
+    )
     compile_parser.add_argument("--call", help="function the generated main calls")
     compile_parser.add_argument(
         "--args",
@@ -158,6 +167,13 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--skip-check", action="store_true")
     run_parser.add_argument("--checker", choices=("pyrefly", "mypy", "pyright"), default="pyrefly")
     run_parser.add_argument("--no-cache", action="store_true", help="always recompile (env PYSC_NO_RUN_CACHE=1)")
+    run_parser.add_argument(
+        "--ffi",
+        action="append",
+        metavar="MANIFEST",
+        default=[],
+        help="bind a typed extern manifest (TOML) and link its C sources; repeatable",
+    )
     coverage_parser = sub.add_parser("coverage", help="report every fence in a file or package tree", parents=[common])
     coverage_parser.add_argument("source")
     coverage_parser.add_argument("--json", action="store_true", help="print the report as JSON")
@@ -279,6 +295,8 @@ def run_cmd(args: argparse.Namespace) -> int:
     if not source.exists():
         raise IRError(f"source not found: {source}")
     use_cache = runcache.enabled() and not args.no_cache
+    ffi_paths = [str(p) for p in getattr(args, "ffi", None) or []]
+    ffi_paths.extend(str(p) for p in load_config(source).ffi_manifests)
     key = runcache.key_for(
         source,
         load_config(source).origin,
@@ -293,6 +311,7 @@ def run_cmd(args: argparse.Namespace) -> int:
             f"debug_info={getattr(args, 'debug_info', False)}",
             f"skip_check={args.skip_check}",
             f"checker={args.checker}",
+            f"ffi={','.join(ffi_paths)}",
         ],
     )
     name = (source.resolve().name if source.is_dir() else source.stem) or "app"
@@ -399,6 +418,8 @@ def _build_for_run(args: argparse.Namespace, output: Path) -> int:
         debug_dir=None,
         run_argv=[],
     )
+    compile_args.ffi = [*getattr(args, "ffi", [])]
+    compile_args.ffi.extend(str(p) for p in load_config(Path(args.source)).ffi_manifests)
     # compile prints the binary path on success; keep stdout clean for the program
     real_stdout = sys.stdout
     sys.stdout = sys.stderr
@@ -756,6 +777,30 @@ def _require_toolchain(args: argparse.Namespace) -> None:
         )
 
 
+def _load_ffi(args: argparse.Namespace, config: Any) -> list[Any]:
+    """The `--ffi` manifests of this compile, CLI first then the config file.
+
+    The manifests are validated before lowering starts, so a bad pin or a
+    duplicate module claim fails with its `PS4xxx` code and exit 1 (the
+    `SpikeError` handler) instead of a link error later.
+    """
+    paths = [Path(item) for item in getattr(args, "ffi", None) or []]
+    paths.extend(config.ffi_manifests)
+    if not paths:
+        return []
+    manifests = load_manifests(paths)
+    for manifest in manifests:
+        if manifest.sources:
+            raise FfiManifestError(
+                "PS4008",
+                f"the manifest declares [[source]] units, which the compiler does not link yet "
+                f"(the F2 static-link gate, sigilco/pyscriptc#220): "
+                f"{', '.join(str(unit) for unit in manifest.unit_paths())}",
+                path=manifest.path,
+            )
+    return manifests
+
+
 def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
     try:
         dbg = resolve(args.debug, args.debug_dir, getattr(args, "timings", False))
@@ -774,6 +819,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
     config = load_config(source_path)
     for note in apply_to_args(config, args):
         print(note, file=sys.stderr)
+    manifests = _load_ffi(args, config)
     log.info(
         "compile.start",
         source=str(source_path),
@@ -797,9 +843,9 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             dbg.end("bridge")
         dbg.begin("lower")
         if source_path.is_dir():
-            module, source = lower_directory(source_path, program_mode=args.program, bridge=bridge)
+            module, source = lower_directory(source_path, program_mode=args.program, bridge=bridge, ffi=manifests)
         elif source_path.is_file():
-            module, source = lower_file(str(source_path), bridge=bridge, timings=dbg.timings_map)
+            module, source = lower_file(str(source_path), bridge=bridge, timings=dbg.timings_map, ffi=manifests)
         else:
             raise IRError(f"source not found: {source_path}")
         dbg.end("lower")
@@ -902,6 +948,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             sanitize=sanitize,
             timings=dbg.timings_map,
             debug_info=debug_info,
+            extra_units=[path for manifest in manifests for path in manifest.unit_paths()],
         )
         dbg.end("link")
         outputs["bin"] = str(binary)

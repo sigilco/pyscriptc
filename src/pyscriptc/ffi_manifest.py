@@ -643,6 +643,37 @@ def _parse_signature(
     return tuple(params), returns
 
 
+def type_ir(type_name: str, handle_names: frozenset[str] | set[str] = frozenset()) -> dict[str, Any]:
+    """The IR type dict for a manifest type name.
+
+    The scalar names map onto the type dicts the lowerer already uses
+    (`int` to `{"kind": "int"}`). A declared handle rides the `class` path,
+    which the emitter lowers as a `ptr` (`.agents/docs/ffi/ffi-manifest.md`
+    section 3). The caller passes the handle names so the mapping stays a
+    pure function of the manifest.
+    """
+    name = type_name.strip()
+    if name in handle_names:
+        return {"kind": "class", "name": name}
+    if name == "int":
+        return {"kind": "int"}
+    if name == "float":
+        return {"kind": "float"}
+    if name == "bool":
+        return {"kind": "bool"}
+    if name == "str":
+        return {"kind": "str"}
+    if name == "bytes":
+        return {"kind": "bytes"}
+    if name == "list":
+        return {"kind": "list", "elem": {"kind": "none"}}
+    if name == "dict":
+        return {"kind": "dict", "key": {"kind": "none"}, "value": {"kind": "none"}}
+    if name == "None":
+        return {"kind": "none"}
+    raise FfiManifestError("PS4006", f"the type {name!r} has no IR type in the FFI vocabulary")
+
+
 def _split_params(raw: str) -> list[str]:
     """Split a parameter list on commas that are not inside brackets."""
     parts: list[str] = []
