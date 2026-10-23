@@ -125,7 +125,7 @@ class TestCurlBridge:
         text = page.read_text(encoding="utf-8")
         assert "import urllib.request" in text
         assert "resp: urllib.request.HTTPResponse = urllib.request.urlopen(url)" in text
-        assert 'body: bytes = resp.read()' in text
+        assert "body: bytes = resp.read()" in text
         assert 'body.decode("utf-8")' in text
         assert 'doc["status"]' in text
         # The escape hatch stays on the page with its exact call shape.
