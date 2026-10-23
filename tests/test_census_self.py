@@ -103,8 +103,10 @@ def test_self_census_ballpark() -> None:
     # Generator protocol (#166): close/throw/send/next-default surface in
     # coro.py, lower/_calls.py, lower/_classes.py and restlower/_iterators.py
     # add 11 self-host fences (new lowering code and its annotations).
-    assert census["fences"] == 2499
+    # Telemetry v2 (#257): the PSxxxx histogram, the binary size and the
+    # run.finished event add 10 self-host fences in telemetry.py and cli.py.
+    assert census["fences"] == 2509
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     assert 11_000 <= census["lines"] <= 36_000
-    assert sum(p["fences"] for p in census["packages"]) == 2499
+    assert sum(p["fences"] for p in census["packages"]) == 2509

@@ -2,13 +2,19 @@
 
 What is sent: a short event payload (subcommand, version, python major.minor, platform, and
 for `compile` a duration, an outcome, the fence count, the diagnostic family
-names behind those fences and the checker/emit/driver flags;
-for `coverage` the aggregate fence and definition counts). The id is a random
+names and the diagnostic codes (PSxxxx, counts only) behind those fences, the
+linked binary size, and the checker/emit/driver flags; for `run` the exit
+code, the duration, whether the binary came from the content-hash cache and
+the toolchain flags; for `coverage` the aggregate fence and definition
+counts). The id is a random
 uuid4 stored in `telemetry-id` next to the config file; no hardware is read.
 Every event also carries `$ip: null`, `$geoip_disable` and `$process_person_profile: false`.
 Never sent: file names, paths, source text, per-fence identifiers (the file,
-definition, line or frame a fence points at), or anything else derived from
-the compiled program.
+definition, line or frame a fence points at), fence messages, the compiled
+program's exit output, or anything else derived from the compiled program.
+The PSxxxx codes in the histogram are part of the compiler's fixed diagnostic
+vocabulary (see `pyscriptc explain`); a code says which construct is
+unsupported, never which statement produced it.
 
 Token flow. The PostHog project token is baked in at release time, not read
 from the environment at run time: the release workflow writes
@@ -165,15 +171,17 @@ PRIVACY_URL = "https://github.com/sigilco/pyscriptc/blob/master/docs/project/pri
 
 NOTICE = (
     "pyscriptc sends usage metrics: command name, pyscriptc/Python/OS versions, compile outcome, "
-    "duration, fence counts and diagnostic family names, plus a random install id (no hardware ids, "
-    "no IP address stored). Never source code, file paths or names. Data goes to PostHog (EU) and is kept 90 days.\n"
+    "duration, fence counts, diagnostic family names and diagnostic codes (counts only), plus a "
+    "random install id (no hardware ids, no IP address stored). Never source code, file paths or names. "
+    "Data goes to PostHog (EU) and is kept 90 days.\n"
     "Opt out: PYSC_NO_TELEMETRY=1 or `pyscriptc telemetry disable`; new id: `pyscriptc telemetry reset-id`.\n"
     "Details: " + NOTICE_URL + "  Privacy: " + PRIVACY_URL
 )
 
 NOTICE_OPT_IN = (
     "pyscriptc can send anonymous-by-design usage metrics (command name, versions, compile outcome, duration, "
-    "fence counts and diagnostic family names, a random install id; never source code, paths or names, no IP stored). "
+    "fence counts, diagnostic family names and diagnostic codes (counts only), a random install id; "
+    "never source code, paths or names, no IP stored). "
     "It is OFF until you consent: run `pyscriptc telemetry enable` to turn it on.\n"
     "Details: " + NOTICE_URL + "  Privacy: " + PRIVACY_URL
 )
@@ -272,6 +280,8 @@ def compile_properties(
     outcome: str,
     fence_count: int,
     fence_families: dict[str, int],
+    fence_codes: dict[str, int] | None = None,
+    binary_bytes: int | None = None,
     checker: str | None = None,
     emit: str | None = None,
     driver: str | None = None,
@@ -282,7 +292,13 @@ def compile_properties(
     `outcome` is one of ok|fences|check-failed|lower-error|build-error.
     `fence_families` maps a diagnostic family name to a count; callers
     must strip the dynamic "stdlib:<module>" suffix before calling.
-    Never includes file names, paths, or source text.
+    `fence_codes` maps a diagnostic code (PSxxxx) to a count; the code is
+    part of the compiler's fixed vocabulary, so the histogram carries no
+    information about the compiled program beyond "this construct is
+    unsupported". Never includes file names, paths, source text, or the
+    per-fence location, message, definition or function.
+    `binary_bytes` is the size of the linked binary in bytes, or None when
+    no binary was produced.
     """
     props = dict(base_properties())
     props.update(
@@ -290,13 +306,48 @@ def compile_properties(
         outcome=outcome,
         fence_count=fence_count,
         fence_families=dict(fence_families),
+        fence_codes=dict(fence_codes or {}),
         emit=emit,
         skip_check=skip_check,
     )
+    if binary_bytes is not None:
+        props["binary_bytes"] = int(binary_bytes)
     if checker:
         props["checker"] = checker
     if driver:
         props["driver"] = driver
+    return props
+
+
+def run_properties(
+    *,
+    duration_ms: int,
+    exit_code: int,
+    cache_hit: bool,
+    binary_bytes: int | None = None,
+    driver: str | None = None,
+    target: str | None = None,
+    skip_check: bool = False,
+) -> dict:
+    """Build the `run.finished` property payload.
+
+    Only the exit code, the wall time, whether the binary came from the
+    content-hash cache, the size of the linked binary and the toolchain
+    flags. Never the program name, its path, its arguments or its output.
+    """
+    props = dict(base_properties())
+    props.update(
+        duration_ms=duration_ms,
+        exit_code=int(exit_code),
+        cache_hit=bool(cache_hit),
+        skip_check=bool(skip_check),
+    )
+    if binary_bytes is not None:
+        props["binary_bytes"] = int(binary_bytes)
+    if driver:
+        props["driver"] = driver
+    if target:
+        props["target"] = target
     return props
 
 
