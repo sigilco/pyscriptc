@@ -40,9 +40,11 @@ Scope today: module-level generators annotated `Iterator[T]`, `Iterable[T]` or
 annotation, `yield v` and `yield from <iterable>` as statements, bare
 `return`, yields under `if`/`while`/`for`, `await <coroutine call>` as a
 statement or the whole value of an assignment, `asyncio.run`,
-`asyncio.sleep` and `asyncio.gather`. Not yet: yield inside try/with, awaits
-inside try/with, `send`/`throw`/`close`, nested or generic or decorated
-resumables, methods, package units, `create_task` with independent lifetimes.
+`asyncio.sleep` and `asyncio.gather`. `@contextmanager` (module level, on a
+method, and in package units) lowers to a `cm.<name>` wrapper whose
+`__enter__`/`__exit__` drive the generator frame. Not yet: yield inside
+try/with, awaits inside try/with, nested or generic resumables, `async with`,
+`async for`, async generators, `contextmanager` used as a call.
 `PYSC_CORO=0` turns the lowering off (generators and coroutines fence as
 before).
 """
@@ -67,6 +69,8 @@ TASK = ".ps_task"
 SELF = ".ps_self"
 RESUME = ".ps_rs"
 SEND = ".ps_send"
+GEN = ".ps_gen"
+VALUE = ".ps_val"
 AWAIT_RESULT_PREFIX = ".ps_awv_"
 DONE = -1
 PENDING = 0
@@ -94,13 +98,14 @@ class CoroError(Exception):
 class FramePlan:
     """What the lowerer decided for one resumable function."""
 
-    kind: str  # "generator" or "coroutine"
+    kind: str  # "generator", "coroutine" or "contextmanager"
     function: str
     frame: str
     elem: dict[str, Any]  # yield element (generator) or return value (coroutine)
     params: list[dict[str, Any]] = field(default_factory=list)
     ir_name: str = ""  # the wrapper's IR name (`pkg.mod.g` in a package unit)
     send: dict[str, Any] = field(default_factory=lambda: dict(_NONE))  # the Generator[T, S, R] send type
+    manager: str = ""  # `@contextmanager` wrapper class (`cm.<name>`), "" for a plain generator
 
 
 def enabled() -> bool:
@@ -109,6 +114,24 @@ def enabled() -> bool:
 
 def is_generator(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
     return any(isinstance(node, (ast.Yield, ast.YieldFrom)) for node in _own_nodes(fn.body))
+
+
+def is_contextmanager(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """True when the function carries a sync `@contextmanager` decorator.
+
+    The decorator is recognised by name only: `contextmanager` or
+    `contextlib.contextmanager`. The lowerer checks the import binding, so
+    a local function named `contextmanager` is not mistaken for the stdlib
+    one.
+    """
+    if isinstance(fn, ast.AsyncFunctionDef):
+        return False
+    for dec in fn.decorator_list:
+        if isinstance(dec, ast.Name) and dec.id == "contextmanager":
+            return True
+        if isinstance(dec, ast.Attribute) and dec.attr == "contextmanager":
+            return True
+    return False
 
 
 def _own_nodes(body: list[ast.stmt]):
@@ -195,7 +218,10 @@ class CoroMixin:
     ) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
         """The outward signature of a module-level resumable, or None for any
         other function (the caller then uses `_signature` as before)."""
-        if not enabled() or fn.decorator_list:
+        if not enabled():
+            return None
+        manager = not fn.decorator_list or is_contextmanager(fn)
+        if not manager or fn.decorator_list and len(fn.decorator_list) > 1:
             return None
         if self.cataloguing and not (is_generator(fn) or isinstance(fn, ast.AsyncFunctionDef)):
             return None
@@ -210,6 +236,7 @@ class CoroMixin:
         if shape is not None:
             self.fail(shape[0], "PS2002", shape[1])
         plain = copy.copy(fn)
+        plain.decorator_list = []
         plain.returns = ast.Constant(value=None)
         params, _ = self._signature(plain, None, "method")
         from pyscriptc.lower._core import _has_typevar
@@ -239,6 +266,38 @@ class CoroMixin:
             "coro": "coroutine" if coroutine else "generator",
         }
         self.known_classes.add(frame)
+        manager = ""
+        outward = frame_t
+        if is_contextmanager(fn):
+            # `@contextmanager`: the function returns a context manager, not
+            # the generator frame. The wrapper allocates the frame, hands it
+            # to a `cm.<name>` object, and the `with` statement drives that
+            # object through `__enter__`/`__exit__`.
+            manager = f"cm.{fn.name}"
+            outward = {"kind": "class", "name": manager}
+            opt_str = self._opt_type({"kind": "str"}, fn)
+            opt_exc = self._opt_type({"kind": "exc"}, fn)
+            self.classes[manager] = {
+                "fields": [],
+                "own_fields": [],
+                "methods": {
+                    "__enter__": (self_t, elem),
+                    "__exit__": (
+                        self_t
+                        + [
+                            {"name": ".ps_exc_type", "type": opt_str},
+                            {"name": ".ps_exc_value", "type": opt_exc},
+                            {"name": ".ps_exc_tb", "type": opt_str},
+                        ],
+                        _BOOL,
+                    ),
+                },
+                "method_kind": {},
+                "method_owner": {},
+                "base": None,
+                "coro": "contextmanager",
+            }
+            self.known_classes.add(manager)
         self._coro_plans()[fn.name] = FramePlan(
             "coroutine" if coroutine else "generator",
             fn.name,
@@ -247,8 +306,9 @@ class CoroMixin:
             params,
             self._ir_name(fn.name),
             send,
+            manager,
         )
-        return params, frame_t
+        return params, outward
 
     def _coro_result(self, fn: ast.AsyncFunctionDef) -> dict[str, Any]:
         """A coroutine's result type is its return annotation."""
@@ -299,15 +359,19 @@ class CoroMixin:
 
         A generator method returns its frame class: `C.items()` yields a
         `gen.C.items` frame, and the caller consumes it through the same
-        `__iter__`/`__next__` path a module-level generator uses.
+        `__iter__`/`__next__` path a module-level generator uses. With
+        `@contextmanager` the outward type is the `cm.<C>.<m>` wrapper.
         """
-        if not enabled() or not is_generator(fn) or fn.decorator_list:
+        if not enabled() or not is_generator(fn):
+            return None
+        if fn.decorator_list and not is_contextmanager(fn):
             return None
         elem, send = self._coro_types(fn)
         shape = _shape_error(fn)
         if shape is not None:
             self.fail(shape[0], "PS2002", shape[1])
         plain = copy.copy(fn)
+        plain.decorator_list = []
         plain.returns = ast.Constant(value=None)
         params, _ = self._signature(plain, class_name, "method")
         from pyscriptc.lower._core import _has_typevar
@@ -337,8 +401,36 @@ class CoroMixin:
         }
         self.known_classes.add(frame)
         key = f"{class_name}.{fn.name}"
-        self._coro_plans()[key] = FramePlan("generator", key, frame, elem, params, "", send)
-        return params, frame_t
+        manager = ""
+        outward = frame_t
+        if is_contextmanager(fn):
+            manager = f"cm.{frame}"
+            outward = {"kind": "class", "name": manager}
+            opt_str = self._opt_type({"kind": "str"}, fn)
+            opt_exc = self._opt_type({"kind": "exc"}, fn)
+            self.classes[manager] = {
+                "fields": [],
+                "own_fields": [],
+                "methods": {
+                    "__enter__": (self_t, elem),
+                    "__exit__": (
+                        self_t
+                        + [
+                            {"name": ".ps_exc_type", "type": opt_str},
+                            {"name": ".ps_exc_value", "type": opt_exc},
+                            {"name": ".ps_exc_tb", "type": opt_str},
+                        ],
+                        _BOOL,
+                    ),
+                },
+                "method_kind": {},
+                "method_owner": {},
+                "base": None,
+                "coro": "contextmanager",
+            }
+            self.known_classes.add(manager)
+        self._coro_plans()[key] = FramePlan("generator", key, frame, elem, params, "", send, manager)
+        return params, outward
 
     def _coro_method_body_sig(
         self, class_name: str, method: str, params: list[dict[str, Any]], ret: dict[str, Any]
@@ -541,6 +633,8 @@ def lower_resumables(module: dict[str, Any], plans: dict[str, FramePlan]) -> dic
         if forwarder is not None:
             functions.append(forwarder)
         classes.append(frame)
+        if plan.manager:
+            classes.append(_manager_class(plan, fn["span"]))
     classes = _lower_method_resumables(classes, plans, fences)
     return {**module, "functions": functions, "classes": classes, "fences": fences}
 
@@ -571,6 +665,8 @@ def _lower_method_resumables(
                 continue
             methods.append(wrapper)
             out.append(frame)
+            if plan.manager:
+                out.append(_manager_class(plan, method["span"]))
         out.append({**cls, "methods": methods})
     return out
 
@@ -585,6 +681,153 @@ def _plan_by_ir_name(plans: dict[str, FramePlan], ir_name: str) -> FramePlan | N
         if plan.ir_name and plan.ir_name == ir_name:
             return plan
     return None
+
+
+def _manager_class(plan: FramePlan, span: dict[str, Any]) -> dict[str, Any]:
+    """The `cm.<name>` class behind `@contextmanager`.
+
+    Fields: the generator frame and the value the first `__next__` yielded.
+    `__enter__` drives the generator to its first yield and hands the value
+    out; `__exit__` finishes the generator — with the exception marked into
+    the frame when the `with` body raised (the generator can never catch it,
+    a yield inside try is fenced, so re-raising is the exact outcome), and
+    StopIteration caught when the body returns normally.
+    """
+    self_t = {"kind": "class", "name": plan.manager}
+    gen_t = {"kind": "class", "name": plan.frame}
+    # The generator frame lives in the manager's `.ps_gen` field; both
+    # methods read it out of `self` before driving it.
+    gen_self = _attr_expr(_name(SELF, self_t, span), GEN, gen_t, span)
+    enter_step = {
+        "kind": "call",
+        "callee": {"kind": "function", "name": f"cls.{plan.frame}.__next__"},
+        "args": [gen_self],
+        "type": plan.elem,
+        "span": span,
+    }
+    enter = {
+        "name": "__enter__",
+        "params": [{"name": SELF, "type": self_t}],
+        "returnType": plan.elem,
+        "locals": [{"name": SELF, "type": self_t}, {"name": VALUE, "type": plan.elem}],
+        "body": [
+            {
+                "kind": "try",
+                "body": [
+                    _assign(VALUE, enter_step, span),
+                    _attr_set(_name(SELF, self_t, span), VALUE, _name(VALUE, plan.elem, span), span),
+                    {"kind": "return", "value": _name(VALUE, plan.elem, span), "span": span},
+                ],
+                # `__next__` returned: the generator finished without
+                # yielding. CPython raises
+                # RuntimeError("generator didn't yield").
+                "handlers": [
+                    {
+                        "exc": ["StopIteration"],
+                        "body": [
+                            {
+                                "kind": "raise",
+                                "exc": "RuntimeError",
+                                "message": _const_str("generator didn't yield", span),
+                                "span": span,
+                            }
+                        ],
+                    }
+                ],
+                "span": span,
+            },
+            {"kind": "return", "value": _name(VALUE, plan.elem, span), "span": span},
+        ],
+        "span": span,
+    }
+    opt_str = {
+        "kind": "class",
+        "name": "opt_str",
+        "label": "str | None",
+        "optional": True,
+        "elem": {"kind": "str"},
+    }
+    opt_exc = {
+        "kind": "class",
+        "name": "opt_exc",
+        "label": "Exception | None",
+        "optional": True,
+        "elem": {"kind": "exc"},
+    }
+    exc_types = [
+        {"name": SELF, "type": self_t},
+        {"name": ".ps_exc_type", "type": opt_str},
+        {"name": ".ps_exc_value", "type": opt_exc},
+        {"name": ".ps_exc_tb", "type": opt_str},
+    ]
+    # The in-flight exception: the manager's `__exit__` third arg is the
+    # tagged optional carrying it. `_with_cm` boxes None (clear tag) when
+    # the body returned and the exception (set tag) when it raised.
+    raised = _attr_expr(_name(".ps_exc_value", opt_exc, span), "_tag", _BOOL, span)
+    # Exception path: mark the generator done (CPython's throw-then-close on
+    # a generator that never catches) and return False so the `with`
+    # re-raises the original exception.
+    exit_body = [
+        _if(
+            raised,
+            [
+                _attr_set(gen_self, STATE, _const(DONE, _INT, span), span),
+                {"kind": "return", "value": _const(False, _BOOL, span), "span": span},
+            ],
+            [],
+            span,
+        ),
+        {
+            "kind": "try",
+            "body": [
+                {
+                    "kind": "expr",
+                    "expr": {
+                        "kind": "call",
+                        "callee": {"kind": "function", "name": f"cls.{plan.frame}.__next__"},
+                        "args": [gen_self],
+                        "type": plan.elem,
+                        "span": span,
+                    },
+                    "span": span,
+                },
+                # `__next__` returned: the generator yielded a second time
+                # instead of finishing. CPython raises
+                # RuntimeError("generator didn't stop").
+                {
+                    "kind": "raise",
+                    "exc": "RuntimeError",
+                    "message": _const_str("generator didn't stop", span),
+                    "span": span,
+                },
+            ],
+            "handlers": [{"exc": ["StopIteration"], "body": []}],
+            "span": span,
+        },
+        {"kind": "return", "value": _const(False, _BOOL, span), "span": span},
+    ]
+    exit_m = {
+        "name": "__exit__",
+        "params": exc_types,
+        "returnType": _BOOL,
+        "locals": [
+            {"name": SELF, "type": self_t},
+            {"name": ".ps_exc_type", "type": opt_str},
+            {"name": ".ps_exc_value", "type": opt_exc},
+            {"name": ".ps_exc_tb", "type": opt_str},
+        ],
+        "body": exit_body,
+        "span": span,
+    }
+    return {
+        "name": plan.manager,
+        "fields": [
+            {"name": GEN, "type": gen_t},
+            {"name": VALUE, "type": plan.elem},
+        ],
+        "methods": [enter, exit_m],
+        "span": span,
+    }
 
 
 class _Kind:
@@ -866,6 +1109,40 @@ class _Frame:
                     "span": span,
                 }
             )
+        out_t = self.frame_t
+        if self.plan.manager:
+            # `@contextmanager`: wrap the frame in the context-manager object
+            # and return that; `with cm(...) as v` drives it.
+            out_t = {"kind": "class", "name": self.plan.manager}
+            mslot = ".ps_cm"
+            made = {
+                "kind": "call",
+                "callee": {"kind": "class", "name": self.plan.manager},
+                "args": [],
+                "type": out_t,
+                "span": span,
+            }
+            mtarget = _name(mslot, out_t, span)
+            body.append(_assign(mslot, made, span))
+            body.append(
+                {
+                    "kind": "setattr",
+                    "object": mtarget,
+                    "name": GEN,
+                    "value": target,
+                    "span": span,
+                }
+            )
+            body.append({"kind": "return", "value": mtarget, "span": span})
+            params_locals = [{"name": p["name"], "type": p["type"]} for p in self.fn["params"]]
+            return {
+                "name": self.fn["name"],
+                "params": self.fn["params"],
+                "returnType": out_t,
+                "locals": [*params_locals, {"name": slot, "type": self.frame_t}, {"name": mslot, "type": out_t}],
+                "body": body,
+                "span": span,
+            }
         body.append({"kind": "return", "value": target, "span": span})
         params_locals = [{"name": p["name"], "type": p["type"]} for p in self.fn["params"]]
         return {
@@ -1154,6 +1431,10 @@ def _const(value: Any, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, A
     return {"kind": "const", "value": value, "type": typ, "span": span}
 
 
+def _const_str(value: str, span: dict[str, Any]) -> dict[str, Any]:
+    return {"kind": "const", "value": value, "type": {"kind": "str"}, "span": span}
+
+
 def _assign(target: str, value: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
     return {"kind": "assign", "target": target, "value": value, "span": span}
 
@@ -1164,6 +1445,10 @@ def _compare(op: str, left: dict[str, Any], right: dict[str, Any], span: dict[st
 
 def _attr_expr(value: dict[str, Any], name: str, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
     return {"kind": "attr", "value": value, "name": name, "type": typ, "span": span}
+
+
+def _attr_set(target: dict[str, Any], name: str, value: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    return {"kind": "setattr", "object": target, "name": name, "value": value, "span": span}
 
 
 def _await_result_name(slot: str) -> str:

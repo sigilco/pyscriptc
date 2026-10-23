@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-23",
-  "commit": "69a2c75bc65e890d2da5a755fd8f68823617c75b",
+  "commit": "f01f6a6c63e9e47e07eb4fb89d35c102629a6fee",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 5,
     "packages_none": 10,
     "weighted_pass": 0.0,
-    "fences": 3048
+    "fences": 3041
   },
   "builtins": [
     {
@@ -1304,11 +1304,11 @@
       "top_families": [
         {
           "family": "param-inference",
-          "count": 39
+          "count": 38
         },
         {
           "family": "return-inference",
-          "count": 15
+          "count": 16
         },
         {
           "family": "class-body",
@@ -1356,7 +1356,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 89
+          "count": 92
         },
         {
           "code": "PS1001",
@@ -1364,7 +1364,7 @@
         },
         {
           "code": "PS1106",
-          "count": 10
+          "count": 8
         }
       ],
       "pypi": "https://pypi.org/project/python-dotenv/"
@@ -1394,11 +1394,11 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 430
+          "count": 432
         },
         {
           "code": "PS1001",
-          "count": 79
+          "count": 78
         },
         {
           "code": "PS2001",
@@ -1640,9 +1640,9 @@
       "import_name": "packaging",
       "version": "26.3",
       "status": "none",
-      "fences": 634,
+      "fences": 627,
       "definitions": 558,
-      "fenced_definitions": 287,
+      "fenced_definitions": 283,
       "top_families": [
         {
           "family": "name-resolution",
@@ -1660,15 +1660,15 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 259
+          "count": 262
         },
         {
           "code": "PS1106",
           "count": 90
         },
         {
-          "code": "PS2001",
-          "count": 54
+          "code": "PS1001",
+          "count": 52
         }
       ],
       "pypi": "https://pypi.org/project/packaging/"
@@ -1736,7 +1736,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 170
+          "count": 171
         },
         {
           "code": "PS1001",
@@ -1802,11 +1802,11 @@
         },
         {
           "family": "param-inference",
-          "count": 14
+          "count": 13
         },
         {
           "family": "return-inference",
-          "count": 4
+          "count": 5
         }
       ],
       "codes": [
@@ -1945,25 +1945,25 @@
     {
       "code": "PS2002",
       "title": "construct not lowered",
-      "count": 1476,
+      "count": 1485,
       "packages": 15
     },
     {
       "code": "PS1001",
       "title": "annotation missing or not lowered",
-      "count": 517,
+      "count": 516,
       "packages": 15
     },
     {
       "code": "PS1106",
       "title": "annotation names an unlowered type",
-      "count": 200,
+      "count": 197,
       "packages": 9
     },
     {
       "code": "PS2001",
       "title": "stdlib name not lowered",
-      "count": 188,
+      "count": 184,
       "packages": 14
     },
     {
@@ -1981,19 +1981,19 @@
     {
       "code": "PS1101",
       "title": "union annotation",
-      "count": 92,
+      "count": 91,
       "packages": 9
     },
     {
       "code": "PS2003",
       "title": "call arguments not lowered",
-      "count": 72,
+      "count": 71,
       "packages": 8
     },
     {
       "code": "PS1201",
       "title": "decorator",
-      "count": 70,
+      "count": 66,
       "packages": 8
     },
     {
@@ -2037,23 +2037,17 @@
       "title": "string literal outside Latin-1",
       "count": 4,
       "packages": 2
-    },
-    {
-      "code": "PS1206",
-      "title": "with-as binding",
-      "count": 2,
-      "packages": 1
     }
   ],
   "history": [
     {
       "date": "2026-10-23",
-      "commit": "69a2c75bc65e890d2da5a755fd8f68823617c75b",
+      "commit": "f01f6a6c63e9e47e07eb4fb89d35c102629a6fee",
       "weighted_pass": 0.0,
       "packages_full": 3,
       "packages_partial": 5,
       "packages_none": 10,
-      "fences": 3048
+      "fences": 3041
     }
   ]
 }

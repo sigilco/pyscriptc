@@ -1557,7 +1557,7 @@ CALL_FENCES: dict[tuple[str, str], str] = {
     ("operator", "itemgetter"): "operator.itemgetter is not a value",
     ("operator", "attrgetter"): "operator.attrgetter is not a value",
     ("operator", "methodcaller"): "operator.methodcaller is not a value",
-    ("contextlib", "contextmanager"): "decorators are not lowered",
+    ("contextlib", "contextmanager"): "contextmanager is only lowered as a decorator",
     ("threading", "current_thread"): "threading.current_thread is only lowered for .name",
 }
 

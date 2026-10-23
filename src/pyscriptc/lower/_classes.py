@@ -13,6 +13,7 @@ import copy
 from typing import Any, NoReturn
 
 from pyscriptc.builtins import EXCEPTIONS
+from pyscriptc.coro import enabled
 from pyscriptc.errors import span_of
 from pyscriptc.ir import type_key, types_equal
 from pyscriptc.lower._core import (
@@ -478,6 +479,10 @@ class ClassesMixin:
             target = dec.func
         if isinstance(target, ast.Name) and target.id in {"property", "staticmethod", "classmethod"}:
             return {"property": "property", "staticmethod": "static", "classmethod": "class"}[target.id]
+        if self._is_contextmanager_deco(fn) and enabled():
+            # `@contextmanager`: the coro pass owns it; the method still
+            # lowers as a plain method (the body is the resume body).
+            return "method"
         self.fail(fn, "PS1201", "decorators are not lowered")
         raise AssertionError("unreachable")
 
