@@ -50,7 +50,8 @@ DEPS_CODE = "PS3101"
 LOCK_TOOL_KEY = "pyscriptc"
 EXTENSION_SUFFIXES = (".so", ".pyd", ".dylib", ".dll")
 SKIPPED_DATA_DIRS = ("scripts", "headers", "data")
-SKIPPED_DIR_NAMES = ("tests", "test", "docs", "examples")
+SKIPPED_DIR_NAMES = ("test", "docs", "examples")  # only at the wheel root
+SKIPPED_ANYWHERE = ("tests",)
 
 log = get_logger()
 
@@ -423,7 +424,7 @@ def _should_skip_member(parts: tuple[str, ...]) -> bool:
         parts = parts[2:]
         if not parts:
             return True
-    if any(part in SKIPPED_DIR_NAMES for part in parts[:-1]):
+    if (len(parts) > 1 and parts[0] in SKIPPED_DIR_NAMES) or any(part in SKIPPED_ANYWHERE for part in parts[:-1]):
         return True
     filename = parts[-1]
     if (filename.startswith("test_") and filename.endswith(".py")) or filename == "conftest.py":
