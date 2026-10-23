@@ -131,7 +131,7 @@ class AbiMixin:
             self._abi_decl(symbol, "void", types)
             self._call_void(symbol, rendered)
             return ""
-        if kind in {"list", "dict", "func"} or (
+        if kind in {"list", "dict", "func", "exc"} or (
             kind == "class"
             and (
                 ret.get("name") in {"Deque", "TextIO", "BytesIO", "CsvWriter", "Lock", "HttpResponse", "HttpRequest"}

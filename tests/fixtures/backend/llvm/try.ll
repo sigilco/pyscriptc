@@ -31,7 +31,14 @@ L6.try.miss:
 L2.try.cont:
   %t9 = load i32, ptr %t2
   %t10 = icmp eq i32 %t9, 1
-  br i1 %t10, label %L4.try.ret, label %L3.try.merge
+  %t11 = icmp eq i32 %t9, 2
+  br i1 %t10, label %L4.try.ret, label %L8.try.notret
+L8.try.notret:
+  br i1 %t11, label %L7.try.susp, label %L9.try.fell
+L7.try.susp:
+  ret void
+L9.try.fell:
+  br label %L3.try.merge
 L4.try.ret:
   ret void
 L3.try.merge:

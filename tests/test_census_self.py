@@ -117,9 +117,14 @@ def test_self_census_ballpark() -> None:
     # clauses and the CLI flag plumbing). The module count is unchanged.
     # @contextmanager (#167): the manager class, the decorator recognition in
     # lower/_stdlib.py and lower/_classes.py add 5 self-host fences.
-    assert census["fences"] == 2666
+    # yield inside try (#164): the re-entrant try in the coro guard transform
+    # adds 5 self-host fences in coro.py (the body re-raise, the handler
+    # save/restore and the per-part guards).
+    assert census["fences"] == 2671
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     # Project mode (#150): project.py adds about 240 lines.
-    assert 11_000 <= census["lines"] <= 36_000
-    assert sum(p["fences"] for p in census["packages"]) == 2666
+    # yield inside try (#164): the re-entrant try in the coro guard transform
+    # adds about 150 lines in coro.py.
+    assert 11_000 <= census["lines"] <= 37_000
+    assert sum(p["fences"] for p in census["packages"]) == 2671

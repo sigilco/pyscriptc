@@ -122,13 +122,27 @@ class StmtsMixin:
             flow = self._load("i32", self.flow_ptr)
             leave = self.tmp()
             self.line(f"{leave} = icmp eq i32 {flow}, 1")
+            susp = self.tmp()
+            self.line(f"{susp} = icmp eq i32 {flow}, 2")
             cont_l = self.fresh("fin.cont")
-            self.line(f"br i1 {leave}, label %{ret_l}, label %{cont_l}")
+            susp_l = self.fresh("fin.susp")
+            notret_l = self.fresh("fin.notret")
+            # leave -> finally then return; susp -> the body suspended (a yield
+            # inside the try), so the finally must NOT run and the suspension
+            # propagates; otherwise -> finally then continue.
+            self.line(f"br i1 {leave}, label %{ret_l}, label %{notret_l}")
+            self.terminated = True
+            self.block(notret_l)
+            self.line(f"br i1 {susp}, label %{susp_l}, label %{cont_l}")
             self.terminated = True
             self.block(ret_l)
             self.emit_body(stmt["finalbody"])
             if not self.terminated:
                 self._emit_propagated_return()
+            self.block(susp_l)
+            # The suspension itself carries the value (the yield's element or
+            # the resume status): the outline stored it in the return slot.
+            self._emit_propagated_suspend()
             self.block(cont_l)
             self.emit_body(stmt["finalbody"])
             if not self.terminated:
@@ -176,12 +190,27 @@ class StmtsMixin:
         flow = self._load("i32", self.flow_ptr)
         leave = self.tmp()
         self.line(f"{leave} = icmp eq i32 {flow}, 1")
+        susp = self.tmp()
+        self.line(f"{susp} = icmp eq i32 {flow}, 2")
+        susp_l = self.fresh("try.susp")
+        notret_l = self.fresh("try.notret")
+        fell_l = self.fresh("try.fell")
+        # leave -> the body returned: propagate the return.
+        # susp  -> the body suspended (a yield inside the try): no else, and
+        #          the suspension propagates.
+        # else  -> the body fell through.
+        self.line(f"br i1 {leave}, label %{ret_l}, label %{notret_l}")
+        self.terminated = True
+        self.block(notret_l)
+        self.line(f"br i1 {susp}, label %{susp_l}, label %{fell_l}")
+        self.terminated = True
+        self.block(susp_l)
+        # The suspension carries the value (the yield's element or the resume
+        # status): the outline stored it in the return slot.
+        self._emit_propagated_suspend()
         if stmt.get("orelse"):
             else_l = self.fresh("try.else")
-            skip_l = self.fresh("try.skipelse")
-            self.line(f"br i1 {leave}, label %{ret_l}, label %{skip_l}")
-            self.terminated = True
-            self.block(skip_l)
+            self.block(fell_l)
             # else runs iff the body fell through: no raise, return, or jump.
             jumped: str = "false"
             for flag in ["brk", "cont"]:
@@ -202,7 +231,8 @@ class StmtsMixin:
                 self.line(f"br label %{merge_l}")
                 self.terminated = True
         else:
-            self.line(f"br i1 {leave}, label %{ret_l}, label %{merge_l}")
+            self.block(fell_l)
+            self.line(f"br label %{merge_l}")
             self.terminated = True
         self.block(ret_l)
         self._emit_propagated_return()

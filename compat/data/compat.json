@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-23",
-  "commit": "829d3e35bcf7b14d0c4e697affb492acfa74ebef",
+  "commit": "7276c22d41cce108dbf8c6bdffe5a55a3ca83686",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 5,
     "packages_none": 10,
     "weighted_pass": 0.0,
-    "fences": 3028
+    "fences": 3027
   },
   "builtins": [
     {
@@ -1411,9 +1411,9 @@
       "import_name": "filelock",
       "version": "4.1.1",
       "status": "partial",
-      "fences": 752,
+      "fences": 751,
       "definitions": 641,
-      "fenced_definitions": 245,
+      "fenced_definitions": 243,
       "top_families": [
         {
           "family": "name-resolution",
@@ -1421,7 +1421,7 @@
         },
         {
           "family": "construct-other",
-          "count": 86
+          "count": 82
         },
         {
           "family": "local-inference",
@@ -1431,7 +1431,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 441
+          "count": 435
         },
         {
           "code": "PS1001",
@@ -1697,7 +1697,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 262
+          "count": 261
         },
         {
           "code": "PS1106",
@@ -1773,7 +1773,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 171
+          "count": 170
         },
         {
           "code": "PS1001",
@@ -1982,7 +1982,7 @@
     {
       "code": "PS2002",
       "title": "construct not lowered",
-      "count": 1494,
+      "count": 1486,
       "packages": 15
     },
     {
@@ -1994,7 +1994,7 @@
     {
       "code": "PS1106",
       "title": "annotation names an unlowered type",
-      "count": 197,
+      "count": 198,
       "packages": 9
     },
     {
@@ -2006,13 +2006,13 @@
     {
       "code": "PS1103",
       "title": "generic alias annotation",
-      "count": 126,
+      "count": 131,
       "packages": 8
     },
     {
       "code": "PS1101",
       "title": "union annotation",
-      "count": 91,
+      "count": 92,
       "packages": 9
     },
     {
@@ -2079,12 +2079,12 @@
   "history": [
     {
       "date": "2026-10-23",
-      "commit": "829d3e35bcf7b14d0c4e697affb492acfa74ebef",
+      "commit": "7276c22d41cce108dbf8c6bdffe5a55a3ca83686",
       "weighted_pass": 0.0,
       "packages_full": 3,
       "packages_partial": 5,
       "packages_none": 10,
-      "fences": 3028
+      "fences": 3027
     }
   ]
 }

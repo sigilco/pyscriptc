@@ -173,7 +173,10 @@ class FuncsMixin:
                 self.emit_expr(stmt["value"])
             if self.terminated:
                 return
-            self.line("ret i32 1")
+            # Flow 1 is a return out of the try body; flow 2 is a suspension
+            # (a yield inside the try). The try callsite tells them apart: a
+            # suspension skips the finally, a return runs it.
+            self.line(f"ret i32 {2 if stmt.get('suspend') else 1}")
         elif kind == "none":
             if stmt["value"]["kind"] != "const":
                 self.emit_expr(stmt["value"])
@@ -193,6 +196,24 @@ class FuncsMixin:
         else:
             if self.ret_ptr is None:
                 raise IRError("return has no slot")
+            value = self._load(self.ret_llvm, self.ret_ptr)
+            self.line(f"ret {self.ret_llvm} {value}")
+        self.terminated = True
+
+    def _emit_propagated_suspend(self) -> None:
+        """Propagate a suspension out of a try body.
+
+        Inside an outline the flow code says what happened: 1 is a return, 2 a
+        suspension. The value travels in the return slot either way, so the
+        two differ only in the flow code the try callsite reads.
+        """
+        if self.outline_depth:
+            self.line("ret i32 2")
+        elif self.ret_llvm is None:
+            self.line("ret void")
+        else:
+            if self.ret_ptr is None:
+                raise IRError("suspend inside try has no slot")
             value = self._load(self.ret_llvm, self.ret_ptr)
             self.line(f"ret {self.ret_llvm} {value}")
         self.terminated = True

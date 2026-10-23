@@ -262,11 +262,9 @@ async def no_result():
     return 1
 
 
-async def in_try() -> int:
-    try:
+async def in_with() -> int:
+    with open("f") as fh:
         await asyncio.sleep(0.01)
-    except ValueError:
-        pass
     return 1
 
 
@@ -398,7 +396,7 @@ def test_unsupported_shapes_fence_precisely(monkeypatch: pytest.MonkeyPatch) -> 
     assert got == [
         (4, "no_result needs a return annotation"),
         (10, "await inside try or with is not lowered yet"),
-        (21, "asyncio.sleep is only lowered inside a coroutine"),
+        (19, "asyncio.sleep is only lowered inside a coroutine"),
     ]
     assert {f["code"] for f in module["fences"]} <= {"PS1001", "PS2002"}
 
@@ -572,11 +570,63 @@ import asyncio
 
 class Worker:
     async def run(self, n: int) -> int:
-        try:
+        with open("f") as fh:
             await asyncio.sleep(0.01)
-        finally:
-            print("done")
         return n
 """
     module = lower_source(fenced, "fenced_method.py")
     assert any(f["message"] == "await inside try or with is not lowered yet" for f in module["fences"])
+
+
+# --- await inside try/except/finally (issue #164) ----------------------------
+
+ASYNC_TRY = """\
+import asyncio
+
+
+async def child() -> int:
+    print("child")
+    return 5
+
+
+async def guarded() -> int:
+    v: int = 0
+    try:
+        v = await child()
+        await asyncio.sleep(0.01)
+    finally:
+        print("fin")
+    return v
+
+
+async def in_handler() -> int:
+    try:
+        raise ValueError("boom")
+    except ValueError as e:
+        print("caught", str(e))
+        v: int = await child()
+        print("awaited", v)
+    return 1
+
+
+async def main() -> int:
+    print("guarded", await guarded())
+    print("handler", await in_handler())
+    return 1
+
+
+print(asyncio.run(main()))
+"""
+
+
+def test_coroutine_try_matches_cpython(tmp_path: Path) -> None:
+    got, expected = _run_both(tmp_path, "async_try", ASYNC_TRY)
+    assert expected
+    assert got == expected
+
+
+def test_coroutine_try_ir_is_plain_classes() -> None:
+    module = lower_source(ASYNC_TRY, "async_try.py")
+    assert module["fences"] == []
+    validate_module(module)
+    assert AWAIT_MARKER not in json.dumps(module)
