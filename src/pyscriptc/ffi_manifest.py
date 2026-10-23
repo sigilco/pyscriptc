@@ -203,6 +203,7 @@ class ManifestFunction:
     returns: str = "None"
     borrows: tuple[HandleRef, ...] = ()
     consumes: tuple[HandleRef, ...] = ()
+    handle_names: frozenset[str] = frozenset()
 
     @property
     def arity(self) -> int:
@@ -211,6 +212,29 @@ class ManifestFunction:
     @property
     def required_arity(self) -> int:
         return sum(1 for param in self.params if param.required)
+
+    def borrowed_params(self) -> frozenset[str]:
+        """The parameter names this call borrows: the handle stays alive."""
+        return frozenset(ref.param for ref in self.borrows)
+
+    def consumed_params(self) -> frozenset[str]:
+        """The parameter names this call consumes: the handle dies here."""
+        return frozenset(ref.param for ref in self.consumes)
+
+    def returns_handle(self) -> str | None:
+        """The handle type this function returns, if the return is a handle.
+
+        A returned handle transfers ownership to the caller: the callee does
+        not free it, the caller does.
+        """
+        return self.returns if self.returns in self.handle_names else None
+
+    def param_handle(self, param: str) -> str | None:
+        """The handle type a parameter carries, if it carries one."""
+        for declared in self.params:
+            if declared.name == param:
+                return declared.type if declared.type in self.handle_names else None
+        return None
 
 
 @dataclass(frozen=True)
@@ -240,6 +264,11 @@ class FfiManifest:
             if handle.name == name:
                 return handle
         return None
+
+    def frees_symbol(self, handle: str) -> str:
+        """The C symbol that releases a handle, or the empty string."""
+        found = self.handle(handle)
+        return found.frees if found is not None else ""
 
     def const(self, name: str) -> ManifestConst | None:
         """The constant bound to a Python-visible name, if any."""
@@ -542,6 +571,7 @@ def _build_functions(
                 returns=returns,
                 borrows=resolved_borrows,
                 consumes=resolved_consumes,
+                handle_names=frozenset(handle_names),
             )
         )
     return tuple(functions)
@@ -651,10 +681,14 @@ def type_ir(type_name: str, handle_names: frozenset[str] | set[str] = frozenset(
     which the emitter lowers as a `ptr` (`.agents/docs/ffi/ffi-manifest.md`
     section 3). The caller passes the handle names so the mapping stays a
     pure function of the manifest.
+
+    A handle type carries the `handle` marker so the lowerer can tell an
+    opaque token from a user class: a handle has no fields and no
+    arithmetic (issue #224).
     """
     name = type_name.strip()
     if name in handle_names:
-        return {"kind": "class", "name": name}
+        return {"kind": "class", "name": name, "handle": True}
     if name == "int":
         return {"kind": "int"}
     if name == "float":
@@ -672,6 +706,20 @@ def type_ir(type_name: str, handle_names: frozenset[str] | set[str] = frozenset(
     if name == "None":
         return {"kind": "none"}
     raise FfiManifestError("PS4006", f"the type {name!r} has no IR type in the FFI vocabulary")
+
+
+def handle_type(name: str) -> dict[str, Any]:
+    """The IR type dict of a handle, with the `handle` marker set.
+
+    The lowerer uses the marker to refuse field access and arithmetic on an
+    opaque token, and to keep the handle out of the user-class machinery.
+    """
+    return {"kind": "class", "name": name, "handle": True}
+
+
+def is_handle_type(typ: dict[str, Any]) -> bool:
+    """True when an IR type dict is an opaque manifest handle."""
+    return typ.get("kind") == "class" and bool(typ.get("handle"))
 
 
 def _split_params(raw: str) -> list[str]:
