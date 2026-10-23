@@ -1421,6 +1421,10 @@ class ClassesMixin:
             self.fail(node, "PS4015", f"{class_name} is an opaque ffi handle and has no attributes")
         if class_name == "Semaphore" and name == "_value":
             return self._abi_call("threading", "Semaphore._value", [obj], {"kind": "int"}, "ps_sem_value", span)
+        if class_name == "AsyncSemaphore" and name == "_value":
+            # The asyncio semaphore's counter, the same shape the threading
+            # one has: an opaque pointer with a read-only count.
+            return self._abi_call("asyncio", "Semaphore._value", [obj], {"kind": "int"}, "ps_asem_value", span)
         if class_name == "Thread" and name == "name":
             return self._abi_call("threading", "Thread.name", [obj], {"kind": "str"}, "ps_thread_name2", span)
         if class_name == "Thread" and name == "daemon":

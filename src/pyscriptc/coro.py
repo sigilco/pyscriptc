@@ -1940,6 +1940,20 @@ class _Frame:
             ),
         ]
         arrive = [_assign(RESUME, _const(0, _INT, span), span)]
+        if op == "queue_get":
+            # A put wakes the parked getter, but the element stays in the
+            # queue: the getter takes it on the resume. A take that finds
+            # the queue empty again (another getter was faster) parks the
+            # task once more, at the same point.
+            arrive = [
+                _assign(RESUME, _const(0, _INT, span), span),
+                _if(
+                    _compare("==", park, _const(0, _INT, span), span),
+                    self.kind.suspend(self, _const(0, _INT, span), span),
+                    [],
+                    span,
+                ),
+            ]
         out: list[dict[str, Any]] = [_if(self.fresh(span), leave, arrive, span)]
         if op == "queue_get":
             # The queue's element rides out of the record's `taken` slot: the
