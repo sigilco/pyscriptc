@@ -19,6 +19,8 @@ and relative path with . and .. segments).
 
 #include "ps_rt.h"
 
+#if !defined(__wasi__) && !defined(_WIN32)
+
 #include <arpa/inet.h>
 #include <errno.h>
 #include <netdb.h>
@@ -700,3 +702,121 @@ int64_t ps_http_getcode(PsHttpResp *resp) { return resp->status; }
 void ps_http_info(PsHttpResp *resp, PsBuf *out) { ps_buf_copy(out, resp->headers.data, resp->headers.len); }
 
 void ps_http_read(PsHttpResp *resp, PsBuf *out) { ps_buf_copy(out, resp->body.data, resp->body.len); }
+
+#else /* __wasi__ || _WIN32 */
+
+/* Unsupported-target stubs. urlopen needs BSD sockets, and two target
+   families do not have them: WASI (wasi-libc ships no socket/connect and no
+   SO_RCVTIMEO/SO_SNDTIMEO) and Windows (winsock needs a different header
+   and call surface). The stubs keep unrelated programs building: the
+   runtime links every runtime C file, so without them a hello world failed
+   to link for these targets (issue #313). A program that actually calls
+   urlopen raises URLError (OSError) at run time with a message that names
+   the target family. Winsock and WASI sockets are not implemented yet. */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#ifdef _WIN32
+#define PS_HTTP_PLATFORM "windows"
+#else
+#define PS_HTTP_PLATFORM "wasi"
+#endif
+
+static void ps_http_unsupported(void) __attribute__((noreturn));
+
+static void ps_http_unsupported(void) {
+    ps_raise_cstr(PS_OSERROR, "urlopen is not supported on the " PS_HTTP_PLATFORM
+                              " target yet (no sockets there; https is also "
+                              "pending, issue 235)");
+}
+
+typedef struct {
+    int64_t status;
+    PsBuf headers;
+    PsBuf body;
+} PsHttpResp;
+
+typedef struct {
+    PsBuf url;
+    PsBuf method;
+    PsBuf body;
+    PsBuf headers;
+    double timeout;
+} PsHttpReq;
+
+static char *ps_http_dup(int64_t n, const char *s) {
+    char *text;
+    if (n < 0) {
+        ps_raise_code(PS_VALUE);
+    }
+    text = malloc((size_t)n + 1);
+    if (text == NULL) {
+        abort();
+    }
+    if (n > 0) {
+        memcpy(text, s, (size_t)n);
+    }
+    text[n] = '\0';
+    return text;
+}
+
+PsHttpResp *ps_http_request(
+    int64_t url_len,
+    const char *url_ptr,
+    int64_t method_len,
+    const char *method_ptr,
+    int64_t body_len,
+    const char *body_ptr,
+    int64_t headers_len,
+    const char *headers_ptr,
+    double timeout
+) {
+    (void)url_len;
+    (void)url_ptr;
+    (void)method_len;
+    (void)method_ptr;
+    (void)body_len;
+    (void)body_ptr;
+    (void)headers_len;
+    (void)headers_ptr;
+    (void)timeout;
+    ps_http_unsupported();
+}
+
+PsHttpResp *ps_http_open(int64_t url_len, const char *url_ptr) {
+    return ps_http_request(url_len, url_ptr, 3, "GET", 0, NULL, 0, NULL, 0.0);
+}
+
+PsHttpReq *ps_http_request_new(
+    int64_t url_len,
+    const char *url_ptr,
+    int64_t method_len,
+    const char *method_ptr,
+    int64_t body_len,
+    const char *body_ptr,
+    int64_t headers_len,
+    const char *headers_ptr,
+    double timeout
+) {
+    PsHttpReq *out = ps_alloc((int64_t)sizeof(PsHttpReq));
+    out->url.len = url_len;
+    out->url.data = ps_http_dup(url_len, url_ptr);
+    out->method.len = method_len;
+    out->method.data = ps_http_dup(method_len, method_ptr);
+    out->body.len = body_len;
+    out->body.data = body_len > 0 ? ps_http_dup(body_len, body_ptr) : (char *)&ps_empty_byte;
+    out->headers.len = headers_len;
+    out->headers.data = headers_len > 0 ? ps_http_dup(headers_len, headers_ptr) : (char *)&ps_empty_byte;
+    out->timeout = timeout;
+    return out;
+}
+
+int64_t ps_http_getcode(PsHttpResp *resp) { return resp->status; }
+
+void ps_http_info(PsHttpResp *resp, PsBuf *out) { ps_buf_copy(out, resp->headers.data, resp->headers.len); }
+
+void ps_http_read(PsHttpResp *resp, PsBuf *out) { ps_buf_copy(out, resp->body.data, resp->body.len); }
+
+#endif /* __wasi__ || _WIN32 */
