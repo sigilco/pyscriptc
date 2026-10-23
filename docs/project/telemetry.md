@@ -5,7 +5,7 @@ description: What pyscriptc collects, and how to turn it off.
 
 Release builds of pyscriptc send pseudonymous usage events to PostHog (EU cloud, `eu.i.posthog.com`).
 Telemetry exists to answer one question: which unsupported constructs block real users the most, so the roadmap follows demand.
-See the [privacy notice](privacy.md) for the legal basis, retention and your rights.
+See the [privacy notice](https://github.com/sigilco/pyscriptc/blob/master/PRIVACY.md) for what is collected, the retention and how to opt out.
 
 ## What is sent
 
@@ -35,7 +35,7 @@ Every field of every event, in full:
 
 Not sent, ever: file names or paths, user names, host names, machine ids, MAC addresses, source text or snippets, imported module names, fence messages, per-fence locations, definition names, argument values, program arguments or output, environment variables.
 The PSxxxx codes in `fence_codes` are the fixed diagnostic vocabulary of the compiler (`pyscriptc explain` lists them); a code says which construct is unsupported, never which statement, file or name produced it.
-The server connection necessarily exposes your IP address to the host; the project is configured to discard it (see the privacy notice).
+The server connection necessarily exposes your IP address to the host; the project is configured to discard it (see PRIVACY.md in the repo).
 
 ## The install id
 

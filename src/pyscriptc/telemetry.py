@@ -68,7 +68,7 @@ except ImportError:
 
 # Sent with every event so PostHog does not keep the client IP or a person profile.
 # `$ip: null` and `$geoip_disable` are per-event requests; the authoritative control is the
-# PostHog project setting "Discard client IP data" (see docs/project/privacy.md).
+# PostHog project setting "Discard client IP data" (see PRIVACY.md).
 _PRIVACY_PROPERTIES = {"$ip": None, "$geoip_disable": True, "$process_person_profile": False}
 
 
@@ -167,7 +167,7 @@ def enabled() -> bool:
 
 NOTICE_URL = "https://github.com/sigilco/pyscriptc/blob/master/docs/project/telemetry.md"
 
-PRIVACY_URL = "https://github.com/sigilco/pyscriptc/blob/master/docs/project/privacy.md"
+PRIVACY_URL = "https://github.com/sigilco/pyscriptc/blob/master/PRIVACY.md"
 
 NOTICE = (
     "pyscriptc sends usage metrics: command name, pyscriptc/Python/OS versions, compile outcome, "
