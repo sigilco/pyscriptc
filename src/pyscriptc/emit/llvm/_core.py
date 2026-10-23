@@ -13,8 +13,13 @@ from pyscriptc.errors import IRError
 
 
 class CoreMixin:
-    def __init__(self, module: dict[str, Any], dwarf: DwarfEmitter | None = None) -> None:
+    def __init__(self, module: dict[str, Any], dwarf: DwarfEmitter | None = None, wasm: bool = False) -> None:
         self.module = module
+        # wasm32 targets: wasm-ld only resolves a C-style `main` through the
+        # `__main_argc_argv` symbol; an IR-defined `@main` links as
+        # undefined_weak and the wasi crt calls a null stub. This is a wasm-ABI
+        # fact, not a zig workaround: it stays when the zig 0.18 flags go.
+        self.entry_symbol = "__main_argc_argv" if wasm else "main"
         # Off by default: without `--debug-info` the emitted text is byte-identical
         # to the historical output, so the frozen gates and IR hashes do not move.
         self.dwarf = dwarf
@@ -91,7 +96,7 @@ class CoreMixin:
             if entry_fn is not None:
                 self.emit_main(entry_fn["name"], [])
             else:
-                self.out.append("define i32 @main(i32 %argc, ptr %argv) {")
+                self.out.append(f"define i32 @{self.entry_symbol}(i32 %argc, ptr %argv) {{")
                 self._reset_function()
                 self.block("entry")
                 self._emit_exc_registrations()

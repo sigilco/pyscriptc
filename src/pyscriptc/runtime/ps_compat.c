@@ -1,10 +1,15 @@
-/* The Windows implementations of the ps_compat.h shims.
+/* The implementations of the ps_compat.h shims for the targets that lack the
+   native call: Windows (no setenv, no mkstemp, no sigsetjmp) and WASI (no
+   mkstemp). On every other target each shim is a macro onto the native call
+   and this file is empty, so the runtime keeps one object per platform. */
 
-   Compiled only for _WIN32; on POSIX every shim is a macro onto the native
-   call and this file is empty, so the runtime keeps exactly one object per
-   platform. */
+#if defined(_WIN32) || defined(__wasi__)
 
-#ifdef _WIN32
+#include <errno.h>
+#include <stdlib.h>
+#include <string.h>
+
+#if defined(_WIN32)
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -14,13 +19,8 @@
 #endif
 #include <windows.h>
 
-#include <errno.h>
 #include <fcntl.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/stat.h>
-
-#include "ps_compat.h"
 
 int ps_win_setenv(const char *name, const char *value, int overwrite) {
     if (!overwrite && getenv(name) != NULL) {
@@ -62,6 +62,42 @@ int ps_mkstemp(char *template_path) {
     }
     return -1;
 }
+
+#else /* __wasi__ */
+
+#include <fcntl.h>
+#include <unistd.h>
+
+int ps_mkstemp(char *template_path) {
+    /* wasi-libc declares no mkstemp (TODO(zig-0.18): still true upstream).
+       open with O_CREAT|O_EXCL on a randomized suffix gives the same
+       unique-file guarantee; mode 0600 matches musl's mkstemp. */
+    static const char alphabet[] =
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    char *xs;
+    int attempt;
+    int fd;
+    if (strlen(template_path) < 6) {
+        return -1;
+    }
+    xs = template_path + strlen(template_path) - 6;
+    for (attempt = 0; attempt < 100; attempt++) {
+        int i;
+        for (i = 0; i < 6; i++) {
+            xs[i] = alphabet[rand() % 62];
+        }
+        fd = open(template_path, O_CREAT | O_EXCL | O_RDWR, 0600);
+        if (fd >= 0) {
+            return fd;
+        }
+        if (errno != EEXIST) {
+            return -1;
+        }
+    }
+    return -1;
+}
+
+#endif
 
 #else
 

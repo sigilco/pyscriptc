@@ -47,7 +47,7 @@ def test_self_census_ballpark() -> None:
     # add 2 modules.
     # restlower/_asyncio_sync.py (the asyncio Lock, Event, Semaphore, Queue
     # and to_thread, #180 Stage D3) adds 1 module.
-    assert census["modules"] == 93
+    assert census["modules"] == 94
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -165,7 +165,12 @@ def test_self_census_ballpark() -> None:
     # Windows target compilation: +0 fences (the runtime C and the ps_path
     # surface are not self-hosted by the compiler; the `.exe` suffix branch
     # is plain Python with no annotations).
-    assert census["fences"] == 2851
+    # wasm32-wasi target (#312): the emitter's entry-symbol and `%.*s`
+    # truncation, the wasm gate wiring and wasm_adapter.py add 13 self-host
+    # fences.
+    # wasm32-wasi-p2 (the WASI 0.2 component lane): the component wrapper and
+    # the adapter module add 42 more.
+    assert census["fences"] == 2905
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     # Project mode (#150): project.py adds about 240 lines.
@@ -173,4 +178,4 @@ def test_self_census_ballpark() -> None:
     # adds about 150 lines in coro.py. The asyncio primitives (#180 D3) add
     # about 400 in ps_async.c and restlower/_asyncio_sync.py.
     assert 11_000 <= census["lines"] <= 40_500
-    assert sum(p["fences"] for p in census["packages"]) == 2851
+    assert sum(p["fences"] for p in census["packages"]) == 2905

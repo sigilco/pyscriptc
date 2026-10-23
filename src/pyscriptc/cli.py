@@ -1055,6 +1055,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             standalone=args.emit == "bin",
             debug_info=debug_info,
             library=args.emit == "lib",
+            wasm=bool(args.target and args.target.startswith("wasm32")),
         )
         dbg.end("emit_llvm")
         # The wasm thread refusal fires before the link, so a program that

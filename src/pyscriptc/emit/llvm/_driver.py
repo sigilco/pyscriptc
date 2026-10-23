@@ -72,6 +72,7 @@ def emit_llvm(
     standalone: bool = False,
     debug_info: bool = False,
     library: bool = False,
+    wasm: bool = False,
 ) -> str:
     """With `standalone` and no `call`, main does nothing: module level code is not lowered.
 
@@ -79,6 +80,9 @@ def emit_llvm(
     `pyscriptc_main` that initializes the runtime and runs the module entry,
     and default visibility on the exported symbols while everything else
     stays hidden.
+
+    `wasm` targets the WASI command ABI: the entry becomes `@__main_argc_argv`
+    and `%.*s` printf lengths truncate to i32 (wasm32 varargs are 32-bit).
     """
     assert_same_cpython(module)
     if module["fences"]:
@@ -86,7 +90,7 @@ def emit_llvm(
     if not module["functions"]:
         raise IRError("module has no functions to emit")
     dwarf = DwarfEmitter(module["sourceFile"]) if debug_info else None
-    return Emitter(module, dwarf).emit(call, [] if args is None else args, standalone, library=library)
+    return Emitter(module, dwarf, wasm=wasm).emit(call, [] if args is None else args, standalone, library=library)
 
 
 def sanitize_flags(sanitize: list[str] | None) -> list[str]:
@@ -199,7 +203,39 @@ def link_binary(
     # cannot run threads on the target should not reach the compiler at all.
     refuse_unsupported_target(text, target)
     sources = [str(path) for path in sorted(runtime.glob("*.c"))]
+    is_wasm = target is not None and target.startswith("wasm32")
+    # wasm32-wasi-p2: the same p1 core module, wrapped into a WASI 0.2
+    # component by wasm-tools after the link. The core build is identical
+    # to wasm32-wasi-musl; only the wrapper step differs.
+    is_wasi_p2 = is_wasm and (target or "").endswith("wasi-p2")
+    if is_wasi_p2:
+        target = target.replace("wasi-p2", "wasi-musl")
+    is_wasm = is_wasm and not is_wasi_p2
     target_flags = ["-target", target] if target is not None else []
+    # wasm32-wasi: try/except lowers to setjmp/longjmp, which wasi-libc builds
+    # from wasm exception handling. The flags unlock the sjlj lowering and the
+    # exception-handling target feature; the vendored rt_wasm.c below supplies
+    # the setjmp runtime zig ships as source but never builds.
+    # TODO(zig-0.18): drop -D__wasm_exception_handling__ and the target-feature
+    # pair if zig 0.18 (LLVM 23) defaults them; keep the -mllvm pair only as
+    # long as zig still needs it.
+    wasm_flags = (
+        [
+            "-mllvm",
+            "-wasm-enable-sjlj",
+            "-mllvm",
+            "-wasm-use-legacy-eh=false",
+            "-D__wasm_exception_handling__",
+            "-Xclang",
+            "-target-feature",
+            "-Xclang",
+            "+exception-handling",
+        ]
+        if (is_wasm or is_wasi_p2)
+        else []
+    )
+    if (is_wasm or is_wasi_p2) and output.suffix != ".wasm":
+        output = output.with_suffix(".wasm")
     san_flags = sanitize_flags(sanitize)
     dbg_flags = ["-g"] if debug_info else []
     tail = [*san_flags, "-lm", "-o", str(output)]
@@ -218,6 +254,21 @@ def link_binary(
         tail = [f"-L{libdir}", f"-lpython{version}", f"-Wl,-rpath,{libdir}", *tail]
     else:
         sources = [source for source in sources if not source.endswith("ps_island.c")]
+    if is_wasm or is_wasi_p2:
+        # fork/exec (ps_sub.c) and dlopen (ps_mix.c) have no WASI preview1
+        # story; ps_island.c is already gone above. ps_thread.c stays: the
+        # Lock/RLock primitives are real mutexes and work on the one thread a
+        # WASI program has (Thread/Condition/Event/Semaphore stay fenced by
+        # the lowerer), and a 0.2 component has no thread world to spawn into.
+        refused = sorted({symbol for symbol in ("ps_sub_", "ps_mix_", "ps_island_") if symbol in text})
+        if refused:
+            what = ", ".join(f"{symbol.rstrip('_')}*" for symbol in refused)
+            raise IRError(
+                f"target {target} refuses {what}: WASI has no subprocess, dynamic-loading "
+                "or island story (see docs/divergences.md)"
+            )
+        sources = [source for source in sources if not source.endswith(("ps_sub.c", "ps_mix.c"))]
+        sources.append(str(runtime / "wasm" / "rt_wasm.c"))
     # The `--ffi` manifest units join the same per-unit compile loop as the
     # runtime: a `.c` unit compiles like a runtime file, an archive goes
     # straight on the link line (`.agents/docs/ffi/ffi-manifest.md` section 4).
@@ -236,6 +287,7 @@ def link_binary(
     ll_argv = [
         *cc.split(),
         "-O2",
+        *wasm_flags,
         *dbg_flags,
         *san_flags,
         *ll_kind,
@@ -260,7 +312,7 @@ def link_binary(
     manifest_sources = frozenset(ffi_sources)
     for source in sources:
         src = Path(source)
-        flags = ["-O2", *san_flags, *target_flags]
+        flags = ["-O2", *wasm_flags, *san_flags, *target_flags]
         extra_dirs: tuple[Path, ...] = ()
         if source in manifest_sources:
             flags.extend(ffi_include_flags)
@@ -307,8 +359,47 @@ def link_binary(
     if proc is not None and proc.returncode != 0:
         detail = (proc.stderr or proc.stdout).strip()
         raise IRError(f"{cc} failed to assemble LLVM IR: {detail}")
+    if is_wasi_p2:
+        _wrap_wasi_p2(output, record)
     if ok and debug_info:
         _write_debug_symbols(output, record)
+
+
+def _wrap_wasi_p2(core: Path, record: list[list[str]] | None) -> None:
+    """Wrap a WASI preview1 core module into a WASI 0.2 component.
+
+    The core module imports the preview1 host functions; the component
+    imports `wasi:cli/run@0.2.x` instead, and the pinned adapter module
+    translates between the two. `wasm-tools component new --adapt` does the
+    wrapping; the adapter is fetched and sha256-verified first, so the
+    component is reproducible.
+
+    The component replaces the core module at the requested path: the
+    caller asked for one artifact, and a leftover core module next to it
+    would be the one that gets run.
+    """
+    from pyscriptc import wasm_adapter
+
+    tools = wasm_adapter.wasm_tools()
+    adapter = wasm_adapter.adapter_path()
+    staged = core.with_name(core.stem + ".component.wasm")
+    argv = [
+        tools,
+        "component",
+        "new",
+        str(core),
+        "--adapt",
+        f"wasi_snapshot_preview1={adapter}",
+        "-o",
+        str(staged),
+    ]
+    if record is not None:
+        record.append(argv)
+    proc = subprocess.run(argv, capture_output=True, text=True)
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout).strip()
+        raise IRError(f"wasm-tools failed to wrap the core module into a WASI 0.2 component: {detail}")
+    staged.replace(core)
 
 
 def runtime_dir() -> Path:
