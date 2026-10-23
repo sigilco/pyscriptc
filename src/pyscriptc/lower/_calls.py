@@ -19,7 +19,8 @@ from __future__ import annotations
 import ast
 from typing import Any
 
-from pyscriptc.builtins import builtin_spec, method_spec
+from pyscriptc.builtins import EXCEPTIONS, builtin_spec, method_spec
+from pyscriptc.coro import DONE, STATE
 from pyscriptc.errors import span_of
 from pyscriptc.ir import type_key, types_equal
 from pyscriptc.lower._classes import _type_slug
@@ -31,6 +32,7 @@ from pyscriptc.lower._core import (
     _const_bool,
     _const_int,
     _const_none,
+    _const_str,
     _dotted,
     _has_typevar,
     _len_call,
@@ -83,6 +85,10 @@ class CallsMixin:
                 if folded is not None:
                     return folded
             spec = builtin_spec(name, [arg["type"] for arg in args])
+            if spec is None and name == "str" and len(args) == 1 and args[0]["type"].get("optional"):
+                # str(next(it, None)): unbox the tagged optional, print
+                # "None" for the untagged arm, str(_val) otherwise.
+                return self._str_of_opt(node, args[0], span)
             if spec is None:
                 if name in {"str", "len"} and len(args) == 1 and args[0]["type"]["kind"] == "class":
                     called = self._dunder_call(node, args[0], {"str": "__str__", "len": "__len__"}[name], [], span)
@@ -431,6 +437,10 @@ class CallsMixin:
         if receiver["type"]["kind"] == "class" and receiver["type"].get("name") == "Path":
             if node.func.attr in {"__enter__", "__exit__"}:
                 return self._path_context(node, span, receiver)
+        if receiver["type"].get("kind") == "class" and node.func.attr == "throw":
+            frame = self.classes.get(str(receiver["type"].get("name")))
+            if frame is not None and frame.get("coro") == "generator":
+                return self._gen_throw(node, span, receiver)
         if receiver["type"]["kind"] == "list" and receiver["type"].get("set"):
             return self._set_method(node, span, receiver)
         if receiver["type"]["kind"] == "list":
@@ -1198,6 +1208,83 @@ class CallsMixin:
             "type": sig[1],
             "span": span,
         }
+
+    def _str_of_opt(self, node: ast.expr, arg: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+        """`str(opt)`: "None" when the tag is clear, str(_val) when set."""
+        out = self._temp("stropt")
+        self.locals[out] = {"kind": "str"}
+        elem = arg["type"]["elem"]
+        value = _attr(arg, "_val", elem, span)
+        tagged_str: dict[str, Any] | None = None
+        if elem["kind"] == "class":
+            tagged_str = self._dunder_call(node, value, "__str__", [], span)
+            if tagged_str is None:
+                tagged_str = self._dunder_call(node, value, "__repr__", [], span)
+            if tagged_str is None:
+                self.fail(node, "PS2003", "str is not lowered for this optional element type")
+        else:
+            tagged_str = {
+                "kind": "call",
+                "callee": {"kind": "builtin", "name": "str"},
+                "args": [value],
+                "type": {"kind": "str"},
+                "span": span,
+            }
+        self.prelude.append(
+            {
+                "kind": "if",
+                "cond": _attr(arg, "_tag", {"kind": "bool"}, span),
+                "then": [_assign(out, tagged_str, span)],
+                "else": [_assign(out, _const_str("None", span), span)],
+                "span": span,
+            }
+        )
+        return _name(out, {"kind": "str"}, span)
+
+    def _gen_throw(self, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
+        """`gen.throw(E)`: mark the frame done and raise E out of the call.
+
+        The exception class is a name here (exception classes are not values
+        in this subset). A `yield` inside `try` never lowers, so no handler
+        can surround the generator's live suspension point: CPython's "the
+        generator catches it" outcome is unreachable, and propagate-and-
+        mark-done is the exact semantics for every program that lowers.
+        """
+        if node.keywords:
+            self.fail(node, "PS2003", "keyword arguments are not lowered")
+        if len(node.args) != 1 or not isinstance(node.args[0], ast.Name):
+            self.fail(node, "PS2002", "generator.throw takes one exception class")
+        name = node.args[0].id
+        if name not in EXCEPTIONS and not self.classes.get(name, {}).get("exception"):
+            resolved = self.class_aliases.get(name, name)
+            if not self.classes.get(resolved, {}).get("exception"):
+                self.fail(node.args[0], "PS2002", "generator.throw takes a lowered exception class")
+            name = resolved
+        frame_t = receiver["type"]
+        self.prelude.append(
+            {
+                "kind": "setattr",
+                "object": receiver,
+                "name": STATE,
+                "value": _const_int(DONE, span),
+                "span": span,
+            }
+        )
+        self.prelude.append(
+            {
+                "kind": "raise",
+                "exc": name,
+                "message": None,
+                **({"code": self.classes[name]["exc_code"]} if name not in EXCEPTIONS else {}),
+                "span": span,
+            }
+        )
+        # Unreachable after the raise; the frame's elem keeps the expression typed.
+        out = self._temp("thr")
+        self.locals[out] = (
+            frame_t.get("elem", {"kind": "none"}) if isinstance(frame_t.get("elem"), dict) else {"kind": "none"}
+        )
+        return _name(out, self.locals[out], span)
 
     def _named_class_call(self, node: ast.Call, span: dict[str, Any], class_name: str) -> dict[str, Any]:
         assert isinstance(node.func, ast.Attribute)

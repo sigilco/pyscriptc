@@ -66,6 +66,7 @@ RESULT = ".ps_result"
 TASK = ".ps_task"
 SELF = ".ps_self"
 RESUME = ".ps_rs"
+SEND = ".ps_send"
 AWAIT_RESULT_PREFIX = ".ps_awv_"
 DONE = -1
 PENDING = 0
@@ -99,6 +100,7 @@ class FramePlan:
     elem: dict[str, Any]  # yield element (generator) or return value (coroutine)
     params: list[dict[str, Any]] = field(default_factory=list)
     ir_name: str = ""  # the wrapper's IR name (`pkg.mod.g` in a package unit)
+    send: dict[str, Any] = field(default_factory=lambda: dict(_NONE))  # the Generator[T, S, R] send type
 
 
 def enabled() -> bool:
@@ -138,8 +140,15 @@ def _shape_error(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[ast.AST, s
             if isinstance(stmt, ast.Expr) and isinstance(stmt.value, (ast.Yield, ast.YieldFrom)):
                 if in_try:
                     return stmt, "yield inside try or with is not lowered yet"
-                if isinstance(stmt.value, ast.Yield) and stmt.value.value is None:
-                    return stmt, "bare yield is not lowered yet"
+                inner = [stmt.value.value] if stmt.value.value is not None else []
+            elif isinstance(stmt, (ast.Assign, ast.AnnAssign)) and isinstance(stmt.value, ast.Yield) and not coroutine:
+                # `x = yield v` / `x: T = yield v`: send support. Only the
+                # plain single-name form; anything else stays fenced below.
+                if in_try:
+                    return stmt, "yield inside try or with is not lowered yet"
+                target = stmt.targets[0] if isinstance(stmt, ast.Assign) else stmt.target
+                if not isinstance(target, ast.Name):
+                    return stmt, "yield as an expression (send) is not lowered yet"
                 inner = [stmt.value.value] if stmt.value.value is not None else []
             else:
                 inner = [child for child in ast.iter_child_nodes(stmt) if isinstance(child, ast.expr)]
@@ -195,7 +204,8 @@ class CoroMixin:
         ):
             return None
         coroutine = isinstance(fn, ast.AsyncFunctionDef)
-        elem = self._coro_elem(fn) if not coroutine else self._coro_result(fn)
+        elem = self._coro_types(fn)[0] if not coroutine else self._coro_result(fn)
+        send = dict(_NONE) if coroutine else self._coro_types(fn)[1]
         shape = _shape_error(fn)
         if shape is not None:
             self.fail(shape[0], "PS2002", shape[1])
@@ -212,7 +222,13 @@ class CoroMixin:
         if coroutine:
             methods: dict[str, Any] = {"resume": (self_t, _INT)}
         else:
-            methods = {"__iter__": (self_t, frame_t), "__next__": (self_t, elem)}
+            methods = {
+                "__iter__": (self_t, frame_t),
+                "__next__": (self_t, elem),
+                "close": (self_t, _NONE),
+            }
+            if send.get("kind") != "none":
+                methods["send"] = (self_t + [{"name": ".ps_value", "type": send}], elem)
         self.classes[frame] = {
             "fields": [],
             "own_fields": [],
@@ -230,6 +246,7 @@ class CoroMixin:
             elem,
             params,
             self._ir_name(fn.name),
+            send,
         )
         return params, frame_t
 
@@ -240,6 +257,14 @@ class CoroMixin:
         return self._annotation(fn.returns)
 
     def _coro_elem(self, fn: ast.FunctionDef) -> dict[str, Any]:
+        return self._coro_types(fn)[0]
+
+    def _coro_types(self, fn: ast.FunctionDef) -> tuple[dict[str, Any], dict[str, Any]]:
+        """The yield element type and the send type of a generator.
+
+        `Iterator[T]` and `Generator[T, None, None]` send None; a
+        `Generator[T, S, R]` sends S. The return type R is not lowered yet.
+        """
         ann = fn.returns
         if ann is None:
             self.fail(fn, "PS1001", f"{fn.name} needs a return annotation")
@@ -247,14 +272,18 @@ class CoroMixin:
         if form not in _GENERATOR_FORMS:
             self.fail(ann, "PS1001", "a generator is annotated Iterator[T], Iterable[T] or Generator[T, None, None]")
         args = list(ann.slice.elts) if isinstance(ann.slice, ast.Tuple) else [ann.slice]
+        send: dict[str, Any] = dict(_NONE)
         if form == "Generator":
-            if len(args) not in {1, 3} or any(
-                not (isinstance(arg, ast.Constant) and arg.value is None) for arg in args[1:]
-            ):
-                self.fail(ann, "PS2002", "Generator[T, S, R] with send or return types is not lowered yet")
+            if len(args) not in {1, 3}:
+                self.fail(ann, "PS1001", "Generator is Generator[T] or Generator[T, S, R]")
+            if len(args) == 3:
+                if not (isinstance(args[2], ast.Constant) and args[2].value is None):
+                    self.fail(ann, "PS2002", "Generator[T, S, R] with a return type is not lowered yet")
+                if not (isinstance(args[1], ast.Constant) and args[1].value is None):
+                    send = self._annotation(args[1])
         elif len(args) != 1:
             self.fail(ann, "PS1001", f"{form}[T] takes one type")
-        return self._annotation(args[0])
+        return self._annotation(args[0]), send
 
     def _coro_body_sig(self, name: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Signature the body lowers under: a resumable body returns None."""
@@ -274,7 +303,7 @@ class CoroMixin:
         """
         if not enabled() or not is_generator(fn) or fn.decorator_list:
             return None
-        elem = self._coro_elem(fn)
+        elem, send = self._coro_types(fn)
         shape = _shape_error(fn)
         if shape is not None:
             self.fail(shape[0], "PS2002", shape[1])
@@ -291,7 +320,16 @@ class CoroMixin:
         self.classes[frame] = {
             "fields": [],
             "own_fields": [],
-            "methods": {"__iter__": (self_t, frame_t), "__next__": (self_t, elem)},
+            "methods": {
+                "__iter__": (self_t, frame_t),
+                "__next__": (self_t, elem),
+                "close": (self_t, _NONE),
+                **(
+                    {"send": (self_t + [{"name": ".ps_value", "type": send}], elem)}
+                    if send.get("kind") != "none"
+                    else {}
+                ),
+            },
             "method_kind": {},
             "method_owner": {},
             "base": None,
@@ -299,7 +337,7 @@ class CoroMixin:
         }
         self.known_classes.add(frame)
         key = f"{class_name}.{fn.name}"
-        self._coro_plans()[key] = FramePlan("generator", key, frame, elem, params, "")
+        self._coro_plans()[key] = FramePlan("generator", key, frame, elem, params, "", send)
         return params, frame_t
 
     def _coro_method_body_sig(
@@ -327,6 +365,28 @@ class CoroMixin:
                 return self._coro_yield(stmt, stmt.value, plan)
             if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.YieldFrom):
                 return self._coro_yield_from(stmt, stmt.value)
+            if (
+                isinstance(stmt, (ast.Assign, ast.AnnAssign))
+                and isinstance(stmt.value, ast.Yield)
+                and plan.kind == "generator"
+            ):
+                # `x = yield v` / `x: T = yield v`: the sent value arrives in
+                # a frame local the marker names; the assignment reads it
+                # after the marker.
+                target = stmt.targets[0] if isinstance(stmt, ast.Assign) else stmt.target
+                assert isinstance(target, ast.Name)
+                recv = self._coro_recv_temp(plan.send)
+                marker = ast.Expr(value=stmt.value)
+                ast.copy_location(marker, stmt)
+                marker.end_lineno, marker.end_col_offset = stmt.end_lineno, stmt.end_col_offset
+                stmts = self._coro_yield(marker, stmt.value, plan, recv)
+                span = span_of(stmt, self.filename)
+                typ = self.locals.get(target.id) or plan.send
+                if isinstance(stmt, ast.AnnAssign):
+                    typ = self._annotation(stmt.annotation)
+                    self.locals[target.id] = typ
+                stmts.append(_assign(target.id, _name(recv, typ, span), span))
+                return stmts
             if isinstance(stmt, ast.Return):
                 span = span_of(stmt, self.filename)
                 if plan.kind == "coroutine" and stmt.value is not None:
@@ -345,11 +405,24 @@ class CoroMixin:
                 return [{"kind": "return", "value": _const(None, _NONE, span), "span": span}]
         return super()._stmt_core(stmt)
 
-    def _coro_yield(self, stmt: ast.Expr, node: ast.Yield, plan: FramePlan) -> list[dict[str, Any]]:
+    def _coro_recv_temp(self, send_t: dict[str, Any]) -> str:
+        """A frame local holding the value a `send()` delivers at one yield."""
+        recvs: list[str] = self.__dict__.setdefault("_coro_recvs", [])
+        name = f".ps_recv_{len(recvs) + 1}"
+        recvs.append(name)
+        if send_t.get("kind") != "none":
+            self.locals[name] = send_t
+        return name
+
+    def _coro_yield(
+        self, stmt: ast.Expr, node: ast.Yield, plan: FramePlan, recv: str | None = None
+    ) -> list[dict[str, Any]]:
         span = span_of(stmt, self.filename)
-        assert node.value is not None
-        value = self._expr(node.value, plan.elem)
-        self._expect(node, value["type"], plan.elem, "yield")
+        if node.value is None:
+            value = _const(None, dict(_NONE), span)
+        else:
+            value = self._expr(node.value, plan.elem)
+            self._expect(node, value["type"], plan.elem, "yield")
         call = {
             "kind": "call",
             "callee": {"kind": "builtin", "name": YIELD_MARKER},
@@ -357,6 +430,9 @@ class CoroMixin:
             "type": dict(_NONE),
             "span": span,
         }
+        if recv is not None:
+            call["recv"] = recv
+            call["recvType"] = dict(plan.send)
         return [{"kind": "expr", "expr": call, "span": span}]
 
     def _coro_yield_from(self, stmt: ast.Expr, node: ast.YieldFrom) -> list[dict[str, Any]]:
@@ -528,7 +604,16 @@ class _Kind:
 
 class _GeneratorKind(_Kind):
     """`__next__` returns the yielded value; completion raises StopIteration
-    (code 8), which `_for_dunder` turns into the loop exit."""
+    (code 8), which `_for_dunder` turns into the loop exit.
+
+    `close` marks the frame done (the next `__next__` raises StopIteration,
+    as CPython does after a close), and `throw` raises the given exception
+    out of the generator. Neither can be caught inside the generator: a
+    `yield` inside `try` is fenced, so no handler can surround a live
+    suspension point and CPython's "the generator catches it" outcome is
+    unreachable. Propagating out is therefore the exact semantics for
+    every program that lowers.
+    """
 
     marker = YIELD_MARKER
 
@@ -544,7 +629,43 @@ class _GeneratorKind(_Kind):
             "span": span,
         }
         next_m = {**resume, "name": "__next__", "returnType": frame.plan.elem}
-        return [iter_m, next_m]
+        close_m = {
+            "name": "close",
+            "params": [{"name": SELF, "type": frame.frame_t}],
+            "returnType": dict(_NONE),
+            "locals": [{"name": SELF, "type": frame.frame_t}],
+            "body": [frame.field_set(STATE, _const(DONE, _INT, span), span)],
+            "span": span,
+        }
+        out = [iter_m, next_m, close_m]
+        if frame.plan.send.get("kind") != "none":
+            # `send(v)`: store v into the frame, then resume. A value sent to
+            # a generator that never ran is ignored (a documented divergence:
+            # CPython raises TypeError, which this subset cannot express).
+            send_t = frame.plan.send
+            step = {
+                "kind": "call",
+                "callee": {"kind": "function", "name": f"cls.{frame.plan.frame}.__next__"},
+                "args": [this],
+                "type": frame.plan.elem,
+                "span": span,
+            }
+            send_m = {
+                "name": "send",
+                "params": [{"name": SELF, "type": frame.frame_t}, {"name": ".ps_value", "type": send_t}],
+                "returnType": frame.plan.elem,
+                "locals": [
+                    {"name": SELF, "type": frame.frame_t},
+                    {"name": ".ps_value", "type": send_t},
+                ],
+                "body": [
+                    frame.field_set(SEND, _name(".ps_value", send_t, span), span),
+                    {"kind": "return", "value": step, "span": span},
+                ],
+                "span": span,
+            }
+            out.append(send_m)
+        return out
 
     def suspend(self, frame: _Frame, value: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
         return [{"kind": "return", "value": value, "span": span}]
@@ -665,6 +786,9 @@ class _Frame:
             # ps_loop.c reads the resume cell at a fixed offset.
             fields.append({"name": TASK, "type": _RESUME_FUNC})
         fields.append({"name": RESULT, "type": self.plan.elem})
+        if self.plan.send.get("kind") != "none":
+            # The value a `send()` delivers into the generator.
+            fields.append({"name": SEND, "type": self.plan.send})
         fields.extend(self.locals)
         frame = {
             "name": self.plan.frame,
@@ -805,6 +929,13 @@ class _Frame:
                 *self.kind.suspend(self, value, span),
             ]
             arrive = [_assign(RESUME, _const(0, _INT, span), span)]
+            recv = stmt["expr"].get("recv")
+            if recv is not None:
+                # A yield used as an expression: the sent value (`.ps_send`,
+                # stored by `send()`) lands in the recv temp the lowering
+                # allocated for the marker's continuation.
+                typ = stmt["expr"].get("recvType", dict(_NONE))
+                arrive.append(_assign(recv, self.field_get(SEND, typ, span), span))
             return [_if(self.fresh(span), leave, arrive, span)]
         if kind == "if":
             taken = self.temp("if", _BOOL)

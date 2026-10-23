@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-23",
-  "commit": "10318661aa0a4552c90d7f3ace89001b1568bc5c",
+  "commit": "e63fe8ca321648e68f4476a2d855cb74c6c44f5d",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 5,
     "packages_none": 10,
     "weighted_pass": 0.0,
-    "fences": 3049
+    "fences": 3048
   },
   "builtins": [
     {
@@ -1398,7 +1398,7 @@
         },
         {
           "code": "PS1001",
-          "count": 78
+          "count": 79
         },
         {
           "code": "PS2001",
@@ -1640,7 +1640,7 @@
       "import_name": "packaging",
       "version": "26.3",
       "status": "none",
-      "fences": 635,
+      "fences": 634,
       "definitions": 558,
       "fenced_definitions": 287,
       "top_families": [
@@ -1660,7 +1660,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 258
+          "count": 259
         },
         {
           "code": "PS1106",
@@ -1945,13 +1945,13 @@
     {
       "code": "PS2002",
       "title": "construct not lowered",
-      "count": 1475,
+      "count": 1476,
       "packages": 15
     },
     {
       "code": "PS1001",
       "title": "annotation missing or not lowered",
-      "count": 516,
+      "count": 517,
       "packages": 15
     },
     {
@@ -1969,7 +1969,7 @@
     {
       "code": "PS1103",
       "title": "generic alias annotation",
-      "count": 124,
+      "count": 122,
       "packages": 8
     },
     {
@@ -2011,7 +2011,7 @@
     {
       "code": "PS1003",
       "title": "type mismatch",
-      "count": 38,
+      "count": 35,
       "packages": 8
     },
     {
@@ -2037,17 +2037,23 @@
       "title": "string literal outside Latin-1",
       "count": 4,
       "packages": 2
+    },
+    {
+      "code": "PS1206",
+      "title": "with-as binding",
+      "count": 2,
+      "packages": 1
     }
   ],
   "history": [
     {
       "date": "2026-10-23",
-      "commit": "10318661aa0a4552c90d7f3ace89001b1568bc5c",
+      "commit": "e63fe8ca321648e68f4476a2d855cb74c6c44f5d",
       "weighted_pass": 0.0,
       "packages_full": 3,
       "packages_partial": 5,
       "packages_none": 10,
-      "fences": 3049
+      "fences": 3048
     }
   ]
 }
