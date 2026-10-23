@@ -112,9 +112,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          DATE: $(date -u +%Y-%m-%d)
         run: |
           set -euo pipefail
+          DATE="$(date -u +%Y-%m-%d)"
           branch="bot/compat-snapshot"
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
