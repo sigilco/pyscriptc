@@ -66,8 +66,10 @@ The epic file is `.agents/plans/<date>-epic-<name>.md` (date like `2026-10-14`).
 Each committed attempt spends one, including an attempt you then revert. At N, stop editing and run the epic-boundary judgment. The first epic is E0, then E1. Later order is the waves plan, rechecked at each boundary with:
 
 ```bash
-uv run python -m benchmarks.compat2.census --top 10
+mise run compat:census
 ```
+
+That wraps `uv run python -m benchmarks.compat2.census --top 10`.
 
 After E0, two epics may proceed only when they do not touch the same files. E0 itself is strictly serial.
 
@@ -182,10 +184,12 @@ Read `benchmarks/compat2/failed.jsonl` if it exists. Do not start an epic whose 
 Run these from the worktree root while editing. They do not take the heavy lock:
 
 ```bash
-uv run ruff check
-uv run ruff format --check
+mise run lint
+mise run format-check
 uv run pytest tests/test_<focused>.py
 ```
+
+The first two wrap `uv run ruff check` and `uv run ruff format --check`. A focused pytest has no task yet, so it stays raw.
 
 Name the focused pytest in step 4 above. Run the narrowest file or node that fails if this edit is wrong.
 
@@ -307,8 +311,10 @@ Never read `benchmarks/compat2/corpus/holdout/`. Do not ask for it, do not pass 
 Measure and record the result in the boundary report, and update the latest-measurement line in `AGENTS.md`:
 
 ```bash
-uv run python benchmarks/compat2/boxed_cost.py --window-commits 10 [--reach reach.json] [--probe-times times.json]
+mise run boxed:cost
 ```
+
+That wraps `uv run python benchmarks/compat2/boxed_cost.py --window-commits 10`; the optional `--reach reach.json` and `--probe-times times.json` flags are appended to the task call. The commands in this file that run inside the heavy container (`docker/run.sh`) stay raw, because the container does not carry mise.
 
 The report gives, per window, code share, churn share, bug share (`fix` commits), and iteration tax (commits that touch boxed code without naming boxed, island, or fallback in the subject). Apply the drop-flag rules in `AGENTS.md`. When the flag is raised, stop adding boxed features and ask the user whether to drop the tier.
 

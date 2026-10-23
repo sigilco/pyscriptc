@@ -25,4 +25,4 @@ pinned pure-Python libraries: 3 🟢 · 5 🟡 · 10 🔴
 | `trove-classifiers` | 2026.9.21.13 | 🟢 | 0/0 |  |  |
 | `tzdata` | 2026.5 | 🟢 | 0/0 |  |  |
 
-Regenerate: `uv run python scripts/gen_support_table.py`.
+Regenerate: `mise run support:table`.

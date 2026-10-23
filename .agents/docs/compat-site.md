@@ -141,12 +141,12 @@ The JSON is committed because Cloudflare Pages builds from the repository, and b
 
 | section | source | command |
 | --- | --- | --- |
-| `builtins`, `stdlib` | `scripts/support_data.toml` probed through the compiler | `uv run python scripts/gen_support_table.py` |
-| `packages` | `benchmarks/compat/top100/pins.json` plus `pyscriptc coverage` | `uv run python scripts/build_compat_json.py` |
+| `builtins`, `stdlib` | `scripts/support_data.toml` probed through the compiler | `mise run support:table` (wraps `uv run python scripts/gen_support_table.py`) |
+| `packages` | `benchmarks/compat/top100/pins.json` plus `pyscriptc coverage` | `mise run compat:json` (wraps `uv run python scripts/build_compat_json.py`) |
 | `language` | `benchmarks.compat2.score` over the visible probes | `uv run python -m benchmarks.compat2.score benchmarks/compat2/probes --corpus --out ...` |
 | `fences` | the same package measurement, aggregated per code | same builder command |
 | `history` | the previous `compat.json` plus the current measurement | append in the builder |
-| `ladder` | `benchmarks.scripts_corpus.ladder`, written to `compat/data/ladder.json` | `uv run python -m benchmarks.scripts_corpus.ladder --json compat/data/ladder.json` |
+| `ladder` | `benchmarks.scripts_corpus.ladder`, written to `compat/data/ladder.json` | `mise run compat:ladder` (wraps `uv run python -m benchmarks.scripts_corpus.ladder --json compat/data/ladder.json`) |
 
 The builder reuses `scripts/gen_support_table.py` internals (`evaluate`, `library_rows`) rather than re-implementing them, so there is one definition of "supported".
 
@@ -231,7 +231,7 @@ CI validation, in this order.
 | check | command | what it proves |
 | --- | --- | --- |
 | schema | `uv run pytest -q tests/test_compat_json.py` | the committed JSON matches the schema and the builders agree with it |
-| drift | `uv run python scripts/build_compat_json.py --check` | the committed JSON is what the current tree produces |
+| drift | `mise run compat:json --check` | the committed JSON is what the current tree produces |
 | page | `uv run pytest -q tests/test_compat_site.py` | the HTML page reads every section the schema defines |
 
 `--check` is the same shape as `gen_support_table.py --check` and `benchmarks.baseline.run --check`, so the repo keeps one convention.
