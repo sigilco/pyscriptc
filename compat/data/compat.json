@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-23",
-  "commit": "a898d2248711b4604895018a0653fc6eae343cfa",
+  "commit": "3eefdee5db01b11544997d2d33245e6e61cf6077",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -1441,7 +1441,7 @@
         },
         {
           "family": "construct-other",
-          "count": 82
+          "count": 81
         },
         {
           "family": "local-inference",
@@ -1451,7 +1451,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 436
+          "count": 435
         },
         {
           "code": "PS1001",
@@ -2002,7 +2002,7 @@
     {
       "code": "PS2002",
       "title": "construct not lowered",
-      "count": 1487,
+      "count": 1486,
       "packages": 15
     },
     {
@@ -2026,7 +2026,7 @@
     {
       "code": "PS1103",
       "title": "generic alias annotation",
-      "count": 130,
+      "count": 131,
       "packages": 8
     },
     {
@@ -2099,7 +2099,7 @@
   "history": [
     {
       "date": "2026-10-23",
-      "commit": "a898d2248711b4604895018a0653fc6eae343cfa",
+      "commit": "3eefdee5db01b11544997d2d33245e6e61cf6077",
       "weighted_pass": 0.0,
       "packages_full": 3,
       "packages_partial": 5,

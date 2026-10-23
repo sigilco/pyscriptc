@@ -1772,10 +1772,10 @@ class _Frame:
             _assign(RESUME, _const(0, _INT, span), span),
             *self._task_park(park, raise_here, failed, status, span),
         ]
-# A cancelled task raises CancelledError in the awaiting frame
+        # A cancelled task raises CancelledError in the awaiting frame
         # instead of producing a result.
         cancelled = _if(
-            _compare("==", status, _const(CANCELLED, _INT, span), span),
+            _compare("==", _name(status, _INT, span), _const(CANCELLED, _INT, span), span),
             [
                 {
                     "kind": "raise",
