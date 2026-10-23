@@ -353,3 +353,44 @@ jobs:
           [ ! -s "$WORK/tsan.err" ] || { cat "$WORK/tsan.err"; exit 1; }
       - name: TSan suite passes locally
         run: uv run pytest -q tests/test_threading_tsan.py -m "linux_container"
+
+  # The mobile static-library mode (#356): build all three archives and
+  # link-check them. Apple legs run on macos-14 (Xcode SDKs are preinstalled);
+  # the Android leg downloads the pinned NDK. The simulator runner cannot
+  # execute outside the simulator runtime, so linking is the check there.
+  mobile-archives:
+    name: mobile archives and link-checks
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            skip: android
+            ndk: ""
+          - os: ubuntu-24.04
+            skip: "ios-sim,ios-device"
+            ndk: "28.2.13676358"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"  # emSign CA incident: uv 0.13.4 dropped the compromised root
+          enable-cache: true
+          python-version: "3.14"
+      - run: uv sync --frozen
+      - name: Install the Android NDK r28c
+        if: matrix.ndk != ''
+        run: |
+          set -euo pipefail
+          zip=/tmp/android-ndk-r28c-linux.zip
+          curl -fsSL https://dl.google.com/android/repository/android-ndk-r28c-linux.zip -o "$zip"
+          echo "a7b54a5de87fecd125a17d54f73c446199e72a64  $zip" | sha1sum -c -
+          unzip -q "$zip" -d /opt
+          echo "PYSC_ANDROID_NDK=/opt/android-ndk-r28c" >> "$GITHUB_ENV"
+      - name: Build the mobile archives and link-check them
+        run: PYSC_SMOKE_SKIP=${{ matrix.skip }} packaging/mobile/smoke.sh

@@ -31,5 +31,6 @@ That prints `285`, the same value CPython returns, from a native binary.
 - [Quickstart](/getting-started/): install, compile, run.
 - [Install and toolchain](getting-started/install/): clang, zig, doctor.
 - [The Python subset](/guide/support-model/): what lowers, what fences.
+- [Mobile apps](/guide/mobile/): a static library for iOS and Android.
 - [CLI](/reference/cli/): every subcommand and flag.
 - [Examples](/examples/): programs that compile today.
