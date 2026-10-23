@@ -170,12 +170,17 @@ int64_t ps_thread_active_count(void) {
    the target unwinds into the thread's own root frame instead of killing
    the process with an abort.
 
-   The record's own mutex doubles as the join latch: `start()` locks it, the
-   trampoline unlocks it as its last act, and `join()` locks it again. That
-   makes `join()` a full barrier pair, so every write the target made is
-   visible to the joiner. */
+   The record's join latch is a mutex plus a condition: `start()` takes the
+   mutex and marks the thread live, the trampoline re-takes the mutex, marks
+   the thread done and signals, and `join()` waits on the condition until the
+   flag flips. A plain mutex cannot be the latch, because the waiter and the
+   signaller are different threads and pthread mutexes must be unlocked by
+   their owner; ThreadSanitizer rejects the cross-thread unlock that the old
+   latch performed. A condition also gives `join(timeout)` a timed wait
+   instead of a poll loop. */
 typedef struct PsThreadRec {
-    pthread_mutex_t latch;
+    pthread_mutex_t lock;
+    pthread_cond_t done;
     pthread_t handle;
     void *pair;      /* {impl, env} */
     char *name;
@@ -213,6 +218,11 @@ static int32_t ps_thread_body(void *arg) {
 static void *ps_thread_trampoline(void *arg) {
     PsThreadRec *rec = (PsThreadRec *)arg;
     int32_t flow = 0;
+    /* Detach self: the record's condition is the join, not pthread_join, so
+       the pthread has to release its own stack and its TSan bookkeeping when
+       it exits. Detaching from inside the thread avoids the race with the
+       creator, where the thread could already be gone. */
+    pthread_detach(pthread_self());
     /* The root frame: CPython's excepthook prints and keeps the process
        running, so the joiner sees the report on stderr and the main thread
        keeps its own exit code. */
@@ -222,8 +232,11 @@ static void *ps_thread_trampoline(void *arg) {
         snprintf(prefix, sizeof prefix, "Exception in thread %s:", rec->name);
         ps_report_current(prefix);
     }
-    /* Publish completion: unlock the latch the joiner waits on. */
-    pthread_mutex_unlock(&rec->latch);
+    /* Publish completion: mark the record done and wake the joiner. */
+    pthread_mutex_lock(&rec->lock);
+    rec->alive = 0;
+    pthread_cond_broadcast(&rec->done);
+    pthread_mutex_unlock(&rec->lock);
     pthread_mutex_lock(&ps_active_lock);
     ps_active_threads -= 1;
     pthread_mutex_unlock(&ps_active_lock);
@@ -235,7 +248,12 @@ void *ps_thread_new(void *pair, int64_t daemon, const char *name) {
     if (rec == NULL) {
         ps_raise_cstr(PS_RUNTIME, "out of memory");
     }
-    if (pthread_mutex_init(&rec->latch, NULL) != 0) {
+    if (pthread_mutex_init(&rec->lock, NULL) != 0) {
+        free(rec);
+        ps_raise_cstr(PS_RUNTIME, "cannot create a thread");
+    }
+    if (pthread_cond_init(&rec->done, NULL) != 0) {
+        pthread_mutex_destroy(&rec->lock);
         free(rec);
         ps_raise_cstr(PS_RUNTIME, "cannot create a thread");
     }
@@ -259,15 +277,14 @@ static PsThreadRec *ps_thread_of(void *box) {
 
 void ps_thread_start2(void *box) {
     PsThreadRec *rec = ps_thread_of(box);
+    pthread_mutex_lock(&rec->lock);
     if (rec->started) {
+        pthread_mutex_unlock(&rec->lock);
         ps_raise_cstr(PS_RUNTIME, "threads can only be started once");
-    }
-    /* The latch starts held: the trampoline unlocks it when it is done. */
-    if (pthread_mutex_lock(&rec->latch) != 0) {
-        ps_raise_cstr(PS_RUNTIME, "cannot lock a thread record");
     }
     rec->started = 1;
     rec->alive = 1;
+    pthread_mutex_unlock(&rec->lock);
     pthread_mutex_lock(&ps_active_lock);
     ps_active_threads += 1;
     pthread_mutex_unlock(&ps_active_lock);
@@ -275,50 +292,59 @@ void ps_thread_start2(void *box) {
         pthread_mutex_lock(&ps_active_lock);
         ps_active_threads -= 1;
         pthread_mutex_unlock(&ps_active_lock);
-        pthread_mutex_unlock(&rec->latch);
+        pthread_mutex_lock(&rec->lock);
         rec->started = 0;
         rec->alive = 0;
+        pthread_mutex_unlock(&rec->lock);
         ps_raise_cstr(PS_RUNTIME, "cannot start a new thread");
     }
 }
 
 void ps_thread_join2(void *box, int64_t timeout_ns) {
     PsThreadRec *rec = ps_thread_of(box);
+    pthread_mutex_lock(&rec->lock);
     if (!rec->started) {
+        pthread_mutex_unlock(&rec->lock);
         ps_raise_cstr(PS_RUNTIME, "cannot join thread before it is started");
     }
     if (timeout_ns == 0) {
+        pthread_mutex_unlock(&rec->lock);
         return;
     }
-    struct timespec start;
-    clock_gettime(CLOCK_MONOTONIC, &start);
-    for (;;) {
-        int status = pthread_mutex_trylock(&rec->latch);
-        if (status == 0) {
-            /* The target is done: take the latch and give it back. */
-            pthread_mutex_unlock(&rec->latch);
-            rec->alive = 0;
-            return;
+    if (timeout_ns < 0) {
+        while (rec->alive) {
+            pthread_cond_wait(&rec->done, &rec->lock);
         }
-        if (timeout_ns < 0) {
-            struct timespec pause = {0, 1000000};
-            nanosleep(&pause, NULL);
-            continue;
-        }
-        struct timespec now;
-        clock_gettime(CLOCK_MONOTONIC, &now);
-        int64_t elapsed = (now.tv_sec - start.tv_sec) * 1000000000 + (now.tv_nsec - start.tv_nsec);
-        if (elapsed >= timeout_ns) {
-            return;
-        }
-        struct timespec pause = {0, 1000000};
-        nanosleep(&pause, NULL);
+        pthread_mutex_unlock(&rec->lock);
+        return;
     }
+    struct timespec deadline;
+    clock_gettime(CLOCK_REALTIME, &deadline);
+    deadline.tv_sec += (time_t)(timeout_ns / 1000000000);
+    deadline.tv_nsec += (long)(timeout_ns % 1000000000);
+    if (deadline.tv_nsec >= 1000000000) {
+        deadline.tv_sec += 1;
+        deadline.tv_nsec -= 1000000000;
+    }
+    while (rec->alive) {
+        int status = pthread_cond_timedwait(&rec->done, &rec->lock, &deadline);
+        if (status == ETIMEDOUT) {
+            break;
+        }
+        if (status != 0 && status != EINTR) {
+            pthread_mutex_unlock(&rec->lock);
+            ps_raise_cstr(PS_RUNTIME, "cannot wait for the thread");
+        }
+    }
+    pthread_mutex_unlock(&rec->lock);
 }
 
 int32_t ps_thread_is_alive2(void *box) {
     PsThreadRec *rec = ps_thread_of(box);
-    return rec->alive ? 1 : 0;
+    pthread_mutex_lock(&rec->lock);
+    int32_t alive = rec->alive ? 1 : 0;
+    pthread_mutex_unlock(&rec->lock);
+    return alive;
 }
 
 int32_t ps_thread_daemon(void *box) {
