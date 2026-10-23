@@ -319,6 +319,42 @@ _ENTRIES = (
         "through a manifest function if you need a number.",
     ),
     Diagnostic(
+        "PS4201",
+        "dynamic attribute protocol refused",
+        (
+            "`__getattr__`, `__setattr__`, `__getattribute__`, `__get__` and `__set__` "
+            "intercept attribute access at run time. Attribute access is resolved "
+            "statically to declared fields, so a hook that can intercept any name "
+            "lookup or write has nothing to run in, and the hook would be silently "
+            "dropped or silently bypassed."
+        ),
+        (
+            "Use plain annotated fields and methods. `@property` getters lower; "
+            "unknown-name delegation becomes an explicit method call."
+        ),
+    ),
+    Diagnostic(
+        "PS4202",
+        "attribute deletion protocol refused",
+        (
+            "`__delattr__` intercepts `del obj.name`, which the lowered subset does "
+            "not model: fields are fixed at lowering and never removed, so the hook "
+            "would never run."
+        ),
+        "Use plain annotated fields. Model 'removed' with a sentinel value or a flag field.",
+    ),
+    Diagnostic(
+        "PS4203",
+        "finalizer refused",
+        (
+            "`__del__` is a finalizer: CPython calls it when the object is "
+            "garbage-collected, and that timing is explicitly unspecified. The "
+            "runtime has no GC to trigger it, so the method would be silently "
+            "dropped and the cleanup would never run."
+        ),
+        "Use `with` and an explicit `close()` for resource lifetime.",
+    ),
+    Diagnostic(
         "PS4101",
         "no executable build on a mobile target",
         (
