@@ -99,7 +99,10 @@ def link_binary(
     sanitize: list[str] | None = None,
     timings: dict[str, float] | None = None,
     debug_info: bool = False,
-    extra_units: list[Path] | None = None,
+    compile_units: list[Path] | None = None,
+    link_units: list[Path] | None = None,
+    link_flags: list[str] | None = None,
+    include_dirs: list[Path] | None = None,
 ) -> None:
     """Link `.ll` text plus the C runtime into `output`.
 
@@ -117,6 +120,17 @@ def link_binary(
     produce it; on ELF the sections stay in the binary.
     When `timings` is a dict, per-step cc/link wall milliseconds are added
     into it (`cc_compile`, `cc_link`).
+
+    The `--ffi` manifest units join the same link shape as the runtime
+    (`.agents/docs/ffi/ffi-manifest.md` section 4): `compile_units` are C
+    sources the target cc compiles in the per-unit `.o` loop, `link_units`
+    are prebuilt archives and objects that go straight on the link line, and
+    `link_flags` are the per-manifest `-L`/`-l` arguments. Every one of them
+    is optional, so a build with no manifest produces exactly the link line
+    it produced before the FFI gate.
+    `include_dirs` are added as `-I` to the manifest unit compiles only, so a
+    vendored header next to the manifest resolves without touching the
+    runtime's own include surface.
     """
     output.parent.mkdir(parents=True, exist_ok=True)
     if target is not None and driver != "zig":
@@ -144,15 +158,15 @@ def link_binary(
         tail = [f"-L{libdir}", f"-lpython{version}", f"-Wl,-rpath,{libdir}", *tail]
     else:
         sources = [source for source in sources if not source.endswith("ps_island.c")]
-    # `--ffi` manifest units join the same per-unit compile loop as the
+    # The `--ffi` manifest units join the same per-unit compile loop as the
     # runtime: a `.c` unit compiles like a runtime file, an archive goes
     # straight on the link line (`.agents/docs/ffi/ffi-manifest.md` section 4).
-    ffi_archives: list[Path] = []
-    for unit in extra_units or []:
-        if unit.suffix in (".a", ".o"):
-            ffi_archives.append(unit)
-        else:
-            sources.append(str(unit))
+    ffi_sources = [str(unit) for unit in compile_units or []]
+    ffi_archives = [str(unit) for unit in link_units or []]
+    sources.extend(ffi_sources)
+    # A missing unit is refused before the compiler runs, so the failure names
+    # the manifest that declared it instead of surfacing as a cc error.
+    _require_units(compile_units, link_units)
     # zig cannot compile C sources inside a link invocation for Mach-O, so
     # every unit goes to .o first and the link line carries objects only.
     use_cache = rtcache.prepare()
@@ -174,11 +188,22 @@ def link_binary(
     jobs: list[tuple[list[str], Path | None]] = [(ll_argv, None)]
     objects = [ll_obj]
     hits = 0
+    ffi_include_flags: list[str] = []
+    for directory in include_dirs or []:
+        ffi_include_flags.extend(["-I", str(directory)])
+    # The manifest units carry the manifest's own include dirs; the runtime
+    # units keep the flags they always had, so a manifest-free build compiles
+    # the runtime exactly as it did before the FFI gate.
+    ffi_sources = set(ffi_sources)
     for source in sources:
         src = Path(source)
         flags = ["-O2", *san_flags, *target_flags]
+        extra_dirs: tuple[Path, ...] = ()
+        if source in ffi_sources:
+            flags.extend(ffi_include_flags)
+            extra_dirs = tuple(include_dirs or [])
         if use_cache:
-            final = rtcache.object_path(src, runtime, cc.split(), flags)
+            final = rtcache.object_path(src, runtime, cc.split(), flags, extra_dirs)
             objects.append(final)
             if final.exists():
                 hits += 1
@@ -202,7 +227,14 @@ def link_binary(
         # no -O on the link line: it is a compile flag and zig's Mach-O
         # driver crashes on it (0.16.0)
         link_cc = ("zig cc" if link_driver == "zig" else link_driver) if link_driver else cc
-        argv = [*_cc_argv(link_cc), *objects, *[str(path) for path in ffi_archives], *target_flags, *tail]
+        argv = [
+            *_cc_argv(link_cc),
+            *objects,
+            *ffi_archives,
+            *target_flags,
+            *(link_flags or []),
+            *tail,
+        ]
         if record is not None:
             record.append([str(arg) for arg in argv])
         link_started = time.perf_counter()
@@ -223,6 +255,17 @@ def runtime_dir() -> Path:
     modules, so the package can grow without moving the data files.
     """
     return Path(__file__).resolve().parents[2] / "runtime"
+
+
+def _require_units(compile_units: list[Path] | None, link_units: list[Path] | None) -> None:
+    """Refuse a declared unit that is not on disk, before the compiler runs.
+
+    A missing file would otherwise surface as a cc error halfway through the
+    build, which names the compiler and not the manifest that declared it.
+    """
+    for unit in [*(compile_units or []), *(link_units or [])]:
+        if not unit.exists():
+            raise IRError(f"the declared unit {unit} does not exist")
 
 
 def _write_debug_symbols(output: Path, record: list[list[str]] | None) -> None:
