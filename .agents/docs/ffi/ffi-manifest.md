@@ -376,6 +376,47 @@ already store. `for` over `list[dict[...]]` needed the loop guard in
 `lower/_stmt.py` widened from scalars to scalar-or-dict; dicts as elements
 emit through the same `ps_seq_get` slot copy as every other element.
 
+### 6b. F3 receipt: the sqlite end-to-end pilot (2026-10-23, issue #66)
+
+The pilot runs through the real pipeline with no compiler changes to the
+FFI path: a fixture script (`examples/sqlite_rows.py`, the same source the
+test lowers) does open, create, insert, select, close against the vendored
+amalgamation, linked statically through the F2 `[[source]]` seam, and the
+returned rows assert equal to what the stdlib `sqlite3` module prints for
+the same sequence. The raise surface matches too: bad SQL and the
+two-statements-in-one refusal come back as `RuntimeError` with "sqlite3: "
+plus SQLite's own text, and use after close is the compile-time PS4010 of
+F1b's ownership rule (stdlib raises `ProgrammingError` at runtime; the
+subset refuses the program instead, the stricter contract
+`pyscriptc_sqlite.pyi` documents).
+
+Receipts:
+
+- host: `tests/test_ffi_sqlite_pilot.py` builds the binary with the
+  manifest's own units, matches CPython on the row output and on the raise
+  text, runs leak-free under ASan+UBSan, and refuses use-after-close at
+  the compile.
+- cross: the same script links for `x86_64-linux-musl` through the zig
+  driver and runs there (the `linux_container` suite; macOS hosts compile
+  it but cannot exec an ELF binary).
+- checker: a manifest module resolves through the adapter's `.pyi` (the
+  search path gains the manifest directory and the stub root), so a wrong
+  argument type fails the preflight with the same signature the lowerer
+  enforces.
+- corpus delta: the sqlite rows of the essence study
+  (`.agents/docs/benchmarks/compile-rate-essence-method.md`, 13 rows
+  shimmed through `python3` children) have their native seam; the
+  seam-level receipt is the pilot itself, since the per-script catalogue
+  stays private.
+
+One manifest-level gap stayed open on purpose: `SQLITE_THREADSAFE=0` and
+`SQLITE_OMIT_LOAD_EXTENSION` are compile definitions the manifest format
+does not carry (no flag channel by design; the format stays
+declarative). The pilot compiles the vendored `sqlite3.c` with its
+defaults, which are thread-safe and extension-enabled and add a few
+hundred KB; the host thunk test keeps the two defines for its own
+differential build.
+
 ## 7. Integration points (open)
 
 The F0 parser ships first; these are the seams the later gates plug into.
