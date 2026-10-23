@@ -545,6 +545,21 @@ def run_deps(
     }
 
 
+def source_roots(source: Path, *, cache_dir: str | Path | None = None) -> list[Path]:
+    """The unpacked pure-wheel roots a compile may import (issue #398).
+
+    The deps report's `sourceRoots`, one directory per pure-Python
+    dependency. The resolution reuses the lock and the content-addressed
+    cache, so a second compile with the same lock does no network. A
+    resolver failure is a compile-refusing PS3101; a dependency on any other
+    lane simply contributes no root here, and the compile fences it with the
+    lane hint the way it always has.
+    """
+
+    report = run_deps(source, download=True, cache_dir=cache_dir)
+    return [Path(root) for root in report["sourceRoots"]]
+
+
 def render_text(report: dict[str, Any]) -> str:
     lines = [f"{report['source']}: {len(report['packages'])} locked distribution(s), lock {report['lockProvenance']}"]
     if not report["packages"]:

@@ -262,3 +262,26 @@ def ffi_modules(manifests: Iterable[Any]) -> Iterator[None]:
         yield
     finally:
         _FFI_MANIFESTS = saved
+
+
+# The locked dependencies of the running compile, keyed by import name: the
+# lane report the compiler fences non-pure lanes against (issue #398).
+# Module-level like `_FFI_MANIFESTS`, set around the same lowering pass.
+_DEP_LANES: dict[str, dict[str, str]] = {}
+
+
+def dep_lanes() -> dict[str, dict[str, str]]:
+    """The locked dependencies of the running compile, keyed by import name."""
+    return _DEP_LANES
+
+
+@contextmanager
+def dependency_lanes(lanes: dict[str, dict[str, str]]) -> Iterator[None]:
+    """Install the dependency lane report for the duration of one lowering pass."""
+    global _DEP_LANES
+    saved = _DEP_LANES
+    _DEP_LANES = lanes
+    try:
+        yield
+    finally:
+        _DEP_LANES = saved

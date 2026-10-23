@@ -30,7 +30,7 @@ from pyscriptc.builtins import USER_EXC_BASE
 from pyscriptc.errors import IRError
 from pyscriptc.ir import SUBSET, cpython_version
 from pyscriptc.lower import Lowerer
-from pyscriptc.stdlib_queue import ffi_modules
+from pyscriptc.stdlib_queue import dependency_lanes, ffi_modules
 
 
 def lower_directory(
@@ -41,6 +41,8 @@ def lower_directory(
     prefix: str = "",
     ffi: list[Any] | None = None,
     target: str | None = None,
+    dep_roots: list[Path] | None = None,
+    dep_lane_report: dict[str, dict[str, str]] | None = None,
 ) -> tuple[dict[str, Any], str]:
     """Lower a directory tree into one IR module.
 
@@ -49,11 +51,60 @@ def lower_directory(
     function, exactly as ``__main__.py`` does in a program directory.
     ``prefix`` names the package the tree sits in (project mode's module
     root), so ``src/mylib`` lowers as ``mylib.*`` and not ``src.mylib.*``.
+
+    ``dep_roots`` are extra module roots (one per unpacked pure-Python
+    dependency wheel, issue #398): each lowers into the same merged IR with
+    its plain import name, exactly the way a program's sibling modules
+    merge, and a fence inside one refuses the whole compile.
+    ``dep_lane_report`` names the locked dependencies by import name, so a
+    dependency on a lane the compiler cannot take is refused with the
+    distribution and the lane hint.
     """
 
     units, skipped = _discover(root, program_mode, entry=entry, prefix=prefix)
     program = program_mode or _is_program_dir(root)
-    exports, failed = _catalog(units, program, entry=entry)
+    dep_units, dep_fences = _discover_dep_roots(dep_roots or [])
+    if dep_fences:
+        return _fenced_module(root, dep_fences), ""
+    merged, notes = _lower_units(
+        [*units, *dep_units],
+        root,
+        program=program,
+        entry=entry,
+        bridge=bridge,
+        ffi=ffi,
+        target=target,
+        dep_names={name for name, _path, _is_package in dep_units},
+        dep_lane_report=dep_lane_report,
+    )
+    if skipped:
+        notes = [*notes, *[_skip_note(root, rel) for rel in skipped]]
+    if notes:
+        merged["_notes"] = notes
+    return merged, ""
+
+
+def _lower_units(
+    units: list[tuple[str, Path, bool]],
+    root: Path,
+    *,
+    program: bool,
+    entry: str | None,
+    bridge: Any,
+    ffi: list[Any] | None,
+    target: str | None,
+    dep_names: set[str],
+    dep_lane_report: dict[str, dict[str, str]] | None = None,
+) -> tuple[dict[str, Any], list[str]]:
+    """Lower a set of module units into one IR module.
+
+    The units are the program's own modules plus the dependency roots'
+    (issue #398), and they share one export table, so a dependency module
+    imports by its plain name exactly like a sibling. Any fence in any unit
+    refuses the whole compile: the whole-tree rule stays.
+    """
+
+    exports, failed = _catalog(units, program, entry=entry, target=target)
 
     # A bridge is built per file: mypy's TypeMap covers one module, so a
     # package tree runs the checker once per unit and lowering consults the
@@ -74,7 +125,7 @@ def lower_directory(
     if program:
         fences, owners = _program_plan(units, exports, entry=entry)
         if fences:
-            return _fenced_module(root, fences), ""
+            return _fenced_module(root, fences), []
     else:
         owners = {}
 
@@ -83,7 +134,7 @@ def lower_directory(
     fences: list[dict[str, Any]] = []
     class_names: dict[str, dict[str, Any]] = {}
     exc_n = USER_EXC_BASE
-    with ffi_modules(ffi or []):
+    with ffi_modules(ffi or []), dependency_lanes(dep_lane_report or {}):
         for name, path, is_package in units:
             text = path.read_text(encoding="utf-8")
             tree = ast.parse(text, filename=str(path))
@@ -95,6 +146,7 @@ def lower_directory(
             lowerer.package = exports
             lowerer.exc_n = exc_n
             lowerer.program = program
+            lowerer.program_roots = dep_names
             lowerer.module_init = program and name != "__main__" and name != entry
             lowerer.entry_module = entry is not None and name == entry
             lowerer.bridge = bridge_for(path)
@@ -130,9 +182,7 @@ def lower_directory(
         "classes": classes,
         "fences": fences,
     }
-    if skipped:
-        merged["_notes"] = [_skip_note(root, rel) for rel in skipped]
-    return merged, ""
+    return merged, []
 
 
 def _program_entry(functions: list[dict[str, Any]], entry: str | None = None) -> str | None:
@@ -461,14 +511,17 @@ def _init_call(local: str, anchor: ast.stmt) -> ast.stmt:
 
 
 def _catalog(
-    units: list[tuple[str, Path, bool]], program: bool = False, entry: str | None = None
+    units: list[tuple[str, Path, bool]],
+    program: bool = False,
+    entry: str | None = None,
+    target: str | None = None,
 ) -> tuple[dict[str, dict[str, dict[str, Any]]], dict[str, dict[str, dict[str, Any]]]]:
     """Repeat until a subclass can see a base exported by an earlier pass."""
 
     exports: dict[str, dict[str, dict[str, Any]]] = {}
     failed: dict[str, dict[str, dict[str, Any]]] = {}
     for _ in range(len(units) + 1):
-        nxt, nxt_failed = _catalog_once(units, exports, program, entry=entry)
+        nxt, nxt_failed = _catalog_once(units, exports, program, entry=entry, target=target)
         if nxt == exports:
             return nxt, nxt_failed
         exports, failed = nxt, nxt_failed
@@ -480,6 +533,7 @@ def _catalog_once(
     exports: dict[str, dict[str, dict[str, Any]]],
     program: bool = False,
     entry: str | None = None,
+    target: str | None = None,
 ) -> tuple[dict[str, dict[str, dict[str, Any]]], dict[str, dict[str, dict[str, Any]]]]:
     found: dict[str, dict[str, dict[str, Any]]] = {}
     failed: dict[str, dict[str, dict[str, Any]]] = {}
@@ -487,7 +541,7 @@ def _catalog_once(
     for name, path, is_package in units:
         text = path.read_text(encoding="utf-8")
         tree = ast.parse(text, filename=str(path))
-        lowerer = Lowerer(str(path), text)
+        lowerer = Lowerer(str(path), text, target=target)
         lowerer.module_name = name
         lowerer.is_package = is_package
         lowerer.cataloguing = True
@@ -520,6 +574,13 @@ def _exports_of(module_name: str, lowerer: Lowerer) -> dict[str, dict[str, Any]]
         if info.get("synthetic") or info.get("imported"):
             continue
         bucket[class_name] = {"kind": "class", "name": class_name, "info": _class_export(info)}
+    # A re-export bound from a sibling (`from .core import where` in the
+    # package `__init__.py`, issue #398): the name lands in `pkg_funcs`, so
+    # it becomes the package's own export and `from pkg import where`
+    # resolves the same way it does in CPython.
+    for local, item in lowerer.pkg_funcs.items():
+        if local not in bucket:
+            bucket[local] = copy.deepcopy(item)
     return bucket
 
 
@@ -602,6 +663,63 @@ def _entry_module_file(root: Path, module: str) -> Path:
     if package.is_file():
         return package
     raise IRError(f"entry module {module} not found in {root}")
+
+
+def _discover_dep_roots(roots: list[Path]) -> tuple[list[tuple[str, Path, bool]], list[dict[str, Any]]]:
+    """The module units of the dependency source roots (issue #398).
+
+    Each root is one unpacked pure wheel's import root (`deps.py` cache
+    `src/<sha256>/`), so its top-level packages and modules import under
+    their plain names, the way `sys.path` resolves them. A root that is not
+    an identifier (a wheel shipping a non-identifier top-level name) is
+    refused with PS3101; a fence inside any root refuses the whole compile,
+    the same whole-tree rule the program tree follows.
+    """
+
+    units: list[tuple[str, Path, bool]] = []
+    for root in roots:
+        root = root.resolve()
+        if not root.is_dir():
+            return [], [_dep_fence(f"dependency source root {root} does not exist")]
+        for path in sorted(root.iterdir()):
+            if path.name.startswith(".") or path.name == "__pycache__":
+                continue
+            if path.suffix == ".py":
+                if not path.stem.isidentifier():
+                    return [], [_dep_name_fence(path.name)]
+                units.append((path.stem, path, False))
+            elif (path / "__init__.py").is_file():
+                if not path.name.isidentifier():
+                    return [], [_dep_name_fence(path.name)]
+                units.extend(_discover_dep_package(path, path.name))
+    return units, []
+
+
+def _discover_dep_package(package_dir: Path, name: str) -> list[tuple[str, Path, bool]]:
+    """The units of one dependency package, dotted under ``name``."""
+
+    units: list[tuple[str, Path, bool]] = [(name, package_dir / "__init__.py", True)]
+    for path in sorted(package_dir.rglob("*.py")):
+        relative = path.relative_to(package_dir)
+        if path.name == "__init__.py" or any(part.startswith(".") or part == "__pycache__" for part in relative.parts):
+            continue
+        stem = relative.with_suffix("")
+        if not all(part.isidentifier() for part in stem.parts):
+            continue
+        units.append((".".join((name, *stem.parts)), path, False))
+    return units
+
+
+def _dep_fence(message: str) -> dict[str, Any]:
+    """A PS3101 refusal fence outside any source span."""
+
+    return {"code": "PS3101", "message": message, "span": None, "function": None}
+
+
+def _dep_name_fence(name: str) -> dict[str, Any]:
+    return _dep_fence(
+        f"{name} is not a valid module name (a dependency wheel ships a top-level name the compiler cannot import)"
+    )
 
 
 def _discover(
