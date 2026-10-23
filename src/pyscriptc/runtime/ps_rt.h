@@ -342,5 +342,8 @@ void ps_task_load_result(void *task, void *out);
 int64_t ps_task_exc_code(void *task);
 void ps_task_set_exc(void *task, int32_t code);
 void ps_task_raise_exc(void *task);
+/* `await task`: park the frame until the task completes. 1 when the task is
+   already done, so the caller does not park. */
+int64_t ps_task_await(void *task, void *frame);
 
 #endif
