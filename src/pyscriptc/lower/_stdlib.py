@@ -301,6 +301,12 @@ class StdlibDispatchMixin:
         if module == "urllib" or module == "urllib.parse" or module.startswith("urllib."):
             if module_status("urllib.parse") == "lowered":
                 self.synthetics.add("SplitResult")
+        if module == "urllib.request" and module_status("urllib.request") == "lowered":
+            self.synthetics.add("HttpRequest")
+            self.synthetics.add("HttpResponse")
+        if module == "urllib.error" and module_status("urllib.error") == "lowered":
+            self.synthetics.add("HTTPError")
+            self.synthetics.add("URLError")
         for name, classes in MODULE_CLASSES.items():
             if module == name or module.startswith(name + "."):
                 if module_status(name) == "lowered":

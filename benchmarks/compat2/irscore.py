@@ -39,7 +39,23 @@ DIFF_CAP = 20
 _REGENERATE_HINT = "the baseline is stale for this compiler build: regenerate it (irscore <probes> --out FILE)"
 
 
-def probe_hashes(probes: list, *, workers: int = 1) -> dict[str, str]:
+def _lower_one(probe, src: Path, *, bridge: str | None = None) -> dict[str, Any]:
+    """Lower one probe's source to a module dict. Same path as coverage_map.trace_probe."""
+
+    from pyscriptc.lower import lower_file
+
+    src.write_text(probe.source, encoding="utf-8")
+    checker_bridge = None
+    if bridge is not None:
+        from pyscriptc.factsbridge import CheckerBridge
+
+        checker_bridge = CheckerBridge.for_path(src, bridge)
+    module, _ = lower_file(str(src), bridge=checker_bridge)
+    module.pop("_notes", None)
+    return module
+
+
+def probe_hashes(probes: list, *, workers: int = 1, bridge: str | None = None) -> dict[str, str]:
     """Lower every probe and map probe id to the canonical IR hash, in probe order."""
 
     from pyscriptc.canonical import hash_module
@@ -47,25 +63,14 @@ def probe_hashes(probes: list, *, workers: int = 1) -> dict[str, str]:
     hashes: dict[str, str] = {}
     with tempfile.TemporaryDirectory(prefix="compat2-irs-") as tmp:
         for index, probe in enumerate(probes):
-            hashes[probe.id] = hash_module(_lower_one(probe, Path(tmp) / f"p{index}.py"))
+            hashes[probe.id] = hash_module(_lower_one(probe, Path(tmp) / f"p{index}.py", bridge=bridge))
     return hashes
 
 
-def _lower_one(probe, src: Path) -> dict[str, Any]:
-    """Lower one probe's source to a module dict. Same path as coverage_map.trace_probe."""
-
-    from pyscriptc.lower import lower_file
-
-    src.write_text(probe.source, encoding="utf-8")
-    module, _ = lower_file(str(src))
-    module.pop("_notes", None)
-    return module
-
-
-def build_doc(hashes: dict[str, str]) -> dict[str, Any]:
+def build_doc(hashes: dict[str, str], bridge: str | None = None) -> dict[str, Any]:
     from pyscriptc.canonical import CANONICAL_SCHEMA_VERSION
 
-    return {
+    doc: dict[str, Any] = {
         "version": BASELINE_VERSION,
         "revision": BASELINE_REVISION,
         "canonical_schema": CANONICAL_SCHEMA_VERSION,
@@ -73,6 +78,18 @@ def build_doc(hashes: dict[str, str]) -> dict[str, Any]:
         "hash_algo": HASH_ALGO,
         "probes": hashes,
     }
+    # A bridged run's IR depends on the checker version too, so the record
+    # names it next to the oracle: a `bridge` field with no `bridge_version`
+    # would not reproduce (design decision `.agents/docs/design/checker-bridge.md`).
+    if bridge is not None:
+        from pyscriptc import factsbridge
+
+        provider_version = factsbridge.provider_version(bridge)
+        if provider_version is None:
+            raise BaselineError(f"the {bridge} bridge is not available in this interpreter")
+        doc["bridge"] = bridge
+        doc["bridge_version"] = provider_version
+    return doc
 
 
 def serialize(doc: dict[str, Any]) -> str:
@@ -103,7 +120,7 @@ def load_baseline(path: Path) -> dict[str, Any]:
 
 
 def check_header(doc: dict[str, Any]) -> None:
-    """Raise BaselineError when the baseline was made under a different schema or oracle (stale)."""
+    """Raise BaselineError when the baseline was made under a different schema, oracle or bridge (stale)."""
 
     from pyscriptc.canonical import CANONICAL_SCHEMA_VERSION
 
@@ -112,6 +129,13 @@ def check_header(doc: dict[str, Any]) -> None:
         wrong.append(f"canonical_schema {doc.get('canonical_schema')!r} != current {CANONICAL_SCHEMA_VERSION!r}")
     if doc.get("oracle") != oracle_version():
         wrong.append(f"oracle {doc.get('oracle')!r} != current {oracle_version()!r}")
+    if doc.get("bridge") is not None:
+        from pyscriptc import factsbridge
+
+        provider = doc["bridge"]
+        current = factsbridge.provider_version(provider)
+        if current is None or doc.get("bridge_version") != current:
+            wrong.append(f"bridge_version {doc.get('bridge_version')!r} != current {current!r} for {provider!r}")
     if wrong:
         raise BaselineError("; ".join(wrong) + f"; {_REGENERATE_HINT}")
 
@@ -155,6 +179,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--limit", type=int, help="only the first N probes (debug)")
     parser.add_argument("--out", help="write a fresh baseline here (generate mode)")
     parser.add_argument("--baseline", help="compare against this baseline file")
+    parser.add_argument(
+        "--bridge",
+        help="lower through a checker bridge (e.g. mypy) and record the checker version in the baseline",
+    )
     try:
         args = parser.parse_args(argv)
         if not args.out and not args.baseline:
@@ -165,10 +193,10 @@ def main(argv: list[str] | None = None) -> int:
         probes = list(load_probes(args.probes))
         if args.limit is not None:
             probes = probes[: args.limit]
-        new_probes = probe_hashes(probes)
+        new_probes = probe_hashes(probes, bridge=args.bridge)
 
         if args.out:
-            write_baseline(Path(args.out), build_doc(new_probes))
+            write_baseline(Path(args.out), build_doc(new_probes, bridge=args.bridge))
             print(f"wrote {len(new_probes)} probe hashes to {args.out}")
             return 0
 

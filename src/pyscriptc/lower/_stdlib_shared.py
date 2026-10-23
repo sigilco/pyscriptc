@@ -10,7 +10,7 @@ from __future__ import annotations
 import ast
 from typing import Any
 
-_ERASED_MODULES = frozenset({"typing", "typing_extensions", "abc"})
+_ERASED_MODULES = frozenset({"typing", "typing_extensions", "abc", "collections.abc"})
 
 
 def _release_erased_import(stmt: ast.Import | ast.ImportFrom, rebound: set[str]) -> None:
@@ -69,6 +69,8 @@ def _synth_module(class_name: str) -> str:
         return "hmac"
     if class_name == "CsvWriter":
         return "csv"
+    if class_name in {"HttpRequest", "HttpResponse"}:
+        return "urllib.request"
     return "builtins"
 
 

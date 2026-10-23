@@ -56,13 +56,13 @@ def test_codec_fences_stay_closed(tmp_path: Path) -> None:
                 [
                     "import urllib",
                     "def f() -> int:",
-                    "    urllib.request.urlopen('http://example')  # type: ignore[attr-defined]",
+                    "    urllib.request.urlretrieve('http://example', '/tmp/x')  # type: ignore[attr-defined]",
                     "    return 1",
                     "",
                 ]
             ),
             "PS2001",
-            "urllib.request.urlopen",
+            "urllib.request.urlretrieve",
         ),
         (
             "encodebytes.py",

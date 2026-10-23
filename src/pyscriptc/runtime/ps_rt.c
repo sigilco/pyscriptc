@@ -486,6 +486,15 @@ void ps_exc_register(int32_t code, int32_t parent, const char *name) {
     ps_user_exc[index].name = name;
 }
 
+int32_t ps_exc_code_by_name(const char *name) {
+    for (int32_t i = 0; i < ps_user_exc_n; i++) {
+        if (ps_user_exc[i].name != NULL && strcmp(ps_user_exc[i].name, name) == 0) {
+            return ps_user_exc[i].code;
+        }
+    }
+    return 0;
+}
+
 __attribute__((noreturn)) void ps_raise_cstr(int32_t code, const char *msg) {
     PsExc *e = ps_exc_new(code == 0 ? PS_RUNTIME : code);
     snprintf(e->message.data, 256, "%s", msg);

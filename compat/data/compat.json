@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-23",
-  "commit": "f69b180f850dc9b5aeff7b616a729dbe10e03cfa",
+  "commit": "420cf712a879523209894da004ca79f49ae04a90",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -13,13 +13,13 @@
     "builtins_partial": 15,
     "builtins_none": 1,
     "stdlib_full": 0,
-    "stdlib_partial": 50,
+    "stdlib_partial": 51,
     "stdlib_none": 1,
     "packages_full": 3,
     "packages_partial": 5,
     "packages_none": 10,
     "weighted_pass": 0.0,
-    "fences": 3045
+    "fences": 3043
   },
   "builtins": [
     {
@@ -477,6 +477,25 @@
       "count": 1,
       "unsupported": [
         "load, dump, safe_dump, keyword arguments"
+      ],
+      "fences": [
+        "PS2001",
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.urllib-request",
+      "kind": "stdlib",
+      "label": "`urllib.request`, `urllib.error`",
+      "names": [
+        "urllib.request",
+        "urllib.error"
+      ],
+      "status": "partial",
+      "count": 2,
+      "unsupported": [
+        "urlopen header keyword, other urllib.request members (build_opener, install_opener, urlretrieve), HTTPError attribute reads"
       ],
       "fences": [
         "PS2001",
@@ -1545,7 +1564,7 @@
       "import_name": "jwt",
       "version": "2.15.1",
       "status": "partial",
-      "fences": 133,
+      "fences": 131,
       "definitions": 171,
       "fenced_definitions": 65,
       "top_families": [
@@ -1565,7 +1584,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 64
+          "count": 62
         },
         {
           "code": "PS1104",
@@ -1926,7 +1945,7 @@
     {
       "code": "PS2002",
       "title": "construct not lowered",
-      "count": 1456,
+      "count": 1454,
       "packages": 15
     },
     {
@@ -2022,22 +2041,13 @@
   ],
   "history": [
     {
-      "date": "2026-10-22",
-      "commit": "ce6b8188f1b37ea4cb8150bdb4556f0c40efe9f6",
-      "weighted_pass": 0.0,
-      "packages_full": 3,
-      "packages_partial": 5,
-      "packages_none": 10,
-      "fences": 3045
-    },
-    {
       "date": "2026-10-23",
-      "commit": "f69b180f850dc9b5aeff7b616a729dbe10e03cfa",
+      "commit": "420cf712a879523209894da004ca79f49ae04a90",
       "weighted_pass": 0.0,
       "packages_full": 3,
       "packages_partial": 5,
       "packages_none": 10,
-      "fences": 3045
+      "fences": 3043
     }
   ]
 }

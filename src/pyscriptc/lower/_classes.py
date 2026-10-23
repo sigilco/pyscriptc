@@ -31,7 +31,7 @@ from pyscriptc.lower._core import (
 from pyscriptc.lower._stmt import _always_returns, _is_docstring
 from pyscriptc.restlower import alias_name, path_attr
 from pyscriptc.restlower import method_spec as synth_method
-from pyscriptc.stdmore import ALWAYS_CLASSES, CLASS_FIELDS, DEFERRED_CLASSES
+from pyscriptc.stdmore import ALWAYS_CLASSES, CLASS_FIELDS, DEFERRED_CLASSES, SYNTHETIC_EXCEPTIONS
 
 _UNWRAP_FORMS = frozenset({"Final", "ClassVar", "Annotated", "Required", "NotRequired"})
 _DYNAMIC_ANNOTATIONS = frozenset({"object", "Any", "Protocol", "TypeVar", "Generic", "Callable", "ABC"})
@@ -78,6 +78,10 @@ class ClassesMixin:
             specs["SplitResult"] = [
                 {"name": name, "type": {"kind": "str"}} for name in ("scheme", "netloc", "path", "query", "fragment")
             ]
+        if "HTTPError" in self.synthetics:
+            specs["HTTPError"] = CLASS_FIELDS["HTTPError"]
+        if "URLError" in self.synthetics:
+            specs["URLError"] = CLASS_FIELDS["URLError"]
         for name in self.synthetics:
             if name in CLASS_FIELDS:
                 specs[name] = CLASS_FIELDS[name]
@@ -101,7 +105,7 @@ class ClassesMixin:
                 )
                 continue
             self.declared.add(name)
-            self.classes[name] = {
+            record = {
                 "fields": fields,
                 "own_fields": list(fields),
                 "methods": {},
@@ -111,6 +115,14 @@ class ClassesMixin:
                 "deferred": name in DEFERRED_CLASSES,
                 "base": None,
             }
+            if name in SYNTHETIC_EXCEPTIONS:
+                # The runtime registers the class so `except HTTPError`
+                # matches through the OSError chain like CPython's.
+                record["exception"] = True
+                record["exc_code"] = self.exc_n
+                self.exc_n += 1
+                record["exc_parent"] = SYNTHETIC_EXCEPTIONS[name]
+            self.classes[name] = record
 
     def _collect_class(self, node: ast.ClassDef) -> None:
         keywords = [kw for kw in node.keywords if not self._is_abcmeta_keyword(kw)]
@@ -248,7 +260,9 @@ class ClassesMixin:
         sig_fences = 0
         for method, kind in methods:
             try:
-                method_sigs[method.name] = self._signature(method, node.name, kind)
+                method_sigs[method.name] = self._coro_method_signature(method, node.name) or self._signature(
+                    method, node.name, kind
+                )
                 kinds[method.name] = kind
                 owners[method.name] = node.name
                 if method.name == "__init__":
@@ -705,6 +719,9 @@ class ClassesMixin:
         kind = info["method_kind"].get(stmt.name, "method")
         if params and params[0]["name"] == "self":
             params = [{"name": "self", "type": {"kind": "class", "name": class_name}}, *params[1:]]
+        # A generator method's body lowers under the None-returning resume
+        # signature; the outward frame type rides in the method signature.
+        params, ret = self._coro_method_body_sig(class_name, stmt.name, params, ret)
         self.locals = {param["name"]: param["type"] for param in params}
         self.frozen_names = set()
         self.fn_body = list(stmt.body)
@@ -1611,7 +1628,7 @@ class ClassesMixin:
             return {"kind": "func", "params": params, "return": ret}
         if alias == "Tuple":
             return self._tuple_annotation(node)
-        if alias == "Iterable":
+        if alias == "Iterable" or alias == "Sequence":
             typ = {"kind": "list", "elem": self._annotation(node.slice)}
             self._reject_banned_type(node, typ)
             return typ
@@ -1638,9 +1655,17 @@ class ClassesMixin:
             self.fail(node, "PS1101", "union types are not in the IR")
         self.fail(node, "PS1103", f"{alias} is not a value type in the IR")
 
+    # Spellings of `collections.abc` / `typing` iterator forms that appear in
+    # annotations even when the import sat under `if TYPE_CHECKING:` and was
+    # never bound at runtime. A user class of the same name still wins.
+    _IMPLICIT_ITER_FORMS = frozenset({"Iterator", "Iterable", "Generator", "Sequence"})
+
     def _typing_alias(self, node: ast.AST) -> str | None:
-        if isinstance(node, ast.Name) and node.id in self.type_aliases:
-            return self.type_aliases[node.id]
+        if isinstance(node, ast.Name):
+            if node.id in self.type_aliases:
+                return self.type_aliases[node.id]
+            if node.id in self._IMPLICIT_ITER_FORMS and node.id not in self.classes and node.id not in self.declared:
+                return node.id
         if isinstance(node, ast.Attribute):
             resolved = self._resolve_module(node)
             if resolved is not None and resolved[3] == "erased":
@@ -1656,14 +1681,17 @@ class ClassesMixin:
             # the statements lower, so only the closing pass emits it.
             if deferred_only != bool(info.get("deferred")):
                 continue
-            found.append(
-                {
-                    "name": name,
-                    "fields": info["fields"],
-                    "methods": [],
-                    "span": {"file": self.filename, "line": 1, "col": 1, "endLine": 1, "endCol": 1},
-                }
-            )
+            record = {
+                "name": name,
+                "fields": info["fields"],
+                "methods": [],
+                "span": {"file": self.filename, "line": 1, "col": 1, "endLine": 1, "endCol": 1},
+            }
+            if info.get("exception"):
+                record["exception"] = True
+                record["exc_code"] = info["exc_code"]
+                record["exc_parent"] = info.get("exc_parent", EXCEPTIONS["Exception"])
+            found.append(record)
         return found
 
     def _tuple_annotation(self, node: ast.Subscript) -> dict[str, Any]:

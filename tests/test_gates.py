@@ -64,6 +64,8 @@ QUEUE = (
     "tomllib",
     "dotenv",
     "yaml",
+    "urllib.request",
+    "urllib.error",
 )
 
 
@@ -121,7 +123,8 @@ def test_stdlib_queue_is_locked() -> None:
     assert module_status("json") == "lowered"
     assert module_status("urllib") == "lowered"
     assert module_status("urllib.parse") == "lowered"
-    assert module_status("urllib.request") is None
+    assert module_status("urllib.request") == "lowered"
+    assert module_status("urllib.error") == "lowered"
     assert module_status("datetime") == "lowered"
     assert module_status("socket") == "lowered"
     assert module_status("pickle") is None
