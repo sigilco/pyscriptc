@@ -152,7 +152,7 @@ export const HeroMeshGrid: React.FC<HeroMeshGridProps> = ({
       className={`relative w-full overflow-hidden select-none transition-colors duration-700 ${
         isDark ? "bg-[#06080d] text-slate-300" : "bg-[#f8fafc] text-slate-700"
       } ${className}`}
-      style={{ minHeight: "100dvh" }}
+      style={{ minHeight: "80vh" }}
     >
       <style>{`
         @keyframes pypiWordPulse {
@@ -255,7 +255,7 @@ export const HeroMeshGrid: React.FC<HeroMeshGridProps> = ({
 
       {/* Children Overlay */}
       {children && (
-        <div className="relative z-10 w-full min-h-[100dvh] flex flex-col items-center justify-center pointer-events-auto">
+        <div className="relative z-10 w-full min-h-[80vh] flex flex-col justify-center pointer-events-auto">
           {children}
         </div>
       )}
