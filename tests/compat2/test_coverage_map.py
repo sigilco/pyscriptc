@@ -47,9 +47,15 @@ def test_unmapped_probes_are_always_selected() -> None:
 
 def test_shared_core_takes_the_fixed_sample() -> None:
     probes = corpus()
-    chosen, why = cm.select(probes, {"probes": {}}, {"llvm.py"})
+    chosen, why = cm.select(probes, {"probes": {}}, {"emit/llvm/_core.py"})
     assert len(chosen) == cm.SHARED_SAMPLE and "shared core" in why
+    assert chosen == cm.select(probes, None, {"emit/_ir.py"})[0]
     assert chosen == cm.select(probes, None, {"runtime/ps_rt.c"})[0]
+    assert cm.shared_core_changed({"ir.py", "emit/llvm/_stmts.py", "emit/llvm/x.py", "lower.py"}) == {
+        "emit/llvm/",
+        "ir.py",
+    }
+    assert cm.shared_core_changed({"llvm.py"}) == set()  # the shim is no longer shared core
 
 
 def test_build_records_modules_and_reuses_entries(tmp_path: Path) -> None:

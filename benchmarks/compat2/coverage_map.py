@@ -16,7 +16,8 @@ Each probe gets two lists:
   every runtime C file when the probe reaches clang (clang builds all of them).
 
 Tier 0 selects the probes whose `touches` meet the diff, capped at 400. When a shared core
-file changed it takes a fixed seed stratified sample of 300 across every area and category.
+file changed it takes a fixed seed stratified sample of 300 across every area and category. The
+`emit/llvm/` entry covers the whole emitter package, so any emitter area module change counts.
 """
 
 from __future__ import annotations
@@ -48,7 +49,7 @@ TIER0_CAP = 400
 SHARED_SAMPLE = 300
 SEED = 20261014
 # A change here can move any probe, so selection by intersection is meaningless.
-SHARED_CORE = frozenset({"ir.py", "llvm.py", "runtime/ps_rt.c", "runtime/ps_rt.h"})
+SHARED_CORE = frozenset({"ir.py", "emit/_ir.py", "emit/llvm/", "runtime/ps_rt.c", "runtime/ps_rt.h"})
 # The scorer always goes through the CLI.
 ENTRY = ("__init__.py", "__main__.py", "cli.py")
 
@@ -272,6 +273,16 @@ def stratified(probes: list[Probe], size: int, seed: int = SEED) -> list[Probe]:
     return sorted(chosen, key=lambda p: p.id)
 
 
+def shared_core_changed(changed: set[str]) -> set[str]:
+    """The SHARED_CORE members the diff hits; `emit/llvm/` matches the whole emitter package."""
+
+    return {entry for entry in sorted(changed & SHARED_CORE) if not entry.endswith("/")} | {
+        prefix
+        for prefix in (e for e in SHARED_CORE if e.endswith("/"))
+        if any(entry.startswith(prefix) for entry in changed)
+    }
+
+
 def select(
     probes: list[Probe], data: dict[str, Any] | None, changed: set[str], *, cap: int = TIER0_CAP
 ) -> tuple[list[Probe], str]:
@@ -279,7 +290,7 @@ def select(
 
     if not changed:
         return [], "no compiler file changed"
-    shared = sorted(changed & SHARED_CORE)
+    shared = sorted(shared_core_changed(changed))
     if shared:
         return stratified(probes, SHARED_SAMPLE), f"shared core changed ({', '.join(shared)}): stratified sample"
     entries = data["probes"] if data else {}
