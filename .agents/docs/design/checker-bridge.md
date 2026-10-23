@@ -79,6 +79,21 @@ typevars, callables and unknown kinds return None and keep their fence.
   without full parameter maps); mypy's TypeMap is complete for expressions
   today. A `PyreflyBridge` behind the same `CheckerBridge` surface is the
   follow-up if the mypy pin becomes a liability.
+
+The fallback lane landed as `--bridge pyrefly` (issue #258): a
+`PyreflyBridge` in `factsbridge.py` that feeds pyrefly's TSP facts (the
+`pyrefly/typeFacts` bulk request for expressions, the per-def
+`typeServer/getComputedType` signature for parameters and returns) through
+the same `CheckerBridge` surface. Measured on pyrefly 1.4.x, the two lanes
+answer the same questions with the same limits: pyrefly resolves an
+unannotated parameter to `Any` exactly like mypy, and computes `Any` for an
+unannotated def's return even when every return statement agrees, so the
+bridge recovers it from the return expressions' own facts and answers only
+when they all agree. The lanes differ in scope, not in answers: the mypy
+lane holds the full TypeMap for one in-process build, the pyrefly lane
+reuses the long-lived facts-oracle subprocess. The bridge version recorded
+by `irscore --bridge` is the pyrefly wheel version for this lane and the
+pinned mypy version for the other.
 - Extend lowering's own inference instead. Rejected: it duplicates the
   checker and drifts from it; the checker is the oracle by design
   (`.agents/plans/2026-10-18-tiered-lowering-and-typefacts.md`).
