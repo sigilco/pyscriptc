@@ -91,63 +91,97 @@ def compute_hash(seed: int, key: str) -> int:
 export interface LumioCarouselProps {
   theme?: "dark" | "light";
   className?: string;
+  autoPlayInterval?: number;
 }
 
 export const LumioCarousel: React.FC<LumioCarouselProps> = ({
   theme = "dark",
   className = "",
+  autoPlayInterval = 8500,
 }) => {
   const [activeIndex, setActiveIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
-  const [showTerminal, setShowTerminal] = useState(false);
   const activePillar = PILLARS[activeIndex];
 
-  // Code typing simulation
+  // Typing states for unified animation
   const [displayedCode, setDisplayedCode] = useState("");
+  const [displayedCommand, setDisplayedCommand] = useState("");
+  const [displayedOutput, setDisplayedOutput] = useState<string[]>([]);
+
   const typingTimerRef = useRef<number | null>(null);
+  const shellTimerRef = useRef<number | null>(null);
+  const lineTimerRef = useRef<number | null>(null);
 
-  // Typewriter sequence -> Terminal Pop sequence
+  // Unified animation: Editor and Shell reset and type smoothly
   useEffect(() => {
-    const fullCode = activePillar.codeSnippet;
-    setDisplayedCode("");
-    setShowTerminal(false);
-    let charIdx = 0;
-
+    // Clear all previous timers
     if (typingTimerRef.current) clearInterval(typingTimerRef.current);
+    if (shellTimerRef.current) clearInterval(shellTimerRef.current);
+    if (lineTimerRef.current) clearInterval(lineTimerRef.current);
 
+    // Initial state: Code empty, Shell empty
+    setDisplayedCode("");
+    setDisplayedCommand("");
+    setDisplayedOutput([]);
+
+    const fullCode = activePillar.codeSnippet;
+    const fullCmd = activePillar.command;
+    const fullOut = activePillar.output;
+
+    let codeIdx = 0;
+
+    // Stage 1: Type code in editor
     typingTimerRef.current = window.setInterval(() => {
-      charIdx += 7;
-      if (charIdx >= fullCode.length) {
+      codeIdx += 8;
+      if (codeIdx >= fullCode.length) {
         setDisplayedCode(fullCode);
         if (typingTimerRef.current) clearInterval(typingTimerRef.current);
-        // Stage 2: Terminal pops open after code writeup is finished!
-        setTimeout(() => {
-          setShowTerminal(true);
-        }, 300);
+
+        // Stage 2: Type command in shell
+        let cmdIdx = 0;
+        shellTimerRef.current = window.setInterval(() => {
+          cmdIdx += 2;
+          if (cmdIdx >= fullCmd.length) {
+            setDisplayedCommand(fullCmd);
+            if (shellTimerRef.current) clearInterval(shellTimerRef.current);
+
+            // Stage 3: Stream shell output lines
+            let outIdx = 0;
+            lineTimerRef.current = window.setInterval(() => {
+              outIdx += 1;
+              setDisplayedOutput(fullOut.slice(0, outIdx));
+              if (outIdx >= fullOut.length && lineTimerRef.current) {
+                clearInterval(lineTimerRef.current);
+              }
+            }, 180);
+          } else {
+            setDisplayedCommand(fullCmd.slice(0, cmdIdx));
+          }
+        }, 25);
       } else {
-        setDisplayedCode(fullCode.slice(0, charIdx));
+        setDisplayedCode(fullCode.slice(0, codeIdx));
       }
-    }, 16);
+    }, 18);
 
     return () => {
       if (typingTimerRef.current) clearInterval(typingTimerRef.current);
+      if (shellTimerRef.current) clearInterval(shellTimerRef.current);
+      if (lineTimerRef.current) clearInterval(lineTimerRef.current);
     };
-  }, [activeIndex, activePillar.codeSnippet]);
+  }, [activeIndex]);
 
-  // Automatic looping: rotates every 7.5 seconds
+  // Automatic looping
   useEffect(() => {
     if (isPaused) return;
     const interval = setInterval(() => {
       setActiveIndex((prev) => (prev + 1) % PILLARS.length);
-    }, 7500);
+    }, autoPlayInterval);
     return () => clearInterval(interval);
-  }, [isPaused]);
-
-  const isDark = theme === "dark";
+  }, [isPaused, autoPlayInterval]);
 
   return (
     <div
-      className={`w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28 ${className}`}
+      className={`w-full max-w-6xl mx-auto px-6 py-20 lg:py-28 ${className}`}
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
     >
@@ -155,17 +189,17 @@ export const LumioCarousel: React.FC<LumioCarouselProps> = ({
         {/* Left Column: Lumio-Style Vertical Text Carousel */}
         <div className="lg:col-span-5 flex flex-col justify-center text-left">
           <div className="mb-10">
-            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-white leading-tight">
+            <h2 className="text-3xl sm:text-4xl font-normal tracking-tight text-white leading-tight">
               Full Python semantics.<br />
-              <span className="text-slate-400 font-light">Pure machine execution.</span>
+              <span className="text-slate-400">Pure machine execution.</span>
             </h2>
           </div>
 
           {/* Vertical Timeline / Pillar List */}
-          <div className="relative pl-6 sm:pl-8 border-l-2 border-slate-700/30 space-y-8 sm:space-y-10">
-            {/* Sliding Indicator Bar */}
+          <div className="relative pl-6 sm:pl-8 border-l border-white/10 space-y-8 sm:space-y-10">
+            {/* Sliding Indicator Line */}
             <div
-              className="absolute left-[-2px] w-[2px] transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] bg-gradient-to-b from-cyan-400 to-sky-300 shadow-[0_0_12px_rgba(56,189,248,0.5)]"
+              className="absolute left-[-1px] w-[2px] transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] bg-white"
               style={{
                 top: `${(activeIndex * 100) / PILLARS.length}%`,
                 height: `${100 / PILLARS.length}%`,
@@ -179,24 +213,24 @@ export const LumioCarousel: React.FC<LumioCarouselProps> = ({
                   key={pillar.id}
                   onClick={() => setActiveIndex(idx)}
                   className={`cursor-pointer transition-all duration-300 select-none ${
-                    isActive ? "opacity-100 translate-x-1" : "opacity-40 hover:opacity-75"
+                    isActive ? "opacity-100" : "opacity-40 hover:opacity-75"
                   }`}
                 >
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-mono text-xs uppercase tracking-wider text-cyan-400 font-semibold">
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="font-mono text-xs uppercase tracking-wider text-slate-400 font-semibold">
                       0{idx + 1}
                     </span>
-                    <h3 className="text-lg sm:text-xl font-bold tracking-tight text-white">
+                    <h3 className="text-lg font-bold tracking-tight text-white">
                       {pillar.title}
                     </h3>
                   </div>
 
-                  <p className="text-sm font-medium text-slate-300 leading-snug mb-2">
+                  <p className="text-sm font-normal text-slate-300 leading-snug mb-2">
                     {pillar.subtitle}
                   </p>
 
                   {isActive && (
-                    <p className="text-xs sm:text-sm text-slate-400 leading-relaxed transition-all">
+                    <p className="text-xs sm:text-sm text-slate-400 font-light leading-relaxed">
                       {pillar.description}
                     </p>
                   )}
@@ -206,55 +240,58 @@ export const LumioCarousel: React.FC<LumioCarouselProps> = ({
           </div>
         </div>
 
-        {/* Right Column: Minimal OnOrca-Style Code Editor & Terminal Popup */}
+        {/* Right Column: Minimalist OnOrca Terminal + Editor Frame */}
         <div className="lg:col-span-7 w-full">
+          {/* Keyed container so both editor and shell fade in/out together */}
           <div
-            className={`w-full rounded-2xl overflow-hidden border transition-all duration-500 shadow-2xl ${
-              isDark
-                ? "bg-[#090b10] border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.7)]"
-                : "bg-white border-slate-200 shadow-xl"
-            }`}
+            key={activeIndex}
+            className="w-full rounded-xl overflow-hidden border border-white/10 bg-[#0d0f14] transition-opacity duration-500 animate-fadeIn"
           >
-            {/* Minimal Clean Tab Header (No fake window buttons) */}
-            <div
-              className={`flex items-center justify-between px-5 py-3 border-b text-xs font-mono ${
-                isDark ? "bg-[#0c0e16] border-white/5" : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div className="flex items-center gap-2 text-slate-300 font-semibold">
-                <span className="text-cyan-400">&gt;_</span>
-                <span>{activePillar.filename}</span>
-              </div>
-              <div className="text-[11px] text-slate-500">
-                CPython 3.14 AST
+            {/* Minimal KISS Tab Bar (No window dots, no chrome title) */}
+            <div className="flex items-center justify-between px-3 pt-2.5 bg-[#090b0e] border-b border-white/5 select-none">
+              <div className="flex items-center">
+                {/* Active Tab */}
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-t-lg bg-[#0d0f14] border-t border-l border-r border-white/10 text-xs font-mono text-slate-200">
+                  <span className="text-slate-400">&gt;_</span>
+                  <span>{activePillar.filename}</span>
+                </div>
+                {/* Plus button */}
+                <button
+                  className="px-2.5 py-1 text-slate-600 hover:text-slate-400 text-sm font-mono transition-colors"
+                  aria-label="New tab"
+                >
+                  +
+                </button>
               </div>
             </div>
 
-            {/* Stage 1: Editor Code Writeup */}
-            <div className="p-5 sm:p-6 overflow-x-auto font-mono text-xs sm:text-[13px] leading-relaxed text-slate-200 bg-[#06080d] min-h-[190px]">
+            {/* Code Editor Body */}
+            <div className="p-5 font-mono text-xs sm:text-[13px] leading-relaxed text-slate-300 bg-[#0d0f14] min-h-[190px] overflow-x-auto">
               <pre className="whitespace-pre">
                 <code>{displayedCode}</code>
-                {!showTerminal && (
-                  <span className="inline-block w-2 h-4 ml-0.5 bg-cyan-400 animate-pulse align-middle" />
+                {displayedCode.length < activePillar.codeSnippet.length && (
+                  <span className="inline-block w-2 h-4 ml-0.5 bg-white/70 animate-pulse align-middle" />
                 )}
               </pre>
             </div>
 
-            {/* Stage 2: Popping Terminal Runner (OnOrca style) */}
-            <div
-              className={`border-t transition-all duration-500 overflow-hidden font-mono text-xs ${
-                showTerminal ? "max-h-[220px] opacity-100 p-5" : "max-h-0 opacity-0 p-0"
-              } ${isDark ? "bg-[#040508] border-white/10" : "bg-slate-100 border-slate-200"}`}
-            >
-              <div className="flex items-center gap-2 text-slate-300 font-semibold mb-2.5">
-                <span className="text-cyan-400 font-bold">$</span>
-                <span>{activePillar.command}</span>
+            {/* Shell Body (Starts empty, types command and streams output) */}
+            <div className="border-t border-white/10 p-5 bg-[#08090d] font-mono text-xs text-slate-300 min-h-[120px]">
+              <div className="flex items-center gap-2 text-slate-300 font-semibold mb-2">
+                <span className="text-slate-500 font-bold">$</span>
+                <span>{displayedCommand}</span>
+                {displayedCode.length >= activePillar.codeSnippet.length &&
+                  displayedCommand.length < activePillar.command.length && (
+                    <span className="inline-block w-2 h-3.5 bg-white/70 animate-pulse align-middle" />
+                  )}
               </div>
-              <div className="space-y-1 text-slate-400 text-[11px] sm:text-xs">
-                {activePillar.output.map((line, i) => (
+
+              {/* Output stream */}
+              <div className="space-y-1 text-slate-400 text-[11px] sm:text-xs pt-1">
+                {displayedOutput.map((line, i) => (
                   <div
                     key={i}
-                    className={line.startsWith("✓") ? "text-cyan-300 font-bold pt-1" : ""}
+                    className={line.startsWith("✓") ? "text-slate-200 font-bold pt-1" : ""}
                   >
                     {line}
                   </div>

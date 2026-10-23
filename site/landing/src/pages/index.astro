@@ -1,7 +1,7 @@
 ---
 import HeaderPillNav from "../components/HeaderPillNav";
 import HeroMinimal from "../components/HeroMinimal";
-import MetricsCardsWithBenchmark from "../components/MetricsCardsWithBenchmark";
+import BenchmarkRow from "../components/BenchmarkRow";
 import LumioCarousel from "../components/LumioCarousel";
 import IsometricSurfaceStack from "../components/IsometricSurfaceStack";
 import CrossCompileSection from "../components/CrossCompileSection.astro";
@@ -36,32 +36,34 @@ import "../styles/global.css";
     />
   </head>
   <body class="bg-[#0b0c10] text-slate-200 antialiased font-sans selection:bg-cyan-500/20 selection:text-cyan-200 min-h-screen">
-    <!-- Floating Pill Navigation Bar -->
+    <!-- Floating Pill Navigation Bar (KISS, without Get Started button) -->
     <HeaderPillNav client:load />
 
     <main id="main-content" class="relative overflow-x-hidden flex flex-col w-full">
-      <!-- Section 0: Hero with Organic Top 100 PyPI Mesh Animation and Frosted Blur Container -->
+      <!-- Section 0: Hero with Initial V3 MUJI Typography and Animated Background Mesh -->
       <HeroMinimal client:load />
 
-      <!-- Section 1: Performance Metric Cards & 3-Tier Latency Benchmark Bar Chart -->
-      <MetricsCardsWithBenchmark client:visible />
+      <!-- Section 1: 1x3 Vertical Rectangular Bar Charts (Throughput, RSS, Cold Start) -->
+      <section class="w-full border-t border-white/5">
+        <BenchmarkRow client:visible />
+      </section>
 
-      <!-- Section 2: Full Python Semantics Lumio Vertical Carousel & OnOrca Terminal Drawer -->
+      <!-- Section 2: Full Python Semantics Lumio Vertical Carousel & OnOrca Minimal Terminal -->
       <section class="w-full border-t border-white/5">
         <LumioCarousel client:visible />
       </section>
 
-      <!-- Section 3: Three Surfaces Architectural Stack with Together.ai Bold Statements -->
+      <!-- Section 3: Three Surfaces Architectural Stack (No chips, No selectable cards, Loops forever) -->
       <section class="w-full border-t border-white/5">
         <IsometricSurfaceStack client:visible />
       </section>
 
-      <!-- Section 4: Universal Cross-Compilation Matrix -->
+      <!-- Section 4: Deploy Anywhere (Minimalist Listing, No chips, No cards) -->
       <section class="w-full border-t border-white/5">
         <CrossCompileSection />
       </section>
 
-      <!-- Section 5: Final Call to Action -->
+      <!-- Section 5: Minimal Final Call to Action (CTA + GitHub, KISS) -->
       <section class="w-full border-t border-white/5">
         <FinalCTA />
       </section>
