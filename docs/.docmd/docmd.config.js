@@ -74,6 +74,7 @@ export default {
       children: [
         { title: "Quickstart", path: "/getting-started/" },
         { title: "Install and toolchain", path: "/getting-started/install/" },
+        { title: "Trying the beta", path: "/getting-started/beta/" },
       ],
     },
     {
