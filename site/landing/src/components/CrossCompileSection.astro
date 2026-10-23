@@ -1,352 +1,92 @@
 ---
-import { useI18n } from "../i18n";
+interface TargetSurface {
+  arch: string;
+  name: string;
+  note: string;
+  format: string;
+  runtime: string;
+}
 
-const i18n = useI18n();
-const cc = i18n.crossCompile;
+const targets: TargetSurface[] = [
+  {
+    arch: "x86_64-linux",
+    name: "Linux x86_64",
+    note: "glibc & static musl",
+    format: "ELF binary",
+    runtime: "Zero runtime dependencies",
+  },
+  {
+    arch: "aarch64-linux",
+    name: "Linux ARM64",
+    note: "AWS Graviton, Ampere, Docker",
+    format: "ELF binary",
+    runtime: "Zero runtime dependencies",
+  },
+  {
+    arch: "aarch64-macos",
+    name: "macOS ARM64",
+    note: "Apple Silicon (M1/M2/M3/M4)",
+    format: "Mach-O binary",
+    runtime: "Native Metal & CoreFoundation",
+  },
+  {
+    arch: "x86_64-macos",
+    name: "macOS Intel",
+    note: "Universal binary compatible",
+    format: "Mach-O binary",
+    runtime: "Native execution",
+  },
+  {
+    arch: "x86_64-windows",
+    name: "Windows x86_64",
+    note: "MSVC / MinGW compatible",
+    format: "PE executable (.exe)",
+    runtime: "Native Windows subsystems",
+  },
+  {
+    arch: "wasm32-wasi",
+    name: "WebAssembly Edge",
+    note: "Cloudflare Workers, Fastly, Browsers",
+    format: "WASM module",
+    runtime: "Sandboxed WASI runtime",
+  },
+];
 ---
 
-<section class="cross-compile-section" id="cross-compile" aria-labelledby="cross-compile-heading">
-  <div class="cross-compile-container">
-    <div class="section-header">
-      <div class="section-badge">
-        <span class="badge-dot"></span>
-        <span class="badge-text">{cc.badge}</span>
-      </div>
-      <h2 id="cross-compile-heading" class="section-title">{cc.title}</h2>
-      <p class="section-subtitle">{cc.subtitle}</p>
-    </div>
+<section class="w-full max-w-6xl mx-auto px-6 py-20 lg:py-28 text-left" id="deploy">
+  <!-- Minimal Header without chips -->
+  <div class="max-w-3xl mb-12">
+    <h2 class="text-3xl sm:text-4xl lg:text-5xl font-normal tracking-tight text-white leading-[1.12] mb-4">
+      Deploy anywhere.
+    </h2>
+    <p class="text-base sm:text-lg text-slate-400 font-light leading-relaxed">
+      Cross-compile standalone executables for any cloud, desktop, or edge platform with a single target flag.
+      Zero external C toolchain configuration required.
+    </p>
+  </div>
 
-    <!-- Target Badges Matrix -->
-    <div class="targets-matrix">
-      {
-        cc.targets.map((target) => (
-          <div class={`target-card ${target.highlight ? "highlighted" : ""}`}>
-            <div class="target-card-top">
-              <span class="target-arch">{target.arch}</span>
-              {target.highlight && <span class="featured-badge">Featured</span>}
-            </div>
-            <span class="target-note">{target.note}</span>
-            <div class="target-check">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                <polyline points="20 6 9 17 4 12"></polyline>
-              </svg>
-              <span>Built-in Toolchain</span>
-            </div>
-          </div>
-        ))
-      }
-    </div>
-
-    <!-- CLI Demonstration Snippet -->
-    <div class="cli-demo-wrap">
-      <div class="cli-demo-card">
-        <div class="cli-card-header">
-          <div class="window-controls" aria-hidden="true">
-            <span class="dot close"></span>
-            <span class="dot minimize"></span>
-            <span class="dot expand"></span>
-          </div>
-          <div class="cli-card-title">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="4 17 10 11 4 5"></polyline>
-              <line x1="12" y1="19" x2="20" y2="19"></line>
-            </svg>
-            <span>Cross-Compilation in Action</span>
-          </div>
-          <span class="cli-lang">bash</span>
-        </div>
-
-        <div class="cli-card-body">
-          <!-- Command 1: WASM -->
-          <div class="code-comment"># 1. Compile for lightweight serverless Edge & Cloudflare Workers (WASM)</div>
-          <div class="cmd-line">
-            <span class="prompt">$</span>
-            <span class="cmd">pyscriptc compile handler.py <span class="flag">--target</span>=<span class="val">wasm32-wasi</span> -o edge_handler.wasm</span>
-          </div>
-          <div class="cmd-output success">
-            <span class="check">✔</span>
-            <span>Optimized WASM module emitted: edge_handler.wasm (142 KB)</span>
+  <!-- Minimalist Listing Table / List Component -->
+  <div class="w-full divide-y divide-white/10 border-t border-b border-white/10 font-mono text-xs">
+    {
+      targets.map((t) => (
+        <div class="py-4.5 sm:py-5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-6 hover:bg-white/[0.015] transition-colors">
+          <div class="flex items-center gap-3 min-w-[200px]">
+            <span class="text-white font-semibold text-sm font-sans">{t.name}</span>
+            <span class="text-slate-500 font-mono text-xs">({t.arch})</span>
           </div>
 
-          <div class="cmd-spacer"></div>
-
-          <!-- Command 2: Linux musl static binary from any host -->
-          <div class="code-comment"># 2. Cross-compile directly to a standalone static Linux binary (no Docker needed)</div>
-          <div class="cmd-line">
-            <span class="prompt">$</span>
-            <span class="cmd">pyscriptc compile worker.py <span class="flag">--target</span>=<span class="val">x86_64-linux-musl</span> -o worker_linux</span>
+          <div class="text-slate-400 font-light text-xs sm:flex-1">
+            {t.note}
           </div>
-          <div class="cmd-output success">
-            <span class="check">✔</span>
-            <span>Static musl ELF binary emitted: ./worker_linux (zero runtime dependencies)</span>
+
+          <div class="flex items-center gap-6 sm:justify-end text-slate-400 text-xs">
+            <span class="text-slate-300">{t.format}</span>
+            <span class="text-slate-500 hidden md:inline">·</span>
+            <span class="text-slate-400 hidden md:inline">{t.runtime}</span>
+            <span class="text-slate-400">✓ Built-in</span>
           </div>
         </div>
-      </div>
-    </div>
+      ))
+    }
   </div>
 </section>
-
-<style>
-  .cross-compile-section {
-    position: relative;
-    width: 100%;
-    padding: 5rem 1.5rem;
-    z-index: 10;
-  }
-
-  .cross-compile-container {
-    max-width: 1200px;
-    margin: 0 auto;
-  }
-
-  .section-header {
-    text-align: center;
-    max-width: 760px;
-    margin: 0 auto 3.5rem;
-  }
-
-  .section-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.35rem 0.85rem;
-    border-radius: 9999px;
-    background: rgba(0, 194, 255, 0.08);
-    border: 1px solid rgba(0, 194, 255, 0.25);
-    margin-bottom: 1.25rem;
-  }
-
-  .badge-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background-color: var(--color-accent-cyan, #00c2ff);
-    box-shadow: 0 0 8px var(--color-accent-cyan, #00c2ff);
-  }
-
-  .badge-text {
-    font-family: var(--font-mono, monospace);
-    font-size: 0.75rem;
-    font-weight: 600;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: var(--color-accent-cyan, #00c2ff);
-  }
-
-  .section-title {
-    font-size: clamp(2rem, 3.5vw, 2.75rem);
-    font-weight: 700;
-    line-height: 1.15;
-    letter-spacing: -0.03em;
-    color: var(--color-text-primary, #ffffff);
-    margin: 0 0 1rem;
-  }
-
-  .section-subtitle {
-    font-size: 1.05rem;
-    line-height: 1.6;
-    color: var(--color-text-secondary, #94a3b8);
-    margin: 0;
-  }
-
-  /* Target Badges Matrix */
-  .targets-matrix {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 1.25rem;
-    margin-bottom: 2.5rem;
-  }
-
-  @media (min-width: 640px) {
-    .targets-matrix {
-      grid-template-columns: repeat(2, 1fr);
-    }
-  }
-
-  @media (min-width: 1024px) {
-    .targets-matrix {
-      grid-template-columns: repeat(4, 1fr);
-    }
-  }
-
-  .target-card {
-    background: var(--color-bg-card, rgba(17, 22, 37, 0.75));
-    border: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
-    border-radius: 14px;
-    padding: 1.5rem;
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    transition: transform 0.2s ease, border-color 0.2s ease;
-  }
-
-  .target-card:hover {
-    transform: translateY(-2px);
-    border-color: rgba(0, 194, 255, 0.3);
-  }
-
-  .target-card.highlighted {
-    border-color: rgba(0, 194, 255, 0.4);
-    background: linear-gradient(180deg, rgba(0, 194, 255, 0.08) 0%, rgba(17, 22, 37, 0.75) 100%);
-    box-shadow: 0 0 20px -5px rgba(0, 194, 255, 0.2);
-  }
-
-  .target-card-top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .target-arch {
-    font-family: var(--font-mono, monospace);
-    font-size: 1rem;
-    font-weight: 700;
-    color: var(--color-text-primary, #ffffff);
-  }
-
-  .featured-badge {
-    font-family: var(--font-mono, monospace);
-    font-size: 0.65rem;
-    font-weight: 700;
-    padding: 0.15rem 0.45rem;
-    border-radius: 4px;
-    background: rgba(0, 194, 255, 0.2);
-    color: var(--color-accent-cyan, #00c2ff);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }
-
-  .target-note {
-    font-size: 0.85rem;
-    color: var(--color-text-secondary, #94a3b8);
-  }
-
-  .target-check {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    margin-top: 0.75rem;
-    padding-top: 0.75rem;
-    border-top: 1px solid var(--color-border, rgba(255, 255, 255, 0.06));
-    font-size: 0.75rem;
-    font-family: var(--font-mono, monospace);
-    color: #4ade80;
-  }
-
-  /* CLI Demonstration */
-  .cli-demo-wrap {
-    max-width: 960px;
-    margin: 0 auto;
-  }
-
-  .cli-demo-card {
-    background: #090d16;
-    border: 1px solid var(--color-border, rgba(255, 255, 255, 0.1));
-    border-radius: 16px;
-    overflow: hidden;
-    box-shadow: 0 20px 45px -10px rgba(0, 0, 0, 0.6),
-                0 0 0 1px rgba(0, 194, 255, 0.08);
-  }
-
-  .cli-card-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0.85rem 1.25rem;
-    background: rgba(255, 255, 255, 0.03);
-    border-bottom: 1px solid var(--color-border, rgba(255, 255, 255, 0.08));
-  }
-
-  .window-controls {
-    display: flex;
-    gap: 6px;
-  }
-
-  .window-controls .dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-  }
-
-  .window-controls .close { background: #ef4444; }
-  .window-controls .minimize { background: #eab308; }
-  .window-controls .expand { background: #22c55e; }
-
-  .cli-card-title {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-family: var(--font-mono, monospace);
-    font-size: 0.8rem;
-    color: var(--color-text-secondary, #94a3b8);
-  }
-
-  .cli-card-title svg {
-    color: var(--color-accent-cyan, #00c2ff);
-  }
-
-  .cli-lang {
-    font-family: var(--font-mono, monospace);
-    font-size: 0.7rem;
-    color: var(--color-text-muted, #64748b);
-  }
-
-  .cli-card-body {
-    padding: 1.5rem;
-    font-family: var(--font-mono, monospace);
-    font-size: 0.875rem;
-    line-height: 1.6;
-    overflow-x: auto;
-  }
-
-  .code-comment {
-    color: #64748b;
-    font-style: italic;
-    margin-bottom: 0.35rem;
-  }
-
-  .cmd-line {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    color: #e2e8f0;
-    font-weight: 500;
-  }
-
-  .cmd-line .prompt {
-    color: var(--color-accent-cyan, #00c2ff);
-    font-weight: 700;
-    user-select: none;
-  }
-
-  .cmd .flag {
-    color: #38bdf8;
-  }
-
-  .cmd .val {
-    color: #fbbf24;
-  }
-
-  .cmd-output {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding-left: 1.15rem;
-    font-size: 0.825rem;
-    margin-top: 0.35rem;
-  }
-
-  .cmd-output.success {
-    color: #94a3b8;
-  }
-
-  .cmd-output .check {
-    color: #22c55e;
-  }
-
-  .cmd-spacer {
-    height: 1.25rem;
-  }
-</style>

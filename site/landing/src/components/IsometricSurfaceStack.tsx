@@ -99,18 +99,15 @@ export interface IsometricSurfaceStackProps {
 export const IsometricSurfaceStack: React.FC<IsometricSurfaceStackProps> = ({
   theme = "dark",
   className = "",
-  autoPlayInterval = 8000,
+  autoPlayInterval = 7500,
 }) => {
   const [activeIndex, setActiveIndex] = useState(0);
-  const [isPaused, setIsPaused] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   const selectedTier = SURFACE_TIERS[activeIndex];
 
-  // Auto-looping timer
+  // Auto-looping timer that loops forever
   useEffect(() => {
-    if (isPaused) return;
-
     timerRef.current = setInterval(() => {
       setActiveIndex((prev) => (prev + 1) % SURFACE_TIERS.length);
     }, autoPlayInterval);
@@ -118,26 +115,22 @@ export const IsometricSurfaceStack: React.FC<IsometricSurfaceStackProps> = ({
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [isPaused, autoPlayInterval]);
+  }, [autoPlayInterval]);
 
   const handleSelect = (idx: number) => {
     setActiveIndex(idx);
-    setIsPaused(true);
+    // Reset timer to allow user to view selected layer, then continue looping
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      setActiveIndex((prev) => (prev + 1) % SURFACE_TIERS.length);
+    }, autoPlayInterval);
   };
 
   return (
-    <section
-      className={`w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 lg:py-28 ${className}`}
-      onMouseEnter={() => setIsPaused(true)}
-      onMouseLeave={() => setIsPaused(false)}
-    >
-      {/* Section Header */}
-      <div className="max-w-3xl mb-12 sm:mb-16 text-left">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.04] border border-white/10 text-xs font-mono text-cyan-400 mb-4 tracking-wide">
-          <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-          EXECUTION ARCHITECTURE
-        </div>
-        <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-white leading-[1.15] mb-4">
+    <section className={`w-full max-w-6xl mx-auto px-6 py-20 lg:py-28 ${className}`}>
+      {/* Section Header (No chips) */}
+      <div className="max-w-3xl mb-14 text-left">
+        <h2 className="text-3xl sm:text-4xl lg:text-5xl font-normal tracking-tight text-white leading-[1.12] mb-4">
           Three surfaces. One unified compiler.
         </h2>
         <p className="text-base sm:text-lg text-slate-400 font-light leading-relaxed">
@@ -146,62 +139,12 @@ export const IsometricSurfaceStack: React.FC<IsometricSurfaceStackProps> = ({
         </p>
       </div>
 
-      {/* Interactive Tabs / Progress Navigation */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-12">
-        {SURFACE_TIERS.map((tier, idx) => {
-          const isActive = activeIndex === idx;
-          return (
-            <button
-              key={tier.id}
-              onClick={() => handleSelect(idx)}
-              className={`group text-left p-4 sm:p-5 rounded-2xl transition-all duration-300 relative overflow-hidden border ${
-                isActive
-                  ? "bg-white/[0.05] border-white/20 shadow-lg shadow-black/40"
-                  : "bg-white/[0.015] border-white/5 hover:bg-white/[0.03] hover:border-white/10"
-              }`}
-            >
-              {/* Progress bar line for active item */}
-              {isActive && !isPaused && (
-                <div
-                  className="absolute top-0 left-0 h-[2px] bg-gradient-to-r from-cyan-400 to-sky-400 animate-progress"
-                  style={{
-                    animationDuration: `${autoPlayInterval}ms`,
-                    animationTimingFunction: "linear",
-                  }}
-                />
-              )}
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-mono text-xs text-slate-500 font-semibold">{tier.number}</span>
-                <span
-                  className="text-[11px] font-mono px-2 py-0.5 rounded-full"
-                  style={{
-                    backgroundColor: isActive ? `${tier.accentColor}18` : "transparent",
-                    color: isActive ? tier.accentColor : "#64748b",
-                    border: `1px solid ${isActive ? `${tier.accentColor}40` : "transparent"}`,
-                  }}
-                >
-                  {tier.badge}
-                </span>
-              </div>
-              <div
-                className={`font-semibold text-sm sm:text-base transition-colors ${
-                  isActive ? "text-white" : "text-slate-400 group-hover:text-slate-200"
-                }`}
-              >
-                {tier.name}
-              </div>
-              <div className="text-xs text-slate-500 font-light mt-0.5">{tier.subtitle}</div>
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-14 items-center">
-        {/* Left Column: Isometric Architectural Graphic */}
-        <div className="lg:col-span-5 flex flex-col items-center justify-center p-6 sm:p-10 rounded-3xl bg-[#090b10] border border-white/5 relative overflow-hidden">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-16 items-center">
+        {/* Left Column: Only the Isometric Architectural Graphic is Selectable */}
+        <div className="lg:col-span-5 flex flex-col items-center justify-center p-8 sm:p-12 rounded-2xl bg-[#090b10] border border-white/5 relative overflow-hidden select-none">
           {/* Subtle Dynamic Radial Glow */}
           <div
-            className="pointer-events-none absolute inset-0 opacity-40 transition-all duration-700"
+            className="pointer-events-none absolute inset-0 opacity-30 transition-all duration-700"
             style={{
               background: `radial-gradient(circle at 50% ${
                 activeIndex === 0 ? "70%" : activeIndex === 1 ? "50%" : "30%"
@@ -210,17 +153,17 @@ export const IsometricSurfaceStack: React.FC<IsometricSurfaceStackProps> = ({
           />
 
           {/* Isometric SVG Illustration */}
-          <div className="relative w-full max-w-[340px] aspect-square flex items-center justify-center select-none">
+          <div className="relative w-full max-w-[340px] aspect-square flex items-center justify-center">
             <svg
               viewBox="0 0 400 440"
-              className="w-full h-full drop-shadow-[0_25px_50px_rgba(0,0,0,0.85)]"
+              className="w-full h-full drop-shadow-[0_25px_50px_rgba(0,0,0,0.85)] cursor-pointer"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
             >
               {/* TIER 3: Top Slab (CPython Island - Dotted/Conditional) */}
               <g
                 onClick={() => handleSelect(2)}
-                className="cursor-pointer transition-all duration-300"
+                className="transition-all duration-300 group"
                 style={{
                   transform: activeIndex === 2 ? "translateY(-14px)" : "translateY(0)",
                 }}
@@ -258,7 +201,7 @@ export const IsometricSurfaceStack: React.FC<IsometricSurfaceStackProps> = ({
               {/* TIER 2: Middle Slab (Native Shared Library - Dotted/Optional) */}
               <g
                 onClick={() => handleSelect(1)}
-                className="cursor-pointer transition-all duration-300"
+                className="transition-all duration-300 group"
                 style={{
                   transform: activeIndex === 1 ? "translateY(-10px)" : "translateY(0)",
                 }}
@@ -296,26 +239,26 @@ export const IsometricSurfaceStack: React.FC<IsometricSurfaceStackProps> = ({
               {/* TIER 1: Bottom Slab (Pure Native Binary - Solid Bedrock) */}
               <g
                 onClick={() => handleSelect(0)}
-                className="cursor-pointer transition-all duration-300"
+                className="transition-all duration-300 group"
                 style={{
                   transform: activeIndex === 0 ? "translateY(-6px)" : "translateY(0)",
                 }}
               >
-                {/* Left Face (Solid) */}
+                {/* Left Face */}
                 <path
                   d="M130 295 L200 335 L200 375 L130 335 Z"
                   fill="#0a0d18"
                   stroke={activeIndex === 0 ? "#00c2ff" : "rgba(255,255,255,0.35)"}
                   strokeWidth={activeIndex === 0 ? "2.5" : "2"}
                 />
-                {/* Right Face (Solid) */}
+                {/* Right Face */}
                 <path
                   d="M200 335 L270 295 L270 335 L200 375 Z"
                   fill="#121829"
                   stroke={activeIndex === 0 ? "#00c2ff" : "rgba(255,255,255,0.35)"}
                   strokeWidth={activeIndex === 0 ? "2.5" : "2"}
                 />
-                {/* Top Face (Solid Bedrock Plate) */}
+                {/* Top Face */}
                 <path
                   d="M200 255 L270 295 L200 335 L130 295 Z"
                   fill={activeIndex === 0 ? "#122a44" : "#151b2e"}
@@ -330,19 +273,32 @@ export const IsometricSurfaceStack: React.FC<IsometricSurfaceStackProps> = ({
             </svg>
           </div>
 
-          {/* Micro Status Hint */}
           <div className="flex items-center gap-2 mt-4 text-[11px] font-mono text-slate-500">
-            <span>Click any tier layer to inspect</span>
+            <span>Click any tier to inspect</span>
           </div>
         </div>
 
-        {/* Right Column: Together.ai Style Bold Statements */}
+        {/* Right Column: Together.ai Style Bold Narrative */}
         <div
           key={selectedTier.id}
           className="lg:col-span-7 flex flex-col justify-center text-left transition-all duration-500 animate-fadeIn"
         >
+          {/* Surface Tier Name & Badge */}
+          <div className="flex items-center gap-3 mb-3">
+            <span className="font-mono text-xs text-slate-400 font-semibold">
+              {selectedTier.number}
+            </span>
+            <span className="text-white/20">/</span>
+            <span
+              className="text-xs font-mono font-medium"
+              style={{ color: selectedTier.accentColor }}
+            >
+              {selectedTier.name}
+            </span>
+          </div>
+
           {/* Prominent Headline */}
-          <h3 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white tracking-tight leading-[1.2] mb-4">
+          <h3 className="text-2xl sm:text-3xl lg:text-4xl font-normal text-white tracking-tight leading-[1.2] mb-4">
             {selectedTier.headline}
           </h3>
 
@@ -351,24 +307,23 @@ export const IsometricSurfaceStack: React.FC<IsometricSurfaceStackProps> = ({
             {selectedTier.description}
           </p>
 
-          {/* Distinct Value Differentiator Points */}
-          <div className="space-y-5 border-t border-white/10 pt-6">
+          {/* Value Differentiator Points */}
+          <div className="space-y-4 border-t border-white/10 pt-6">
             {selectedTier.highlights.map((item, idx) => (
-              <div key={idx} className="flex items-start gap-4">
+              <div key={idx} className="flex items-start gap-3">
                 <div
-                  className="w-6 h-6 rounded-lg flex items-center justify-center shrink-0 mt-0.5"
+                  className="w-5 h-5 rounded-md flex items-center justify-center shrink-0 mt-0.5"
                   style={{
                     backgroundColor: `${selectedTier.accentColor}15`,
                     color: selectedTier.accentColor,
-                    border: `1px solid ${selectedTier.accentColor}30`,
                   }}
                 >
-                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                     <polyline points="20 6 9 17 4 12" />
                   </svg>
                 </div>
                 <div>
-                  <h4 className="text-sm sm:text-base font-semibold text-white mb-1">
+                  <h4 className="text-sm font-semibold text-white mb-0.5">
                     {item.title}
                   </h4>
                   <p className="text-xs sm:text-sm text-slate-400 font-light leading-relaxed">
