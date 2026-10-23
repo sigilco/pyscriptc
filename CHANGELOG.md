@@ -1,5 +1,61 @@
 # Changelog
 
+## [0.6.0] - 2026-10-23
+
+### Added
+- wasm32-wasi modules via zig cc (stacked on #249) (#313)
+- windows portability and zig driver preference (#249)
+- the network receipt, a loopback HTTP client and server harness (#389)
+- the asyncio Lock, Event, Semaphore, Queue and to_thread (#180 D3) (#379)
+- the sqlite end-to-end pilot, host and musl (#66) (#367)
+- await inside with and the child's failure reaches the awaiter (#337 C1) (#365)
+- beta channel tooling (v0.6.0-beta.N tags, beta bar, tester docs) (#362)
+- lower asyncio.wait_for, task.cancel and CancelledError (#179 D2) (#363)
+- --emit lib, the static-library mode for the mobile triples (#364)
+- list and dict marshalling for manifest functions (#236)
+- link manifest sources and archives in link_binary (#220) (#349)
+- lower asyncio.create_task and Task handles (#179 D1) (#350)
+- str, bytes and opaque handle marshalling with borrows and consumes (#224) (#348)
+- lower queue.Queue, LifoQueue and SimpleQueue (#172 Stage C) (#346)
+- lower yield inside try/except/finally with a susp-guarded finally (#345)
+- lower @contextmanager through the generator frame (#343)
+- --ffi flag with scalar manifest call lowering, nativeprobe as a manifest (#218) (#339)
+- lower cross-module await through the export table (#338)
+- lower orjson.dumps / orjson.loads through the pyscriptc-orjson pack over ps_json (#330)
+- lower jwt.encode / jwt.decode for the HS* family through the pyscriptc-jwt pack (#328)
+- project mode, one binary per [project.scripts] entry point (#325)
+- lower async def as a class method on the coroutine frame (#335)
+- split generators and contextmanager families (#336)
+- PSxxxx histogram, binary size and the run.finished event (#257) (#331)
+- generator protocol surface - send, throw, close, next with default (#333)
+
+### Fixed
+- capture the snapshot PR number from gh pr create output (#397)
+- guard ps_http.c for targets without BSD sockets (#376)
+- coverage_map SHARED_CORE names the emitter package over the llvm.py shim (#375)
+- anchor every sequence and map in an exit registry (#370)
+- a wasm target refuses the thread primitives at link time (#352)
+- tempdir trailing slash and stderr print link on Darwin (#344)
+- a thread target that raises does not kill the process (#342)
+- replace stale argparse fence pin with sqlite3 (#341)
+- master test failures: typeshed Iterator rows and jwtapp package shape (#340)
+
+### Performance
+- generator receipt tool and three perf fixes in the try path (#351)
+
+### Docs
+- complete the 0.6.0 section and record the network receipt (#418)
+- DRAFT root PRIVACY.md, needs owner approval (#297)
+- 0.6.0 support-state sweep (#369)
+- the boxed window after the stage C merges (#371)
+- the boxed window after the threading stages (#359)
+
+### Build
+- make mise.toml the default task runner (#360)
+
+### CI
+- the ThreadSanitizer receipts (#172 Stage D) (#347)
+
 ## [0.6.0] - Unreleased
 
 ### Added
