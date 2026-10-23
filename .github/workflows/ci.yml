@@ -341,7 +341,14 @@ jobs:
               return 0
           PY
           uv run pyscriptc compile "$WORK/count.py" --emit bin -o "$WORK/count-tsan" --call checklist --args "[]" --sanitize=thread
+          # The report has to reach the log even when the binary exits with the
+          # sanitizer exit code, so the exit status is captured, not propagated.
+          set +e
           TSAN_OPTIONS="halt_on_error=1:exitcode=66" "$WORK/count-tsan" > "$WORK/out.txt" 2> "$WORK/tsan.err"
+          status=$?
+          set -e
+          cat "$WORK/tsan.err"
+          [ "$status" -eq 0 ] || { echo "the sanitized binary exited $status"; exit 1; }
           [ "$(cat "$WORK/out.txt")" = "0" ]
           [ ! -s "$WORK/tsan.err" ] || { cat "$WORK/tsan.err"; exit 1; }
       - name: TSan suite passes locally
