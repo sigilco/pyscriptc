@@ -66,6 +66,7 @@ QUEUE = (
     "yaml",
     "urllib.request",
     "urllib.error",
+    "queue",
 )
 
 

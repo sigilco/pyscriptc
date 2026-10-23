@@ -14,6 +14,8 @@ C_NAMES = {
     "StopAsyncIteration": "PS_STOP_ASYNC",
     "CancelledError": "PS_CANCELLED",
     "TimeoutError": "PS_TIMEOUT",
+    "Empty": "PS_QUEUE_EMPTY",
+    "Full": "PS_QUEUE_FULL",
 }
 
 
@@ -39,7 +41,7 @@ def test_reserved_codes_mirror_header() -> None:
 
 def test_reserved_codes_are_disjoint_and_out_of_user_range() -> None:
     codes = list(RESERVED_EXCEPTIONS.values())
-    assert len(set(codes)) == 4
+    assert len(set(codes)) == 6
     assert min(codes) >= RESERVED_EXC_BASE > USER_EXC_BASE
     assert max(codes) < 2**31 - 1
     assert not set(codes) & set(EXCEPTIONS.values())
