@@ -32,7 +32,12 @@ from pyscriptc.irverify import verify_module
 from pyscriptc.llvverify import LLVMVerifyError, verify_module_text
 from pyscriptc.log import enable_debug, get_logger, tail
 from pyscriptc.lower import lower_file, render_fences
-from pyscriptc.mobile import MobileRefusal, is_mobile_target, require_mobile_target
+from pyscriptc.mobile import (
+    ANDROID_PAGE_FLAGS,
+    MobileRefusal,
+    is_mobile_target,
+    require_mobile_target,
+)
 from pyscriptc.package import lower_directory
 
 log = get_logger()
@@ -994,10 +999,11 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         if args.emit == "lib":
             state["stage"] = "archive"
             dbg.begin("archive")
+            mobile = require_mobile_target(args.target, "--emit lib")
             artifacts = build_library(
                 ll_path,
                 _library_dir(args, source_path),
-                target=require_mobile_target(args.target, "--emit lib"),
+                target=mobile,
                 driver=args.driver or "clang",
                 sanitize=sanitize,
                 record=dbg.commands,
@@ -1010,6 +1016,15 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             outputs["modulemap"] = str(artifacts["modulemap"])
             log.info("archive.library", output=str(artifacts["archive"]), target=args.target)
             print(artifacts["archive"])
+            if mobile.family == "android":
+                # The archive has no program headers; the 16 KB alignment is
+                # the consumer's link-time decision, so say it where the
+                # build finishes.
+                print(
+                    "note: link the archive into a shared object with "
+                    + " ".join(ANDROID_PAGE_FLAGS)
+                    + " (Google Play 16 KB page rule)"
+                )
             return 0
         if args.emit in ("asm", "obj"):
             suffix = ".s" if args.emit == "asm" else ".o"

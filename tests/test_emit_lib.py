@@ -19,6 +19,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from tests.test_gates import ROOT, write_case
 
 from pyscriptc.emit.llvm._driver import runtime_dir
 from pyscriptc.emitlib import (
@@ -33,8 +34,12 @@ from pyscriptc.emitlib import (
     toolchain_for,
 )
 from pyscriptc.errors import SpikeError
-from pyscriptc.mobile import MOBILE_EXCLUDED_SOURCES, is_mobile_target, mobile_target
-from tests.test_gates import ROOT, write_case
+from pyscriptc.mobile import (
+    ANDROID_PAGE_FLAGS,
+    MOBILE_EXCLUDED_SOURCES,
+    is_mobile_target,
+    mobile_target,
+)
 
 TRIPLES = (
     "aarch64-apple-ios",
@@ -55,9 +60,7 @@ def _sdk_present(sdk: str) -> bool:
 
 
 def _sdk_path(sdk: str) -> str:
-    return subprocess.run(
-        ["xcrun", "--sdk", sdk, "--show-sdk-path"], capture_output=True, text=True
-    ).stdout.strip()
+    return subprocess.run(["xcrun", "--sdk", sdk, "--show-sdk-path"], capture_output=True, text=True).stdout.strip()
 
 
 needs_xcode = pytest.mark.skipif(
@@ -80,13 +83,15 @@ def isolated_rt_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return root
 
 
-def compile_cli(tmp_path: Path, source_path: Path, *flags: str) -> subprocess.CompletedProcess[str]:
+def compile_cli(
+    tmp_path: Path, source_path: Path, *flags: str, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
     from tests.test_gates import ENV
 
     return subprocess.run(
         [sys.executable, "-m", "pyscriptc", "compile", str(source_path), *flags],
         cwd=ROOT,
-        env=ENV,
+        env={**ENV, **(env or {})},
         capture_output=True,
         text=True,
     )
@@ -169,6 +174,75 @@ def test_android_api_floor(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PYSC_ANDROID_API", "19")
     with pytest.raises(SpikeError, match="21"):
         toolchain_for(mobile_target(ANDROID))
+
+
+def test_android_page_flags_are_the_play_requirement() -> None:
+    """The 16 KB alignment pair a shared-object link needs on Android 15+."""
+    assert ANDROID_PAGE_FLAGS == (
+        "-Wl,-z,max-page-size=16384",
+        "-Wl,-z,common-page-size=16384",
+    )
+
+
+def _fake_ndk(root: Path) -> Path:
+    """An NDK root with a real sysroot layout and a clang that just records argv.
+
+    The clang shim drops `--sysroot` so the host SDK supplies the headers;
+    the test asserts argv shape and the post-build note, not Android codegen.
+    """
+    prebuilt = root / "ndk" / "toolchains" / "llvm" / "prebuilt" / "darwin-x86_64"
+    (prebuilt / "sysroot" / "usr").mkdir(parents=True)
+    real_cc = shutil.which("cc") or shutil.which("clang")
+    assert real_cc, "no host cc for the fake NDK"
+    (prebuilt / "bin").mkdir(parents=True, exist_ok=True)
+    shim = "\n".join(
+        [
+            "#!/usr/bin/env python3",
+            "import os, subprocess, sys",
+            "args = sys.argv[1:]",
+            "clean = []",
+            "skip = False",
+            "for arg in args:",
+            "    if skip:",
+            "        skip = False",
+            "        continue",
+            "    if arg == '--sysroot':",
+            "        skip = True",
+            "        continue",
+            "    if arg.startswith('--sysroot='):",
+            "        continue",
+            "    if arg.startswith('--target='):",
+            "        continue",
+            "    clean.append(arg)",
+            f"os.execv({real_cc!r}, [{real_cc!r}, *clean])",
+        ]
+    )
+    clang = prebuilt / "bin" / "clang"
+    clang.write_text(shim + "\n", encoding="utf-8")
+    clang.chmod(0o755)
+    ar = prebuilt / "bin" / "llvm-ar"
+    ar.write_text('#!/bin/sh\nexec ar "$@"\n', encoding="utf-8")
+    ar.chmod(0o755)
+    return root / "ndk"
+
+
+def test_android_build_prints_the_page_flag_note(tmp_path: Path) -> None:
+    path = write_case(tmp_path, "hello.py", HELLO)
+    out = tmp_path / "lib"
+    got = compile_cli(
+        tmp_path,
+        path,
+        "--emit",
+        "lib",
+        "--target",
+        ANDROID,
+        "--skip-check",
+        "-o",
+        str(out),
+        env={"PYSC_ANDROID_NDK": str(_fake_ndk(tmp_path))},
+    )
+    assert got.returncode == 0, got.stderr
+    assert "-Wl,-z,max-page-size=16384" in got.stdout
 
 
 # --- the pure surfaces: header, modulemap, registry, exclusions ---
@@ -313,9 +387,7 @@ def _log_calls(log: Path) -> list[list[str]]:
     return [shlex.split(line) for line in log.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def test_fake_build_pins_argv_and_artifacts(
-    tmp_path: Path, fake_cc: Path, isolated_rt_cache: Path
-) -> None:
+def test_fake_build_pins_argv_and_artifacts(tmp_path: Path, fake_cc: Path, isolated_rt_cache: Path) -> None:
     path = write_case(tmp_path, "hello.py", HELLO)
     got = compile_cli(tmp_path, path, "--emit", "llvm", "--skip-check")
     assert got.returncode == 0, got.stderr
@@ -351,15 +423,13 @@ def test_fake_build_uses_the_rtcache(tmp_path: Path, fake_cc: Path, isolated_rt_
     assert len(cold) > 1
 
     build_library(ll, tmp_path / "two", mobile_target(SIM))
-    warm = [argv for argv in _log_calls(fake_cc) if "-c" in argv][len(cold):]
+    warm = [argv for argv in _log_calls(fake_cc) if "-c" in argv][len(cold) :]
     # only the module unit compiles again; the runtime objects came from the cache
     assert len(warm) == 1
     assert str(ll) in warm[0]
 
 
-def test_rtcache_key_covers_the_library_flags(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_rtcache_key_covers_the_library_flags(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A stale runtime object (built without the visibility flag) is not reused."""
     from pyscriptc import rtcache
 
@@ -369,13 +439,9 @@ def test_rtcache_key_covers_the_library_flags(
     source = runtime / "ps_argv.c"
     cc = ("clang",)
     plain = rtcache.object_path(source, runtime, list(cc), ["-O2", "-target", "x"])
-    library = rtcache.object_path(
-        source, runtime, list(cc), ["-O2", "-fvisibility=hidden", "-target", "x"]
-    )
+    library = rtcache.object_path(source, runtime, list(cc), ["-O2", "-fvisibility=hidden", "-target", "x"])
     assert plain != library
-    same = rtcache.object_path(
-        source, runtime, list(cc), ["-O2", "-fvisibility=hidden", "-target", "x"]
-    )
+    same = rtcache.object_path(source, runtime, list(cc), ["-O2", "-fvisibility=hidden", "-target", "x"])
     assert library == same
 
 
@@ -384,9 +450,7 @@ def test_rtcache_key_covers_the_library_flags(
 
 @needs_xcode
 @pytest.mark.skipif(not _sdk_present("iphonesimulator"), reason="simulator SDK missing")
-def test_simulator_archive_builds_and_link_checks(
-    tmp_path: Path, isolated_rt_cache: Path
-) -> None:
+def test_simulator_archive_builds_and_link_checks(tmp_path: Path, isolated_rt_cache: Path) -> None:
     path = write_case(tmp_path, "hello.py", HELLO)
     out = tmp_path / "lib"
     got = compile_cli(tmp_path, path, "--emit", "lib", "--target", SIM, "--skip-check", "-o", str(out))
@@ -444,9 +508,7 @@ def test_simulator_archive_builds_and_link_checks(
 def test_device_archive_builds(tmp_path: Path, isolated_rt_cache: Path) -> None:
     path = write_case(tmp_path, "hello.py", HELLO)
     out = tmp_path / "lib"
-    got = compile_cli(
-        tmp_path, path, "--emit", "lib", "--target", DEVICE, "--skip-check", "-o", str(out)
-    )
+    got = compile_cli(tmp_path, path, "--emit", "lib", "--target", DEVICE, "--skip-check", "-o", str(out))
     assert got.returncode == 0, got.stderr
     members = subprocess.run(["ar", "t", str(out / LIB_NAME)], capture_output=True, text=True)
     names = members.stdout.split()
@@ -457,9 +519,7 @@ def test_device_archive_builds(tmp_path: Path, isolated_rt_cache: Path) -> None:
 
 @needs_xcode
 @pytest.mark.skipif(not _sdk_present("iphonesimulator"), reason="simulator SDK missing")
-def test_archive_exports_only_the_documented_entry(
-    tmp_path: Path, isolated_rt_cache: Path
-) -> None:
+def test_archive_exports_only_the_documented_entry(tmp_path: Path, isolated_rt_cache: Path) -> None:
     """The exported surface is pyscriptc_init plus pyscriptc_main, nothing else.
 
     Checked on a linked dylib: a raw Mach-O archive still lists private-extern
@@ -492,7 +552,5 @@ def test_archive_exports_only_the_documented_entry(
     assert linked.returncode == 0, linked.stderr
     nm = subprocess.run(["nm", "-gU", str(dylib)], capture_output=True, text=True)
     assert nm.returncode == 0
-    exported = {
-        line.split()[-1].lstrip("_") for line in nm.stdout.splitlines() if line.strip()
-    }
+    exported = {line.split()[-1].lstrip("_") for line in nm.stdout.splitlines() if line.strip()}
     assert exported == {"pyscriptc_init", "pyscriptc_main"}

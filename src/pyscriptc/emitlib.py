@@ -69,12 +69,14 @@ def _xcrun_sdk(sdk: str) -> str:
     return path
 
 
-def _ndk_sysroot() -> tuple[Path, tuple[str, ...]]:
-    """The NDK sysroot and the clang prefix that targets it.
+def _ndk_sysroot() -> tuple[Path, tuple[str, ...], Path]:
+    """The NDK sysroot, the clang prefix that targets it and the tool bin dir.
 
     `PYSC_ANDROID_NDK` names the NDK root (`.../ndk/26.1.10909125`). The
     unified sysroot is `toolchains/llvm/prebuilt/<host-tag>/sysroot` and the
-    driver is the clang in the same prebuilt tree.
+    driver is the clang in the same prebuilt tree. The bin directory comes
+    back too: the archive tool is the NDK's own `llvm-ar`, which is not on
+    PATH.
     """
     root = os.environ.get("PYSC_ANDROID_NDK", "").strip()
     if not root:
@@ -96,7 +98,7 @@ def _ndk_sysroot() -> tuple[Path, tuple[str, ...]]:
             "point it at the NDK root (the directory that contains "
             "toolchains/llvm/prebuilt)"
         )
-    return sysroot, (str(clang),)
+    return sysroot, (str(clang),), prebuilt / "bin"
 
 
 def _android_api() -> int:
@@ -131,15 +133,20 @@ def toolchain_for(target: MobileTarget) -> MobileToolchain:
             archive=("libtool", "-static"),
             archive_output_style="o",
         )
-    sysroot, cc = _ndk_sysroot()
+    sysroot, cc, bindir = _ndk_sysroot()
     api = _android_api()
+    ar = bindir / "llvm-ar"
+    if not ar.is_file():
+        raise IRError(
+            f"the NDK toolchain at {bindir} has no llvm-ar; a static library needs an archiver to pack the objects"
+        )
     return MobileToolchain(
         cc=cc,
         target_flags=(
             f"--target={target.cc_target}{api}",
             f"--sysroot={sysroot}",
         ),
-        archive=("llvm-ar", "rcs"),
+        archive=(str(ar), "rcs"),
         archive_output_style="positional",
     )
 
