@@ -249,6 +249,14 @@ class StmtsMixin:
         saved_lid = self.lid
         saved_tid = self.tid
         saved_depth = self.outline_depth
+        # The outline is its own function: its allocas hoist into its own
+        # entry block, never into the caller's.
+        saved_entry = self.in_entry
+        saved_hoist = self.hoisted_allocas
+        saved_at = self.hoist_at
+        self.in_entry = True
+        self.hoisted_allocas = []
+        self.hoist_at = None
         self.out = []
         self.out.append(f"define internal i32 @{name}(ptr %env) {{")
         self.tid = 0
@@ -261,8 +269,12 @@ class StmtsMixin:
         self.emit_body(body)
         if not self.terminated:
             self.line("ret i32 0")
+        self._flush_allocas()
         self.out.append("}")
         self.out.append("")
+        self.in_entry = saved_entry
+        self.hoisted_allocas = saved_hoist
+        self.hoist_at = saved_at
         self.outline_lines.extend(self.out)
         self.out = saved_out
         self.slots = saved_slots

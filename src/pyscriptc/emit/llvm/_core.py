@@ -36,6 +36,12 @@ class CoreMixin:
         self.ret_ptr: str | None = None
         self.ret_llvm: str | None = None
         self.flow_ptr: str | None = None
+        # Alloca hoisting: allocas emitted outside the entry block move into
+        # the entry block at function end, so a loop body does not allocate
+        # a new stack slot per iteration.
+        self.in_entry = True
+        self.hoisted_allocas: list[str] = []
+        self.hoist_at: int | None = None
         self.class_index: dict[str, dict[str, Any]] = {}
         self.json_n = 0
         self.copy_n = 0
@@ -123,8 +129,50 @@ class CoreMixin:
 
     def _alloca(self, llvm_type: str) -> str:
         slot = self.tmp()
-        self.line(f"{slot} = alloca {llvm_type}")
+        if self.in_entry:
+            self.line(f"{slot} = alloca {llvm_type}")
+        else:
+            # An `alloca` in a nested block is a stack allocation on every
+            # dynamic execution of that block, so a loop that runs a million
+            # times overflows the stack. Move it to the entry block: the
+            # allocation happens once per call, and the block reuses it.
+            self.hoisted_allocas.append(f"  {slot} = alloca {llvm_type}")
         return slot
+
+    def _flush_allocas(self) -> None:
+        """Move the allocas from nested blocks into the entry block.
+
+        The entry block is the first one of the function, so the hoisted
+        allocas go at its end, before its terminator. An `alloca` there
+        happens once per call instead of once per execution of the block that
+        asked for it, which is what keeps a hot loop from growing the stack.
+        """
+        if not self.hoisted_allocas:
+            return
+        at = self.hoist_at if self.hoist_at is not None else self._entry_end()
+        self.out[at:at] = self.hoisted_allocas
+        self.hoisted_allocas = []
+        self.hoist_at = None
+
+    def _entry_end(self) -> int:
+        """The index in the output just before the entry block's terminator.
+
+        The entry block is the most recent `entry:` label in the output: its
+        instructions run to the first terminator (`br`, `ret` or
+        `unreachable`), and the hoisted allocas go right before it. The scan
+        starts at the entry label and stops at the first terminator, so a
+        terminator in a later block is never picked up.
+        """
+        start = 0
+        for index in range(len(self.out) - 1, -1, -1):
+            if self.out[index] == "entry:":
+                start = index
+                break
+        for index in range(start + 1, len(self.out)):
+            text = self.out[index]
+            if text.startswith("  br ") or text.startswith("  ret ") or text == "  unreachable":
+                return index
+        return len(self.out)
 
     def _load(self, llvm_type: str, slot: str) -> str:
         reg = self.tmp()
@@ -187,8 +235,17 @@ class CoreMixin:
         return reg
 
     def block(self, name: str) -> None:
+        if name != "entry" and self.hoist_at is None:
+            # The entry block ends here: the hoisted allocas go just before
+            # its terminator, which is the last instruction of the block.
+            self.hoist_at = self._entry_end()
         self.out.append(f"{name}:")
         self.terminated = False
+        if name != "entry":
+            # The entry block is closed: every later `alloca` belongs to a
+            # nested block and must move to the entry block, or the stack
+            # grows by one allocation per iteration of the enclosing loop.
+            self.in_entry = False
 
     def fresh(self, hint: str) -> str:
         self.lid += 1
@@ -224,3 +281,6 @@ class CoreMixin:
         self.terminated = False
         self.try_depth = 0
         self.outline_depth = 0
+        self.in_entry = True
+        self.hoisted_allocas = []
+        self.hoist_at = None
