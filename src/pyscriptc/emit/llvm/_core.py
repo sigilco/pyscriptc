@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from pyscriptc.dwarf import DwarfEmitter
-from pyscriptc.emit._ir import _fn_symbol, _llvm_type, _safe, standalone_entry
+from pyscriptc.emit._ir import _fn_symbol, _llvm_field_type, _llvm_type, _safe, standalone_entry
 from pyscriptc.emit.llvm._runtime import _declarations, _helpers
 from pyscriptc.errors import IRError
 
@@ -56,7 +56,7 @@ class CoreMixin:
     def emit(self, call: str | None, args: list[Any], standalone: bool = False) -> str:
         self.class_index = {cls["name"]: cls for cls in self.module.get("classes", [])}
         for cls in self.module.get("classes", []):
-            body = "i8" if not cls["fields"] else ", ".join(_llvm_type(field["type"]) for field in cls["fields"])
+            body = "i8" if not cls["fields"] else ", ".join(_llvm_field_type(field["type"]) for field in cls["fields"])
             self.globals.append(f"%cls.{cls['name']} = type {{ {body} }}")
             for method in cls["methods"]:
                 symbol = f"cls.{cls['name']}.{method['name']}"
@@ -171,10 +171,17 @@ class CoreMixin:
 
     def store(self, name: str, value: str) -> None:
         ptr, typ = self.slots[name]
+        if typ["kind"] == "none":
+            # None is not a runtime value (see the local setup): the store is
+            # a no-op, the singleton is the only value the type holds.
+            return
         self.line(f"store {_llvm_type(typ)} {value}, ptr {ptr}")
 
     def load(self, name: str) -> str:
         ptr, typ = self.slots[name]
+        if typ["kind"] == "none":
+            # The local is the singleton: a read has nothing to load.
+            return "null"
         reg = self.tmp()
         self.line(f"{reg} = load {_llvm_type(typ)}, ptr {ptr}")
         return reg

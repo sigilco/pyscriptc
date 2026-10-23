@@ -105,6 +105,15 @@ def _llvm_type(typ: dict[str, Any]) -> str:
     raise IRError(f"no LLVM type for {kind}")
 
 
+def _llvm_field_type(typ: dict[str, Any]) -> str:
+    """The LLVM type of a class field. None is not a runtime value, but a
+    field of None still occupies the struct (the coroutine frame's `.ps_result`
+    on a `-> None` coroutine), so it takes one placeholder byte."""
+    if typ["kind"] == "none":
+        return "i8"
+    return _llvm_type(typ)
+
+
 def _elem_size(typ: dict[str, Any]) -> int:
     """Bytes copied into a list or dict slot. Matches the LLVM layout on this ABI."""
 

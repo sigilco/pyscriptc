@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from pyscriptc.builtins import EXCEPTIONS, RESERVED_EXCEPTIONS, USER_EXC_BASE
-from pyscriptc.emit._ir import _llvm_type
+from pyscriptc.emit._ir import _llvm_field_type, _llvm_type
 from pyscriptc.errors import IRError
 
 
@@ -376,7 +376,11 @@ class StmtsMixin:
         value = self.emit_expr(stmt["value"])
         field = self._field(stmt["object"]["type"]["name"], stmt["name"])
         slot = self._field_ptr(stmt["object"]["type"]["name"], obj, field)
-        self.line(f"store {_llvm_type(field['type'])} {value}, ptr {slot}")
+        if field["type"]["kind"] == "none":
+            # A None field holds the singleton: one placeholder byte, zero.
+            self.line("store i8 0, ptr %s" % slot)
+            return
+        self.line(f"store {_llvm_field_type(field['type'])} {value}, ptr {slot}")
 
     def _exc_match(self, code: str, handler: dict[str, Any] | list[str]) -> str:
         if isinstance(handler, dict) and handler.get("bare"):
