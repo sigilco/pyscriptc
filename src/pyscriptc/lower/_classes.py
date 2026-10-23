@@ -16,6 +16,7 @@ from pyscriptc import coro
 from pyscriptc.builtins import EXCEPTIONS, RESERVED_EXCEPTIONS
 from pyscriptc.coro import enabled
 from pyscriptc.errors import span_of
+from pyscriptc.ffi_manifest import handle_type
 from pyscriptc.ir import type_key, types_equal
 from pyscriptc.lower._core import (
     _DICT_FORMS,
@@ -1176,6 +1177,9 @@ class ClassesMixin:
             return {"kind": "exc"}
         if isinstance(node, ast.Name) and (node.id in self.declared or node.id in self.known_classes):
             return {"kind": "class", "name": self.class_aliases.get(node.id, node.id)}
+        handle = self._handle_annotation(node)
+        if handle is not None:
+            return handle
         if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "list":
             typ = {"kind": "list", "elem": self._annotation(node.slice)}
             self._reject_banned_type(node, typ)
@@ -1354,6 +1358,15 @@ class ClassesMixin:
         op = type(node.op)
         left_name = left["type"].get("name")
         right_name = right["type"].get("name")
+        if left["type"].get("handle") or right["type"].get("handle"):
+            # An opaque handle is a bare pointer at the ABI: arithmetic on it
+            # would be pointer arithmetic on a foreign object (issue #224).
+            self.fail(
+                node,
+                "PS4016",
+                f"{op.__name__} on the ffi handle {left_name if left['type'].get('handle') else right_name} "
+                "is not lowered; a handle is an opaque token",
+            )
         if op in {ast.Add, ast.Sub}:
             sign = "+" if op is ast.Add else "-"
             if left_name in {"Date", "DateTime"} and right_name == "TimeDelta":
@@ -1402,6 +1415,10 @@ class ClassesMixin:
         if obj["type"]["kind"] != "class":
             self.fail(node, "PS2001", f"attribute access is not lowered ({name})")
         class_name = obj["type"]["name"]
+        if obj["type"].get("handle"):
+            # An opaque handle has no fields: it is a bare pointer at the
+            # ABI, and reading a field would be a wild access (issue #224).
+            self.fail(node, "PS4015", f"{class_name} is an opaque ffi handle and has no attributes")
         if class_name == "Semaphore" and name == "_value":
             return self._abi_call("threading", "Semaphore._value", [obj], {"kind": "int"}, "ps_sem_value", span)
         if class_name == "Thread" and name == "name":
@@ -1597,6 +1614,32 @@ class ClassesMixin:
             if elem["kind"] == "bool":
                 self.fail(node, "PS2002", "list[bool] is not lowered")
             return {"kind": "class", "name": "Queue", "elem": elem}
+        return None
+
+    def _handle_annotation(self, node: ast.AST) -> dict[str, Any] | None:
+        """The IR type of a manifest handle annotation, or None.
+
+        A handle is named two ways: imported (`from demo import Conn`, bound
+        as a `handle` binding) or qualified (`demo.Conn`, an attribute of a
+        manifest module). Both lower to the opaque `class` type the emitter
+        rides as a `ptr` (issue #224).
+        """
+        if isinstance(node, ast.Name):
+            binding = self.bindings.get(node.id)
+            if binding is not None and binding.kind == "handle":
+                return handle_type(binding.attr)
+            return None
+        if isinstance(node, ast.Attribute):
+            resolved = self._resolve_module(node)
+            if resolved is None:
+                return None
+            _dotted, module, member, status = resolved
+            if status not in {"lowered", "value"}:
+                return None
+            manifest = self._ffi_module(module)
+            if manifest is None or manifest.handle(member) is None:
+                return None
+            return handle_type(member)
         return None
 
     def _annotation_class(self, node: ast.AST) -> str | None:
