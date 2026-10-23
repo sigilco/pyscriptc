@@ -15,6 +15,20 @@
 #   lint            ruff check
 #   format-check    ruff format --check
 #   check           lint + format-check + the unit (compat2) test selection
+#   bench:baseline  perf regression gate against benchmarks/baseline/reference*.json
+#   compat:json     rebuild compat/data/compat.json (add --check to compare)
+#   compat:ladder   rebuild compat/data/ladder.json
+#   compat:census   compat2 census over the visible corpus (--top N)
+#   boxed:cost      boxed ledger window (add --reach/--probe-times when you have them)
+#   ir:hashes       canonical IR hash compare against the committed baseline (linux only, see below)
+#   compile         pyscriptc compile, args pass through (mise run compile FILE --emit bin)
+#   run             pyscriptc run, args pass through (mise run run FILE -- args)
+#   wheel:smoke     build the wheel, install it in a fresh venv, compile+run hello
+#   release:rehearse  dispatch release.yml on the master tip (the rehearsal run)
+#
+# CI does not run through mise: the workflows pin uv (the emSign CA incident
+# floor, >= 0.13.4) and node/pnpm independently, and switching would re-resolve
+# tool versions on every run for no gain. mise is the local entrypoint only.
 
 [tools]
 python = "3.14"
@@ -86,3 +100,68 @@ uv run ruff format --check \
 description = "lint + format-check + tests/compat2 (the CI unit job)"
 depends = ["lint", "format-check"]
 run = "uv run pytest -q tests/compat2 -m 'not linux_container'"
+
+# The rest of the checks, one command each. CI runs the raw commands in the
+# workflows, not through mise (see the header comment).
+
+[tasks."bench:baseline"]
+description = "Perf regression gate against benchmarks/baseline/reference*.json"
+run = "uv run python -m benchmarks.baseline.run --check"
+
+[tasks."compat:json"]
+description = "Rebuild compat/data/compat.json (append --check to compare against the committed file)"
+run = "uv run python scripts/build_compat_json.py"
+
+[tasks."compat:ladder"]
+description = "Rebuild compat/data/ladder.json"
+run = "uv run python -m benchmarks.scripts_corpus.ladder --json compat/data/ladder.json"
+
+[tasks."compat:census"]
+description = "Compat2 census over the visible corpus (append --top N to limit)"
+run = "uv run python -m benchmarks.compat2.census --top 10"
+
+[tasks."boxed:cost"]
+description = "Boxed ledger window, per AGENTS.md (append --reach/--probe-times when you have them)"
+run = "uv run python benchmarks/compat2/boxed_cost.py --window-commits 10"
+
+# Linux only, like the ir-hashes workflow: the canonical IR folds host
+# constants (socket, errno, os, ssl, time, ctypes, pathlib), so a macOS run
+# diffs against the committed linux baseline as noise, not a regression.
+# The baseline header carries the oracle stamp (cpython-3.14.9 today), so a
+# newer interpreter micro reports exit 2 (stale header): that is the regen
+# signal, not a hash mismatch. Regenerate with .github/workflows/ir-hashes.yml
+# (generate mode), then copy the artifact over the baseline.
+[tasks."ir:hashes"]
+description = "Canonical IR hash compare against the committed baseline (linux oracle)"
+run = "uv run python -m benchmarks.compat2.irscore benchmarks/compat2/probes --baseline benchmarks/compat2/probes/IR_HASHES.json"
+
+[tasks.compile]
+description = "pyscriptc compile, extra args pass through (mise run compile examples/hello.py --emit bin)"
+run = "uv run pyscriptc compile"
+
+[tasks.run]
+description = "pyscriptc run (content-cached compile + execute), args pass through"
+run = "uv run pyscriptc run"
+
+# Same shape as the wheel-smoke job in ci.yml and the verify job in release.yml.
+[tasks."wheel:smoke"]
+description = "Build the wheel, install it in a fresh venv, compile and run hello"
+run = """
+set -e
+uv build
+work="$(mktemp -d)"
+uv venv "$work/venv"
+uv pip install --python "$work/venv/bin/python" dist/pyscriptc-*-any.whl
+printf 'def main() -> None:\n    print("hello")\n' > "$work/hello.py"
+"$work/venv/bin/pyscriptc" compile "$work/hello.py" --emit bin -o "$work/hello-bin"
+out="$("$work/hello-bin")"
+echo "$out"
+[ "$out" = "hello" ]
+rm -rf "$work"
+"""
+
+# The rehearsal is a workflow_dispatch of release.yml on the full SHA. Only a
+# run titled "rehearsal <full SHA>" counts for the cut-release and publish gates.
+[tasks."release:rehearse"]
+description = "Dispatch release.yml on the master tip (rehearsal; takes about 20 minutes)"
+run = "gh workflow run release.yml --ref master -f ref=\"$(git rev-parse origin/master)\""
