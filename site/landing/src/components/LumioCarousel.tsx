@@ -104,7 +104,13 @@ export const LumioCarousel: React.FC<LumioCarouselProps> = ({
 }) => {
   const [activeIndex, setActiveIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
+  const [animKey, setAnimKey] = useState(0);
   const activePillar = PILLARS[activeIndex];
+
+  const handleSelect = (idx: number) => {
+    setActiveIndex(idx);
+    setAnimKey((prev) => prev + 1);
+  };
 
   // Shell typing states
   const [displayedCommand, setDisplayedCommand] = useState("");
@@ -156,14 +162,15 @@ export const LumioCarousel: React.FC<LumioCarouselProps> = ({
     };
   }, [activeIndex]);
 
-  // Automatic looping
+  // Automatic looping with synchronized countdown timer
   useEffect(() => {
     if (isPaused) return;
     const interval = setInterval(() => {
       setActiveIndex((prev) => (prev + 1) % PILLARS.length);
+      setAnimKey((prev) => prev + 1);
     }, autoPlayInterval);
     return () => clearInterval(interval);
-  }, [isPaused, autoPlayInterval]);
+  }, [isPaused, autoPlayInterval, activeIndex]);
 
   const currentHighlightedHtml = highlightedSnippets[activePillar.id] || "";
 
@@ -171,7 +178,10 @@ export const LumioCarousel: React.FC<LumioCarouselProps> = ({
     <div
       className={`w-full max-w-6xl mx-auto px-6 py-20 lg:py-28 ${className}`}
       onMouseEnter={() => setIsPaused(true)}
-      onMouseLeave={() => setIsPaused(false)}
+      onMouseLeave={() => {
+        setIsPaused(false);
+        setAnimKey((prev) => prev + 1);
+      }}
     >
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-16 items-start">
         {/* Left Column: Lumio-Style Vertical Text Carousel */}
@@ -185,21 +195,30 @@ export const LumioCarousel: React.FC<LumioCarouselProps> = ({
 
           {/* Vertical Timeline / Pillar List */}
           <div className="relative pl-6 sm:pl-8 border-l border-white/10 space-y-8 sm:space-y-10">
-            {/* Sliding Indicator Line */}
+            {/* Active Indicator Slot Track with Up-to-Down Progress Fill */}
             <div
-              className="absolute left-[-1px] w-[2px] transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] bg-white"
+              className="absolute left-[-1px] w-[2px] transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] bg-white/15 overflow-hidden rounded-full"
               style={{
                 top: `${(activeIndex * 100) / PILLARS.length}%`,
                 height: `${100 / PILLARS.length}%`,
               }}
-            />
+            >
+              <div
+                key={`pillar-fill-${activeIndex}-${animKey}`}
+                className="w-full h-full bg-white origin-top"
+                style={{
+                  animation: `progress-up-down ${autoPlayInterval}ms linear forwards`,
+                  animationPlayState: isPaused ? "paused" : "running",
+                }}
+              />
+            </div>
 
             {PILLARS.map((pillar, idx) => {
               const isActive = activeIndex === idx;
               return (
                 <div
                   key={pillar.id}
-                  onClick={() => setActiveIndex(idx)}
+                  onClick={() => handleSelect(idx)}
                   className={`cursor-pointer transition-all duration-300 select-none ${
                     isActive ? "opacity-100" : "opacity-40 hover:opacity-75"
                   }`}
@@ -225,6 +244,40 @@ export const LumioCarousel: React.FC<LumioCarouselProps> = ({
                 </div>
               );
             })}
+
+            {/* Upstream-style Dots/Pills indicator (LTR countdown) */}
+            <div
+              className="flex items-center gap-2 pt-2"
+              role="group"
+              aria-label="Pillar navigation"
+            >
+              {PILLARS.map((pillar, idx) => {
+                const isActive = activeIndex === idx;
+                return (
+                  <button
+                    key={pillar.id}
+                    type="button"
+                    onClick={() => handleSelect(idx)}
+                    aria-label={`Pillar ${idx + 1}: ${pillar.title}`}
+                    aria-pressed={isActive}
+                    className={`relative overflow-hidden rounded-full transition-all duration-300 h-1.5 cursor-pointer border-0 p-0 ${
+                      isActive ? "w-8 bg-white/20" : "w-2 bg-white/10 hover:bg-white/25"
+                    }`}
+                  >
+                    {isActive && (
+                      <span
+                        key={`pill-fill-${activeIndex}-${animKey}`}
+                        className="absolute inset-0 rounded-full origin-left bg-white"
+                        style={{
+                          animation: `progress-ltr ${autoPlayInterval}ms linear forwards`,
+                          animationPlayState: isPaused ? "paused" : "running",
+                        }}
+                      />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 

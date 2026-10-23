@@ -102,32 +102,37 @@ export const IsometricSurfaceStack: React.FC<IsometricSurfaceStackProps> = ({
   autoPlayInterval = 7500,
 }) => {
   const [activeIndex, setActiveIndex] = useState(0);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const [isPaused, setIsPaused] = useState(false);
+  const [animKey, setAnimKey] = useState(0);
 
   const selectedTier = SURFACE_TIERS[activeIndex];
 
-  // Auto-looping timer that loops forever
-  useEffect(() => {
-    timerRef.current = setInterval(() => {
-      setActiveIndex((prev) => (prev + 1) % SURFACE_TIERS.length);
-    }, autoPlayInterval);
-
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [autoPlayInterval]);
-
   const handleSelect = (idx: number) => {
     setActiveIndex(idx);
-    // Reset timer to allow user to view selected layer, then continue looping
-    if (timerRef.current) clearInterval(timerRef.current);
-    timerRef.current = setInterval(() => {
-      setActiveIndex((prev) => (prev + 1) % SURFACE_TIERS.length);
-    }, autoPlayInterval);
+    setAnimKey((prev) => prev + 1);
   };
 
+  // Auto-looping timer with synchronized countdown
+  useEffect(() => {
+    if (isPaused) return;
+
+    const interval = setInterval(() => {
+      setActiveIndex((prev) => (prev + 1) % SURFACE_TIERS.length);
+      setAnimKey((prev) => prev + 1);
+    }, autoPlayInterval);
+
+    return () => clearInterval(interval);
+  }, [isPaused, autoPlayInterval, activeIndex]);
+
   return (
-    <section className={`w-full max-w-6xl mx-auto px-6 py-20 lg:py-28 ${className}`}>
+    <section
+      className={`w-full max-w-6xl mx-auto px-6 py-20 lg:py-28 ${className}`}
+      onMouseEnter={() => setIsPaused(true)}
+      onMouseLeave={() => {
+        setIsPaused(false);
+        setAnimKey((prev) => prev + 1);
+      }}
+    >
       {/* Section Header (No chips) */}
       <div className="max-w-3xl mb-14 text-left">
         <h2 className="text-3xl sm:text-4xl lg:text-5xl font-normal tracking-tight text-white leading-[1.12] mb-4">
@@ -273,8 +278,43 @@ export const IsometricSurfaceStack: React.FC<IsometricSurfaceStackProps> = ({
             </svg>
           </div>
 
-          <div className="flex items-center gap-2 mt-4 text-[11px] font-mono text-slate-500">
-            <span>Click any tier to inspect</span>
+          {/* Upstream-style Dots/Pills indicator (LTR countdown) */}
+          <div
+            className="flex items-center justify-center gap-2 mt-5"
+            role="group"
+            aria-label="Surface tier navigation"
+          >
+            {SURFACE_TIERS.map((tier, idx) => {
+              const isActive = activeIndex === idx;
+              return (
+                <button
+                  key={tier.id}
+                  type="button"
+                  onClick={() => handleSelect(idx)}
+                  aria-label={`Tier ${tier.number}: ${tier.name}`}
+                  aria-pressed={isActive}
+                  className={`relative overflow-hidden rounded-full transition-all duration-300 h-1.5 cursor-pointer border-0 p-0 ${
+                    isActive ? "w-8 bg-white/20" : "w-2 bg-white/10 hover:bg-white/25"
+                  }`}
+                >
+                  {isActive && (
+                    <span
+                      key={`tier-fill-${activeIndex}-${animKey}`}
+                      className="absolute inset-0 rounded-full origin-left"
+                      style={{
+                        backgroundColor: tier.accentColor,
+                        animation: `progress-ltr ${autoPlayInterval}ms linear forwards`,
+                        animationPlayState: isPaused ? "paused" : "running",
+                      }}
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex items-center gap-2 mt-2.5 text-[11px] font-mono text-slate-500">
+            <span>Click any tier or dot to inspect</span>
           </div>
         </div>
 
@@ -284,7 +324,7 @@ export const IsometricSurfaceStack: React.FC<IsometricSurfaceStackProps> = ({
           className="lg:col-span-7 flex flex-col justify-center text-left transition-all duration-500 animate-fadeIn"
         >
           {/* Surface Tier Name & Badge */}
-          <div className="flex items-center gap-3 mb-3">
+          <div className="flex items-center gap-3 mb-2">
             <span className="font-mono text-xs text-slate-400 font-semibold">
               {selectedTier.number}
             </span>
@@ -295,6 +335,19 @@ export const IsometricSurfaceStack: React.FC<IsometricSurfaceStackProps> = ({
             >
               {selectedTier.name}
             </span>
+          </div>
+
+          {/* Progress countdown indicator bar (LTR) */}
+          <div className="w-full max-w-xs h-[2px] bg-white/10 rounded-full overflow-hidden mb-4">
+            <div
+              key={`narrative-fill-${activeIndex}-${animKey}`}
+              className="h-full origin-left rounded-full"
+              style={{
+                backgroundColor: selectedTier.accentColor,
+                animation: `progress-ltr ${autoPlayInterval}ms linear forwards`,
+                animationPlayState: isPaused ? "paused" : "running",
+              }}
+            />
           </div>
 
           {/* Prominent Headline */}
