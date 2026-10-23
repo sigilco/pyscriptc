@@ -50,7 +50,7 @@ borrows = ["db"]
 
 [[fn]]
 name = "query"
-py = "(db: Connection, sql: str) -> list"
+py = "(db: Connection, sql: str) -> list[dict[str, str]]"
 c_symbol = "sqlite3_prepare_v2 + sqlite3_step + sqlite3_finalize"
 abi = "ps_ffi_sqlite_query"
 borrows = ["db"]
