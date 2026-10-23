@@ -51,8 +51,10 @@ Reproduced on `origin/master` (commit `bd9a28c`) with:
 ```python
 import threading
 
+
 def boom() -> None:
     raise ValueError("boom in thread")
+
 
 def checklist() -> int:
     t: threading.Thread = threading.Thread(target=boom, args=())
