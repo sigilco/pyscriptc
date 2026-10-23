@@ -89,6 +89,9 @@ AWAIT_RESULT_PREFIX = ".ps_awv_"
 DONE = -1
 PENDING = 0
 COMPLETE = 1
+# The poll's third outcome: the child raised. The loop parks the exception
+# against the child frame and the awaiter re-raises it in its own body.
+FAILED = 2
 # The exception a suspended `except` body keeps in its frame. Python holds one
 # exception per generator frame, so the frame carries it across the
 # suspension and the runtime puts it back on the resume.
@@ -202,8 +205,6 @@ def _shape_error(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[ast.AST, s
                     if isinstance(node, ast.Await):
                         if not coroutine:
                             return node, "await outside an async function is not lowered"
-                        if in_with:
-                            return node, "await inside try or with is not lowered yet"
                     if isinstance(node, ast.Lambda):
                         return node, "a lambda in a resumable is not lowered yet"
             nested_try = in_try or isinstance(stmt, (ast.Try, ast.TryStar))
@@ -1591,11 +1592,19 @@ class _Frame:
         """Expand `__ps_await__(child)` into the child-poll suspension.
 
         The child frame is in the local the lowerer bound (the marker's
-        argument names it). The parent polls `child.resume()`; while the
-        child reports pending the parent suspends with status 0, setting the
-        resume point to this await so the next `resume()` re-polls the same
-        child. When the child completes, its `.ps_result` field carries the
-        awaited value into the lowerer's result temp.
+        argument names it). The parent polls the child through the loop
+        (`ps_await_poll`); while the child reports pending the parent
+        suspends with status 0, setting the resume point to this await so the
+        next `resume()` re-polls the same child. When the child completes,
+        its `.ps_result` field carries the awaited value into the lowerer's
+        result temp.
+
+        The poll reports three outcomes: pending (0), done (1) and failed
+        (2). A failure means the child raised. The child may have raised on
+        the loop's own stack, where no awaiter lives, so the loop parks the
+        exception against the child frame; the parent re-raises it here
+        (`ps_await_raise`), inside the parent's own body, so a `try` around
+        the await sees it exactly where CPython's awaiter sees it.
         """
         self.points += 1
         point = self.points
@@ -1605,17 +1614,41 @@ class _Frame:
         slot = child["id"]
         result = _await_result_name(slot)
         done = self.temp("awd", _BOOL)
+        failed = self.temp("awf", _BOOL)
         status = self.temp("aws", _INT)
-        call = {
+        poll = {
             "kind": "call",
-            "callee": {"kind": "function", "name": f"cls.{child_frame}.resume"},
-            "args": [_name(slot, child_t, span)],
+            "callee": {"kind": "module", "module": "asyncio", "name": "await"},
+            "args": [_name(slot, child_t, span), self.self_name(span)],
             "type": dict(_INT),
             "span": span,
+            "symbol": "ps_await_poll",
         }
         read = _attr_expr(_name(slot, child_t, span), RESULT, self._await_result_type(child_frame), span)
         pending = [
             _assign(done, _compare("==", _name(status, _INT, span), _const(COMPLETE, _INT, span), span), span),
+            _assign(failed, _compare("==", _name(status, _INT, span), _const(FAILED, _INT, span), span), span),
+            # A failed child re-raises here, before the parent parks: the
+            # exception belongs to the parent's frame, not to the child's.
+            _if(
+                _name(failed, _BOOL, span),
+                [
+                    {
+                        "kind": "expr",
+                        "expr": {
+                            "kind": "call",
+                            "callee": {"kind": "module", "module": "asyncio", "name": "raise"},
+                            "args": [_name(slot, child_t, span)],
+                            "type": dict(_NONE),
+                            "span": span,
+                            "symbol": "ps_await_raise",
+                        },
+                        "span": span,
+                    }
+                ],
+                [],
+                span,
+            ),
             _if(
                 _name(done, _BOOL, span),
                 [],
@@ -1649,12 +1682,12 @@ class _Frame:
         leave = [
             *self.copy_out(span),
             self.field_set(STATE, _const(point, _INT, span), span),
-            _assign(status, call, span),
+            _assign(status, poll, span),
             *pending,
         ]
         arrive = [
             _assign(RESUME, _const(0, _INT, span), span),
-            _assign(status, call, span),
+            _assign(status, poll, span),
             *pending,
         ]
         result_set = [_assign(result, read, span)] if result is not None else []

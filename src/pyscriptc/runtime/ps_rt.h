@@ -208,6 +208,11 @@ void ps_report_current(const char *prefix);
 PsExc *ps_exc_current(void);
 void ps_exc_restore(PsExc *e);
 PsExc *ps_exc_make(int32_t code, int64_t n, const char *data);
+/* Run `fn(env)` and catch the exception it raises: 0 returned (its status
+   lands in `*status`), 1 raised (the record lands in `*out`). The event loop
+   drives a child coroutine through this, so its failure travels to the
+   awaiting parent instead of unwinding through the loop's C frame. */
+int32_t ps_exc_catch(int32_t (*fn)(void *), void *env, int32_t *status, PsExc **out);
 int32_t ps_exc_code_by_name(const char *name);
 void ps_exc_set_cause(PsExc *e, PsExc *cause);
 PsBuf ps_exc_str(PsExc *e);
@@ -327,6 +332,11 @@ void ps_loop_run(void);
 void ps_loop_run_root(void *frame);
 void ps_loop_sleep(void *frame, double delay);
 void ps_loop_wait(void *child, void *parent);
+/* `await child`: drive the child once under the loop's catch. 0 pending,
+   1 done, 2 failed (the child raised; ps_await_raise re-raises it in the
+   awaiting parent, whose own try sees it). */
+int64_t ps_await_poll(void *child, void *parent);
+void ps_await_raise(void *child);
 
 /* ps_loop.c: the task lifetime behind asyncio.create_task. A task wraps a
    coroutine frame and outlives a single step, so a handle to it stays valid
