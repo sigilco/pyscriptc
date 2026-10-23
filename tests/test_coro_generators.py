@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from pyscriptc.coro import YIELD_MARKER
+from pyscriptc.coro import EXC, STATE, YIELD_MARKER
 from pyscriptc.ir import validate_module
 from pyscriptc.lower import lower_source
 from pyscriptc.package import lower_directory
@@ -142,11 +142,9 @@ FENCED = """\
 from typing import Generator, Iterator
 
 
-def in_try(n: int) -> Iterator[int]:
-    try:
+def in_with(n: int) -> Iterator[int]:
+    with open("f") as fh:
         yield n
-    except ValueError:
-        pass
 
 
 def sends() -> Generator[int, int, None]:
@@ -232,9 +230,9 @@ def test_unsupported_shapes_fence_precisely(monkeypatch: pytest.MonkeyPatch) -> 
     got = sorted((f["span"]["line"], f["message"]) for f in module["fences"])
     assert got == [
         (6, "yield inside try or with is not lowered yet"),
-        (17, "yield as an expression (send) is not lowered yet"),
-        (22, "return with a value in a generator is not lowered yet"),
-        (26, "a nested def or class in a resumable is not lowered yet"),
+        (15, "yield as an expression (send) is not lowered yet"),
+        (20, "return with a value in a generator is not lowered yet"),
+        (24, "a nested def or class in a resumable is not lowered yet"),
     ]
     assert {f["code"] for f in module["fences"]} == {"PS2002"}
 
@@ -732,3 +730,200 @@ def track(name: str) -> Iterator[str]:
     module = lower_source(source, "cm_local.py")
     messages = [fence["message"] for fence in module["fences"]]
     assert any("decorators are not lowered" in message for message in messages)
+
+
+# --- try/except/finally (issue #164) ----------------------------------------
+
+TRY_FINALLY = """\
+from typing import Iterator
+
+
+def guarded() -> Iterator[int]:
+    try:
+        yield 1
+        yield 2
+    finally:
+        print("fin")
+    yield 3
+
+
+def guarded_loop(n: int) -> Iterator[int]:
+    for i in range(n):
+        try:
+            yield i
+        finally:
+            print("fin", i)
+
+
+def demo() -> None:
+    for v in guarded():
+        print("g", v)
+    for v in guarded_loop(3):
+        print("l", v)
+
+
+demo()
+"""
+
+TRY_EXCEPT = """\
+from typing import Iterator
+
+
+def resume_in_handler() -> Iterator[int]:
+    try:
+        raise ValueError("boom")
+    except ValueError as e:
+        print("caught", str(e))
+        yield 1
+        yield 2
+    yield 3
+
+
+def bare_raise_after_resume() -> Iterator[int]:
+    try:
+        raise ValueError("bang")
+    except ValueError:
+        yield 1
+        raise
+    yield 99
+
+
+def pick() -> Iterator[int]:
+    try:
+        if True:
+            raise TypeError("t")
+        raise ValueError("v")
+    except ValueError:
+        print("hv")
+        yield 1
+    except TypeError:
+        print("ht")
+        yield 2
+    yield 3
+
+
+def demo() -> None:
+    for v in resume_in_handler():
+        print("r", v)
+    try:
+        for v in bare_raise_after_resume():
+            print("b", v)
+    except ValueError as e:
+        print("outer", str(e))
+    for v in pick():
+        print("p", v)
+
+
+demo()
+"""
+
+TRY_ELSE = """\
+from typing import Iterator
+
+
+def with_else(n: int) -> Iterator[int]:
+    try:
+        yield n
+    except ValueError:
+        print("never")
+        yield -1
+    else:
+        print("else ran")
+        yield n + 1
+    finally:
+        print("fin")
+
+
+def raise_first(n: int) -> Iterator[int]:
+    try:
+        yield n
+        raise ValueError("mid")
+    except ValueError:
+        yield n + 10
+    finally:
+        print("fin", n)
+
+
+def demo() -> None:
+    for v in with_else(5):
+        print("w", v)
+    try:
+        for v in raise_first(1):
+            print("r", v)
+    except ValueError as e:
+        print("caught", str(e))
+
+
+demo()
+"""
+
+TRY_NESTED = """\
+from typing import Iterator
+
+
+def nested() -> Iterator[int]:
+    try:
+        try:
+            yield 1
+        finally:
+            print("inner fin")
+        yield 2
+    finally:
+        print("outer fin")
+
+
+def handler_then_finally() -> Iterator[int]:
+    try:
+        raise ValueError("x")
+    except ValueError:
+        try:
+            yield 1
+        finally:
+            print("h fin")
+    finally:
+        print("e fin")
+
+
+def demo() -> None:
+    for v in nested():
+        print("n", v)
+    for v in handler_then_finally():
+        print("h", v)
+
+
+demo()
+"""
+
+
+@pytest.mark.parametrize(
+    ("name", "source"),
+    [("try_finally", TRY_FINALLY), ("try_except", TRY_EXCEPT), ("try_else", TRY_ELSE), ("try_nested", TRY_NESTED)],
+)
+def test_generator_try_matches_cpython(tmp_path: Path, name: str, source: str) -> None:
+    got, expected = _run_both(tmp_path, name, source)
+    assert expected
+    assert got == expected
+
+
+def test_generator_try_ir_is_plain_classes() -> None:
+    module = lower_source(TRY_FINALLY, "tryfin.py")
+    assert module["fences"] == []
+    validate_module(module)
+    assert YIELD_MARKER not in json.dumps(module)
+    frame = next(cls for cls in module["classes"] if cls["name"] == "gen.guarded")
+    assert frame["fields"][0]["name"] == STATE
+
+
+def test_suspending_handler_frame_keeps_the_exception() -> None:
+    module = lower_source(TRY_EXCEPT, "tryexc.py")
+    assert module["fences"] == []
+    frame = next(cls for cls in module["classes"] if cls["name"] == "gen.resume_in_handler")
+    assert any(field["name"] == EXC for field in frame["fields"])
+    validate_module(module)
+
+
+def test_plain_handler_frame_has_no_exception_field() -> None:
+    module = lower_source(TRY_FINALLY, "tryfin.py")
+    for cls in module["classes"]:
+        if cls["name"].startswith("gen."):
+            assert not any(field["name"] == EXC for field in cls["fields"])
