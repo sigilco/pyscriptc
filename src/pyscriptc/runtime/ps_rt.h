@@ -199,6 +199,7 @@ __attribute__((noreturn)) void ps_raise_code(int32_t code);
 __attribute__((noreturn)) void ps_raise_zdi(int32_t variant);
 __attribute__((noreturn)) void ps_reraise(void);
 __attribute__((noreturn)) void ps_raise_exc(PsExc *e);
+void ps_report_current(const char *prefix);
 PsExc *ps_exc_current(void);
 PsExc *ps_exc_make(int32_t code, int64_t n, const char *data);
 int32_t ps_exc_code_by_name(const char *name);

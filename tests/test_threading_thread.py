@@ -255,6 +255,20 @@ def checklist() -> int:
     return 0
 """
 
+_THREAD_UNCAUGHT_SOURCE = """
+import threading
+
+def boom() -> None:
+    raise ValueError("boom in thread")
+
+def checklist() -> int:
+    t: threading.Thread = threading.Thread(target=boom, args=())
+    t.start()
+    t.join()
+    print("after join")
+    return 0
+"""
+
 
 @pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_thread_start_matches_cpython(tmp_path: Path) -> None:
@@ -380,6 +394,26 @@ def test_negative_semaphore_raises(tmp_path: Path) -> None:
     got = compile_run(tmp_path, path, "checklist")
     assert got.returncode != 0
     assert "ValueError" in got.stderr, got.stderr
+
+
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
+def test_uncaught_thread_exception_keeps_the_process_alive(tmp_path: Path) -> None:
+    """A thread target that raises must not take the process down with it.
+
+    CPython prints the thread's exception through the threading excepthook,
+    keeps the main thread running and exits 0. The compiled program does the
+    same: the thread gets its own root frame, so the exception unwinds into
+    the thread instead of reaching the runtime's exit path. The report itself
+    stays on stderr and carries the thread's name, but the tracebacks differ
+    (CPython shows the interpreter frames), so only the outcome is compared.
+    """
+    path = write_case(tmp_path, "uncaught.py", _THREAD_UNCAUGHT_SOURCE)
+    got = compile_run(tmp_path, path, "checklist")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle(path, "checklist")
+    assert got.stdout == "after join\n0\n"
+    assert "Exception in thread Thread" in got.stderr, got.stderr
+    assert "ValueError: boom in thread" in got.stderr, got.stderr
 
 
 def test_unsupported_surface_stays_fenced(tmp_path: Path) -> None:
