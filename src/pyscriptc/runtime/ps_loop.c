@@ -23,6 +23,7 @@ drives them together, so the children interleave exactly like CPython's.
 #include "ps_rt.h"
 
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 /* Offsets into every coroutine frame (coro.py guarantees this layout). */
@@ -35,6 +36,7 @@ struct PsTask {
     void *env;
     void *frame;
     PsTask *next;
+    /* Set once the frame's resume reported completion. */
     int32_t done;
     /* Set when the task is cancelled: the loop raises CancelledError into it
        at its next suspension point. */
@@ -47,6 +49,10 @@ struct PsTask {
        the process: the exception waits in the record for whoever awaits it. */
     int32_t exc_code;
     void *exc;
+    /* The frames parked on this task, waiting for it to finish. */
+    void **waiters;
+    int64_t waiter_len;
+    int64_t waiter_cap;
 };
 
 typedef struct PsTimer {
@@ -74,6 +80,10 @@ static int64_t ps_wait_len;
 static PsTask **ps_tasks;
 static int64_t ps_task_len;
 static int64_t ps_task_cap;
+/* The task the running coroutine belongs to. A coroutine that awaits
+   something that is not a plain child frame (a task handle, a lock) needs
+   the loop to know which task to park, so the frame records it. */
+static void *ps_current_task;
 
 void ps_loop_reset(void) {
     ps_ready_head = ps_ready_tail = NULL;
@@ -81,9 +91,12 @@ void ps_loop_reset(void) {
     ps_timer_seq = 0;
     ps_wait_len = 0;
     for (int64_t i = 0; i < ps_task_len; i++) {
+        free(ps_tasks[i]->waiters);
+        free(ps_tasks[i]->result);
         free(ps_tasks[i]);
     }
     ps_task_len = 0;
+    ps_current_task = NULL;
 }
 
 static void ps_ready_push(PsTask *task) {
@@ -104,6 +117,9 @@ static void ps_task_of(void *frame, int64_t (**impl)(void *, void *), void **env
     *env = *(void **)((char *)cell + 8);
 }
 
+/* Put a frame on the ready queue. The frame keeps its task when it has one
+(so the task record survives the step), otherwise the loop makes it a task of
+its own. */
 static void ps_ready_task(void *frame);
 
 /* Track a task so the loop can wait for it and free it later. */
@@ -118,6 +134,30 @@ static void ps_track_task(PsTask *task) {
         ps_task_cap = cap;
     }
     ps_tasks[ps_task_len++] = task;
+}
+
+/* The task that wraps a frame, if the loop already knows one. */
+static PsTask *ps_task_for_frame(void *frame) {
+    for (int64_t i = 0; i < ps_task_len; i++) {
+        if (ps_tasks[i]->frame == frame) {
+            return ps_tasks[i];
+        }
+    }
+    return NULL;
+}
+
+/* Park a frame on a task: the frame resumes when the task completes. */
+static void ps_task_add_waiter(PsTask *task, void *frame) {
+    if (task->waiter_len == task->waiter_cap) {
+        int64_t cap = task->waiter_cap == 0 ? 4 : task->waiter_cap * 2;
+        void **grown = realloc(task->waiters, (size_t)cap * sizeof(void *));
+        if (grown == NULL) {
+            abort();
+        }
+        task->waiters = grown;
+        task->waiter_cap = cap;
+    }
+    task->waiters[task->waiter_len++] = frame;
 }
 
 /* Run one ready task once. 1 when the task finished, 0 while pending. A
@@ -135,6 +175,11 @@ static int64_t ps_task_step(PsTask *task) {
             ps_waits[kept++] = ps_waits[i];
         }
         ps_wait_len = kept;
+        /* The frames parked on this task wake up now. */
+        for (int64_t i = 0; i < task->waiter_len; i++) {
+            ps_ready_task(task->waiters[i]);
+        }
+        task->waiter_len = 0;
     }
     return status;
 }
@@ -205,18 +250,19 @@ static int32_t ps_fire_due(void) {
         if (best == -1) {
             break;
         }
-        PsTask *task = malloc(sizeof(PsTask));
+        void *frame = ps_timers[best].frame;
+        /* The frame may already own a task (a `create_task` that slept): reuse
+           it, so the task survives the suspension. */
+        PsTask *task = ps_task_for_frame(frame);
         if (task == NULL) {
-            abort();
+            task = calloc(1, sizeof(PsTask));
+            if (task == NULL) {
+                abort();
+            }
+            ps_task_of(frame, &task->impl, &task->env);
+            task->frame = frame;
+            ps_track_task(task);
         }
-        ps_task_of(ps_timers[best].frame, &task->impl, &task->env);
-        task->frame = ps_timers[best].frame;
-        task->done = 0;
-        task->cancelled = 0;
-        task->result = NULL;
-        task->result_size = 0;
-        task->exc_code = 0;
-        task->exc = NULL;
         ps_ready_push(task);
         fired = 1;
         ps_timers[best] = ps_timers[ps_timer_len - 1];
@@ -225,19 +271,20 @@ static int32_t ps_fire_due(void) {
     return fired;
 }
 
+/* Put a frame on the ready queue. The frame keeps its task when it has one
+(so the task record survives the step), otherwise the loop makes it a task of
+its own. */
 static void ps_ready_task(void *frame) {
-    PsTask *task = malloc(sizeof(PsTask));
+    PsTask *task = ps_task_for_frame(frame);
     if (task == NULL) {
-        abort();
+        task = calloc(1, sizeof(PsTask));
+        if (task == NULL) {
+            abort();
+        }
+        ps_task_of(frame, &task->impl, &task->env);
+        task->frame = frame;
+        ps_track_task(task);
     }
-    ps_task_of(frame, &task->impl, &task->env);
-    task->frame = frame;
-    task->done = 0;
-    task->cancelled = 0;
-    task->result = NULL;
-    task->result_size = 0;
-    task->exc_code = 0;
-    task->exc = NULL;
     ps_ready_push(task);
 }
 
@@ -252,8 +299,10 @@ static void ps_loop_drive(int32_t blocking) {
             if (ps_ready_head == NULL) {
                 ps_ready_tail = NULL;
             }
+            void *saved = ps_current_task;
+            ps_current_task = task;
             ps_task_step(task);
-            free(task);
+            ps_current_task = saved;
         }
         if (ps_timer_len == 0) {
             return;
@@ -316,11 +365,6 @@ void ps_loop_run(void) {
 
 /* --- the task lifetime ------------------------------------------------- */
 
-/* The task the running coroutine belongs to. A coroutine that awaits
-   something that is not a plain child frame (a task handle, a lock) needs
-   the loop to know which task to park, so the frame records it. */
-static void *ps_current_task;
-
 void *ps_task_new(void *frame) {
     PsTask *task = calloc(1, sizeof(PsTask));
     if (task == NULL) {
@@ -335,6 +379,9 @@ void *ps_task_new(void *frame) {
     task->exc_code = 0;
     task->exc = NULL;
     ps_track_task(task);
+    /* The task starts on the next loop iteration, never inline: that is
+       CPython's `create_task` semantics. */
+    ps_ready_push(task);
     return task;
 }
 
@@ -447,4 +494,18 @@ void ps_task_raise_exc(void *task) {
     PsTask *t = (PsTask *)task;
     int32_t code = t->exc_code != 0 ? t->exc_code : PS_RUNTIME;
     ps_raise_code(code);
+}
+
+/* `await task`: park the calling frame until the task completes. The task
+   may already be done, in which case the caller does not park at all. */
+int64_t ps_task_await(void *task, void *frame) {
+    if (task == NULL) {
+        return 1;
+    }
+    PsTask *t = (PsTask *)task;
+    if (t->done) {
+        return 1;
+    }
+    ps_task_add_waiter(t, frame);
+    return 0;
 }
