@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-23",
-  "commit": "fa9236e91f64b739917028fcba9fdd8012b056c7",
+  "commit": "fc74dc701e8fedbe754a817ea448223342051140",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 5,
     "packages_none": 10,
     "weighted_pass": 0.0,
-    "fences": 3027
+    "fences": 3028
   },
   "builtins": [
     {
@@ -1361,7 +1361,7 @@
       "top_families": [
         {
           "family": "param-inference",
-          "count": 38
+          "count": 37
         },
         {
           "family": "return-inference",
@@ -1375,7 +1375,7 @@
       "codes": [
         {
           "code": "PS1001",
-          "count": 54
+          "count": 53
         },
         {
           "code": "PS2002",
@@ -1431,9 +1431,9 @@
       "import_name": "filelock",
       "version": "4.1.1",
       "status": "partial",
-      "fences": 751,
+      "fences": 752,
       "definitions": 641,
-      "fenced_definitions": 243,
+      "fenced_definitions": 244,
       "top_families": [
         {
           "family": "name-resolution",
@@ -2008,7 +2008,7 @@
     {
       "code": "PS1001",
       "title": "annotation missing or not lowered",
-      "count": 516,
+      "count": 515,
       "packages": 15
     },
     {
@@ -2026,7 +2026,7 @@
     {
       "code": "PS1103",
       "title": "generic alias annotation",
-      "count": 131,
+      "count": 130,
       "packages": 8
     },
     {
@@ -2094,17 +2094,29 @@
       "title": "string literal outside Latin-1",
       "count": 4,
       "packages": 2
+    },
+    {
+      "code": "PS4201",
+      "title": "dynamic attribute protocol refused",
+      "count": 2,
+      "packages": 2
+    },
+    {
+      "code": "PS4203",
+      "title": "finalizer refused",
+      "count": 1,
+      "packages": 1
     }
   ],
   "history": [
     {
       "date": "2026-10-23",
-      "commit": "fa9236e91f64b739917028fcba9fdd8012b056c7",
+      "commit": "fc74dc701e8fedbe754a817ea448223342051140",
       "weighted_pass": 0.0,
       "packages_full": 3,
       "packages_partial": 5,
       "packages_none": 10,
-      "fences": 3027
+      "fences": 3028
     }
   ]
 }
