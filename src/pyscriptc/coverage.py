@@ -95,6 +95,16 @@ _FAMILIES = {
         Family("type-mismatch", "Convert the operand explicitly."),
         Family("fall-off-end", "End every path with a return or a raise."),
         Family("field-lookup", "Access only fields the class declares."),
+        Family(
+            "generators",
+            "The generator shape does not lower: yield inside try or with, a nested def, a lambda, "
+            "a return value, or a generic resumable. Rewrite the body with lowered constructs.",
+        ),
+        Family(
+            "contextmanager",
+            "The @contextmanager definition is blocked by an unrelated fence in the same module "
+            "or uses contextlib forms that do not lower.",
+        ),
         Family("construct-other", "Rewrite the statement with lowered constructs."),
         Family(
             "export-cascade", "Follows from a fence in the exporting module. Fix that definition first.", derived=True
@@ -151,6 +161,8 @@ _RULES: tuple[tuple[str | None, str, str], ...] = (
     ("PS2002", r"at module scope is not lowered", "module-statements"),
     ("PS2002", r"module assignment", "module-assign"),
     ("PS2002", r"decorators? ", "decorators"),
+    ("PS2002", r"resumable|generator|\byield\b", "generators"),
+    ("PS2002", r"contextmanager", "contextmanager"),
     ("PS2002", r"", "construct-other"),
     ("PS2003", r"keyword arguments", "keyword-args"),
     ("PS2003", r"", "call-arity"),

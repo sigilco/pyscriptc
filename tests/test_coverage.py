@@ -170,3 +170,15 @@ def test_family_rules() -> None:
     assert family_of("PS2002", "x is not exported by this package") == "export-cascade"
     assert family_of("PS2001", "re.search is not in the lowered subset of re") == "stdlib:re"
     assert family_of("PS1001", "parameter a needs an annotation") == "param-inference"
+
+
+def test_generator_and_contextmanager_families() -> None:
+    assert family_of("PS2002", "yield inside try or with is not lowered yet") == "generators"
+    assert family_of("PS2002", "bare yield is not lowered yet") == "generators"
+    assert family_of("PS2002", "yield as an expression (send) is not lowered yet") == "generators"
+    assert family_of("PS2002", "a nested def or class in a resumable is not lowered yet") == "generators"
+    assert family_of("PS2002", "a generic resumable is not lowered yet") == "generators"
+    assert family_of("PS2002", "return with a value in a generator is not lowered yet") == "generators"
+    assert family_of("PS2002", "contextlib.contextmanager is not a function") == "contextmanager"
+    assert family_of("PS2002", "walrus assignment (:=) is not lowered") == "construct-other"
+    assert family_of("PS2002", "super is not lowered") == "construct-other"
