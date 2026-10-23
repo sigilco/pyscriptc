@@ -43,7 +43,7 @@ Unknown keys, wrong value types and unknown lanes are `PS3102` errors naming the
 | Lane | Meaning |
 |---|---|
 | `compile` | default: compile from source, fence with a lane hint on failure |
-| `replace` | a curated native replacement pack covers this import |
+| `replace` | a curated native replacement pack covers this import ([pack format spec](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/pack-format.md)) |
 | `extern` | bound through the C ABI lane ([FFI manifest](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/ffi/ffi-manifest.md)) |
 | `island` | opt-in embedded CPython; the binary requires libpython |
 | `refuse` | refuse the compile with a message naming the lane |
@@ -61,7 +61,7 @@ A script may open with:
 
 The block is parsed as TOML. More than one `# /// script` block is an error. `requires-python` and `dependencies` are validated and reported by `pyscriptc config`; dependency resolution itself is the separate `deps` work (PR #138).
 
-Each dependency is also mapped to an import lane, shown by `pyscriptc config` and as `dependency-lanes` in its JSON: `native`, `pack`, `extern`, `island` or `refused`. The `[imports]` table wins when it names the distribution or its import name (`compile` is `native`, `replace` is `pack`, `refuse` is `refused`); otherwise the offline import classifier decides (known native-backed distributions go to `pack` when a curated pack exists, else `extern`; everything else is `native`).
+Each dependency is also mapped to an import lane, shown by `pyscriptc config` and as `dependency-lanes` in its JSON: `native`, `pack`, `extern`, `island` or `refused`. The `[imports]` table wins when it names the distribution or its import name (`compile` is `native`, `replace` is `pack`, `refuse` is `refused`); otherwise the offline import classifier decides (known native-backed distributions go to `pack` when an installed pack covers the import, else `extern`; everything else is `native`). The pack artifact format and install flow are specified in [the pack format spec](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/pack-format.md).
 
 `stub-path` and `ffi` are resolved against the config file directory and exposed on the config (`stub_paths`, `ffi_manifests`); the compile path consumes them in later work.
 

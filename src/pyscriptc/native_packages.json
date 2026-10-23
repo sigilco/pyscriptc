@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "note": "Known native-backed distributions. A distribution here ships a compiled extension (C, C++ or Rust) for some platform, so the import cannot be compiled from pure-Python source alone. `dist` is the PyPI distribution name; `imports` are the import names that reach the native code. `pack` names the curated replacement pack from the adoption plan that mirrors the library's API subset; null means no pack is planned.",
+  "note": "Known native-backed distributions. A distribution here ships a compiled extension (C, C++ or Rust) for some platform, so the import cannot be compiled from pure-Python source alone. `dist` is the PyPI distribution name; `imports` are the import names that reach the native code. `pack` names the curated replacement pack that mirrors the library's API subset; null means no pack is planned. The pack artifact format is specified in `.agents/docs/spec/pack-format.md` (issue #377).",
   "packages": [
     {
       "dist": "numpy",
