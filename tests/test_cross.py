@@ -42,6 +42,7 @@ def test_cross_compile_windows_aarch64(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(shutil.which("zig") is None, reason="zig not on PATH")
+@pytest.mark.skipif(shutil.which("zig") is None, reason="zig not on PATH")
 def test_cli_windows_target_defaults_to_exe_suffix(tmp_path: Path) -> None:
     from pyscriptc.cli import main
 

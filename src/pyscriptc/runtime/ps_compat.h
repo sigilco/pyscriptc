@@ -48,6 +48,10 @@
 #define ps_setenv(name, value, overwrite) ps_win_setenv((name), (value), (overwrite))
 int ps_win_setenv(const char *name, const char *value, int overwrite);
 
+/* Windows has no mkstemp: the portable version in ps_compat.c opens with
+   _O_CREAT|_O_EXCL on a randomized suffix. */
+int ps_mkstemp(char *template_path);
+
 /* mingw has setjmp/longjmp but no sigsetjmp/siglongjmp. The runtime only
    ever uses the savemask-0 form, which saves no signal mask, so the plain
    pair is the same thing there. */
@@ -67,9 +71,18 @@ int ps_win_setenv(const char *name, const char *value, int overwrite);
 #define ps_lstat(path, st) lstat((path), (st))
 #define ps_realpath(path, resolved) realpath((path), (resolved))
 #define ps_setenv(name, value, overwrite) setenv((name), (value), (overwrite))
+#if defined(__wasi__)
+/* wasi-libc declares no sigsetjmp/siglongjmp. The runtime only ever uses
+   the savemask-0 form, which saves no signal mask, so the plain pair is
+   the same thing there. */
+#define ps_sigjmp_buf jmp_buf
+#define ps_sigsetjmp(buf, savemask) setjmp((buf))
+#define ps_siglongjmp(buf, code) longjmp((buf), (code))
+#else
 #define ps_sigjmp_buf sigjmp_buf
 #define ps_sigsetjmp(buf, savemask) sigsetjmp((buf), (savemask))
 #define ps_siglongjmp(buf, code) siglongjmp((buf), (code))
+#endif
 
 /* wasi-libc declares no mkstemp: the portable version in ps_compat.c opens
    with O_CREAT|O_EXCL on a randomized suffix. Every target that has the
