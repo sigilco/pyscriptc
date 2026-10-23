@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
+import highlightedSnippetsData from "../data/highlightedSnippets.json";
 
 export interface CarouselPillar {
-  id: string;
+  id: "semantics" | "predictable" | "diagnostics";
   title: string;
   subtitle: string;
   description: string;
@@ -88,6 +89,8 @@ def compute_hash(seed: int, key: str) -> int:
   },
 ];
 
+const highlightedSnippets = highlightedSnippetsData as Record<string, string>;
+
 export interface LumioCarouselProps {
   theme?: "dark" | "light";
   className?: string;
@@ -103,68 +106,51 @@ export const LumioCarousel: React.FC<LumioCarouselProps> = ({
   const [isPaused, setIsPaused] = useState(false);
   const activePillar = PILLARS[activeIndex];
 
-  // Typing states for unified animation
-  const [displayedCode, setDisplayedCode] = useState("");
+  // Shell typing states
   const [displayedCommand, setDisplayedCommand] = useState("");
   const [displayedOutput, setDisplayedOutput] = useState<string[]>([]);
 
-  const typingTimerRef = useRef<number | null>(null);
   const shellTimerRef = useRef<number | null>(null);
   const lineTimerRef = useRef<number | null>(null);
 
-  // Unified animation: Editor and Shell reset and type smoothly
+  // Synchronized animation: When slide changes, both editor and shell fade in together.
+  // Shell starts empty on fade-in, then types command and streams output lines.
   useEffect(() => {
-    // Clear all previous timers
-    if (typingTimerRef.current) clearInterval(typingTimerRef.current);
     if (shellTimerRef.current) clearInterval(shellTimerRef.current);
     if (lineTimerRef.current) clearInterval(lineTimerRef.current);
 
-    // Initial state: Code empty, Shell empty
-    setDisplayedCode("");
     setDisplayedCommand("");
     setDisplayedOutput([]);
 
-    const fullCode = activePillar.codeSnippet;
     const fullCmd = activePillar.command;
     const fullOut = activePillar.output;
 
-    let codeIdx = 0;
+    // Small delay for initial empty fade-in, then type shell command
+    const startTimeout = window.setTimeout(() => {
+      let cmdIdx = 0;
+      shellTimerRef.current = window.setInterval(() => {
+        cmdIdx += 2;
+        if (cmdIdx >= fullCmd.length) {
+          setDisplayedCommand(fullCmd);
+          if (shellTimerRef.current) clearInterval(shellTimerRef.current);
 
-    // Stage 1: Type code in editor
-    typingTimerRef.current = window.setInterval(() => {
-      codeIdx += 8;
-      if (codeIdx >= fullCode.length) {
-        setDisplayedCode(fullCode);
-        if (typingTimerRef.current) clearInterval(typingTimerRef.current);
-
-        // Stage 2: Type command in shell
-        let cmdIdx = 0;
-        shellTimerRef.current = window.setInterval(() => {
-          cmdIdx += 2;
-          if (cmdIdx >= fullCmd.length) {
-            setDisplayedCommand(fullCmd);
-            if (shellTimerRef.current) clearInterval(shellTimerRef.current);
-
-            // Stage 3: Stream shell output lines
-            let outIdx = 0;
-            lineTimerRef.current = window.setInterval(() => {
-              outIdx += 1;
-              setDisplayedOutput(fullOut.slice(0, outIdx));
-              if (outIdx >= fullOut.length && lineTimerRef.current) {
-                clearInterval(lineTimerRef.current);
-              }
-            }, 180);
-          } else {
-            setDisplayedCommand(fullCmd.slice(0, cmdIdx));
-          }
-        }, 25);
-      } else {
-        setDisplayedCode(fullCode.slice(0, codeIdx));
-      }
-    }, 18);
+          // Stream output lines
+          let outIdx = 0;
+          lineTimerRef.current = window.setInterval(() => {
+            outIdx += 1;
+            setDisplayedOutput(fullOut.slice(0, outIdx));
+            if (outIdx >= fullOut.length && lineTimerRef.current) {
+              clearInterval(lineTimerRef.current);
+            }
+          }, 200);
+        } else {
+          setDisplayedCommand(fullCmd.slice(0, cmdIdx));
+        }
+      }, 22);
+    }, 400);
 
     return () => {
-      if (typingTimerRef.current) clearInterval(typingTimerRef.current);
+      clearTimeout(startTimeout);
       if (shellTimerRef.current) clearInterval(shellTimerRef.current);
       if (lineTimerRef.current) clearInterval(lineTimerRef.current);
     };
@@ -178,6 +164,8 @@ export const LumioCarousel: React.FC<LumioCarouselProps> = ({
     }, autoPlayInterval);
     return () => clearInterval(interval);
   }, [isPaused, autoPlayInterval]);
+
+  const currentHighlightedHtml = highlightedSnippets[activePillar.id] || "";
 
   return (
     <div
@@ -240,14 +228,14 @@ export const LumioCarousel: React.FC<LumioCarouselProps> = ({
           </div>
         </div>
 
-        {/* Right Column: Minimalist OnOrca Terminal + Editor Frame */}
+        {/* Right Column: Minimalist OnOrca Terminal + Shiki Highlighted Code */}
         <div className="lg:col-span-7 w-full">
           {/* Keyed container so both editor and shell fade in/out together */}
           <div
             key={activeIndex}
             className="w-full rounded-xl overflow-hidden border border-white/10 bg-[#0d0f14] transition-opacity duration-500 animate-fadeIn"
           >
-            {/* Minimal KISS Tab Bar (No window dots, no chrome title) */}
+            {/* Minimal KISS Tab Bar matching Screenshot 2026-10-23 at 19.34.52 */}
             <div className="flex items-center justify-between px-3 pt-2.5 bg-[#090b0e] border-b border-white/5 select-none">
               <div className="flex items-center">
                 {/* Active Tab */}
@@ -265,25 +253,22 @@ export const LumioCarousel: React.FC<LumioCarouselProps> = ({
               </div>
             </div>
 
-            {/* Code Editor Body */}
-            <div className="p-5 font-mono text-xs sm:text-[13px] leading-relaxed text-slate-300 bg-[#0d0f14] min-h-[190px] overflow-x-auto">
-              <pre className="whitespace-pre">
-                <code>{displayedCode}</code>
-                {displayedCode.length < activePillar.codeSnippet.length && (
-                  <span className="inline-block w-2 h-4 ml-0.5 bg-white/70 animate-pulse align-middle" />
-                )}
-              </pre>
+            {/* Code Editor Body with Shiki Syntax Highlighting */}
+            <div className="p-5 font-mono text-xs sm:text-[13px] leading-relaxed bg-[#0d0f14] min-h-[190px] overflow-x-auto text-left">
+              <div
+                className="shiki-container [&>pre]:!bg-transparent [&>pre]:!p-0 [&>pre]:!m-0 [&_code]:font-mono"
+                dangerouslySetInnerHTML={{ __html: currentHighlightedHtml }}
+              />
             </div>
 
             {/* Shell Body (Starts empty, types command and streams output) */}
-            <div className="border-t border-white/10 p-5 bg-[#08090d] font-mono text-xs text-slate-300 min-h-[120px]">
+            <div className="border-t border-white/10 p-5 bg-[#08090d] font-mono text-xs text-slate-300 min-h-[130px] text-left">
               <div className="flex items-center gap-2 text-slate-300 font-semibold mb-2">
                 <span className="text-slate-500 font-bold">$</span>
                 <span>{displayedCommand}</span>
-                {displayedCode.length >= activePillar.codeSnippet.length &&
-                  displayedCommand.length < activePillar.command.length && (
-                    <span className="inline-block w-2 h-3.5 bg-white/70 animate-pulse align-middle" />
-                  )}
+                {displayedCommand.length < activePillar.command.length && (
+                  <span className="inline-block w-2 h-3.5 bg-white/70 animate-pulse align-middle" />
+                )}
               </div>
 
               {/* Output stream */}
