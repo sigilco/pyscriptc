@@ -782,7 +782,9 @@ def _load_ffi(args: argparse.Namespace, config: Any) -> list[Any]:
 
     The manifests are validated before lowering starts, so a bad pin or a
     duplicate module claim fails with its `PS4xxx` code and exit 1 (the
-    `SpikeError` handler) instead of a link error later.
+    `SpikeError` handler) instead of a link error later. A manifest that
+    declares a `[[source]]` unit that is not on disk is refused here too:
+    the compiler must not start a build that cannot finish.
     """
     paths = [Path(item) for item in getattr(args, "ffi", None) or []]
     paths.extend(config.ffi_manifests)
@@ -790,15 +792,23 @@ def _load_ffi(args: argparse.Namespace, config: Any) -> list[Any]:
         return []
     manifests = load_manifests(paths)
     for manifest in manifests:
-        if manifest.sources:
+        _require_manifest_units(manifest)
+    return manifests
+
+
+def _require_manifest_units(manifest: Any) -> None:
+    """Refuse a manifest whose declared unit is missing, before the build starts.
+
+    The linker checks the same paths, but the manifest is what names the
+    file, so the error points at the manifest and not at a cc invocation.
+    """
+    for unit in manifest.unit_paths():
+        if not unit.exists():
             raise FfiManifestError(
-                "PS4008",
-                f"the manifest declares [[source]] units, which the compiler does not link yet "
-                f"(the F2 static-link gate, sigilco/pyscriptc#220): "
-                f"{', '.join(str(unit) for unit in manifest.unit_paths())}",
+                "PS4009",
+                f"the manifest declares the unit {unit}, which does not exist",
                 path=manifest.path,
             )
-    return manifests
 
 
 def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
@@ -948,7 +958,10 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             sanitize=sanitize,
             timings=dbg.timings_map,
             debug_info=debug_info,
-            extra_units=[path for manifest in manifests for path in manifest.unit_paths()],
+            compile_units=[unit for manifest in manifests for unit in manifest.compile_units()],
+            link_units=[unit for manifest in manifests for unit in manifest.link_units()],
+            link_flags=[flag for manifest in manifests for flag in manifest.link_flags()],
+            include_dirs=[manifest.path.parent for manifest in manifests if manifest.sources],
         )
         dbg.end("link")
         outputs["bin"] = str(binary)
