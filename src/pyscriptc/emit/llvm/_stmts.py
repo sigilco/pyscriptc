@@ -96,8 +96,8 @@ class StmtsMixin:
                 for flag in ["brk", "cont"]:
                     if stmt.get(flag) is not None:
                         inner[flag] = stmt[flag]
-            outline = self._emit_outline([inner])
-            env = self._pack_env()
+            outline, env_order = self._emit_outline([inner])
+            env = self._pack_env(env_order)
             if self.flow_ptr is None:
                 raise IRError("try has no flow slot")
             code = self._call_ret("i32", "ps_try_call", [f"ptr @{outline}", f"ptr {env}", f"ptr {self.flow_ptr}"])
@@ -150,8 +150,8 @@ class StmtsMixin:
                 self.terminated = True
             self.block(merge_l)
             return
-        outline = self._emit_outline(stmt["body"])
-        env = self._pack_env()
+        outline, env_order = self._emit_outline(stmt["body"])
+        env = self._pack_env(env_order)
         if self.flow_ptr is None:
             raise IRError("try has no flow slot")
         code = self._call_ret("i32", "ps_try_call", [f"ptr @{outline}", f"ptr {env}", f"ptr {self.flow_ptr}"])
@@ -238,7 +238,17 @@ class StmtsMixin:
         self._emit_propagated_return()
         self.block(merge_l)
 
-    def _emit_outline(self, body: list[dict[str, Any]]) -> str:
+    def _emit_outline(self, body: list[dict[str, Any]]) -> tuple[str, list[str]]:
+        """Emit the try body as its own function.
+
+        Returns the function name and the slot layout of its env array. Only
+        the slots the body reads or writes travel in the env array: every
+        packed slot keeps its caller storage address-taken, which blocks
+        register promotion for the whole enclosing function, so a hot loop
+        that wraps a try per iteration would otherwise push every local of
+        the loop body through memory. The callsite packs the env in exactly
+        this order, so the two agree.
+        """
         name = f"ps.try.{self.outline_n}"
         self.outline_n += 1
         saved_out = self.out
@@ -249,11 +259,19 @@ class StmtsMixin:
         saved_lid = self.lid
         saved_tid = self.tid
         saved_depth = self.outline_depth
+        saved_order = self.slot_order
+        saved_types = self.slot_types
         # The outline is its own function: its allocas hoist into its own
         # entry block, never into the caller's.
         saved_entry = self.in_entry
         saved_hoist = self.hoisted_allocas
         saved_at = self.hoist_at
+        # A `None`-typed local has no storage (it is the singleton), so it
+        # never travels in the env array.
+        stored = {name for name, (ptr, _) in self.slots.items() if ptr}
+        touched = sorted(_used_names(body) & stored)
+        self.slot_order = touched
+        self.slot_types = {name: self.slots[name][1] for name in touched}
         self.in_entry = True
         self.hoisted_allocas = []
         self.hoist_at = None
@@ -284,10 +302,13 @@ class StmtsMixin:
         self.lid = saved_lid
         self.tid = saved_tid
         self.outline_depth = saved_depth
-        return name
+        self.slot_order = saved_order
+        self.slot_types = saved_types
+        return name, touched
 
-    def _env_pointers(self) -> list[str]:
-        ptrs = [self.slots[name][0] for name in self.slot_order]
+    def _env_pointers(self, order: list[str] | None = None) -> list[str]:
+        order = self.slot_order if order is None else order
+        ptrs = [self.slots[name][0] for name in order]
         if self.ret_ptr is not None:
             ptrs.append(self.ret_ptr)
         return ptrs
@@ -303,8 +324,8 @@ class StmtsMixin:
             self.line(f"store ptr {ptr}, ptr {dest}")
         return env
 
-    def _pack_env(self) -> str:
-        return self._pack_ptrs(self._env_pointers())
+    def _pack_env(self, order: list[str] | None = None) -> str:
+        return self._pack_ptrs(self._env_pointers(order))
 
     def _bind_env(self, env: str) -> None:
         self.slots = {}
@@ -429,3 +450,45 @@ class StmtsMixin:
         if acc is None:
             raise IRError("except handler has no exception name")
         return acc
+
+
+def _used_names(body: list[dict[str, Any]]) -> set[str]:
+    """Every local name an IR fragment reads or writes.
+
+    The walk is generic: it looks at the shapes the IR uses for a local
+    (`name` in an expression, `target` in an assignment, `id` in a few
+    statement kinds) and at the shapes that carry a local inside a larger
+    node. Anything it does not recognize contributes nothing, so a new IR
+    kind is a missed slot rather than a wrong answer; the caller intersects
+    the result with the slots that exist.
+    """
+    names: set[str] = set()
+    stack: list[Any] = list(body)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, list):
+            stack.extend(node)
+            continue
+        if not isinstance(node, dict):
+            continue
+        kind = node.get("kind")
+        if kind == "name":
+            names.add(node["id"])
+            continue
+        if kind == "assign":
+            names.add(node["target"])
+        elif kind in {"annassign", "augassign"}:
+            names.add(node["target"])
+        elif kind == "for":
+            names.add(node.get("target", ""))
+        elif kind == "with":
+            names.add(node.get("target", ""))
+        elif kind == "excslot":
+            names.add(node)
+        for key, value in node.items():
+            if key in {"target", "id", "excslot"} and isinstance(value, str):
+                continue
+            if isinstance(value, (dict, list)):
+                stack.append(value)
+    names.discard("")
+    return names

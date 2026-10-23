@@ -137,11 +137,14 @@ def test_self_census_ballpark() -> None:
     # The wasm thread refusal (#172 Stage F) adds 6 self-host fences in
     # emit/llvm/_driver.py (the symbol table and the f-string match) and 1
     # in cli.py (the gate call after the emit).
-    assert census["fences"] == 2728
+    # generator perf receipt (#169): the env narrowing in the emitter adds
+    # 1 self-host fence in emit/llvm/_stmts.py (the IR walk that collects
+    # the slots a try body touches).
+    assert census["fences"] == 2729
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     # Project mode (#150): project.py adds about 240 lines.
     # yield inside try (#164): the re-entrant try in the coro guard transform
     # adds about 150 lines in coro.py.
     assert 11_000 <= census["lines"] <= 39_000
-    assert sum(p["fences"] for p in census["packages"]) == 2728
+    assert sum(p["fences"] for p in census["packages"]) == 2729
