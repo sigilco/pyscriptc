@@ -115,6 +115,11 @@ _LIB_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_+-]*$")
 # A C type spelling for a handle, `sqlite3 *` or `struct foo *`.
 _C_TYPE = re.compile(r"^[A-Za-z_][A-Za-z0-9_ ]*\*$|^[A-Za-z_][A-Za-z0-9_]*$")
 
+# A typed container annotation, `list[str]` or `dict[str, str]`. The inner
+# types are validated separately; a dict inside a list (`list[dict[K, V]]`,
+# the sqlite row shape) is the one nesting the lane allows (issue #236).
+_CONTAINER = re.compile(r"^(?P<head>list|dict)\[(?P<inner>.+)\]$")
+
 # A `py` signature: `(a: int, b: str) -> int`. Optional `->` return is
 # allowed and means `None`.
 _SIGNATURE = re.compile(r"^\((?P<params>[^()]*)\)\s*(?:->\s*(?P<ret>[^()]+))?$")
@@ -755,6 +760,109 @@ def _parse_signature(
     return tuple(params), returns
 
 
+def _check_container(
+    name: str,
+    *,
+    path: Path | None,
+    where: str,
+    handle_names: set[str],
+) -> None:
+    """Validate a `list[T]`, `dict[K, V]` or `list[dict[K, V]]` annotation.
+
+    Scalars and one container inside a list are the shapes the lane
+    marshals: `list[str]` is a returned column and `list[dict[str, str]]`
+    is the sqlite row shape. Anything deeper, a container with a handle
+    inside, or a typed dict value that is itself a container, is refused.
+    """
+    match = _CONTAINER.match(name)
+    if match is None:
+        raise FfiManifestError(
+            "PS4006",
+            f"the container type {name!r} is not of the form list[T] or dict[K, V]",
+            path=path,
+            where=where,
+        )
+    head = match.group("head")
+    inner = match.group("inner").strip()
+    if head == "list":
+        nested = _CONTAINER.match(inner)
+        if nested is not None:
+            # The one allowed nesting: `list[dict[K, V]]`. A list of lists
+            # has no subset element type (a list value is a pointer, not a
+            # scalar the runtime slot can hold).
+            if nested.group("head") == "dict":
+                _check_type(inner, path=path, where=where, handle_names=handle_names)
+                return
+            raise FfiManifestError(
+                "PS4006",
+                f"the type {name!r} nests a list; the lane marshals list of scalars or records",
+                path=path,
+                where=where,
+            )
+        if "," in inner and not _inside_brackets(inner):
+            raise FfiManifestError(
+                "PS4006",
+                f"the type {name!r} takes one element type",
+                path=path,
+                where=where,
+            )
+        if inner in {"list", "dict"}:
+            raise FfiManifestError(
+                "PS4006",
+                f"the type {name!r} nests a bare container; spell the inner types, list[dict[K, V]]",
+                path=path,
+                where=where,
+            )
+        if inner in handle_names:
+            raise FfiManifestError(
+                "PS4006",
+                f"the type {name!r} holds the handle {inner}; a handle has no subset element type "
+                "(the value would be a bare ptr the subset cannot touch)",
+                path=path,
+                where=where,
+            )
+        _check_type(inner, path=path, where=where, handle_names=handle_names)
+        return
+    pieces = _split_params(inner)
+    if len(pieces) != 2:
+        raise FfiManifestError(
+            "PS4006",
+            f"the type {name!r} takes exactly two type arguments, key and value",
+            path=path,
+            where=where,
+        )
+    for piece in pieces:
+        piece = piece.strip()
+        if piece in {"list", "dict"} or _CONTAINER.match(piece):
+            raise FfiManifestError(
+                "PS4006",
+                f"the type {name!r} nests a container; the lane marshals scalar rows only",
+                path=path,
+                where=where,
+            )
+        if piece in handle_names:
+            raise FfiManifestError(
+                "PS4006",
+                f"the type {name!r} holds the handle {piece}; a handle has no subset element type "
+                "(the value would be a bare ptr the subset cannot touch)",
+                path=path,
+                where=where,
+            )
+        _check_type(piece, path=path, where=where, handle_names=handle_names)
+
+
+def _inside_brackets(text: str) -> bool:
+    depth = 0
+    for char in text:
+        if char == "[":
+            depth += 1
+        elif char == "]":
+            depth -= 1
+        elif char == "," and depth > 0:
+            return True
+    return False
+
+
 def type_ir(type_name: str, handle_names: frozenset[str] | set[str] = frozenset()) -> dict[str, Any]:
     """The IR type dict for a manifest type name.
 
@@ -785,6 +893,16 @@ def type_ir(type_name: str, handle_names: frozenset[str] | set[str] = frozenset(
         return {"kind": "list", "elem": {"kind": "none"}}
     if name == "dict":
         return {"kind": "dict", "key": {"kind": "none"}, "value": {"kind": "none"}}
+    if name.startswith("list["):
+        inner = name[5:-1].strip()
+        return {"kind": "list", "elem": type_ir(inner, handle_names)}
+    if name.startswith("dict["):
+        pieces = _split_params(name[5:-1].strip())
+        return {
+            "kind": "dict",
+            "key": type_ir(pieces[0].strip(), handle_names),
+            "value": type_ir(pieces[1].strip(), handle_names),
+        }
     if name == "None":
         return {"kind": "none"}
     raise FfiManifestError("PS4006", f"the type {name!r} has no IR type in the FFI vocabulary")
@@ -849,12 +967,8 @@ def _check_type(
             where=where,
         )
     if name.startswith("list[") or name.startswith("dict["):
-        raise FfiManifestError(
-            "PS4006",
-            f"the type {name!r} is not a lowered container; use list or dict",
-            path=path,
-            where=where,
-        )
+        _check_container(name, path=path, where=where, handle_names=handle_names)
+        return
     if name in {"Any", "object", "NoneType"}:
         raise FfiManifestError(
             "PS4006",
