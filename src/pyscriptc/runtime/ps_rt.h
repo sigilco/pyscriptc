@@ -328,4 +328,20 @@ void ps_loop_run_root(void *frame);
 void ps_loop_sleep(void *frame, double delay);
 void ps_loop_wait(void *child, void *parent);
 
+/* ps_loop.c: the task lifetime behind asyncio.create_task. A task wraps a
+   coroutine frame and outlives a single step, so a handle to it stays valid
+   across a suspension. The handle is the task pointer itself. */
+void *ps_task_new(void *frame);
+void *ps_task_current(void);
+void ps_task_set_current(void *task);
+int64_t ps_task_done(void *task);
+int64_t ps_task_cancel(void *task);
+int64_t ps_task_cancelled(void *task);
+/* `await task`: park the frame until the task completes. 1 when the task is
+   already done, so the caller does not park. */
+int64_t ps_task_await(void *task, void *frame);
+/* Read the result the task's coroutine produced. The frame's field 2 is
+   `.ps_result`, and `size` is the element size the caller's type carries. */
+void ps_task_result(void *task, int64_t size, void *out);
+
 #endif

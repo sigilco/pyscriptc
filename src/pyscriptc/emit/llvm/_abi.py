@@ -142,7 +142,11 @@ class AbiMixin:
             self._abi_decl(symbol, "ptr", types)
             return self._call_ret("ptr", symbol, rendered)
         if kind == "class":
-            if symbol in {"ps_global_get_ptr", "ps_global_get_path"} or symbol in {"ps_event_new", "ps_sem_new"}:
+            if symbol in {"ps_global_get_ptr", "ps_global_get_path"} or symbol in {
+                "ps_event_new",
+                "ps_sem_new",
+                "ps_task_new",
+            }:
                 # The runtime owns the record: the value is the record pointer.
                 self._abi_decl(symbol, "ptr", types)
                 return self._call_ret("ptr", symbol, rendered)
@@ -405,3 +409,18 @@ class AbiMixin:
         cell = self._call_ret("ptr", "ps_alloc", [f"i64 {_elem_size(typ)}"])
         self.line(f"store {_llvm_type(typ)} {value}, ptr {cell}")
         return cell
+
+    def _emit_task_result(self, expr: dict[str, Any], values: list[str]) -> str:
+        """`ps_task_result(task, size)`: read the coroutine's result field.
+
+        The result lives at offset 16 in the task's frame (field 0
+        `.ps_state`, field 1 `.ps_task`, the layout coro.py guarantees); the
+        size is the element size the awaited type carries. The read goes
+        straight out of the frame, so the task record copies nothing.
+        """
+        elem = expr["args"][0]["type"]["elem"]
+        out = self._alloca(_llvm_type(elem))
+        symbol = expr["symbol"]
+        self._abi_decl(symbol, "void", ["ptr", "i64", "ptr"])
+        self._call_void(symbol, [f"ptr {values[0]}", f"i64 {_elem_size(elem)}", f"ptr {out}"])
+        return self._load(_llvm_type(elem), out)

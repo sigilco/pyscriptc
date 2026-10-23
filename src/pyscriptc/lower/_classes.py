@@ -1579,6 +1579,11 @@ class ClassesMixin:
             if elem["kind"] == "bool":
                 self.fail(node, "PS2002", "list[bool] is not lowered")
             return {"kind": "class", "name": "Deque", "elem": elem}
+        if alias == "Task":
+            # `asyncio.Task[T]`: the task handle carries the coroutine's
+            # result type, so `await task` reads the right shape.
+            elem = self._annotation(node.slice)
+            return {"kind": "class", "name": "Task", "elem": elem}
         if alias == "OrderedDict":
             if not isinstance(node.slice, ast.Tuple) or len(node.slice.elts) != 2:
                 self.fail(node, "PS1001", "OrderedDict annotations are OrderedDict[key, value]")
@@ -1687,6 +1692,8 @@ class ClassesMixin:
                 return "defaultdict"
             if resolved[1] == "queue" and resolved[2] in {"Queue", "LifoQueue", "SimpleQueue"}:
                 return "Queue"
+            if resolved[1] == "asyncio" and resolved[2] == "Task":
+                return "Task"
         return None
 
     def _typing_annotation(self, node: ast.AST) -> dict[str, Any] | None:

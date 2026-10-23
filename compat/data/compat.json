@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-23",
-  "commit": "5348465e3aea52f204042b2d02d1aa3ac37cbf03",
+  "commit": "50a7c1eece948f185095f4aa8362165527ef7cf0",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -968,7 +968,7 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "Queue, Event, Lock, create_task, wait_for, get_event_loop, sleep outside a coroutine"
+        "Queue, Event, Lock, wait_for, get_event_loop, sleep outside a coroutine"
       ],
       "fences": [
         "PS1106",
@@ -2026,7 +2026,7 @@
     {
       "code": "PS1103",
       "title": "generic alias annotation",
-      "count": 131,
+      "count": 129,
       "packages": 8
     },
     {
@@ -2056,8 +2056,8 @@
     {
       "code": "PS1104",
       "title": "dynamic or structural annotation",
-      "count": 65,
-      "packages": 5
+      "count": 67,
+      "packages": 6
     },
     {
       "code": "PS1102",
@@ -2099,7 +2099,7 @@
   "history": [
     {
       "date": "2026-10-23",
-      "commit": "5348465e3aea52f204042b2d02d1aa3ac37cbf03",
+      "commit": "50a7c1eece948f185095f4aa8362165527ef7cf0",
       "weighted_pass": 0.0,
       "packages_full": 3,
       "packages_partial": 5,

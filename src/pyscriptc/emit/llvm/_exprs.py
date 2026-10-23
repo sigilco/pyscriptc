@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pyscriptc.emit._ir import _elem_size, _fn_symbol, _llvm_double, _llvm_type
+from pyscriptc.emit._ir import _elem_size, _fn_symbol, _llvm_double, _llvm_field_type, _llvm_type
 from pyscriptc.errors import FitError, IRError
 from pyscriptc.ir import fits_i64
 
@@ -257,7 +257,7 @@ class ExprsMixin:
         obj = self.emit_expr(expr["value"])
         field = self._field(expr["value"]["type"]["name"], expr["name"])
         slot = self._field_ptr(expr["value"]["type"]["name"], obj, field)
-        return self._load(_llvm_type(field["type"]), slot)
+        return self._load(_llvm_field_type(field["type"]), slot)
 
     def emit_contains(self, expr: dict[str, Any]) -> str:
         needle = self.emit_expr(expr["needle"])
