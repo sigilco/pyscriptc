@@ -4,6 +4,8 @@
 # system packages, not mise tools (apt install clang).
 #
 # Tasks (mise run <name>):
+#   landing:dev     landing page dev server (site/landing, Astro)
+#   landing:build   build the landing page to site/landing/dist
 #   docs:dev        public docs dev server (docs/, docs/.docmd/docmd.config.js)
 #   docs:build      build the public docs site to dist/docs
 #   docs:validate   check every internal link in docs/
@@ -25,6 +27,14 @@ pnpm = "12"
 [tasks.setup]
 description = "First-time install of the python and node toolchains"
 run = ["uv sync", "pnpm --dir docs/.docmd install"]
+
+[tasks."landing:dev"]
+description = "Landing page dev server (site/landing)"
+run = "pnpm --dir docs/.docmd --filter pyscriptc-site-landing dev"
+
+[tasks."landing:build"]
+description = "Build the landing page to site/landing/dist"
+run = "pnpm --dir docs/.docmd --filter pyscriptc-site-landing build"
 
 [tasks."docs:dev"]
 description = "Public docs dev server (docs/)"
