@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-23",
-  "commit": "50a7c1eece948f185095f4aa8362165527ef7cf0",
+  "commit": "a898d2248711b4604895018a0653fc6eae343cfa",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -968,7 +968,7 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "Queue, Event, Lock, wait_for, get_event_loop, sleep outside a coroutine"
+        "Queue, Event, Lock, get_event_loop, sleep outside a coroutine"
       ],
       "fences": [
         "PS1106",
@@ -1451,7 +1451,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 435
+          "count": 436
         },
         {
           "code": "PS1001",
@@ -2002,7 +2002,7 @@
     {
       "code": "PS2002",
       "title": "construct not lowered",
-      "count": 1486,
+      "count": 1487,
       "packages": 15
     },
     {
@@ -2014,7 +2014,7 @@
     {
       "code": "PS1106",
       "title": "annotation names an unlowered type",
-      "count": 198,
+      "count": 196,
       "packages": 9
     },
     {
@@ -2026,7 +2026,7 @@
     {
       "code": "PS1103",
       "title": "generic alias annotation",
-      "count": 129,
+      "count": 130,
       "packages": 8
     },
     {
@@ -2099,7 +2099,7 @@
   "history": [
     {
       "date": "2026-10-23",
-      "commit": "50a7c1eece948f185095f4aa8362165527ef7cf0",
+      "commit": "a898d2248711b4604895018a0653fc6eae343cfa",
       "weighted_pass": 0.0,
       "packages_full": 3,
       "packages_partial": 5,

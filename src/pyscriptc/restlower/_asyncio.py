@@ -12,7 +12,7 @@ from __future__ import annotations
 import ast
 from typing import Any
 
-from pyscriptc.coro import SLEEP_MARKER, TASK_CLASS, enabled
+from pyscriptc.coro import SLEEP_MARKER, TASK_CLASS, WAIT_FOR_MARKER, enabled
 from pyscriptc.ir import types_equal
 from pyscriptc.restlower._shared import _as_float
 
@@ -62,6 +62,52 @@ def _asyncio_create_task(
     return lo._abi_call("asyncio", "create_task", [pinned], task_t, "ps_task_new", span)
 
 
+def _asyncio_wait_for(
+    lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = None, attr: str = ""
+) -> dict[str, Any]:
+    """`asyncio.wait_for(aw, timeout)`: run the awaitable under a deadline.
+
+    The awaited coroutine runs as a task, so the deadline can fire while it
+    is still running: the loop cancels the task and the awaiting frame
+    raises TimeoutError. A task handle is accepted too (CPython's
+    `wait_for` takes any awaitable), and the deadline then applies to the
+    task the caller already has.
+    """
+    if len(node.args) != 2:
+        lo.fail(node, "PS2003", "asyncio.wait_for expects 2 argument(s)")
+    lo._reject_keywords(node)
+    delay = _as_float(lo, node, lo._expr(node.args[1]), span, "asyncio.wait_for")
+    awaited = lo._expr(node.args[0])
+    if awaited["type"].get("kind") == "class" and awaited["type"].get("name") == TASK_CLASS:
+        # A task handle: the deadline applies to the task the caller holds.
+        task_t = awaited["type"]
+        task_slot = lo._temp("wtk")
+        lo.locals[task_slot] = task_t
+        lo.prelude.append({"kind": "assign", "target": task_slot, "value": awaited, "span": span})
+    else:
+        frame, elem = _frame_of(lo, node.args[0], "asyncio.wait_for")
+        # The task wraps one frame object: pin it so the task and the marker
+        # name the same coroutine.
+        frame_slot = lo._temp("wfr")
+        lo.locals[frame_slot] = frame["type"]
+        lo.prelude.append({"kind": "assign", "target": frame_slot, "value": frame, "span": span})
+        pinned = {"kind": "name", "id": frame_slot, "type": frame["type"], "span": span}
+        task_t = {"kind": "class", "name": TASK_CLASS, "elem": elem}
+        task_slot = lo._temp("wtk")
+        lo.locals[task_slot] = task_t
+        task = lo._abi_call("asyncio", "create_task", [pinned], task_t, "ps_task_new", span)
+        lo.prelude.append({"kind": "assign", "target": task_slot, "value": task, "span": span})
+    task_name = {"kind": "name", "id": task_slot, "type": task_t, "span": span}
+    return {
+        "kind": "call",
+        "callee": {"kind": "builtin", "name": WAIT_FOR_MARKER},
+        "args": [task_name, delay],
+        "type": task_t["elem"],
+        "span": span,
+        "wait_for": True,
+    }
+
+
 def _asyncio_run(lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = None, attr: str = "") -> dict[str, Any]:
     if len(node.args) != 1:
         lo.fail(node, "PS2003", "asyncio.run expects 1 argument(s)")
@@ -100,7 +146,8 @@ def _asyncio_sleep(lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = 
 
 
 def _task_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
-    """Method dispatch for a task handle: `done()` and `result()`."""
+    """Method dispatch for a task handle: `done()`, `result()`, `cancel()` and
+    `cancelled()`."""
     assert isinstance(node.func, ast.Attribute)
     attr = node.func.attr
     elem = receiver["type"]["elem"]
@@ -117,6 +164,18 @@ def _task_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[s
         # Same symbol as the await's read: the emitter hands back the value
         # out of the task's frame, at the element size `elem` carries.
         return lo._abi_call("asyncio", "task.result", [receiver], elem, "ps_task_result", span)
+    if attr == "cancel":
+        lo._reject_keywords(node)
+        if node.args:
+            lo.fail(node, "PS2003", "Task.cancel expects 0 argument(s)")
+        # CPython's cancel returns True when the cancel landed (the task was
+        # not already done), False otherwise.
+        return lo._abi_call("asyncio", "task.cancel", [receiver], {"kind": "bool"}, "ps_task_cancel", span)
+    if attr == "cancelled":
+        lo._reject_keywords(node)
+        if node.args:
+            lo.fail(node, "PS2003", "Task.cancelled expects 0 argument(s)")
+        return lo._abi_call("asyncio", "task.cancelled", [receiver], {"kind": "bool"}, "ps_task_cancelled", span)
     lo.fail(node, "PS2001", f"Task.{attr} is not lowered")
     raise AssertionError("unreachable")
 

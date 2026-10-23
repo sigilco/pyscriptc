@@ -61,6 +61,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
+from pyscriptc.builtins import RESERVED_EXCEPTIONS
 from pyscriptc.errors import span_of
 
 YIELD_MARKER = "__ps_yield__"
@@ -68,6 +69,9 @@ AWAIT_MARKER = "__ps_await__"
 # `await task` on a task handle (asyncio.create_task): the loop parks the
 # frame on the task's waiter list instead of polling a child frame.
 AWAIT_TASK_MARKER = "__ps_await_task__"
+# `await asyncio.wait_for(coro, delay)`: the coro runs as a task under a
+# deadline; on expiry the awaiting frame raises TimeoutError.
+WAIT_FOR_MARKER = "__ps_wait_for__"
 SLEEP_MARKER = "__ps_sleep__"
 RETURN_MARKER = "__ps_return__"
 STATE = ".ps_state"
@@ -681,6 +685,27 @@ class CoroMixin:
             }
             self.prelude.append({"kind": "expr", "expr": marker, "span": span})
             return _name(result, child_t["elem"], span)
+        if child.get("wait_for"):
+            # `await asyncio.wait_for(coro, delay)`: the call already made the
+            # task; the await is the deadline suspension. The marker call
+            # carries the task and the delay, and the awaited value is the
+            # result the task produced.
+            task, delay = child["args"]
+            task_t = task["type"]
+            slot = self._temp("awf")
+            self.locals[slot] = task_t
+            result = _await_result_name(slot)
+            self.locals[result] = task_t["elem"]
+            self.prelude.append(_assign(slot, task, span))
+            marker = {
+                "kind": "call",
+                "callee": {"kind": "builtin", "name": WAIT_FOR_MARKER},
+                "args": [_name(slot, task_t, span), delay],
+                "type": dict(_NONE),
+                "span": span,
+            }
+            self.prelude.append({"kind": "expr", "expr": marker, "span": span})
+            return _name(result, task_t["elem"], span)
         return child
 
     def _coro_finish(self, module: dict[str, Any]) -> dict[str, Any]:
@@ -1298,6 +1323,8 @@ class _Frame:
             return self._sleep(stmt, span)
         if kind == "expr" and _is_marker(stmt, AWAIT_TASK_MARKER):
             return self._await_task(stmt, span)
+        if kind == "expr" and _is_marker(stmt, WAIT_FOR_MARKER):
+            return self._wait_for(stmt, span)
         if kind == "expr" and _is_marker(stmt, self.kind.marker):
             if self.kind.marker == AWAIT_MARKER:
                 return self._await(stmt, span)
@@ -1687,6 +1714,91 @@ class _Frame:
             ),
         ]
         arrive = [_assign(RESUME, _const(0, _INT, span), span)]
+        # A cancelled task raises CancelledError in the awaiting frame
+        # instead of producing a result.
+        cancelled = _if(
+            _compare("==", park, _const(2, _INT, span), span),
+            [
+                {
+                    "kind": "raise",
+                    "exc": "CancelledError",
+                    "code": RESERVED_EXCEPTIONS["CancelledError"],
+                    "message": None,
+                    "span": span,
+                }
+            ],
+            [],
+            span,
+        )
+        result_set = [_assign(result, read, span)] if elem.get("kind") != "none" else []
+        return [
+            _if(self.fresh(span), leave, arrive, span),
+            cancelled,
+            *result_set,
+        ]
+
+    def _wait_for(self, stmt: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
+        """Expand `__ps_wait_for__(task, delay)` into the deadline suspension.
+
+        The task wraps the awaited coroutine (the lowerer created it before
+        the marker). Fresh entry: park the frame on the task with the
+        deadline armed. Re-entry: the deadline either fired (the loop
+        cancelled the task, this frame raises TimeoutError) or the task
+        completed (the result reads out of the task's frame).
+        """
+        self.points += 1
+        point = self.points
+        task, delay = stmt["expr"]["args"][0], stmt["expr"]["args"][1]
+        task_t = task["type"]
+        slot = task["id"]
+        result = _await_result_name(slot)
+        elem = task_t["elem"]
+        park = {
+            "kind": "call",
+            "callee": {"kind": "module", "module": "asyncio", "name": "task_wait_for"},
+            "args": [_name(slot, task_t, span), delay, self.self_name(span)],
+            "type": dict(_INT),
+            "span": span,
+            "symbol": "ps_task_wait_for",
+        }
+        outcome = {
+            "kind": "call",
+            "callee": {"kind": "module", "module": "asyncio", "name": "task_wait_outcome"},
+            "args": [self.self_name(span)],
+            "type": dict(_INT),
+            "span": span,
+            "symbol": "ps_task_wait_outcome",
+        }
+        read = {
+            "kind": "call",
+            "callee": {"kind": "module", "module": "asyncio", "name": "task_result"},
+            "args": [_name(slot, task_t, span)],
+            "type": elem,
+            "span": span,
+            "symbol": "ps_task_result",
+        }
+        # Fresh entry: copy out, mark the point, park while the task runs.
+        leave = [
+            *self.copy_out(span),
+            self.field_set(STATE, _const(point, _INT, span), span),
+            _if(
+                _compare("==", park, _const(0, _INT, span), span),
+                self.kind.suspend(self, _const(0, _INT, span), span),
+                [],
+                span,
+            ),
+        ]
+        # Re-entry: the loop woke this frame. The deadline either fired
+        # (raise TimeoutError) or the task completed (read the result).
+        arrive = [
+            _assign(RESUME, _const(0, _INT, span), span),
+            _if(
+                _compare("==", outcome, _const(1, _INT, span), span),
+                [{"kind": "raise", "exc": "TimeoutError", "message": None, "span": span}],
+                [],
+                span,
+            ),
+        ]
         result_set = [_assign(result, read, span)] if elem.get("kind") != "none" else []
         return [
             _if(self.fresh(span), leave, arrive, span),
@@ -1752,7 +1864,12 @@ class _Frame:
 
 def _suspends(stmt: dict[str, Any], marker: str) -> bool:
     if stmt["kind"] == "expr":
-        return _is_marker(stmt, marker) or _is_marker(stmt, SLEEP_MARKER) or _is_marker(stmt, AWAIT_TASK_MARKER)
+        return (
+            _is_marker(stmt, marker)
+            or _is_marker(stmt, SLEEP_MARKER)
+            or _is_marker(stmt, AWAIT_TASK_MARKER)
+            or _is_marker(stmt, WAIT_FOR_MARKER)
+        )
     if stmt["kind"] == "if":
         return any(_suspends(s, marker) for s in stmt["then"]) or any(_suspends(s, marker) for s in stmt["else"])
     if stmt["kind"] == "while":
