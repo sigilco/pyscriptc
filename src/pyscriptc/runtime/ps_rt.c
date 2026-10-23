@@ -843,6 +843,71 @@ int32_t ps_seq_has_buf(PsSeq *s, int64_t n, char *p) {
     return 0;
 }
 
+/* Splitmix64 for int keys and FNV-1a for str keys: the map's key hashes.
+   Both mix all input bits, so sequential int keys land on scattered slots
+   and a str key uses every byte. */
+static uint64_t ps_mix64(uint64_t x) {
+    x += 0x9E3779B97F4A7C15ULL;
+    x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    x = (x ^ (x >> 27)) * 0x94D049BB133111EBULL;
+    return x ^ (x >> 31);
+}
+
+static int64_t ps_key_hash(PsMap *m, const void *key) {
+    if (m->key_kind == 1) {
+        int64_t k = 0;
+        memcpy(&k, key, 8);
+        return (int64_t)ps_mix64((uint64_t)k);
+    }
+    PsBuf b;
+    memcpy(&b, key, sizeof b);
+    uint64_t h = 0xCBF29CE484222325ULL;
+    for (int64_t i = 0; i < b.len; i++) {
+        h ^= (unsigned char)b.data[i];
+        h *= 0x100000001B3ULL;
+    }
+    return (int64_t)ps_mix64(h);
+}
+
+#define PS_DEAD_HASH ((int64_t)INT64_MIN)
+
+/* The probe table is a power of two with two slots per dense row, so the
+   load never passes one half and a probe always ends on an empty slot. */
+static int64_t ps_slot_count(int64_t cap) {
+    int64_t want = cap * 2;
+    int64_t n = 16;
+    while (n < want) {
+        n *= 2;
+    }
+    return n;
+}
+
+/* Rebuild the probe table from the cached hashes. The hashes live in their
+   own array, so a rebuild (a bigger table, or a table full of tombstones)
+   never re-hashes a string. */
+static void ps_index_build(PsMap *m) {
+    int64_t n = ps_slot_count(m->cap);
+    int32_t *slots = calloc((size_t)n, sizeof(int32_t));
+    if (slots == NULL) {
+        abort();
+    }
+    free(m->slots);
+    m->slots = slots;
+    m->slot_count = n;
+    m->slot_mask = (int32_t)(n - 1);
+    m->tombs = 0;
+    for (int64_t i = 0; i < m->rows; i++) {
+        if (m->hashes[i] == PS_DEAD_HASH) {
+            continue;
+        }
+        int64_t at = (uint64_t)m->hashes[i] & (uint64_t)m->slot_mask;
+        while (m->slots[at] != 0) {
+            at = (at + 1) & m->slot_mask;
+        }
+        m->slots[at] = (int32_t)(i + 1);
+    }
+}
+
 PsMap *ps_map_new(int32_t key_kind, int64_t key_size, int64_t val_size, int64_t cap) {
     if (cap < 0 || key_size <= 0 || val_size <= 0) {
         ps_raise_code(PS_OVERFLOW);
@@ -857,12 +922,16 @@ PsMap *ps_map_new(int32_t key_kind, int64_t key_size, int64_t val_size, int64_t 
     m->val_size = val_size;
     m->cap = cap;
     m->len = 0;
+    m->rows = 0;
     if (cap > 0) {
         m->keys = calloc((size_t)cap, (size_t)key_size);
         m->vals = calloc((size_t)cap, (size_t)val_size);
-        if (m->keys == NULL || m->vals == NULL) {
+        m->hashes = calloc((size_t)cap, sizeof(int64_t));
+        m->order = calloc((size_t)cap, sizeof(int32_t));
+        if (m->keys == NULL || m->vals == NULL || m->hashes == NULL || m->order == NULL) {
             abort();
         }
+        ps_index_build(m);
     }
     return m;
 }
@@ -884,38 +953,97 @@ static int ps_key_eq(PsMap *m, const void *a, const void *b) {
     return ps_buf_eq(ba, bb);
 }
 
+/* The dense row holding key, or -1 when it is absent. The probe walks live
+   keys and tombstones until an empty slot ends the chain; a hit compares
+   the cached hash first, then the key bytes, so a miss on a str key never
+   re-reads the string. */
 static int64_t ps_map_find(PsMap *m, const void *key) {
-    for (int64_t i = 0; i < m->len; i++) {
-        if (ps_key_eq(m, (char *)m->keys + (size_t)i * (size_t)m->key_size, key)) {
-            return i;
+    if (m->slot_mask == 0 || m->len == 0) {
+        return -1;
+    }
+    int64_t h = ps_key_hash(m, key);
+    int64_t at = (uint64_t)h & (uint64_t)m->slot_mask;
+    while (m->slots[at] != 0) {
+        int32_t cell = m->slots[at];
+        if (cell > 0) {
+            int64_t i = cell - 1;
+            if (m->hashes[i] == h && ps_key_eq(m, (char *)m->keys + (size_t)i * (size_t)m->key_size, key)) {
+                return i;
+            }
         }
+        at = (at + 1) & m->slot_mask;
     }
     return -1;
 }
 
 static void ps_map_grow(PsMap *m) {
     int64_t cap = m->cap == 0 ? 4 : m->cap * 2;
+    if (cap < m->rows + 1) {
+        ps_raise_code(PS_OVERFLOW);
+    }
+    if ((uint64_t)cap > UINT64_MAX / (uint64_t)m->key_size || (uint64_t)cap > UINT64_MAX / (uint64_t)m->val_size) {
+        ps_raise_code(PS_OVERFLOW);
+    }
     void *keys = realloc(m->keys, (size_t)cap * (size_t)m->key_size);
     void *vals = realloc(m->vals, (size_t)cap * (size_t)m->val_size);
-    if (keys == NULL || vals == NULL) {
+    int64_t *hashes = realloc(m->hashes, (size_t)cap * sizeof(int64_t));
+    int32_t *order = realloc(m->order, (size_t)cap * sizeof(int32_t));
+    if (keys == NULL || vals == NULL || hashes == NULL || order == NULL) {
         abort();
     }
     m->keys = keys;
     m->vals = vals;
+    m->hashes = hashes;
+    m->order = order;
     m->cap = cap;
+    ps_index_build(m);
 }
 
 void ps_map_put(PsMap *m, void *key, void *val) {
-    int64_t at = ps_map_find(m, key);
-    if (at < 0) {
-        if (m->len == m->cap) {
-            ps_map_grow(m);
-        }
-        at = m->len;
-        m->len += 1;
-        memcpy((char *)m->keys + (size_t)at * (size_t)m->key_size, key, (size_t)m->key_size);
+    if (m->slot_mask == 0) {
+        ps_index_build(m);
     }
-    memcpy((char *)m->vals + (size_t)at * (size_t)m->val_size, val, (size_t)m->val_size);
+    int64_t h = ps_key_hash(m, key);
+    int64_t at = (uint64_t)h & (uint64_t)m->slot_mask;
+    while (m->slots[at] != 0) {
+        int32_t cell = m->slots[at];
+        if (cell > 0) {
+            int64_t i = cell - 1;
+            if (m->hashes[i] == h && ps_key_eq(m, (char *)m->keys + (size_t)i * (size_t)m->key_size, key)) {
+                memcpy((char *)m->vals + (size_t)i * (size_t)m->val_size, val, (size_t)m->val_size);
+                return;
+            }
+        }
+        at = (at + 1) & m->slot_mask;
+    }
+    if (m->rows == m->cap) {
+        ps_map_grow(m);
+    }
+    /* Delete-heavy workloads fill the table with tombstones; rebuild when
+       they pass a quarter of the table so the probes stay short. */
+    if (m->tombs * 4 >= m->slot_count) {
+        ps_index_build(m);
+    }
+    at = (uint64_t)h & (uint64_t)m->slot_mask;
+    while (m->slots[at] != 0) {
+        at = (at + 1) & m->slot_mask;
+    }
+    int64_t i = m->rows;
+    m->rows += 1;
+    m->len += 1;
+    memcpy((char *)m->keys + (size_t)i * (size_t)m->key_size, key, (size_t)m->key_size);
+    m->hashes[i] = h;
+    m->slots[at] = (int32_t)(i + 1);
+    /* The order cache holds the live rows in insertion order. It is
+       appendable while it is in sync; a delete leaves a hole in it, so the
+       next iteration rebuilds it from the dense rows. */
+    if (!m->order_dirty && m->order_len < m->cap) {
+        m->order[m->order_len] = (int32_t)i;
+        m->order_len += 1;
+    } else {
+        m->order_dirty = 1;
+    }
+    memcpy((char *)m->vals + (size_t)i * (size_t)m->val_size, val, (size_t)m->val_size);
 }
 
 void ps_map_get(PsMap *m, void *key, void *out) {
@@ -947,26 +1075,91 @@ void ps_map_get(PsMap *m, void *key, void *out) {
 
 int32_t ps_map_has(PsMap *m, void *key) { return ps_map_find(m, key) >= 0; }
 
+/* Delete the key the probe finds: the dense row is marked dead and its slot
+   becomes a tombstone, so the probe chain of the other keys stays intact and
+   the survivors keep their insertion order. The order cache is stale after
+   this, and ps_map_row_at rebuilds it on the next iteration. */
+int64_t ps_map_delete(PsMap *m, void *key) {
+    int64_t at = ps_map_find(m, key);
+    if (at < 0) {
+        return -1;
+    }
+    int64_t h = m->hashes[at];
+    int64_t slot = (uint64_t)h & (uint64_t)m->slot_mask;
+    while (m->slots[slot] != 0) {
+        if (m->slots[slot] > 0 && m->slots[slot] - 1 == at) {
+            m->slots[slot] = -1;
+            m->tombs += 1;
+            break;
+        }
+        slot = (slot + 1) & m->slot_mask;
+    }
+    m->hashes[at] = PS_DEAD_HASH;
+    m->len -= 1;
+    m->order_dirty = 1;
+    return at;
+}
+
+/* Drop every key: the probe table is emptied and the dense rows are
+   released, so the map is empty but keeps its capacity. */
+void ps_map_reset(PsMap *m) {
+    if (m->slot_count > 0) {
+        memset(m->slots, 0, (size_t)m->slot_count * sizeof(int32_t));
+    }
+    m->tombs = 0;
+    m->len = 0;
+    m->rows = 0;
+    m->order_len = 0;
+    m->order_dirty = 0;
+}
+
+/* The dense row of the live key at iteration position p: order[p] when the
+   order cache is current, else a rebuild first. Callers walk positions 0
+   .. len-1, so one rebuild serves a whole iteration. */
+static int64_t ps_map_row_at(PsMap *m, int64_t p) {
+    if (p < 0 || p >= m->len) {
+        return -1;
+    }
+    if (m->order == NULL || m->order_len < m->len) {
+        m->order_dirty = 1;
+    }
+    if (m->order_dirty) {
+        int64_t live = 0;
+        for (int64_t r = 0; r < m->rows && live < m->len; r++) {
+            if (m->hashes[r] != PS_DEAD_HASH) {
+                m->order[live] = (int32_t)r;
+                live += 1;
+            }
+        }
+        m->order_len = live;
+        m->order_dirty = 0;
+    }
+    return m->order[p];
+}
+
 void ps_map_key_at(PsMap *m, int64_t i, void *out) {
-    if (i < 0 || i >= m->len) {
+    int64_t r = ps_map_row_at(m, i);
+    if (r < 0) {
         ps_raise_code(PS_INDEX);
     }
-    memcpy(out, (char *)m->keys + (size_t)i * (size_t)m->key_size, (size_t)m->key_size);
+    memcpy(out, (char *)m->keys + (size_t)r * (size_t)m->key_size, (size_t)m->key_size);
 }
 
 PsSeq *ps_dict_keys(PsMap *m) {
     PsSeq *seq = ps_seq_new(m->key_size, m->len);
-    for (int64_t i = 0; i < m->len; i++) {
-        ps_seq_set(seq, i, (char *)m->keys + (size_t)i * (size_t)m->key_size);
+    for (int64_t p = 0; p < m->len; p++) {
+        int64_t r = ps_map_row_at(m, p);
+        ps_seq_set(seq, p, (char *)m->keys + (size_t)r * (size_t)m->key_size);
     }
     return seq;
 }
 
 void ps_map_val_at(PsMap *m, int64_t i, void *out) {
-    if (i < 0 || i >= m->len) {
+    int64_t r = ps_map_row_at(m, i);
+    if (r < 0) {
         ps_raise_code(PS_INDEX);
     }
-    memcpy(out, (char *)m->vals + (size_t)i * (size_t)m->val_size, (size_t)m->val_size);
+    memcpy(out, (char *)m->vals + (size_t)r * (size_t)m->val_size, (size_t)m->val_size);
 }
 
 static int ps_space(unsigned char c) {
