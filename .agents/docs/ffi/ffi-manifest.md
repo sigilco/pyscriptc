@@ -355,6 +355,27 @@ at (`docs/compile-rate-essence-method.md` — sqlite3 is the single largest
 seam win, 13 rows). F4 exists because a seam designed for exactly one
 consumer rots into a special case.
 
+### 6a. F1c decision: typed container annotations (2026-10-23, issue #236)
+
+The manifest grammar accepts `list[T]`, `dict[K, V]` and the one nesting the
+lane needs, `list[dict[K, V]]` (the sqlite row shape). `type_ir` maps them
+onto the subset's `elem`/`key`/`value` IR forms, so a returned aggregate is
+a regular subset list or dict: iteration, subscript, `len`, `in`, mutation
+and freeing all go through the code paths the subset already has, and the
+value is owned by the caller from the return on (the runtime owns freeing;
+the library never frees a returned aggregate and never borrows one back).
+
+The alternative, keeping the bare `list`/`dict` spelling with a `none` elem,
+was rejected: `_llvm_type({"kind": "none"})` is `void` and `_elem_size`
+refuses it, so element access could not lower without teaching the emitter
+a special elem kind, and the checker could not catch a wrong key type on a
+`row['nm']` read. Scalar-vocabulary elements, no deeper nesting, and no
+handles inside containers (a handle elem would be a bare ptr the subset
+cannot touch) keep the aggregate ABI inside what `ps_seq_*`/`ps_map_*`
+already store. `for` over `list[dict[...]]` needed the loop guard in
+`lower/_stmt.py` widened from scalars to scalar-or-dict; dicts as elements
+emit through the same `ps_seq_get` slot copy as every other element.
+
 ## 7. Integration points (open)
 
 The F0 parser ships first; these are the seams the later gates plug into.
