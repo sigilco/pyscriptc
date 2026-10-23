@@ -348,8 +348,11 @@ int64_t ps_task_done(void *task);
 int64_t ps_task_cancel(void *task);
 int64_t ps_task_cancelled(void *task);
 /* `await task`: park the frame until the task completes. 1 when the task is
-   already done, so the caller does not park. */
+   already done, so the caller does not park; 2 when the task failed, so the
+   caller re-raises it with ps_task_failure. */
 int64_t ps_task_await(void *task, void *frame);
+/* Re-raise the failure a task handle holds, in the awaiting frame. */
+void ps_task_failure(void *task);
 /* Read the result the task's coroutine produced. The frame's field 2 is
    `.ps_result`, and `size` is the element size the caller's type carries. */
 void ps_task_result(void *task, int64_t size, void *out);

@@ -791,3 +791,54 @@ async def in_with() -> int:
     module = lower_source(source, "with_ok.py")
     assert module["fences"] == []
     validate_module(module)
+
+
+UNCAUGHT = """\
+import asyncio
+
+
+async def boom() -> int:
+    await asyncio.sleep(0.01)
+    raise ValueError("late")
+
+
+async def main() -> int:
+    await boom()
+    return 0
+
+
+print(asyncio.run(main()))
+"""
+
+
+def test_an_uncaught_child_failure_is_reported(tmp_path: Path) -> None:
+    """A child that fails with no handler does not vanish.
+
+    The child runs on the loop's stack, so its exception has nowhere to
+    unwind to. The loop reports it and leaves, the way an exception that
+    reaches the top of the program does: before this, the failure was
+    swallowed and the program exited 0.
+    """
+    path = tmp_path / "uncaught.py"
+    path.write_text(UNCAUGHT, encoding="utf-8")
+    built = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pyscriptc",
+            "compile",
+            str(path),
+            "--skip-check",
+            "--emit",
+            "bin",
+            "-o",
+            str(tmp_path / "uncaught"),
+            "--run",
+        ],
+        cwd=ROOT,
+        env=ENV,
+        capture_output=True,
+        text=True,
+    )
+    assert built.returncode == 1
+    assert "ValueError: late" in built.stderr

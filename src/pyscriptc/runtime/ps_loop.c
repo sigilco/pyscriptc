@@ -54,6 +54,11 @@ struct PsTask {
     /* Set when the task is cancelled: the loop raises CancelledError into it
        at its next suspension point. */
     int32_t cancelled;
+    /* Set when the record backs a task handle (`asyncio.create_task`). A
+       handle outlives its awaiter, so its failure waits in the record for
+       whoever awaits the task or reads its result. A plain child frame has
+       no handle, and its failure waits in the ps_fail table instead. */
+    int32_t handle;
     /* The result the task produced, for `task.result()`. The record holds the
        raw value; the caller reads it through the same ABI the frame uses. */
     void *result;
@@ -234,7 +239,11 @@ A task that raises is caught here: the frame runs on the loop's own stack,
 with no awaiter below it, so an exception that unwound further would find
 no handler and kill the process. The exception is parked against the frame
 instead (ps_fail_store), and the frame's awaiter re-raises it at its own
-await point. */
+await point.
+
+A failure with no awaiter is unhandled: nothing will ever re-raise it, so
+the loop reports it and exits, the way an exception that reaches the top of
+the program does. */
 static int64_t ps_task_step(PsTask *task) {
     if (task->cancelled) {
         /* A cancelled task stops at its next step: the coroutine does not
@@ -251,15 +260,16 @@ static int64_t ps_task_step(PsTask *task) {
     PsExc *caught = NULL;
     int32_t status = 0;
     if (ps_exc_catch(ps_task_shim, task, &status, &caught) != 0) {
-        ps_fail_store(task->frame, caught);
         status = 2;
     }
     if (status == 1 || status == 2) {
         task->done = 1;
         int64_t kept = 0;
+        int64_t awaiters = 0;
         for (int64_t i = 0; i < ps_wait_len; i++) {
             if (ps_waits[i].child == task->frame) {
                 ps_ready_task(ps_waits[i].parent);
+                awaiters++;
                 continue;
             }
             ps_waits[kept++] = ps_waits[i];
@@ -270,6 +280,24 @@ static int64_t ps_task_step(PsTask *task) {
             ps_ready_task(task->waiters[i]);
         }
         task->waiter_len = 0;
+        if (status == 2) {
+            if (task->handle) {
+                /* A task handle keeps its own failure: whoever awaits the
+                   task (or reads its result) is the one who sees it, so the
+                   exception waits in the record. */
+                task->exc = caught;
+                task->exc_code = caught != NULL ? caught->code : 0;
+            } else if (awaiters == 0) {
+                /* Nothing awaits this frame, so the exception has no place to
+                   go: report it and leave, like an exception that reaches the
+                   top of the program. */
+                ps_exc_restore(caught);
+                ps_report_current(NULL);
+                exit(1);
+            } else {
+                ps_fail_store(task->frame, caught);
+            }
+        }
     }
     return status;
 }
@@ -644,6 +672,7 @@ void *ps_task_new(void *frame) {
     task->frame = frame;
     task->done = 0;
     task->cancelled = 0;
+    task->handle = 1;
     task->result = NULL;
     task->result_size = 0;
     task->exc_code = 0;
@@ -715,8 +744,9 @@ int64_t ps_task_cancelled(void *task) {
 
 /* `await task`: park the calling frame until the task completes. The task
    may already be done, in which case the caller does not park at all.
-   Return: 1 done, 0 parked, 2 the task was cancelled (the caller raises
-   CancelledError instead of reading a result). */
+   Return: 1 done, 0 parked, 2 done and failed (ps_task_failure re-raises
+   it), 3 the task was cancelled (the caller raises CancelledError instead
+   of reading a result). */
 int64_t ps_task_await(void *task, void *frame) {
     if (task == NULL) {
         return 1;
@@ -725,13 +755,26 @@ int64_t ps_task_await(void *task, void *frame) {
     if (t->cancelled) {
         /* Cancelled before it ran, or at a step: the awaiter sees
            CancelledError, the coroutine body never continues. */
-        return 2;
+        return 3;
     }
     if (t->done) {
-        return 1;
+        return t->exc != NULL ? 2 : 1;
     }
     ps_task_add_waiter(t, frame);
     return 0;
+}
+
+/* Re-raise the failure a task handle holds, in the awaiting frame. The
+   awaiter runs this inside its own resume body, so its try outline sees the
+   exception exactly where CPython's awaiter would. */
+void ps_task_failure(void *task) {
+    if (task == NULL) {
+        return;
+    }
+    PsTask *t = (PsTask *)task;
+    if (t->exc != NULL) {
+        ps_raise_exc(t->exc);
+    }
 }
 
 /* Read the result the task's coroutine produced. The frame's field 2 is

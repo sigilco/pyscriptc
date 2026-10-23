@@ -147,15 +147,18 @@ def test_self_census_ballpark() -> None:
     # module count is unchanged.
     # mobile.py and emitlib.py (#356): the mobile registry, the library build
     # and the target-aware fences add 59 self-host fences.
-    # Timeouts and cancellation (#179, stage D2): the wait_for lowering, the
+# Timeouts and cancellation (#179, stage D2): the wait_for lowering, the
     # deadline expansion in coro.py and the cancel/cancelled method dispatch
     # add 3 self-host fences; the asyncio.CancelledError class alias adds
     # none (the tables are data).
-    assert census["fences"] == 2817
+    # async stage C (#337): the task-failure re-raise in coro.py adds 1
+    # self-host fence (the `ps_task_failure` call inside the await-task
+    # expansion).
+    assert census["fences"] == 2818
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     # Project mode (#150): project.py adds about 240 lines.
     # yield inside try (#164): the re-entrant try in the coro guard transform
     # adds about 150 lines in coro.py.
     assert 11_000 <= census["lines"] <= 39_000
-    assert sum(p["fences"] for p in census["packages"]) == 2817
+assert sum(p["fences"] for p in census["packages"]) == 2818

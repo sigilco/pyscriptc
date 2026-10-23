@@ -92,6 +92,10 @@ COMPLETE = 1
 # The poll's third outcome: the child raised. The loop parks the exception
 # against the child frame and the awaiter re-raises it in its own body.
 FAILED = 2
+# The task await's fourth outcome: the task was cancelled, so the awaiting
+# frame raises CancelledError instead of reading a result. It is distinct
+# from FAILED so one park call can carry both.
+CANCELLED = 3
 # The exception a suspended `except` body keeps in its frame. Python holds one
 # exception per generator frame, so the frame carries it across the
 # suspension and the runtime puts it back on the resume.
@@ -1710,6 +1714,11 @@ class _Frame:
         returns 0 while the task is still running, and the parent suspends
         with status 0. The loop re-queues the parent when the task finishes,
         and the parent then reads the result out of the task.
+
+        Status 2 means the task failed: the task runs on the loop's own
+        stack, so its exception was parked in the record, and the awaiting
+        parent re-raises it here (ps_task_failure) inside the parent's own
+        body, where its try sees it.
         """
         self.points += 1
         point = self.points
@@ -1718,6 +1727,8 @@ class _Frame:
         slot = task["id"]
         result = _await_result_name(slot)
         elem = task_t["elem"]
+        failed = self.temp("awtf", _BOOL)
+        status = self.temp("awts", _INT)
         park = {
             "kind": "call",
             "callee": {"kind": "module", "module": "asyncio", "name": "task_await"},
@@ -1734,23 +1745,33 @@ class _Frame:
             "span": span,
             "symbol": "ps_task_result",
         }
+        raise_here = {
+            "kind": "expr",
+            "expr": {
+                "kind": "call",
+                "callee": {"kind": "module", "module": "asyncio", "name": "task_failure"},
+                "args": [_name(slot, task_t, span)],
+                "type": dict(_NONE),
+                "span": span,
+                "symbol": "ps_task_failure",
+            },
+            "span": span,
+        }
         # Fresh entry: copy out, mark the point, park. Re-entry: the task
         # finished and the loop woke the parent, so fall through to the read.
         leave = [
             *self.copy_out(span),
             self.field_set(STATE, _const(point, _INT, span), span),
-            _if(
-                _compare("==", park, _const(0, _INT, span), span),
-                self.kind.suspend(self, _const(0, _INT, span), span),
-                [],
-                span,
-            ),
+            *self._task_park(park, raise_here, failed, status, span),
         ]
-        arrive = [_assign(RESUME, _const(0, _INT, span), span)]
-        # A cancelled task raises CancelledError in the awaiting frame
+        arrive = [
+            _assign(RESUME, _const(0, _INT, span), span),
+            *self._task_park(park, raise_here, failed, status, span),
+        ]
+# A cancelled task raises CancelledError in the awaiting frame
         # instead of producing a result.
         cancelled = _if(
-            _compare("==", park, _const(2, _INT, span), span),
+            _compare("==", status, _const(CANCELLED, _INT, span), span),
             [
                 {
                     "kind": "raise",
@@ -1836,6 +1857,22 @@ class _Frame:
         return [
             _if(self.fresh(span), leave, arrive, span),
             *result_set,
+        ]
+
+    def _task_park(
+        self, park: dict[str, Any], raise_here: dict[str, Any], failed: str, status: str, span: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """Park on the task, or re-raise its failure before the parent parks."""
+        return [
+            _assign(status, park, span),
+            _assign(failed, _compare("==", _name(status, _INT, span), _const(FAILED, _INT, span), span), span),
+            _if(_name(failed, _BOOL, span), [raise_here], [], span),
+            _if(
+                _compare("==", _name(status, _INT, span), _const(0, _INT, span), span),
+                self.kind.suspend(self, _const(0, _INT, span), span),
+                [],
+                span,
+            ),
         ]
 
     def _sleep(self, stmt: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:

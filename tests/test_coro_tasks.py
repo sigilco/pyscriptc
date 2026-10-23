@@ -277,3 +277,55 @@ def test_await_of_a_task_is_not_a_child_poll() -> None:
     module = lower_source(CREATE, "create.py")
     text = json.dumps(module)
     assert "ps_task_await" in text
+
+
+# --- a task that fails (issue #337, stage C) --------------------------------
+
+FAILURE = """\
+import asyncio
+
+
+async def boom() -> int:
+    await asyncio.sleep(0.01)
+    print("boom")
+    raise ValueError("late")
+
+
+async def main() -> int:
+    t: asyncio.Task[int] = asyncio.create_task(boom())
+    try:
+        r: int = await t
+        print("never", r)
+    except ValueError as e:
+        print("caught from the await", str(e))
+    u: asyncio.Task[int] = asyncio.create_task(boom())
+    await asyncio.sleep(0.05)
+    try:
+        r2: int = u.result()
+        print("never", r2)
+    except ValueError as e:
+        print("caught from the result", str(e))
+    return 1
+
+
+print(asyncio.run(main()))
+"""
+
+
+def test_a_failing_task_matches_cpython(tmp_path: Path) -> None:
+    got, expected = _run_both(tmp_path, "task_failure", FAILURE)
+    assert expected
+    assert got == expected
+
+
+def test_a_failing_task_re_raises_in_the_awaiter() -> None:
+    """The await of a failed task re-raises the task's exception.
+
+    The task runs on the loop's stack, so its exception has no handler
+    below it: the record keeps it and the awaiting frame re-raises it.
+    """
+    module = lower_source(FAILURE, "task_failure.py")
+    assert module["fences"] == []
+    text = json.dumps(module)
+    assert "ps_task_failure" in text
+    validate_module(module)
