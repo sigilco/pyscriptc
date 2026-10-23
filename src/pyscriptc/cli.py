@@ -914,9 +914,21 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             dbg.end("bridge")
         dbg.begin("lower")
         if source_path.is_dir():
-            module, source = lower_directory(source_path, program_mode=args.program, bridge=bridge, ffi=manifests)
+            module, source = lower_directory(
+                source_path,
+                program_mode=args.program,
+                bridge=bridge,
+                ffi=manifests,
+                target=args.target,
+            )
         elif source_path.is_file():
-            module, source = lower_file(str(source_path), bridge=bridge, timings=dbg.timings_map, ffi=manifests)
+            module, source = lower_file(
+                str(source_path),
+                bridge=bridge,
+                timings=dbg.timings_map,
+                ffi=manifests,
+                target=args.target,
+            )
         else:
             raise IRError(f"source not found: {source_path}")
         dbg.end("lower")

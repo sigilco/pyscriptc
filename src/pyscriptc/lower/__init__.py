@@ -55,14 +55,18 @@ from pyscriptc.lower._stmt import (
     _stmt_breaks_this_loop,
     _stmt_continues_this_loop,
 )
+from pyscriptc.mobile import MOBILE_EXCLUDED_SYMBOLS, is_mobile_target, mobile_fence_hint
 from pyscriptc.stdlib_queue import PACK_MODULES, canonical_module, ffi_modules, module_status
 from pyscriptc.stdmore import PTR_CLASSES, member_callable, module_constant
 
 
 class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixin, ClosuresMixin):
-    def __init__(self, filename: str, source: str) -> None:
+    def __init__(self, filename: str, source: str, target: str | None = None) -> None:
         self.filename = filename
         self.source = source
+        # The compile target triple, None on desktop compiles. Mobile targets
+        # turn the surfaces whose runtime the archive excludes into fences.
+        self.target = target
         self.function: str | None = None
         self.sigs: dict[str, tuple[list[dict[str, Any]], dict[str, Any]]] = {}
         self.locals: dict[str, dict[str, Any]] = {}
@@ -227,6 +231,38 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
 
     def fail(self, node: ast.AST, code: str, message: str) -> NoReturn:
         raise Fence(code, message, span_of(node, self.filename), self.function)
+
+    def mobile_guard(self, node: ast.AST, surface: str, key: str) -> None:
+        """Fence a surface a mobile target cannot carry.
+
+        `surface` is the call as the user wrote it (`subprocess.run`), `key`
+        the excluded runtime it needs (`subprocess`, `osfd`). On a mobile
+        triple the archive leaves that runtime file out, so lowering it would
+        link an undefined symbol. The fence keeps the same code the desktop
+        build gives and adds the mobile reason.
+        """
+        if not is_mobile_target(self.target):
+            return
+        hint = mobile_fence_hint(key)
+        if hint is None:
+            return
+        self.fail(node, "PS2001", f"{surface} is not lowered on a mobile target: {hint}")
+
+    def mobile_symbol_guard(self, node: ast.AST, symbol: str) -> None:
+        """Fence a lowered call whose runtime symbol the mobile archive drops.
+
+        The symbol table is the whole truth here: every runtime file the
+        mobile archive leaves out defines a known set of symbols, so a call
+        that names one of them cannot link, whatever the surface is called.
+        """
+        if not is_mobile_target(self.target):
+            return
+        surface = MOBILE_EXCLUDED_SYMBOLS.get(symbol)
+        if surface is None:
+            return
+        hint = mobile_fence_hint(surface)
+        assert hint is not None
+        self.fail(node, "PS2001", f"{symbol} is not lowered on a mobile target: {hint}")
 
     def _desugar(self, tree: ast.Module) -> ast.Module:
         """Pre-lowering syntax pass. Runs once, before any statement is
@@ -1499,6 +1535,7 @@ def lower_source(
     bridge: Any = None,
     timings: dict[str, float] | None = None,
     ffi: list[Any] | None = None,
+    target: str | None = None,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     tree = ast.parse(source, filename=filename)
@@ -1506,10 +1543,10 @@ def lower_source(
         timings["parse"] = round((time.perf_counter() - started) * 1000.0, 3)
     if ffi:
         with ffi_modules(ffi):
-            lowerer = Lowerer(filename, source)
+            lowerer = Lowerer(filename, source, target=target)
             lowerer.bridge = bridge
             return lowerer.module(tree)
-    lowerer = Lowerer(filename, source)
+    lowerer = Lowerer(filename, source, target=target)
     lowerer.bridge = bridge
     return lowerer.module(tree)
 
@@ -1519,9 +1556,10 @@ def lower_file(
     bridge: Any = None,
     timings: dict[str, float] | None = None,
     ffi: list[Any] | None = None,
+    target: str | None = None,
 ) -> tuple[dict[str, Any], str]:
     text = open(path, encoding="utf-8").read()
-    return lower_source(text, path, bridge, timings, ffi), text
+    return lower_source(text, path, bridge, timings, ffi, target), text
 
 
 def render_fences(module: dict[str, Any], source: str) -> str:

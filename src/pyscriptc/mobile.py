@@ -141,3 +141,44 @@ def excluded_sources(runtime: Path) -> list[Path]:
         if path.is_file():
             out.append(path)
     return out
+
+
+# Lowered surfaces whose runtime lives in a file the mobile archive excludes.
+# The fence carries the same code the desktop build would give for a broken
+# surface use, but the message says what the mobile target is missing, so the
+# failure lands at compile time instead of as an undefined symbol at link.
+MOBILE_FENCE_HINTS: dict[str, str] = {
+    "subprocess": (
+        "subprocess spawns processes, and a mobile sandbox has no fork/exec: the mobile archive leaves ps_sub.c out"
+    ),
+    "osfd": ("raw file descriptors have no meaning inside an app sandbox: the mobile archive leaves ps_osfd.c out"),
+}
+
+
+# The runtime symbols the excluded files define. A lowered call that reaches
+# one of them cannot link into a mobile archive, so the lowering fences it.
+MOBILE_EXCLUDED_SYMBOLS: dict[str, str] = {
+    "ps_sub_run": "subprocess",
+    "ps_sub_call": "subprocess",
+    "ps_sub_check_call": "subprocess",
+    "ps_os_open": "osfd",
+    "ps_os_close": "osfd",
+    "ps_os_read": "osfd",
+    "ps_os_write": "osfd",
+    "ps_os_fstat": "osfd",
+    "ps_os_lstat": "osfd",
+    "ps_os_utime": "osfd",
+}
+
+
+def mobile_fence_hint(text: str) -> str | None:
+    """The mobile sentence for a lowered surface, or None when it is not one.
+
+    Matched on the surface key (`subprocess`, `osfd`), not on fence messages,
+    so wording changes cannot silently unhook it.
+    """
+    if "subprocess" in text.lower():
+        return MOBILE_FENCE_HINTS["subprocess"]
+    if "osfd" in text.lower():
+        return MOBILE_FENCE_HINTS["osfd"]
+    return None

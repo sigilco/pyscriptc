@@ -40,6 +40,7 @@ def lower_directory(
     entry: str | None = None,
     prefix: str = "",
     ffi: list[Any] | None = None,
+    target: str | None = None,
 ) -> tuple[dict[str, Any], str]:
     """Lower a directory tree into one IR module.
 
@@ -88,7 +89,7 @@ def lower_directory(
             tree = ast.parse(text, filename=str(path))
             if program:
                 tree = _inject_inits(tree, owners.get(name, []), exports, name, is_package)
-            lowerer = Lowerer(str(path), text)
+            lowerer = Lowerer(str(path), text, target=target)
             lowerer.module_name = name
             lowerer.is_package = is_package
             lowerer.package = exports

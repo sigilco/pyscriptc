@@ -52,6 +52,8 @@ ANDROID = "aarch64-linux-android"
 DESKTOP = "aarch64-linux-gnu"
 
 HELLO = "def main() -> None:\n    print(str(1 + 1))\n\n\nmain()\n"
+SUBPROC = 'import subprocess\n\n\ndef main() -> int:\n    return subprocess.run(["ls"]).returncode\n'
+OSOPEN = 'import os\n\n\ndef main() -> int:\n    return os.open("x", 0)\n'
 
 
 def _sdk_present(sdk: str) -> bool:
@@ -280,6 +282,47 @@ def test_runtime_sources_exclude_the_mobile_hostile_files() -> None:
     # excluded for mobile only, not deleted
     assert (runtime / "ps_sub.c").is_file()
     assert (runtime / "ps_osfd.c").is_file()
+
+
+# --- target-aware fences: excluded runtime never reaches the archive ---
+
+
+@pytest.mark.parametrize("source,surface", [(SUBPROC, "subprocess.run"), (OSOPEN, "os.open")])
+def test_mobile_compile_fences_the_excluded_runtime(tmp_path: Path, source: str, surface: str) -> None:
+    """A call whose symbol the mobile archive drops fences at compile time."""
+    path = write_case(tmp_path, "app.py", source)
+    got = compile_cli(tmp_path, path, "--emit", "lib", "--target", SIM, "--skip-check")
+    assert got.returncode == 3, got.stderr
+    assert "PS2001" in got.stderr
+    assert surface in got.stderr
+    assert "mobile target" in got.stderr
+    # the build never produced an archive with a dangling symbol
+    assert not list(tmp_path.rglob("*.a"))
+
+
+@pytest.mark.parametrize("source", [SUBPROC, OSOPEN])
+def test_desktop_compile_still_lowers_the_same_source(tmp_path: Path, source: str) -> None:
+    """Without a mobile target the very same code lowers untouched."""
+    path = write_case(tmp_path, "app.py", source)
+    got = compile_cli(tmp_path, path, "--emit", "llvm", "--skip-check")
+    assert got.returncode == 0, got.stderr
+
+
+def test_excluded_symbols_cover_both_excluded_files() -> None:
+    from pyscriptc.mobile import MOBILE_EXCLUDED_SYMBOLS
+
+    assert set(MOBILE_EXCLUDED_SYMBOLS) == {
+        "ps_sub_run",
+        "ps_sub_call",
+        "ps_sub_check_call",
+        "ps_os_open",
+        "ps_os_close",
+        "ps_os_read",
+        "ps_os_write",
+        "ps_os_fstat",
+        "ps_os_lstat",
+        "ps_os_utime",
+    }
 
 
 # --- the emitted IR shape (in-process emitter, no cross toolchain) ---

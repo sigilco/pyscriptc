@@ -807,6 +807,7 @@ class CallsMixin:
             args.append(arg)
         expr = _mod_call(module, attr, args, spec["return"], span)
         if "symbol" in spec:
+            self.mobile_symbol_guard(node, spec["symbol"])
             expr["symbol"] = spec["symbol"]
         return expr
 
