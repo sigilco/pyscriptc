@@ -377,6 +377,51 @@ ok = ['y: int = threading.get_ident()', 'y: str = threading.current_thread().nam
 no = [["main_thread", 'y: int = threading.main_thread()', "PS2001"], ["Thread target is a callable", 'y: int = threading.Thread(target=n)', "PS1003"], ["Timer", 'y: threading.Timer = threading.Timer(1, f)', "PS1106"], ["Lock in `with`", 'with threading.Lock(): pass', "PS2002"]]
 
 [[stdlib]]
+names = ["queue"]
+ok = [
+  '''q: queue.Queue[int] = queue.Queue()
+@@
+q.put(n)
+y: int = q.get()''',
+  '''q: queue.Queue[int] = queue.Queue(1)
+@@
+q.put_nowait(n)''',
+  '''q: queue.Queue[int] = queue.Queue()
+@@
+y: bool = q.empty()
+y: int = q.qsize()''',
+  '''q: queue.LifoQueue[int] = queue.LifoQueue()
+@@
+q.put(n)
+y: int = q.get()''',
+  '''q: queue.SimpleQueue[int] = queue.SimpleQueue()
+@@
+q.put(n)
+y: int = q.get()''',
+  '''q: queue.Queue[int] = queue.Queue()
+@@
+try:
+    q.get_nowait()
+except queue.Empty:
+    pass''',
+  '''q: queue.Queue[int] = queue.Queue()
+@@
+q.put(n)
+q.task_done()
+q.join()''',
+]
+no = [
+  ["PriorityQueue", 'q: queue.PriorityQueue = queue.PriorityQueue()', "PS1106"],
+  ["a queue without an element annotation", 'q = queue.Queue()', "PS1001"],
+  ["an unknown queue method", '''q: queue.Queue[int] = queue.Queue()
+@@
+q.snap()''', "PS2001"],
+  ["a bool element type", '''q: queue.Queue[bool] = queue.Queue()
+@@
+q.put(True)''', "PS2002"],
+]
+
+[[stdlib]]
 names = ["logging"]
 ok = ['logging.info(s)', 'logging.error(s)', 'y: int = logging.INFO', 'logging.getLogger(s).info(s)']
 no = [["basicConfig(level=...)", 'logging.basicConfig(level=logging.INFO)', "PS2003"], ["format args (`logging.info(fmt, a)`)", 'logging.info("a %s", s)', "PS2003"], ["exception, handlers (StreamHandler)", 'logging.exception(s)', "PS2001"]]

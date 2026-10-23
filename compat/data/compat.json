@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-23",
-  "commit": "7276c22d41cce108dbf8c6bdffe5a55a3ca83686",
+  "commit": "5348465e3aea52f204042b2d02d1aa3ac37cbf03",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -13,7 +13,7 @@
     "builtins_partial": 15,
     "builtins_none": 1,
     "stdlib_full": 0,
-    "stdlib_partial": 53,
+    "stdlib_partial": 54,
     "stdlib_none": 1,
     "packages_full": 3,
     "packages_partial": 5,
@@ -914,6 +914,26 @@
       ],
       "fences": [
         "PS1003",
+        "PS1106",
+        "PS2001",
+        "PS2002"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.queue",
+      "kind": "stdlib",
+      "label": "`queue`",
+      "names": [
+        "queue"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "PriorityQueue, a queue without an element annotation, an unknown queue method, a bool element type"
+      ],
+      "fences": [
+        "PS1001",
         "PS1106",
         "PS2001",
         "PS2002"
@@ -2079,7 +2099,7 @@
   "history": [
     {
       "date": "2026-10-23",
-      "commit": "7276c22d41cce108dbf8c6bdffe5a55a3ca83686",
+      "commit": "5348465e3aea52f204042b2d02d1aa3ac37cbf03",
       "weighted_pass": 0.0,
       "packages_full": 3,
       "packages_partial": 5,

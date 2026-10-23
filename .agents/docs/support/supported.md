@@ -1,6 +1,6 @@
 # What is supported
 
-builtins: 25 🟢 · 22 🟡 · 23 🔴 | stdlib: 0 🟢 · 54 🟡 · 2 🔴
+builtins: 25 🟢 · 22 🟡 · 23 🔴 | stdlib: 0 🟢 · 55 🟡 · 2 🔴
 
 🟢 fully supported (every probed form compiles) · 🟡 partial · 🔴 not supported.
 
@@ -77,6 +77,7 @@ Targets CPython 3.14. Deliberate differences from CPython: [divergences.md](../.
 | `os` | 🟡 | walk, scandir, system, urandom, cpu_count, kill, symlink, rmdir, getuid, keyword arguments (makedirs exist_ok) | PS2001, PS2003 |
 | `pathlib` | 🟡 | rglob, absolute, rmdir, with_suffix, relative_to, resolve to str, PurePath | PS2001 |
 | `posixpath` | 🟡 | commonpath, ismount, lexists | PS2001 |
+| `queue` | 🟡 | PriorityQueue, a queue without an element annotation, an unknown queue method, a bool element type | PS1001, PS1106, PS2001, PS2002 |
 | `random` | 🟡 | sample, gauss, Random, choices(k=) | PS2001, PS2003 |
 | `re` | 🟡 | finditer, 5+ groups, sub with a function | PS1001, PS2001, PS2002 |
 | `shutil` | 🟡 | make_archive, disk_usage, chown | PS2001 |
