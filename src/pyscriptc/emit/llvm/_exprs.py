@@ -313,6 +313,8 @@ class ExprsMixin:
         stub = expr.get("stub")
         if stub is not None:
             impl = self._partial_symbol(stub)
+        elif expr.get("thread_stub") is not None:
+            impl = self._thread_symbol(expr["thread_stub"])
         else:
             fn = self.functions[expr["name"]]
             if "env" in fn:

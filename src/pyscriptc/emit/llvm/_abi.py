@@ -135,7 +135,21 @@ class AbiMixin:
             kind == "class"
             and (
                 ret.get("name")
-                in {"Deque", "TextIO", "BytesIO", "CsvWriter", "Lock", "Queue", "HttpResponse", "HttpRequest"}
+                in {
+                    "Deque",
+                    "TextIO",
+                    "BytesIO",
+                    "CsvWriter",
+                    "Lock",
+                    "Queue",
+                    "HttpResponse",
+                    "HttpRequest",
+                    "AsyncLock",
+                    "AsyncEvent",
+                    "AsyncSemaphore",
+                    "AsyncQueue",
+                    "ThreadCall",
+                }
                 or symbol.startswith("ps_ffi_")
             )
         ):
@@ -146,6 +160,11 @@ class AbiMixin:
                 "ps_event_new",
                 "ps_sem_new",
                 "ps_task_new",
+                "ps_alock_new",
+                "ps_aevent_new",
+                "ps_asem_new",
+                "ps_aqueue_new",
+                "ps_to_thread_new",
             }:
                 # The runtime owns the record: the value is the record pointer.
                 self._abi_decl(symbol, "ptr", types)
@@ -165,6 +184,32 @@ class AbiMixin:
         name = self.string_value(meta["name"])
         name_len, name_ptr = self._buf_parts(name)
         return self._call_ret("ptr", "ps_thread_new", [f"ptr {pair}", f"i64 {meta['daemon']}", f"ptr {name_ptr}"])
+
+    def _emit_to_thread_new(self, expr: dict[str, Any], values: list[str]) -> str:
+        """`asyncio.to_thread(fn, ...)`: the record that owns the result.
+
+        The size is the result slot's size, so the runtime copies exactly
+        the value's bytes. The callable pair and the worker start ride on
+        the `ps_to_thread_start` call that follows.
+        """
+        meta = expr["thread"]
+        size = meta["size"]
+        self._abi_decl("ps_to_thread_new", "ptr", ["i64"])
+        return self._call_ret("ptr", "ps_to_thread_new", [f"i64 {size}"])
+
+    def _emit_to_thread_start(self, expr: dict[str, Any], values: list[str]) -> str:
+        """`ps_to_thread_start(record, pair)`: build the pair and start the
+        worker.
+
+        The pair carries the bound arguments, the inner callable and the
+        record, so the worker stub finds the record and stores the result
+        into it.
+        """
+        record = values[0]
+        pair = self.emit_closure(expr["args"][1])
+        self._abi_decl("ps_to_thread_start", "void", ["ptr", "ptr"])
+        self._call_void("ps_to_thread_start", [f"ptr {record}", f"ptr {pair}"])
+        return ""
 
     def _emit_list_push(self, expr: dict[str, Any], values: list[str]) -> str:
         seq, elem = values
@@ -403,6 +448,74 @@ class AbiMixin:
             self.partial_keys[key] = symbol
             self.partials[symbol] = spec
         return symbol
+
+    def _thread_symbol(self, spec: dict[str, Any]) -> str:
+        """The env-first stub a `to_thread` worker runs.
+
+        The stub is the partial shim with one more job: it stores the
+        callable's return value into the thread record, so the loop can
+        hand it back to the awaiting frame.
+        """
+        key = repr((spec["bound"], spec["params"], spec["return"]))
+        symbol = self.thread_keys.get(key)
+        if symbol is None:
+            symbol = f"ps.thread.{self.thread_n}"
+            self.thread_n += 1
+            self.thread_keys[key] = symbol
+            self.threads[symbol] = spec
+        return symbol
+
+    def _emit_thread_stub(self, symbol: str, spec: dict[str, Any]) -> None:
+        """`ps.thread.N(env, p...)`: the partial shim plus the result store.
+
+        The env carries the bound arguments, the inner pair and the thread
+        record. The stub calls the inner impl env-first with the bound
+        arguments prepended, then copies the result into the record.
+        """
+        bound = spec["bound"]
+        params = spec["params"]
+        ret = _llvm_type(spec["return"])
+        plist = ["ptr %env"] + [f"{_llvm_type(p)} %p{index}" for index, p in enumerate(params)]
+        # The stub is emitted outside the abi machinery, so it declares the
+        # runtime call it makes itself.
+        self._abi_decl("ps_to_thread_store", "void", ["ptr", "ptr", "i64"])
+        self.out.append(f"define internal {ret} @{symbol}({', '.join(plist)}) {{")
+        self.out.append("entry:")
+        args: list[str] = []
+        for index, typ in enumerate(bound):
+            if index == 0:
+                self.out.append("  %b0 = load ptr, ptr %env")
+            else:
+                self.out.append(f"  %g{index} = getelementptr ptr, ptr %env, i64 {index}")
+                self.out.append(f"  %b{index} = load ptr, ptr %g{index}")
+            self.out.append(f"  %v{index} = load {_llvm_type(typ)}, ptr %b{index}")
+            args.append(f"{_llvm_type(typ)} %v{index}")
+        # The inner pair sits after the bound arguments.
+        self.out.append(f"  %ip = getelementptr ptr, ptr %env, i64 {len(bound)}")
+        self.out.append("  %pc = load ptr, ptr %ip")
+        self.out.append("  %pp = load ptr, ptr %pc")
+        self.out.append("  %impl = load ptr, ptr %pp")
+        self.out.append("  %ip2 = getelementptr ptr, ptr %pp, i64 1")
+        self.out.append("  %env2 = load ptr, ptr %ip2")
+        # The thread record sits after the inner pair. The env entry packs
+        # the record into a heap cell, so the stub loads it out of the cell.
+        self.out.append(f"  %ip3 = getelementptr ptr, ptr %env, i64 {len(bound) + 1}")
+        self.out.append("  %reccell = load ptr, ptr %ip3")
+        self.out.append("  %rec = load ptr, ptr %reccell")
+        call_args = ["ptr %env2", *args] + [f"{_llvm_type(p)} %p{index}" for index, p in enumerate(params)]
+        if ret == "void":
+            self.out.append(f"  call void %impl({', '.join(call_args)})")
+            self.out.append("  ret void")
+        else:
+            self.out.append(f"  %r = call {ret} %impl({', '.join(call_args)})")
+            # The result travels into the record: the worker stores it, the
+            # loop hands it back to the awaiting frame.
+            self.out.append(f"  %slot = alloca {ret}")
+            self.out.append(f"  store {ret} %r, ptr %slot")
+            self.out.append(f"  call void @ps_to_thread_store(ptr %rec, ptr %slot, i64 {_elem_size(spec['return'])})")
+            self.out.append(f"  ret {ret} %r")
+        self.out.append("}")
+        self.out.append("")
 
     def _heap_cell(self, typ: dict[str, Any], value: str) -> str:
         self.needed.add("alloc")

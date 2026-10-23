@@ -1421,6 +1421,10 @@ class ClassesMixin:
             self.fail(node, "PS4015", f"{class_name} is an opaque ffi handle and has no attributes")
         if class_name == "Semaphore" and name == "_value":
             return self._abi_call("threading", "Semaphore._value", [obj], {"kind": "int"}, "ps_sem_value", span)
+        if class_name == "AsyncSemaphore" and name == "_value":
+            # The asyncio semaphore's counter, the same shape the threading
+            # one has: an opaque pointer with a read-only count.
+            return self._abi_call("asyncio", "Semaphore._value", [obj], {"kind": "int"}, "ps_asem_value", span)
         if class_name == "Thread" and name == "name":
             return self._abi_call("threading", "Thread.name", [obj], {"kind": "str"}, "ps_thread_name2", span)
         if class_name == "Thread" and name == "daemon":
@@ -1619,6 +1623,13 @@ class ClassesMixin:
             if elem["kind"] == "bool":
                 self.fail(node, "PS2002", "list[bool] is not lowered")
             return {"kind": "class", "name": "Queue", "elem": elem}
+        if alias == "AsyncQueue":
+            # `asyncio.Queue[T]`: the same element-sized slots as the sync
+            # queue, on the asyncio record.
+            elem = self._annotation(node.slice)
+            if elem["kind"] == "bool":
+                self.fail(node, "PS2002", "list[bool] is not lowered")
+            return {"kind": "class", "name": "AsyncQueue", "elem": elem}
         return None
 
     def _handle_annotation(self, node: ast.AST) -> dict[str, Any] | None:
@@ -1677,6 +1688,10 @@ class ClassesMixin:
                 return "defaultdict"
             if binding.module == "queue" and binding.attr in {"Queue", "LifoQueue", "SimpleQueue"}:
                 return "Queue"
+            if binding.module == "asyncio" and binding.attr in {"Lock", "Event", "Semaphore"}:
+                return alias_name(binding.module, binding.attr)
+            if binding.module == "asyncio" and binding.attr == "Queue":
+                return "AsyncQueue"
             return alias_name(binding.module, binding.attr)
         if isinstance(node, ast.Attribute):
             resolved = self._resolve_module(node)
@@ -1694,6 +1709,10 @@ class ClassesMixin:
                 return "Queue"
             if resolved[1] == "asyncio" and resolved[2] == "Task":
                 return "Task"
+            if resolved[1] == "asyncio" and resolved[2] in {"Lock", "Event", "Semaphore"}:
+                return alias_name(resolved[1], resolved[2])
+            if resolved[1] == "asyncio" and resolved[2] == "Queue":
+                return "AsyncQueue"
         return None
 
     def _typing_annotation(self, node: ast.AST) -> dict[str, Any] | None:

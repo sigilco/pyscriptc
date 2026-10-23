@@ -55,6 +55,12 @@ class CoreMixin:
         self.partials: dict[str, dict[str, Any]] = {}
         self.partial_keys: dict[str, str] = {}
         self.partial_n = 0
+        # Synthesized env-first `to_thread` worker shims: symbol -> spec,
+        # deduplicated on the spec key. The shim also stores the callable's
+        # result into the thread record.
+        self.threads: dict[str, dict[str, Any]] = {}
+        self.thread_keys: dict[str, str] = {}
+        self.thread_n = 0
         # `--debug-info` state: the span of the statement being emitted. Every
         # instruction the statement produces carries it as a `DILocation`.
         self.span: dict[str, Any] | None = None
@@ -108,6 +114,8 @@ class CoreMixin:
             self._emit_clo_wrapper(self.functions[name])
         for symbol in sorted(self.partials):
             self._emit_partial_stub(symbol, self.partials[symbol])
+        for symbol in sorted(self.threads):
+            self._emit_thread_stub(symbol, self.threads[symbol])
         self.out.extend(self.outline_lines)
         header = ["%ps.str = type { i64, ptr }", ""]
         header.extend(self.globals)

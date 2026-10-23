@@ -76,6 +76,13 @@ AWAIT_TASK_MARKER = "__ps_await_task__"
 # `await asyncio.wait_for(coro, delay)`: the coro runs as a task under a
 # deadline; on expiry the awaiting frame raises TimeoutError.
 WAIT_FOR_MARKER = "__ps_wait_for__"
+# `await lock.acquire()`, `await event.wait()`, `await queue.get()`: the
+# primitive parks the running task when it cannot serve the call right
+# away, and the loop re-queues that task when the primitive releases it.
+PRIM_MARKER = "__ps_await_prim__"
+# `await asyncio.to_thread(fn, ...)`: the callable runs on a worker thread
+# and the awaiting frame parks until the worker marks the call done.
+THREAD_MARKER = "__ps_await_thread__"
 SLEEP_MARKER = "__ps_sleep__"
 RETURN_MARKER = "__ps_return__"
 STATE = ".ps_state"
@@ -111,6 +118,14 @@ _NONE = {"kind": "none"}
 _FLOAT = {"kind": "float"}
 # The exception a generator frame keeps across a suspension.
 _EXC = {"kind": "exc"}
+# The runtime symbol each cooperative primitive operation parks on. The
+# operation rides on the marker, so the pass picks the symbol from it.
+_PRIM_SYMBOLS: dict[str, str] = {
+    "lock_acquire": "ps_alock_acquire",
+    "event_wait": "ps_aevent_wait",
+    "sem_acquire": "ps_asem_acquire",
+    "queue_get": "ps_aqueue_take",
+}
 # The resume shim's outward type: every coroutine's callable cell carries it.
 _RESUME_FUNC = {"kind": "func", "params": [{"kind": "class", "name": "@frame"}], "return": {"kind": "int"}}
 _GENERATOR_FORMS = {"Iterator", "Iterable", "Generator"}
@@ -1334,6 +1349,10 @@ class _Frame:
             return self._await_task(stmt, span)
         if kind == "expr" and _is_marker(stmt, WAIT_FOR_MARKER):
             return self._wait_for(stmt, span)
+        if kind == "expr" and _is_marker(stmt, PRIM_MARKER):
+            return self._await_prim(stmt, span)
+        if kind == "expr" and _is_marker(stmt, THREAD_MARKER):
+            return self._await_thread(stmt, span)
         if kind == "expr" and _is_marker(stmt, self.kind.marker):
             if self.kind.marker == AWAIT_MARKER:
                 return self._await(stmt, span)
@@ -1879,6 +1898,135 @@ class _Frame:
             ),
         ]
 
+    def _await_prim(self, stmt: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
+        """Expand `__ps_await_prim__(prim)` into the cooperative park.
+
+        The primitive is in the local the lowerer bound (the marker's
+        argument names it). The runtime call takes the primitive or parks
+        the running task on it: the call returns 1 when the primitive
+        served the request right away and 0 when the caller has to wait.
+        On the 0 the frame suspends with status 0; the primitive wakes the
+        task when it can serve the request, and the resume falls through.
+
+        The operation rides on the marker: the lock, the event, the
+        semaphore and the queue each have their own runtime call.
+        """
+        self.points += 1
+        point = self.points
+        expr = stmt["expr"]
+        prim = expr["args"][0]
+        prim_t = prim["type"]
+        slot = prim["id"]
+        op = expr.get("prim_op", "lock_acquire")
+        symbol = _PRIM_SYMBOLS.get(op)
+        if symbol is None:
+            raise CoroError(f"the asyncio primitive operation {op} is not lowered", span)
+        park = {
+            "kind": "call",
+            "callee": {"kind": "module", "module": "asyncio", "name": op},
+            "args": [_name(slot, prim_t, span)],
+            "type": dict(_INT),
+            "span": span,
+            "symbol": symbol,
+        }
+        leave = [
+            *self.copy_out(span),
+            self.field_set(STATE, _const(point, _INT, span), span),
+            _if(
+                _compare("==", park, _const(0, _INT, span), span),
+                self.kind.suspend(self, _const(0, _INT, span), span),
+                [],
+                span,
+            ),
+        ]
+        arrive = [_assign(RESUME, _const(0, _INT, span), span)]
+        if op == "queue_get":
+            # A put wakes the parked getter, but the element stays in the
+            # queue: the getter takes it on the resume. A take that finds
+            # the queue empty again (another getter was faster) parks the
+            # task once more, at the same point.
+            arrive = [
+                _assign(RESUME, _const(0, _INT, span), span),
+                _if(
+                    _compare("==", park, _const(0, _INT, span), span),
+                    self.kind.suspend(self, _const(0, _INT, span), span),
+                    [],
+                    span,
+                ),
+            ]
+        out: list[dict[str, Any]] = [_if(self.fresh(span), leave, arrive, span)]
+        if op == "queue_get":
+            # The queue's element rides out of the record's `taken` slot: the
+            # take put it there, and the frame reads it in the same resume.
+            elem = expr.get("prim_elem") or dict(_NONE)
+            if elem.get("kind") != "none":
+                read = {
+                    "kind": "call",
+                    "callee": {"kind": "module", "module": "asyncio", "name": "queue_taken"},
+                    "args": [_name(slot, prim_t, span)],
+                    "type": elem,
+                    "span": span,
+                    "symbol": "ps_aqueue_taken",
+                }
+                out.append(_assign(_await_result_name(slot), read, span))
+        return out
+
+    def _await_thread(self, stmt: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
+        """Expand `__ps_await_thread__(call)` into the thread park.
+
+        The call record is in the local the lowerer bound. The runtime call
+        polls the worker: it returns 0 while the worker runs and 1 when the
+        call returned. On the 0 the frame suspends with status 0; the loop
+        re-queues the task when the worker marks the record done.
+        """
+        self.points += 1
+        point = self.points
+        expr = stmt["expr"]
+        call = expr["args"][0]
+        call_t = call["type"]
+        slot = call["id"]
+        elem = expr.get("thread_elem") or dict(_NONE)
+        park = {
+            "kind": "call",
+            "callee": {"kind": "module", "module": "asyncio", "name": "to_thread_park"},
+            "args": [_name(slot, call_t, span)],
+            "type": dict(_NONE),
+            "span": span,
+            "symbol": "ps_to_thread_park",
+        }
+        poll = {
+            "kind": "call",
+            "callee": {"kind": "module", "module": "asyncio", "name": "to_thread_poll"},
+            "args": [_name(slot, call_t, span)],
+            "type": dict(_INT),
+            "span": span,
+            "symbol": "ps_to_thread_poll",
+        }
+        leave = [
+            *self.copy_out(span),
+            self.field_set(STATE, _const(point, _INT, span), span),
+            {"kind": "expr", "expr": park, "span": span},
+            _if(
+                _compare("==", poll, _const(0, _INT, span), span),
+                self.kind.suspend(self, _const(0, _INT, span), span),
+                [],
+                span,
+            ),
+        ]
+        arrive = [_assign(RESUME, _const(0, _INT, span), span)]
+        out: list[dict[str, Any]] = [_if(self.fresh(span), leave, arrive, span)]
+        if elem.get("kind") != "none":
+            read = {
+                "kind": "call",
+                "callee": {"kind": "module", "module": "asyncio", "name": "to_thread_result"},
+                "args": [_name(slot, call_t, span)],
+                "type": elem,
+                "span": span,
+                "symbol": "ps_to_thread_result",
+            }
+            out.append(_assign(_await_result_name(slot), read, span))
+        return out
+
     def _sleep(self, stmt: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
         """Expand `__ps_sleep__(delay)` into arm-then-suspend.
 
@@ -1943,6 +2091,8 @@ def _suspends(stmt: dict[str, Any], marker: str) -> bool:
             or _is_marker(stmt, SLEEP_MARKER)
             or _is_marker(stmt, AWAIT_TASK_MARKER)
             or _is_marker(stmt, WAIT_FOR_MARKER)
+            or _is_marker(stmt, PRIM_MARKER)
+            or _is_marker(stmt, THREAD_MARKER)
         )
     if stmt["kind"] == "if":
         return any(_suspends(s, marker) for s in stmt["then"]) or any(_suspends(s, marker) for s in stmt["else"])

@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-23",
-  "commit": "3eefdee5db01b11544997d2d33245e6e61cf6077",
+  "commit": "fa9236e91f64b739917028fcba9fdd8012b056c7",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -968,10 +968,10 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "Queue, Event, Lock, get_event_loop, sleep outside a coroutine"
+        "bare Queue annotation (element type needed), get_event_loop, sleep outside a coroutine"
       ],
       "fences": [
-        "PS1106",
+        "PS1001",
         "PS2001",
         "PS2002"
       ],
@@ -2099,7 +2099,7 @@
   "history": [
     {
       "date": "2026-10-23",
-      "commit": "3eefdee5db01b11544997d2d33245e6e61cf6077",
+      "commit": "fa9236e91f64b739917028fcba9fdd8012b056c7",
       "weighted_pass": 0.0,
       "packages_full": 3,
       "packages_partial": 5,

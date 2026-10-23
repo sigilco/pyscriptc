@@ -21,6 +21,10 @@ from pyscriptc.restlower._asyncio import (
     _asyncio_sleep,
     _asyncio_wait_for,
 )
+from pyscriptc.restlower._asyncio_sync import (
+    _prim_call,
+    _to_thread,
+)
 from pyscriptc.restlower._builtins import (
     _abs,
     _base_repr,
@@ -140,6 +144,11 @@ _EARLY: dict[tuple[str, str], Handler] = {
     ("asyncio", "gather"): _asyncio_gather,
     ("asyncio", "create_task"): _asyncio_create_task,
     ("asyncio", "wait_for"): _asyncio_wait_for,
+    ("asyncio", "to_thread"): _to_thread,
+    ("asyncio", "Lock"): _prim_call,
+    ("asyncio", "Event"): _prim_call,
+    ("asyncio", "Semaphore"): _prim_call,
+    ("asyncio", "Queue"): _prim_call,
 }
 
 # Whole-module handlers, consulted before `fixed_spec`.

@@ -436,7 +436,7 @@ ok = [
 @@
     asyncio.wait_for(work(), 1)''',
 ]
-no = [["Queue, Event, Lock", 'y: asyncio.Queue = asyncio.Queue()', "PS1106"], ["get_event_loop", 'asyncio.get_event_loop()', "PS2001"], ["sleep outside a coroutine", 'asyncio.sleep(x)', "PS2002"]]
+no = [["bare Queue annotation (element type needed)", 'y: asyncio.Queue = asyncio.Queue()', "PS1001"], ["get_event_loop", 'asyncio.get_event_loop()', "PS2001"], ["sleep outside a coroutine", 'asyncio.sleep(x)', "PS2002"]]
 
 [[stdlib]]
 names = ["subprocess"]

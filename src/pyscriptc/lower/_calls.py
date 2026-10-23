@@ -53,6 +53,7 @@ from pyscriptc.restlower import (
 from pyscriptc.restlower import method_spec as synth_method
 from pyscriptc.restlower._argparse import _add_argument, _parse_args
 from pyscriptc.restlower._asyncio import _task_method
+from pyscriptc.restlower._asyncio_sync import _prim_method
 from pyscriptc.stdlib_queue import MATH_FUNCTIONS
 
 
@@ -549,6 +550,13 @@ class CallsMixin:
             return _thread_method(self, node, span, receiver)
         if kind == "class" and receiver["type"]["name"] == "Task":
             return _task_method(self, node, span, receiver)
+        if kind == "class" and receiver["type"]["name"] in {
+            "AsyncLock",
+            "AsyncEvent",
+            "AsyncSemaphore",
+            "AsyncQueue",
+        }:
+            return _prim_method(self, node, span, receiver)
         if kind == "class" and receiver["type"]["name"] == "Queue":
             return _queue_method(self, node, span, receiver)
         if kind == "class" and synth_method(receiver["type"]["name"], node.func.attr) is not None:
