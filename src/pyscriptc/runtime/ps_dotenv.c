@@ -441,7 +441,9 @@ int32_t ps_dotenv_load(int64_t pn, const char *path) {
         if (getenv(t.binds[i].key) != NULL) {
             continue;
         }
-        setenv(t.binds[i].key, t.binds[i].val, 1);
+        if (ps_setenv(t.binds[i].key, t.binds[i].val, 1) != 0) {
+            ps_raise_cstr(PS_RUNTIME, "setenv failed");
+        }
     }
     for (int64_t i = 0; i < t.nl; i++) {
         free(t.blobs[i]);

@@ -753,7 +753,7 @@ PsIO *ps_temp_named(int64_t mode, int64_t keep) {
     if (snprintf(path, sizeof path, "%s/tmpXXXXXX", dir) >= (int)sizeof path) {
         ps_os_fail("NamedTemporaryFile failed");
     }
-    fd = mkstemp(path);
+    fd = ps_mkstemp(path);
     if (fd < 0) {
         ps_os_fail("NamedTemporaryFile failed");
     }
