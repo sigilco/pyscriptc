@@ -646,6 +646,20 @@ void *ps_alloc(int64_t n) {
     return p;
 }
 
+/* The exit registry. The runtime has no refcounts and no GC and the emitted
+   IR has no free op, so every sequence and map a program builds lives until
+   the process dies. LeakSanitizer flags what is unreachable at exit, and
+   whether the last pointer to one of these objects still sits in a register
+   or a dead frame's stack slot at the exit fence is timing noise: the same
+   binary flapped between a clean run and a ps_seq_new report (11/20 and
+   20/20 failure rates in the probe on the dict and nested programs). This
+   registry anchors every sequence and map in a global array, so each one is
+   reachable at exit by construction and LSan stays silent, without changing
+   what a program can observe. Nothing is freed here on purpose: a free would
+   orphan the heap cells a sequence's slots point at (the argv string cells
+   leaked deterministically the moment the argv list was freed) and could
+   race a detached thread still reading the object. */
+
 /* CPython's ZeroDivisionError message names the operation up to 3.13; 3.14
 unified them all into "division by zero". The emitted division helpers pass
 the variant, and the compiler picks the variant set that matches the running
@@ -703,6 +717,30 @@ static int64_t ps_index(int64_t len, int64_t i, const char *what) {
     return i;
 }
 
+typedef struct PsOwned {
+    void *obj;
+    int32_t pad;
+} PsOwned;
+
+static PsOwned *ps_owned;
+static int64_t ps_owned_len;
+static int64_t ps_owned_cap;
+
+static void ps_owned_push(void *obj) {
+    if (ps_owned_len == ps_owned_cap) {
+        int64_t cap = ps_owned_cap == 0 ? 64 : ps_owned_cap * 2;
+        PsOwned *grown = realloc(ps_owned, (size_t)cap * sizeof *grown);
+        if (grown == NULL) {
+            abort();
+        }
+        ps_owned = grown;
+        ps_owned_cap = cap;
+    }
+    ps_owned[ps_owned_len].obj = obj;
+    ps_owned[ps_owned_len].pad = 0;
+    ps_owned_len += 1;
+}
+
 PsSeq *ps_seq_new(int64_t elem, int64_t n) {
     if (elem <= 0 || n < 0) {
         ps_raise_code(PS_OVERFLOW);
@@ -714,6 +752,7 @@ PsSeq *ps_seq_new(int64_t elem, int64_t n) {
     if (s == NULL) {
         abort();
     }
+    ps_owned_push(s);
     s->len = n;
     s->elem = elem;
     s->cap = n;
@@ -812,6 +851,7 @@ PsMap *ps_map_new(int32_t key_kind, int64_t key_size, int64_t val_size, int64_t 
     if (m == NULL) {
         abort();
     }
+    ps_owned_push(m);
     m->key_kind = key_kind;
     m->key_size = key_size;
     m->val_size = val_size;
