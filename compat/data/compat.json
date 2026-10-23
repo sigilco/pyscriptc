@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-23",
-  "commit": "69a2c75bc65e890d2da5a755fd8f68823617c75b",
+  "commit": "3948b3301c24921864e38ab5df4aae71bd441c23",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 5,
     "packages_none": 10,
     "weighted_pass": 0.0,
-    "fences": 3048
+    "fences": 3035
   },
   "builtins": [
     {
@@ -1374,9 +1374,9 @@
       "import_name": "filelock",
       "version": "4.1.1",
       "status": "partial",
-      "fences": 765,
+      "fences": 752,
       "definitions": 641,
-      "fenced_definitions": 258,
+      "fenced_definitions": 245,
       "top_families": [
         {
           "family": "name-resolution",
@@ -1384,7 +1384,7 @@
         },
         {
           "family": "construct-other",
-          "count": 80
+          "count": 86
         },
         {
           "family": "local-inference",
@@ -1394,7 +1394,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 430
+          "count": 439
         },
         {
           "code": "PS1001",
@@ -1402,7 +1402,7 @@
         },
         {
           "code": "PS2001",
-          "count": 71
+          "count": 68
         }
       ],
       "pypi": "https://pypi.org/project/filelock/"
@@ -1945,7 +1945,7 @@
     {
       "code": "PS2002",
       "title": "construct not lowered",
-      "count": 1476,
+      "count": 1485,
       "packages": 15
     },
     {
@@ -1963,19 +1963,13 @@
     {
       "code": "PS2001",
       "title": "stdlib name not lowered",
-      "count": 188,
+      "count": 185,
       "packages": 14
     },
     {
       "code": "PS1103",
       "title": "generic alias annotation",
-      "count": 122,
-      "packages": 8
-    },
-    {
-      "code": "PS1204",
-      "title": "class body statement",
-      "count": 116,
+      "count": 126,
       "packages": 8
     },
     {
@@ -1985,15 +1979,21 @@
       "packages": 9
     },
     {
-      "code": "PS2003",
-      "title": "call arguments not lowered",
-      "count": 72,
-      "packages": 8
+      "code": "PS1204",
+      "title": "class body statement",
+      "count": 87,
+      "packages": 7
     },
     {
       "code": "PS1201",
       "title": "decorator",
-      "count": 70,
+      "count": 76,
+      "packages": 8
+    },
+    {
+      "code": "PS2003",
+      "title": "call arguments not lowered",
+      "count": 72,
       "packages": 8
     },
     {
@@ -2048,12 +2048,12 @@
   "history": [
     {
       "date": "2026-10-23",
-      "commit": "69a2c75bc65e890d2da5a755fd8f68823617c75b",
+      "commit": "3948b3301c24921864e38ab5df4aae71bd441c23",
       "weighted_pass": 0.0,
       "packages_full": 3,
       "packages_partial": 5,
       "packages_none": 10,
-      "fences": 3048
+      "fences": 3035
     }
   ]
 }

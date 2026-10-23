@@ -12,6 +12,7 @@ import ast
 import copy
 from typing import Any, NoReturn
 
+from pyscriptc import coro
 from pyscriptc.builtins import EXCEPTIONS
 from pyscriptc.errors import span_of
 from pyscriptc.ir import type_key, types_equal
@@ -215,7 +216,7 @@ class ClassesMixin:
                     seen.add(stmt.target.id)
                     fields.append(field)
                     continue
-                if isinstance(stmt, ast.FunctionDef):
+                if isinstance(stmt, ast.FunctionDef) or (isinstance(stmt, ast.AsyncFunctionDef) and coro.enabled()):
                     decos = {self._erased_deco_name(d) for d in stmt.decorator_list}
                     decos.discard(None)
                     if "overload" in decos:
@@ -227,10 +228,10 @@ class ClassesMixin:
                         # abstractmethod declares the method; there is no
                         # body to emit and no runtime check to honor.
                         continue
-                    kind = self._method_decorator(stmt)
+                    kind = self._method_decorator(stmt)  # type: ignore[arg-type]
                     if stmt.name == "__init__" and kind != "method":
                         self.fail(stmt, "PS1201", "decorators are not lowered")
-                    methods.append((stmt, kind))
+                    methods.append((stmt, kind))  # type: ignore[arg-type]
                     continue
                 self.fail(stmt, "PS1204", f"{type(stmt).__name__} in a class body is not lowered")
             except Fence as exc:
@@ -687,7 +688,7 @@ class ClassesMixin:
         own_names = {field["name"] for field in info.get("own_fields", info["fields"])}
         methods: list[dict[str, Any]] = []
         for stmt in node.body:
-            if not isinstance(stmt, ast.FunctionDef):
+            if not isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             if info["method_owner"].get(stmt.name) != own:
                 continue
