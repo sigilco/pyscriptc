@@ -1,9 +1,9 @@
 ---
-import Header from "../components/Header.astro";
-import Hero from "../components/Hero.astro";
-import Metrics from "../components/Metrics.astro";
-import ParitySection from "../components/ParitySection.astro";
-import SurfacesSection from "../components/SurfacesSection.astro";
+import HeaderPillNav from "../components/HeaderPillNav";
+import HeroMinimal from "../components/HeroMinimal";
+import MetricsCardsWithBenchmark from "../components/MetricsCardsWithBenchmark";
+import LumioCarousel from "../components/LumioCarousel";
+import IsometricSurfaceStack from "../components/IsometricSurfaceStack";
 import CrossCompileSection from "../components/CrossCompileSection.astro";
 import FinalCTA from "../components/FinalCTA.astro";
 import Footer from "../components/Footer.astro";
@@ -35,27 +35,40 @@ import "../styles/global.css";
       content="Compile standard annotated Python to standalone native binaries. Zero CPython at runtime."
     />
   </head>
-  <body>
-    <Header />
-    <main id="main-content">
-      <Hero />
-      <Metrics />
-      <ParitySection />
-      <SurfacesSection />
-      <CrossCompileSection />
-      <FinalCTA />
+  <body class="bg-[#0b0c10] text-slate-200 antialiased font-sans selection:bg-cyan-500/20 selection:text-cyan-200 min-h-screen">
+    <!-- Floating Pill Navigation Bar -->
+    <HeaderPillNav client:load />
+
+    <main id="main-content" class="relative overflow-x-hidden flex flex-col w-full">
+      <!-- Section 0: Hero with Organic Top 100 PyPI Mesh Animation and Frosted Blur Container -->
+      <HeroMinimal client:load />
+
+      <!-- Section 1: Performance Metric Cards & 3-Tier Latency Benchmark Bar Chart -->
+      <MetricsCardsWithBenchmark client:visible />
+
+      <!-- Section 2: Full Python Semantics Lumio Vertical Carousel & OnOrca Terminal Drawer -->
+      <section class="w-full border-t border-white/5">
+        <LumioCarousel client:visible />
+      </section>
+
+      <!-- Section 3: Three Surfaces Architectural Stack with Together.ai Bold Statements -->
+      <section class="w-full border-t border-white/5">
+        <IsometricSurfaceStack client:visible />
+      </section>
+
+      <!-- Section 4: Universal Cross-Compilation Matrix -->
+      <section class="w-full border-t border-white/5">
+        <CrossCompileSection />
+      </section>
+
+      <!-- Section 5: Final Call to Action -->
+      <section class="w-full border-t border-white/5">
+        <FinalCTA />
+      </section>
     </main>
+
+    <!-- Footer with Made with ❤️ from Spain -->
     <Footer />
     <PlaygroundModal />
   </body>
 </html>
-
-<style>
-  #main-content {
-    display: flex;
-    flex-direction: column;
-    min-height: 100vh;
-    position: relative;
-    overflow-x: hidden;
-  }
-</style>

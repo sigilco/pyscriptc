@@ -47,6 +47,11 @@ const f = i18n.footer;
     </div>
 
     <div class="footer-bottom">
+      <div class="footer-made-with">
+        <span>Made with</span>
+        <span class="heart-icon" aria-label="love">❤️</span>
+        <span>from Spain</span>
+      </div>
       <p class="copyright">{f.copyright}</p>
       <div class="status-indicator">
         <span class="status-dot"></span>
@@ -180,6 +185,25 @@ const f = i18n.footer;
     border-top: 1px solid var(--color-border, rgba(255, 255, 255, 0.06));
     font-size: 0.85rem;
     color: var(--color-text-muted, #64748b);
+  }
+
+  .footer-made-with {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.8125rem;
+    font-family: var(--font-mono, monospace);
+    color: var(--color-text-muted, #94a3b8);
+  }
+
+  .heart-icon {
+    display: inline-block;
+    animation: heartPulse 2s ease-in-out infinite;
+  }
+
+  @keyframes heartPulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.2); }
   }
 
   @media (min-width: 700px) {
