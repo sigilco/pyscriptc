@@ -18,6 +18,13 @@ read the same record the loop drives.
 `asyncio.sleep(d)` arms a timer row keyed by frame; the loop re-queues the
 frame when the deadline passes. `asyncio.gather` registers several frames and
 drives them together, so the children interleave exactly like CPython's.
+
+`asyncio.wait_for(aw, d)` runs the awaitable's frame as a task with a
+deadline row pointing at the awaiting frame. When the deadline fires first
+the loop cancels the task and marks the waiter's row `timed out`; the
+awaiter's resume reads the flag and raises `TimeoutError` in the frame
+(D2 boundary: the raise happens in the awaiting frame, so it crosses no
+live setjmp outside the frame's own try).
 */
 
 #include "ps_rt.h"
@@ -38,6 +45,12 @@ struct PsTask {
     PsTask *next;
     /* Set once the frame's resume reported completion. */
     int32_t done;
+    /* Set once the task ran its coroutine at least once. A task cancelled
+       before its first step never runs its body. */
+    int32_t ran;
+    /* Set while the task sits on the ready queue, so a second push (a repeat
+       cancel before the step runs) does not queue it twice. */
+    int32_t queued;
     /* Set when the task is cancelled: the loop raises CancelledError into it
        at its next suspension point. */
     int32_t cancelled;
@@ -54,6 +67,24 @@ struct PsTask {
     int64_t waiter_len;
     int64_t waiter_cap;
 };
+
+/* A wait_for deadline: when it fires before the task completes, the task is
+cancelled and the awaiting frame resumes with the timeout outcome. One row
+per parked awaiter. */
+typedef struct PsDeadline {
+    PsTask *task;
+    void *awaiter;
+    double deadline;
+    int64_t seq;
+    /* Set when the deadline fired: the awaiter raises TimeoutError. Cleared
+       rows are dead (the task finished first). */
+    int32_t timed_out;
+} PsDeadline;
+
+static PsDeadline *ps_deadlines;
+static int64_t ps_deadline_len;
+static int64_t ps_deadline_cap;
+static int64_t ps_deadline_seq;
 
 typedef struct PsTimer {
     void *frame;
@@ -90,6 +121,8 @@ void ps_loop_reset(void) {
     ps_timer_len = 0;
     ps_timer_seq = 0;
     ps_wait_len = 0;
+    ps_deadline_len = 0;
+    ps_deadline_seq = 0;
     for (int64_t i = 0; i < ps_task_len; i++) {
         free(ps_tasks[i]->waiters);
         free(ps_tasks[i]->result);
@@ -101,6 +134,7 @@ void ps_loop_reset(void) {
 
 static void ps_ready_push(PsTask *task) {
     task->next = NULL;
+    task->queued = 1;
     if (ps_ready_tail == NULL) {
         ps_ready_head = ps_ready_tail = task;
         return;
@@ -163,6 +197,18 @@ static void ps_task_add_waiter(PsTask *task, void *frame) {
 /* Run one ready task once. 1 when the task finished, 0 while pending. A
 finished child releases its waiter: the parent re-polls and proceeds. */
 static int64_t ps_task_step(PsTask *task) {
+    if (task->cancelled) {
+        /* A cancelled task stops at its next step: the coroutine does not
+           continue, and the waiters wake up to see the cancellation. */
+        task->done = 1;
+        task->cancelled = 2;
+        for (int64_t i = 0; i < task->waiter_len; i++) {
+            ps_ready_task(task->waiters[i]);
+        }
+        task->waiter_len = 0;
+        return 1;
+    }
+    task->ran = 1;
     int64_t status = task->impl(task->env, task->frame);
     if (status == 1) {
         task->done = 1;
@@ -220,6 +266,88 @@ static void ps_arm(void *frame, double delay) {
     ps_timers[ps_timer_len].deadline = ps_now() + delay;
     ps_timers[ps_timer_len].seq = ps_timer_seq++;
     ps_timer_len++;
+}
+
+/* --- wait_for deadlines -------------------------------------------------- */
+
+/* Record a wait_for deadline: `task` runs under a deadline, and when the
+deadline fires first the loop cancels the task and marks the row so the
+awaiter's resume raises TimeoutError. */
+static void ps_deadline_arm(PsTask *task, void *awaiter, double delay) {
+    if (ps_deadline_len == ps_deadline_cap) {
+        int64_t cap = ps_deadline_cap == 0 ? 8 : ps_deadline_cap * 2;
+        PsDeadline *grown = realloc(ps_deadlines, (size_t)cap * sizeof(PsDeadline));
+        if (grown == NULL) {
+            abort();
+        }
+        ps_deadlines = grown;
+        ps_deadline_cap = cap;
+    }
+    ps_deadlines[ps_deadline_len].task = task;
+    ps_deadlines[ps_deadline_len].awaiter = awaiter;
+    ps_deadlines[ps_deadline_len].deadline = ps_now() + delay;
+    ps_deadlines[ps_deadline_len].seq = ps_deadline_seq++;
+    ps_deadlines[ps_deadline_len].timed_out = 0;
+    ps_deadline_len++;
+}
+
+/* Drop every deadline row parked on `awaiter` (the await finished, one way
+or the other). */
+static void ps_deadline_drop(void *awaiter) {
+    int64_t kept = 0;
+    for (int64_t i = 0; i < ps_deadline_len; i++) {
+        if (ps_deadlines[i].awaiter == awaiter) {
+            continue;
+        }
+        ps_deadlines[kept++] = ps_deadlines[i];
+    }
+    ps_deadline_len = kept;
+}
+
+/* The wait_for outcome an awaiter reads after its resume: 0 not timed out,
+1 the deadline fired (the awaiter raises TimeoutError). */
+static int32_t ps_deadline_fired(void *awaiter) {
+    for (int64_t i = 0; i < ps_deadline_len; i++) {
+        if (ps_deadlines[i].awaiter == awaiter && ps_deadlines[i].timed_out) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Fire every expired wait_for deadline: cancel the task (a suspended task
+stops at its next resume) and re-queue the awaiter, which reads the flag and
+raises TimeoutError. Earliest first, ties by arm order, like the timer heap. */
+static void ps_fire_deadlines(void) {
+    double now = ps_now();
+    for (;;) {
+        int64_t best = -1;
+        for (int64_t i = 0; i < ps_deadline_len; i++) {
+            if (ps_deadlines[i].timed_out || ps_deadlines[i].deadline > now) {
+                continue;
+            }
+            if (best == -1 || ps_deadlines[i].deadline < ps_deadlines[best].deadline ||
+                (ps_deadlines[i].deadline == ps_deadlines[best].deadline && ps_deadlines[i].seq < ps_deadlines[best].seq)) {
+                best = i;
+            }
+        }
+        if (best == -1) {
+            return;
+        }
+        PsDeadline *row = &ps_deadlines[best];
+        row->timed_out = 1;
+        /* The cancel wakes the awaiter: a task that never ran is finished at
+           once (its waiters wake now), and a task that already ran stops at
+           its next step (the cancel re-queues it, and that step wakes the
+           waiters). The deadline row never queues the awaiter itself: doing
+           both would run the awaiter twice. */
+        ps_task_cancel(row->task);
+        now = ps_now();
+    }
+}
+
+static int32_t ps_deadlines_pending(void) {
+    return ps_deadline_len > 0 ? 1 : 0;
 }
 
 /* Move due timers' frames back onto the ready queue, earliest deadline first
@@ -293,28 +421,45 @@ finishes. Then sleep until the earliest timer and repeat until everything is
 done. `blocking` picks run-to-completion (1) or a single drain (0). */
 static void ps_loop_drive(int32_t blocking) {
     for (;;) {
+        /* Expired wait_for deadlines fire before the queue drains: a
+           deadline in the past cancels its task and re-queues the awaiter,
+           so an awaiter parked on a past deadline never reads a result
+           ahead of the timeout. */
+        ps_fire_deadlines();
         while (ps_ready_head != NULL) {
             PsTask *task = ps_ready_head;
             ps_ready_head = task->next;
             if (ps_ready_head == NULL) {
                 ps_ready_tail = NULL;
             }
+            task->queued = 0;
             void *saved = ps_current_task;
             ps_current_task = task;
             ps_task_step(task);
             ps_current_task = saved;
         }
-        if (ps_timer_len == 0) {
+        if (ps_timer_len == 0 && !ps_deadlines_pending()) {
             return;
         }
         if (!blocking) {
             return;
         }
-        double earliest = ps_timers[0].deadline;
-        for (int64_t i = 1; i < ps_timer_len; i++) {
-            if (ps_timers[i].deadline < earliest) {
+        double earliest = -1.0;
+        for (int64_t i = 0; i < ps_timer_len; i++) {
+            if (earliest < 0.0 || ps_timers[i].deadline < earliest) {
                 earliest = ps_timers[i].deadline;
             }
+        }
+        for (int64_t i = 0; i < ps_deadline_len; i++) {
+            if (ps_deadlines[i].timed_out) {
+                continue;
+            }
+            if (earliest < 0.0 || ps_deadlines[i].deadline < earliest) {
+                earliest = ps_deadlines[i].deadline;
+            }
+        }
+        if (earliest < 0.0) {
+            return;
         }
         double now = ps_now();
         if (earliest > now) {
@@ -325,6 +470,7 @@ static void ps_loop_drive(int32_t blocking) {
             nanosleep(&req, NULL);
         }
         ps_fire_due();
+        ps_fire_deadlines();
     }
 }
 
@@ -393,39 +539,70 @@ void ps_task_set_current(void *task) {
     ps_current_task = task;
 }
 
+/* `task.done()`: True when the task finished. A task with a pending cancel is
+   not done yet: the cancellation is delivered at the task's next step, so
+   CPython reports False until then. */
 int64_t ps_task_done(void *task) {
     if (task == NULL) {
         return 1;
     }
-    return ((PsTask *)task)->done;
+    PsTask *t = (PsTask *)task;
+    if (t->cancelled == 1) {
+        return 0;
+    }
+    return t->done;
 }
 
+/* `task.cancel()`: ask the task to stop. The cancel lands on the task's next
+   step: a task that is suspended stops there, and a task that has not run yet
+   never runs its body. CPython returns True when the cancel landed (the task
+   was not already done) and False otherwise. */
 int64_t ps_task_cancel(void *task) {
     if (task == NULL) {
         return 0;
     }
     PsTask *t = (PsTask *)task;
-    if (t->done) {
+    /* Delivered or finished: a cancel does not land again. CPython returns
+       True while the request stands (a pending cancel re-requests), False
+       once the task is done. */
+    if (t->done && t->cancelled != 1) {
         return 0;
     }
     t->cancelled = 1;
+    /* The task stops at its next step, so the loop has to look at it again:
+       re-queue it right away. The step then finishes it and wakes its
+       waiters, which see the cancellation. */
+    if (!t->queued) {
+        t->queued = 1;
+        ps_ready_push(t);
+    }
     return 1;
 }
 
+/* `task.cancelled()`: True once the cancellation has been delivered. A cancel
+   that has not landed yet (the task is still running) reads False, like
+   CPython's: the flag only flips when the task actually stops. */
 int64_t ps_task_cancelled(void *task) {
     if (task == NULL) {
         return 0;
     }
-    return ((PsTask *)task)->cancelled;
+    return ((PsTask *)task)->cancelled == 2;
 }
 
 /* `await task`: park the calling frame until the task completes. The task
-   may already be done, in which case the caller does not park at all. */
+   may already be done, in which case the caller does not park at all.
+   Return: 1 done, 0 parked, 2 the task was cancelled (the caller raises
+   CancelledError instead of reading a result). */
 int64_t ps_task_await(void *task, void *frame) {
     if (task == NULL) {
         return 1;
     }
     PsTask *t = (PsTask *)task;
+    if (t->cancelled) {
+        /* Cancelled before it ran, or at a step: the awaiter sees
+           CancelledError, the coroutine body never continues. */
+        return 2;
+    }
     if (t->done) {
         return 1;
     }
@@ -442,4 +619,33 @@ void ps_task_result(void *task, int64_t size, void *out) {
     }
     PsTask *t = (PsTask *)task;
     memcpy(out, (char *)t->frame + 16, (size_t)size);
+}
+
+/* --- wait_for (stage D2) -------------------------------------------------- */
+
+/* `asyncio.wait_for(aw, d)`: run the awaitable's task under a deadline. 1
+   when the task is already done (the caller reads the result straight away);
+   otherwise a deadline row is armed and the awaiting frame parks on the task,
+   exactly like `await task`. */
+int64_t ps_task_wait_for(void *task, double delay, void *frame) {
+    if (task == NULL) {
+        return 1;
+    }
+    PsTask *t = (PsTask *)task;
+    if (t->done) {
+        return 1;
+    }
+    ps_deadline_arm(t, frame, delay);
+    ps_task_add_waiter(t, frame);
+    return 0;
+}
+
+/* The outcome the awaiting frame reads on re-entry: 0 the task completed, 1
+   the deadline fired first — the task was cancelled and the caller raises
+   TimeoutError. Either way the frame's rows are dropped, so a later wait in
+   the same frame starts clean. */
+int64_t ps_task_wait_outcome(void *frame) {
+    int32_t fired = ps_deadline_fired(frame);
+    ps_deadline_drop(frame);
+    return fired;
 }

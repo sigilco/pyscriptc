@@ -87,7 +87,12 @@ D1 gives the loop a task that survives:
 
 Receipt: a program that creates a task and awaits it later matches CPython stdout; a program that creates a task and never awaits it still runs the task to completion before `asyncio.run` returns.
 
-**D2: timeouts and cancellation (issue #179, PR 4b).**
+**D2: timeouts and cancellation (issue #179, PR 4b). LANDED 2026-10-23.**
+
+What landed: `asyncio.wait_for(coro_or_task, delay)` runs the awaitable as a task under a deadline; the loop cancels the task when the deadline fires and the awaiting frame raises `TimeoutError`. `task.cancel()` asks a task to stop (delivered at its next step), `task.cancelled()` reports a delivered cancellation, and awaiting a cancelled task raises `CancelledError` in the awaiting frame. `asyncio.CancelledError` resolves as a reserved-code exception class, so `except asyncio.CancelledError:` matches.
+
+The honest boundary, as planned: `asyncio.timeout(seconds)` is an async context manager, so it lands with E2 (`async with`), and a cancellation that has to cross an `await` inside a `try` in the cancelled task stays fenced until Stage C lands.
+
 
 - `asyncio.wait_for(aw, timeout)`: awaits the awaitable with a deadline. On expiry the task is cancelled and `TimeoutError` is raised in the awaiting coroutine.
 - `asyncio.timeout(seconds)`: the async-context-manager form of the same deadline.

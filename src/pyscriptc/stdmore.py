@@ -1208,6 +1208,7 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "urllib.request": ("HttpRequest", "HttpResponse"),
     "urllib.error": ("HTTPError", "URLError"),
     "queue": ("Queue", "Empty", "Full"),
+    "asyncio": ("CancelledError",),
 }
 
 CLASS_FIELDS: dict[str, list[dict[str, Any]]] = {
@@ -1233,6 +1234,7 @@ CLASS_FIELDS: dict[str, list[dict[str, Any]]] = {
     "Queue": [],
     "Empty": [],
     "Full": [],
+    "CancelledError": [],
     "TerminalSize": [
         {"name": "columns", "type": _I},
         {"name": "lines", "type": _I},
@@ -1291,6 +1293,7 @@ SYNTHETIC_EXCEPTIONS: dict[str, int] = {"HTTPError": 24, "URLError": 24}
 RESERVED_CODE_EXCEPTIONS: dict[str, int] = {
     "Empty": RESERVED_EXCEPTIONS["Empty"],
     "Full": RESERVED_EXCEPTIONS["Full"],
+    "CancelledError": RESERVED_EXCEPTIONS["CancelledError"],
 }
 
 # i64 field packs compared lexicographically. Path compares its string.
@@ -1356,6 +1359,7 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("urllib.error", "HTTPError"): "HTTPError",
     ("urllib.error", "URLError"): "URLError",
     ("asyncio", "Task"): "Task",
+    ("asyncio", "CancelledError"): "CancelledError",
 }
 
 # Instance methods. `elem` means the deque's element type.

@@ -344,4 +344,13 @@ int64_t ps_task_await(void *task, void *frame);
    `.ps_result`, and `size` is the element size the caller's type carries. */
 void ps_task_result(void *task, int64_t size, void *out);
 
+/* wait_for (stage D2): run `task` under a deadline on behalf of `frame`. 1
+   when the task is already done; otherwise the deadline row is armed, the
+   frame parks, and the resume re-enters with `ps_task_wait_outcome`. */
+int64_t ps_task_wait_for(void *task, double delay, void *frame);
+/* The wait_for outcome after a resume: 0 the task completed, 1 the deadline
+   fired first (the caller raises TimeoutError, the task was cancelled).
+   Clears the frame's rows either way. */
+int64_t ps_task_wait_outcome(void *frame);
+
 #endif

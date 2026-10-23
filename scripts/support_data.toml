@@ -428,8 +428,15 @@ no = [["basicConfig(level=...)", 'logging.basicConfig(level=logging.INFO)', "PS2
 
 [[stdlib]]
 names = ["asyncio"]
-ok = ['pass']
-no = [["Queue, Event, Lock", 'y: asyncio.Queue = asyncio.Queue()', "PS1106"], ["wait_for, get_event_loop", 'asyncio.wait_for(work(), 1)', "PS2001"], ["sleep outside a coroutine", 'asyncio.sleep(x)', "PS2002"]]
+ok = [
+    'pass',
+    '''async def work() -> int:
+    return 1
+
+@@
+    asyncio.wait_for(work(), 1)''',
+]
+no = [["Queue, Event, Lock", 'y: asyncio.Queue = asyncio.Queue()', "PS1106"], ["get_event_loop", 'asyncio.get_event_loop()', "PS2001"], ["sleep outside a coroutine", 'asyncio.sleep(x)', "PS2002"]]
 
 [[stdlib]]
 names = ["subprocess"]
