@@ -7,6 +7,7 @@
 #include "ps_rt.h"
 
 #include <dlfcn.h>
+#include <pthread.h>
 #include <stdlib.h>
 
 typedef int64_t (*ps_mix_crc_fn)(const char *, int64_t);
@@ -15,12 +16,11 @@ typedef int64_t (*ps_mix_crc_n_fn)(const char *, int64_t, int64_t);
 static void *ps_mix_lib;
 static ps_mix_crc_fn ps_mix_crc;
 static ps_mix_crc_n_fn ps_mix_crc_n;
+/* A second thread can reach the mix seam, so the dlopen runs once. */
+static pthread_once_t ps_mix_once = PTHREAD_ONCE_INIT;
 
 static void ps_mix_load(void) {
     const char *path;
-    if (ps_mix_lib != NULL) {
-        return;
-    }
     path = getenv("PYSCRIPTC_MIX_SO");
     if (path == NULL || path[0] == '\0') {
         ps_raise_cstr(PS_RUNTIME, "PYSCRIPTC_MIX_SO is unset");
@@ -37,11 +37,11 @@ static void ps_mix_load(void) {
 }
 
 int64_t ps_mix_crc32(int64_t n, const char *data) {
-    ps_mix_load();
+    pthread_once(&ps_mix_once, ps_mix_load);
     return ps_mix_crc(data, n);
 }
 
 int64_t ps_mix_crc32_n(int64_t n, const char *data, int64_t times) {
-    ps_mix_load();
+    pthread_once(&ps_mix_once, ps_mix_load);
     return ps_mix_crc_n(data, n, times);
 }

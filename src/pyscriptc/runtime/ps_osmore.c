@@ -9,6 +9,7 @@ are not searched. as_file of one of these paths is the path itself.
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -74,23 +75,29 @@ static int ps_writable_dir(const char *dir) {
 
 static char ps_temp_cached[4096];
 static int ps_temp_ready = 0;
+/* A second thread can reach gettempdir. The one-time fill runs once. */
+static pthread_mutex_t ps_temp_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static void ps_copy_tempdir(char *out, size_t cap) {
     const char *env_names[] = {"TMPDIR", "TEMP", "TMP"};
     const char *fallback[] = {"/tmp", "/var/tmp", "/usr/tmp"};
     char cwd[4096];
     size_t i;
+    pthread_mutex_lock(&ps_temp_lock);
     if (ps_temp_ready) {
         if (strlen(ps_temp_cached) + 1 > cap) {
+            pthread_mutex_unlock(&ps_temp_lock);
             ps_os_fail("tempdir");
         }
         memcpy(out, ps_temp_cached, strlen(ps_temp_cached) + 1);
+        pthread_mutex_unlock(&ps_temp_lock);
         return;
     }
     for (i = 0; i < 3; i++) {
         const char *env = getenv(env_names[i]);
         if (env != NULL && env[0] != '\0' && ps_writable_dir(env)) {
             if (strlen(env) + 1 > cap) {
+                pthread_mutex_unlock(&ps_temp_lock);
                 ps_os_fail("tempdir");
             }
             memcpy(out, env, strlen(env) + 1);
@@ -105,17 +112,20 @@ static void ps_copy_tempdir(char *out, size_t cap) {
     }
     if (getcwd(cwd, sizeof cwd) != NULL && ps_writable_dir(cwd)) {
         if (strlen(cwd) + 1 > cap) {
+            pthread_mutex_unlock(&ps_temp_lock);
             ps_os_fail("tempdir");
         }
         memcpy(out, cwd, strlen(cwd) + 1);
         goto cache;
     }
+    pthread_mutex_unlock(&ps_temp_lock);
     ps_os_fail("tempdir");
 cache:
     if (strlen(out) + 1 < sizeof ps_temp_cached) {
         memcpy(ps_temp_cached, out, strlen(out) + 1);
         ps_temp_ready = 1;
     }
+    pthread_mutex_unlock(&ps_temp_lock);
 }
 
 void ps_temp_getdir(PsBuf *out) {
@@ -511,24 +521,35 @@ typedef struct PsGlobal {
 
 static PsGlobal ps_globals[64];
 static int ps_global_n;
+/* The slot table is process-wide, so a second thread can reach it. One
+   mutex covers the table and the slot values: the read and the write of a
+   slot are separate calls, so a program that counts under its own Lock is
+   the one that has to be correct (the SC-DRF contract). The mutex here
+   keeps the table itself coherent and the value read atomic. */
+static pthread_mutex_t ps_global_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static PsGlobal *ps_global_slot(int64_t n, const char *name, int create) {
     int i;
     PsGlobal *slot;
+    pthread_mutex_lock(&ps_global_lock);
     for (i = 0; i < ps_global_n; i++) {
         if (ps_globals[i].name_n == n && memcmp(ps_globals[i].name, name, (size_t)n) == 0) {
+            pthread_mutex_unlock(&ps_global_lock);
             return &ps_globals[i];
         }
     }
     if (!create) {
+        pthread_mutex_unlock(&ps_global_lock);
         return NULL;
     }
     if (ps_global_n >= 64) {
+        pthread_mutex_unlock(&ps_global_lock);
         ps_raise_cstr(PS_RUNTIME, "too many global slots");
     }
     slot = &ps_globals[ps_global_n++];
     slot->name = malloc((size_t)n + 1);
     if (slot->name == NULL) {
+        pthread_mutex_unlock(&ps_global_lock);
         ps_raise_cstr(PS_RUNTIME, "out of memory");
     }
     if (n > 0) {
@@ -543,6 +564,7 @@ static PsGlobal *ps_global_slot(int64_t n, const char *name, int create) {
     slot->pval = NULL;
     slot->buf.len = 0;
     slot->buf.data = &ps_empty_byte;
+    pthread_mutex_unlock(&ps_global_lock);
     return slot;
 }
 
@@ -553,66 +575,100 @@ int32_t ps_global_is_set(int64_t n, const char *name) {
 
 void ps_global_set_str(int64_t nn, const char *name, int64_t vn, const char *val) {
     PsGlobal *slot = ps_global_slot(nn, name, 1);
+    pthread_mutex_lock(&ps_global_lock);
     ps_buf_copy(&slot->buf, val, vn);
     slot->is_int = 0;
     slot->is_ptr = 0;
     slot->set = 1;
+    pthread_mutex_unlock(&ps_global_lock);
 }
 
 void ps_global_get_str(int64_t n, const char *name, PsBuf *out) {
     PsGlobal *slot = ps_global_slot(n, name, 0);
-    if (slot == NULL || !slot->set || slot->is_int || slot->is_ptr) {
+    if (slot == NULL) {
+        ps_raise_cstr(PS_RUNTIME, "global is unset");
+    }
+    pthread_mutex_lock(&ps_global_lock);
+    if (!slot->set || slot->is_int || slot->is_ptr) {
+        pthread_mutex_unlock(&ps_global_lock);
         ps_raise_cstr(PS_RUNTIME, "global is unset");
     }
     ps_buf_copy(out, slot->buf.data == NULL ? "" : slot->buf.data, slot->buf.len);
+    pthread_mutex_unlock(&ps_global_lock);
 }
 
 void ps_global_set_i64(int64_t n, const char *name, int64_t value) {
     PsGlobal *slot = ps_global_slot(n, name, 1);
+    pthread_mutex_lock(&ps_global_lock);
     slot->ival = value;
     slot->is_int = 1;
     slot->is_ptr = 0;
     slot->set = 1;
+    pthread_mutex_unlock(&ps_global_lock);
 }
 
 int64_t ps_global_get_i64(int64_t n, const char *name) {
     PsGlobal *slot = ps_global_slot(n, name, 0);
-    if (slot == NULL || !slot->set || !slot->is_int || slot->is_ptr) {
+    if (slot == NULL) {
         ps_raise_cstr(PS_RUNTIME, "global is unset");
     }
-    return slot->ival;
+    pthread_mutex_lock(&ps_global_lock);
+    int64_t value = slot->ival;
+    int ok = slot->set && slot->is_int && !slot->is_ptr;
+    pthread_mutex_unlock(&ps_global_lock);
+    if (!ok) {
+        ps_raise_cstr(PS_RUNTIME, "global is unset");
+    }
+    return value;
 }
 
 void ps_global_set_ptr(int64_t n, const char *name, void *value) {
     PsGlobal *slot = ps_global_slot(n, name, 1);
+    pthread_mutex_lock(&ps_global_lock);
     slot->pval = value;
     slot->is_int = 0;
     slot->is_ptr = 1;
     slot->set = 1;
+    pthread_mutex_unlock(&ps_global_lock);
 }
 
 void *ps_global_get_ptr(int64_t n, const char *name) {
     PsGlobal *slot = ps_global_slot(n, name, 0);
-    if (slot == NULL || !slot->set || !slot->is_ptr) {
+    if (slot == NULL) {
         ps_raise_cstr(PS_RUNTIME, "global is unset");
     }
-    return slot->pval;
+    pthread_mutex_lock(&ps_global_lock);
+    void *value = slot->pval;
+    int ok = slot->set && slot->is_ptr;
+    pthread_mutex_unlock(&ps_global_lock);
+    if (!ok) {
+        ps_raise_cstr(PS_RUNTIME, "global is unset");
+    }
+    return value;
 }
 
 void ps_global_set_path(int64_t n, const char *name, PsPath *path) {
     PsGlobal *slot = ps_global_slot(n, name, 1);
+    pthread_mutex_lock(&ps_global_lock);
     ps_buf_copy(&slot->buf, path->path.data == NULL ? "" : path->path.data, path->path.len);
     slot->is_int = 0;
     slot->is_ptr = 0;
     slot->set = 1;
+    pthread_mutex_unlock(&ps_global_lock);
 }
 
 void ps_global_get_path(int64_t n, const char *name, PsPath *out) {
     PsGlobal *slot = ps_global_slot(n, name, 0);
-    if (slot == NULL || !slot->set || slot->is_int || slot->is_ptr) {
+    if (slot == NULL) {
+        ps_raise_cstr(PS_RUNTIME, "global is unset");
+    }
+    pthread_mutex_lock(&ps_global_lock);
+    if (!slot->set || slot->is_int || slot->is_ptr) {
+        pthread_mutex_unlock(&ps_global_lock);
         ps_raise_cstr(PS_RUNTIME, "global is unset");
     }
     ps_buf_copy(&out->path, slot->buf.data == NULL ? "" : slot->buf.data, slot->buf.len);
+    pthread_mutex_unlock(&ps_global_lock);
 }
 
 /* shutil.which(cmd): first executable regular file found walking PATH left
