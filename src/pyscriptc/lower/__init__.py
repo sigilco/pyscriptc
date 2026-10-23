@@ -55,7 +55,7 @@ from pyscriptc.lower._stmt import (
     _stmt_continues_this_loop,
 )
 from pyscriptc.stdlib_queue import PACK_MODULES, canonical_module, ffi_modules, module_status
-from pyscriptc.stdmore import THREADING_CLASSES, member_callable, module_constant
+from pyscriptc.stdmore import PTR_CLASSES, member_callable, module_constant
 
 
 class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixin, ClosuresMixin):
@@ -1106,7 +1106,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_path", span)
         if typ["kind"] == "func":
             return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_ptr", span)
-        if typ["kind"] == "class" and typ.get("name") in THREADING_CLASSES:
+        if typ["kind"] == "class" and typ.get("name") in PTR_CLASSES:
             return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_ptr", span)
         self.fail(ast.Pass(), "PS2002", f"global {name} of {_show(typ)} is not lowered")
         raise AssertionError("unreachable")
@@ -1122,7 +1122,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             symbol = "ps_global_set_path"
         elif typ["kind"] == "func":
             symbol = "ps_global_set_ptr"
-        elif typ["kind"] == "class" and typ.get("name") in THREADING_CLASSES:
+        elif typ["kind"] == "class" and typ.get("name") in PTR_CLASSES:
             symbol = "ps_global_set_ptr"
         else:
             self.fail(ast.Pass(), "PS2002", f"global {name} of {_show(typ)} is not lowered")

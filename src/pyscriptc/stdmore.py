@@ -12,6 +12,8 @@ import stat
 import sys
 from typing import Any
 
+from pyscriptc.builtins import RESERVED_EXCEPTIONS
+
 _I: dict[str, Any] = {"kind": "int"}
 _F: dict[str, Any] = {"kind": "float"}
 _B: dict[str, Any] = {"kind": "bool"}
@@ -1205,6 +1207,7 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "logging": ("Logger",),
     "urllib.request": ("HttpRequest", "HttpResponse"),
     "urllib.error": ("HTTPError", "URLError"),
+    "queue": ("Queue", "Empty", "Full"),
 }
 
 CLASS_FIELDS: dict[str, list[dict[str, Any]]] = {
@@ -1227,6 +1230,9 @@ CLASS_FIELDS: dict[str, list[dict[str, Any]]] = {
     "Deque": [],
     "TextIO": [],
     "BytesIO": [],
+    "Queue": [],
+    "Empty": [],
+    "Full": [],
     "TerminalSize": [
         {"name": "columns", "type": _I},
         {"name": "lines", "type": _I},
@@ -1279,6 +1285,14 @@ DEFERRED_CLASSES = frozenset({"Namespace"})
 # module init, so `except` matches through the builtin parent chain.
 SYNTHETIC_EXCEPTIONS: dict[str, int] = {"HTTPError": 24, "URLError": 24}
 
+# Reserved-code exceptions the import binds as classes: `except Empty:` and
+# `except Full:` match the runtime's reserved codes through the parent walk,
+# so user codes never shift. The value is the CPython builtin parent's code.
+RESERVED_CODE_EXCEPTIONS: dict[str, int] = {
+    "Empty": RESERVED_EXCEPTIONS["Empty"],
+    "Full": RESERVED_EXCEPTIONS["Full"],
+}
+
 # i64 field packs compared lexicographically. Path compares its string.
 LEX_CLASSES = frozenset({"Date", "DateTime", "Time", "TimeDelta"})
 COMPARE_CLASSES = LEX_CLASSES | {"Path"}
@@ -1295,6 +1309,14 @@ CLASS_CONSTANTS: dict[tuple[str, str], tuple[dict[str, Any], str]] = {
 # The threading records are runtime pointers. A module-level binding keeps
 # its identity through the global slot, not through a re-emitted call.
 THREADING_CLASSES: frozenset[str] = frozenset({"Thread", "Event", "Condition", "Semaphore", "Lock"})
+
+# The queue records are runtime pointers, one shape for Queue, LifoQueue and
+# SimpleQueue: the element type rides on the class, like Deque's does.
+QUEUE_CLASSES: frozenset[str] = frozenset({"Queue"})
+
+# The records that live in a global slot: a runtime pointer whose identity
+# has to hold across reads, the threading records and the queue records.
+PTR_CLASSES: frozenset[str] = THREADING_CLASSES | QUEUE_CLASSES
 
 TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("datetime", "date"): "Date",
@@ -1321,6 +1343,11 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("threading", "Event"): "Event",
     ("threading", "Condition"): "Condition",
     ("threading", "Semaphore"): "Semaphore",
+    ("queue", "Queue"): "Queue",
+    ("queue", "LifoQueue"): "Queue",
+    ("queue", "SimpleQueue"): "Queue",
+    ("queue", "Empty"): "Empty",
+    ("queue", "Full"): "Full",
     ("urllib.parse", "SplitResult"): "SplitResult",
     ("urllib.request", "HTTPResponse"): "HttpResponse",
     ("urllib.request", "HttpResponse"): "HttpResponse",
@@ -1613,6 +1640,7 @@ REST_MODULES = frozenset(
         "urllib.request",
         "jwt",
         "orjson",
+        "queue",
     }
 )
 
@@ -1835,6 +1863,8 @@ def member_callable(module: str, member: str) -> bool:
     }:
         return True
     if module == "argparse" and member == "ArgumentParser":
+        return True
+    if module == "queue" and member in {"Queue", "LifoQueue", "SimpleQueue", "Empty", "Full"}:
         return True
     if module == "urllib.request" and member in {"urlopen", "Request"}:
         return True

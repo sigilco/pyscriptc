@@ -134,7 +134,8 @@ class AbiMixin:
         if kind in {"list", "dict", "func", "exc"} or (
             kind == "class"
             and (
-                ret.get("name") in {"Deque", "TextIO", "BytesIO", "CsvWriter", "Lock", "HttpResponse", "HttpRequest"}
+                ret.get("name")
+                in {"Deque", "TextIO", "BytesIO", "CsvWriter", "Lock", "Queue", "HttpResponse", "HttpRequest"}
                 or symbol.startswith("ps_ffi_")
             )
         ):

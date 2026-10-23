@@ -13,7 +13,7 @@ import copy
 from typing import Any, NoReturn
 
 from pyscriptc import coro
-from pyscriptc.builtins import EXCEPTIONS
+from pyscriptc.builtins import EXCEPTIONS, RESERVED_EXCEPTIONS
 from pyscriptc.coro import enabled
 from pyscriptc.errors import span_of
 from pyscriptc.ir import type_key, types_equal
@@ -33,7 +33,13 @@ from pyscriptc.lower._core import (
 from pyscriptc.lower._stmt import _always_returns, _is_docstring
 from pyscriptc.restlower import alias_name, path_attr
 from pyscriptc.restlower import method_spec as synth_method
-from pyscriptc.stdmore import ALWAYS_CLASSES, CLASS_FIELDS, DEFERRED_CLASSES, SYNTHETIC_EXCEPTIONS
+from pyscriptc.stdmore import (
+    ALWAYS_CLASSES,
+    CLASS_FIELDS,
+    DEFERRED_CLASSES,
+    RESERVED_CODE_EXCEPTIONS,
+    SYNTHETIC_EXCEPTIONS,
+)
 
 _UNWRAP_FORMS = frozenset({"Final", "ClassVar", "Annotated", "Required", "NotRequired"})
 _DYNAMIC_ANNOTATIONS = frozenset({"object", "Any", "Protocol", "TypeVar", "Generic", "Callable", "ABC"})
@@ -124,6 +130,13 @@ class ClassesMixin:
                 record["exc_code"] = self.exc_n
                 self.exc_n += 1
                 record["exc_parent"] = SYNTHETIC_EXCEPTIONS[name]
+            elif name in RESERVED_CODE_EXCEPTIONS:
+                # A reserved-code exception (queue.Empty): the code is fixed
+                # at the top of the i32 space, so user codes never shift and
+                # the runtime needs no registration.
+                record["exception"] = True
+                record["exc_code"] = RESERVED_CODE_EXCEPTIONS[name]
+                record["exc_parent"] = 7
             self.classes[name] = record
 
     def _collect_class(self, node: ast.ClassDef) -> None:
@@ -1515,6 +1528,8 @@ class ClassesMixin:
 
         if name in EXCEPTIONS:
             return EXCEPTIONS[name]
+        if name in RESERVED_EXCEPTIONS:
+            return RESERVED_EXCEPTIONS[name]
         info = self.classes.get(name)
         code = info.get("exc_code") if info is not None else None
         return code if isinstance(code, int) else None
@@ -1523,6 +1538,8 @@ class ClassesMixin:
         found: list[int] = []
         if name in EXCEPTIONS:
             found.append(EXCEPTIONS[name])
+        elif name in RESERVED_EXCEPTIONS:
+            found.append(RESERVED_EXCEPTIONS[name])
         else:
             info = self.classes.get(name)
             code = info.get("exc_code") if info is not None else None
@@ -1573,6 +1590,13 @@ class ClassesMixin:
             }
             self._reject_banned_type(node, typ)
             return typ
+        if alias == "Queue":
+            # The queue record holds element-sized slots, so the annotation
+            # carries the element type the way a deque annotation does.
+            elem = self._annotation(node.slice)
+            if elem["kind"] == "bool":
+                self.fail(node, "PS2002", "list[bool] is not lowered")
+            return {"kind": "class", "name": "Queue", "elem": elem}
         return None
 
     def _annotation_class(self, node: ast.AST) -> str | None:
@@ -1603,6 +1627,8 @@ class ClassesMixin:
                 return "Counter"
             if binding.module == "collections" and binding.attr == "defaultdict":
                 return "defaultdict"
+            if binding.module == "queue" and binding.attr in {"Queue", "LifoQueue", "SimpleQueue"}:
+                return "Queue"
             return alias_name(binding.module, binding.attr)
         if isinstance(node, ast.Attribute):
             resolved = self._resolve_module(node)
@@ -1616,6 +1642,8 @@ class ClassesMixin:
                 return "Counter"
             if resolved[1] == "collections" and resolved[2] == "defaultdict":
                 return "defaultdict"
+            if resolved[1] == "queue" and resolved[2] in {"Queue", "LifoQueue", "SimpleQueue"}:
+                return "Queue"
         return None
 
     def _typing_annotation(self, node: ast.AST) -> dict[str, Any] | None:

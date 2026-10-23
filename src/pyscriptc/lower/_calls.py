@@ -42,7 +42,14 @@ from pyscriptc.lower._core import (
     _subst_type,
 )
 from pyscriptc.lower._stdlib_shared import _mod_call, _synth_module
-from pyscriptc.restlower import _lock_method, _mk_iter, _static_builtin_fold, _thread_method, builtin_call
+from pyscriptc.restlower import (
+    _lock_method,
+    _mk_iter,
+    _queue_method,
+    _static_builtin_fold,
+    _thread_method,
+    builtin_call,
+)
 from pyscriptc.restlower import method_spec as synth_method
 from pyscriptc.restlower._argparse import _add_argument, _parse_args
 from pyscriptc.stdlib_queue import MATH_FUNCTIONS
@@ -539,6 +546,8 @@ class CallsMixin:
             return _lock_method(self, node, span, receiver)
         if kind == "class" and receiver["type"]["name"] in {"Thread", "Event", "Condition", "Semaphore"}:
             return _thread_method(self, node, span, receiver)
+        if kind == "class" and receiver["type"]["name"] == "Queue":
+            return _queue_method(self, node, span, receiver)
         if kind == "class" and synth_method(receiver["type"]["name"], node.func.attr) is not None:
             return self._synth_call(node, span, receiver)
         if kind == "dict" and node.func.attr == "keys":
