@@ -373,12 +373,16 @@ def _wrap_wasi_p2(core: Path, record: list[list[str]] | None) -> None:
     translates between the two. `wasm-tools component new --adapt` does the
     wrapping; the adapter is fetched and sha256-verified first, so the
     component is reproducible.
+
+    The component replaces the core module at the requested path: the
+    caller asked for one artifact, and a leftover core module next to it
+    would be the one that gets run.
     """
     from pyscriptc import wasm_adapter
 
     tools = wasm_adapter.wasm_tools()
     adapter = wasm_adapter.adapter_path()
-    component = core.with_name(core.stem + ".component.wasm")
+    staged = core.with_name(core.stem + ".component.wasm")
     argv = [
         tools,
         "component",
@@ -387,7 +391,7 @@ def _wrap_wasi_p2(core: Path, record: list[list[str]] | None) -> None:
         "--adapt",
         f"wasi_snapshot_preview1={adapter}",
         "-o",
-        str(component),
+        str(staged),
     ]
     if record is not None:
         record.append(argv)
@@ -395,6 +399,7 @@ def _wrap_wasi_p2(core: Path, record: list[list[str]] | None) -> None:
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout).strip()
         raise IRError(f"wasm-tools failed to wrap the core module into a WASI 0.2 component: {detail}")
+    staged.replace(core)
 
 
 def runtime_dir() -> Path:
