@@ -214,7 +214,7 @@ def test_generator_ir_is_plain_classes(monkeypatch: pytest.MonkeyPatch) -> None:
     frames = {cls["name"]: cls for cls in module["classes"] if cls["name"].startswith("gen.")}
     assert set(frames) == {"gen.count", "gen.evens", "gen.chain"}
     for frame in frames.values():
-        assert {m["name"] for m in frame["methods"]} == {"__iter__", "__next__"}
+        assert {m["name"] for m in frame["methods"]} == {"__iter__", "__next__", "close"}
         assert frame["fields"][0]["name"] == ".ps_state"
 
 
@@ -232,7 +232,6 @@ def test_unsupported_shapes_fence_precisely(monkeypatch: pytest.MonkeyPatch) -> 
     got = sorted((f["span"]["line"], f["message"]) for f in module["fences"])
     assert got == [
         (6, "yield inside try or with is not lowered yet"),
-        (11, "Generator[T, S, R] with send or return types is not lowered yet"),
         (17, "yield as an expression (send) is not lowered yet"),
         (22, "return with a value in a generator is not lowered yet"),
         (26, "a nested def or class in a resumable is not lowered yet"),
@@ -326,7 +325,7 @@ def test_generator_method_ir_is_plain_classes() -> None:
     frames = {cls["name"] for cls in module["classes"] if cls["name"].startswith("gen.")}
     assert frames == {"gen.Counter.upto"}
     frame = next(cls for cls in module["classes"] if cls["name"] == "gen.Counter.upto")
-    assert {m["name"] for m in frame["methods"]} == {"__iter__", "__next__"}
+    assert {m["name"] for m in frame["methods"]} == {"__iter__", "__next__", "close"}
 
 
 def test_package_generator_lowers_and_cross_module_consumes(tmp_path: Path) -> None:
@@ -414,3 +413,165 @@ print(go())
     module = lower_source(source, "tc.py")
     assert module["fences"] == []
     assert YIELD_MARKER not in json.dumps(module)
+
+
+# --- Generator protocol (#166) ----------------------------------------------
+
+NEXT = """\
+from typing import Iterator
+
+
+def count(n: int) -> Iterator[int]:
+    i: int = 0
+    while i < n:
+        yield i
+        i += 1
+
+
+def go() -> str:
+    g: Iterator[int] = count(3)
+    out: str = ""
+    out += str(next(g))
+    out += "," + str(next(g))
+    out += "," + str(next(g, None))
+    out += "," + str(next(g, None))
+    h: Iterator[int] = count(1)
+    out += "," + str(next(h, 42))
+    try:
+        next(h)
+        out += ",noraise"
+    except StopIteration:
+        out += ",stop"
+    return out
+
+
+print(go())
+"""
+
+SEND = """\
+from typing import Generator
+
+
+def echo() -> Generator[int, int, None]:
+    got: int = yield 1
+    got2: int = yield got
+    yield got2
+
+
+def go() -> str:
+    g: Generator[int, int, None] = echo()
+    out: str = ""
+    out += str(next(g))
+    out += " " + str(g.send(21))
+    out += " " + str(g.send(7))
+    out += " " + str(next(g, -1))
+    return out
+
+
+print(go())
+"""
+
+CLOSE_THROW = """\
+from typing import Iterator
+
+
+def g() -> Iterator[int]:
+    yield 1
+    yield 2
+
+
+def go() -> str:
+    a: Iterator[int] = g()
+    out: str = str(next(a))
+    a.close()
+    out += "," + str(next(a, None))
+    a.close()
+    b: Iterator[int] = g()
+    next(b)
+    try:
+        b.throw(ValueError)
+    except ValueError:
+        out += ",thrown"
+    out += "," + str(next(b, None))
+    return out
+
+
+print(go())
+"""
+
+YIELD_FROM_CHAIN = """\
+from typing import Iterator
+
+
+def sub(n: int) -> Iterator[int]:
+    i: int = 0
+    while i < n:
+        yield i
+        i += 1
+
+
+def chain(n: int) -> Iterator[int]:
+    yield 100
+    yield from sub(n)
+    yield from [7, 8]
+
+
+def go() -> str:
+    out: str = ""
+    for v in chain(3):
+        out += str(v) + ","
+    return out
+
+
+print(go())
+"""
+
+
+@pytest.mark.parametrize(
+    ("name", "source"), [("next", NEXT), ("send", SEND), ("close_throw", CLOSE_THROW), ("yf", YIELD_FROM_CHAIN)]
+)
+def test_generator_protocol_matches_cpython(tmp_path: Path, name: str, source: str) -> None:
+    got, expected = _run_both(tmp_path, name, source)
+    assert got == expected
+
+
+def test_generator_fits_iterator_annotation() -> None:
+    module = lower_source(NEXT, "next.py")
+    assert module["fences"] == []
+    validate_module(module)
+
+
+def test_generator_send_ir_has_frame_surface() -> None:
+    module = lower_source(SEND, "send.py")
+    assert module["fences"] == []
+    frame = next(cls for cls in module["classes"] if cls["name"] == "gen.echo")
+    assert {m["name"] for m in frame["methods"]} == {"__iter__", "__next__", "close", "send"}
+    assert any(field["name"] == ".ps_send" for field in frame["fields"])
+    assert YIELD_MARKER not in json.dumps(module)
+
+
+def test_generator_close_ir_has_method() -> None:
+    module = lower_source(CLOSE_THROW, "ct.py")
+    assert module["fences"] == []
+    frame = next(cls for cls in module["classes"] if cls["name"] == "gen.g")
+    assert "close" in {m["name"] for m in frame["methods"]}
+    assert YIELD_MARKER not in json.dumps(module)
+
+
+def test_generator_typed_send_annotation_lowers() -> None:
+    source = """\
+from typing import Generator
+
+
+def echo() -> Generator[int, int, None]:
+    got: int = yield 1
+    yield got
+
+
+def go() -> int:
+    g: Generator[int, int, None] = echo()
+    return g.send(0) + g.send(5)
+"""
+    module = lower_source(source, "gs.py")
+    assert module["fences"] == []
+    validate_module(module)

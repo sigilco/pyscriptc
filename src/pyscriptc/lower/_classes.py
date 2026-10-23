@@ -537,16 +537,49 @@ class ClassesMixin:
     def _accepts_protocol(self, want: dict[str, Any], got: dict[str, Any]) -> bool:
         """A Protocol-annotated slot accepts any subclass of the erased class:
         the marker carries no fields, so every record below it already
-        satisfies its layout."""
+        satisfies its layout. A `gen.` frame class is accepted where an
+        `Iterator[T]`-shaped annotation (the synthetic `iter_` cursor) is
+        expected: the frame's `__next__` return type must equal the
+        annotation's element, and the caller narrows the slot to the frame."""
         if want["kind"] != "class" or got["kind"] != "class":
             return False
         want_name = want.get("name")
         got_name = got.get("name")
         if not isinstance(want_name, str) or not isinstance(got_name, str):
             return False
+        if self.classes.get(want_name, {}).get("iterator") and want.get("elem") is not None:
+            if not got_name.startswith("gen."):
+                return False
+            frame = self.classes.get(got_name)
+            if frame is None or frame.get("coro") != "generator":
+                return False
+            next_ret = frame["methods"].get("__next__", (None, None))[1]
+            return next_ret is not None and types_equal(next_ret, want["elem"])
         if not self.classes.get(want_name, {}).get("protocol"):
             return False
         return self._is_subclass_name(got_name, want_name)
+
+    def _narrows_to_generator(self, want: dict[str, Any], got: dict[str, Any]) -> bool:
+        """True when an iterator-shaped annotation holds a generator frame.
+
+        The synthetic `iter_` cursor is a materialized list with an index;
+        a generator frame is a lazy record with `__iter__`/`__next__`. When
+        the value is a frame, the slot keeps the frame type so `next()`,
+        `send()` and `for` dispatch on the real shape.
+        """
+        if want.get("kind") != "class" or got.get("kind") != "class":
+            return False
+        want_name = want.get("name")
+        got_name = got.get("name")
+        if not isinstance(want_name, str) or not isinstance(got_name, str):
+            return False
+        if not self.classes.get(want_name, {}).get("iterator"):
+            return False
+        frame = self.classes.get(got_name)
+        if frame is None or frame.get("coro") != "generator":
+            return False
+        next_ret = frame["methods"].get("__next__", (None, None))[1]
+        return next_ret is not None and types_equal(next_ret, want.get("elem"))
 
     def _resolve_base(self, node: ast.expr) -> dict[str, str]:
         enum = self._enum_base_name(node)
@@ -1634,6 +1667,8 @@ class ClassesMixin:
             return typ
         if alias == "Iterator":
             return self._iter_type(self._annotation(node.slice), node)
+        if alias == "Generator":
+            return self._generator_annotation(node)
         if alias in _UNWRAP_FORMS:
             inner = node.slice
             if alias == "Annotated":
@@ -1729,6 +1764,15 @@ class ClassesMixin:
         elif not existing.get("tuple"):
             self.fail(node, "PS2002", f"{name} clashes with a tuple type")
         return {"kind": "class", "name": name, "label": label}
+
+    def _generator_annotation(self, node: ast.Subscript) -> dict[str, Any]:
+        """`Generator[T, S, R]` as a value annotation is the iterator cursor
+        over T: the send and return types stay with the generator's own
+        signature, and a local of this type holding a generator frame keeps
+        the frame type (`_narrows_to_generator`)."""
+        if not isinstance(node.slice, ast.Tuple) or not 1 <= len(node.slice.elts) <= 3:
+            self.fail(node, "PS1001", "Generator is Generator[T] or Generator[T, S, R]")
+        return self._iter_type(self._annotation(node.slice.elts[0]), node)
 
     def _iter_type(self, elem: dict[str, Any], node: ast.AST) -> dict[str, Any]:
         """`Iterator[T]` / the `iter()` value: a synthetic record

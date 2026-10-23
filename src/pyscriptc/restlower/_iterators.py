@@ -5,6 +5,8 @@ from __future__ import annotations
 import ast
 from typing import Any
 
+from pyscriptc.ir import types_equal
+from pyscriptc.lower._core import _const_bool
 from pyscriptc.restlower._shared import _asg, _cmp, _field, _incr, _int, _len_of, _nm, _pin, _set_field, _span_to, _sub
 
 
@@ -93,25 +95,73 @@ def _next(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     src_t = source["type"]
     if src_t["kind"] == "class" and not lo.classes.get(src_t["name"], {}).get("iterator"):
         # A user class with __next__ is an iterator itself; the 2-arg form
-        # catches its StopIteration for the default.
+        # catches its StopIteration for the default. A default of a different
+        # type than the element boxes the result into the tagged optional
+        # (`next(g, None)`), like `Optional[T]`.
         called = lo._dunder_call(node, source, "__next__", [], span)
         if called is not None:
             if len(node.args) == 1:
                 return called
             elem = called["type"]
             default = lo._expr(node.args[1])
-            lo._expect(node.args[1], default["type"], elem, "next")
-            out = lo._temp("nx")
-            lo.locals[out] = elem
+            if types_equal(default["type"], elem):
+                out = lo._temp("nx")
+                lo.locals[out] = elem
+                lo.prelude.append(
+                    {
+                        "kind": "try",
+                        "body": [_asg(out, called, span)],
+                        "handlers": [{"exc": ["StopIteration"], "codes": [8], "body": [_asg(out, default, span)]}],
+                        "span": span,
+                    }
+                )
+                return _nm(out, elem, span)
+            if default["type"]["kind"] != "none":
+                # No union in the IR: the default must be the element type or
+                # None (`next(g, None)`), the common sentinel form.
+                lo.fail(node.args[1], "PS1003", "next's default must match the element type or be None")
+            opt_t = lo._opt_type(elem, node)
+            # The `__next__` call must sit inside the try body, so the box is
+            # allocated in the prelude and filled in the guarded statement.
+            box = lo._opt_box(None, opt_t, span)
             lo.prelude.append(
                 {
                     "kind": "try",
-                    "body": [_asg(out, called, span)],
-                    "handlers": [{"exc": ["StopIteration"], "codes": [8], "body": [_asg(out, default, span)]}],
+                    "body": [
+                        {
+                            "kind": "setattr",
+                            "object": _nm(box["id"], opt_t, span),
+                            "name": "_tag",
+                            "value": _const_bool(True, span),
+                            "span": span,
+                        },
+                        {
+                            "kind": "setattr",
+                            "object": _nm(box["id"], opt_t, span),
+                            "name": "_val",
+                            "value": called,
+                            "span": span,
+                        },
+                    ],
+                    "handlers": [
+                        {
+                            "exc": ["StopIteration"],
+                            "codes": [8],
+                            "body": [
+                                {
+                                    "kind": "setattr",
+                                    "object": _nm(box["id"], opt_t, span),
+                                    "name": "_tag",
+                                    "value": _const_bool(False, span),
+                                    "span": span,
+                                }
+                            ],
+                        }
+                    ],
                     "span": span,
                 }
             )
-            return _nm(out, elem, span)
+            return _nm(box["id"], opt_t, span)
     if src_t["kind"] != "class" or not lo.classes.get(src_t["name"], {}).get("iterator"):
         lo.fail(node.args[0], "PS2002", "next takes an iterator value")
     elem = src_t["elem"]
