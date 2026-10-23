@@ -100,16 +100,18 @@ enum {
     PS_ATTR = PS_ATTRIBUTEERROR
 };
 
-/* Reserved codes for the coroutine exceptions. They sit at the top of the
-i32 code space so PS_USER_BASE (and every user exception number) stays put.
-Nothing raises them yet; user class codes count up from PS_USER_BASE and can
-never reach this range. Mirrored in builtins.RESERVED_EXCEPTIONS. */
+/* Reserved codes for the coroutine exceptions and the queue exceptions.
+They sit at the top of the i32 code space so PS_USER_BASE (and every user
+exception number) stays put. User class codes count up from PS_USER_BASE and
+can never reach this range. Mirrored in builtins.RESERVED_EXCEPTIONS. */
 enum {
     PS_RESERVED_BASE = 0x7FFFFFF0,
     PS_GENERATOR_EXIT = 0x7FFFFFF0,
     PS_STOP_ASYNC = 0x7FFFFFF1,
     PS_CANCELLED = 0x7FFFFFF2,
-    PS_TIMEOUT = 0x7FFFFFF3
+    PS_TIMEOUT = 0x7FFFFFF3,
+    PS_QUEUE_EMPTY = 0x7FFFFFF4,
+    PS_QUEUE_FULL = 0x7FFFFFF5
 };
 
 /* longjmp payload once an exception is pending; the class code lives on the

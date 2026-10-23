@@ -184,6 +184,7 @@ static int32_t ps_user_exc_n;
 
 _Static_assert(PS_RESERVED_BASE > PS_USER_BASE, "reserved codes sit above user codes");
 _Static_assert(PS_TIMEOUT >= PS_GENERATOR_EXIT && PS_TIMEOUT < 0x7FFFFFFF, "reserved codes fit i32");
+_Static_assert(PS_QUEUE_FULL == PS_RESERVED_BASE + 5 && PS_QUEUE_FULL < 0x7FFFFFFF, "queue codes follow the coroutine codes");
 
 _Static_assert(sizeof(PsBuf) == 16, "PsBuf must match %ps.str");
 
@@ -204,6 +205,10 @@ static const char *ps_exc_name(int code) {
         return "CancelledError";
     case PS_TIMEOUT:
         return "TimeoutError";
+    case PS_QUEUE_EMPTY:
+        return "Empty";
+    case PS_QUEUE_FULL:
+        return "Full";
     default:
         break;
     }
@@ -479,6 +484,12 @@ int32_t ps_exc_isa(int32_t raised, int32_t wanted) {
                 return 0;
             }
             code = ps_user_exc[index].parent;
+            continue;
+        }
+        if (code >= PS_RESERVED_BASE) {
+            /* A reserved code: queue.Empty and queue.Full are plain
+               Exceptions, like every reserved class. */
+            code = PS_EXCEPTION;
             continue;
         }
         code = ps_exc_parent[code];
