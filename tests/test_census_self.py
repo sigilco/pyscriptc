@@ -99,10 +99,10 @@ def test_self_census_ballpark() -> None:
     # restlower/_dotenv.py (dotenv_values / load_dotenv, #253) adds 5 more.
     # restlower/_yaml.py (yaml.safe_load, #254) adds 5 more.
     # restlower/_urllib.py (urlopen / Request, #225 #226) adds 12 more.
-    # Checker bridge follow-ups (#258): the checker-version helpers in
-    # factsbridge.py add 5 more.
-    assert census["fences"] == 2462
+    # Checker bridge follow-ups (#258): the checker-version helpers and the
+    # pyrefly lane in factsbridge.py add 9 more over the urllib pin.
+    assert census["fences"] == 2471
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     assert 11_000 <= census["lines"] <= 34_000
-    assert sum(p["fences"] for p in census["packages"]) == 2462
+    assert sum(p["fences"] for p in census["packages"]) == 2471
