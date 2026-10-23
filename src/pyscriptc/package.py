@@ -37,6 +37,22 @@ def lower_directory(root: Path, program_mode: bool = False, bridge: Any = None) 
     program = program_mode or _is_program_dir(root)
     exports, failed = _catalog(units, program)
 
+    # A bridge is built per file: mypy's TypeMap covers one module, so a
+    # package tree runs the checker once per unit and lowering consults the
+    # map of the file it is in (issue #258). A plain `CheckerBridge` is a
+    # single-file map and stays the one-bridge-per-compile shape.
+    per_file = getattr(bridge, "for_file", None)
+    file_bridges: dict[str, Any] = {}
+
+    def bridge_for(path: Path) -> Any:
+        if per_file is None:
+            return bridge
+        found = file_bridges.get(str(path))
+        if found is None:
+            found = per_file(path)
+            file_bridges[str(path)] = found
+        return found
+
     if program:
         fences, owners = _program_plan(units, exports)
         if fences:
@@ -61,7 +77,7 @@ def lower_directory(root: Path, program_mode: bool = False, bridge: Any = None) 
         lowerer.exc_n = exc_n
         lowerer.program = program
         lowerer.module_init = program and name != "__main__"
-        lowerer.bridge = bridge
+        lowerer.bridge = bridge_for(path)
         module = lowerer.module(tree)
         exc_n = lowerer.exc_n
         for fn in module["functions"]:

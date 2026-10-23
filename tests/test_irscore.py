@@ -215,3 +215,40 @@ def test_bad_baseline_file_exits_two(
     monkeypatch.setattr(irscore, "probe_hashes", lambda probes, **_: {"b.one": "0" * 64, "b.two": "1" * 64})
     assert irscore.main([str(probes), "--baseline", str(broken)]) == 2
     assert "not valid JSON" in capsys.readouterr().err
+
+
+def test_bridged_baseline_records_the_checker_version(tmp_path: Path) -> None:
+    """A bridged run names the checker version next to the oracle (issue #258).
+
+    The IR of a bridged compile depends on the checker, so a baseline that
+    omits it cannot be reproduced: the header check refuses it.
+    """
+
+    from pyscriptc.factsbridge import mypy_available, mypy_version
+
+    probes = base_probes(tmp_path)
+    baseline = tmp_path / "b.json"
+    if not mypy_available():
+        pytest.skip("mypy >=2.4,<2.5 not installed")
+    assert irscore.main([str(probes), "--out", str(baseline), "--bridge", "mypy"]) == 0
+    doc = json.loads(baseline.read_text(encoding="utf-8"))
+    assert doc["bridge"] == "mypy"
+    assert doc["bridge_version"] == mypy_version()
+    # The same bridge and version compare clean.
+    assert irscore.main([str(probes), "--baseline", str(baseline), "--bridge", "mypy"]) == 0
+
+
+def test_bridged_baseline_refuses_a_stale_checker_version(tmp_path: Path) -> None:
+    """A baseline recorded under another checker version is stale (exit 2)."""
+
+    from pyscriptc.factsbridge import mypy_available
+
+    probes = base_probes(tmp_path)
+    baseline = tmp_path / "b.json"
+    if not mypy_available():
+        pytest.skip("mypy >=2.4,<2.5 not installed")
+    assert irscore.main([str(probes), "--out", str(baseline), "--bridge", "mypy"]) == 0
+    doc = json.loads(baseline.read_text(encoding="utf-8"))
+    doc["bridge_version"] = "0.0.0"
+    baseline.write_text(json.dumps(doc, sort_keys=True, indent=1) + "\n", encoding="utf-8")
+    assert irscore.main([str(probes), "--baseline", str(baseline), "--bridge", "mypy"]) == 2

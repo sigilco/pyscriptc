@@ -113,11 +113,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     compile_parser.add_argument(
         "--bridge",
-        choices=("mypy",),
+        choices=("mypy", "pyrefly"),
         default=None,
         help="checker bridge: feed the checker's inferred-type map into lowering so "
         "unannotated locals, parameters and returns stop fencing. Off by default; "
-        "needs mypy installed",
+        "needs mypy installed, or pyrefly for --bridge pyrefly",
     )
     compile_parser.add_argument(
         "--debug",
