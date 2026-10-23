@@ -40,6 +40,7 @@ from pyscriptc.stdlib_queue import (
     PACK_MODULES,
     SPECIAL_FUNCTIONS,
     canonical_module,
+    dep_lanes,
     ffi_manifests,
     module_status,
     wave_function,
@@ -51,6 +52,25 @@ from pyscriptc.stdmore import (
     member_callable,
     module_constant,
 )
+
+
+def _dep_lane_hint(module: str, message: str) -> str:
+    """The fence message for an import that names a locked dependency.
+
+    A dependency on a lane the compiler cannot take (issue #398) is refused
+    with the distribution and the lane hint, so the user knows which
+    dependency refused and what would unblock it. Any other import keeps
+    today's message.
+    """
+
+    lanes = dep_lanes()
+    if not lanes:
+        return message
+    head = module.split(".", 1)[0]
+    entry = lanes.get(head)
+    if entry is None:
+        return message
+    return f"{message} ({entry['distribution']} is on the {entry['lane']} lane: {entry['hint']})"
 
 
 class StdlibDispatchMixin:
@@ -74,7 +94,7 @@ class StdlibDispatchMixin:
                 fences.append(
                     Fence(
                         "PS2002",
-                        f"{alias.name} is not in the closed import table",
+                        _dep_lane_hint(alias.name, f"{alias.name} is not in the closed import table"),
                         span_of(stmt, self.filename),
                         None,
                     )
@@ -140,7 +160,7 @@ class StdlibDispatchMixin:
             fences.append(
                 Fence(
                     "PS2002",
-                    f"{stmt.module} is not in the closed import table",
+                    _dep_lane_hint(stmt.module, f"{stmt.module} is not in the closed import table"),
                     span_of(stmt, self.filename),
                     None,
                 )

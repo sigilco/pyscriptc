@@ -13,6 +13,7 @@ from __future__ import annotations
 import ast
 import sys
 import time
+from pathlib import Path
 from typing import Any, NoReturn
 
 from pyscriptc.builtins import USER_EXC_BASE
@@ -56,7 +57,13 @@ from pyscriptc.lower._stmt import (
     _stmt_continues_this_loop,
 )
 from pyscriptc.mobile import MOBILE_EXCLUDED_SYMBOLS, is_mobile_target, mobile_fence_hint
-from pyscriptc.stdlib_queue import PACK_MODULES, canonical_module, ffi_modules, module_status
+from pyscriptc.stdlib_queue import (
+    PACK_MODULES,
+    canonical_module,
+    dependency_lanes,
+    ffi_modules,
+    module_status,
+)
 from pyscriptc.stdmore import PTR_CLASSES, member_callable, module_constant
 
 
@@ -126,6 +133,10 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # The program root package name, when the tree is a program. It is the
         # prefix for the program's own package-style names.
         self.program_root = ""
+        # The top-level names of the dependency source roots (issue #398):
+        # a program module may import them by their plain names, the way
+        # `sys.path` resolves an unpacked wheel's packages.
+        self.program_roots: set[str] = set()
         self.package: dict[str, dict[str, dict[str, Any]]] | None = None
         self.pkg_funcs: dict[str, dict[str, Any]] = {}
         self.class_aliases: dict[str, str] = {}
@@ -787,6 +798,10 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         `pkg.x`), so any exact key match, or a dotted name whose head is a
         program package, is the program's own module. `__main__` is the
         entry module and never importable.
+
+        A dependency source root's package (issue #398) is the program's own
+        module too: it is exported under its plain name, so `import certifi`
+        binds the package the way a sibling module does.
         """
 
         if not self.program or not module or self.package is None:
@@ -796,6 +811,8 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         if module in self.package:
             return True
         head = module.split(".", 1)[0]
+        if head in self.program_roots:
+            return True
         return head in self.package and self.package[head] is not None
 
     def _pkg_item(self, node: ast.AST, module: str, member: str) -> dict[str, Any]:
@@ -1536,19 +1553,24 @@ def lower_source(
     timings: dict[str, float] | None = None,
     ffi: list[Any] | None = None,
     target: str | None = None,
+    dep_lane_report: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     tree = ast.parse(source, filename=filename)
     if timings is not None:
         timings["parse"] = round((time.perf_counter() - started) * 1000.0, 3)
-    if ffi:
-        with ffi_modules(ffi):
-            lowerer = Lowerer(filename, source, target=target)
-            lowerer.bridge = bridge
-            return lowerer.module(tree)
-    lowerer = Lowerer(filename, source, target=target)
-    lowerer.bridge = bridge
-    return lowerer.module(tree)
+    with dependency_lanes(dep_lane_report or {}):
+        if ffi:
+            # The FFI table is a module-level registry the caller may have
+            # installed already; only replace it when this call brings its
+            # own manifests.
+            with ffi_modules(ffi):
+                lowerer = Lowerer(filename, source, target=target)
+                lowerer.bridge = bridge
+                return lowerer.module(tree)
+        lowerer = Lowerer(filename, source, target=target)
+        lowerer.bridge = bridge
+        return lowerer.module(tree)
 
 
 def lower_file(
@@ -1557,9 +1579,52 @@ def lower_file(
     timings: dict[str, float] | None = None,
     ffi: list[Any] | None = None,
     target: str | None = None,
+    dep_roots: list[Path] | None = None,
+    dep_lane_report: dict[str, dict[str, str]] | None = None,
 ) -> tuple[dict[str, Any], str]:
+    """Lower one script file, with the dependency roots as extra modules.
+
+    ``dep_roots`` (issue #398) lower into the same module the script does:
+    their plain names join the shared export table, so `import certifi`
+    binds the way a sibling module would. The script stays the entry module
+    and the dependency modules never synthesize entries.
+    """
+
     text = open(path, encoding="utf-8").read()
-    return lower_source(text, path, bridge, timings, ffi, target), text
+    if not dep_roots:
+        return lower_source(text, path, bridge, timings, ffi, target, dep_lane_report), text
+
+    from pyscriptc.package import _discover_dep_roots, _lower_units
+
+    script = Path(path)
+    dep_units, dep_fences = _discover_dep_roots(dep_roots)
+    if dep_fences:
+        return (
+            {
+                "irVersion": 1,
+                "subset": SUBSET,
+                "cpython": cpython_version(),
+                "sourceFile": path,
+                "entry": None,
+                "functions": [],
+                "classes": [],
+                "fences": dep_fences,
+            },
+            text,
+        )
+    merged, _notes = _lower_units(
+        [("__main__", script, False), *dep_units],
+        script,
+        program=True,
+        entry="__main__",
+        bridge=bridge,
+        ffi=ffi,
+        target=target,
+        dep_names={name for name, _p, _ip in dep_units},
+        dep_lane_report=dep_lane_report,
+    )
+    merged["sourceFile"] = str(script)
+    return merged, text
 
 
 def render_fences(module: dict[str, Any], source: str) -> str:

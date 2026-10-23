@@ -980,6 +980,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             bridge = CheckerBridge.for_path(source_path, args.bridge)
             dbg.end("bridge")
         dbg.begin("lower")
+        dep_roots, dep_lanes = _dependency_roots(source_path, config)
         if source_path.is_dir():
             module, source = lower_directory(
                 source_path,
@@ -987,6 +988,8 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                 bridge=bridge,
                 ffi=manifests,
                 target=args.target,
+                dep_roots=dep_roots,
+                dep_lane_report=dep_lanes,
             )
         elif source_path.is_file():
             module, source = lower_file(
@@ -995,6 +998,8 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                 timings=dbg.timings_map,
                 ffi=manifests,
                 target=args.target,
+                dep_roots=dep_roots,
+                dep_lane_report=dep_lanes,
             )
         else:
             raise IRError(f"source not found: {source_path}")
@@ -1007,7 +1012,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         state["stage"] = "check"
         if not args.skip_check:
             dbg.begin("check")
-            run_checker(source_path, args.checker, _manifest_stub_roots(manifests))
+            run_checker(source_path, args.checker, [*_manifest_stub_roots(manifests), *dep_roots])
             dbg.end("check")
         state["stage"] = "validate"
         dbg.begin("validate")
@@ -1170,6 +1175,66 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         if report:
             print(report, file=sys.stderr)
         dbg.write_dir(module, llvm_text, outputs, status)
+
+
+def _dependency_roots(source_path: Path, config: Any) -> tuple[list[Path], dict[str, dict[str, str]]]:
+    """The dependency source roots the compile may import (issue #398).
+
+    The deps report's `sourceRoots`, one directory per pure-Python
+    dependency, become extra module roots of the compile. The `[imports]`
+    lane table decides per import name: `compile` takes the dependency from
+    the deps cache, and `replace`, `extern`, `island` and `refuse` behave
+    exactly as they do today (the dependency contributes no root, so the
+    import fences or binds on its own lane).
+
+    The second value is the lane report the compiler fences against: every
+    locked dependency by import name, with its lane and the lane hint, so a
+    refused import names the distribution and what would unblock it.
+
+    A source with no declared dependencies has no roots and no resolver
+    call, so a compile that declares nothing never touches the network.
+    """
+
+    if not config.dependencies:
+        return [], {}
+    report = deps.run_deps(source_path)
+    roots: list[Path] = []
+    lanes: dict[str, dict[str, str]] = {}
+    for package in report["packages"]:
+        distribution = package["name"]
+        module = distribution.lower().replace("-", "_").replace(".", "_")
+        # The lane is the deps report's (pure, native, sdist from the lock
+        # and the wheel tags); the `[imports]` table can only *keep* a
+        # dependency off the compile lane, not put a native one on it.
+        lane = package["lane"]
+        policy = _dependency_lane(distribution, config)
+        if policy != "compile":
+            lane = policy
+        lanes[module] = {
+            "distribution": distribution,
+            "lane": lane,
+            "hint": package.get("hint", ""),
+        }
+        root = package.get("source_root")
+        if not root or lane != "pure":
+            continue
+        roots.append(Path(root))
+    return roots, lanes
+
+
+def _dependency_lane(distribution: str, config: Any) -> str:
+    """The `[imports]` policy lane of one distribution, `compile` by default."""
+    from pyscriptc.config import requirement_name
+
+    name = requirement_name(distribution)
+    module = name.lower().replace("-", "_").replace(".", "_")
+    for key in (name, name.lower(), module):
+        if key in config.imports:
+            return config.imports[key]
+    star = config.imports.get("*")
+    if star not in (None, "compile"):
+        return star
+    return "compile"
 
 
 def _compile_outcome(exc: BaseException, stage: str) -> str:

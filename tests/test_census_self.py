@@ -174,7 +174,12 @@ def test_self_census_ballpark() -> None:
     # the `__del__` finalizer in typefacts.py (the pyrefly TSP adapter) is
     # now a PS4203 fence in the `refused-finalizer` family: +1 fence, the
     # module count is unchanged.
-    assert census["fences"] == 2914
+    # Dependency source roots (#398): the dep-root discovery and the units
+    # core in package.py, the program-roots set in lower/__init__.py, the
+    # lane hint helper in lower/_stdlib.py and the dependency-lanes registry
+    # in stdlib_queue.py add 11 self-host fences; cli.py nets -1 (the
+    # roots/lanes helper subsumes inline code).
+    assert census["fences"] == 2926
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     # Project mode (#150): project.py adds about 240 lines.
@@ -182,4 +187,4 @@ def test_self_census_ballpark() -> None:
     # adds about 150 lines in coro.py. The asyncio primitives (#180 D3) add
     # about 400 in ps_async.c and restlower/_asyncio_sync.py.
     assert 11_000 <= census["lines"] <= 40_500
-    assert sum(p["fences"] for p in census["packages"]) == 2914
+    assert sum(p["fences"] for p in census["packages"]) == 2926
