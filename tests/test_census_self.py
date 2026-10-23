@@ -115,9 +115,11 @@ def test_self_census_ballpark() -> None:
     # FFI F1a (#218): the --ffi manifest wiring in stdlib_queue.py, lower/ and
     # cli.py adds 21 self-host fences (the manifest install, the FFI binding
     # clauses and the CLI flag plumbing). The module count is unchanged.
-    assert census["fences"] == 2661
+    # @contextmanager (#167): the manager class, the decorator recognition in
+    # lower/_stdlib.py and lower/_classes.py add 5 self-host fences.
+    assert census["fences"] == 2666
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     # Project mode (#150): project.py adds about 240 lines.
     assert 11_000 <= census["lines"] <= 36_000
-    assert sum(p["fences"] for p in census["packages"]) == 2661
+    assert sum(p["fences"] for p in census["packages"]) == 2666

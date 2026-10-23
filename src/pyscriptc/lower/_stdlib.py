@@ -367,6 +367,10 @@ class StdlibDispatchMixin:
             # A module-level coroutine: the coro pass owns it (PS2002 fences
             # from its shape check already carry the precise message).
             return True
+        if self._is_contextmanager_deco(fn) and enabled():
+            # `@contextmanager`: the coro pass owns it (the generator frame
+            # plus the `cm.<name>` wrapper).
+            return True
         message = self._module_decorator_fence(fn)
         if message is None:
             if fn.decorator_list and not self._is_module_staticmethod(fn):
@@ -421,6 +425,25 @@ class StdlibDispatchMixin:
                 self.fail(node, "PS1003", f"{module}.{attr} argument {param.name} is {_show(arg['type'])}")
             args.append(arg)
         return self._abi_call(module, attr, args, type_ir(fn.returns, manifest.handle_names), fn.abi, span)
+
+    def _is_contextmanager_deco(self, fn: ast.FunctionDef) -> bool:
+        """True when the function carries `contextlib.contextmanager`.
+
+        The name alone is not enough: the decorator has to resolve to the
+        stdlib member, so a local `contextmanager` function is not mistaken
+        for it.
+        """
+        if len(fn.decorator_list) != 1:
+            return False
+        dec = fn.decorator_list[0]
+        target = dec.func if isinstance(dec, ast.Call) and not dec.args and not dec.keywords else dec
+        if isinstance(target, ast.Name):
+            binding = self.bindings.get(target.id)
+            return binding is not None and binding.module == "contextlib" and binding.attr == "contextmanager"
+        if isinstance(target, ast.Attribute):
+            resolved = self._resolve_module(target)
+            return resolved is not None and resolved[1] == "contextlib" and resolved[2] == "contextmanager"
+        return False
 
     def _module_decorator_fence(self, fn: ast.FunctionDef) -> str | None:
         if not fn.decorator_list:
