@@ -12,7 +12,8 @@
     "cosmos:export": "cosmos-export"
   },
   "dependencies": {
-    "astro": "^5.18.2"
+    "astro": "^5.18.2",
+    "daisyui": "^5.7.50"
   },
   "devDependencies": {
     "@astrojs/react": "^7.1.1",
