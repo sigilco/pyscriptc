@@ -112,6 +112,38 @@ def checklist() -> int:
     return 0
 """
 
+_THREADS_ISLAND_SOURCE = """
+import socket
+import threading
+
+seen = ""
+
+def put() -> None:
+    global seen
+    h: str = socket.gethostname()
+    seen = h
+
+def checklist() -> int:
+    a: threading.Thread = threading.Thread(target=put, args=())
+    b: threading.Thread = threading.Thread(target=put, args=())
+    c: threading.Thread = threading.Thread(target=put, args=())
+    d: threading.Thread = threading.Thread(target=put, args=())
+    a.start()
+    b.start()
+    c.start()
+    d.start()
+    a.join()
+    b.join()
+    c.join()
+    d.join()
+    main: str = socket.gethostname()
+    if seen != main:
+        return 1
+    if main == "":
+        return 2
+    return 0
+"""
+
 
 @pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_eight_threads_million_locked_increments_exact(tmp_path: Path) -> None:
@@ -137,6 +169,18 @@ def test_global_str_write_from_thread_visible_after_join(tmp_path: Path) -> None
 def test_module_random_stream_survives_threads(tmp_path: Path) -> None:
     """The module-level random stream stays coherent across threads."""
     path = write_case(tmp_path, "rand.py", _THREADS_RAND_SOURCE)
+    got = compile_run(tmp_path, path, "checklist")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle(path, "checklist")
+    assert got.stdout == "0\n"
+
+
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
+def test_island_call_from_four_threads(tmp_path: Path) -> None:
+    """The island receipt: 4 threads call an island function and the
+    program completes. Py_InitializeEx runs once, the GIL is released
+    after it, and every entry point re-enters through PyGILState."""
+    path = write_case(tmp_path, "island.py", _THREADS_ISLAND_SOURCE)
     got = compile_run(tmp_path, path, "checklist")
     assert got.returncode == 0, got.stderr
     assert got.stdout == oracle(path, "checklist")
