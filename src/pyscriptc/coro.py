@@ -42,9 +42,13 @@ annotation, `yield v` and `yield from <iterable>` as statements, bare
 statement or the whole value of an assignment, `asyncio.run`,
 `asyncio.sleep` and `asyncio.gather`. `@contextmanager` (module level, on a
 method, and in package units) lowers to a `cm.<name>` wrapper whose
-`__enter__`/`__exit__` drive the generator frame. Not yet: yield inside
-try/with, awaits inside try/with, nested or generic resumables, `async with`,
-`async for`, async generators, `contextmanager` used as a call.
+`__enter__`/`__exit__` drive the generator frame. A suspension inside
+`try`/`except`/`else`/`finally` lowers: the guard transform re-enters the
+try, the `finally` is guarded by the suspension, and an `except` body that
+suspends keeps the exception it caught in the frame (`ps_exc_restore` puts it
+back on the resume). Not yet: yield inside with, awaits inside with, nested
+or generic resumables, `async with`, `async for`, async generators,
+`contextmanager` used as a call.
 `PYSC_CORO=0` turns the lowering off (generators and coroutines fence as
 before).
 """
@@ -75,11 +79,17 @@ AWAIT_RESULT_PREFIX = ".ps_awv_"
 DONE = -1
 PENDING = 0
 COMPLETE = 1
+# The exception a suspended `except` body keeps in its frame. Python holds one
+# exception per generator frame, so the frame carries it across the
+# suspension and the runtime puts it back on the resume.
+EXC = ".ps_exc"
 
 _INT = {"kind": "int"}
 _BOOL = {"kind": "bool"}
 _NONE = {"kind": "none"}
 _FLOAT = {"kind": "float"}
+# The exception a generator frame keeps across a suspension.
+_EXC = {"kind": "exc"}
 # The resume shim's outward type: every coroutine's callable cell carries it.
 _RESUME_FUNC = {"kind": "func", "params": [{"kind": "class", "name": "@frame"}], "return": {"kind": "int"}}
 _GENERATOR_FORMS = {"Iterator", "Iterable", "Generator"}
@@ -150,7 +160,7 @@ def _shape_error(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[ast.AST, s
 
     coroutine = isinstance(fn, ast.AsyncFunctionDef)
 
-    def visit(stmts: list[ast.stmt], in_try: bool) -> tuple[ast.AST, str] | None:
+    def visit(stmts: list[ast.stmt], in_try: bool, in_with: bool) -> tuple[ast.AST, str] | None:
         for stmt in stmts:
             if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 return stmt, "a nested def or class in a resumable is not lowered yet"
@@ -158,16 +168,16 @@ def _shape_error(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[ast.AST, s
                 if stmt.value is not None and not (isinstance(stmt.value, ast.Constant) and stmt.value.value is None):
                     if not coroutine:
                         return stmt, "return with a value in a generator is not lowered yet"
-                if in_try:
+                if in_try or in_with:
                     return stmt, "return inside try or with in a resumable is not lowered yet"
             if isinstance(stmt, ast.Expr) and isinstance(stmt.value, (ast.Yield, ast.YieldFrom)):
-                if in_try:
+                if in_with:
                     return stmt, "yield inside try or with is not lowered yet"
                 inner = [stmt.value.value] if stmt.value.value is not None else []
             elif isinstance(stmt, (ast.Assign, ast.AnnAssign)) and isinstance(stmt.value, ast.Yield) and not coroutine:
                 # `x = yield v` / `x: T = yield v`: send support. Only the
                 # plain single-name form; anything else stays fenced below.
-                if in_try:
+                if in_with:
                     return stmt, "yield inside try or with is not lowered yet"
                 target = stmt.targets[0] if isinstance(stmt, ast.Assign) else stmt.target
                 if not isinstance(target, ast.Name):
@@ -182,28 +192,29 @@ def _shape_error(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[ast.AST, s
                     if isinstance(node, ast.Await):
                         if not coroutine:
                             return node, "await outside an async function is not lowered"
-                        if in_try:
+                        if in_with:
                             return node, "await inside try or with is not lowered yet"
                     if isinstance(node, ast.Lambda):
                         return node, "a lambda in a resumable is not lowered yet"
-            nested_try = in_try or isinstance(stmt, (ast.Try, ast.TryStar, ast.With, ast.AsyncWith))
+            nested_try = in_try or isinstance(stmt, (ast.Try, ast.TryStar))
+            nested_with = in_with or isinstance(stmt, (ast.With, ast.AsyncWith))
             for name in ("body", "orelse", "finalbody"):
                 block = getattr(stmt, name, None)
                 if isinstance(block, list) and block and isinstance(block[0], ast.stmt):
-                    found = visit(block, nested_try)
+                    found = visit(block, nested_try, nested_with)
                     if found:
                         return found
             for handler in getattr(stmt, "handlers", []) or []:
-                found = visit(handler.body, True)
+                found = visit(handler.body, True, nested_with)
                 if found:
                     return found
             for case in getattr(stmt, "cases", []) or []:
-                found = visit(case.body, in_try)
+                found = visit(case.body, in_try, in_with)
                 if found:
                     return found
         return None
 
-    return visit(fn.body, False)
+    return visit(fn.body, False, False)
 
 
 class CoroMixin:
@@ -968,7 +979,7 @@ class _GeneratorKind(_Kind):
         return out
 
     def suspend(self, frame: _Frame, value: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
-        return [{"kind": "return", "value": value, "span": span}]
+        return [{"kind": "return", "value": value, "span": span, "suspend": True}]
 
     def finish(self, frame: _Frame, span: dict[str, Any]) -> list[dict[str, Any]]:
         return [{"kind": "raise", "exc": "StopIteration", "message": None, "span": span}]
@@ -988,7 +999,7 @@ class _CoroutineKind(_Kind):
         return [{**resume, "name": "resume", "returnType": _INT}]
 
     def suspend(self, frame: _Frame, value: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
-        return [{"kind": "return", "value": _const(PENDING, _INT, span), "span": span}]
+        return [{"kind": "return", "value": _const(PENDING, _INT, span), "span": span, "suspend": True}]
 
     def finish(self, frame: _Frame, span: dict[str, Any]) -> list[dict[str, Any]]:
         return [{"kind": "return", "value": _const(COMPLETE, _INT, span), "span": span}]
@@ -1017,6 +1028,11 @@ class _Frame:
         self.local_names = {local["name"] for local in self.locals}
         self.temps: list[dict[str, Any]] = []
         self.points = 0
+        # True once a try with handlers was lowered: the frame then carries
+        # the `.ps_exc` field for the exception a suspended handler keeps.
+        self.exc_used = False
+        # The local that carries the frame's exception into a re-raise.
+        self._exc_local: str | None = None
 
     # IR helpers bound to this frame
     def self_name(self, span: dict[str, Any]) -> dict[str, Any]:
@@ -1089,6 +1105,11 @@ class _Frame:
         if self.plan.send.get("kind") != "none":
             # The value a `send()` delivers into the generator.
             fields.append({"name": SEND, "type": self.plan.send})
+        if self.exc_used:
+            # The exception a suspended `except` body keeps. Only frames that
+            # can suspend inside a handler carry the field, so layouts that
+            # never suspend inside a try stay byte-identical.
+            fields.append({"name": EXC, "type": dict(_EXC)})
         fields.extend(self.locals)
         frame = {
             "name": self.plan.frame,
@@ -1299,7 +1320,219 @@ class _Frame:
                 "span": span,
             }
             return [enter, loop]
+        if kind == "try":
+            return self._try(stmt, span)
         raise CoroError("a suspension inside try or with is not lowered yet", span)
+
+    # --- try ----------------------------------------------------------------
+
+    def _try(self, stmt: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
+        """Lower a `try` that holds a suspension into a re-entrant try.
+
+        The try body runs inside the emitter's `ps.try.N` outline, so a
+        suspension inside it unwinds that outline: the outline reports flow
+        code 2 (suspended) instead of 1 (returned), the `finally` is skipped,
+        and the suspension propagates out of the resume method. The resume
+        re-enters the try, `ps_try_call` re-establishes the setjmp frame, and
+        the guarded body picks up at the suspension point.
+
+        The parts of the try need to know which one the resume belongs to.
+        The suspension ids are numbered in preorder, so each part owns a
+        contiguous range and the resume point (`rs`) names the part:
+
+        - `rs` in the body's range: the body runs again and picks up at the
+          suspension point.
+        - `rs` in a handler's range: the body re-raises the exception the
+          frame kept, so the callsite dispatches to that handler again and
+          the handler picks up at its own suspension point.
+        - `rs` in the `else` or the `finally` range: the body is skipped, so
+          the try reaches its `else` (which runs only when the body fell
+          through) and its `finally`.
+
+        A handler that suspends keeps the exception it caught in the frame
+        (`.ps_exc`), and the resume restores it, so a bare `raise` after the
+        resume re-raises the exception the handler caught.
+        """
+        handlers = stmt.get("handlers") or []
+        # The body owns the ids from here to the end of its own block.
+        body_lo = self.points + 1
+        body = self._block(stmt["body"])
+        body_hi = self.points
+        # The handler ranges follow the body's, in source order.
+        handler_ranges: list[tuple[int, int]] = []
+        handler_bodies: list[list[dict[str, Any]]] = []
+        for handler in handlers:
+            lo = self.points + 1
+            handler_bodies.append(self._block(handler["body"]))
+            handler_ranges.append((lo, self.points))
+        else_lo = self.points + 1
+        orelse = self._block(stmt.get("orelse") or [])
+        else_hi = self.points
+        fin_lo = self.points + 1
+        finalbody = self._block(stmt.get("finalbody") or [])
+        fin_hi = self.points
+        # The last id a handler owns: a resume past it belongs to the `else`
+        # or the `finally`.
+        handler_hi = handler_ranges[-1][1] if handler_ranges else body_hi
+
+        # A handler that can suspend needs the frame to keep the exception it
+        # caught, so the resume can re-raise it.
+        suspending_handler = any(_suspends(stmt, self.kind.marker) for handler in handlers for stmt in handler["body"])
+        if suspending_handler:
+            self.exc_used = True
+
+        # The body runs on a fresh entry and on a resume inside the body. A
+        # resume inside a handler re-raises the kept exception so the
+        # callsite dispatches to that handler again; a resume inside the
+        # `else` or the `finally` skips the body, so the try reaches them.
+        body_statements: list[dict[str, Any]] = list(body)
+        skip_body: list[dict[str, Any]] = []
+        if suspending_handler:
+            # A resume that landed in a handler re-raises the kept exception,
+            # so the callsite dispatches to the same handler again. A resume
+            # inside the `else` or the `finally` is past every handler, so
+            # the body just ends and the try reaches them.
+            skip_body = [
+                _if(
+                    _compare("<=", self.rs(span), _const(handler_hi, _INT, span), span),
+                    self._reraise(span),
+                    [],
+                    span,
+                )
+            ]
+        if body_lo > body_hi:
+            # The body holds no suspension, so only a fresh entry runs it.
+            new_body = [_if(self.fresh(span), body_statements, skip_body, span)]
+        else:
+            new_body = [
+                _if(
+                    _compare("<=", self.rs(span), _const(body_hi, _INT, span), span),
+                    body_statements,
+                    skip_body,
+                    span,
+                )
+            ]
+
+        new_handlers: list[dict[str, Any]] = []
+        for handler, (lo, hi), hbody in zip(handlers, handler_ranges, handler_bodies, strict=True):
+            statements: list[dict[str, Any]] = []
+            if suspending_handler:
+                # On a fresh entry the handler saves the exception it caught;
+                # on a resume it restores it, so a bare `raise` after the
+                # resume re-raises the right exception.
+                statements.append(
+                    _if(
+                        self.fresh(span),
+                        [self._save_exc(span)],
+                        [self._restore_exc(span)],
+                        span,
+                    )
+                )
+            statements.extend(self._guard_part(span, hbody, lo, hi, handlers))
+            new_handlers.append({**handler, "body": statements})
+        new_try: dict[str, Any] = {
+            "kind": "try",
+            "body": new_body,
+            "handlers": new_handlers,
+            "span": span,
+        }
+        if stmt.get("orelse"):
+            new_try["orelse"] = self._guard_part(span, orelse, else_lo, else_hi, handlers)
+        if stmt.get("finalbody"):
+            new_try["finalbody"] = self._guard_part(span, finalbody, fin_lo, fin_hi, handlers)
+        for flag in ("brk", "cont"):
+            if stmt.get(flag) is not None:
+                new_try[flag] = stmt[flag]
+        return [new_try]
+
+    def _guard_part(
+        self,
+        span: dict[str, Any],
+        statements: list[dict[str, Any]],
+        lo: int,
+        hi: int,
+        handlers: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Guard one part of a try by the suspension ids it owns.
+
+        A part runs on a fresh entry (`rs == 0`) and on a resume whose target
+        is one of its own ids. A part with no ids of its own runs only on a
+        fresh entry.
+        """
+        if not statements:
+            return []
+        if lo > hi:
+            # The part holds no suspension, so a resume never belongs to it.
+            # It still runs on a fresh entry.
+            return [_if(self.fresh(span), statements, [], span)]
+        return [
+            _if(
+                _compare("<=", self.rs(span), _const(hi, _INT, span), span),
+                statements,
+                [],
+                span,
+            )
+        ]
+
+    def _save_exc(self, span: dict[str, Any]) -> dict[str, Any]:
+        """Store the exception the handler caught into the frame.
+
+        The handler runs inside the callsite, where `ps_exc_current` is the
+        exception being handled. The frame keeps it, so a suspension in the
+        handler does not lose it.
+        """
+        call = {
+            "kind": "call",
+            "callee": {"kind": "module", "module": "asyncio", "name": "current"},
+            "args": [],
+            "type": dict(_EXC),
+            "span": span,
+            "symbol": "ps_exc_current",
+        }
+        return self.field_set(EXC, call, span)
+
+    def _restore_exc(self, span: dict[str, Any]) -> dict[str, Any]:
+        """Put the frame's exception back as the one being handled.
+
+        A suspension inside a handler leaves the thread's current exception
+        wherever the resumption happened to leave it. The resume puts the
+        handler's own exception back, so a bare `raise` after the resume
+        re-raises the exception the handler caught.
+        """
+        call = {
+            "kind": "call",
+            "callee": {"kind": "module", "module": "asyncio", "name": "restore"},
+            "args": [self.field_get(EXC, _EXC, span)],
+            "type": dict(_NONE),
+            "span": span,
+            "symbol": "ps_exc_restore",
+        }
+        return {"kind": "expr", "expr": call, "span": span}
+
+    def _reraise(self, span: dict[str, Any]) -> list[dict[str, Any]]:
+        """Re-raise the exception the frame kept, so the try dispatches again.
+
+        The resume enters the try body while the suspension point lives in a
+        handler. The body re-raises the saved exception, the outline's
+        setjmp catches it, and the callsite dispatches to the same handler.
+        """
+        slot = self._exc_slot()
+        return [
+            _assign(slot, self.field_get(EXC, _EXC, span), span),
+            {
+                "kind": "raise",
+                "exc": "Exception",
+                "reraise": True,
+                "excslot": slot,
+                "span": span,
+            },
+        ]
+
+    def _exc_slot(self) -> str:
+        """The local that carries the frame's exception into a re-raise."""
+        if self._exc_local is None:
+            self._exc_local = self.temp("exc", _EXC)
+        return self._exc_local
 
     def _await(self, stmt: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
         """Expand `__ps_await__(child)` into the child-poll suspension.

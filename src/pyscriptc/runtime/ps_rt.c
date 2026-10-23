@@ -318,6 +318,15 @@ PsExc *ps_exc_current(void) {
     return ps_current;
 }
 
+/* Restore the thread's "currently handled" exception.
+   A generator frame keeps one exception of its own: a suspension inside an
+   `except` body saves `ps_current` into the frame, and the resume puts it
+   back, so a bare `raise` after the resume re-raises the exception the
+   handler caught and not whatever the thread handled in between. */
+void ps_exc_restore(PsExc *e) {
+    ps_current = e;
+}
+
 PsExc *ps_exc_make(int32_t code, int64_t n, const char *data) {
     if (code == 0) {
         code = PS_RUNTIME;
