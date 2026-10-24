@@ -1,12 +1,12 @@
 {
   "schema": "1",
   "generated": "2026-10-24",
-  "commit": "7c2344e390d3bdceb1832acdcdac22381f95f390",
+  "commit": "002cda9da4f69fd7922703286ec07a7fafb2c78a",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
     "coverage": "pyscriptc coverage over benchmarks/compat/top100/src",
-    "score": ""
+    "score": "nightly/visible-score.json"
   },
   "summary": {
     "builtins_full": 2,
@@ -18,7 +18,7 @@
     "packages_full": 2,
     "packages_partial": 6,
     "packages_none": 10,
-    "weighted_pass": 0.0,
+    "weighted_pass": 849.6,
     "fences": 3019
   },
   "builtins": [
@@ -1955,7 +1955,94 @@
       "pypi": "https://pypi.org/project/zipp/"
     }
   ],
-  "language": [],
+  "language": [
+    {
+      "id": "lang",
+      "label": "language",
+      "probes": 440,
+      "outcomes": {
+        "fence": 138,
+        "pass": 300,
+        "wrong-output": 2
+      },
+      "weighted_pass": 300.0,
+      "fence_codes": {
+        "PS2002": 60,
+        "PS1001": 38,
+        "PS2003": 17,
+        "PS1004": 10,
+        "PS2001": 6,
+        "PS2004": 3,
+        "PS1003": 2,
+        "PS1106": 2
+      }
+    },
+    {
+      "id": "builtins",
+      "label": "builtins",
+      "probes": 403,
+      "outcomes": {
+        "excluded": 2,
+        "fence": 234,
+        "pass": 167
+      },
+      "weighted_pass": 164.3,
+      "fence_codes": {
+        "PS1106": 108,
+        "PS2001": 57,
+        "PS2002": 34,
+        "PS2003": 22,
+        "PS1103": 9,
+        "PS1003": 3,
+        "PS1104": 1
+      }
+    },
+    {
+      "id": "stdlib",
+      "label": "stdlib modules",
+      "probes": 12849,
+      "outcomes": {
+        "build-error": 1,
+        "crash": 2,
+        "excluded": 1394,
+        "fence": 10350,
+        "pass": 1101,
+        "wrong-output": 1
+      },
+      "weighted_pass": 369.3,
+      "fence_codes": {
+        "PS2002": 6836,
+        "PS1106": 2461,
+        "PS2001": 920,
+        "PS1001": 48,
+        "PS2003": 38,
+        "PS1003": 33,
+        "PS1104": 12,
+        "PS1103": 2
+      }
+    },
+    {
+      "id": "top100",
+      "label": "PyPI packages",
+      "probes": 86,
+      "outcomes": {
+        "build-error": 5,
+        "fence": 79,
+        "pass": 2
+      },
+      "weighted_pass": 10.0,
+      "fence_codes": {
+        "PS2002": 64,
+        "PS1001": 7,
+        "PS1106": 2,
+        "PS1201": 2,
+        "PS1101": 1,
+        "PS1104": 1,
+        "PS1203": 1,
+        "PS2001": 1
+      }
+    }
+  ],
   "ladder": {
     "corpus": "benchmarks/scripts_corpus",
     "rungs": [
@@ -1964,8 +2051,8 @@
         "label": "Single-file script",
         "corpus": "benchmarks/scripts_corpus/scripts",
         "total": 45,
-        "compiled": 15,
-        "passed": 12,
+        "compiled": 16,
+        "passed": 13,
         "measured": true
       },
       {
@@ -1981,8 +2068,8 @@
     "lanes": [
       {
         "lane": "native",
-        "imports": 272,
-        "share": 0.8242
+        "imports": 273,
+        "share": 0.8273
       },
       {
         "lane": "pack",
@@ -1991,8 +2078,8 @@
       },
       {
         "lane": "extern",
-        "imports": 57,
-        "share": 0.1727
+        "imports": 56,
+        "share": 0.1697
       },
       {
         "lane": "island",
@@ -2124,8 +2211,8 @@
     },
     {
       "date": "2026-10-24",
-      "commit": "7c2344e390d3bdceb1832acdcdac22381f95f390",
-      "weighted_pass": 0.0,
+      "commit": "002cda9da4f69fd7922703286ec07a7fafb2c78a",
+      "weighted_pass": 849.6,
       "packages_full": 2,
       "packages_partial": 6,
       "packages_none": 10,
