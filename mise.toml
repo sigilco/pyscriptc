@@ -122,6 +122,10 @@ run = "uv run python -m benchmarks.scripts_corpus.ladder --json compat/data/ladd
 description = "Regenerate the supported-API tables under .agents/docs/support (add --check to compare)"
 run = "uv run python scripts/gen_support_table.py"
 
+[tasks."docs:what-will-fail"]
+description = "Regenerate docs/reference/what-will-fail.md from the R0 corpus (add --check to compare)"
+run = "uv run python scripts/gen_what_will_fail.py"
+
 [tasks."compat:census"]
 description = "Compat2 census over the visible corpus (append --top N to limit)"
 run = "uv run python -m benchmarks.compat2.census --top 10"
