@@ -98,6 +98,55 @@ CASES = [
         50000,
         1.4,
     ),
+    (
+        "json_loads",
+        """import json
+
+def bench(n: int) -> int:
+    d: dict[str, int] = {}
+    i: int = 0
+    while i < n:
+        d[str(i)] = i
+        i = i + 1
+    raw: str = json.dumps(d)
+    parsed: dict[str, int] = json.loads(raw)
+    return len(parsed)
+""",
+        5000,
+        1.4,
+    ),
+    (
+        "copyfile",
+        """import os
+import shutil
+import tempfile
+
+def bench(n: int) -> int:
+    d: str = tempfile.mkdtemp()
+    src: str = os.path.join(d, "src.bin")
+    dst: str = os.path.join(d, "dst.bin")
+    with open(src, "wb") as handle:
+        handle.write(b"a" * n)
+    shutil.copyfile(src, dst)
+    size: int = os.path.getsize(dst)
+    shutil.rmtree(d)
+    return size
+""",
+        200000,
+        1.4,
+    ),
+    (
+        "sha256_blocks",
+        """import hashlib
+
+def bench(n: int) -> int:
+    data: bytes = b"x" * (n * 64)
+    digest: str = hashlib.sha256(data).hexdigest()
+    return len(digest)
+""",
+        20000,
+        1.4,
+    ),
 ]
 
 FLOOR_MS = 2.0  # below this the size is too small to time at all
@@ -108,7 +157,7 @@ def _timed(binary: Path) -> float:
     samples: list[float] = []
     for _ in range(5):
         start = time.perf_counter()
-        proc = subprocess.run([str(binary)], capture_output=True, text=True, timeout=600)
+        proc = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60)
         elapsed = (time.perf_counter() - start) * 1000.0
         assert proc.returncode == 0, proc.stderr + proc.stdout
         samples.append(elapsed)
@@ -143,7 +192,7 @@ def test_data_operation_stays_linear(case, tmp_path: Path) -> None:
             cwd=ROOT,
             capture_output=True,
             text=True,
-            timeout=600,
+            timeout=60,
         )
         assert compiled.returncode == 0, compiled.stderr + compiled.stdout
         times[n] = _timed(binary)
