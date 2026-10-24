@@ -947,7 +947,8 @@ class ClassesMixin:
         defaults = list(fn.args.defaults)
         missing = len(args) - len(defaults)
         for index, arg in enumerate(args):
-            param = _param(self, arg, fn)
+            default = defaults[index - missing] if index >= missing else None
+            param = _param(self, arg, fn, default)
             if pos_marks[index]:
                 param["posonly"] = True
             if index >= missing:
@@ -962,7 +963,7 @@ class ClassesMixin:
                 self.fail(vararg, "PS2002", "list[bool] is not lowered")
             params.append({"name": vararg.arg, "type": {"kind": "list", "elem": elem}, "vararg": True})
         for karg, kdef in zip(fn.args.kwonlyargs, fn.args.kw_defaults, strict=True):
-            param = _param(self, karg, fn)
+            param = _param(self, karg, fn, kdef)
             param["kwonly"] = True
             if kdef is not None:
                 self._param_default(karg, kdef, param)
@@ -2099,7 +2100,7 @@ class ClassesMixin:
         return {"kind": "class", "name": name, "label": _show(elem) + " | None", "optional": True, "elem": elem}
 
 
-def _param(lowerer: Any, arg: ast.arg, fn: ast.FunctionDef | None = None) -> dict[str, Any]:
+def _param(lowerer: Any, arg: ast.arg, fn: ast.FunctionDef | None = None, default: ast.expr | None = None) -> dict[str, Any]:
     if arg.annotation is None:
         # Checker bridge: the checker inferred the parameter's type (from the
         # default, the callers, or the body). Without a bridged answer the
@@ -2108,6 +2109,16 @@ def _param(lowerer: Any, arg: ast.arg, fn: ast.FunctionDef | None = None) -> dic
         if fn is not None:
             inferred = lowerer._bridge_param_type(fn, arg)
             if inferred is not None:
+                return {"name": arg.arg, "type": inferred}
+        # Issue #500: an unannotated parameter with a default of a proven
+        # type binds to that type. The default is a value the call site may
+        # rely on, so its own lowered type is the fact, not a guess: this is
+        # CPython's `def f(x=0)` reading as `x: int`. A default the peek
+        # cannot type (None, an empty display, a call that does not lower)
+        # keeps the fence.
+        if default is not None:
+            inferred = lowerer._infer_type_of(default)
+            if inferred is not None and inferred["kind"] not in {"none", "func"}:
                 return {"name": arg.arg, "type": inferred}
         # Both paths raise PS1001; the return peek catches it and returns
         # None. An unannotated parameter is named by its own fence.

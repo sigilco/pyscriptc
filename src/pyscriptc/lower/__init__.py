@@ -527,8 +527,10 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             fn
             for fn in by_name.values()
             if not isinstance(fn, ast.AsyncFunctionDef)
-            and not fn.args.defaults
-            and not fn.args.kw_defaults
+            and any(
+                arg.annotation is None and not self._has_default(fn, arg.arg)
+                for arg in fn.args.posonlyargs + fn.args.args + fn.args.kwonlyargs
+            )
         ]
         if not pending:
             return
@@ -647,6 +649,31 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                         if item.targets[0].id in self.bindings:
                             continue
                         _bind(item.targets[0].id, self._infer_type_of(item.value))
+                    elif (
+                        isinstance(item, ast.Assign)
+                        and len(item.targets) == 1
+                        and isinstance(item.targets[0], ast.Tuple)
+                        and all(isinstance(elt, ast.Name) for elt in item.targets[0].elts)
+                    ):
+                        # `_, ext = os.path.splitext(name)`: a fixed-arity
+                        # tuple decodes like the return peek's unpack, each
+                        # name taking its field's type. A list RHS decodes
+                        # as its element type for every name: the real
+                        # unpack length-checks at run time and a length
+                        # mismatch is CPython's ValueError, so the binding
+                        # is exactly as proven as the unpack itself.
+                        value_type = self._infer_type_of(item.value)
+                        fields = self._tuple_fields_of(value_type)
+                        if (
+                            fields is None
+                            and isinstance(value_type, dict)
+                            and value_type.get("kind") == "list"
+                            and not value_type.get("set")
+                        ):
+                            fields = [value_type["elem"]] * len(item.targets[0].elts)
+                        if fields is not None and len(fields) == len(item.targets[0].elts):
+                            for elt, field in zip(item.targets[0].elts, fields, strict=True):
+                                _bind(elt.id, field)
                     if isinstance(item, ast.AugAssign) and isinstance(item.target, ast.Name):
                         left = self.locals.get(item.target.id)
                         if left is not None:
@@ -670,21 +697,37 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                         _visit(item.body)
                         _visit(item.orelse)
                     if isinstance(item, ast.With):
-                        _visit(item.body)
+                        # `with open(p) as f` binds the handle local like the
+                        # real lowering does; a general context manager is
+                        # refused by its own expression peek.
+                        named = [
+                            it.optional_vars
+                            for it in item.items
+                            if it.optional_vars is not None and isinstance(it.optional_vars, ast.Name)
+                        ]
+                        for it in item.items:
+                            if isinstance(it.optional_vars, ast.Name):
+                                opened = self._infer_type_of(it.context_expr)
+                                if opened is not None and opened.get("kind") == "class":
+                                    _bind(it.optional_vars.id, opened)
+                        if len(item.items) == 1 or named:
+                            _visit(item.body)
                     if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                         continue
 
-            _visit(caller.body)
             # Annotated parameters of the caller are facts the def states,
             # not guesses: an argument the call site passes as a bare
             # parameter (`format_array("t", [n])`) peeks through them. The
             # pins from the caller's own rescue ride along the same way.
+            # They bind before the walk: a local's own value may read a
+            # parameter (`f = open(fname)`), and the peek needs it then.
             for arg in caller.args.posonlyargs + caller.args.args + caller.args.kwonlyargs:
                 if arg.annotation is None:
                     continue
                 typ = _peek_annotation(arg.annotation)
                 if typ.get("kind") not in {None, "__peek_unresolved__"} and arg.arg not in self.bindings:
                     self.locals[arg.arg] = typ
+            _visit(caller.body)
 
         saved_pin_locals = self.locals
         for caller in by_name.values():

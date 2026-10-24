@@ -282,18 +282,7 @@ class StmtMixin:
                 inferred = self._infer_type_known(stmt.value) or self._infer_type_of(stmt.value)
                 if inferred is not None and inferred["kind"] != "none":
                     self.locals[target] = inferred
-                    if isinstance(stmt.value, (ast.List, ast.Dict, ast.Set, ast.ListComp, ast.DictComp, ast.SetComp)):
-                        self.peek_infer = inferred
-                        self.inf_peek = True
-                        self.inf_depth += 1
-                    try:
-                        value = self._expr(stmt.value, inferred)
-                    finally:
-                        if self.peek_infer is not None:
-                            self.peek_infer = None
-                            self.inf_depth -= 1
-                            if self.inf_depth == 0:
-                                self.inf_peek = False
+                    value = self._expr(stmt.value, inferred)
                     self._expect(stmt, value["type"], inferred, target)
                     dropped = self._rebind_handle(target, inferred, stmt.value, span)
                     self._note_frozen(target, stmt.value)
