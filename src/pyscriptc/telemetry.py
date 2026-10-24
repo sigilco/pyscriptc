@@ -359,6 +359,7 @@ def coverage_properties(summary: dict) -> dict:
     """
     definitions = int(summary.get("definitions", 0))
     fenced_definitions = int(summary.get("fencedDefinitions", 0))
+    native_definitions = int(summary.get("nativeDefinitions", max(0, definitions - fenced_definitions)))
     families: dict[str, int] = {}
     for family, value in (summary.get("byFamily") or {}).items():
         count = int(value.get("fences", 0)) if isinstance(value, dict) else int(value)
@@ -369,6 +370,7 @@ def coverage_properties(summary: dict) -> dict:
     props = dict(base_properties())
     props.update(
         definitions=definitions,
+        nativeDefinitions=native_definitions,
         fencedDefinitions=fenced_definitions,
         fences=int(summary.get("fences", 0)),
         rootFences=int(summary.get("rootFences", 0)),

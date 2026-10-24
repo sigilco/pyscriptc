@@ -263,6 +263,7 @@ def test_coverage_properties_aggregates_and_collapses_stdlib():
     summary = {
         "files": 2,
         "definitions": 4,
+        "nativeDefinitions": 3,
         "fencedDefinitions": 1,
         "fences": 3,
         "rootFences": 2,
@@ -274,10 +275,16 @@ def test_coverage_properties_aggregates_and_collapses_stdlib():
         },
     }
     props = telemetry.coverage_properties(summary)
+    assert props["definitions"] == 4
+    assert props["nativeDefinitions"] == 3
+    assert props["fencedDefinitions"] == 1
     assert props["byFamily"] == {"union-types": 1, "stdlib": 2}
     assert "coverage_ratio" not in props and "files" not in props
     assert "byCode" not in props
     assert "zz_private_mod" not in json.dumps(props)
+
+    props_fallback = telemetry.coverage_properties({"definitions": 5, "fencedDefinitions": 2})
+    assert props_fallback["nativeDefinitions"] == 3
 
 
 def test_compile_ok_event(captured, monkeypatch, tmp_path):

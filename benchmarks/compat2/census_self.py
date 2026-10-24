@@ -54,6 +54,7 @@ def module_entry(
         "package": name,
         "fences": len(fences),
         "definitions": definitions,
+        "nativeDefinitions": max(0, definitions - fenced_definitions),
         "fencedDefinitions": fenced_definitions,
         "rootFamilies": roots,
         "derivedFamilies": derived,
@@ -107,6 +108,10 @@ def build_self_census(src: Path) -> dict[str, Any]:
         "skipped": skipped,
         "fences": total_fences,
         "definitions": report["summary"]["definitions"],
+        "nativeDefinitions": report["summary"].get(
+            "nativeDefinitions",
+            max(0, report["summary"]["definitions"] - report["summary"]["fencedDefinitions"]),
+        ),
         "fencedDefinitions": report["summary"]["fencedDefinitions"],
         "packages": packages,
         "clean": clean,

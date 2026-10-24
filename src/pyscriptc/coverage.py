@@ -614,10 +614,13 @@ def _summary(
     island_imports: list[str],
 ) -> dict[str, Any]:
     fences_by_family = Counter(e["family"] for e in entries)
+    total_definitions = sum(total_defs.values())
+    fenced_definitions = len(definitions)
     return {
         "files": len(files),
-        "definitions": sum(total_defs.values()),
-        "fencedDefinitions": len(definitions),
+        "definitions": total_definitions,
+        "nativeDefinitions": max(0, total_definitions - fenced_definitions),
+        "fencedDefinitions": fenced_definitions,
         "fences": len(entries),
         "rootFences": sum(1 for e in entries if not e["derived"]),
         "requiresLibpython": bool(island_imports),
@@ -656,7 +659,8 @@ def render_text(report: dict[str, Any]) -> str:
     summary = report["summary"]
     parts = [
         f"{report['target']}: {summary['fences']} fences "
-        f"({summary['rootFences']} root) in {summary['fencedDefinitions']} of {summary['definitions']} definitions"
+        f"({summary['rootFences']} root) in {summary['fencedDefinitions']} of {summary['definitions']} definitions "
+        f"({summary['nativeDefinitions']} native)"
     ]
     cap = report["capabilities"]["totals"]
     parts.append(
