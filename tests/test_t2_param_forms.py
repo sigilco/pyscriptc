@@ -237,5 +237,5 @@ def test_unannotated_kwargs_still_fenced(tmp_path: Path) -> None:
                 "",
             ]
         ),
-        "parameter form that is not lowered",
+        "keyword forwarding (**kwargs)",
     )

@@ -211,6 +211,8 @@ def test_self_census_ballpark() -> None:
 
     # Local inference (#500): the pin walk and typed defaults let the self-host
     # sources lower without the annotation fences, 341 fewer in total.
+    # Reflection diagnostics (#556): reflection.py adds 8 self-host fences
+    # (the note helpers, regex and pattern lookups).
 
     assert census["fences"] == 2812
     # 22,164 lines after the `--facts` lane landed in typefacts.py.

@@ -51,7 +51,8 @@ def test_typing_value_stays_a_fence(tmp_path: Path) -> None:
     )
     got = run_cli("compile", str(path), "--skip-check", "--emit", "llvm", "-o", str(tmp_path / "cast.ll"))
     assert got.returncode == 3, got.stderr
-    assert got.stderr.count("typing name") == 2
+    assert "typing.cast is a typing name and is not a value" in got.stderr
+    assert "runtime reflection (typing.get_type_hints)" in got.stderr
     assert "optional" not in got.stderr
 
 
