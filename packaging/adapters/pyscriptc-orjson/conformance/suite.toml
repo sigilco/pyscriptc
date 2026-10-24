@@ -1,0 +1,85 @@
+# The pyscriptc-orjson conformance suite (pack-format spec section 10).
+#
+# Data, not code: the #378 runner executes each [[case]] twice, once against
+# the real orjson under CPython and once against the compiled pack, and diffs
+# by outcome category. The runner does not exist yet (issue #378); the suite
+# ships now so the pack is runner-ready the day it lands. Until then
+# tests/test_orjson_pack.py pins the same sequences through the compiler and
+# tests/test_pack_orjson.py pins the pack's layout and the thunk's behaviour.
+
+import = "orjson"
+
+[[case]]
+name = "dumps_compact"
+expr = "orjson.dumps({'b': 2, 'a': 1})"
+expected = '{"b":2,"a":1}'
+compare = "stdout"
+
+[[case]]
+name = "dumps_sorted"
+expr = "orjson.dumps({'b': 2, 'a': 1}, option=orjson.OPT_SORT_KEYS)"
+expected = '{"a":1,"b":2}'
+compare = "stdout"
+
+[[case]]
+name = "dumps_indent"
+expr = "orjson.dumps({'b': 2, 'a': 1}, option=orjson.OPT_INDENT_2)"
+expected = '{\n  "b": 2,\n  "a": 1\n}'
+compare = "stdout"
+
+[[case]]
+name = "dumps_both_options"
+expr = "orjson.dumps({'b': 2, 'a': 1}, option=orjson.OPT_SORT_KEYS | orjson.OPT_INDENT_2)"
+expected = '{\n  "a": 1,\n  "b": 2\n}'
+compare = "stdout"
+
+[[case]]
+name = "dumps_list"
+expr = "orjson.dumps([1, 2, 3])"
+expected = "[1,2,3]"
+compare = "stdout"
+
+[[case]]
+name = "dumps_nested"
+expr = "orjson.dumps({'a': [1, 2]})"
+expected = '{"a":[1,2]}'
+compare = "stdout"
+
+[[case]]
+name = "loads_str"
+expr = "orjson.loads('{\"a\": 41}')['a'] + 1"
+expected = "42"
+compare = "stdout"
+
+[[case]]
+name = "loads_bytes"
+expr = "orjson.loads(b'{\"a\": 40}')['a'] + 2"
+expected = "42"
+compare = "stdout"
+
+[[case]]
+name = "round_trip"
+expr = "orjson.loads(orjson.dumps({'k': [10, 20]}))['k'][0] + orjson.loads(orjson.dumps({'k': [10, 20]}))['k'][1]"
+expected = "30"
+compare = "stdout"
+
+# The fenced names: the pack refuses them at compile time, the real orjson
+# accepts them, so these cases assert the refusal surface once the runner
+# runs the compiled side (the compare is on the exception name).
+[[case]]
+name = "default_stays_fenced"
+expr = "orjson.dumps({'a': 1}, default=str)"
+expected = "TypeError"
+compare = "exception"
+
+[[case]]
+name = "unknown_option_stays_fenced"
+expr = "orjson.dumps({'a': 1}, option=orjson.OPT_NAIVE_UTC)"
+expected = "TypeError"
+compare = "exception"
+
+[[case]]
+name = "fragment_stays_fenced"
+expr = "orjson.Fragment(b'x')"
+expected = "AttributeError"
+compare = "exception"
