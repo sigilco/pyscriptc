@@ -688,10 +688,11 @@ class StmtMixin:
                         continue
                     if isinstance(loop.iter, ast.Name):
                         iter_typ = self.locals.get(loop.iter.id)
-                    elif _is_range_call(loop.iter):
-                        iter_typ = self._infer_type_of(loop.iter)
                     else:
-                        iter_typ = None
+                        # A display or call iterable peeks directly: its
+                        # element type is the fact, or the peek refuses and
+                        # the target stays out.
+                        iter_typ = self._infer_type_of(loop.iter)
                     if iter_typ is not None and iter_typ.get("kind") == "list":
                         self.locals[name] = iter_typ["elem"]
 

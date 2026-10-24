@@ -410,7 +410,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # same top-level shape the real body lowers; a value that does not
         # lower leaves the name out.
         saved_locals = self.locals
-        body_locals = dict(_peek_annotated_params(fn))
+        body_locals = dict(_peek_annotated_params(self, fn))
         # The annotated parameters are visible to the scan immediately: a
         # value expression may name one (`[0.0] * n` under `n: int`), and
         # the fact is the def's own annotation, not a guess.

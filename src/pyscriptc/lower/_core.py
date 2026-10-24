@@ -302,18 +302,35 @@ def _ir_kinds_of(node: ast.expr) -> set[str]:
     return found
 
 
-def _peek_annotated_params(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> dict[str, dict[str, Any]]:
-    """The annotated parameters of one `def`, as an IR local table.
+def _peek_annotated_params(
+    lowerer: Any, fn: ast.FunctionDef | ast.AsyncFunctionDef
+) -> dict[str, dict[str, Any]]:
+    """The typed parameters of one `def`, as an IR local table.
 
     The return peek lowers returned expressions to learn their types, so
-    the body's annotated parameters must resolve like they do in a real
-    body. An unannotated parameter stays out: the peek must not guess it.
+    the body's typed parameters must resolve like they do in a real body.
+    An annotation is the fact; a default of a proven type is the same fact
+    the signature pass binds (`def f(times=3)` reads `times: int`). A
+    parameter with neither stays out: the peek must not guess it.
     """
 
     table: dict[str, dict[str, Any]] = {}
-    for arg in fn.args.posonlyargs + fn.args.args + fn.args.kwonlyargs:
+    plain = fn.args.posonlyargs + fn.args.args
+    missing = len(plain) - len(fn.args.defaults)
+    for index, arg in enumerate(plain):
         if arg.annotation is not None:
             table[arg.arg] = _peek_annotation(arg.annotation)
+        elif index >= missing:
+            default = lowerer._infer_type_of(fn.args.defaults[index - missing])
+            if default is not None and default["kind"] not in {"none", "func"}:
+                table[arg.arg] = default
+    for arg, default_node in zip(fn.args.kwonlyargs, fn.args.kw_defaults, strict=True):
+        if arg.annotation is not None:
+            table[arg.arg] = _peek_annotation(arg.annotation)
+        elif default_node is not None:
+            default = lowerer._infer_type_of(default_node)
+            if default is not None and default["kind"] not in {"none", "func"}:
+                table[arg.arg] = default
     return table
 
 
