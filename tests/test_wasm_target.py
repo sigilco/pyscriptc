@@ -95,9 +95,10 @@ def test_wasm_truncates_printf_str_lengths(tmp_path: Path) -> None:
 def test_native_print_keeps_i64_lengths(tmp_path: Path) -> None:
     module, _ = lower_file(_write(DEMO, tmp_path))
     text = emit_llvm(module, standalone=True)
-    # `%.*s` writes go through fwrite (embedded NULs), the rest through
-    # printf; every length that reaches either is an untruncated i64.
-    assert "call i64 @fwrite(ptr" in text
+    # `%.*s` writes go through ps_stream_write (embedded NULs; the C helper
+    # owns the size_t cast), the rest through printf; every length that
+    # reaches either is an untruncated i64.
+    assert "call void @ps_stream_write(ptr" in text
     assert "trunc i64" not in text
 
 
