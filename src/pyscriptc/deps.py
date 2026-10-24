@@ -535,19 +535,6 @@ class DepResult:
     def __post_init__(self) -> None:
         self.hint = LANE_HINTS[self.lane]
 
-    def import_module(self) -> str:
-        """The one import module name the distribution may claim, or ''.
-
-        The distribution's own name read as a module (`PyYAML` ->
-        `pyyaml`), when the recorded import names do not say otherwise.
-        Only a single recorded import name yields anything: with two or
-        more the compiler could not tell which one a fence meant.
-        """
-
-        if len(self.import_names) != 1:
-            return ""
-        return self.import_names[0].lower().replace("-", "_").replace(".", "_")
-
 
 def analyse(
     packages: list[LockedPackage], cache: Path, *, download: bool = True, offline: bool = False
