@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 from typing import Any
 
+from pyscriptc.reflection import kwargs_call_note
 from pyscriptc.restlower._shared import _pin, _span_to
 
 
@@ -18,7 +19,7 @@ def _minmax(lo: Any, node: ast.Call, span: dict[str, Any], name: str) -> dict[st
     key = None
     for kw in node.keywords:
         if kw.arg is None:
-            lo.fail(node, "PS2002", "**kwargs are not lowered")
+            lo.fail(node, "PS2002", kwargs_call_note())
         if kw.arg == "key":
             key = kw.value
         else:
@@ -121,7 +122,7 @@ def _sum(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     start = None
     for kw in node.keywords:
         if kw.arg is None:
-            lo.fail(node, "PS2002", "**kwargs are not lowered")
+            lo.fail(node, "PS2002", kwargs_call_note())
         if kw.arg == "start":
             start = kw.value
         else:
@@ -155,7 +156,7 @@ def _sorted(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     key = None
     for kw in node.keywords:
         if kw.arg is None:
-            lo.fail(node, "PS2002", "**kwargs are not lowered")
+            lo.fail(node, "PS2002", kwargs_call_note())
         if kw.arg == "key":
             key = kw.value
         elif kw.arg == "reverse":

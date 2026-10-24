@@ -13,6 +13,7 @@ import ast
 from collections.abc import Callable
 from typing import Any
 
+from pyscriptc.reflection import inspect_note
 from pyscriptc.restlower._argparse import _parser
 from pyscriptc.restlower._asyncio import (
     _asyncio_create_task,
@@ -258,6 +259,9 @@ def rest_call(
     handler = _AFTER_KEYWORDS.get(key)
     if handler is not None:
         return handler(lo, node, span, expect, attr)
+    note = inspect_note(attr) if module == "inspect" else None
+    if note is not None:
+        lo.fail(node, "PS2001", note)
     lo.fail(node, "PS2001", f"{module}.{attr} is not in the lowered subset of {module}")
     raise AssertionError("unreachable")
 

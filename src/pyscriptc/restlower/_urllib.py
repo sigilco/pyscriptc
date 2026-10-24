@@ -26,6 +26,7 @@ import ast
 from typing import Any
 
 from pyscriptc.lower._core import _show
+from pyscriptc.reflection import kwargs_call_note
 
 _RESPONSE = {"kind": "class", "name": "HttpResponse"}
 _REQUEST = {"kind": "class", "name": "HttpRequest"}
@@ -111,7 +112,7 @@ def _split_args(
         data = rest[0]
     for keyword in node.keywords:
         if keyword.arg is None:
-            lo.fail(node, "PS2002", "**kwargs are not lowered")
+            lo.fail(node, "PS2002", kwargs_call_note())
         if keyword.arg == "data" and data is None:
             data = keyword.value
         elif keyword.arg == "timeout":

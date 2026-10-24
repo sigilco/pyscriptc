@@ -76,7 +76,7 @@ def test_coverage_json_reports_each_fence(tmp_path: Path) -> None:
     got = run_cli("coverage", str(path), "--json")
     assert got.returncode == 0, got.stderr
     report = json.loads(got.stdout)
-    assert report["schemaVersion"] == 1
+    assert report["schemaVersion"] == 2
     families = {entry["family"] for entry in report["fences"]}
     assert {"union-types", "generic-alias", "dynamic-annotation", "forward-reference"} <= families
     assert "except-as" in families
@@ -86,6 +86,13 @@ def test_coverage_json_reports_each_fence(tmp_path: Path) -> None:
     assert "ok" not in by_name
     assert "opt" not in by_name
     assert by_name["body"]["bodyAnalyzed"] is True
+    assert by_name["body"]["capability"] == "fenced"
+    caps = report["capabilities"]
+    assert caps["totals"]["definitions"] == 7
+    assert caps["totals"]["native"] == 2
+    assert caps["totals"]["fenced"] == 5
+    assert caps["totals"]["island"] == 0
+    assert caps["byFile"][0]["file"].endswith("mix.py")
     first = report["fences"][0]
     assert {"code", "message", "family", "file", "line", "col", "frame", "hint", "definition"} <= set(first)
     assert report["chain"][0]["definitionsUnblocked"] >= 1

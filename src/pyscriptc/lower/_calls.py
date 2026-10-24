@@ -42,6 +42,7 @@ from pyscriptc.lower._core import (
     _subst_type,
 )
 from pyscriptc.lower._stdlib_shared import _mod_call, _synth_module
+from pyscriptc.reflection import inspect_note, kwargs_call_note, typing_note
 from pyscriptc.restlower import (
     _lock_method,
     _mk_iter,
@@ -79,6 +80,9 @@ class CallsMixin:
         if found is not None:
             return found
         if name in self.type_aliases:
+            note = typing_note(name)
+            if note is not None:
+                self.fail(node, "PS2002", note)
             self.fail(node, "PS2002", f"{name} is a typing name and is not a value")
         if name in self.typevars:
             self.fail(node, "PS2002", f"{name} is a TypeVar and is not a value")
@@ -126,6 +130,10 @@ class CallsMixin:
         if binding is not None:
             if binding.queued:
                 self._queued(node, f"{binding.module}.{binding.attr}" if binding.attr else binding.module)
+            if binding.kind == "erased":
+                note = typing_note(name)
+                if note is not None:
+                    self.fail(node, "PS2002", note)
             if binding.kind == "func":
                 return self._module_call(node, span, binding.module, binding.attr, expect)
             if binding.kind == "pyfunc":
@@ -296,7 +304,7 @@ class CallsMixin:
         argument lowers once; placeholder parameters unify their declared
         TypeVars against the argument type instead of expecting it."""
         if any(kw.arg is None for kw in node.keywords):
-            self.fail(node, "PS2002", "**kwargs are not lowered")
+            self.fail(node, "PS2002", kwargs_call_note())
         if any(isinstance(arg, ast.Starred) for arg in node.args):
             self.fail(node, "PS2002", "starred calls are not lowered")
         var_index = next((index for index, param in enumerate(params) if param.get("vararg")), None)
@@ -418,6 +426,9 @@ class CallsMixin:
         if resolved is not None:
             dotted, module, member, status = resolved
             if status == "erased":
+                note = typing_note(member)
+                if note is not None:
+                    self.fail(node, "PS2002", note)
                 self.fail(node, "PS2002", f"{dotted} is a typing name and is not a value")
             if status == "pkg":
                 item = self._pkg_item(node, module, member)
@@ -429,6 +440,9 @@ class CallsMixin:
             if status == "queued":
                 self._queued(node, dotted)
             if status != "lowered":
+                note = inspect_note(member) if module == "inspect" else None
+                if note is not None:
+                    self.fail(node, "PS2001", note)
                 self.fail(node, "PS2001", f"{dotted} is not in the lowered subset of {module}")
             return self._module_call(node, span, module, member, expect)
         if isinstance(node.func.value, ast.Name):
@@ -858,7 +872,7 @@ class CallsMixin:
         flags = 0
         for keyword in node.keywords:
             if keyword.arg is None:
-                self.fail(node, "PS2002", "**kwargs are not lowered")
+                self.fail(node, "PS2002", kwargs_call_note())
             name = keyword.arg
             if name == "indent":
                 value = keyword.value
@@ -1399,7 +1413,7 @@ class CallsMixin:
 
     def _place_nodes(self, node: ast.Call, names: list[str]) -> list[ast.expr | None]:
         if any(kw.arg is None for kw in node.keywords):
-            self.fail(node, "PS2002", "**kwargs are not lowered")
+            self.fail(node, "PS2002", kwargs_call_note())
         if len(node.args) > len(names):
             self.fail(node, "PS2003", "too many positional arguments")
         slots: list[ast.expr | None] = [None] * len(names)
@@ -1419,7 +1433,7 @@ class CallsMixin:
 
     def _fill_args(self, node: ast.Call, params: list[dict[str, Any]], what: str) -> list[dict[str, Any]]:
         if any(kw.arg is None for kw in node.keywords):
-            self.fail(node, "PS2002", "**kwargs are not lowered")
+            self.fail(node, "PS2002", kwargs_call_note())
         if any(isinstance(arg, ast.Starred) for arg in node.args):
             self.fail(node, "PS2002", "starred calls are not lowered")
         var_index = next(

@@ -369,7 +369,7 @@ def test_lwave_fences(tmp_path: Path) -> None:
         (
             "kwargs.py",
             "def f(**kwargs) -> int:\n    return 1\n",
-            "parameter form",
+            "keyword forwarding (**kwargs)",
         ),
         (
             "star.py",

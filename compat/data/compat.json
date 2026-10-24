@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-24",
-  "commit": "1360ea1ec8faac34cc085effb7ed69791be8eacc",
+  "commit": "c4852416f81ad1b8c03b71e8ffd9bc133d0db880",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -1482,8 +1482,8 @@
           "count": 17
         },
         {
-          "family": "class-keywords",
-          "count": 15
+          "family": "reflection",
+          "count": 16
         }
       ],
       "codes": [
@@ -2124,7 +2124,7 @@
     },
     {
       "date": "2026-10-24",
-      "commit": "1360ea1ec8faac34cc085effb7ed69791be8eacc",
+      "commit": "c4852416f81ad1b8c03b71e8ffd9bc133d0db880",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 6,

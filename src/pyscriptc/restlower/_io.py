@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 from typing import Any
 
+from pyscriptc.reflection import kwargs_call_note
 from pyscriptc.restlower._shared import _class, _const_int
 
 _OPEN = {"r": 1, "w": 2, "rb": 3, "wb": 4, "a": 5, "ab": 6}
@@ -38,7 +39,7 @@ def _print(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     extras: dict[str, Any] = {}
     for kw in node.keywords:
         if kw.arg is None:
-            lo.fail(kw, "PS2002", "**kwargs are not lowered")
+            lo.fail(kw, "PS2002", kwargs_call_note())
         if kw.arg == "file":
             # `sys.stdout` (the default) or `sys.stderr` as the stream tag.
             resolved = lo._resolve_module(kw.value)

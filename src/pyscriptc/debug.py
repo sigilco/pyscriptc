@@ -112,6 +112,8 @@ class Debug:
                 lines.append(f"[debug] {name:<12}{ms:>8.1f}")
             total = (time.perf_counter() - self._t0) * 1000.0
             lines.append(f"[debug] {'total':<12}{total:>8.1f}")
+        if module is not None and self.wants("stages"):
+            lines.extend(_capability_lines(module))
         if module is not None and self.wants("fences"):
             fences = module.get("fences", [])
             lines.append(f"[debug] fences: {len(fences)}")
@@ -146,6 +148,7 @@ class Debug:
             "totalMs": round((time.perf_counter() - self._t0) * 1000.0, 3),
             "fences": [] if module is None else module.get("fences", []),
             "functions": 0 if module is None else len(module.get("functions", [])),
+            "capabilities": {} if module is None else _capability_report(module),
             "commands": self.commands,
             "outputs": outputs,
             "status": status,
@@ -177,6 +180,48 @@ class Debug:
         (self.debug_dir / "summary.json").write_text(
             json.dumps(self.summary(module, outputs, status), indent=2) + "\n", encoding="utf-8"
         )
+
+
+def _module_files(module: dict[str, Any]) -> list[str]:
+    """Every source file the lowered module mentions."""
+
+    files: set[str] = set()
+    for fence in module.get("fences", []):
+        path = fence.get("span", {}).get("file")
+        if path:
+            files.add(str(path))
+    for key in ("functions", "classes"):
+        for item in module.get(key, []):
+            path = (item.get("span") or {}).get("file")
+            if path:
+                files.add(str(path))
+    return sorted(files)
+
+
+def _capability_report(module: dict[str, Any]) -> dict[str, Any]:
+    """The per-file native, fenced and island split the audit surface prints."""
+
+    from pyscriptc.coverage import capabilities
+
+    return capabilities(module, _module_files(module))
+
+
+def _capability_lines(module: dict[str, Any]) -> list[str]:
+    report = _capability_report(module)
+    totals = report["totals"]
+    lines = [
+        f"[debug] capability: {totals['native']} native, {totals['fenced']} fenced, "
+        f"{totals['island']} island definitions of {totals['definitions']}"
+    ]
+    for item in report["byFile"]:
+        if not (item["fences"] or item["definitions"]):
+            continue
+        mechanisms = f", reflection: {', '.join(item['mechanisms'])}" if item["mechanisms"] else ""
+        lines.append(
+            f"[debug]   {item['file']}: {item['native']} native, {item['fenced']} fenced, "
+            f"{item['island']} island of {item['definitions']} definitions, {item['fences']} fences{mechanisms}"
+        )
+    return lines
 
 
 class _TimingSink(dict):
