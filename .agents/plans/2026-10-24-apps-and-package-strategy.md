@@ -79,7 +79,7 @@ Two probe programs, written in the shape a beta tester would write.
 
 Web server probe (the `http.server` shape from issue #230):
 
-```python
+```text
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -96,7 +96,7 @@ class Handler(BaseHTTPRequestHandler):
 
 Data pipeline probe (csv to JSON aggregation):
 
-```python
+```text
 import csv
 import json
 from dataclasses import dataclass
@@ -122,7 +122,7 @@ Two findings, both measured while writing the pipeline probe, and both about the
 
 **Finding 1: a bare `list` or `dict` annotation fences the local and every use of it.**
 
-```python
+```text
 def load(path: str) -> list:      # PS1106 unlowered-type-name
     out: list = []                 # PS1106, then PS2002 name-resolution on every use
 ```
@@ -131,7 +131,7 @@ The same program with `list[Row]` and `dict[str, float]` has 0 fences. This is t
 
 **Finding 2: `for r in rows` over a `list` of user class instances fences.**
 
-```python
+```text
 def aggregate(rows: list[Row]) -> dict[str, float]:
     for r in rows:                # PS2002: for over list[Row] is not lowered
         ...
@@ -141,7 +141,7 @@ The lowerer (`src/pyscriptc/lower/_stmt.py:931-936`) accepts a scalar element, a
 
 The workaround is an index loop:
 
-```python
+```text
 i: int = 0
 while i < len(rows):
     r: Row = rows[i]
@@ -283,7 +283,7 @@ Two apps. Both must compile to one self-contained binary, and both must match CP
 
 A small HTTP service: three routes, JSON in and out, one dataclass request model, one file-backed read. This is the app a tester writes in an afternoon.
 
-```python
+```text
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pyscriptc_fastapi import FastAPI, JSONResponse
