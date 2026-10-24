@@ -81,6 +81,7 @@ def test_coverage_json_reports_each_fence(tmp_path: Path) -> None:
     assert {"union-types", "generic-alias", "dynamic-annotation", "forward-reference"} <= families
     assert "except-as" in families
     assert report["summary"]["definitions"] == 7
+    assert report["summary"]["nativeDefinitions"] == 2
     assert report["summary"]["fencedDefinitions"] == 5
     by_name = {item["name"]: item for item in report["definitions"]}
     assert "ok" not in by_name
@@ -107,6 +108,38 @@ def test_coverage_text_has_frame_and_hint(tmp_path: Path) -> None:
     assert "family: union-types" in got.stdout
     assert "hint:" in got.stdout
     assert "^" in got.stdout
+    assert "(0 native)" in got.stdout
+
+
+def test_coverage_native_definitions_count_and_text(tmp_path: Path) -> None:
+    source = "\n".join(
+        [
+            "def native_one(x: int) -> int:",
+            "    return x",
+            "",
+            "def native_two(y: int) -> int:",
+            "    return y + 1",
+            "",
+            "def fenced_fn(z: 'Unlowered') -> int:",
+            "    return 1",
+        ]
+    )
+    path = write_case(tmp_path, "sample.py", source)
+    report = coverage.build_report(path)
+    assert report["summary"]["definitions"] == 3
+    assert report["summary"]["nativeDefinitions"] == 2
+    assert report["summary"]["fencedDefinitions"] == 1
+    text = coverage.render_text(report)
+    assert "in 1 of 3 definitions (2 native)" in text
+
+    # Fully native program (no fences)
+    clean_path = write_case(tmp_path, "clean.py", "def a() -> int:\n    return 1\n")
+    clean_report = coverage.build_report(clean_path)
+    assert clean_report["summary"]["definitions"] == 1
+    assert clean_report["summary"]["nativeDefinitions"] == 1
+    assert clean_report["summary"]["fencedDefinitions"] == 0
+    clean_text = coverage.render_text(clean_report)
+    assert "in 0 of 1 definitions (1 native)" in clean_text
 
 
 def test_coverage_walks_a_directory(tmp_path: Path) -> None:

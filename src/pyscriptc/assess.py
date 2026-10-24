@@ -265,7 +265,13 @@ def assess(
         cov_report = {
             "schemaVersion": 2,
             "target": str(target),
-            "summary": {"files": 0, "definitions": 0, "fences": 0, "rootFences": 0},
+            "summary": {
+                "files": 0,
+                "definitions": 0,
+                "nativeDefinitions": 0,
+                "fences": 0,
+                "rootFences": 0,
+            },
             "fences": [],
             "definitions": [],
             "capabilities": {

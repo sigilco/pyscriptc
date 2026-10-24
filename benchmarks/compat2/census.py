@@ -41,6 +41,10 @@ def package_census(path: Path) -> dict[str, Any]:
         "package": path.name,
         "fences": report["summary"]["fences"],
         "definitions": report["summary"]["definitions"],
+        "nativeDefinitions": report["summary"].get(
+            "nativeDefinitions",
+            max(0, report["summary"]["definitions"] - report["summary"]["fencedDefinitions"]),
+        ),
         "fencedDefinitions": report["summary"]["fencedDefinitions"],
         "rootFamilies": dict(sorted(roots.items(), key=lambda kv: (-kv[1], kv[0]))),
         "derivedFamilies": dict(sorted(derived.items(), key=lambda kv: (-kv[1], kv[0]))),

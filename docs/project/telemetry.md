@@ -30,7 +30,7 @@ Every field of every event, in full:
 | `run.finished`      | `exit_code`                                                              | `0`                               | how often compiled programs succeed                                                               |
 | `run.finished`      | `duration_ms`, `cache_hit`, `binary_bytes`                               | `731`, `true`, `282616`           | run latency and the content-hash binary cache hit rate                                            |
 | `run.finished`      | `driver`, `target`, `skip_check`                                         | `clang`, `` (absent), `false`     | which toolchain options are used (absent rather than empty)                                       |
-| `coverage.reported` | `definitions`, `fencedDefinitions`, `fences`, `rootFences`               | `40`, `3`, `5`, `2`               | aggregate coverage only                                                                           |
+| `coverage.reported` | `definitions`, `nativeDefinitions`, `fencedDefinitions`, `fences`, `rootFences` | `40`, `37`, `3`, `5`, `2`         | aggregate coverage only                                                                           |
 | `coverage.reported` | `byFamily`                                                               | `{"union-types": 5}`              | family to fence count                                                                             |
 
 Not sent, ever: file names or paths, user names, host names, machine ids, MAC addresses, source text or snippets, imported module names, fence messages, per-fence locations, definition names, argument values, program arguments or output, environment variables.
