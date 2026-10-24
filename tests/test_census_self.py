@@ -47,7 +47,8 @@ def test_self_census_ballpark() -> None:
     # add 2 modules.
     # restlower/_asyncio_sync.py (the asyncio Lock, Event, Semaphore, Queue
     # and to_thread, #180 Stage D3) adds 1 module.
-    assert census["modules"] == 94
+    # verify.py (#555, the differential receipt) adds 1 module.
+    assert census["modules"] == 95
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -211,7 +212,7 @@ def test_self_census_ballpark() -> None:
     # Local inference (#500): the pin walk and typed defaults let the self-host
     # sources lower without the annotation fences, 341 fewer in total.
 
-    assert census["fences"] == 2721
+    assert census["fences"] == 2812
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     # Project mode (#150): project.py adds about 240 lines.
@@ -219,4 +220,4 @@ def test_self_census_ballpark() -> None:
     # adds about 150 lines in coro.py. The asyncio primitives (#180 D3) add
     # about 400 in ps_async.c and restlower/_asyncio_sync.py.
     assert 11_000 <= census["lines"] <= 45_000
-    assert sum(p["fences"] for p in census["packages"]) == 2721
+    assert sum(p["fences"] for p in census["packages"]) == 2812
