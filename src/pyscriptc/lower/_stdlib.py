@@ -96,6 +96,14 @@ def _dep_lane_hint(module: str, message: str) -> str:
 
 
 class StdlibDispatchMixin:
+    def _import_fence_message(self, name: str) -> str:
+        head = name.split(".", 1)[0]
+        if self.config is not None:
+            lane, _key = self.config.lane_for(head)
+            if lane == "refuse":
+                return f"import `{head}` is refused by the `imports` policy"
+        return _dep_lane_hint(name, f"{name} is not in the closed import table")
+
     def _bind_import(self, stmt: ast.Import, fences: list[Fence]) -> None:
         for alias in stmt.names:
             root = alias.name.split(".", 1)[0]
@@ -113,6 +121,17 @@ class StdlibDispatchMixin:
                 continue
             status = module_status(alias.name)
             if status is None:
+                head = alias.name.split(".", 1)[0]
+                if self.config is not None and self.config.lane_for(head)[0] == "refuse":
+                    fences.append(
+                        Fence(
+                            "PS2002",
+                            f"import `{head}` is refused by the `imports` policy",
+                            span_of(stmt, self.filename),
+                            None,
+                        )
+                    )
+                    continue
                 # boxed:begin
                 if island_lane(alias.name):
                     parts = alias.name.split(".")
@@ -130,7 +149,7 @@ class StdlibDispatchMixin:
                 fences.append(
                     Fence(
                         "PS2002",
-                        _dep_lane_hint(alias.name, f"{alias.name} is not in the closed import table"),
+                        self._import_fence_message(alias.name),
                         span_of(stmt, self.filename),
                         None,
                     )
@@ -196,7 +215,7 @@ class StdlibDispatchMixin:
             fences.append(
                 Fence(
                     "PS2002",
-                    _dep_lane_hint(stmt.module, f"{stmt.module} is not in the closed import table"),
+                    self._import_fence_message(stmt.module),
                     span_of(stmt, self.filename),
                     None,
                 )

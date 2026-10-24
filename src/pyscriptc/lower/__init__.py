@@ -73,12 +73,33 @@ from pyscriptc.stdmore import PTR_CLASSES, member_callable, module_constant
 
 
 class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixin, ClosuresMixin):
-    def __init__(self, filename: str, source: str, target: str | None = None) -> None:
+    def __init__(self, filename: str, source: str, target: str | None = None, config: Any = None) -> None:
         self.filename = filename
         self.source = source
         # The compile target triple, None on desktop compiles. Mobile targets
         # turn the surfaces whose runtime the archive excludes into fences.
         self.target = target
+        self.config = config
+        if self.config is None and filename != "<stdin>":
+            try:
+                from pyscriptc.config import load_config
+
+                p = Path(filename)
+                if p.exists() or (p.parent and p.parent.exists()):
+                    self.config = load_config(p)
+            except Exception:
+                self.config = None
+        if self.config is None and "# /// script" in source:
+            try:
+                from pyscriptc.config import _from_table, _project_table, read_pep723
+
+                meta = read_pep723(source)
+                if meta:
+                    meta_table = _project_table(meta, Path(filename))
+                    if meta_table is not None:
+                        self.config = _from_table(meta_table, Path(filename), "pep723")
+            except Exception:
+                pass
         self.function: str | None = None
         self.sigs: dict[str, tuple[list[dict[str, Any]], dict[str, Any]]] = {}
         self.locals: dict[str, dict[str, Any]] = {}
@@ -2179,6 +2200,7 @@ def lower_source(
     target: str | None = None,
     dep_lane_report: dict[str, dict[str, str]] | None = None,
     resource_root: str = "",
+    config: Any = None,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     tree = ast.parse(source, filename=filename)
@@ -2190,10 +2212,10 @@ def lower_source(
             # installed already; only replace it when this call brings its
             # own manifests.
             with ffi_modules(ffi):
-                lowerer = Lowerer(filename, source, target=target)
+                lowerer = Lowerer(filename, source, target=target, config=config)
                 lowerer.bridge = bridge
                 return lowerer.module(tree)
-        lowerer = Lowerer(filename, source, target=target)
+        lowerer = Lowerer(filename, source, target=target, config=config)
         lowerer.bridge = bridge
         return lowerer.module(tree)
 
@@ -2207,6 +2229,7 @@ def lower_file(
     dep_roots: list[Path] | None = None,
     dep_lane_report: dict[str, dict[str, str]] | None = None,
     resource_root: str = "",
+    config: Any = None,
 ) -> tuple[dict[str, Any], str]:
     """Lower one script file, with the dependency roots as extra modules.
 
@@ -2216,9 +2239,19 @@ def lower_file(
     and the dependency modules never synthesize entries.
     """
 
+    if config is None:
+        try:
+            from pyscriptc.config import load_config
+
+            config = load_config(Path(path))
+        except Exception:
+            config = None
+
     text = open(path, encoding="utf-8").read()
     if not dep_roots:
-        return lower_source(text, path, bridge, timings, ffi, target, dep_lane_report, resource_root), text
+        return lower_source(
+            text, path, bridge, timings, ffi, target, dep_lane_report, resource_root, config=config
+        ), text
 
     from pyscriptc.package import (
         _catalogued_note,
@@ -2259,6 +2292,7 @@ def lower_file(
         dep_lane_report=dep_lane_report,
         catalog_units=catalogued,
         resource_root=resource_root,
+        config=config,
     )
     merged["sourceFile"] = str(script)
     notes = [

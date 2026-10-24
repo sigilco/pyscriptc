@@ -38,7 +38,9 @@ Unknown keys, wrong value types and unknown lanes are `PS3102` errors naming the
 
 ## Import lanes
 
-`imports` maps a top-level module name to a lane. An exact name wins over `*`; without either, the lane is `compile`, so the zero-config single-file product is unchanged. Today the table is resolved and printed (`pyscriptc config`, compile notes); the compile fence path consumes it in P7. Lanes:
+`imports` maps a top-level module name to a lane. An exact name wins over `*`; without either, the lane is `compile`, so the zero-config single-file product is unchanged.
+
+The `refuse` lane is enforced at lower time: an import routed to `refuse` raises a `PS2002` compile fence naming the lane and the policy site ("import `name` is refused by the `imports` policy"). The other lanes (`replace`, `extern`, `island`) are recorded in config and reported by `pyscriptc config`, but are not yet enforced by the lowerer. Lanes:
 
 | Lane | Meaning |
 |---|---|

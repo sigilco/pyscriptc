@@ -124,3 +124,40 @@ def test_pep723_script_still_compiles_with_project(tmp_path: Path) -> None:
     assert got.returncode == 0, got.stderr
     assert "requires-python >=3.12" in got.stderr
     assert got.stdout.startswith("hello\n")
+
+
+def test_compile_refuse_lane_fails(tmp_path: Path) -> None:
+    script = _project(
+        tmp_path,
+        "[tool.pyscriptc.imports]\nrich = 'refuse'\n",
+        script="import rich\n\ndef main() -> int:\n    return 0\n",
+    )
+    got = run_cli("compile", str(script), "--skip-check", "-o", str(tmp_path / "app"))
+    assert got.returncode == 3
+    assert "PS2002" in got.stderr
+    assert "import `rich` is refused by the `imports` policy" in got.stderr
+
+
+def test_compile_other_lanes_unchanged(tmp_path: Path) -> None:
+    script = _project(
+        tmp_path,
+        "[tool.pyscriptc.imports]\nrich = 'compile'\nfastapi = 'replace'\n",
+        script="import rich\nimport fastapi\n\ndef main() -> int:\n    return 0\n",
+    )
+    got = run_cli("compile", str(script), "--skip-check", "-o", str(tmp_path / "app"))
+    assert got.returncode == 3
+    assert "PS2002" in got.stderr
+    assert "rich is not in the closed import table" in got.stderr
+    assert "fastapi is not in the closed import table" in got.stderr
+    assert "refused by" not in got.stderr
+
+
+def test_config_subcommand_unchanged_with_refuse(tmp_path: Path) -> None:
+    import json
+
+    _project(tmp_path, "[tool.pyscriptc.imports]\nrich = 'refuse'\norjson = 'replace'\n")
+    got = run_cli("config", str(tmp_path / "app.py"), "--json")
+    assert got.returncode == 0, got.stderr
+    data = json.loads(got.stdout)
+    assert data["imports"]["rich"] == "refuse"
+    assert data["imports"]["orjson"] == "replace"
