@@ -32,6 +32,7 @@ from pyscriptc.lower._core import (
     _subst_type,
 )
 from pyscriptc.lower._stmt import _always_returns, _is_docstring
+from pyscriptc.reflection import annotation_note, kwargs_parameter_note, metaclass_note
 from pyscriptc.restlower import alias_name, path_attr
 from pyscriptc.restlower import method_spec as synth_method
 from pyscriptc.stdmore import (
@@ -167,6 +168,8 @@ class ClassesMixin:
     def _collect_class(self, node: ast.ClassDef) -> None:
         keywords = [kw for kw in node.keywords if not self._is_abcmeta_keyword(kw)]
         if keywords:
+            if any(kw.arg == "metaclass" for kw in keywords):
+                self.fail(node, "PS1203", metaclass_note())
             self.fail(node, "PS1203", "class keywords are not lowered")
         if node.name in self.bindings or node.name in self.sigs or node.name in self.declared:
             self.fail(node, "PS2002", f"{node.name} is already bound")
@@ -971,7 +974,7 @@ class ClassesMixin:
         if fn.args.kwarg is not None:
             kwarg = fn.args.kwarg
             if kwarg.annotation is None:
-                self.fail(fn, "PS1202", f"{fn.name} uses a parameter form that is not lowered")
+                self.fail(fn, "PS1202", f"{fn.name} declares **{kwarg.arg}: {kwargs_parameter_note()}")
             value = self._annotation(kwarg.annotation)
             if value["kind"] == "bool":
                 self.fail(kwarg, "PS2002", "dict values of bool are not lowered")
@@ -1468,6 +1471,9 @@ class ClassesMixin:
                 return obj
             self.fail(node, "PS2001", f"type(e) has no attribute {name}")
         if obj["type"]["kind"] != "class":
+            note = annotation_note(name)
+            if note is not None:
+                self.fail(node, "PS2001", note)
             self.fail(node, "PS2001", f"attribute access is not lowered ({name})")
         class_name = obj["type"]["name"]
         if obj["type"].get("handle"):
@@ -1509,6 +1515,9 @@ class ClassesMixin:
             return self._abi_call("pathlib", name, [obj], typ, symbol, span)
         if synth_method(class_name, name) is not None:
             self.fail(node, "PS2002", f"{class_name}.{name} is a function and is not a value")
+        note = annotation_note(name)
+        if note is not None:
+            self.fail(node, "PS2001", note)
         self.fail(node, "PS2001", f"{class_name}.{name} is not a field")
         raise AssertionError("unreachable")
 

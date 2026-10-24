@@ -201,7 +201,7 @@ print(*args)
     assert "starred calls are not lowered" in starred["fences"][0]["message"]
     splatted = lower_source("print(**{})\n")
     assert splatted["fences"][0]["code"] == "PS2002"
-    assert "**kwargs are not lowered" in splatted["fences"][0]["message"]
+    assert "keyword forwarding (**kwargs)" in splatted["fences"][0]["message"]
 
 
 def test_print_in_entry_loop_matches_cpython(tmp_path: Path) -> None:

@@ -13,6 +13,8 @@ from __future__ import annotations
 import ast
 from typing import Any
 
+from pyscriptc.reflection import kwargs_call_note
+
 
 def _argv(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     """The command list: `list[str]` with one element type."""
@@ -41,7 +43,7 @@ def _run(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     lo.mobile_guard(node, "subprocess.run", "subprocess")
     for keyword in node.keywords:
         if keyword.arg is None:
-            lo.fail(node, "PS2002", "**kwargs are not lowered")
+            lo.fail(node, "PS2002", kwargs_call_note())
         if keyword.arg not in {"capture_output", "text", "encoding", "errors", "check"}:
             lo.fail(node, "PS2003", f"subprocess.run keyword {keyword.arg} is not lowered")
     argv = _argv(lo, node, span)

@@ -44,6 +44,7 @@ from pyscriptc.lower._core import (
     _static_int,
     _zero,
 )
+from pyscriptc.reflection import inspect_note, typing_note
 from pyscriptc.stdlib_queue import (
     MATH_CONSTANTS,
     MATH_FUNCTIONS,
@@ -222,6 +223,9 @@ class ExprMixin:
         if node.id == "__name__":
             return {"kind": "const", "value": self.module_name or "__main__", "type": {"kind": "str"}, "span": span}
         if node.id in self.type_aliases:
+            note = typing_note(node.id)
+            if note is not None:
+                self.fail(node, "PS2002", note)
             self.fail(node, "PS2002", f"{node.id} is a typing name and is not a value")
         if node.id in self.typevars:
             self.fail(node, "PS2002", f"{node.id} is a TypeVar and is not a value")
@@ -230,6 +234,9 @@ class ExprMixin:
             if binding.queued:
                 self._queued(node, f"{binding.module}.{binding.attr}" if binding.attr else binding.module)
             if binding.kind == "erased":
+                note = typing_note(node.id)
+                if note is not None:
+                    self.fail(node, "PS2002", note)
                 self.fail(node, "PS2002", f"{node.id} is a typing name and is not a value")
             if binding.kind == "handle":
                 # A handle name is a type, not a value: `Conn` in an
@@ -1228,6 +1235,9 @@ class ExprMixin:
         if resolved is not None:
             dotted, module, member, status = resolved
             if status == "erased":
+                note = typing_note(member)
+                if note is not None:
+                    self.fail(node, "PS2002", note)
                 self.fail(node, "PS2002", f"{dotted} is a typing name and is not a value")
             if status == "pkg":
                 item = self._pkg_item(node, module, member)
@@ -1275,6 +1285,9 @@ class ExprMixin:
                 if manifest.function(member) is not None:
                     self.fail(node, "PS2002", f"{dotted} is a function and is not a value")
                 self.fail(node, "PS2001", f"{dotted} is not in the FFI manifest of {module}")
+            note = inspect_note(member) if module == "inspect" else None
+            if note is not None:
+                self.fail(node, "PS2001", note)
             self.fail(node, "PS2001", f"{dotted} is not in the lowered subset of {module}")
         class_name = self.class_aliases.get(node.value.id, node.value.id) if isinstance(node.value, ast.Name) else None
         if class_name is not None and class_name in self.classes:
