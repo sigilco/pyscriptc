@@ -12,10 +12,11 @@ from __future__ import annotations
 import ast
 import itertools
 import os
-import sys
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
+
+from pyscriptc.target import TARGET_MINOR
 
 
 def stdlib_dir() -> Path:
@@ -32,7 +33,7 @@ def parse_version(text: str) -> tuple[int, int]:
 
 
 STDLIB = stdlib_dir()
-PY_VERSION = parse_version(os.environ["PYSC_ORACLE"]) if os.environ.get("PYSC_ORACLE") else sys.version_info[:2]
+PY_VERSION = parse_version(os.environ["PYSC_ORACLE"]) if os.environ.get("PYSC_ORACLE") else parse_version(TARGET_MINOR)
 PLATFORM = "linux"
 
 
