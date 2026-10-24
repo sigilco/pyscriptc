@@ -142,6 +142,14 @@ class ExprMixin:
 
     def _expr_any(self, node: ast.expr, expect: dict[str, Any] | None = None) -> dict[str, Any]:
         span = span_of(node, self.filename)
+        if expect is None and self.inf_peek:
+            # The inference peek has no annotation to read an expected type
+            # from. An unannotated empty display is ambiguous, never a
+            # guess: the peek refuses it and the site keeps its fence with
+            # the hint. A non-empty display lowers without an expectation
+            # and its element type is the answer.
+            expect = self.peek_infer
+            self.peek_infer = None
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
             return self._name(node, span)
         if isinstance(node, ast.Constant):
@@ -405,6 +413,11 @@ class ExprMixin:
                 return self._abi_call("builtins", "repeat", [left, right], left["type"], "ps_seq_repeat", span)
             if left_kind == "int" and right_kind == "list" and not right["type"].get("set"):
                 return self._abi_call("builtins", "repeat", [right, left], right["type"], "ps_seq_repeat", span)
+            for seq, count, seq_kind in ((left, right, left_kind), (right, left, right_kind)):
+                if seq_kind in {"str", "bytes"} and count["type"]["kind"] == "int":
+                    return self._abi_call(
+                        "builtins", "str_repeat", [seq, count], seq["type"], "ps_str_repeat", span
+                    )
         self.fail(node, "PS2004", f"{_op_text(node.op)} on {left_kind} and {right_kind} is not lowered")
         raise AssertionError("unreachable")
 

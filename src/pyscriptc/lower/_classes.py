@@ -889,7 +889,25 @@ class ClassesMixin:
 
     def _signature(
         self, fn: ast.FunctionDef, class_name: str | None, kind: str = "method"
-    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
+        """The lowered signature of one `def`, or None for an unprovable one.
+
+        The optional-failure mode serves the return-type inference peek
+        (#500): a default peeked inside `_signature` sees parameters with
+        no default at all (the default is only a value at the call site,
+        never during the body), and any other fence means the signature
+        never proves, so the peek returns None and the caller keeps its
+        fence.
+        """
+        if fn.args.defaults and self.inf_peek:
+            # The peek at this def's own return type: strip the defaults so
+            # a typed default never doubles as the body's parameter type.
+            saved_defaults = fn.args.defaults
+            fn.args.defaults = []
+            try:
+                return self._signature(fn, class_name, kind)
+            finally:
+                fn.args.defaults = saved_defaults
         # `**kwargs` capture stays lowered (packed into dict[str, T] by
         # `_fill_varargs`); `/`-positional and `*`-keyword parameters normalize
         # into the named-parameter machinery instead: positional-only
@@ -964,11 +982,13 @@ class ClassesMixin:
                 }
             )
         if fn.returns is None:
-            # Checker bridge: when every return statement's inferred type
-            # agrees and the subset can express it, the bridge supplies the
-            # missing annotation. Otherwise the fence stands (PS1001,
-            # return-inference family).
-            bridged = self._bridge_return_type(fn)
+            # Inference from the body (issue #500): the return peek runs the
+            # signature pass on this def and keeps the return type when the
+            # body alone proves one. Defaults are stripped for the peek, so
+            # a typed default never doubles as the body's parameter type
+            # (the body sees call-site arguments, not defaults). No proof,
+            # no fence from the peek: the caller keeps its own diagnostic.
+            bridged = self._infer_signature(fn)
             if bridged is None:
                 self.fail(fn, "PS1001", f"{fn.name} needs a return annotation")
             ret = bridged
@@ -2083,11 +2103,14 @@ def _param(lowerer: Any, arg: ast.arg, fn: ast.FunctionDef | None = None) -> dic
     if arg.annotation is None:
         # Checker bridge: the checker inferred the parameter's type (from the
         # default, the callers, or the body). Without a bridged answer the
-        # fence stands (PS1001, param-inference family).
+        # fence stands (PS1001, param-inference family). Inside the return
+        # peek the refusal becomes a caught fence, so the peek returns None.
         if fn is not None:
             inferred = lowerer._bridge_param_type(fn, arg)
             if inferred is not None:
                 return {"name": arg.arg, "type": inferred}
+        # Both paths raise PS1001; the return peek catches it and returns
+        # None. An unannotated parameter is named by its own fence.
         lowerer.fail(arg, "PS1001", f"parameter {arg.arg} needs an annotation")
     return {"name": arg.arg, "type": lowerer._annotation(arg.annotation)}
 

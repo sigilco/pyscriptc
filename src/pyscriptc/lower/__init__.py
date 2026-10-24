@@ -35,8 +35,11 @@ from pyscriptc.lower._core import (
     _declared_globals,
     _dotted,
     _has_typevar,
+    _ir_kinds_of,
     _is_none_expr,
     _name,
+    _peek_annotated_params,
+    _peek_annotation,
     _show,
     _subst_type,
     _tuple_assign,
@@ -98,6 +101,16 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         self.comp_init: dict[str, Any] | None = None
         self.comp_expect: dict[str, Any] | None = None
         self.comp_ready = False
+        # The inference peek (issue #500): while True, `_expr` is running
+        # speculatively to learn a value's type; the emitted IR and the
+        # temp counter are discarded, and any fence becomes the inference
+        # refusal (`PS1001` with a hint), never the inner diagnostic.
+        self.inf_peek = False
+        self.inf_depth = 0
+        # The expected type the caller of the peek wants for an empty
+        # display: None inside the peek (ambiguity is a fence, never a
+        # guess), the annotation's type on the real pass.
+        self.peek_infer: dict[str, Any] | None = None
         self.break_flag: str | None = None
         self.continue_flag: str | None = None
         self.broke_flag = None
@@ -242,6 +255,526 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             return None
         return self.bridge.return_type(fn, self.classes)
 
+    _PEEK_UNSAFE = {"abi_call", "free", "consume", "yield_expr", "await_expr", "consume"}
+
+    def _infer_type_of(self, node: ast.expr) -> dict[str, Any] | None:
+        """The type lowering would give `node`, or None when it does not lower.
+
+        The peek (issue #500) lowers the expression speculatively: the IR
+        goes to a throwaway prelude and the temp counter is restored, so a
+        non-trivial value lowers twice. Comprehension scaffolding is nested
+        and restored like any other state; the read-only expressions return
+        identical types on the real pass, which then emits the effects.
+        Calls whose results are lowered outside the IR (abi thunks, handle
+        frees and consumes) are refused: the peek must not run the runtime
+        twice. A fence inside the peek is the refusal, not a diagnostic:
+        inference never guesses, and the caller keeps its own message.
+        """
+
+        class _Peek:
+            def __enter__(s) -> bool:
+                if self.inf_peek or self.function is None:
+                    return False
+                s.saved_prelude = self.prelude
+                s.saved_temp_n = self.temp_n
+                s.saved_fences = self.caught
+                s.saved_comp = (
+                    self.comp_elt,
+                    self.comp_key,
+                    self.comp_kind,
+                    self.comp_gens,
+                    self.comp_ifs,
+                    self.comp_dest,
+                    self.comp_init,
+                    self.comp_expect,
+                    self.comp_ready,
+                )
+                s.saved_dead = self.dead_names
+                s.saved_exc = self.exc_stack
+                s.saved_broke = self.broke_flag
+                s.saved_break = self.break_flag
+                s.saved_cont = self.continue_flag
+                self.prelude = []
+                self.caught = []
+                self.inf_peek = True
+                self.inf_depth += 1
+                return True
+
+            def __exit__(s, *exc) -> None:
+                if not hasattr(s, "saved_prelude"):
+                    return
+                self.inf_depth -= 1
+                if self.inf_depth == 0:
+                    self.inf_peek = False
+                self.prelude = s.saved_prelude
+                self.temp_n = s.saved_temp_n
+                self.caught = s.saved_fences
+                (
+                    self.comp_elt,
+                    self.comp_key,
+                    self.comp_kind,
+                    self.comp_gens,
+                    self.comp_ifs,
+                    self.comp_dest,
+                    self.comp_init,
+                    self.comp_expect,
+                    self.comp_ready,
+                ) = s.saved_comp
+                self.dead_names = s.saved_dead
+                self.exc_stack = s.saved_exc
+                self.broke_flag = s.saved_broke
+                self.break_flag = s.saved_break
+                self.continue_flag = s.saved_cont
+
+        if any(k in self._PEEK_UNSAFE for k in _ir_kinds_of(node)):
+            return None
+        with _Peek() as ok:
+            if not ok:
+                return None
+            try:
+                value = self._expr(node)
+            except Fence:
+                return None
+            if self.caught:
+                return None
+            return value["type"]
+
+    def _infer_type_known(self, node: ast.expr) -> dict[str, Any] | None:
+        """The type of a call to a `def` this module already signed, or None.
+
+        The peek cannot lower a user call speculatively (the callee's body
+        may not have lowered yet), but the signature pass has already
+        proven the return types of every def that signed. A direct call
+        whose callee is one of those names returns the signature's return
+        type without lowering anything: the real pass emits the call.
+        """
+
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+            return None
+        sig = self.sigs.get(node.func.id)
+        if sig is None or node.func.id in self.generic_fns:
+            return None
+        params, ret = sig
+        if ret["kind"] == "none" or _has_typevar(ret):
+            return None
+        if any(k in self._PEEK_UNSAFE for k in _ir_kinds_of(node)):
+            return None
+        return ret
+
+    def _tuple_fields_of(self, typ: dict[str, Any] | None) -> list[dict[str, Any]] | None:
+        """The field types of a synthetic tuple class type, or None.
+
+        `_tuple_type` spells the fields into the class name
+        (`tuple_3_str_str_str`); this decodes the slugs back to the IR
+        types. A type that is not a synthetic tuple, or a slug the subset
+        cannot express, returns None so the caller refuses rather than
+        approximate.
+        """
+
+        if not isinstance(typ, dict) or typ.get("kind") != "class":
+            return None
+        info = self.classes.get(typ["name"])
+        if info is None or not info.get("tuple") or not info.get("synthetic"):
+            return None
+        return [field["type"] for field in info["fields"]]
+
+    def _infer_signature(self, fn: ast.FunctionDef | ast.AsyncFunctionDef) -> dict[str, Any] | None:
+        """The return type the function's own body proves, or None.
+
+        The peek (issue #500) scans the body's `return` statements, lowers
+        each returned expression under the peek, and keeps the type when
+        every return agrees, at least one return exists, and every path
+        returns. Only what the body proves is acceptable: a missing
+        parameter annotation, a call that does not lower or a type the
+        subset cannot express means the peek returns None and the caller
+        keeps its fence. Defaults are irrelevant here on purpose: a typed
+        default is a value at the call site, never the body's parameter
+        type, so it does not flow into the inferred return. The PS1004
+        fall-off-the-end fence is replayed by the real pass, which signs
+        and lowers the body for real.
+        """
+        if fn.returns is not None or self.function is None:
+            return None
+        if self.inf_peek:
+            # A signature being peeked proves no further def's return: the
+            # nested peek would replay the same fences and recurse.
+            return None
+        if isinstance(fn, ast.AsyncFunctionDef):
+            return None
+        for node in ast.walk(fn):
+            if isinstance(node, (ast.Yield, ast.YieldFrom)):
+                return None
+        # The body's own local assignments participate: a returned value
+        # may name a local (`return mapping.get(k)`), and the local's type
+        # is the same body-proven fact this peek derives. The scan is the
+        # same top-level shape the real body lowers; a value that does not
+        # lower leaves the name out.
+        saved_locals = self.locals
+        body_locals = dict(_peek_annotated_params(fn))
+        # The annotated parameters are visible to the scan immediately: a
+        # value expression may name one (`[0.0] * n` under `n: int`), and
+        # the fact is the def's own annotation, not a guess.
+        self.locals = {**saved_locals, **body_locals}
+        saved_fn_body = self.fn_body
+        self.fn_body = list(fn.body)
+        try:
+            for item in fn.body:
+                if isinstance(item, ast.Assign) and isinstance(item.targets[0], ast.Name):
+                    name = item.targets[0].id
+                    if name in body_locals:
+                        continue
+                    # An empty display says nothing on its own; the same
+                    # accumulated-type pass the real assignment uses reads
+                    # the appends and item writes in this body. The fn_body
+                    # window above is what that pass scans.
+                    typ = self._infer_accumulated_type(item) or self._infer_type_of(item.value)
+                    if typ is not None and typ["kind"] != "none":
+                        body_locals[name] = typ
+                        self.locals[name] = typ
+                elif (
+                    isinstance(item, ast.Assign)
+                    and len(item.targets) == 1
+                    and isinstance(item.targets[0], ast.Tuple)
+                    and all(isinstance(elt, ast.Name) for elt in item.targets[0].elts)
+                ):
+                    # `stem, dot, ext = value.rpartition(".")`: a fixed-arity
+                    # tuple unpack of a call the peek can prove. The synthetic
+                    # tuple class name carries the field kinds
+                    # (`tuple_3_str_str_str`), and each name takes its field
+                    # type; a type the name does not decode leaves the whole
+                    # unpack out (never a guess).
+                    typ = self._infer_type_of(item.value)
+                    fields = self._tuple_fields_of(typ)
+                    if fields is not None and len(fields) == len(item.targets[0].elts):
+                        for elt, field in zip(item.targets[0].elts, fields, strict=True):
+                            body_locals[elt.id] = field
+                            self.locals[elt.id] = field
+        finally:
+            self.fn_body = saved_fn_body
+        self.locals = {**saved_locals, **body_locals}
+        returns: list[dict[str, Any]] = []
+        # The return scan lowers returned values through `_infer_type_of`,
+        # whose own peek guard refuses a nested peek. The scan window sets
+        # no flag here: the peek opens per returned expression.
+        try:
+            for stmt in ast.walk(fn):
+                if isinstance(stmt, ast.Return):
+                    returns.append(stmt)
+            if any(item.value is None for item in returns):
+                # A bare `return`: the body proves nothing beyond None, but
+                # mixing bare and valued returns means the paths disagree.
+                # Fall back to the zero-return rule below only when none
+                # carries a value.
+                if not all(item.value is None for item in returns):
+                    return None
+            if not returns or all(item.value is None for item in returns):
+                # No return at all, or only bare ones: every path falls off
+                # the end, so the body proves `None` (CPython semantics,
+                # not a guess). A generator is refused above by the yield
+                # scan. The PS1004 fence does not apply: nothing can fall
+                # off because nothing expects a value.
+                return {"kind": "none"}
+            inferred = None
+            for item in returns:
+                assert item.value is not None
+                typ = self._infer_type_of(item.value)
+                if typ is None or typ["kind"] == "none":
+                    return None
+                if inferred is None:
+                    inferred = typ
+                elif not types_equal(inferred, typ):
+                    return None
+        finally:
+            self.locals = saved_locals
+        assert inferred is not None
+        if _has_typevar(inferred):
+            return None
+        return inferred
+
+    def _bindings_types(self) -> dict[str, dict[str, Any]]:
+        """The import-bound modules as peekable types.
+
+        The peek lowers module attribute calls (`os.path.splitext(x)`) and
+        needs the module names in `locals` as opaque records the attribute
+        path resolves. The binding table already proved each import lowers
+        (a bad import fenced in `_live_statements`), so this trusts it.
+        """
+
+        out: dict[str, dict[str, Any]] = {}
+        for name, binding in self.bindings.items():
+            if binding.kind == "module":
+                out[name] = {"kind": "module", "name": binding.module}
+        return out
+
+    def _pin_call_site_params(
+        self, functions: list[ast.FunctionDef | ast.AsyncFunctionDef], fences: list[Fence]
+    ) -> None:
+        """Pin unannotated parameters from their call sites (issue #500).
+
+        Runs after the first signature pass, before any body lowers. A
+        parameter with no annotation and no default, whose every call site
+        passes a value of one proven type, gets that type: the signature
+        pass re-runs for the defs that changed, so their return inference
+        sees the pinned parameter. Soundness: every call site must agree,
+        a parameter any call passes an unprovable value to stays fenced,
+        and nothing here reads a def whose signature already exists with
+        all parameters annotated. Recursion through the pinned def itself
+        is skipped (the call inside its own body is not a pinning site).
+        """
+
+        by_name = {fn.name: fn for fn in functions if isinstance(fn, ast.FunctionDef)}
+        pending = [
+            fn
+            for fn in by_name.values()
+            if not isinstance(fn, ast.AsyncFunctionDef)
+            and not fn.args.defaults
+            and not fn.args.kw_defaults
+        ]
+        if not pending:
+            return
+        # The first signature pass fenced the unannotated parameters this
+        # pass is about to prove. A def the pin rescues has its stale
+        # first-pass fence dropped: the rescued signature is the answer and
+        # the earlier PS1001 was a state this pass replaces.
+        rescued: list[Fence] = []
+        for _round in range(3):
+            changed = False
+            for fn in pending:
+                if fn.name in self.sigs:
+                    continue
+                unannotated = [
+                    arg
+                    for arg in fn.args.posonlyargs + fn.args.args + fn.args.kwonlyargs
+                    if arg.annotation is None and not self._has_default(fn, arg.arg)
+                ]
+                if not unannotated:
+                    continue
+                pins = self._call_site_types(fn, unannotated, by_name)
+                if not pins:
+                    continue
+                for arg, typ in pins.items():
+                    arg.annotation = self._pin_annotation(typ)
+                saved_prelude = self.prelude
+                saved_caught = self.caught
+                saved_temp_n = self.temp_n
+                saved_function = self.function
+                self.prelude = []
+                self.caught = []
+                self.temp_n = saved_temp_n
+                self.function = fn.name
+                changed = True
+                try:
+                    signed = self._signature(fn, None, "method")
+                    if signed is None or self.caught:
+                        continue
+                except Fence:
+                    continue
+                finally:
+                    self.prelude = saved_prelude
+                    self.caught = saved_caught
+                    self.temp_n = saved_temp_n
+                    self.function = saved_function
+                self.sigs[fn.name] = signed
+                pinned_names = {arg.arg for arg in pins}
+                fences[:] = [
+                    item
+                    for item in fences
+                    if not (
+                        item.code == "PS1001"
+                        and item.function == fn.name
+                        and item.message in {f"parameter {name} needs an annotation" for name in pinned_names}
+                    )
+                ]
+            if not changed:
+                break
+
+    def _has_default(self, fn: ast.FunctionDef | ast.AsyncFunctionDef, name: str) -> bool:
+        """True when the named positional or keyword-only parameter has a default."""
+
+        plain = fn.args.posonlyargs + fn.args.args
+        missing = len(plain) - len(fn.args.defaults)
+        for index, arg in enumerate(plain):
+            if arg.arg == name:
+                return index >= missing
+        for arg, default in zip(fn.args.kwonlyargs, fn.args.kw_defaults, strict=True):
+            if arg.arg == name:
+                return default is not None
+        return False
+
+    def _call_site_types(
+        self,
+        fn: ast.FunctionDef | ast.AsyncFunctionDef,
+        unannotated: list[ast.arg],
+        by_name: dict[str, ast.FunctionDef | ast.AsyncFunctionDef],
+    ) -> dict[ast.arg, dict[str, Any]]:
+        """The one type every call site proves for each unannotated parameter.
+
+        A call site inside any function body (not the pinned def's own, to
+        skip recursion) contributes the argument's peeked type. The first
+        disagreement, or a call whose argument does not lower, refuses the
+        parameter: no pin.
+        """
+
+        wanted = {arg.arg: arg for arg in unannotated}
+        pins: dict[str, dict[str, Any]] = {}
+        def _call_site_locals(caller: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+            """Bind the caller body's own local names for the argument peeks.
+
+            `get_category(ext)` passes a local the caller bound earlier; the
+            pin pass runs before any body lowers, so the peek needs those
+            names. The walk is recursive in source order (`if`/`for`/`while`
+            bodies hold the binding the call site reads, like
+            `file_names = sys.argv[1:]` under an `if len(sys.argv)`), and a
+            name bound twice with different types leaves the table: the
+            ambiguity refuses the pin rather than guessing. Loop targets
+            resolve from their iterable when its type is known.
+            """
+
+            self.locals = self._bindings_types()
+
+            def _bind(name: str, typ: dict[str, Any] | None) -> None:
+                if typ is None or typ["kind"] == "none":
+                    return
+                known = self.locals.get(name)
+                if known is not None and not types_equal(known, typ):
+                    self.locals.pop(name, None)
+                    return
+                self.locals[name] = typ
+
+            def _visit(body: list[ast.stmt]) -> None:
+                for item in body:
+                    if isinstance(item, ast.Assign) and isinstance(item.targets[0], ast.Name):
+                        if item.targets[0].id in self.bindings:
+                            continue
+                        _bind(item.targets[0].id, self._infer_type_of(item.value))
+                    if isinstance(item, ast.AugAssign) and isinstance(item.target, ast.Name):
+                        left = self.locals.get(item.target.id)
+                        if left is not None:
+                            binop = ast.BinOp(left=ast.Name(id=item.target.id, ctx=ast.Load()), op=item.op, right=item.value)
+                            ast.copy_location(binop, item)
+                            _bind(item.target.id, self._infer_type_of(binop))
+                    if isinstance(item, ast.For) and isinstance(item.target, ast.Name):
+                        iter_typ = self._infer_type_of(item.iter)
+                        if iter_typ is not None and iter_typ.get("kind") in {"list", "dict"}:
+                            elem = iter_typ["elem"] if iter_typ["kind"] == "list" else iter_typ["key"]
+                            _bind(item.target.id, elem)
+                    if isinstance(item, ast.If):
+                        _visit(item.body)
+                        _visit(item.orelse)
+                    if isinstance(item, (ast.For, ast.While)):
+                        if isinstance(item, ast.For) and isinstance(item.target, ast.Name):
+                            iter_typ = self._infer_type_of(item.iter)
+                            if iter_typ is not None and iter_typ.get("kind") in {"list", "dict"}:
+                                elem = iter_typ["elem"] if iter_typ["kind"] == "list" else iter_typ["key"]
+                                _bind(item.target.id, elem)
+                        _visit(item.body)
+                        _visit(item.orelse)
+                    if isinstance(item, ast.With):
+                        _visit(item.body)
+                    if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                        continue
+
+            _visit(caller.body)
+            # Annotated parameters of the caller are facts the def states,
+            # not guesses: an argument the call site passes as a bare
+            # parameter (`format_array("t", [n])`) peeks through them. The
+            # pins from the caller's own rescue ride along the same way.
+            for arg in caller.args.posonlyargs + caller.args.args + caller.args.kwonlyargs:
+                if arg.annotation is None:
+                    continue
+                typ = _peek_annotation(arg.annotation)
+                if typ.get("kind") not in {None, "__peek_unresolved__"} and arg.arg not in self.bindings:
+                    self.locals[arg.arg] = typ
+
+        saved_pin_locals = self.locals
+        for caller in by_name.values():
+            _call_site_locals(caller)
+            for node in ast.walk(caller):
+                if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+                    continue
+                if node.func.id != fn.name:
+                    continue
+                if caller is fn:
+                    continue
+                for index, arg_node in enumerate(node.args):
+                    plain = fn.args.posonlyargs + fn.args.args
+                    if index >= len(plain) or plain[index].arg not in wanted:
+                        continue
+                    name = plain[index].arg
+                    typ = self._infer_type_of(arg_node)
+                    if typ is None or typ["kind"] == "none":
+                        pins.pop(name, None)
+                        wanted.pop(name, None)
+                        continue
+                    if name in pins and not types_equal(pins[name], typ):
+                        pins.pop(name, None)
+                        wanted.pop(name, None)
+                        continue
+                    if name in wanted:
+                        pins[name] = typ
+                for kw in node.keywords:
+                    if kw.arg is None or kw.arg not in wanted:
+                        continue
+                    typ = self._infer_type_of(kw.value)
+                    if typ is None or typ["kind"] == "none":
+                        pins.pop(kw.arg, None)
+                        wanted.pop(kw.arg, None)
+                        continue
+                    if kw.arg in pins and not types_equal(pins[kw.arg], typ):
+                        pins.pop(kw.arg, None)
+                        wanted.pop(kw.arg, None)
+                        continue
+                    if kw.arg in wanted:
+                        pins[kw.arg] = typ
+        self.locals = saved_pin_locals
+        out: dict[ast.arg, dict[str, Any]] = {}
+        for name, typ in pins.items():
+            if name in wanted:
+                out[wanted[name]] = typ
+        return out
+
+    def _pin_annotation(self, typ: dict[str, Any]) -> ast.AST:
+        """The annotation spelling for a pinned parameter type, or a poison one.
+
+        `_annotation` re-reads the annotation when the signature pass
+        re-runs, so the spelling must round-trip: scalars spell as
+        themselves, lists and dicts as generics, a class as its name. A
+        type with no spelling here means the pin is refused (the caller
+        never sees it: `_call_site_types` only produces the subset this
+        helper reads).
+        """
+
+        kind = typ.get("kind")
+        if kind in {"int", "float", "bool", "str", "bytes"}:
+            return ast.Name(id=kind, ctx=ast.Load())
+        if kind == "list" and typ.get("set"):
+            return ast.Subscript(value=ast.Name(id="set", ctx=ast.Load()), slice=ast.Name(id="int", ctx=ast.Load()), ctx=ast.Load())
+        if kind == "list":
+            elem = self._pin_annotation(typ["elem"])
+            return ast.Subscript(value=ast.Name(id="list", ctx=ast.Load()), slice=elem, ctx=ast.Load())
+        if kind == "dict":
+            key = self._pin_annotation(typ["key"])
+            value = self._pin_annotation(typ["value"])
+            return ast.Subscript(
+                value=ast.Name(id="dict", ctx=ast.Load()),
+                slice=ast.Tuple(elts=[key, value], ctx=ast.Load()),
+                ctx=ast.Load(),
+            )
+        if kind == "class":
+            return ast.Name(id=typ["name"], ctx=ast.Load())
+        return ast.Name(id="__pin_unsupported__", ctx=ast.Load())
+
+    def _infer_fence(self, node: ast.AST, target: str) -> NoReturn:
+        """The refusal fence, byte-identical to the pre-inference message.
+
+        The rule and the hint stay where the reader looks them up: the
+        `param-inference` / `local-inference` / `return-inference` families
+        carry the refactor hint, and `pyscriptc explain PS1001` the rule.
+        Ambiguity (a bare `None`, a lambda, an empty display, a call that
+        does not lower) is a fence, never a guess.
+        """
+        self.fail(node, "PS1001", f"{target} needs an annotation before use")
+
     def fail(self, node: ast.AST, code: str, message: str) -> NoReturn:
         raise Fence(code, message, span_of(node, self.filename), self.function)
 
@@ -333,6 +866,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 params, ret = self.sigs[fn.name]
                 if _has_typevar(ret) or any(_has_typevar(param["type"]) for param in params):
                     self.generic_fns[fn.name] = fn
+        self._pin_call_site_params(functions, fences)
         if self.deferred_module:
             self._bind_deferred_module(fences)
         if self.cataloguing:

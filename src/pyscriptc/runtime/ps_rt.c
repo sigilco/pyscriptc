@@ -1983,6 +1983,26 @@ void ps_str_swapcase(int64_t n, const char *p, PsBuf *out) {
     ps_grow_finish(&g, out);
 }
 
+void ps_str_repeat(int64_t n, char *p, int64_t count, PsBuf *out) {
+    if (count < 0) {
+        count = 0;
+    }
+    if (count != 0 && n > INT64_MAX / count) {
+        ps_raise_code(PS_OVERFLOW);
+    }
+    int64_t total = n * count;
+    char *q = malloc((size_t)total + 1);
+    if (q == NULL) {
+        abort();
+    }
+    for (int64_t i = 0; i < count; i++) {
+        memcpy(q + i * n, p, (size_t)n);
+    }
+    q[total] = '\0';
+    out->len = total;
+    out->data = q;
+}
+
 void ps_str_replace(int64_t n, char *p, int64_t on, char *op, int64_t nn, char *np, PsBuf *out) {
     if (on == 0) {
         if (n > INT64_MAX - 1 || (nn > 0 && (n + 1) > INT64_MAX / nn)) {

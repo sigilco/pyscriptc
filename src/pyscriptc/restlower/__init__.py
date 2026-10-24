@@ -75,7 +75,7 @@ from pyscriptc.restlower._subprocess import _run as _sub_run
 from pyscriptc.restlower._system import _as_file_value, _atexit_register, _exit, _getenv, _resource_files, _unicode_name
 from pyscriptc.restlower._textwrap import _textwrap_call
 from pyscriptc.restlower._threading import _lock_method, _thread_method, _threading_call
-from pyscriptc.restlower._time import _clock, _sleep
+from pyscriptc.restlower._time import _clock, _sleep, _strftime
 from pyscriptc.restlower._tomllib import _tomllib_call
 from pyscriptc.restlower._urllib import _urllib_request_call
 from pyscriptc.restlower._yaml import _yaml_call
@@ -137,6 +137,7 @@ _EARLY: dict[tuple[str, str], Handler] = {
     ("importlib.resources", "as_file"): lambda lo, node, span, expect, attr: _as_file_value(lo, node, span),
     # The 1-arg form returns the tagged `str | None`; the 2-arg form returns the default instead.
     ("os", "getenv"): lambda lo, node, span, expect, attr: _getenv(lo, node, span),
+    ("time", "strftime"): lambda lo, node, span, expect, attr: _strftime(lo, node, span),
     ("tempfile", "NamedTemporaryFile"): lambda lo, node, span, expect, attr: _named_temp(lo, node, span),
     ("functools", "partial"): lambda lo, node, span, expect, attr: lo._partial_callable(node, span),
     ("asyncio", "run"): _asyncio_run,
