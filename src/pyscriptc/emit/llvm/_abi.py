@@ -195,7 +195,27 @@ class AbiMixin:
             self._abi_decl(symbol, "ptr", types)
             return self._call_ret("ptr", symbol, rendered)
         if kind == "class":
-            if symbol in {"ps_global_get_ptr", "ps_global_get_path"} or symbol in {
+            if symbol == "ps_global_get_path":
+                # A Path module slot stores its bytes in the slot buffer
+                # (`ps_global_set_path`); the read copies them out through the
+                # (i64, ptr, ptr) shape every buf producer uses, not a record
+                # pointer: the runtime writes into the caller's PsPath and
+                # returns void, so a ptr-returning call reads a stale register
+                # and str() of the slot dereferenced it (certifi.where()).
+                out = self._alloca("%ps.buf")
+                self._abi_decl("ps_global_get_path", "void", [*types, "ptr"])
+                self._call_void("ps_global_get_path", [*rendered, f"ptr {out}"])
+                length = self.tmp()
+                data = self.tmp()
+                self.line(f"{length} = load i64, ptr {out}")
+                self.line(f"{data} = getelementptr %ps.buf, ptr {out}, i32 0, i32 1")
+                data_ptr = self.tmp()
+                self.line(f"{data_ptr} = load ptr, ptr {data}")
+                mem = self._alloc_class(ret["name"])
+                self._abi_decl("ps_path_new", "void", ["i64", "ptr", "ptr"])
+                self._call_void("ps_path_new", [f"i64 {length}", f"ptr {data_ptr}", f"ptr {mem}"])
+                return mem
+            if symbol in {"ps_global_get_ptr"} or symbol in {
                 "ps_event_new",
                 "ps_sem_new",
                 "ps_task_new",
