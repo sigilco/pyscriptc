@@ -182,7 +182,10 @@ def test_self_census_ballpark() -> None:
     # G1 generator shapes (#433): the send-type `_expect` call in coro.py
     # carries one more `Any`-typed parameter annotation: +1 fence in the
     # `dynamic-annotation` family, the module count is unchanged.
-    assert census["fences"] == 2927
+    # Package re-exports (#405): the re-export scan in package.py (the
+    # `_reexports_of` walk and the `_alias_item` helper) and the module-kind
+    # alias branch in lower/__init__.py add 2 self-host fences.
+    assert census["fences"] == 2929
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     # Project mode (#150): project.py adds about 240 lines.
@@ -190,4 +193,4 @@ def test_self_census_ballpark() -> None:
     # adds about 150 lines in coro.py. The asyncio primitives (#180 D3) add
     # about 400 in ps_async.c and restlower/_asyncio_sync.py.
     assert 11_000 <= census["lines"] <= 40_500
-    assert sum(p["fences"] for p in census["packages"]) == 2927
+    assert sum(p["fences"] for p in census["packages"]) == 2929
