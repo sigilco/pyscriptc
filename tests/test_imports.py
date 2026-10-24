@@ -216,7 +216,7 @@ def test_relative_imports_stay_inside_the_tree(tmp_path: Path) -> None:
 def test_report_schema_is_stable(tmp_path: Path) -> None:
     path = write(tmp_path / "a.py", "import os\n")
     report = build_report(path)
-    assert report["schemaVersion"] == 1
+    assert report["schemaVersion"] == 2
     assert set(report) == {"schemaVersion", "target", "summary", "imports"}
     assert set(report["imports"][0]) == {
         "name",
@@ -227,6 +227,14 @@ def test_report_schema_is_stable(tmp_path: Path) -> None:
         "pack",
         "source",
         "sites",
+        "capability",
+    }
+    assert set(report["imports"][0]["capability"]) == {
+        "routing",
+        "codes",
+        "mechanisms",
+        "files",
+        "requires",
     }
 
 
@@ -342,7 +350,7 @@ def test_imports_cli_json_matches_build_report(tmp_path: Path) -> None:
     got = run_cli("imports", str(path), "--json")
     assert got.returncode == 0, got.stderr
     report = json.loads(got.stdout)
-    assert report["schemaVersion"] == 1
+    assert report["schemaVersion"] == 2
     assert report["summary"]["imports"] == 2
     assert report["summary"]["byLane"][LANE_PACK] == 1
 

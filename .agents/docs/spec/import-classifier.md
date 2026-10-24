@@ -1,17 +1,29 @@
 # Import classification
 
-`pyscriptc imports FILE|DIR` classifies every import of a program or a package tree into the compat lane it can take. It answers the first question of the adoption ladder: which imports compile from source, which need a replacement pack, which reach native code, and which are standard library. It never compiles anything and never touches the network.
+`pyscriptc imports FILE|DIR` classifies every import of a program or a package tree into the compat lane it can take. It answers the first question of the adoption ladder: which imports compile from source, which need a replacement pack, which reach native code, and which are standard library. It never emits code and never touches the network. The capability ladder lowers the target through the coverage report to attribute fences; the classification itself stays compiler-free.
 
 ```
 $ pyscriptc imports tool/
-tool/: 10 imports (12 statements) by lane extern 2, native 6, pack 2
-  orjson: curated-replacement -> lane pack
-    curated replacement pack pyscriptc-orjson covers this import
-  numpy: native-backed -> lane extern
+tool/: 10 imports (12 statements) by capability island 2, native 8
+  numpy: island (requires libpython) [native-backed, lane extern]
     native-backed distribution numpy (C, C++ or Rust extension)
+  orjson: native [curated-replacement, lane pack]
+    curated replacement pack pyscriptc-orjson covers this import
 ```
 
 `--json` prints the same report as a JSON document with a `schemaVersion`.
+
+## The capability ladder
+
+Each import carries a `capability` next to its kind and lane:
+
+| Routing | Meaning |
+| --- | --- |
+| `native` | the import lowers as it is; no fence stands in the way |
+| `fenced` | the import lowers, but this tree has a fence on code that uses it; `codes` lists the PS20xx codes |
+| `island` | the import needs the boxed CPython tier (lane `island` or `extern`), or a fence on it traces to runtime reflection; `requires` is `libpython` |
+
+The ladder is the default user-visible view. A reflection fence (`inspect.signature`, `get_type_hints`, `__annotations__`, a metaclass, a dynamic `getattr`) is attributed to the import root named in its message, so `import inspect` used through `inspect.signature` reports `island (requires libpython)` even though the module itself is in the closed import table. The `mechanisms` list names the culprit exactly, and `files` says where the fence sits. The capability seam lowers the target through the coverage report; a target that does not lower keeps the lane-based routing and adds no fence data.
 
 ## Kinds and lanes
 
@@ -40,4 +52,4 @@ Three sources are consulted, in order. The first that answers wins.
 
 ## The report
 
-The report function is `pyscriptc.imports.build_report(target)` and is the seam the coverage tooling calls. It takes a file or a directory and returns the same JSON document the CLI prints: one entry per import root, grouped by the first dotted component, each carrying the kind, the lane, the reason, the distribution and pack when known, the source of the verdict, and every source site (`file`, `line`, `statement`). `pack_candidates(report)` extracts the curated subset ordered by how often the import appears, which is the input to ranking which pack to build first.
+The report function is `pyscriptc.imports.build_report(target)` and is the seam the coverage tooling calls. It takes a file or a directory and returns the same JSON document the CLI prints: one entry per import root, grouped by the first dotted component, each carrying the kind, the lane, the reason, the distribution and pack when known, the source of the verdict, every source site (`file`, `line`, `statement`), and the `capability` ladder rung. `pack_candidates(report)` extracts the curated subset ordered by how often the import appears, which is the input to ranking which pack to build first.

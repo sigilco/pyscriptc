@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import ast
 import json
+import re
 import sys
 import sysconfig
 import zipfile
@@ -36,9 +37,10 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from pyscriptc.reflection import mechanism_of, routes_to_island
 from pyscriptc.stdlib_queue import PACK_MODULES, canonical_module, module_status
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # The lanes of the policy table in the adoption plan. `native` is the default:
 # compile the import from source when it is pure Python. `pack` swaps the
@@ -50,6 +52,14 @@ LANE_PACK = "pack"
 LANE_EXTERN = "extern"
 LANE_ISLAND = "island"
 LANE_ABSENT = "absent"
+
+# The capability ladder: what this import means for the program as compiled.
+# `native` lowers as it is, `fenced` lowers but has a fence in this tree, and
+# `island` needs the boxed CPython tier (or an ABI manifest, which is not a
+# lowering either).
+CAP_NATIVE = "native"
+CAP_FENCED = "fenced"
+CAP_ISLAND = "island"
 
 # The classification of one import.
 KIND_STDLIB = "stdlib"
@@ -495,6 +505,56 @@ def _group_key(verdict: dict[str, Any]) -> str:
     return _top_level(verdict["name"])
 
 
+def _fence_entries(target: Path) -> list[dict[str, Any]]:
+    """The lowered fences of the target, or an empty list when it cannot lower.
+
+    The classifier itself stays compiler-free; this seam borrows the coverage
+    report so an import entry can say whether the code that uses it is fenced
+    or island-routed. A target that does not lower is not an import error.
+    """
+
+    try:
+        from pyscriptc.coverage import build_report as coverage_report
+
+        return coverage_report(target)["fences"]
+    except Exception:
+        return []
+
+
+def _fence_root(entry: dict[str, Any], roots: list[str]) -> str | None:
+    """The import root a fence belongs to, or None when it belongs to no import."""
+
+    family = str(entry.get("family", ""))
+    if family.startswith("stdlib:"):
+        root = family.split(":", 1)[1].split(".")[0]
+        return root if root in roots else None
+    message = str(entry.get("message", ""))
+    for root in roots:
+        if re.search(rf"\b{re.escape(root)}\b", message):
+            return root
+    return None
+
+
+def _capability_of(lane: str, codes: list[str], reflection: bool) -> str:
+    if reflection:
+        return CAP_ISLAND
+    if codes:
+        return CAP_FENCED
+    if lane in {LANE_ISLAND, LANE_EXTERN}:
+        return CAP_ISLAND
+    return CAP_NATIVE
+
+
+def _ladder(capability: dict[str, Any]) -> str:
+    routing = capability["routing"]
+    if routing == CAP_ISLAND:
+        return "island (requires libpython)"
+    if routing == CAP_FENCED:
+        codes = ", ".join(capability["codes"])
+        return f"native: fences ({codes})" if codes else "native: fences"
+    return "native"
+
+
 def build_report(target: Path, distributions: dict[str, str] | None = None) -> dict[str, Any]:
     """Classify every import of a file or package tree.
 
@@ -548,11 +608,34 @@ def build_report(target: Path, distributions: dict[str, str] | None = None) -> d
         )
 
     imports = [grouped[key] for key in sorted(grouped)]
+    fences = _fence_entries(target)
+    roots = [item["name"] for item in imports]
+    attributed: dict[str, list[dict[str, Any]]] = {root: [] for root in roots}
+    for fence in fences:
+        root = _fence_root(fence, roots)
+        if root is not None:
+            attributed[root].append(fence)
+
     by_lane: dict[str, int] = {}
     by_kind: dict[str, int] = {}
+    by_capability: dict[str, int] = {}
     for item in imports:
+        item_fences = attributed.get(item["name"], [])
+        codes = sorted({str(fence["code"]) for fence in item_fences})
+        reflection = any(routes_to_island(str(fence.get("message", ""))) for fence in item_fences)
+        routing = _capability_of(str(item["lane"]), codes, reflection)
+        item["capability"] = {
+            "routing": routing,
+            "codes": codes,
+            "mechanisms": sorted(
+                {found for fence in item_fences if (found := mechanism_of(str(fence.get("message", "")))) is not None}
+            ),
+            "files": sorted({str(fence["file"]) for fence in item_fences}),
+            "requires": "libpython" if routing == CAP_ISLAND else "",
+        }
         by_lane[item["lane"]] = by_lane.get(item["lane"], 0) + 1
         by_kind[item["kind"]] = by_kind.get(item["kind"], 0) + 1
+        by_capability[routing] = by_capability.get(routing, 0) + 1
 
     return {
         "schemaVersion": SCHEMA_VERSION,
@@ -562,23 +645,26 @@ def build_report(target: Path, distributions: dict[str, str] | None = None) -> d
             "statements": len(sites),
             "byLane": dict(sorted(by_lane.items())),
             "byKind": dict(sorted(by_kind.items())),
+            "byCapability": dict(sorted(by_capability.items())),
         },
         "imports": imports,
     }
 
 
 def render_text(report: dict[str, Any]) -> str:
-    """The lane table, one line per import."""
+    """The capability ladder, one line per import."""
 
     summary = report["summary"]
-    lanes = ", ".join(f"{lane} {count}" for lane, count in summary["byLane"].items())
-    if not lanes:
-        lanes = "none"
+    caps = summary["byCapability"]
+    capability = ", ".join(f"{name} {caps[name]}" for name in (CAP_NATIVE, CAP_FENCED, CAP_ISLAND) if name in caps)
+    if not capability:
+        capability = "none"
     parts = [
-        f"{report['target']}: {summary['imports']} imports ({summary['statements']} statements) by lane {lanes}",
+        f"{report['target']}: {summary['imports']} imports ({summary['statements']} statements) "
+        f"by capability {capability}"
     ]
     for item in report["imports"]:
-        parts.append(f"  {item['name']}: {item['kind']} -> lane {item['lane']}")
+        parts.append(f"  {item['name']}: {_ladder(item['capability'])} [{item['kind']}, lane {item['lane']}]")
         parts.append(f"    {item['reason']}")
     return "\n".join(parts)
 

@@ -21,6 +21,8 @@ from __future__ import annotations
 import ast
 from typing import Any
 
+from pyscriptc.reflection import kwargs_call_note
+
 _STR = {"kind": "str"}
 _INT = {"kind": "int"}
 _FLOAT = {"kind": "float"}
@@ -153,7 +155,7 @@ def _parser(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     prog = ""
     for keyword in node.keywords:
         if keyword.arg is None:
-            lo.fail(node, "PS2002", "**kwargs are not lowered")
+            lo.fail(node, "PS2002", kwargs_call_note())
         if keyword.arg not in {"prog", "description", "epilog", "formatter_class"}:
             lo.fail(node, "PS2003", f"argparse.ArgumentParser keyword {keyword.arg} is not lowered")
         if keyword.arg == "prog":
@@ -194,7 +196,7 @@ def _add_argument(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[
     if receiver["type"].get("name") != "ArgParser":
         lo.fail(node, "PS2001", "add_argument needs an argparse parser")
     if any(keyword.arg is None for keyword in node.keywords):
-        lo.fail(node, "PS2002", "**kwargs are not lowered")
+        lo.fail(node, "PS2002", kwargs_call_note())
     flags: list[str] = []
     for arg_node in node.args:
         text = _text(arg_node)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 from typing import Any
 
+from pyscriptc.reflection import getattr_note, type_read_note, type_synthesis_note
 from pyscriptc.restlower._folds import _static_builtin_fold
 from pyscriptc.restlower._shared import _pin, _span_to
 
@@ -55,7 +56,8 @@ def _literal_name(lo: Any, node: ast.Call) -> str:
     arg = node.args[1]
     if isinstance(arg, ast.Constant) and isinstance(arg.value, str) and arg.value.isidentifier():
         return arg.value
-    lo.fail(node, "PS2001", "the attribute name is a string literal")
+    builtin = node.func.id if isinstance(node.func, ast.Name) else "getattr"
+    lo.fail(node, "PS2001", getattr_note(builtin))
     raise AssertionError("unreachable")
 
 
@@ -139,10 +141,12 @@ def _type_call(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
 
     lo._reject_keywords(node)
     if len(node.args) != 1:
+        if len(node.args) == 3:
+            lo.fail(node, "PS2003", type_synthesis_note())
         lo.fail(node, "PS2003", "type expects 1 argument(s)")
     arg = lo._expr(node.args[0])
     if arg["type"]["kind"] != "exc":
-        lo.fail(node, "PS2002", "call to type is not lowered")
+        lo.fail(node, "PS2002", type_read_note())
     expr = lo._abi_call("builtins", "exc.name", [arg], {"kind": "str"}, "ps_exc_class", span)
     expr["attrtype"] = "type"
     return expr

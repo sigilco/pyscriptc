@@ -40,9 +40,9 @@ def test_agen_closed_matches_cpython(tmp_path: Path) -> None:
 
 def test_other_inspect_names_stay_fenced(tmp_path: Path) -> None:
     cases = [
-        ("signature.py", "inspect.signature", "inspect.signature is not in the lowered subset of inspect"),
-        ("getsource.py", "inspect.getsource", "inspect.getsource is not in the lowered subset of inspect"),
-        ("stack.py", "inspect.stack", "inspect.stack is not in the lowered subset of inspect"),
+        ("signature.py", "inspect.signature", "runtime reflection (inspect.signature)"),
+        ("getsource.py", "inspect.getsource", "runtime reflection (inspect.getsource)"),
+        ("stack.py", "inspect.stack", "runtime reflection (inspect.stack)"),
     ]
     for name, expr, text in cases:
         source = f"import inspect\ndef probe() -> int:\n    {expr}\n    return 1\n"
