@@ -96,6 +96,8 @@ def _full_suite(current: dict[str, Any], reference_rows: dict[str, Any]) -> bool
 def _ratio_failure(name: str, metric: str, current: Any, reference: Any, limit: float) -> list[str]:
     if not isinstance(current, (int, float)) or not isinstance(reference, (int, float)):
         return [f"{name}: {metric} ratio missing"]
+    if reference <= 0 and current <= 0:
+        return []
     if reference <= 0 or current <= 0:
         return [f"{name}: reference {metric} ratio is {reference}"]
     growth = current / reference

@@ -121,6 +121,29 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
+    elif args.check:
+        if sys.version_info[:3] != TARGET_VERSION_INFO:
+            print(
+                f"baseline check requires CPython {TARGET_CPYTHON}, running {sys.version.split()[0]}",
+                file=sys.stderr,
+            )
+            return 2
+        reference_path = Path(args.check)
+        if not reference_path.exists():
+            print(f"reference file not found: {args.check}", file=sys.stderr)
+            return 2
+        try:
+            check_reference = json.loads(reference_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"failed to read reference {args.check}: {exc}", file=sys.stderr)
+            return 2
+        recorded = check_reference.get("cpython")
+        if recorded != TARGET_CPYTHON:
+            print(
+                f"baseline check requires reference CPython {TARGET_CPYTHON}, recorded {recorded}",
+                file=sys.stderr,
+            )
+            return 2
     elif sys.version_info[:3] != TARGET_VERSION_INFO:
         import warnings
 
@@ -159,6 +182,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"recorded {args.record}")
     if args.check:
         reference = json.loads(Path(args.check).read_text(encoding="utf-8"))
+        recorded = reference.get("cpython")
+        if recorded != TARGET_CPYTHON:
+            print(
+                f"baseline check requires reference CPython {TARGET_CPYTHON}, recorded {recorded}",
+                file=sys.stderr,
+            )
+            return 2
         failures = compare_reports(report, reference)
         if failures:
             print("reference check failed:", file=sys.stderr)
