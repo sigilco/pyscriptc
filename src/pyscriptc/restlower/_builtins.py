@@ -219,4 +219,11 @@ def _round(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     digits = lo._expr(node.args[1])
     if digits["type"]["kind"] != "int":
         lo.fail(node, "PS1003", "round ndigits is int")
+    folded = _static_builtin_fold("round", digits, span)
+    if folded is not None:
+        nd = folded["value"]
+        if isinstance(nd, str) and nd.lstrip("-").isdigit():
+            nd = int(nd)
+        if isinstance(nd, int) and not 0 <= nd <= 8:
+            lo.fail(node, "PS2003", "round ndigits must be between 0 and 8; CPython also rounds by -8 <= ndigits < 0")
     return lo._abi_call("builtins", "round", [arg, digits], {"kind": "float"}, "ps_round_nd", span)

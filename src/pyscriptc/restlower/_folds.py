@@ -128,6 +128,10 @@ def _static_builtin_fold(
             result = chr(value)
         elif name == "hash" and isinstance(value, (int, bool)):
             result = hash(value)
+        elif name == "round" and isinstance(value, int) and not isinstance(value, bool):
+            # round(n) on an int is the identity, so the ndigits const folds
+            # through and the `round(x, n)` range fence can read it.
+            result = value
     except Exception:  # any conversion failure means the fold does not apply
         return None
     if result is _STATIC_MISSING:

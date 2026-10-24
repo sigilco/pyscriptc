@@ -827,7 +827,7 @@
   "lang.cpython.bool.BoolTest.test_str": "cc4a289f3943596990fac2a53a6b58d138c712cc6432caa678ad2eeef1f4a646",
   "lang.cpython.float.GeneralFloatCases.test_float": "cae65c7fe177c15868cab720bc4ec17ed6a9a0247579e0752764c50c227987dd",
   "lang.cpython.float.GeneralFloatCases.test_noargs": "cae65c7fe177c15868cab720bc4ec17ed6a9a0247579e0752764c50c227987dd",
-  "lang.cpython.float.RoundTestCase.test_previous_round_bugs": "9bab82fe928f2fe1533c27a43cbaec45117f8ce18fef6a2ca0948259108c640a",
+  "lang.cpython.float.RoundTestCase.test_previous_round_bugs": "6732d9d45f8ee9e8e8fdd2858a97ae09233648f3bff5789eb5d3d7f8610a2e25",
   "lang.cpython.grammar.GrammarTests.test_paren_evaluation": "9ef58757fd6d591cf372bb57935026a31c0109e6ebfbf01be987cdbda770668e",
   "lang.cpython.grammar.TokenTests.test_string_literals": "ff2665bbb9c1e5e6f9da21fb9f92555c22ec83d7d20d91af259e82759469d6ac",
   "lang.cpython.int.IntTestCases.test_basic": "ec141b1c6cbe001fe3ac1168bea998fc91eb3025ca9851b9b95e2addd136693f",

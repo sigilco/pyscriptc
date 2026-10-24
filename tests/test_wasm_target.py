@@ -83,18 +83,22 @@ def test_native_entry_symbol_unchanged(tmp_path: Path) -> None:
 def test_wasm_truncates_printf_str_lengths(tmp_path: Path) -> None:
     module, _ = lower_file(_write(DEMO, tmp_path))
     text = emit_llvm(module, standalone=True, wasm=True)
-    # every %.*s printf length is a trunc'd i32, never a raw i64
+    # the fwrite writes carry raw i64 lengths (size_t is i64 on wasi too);
+    # a varargs fprintf %.*s write, when one is emitted, keeps its i32
     for line in text.splitlines():
-        if "@printf(ptr @ps.fmt.str" in line or "@printf(ptr @ps.fmt.sep" in line:
-            assert "i32 %t" in line, line
-            assert "i64 %t" not in line, line
-    assert "trunc i64" in text
+        if "@fwrite(ptr" in line:
+            assert "i64 i32" not in line, line
+            assert "trunc" not in line, line
+    assert "i64 i32" not in text
 
 
 def test_native_print_keeps_i64_lengths(tmp_path: Path) -> None:
     module, _ = lower_file(_write(DEMO, tmp_path))
     text = emit_llvm(module, standalone=True)
-    assert "@printf(ptr @ps.fmt.str, i64 %t" in text
+    # `%.*s` writes go through ps_stream_write (embedded NULs; the C helper
+    # owns the size_t cast), the rest through printf; every length that
+    # reaches either is an untruncated i64.
+    assert "call void @ps_stream_write(ptr" in text
     assert "trunc i64" not in text
 
 

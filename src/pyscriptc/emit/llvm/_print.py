@@ -103,10 +103,11 @@ class PrintMixin:
     def _print_fmt(self, name: str, data: bytes, args: list[str] | None = None, err: bool = False) -> None:
         fmt = self.format_global(name, data)
         call_args = list(args or [])
-        if self.entry_symbol == "__main_argc_argv":
+        if err and self.entry_symbol == "__main_argc_argv":
             # wasm32 varargs are 32-bit: wasi-libc's printf reads a `%.*s`
             # precision through an i32, and an i64 there prints `(null)`.
-            # `%lld` with i64 is fine; this truncates only `%.*s` lengths.
+            # `%lld` with i64 is fine. The fwrite path below skips this: its
+            # size_t is i64 everywhere, so its lengths stay raw.
             call_args = [
                 self._trunc_i32(arg) if arg.startswith("i64 ") and data.startswith(b"%.*s") else arg
                 for arg in call_args
@@ -119,6 +120,24 @@ class PrintMixin:
             self.line(f"{fd} = call ptr @ps_stderr_stream()")
             rendered = ", ".join([f"ptr {fd}", f"ptr {fmt}", *call_args])
             self.line(f"call i32 (ptr, ptr, ...) @fprintf({rendered})")
+            return
+        # A `%.*s` argument can carry an embedded NUL (a str value holds its
+        # own length), which printf would truncate at the first NUL byte.
+        # The write becomes one `fwrite` per `%.*s` plus a literal write for
+        # the rest of the format, so the recorded length is what goes out.
+        if data.startswith(b"%.*s"):
+            self._abi_decl("ps_stream_write", "void", ["ptr", "ptr", "i64"])
+            self._abi_decl("ps_stdout_stream" if not err else "ps_stderr_stream", "ptr", [])
+            stream = self.tmp()
+            self.line(f"{stream} = call ptr @ps_{'stdout' if not err else 'stderr'}_stream()")
+            tail = data[4:]
+            for index, arg in enumerate(call_args):
+                if index % 2 == 0:
+                    alen = arg[4:]
+                else:
+                    self.line(f"call void @ps_stream_write(ptr {stream}, ptr {arg[4:]}, i64 {alen})")
+            if tail:
+                self._print_fmt("plain", tail, err=err)
             return
         rendered = ", ".join([f"ptr {fmt}", *call_args])
         self.line(f"call i32 (ptr, ...) @printf({rendered})")
@@ -176,7 +195,13 @@ class PrintMixin:
         return all(field["name"] == f"_{index}" for index, field in enumerate(info["fields"]))
 
     def _print_tuple(self, name: str, value: str, err: bool) -> None:
-        """A synthetic tuple prints `(a, b)`; a lone field keeps the `,` tail."""
+        """A synthetic tuple prints `(a, b)`; a lone field keeps the `,` tail.
+
+        CPython's `tuple.__str__` is its `__repr__`: every element renders
+        with `repr`, so a `str` field is quoted (through the runtime's
+        escape helper, which is also the exception-message and `repr`
+        spelling). Scalars keep their direct shapes.
+        """
 
         fields = self.class_index[name]["fields"]
         self._print_fmt("lparen", b"(", err=err)
@@ -191,6 +216,10 @@ class PrintMixin:
                 data_ptr = self.tmp()
                 self.line(f"{data_ptr} = getelementptr %ps.buf, ptr {slot}, i32 0, i32 1")
                 self.line(f"{ptr} = load ptr, ptr {data_ptr}")
+                if field["type"]["kind"] == "str":
+                    self._abi_decl("ps_repr_quoted", "void", ["i64", "ptr", "ptr"])
+                    out = self._buf_out("ps_repr_quoted", [f"i64 {length}", f"ptr {ptr}"])
+                    length, ptr = self._buf_parts(out)
                 self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
             else:
                 loaded = self._load(_llvm_type(field["type"]), slot)
