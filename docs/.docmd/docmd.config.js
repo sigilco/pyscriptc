@@ -25,6 +25,10 @@ export default {
   engine: "js",
   plugins: {
     "./plugins/placeholders.js": {},
+    // The ai plugin is a core plugin and loads on every build; `assistant:
+    // false` makes generateScripts()/getAssets() emit nothing
+    // (plugin-ai/dist/index.js checks `pluginOptions.assistant === false`).
+    "ai": { "assistant": false },
   },
   logo: {
     light: "./assets/logo-256.png",
@@ -60,6 +64,7 @@ export default {
     name: "default",
     appearance: "system",
     codeHighlight: true,
+    customCss: ["./theme.css"],
   },
   minify: true,
   autoTitleFromH1: true,
