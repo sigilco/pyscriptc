@@ -1363,10 +1363,27 @@ static const char ps_unidata_version[] = "16.0.0";
 
 
 static unsigned char ps_one(int64_t n, const char *s, const char *what) {
-    if (n != 1) {
+    /* One code point, not one byte: the S2 payload makes n the byte length
+       and a non-ASCII character is several bytes. The count of leading
+       bytes is the code-point count for well-formed UTF-8, and the decoded
+       code point must still be in the Latin-1 table range these functions
+       serve until S4 moves the tables to the full range. */
+    int64_t chars = 0;
+    for (int64_t i = 0; i < n; i++) {
+        chars += ((unsigned char)s[i] & 0xC0) != 0x80;
+    }
+    if (chars != 1) {
         ps_raise_cstr(PS_VALUE, what);
     }
-    return (unsigned char)s[0];
+    unsigned char lead = (unsigned char)s[0];
+    if (lead < 0x80) {
+        return lead;
+    }
+    if (n == 2 && lead >= 0xC2 && lead <= 0xC3) {
+        /* UTF-8 two-byte decode, the only range the tables cover. */
+        return (unsigned char)(((lead & 0x1Fu) << 6) | ((unsigned char)s[1] & 0x3Fu));
+    }
+    ps_raise_cstr(PS_VALUE, "unicodedata covers Latin-1 code points");
 }
 
 static int ps_form_id(int64_t n, const char *s) {
@@ -1404,34 +1421,71 @@ int64_t ps_unicode_combining(int64_t n, const char *s) {
     return (int64_t)ps_ccc[c];
 }
 
-void ps_unicode_normalize(int64_t fn, const char *form, int64_t n, const char *s, PsBuf *out) {
-    int form_id = ps_form_id(fn, form);
-    PsGrow grow;
-    int64_t i;
-    ps_grow_init(&grow);
-    for (i = 0; i < n; i++) {
-        unsigned char c = (unsigned char)s[i];
-        uint16_t tag = ps_norm[form_id][c];
+/* Walk the whole argument as code points: the S2 buffer is UTF-8, so a byte
+   walk would normalize lead and continuation bytes separately (silent
+   nonsense). Each code point must stay in the Latin-1 table range these
+   functions serve until S4 moves the tables to the full range. */
+static int64_t ps_norm_walk(int64_t n, const char *s, const uint16_t *table, PsGrow *grow) {
+    int64_t i = 0;
+    while (i < n) {
+        unsigned char lead = (unsigned char)s[i];
+        int w = 1;
+        unsigned cp;
+        if (lead < 0x80) {
+            cp = lead;
+        } else if (n - i >= 2 && lead >= 0xC2 && lead <= 0xC3) {
+            cp = (unsigned)(((lead & 0x1Fu) << 6) | ((unsigned char)s[i + 1] & 0x3Fu));
+            w = 2;
+        } else {
+            ps_raise_cstr(PS_VALUE, "unicodedata covers Latin-1 code points");
+        }
+        uint16_t tag = table[cp];
         if (tag & 0x8000u) {
             ps_raise_cstr(PS_VALUE, "normalization leaves Latin-1");
         }
         if (tag & 0x4000u) {
-            ps_grow_byte(&grow, (unsigned char)tag);
+            ps_grow_byte(grow, (unsigned char)tag);
         } else {
-            ps_grow_byte(&grow, c);
+            /* Re-encode the (possibly mapped) code point as UTF-8. */
+            if (cp < 0x80) {
+                ps_grow_byte(grow, (unsigned char)cp);
+            } else {
+                ps_grow_byte(grow, (unsigned char)(0xC0 | (cp >> 6)));
+                ps_grow_byte(grow, (unsigned char)(0x80 | (cp & 0x3Fu)));
+            }
         }
+        i += w;
     }
+    return i;
+}
+
+void ps_unicode_normalize(int64_t fn, const char *form, int64_t n, const char *s, PsBuf *out) {
+    int form_id = ps_form_id(fn, form);
+    PsGrow grow;
+    ps_grow_init(&grow);
+    ps_norm_walk(n, s, ps_norm[form_id], &grow);
     ps_grow_finish(&grow, out);
 }
 
 int32_t ps_unicode_is_normalized(int64_t fn, const char *form, int64_t n, const char *s) {
     int form_id = ps_form_id(fn, form);
-    int64_t i;
-    for (i = 0; i < n; i++) {
-        unsigned char c = (unsigned char)s[i];
-        if (ps_norm[form_id][c] != 0) {
+    int64_t i = 0;
+    while (i < n) {
+        unsigned char lead = (unsigned char)s[i];
+        int w = 1;
+        unsigned cp;
+        if (lead < 0x80) {
+            cp = lead;
+        } else if (n - i >= 2 && lead >= 0xC2 && lead <= 0xC3) {
+            cp = (unsigned)(((lead & 0x1Fu) << 6) | ((unsigned char)s[i + 1] & 0x3Fu));
+            w = 2;
+        } else {
+            ps_raise_cstr(PS_VALUE, "unicodedata covers Latin-1 code points");
+        }
+        if (ps_norm[form_id][cp] != 0) {
             return 0;
         }
+        i += w;
     }
     return 1;
 }

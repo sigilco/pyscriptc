@@ -90,7 +90,9 @@ def oracle(path: Path, func: str, args: str = "[]") -> str:
         f"value = mod.{func}(*{args})\n"
         "print('%.17g' % value if isinstance(value, float) else value)\n"
     )
-    proc = subprocess.run([sys.executable, "-c", source], cwd=ROOT, capture_output=True, text=True, check=True)
+    proc = subprocess.run(
+        [sys.executable, "-c", source], cwd=ROOT, capture_output=True, text=True, encoding="latin-1", check=True
+    )
     return proc.stdout
 
 
