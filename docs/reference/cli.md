@@ -65,6 +65,32 @@ pyscriptc run FILE [-- args]
 
 Compile (cached by content hash under `~/.cache/pyscriptc/bin`) and run in one step. Arguments after `--` go to the program as `sys.argv`. Flags mirror `compile` (`--call`, `--args`, `--program`, `--driver`, `--target`, `--linker`, `--sanitize`, `--skip-check`, `--checker`), plus `--no-cache` to always recompile (env `PYSC_NO_RUN_CACHE=1`) and `--ffi MANIFEST` (repeatable) for extern manifests.
 
+## `verify`
+
+```sh
+pyscriptc verify FILE [--call FN] [--args '[...]'] [--input FILE] [--json] [-- args]
+```
+
+Compile `FILE`, run it under the pinned CPython 3.14 oracle and as the linked binary with the same argv and stdin, and report the first observable difference. The receipt covers stdout bytes, stderr bytes and the exit code, plus the printed return value when `--call` is used.
+
+| Flag | Effect |
+| ---- | ------ |
+| `--call FUNC` | Call `FUNC` instead of the program entry; the return value is printed by both sides and compared as stdout |
+| `--args '[...]'` | Arguments for `--call`, a Python list literal |
+| `--input FILE` | Feed `FILE`'s bytes on stdin to both runs; without it stdin is empty, so `input()` sees EOF |
+| `--json` | Print the receipt as JSON (`schemaVersion` 1) instead of text |
+| `--timeout S` | Seconds each run may take before it counts as a divergence (default 60) |
+| `--no-cache` | Always recompile instead of reusing the `run` binary cache (env `PYSC_NO_RUN_CACHE=1`) |
+| `--skip-check`, `--checker`, `--driver`, `--linker`, `--target`, `--ffi` | As in `compile` |
+
+Exit codes: 0 when every check matches, 1 on a divergence, 3 when the compiler fences the program, 4 when no CPython 3.14 oracle is available.
+
+The oracle is resolved from `PYSC_ORACLE` (an explicit path, refused if it is not 3.14), `PYSC_ORACLE_DIR`, `python3.14` on PATH, `uv python find 3.14`, then the interpreter running pyscriptc. It is probed before use: verify never compares a binary against the wrong interpreter.
+
+Verify is a differential smoke test, not a proof. It covers the paths the argv and stdin exercised in that run, and the corpus and the must-fence corpus remain the broad coverage. There is no byte-for-byte parity goal: the island is the floor and native is the ceiling (see the typed-subset positioning decision), so a divergence is evidence to inspect, not automatically a compiler bug.
+
+`--call` compares the call, not the module body: the compiled main runs the global initializers and then the function, so the oracle side hides the output of the module's top-level statements. The function's own output and its printed return value are compared.
+
 ## `coverage`
 
 ```sh

@@ -47,7 +47,8 @@ def test_self_census_ballpark() -> None:
     # add 2 modules.
     # restlower/_asyncio_sync.py (the asyncio Lock, Event, Semaphore, Queue
     # and to_thread, #180 Stage D3) adds 1 module.
-    assert census["modules"] == 94
+    # verify.py (#555, the differential receipt) adds 1 module.
+    assert census["modules"] == 95
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -204,13 +205,16 @@ def test_self_census_ballpark() -> None:
     # adds 1, the `staged_resources` marker in stdlib_queue.py adds 2 and the
     # `_resource_search` compile-time search in restlower/_system.py adds 4;
     # the module count is unchanged.
+    # verify.py (#555) adds about 118 self-host fences: the oracle resolution,
+    # the subprocess runners, the receipt dicts and the render helpers, plus
+    # the `verify` subcommand and its cache/store path in cli.py.
 
-    assert census["fences"] == 3039
+    assert census["fences"] == 3157
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     # Project mode (#150): project.py adds about 240 lines.
     # yield inside try (#164): the re-entrant try in the coro guard transform
     # adds about 150 lines in coro.py. The asyncio primitives (#180 D3) add
     # about 400 in ps_async.c and restlower/_asyncio_sync.py.
-    assert 11_000 <= census["lines"] <= 41_500
-    assert sum(p["fences"] for p in census["packages"]) == 3039
+    assert 11_000 <= census["lines"] <= 42_000
+    assert sum(p["fences"] for p in census["packages"]) == 3157
