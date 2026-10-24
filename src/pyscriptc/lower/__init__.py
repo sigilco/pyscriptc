@@ -26,9 +26,9 @@ from pyscriptc.lower._classes import ClassesMixin
 from pyscriptc.lower._closures import ClosuresMixin
 from pyscriptc.lower._core import (
     _CMP,
-    _TRUTHY,
     Binding,
     Fence,
+    _TRUTHY,
     _attr,
     _compare,
     _const_none,
@@ -40,6 +40,7 @@ from pyscriptc.lower._core import (
     _show,
     _subst_type,
     _tuple_assign,
+    module_needs_slot,
 )
 from pyscriptc.lower._expr import ExprMixin
 from pyscriptc.lower._stdlib import StdlibDispatchMixin
@@ -1201,11 +1202,13 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         self._store_constant(name, {"kind": "tuple-const", "elems": elems}, stmt)
 
     def _bind_threading_global(self, name: str, value: dict[str, Any], typ: dict[str, Any], node: ast.AST) -> None:
-        """A module-level threading record binds a global slot.
+        """A module-level record with identity binds a global slot.
 
         The value is a runtime pointer: a stored constant would re-emit the
         constructor at every read, so the record's identity would not hold.
-        The slot keeps one pointer for the life of the process.
+        Threading and queue records need it, and so does any list or dict
+        (#512): the elements live on the heap, and every read must be the
+        same object. The slot keeps one pointer for the life of the process.
         """
         slot = self.global_slots.get(name)
         if slot is not None:
@@ -1254,6 +1257,8 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_ptr", span)
         if typ["kind"] == "class" and typ.get("name") in PTR_CLASSES:
             return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_ptr", span)
+        if typ["kind"] in {"list", "dict"}:
+            return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_ptr", span)
         self.fail(ast.Pass(), "PS2002", f"global {name} of {_show(typ)} is not lowered")
         raise AssertionError("unreachable")
 
@@ -1269,6 +1274,8 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         elif typ["kind"] == "func":
             symbol = "ps_global_set_ptr"
         elif typ["kind"] == "class" and typ.get("name") in PTR_CLASSES:
+            symbol = "ps_global_set_ptr"
+        elif typ["kind"] in {"list", "dict"}:
             symbol = "ps_global_set_ptr"
         else:
             self.fail(ast.Pass(), "PS2002", f"global {name} of {_show(typ)} is not lowered")
@@ -1339,6 +1346,12 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                     self._expect(stmt, value["type"], expect, target)
                 else:
                     value = self._expr(stmt.value)
+                if value["type"]["kind"] != "func" and not self.prelude and module_needs_slot(value):
+                    # A container or parser at plain-assign scope keeps its
+                    # identity through the slot (#512), so it does not fall
+                    # through to the constant replay below.
+                    self._bind_callable_slot(target, value, span, stmt)
+                    return
             except Fence as exc:
                 self.caught.append(exc)
             if value is None or self.caught or value["type"]["kind"] != "func" or self.prelude:
