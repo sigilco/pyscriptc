@@ -12,6 +12,7 @@ These folders follow [scriptc's `benchmarks/`](https://github.com/vercel-labs/sc
 | | `benchmarks/native` | a C ABI `.so` linked from the small runtime, and the same work through a `PyInit_*` extension on the island |
 | | `benchmarks/compat` | frozen language, builtin, stdlib, and top-100 denominators. `python -m benchmarks.compat.score` writes a snapshot. `python -m benchmarks.compat.delta` compares two snapshots |
 | | `benchmarks/net` | the network receipt: loopback HTTP client, compiled against CPython, and sustained `http.server` throughput with p50/p99. Opt-in, no baseline gate
+| | `benchmarks/library` | the library receipt: a pure-Python PyPI package (certifi) resolved through the deps lane, compiled from the unpacked wheel, output diffed against CPython. Opt-in, no baseline gate
 
 ```bash
 uv run python -m benchmarks.baseline.run --check
@@ -21,6 +22,7 @@ uv run python -m benchmarks.native.run
 uv run python -m benchmarks.compat.score --out benchmarks/compat/iterations/NNN.json
 uv run python -m benchmarks.compat.delta
 uv run python -m benchmarks.net.run
+uv run python -m benchmarks.library.run
 ```
 
 A row is timed only after its stdout matches CPython. A call outside the lowered subset, or any syntax outside `gates-v1`, is a fence: the runner records it and does not emit a time.

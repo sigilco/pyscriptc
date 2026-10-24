@@ -1,0 +1,12 @@
+lock-version = "1.0"
+created-by = "uv"
+requires-python = ">=3.14"
+
+[[packages]]
+name = "certifi"
+version = "2026.10.23"
+wheels = [{ url = "https://files.pythonhosted.org/packages/32/d1/a3652fe2c19134d0d15922177821d863cbd7e842d53a21bbe7e8e3a1b5ac/certifi-2026.10.23-py3-none-any.whl", upload-time = 2026-10-23T11:36:14Z, size = 135082, hashes = { sha256 = "e9b54de76e530bb6cf0ccd036787103acb58fd42ba930ea8bf948ddbaa2f61d1" } }]
+
+[tool.pyscriptc]
+input-digest = "05b5f2683766abce6558890a9a1ed10f94b5d1f77ee89d8b687c81650a7b9519"
+python = "3.14"
