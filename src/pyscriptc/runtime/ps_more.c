@@ -329,9 +329,12 @@ int64_t ps_str_index(int64_t n, const char *p, int64_t sn, const char *sp) {
     int64_t i = 0;
     while (i + sn <= n) {
         if (memcmp(p + i, sp, (size_t)sn) == 0) {
-            return i;
+            /* UTF-8 is self-synchronizing, so a byte match between valid
+               strings can only land on a code-point boundary; the returned
+               index is the code-point index. */
+            return ps_str_nchars(i, p);
         }
-        i++;
+        i += ps_utf8_len((unsigned char)p[i]);
     }
     ps_raise_code(PS_VALUE);
 }
@@ -339,11 +342,11 @@ int64_t ps_str_index(int64_t n, const char *p, int64_t sn, const char *sp) {
 int64_t ps_str_rfind(int64_t n, const char *p, int64_t sn, const char *sp) {
     int64_t i;
     if (sn == 0) {
-        return n;
+        return ps_str_nchars(n, p);
     }
     for (i = n - sn; i >= 0; i--) {
         if (memcmp(p + i, sp, (size_t)sn) == 0) {
-            return i;
+            return ps_str_nchars(i, p);
         }
     }
     return -1;
@@ -649,104 +652,19 @@ int64_t ps_str_islower(int64_t n, const char *p) {
     return any;
 }
 
-static unsigned char ps_tolower_c(unsigned char c) {
-    if (c >= 'A' && c <= 'Z') {
-        return (unsigned char)(c + 32);
-    }
-    if (c >= 0xc0 && c <= 0xde && c != 0xd7) {
-        return (unsigned char)(c + 0x20);
-    }
-    return c;
-}
-
-static unsigned char ps_toupper_c(unsigned char c) {
-    if (c >= 'a' && c <= 'z') {
-        return (unsigned char)(c - 32);
-    }
-    if (c >= 0xe0 && c <= 0xfe && c != 0xf7) {
-        return (unsigned char)(c - 0x20);
-    }
-    return c;
-}
-
-void ps_str_title(int64_t n, const char *p, PsBuf *out) {
-    char *q = malloc((size_t)n + 1);
-    int64_t i;
-    int prev_alpha = 0;
-    if (q == NULL) {
-        abort();
-    }
-    for (i = 0; i < n; i++) {
-        unsigned char c = (unsigned char)p[i];
-        if (ps_isalpha2(c)) {
-            q[i] = (char)(prev_alpha ? ps_tolower_c(c) : ps_toupper_c(c));
-            prev_alpha = 1;
-        } else {
-            q[i] = (char)c;
-            prev_alpha = 0;
-        }
-    }
-    out->len = n;
-    out->data = q;
-}
-
-void ps_str_capitalize(int64_t n, const char *p, PsBuf *out) {
-    char *q = malloc((size_t)n + 1);
-    int64_t i;
-    if (q == NULL) {
-        abort();
-    }
-    for (i = 0; i < n; i++) {
-        unsigned char c = (unsigned char)p[i];
-        q[i] = (char)(i == 0 ? ps_toupper_c(c) : ps_tolower_c(c));
-    }
-    out->len = n;
-    out->data = q;
-}
-
-void ps_str_casefold(int64_t n, const char *p, PsBuf *out) {
-    /* ASCII fold == lower() here */
-    char *q = malloc((size_t)n + 1);
-    int64_t i;
-    if (q == NULL) {
-        abort();
-    }
-    for (i = 0; i < n; i++) {
-        q[i] = (char)ps_tolower_c((unsigned char)p[i]);
-    }
-    out->len = n;
-    out->data = q;
-}
-
-void ps_str_swapcase(int64_t n, const char *p, PsBuf *out) {
-    char *q = malloc((size_t)n + 1);
-    int64_t i;
-    if (q == NULL) {
-        abort();
-    }
-    for (i = 0; i < n; i++) {
-        unsigned char c = (unsigned char)p[i];
-        if (ps_islo(c)) {
-            q[i] = (char)ps_toupper_c(c);
-        } else if (ps_isup(c)) {
-            q[i] = (char)ps_tolower_c(c);
-        } else {
-            q[i] = (char)c;
-        }
-    }
-    out->len = n;
-    out->data = q;
-}
+/* The case family moved to ps_rt.c with the code-point model (S2); the
+   bytewise helpers here are gone. The predicates below keep the ASCII
+   Latin-1 tables (S3 owns the Unicode categories). */
 
 void ps_str_zfill(int64_t n, const char *p, int64_t width, PsBuf *out) {
-    int64_t pad, s = 0;
+    int64_t pad, s = 0, chars = ps_str_nchars(n, p);
     char *q;
-    if (width <= n) {
+    if (width <= chars) {
         ps_buf_copy(out, p, n);
         return;
     }
-    pad = width - n;
-    q = malloc((size_t)width + 1);
+    pad = width - chars;
+    q = malloc((size_t)(n + pad) + 1);
     if (q == NULL) {
         abort();
     }
@@ -756,33 +674,41 @@ void ps_str_zfill(int64_t n, const char *p, int64_t width, PsBuf *out) {
     }
     memset(q + s, '0', (size_t)pad);
     memcpy(q + s + pad, p + s, (size_t)(n - s));
-    out->len = width;
+    out->len = n + pad;
     out->data = q;
 }
 
-/* pad side: 0 = ljust, 1 = rjust, 2 = center */
+/* pad side: 0 = ljust, 1 = rjust, 2 = center. Width counts code points;
+   the fill copies byte-wise so a multi-byte fill extends the buffer. */
 void ps_str_justify(int64_t n, const char *p, int64_t width, int64_t fn, const char *fc, int64_t side, PsBuf *out) {
-    int64_t pad, left, i;
-    char *q;
-    if (width <= n) {
+    int64_t chars = ps_str_nchars(n, p);
+    if (width <= chars) {
         ps_buf_copy(out, p, n);
         return;
     }
-    pad = width - n;
-    left = side == 0 ? 0 : side == 1 ? pad : pad / 2 + (pad & width & 1);
-    q = malloc((size_t)width + 1);
+    int64_t pad = width - chars;
+    int64_t left = side == 0 ? 0 : side == 1 ? pad : pad / 2 + (pad & width & 1);
+    if (fn <= 0) {
+        fn = 1;
+        fc = " ";
+    }
+    int64_t padb = pad * fn;
+    int64_t leftb = left * fn;
+    char *q = malloc((size_t)(n + padb) + 1);
     if (q == NULL) {
         abort();
     }
-    if (fn <= 0) {
-        memset(q, ' ', (size_t)width);
-    } else {
-        for (i = 0; i < width; i++) {
-            q[i] = fc[i % fn];
-        }
+    /* The fill restarts at each side: the left run from the first fill
+       byte, the right run again from the first fill byte (CPython does
+       not continue the pattern across the text). */
+    for (int64_t i = 0; i < leftb; i++) {
+        q[i] = fc[i % fn];
     }
-    memcpy(q + left, p, (size_t)n);
-    out->len = width;
+    memcpy(q + leftb, p, (size_t)n);
+    for (int64_t i = leftb + n; i < n + padb; i++) {
+        q[i] = fc[(i - leftb - n) % fn];
+    }
+    out->len = n + padb;
     out->data = q;
 }
 
@@ -806,22 +732,22 @@ void ps_str_removesuffix(int64_t n, const char *p, int64_t sn, const char *sp, P
     ps_buf_copy(out, p, n);
 }
 
+/* expandtabs: the tab stops count code points, the bytes copy verbatim. */
 void ps_str_expandtabs(int64_t n, const char *p, int64_t tabsize, PsBuf *out) {
-    int64_t i, col = 0, total = 0;
+    int64_t i = 0, col = 0, total = 0;
     char *q, *w;
-    for (i = 0; i < n; i++) {
+    while (i < n) {
         unsigned char c = (unsigned char)p[i];
         if (c == '\t') {
             int64_t add = tabsize > 0 ? tabsize - col % tabsize : 0;
             total += add;
             col += add;
+            i++;
         } else {
-            total++;
-            if (c == '\n' || c == '\r') {
-                col = 0;
-            } else {
-                col++;
-            }
+            int64_t w2 = ps_utf8_len(c);
+            total += w2;
+            col += c == '\n' || c == '\r' ? -col : 1;
+            i += w2;
         }
     }
     q = malloc((size_t)total + 1);
@@ -829,21 +755,22 @@ void ps_str_expandtabs(int64_t n, const char *p, int64_t tabsize, PsBuf *out) {
         abort();
     }
     w = q;
+    i = 0;
     col = 0;
-    for (i = 0; i < n; i++) {
+    while (i < n) {
         unsigned char c = (unsigned char)p[i];
         if (c == '\t') {
             int64_t add = tabsize > 0 ? tabsize - col % tabsize : 0;
             memset(w, ' ', (size_t)add);
             w += add;
             col += add;
+            i++;
         } else {
-            *w++ = (char)c;
-            if (c == '\n' || c == '\r') {
-                col = 0;
-            } else {
-                col++;
-            }
+            int64_t w2 = ps_utf8_len(c);
+            memcpy(w, p + i, (size_t)w2);
+            w += w2;
+            col = c == '\n' || c == '\r' ? 0 : col + 1;
+            i += w2;
         }
     }
     out->len = total;

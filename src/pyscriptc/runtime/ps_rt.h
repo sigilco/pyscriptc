@@ -101,7 +101,9 @@ enum {
     PS_STOP = PS_STOPITERATION,
     PS_FILE_NOT_FOUND = PS_FILENOTFOUNDERROR,
     PS_TYPE = PS_TYPEERROR,
-    PS_ATTR = PS_ATTRIBUTEERROR
+    PS_ATTR = PS_ATTRIBUTEERROR,
+    PS_UNICODEDECODE = PS_UNICODEDECODEERROR,
+    PS_UNICODEENCODE = PS_UNICODEENCODEERROR
 };
 
 /* Reserved codes for the coroutine exceptions and the queue exceptions.
@@ -330,11 +332,33 @@ void ps_str_join(int64_t n, const char *sep, PsSeq *parts, PsBuf *out);
 void ps_repr_quoted(int64_t n, const char *p, PsBuf *out);
 void ps_utf8_encode(int64_t n, const char *p, PsBuf *out);
 void ps_utf8_decode(int64_t n, const char *p, PsBuf *out);
+void ps_latin1_encode(int64_t n, const char *p, PsBuf *out);
+void ps_latin1_decode(int64_t n, const char *p, PsBuf *out);
 void ps_i64_str(int64_t v, PsBuf *out);
 void ps_f64_str(double v, PsBuf *out);
 int64_t ps_bisect_left(PsSeq *s, int64_t key);
 int64_t ps_bisect_right(PsSeq *s, int64_t key);
 int64_t ps_int_from_bytes(int64_t n, const char *s);
+
+/* The str primitives the emitter names in the "str" declaration block
+   (the IR declarations table carries its own copies; these are for the
+   other runtime files and the test harnesses). */
+void ps_str_get(int64_t n, char *p, int64_t i, PsBuf *out);
+int64_t ps_buf_at(int64_t n, char *p, int64_t i);
+void ps_str_strip(int64_t n, char *p, PsBuf *out);
+void ps_str_lstrip(int64_t n, char *p, PsBuf *out);
+void ps_str_rstrip(int64_t n, char *p, PsBuf *out);
+int32_t ps_str_startswith(int64_t n, char *p, int64_t pn, char *pp);
+int32_t ps_str_endswith(int64_t n, char *p, int64_t pn, char *pp);
+int64_t ps_str_find(int64_t n, char *p, int64_t pn, char *pp);
+int32_t ps_str_eq(int64_t an, char *ap, int64_t bn, char *bp);
+int32_t ps_str_cmp(int64_t an, char *ap, int64_t bn, char *bp);
+void ps_str_upper(int64_t n, char *p, PsBuf *out);
+void ps_str_lower(int64_t n, char *p, PsBuf *out);
+void ps_str_replace(int64_t n, char *p, int64_t on, char *op, int64_t nn, char *np, PsBuf *out);
+int64_t ps_str_offset(int64_t n, const char *p, int64_t i);
+int64_t ps_str_nchars(int64_t n, const char *p);
+int ps_utf8_len(unsigned char c);
 
 /* ps_more.c: R1-R5 helpers */
 PsSeq *ps_seq_concat(PsSeq *a, PsSeq *b);
@@ -393,8 +417,7 @@ int64_t ps_str_islower(int64_t n, const char *p);
 void ps_str_title(int64_t n, const char *p, PsBuf *out);
 void ps_str_capitalize(int64_t n, const char *p, PsBuf *out);
 void ps_str_casefold(int64_t n, const char *p, PsBuf *out);
-void ps_str_swapcase(int64_t n, const char *p, PsBuf *out);
-void ps_str_zfill(int64_t n, const char *p, int64_t width, PsBuf *out);
+void ps_str_swapcase(int64_t n, const char *p, PsBuf *out);void ps_str_zfill(int64_t n, const char *p, int64_t width, PsBuf *out);
 void ps_str_justify(
     int64_t n, const char *p, int64_t width, int64_t fn, const char *fc, int64_t side, PsBuf *out
 );

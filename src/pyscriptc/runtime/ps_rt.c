@@ -1423,7 +1423,7 @@ ps_utf8_decode both reject malformed input), so the fast paths do not
 re-check every byte. The ASCII flag makes every ASCII string O(1): the
 code-point index is the byte offset. */
 
-static int ps_utf8_len(unsigned char c) {
+int ps_utf8_len(unsigned char c) {
     if (c < 0x80) {
         return 1;
     }
@@ -1439,7 +1439,7 @@ static int ps_utf8_len(unsigned char c) {
 /* The byte offset of code point `i` (negative wraps like ps_index), or -1
    when `i` is out of range. A negative index needs the full count first, so
    it pays the same one pass the count itself costs. */
-static int64_t ps_str_offset(int64_t n, const char *p, int64_t i) {
+int64_t ps_str_offset(int64_t n, const char *p, int64_t i) {
     int64_t at = 0;
     int64_t seen = 0;
     if (i < 0) {
@@ -1477,7 +1477,7 @@ static int ps_all_ascii(int64_t n, const char *p) {
 }
 
 /* The code-point length of the buffer. */
-static int64_t ps_str_nchars(int64_t n, const char *p) {
+int64_t ps_str_nchars(int64_t n, const char *p) {
     int64_t chars = 0;
     for (int64_t k = 0; k < n; k++) {
         chars += ((unsigned char)p[k] & 0xC0) != 0x80;
