@@ -1,7 +1,11 @@
 /* pyscriptc compat site. Plain DOM, no framework, no third-party script.
    Everything renders from data/compat.json (the schema lives in
    scripts/compat_schema.py next to the page source in the repository).
-   The base path is baked in at build time as window.__COMPAT_BASE__. */
+   The base path is baked in at build time as window.__COMPAT_BASE__.
+
+   The page leads with what does not work: the divergences, the failures and
+   the fences come before the support tables. Every module, package and fence
+   code has a deep link, so a row can be shared. */
 (function () {
   "use strict";
 
@@ -12,20 +16,25 @@
   var STATUS_EMOJI = { full: "\u{1F7E2}", partial: "\u{1F7E1}", none: "\u{1F534}", unknown: "\u2014" };
   var STATUS_TEXT = { full: "full", partial: "partial", none: "none", unknown: "unknown" };
 
+  // A snapshot older than this many days is stale: the nightly runs daily, so
+  // a snapshot that did not move in three days is not measuring anything.
+  var STALE_DAYS = 3;
+
   // Per-section table config: thead, row builder, searchable text.
   var SECTIONS = {
     language: {
+      section: "language",
       table: "language-table",
-      columns: ["Group", "Probes", "Pass", "Fence", "Other", "Weighted pass", "Fences"],
+      columns: ["Group", "Probes", "Pass", "Fence", "Failures", "Weighted pass", "Fence codes"],
       row: function (r) {
         var outcomes = r.outcomes || {};
         var other = (outcomes["wrong-output"] || 0) + (outcomes.crash || 0) +
-          (outcomes.timeout || 0) + (outcomes["build-error"] || 0) + (outcomes.excluded || 0);
+          (outcomes.timeout || 0) + (outcomes["build-error"] || 0);
         return [
-          cell("td", r.label),
+          cell("td name", r.label),
           cellNum(outcomes.pass || 0),
           cellNum(outcomes.fence || 0),
-          cellNum(other),
+          cellNum(other, other ? "bad" : null),
           cellNum(r.weighted_pass),
           cellCodes(r.fence_codes)
         ];
@@ -33,8 +42,9 @@
       search: function (r) { return r.label + " " + r.id; }
     },
     builtins: {
+      section: "builtins",
       table: "builtins-table",
-      columns: ["Status", "Builtins", "Not supported", "Fences", "Note"],
+      columns: ["Status", "Builtin", "Pass rate", "Probes", "Not supported", "Fences", "Note"],
       row: statusRow,
       search: function (r) {
         return r.label + " " + r.names.join(" ") + " " + r.unsupported.join(" ") +
@@ -42,8 +52,9 @@
       }
     },
     stdlib: {
+      section: "stdlib",
       table: "stdlib-table",
-      columns: ["Status", "Module", "Not supported", "Fences", "Note"],
+      columns: ["Status", "Module", "Pass rate", "Probes", "Not supported", "Fences", "Note"],
       row: statusRow,
       search: function (r) {
         return r.label + " " + r.names.join(" ") + " " + r.unsupported.join(" ") +
@@ -51,12 +62,14 @@
       }
     },
     packages: {
+      section: "pypi",
       table: "packages-table",
-      columns: ["Status", "Package", "Version", "Fences", "Definitions", "Top fence codes"],
+      columns: ["Status", "Package", "Pass rate", "Version", "Fences", "Definitions", "Top fence codes"],
       row: function (r) {
         return [
           statusCell(r.status),
           linkCell(r.name, r.pypi),
+          rateCell(r.pass_rate, r.probes),
           cellNum(r.version),
           cellNum(r.fences),
           cellNum(r.definitions + " (" + r.fenced_definitions + " fenced)"),
@@ -69,16 +82,55 @@
       }
     },
     fences: {
+      section: "fences",
       table: "fences-table",
-      columns: ["Code", "Title", "Count", "Packages"],
+      columns: ["Code", "Title", "Count", "Packages", "Fix"],
       row: function (r) {
-        return [cell("td name", r.code), cell("td", r.title), cellNum(r.count), cellNum(r.packages)];
+        return [
+          cell("td name", r.code),
+          cell("td", r.title),
+          cellNum(r.count),
+          cellNum(r.packages),
+          fixCell(r.fix)
+        ];
       },
-      search: function (r) { return r.code + " " + r.title; }
+      search: function (r) { return r.code + " " + r.title + " " + (r.fix || ""); }
+    },
+    targets: {
+      section: "targets",
+      table: "targets-table",
+      columns: ["Status", "Target", "Triple", "Note", "Proven by"],
+      row: function (r) {
+        return [
+          targetCell(r.status),
+          cell("td name", r.label),
+          cell("td name", r.triple),
+          cell("td", r.note),
+          cell("td dim", r.proof)
+        ];
+      },
+      search: function (r) { return r.label + " " + r.triple + " " + r.family + " " + r.note; }
+    },
+    divergences: {
+      section: "divergences",
+      table: "divergences-table",
+      columns: ["#", "Family", "Difference from CPython 3.14", "Source"],
+      row: function (r) {
+        return [
+          cell("td divnum", r.number),
+          cell("td", r.family),
+          divTextCell(r.text),
+          sourceCell(r.sources, r.note)
+        ];
+      },
+      search: function (r) { return r.number + " " + r.family + " " + r.text; },
+      // The family chips are built from the rows, so a new family needs no
+      // markup change.
+      chipsFrom: "family"
     }
   };
 
-  // The five list sections share one generic table engine. State lives per
+  // The list sections share one generic table engine. State lives per
   // section: the rows, the current filter text and the status chip.
   var state = {};
 
@@ -91,14 +143,24 @@
 
   function cell(cls, text) { return el("td", cls, text); }
 
-  function cellNum(value) { return cell("td num", value); }
+  function cellNum(value, extra) {
+    var td = el("td", "num");
+    td.appendChild(document.createTextNode(String(value)));
+    if (extra === "bad") td.style.color = "var(--bad)";
+    return td;
+  }
 
   function cellCodes(codes) {
     var td = el("td");
-    (codes || []).forEach(function (c, i) {
+    var list = codes || [];
+    if (!list.length) {
+      td.appendChild(el("span", "dim", "none"));
+      return td;
+    }
+    list.forEach(function (c, i) {
       if (i) td.appendChild(document.createTextNode(", "));
       var text = c.count === null || c.count === undefined ? c.code : c.code + " \u00D7" + c.count;
-      td.appendChild(el("span", "name", text));
+      td.appendChild(codeLink(text, c.code));
     });
     return td;
   }
@@ -120,6 +182,8 @@
     return [
       statusCell(r.status),
       cell("td name", r.label),
+      rateCell(r.pass_rate, r.probes),
+      cellNum(r.probes === null || r.probes === undefined ? "-" : r.probes),
       cell("td", r.unsupported.join(", ")),
       cellCodes(r.fences.map(function (code) { return { code: code, count: null }; })),
       cell("td", r.note || "")
@@ -138,6 +202,108 @@
     return td;
   }
 
+  function targetCell(status) {
+    var td = el("td", "status status-" + (status === "native" ? "full" : "partial"));
+    var emoji = el("span", "emoji", status === "native" ? "\u2714" : "\u26A0");
+    emoji.setAttribute("role", "img");
+    emoji.setAttribute("aria-label", status);
+    td.appendChild(emoji);
+    td.appendChild(el("span", "text", status));
+    return td;
+  }
+
+  function rateCell(rate, probes) {
+    var td = el("td");
+    if (rate === null || rate === undefined) {
+      td.appendChild(el("span", "rate-none", "not measured"));
+      return td;
+    }
+    var wrap = el("span", "rate");
+    var pct = Math.round(rate * 1000) / 10;
+    var bar = el("span", "bar");
+    var fill = el("span", "fill");
+    if (pct < 25) fill.className = "fill fill-bad";
+    else if (pct < 75) fill.className = "fill fill-warn";
+    fill.style.width = Math.max(2, Math.min(100, pct)) + "%";
+    bar.appendChild(fill);
+    wrap.appendChild(bar);
+    wrap.appendChild(document.createTextNode(pct + "%"));
+    if (probes) wrap.appendChild(el("span", "dim", " of " + probes));
+    td.appendChild(wrap);
+    return td;
+  }
+
+  function fixCell(fix) {
+    var td = el("td");
+    td.appendChild(el("span", "fixhint", fix || "no hint recorded for this code"));
+    return td;
+  }
+
+  // The divergence text comes from the markdown doc, so it carries inline
+  // code spans and links. Rendering them as text would show the markdown
+  // syntax, so the two inline forms are turned into elements.
+  function inlineMarkdown(text) {
+    var fragment = document.createDocumentFragment();
+    var pattern = /`([^`]+)`|\[([^\]]+)\]\(([^)]+)\)/g;
+    var last = 0;
+    var match;
+    while ((match = pattern.exec(text)) !== null) {
+      if (match.index > last) {
+        fragment.appendChild(document.createTextNode(text.slice(last, match.index)));
+      }
+      if (match[1] !== undefined) {
+        fragment.appendChild(el("code", null, match[1]));
+      } else {
+        var a = el("a", null, match[2]);
+        a.href = match[3];
+        a.rel = "noopener";
+        fragment.appendChild(a);
+      }
+      last = pattern.lastIndex;
+    }
+    if (last < text.length) fragment.appendChild(document.createTextNode(text.slice(last)));
+    return fragment;
+  }
+
+  function divTextCell(text) {
+    var td = el("td", "divtext");
+    td.appendChild(inlineMarkdown(text));
+    return td;
+  }
+
+  function sourceCell(sources, note) {
+    var td = el("td");
+    if (!sources || !sources.length) {
+      var only = el("span", "dim");
+      only.appendChild(inlineMarkdown(note || "in the tree"));
+      td.appendChild(only);
+      return td;
+    }
+    sources.forEach(function (href, i) {
+      if (i) td.appendChild(document.createTextNode(", "));
+      var a = el("a", "fixsrc", i === 0 ? "source" : String(i + 1));
+      a.href = href;
+      a.rel = "noopener";
+      td.appendChild(a);
+    });
+    if (note && sources.length) {
+      var span = el("span", "fixsrc");
+      span.appendChild(document.createTextNode(" "));
+      span.appendChild(inlineMarkdown(note));
+      td.appendChild(span);
+    }
+    return td;
+  }
+
+  // A fence code is a deep link: /compat/#fence-PS2002 opens the census with
+  // the code in view.
+  function codeLink(text, code) {
+    var a = el("a", "name", text);
+    a.href = "#fence-" + code;
+    a.setAttribute("data-fence", code);
+    return a;
+  }
+
   function renderTable(key) {
     var cfg = SECTIONS[key];
     var st = state[key];
@@ -154,9 +320,10 @@
     var needle = st.filter.trim().toLowerCase();
     var shown = 0;
     st.rows.forEach(function (r) {
-      if (st.status !== "all" && r.status !== st.status) return;
+      if (st.status !== "all" && !matchesStatus(cfg, r, st.status)) return;
       if (needle && cfg.search(r).toLowerCase().indexOf(needle) === -1) return;
       var tr = el("tr");
+      tr.id = rowId(key, r);
       cfg.row(r).forEach(function (td) { tr.appendChild(td); });
       tbody.appendChild(tr);
       shown += 1;
@@ -171,6 +338,26 @@
       tr.appendChild(td);
       tbody.appendChild(tr);
     }
+  }
+
+  // The status of a row depends on the section: the support rows have a
+  // status vocabulary, the divergences have a family.
+  function matchesStatus(cfg, row, wanted) {
+    if (cfg.chipsFrom) return String(row[cfg.chipsFrom]) === wanted;
+    return row.status === wanted;
+  }
+
+  function rowId(key, row) {
+    if (key === "fences") return "fence-" + row.code;
+    if (key === "divergences") return "divergence-" + row.number;
+    if (key === "packages") return "package-" + slug(row.name);
+    if (key === "targets") return "target-" + slug(row.id);
+    if (key === "stdlib") return "stdlib-" + slug(row.names[0]);
+    return key + "-" + slug(row.id || row.label);
+  }
+
+  function slug(value) {
+    return String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   }
 
   function wireControls(key) {
@@ -196,6 +383,26 @@
     }
   }
 
+  // The family chips of the divergences table, built from the rows.
+  function buildChips(key, rows) {
+    var cfg = SECTIONS[key];
+    if (!cfg.chipsFrom) return;
+    var chips = document.querySelector('.chips[data-for="' + key + '"]');
+    if (!chips) return;
+    var families = [];
+    rows.forEach(function (row) {
+      if (families.indexOf(row[cfg.chipsFrom]) === -1) families.push(row[cfg.chipsFrom]);
+    });
+    families.sort();
+    families.forEach(function (family) {
+      var button = el("button", "chip", family);
+      button.type = "button";
+      button.dataset.status = family;
+      button.setAttribute("aria-pressed", "false");
+      chips.appendChild(button);
+    });
+  }
+
   function countBy(rows) {
     var counts = { full: 0, partial: 0, none: 0, unknown: 0 };
     rows.forEach(function (r) { counts[r.status] = (counts[r.status] || 0) + 1; });
@@ -207,29 +414,35 @@
     ["full", "partial", "none"].forEach(function (s) {
       if (counts[s]) parts.push(STATUS_EMOJI[s] + " " + counts[s]);
     });
-    return parts.join(" \u00B7 ");
+    return parts.length ? parts.join(" \u00B7 ") : "no rows";
   }
 
   function renderSummary(doc) {
     var s = doc.summary || {};
-    function fill(id, html) {
+    function fill(id, text) {
       var card = document.getElementById(id);
       if (!card) return;
       var target = card.querySelector(".counts") || card.querySelector(".big");
-      if (target) target.innerHTML = html;
+      if (target) target.textContent = text;
     }
-    fill("card-builtins", countsLine(countBy(doc.builtins || [])));
-    fill("card-stdlib", countsLine(countBy(doc.stdlib || [])));
-    fill("card-packages", countsLine(countBy(doc.packages || [])));
-    var weighted = s.weighted_pass;
-    if (typeof weighted === "number") {
-      var pct = Math.round(weighted * 1000) / 10;
-      fill("card-score", pct + "%");
+    var rate = s.pass_rate;
+    if (typeof rate === "number") {
+      fill("card-probes", (Math.round(rate * 1000) / 10) + "%");
+      var sub = document.getElementById("card-probes-sub");
+      if (sub) sub.textContent = s.probe_pass + " of " + s.probes + " probes";
     } else {
-      var scoreCard = document.getElementById("card-score");
-      if (scoreCard) scoreCard.hidden = true;
+      var probeCard = document.getElementById("card-probes");
+      if (probeCard) probeCard.hidden = true;
     }
-    if (typeof s.fences === "number") fill("card-fences", String(s.fences));
+    fill("card-failures", typeof s.probe_failures === "number" ? String(s.probe_failures) : "-");
+    fill("card-fences", typeof s.fences === "number" ? String(s.fences) : "-");
+    fill("card-packages", countsLine(countBy(doc.packages || [])));
+    fill("card-stdlib", countsLine(countBy(doc.stdlib || [])));
+    fill("card-divergences", typeof s.divergences === "number" ? String(s.divergences) : "-");
+    var targets = doc.targets || [];
+    var native = targets.filter(function (t) { return t.status === "native"; }).length;
+    var experimental = targets.filter(function (t) { return t.status === "experimental"; }).length;
+    fill("card-targets", native + " native \u00B7 " + experimental + " experimental");
   }
 
   function renderHistory(doc) {
@@ -266,7 +479,7 @@
         var gy = pad.top + (height - pad.top - pad.bottom) * g / 4;
         var gv = max - span * g / 4;
         parts.push('<line class="grid" x1="' + pad.left + '" y1="' + gy + '" x2="' + (width - pad.right) + '" y2="' + gy + '"/>');
-        parts.push('<text x="' + (pad.left - 6) + '" y="' + (gy + 3) + '" text-anchor="end">' + fmt(gv) + "</text>");
+        parts.push('<text x="' + (pad.left - 6) + '" y="' + (gy + 3) + '" text-anchor="end">' + fmt(gv, key) + "</text>");
       }
       parts.push('<line class="axis" x1="' + pad.left + '" y1="' + (height - pad.bottom) + '" x2="' + (width - pad.right) + '" y2="' + (height - pad.bottom) + '"/>');
       var points = values.map(function (v, i) { return x(i).toFixed(1) + "," + y(v).toFixed(1); }).join(" ");
@@ -277,9 +490,9 @@
       });
       parts.push("</svg>");
       chart.innerHTML = parts.join("");
-      chart.setAttribute("aria-label", "History chart, " + labels[key] + " over " + history.length + " nightly measurements, latest " + fmt(values[values.length - 1]));
+      chart.setAttribute("aria-label", "History chart, " + labels[key] + " over " + history.length + " nightly measurements, latest " + fmt(values[values.length - 1], key));
     }
-    function fmt(v) {
+    function fmt(v, key) {
       if (key === "weighted_pass") return Math.round(v * 1000) / 10 + "%";
       return String(Math.round(v * 10) / 10);
     }
@@ -302,6 +515,22 @@
     }
   }
 
+  // The stale banner: a snapshot that did not move for days is not a
+  // measurement, it is a leftover. The nightly runs daily.
+  function renderStale(doc) {
+    var banner = document.getElementById("stale");
+    var detail = document.getElementById("stale-detail");
+    if (!banner || !detail) return;
+    var generated = doc.generated;
+    if (!generated) return;
+    var measured = Date.parse(generated + "T00:00:00Z");
+    if (isNaN(measured)) return;
+    var days = Math.floor((Date.now() - measured) / 86400000);
+    if (days <= STALE_DAYS) return;
+    detail.textContent = "The snapshot is from " + generated + ", " + days + " days ago.";
+    banner.hidden = false;
+  }
+
   function showError(message) {
     var box = document.getElementById("error");
     box.hidden = false;
@@ -310,17 +539,19 @@
 
   function reveal(doc) {
     renderMeta(doc);
+    renderStale(doc);
     renderSummary(doc);
+    document.getElementById("summary").hidden = false;
     var anyRows = false;
     Object.keys(SECTIONS).forEach(function (key) {
       var rows = doc[key] || [];
-      var section = document.getElementById(key);
-      if (!rows.length) {
-        section.appendChild(el("p", "empty", "no data in this section yet"));
+      var section = document.getElementById(SECTIONS[key].section);
+      if (!rows.length || !section) {
         return;
       }
       anyRows = true;
       section.hidden = false;
+      buildChips(key, rows);
       var st = state[key] = { rows: rows, filter: "", status: "all" };
       st.count = document.getElementById(key + "-count");
       renderTable(key);
@@ -333,6 +564,20 @@
     if (!anyRows && !(doc.history || []).length) {
       showError("The data file has no rows. This is a data problem, not a page problem.");
     }
+    applyDeepLink();
+  }
+
+  // A deep link is a hash: #fence-PS2002, #package-requests,
+  // #stdlib-math, #divergence-4, #target-linux-x86_64. The link scrolls to
+  // the row and highlights it.
+  function applyDeepLink() {
+    var hash = window.location.hash.replace(/^#/, "");
+    if (!hash) return;
+    var row = document.getElementById(hash);
+    if (!row) return;
+    row.scrollIntoView({ block: "center" });
+    row.classList.add("row-focus");
+    window.setTimeout(function () { row.classList.remove("row-focus"); }, 4000);
   }
 
   function load() {

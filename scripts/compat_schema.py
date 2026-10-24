@@ -233,13 +233,15 @@ def _check_divergence(row: Any, where: str, problems: list[str]) -> None:
     if not _is_dict(row):
         problems.append(f"{where}: expected an object")
         return
-    for key in ("number", "text", "family", "sources"):
+    for key in ("number", "text", "note", "family", "sources"):
         if key not in row:
             problems.append(f"{where}: missing key {key!r}")
     if not _is_int(row.get("number")):
         problems.append(f"{where}: number is not an integer")
     if not _is_str(row.get("text")):
         problems.append(f"{where}: text is not a string")
+    if not _is_str(row.get("note")):
+        problems.append(f"{where}: note is not a string")
     if row.get("family") not in DIVERGENCE_FAMILIES:
         problems.append(f"{where}: family {row.get('family')!r} is not one of {list(DIVERGENCE_FAMILIES)}")
     sources = row.get("sources")

@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-10-24",
-  "commit": "34509b56ba8c6565263af854ec0b597f15e16e95",
+  "commit": "fa92f0e5a4dac06077570760f3a284292c43a870",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -34,7 +34,7 @@
     {
       "id": "builtin.abs",
       "kind": "builtin",
-      "label": "`abs`, `all`, `any`, `bin`, `chr`, `divmod`, `enumerate`, `getattr`, `hasattr`, `hex`, `iter`, `len`, `map`, `next`, `oct`, `ord`, `pow`, `range`, `repr`, `reversed`, `round`, `sum`, `bool`, `set`",
+      "label": "abs, all, any, bin, chr, divmod, enumerate, getattr, hasattr, hex, iter, len, map, next, oct, ord, pow, range, repr, reversed, round, sum, bool, set",
       "names": [
         "abs",
         "all",
@@ -79,7 +79,7 @@
     {
       "id": "builtin.print",
       "kind": "builtin",
-      "label": "`print`",
+      "label": "print",
       "names": [
         "print"
       ],
@@ -105,7 +105,7 @@
     {
       "id": "builtin.input",
       "kind": "builtin",
-      "label": "`input`",
+      "label": "input",
       "names": [
         "input"
       ],
@@ -133,7 +133,7 @@
     {
       "id": "builtin.int",
       "kind": "builtin",
-      "label": "`int`",
+      "label": "int",
       "names": [
         "int"
       ],
@@ -163,7 +163,7 @@
     {
       "id": "builtin.float",
       "kind": "builtin",
-      "label": "`float`",
+      "label": "float",
       "names": [
         "float"
       ],
@@ -193,7 +193,7 @@
     {
       "id": "builtin.str",
       "kind": "builtin",
-      "label": "`str`",
+      "label": "str",
       "names": [
         "str"
       ],
@@ -223,7 +223,7 @@
     {
       "id": "builtin.list",
       "kind": "builtin",
-      "label": "`list`",
+      "label": "list",
       "names": [
         "list"
       ],
@@ -252,7 +252,7 @@
     {
       "id": "builtin.min",
       "kind": "builtin",
-      "label": "`min`, `max`",
+      "label": "min, max",
       "names": [
         "min",
         "max"
@@ -279,7 +279,7 @@
     {
       "id": "builtin.sorted",
       "kind": "builtin",
-      "label": "`sorted`",
+      "label": "sorted",
       "names": [
         "sorted"
       ],
@@ -305,7 +305,7 @@
     {
       "id": "builtin.zip",
       "kind": "builtin",
-      "label": "`zip`",
+      "label": "zip",
       "names": [
         "zip"
       ],
@@ -333,7 +333,7 @@
     {
       "id": "builtin.filter",
       "kind": "builtin",
-      "label": "`filter`",
+      "label": "filter",
       "names": [
         "filter"
       ],
@@ -357,7 +357,7 @@
     {
       "id": "builtin.isinstance",
       "kind": "builtin",
-      "label": "`isinstance`",
+      "label": "isinstance",
       "names": [
         "isinstance"
       ],
@@ -383,7 +383,7 @@
     {
       "id": "builtin.open",
       "kind": "builtin",
-      "label": "`open`",
+      "label": "open",
       "names": [
         "open"
       ],
@@ -411,7 +411,7 @@
     {
       "id": "builtin.id",
       "kind": "builtin",
-      "label": "`id`",
+      "label": "id",
       "names": [
         "id"
       ],
@@ -439,7 +439,7 @@
     {
       "id": "builtin.frozenset",
       "kind": "builtin",
-      "label": "`frozenset`",
+      "label": "frozenset",
       "names": [
         "frozenset"
       ],
@@ -467,7 +467,7 @@
     {
       "id": "builtin.eval",
       "kind": "builtin",
-      "label": "`eval`",
+      "label": "eval",
       "names": [
         "eval"
       ],
@@ -495,7 +495,7 @@
     {
       "id": "builtin.baseexception",
       "kind": "builtin",
-      "label": "`BaseException` and subclasses",
+      "label": "BaseException and subclasses",
       "names": [
         "BaseException",
         "Exception",
@@ -527,7 +527,7 @@
     {
       "id": "builtin.bytes",
       "kind": "builtin",
-      "label": "`bytes`, `bytearray`, `memoryview`, `callable`, `complex`, `dict`, `format`, `tuple`, `type`, `object`, `super`, `vars`, `dir`, `globals`, `locals`, `exec`, `issubclass`, `ascii`, `setattr`, `delattr`, `slice`, `hash`, `__import__`",
+      "label": "bytes, bytearray, memoryview, callable, complex, dict, format, tuple, type, object, super, vars, dir, globals, locals, exec, issubclass, ascii, setattr, delattr, slice, hash, __import__",
       "names": [
         "bytes",
         "bytearray",
@@ -581,7 +581,7 @@
     {
       "id": "stdlib.math",
       "kind": "stdlib",
-      "label": "`math`",
+      "label": "math",
       "names": [
         "math"
       ],
@@ -611,7 +611,7 @@
     {
       "id": "stdlib.re",
       "kind": "stdlib",
-      "label": "`re`",
+      "label": "re",
       "names": [
         "re"
       ],
@@ -645,7 +645,7 @@
     {
       "id": "stdlib.json",
       "kind": "stdlib",
-      "label": "`json`",
+      "label": "json",
       "names": [
         "json"
       ],
@@ -677,7 +677,7 @@
     {
       "id": "stdlib.tomllib",
       "kind": "stdlib",
-      "label": "`tomllib`",
+      "label": "tomllib",
       "names": [
         "tomllib"
       ],
@@ -707,7 +707,7 @@
     {
       "id": "stdlib.dotenv",
       "kind": "stdlib",
-      "label": "`dotenv`",
+      "label": "dotenv",
       "names": [
         "dotenv"
       ],
@@ -729,7 +729,7 @@
     {
       "id": "stdlib.yaml",
       "kind": "stdlib",
-      "label": "`yaml`",
+      "label": "yaml",
       "names": [
         "yaml"
       ],
@@ -751,7 +751,7 @@
     {
       "id": "stdlib.urllib-parse",
       "kind": "stdlib",
-      "label": "`urllib.parse`",
+      "label": "urllib.parse",
       "names": [
         "urllib.parse"
       ],
@@ -782,7 +782,7 @@
     {
       "id": "stdlib.base64",
       "kind": "stdlib",
-      "label": "`base64`",
+      "label": "base64",
       "names": [
         "base64"
       ],
@@ -812,7 +812,7 @@
     {
       "id": "stdlib.hashlib",
       "kind": "stdlib",
-      "label": "`hashlib`",
+      "label": "hashlib",
       "names": [
         "hashlib"
       ],
@@ -842,7 +842,7 @@
     {
       "id": "stdlib.struct",
       "kind": "stdlib",
-      "label": "`struct`",
+      "label": "struct",
       "names": [
         "struct"
       ],
@@ -872,7 +872,7 @@
     {
       "id": "stdlib.datetime",
       "kind": "stdlib",
-      "label": "`datetime`",
+      "label": "datetime",
       "names": [
         "datetime"
       ],
@@ -903,7 +903,7 @@
     {
       "id": "stdlib.time",
       "kind": "stdlib",
-      "label": "`time`",
+      "label": "time",
       "names": [
         "time"
       ],
@@ -934,7 +934,7 @@
     {
       "id": "stdlib.collections",
       "kind": "stdlib",
-      "label": "`collections`",
+      "label": "collections",
       "names": [
         "collections"
       ],
@@ -965,7 +965,7 @@
     {
       "id": "stdlib.functools",
       "kind": "stdlib",
-      "label": "`functools`",
+      "label": "functools",
       "names": [
         "functools"
       ],
@@ -996,7 +996,7 @@
     {
       "id": "stdlib.itertools",
       "kind": "stdlib",
-      "label": "`itertools`",
+      "label": "itertools",
       "names": [
         "itertools"
       ],
@@ -1025,7 +1025,7 @@
     {
       "id": "stdlib.operator",
       "kind": "stdlib",
-      "label": "`operator`",
+      "label": "operator",
       "names": [
         "operator"
       ],
@@ -1054,7 +1054,7 @@
     {
       "id": "stdlib.contextlib",
       "kind": "stdlib",
-      "label": "`contextlib`",
+      "label": "contextlib",
       "names": [
         "contextlib"
       ],
@@ -1083,7 +1083,7 @@
     {
       "id": "stdlib.os",
       "kind": "stdlib",
-      "label": "`os`",
+      "label": "os",
       "names": [
         "os"
       ],
@@ -1117,7 +1117,7 @@
     {
       "id": "stdlib.posixpath",
       "kind": "stdlib",
-      "label": "`posixpath`",
+      "label": "posixpath",
       "names": [
         "posixpath"
       ],
@@ -1147,7 +1147,7 @@
     {
       "id": "stdlib.pathlib",
       "kind": "stdlib",
-      "label": "`pathlib`",
+      "label": "pathlib",
       "names": [
         "pathlib"
       ],
@@ -1177,7 +1177,7 @@
     {
       "id": "stdlib.stat",
       "kind": "stdlib",
-      "label": "`stat`",
+      "label": "stat",
       "names": [
         "stat"
       ],
@@ -1205,7 +1205,7 @@
     {
       "id": "stdlib.fnmatch",
       "kind": "stdlib",
-      "label": "`fnmatch`",
+      "label": "fnmatch",
       "names": [
         "fnmatch"
       ],
@@ -1233,7 +1233,7 @@
     {
       "id": "stdlib.warnings",
       "kind": "stdlib",
-      "label": "`warnings`",
+      "label": "warnings",
       "names": [
         "warnings"
       ],
@@ -1262,7 +1262,7 @@
     {
       "id": "stdlib.io",
       "kind": "stdlib",
-      "label": "`io`",
+      "label": "io",
       "names": [
         "io"
       ],
@@ -1292,7 +1292,7 @@
     {
       "id": "stdlib.sys",
       "kind": "stdlib",
-      "label": "`sys`",
+      "label": "sys",
       "names": [
         "sys"
       ],
@@ -1323,7 +1323,7 @@
     {
       "id": "stdlib.importlib",
       "kind": "stdlib",
-      "label": "`importlib`",
+      "label": "importlib",
       "names": [
         "importlib"
       ],
@@ -1353,7 +1353,7 @@
     {
       "id": "stdlib.inspect",
       "kind": "stdlib",
-      "label": "`inspect`",
+      "label": "inspect",
       "names": [
         "inspect"
       ],
@@ -1383,7 +1383,7 @@
     {
       "id": "stdlib.threading",
       "kind": "stdlib",
-      "label": "`threading`",
+      "label": "threading",
       "names": [
         "threading"
       ],
@@ -1419,7 +1419,7 @@
     {
       "id": "stdlib.logging",
       "kind": "stdlib",
-      "label": "`logging`",
+      "label": "logging",
       "names": [
         "logging"
       ],
@@ -1453,7 +1453,7 @@
     {
       "id": "stdlib.asyncio",
       "kind": "stdlib",
-      "label": "`asyncio`",
+      "label": "asyncio",
       "names": [
         "asyncio"
       ],
@@ -1487,7 +1487,7 @@
     {
       "id": "stdlib.subprocess",
       "kind": "stdlib",
-      "label": "`subprocess`",
+      "label": "subprocess",
       "names": [
         "subprocess"
       ],
@@ -1520,7 +1520,7 @@
     {
       "id": "stdlib.socket",
       "kind": "stdlib",
-      "label": "`socket`",
+      "label": "socket",
       "names": [
         "socket"
       ],
@@ -1550,7 +1550,7 @@
     {
       "id": "stdlib.ssl",
       "kind": "stdlib",
-      "label": "`ssl`",
+      "label": "ssl",
       "names": [
         "ssl"
       ],
@@ -1580,7 +1580,7 @@
     {
       "id": "stdlib.ctypes",
       "kind": "stdlib",
-      "label": "`ctypes`",
+      "label": "ctypes",
       "names": [
         "ctypes"
       ],
@@ -1610,7 +1610,7 @@
     {
       "id": "stdlib.string",
       "kind": "stdlib",
-      "label": "`string`",
+      "label": "string",
       "names": [
         "string"
       ],
@@ -1639,7 +1639,7 @@
     {
       "id": "stdlib.bisect",
       "kind": "stdlib",
-      "label": "`bisect`",
+      "label": "bisect",
       "names": [
         "bisect"
       ],
@@ -1668,7 +1668,7 @@
     {
       "id": "stdlib.errno",
       "kind": "stdlib",
-      "label": "`errno`",
+      "label": "errno",
       "names": [
         "errno"
       ],
@@ -1696,7 +1696,7 @@
     {
       "id": "stdlib.importlib-resources",
       "kind": "stdlib",
-      "label": "`importlib.resources`",
+      "label": "importlib.resources",
       "names": [
         "importlib.resources"
       ],
@@ -1726,7 +1726,7 @@
     {
       "id": "stdlib.hmac",
       "kind": "stdlib",
-      "label": "`hmac`",
+      "label": "hmac",
       "names": [
         "hmac"
       ],
@@ -1756,7 +1756,7 @@
     {
       "id": "stdlib.unicodedata",
       "kind": "stdlib",
-      "label": "`unicodedata`",
+      "label": "unicodedata",
       "names": [
         "unicodedata"
       ],
@@ -1787,7 +1787,7 @@
     {
       "id": "stdlib.tempfile",
       "kind": "stdlib",
-      "label": "`tempfile`",
+      "label": "tempfile",
       "names": [
         "tempfile"
       ],
@@ -1817,7 +1817,7 @@
     {
       "id": "stdlib.atexit",
       "kind": "stdlib",
-      "label": "`atexit`",
+      "label": "atexit",
       "names": [
         "atexit"
       ],
@@ -1846,7 +1846,7 @@
     {
       "id": "stdlib.shutil",
       "kind": "stdlib",
-      "label": "`shutil`",
+      "label": "shutil",
       "names": [
         "shutil"
       ],
@@ -1878,7 +1878,7 @@
     {
       "id": "stdlib.enum",
       "kind": "stdlib",
-      "label": "`enum`",
+      "label": "enum",
       "names": [
         "enum"
       ],
@@ -1907,7 +1907,7 @@
     {
       "id": "stdlib.dataclasses",
       "kind": "stdlib",
-      "label": "`dataclasses`",
+      "label": "dataclasses",
       "names": [
         "dataclasses"
       ],
@@ -1938,7 +1938,7 @@
     {
       "id": "stdlib.random",
       "kind": "stdlib",
-      "label": "`random`",
+      "label": "random",
       "names": [
         "random"
       ],
@@ -1970,7 +1970,7 @@
     {
       "id": "stdlib.csv",
       "kind": "stdlib",
-      "label": "`csv`",
+      "label": "csv",
       "names": [
         "csv"
       ],
@@ -2000,7 +2000,7 @@
     {
       "id": "stdlib.textwrap",
       "kind": "stdlib",
-      "label": "`textwrap`",
+      "label": "textwrap",
       "names": [
         "textwrap"
       ],
@@ -2028,7 +2028,7 @@
     {
       "id": "stdlib.copy",
       "kind": "stdlib",
-      "label": "`copy`",
+      "label": "copy",
       "names": [
         "copy"
       ],
@@ -2056,7 +2056,7 @@
     {
       "id": "stdlib.argparse",
       "kind": "stdlib",
-      "label": "`argparse`",
+      "label": "argparse",
       "names": [
         "argparse"
       ],
@@ -2087,7 +2087,7 @@
     {
       "id": "stdlib.typing",
       "kind": "stdlib",
-      "label": "`typing`, `typing_extensions`",
+      "label": "typing, typing_extensions",
       "names": [
         "typing",
         "typing_extensions"
@@ -3219,7 +3219,8 @@
   "divergences": [
     {
       "number": 1,
-      "text": "`int` is `i64`. Overflow aborts the process instead of growing a big int. Source: [refused-features](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md) Tier C.",
+      "text": "`int` is `i64`. Overflow aborts the process instead of growing a big int.",
+      "note": "[refused-features](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md) Tier C.",
       "family": "numeric",
       "sources": [
         "https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md"
@@ -3227,13 +3228,15 @@
     },
     {
       "number": 2,
-      "text": "`//` by zero aborts the process instead of raising `ZeroDivisionError`. Source: same as item 1.",
+      "text": "`//` by zero aborts the process instead of raising `ZeroDivisionError`.",
+      "note": "same as item 1.",
       "family": "numeric",
       "sources": []
     },
     {
       "number": 3,
-      "text": "Strings are a Latin-1 byte model. A string literal outside Latin-1 is a fence, and `unicodedata` covers only Latin-1 code points. A normalization that would leave Latin-1 raises `ValueError`. Source: the `unicodedata` row of the generated [supported](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md) table.",
+      "text": "Strings are a Latin-1 byte model. A string literal outside Latin-1 is a fence, and `unicodedata` covers only Latin-1 code points. A normalization that would leave Latin-1 raises `ValueError`.",
+      "note": "the `unicodedata` row of the generated [supported](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md) table.",
       "family": "text",
       "sources": [
         "https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md"
@@ -3241,7 +3244,8 @@
     },
     {
       "number": 4,
-      "text": "`re` is the runtime's byte-oriented backtracking subset, not CPython's `re`. `L`, `T`, `DEBUG` and unknown flag bits raise `ValueError`, `A` and `U` are no-ops, and a pattern that can loop without consuming stops with `RuntimeError` once its fuel is spent. Five or more groups are refused. Source: header of `src/pyscriptc/runtime/ps_re.c`, `re` row of the generated [supported](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md) table.",
+      "text": "`re` is the runtime's byte-oriented backtracking subset, not CPython's `re`. `L`, `T`, `DEBUG` and unknown flag bits raise `ValueError`, `A` and `U` are no-ops, and a pattern that can loop without consuming stops with `RuntimeError` once its fuel is spent. Five or more groups are refused.",
+      "note": "header of `src/pyscriptc/runtime/ps_re.c`, `re` row of the generated [supported](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md) table.",
       "family": "stdlib",
       "sources": [
         "https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md"
@@ -3249,7 +3253,8 @@
     },
     {
       "number": 5,
-      "text": "`json` has no non-ASCII text. Source: `json` row of the generated [supported](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md) table.",
+      "text": "`json` has no non-ASCII text.",
+      "note": "`json` row of the generated [supported](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md) table.",
       "family": "stdlib",
       "sources": [
         "https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md"
@@ -3257,7 +3262,8 @@
     },
     {
       "number": 6,
-      "text": "Set and `frozenset` iteration is insertion order, not CPython's hash order. Length and membership match. Source: [refused-features](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md) Tier C.",
+      "text": "Set and `frozenset` iteration is insertion order, not CPython's hash order. Length and membership match.",
+      "note": "[refused-features](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md) Tier C.",
       "family": "collections",
       "sources": [
         "https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md"
@@ -3265,7 +3271,8 @@
     },
     {
       "number": 7,
-      "text": "After `for i in range(0)`, a new loop target reads as `0` instead of raising `UnboundLocalError`. Source: [refused-features](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md) Tier C.",
+      "text": "After `for i in range(0)`, a new loop target reads as `0` instead of raising `UnboundLocalError`.",
+      "note": "[refused-features](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md) Tier C.",
       "family": "stdlib",
       "sources": [
         "https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md"
@@ -3273,7 +3280,8 @@
     },
     {
       "number": 8,
-      "text": "A subclass `__init__` that never assigns an inherited field leaves it at the zero value of its type instead of raising `AttributeError`. Source: [refused-features](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md) Tier C.",
+      "text": "A subclass `__init__` that never assigns an inherited field leaves it at the zero value of its type instead of raising `AttributeError`.",
+      "note": "[refused-features](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md) Tier C.",
       "family": "objects",
       "sources": [
         "https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md"
@@ -3281,19 +3289,22 @@
     },
     {
       "number": 9,
-      "text": "`raise AppError(\"no\")` for a user exception class stores a code and an optional `str` and does not call `__init__`. Source: same paragraph as item 8.",
+      "text": "`raise AppError(\"no\")` for a user exception class stores a code and an optional `str` and does not call `__init__`.",
+      "note": "same paragraph as item 8.",
       "family": "objects",
       "sources": []
     },
     {
       "number": 10,
-      "text": "`@classmethod` and `@staticmethod` of the form `Class.method(...)` do not pass the class object. Source: same paragraph as item 8.",
+      "text": "`@classmethod` and `@staticmethod` of the form `Class.method(...)` do not pass the class object.",
+      "note": "same paragraph as item 8.",
       "family": "objects",
       "sources": []
     },
     {
       "number": 11,
-      "text": "Some library failures surface as a different exception type: `importlib.resources.files` on a zip or missing package raises `ValueError` rather than `ModuleNotFoundError`, `shutil.copyfile` of the same path raises `RuntimeError` rather than `SameFileError`, other `shutil` and `os` failures are `RuntimeError`, and type errors on `unicodedata` calls surface as `ValueError`. Source: the `unicodedata` and `importlib.resources` rows of the generated [supported](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md) table.",
+      "text": "Some library failures surface as a different exception type: `importlib.resources.files` on a zip or missing package raises `ValueError` rather than `ModuleNotFoundError`, `shutil.copyfile` of the same path raises `RuntimeError` rather than `SameFileError`, other `shutil` and `os` failures are `RuntimeError`, and type errors on `unicodedata` calls surface as `ValueError`.",
+      "note": "the `unicodedata` and `importlib.resources` rows of the generated [supported](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md) table.",
       "family": "text",
       "sources": [
         "https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md"
@@ -3301,7 +3312,8 @@
     },
     {
       "number": 12,
-      "text": "`assert` is always evaluated; a compiled binary has no `-O`. Source: [refused-features](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md) Tier C.",
+      "text": "`assert` is always evaluated; a compiled binary has no `-O`.",
+      "note": "[refused-features](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md) Tier C.",
       "family": "stdlib",
       "sources": [
         "https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md"
@@ -3309,7 +3321,8 @@
     },
     {
       "number": 13,
-      "text": "`x is None` lowers as `==` against `None`. Identical for `None` because it is a singleton; every other `is` on a scalar is refused. Source: [refused-features](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md) Tier C.",
+      "text": "`x is None` lowers as `==` against `None`. Identical for `None` because it is a singleton; every other `is` on a scalar is refused.",
+      "note": "[refused-features](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md) Tier C.",
       "family": "stdlib",
       "sources": [
         "https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md"
@@ -3317,7 +3330,8 @@
     },
     {
       "number": 14,
-      "text": "`ABC`, `ABCMeta`, `Protocol`, `@abstractmethod` and `@overload` lower as plain classes and methods with no CPython runtime semantics. Source: [refused-features](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md) Tier C.",
+      "text": "`ABC`, `ABCMeta`, `Protocol`, `@abstractmethod` and `@overload` lower as plain classes and methods with no CPython runtime semantics.",
+      "note": "[refused-features](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md) Tier C.",
       "family": "objects",
       "sources": [
         "https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md"
@@ -3326,12 +3340,14 @@
     {
       "number": 15,
       "text": "Island calls (`subprocess.check_output`, `socket.gethostname`, `threading`, `logging`) run in an embedded CPython, so those follow the interpreter the binary links, not the pin.",
+      "note": "",
       "family": "stdlib",
       "sources": []
     },
     {
       "number": 16,
-      "text": "`dotenv` lowers a closed subset of python-dotenv's parsing rules, and it differs from the library in three places. The subset: a UTF-8 BOM is stripped, blank lines and whole-line comments are skipped, an `export ` prefix is allowed, keys are bare (`KEY` alone binds `None`), an unquoted value runs to the end of the line with the ` #` comment cut and the rest right-stripped, a double-quoted value decodes `\\\" \\\\' \\\\ \\a \\b \\f \\n \\r \\t \\v` and a single-quoted one only `\\\\` and `\\'`, and a later binding overwrites an earlier one. No interpolation (`$NAME` stays literal), no multi-line values, no quoted keys, and the `stream`, `verbose`, `interpolate`, `override` and `encoding` arguments are fenced. The three differences: a malformed line raises `ValueError` where python-dotenv skips it with a warning, a missing file parses as the empty document where python-dotenv searches with `find_dotenv()`, and `load_dotenv` does not overwrite a variable that is already in the environment (its `override=False` default) while still returning `True` for a document with bindings. Source: header of `src/pyscriptc/runtime/ps_dotenv.c`, `dotenv` row of the generated [supported](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md) table.",
+      "text": "`dotenv` lowers a closed subset of python-dotenv's parsing rules, and it differs from the library in three places. The subset: a UTF-8 BOM is stripped, blank lines and whole-line comments are skipped, an `export ` prefix is allowed, keys are bare (`KEY` alone binds `None`), an unquoted value runs to the end of the line with the ` #` comment cut and the rest right-stripped, a double-quoted value decodes `\\\" \\\\' \\\\ \\a \\b \\f \\n \\r \\t \\v` and a single-quoted one only `\\\\` and `\\'`, and a later binding overwrites an earlier one. No interpolation (`$NAME` stays literal), no multi-line values, no quoted keys, and the `stream`, `verbose`, `interpolate`, `override` and `encoding` arguments are fenced. The three differences: a malformed line raises `ValueError` where python-dotenv skips it with a warning, a missing file parses as the empty document where python-dotenv searches with `find_dotenv()`, and `load_dotenv` does not overwrite a variable that is already in the environment (its `override=False` default) while still returning `True` for a document with bindings.",
+      "note": "header of `src/pyscriptc/runtime/ps_dotenv.c`, `dotenv` row of the generated [supported](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md) table.",
       "family": "stdlib",
       "sources": [
         "https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md"
@@ -3339,7 +3355,8 @@
     },
     {
       "number": 17,
-      "text": "`yaml.safe_load` covers a closed YAML subset, not all of PyYAML: timestamps and sexagesimal numbers (`1:30`) raise `ValueError` where PyYAML resolves them to `date` and `int` objects, and errors surface as `ValueError` rather than `yaml.YAMLError`. Source: header of `src/pyscriptc/runtime/ps_yaml.c`, `yaml` row of the generated [supported](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md) table.",
+      "text": "`yaml.safe_load` covers a closed YAML subset, not all of PyYAML: timestamps and sexagesimal numbers (`1:30`) raise `ValueError` where PyYAML resolves them to `date` and `int` objects, and errors surface as `ValueError` rather than `yaml.YAMLError`.",
+      "note": "header of `src/pyscriptc/runtime/ps_yaml.c`, `yaml` row of the generated [supported](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md) table.",
       "family": "stdlib",
       "sources": [
         "https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md"
@@ -3347,7 +3364,8 @@
     },
     {
       "number": 18,
-      "text": "HTTP and HTTPS go through a `curl` subprocess bridge, so the request is made by the host `curl` and depends on `curl` being on `PATH` at run time; a host without `curl` cannot make the call. The bridge needs the libpython-linked island shape, holds the whole body in memory with no streaming, and its TLS, proxy and redirect behavior is `curl`'s rather than CPython's. Source: the [HTTP today](https://pyscriptc.pages.dev/docs/guide/http/) page and `src/pyscriptc/runtime/ps_sub.c`.",
+      "text": "HTTP and HTTPS go through a `curl` subprocess bridge, so the request is made by the host `curl` and depends on `curl` being on `PATH` at run time; a host without `curl` cannot make the call. The bridge needs the libpython-linked island shape, holds the whole body in memory with no streaming, and its TLS, proxy and redirect behavior is `curl`'s rather than CPython's.",
+      "note": "the [HTTP today](https://pyscriptc.pages.dev/docs/guide/http/) page and `src/pyscriptc/runtime/ps_sub.c`.",
       "family": "stdlib",
       "sources": [
         "https://pyscriptc.pages.dev/docs/guide/http/"
@@ -3366,7 +3384,7 @@
     },
     {
       "date": "2026-10-24",
-      "commit": "34509b56ba8c6565263af854ec0b597f15e16e95",
+      "commit": "fa92f0e5a4dac06077570760f3a284292c43a870",
       "weighted_pass": 824.7,
       "packages_full": 3,
       "packages_partial": 5,

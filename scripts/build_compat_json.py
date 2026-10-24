@@ -91,6 +91,15 @@ def _slug(label: str) -> str:
     return "".join(out).strip("-")
 
 
+def _plain(label: str) -> str:
+    """The label without the markdown backticks the docs use.
+
+    The support table writes a builtin group as `` `abs`, `all` ``. The site
+    renders the label in a monospace cell, so the backticks would be noise.
+    """
+    return label.replace("`", "")
+
+
 def _git(*args: str) -> str:
     try:
         proc = subprocess.run(
@@ -122,7 +131,7 @@ def _support_rows(data: dict[str, Any], kind: str, errors: list[str]) -> list[di
     for entry in data[kind]:
         result = evaluate(entry, kind, errors)
         names = list(entry["names"])
-        label = result["label"]
+        label = _plain(result["label"])
         missing = result["missing"]
         unsupported = [] if result["status"] == GREEN else [missing]
         rows.append(

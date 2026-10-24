@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Are We Native Yet? · pyscriptc</title>
-  <meta name="description" content="Live compatibility status of pyscriptc: which builtins, standard-library modules, language features and PyPI packages compile to native code today.">
+  <title>What pyscriptc supports and where it diverges · compat</title>
+  <meta name="description" content="Live compatibility status of pyscriptc vs CPython 3.14: what compiles natively, what stops at a fence, and the numbered divergences. Builtins, standard library, PyPI top-100 packages, probe pass rates, per-target status and history.">
   <link rel="icon" type="image/png" href="{{BASE}}icon-64.png">
   <link rel="stylesheet" href="{{BASE}}compat.css">
 </head>
@@ -24,51 +24,90 @@
 
   <main>
     <section class="hero">
-      <h1>Are We Native Yet?</h1>
-      <p class="tagline">Live compatibility status of <a href="https://github.com/sigilco/pyscriptc">pyscriptc</a>: which builtins, standard-library modules, language features and PyPI packages compile to native code today.</p>
+      <h1><span class="faint-word">What does</span> pyscriptc <span class="faint-word">support?</span></h1>
+      <p class="tagline">
+        pyscriptc compiles a typed subset of Python 3.14 to native code.
+        This page is the honest answer: what compiles, what stops at a named fence,
+        and what runs but behaves differently from CPython. Measured, not claimed.
+      </p>
       <p class="meta" id="meta">loading&hellip;</p>
     </section>
 
+    <p class="banner banner-stale" id="stale" hidden>
+      <strong>This snapshot is stale.</strong>
+      <span id="stale-detail"></span>
+      The nightly rebuilds it; the data file and the
+      <a href="https://github.com/sigilco/pyscriptc/actions/workflows/nightly.yml">nightly runs</a>
+      have the details.
+    </p>
+
     <noscript>
-      <p class="noscript">This page renders its tables with JavaScript. The raw data behind it is plain JSON: <a href="{{BASE}}data/compat.json">data/compat.json</a>.</p>
+      <p class="banner banner-error">This page renders its tables with JavaScript. The raw data behind it is plain JSON:
+        <a href="{{BASE}}data/compat.json">data/compat.json</a> and the summary at
+        <a href="{{BASE}}data/summary.json">data/summary.json</a>.</p>
     </noscript>
 
-    <p class="error" id="error" hidden></p>
+    <p class="banner banner-error" id="error" hidden></p>
 
     <section class="summary" id="summary" hidden>
       <div class="cards">
-        <div class="card" id="card-builtins"><h2>Builtins</h2><p class="counts"></p></div>
-        <div class="card" id="card-stdlib"><h2>Standard library</h2><p class="counts"></p></div>
+        <div class="card" id="card-probes"><h2>Probes passing</h2><p class="big"></p><p class="sub" id="card-probes-sub"></p></div>
+        <div class="card card-none" id="card-failures"><h2>Failures</h2><p class="big"></p><p class="sub">wrong output, crash, timeout</p></div>
+        <div class="card card-none" id="card-fences"><h2>Fences</h2><p class="big"></p><p class="sub">in the measured packages</p></div>
         <div class="card" id="card-packages"><h2>PyPI top 100</h2><p class="counts"></p></div>
-        <div class="card" id="card-score"><h2>Weighted pass</h2><p class="big"></p><p class="sub">compat2 visible corpus</p></div>
-        <div class="card" id="card-fences"><h2>Fences</h2><p class="big"></p><p class="sub">in the measured packages</p></div>
+        <div class="card" id="card-stdlib"><h2>Standard library</h2><p class="counts"></p></div>
+        <div class="card card-warn" id="card-divergences"><h2>Divergences</h2><p class="big"></p><p class="sub">vs CPython 3.14</p></div>
+        <div class="card" id="card-targets"><h2>Targets</h2><p class="counts"></p></div>
       </div>
     </section>
 
     <nav class="toc" aria-label="Sections">
+      <a href="#divergences" class="toc-fail">Divergences</a>
       <a href="#language">Language features</a>
       <a href="#builtins">Builtins</a>
       <a href="#stdlib">Standard library</a>
       <a href="#pypi">PyPI top 100</a>
       <a href="#fences">Fence census</a>
+      <a href="#targets">Targets</a>
       <a href="#history">History</a>
     </nav>
 
+    <section id="divergences" hidden>
+      <h2>Divergences from CPython 3.14</h2>
+      <p class="section-note">
+        Every numbered difference from CPython, in the style of
+        <a href="https://github.com/sigilco/pyscriptc/blob/master/docs/reference/divergences.md">docs/reference/divergences.md</a>.
+        Anything not listed here is claimed identical; a difference you find that is not listed is a bug.
+      </p>
+      <div class="controls">
+        <input type="search" id="divergences-filter" placeholder="Filter divergences&hellip;" aria-label="Filter divergences">
+        <div class="chips" role="group" aria-label="Filter divergences by family" data-for="divergences">
+          <button type="button" class="chip" data-status="all" aria-pressed="true">All</button>
+        </div>
+        <span class="count" id="divergences-count" aria-live="polite"></span>
+      </div>
+      <div class="table-wrap">
+        <table id="divergences-table"></table>
+      </div>
+    </section>
+
     <section id="language" hidden>
       <h2>Language features</h2>
-      <p class="section-note">compat2 probe groups over the visible corpus. Weighted pass is the scorer&rsquo;s weighted share of passing probes. Look a fence code up with <code>pyscriptc explain PSxxxx</code>.</p>
+      <p class="section-note">compat2 probe groups over the visible corpus. The <strong>Failures</strong> column is the one that
+        matters: probes that ran and did not match CPython. Look a fence code up with <code>pyscriptc explain PSxxxx</code>.</p>
       <div class="controls">
         <input type="search" id="language-filter" placeholder="Filter groups&hellip;" aria-label="Filter language feature groups">
         <span class="count" id="language-count" aria-live="polite"></span>
       </div>
       <div class="table-wrap">
-        <table id="language-table" aria-describedby="language-note"></table>
+        <table id="language-table"></table>
       </div>
     </section>
 
     <section id="builtins" hidden>
       <h2>Builtins</h2>
-      <p class="section-note">One row per probed group of Python builtins. &ldquo;Not supported&rdquo; lists the forms that stop at a fence.</p>
+      <p class="section-note">One row per probed group of Python builtins. &ldquo;Not supported&rdquo; lists the forms that stop at
+        a fence. Pass rate: the compat2 probes covering the name, out of those that ran.</p>
       <div class="controls">
         <input type="search" id="builtins-filter" placeholder="Filter builtins&hellip;" aria-label="Filter builtins">
         <div class="chips" role="group" aria-label="Filter builtins by status" data-for="builtins">
@@ -86,7 +125,8 @@
 
     <section id="stdlib" hidden>
       <h2>Standard library</h2>
-      <p class="section-note">One row per probed module. &ldquo;Not supported&rdquo; lists the module surface that stops at a fence.</p>
+      <p class="section-note">One row per probed module. &ldquo;Not supported&rdquo; lists the module surface that stops at a
+        fence. Pass rate: the compat2 probes covering the module, out of those that ran.</p>
       <div class="controls">
         <input type="search" id="stdlib-filter" placeholder="Filter modules&hellip;" aria-label="Filter standard-library modules">
         <div class="chips" role="group" aria-label="Filter standard library by status" data-for="stdlib">
@@ -104,7 +144,8 @@
 
     <section id="pypi" hidden>
       <h2>PyPI top 100</h2>
-      <p class="section-note">The pinned top-100 packages, measured with <code>pyscriptc coverage</code>. Status: no fences is full, at most half the definitions fenced is partial, more is none.</p>
+      <p class="section-note">The pinned top-100 packages, measured with <code>pyscriptc coverage</code>. Status: no fences is
+        full, at most half the definitions fenced is partial, more is none.</p>
       <div class="controls">
         <input type="search" id="packages-filter" placeholder="Filter packages&hellip;" aria-label="Filter packages">
         <div class="chips" role="group" aria-label="Filter packages by status" data-for="packages">
@@ -122,13 +163,35 @@
 
     <section id="fences" hidden>
       <h2>Fence census</h2>
-      <p class="section-note">Fence codes over the measured packages, from the same run as the table above. Look a code up with <code>pyscriptc explain PSxxxx</code>.</p>
+      <p class="section-note">Fence codes over the measured packages, from the same run as the table above. The fix is the
+        compiler&rsquo;s own remediation hint (<code>pyscriptc explain PSxxxx</code>).</p>
       <div class="controls">
         <input type="search" id="fences-filter" placeholder="Filter fence codes&hellip;" aria-label="Filter fence codes">
         <span class="count" id="fences-count" aria-live="polite"></span>
       </div>
       <div class="table-wrap">
         <table id="fences-table"></table>
+      </div>
+    </section>
+
+    <section id="targets" hidden>
+      <h2>Targets</h2>
+      <p class="section-note">
+        Where a compiled program can run. <strong>Native</strong> is built and smoke tested in CI,
+        <strong>experimental</strong> works with known gaps, and every row names the lane that proves it.
+        Cross-compilation goes through <code>zig cc</code> (<code>pyscriptc compile --target &lt;triple&gt;</code>).
+      </p>
+      <div class="controls">
+        <input type="search" id="targets-filter" placeholder="Filter targets&hellip;" aria-label="Filter targets">
+        <div class="chips" role="group" aria-label="Filter targets by status" data-for="targets">
+          <button type="button" class="chip" data-status="all" aria-pressed="true">All</button>
+          <button type="button" class="chip" data-status="native" aria-pressed="false">Native</button>
+          <button type="button" class="chip" data-status="experimental" aria-pressed="false">Experimental</button>
+        </div>
+        <span class="count" id="targets-count" aria-live="polite"></span>
+      </div>
+      <div class="table-wrap">
+        <table id="targets-table"></table>
       </div>
     </section>
 
@@ -150,8 +213,12 @@
   </main>
 
   <footer>
-    <p>Measured <span id="generated"></span> at commit <a id="commit" href="#"></a> by the <a href="https://github.com/sigilco/pyscriptc/actions/workflows/nightly.yml">nightly workflow</a>. Data: <a href="{{BASE}}data/compat.json">compat.json</a>.</p>
-    <p><a href="https://pyscriptc.pages.dev">pyscriptc</a> compiles typed Python to native binaries. The support model and what the statuses mean: <a href="https://pyscriptc.pages.dev/docs/guide/support-model/">the Python subset</a>.</p>
+    <p>Measured <span id="generated"></span> at commit <a id="commit" href="#"></a> by the <a
+        href="https://github.com/sigilco/pyscriptc/actions/workflows/nightly.yml">nightly workflow</a>. Data:
+      <a href="{{BASE}}data/compat.json">compat.json</a>, summary at
+      <a href="{{BASE}}data/summary.json">summary.json</a>.</p>
+    <p><a href="https://pyscriptc.pages.dev">pyscriptc</a> compiles typed Python to native binaries. The support model and
+      what the statuses mean: <a href="https://pyscriptc.pages.dev/docs/guide/support-model/">the Python subset</a>.</p>
   </footer>
 
   <script>window.__COMPAT_BASE = "{{BASE}}";</script>

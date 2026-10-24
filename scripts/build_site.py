@@ -39,6 +39,11 @@ REQUIRED = (
     "compat/data/compat.json",
 )
 
+# The files that must ship when they exist. The summary is the small file the
+# landing page reads for live numbers; it is optional, so a missing one is
+# not a broken deploy.
+OPTIONAL = ("compat/data/summary.json",)
+
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)

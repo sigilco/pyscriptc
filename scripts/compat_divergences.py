@@ -103,6 +103,20 @@ def _sources(text: str) -> list[str]:
     return seen
 
 
+# The tail of an item that names where the difference comes from. It is split
+# off the difference itself, so the page can show one column for the
+# difference and one for the sources.
+SOURCE_NOTE = re.compile(r"\s+Source:\s*(.*)$", re.DOTALL)
+
+
+def _split_source(text: str) -> tuple[str, str]:
+    """The difference and the source note of one item."""
+    match = SOURCE_NOTE.search(text)
+    if not match:
+        return text.strip(), ""
+    return text[: match.start()].strip(), match.group(1).strip()
+
+
 def parse(text: str) -> list[dict[str, Any]]:
     """The numbered items of the divergences doc, as structured rows."""
     lines = text.splitlines()
@@ -131,8 +145,11 @@ def parse(text: str) -> list[dict[str, Any]]:
     if current is not None:
         rows.append(current)
     for row in rows:
-        row["family"] = _family(row["text"])
-        row["sources"] = _sources(row["text"])
+        difference, note = _split_source(row["text"])
+        row["text"] = difference
+        row["note"] = note
+        row["family"] = _family(difference)
+        row["sources"] = _sources(note)
     return rows
 
 
