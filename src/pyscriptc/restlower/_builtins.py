@@ -6,7 +6,7 @@ import ast
 from typing import Any
 
 from pyscriptc.reflection import getattr_note, type_read_note, type_synthesis_note
-from pyscriptc.restlower._folds import _static_builtin_fold
+from pyscriptc.restlower._folds import _STATIC_MISSING, _static_builtin_fold, _static_scalar
 from pyscriptc.restlower._shared import _pin, _span_to
 
 
@@ -203,6 +203,10 @@ def _chr(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     folded = _static_builtin_fold("chr", arg, span, fence=lo)
     if folded is not None:
         return folded
+    val = _static_scalar(arg)
+    if val is not _STATIC_MISSING and isinstance(val, int) and not isinstance(val, bool):
+        if val < 0 or val > 0x10FFFF:
+            lo.fail(node, "PS2003", "chr() arg not in range(0x110000)")
     if arg["type"]["kind"] != "int":
         lo.fail(node, "PS1003", "chr argument is int")
     return lo._abi_call("builtins", "chr", [arg], {"kind": "str"}, "ps_chr", span)

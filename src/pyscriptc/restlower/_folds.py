@@ -128,13 +128,7 @@ def _static_builtin_fold(
             result = len(value)
         elif name == "ord" and isinstance(value, str) and len(value) == 1:
             result = ord(value)
-        elif (
-            name == "chr"
-            and isinstance(value, int)
-            and not isinstance(value, bool)
-            and 0 <= value <= 0x10FFFF
-            and not 0xD800 <= value <= 0xDFFF
-        ):
+        elif name == "chr" and isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 0x10FFFF:
             result = chr(value)
         elif name == "hash" and isinstance(value, (int, bool)):
             result = hash(value)
