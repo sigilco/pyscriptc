@@ -95,24 +95,25 @@ CASES = [
         total = total + x
     return total + len(xs)
 """,
-        4000,
+        50000,
         1.4,
     ),
 ]
 
-FLOOR_MS = 3.0  # below this the size is too small to time at all
+FLOOR_MS = 2.0  # below this the size is too small to time at all
 
 
 def _timed(binary: Path) -> float:
-    """The best wall time of three runs, in milliseconds."""
-    best = math.inf
-    for _ in range(3):
+    """The median wall time of five runs, in milliseconds."""
+    samples: list[float] = []
+    for _ in range(5):
         start = time.perf_counter()
         proc = subprocess.run([str(binary)], capture_output=True, text=True, timeout=600)
         elapsed = (time.perf_counter() - start) * 1000.0
         assert proc.returncode == 0, proc.stderr + proc.stdout
-        best = min(best, elapsed)
-    return best
+        samples.append(elapsed)
+    samples.sort()
+    return samples[len(samples) // 2]
 
 
 @pytest.mark.parametrize("case", CASES, ids=[c[0] for c in CASES])
