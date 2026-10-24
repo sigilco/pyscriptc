@@ -57,9 +57,10 @@ def _cap(path: Path) -> None:
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
         keep: list[str] = []
         size = 0
+        target = _MAX_BYTES * 4 // 5
         for line in reversed(lines):
             size += len(line.encode("utf-8", errors="replace"))
-            if size > _MAX_BYTES:
+            if size > target:
                 break
             keep.append(line)
         path.write_text("".join(reversed(keep)), encoding="utf-8")

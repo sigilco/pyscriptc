@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import json
+import os
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
+import pyscriptc
 from pyscriptc import cli, runcache
 
 needs_clang = pytest.mark.skipif(shutil.which("clang") is None, reason="clang required")
@@ -119,3 +124,72 @@ def test_fenced_source_does_not_cache(tmp_path: Path, cache_home: Path) -> None:
 def test_dashdash_needs_run_or_compile_run() -> None:
     with pytest.raises(SystemExit):
         cli.main(["coverage", "x.py", "--", "a"])
+
+
+@needs_clang
+def test_compiler_change_invalidates_cache_and_recompiles(tmp_path: Path, compiles: list[str]) -> None:
+    src = _script(tmp_path)
+    assert cli.main(["run", str(src), "--skip-check"]) == 7
+    assert len(compiles) == 1
+
+    # Second run hits cache
+    assert cli.main(["run", str(src), "--skip-check"]) == 7
+    assert len(compiles) == 1
+
+    # Changing a compiler package file invalidates the compiler digest and recompiles
+    root = Path(pyscriptc.__file__).parent
+    marker = root / f"_warm_test_marker_{os.getpid()}.py"
+    try:
+        marker.write_text("# marker\n")
+        assert cli.main(["run", str(src), "--skip-check"]) == 7
+        assert len(compiles) == 2, "compiler change must trigger recompile"
+    finally:
+        marker.unlink(missing_ok=True)
+
+
+def test_compiler_digest_stat_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PYSC_CACHE_DIR", str(tmp_path / "cache"))
+    d1 = runcache.compiler_digest()
+    cache_file = runcache.cache_root() / "compiler_digest.json"
+    assert cache_file.is_file()
+    data = json.loads(cache_file.read_text())
+    assert data["digest"] == d1
+
+    # Same files yield identical digest using cached stamp
+    d2 = runcache.compiler_digest()
+    assert d1 == d2
+
+    # Touching or adding a file in root changes stamp and digest
+    root = Path(pyscriptc.__file__).parent
+    marker = root / f"_test_stamp_marker_{os.getpid()}.py"
+    try:
+        marker.write_text("# test\n")
+        d3 = runcache.compiler_digest()
+        assert d3 != d1
+    finally:
+        marker.unlink(missing_ok=True)
+
+    d4 = runcache.compiler_digest()
+    assert d4 == d1
+
+
+def test_warm_run_eager_imports_pruned(tmp_path: Path) -> None:
+    src = _script(tmp_path, "def main() -> int:\n    print('ok')\n    return 0\nmain()\n")
+    # First run compiles and caches
+    code_init = f"""
+from pyscriptc.cli import main
+main(['run', '{src}', '--skip-check'])
+"""
+    subprocess.run([sys.executable, "-c", code_init], check=True)
+
+    # Warm run checks loaded modules
+    code_warm = f"""
+import sys
+from pyscriptc.cli import main
+main(['run', '{src}', '--skip-check'])
+loaded = set(sys.modules)
+for forbidden in ('pyscriptc.lower', 'pyscriptc.assess', 'pyscriptc.coverage', 'pyscriptc.emit.llvm'):
+    assert forbidden not in loaded, f'{{forbidden}} should not be loaded on warm run'
+"""
+    proc = subprocess.run([sys.executable, "-c", code_warm], capture_output=True, text=True)
+    assert proc.returncode == 0, f"warm run failed: {proc.stderr}"

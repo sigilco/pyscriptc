@@ -29,6 +29,12 @@ class FitError(SpikeError):
         super().__init__("PS3002", message)
 
 
+class CheckFailed(Exception):
+    def __init__(self, output: str) -> None:
+        super().__init__(output)
+        self.output = output
+
+
 def span_of(node: Any, filename: str) -> dict[str, Any]:
     line = getattr(node, "lineno", 1) or 1
     col0 = getattr(node, "col_offset", 0) or 0

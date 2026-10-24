@@ -39,11 +39,7 @@ import warnings
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-
-class CheckFailed(Exception):
-    def __init__(self, output: str) -> None:
-        super().__init__(output)
-        self.output = output
+from pyscriptc.errors import CheckFailed
 
 
 def plugin(version: str) -> type:
