@@ -1,3 +1,7 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 /* importlib.resources directory lookup, tempfile, and shutil.
 
 Resource roots are directories on the compile-time sys.path. Zip archives
@@ -16,6 +20,14 @@ are not searched. as_file of one of these paths is the path itself.
 #include <sys/stat.h>
 #include <unistd.h>
 #include <utime.h>
+
+#ifdef __APPLE__
+#include <copyfile.h>
+#endif
+
+#ifdef __linux__
+#include <sys/sendfile.h>
+#endif
 
 typedef struct PsPath {
     PsBuf path;
@@ -282,15 +294,106 @@ void ps_res_files(int64_t pn, const char *pkg, int64_t sn, const char *search, P
 }
 
 static void ps_copy_bytes(FILE *in, FILE *out) {
-    char buf[4096];
+    int infd = fileno(in);
+    int outfd = fileno(out);
+    struct stat st;
+
+    if (infd >= 0 && outfd >= 0 && fstat(infd, &st) == 0 && S_ISREG(st.st_mode)) {
+        if (st.st_size == 0) {
+            return;
+        }
+
+#ifdef __APPLE__
+        if (fcopyfile(infd, outfd, NULL, COPYFILE_DATA) == 0) {
+            return;
+        }
+        if (errno != EINVAL && errno != ENOTSUP) {
+            ps_os_fail("copyfile");
+        }
+        rewind(in);
+        rewind(out);
+        (void)ftruncate(outfd, 0);
+#elif defined(__linux__)
+        int cfr_failed = 0;
+        off_t total_copied = 0;
+        while (1) {
+            ssize_t n = copy_file_range(infd, NULL, outfd, NULL, (size_t)1024 * 1024 * 128, 0);
+            if (n == 0) {
+                if (total_copied == 0) {
+                    cfr_failed = 1;
+                    break;
+                }
+                return;
+            }
+            if (n < 0) {
+                if (total_copied == 0 && (errno == ENOSYS || errno == EXDEV || errno == EINVAL || errno == EOPNOTSUPP)) {
+                    cfr_failed = 1;
+                    break;
+                }
+                ps_os_fail("copyfile");
+            }
+            total_copied += n;
+        }
+
+        if (cfr_failed) {
+            rewind(in);
+            rewind(out);
+            lseek(infd, 0, SEEK_SET);
+            lseek(outfd, 0, SEEK_SET);
+            (void)ftruncate(outfd, 0);
+
+            total_copied = 0;
+            int sendfile_failed = 0;
+            while (1) {
+                ssize_t n = sendfile(outfd, infd, NULL, (size_t)1024 * 1024 * 128);
+                if (n == 0) {
+                    return;
+                }
+                if (n < 0) {
+                    if (total_copied == 0 && (errno == EINVAL || errno == ENOSYS || errno == ENOTSOCK || errno == EOPNOTSUPP)) {
+                        sendfile_failed = 1;
+                        break;
+                    }
+                    ps_os_fail("copyfile");
+                }
+                total_copied += n;
+            }
+
+            if (sendfile_failed) {
+                rewind(in);
+                rewind(out);
+                lseek(infd, 0, SEEK_SET);
+                lseek(outfd, 0, SEEK_SET);
+                (void)ftruncate(outfd, 0);
+            }
+        }
+#endif
+    }
+
+    char stack_buf[4096];
+    size_t buf_size = 256 * 1024;
+    char *buf = (char *)malloc(buf_size);
+    if (buf == NULL) {
+        buf = stack_buf;
+        buf_size = sizeof(stack_buf);
+    }
     size_t n;
-    while ((n = fread(buf, 1, sizeof buf, in)) > 0) {
+    while ((n = fread(buf, 1, buf_size, in)) > 0) {
         if (fwrite(buf, 1, n, out) != n) {
+            if (buf != stack_buf) {
+                free(buf);
+            }
             ps_os_fail("copyfile");
         }
     }
     if (ferror(in)) {
+        if (buf != stack_buf) {
+            free(buf);
+        }
         ps_os_fail("copyfile");
+    }
+    if (buf != stack_buf) {
+        free(buf);
     }
 }
 
@@ -299,10 +402,22 @@ void ps_shutil_copyfile(int64_t sn, const char *src, int64_t dn, const char *dst
     char *dest = ps_cstr(dn, dst);
     FILE *in;
     FILE *outf;
-    if (strcmp(source, dest) == 0) {
+    struct stat st_src, st_dst;
+    int same = (strcmp(source, dest) == 0);
+    if (!same && stat(source, &st_src) == 0 && stat(dest, &st_dst) == 0) {
+        if (st_src.st_dev == st_dst.st_dev && st_src.st_ino == st_dst.st_ino) {
+            same = 1;
+        }
+    }
+    if (same) {
         free(source);
         free(dest);
         ps_raise_cstr(PS_RUNTIME, "copyfile source and destination are the same file");
+    }
+    if (stat(source, &st_src) == 0 && S_ISDIR(st_src.st_mode)) {
+        free(source);
+        free(dest);
+        ps_os_fail("copyfile");
     }
     in = fopen(source, "rb");
     if (in == NULL) {
