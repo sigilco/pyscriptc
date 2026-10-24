@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from pyscriptc.coro import EXC, STATE, YIELD_MARKER
+from pyscriptc.coro import EXC, STATE, STOP, YIELD_MARKER
 from pyscriptc.ir import validate_module
 from pyscriptc.lower import lower_source
 from pyscriptc.package import lower_directory
@@ -920,3 +920,201 @@ def test_plain_handler_frame_has_no_exception_field() -> None:
     for cls in module["classes"]:
         if cls["name"].startswith("gen."):
             assert not any(field["name"] == EXC for field in cls["fields"])
+
+
+# --- Generator statement shapes (issue #433) --------------------------------
+
+# A bare `yield` hands None to the consumer. `Iterator[None]` is None itself,
+# an optional element boxes it.
+BARE_YIELD = """\
+from typing import Iterator, Optional
+
+
+def none_gen() -> Iterator[None]:
+    yield
+
+
+def opt_gen() -> Iterator[Optional[int]]:
+    yield
+    yield 1
+
+
+def demo() -> str:
+    out: str = ""
+    for v in none_gen():
+        out += str(v is None)
+    n: int = 0
+    for w in opt_gen():
+        n += 1
+        if w is not None:
+            out += " " + str(w)
+    out += " " + str(n)
+    return out
+
+
+print(demo())
+"""
+
+# `return v` in a generator carries the value (CPython's StopIteration.value).
+RETURN_VALUE = """\
+from typing import Generator
+
+
+def g(n: int) -> Generator[int, None, int]:
+    yield 1
+    if n > 0:
+        yield 2
+        return n * 10
+    return -1
+
+
+def demo() -> str:
+    out: str = ""
+    for v in g(1):
+        out += str(v)
+    for v in g(0):
+        out += " " + str(v)
+    return out
+
+
+print(demo())
+"""
+
+# The full annotation forms: `Generator[T]`, `Generator[T, S, R]` and
+# `Iterable[T]`.
+GENERATOR_FORMS = """\
+from typing import Generator, Iterable, Iterator
+
+
+def one() -> Generator[int]:
+    yield 1
+
+
+def three() -> Generator[int, str, bool]:
+    got: str = yield 1
+    yield len(got)
+
+
+def iterable() -> Iterable[int]:
+    yield 1
+
+
+def plain() -> Iterator[int]:
+    yield 1
+
+
+def demo() -> str:
+    out: str = ""
+    for v in one():
+        out += str(v)
+    g: Generator[int, str, bool] = three()
+    out += " " + str(next(g))
+    out += " " + str(g.send("abc"))
+    for v in iterable():
+        out += " " + str(v)
+    for v in plain():
+        out += " " + str(v)
+    return out
+
+
+print(demo())
+"""
+
+# A `with` block in a generator. CPython suspends inside the block without
+# running `__exit__`, and runs it when the block leaves.
+YIELD_IN_WITH = """\
+from typing import Iterator
+
+
+class Ctx:
+    tag: str
+
+    def __init__(self, tag: str) -> None:
+        self.tag = tag
+
+    def __enter__(self) -> str:
+        print("enter", self.tag)
+        return self.tag
+
+    def __exit__(self, t: str | None, v: Exception | None, tb: str | None) -> bool:
+        print("exit", self.tag)
+        return False
+
+
+def g() -> Iterator[str]:
+    with Ctx("a") as x:
+        yield x
+        with Ctx("b") as y:
+            yield x + y
+        yield "after"
+
+
+def demo() -> None:
+    for v in g():
+        print("v", v)
+
+
+demo()
+"""
+
+
+@pytest.mark.parametrize(
+    ("name", "source"),
+    [
+        ("bare_yield", BARE_YIELD),
+        ("return_value", RETURN_VALUE),
+        ("generator_forms", GENERATOR_FORMS),
+        ("yield_in_with", YIELD_IN_WITH),
+    ],
+)
+def test_generator_shapes_match_cpython(tmp_path: Path, name: str, source: str) -> None:
+    got, expected = _run_both(tmp_path, name, source)
+    assert expected
+    assert got == expected
+
+
+def test_bare_yield_needs_an_optional_element_type() -> None:
+    module = lower_source(
+        "from typing import Iterator\n\n\ndef g() -> Iterator[int]:\n    yield\n",
+        "bare.py",
+    )
+    assert [(f["code"], f["message"]) for f in module["fences"]] == [
+        ("PS2002", "a bare yield needs an Optional element type")
+    ]
+
+
+def test_return_value_frame_carries_the_stop_field() -> None:
+    module = lower_source(RETURN_VALUE, "ret.py")
+    assert module["fences"] == []
+    validate_module(module)
+    frame = next(cls for cls in module["classes"] if cls["name"] == "gen.g")
+    assert any(field["name"] == STOP for field in frame["fields"])
+
+
+def test_generator_without_a_return_type_has_no_stop_field() -> None:
+    module = lower_source(BASIC, "basic.py")
+    for cls in module["classes"]:
+        if cls["name"].startswith("gen."):
+            assert not any(field["name"] == STOP for field in cls["fields"])
+
+
+def test_send_type_drives_the_received_value() -> None:
+    module = lower_source(
+        "from typing import Generator\n\n\n"
+        "def g() -> Generator[int, str, None]:\n"
+        "    got: str = yield 1\n"
+        "    yield len(got)\n",
+        "sendty.py",
+    )
+    assert module["fences"] == []
+    validate_module(module)
+
+
+def test_send_value_must_match_the_annotation() -> None:
+    module = lower_source(
+        "from typing import Generator\n\n\ndef g() -> Generator[int, str, None]:\n    got: int = yield 1\n",
+        "sendbad.py",
+    )
+    assert [(f["code"], f["message"]) for f in module["fences"]] == [
+        ("PS1003", "the sent value is str, annotation says int")
+    ]

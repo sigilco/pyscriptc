@@ -36,11 +36,14 @@ tasks and drives them together, so the children interleave exactly like
 CPython's.
 
 Scope today: module-level generators annotated `Iterator[T]`, `Iterable[T]` or
-`Generator[T, None, None]`, module-level `async def` coroutines with a return
-annotation, `yield v` and `yield from <iterable>` as statements, bare
-`return`, yields under `if`/`while`/`for`, `await <coroutine call>` as a
-statement or the whole value of an assignment, `asyncio.run`,
-`asyncio.sleep` and `asyncio.gather`. `@contextmanager` (module level, on a
+`Generator[T]`/`Generator[T, S, R]`, module-level `async def` coroutines with
+a return annotation, `yield v` and `yield from <iterable>` as statements, a
+bare `yield` (the element type has to accept None), `return v` in a generator
+(the value rides in the frame; CPython's `StopIteration.value` is not read
+back), yields under `if`/`while`/`for`, yields inside `with` (the block
+desugars into a `try` and the suspension skips the `__exit__` half),
+`await <coroutine call>` as a statement or the whole value of an assignment,
+`asyncio.run`, `asyncio.sleep` and `asyncio.gather`. `@contextmanager` (module level, on a
 method, and in package units) lowers to a `cm.<name>` wrapper whose
 `__enter__`/`__exit__` drive the generator frame. A suspension inside
 `try`/`except`/`else`/`finally` lowers: the guard transform re-enters the
@@ -50,9 +53,9 @@ back on the resume). An `await` inside a `with` lowers too: the `with`
 desugars into a `try`, and the guard transform handles that shape. A child
 coroutine that raises after a suspension reaches its awaiter: the loop parks
 the exception against the child frame and the awaiter re-raises it at its
-own await point, so a `try` around the await sees it. Not yet: yield inside
-with, nested or generic resumables, `async with`, `async for`, async
-generators, `contextmanager` used as a call.
+own await point, so a `try` around the await sees it. Not yet: nested or
+generic resumables, `async with`, `async for`, async generators,
+`contextmanager` used as a call, `yield from` expressions (send delegation).
 `PYSC_CORO=0` turns the lowering off (generators and coroutines fence as
 before).
 """
@@ -562,7 +565,16 @@ class CoroMixin:
                 if isinstance(stmt, ast.AnnAssign):
                     typ = self._annotation(stmt.annotation)
                     self.locals[target.id] = typ
-                stmts.append(_assign(target.id, _name(recv, typ, span), span))
+                if plan.send.get("kind") != "none":
+                    # The recv temp holds the send type (`Generator[T, S, R]`
+                    # sends S), so the target's own type has to accept it. A
+                    # `Generator[T, None, None]` never delivers a value: the
+                    # recv temp reads as the None singleton and the target's
+                    # own type stands.
+                    self._expect(stmt, plan.send, typ, "the sent value")
+                    stmts.append(_assign(target.id, _name(recv, plan.send, span), span))
+                else:
+                    stmts.append(_assign(target.id, _name(recv, typ, span), span))
                 return stmts
             if isinstance(stmt, ast.Return):
                 span = span_of(stmt, self.filename)
