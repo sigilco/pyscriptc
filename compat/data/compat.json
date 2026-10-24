@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-24",
-  "commit": "7d6a4390835e5dcfccf7a959281d745b2cf1d706",
+  "commit": "632fb960dd5837ca80648975cc853ab3b871523e",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 6,
     "packages_none": 10,
     "weighted_pass": 0.0,
-    "fences": 3017
+    "fences": 2791
   },
   "builtins": [
     {
@@ -1355,35 +1355,35 @@
       "import_name": "colorama",
       "version": "0.4.6",
       "status": "none",
-      "fences": 87,
+      "fences": 133,
       "definitions": 77,
-      "fenced_definitions": 60,
+      "fenced_definitions": 48,
       "top_families": [
         {
-          "family": "param-inference",
-          "count": 38
-        },
-        {
-          "family": "return-inference",
-          "count": 16
-        },
-        {
           "family": "class-body",
+          "count": 51
+        },
+        {
+          "family": "param-inference",
+          "count": 29
+        },
+        {
+          "family": "construct-other",
           "count": 13
         }
       ],
       "codes": [
         {
-          "code": "PS1001",
-          "count": 54
+          "code": "PS1204",
+          "count": 51
         },
         {
           "code": "PS2002",
-          "count": 20
+          "count": 42
         },
         {
-          "code": "PS1204",
-          "count": 13
+          "code": "PS1001",
+          "count": 36
         }
       ],
       "pypi": "https://pypi.org/project/colorama/"
@@ -1393,35 +1393,35 @@
       "import_name": "dotenv",
       "version": "1.2.4",
       "status": "none",
-      "fences": 125,
+      "fences": 122,
       "definitions": 75,
-      "fenced_definitions": 44,
+      "fenced_definitions": 43,
       "top_families": [
         {
           "family": "unlowered-call",
-          "count": 24
-        },
-        {
-          "family": "name-resolution",
-          "count": 21
+          "count": 25
         },
         {
           "family": "construct-other",
+          "count": 21
+        },
+        {
+          "family": "name-resolution",
           "count": 17
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 88
-        },
-        {
-          "code": "PS1001",
-          "count": 14
+          "count": 89
         },
         {
           "code": "PS1106",
           "count": 10
+        },
+        {
+          "code": "PS1001",
+          "count": 7
         }
       ],
       "pypi": "https://pypi.org/project/python-dotenv/"
@@ -1431,35 +1431,35 @@
       "import_name": "filelock",
       "version": "4.1.1",
       "status": "partial",
-      "fences": 746,
+      "fences": 699,
       "definitions": 641,
-      "fenced_definitions": 244,
+      "fenced_definitions": 240,
       "top_families": [
         {
           "family": "name-resolution",
-          "count": 169
+          "count": 147
         },
         {
           "family": "construct-other",
-          "count": 80
+          "count": 96
         },
         {
-          "family": "local-inference",
-          "count": 78
+          "family": "generic-alias",
+          "count": 57
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 430
-        },
-        {
-          "code": "PS1001",
-          "count": 78
+          "count": 425
         },
         {
           "code": "PS2001",
-          "count": 67
+          "count": 73
+        },
+        {
+          "code": "PS1103",
+          "count": 57
         }
       ],
       "pypi": "https://pypi.org/project/filelock/"
@@ -1469,7 +1469,7 @@
       "import_name": "h11",
       "version": "0.16.0",
       "status": "none",
-      "fences": 191,
+      "fences": 195,
       "definitions": 133,
       "fenced_definitions": 76,
       "top_families": [
@@ -1489,7 +1489,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 104
+          "count": 107
         },
         {
           "code": "PS1103",
@@ -1507,35 +1507,35 @@
       "import_name": "idna",
       "version": "3.20",
       "status": "none",
-      "fences": 164,
+      "fences": 101,
       "definitions": 56,
-      "fenced_definitions": 40,
+      "fenced_definitions": 37,
       "top_families": [
-        {
-          "family": "name-resolution",
-          "count": 54
-        },
-        {
-          "family": "local-inference",
-          "count": 31
-        },
         {
           "family": "keyword-args",
           "count": 17
+        },
+        {
+          "family": "construct-other",
+          "count": 11
+        },
+        {
+          "family": "name-resolution",
+          "count": 11
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 95
-        },
-        {
-          "code": "PS1001",
-          "count": 31
+          "count": 52
         },
         {
           "code": "PS2003",
           "count": 20
+        },
+        {
+          "code": "PS2001",
+          "count": 8
         }
       ],
       "pypi": "https://pypi.org/project/idna/"
@@ -1545,31 +1545,31 @@
       "import_name": "iniconfig",
       "version": "2.3.1",
       "status": "partial",
-      "fences": 37,
+      "fences": 30,
       "definitions": 34,
-      "fenced_definitions": 14,
+      "fenced_definitions": 13,
       "top_families": [
         {
-          "family": "local-inference",
-          "count": 7
-        },
-        {
-          "family": "name-resolution",
-          "count": 7
+          "family": "type-mismatch",
+          "count": 5
         },
         {
           "family": "generic-alias",
+          "count": 4
+        },
+        {
+          "family": "union-types",
           "count": 4
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 12
+          "count": 7
         },
         {
-          "code": "PS1001",
-          "count": 7
+          "code": "PS1003",
+          "count": 5
         },
         {
           "code": "PS1103",
@@ -1583,17 +1583,17 @@
       "import_name": "jmespath",
       "version": "1.1.0",
       "status": "none",
-      "fences": 129,
+      "fences": 125,
       "definitions": 200,
-      "fenced_definitions": 111,
+      "fenced_definitions": 107,
       "top_families": [
         {
           "family": "param-inference",
-          "count": 80
+          "count": 78
         },
         {
           "family": "return-inference",
-          "count": 18
+          "count": 15
         },
         {
           "family": "class-body",
@@ -1603,11 +1603,11 @@
       "codes": [
         {
           "code": "PS1001",
-          "count": 98
+          "count": 93
         },
         {
           "code": "PS2002",
-          "count": 13
+          "count": 14
         },
         {
           "code": "PS1204",
@@ -1621,13 +1621,13 @@
       "import_name": "jwt",
       "version": "2.15.1",
       "status": "partial",
-      "fences": 126,
+      "fences": 122,
       "definitions": 171,
-      "fenced_definitions": 64,
+      "fenced_definitions": 65,
       "top_families": [
         {
           "family": "name-resolution",
-          "count": 22
+          "count": 21
         },
         {
           "family": "dynamic-annotation",
@@ -1641,7 +1641,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 58
+          "count": 57
         },
         {
           "code": "PS1104",
@@ -1659,35 +1659,35 @@
       "import_name": "mdurl",
       "version": "0.1.2",
       "status": "none",
-      "fences": 36,
+      "fences": 39,
       "definitions": 12,
-      "fenced_definitions": 9,
+      "fenced_definitions": 8,
       "top_families": [
         {
-          "family": "local-inference",
-          "count": 11
+          "family": "name-resolution",
+          "count": 14
         },
         {
-          "family": "name-resolution",
-          "count": 11
+          "family": "call-arity",
+          "count": 9
         },
         {
           "family": "construct-other",
-          "count": 2
+          "count": 3
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 18
-        },
-        {
-          "code": "PS1001",
-          "count": 11
+          "count": 25
         },
         {
           "code": "PS2003",
-          "count": 2
+          "count": 9
+        },
+        {
+          "code": "PS2001",
+          "count": 1
         }
       ],
       "pypi": "https://pypi.org/project/mdurl/"
@@ -1697,17 +1697,17 @@
       "import_name": "packaging",
       "version": "26.3",
       "status": "none",
-      "fences": 625,
+      "fences": 576,
       "definitions": 558,
-      "fenced_definitions": 282,
+      "fenced_definitions": 281,
       "top_families": [
-        {
-          "family": "name-resolution",
-          "count": 111
-        },
         {
           "family": "unlowered-type-name",
           "count": 90
+        },
+        {
+          "family": "name-resolution",
+          "count": 84
         },
         {
           "family": "class-body",
@@ -1717,7 +1717,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 256
+          "count": 230
         },
         {
           "code": "PS1106",
@@ -1725,7 +1725,7 @@
         },
         {
           "code": "PS2001",
-          "count": 53
+          "count": 57
         }
       ],
       "pypi": "https://pypi.org/project/packaging/"
@@ -1735,35 +1735,35 @@
       "import_name": "pathspec",
       "version": "1.1.1",
       "status": "none",
-      "fences": 257,
+      "fences": 219,
       "definitions": 132,
-      "fenced_definitions": 94,
+      "fenced_definitions": 93,
       "top_families": [
         {
           "family": "name-resolution",
-          "count": 49
-        },
-        {
-          "family": "local-inference",
-          "count": 25
+          "count": 27
         },
         {
           "family": "unlowered-type-name",
           "count": 22
+        },
+        {
+          "family": "decorators",
+          "count": 21
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 133
-        },
-        {
-          "code": "PS1001",
-          "count": 28
+          "count": 111
         },
         {
           "code": "PS1106",
           "count": 22
+        },
+        {
+          "code": "PS1201",
+          "count": 20
         }
       ],
       "pypi": "https://pypi.org/project/pathspec/"
@@ -1773,35 +1773,35 @@
       "import_name": "platformdirs",
       "version": "4.13.0",
       "status": "partial",
-      "fences": 323,
+      "fences": 259,
       "definitions": 388,
-      "fenced_definitions": 160,
+      "fenced_definitions": 154,
       "top_families": [
         {
-          "family": "name-resolution",
-          "count": 87
-        },
-        {
           "family": "construct-other",
-          "count": 60
+          "count": 62
         },
         {
-          "family": "local-inference",
-          "count": 48
+          "family": "name-resolution",
+          "count": 51
+        },
+        {
+          "family": "optional-types",
+          "count": 33
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 170
-        },
-        {
-          "code": "PS1001",
-          "count": 48
+          "count": 135
         },
         {
           "code": "PS1102",
           "count": 33
+        },
+        {
+          "code": "PS2001",
+          "count": 22
         }
       ],
       "pypi": "https://pypi.org/project/platformdirs/"
@@ -1859,11 +1859,11 @@
         },
         {
           "family": "param-inference",
-          "count": 13
+          "count": 12
         },
         {
           "family": "return-inference",
-          "count": 5
+          "count": 6
         }
       ],
       "codes": [
@@ -2012,13 +2012,19 @@
     {
       "code": "PS2002",
       "title": "construct not lowered",
-      "count": 1471,
+      "count": 1368,
       "packages": 16
     },
     {
       "code": "PS1001",
       "title": "annotation missing or not lowered",
-      "count": 518,
+      "count": 305,
+      "packages": 13
+    },
+    {
+      "code": "PS2001",
+      "title": "stdlib name not lowered",
+      "count": 204,
       "packages": 15
     },
     {
@@ -2028,16 +2034,16 @@
       "packages": 9
     },
     {
-      "code": "PS2001",
-      "title": "stdlib name not lowered",
-      "count": 183,
-      "packages": 14
-    },
-    {
       "code": "PS1103",
       "title": "generic alias annotation",
       "count": 130,
       "packages": 8
+    },
+    {
+      "code": "PS1204",
+      "title": "class body statement",
+      "count": 125,
+      "packages": 7
     },
     {
       "code": "PS1101",
@@ -2046,16 +2052,10 @@
       "packages": 9
     },
     {
-      "code": "PS1204",
-      "title": "class body statement",
-      "count": 87,
-      "packages": 7
-    },
-    {
       "code": "PS2003",
       "title": "call arguments not lowered",
-      "count": 72,
-      "packages": 9
+      "count": 83,
+      "packages": 10
     },
     {
       "code": "PS1201",
@@ -2070,16 +2070,16 @@
       "packages": 6
     },
     {
+      "code": "PS1003",
+      "title": "type mismatch",
+      "count": 52,
+      "packages": 9
+    },
+    {
       "code": "PS1102",
       "title": "Optional annotation",
       "count": 42,
       "packages": 5
-    },
-    {
-      "code": "PS1003",
-      "title": "type mismatch",
-      "count": 35,
-      "packages": 8
     },
     {
       "code": "PS1203",
@@ -2096,7 +2096,7 @@
     {
       "code": "PS2004",
       "title": "operator or operand not lowered",
-      "count": 9,
+      "count": 12,
       "packages": 6
     },
     {
@@ -2124,12 +2124,12 @@
     },
     {
       "date": "2026-10-24",
-      "commit": "7d6a4390835e5dcfccf7a959281d745b2cf1d706",
+      "commit": "632fb960dd5837ca80648975cc853ab3b871523e",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 6,
       "packages_none": 10,
-      "fences": 3017
+      "fences": 2791
     }
   ]
 }

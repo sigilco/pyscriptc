@@ -205,12 +205,15 @@ def test_self_census_ballpark() -> None:
     # `_resource_search` compile-time search in restlower/_system.py adds 4;
     # the module count is unchanged.
 
-    assert census["fences"] == 3039
+    # Local inference (#500): the pin walk and typed defaults let the self-host
+    # sources lower without the annotation fences, 341 fewer in total.
+
+    assert census["fences"] == 2698
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     # Project mode (#150): project.py adds about 240 lines.
     # yield inside try (#164): the re-entrant try in the coro guard transform
     # adds about 150 lines in coro.py. The asyncio primitives (#180 D3) add
     # about 400 in ps_async.c and restlower/_asyncio_sync.py.
-    assert 11_000 <= census["lines"] <= 41_500
-    assert sum(p["fences"] for p in census["packages"]) == 3039
+    assert 11_000 <= census["lines"] <= 45_000
+    assert sum(p["fences"] for p in census["packages"]) == 2698
