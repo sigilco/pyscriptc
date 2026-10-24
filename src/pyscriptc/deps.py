@@ -53,6 +53,7 @@ SKIPPED_DATA_DIRS = ("scripts", "headers", "data")
 SKIPPED_DIR_NAMES = ("test", "docs", "examples")  # only at the wheel root
 SKIPPED_ANYWHERE = ("tests",)
 UNKNOWN_IMPORT_NAMES = "unknown"
+UNPACK_SCHEMA_VERSION = 2
 
 log = get_logger()
 
@@ -536,10 +537,45 @@ def _top_level_names(zf: zipfile.ZipFile, names: list[str], dist_info: str) -> t
     return tuple(found)
 
 
+def _is_current_unpack(dest: Path) -> bool:
+    marker = dest / ".complete"
+    if not marker.is_file():
+        return False
+    try:
+        lines = marker.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return False
+    return len(lines) >= 2 and lines[1].strip() == str(UNPACK_SCHEMA_VERSION)
+
+
+def _wheel_import_names(data: bytes) -> tuple[str, ...]:
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        names = zf.namelist()
+        dist_infos = {n.split("/", 1)[0] for n in names if n.split("/", 1)[0].endswith(".dist-info")}
+        if len(dist_infos) == 1:
+            return tuple(sorted(_top_level_names(zf, names, dist_infos.pop())))
+    return ()
+
+
 def materialise(data: bytes, sha256: str, cache: Path, *, name: str | None = None) -> Path:
     """Unpack a verified pure wheel into `src/<sha256>/` once; returns the import root."""
     dest = cache / "src" / sha256
-    if (dest / ".complete").is_file():
+    marker = dest / ".complete"
+    if marker.is_file():
+        if _is_current_unpack(dest):
+            return dest
+        top_level = list(_wheel_import_names(data))
+        if top_level:
+            (dest / ".imports").write_text("\n".join(top_level) + "\n", encoding="utf-8")
+        marker.write_text(f"{sha256}\n{UNPACK_SCHEMA_VERSION}\n", encoding="utf-8")
+        log.info(
+            "deps.materialise",
+            name=name or "",
+            sha256=sha256,
+            source_root=str(dest),
+            skipped={"count": 0, "paths": []},
+            importNames={"count": len(top_level), "names": top_level},
+        )
         return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = Path(tempfile.mkdtemp(dir=dest.parent, prefix=".tmp-"))
@@ -562,7 +598,7 @@ def materialise(data: bytes, sha256: str, cache: Path, *, name: str | None = Non
                 target.write_bytes(zf.read(info))
             dist_infos = {n.split("/", 1)[0] for n in names if n.split("/", 1)[0].endswith(".dist-info")}
             top_level = sorted(_top_level_names(zf, names, dist_infos.pop())) if len(dist_infos) == 1 else []
-        (tmp / ".complete").write_text(sha256 + "\n", encoding="utf-8")
+        (tmp / ".complete").write_text(f"{sha256}\n{UNPACK_SCHEMA_VERSION}\n", encoding="utf-8")
         if top_level:
             (tmp / ".imports").write_text("\n".join(top_level) + "\n", encoding="utf-8")
         if dest.exists():
