@@ -36,8 +36,8 @@ export const MetricsCardsWithBenchmark: React.FC<MetricsCardsProps> = ({ theme =
         <div
           className={`flex flex-col justify-between p-8 rounded-3xl border transition-all duration-300 min-h-[220px] ${
             isDark
-              ? "bg-[#101524]/80 border-sky-500/25 text-sky-400 shadow-[0_12px_40px_rgba(56,189,248,0.06)]"
-              : "bg-[#edf4fc] border-sky-500/30 text-sky-700 shadow-sm"
+              ? "bg-[#101524]/80 border-cyan-600/25 text-cyan-500 shadow-[0_12px_40px_rgba(2,132,199,0.06)]"
+              : "bg-[#e0f2fe] border-cyan-600/30 text-cyan-700 shadow-sm"
           }`}
         >
           <div>
@@ -57,8 +57,8 @@ export const MetricsCardsWithBenchmark: React.FC<MetricsCardsProps> = ({ theme =
         <div
           className={`flex flex-col justify-between p-8 rounded-3xl border transition-all duration-300 min-h-[220px] ${
             isDark
-              ? "bg-[#1c180e]/80 border-amber-500/25 text-amber-300 shadow-[0_12px_40px_rgba(251,191,36,0.06)]"
-              : "bg-[#fef9ed] border-amber-500/30 text-amber-700 shadow-sm"
+              ? "bg-[#0f1320]/80 border-white/10 text-slate-200 shadow-[0_12px_40px_rgba(148,163,184,0.06)]"
+              : "bg-[#f1f5f9] border-slate-300 text-slate-700 shadow-sm"
           }`}
         >
           <div>
@@ -79,7 +79,7 @@ export const MetricsCardsWithBenchmark: React.FC<MetricsCardsProps> = ({ theme =
       <div
         className={`w-full p-6 sm:p-10 rounded-3xl border transition-all duration-300 ${
           isDark
-            ? "bg-[#0c0d12]/90 border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
+            ? "bg-[#0b0f19]/90 border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
             : "bg-white border-slate-200 shadow-lg"
         }`}
       >
@@ -123,13 +123,13 @@ export const MetricsCardsWithBenchmark: React.FC<MetricsCardsProps> = ({ theme =
           <div>
             <div className="flex items-center justify-between text-slate-300 mb-1.5">
               <span className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
+                <span className="w-2 h-2 rounded-full bg-slate-400 inline-block" />
                 <span>pyscriptc CPython Island</span>
-                <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300">
+                <span className="text-[10px] uppercase font-mono px-2 py-0.5 rounded bg-white/5 text-slate-300">
                   Runner Up (Boxed Fallback)
                 </span>
               </span>
-              <span className="text-amber-300 font-semibold">4.21 ms (4.2x faster)</span>
+              <span className="text-slate-200 font-semibold">4.21 ms (4.2x faster)</span>
             </div>
             <div className="w-full h-5 bg-white/5 rounded-full overflow-hidden p-0.5">
               <div

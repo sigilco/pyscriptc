@@ -255,7 +255,7 @@ export const HeroMeshGrid: React.FC<HeroMeshGridProps> = ({
 
       {/* Children Overlay */}
       {children && (
-        <div className="relative z-10 w-full min-h-[80vh] flex flex-col justify-center pointer-events-auto">
+        <div className="relative z-10 w-full min-h-[80vh] flex flex-col justify-center pointer-events-none">
           {children}
         </div>
       )}

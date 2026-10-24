@@ -1,0 +1,80 @@
+/*
+ * Single source of truth for design tokens and keyframe utilities.
+ * Imported by global.css before the Tailwind layers.
+ */
+
+:root {
+  /* Backgrounds */
+  --color-bg-base: #06080d;
+  --color-bg-surface: #0b0f19;
+  --color-bg-card: rgba(17, 22, 37, 0.75);
+
+  /* Borders */
+  --color-border: rgba(255, 255, 255, 0.08);
+
+  /* Text */
+  --color-text-primary: #ffffff;
+  --color-text-secondary: #94a3b8;
+  --color-text-muted: #64748b;
+
+  /* Brand accents (from logo) */
+  --color-accent-cyan: #00c2ff;
+  --color-accent-azure: #0284c7;
+  --color-accent-slate: #cbd5e1;
+
+  /* Hero glows (authentic Python accents) */
+  --glow-blue: #38bdf8;
+  --glow-yellow: #fbbf24;
+
+  /* Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+[data-theme="light"] {
+  --color-bg-base: #f8fafc;
+  --color-bg-surface: #ffffff;
+  --color-bg-card: rgba(255, 255, 255, 0.85);
+
+  --color-border: rgba(15, 23, 42, 0.08);
+
+  --color-text-primary: #0f172a;
+  --color-text-secondary: #475569;
+  --color-text-muted: #94a3b8;
+
+  --color-accent-cyan: #0284c7;
+  --color-accent-azure: #0369a1;
+  --color-accent-slate: #334155;
+
+  --glow-blue: #0284c7;
+  --glow-yellow: #d97706;
+}
+
+@keyframes pulse-anim {
+  0%, 100% {
+    opacity: 0.85;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.02);
+  }
+}
+
+@keyframes progress-up-down {
+  0% {
+    transform: scaleY(0);
+  }
+  100% {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes progress-ltr {
+  0% {
+    transform: scaleX(0);
+  }
+  100% {
+    transform: scaleX(1);
+  }
+}

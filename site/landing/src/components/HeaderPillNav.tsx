@@ -22,8 +22,8 @@ export const HeaderPillNav: React.FC<HeaderPillNavProps> = ({
       <nav
         className={`pointer-events-auto inline-flex items-center gap-2 sm:gap-4 px-4 py-2 sm:px-5 sm:py-2.5 rounded-full border transition-all duration-300 shadow-[0_12px_36px_rgba(0,0,0,0.55)] ${
           isDark
-            ? "bg-[#101116]/90 border-white/10 text-slate-200 backdrop-blur-xl"
-            : "bg-[#fbf9f5]/90 border-black/10 text-slate-800 backdrop-blur-xl shadow-lg"
+            ? "bg-[#0b0f19]/90 border-white/10 text-slate-200 backdrop-blur-xl"
+            : "bg-[#f8fafc]/90 border-black/10 text-slate-800 backdrop-blur-xl shadow-lg"
         }`}
         aria-label="Main Navigation"
       >
@@ -36,9 +36,9 @@ export const HeaderPillNav: React.FC<HeaderPillNavProps> = ({
           <img
             src="/icon-64.png"
             alt="pyscriptc logo"
-            width={22}
-            height={22}
-            className="w-[22px] h-[22px] object-contain shrink-0"
+            width={28}
+            height={28}
+            className="w-7 h-7 object-contain shrink-0"
           />
           <span className="font-semibold text-sm tracking-tight text-white">pyscriptc</span>
         </a>
@@ -99,8 +99,8 @@ export const HeaderPillNav: React.FC<HeaderPillNavProps> = ({
         <div
           className={`pointer-events-auto absolute top-16 left-4 right-4 max-w-xs mx-auto p-3 rounded-2xl border transition-all duration-300 shadow-2xl backdrop-blur-2xl md:hidden ${
             isDark
-              ? "bg-[#101116]/95 border-white/15 text-slate-200"
-              : "bg-[#fbf9f5]/95 border-black/15 text-slate-800"
+              ? "bg-[#0b0f19]/95 border-white/15 text-slate-200"
+              : "bg-[#f8fafc]/95 border-black/15 text-slate-800"
           }`}
         >
           <div className="flex flex-col space-y-1 text-xs font-medium">
