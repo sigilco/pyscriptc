@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-24",
-  "commit": "94f03b06fe6ab51e1006d8b9e3029e3655ed0145",
+  "commit": "033b9359d6bb3de9fbbae3f2971dca2387ee2bf5",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 5,
     "packages_none": 10,
     "weighted_pass": 0.0,
-    "fences": 3031
+    "fences": 3029
   },
   "builtins": [
     {
@@ -1431,7 +1431,7 @@
       "import_name": "filelock",
       "version": "4.1.1",
       "status": "partial",
-      "fences": 752,
+      "fences": 750,
       "definitions": 641,
       "fenced_definitions": 244,
       "top_families": [
@@ -1451,7 +1451,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 435
+          "count": 433
         },
         {
           "code": "PS1001",
@@ -1507,7 +1507,7 @@
       "import_name": "idna",
       "version": "3.20",
       "status": "none",
-      "fences": 168,
+      "fences": 169,
       "definitions": 56,
       "fenced_definitions": 40,
       "top_families": [
@@ -1735,7 +1735,7 @@
       "import_name": "pathspec",
       "version": "1.1.1",
       "status": "none",
-      "fences": 259,
+      "fences": 258,
       "definitions": 132,
       "fenced_definitions": 94,
       "top_families": [
@@ -1755,7 +1755,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 134
+          "count": 133
         },
         {
           "code": "PS1001",
@@ -2002,7 +2002,7 @@
     {
       "code": "PS2002",
       "title": "construct not lowered",
-      "count": 1482,
+      "count": 1479,
       "packages": 15
     },
     {
@@ -2086,8 +2086,8 @@
     {
       "code": "PS2004",
       "title": "operator or operand not lowered",
-      "count": 8,
-      "packages": 5
+      "count": 9,
+      "packages": 6
     },
     {
       "code": "PS2005",
@@ -2120,12 +2120,12 @@
     },
     {
       "date": "2026-10-24",
-      "commit": "94f03b06fe6ab51e1006d8b9e3029e3655ed0145",
+      "commit": "033b9359d6bb3de9fbbae3f2971dca2387ee2bf5",
       "weighted_pass": 0.0,
       "packages_full": 3,
       "packages_partial": 5,
       "packages_none": 10,
-      "fences": 3031
+      "fences": 3029
     }
   ]
 }
