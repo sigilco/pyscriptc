@@ -25,11 +25,25 @@ from benchmarks.harness import compile_call, cpython_stdout, oracle_command, tim
 
 HERE = Path(__file__).resolve().parent
 S = [20_000, 200_000, 1_000_000, 2_000_000]
+S_DATA = [10_000, 20_000, 50_000, 100_000]
+S_LIST = [20_000, 50_000, 100_000, 200_000]
+S_JSON = [2_000, 5_000, 10_000, 20_000]
+S_COPY = [100_000, 200_000, 500_000, 1_000_000]
+S_SHA = [5_000, 10_000, 20_000, 50_000]
+
 CASES: list[tuple[str, str, list[int]]] = [
     ("numeric", "sum_squares", S),
     ("numeric", "floor_sum", S),
     ("numeric", "horner", S),
     ("numeric", "repeat_len", [100, 200, 400, 800]),
+    ("data", "dict_grow", S_DATA),
+    ("data", "set_grow", S_DATA),
+    ("data", "dict_lookup", S_DATA),
+    ("data", "list_append", S_LIST),
+    ("data", "json_loads", S_JSON),
+    ("data", "str_build", S_DATA),
+    ("data", "copyfile", S_COPY),
+    ("data", "sha256_blocks", S_SHA),
 ]
 
 
@@ -84,6 +98,8 @@ def _measure(
     checked: set[str],
 ) -> tuple[dict[str, Any], bool]:
     source = HERE / f"{file}.py"
+    if not source.exists():
+        source = HERE / file / f"{name}.py"
     rows: list[dict[str, Any]] = []
     for size in sizes:
         binary = work / f"{file}-{name}-{size}"
