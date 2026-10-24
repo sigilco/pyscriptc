@@ -320,17 +320,21 @@ int64_t ps_sub_check_call(PsSeq *args) {
     return code;
 }
 
-/* run(cmd): the CompletedProcess record. */
-void ps_sub_run(PsSeq *args, int64_t capture, PsCompleted *out) {
+/* run(cmd): the CompletedProcess record. `check` (flag bit 1) raises the
+   check_call stand-in when the exit code is non-zero; capture is bit 0. */
+void ps_sub_run(PsSeq *args, int64_t flags, PsCompleted *out) {
     int status;
     out->stdout_buf.len = 0;
     out->stdout_buf.data = NULL;
     out->stderr_buf.len = 0;
     out->stderr_buf.data = NULL;
-    if (capture) {
+    if (flags & 1) {
         status = ps_sub_spawn(args, &out->stdout_buf, &out->stderr_buf);
     } else {
         status = ps_sub_spawn(args, NULL, NULL);
     }
     out->returncode = ps_sub_code(status);
+    if ((flags & 2) && out->returncode != 0) {
+        ps_raise_cstr(PS_RUNTIME, "subprocess returned a non-zero exit code");
+    }
 }
