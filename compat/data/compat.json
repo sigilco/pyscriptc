@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-24",
-  "commit": "7c2344e390d3bdceb1832acdcdac22381f95f390",
+  "commit": "b7a8ea67f487e659007dc2c00c3b268662ddc1f2",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -1964,8 +1964,8 @@
         "label": "Single-file script",
         "corpus": "benchmarks/scripts_corpus/scripts",
         "total": 45,
-        "compiled": 15,
-        "passed": 12,
+        "compiled": 16,
+        "passed": 13,
         "measured": true
       },
       {
@@ -1981,8 +1981,8 @@
     "lanes": [
       {
         "lane": "native",
-        "imports": 272,
-        "share": 0.8242
+        "imports": 273,
+        "share": 0.8273
       },
       {
         "lane": "pack",
@@ -1991,8 +1991,8 @@
       },
       {
         "lane": "extern",
-        "imports": 57,
-        "share": 0.1727
+        "imports": 56,
+        "share": 0.1697
       },
       {
         "lane": "island",
@@ -2124,7 +2124,7 @@
     },
     {
       "date": "2026-10-24",
-      "commit": "7c2344e390d3bdceb1832acdcdac22381f95f390",
+      "commit": "b7a8ea67f487e659007dc2c00c3b268662ddc1f2",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 6,
