@@ -346,7 +346,10 @@ NESTED_WHEEL = make_data_wheel(
     {
         "pkgx/__init__.py": b"",
         "pkgx/sub/__init__.py": b"",
-        "pkgx/sub/reader.py": b"from importlib.resources import files\n\n\ndef blob() -> bytes:\n    return files('pkgx.sub').joinpath('data.bin').read_bytes()\n",
+        "pkgx/sub/reader.py": (
+            b"from importlib.resources import files\n\n\ndef blob() -> bytes:\n"
+            b"    return files('pkgx.sub').joinpath('data.bin').read_bytes()\n"
+        ),
         "pkgx/sub/data.bin": bytes(range(256)),
     },
 )
@@ -363,9 +366,10 @@ from certifi import contents, where
 
 
 def main() -> None:
-    print(len(contents()))
+    pem: bytes = contents().encode("utf-8")
+    print(len(pem))
     print(where().endswith("certifi/cacert.pem"))
-    print(open(where(), encoding="ascii").read()[0:5])
+    print(pem[0:5])
 
 
 if __name__ == "__main__":
@@ -425,15 +429,23 @@ def test_a_wheel_without_data_files_stages_nothing(monkeypatch: pytest.MonkeyPat
     binary = tmp_path / "tool"
     from pyscriptc.cli import _stage_dependency_data
 
-    staged = _stage_dependency_data(script, _deps_config(), binary)
+    staged = _stage_dependency_data(script, _deps_config(script), _Args("bin", False), binary)
     assert staged is not None and staged.name == "tool-data"
     assert not staged.exists(), "a package with no data files must stage nothing"
 
 
-def _deps_config() -> Any:
+class _Args:
+    """The emit lane fields `_stage_dependency_data` reads off the argparse namespace."""
+
+    def __init__(self, emit: str, run: bool) -> None:
+        self.emit = emit
+        self.run = run
+
+
+def _deps_config(script: Path) -> Any:
     from pyscriptc import config
 
-    return config.load_config(Path("nonexistent-plain.py"))
+    return config.load_config(script)
 
 
 @needs_clang
@@ -443,16 +455,20 @@ def test_certifi_resources_match_cpython(fake: dict[str, Any], tmp_path: Path) -
     try:
         _data_fake(monkey, tmp_path, {"certifi": CERTIFI_WHEEL})
         script = _script(tmp_path, DATA_SCRIPT)
+        # CPython reads the data file next to the unpacked wheel's source root
+        # (the host cannot see the wheel's package layout), so the oracle run
+        # happens with that root on PYTHONPATH and the tree's parent as cwd:
+        # the staged tree in the compiled run is the parent's image of it.
         root = _pure_root_named(monkey, tmp_path, "certifi")
         expected = subprocess.run(
             [sys.executable, str(script)],
             capture_output=True,
             text=True,
-            cwd=tmp_path,
+            cwd=str(root.parent),
             env={**os.environ, "PYTHONPATH": str(root)},
         )
         binary = tmp_path / "bin"
-        got = cli.main(["compile", str(script), "--skip-check", "-o", str(binary)])
+        got = cli.main(["compile", str(script), "--skip-check", "--run", "-o", str(binary)])
         assert got == 0
         ran = subprocess.run([str(binary)], capture_output=True, text=True)
         assert ran.stdout == expected.stdout, (ran.stdout, expected.stdout, ran.stderr)
@@ -463,8 +479,8 @@ def test_certifi_resources_match_cpython(fake: dict[str, Any], tmp_path: Path) -
         monkey.undo()
 
 
-def _pure_root_named(monkey: pytest.MonkeyPatch, tmp_path: Path, name: str) -> Path:
-    report = deps.run_deps(_script(tmp_path, DATA_SCRIPT))
+def _pure_root_named(monkey: pytest.MonkeyPatch, tmp_path: Path, name: str, body: str = DATA_SCRIPT) -> Path:
+    report = deps.run_deps(_script(tmp_path, body))
     return Path(next(p["source_root"] for p in report["packages"] if p["name"] == name))
 
 
@@ -473,16 +489,14 @@ def test_nested_package_data_lands_under_the_dotted_path(fake: dict[str, Any], t
     monkey = pytest.MonkeyPatch()
     try:
         _data_fake(monkey, tmp_path, {"pkgx": NESTED_WHEEL})
-        script = _script(
-            tmp_path,
-            """\
+        body = """\
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
 #   "pkgx",
 # ]
 # ///
-from pkgx.sub import blob
+from pkgx.sub.reader import blob
 
 
 def main() -> None:
@@ -493,20 +507,20 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-""",
-        )
+"""
+        script = _script(tmp_path, body)
         binary = tmp_path / "nested"
-        got = cli.main(["compile", str(script), "--skip-check", "-o", str(binary)])
+        got = cli.main(["compile", str(script), "--skip-check", "--run", "-o", str(binary)])
         assert got == 0
         staged = tmp_path / "nested-data" / "pkgx" / "sub" / "data.bin"
         assert staged.is_file()
         ran = subprocess.run([str(binary)], capture_output=True, text=True)
-        root = _pure_root_named(monkey, tmp_path, "pkgx")
+        root = _pure_root_named(monkey, tmp_path, "pkgx", body)
         expected = subprocess.run(
             [sys.executable, str(script)],
             capture_output=True,
             text=True,
-            cwd=tmp_path,
+            cwd=str(root.parent),
             env={**os.environ, "PYTHONPATH": str(root)},
         )
         assert ran.stdout == expected.stdout, (ran.stdout, expected.stdout, ran.stderr)
@@ -523,10 +537,10 @@ def test_a_recompile_replaces_the_staged_tree(fake: dict[str, Any], tmp_path: Pa
         _data_fake(monkey, tmp_path, {"certifi": CERTIFI_WHEEL})
         script = _script(tmp_path, DATA_SCRIPT)
         binary = tmp_path / "bin"
-        assert cli.main(["compile", str(script), "--skip-check", "-o", str(binary)]) == 0
+        assert cli.main(["compile", str(script), "--skip-check", "--run", "-o", str(binary)]) == 0
         stale = tmp_path / "bin-data" / "certifi" / "stale.pem"
         stale.write_bytes(b"old")
-        assert cli.main(["compile", str(script), "--skip-check", "-o", str(binary)]) == 0
+        assert cli.main(["compile", str(script), "--skip-check", "--run", "-o", str(binary)]) == 0
         assert not stale.exists(), "the recompile removed the staged tree"
         assert (tmp_path / "bin-data" / "certifi" / "cacert.pem").is_file()
     finally:
