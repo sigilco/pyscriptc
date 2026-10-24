@@ -8,7 +8,7 @@ The release binary is the compiler, not the toolchain. It lowers Python to textu
 | --- | --- | --- |
 | `zig` (preferred) or `clang` on `PATH` | `link_binary` in `src/pyscriptc/llvm.py` compiles `.ll` and runtime `*.c` objects and links the executable | Zig >= 0.13 (wraps Clang 18+) or Clang >= 15 |
 | A C library with headers and `libm` | the runtime includes `stdio.h`, `math.h`, `dirent.h`, `dlfcn.h` and friends | Linux: glibc 2.34 or newer plus `libc6-dev` (or distro equivalent) |
-| Nothing else | no Python install, no `pip`, no mypy install | none |
+| Nothing else | no Python install, no `pip` | none |
 
 ### Obtaining Zig
 
@@ -55,13 +55,14 @@ The compiler reads these at run time, relative to its own package directory (`Pa
 | --- | --- | --- |
 | `src/pyscriptc/runtime/*.c` (18 files) | `pyscriptc/runtime/` | globbed and compiled into every program |
 | `src/pyscriptc/runtime/*.h` (`ps_rt.h`) | `pyscriptc/runtime/` | included by the C files |
-| mypy package data (`mypy/typeshed/**`, `mypy/xml/**`) | `mypy/` | the mypy preflight needs the bundled stubs |
+| vendored typeshed stubs (`pyscriptc/_typeshed/**`) | `pyscriptc/_typeshed/` | the preflight needs the bundled stubs |
+| pyrefly binary (`bin/pyrefly`) | `bin/` | bundled type checker preflight executable |
 
 If a new file type appears in `runtime/`, extend both `--include-data-files` lines in `build.sh`. `pyproject.toml` has the same list under `[tool.setuptools.package-data]` and the two must agree.
 
-## mypy preflight inside a onefile binary
+## Preflight inside a onefile binary
 
-`src/pyscriptc/check.py` runs `sys.executable -m mypy ...` as a subprocess. In a onefile build `sys.executable` points at a path that does not exist, and the binary has no `-m` switch. `packaging/entry.py` handles both without touching `src/`: it points `sys.executable` at the binary itself, and answers `binary -m mypy ARGS` by calling `mypy.main.main` in process. Every `compile` therefore unpacks the binary twice (once for the compiler, once for the mypy child). `--skip-check` avoids the second unpack.
+The compiler bundles `pyrefly` as its default type-checker preflight under `bin/`. `packaging/entry.py` points `PYREFLY_BIN` at the bundled executable and `sys.executable` at the binary itself, avoiding external Python or mypy dependencies. Release binaries are built with `--nofollow-import-to=mypy` and do not bundle mypy.
 
 ## zig cc alternative
 
