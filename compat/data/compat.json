@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-24",
-  "commit": "033b9359d6bb3de9fbbae3f2971dca2387ee2bf5",
+  "commit": "bc04f51d54052ff56dfae90d3629e74345167b0a",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -1361,7 +1361,7 @@
       "top_families": [
         {
           "family": "param-inference",
-          "count": 37
+          "count": 38
         },
         {
           "family": "return-inference",
@@ -1375,7 +1375,7 @@
       "codes": [
         {
           "code": "PS1001",
-          "count": 53
+          "count": 54
         },
         {
           "code": "PS2002",
@@ -2008,7 +2008,7 @@
     {
       "code": "PS1001",
       "title": "annotation missing or not lowered",
-      "count": 516,
+      "count": 517,
       "packages": 15
     },
     {
@@ -2096,14 +2096,14 @@
       "packages": 2
     },
     {
-      "code": "PS4201",
-      "title": "dynamic attribute protocol refused",
-      "count": 2,
-      "packages": 2
-    },
-    {
       "code": "PS4203",
       "title": "finalizer refused",
+      "count": 1,
+      "packages": 1
+    },
+    {
+      "code": "PS4201",
+      "title": "dynamic attribute protocol refused",
       "count": 1,
       "packages": 1
     }
@@ -2120,7 +2120,7 @@
     },
     {
       "date": "2026-10-24",
-      "commit": "033b9359d6bb3de9fbbae3f2971dca2387ee2bf5",
+      "commit": "bc04f51d54052ff56dfae90d3629e74345167b0a",
       "weighted_pass": 0.0,
       "packages_full": 3,
       "packages_partial": 5,
