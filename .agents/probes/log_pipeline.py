@@ -32,7 +32,7 @@ class Row:
 
 def load(path: str) -> list[Row]:
     out: list[Row] = []
-    with open(path, "r") as fh:
+    with open(path) as fh:
         for row in csv.reader(fh):
             if len(row) < 2:
                 continue

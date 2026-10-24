@@ -149,7 +149,7 @@ while i < len(rows):
     i = i + 1
 ```
 
-which compiles and runs correctly (verified: a dataclass pipeline compiles and prints `4` for a two-row input). But it is the shape a real pipeline would have to write today, and it is exactly the kind of thing a tester will report as "pyscriptc is not Python". This is issue #489, and it sits in the OOP track next to #446, not in the stdlib track.
+which compiles and runs correctly (verified: a dataclass pipeline compiles and prints `4` for a two-row input). But it is the shape a real pipeline would have to write today, and it is exactly the kind of thing a tester will report as "pyscriptc is not Python". This is issue #481, and it sits in the OOP track next to #446, not in the stdlib track.
 
 Note what this means for the tiering: **the data archetype's blocker is not the stdlib and not the packages, it is the compiler's handling of user classes in containers.** Every T3 alternative in section 3.2 (`pyscriptc-ndarray`, `pyscriptc-frame`, `pyscriptc-val`) also lands in the same territory, because a dataframe holds user-shaped records. The OOP track is therefore on the critical path for the data archetype, not only for the library track.
 
@@ -168,8 +168,8 @@ Note what this means for the tiering: **the data archetype's blocker is not the 
 | package | tier | alternative | CPython-compatible subset | how a user switches |
 | ------- | ---- | ----------- | -------------------------- | ------------------- |
 | `pydantic` | T3 | `pyscriptc-val` (issue #156) | `BaseModel` with a `dataclass`-shaped field set, `model_validate`, `model_dump`, `model_dump_json`, field types `int`, `float`, `bool`, `str`, `bytes`, `list[T]`, `dict[str, T]`, nested models | change the import from `from pydantic import BaseModel` to `from pyscriptc_val import BaseModel`; the decorator and attribute spelling stay |
-| `numpy` | T3 | `pyscriptc-ndarray` (new, issue #474) | a contiguous typed buffer: `array` of `int64`/`float64`/`int32`/`float32`, `dtype`, `shape`, `ndim`, `size`, `nbytes`, elementwise `+ - * /`, `sum`, `min`, `max`, `mean`, `std`, `reshape`, `astype`, slicing with a step, `tolist()`, `fromlist()` | change the import; `import numpy as np` becomes `import pyscriptc_ndarray as np` |
-| `pandas` | T3 | `pyscriptc-frame` (new, issue #475) | a columnar frame over `pyscriptc_ndarray`: `DataFrame(dict[str, ndarray])`, `read_csv` (on the closed csv surface), `to_dict`, `to_json`, column selection, `groupby(...).sum()` over one key, `sort_values`, `head`, `shape`, `columns` | change the import; the API is the pandas subset, not the pandas object model |
+| `numpy` | T3 | `pyscriptc-ndarray` (#496) | a contiguous typed buffer: `array` of `int64`/`float64`/`int32`/`float32`, `dtype`, `shape`, `ndim`, `size`, `nbytes`, elementwise `+ - * /`, `sum`, `min`, `max`, `mean`, `std`, `reshape`, `astype`, slicing with a step, `tolist()`, `fromlist()` | change the import; `import numpy as np` becomes `import pyscriptc_ndarray as np` |
+| `pandas` | T3 | `pyscriptc-frame` (#497) | a columnar frame over `pyscriptc_ndarray`: `DataFrame(dict[str, ndarray])`, `read_csv` (on the closed csv surface), `to_dict`, `to_json`, column selection, `groupby(...).sum()` over one key, `sort_values`, `head`, `shape`, `columns` | change the import; the API is the pandas subset, not the pandas object model |
 | `fastapi` | T3 | `pyscriptc-fastapi` (issues #231 to #234) | `FastAPI()`, `@app.get`/`@app.post` with literal paths, `{param}` path segments typed `int` or `str`, query params, `JSONResponse`, `dict`/`list`/`str`/dataclass return, `@dataclass` request bodies, sync handlers only | change the import and the decorator target; the app object is `pyscriptc_fastapi.FastAPI()` |
 
 Why T3 and not T1 for these three.
@@ -233,7 +233,7 @@ The switch is one import line. That is the property that makes T3 usable by a be
 | no inbound surface design | nothing on disk | #227 (the design note) | v0.9.0 | S |
 | runtime globals are not thread-safe | `ps_rt.c` keeps exception state in `_Thread_local`, which is safe, but other globals are not | #228 | v0.9.0 | M |
 | `socket.socket()` is not in the lowered subset | `PS2001` stdlib:socket on the probe | #229 covers it at the C level; a Python-level `socket` surface is not planned | v0.9.0 | included in #229 |
-| `selectors` is not in the closed import table | `PS2002` import-table on the probe | new #476: a closed `selectors` subset over the `ps_loop.c` event loop | v0.9.0 | M |
+| `selectors` is not in the closed import table | `PS2002` import-table on the probe | #485: a closed `selectors` subset over the `ps_loop.c` event loop | v0.9.0 | M |
 | `ssl` contexts do not lower | `PS2001` on `create_default_context` | #235 (TLS via mbedTLS), #237 (`http.client` keep-alive) | v0.9.0 | L |
 | no route decorator lowering | not reachable, `http.server` is fenced first | #231 | v0.9.0 | M |
 | no request-model validation | same | #232 | v0.9.0 | M |
@@ -248,22 +248,22 @@ The honest reading: the web server archetype is a **new runtime**, not a set of 
 
 | gap | evidence | ticket | milestone | effort |
 | --- | -------- | ------ | --------- | ------ |
-| a bare `list` or `dict` annotation fences the local and every use | `PS1106` then `PS2002` name-resolution, measured | new #477: bare container annotations lower to a first-class container | v0.8.0 | M |
-| `for r in rows` over a `list` of user class instances fences | `PS2002` "for over list[Row] is not lowered", measured | new #489: iterate a container of user class instances | v0.8.0 | M |
+| a bare `list` or `dict` annotation fences the local and every use | `PS1106` then `PS2002` name-resolution, measured | #483: bare container annotations lower to a first-class container | v0.8.0 | M |
+| `for r in rows` over a `list` of user class instances fences | `PS2002` "for over list[Row] is not lowered", measured | #481: iterate a container of user class instances | v0.8.0 | M |
 | `sqlite3` is not in the closed import table | `PS2002` import-table on the probe | reachable today through the FFI lane with an `ffi.toml` manifest (the sqlite pilot, issue #221), not through the stdlib surface | v0.8.0 (documented) | S to wire |
-| `array` is not in the closed import table | `PS2002` import-table on the probe | new #474 covers it as the `pyscriptc-ndarray` surface | v0.9.0 | L |
-| `statistics` is not in the closed import table | `PS2002` import-table on the probe | new #478: a closed `statistics` subset (mean, median, stdev, variance, pstdev, pvariance, quantiles) | v0.9.0 | M |
-| `heapq` is not in the closed import table | `PS2002` import-table on the probe | new #479: a closed `heapq` subset (heappush, heappop, heapify, nsmallest, nlargest) | v0.9.0 | M |
-| `csv.DictReader` is not lowered | `PS2001` on the probe | new #480: `DictReader` and `DictWriter` over the existing `ps_csv.c` | v0.9.0 | M |
-| `struct` is partial | `calcsize`, `unpack_from`, non-literal format are `PS2001` | new #481: the `struct` surface completion | v0.9.0 | M |
-| `itertools` is partial | `count`, `cycle`, `permutations`, `pairwise`, `batched`, `tee`, `dropwhile`, `compress` are `PS2001` | new #482: the `itertools` surface completion | v0.9.0 | M |
-| `collections` is partial | `ChainMap` is `PS1106`; `defaultdict`, `Counter`, `OrderedDict` need checking | new #483: the `collections` surface completion | v0.9.0 | M |
-| `bisect` is partial | `insort`, `bisect`, `key=`, `list[str]` are `PS2001` | new #484: the `bisect` surface completion | v0.9.0 | S |
-| `math` is partial | `asin`, `sinh`, `degrees`, `fsum`, `factorial`, `comb`, `isqrt`, `copysign`, `fmod`, `cbrt` are `PS2001` | new #485: the `math` surface completion | v0.9.0 | M |
-| `random` is partial | `sample`, `gauss`, `Random`, `choices(k=)` are `PS2001` | new #486: the `random` surface completion | v0.9.0 | M |
-| no contiguous numeric buffer in the IR | the FFI vocabulary is closed; a numeric array travels as `list[float]` | #372 (the IR buffer type, gated on a canonicity decision) plus new #474 | v0.9.0 | XL |
-| no dataframe surface | not reachable | new #475 | v0.9.0 | XL |
-| `json.dumps` writes to files only through `load`/`dump` being unfenced | `PS1106`, `PS2001`, `PS2003` on `load`, `dump`, `ensure_ascii=False`, `JSONDecodeError` | new #487: the `json` file surface completion | v0.9.0 | M |
+| `array` is not in the closed import table | `PS2002` import-table on the probe | #496 covers it as the `pyscriptc-ndarray` surface | v0.9.0 | L |
+| `statistics` is not in the closed import table | `PS2002` import-table on the probe | #486: a closed `statistics` subset (mean, median, stdev, variance, pstdev, pvariance, quantiles) | v0.9.0 | M |
+| `heapq` is not in the closed import table | `PS2002` import-table on the probe | #487: a closed `heapq` subset (heappush, heappop, heapify, nsmallest, nlarge) | v0.9.0 | M |
+| `csv.DictReader` is not lowered | `PS2001` on the probe | #488: `DictReader` and `DictWriter` over the existing `ps_csv.c` | v0.9.0 | M |
+| `struct` is partial | `calcsize`, `unpack_from`, `pack_into` are `PS2001` | #489: the `struct` surface completion | v0.9.0 | M |
+| `itertools` is partial | `takewhile`, `dropwhile`, `zip_longest`, `groupby`, `permutations`, `combinations`, `pairwise`, `batched`, `tee`, `compress`, `product` are `PS2001` | #490: the finite eager `itertools` subset | v0.9.0 | M |
+| `collections` is partial | `ChainMap` is `PS2001`; `OrderedDict` and `defaultdict` need a typed annotation to exist at all | #491: the `collections` value form | v0.9.0 | M |
+| `bisect` is partial | `insort`, `insort_left`, `insort_right` are `PS2001` | #492: the `bisect` surface completion | v0.9.0 | S |
+| `math` is partial | `fsum`, `factorial`, `comb`, `perm`, `isqrt`, `degrees`, `radians`, `asin`, `sinh`, `cosh`, `tanh`, `copysign`, `fmod`, `cbrt`, `prod`, `erf`, `erfc`, `lgamma` are `PS2001`; `log` with a base is `PS2003`; `floor(3)` is `PS1003` | #493: the `math` surface completion | v0.9.0 | M |
+| `random` is partial | `choices`, `sample`, `gauss`, `normalvariate`, `expovariate`, `randbytes`, `Random` are `PS2001` | #494: the `random` surface completion | v0.9.0 | M |
+| no contiguous numeric buffer in the IR | the FFI vocabulary is closed; a numeric array travels as `list[float]` | #372 (the IR buffer type, gated on a canonicity decision) plus #496 | v0.9.0 | XL |
+| no dataframe surface | not reachable | #497 | v0.9.0 | XL |
+| `json.dumps` writes to files only through `load`/`dump` being unfenced | `PS2001` on `dump` and `load`; `ensure_ascii=False` and `JSONDecodeError` are `PS2001`; `loads` on `bytes` is `PS1003` | #495: the `json` file surface completion | v0.9.0 | M |
 
 The completion issues are deliberately small and mechanical. `bisect` is S. `statistics`, `heapq`, `csv.DictReader` are M. They are the kind of work a session slot can absorb in a day, and each one removes a `PS2001` that a tester hits in the first ten lines of their script.
 
@@ -272,12 +272,12 @@ The completion issues are deliberately small and mechanical. `bisect` is S. `sta
 | gap | evidence | ticket | milestone | effort |
 | --- | -------- | ------ | --------- | ------ |
 | annotation surface blocks every library | `PS1104`, `PS1106`, `PS1103`, `PS1201` dominate the fence counts in section 2.2 | #412 (unions and generic aliases as erased annotations), #413 (collections.abc in annotations and TypeVar handling), and the typing items in the dispatch queue #453 | v0.8.0 to v0.9.0 | M each |
-| the coverage tool crashes on a real library tree | `langchain-core` raises `KeyError: 'key'` at `src/pyscriptc/ir.py:80` | new #488: the coverage tool must not crash on a dependency tree | v0.8.0 | S |
+| the coverage tool crashes on a real library tree | `langchain-core` raises `KeyError: 'key'` at `src/pyscriptc/ir.py:80` | #484: the coverage tool must not crash on a dependency tree | v0.8.0 | S |
 | the dynamic attribute protocol is refused by design | `PS4201`, `PS4202`, `PS4203`, landed in PR #461 | recorded, not planned | - | - |
 
 ## 5. Reference apps
 
-Two apps. Both must compile to one self-contained binary, and both must match CPython on a recorded receipt. These are the beta showcase, the acceptance tests, and the perf receipts.
+Two apps. Both must compile to one self-contained binary, and both must match CPython on a recorded receipt. These are the beta showcase, the acceptance tests, and the perf receipts. The tickets are #499 (the JSON service) and #498 (the log pipeline).
 
 ### 5.1 App A: the JSON service
 
@@ -319,8 +319,8 @@ This asymmetry is the strategic finding of this plan. **The data pipeline archet
 
 ### 5.3 Beta showcase order
 
-1. The log pipeline, compiled, with its perf receipt. It ships as the first beta showcase because it works soonest.
-2. The JSON service, compiled, with its loopback receipt. It ships when the `ps_httpd.c` runtime lands.
+1. The log pipeline (#498), compiled, with its perf receipt. It ships as the first beta showcase because it works soonest.
+2. The JSON service (#499), compiled, with its loopback receipt. It ships when the `ps_httpd.c` runtime lands.
 
 ## 6. Ordered grind plan
 
@@ -330,17 +330,17 @@ Phases, effort, receipts, and where each interleaves with the in-flight queue (#
 
 | item | ticket | effort | receipt |
 | ---- | ------ | ------ | ------- |
-| the coverage tool does not crash on a dependency tree | #488 | S | `pyscriptc coverage` over the `langchain-core` tree exits 0 and reports a fence count |
-| bare container annotations lower | #477 | M | the `list`/`dict` probe compiles with 0 fences; the `scripts_corpus` R1 rate does not regress |
-| a `for` loop over a container of user class instances lowers | #489 | M | the `for r in rows` shape compiles with 0 fences; the log pipeline probe drops its index loop |
+| the coverage tool does not crash on a dependency tree | #484 | S | `pyscriptc coverage` over the `langchain-core` tree exits 0 and reports a fence count |
+| bare container annotations lower | #483 | M | the `list`/`dict` probe compiles with 0 fences; the `scripts_corpus` R1 rate does not regress |
+| a `for` loop over a container of user class instances lowers | #481 | M | the `for r in rows` shape compiles with 0 fences; the log pipeline probe drops its index loop |
 
-#488 is first because a measurement tool that crashes on a real library tree hides exactly the evidence the beta decision needs. #477 is second because it is the highest-leverage single fence class for the data archetype. #489 is third because it is the one shape that makes the data archetype feel like Python: the current workaround is an index loop, and a tester will call that a bug.
+#484 is first because a measurement tool that crashes on a real library tree hides exactly the evidence the beta decision needs. #483 is second because it is the highest-leverage single fence class for the data archetype. #481 is third because it is the one shape that makes the data archetype feel like Python: the current workaround is an index loop, and a tester will call that a bug.
 
-Interleaves with #453: #488, #477 and #489 are not in the queue. They are small and independent, so they ride along any window that has a slot. #477 and #489 touch the lowerer, so they must not land inside the generator wave (#433 to #450) without a rebase check. #489 sits next to #446 (the `iter` protocol) in the OOP track and should be sequenced with it, not against it.
+Interleaves with #453: #484, #483 and #481 are not in the queue. They are small and independent, so they ride along any window that has a slot. #483 and #481 touch the lowerer, so they must not land inside the generator wave (#433 to #450) without a rebase check. #481 sits next to #446 (the `iter` protocol) in the OOP track and should be sequenced with it, not against it.
 
 ### Phase 1: the stdlib surfaces for the data archetype (M each, v0.9.0)
 
-#478 (`statistics`), #479 (`heapq`), #480 (`csv.DictReader` and `DictWriter`), #481 (`struct`), #482 (`itertools`), #483 (`collections`), #484 (`bisect`), #485 (`math`), #486 (`random`), #487 (`json` file surface).
+#486 (`statistics`), #487 (`heapq`), #488 (`csv.DictReader` and `DictWriter`), #489 (`struct`), #490 (`itertools`), #491 (`collections`), #492 (`bisect`), #493 (`math`), #494 (`random`), #495 (`json` file surface).
 
 Receipt: the log pipeline reference app (#5.2) compiles with 0 fences and matches CPython byte for byte; the `benchmarks/baseline` suite gains a `pipeline` workload; the perf number is recorded.
 
@@ -356,7 +356,7 @@ Interleaves with #453: this phase is the long pole and is entirely independent o
 
 ### Phase 3: the compat ports (M to L, v0.9.0)
 
-#231, #232, #233 (M each), #234 (L), #156 (`pyscriptc-val`, L), #474 (`pyscriptc-ndarray`, L), #475 (`pyscriptc-frame`, XL).
+#231, #232, #233 (M each), #234 (L), #156 (`pyscriptc-val`, L), #496 (`pyscriptc-ndarray`, L), #497 (`pyscriptc-frame`, XL).
 
 Receipt for the fastapi port: the JSON service reference app compiles, serves over loopback, and matches CPython byte for byte; the request-per-second receipt is recorded.
 
@@ -364,7 +364,7 @@ Receipt for the val pack: a `pyscriptc-val` pack exists with a `pack.toml`, a `.
 
 Receipt for the ndarray and frame surfaces: a compiled buffer with vectorized arithmetic beats CPython's `list[float]` loop by a recorded factor; the frame's `groupby` matches CPython's output on the fixture.
 
-Interleaves with #453: #231 to #234 depend on #230 (phase 2) and on the dataclass work (#452) for the request models. #156 depends on the dataclass and field work (#444, #452). #474 and #475 depend on #372, the IR buffer type, which is gated on a canonicity decision and therefore on the frozen-gate discipline (`IR_HASHES.json` A/B byte-identical regeneration).
+Interleaves with #453: #231 to #234 depend on #230 (phase 2) and on the dataclass work (#452) for the request models. #156 depends on the dataclass and field work (#444, #452). #496 and #497 depend on #372, the IR buffer type, which is gated on a canonicity decision and therefore on the frozen-gate discipline (`IR_HASHES.json` A/B byte-identical regeneration).
 
 ### Phase 4: the T1 package that matters (M to L, v0.8.0 and v0.9.0)
 
@@ -399,8 +399,8 @@ The only thing owed to a tester who asks for one of these is a plain answer and 
 | release | theme | what lands |
 | ------- | ----- | ---------- |
 | v0.7.0 | libraries are consumable | the pack format children (#454 to #459), #411, the language-wave items already queued |
-| v0.8.0 | the measurement and the type surface hold up | #488 (coverage does not crash), #477 (bare container annotations), #466, #467, #469, #468, the library-track items (#424, #408, #409, #410, #406, #403) |
-| v0.9.0 | basic apps are first class | the HTTP server runtime (#227, #228, #229, #230), the compat ports (#231 to #234, #156, #474, #475), the stdlib surfaces (#478 to #487), #372, #235, #237 |
+| v0.8.0 | the measurement and the type surface hold up | #484 (coverage does not crash), #483 (bare container annotations), #481 (the user-class container loop), #466, #467, #469, #468, the library-track items (#424, #408, #409, #410, #406, #403) |
+| v0.9.0 | basic apps are first class | the HTTP server runtime (#227, #228, #229, #230), the compat ports (#231 to #234, #156, #496, #497), the stdlib surfaces (#485 to #495), #372, #235, #237 |
 | Future | the rest | async, ASGI, the `langchain` shaped work, everything T4 |
 
 The beta bar under `.agents/plans/2026-10-23-v060-beta-release.md` needs at least 2 user-visible features since the last stable. The JSON service and the log pipeline together clear that bar for the next beta cut.
@@ -421,7 +421,7 @@ One thing this plan adds that the scripts session cannot: the two reference apps
 | the web server is late | `ps_httpd.c` does not exist; #229 is L and needs #227 and #228 first | ship the data pipeline first; the server ships in v0.9.0 |
 | `pyscriptc-fastapi` promises more than it delivers | 908 fences in real fastapi, 492 in starlette | the port ships a **closed** surface, and the names outside it fence at compile time |
 | the ndarray surface becomes a second compiler | #372 is XL and gated on a canonicity decision | the first milestone is a flat buffer with elementwise arithmetic, not a numpy clone; anything more is a recorded non-goal |
-| the coverage tool hides failures | the `langchain-core` crash is a live example | #488 in phase 0, and the coverage tool must exit 0 on every dependency tree in the beta list |
+| the coverage tool hides failures | the `langchain-core` crash is a live example | #484 in phase 0, and the coverage tool must exit 0 on every dependency tree in the beta list |
 | a tester assumes T1 means full compatibility | `requests` loses proxies, cookies, multipart | the narrowing is written into `docs/reference/divergences.md` in the same PR |
 
 ## 10. The measurement recipe
@@ -445,3 +445,30 @@ uv run python -m benchmarks.baseline.run --runs 5 --workloads json-roundtrip,str
 ```
 
 The two archetype probes are committed under `.agents/probes/` so the numbers are re-measurable and the beta decision can be re-run against a newer compiler.
+
+## 11. The ticket index
+
+Every ticket this plan opens, with its milestone and effort. All carry the `enhancement` label and are on the project board with their horizon, effort, track and iteration set.
+
+| ticket | what | milestone | effort | horizon |
+| ------ | ---- | --------- | ------ | ------- |
+| #481 | lower: a `for` loop over a container of user class instances | v0.8.0 | M | Current |
+| #483 | lower: a bare `list` or `dict` annotation | v0.8.0 | M | Current |
+| #484 | fix(coverage): the coverage tool must not crash on a dependency tree | v0.8.0 | S | Current |
+| #498 | example: the log pipeline reference app | v0.8.0 | M | Current |
+| #485 | stdlib: a closed `selectors` subset | v0.9.0 | M | Next |
+| #486 | stdlib: a closed `statistics` subset | v0.9.0 | M | Next |
+| #487 | stdlib: a closed `heapq` subset | v0.9.0 | M | Next |
+| #488 | stdlib: `csv.DictReader` and `csv.DictWriter` | v0.9.0 | M | Next |
+| #489 | stdlib: `struct.calcsize` and `struct.unpack_from` | v0.9.0 | M | Next |
+| #490 | stdlib: the finite eager `itertools` subset | v0.9.0 | M | Next |
+| #491 | stdlib: `OrderedDict` and `defaultdict` in the value form | v0.9.0 | M | Next |
+| #492 | stdlib: `bisect.insort` and friends | v0.9.0 | S | Next |
+| #493 | stdlib: the `math` surface completion | v0.9.0 | M | Next |
+| #494 | stdlib: the `random` surface completion | v0.9.0 | M | Next |
+| #495 | stdlib: the `json` file surface | v0.9.0 | M | Next |
+| #496 | pyscriptc-ndarray, the numpy tier (T3) | v0.9.0 | L | Later |
+| #497 | pyscriptc-frame, the pandas tier (T3) | v0.9.0 | XL | Later |
+| #499 | example: the JSON service reference app | v0.9.0 | L | Next |
+
+The tickets this plan reuses, unchanged: #227, #228, #229, #230 (the HTTP server chain), #231 to #234 (the fastapi port), #156 (`pyscriptc-val`, the pydantic tier), #372 (the IR buffer type), #235 and #237 (TLS and `http.client`), #424, #408, #409, #410, #406, #403 and #378 (the library track), #454 to #459 and #411 (the pack format), #412 and #413 (the annotation surface), #444 and #452 (the dataclass work), #446 (the `iter` protocol).
