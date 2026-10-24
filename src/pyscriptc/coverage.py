@@ -161,6 +161,8 @@ _RULES: tuple[tuple[str | None, str, str], ...] = (
     ("PS1001", r"is not a value type in the IR", "value-type"),
     ("PS1001", r"", "annotation-other"),
     ("PS1003", r"", "type-mismatch"),
+    ("PS4204", r"returns .+, the read site expects", "type-mismatch"),
+    ("PS4204", r"", "type-mismatch"),
     ("PS1004", r"", "fall-off-end"),
     ("PS2001", r"is not a field$|has no fields$", "field-lookup"),
     ("PS2001", r"is not in the lowered subset of ([\w.]+)", "stdlib"),

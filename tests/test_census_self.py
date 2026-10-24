@@ -193,12 +193,19 @@ def test_self_census_ballpark() -> None:
     # `_top_level_names` reader (top_level.txt, else RECORD top level) and
     # the per-distribution name walk in the report and the lane map add 23
     # self-host fences.
-    assert census["fences"] == 2981
+    # D2 __getattr__ reads (#434): the hook discovery (`_getattr_hook`) and
+    # the direct-call read lowering (`_getattr_hook_call`, with its PS4204
+    # return-type cover fence) in lower/_classes.py add 3 self-host fences:
+    # the `tuple[str, dict] | None` return annotation and the `dict[str, Any]`
+    # parameter annotations are dynamic-annotation fences, the module count
+    # is unchanged.
+
+    assert census["fences"] == 2984
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     # Project mode (#150): project.py adds about 240 lines.
     # yield inside try (#164): the re-entrant try in the coro guard transform
     # adds about 150 lines in coro.py. The asyncio primitives (#180 D3) add
     # about 400 in ps_async.c and restlower/_asyncio_sync.py.
-    assert 11_000 <= census["lines"] <= 40_700
-    assert sum(p["fences"] for p in census["packages"]) == 2981
+    assert 11_000 <= census["lines"] <= 41_000
+    assert sum(p["fences"] for p in census["packages"]) == 2984

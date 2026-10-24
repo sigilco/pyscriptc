@@ -52,7 +52,7 @@ _ERASED_BASES = frozenset({"ABC", "ABCMeta", "Protocol"})
 _ERASED_DECORATORS = frozenset({"abstractmethod", "overload"})
 _IO_HANDLES = {"BinaryIO": "BytesIO", "TextIO": "TextIO"}
 # The dynamic attribute protocol is refused by design (issue #432, the
-# PS4xxx refusal family). A hook that intercepts attribute access or writes
+# PS42xx refusal family). A hook that intercepts attribute access or writes
 # has nothing to run in: attribute access resolves statically to declared
 # fields, so the hook would be silently dropped (`__del__`) or silently
 # bypassed (`__setattr__` wrote straight to the field). The refusal names
@@ -60,8 +60,14 @@ _IO_HANDLES = {"BinaryIO": "BytesIO", "TextIO": "TextIO"}
 #
 # `@property` getters are not in this table: they lower, and the getter is
 # called at the read site.
+#
+# D2 (issue #434): `__getattr__` is out of this table for one shape only, a
+# plain `def __getattr__(self, name: str) -> T` method: unknown-name READ
+# sites then lower as a direct hook call with the name as a compile-time
+# constant (`_getattr_hook_call`). Every other hook here still fences at its
+# definition, and a hook whose signature fences never becomes dispatchable
+# (the refusal stays a refusal).
 _REFUSED_HOOKS: dict[str, str] = {
-    "__getattr__": "PS4201",
     "__setattr__": "PS4201",
     "__getattribute__": "PS4201",
     "__get__": "PS4201",
@@ -1420,7 +1426,14 @@ class ClassesMixin:
         self.fail(node, "PS2004", f"{op.__name__} on {left_name} and {right_name} is not lowered")
         raise AssertionError("unreachable")
 
-    def _lookup_attr(self, obj: dict[str, Any], name: str, span: dict[str, Any], node: ast.AST) -> dict[str, Any]:
+    def _lookup_attr(
+        self,
+        obj: dict[str, Any],
+        name: str,
+        span: dict[str, Any],
+        node: ast.AST,
+        expect: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         if obj["type"]["kind"] == "exc":
             if name == "args":
                 return self._abi_call(
@@ -1466,6 +1479,9 @@ class ClassesMixin:
                 "type": sig[1],
                 "span": span,
             }
+        hook = self._getattr_hook(class_name)
+        if hook is not None:
+            return self._getattr_hook_call(hook, obj, name, span, node, expect)
         attr = path_attr(name) if class_name == "Path" else None
         if attr is not None:
             typ, symbol = attr
@@ -1474,6 +1490,83 @@ class ClassesMixin:
             self.fail(node, "PS2002", f"{class_name}.{name} is a function and is not a value")
         self.fail(node, "PS2001", f"{class_name}.{name} is not a field")
         raise AssertionError("unreachable")
+
+    def _getattr_hook(self, class_name: str) -> tuple[str, dict[str, Any]] | None:
+        """The first `__getattr__` definer in the MRO, as (owner, signature).
+
+        None means no lowered class in the MRO defines the hook, or the
+        definition is not the one supported shape: a plain instance method
+        taking exactly `self` and one `str`. A `@property`, `@staticmethod` or
+        `@classmethod` spelling, and a generator (`def ... -> Generator`) body,
+        stay refused: the signature never becomes dispatchable, so the read
+        site keeps its ordinary fence and D1's refusal is not quietly lifted
+        for shapes this lowering cannot call (issue #434). A definition whose
+        signature fenced never lands in `method_owner` either, so a partial
+        refusal still refuses.
+        """
+        info = self.classes.get(class_name)
+        if info is None:
+            return None
+        for ancestor in info.get("mro", [class_name]):
+            ancestor_info = self.classes.get(ancestor)
+            if ancestor_info is None:
+                continue
+            if ancestor_info.get("method_owner", {}).get("__getattr__") != ancestor:
+                continue
+            if ancestor_info.get("method_kind", {}).get("__getattr__", "method") != "method":
+                return None
+            params, _ = ancestor_info["methods"]["__getattr__"]
+            if len(params) != 2 or params[1].get("type", {}).get("kind") != "str":
+                return None
+            return ancestor, ancestor_info["methods"]["__getattr__"]
+        return None
+
+    def _getattr_hook_call(
+        self,
+        hook: tuple[str, Any],
+        obj: dict[str, Any],
+        name: str,
+        span: dict[str, Any],
+        node: ast.AST,
+        expect: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """An unknown-name READ on a class with `__getattr__`: a direct call.
+
+        The name rides as a compile-time string constant, so the hook is a
+        plain two-argument call and the class layout never grows a name cell.
+        The hook's declared return type must cover the read site: a hook that
+        claims `int` cannot feed a `str` read, and that is a named fence, not
+        a silent wrong-type load (issue #434).
+        """
+        owner, (params, ret) = hook
+        if ret.get("optional"):
+            self.fail(
+                node,
+                "PS4204",
+                f"{owner}.__getattr__ returns {_show(ret)}; the return type must cover the read site exactly",
+            )
+            raise AssertionError("unreachable")
+        if ret["kind"] in {"none"}:
+            self.fail(
+                node,
+                "PS4204",
+                f"{owner}.__getattr__ returns {_show(ret)}; a read needs a value type",
+            )
+            raise AssertionError("unreachable")
+        if expect is not None and not types_equal(ret, expect):
+            self.fail(
+                node,
+                "PS4204",
+                f"{owner}.__getattr__ returns {_show(ret)}, the read site expects {_show(expect)}",
+            )
+            raise AssertionError("unreachable")
+        return {
+            "kind": "call",
+            "callee": {"kind": "function", "name": f"cls.{owner}.__getattr__"},
+            "args": [obj, {"kind": "const", "value": name, "type": {"kind": "str"}, "span": span}],
+            "type": copy.deepcopy(ret),
+            "span": span,
+        }
 
     def _has_attr(self, obj: dict[str, Any], name: str) -> bool:
         if obj["type"]["kind"] != "class":

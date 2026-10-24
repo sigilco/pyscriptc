@@ -979,6 +979,19 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         self.fail(node, "PS2004", "condition must be a bool, not a truthy value")
         raise AssertionError("unreachable")
 
+    def _bool_cond_of(self, node: ast.expr, want: dict[str, Any]) -> dict[str, Any]:
+        """A condition whose expected type rides down (the `__getattr__` hook)."""
+        if isinstance(node, ast.BoolOp):
+            return self._bool_cond(node)
+        cond = self._expr(node, want)
+        kind = cond["type"]["kind"]
+        if kind == "bool":
+            return cond
+        if kind in _TRUTHY or cond["type"].get("optional"):
+            return self._truthy(cond, span_of(node, self.filename))
+        self.fail(node, "PS2004", "condition must be a bool, not a truthy value")
+        raise AssertionError("unreachable")
+
     def _expect(self, node: ast.AST, got: dict[str, Any], want: dict[str, Any], what: str) -> None:
         if not types_equal(got, want) and not self._accepts_protocol(want, got):
             self.fail(node, "PS1003", f"{what} is {_show(got)}, annotation says {_show(want)}")

@@ -304,7 +304,7 @@ class StmtMixin:
             return [
                 {
                     "kind": "if",
-                    "cond": self._bool_cond(stmt.test),
+                    "cond": self._bool_cond_of(stmt.test, {"kind": "bool"}),
                     "then": then_body,
                     "else": else_body,
                     "span": span,

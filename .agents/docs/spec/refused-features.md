@@ -102,7 +102,7 @@ Every row below was probed by compiling and running a snippet against master `0b
 | PS4016 identity | `hash('a')` | fenced | `PS2002` |
 | PS4016 identity | `repr(C())` | fenced | `PS2004` |
 | PS4016 identity | `str(c)` | fenced | `PS2003` |
-| PS4201 attrs | `c.missing` with `__getattr__` | fenced | `PS2001` |
+| PS4201 attrs | `c.missing` with `__getattr__` | works | hook called with `'missing'` (D2, #434) |
 | PS4201 attrs | `c.a = 1` with `__setattr__` | fenced | `PS4201` (registered #432) |
 | PS4201 attrs | `c.a = 5` on a `@property` | checker | \|     ^^^ |
 | PS4201 attrs | `c.d` with `__get__` | fenced | `PS1003,PS1104` |
@@ -146,7 +146,7 @@ Assignment rule: a construct is T2 only when every CPython-observable result is 
 
 ### Tier assignment
 
-**T0 - refuse forever.** Interpreter hooks (`setrecursionlimit`, `settrace`, `setprofile`, `getrefcount`); `__del__`/`weakref`/`gc` (PS4203 for the hook, `weakref`/`gc` calls still PS2002); `id()`/default `repr` - process identity is non-reproducible by construction; `__getattr__`/`__setattr__`/`__getattribute__`/descriptors on classes (PS4201, post-census scope); non-literal monkeypatching and `__dict__` writes; `globals()`/`locals()`/`vars()`/`dir()`; `itertools.count`/`cycle` - an unbounded iterator is a hang with no stack; `asyncio.gather` (if async ever lands); generators-as-values outside the lowered lanes (R24 territory); scalar `is` where the operands are runtime-built (the divergence above; the eager literal case is T2-adjacent but the pointer semantics make the general form T0); full UTF-8 `str` (Latin-1 by design - the one epic-sized refusal, documented as bounded rather than refused row-by-row); async/await (unchartered epic).
+**T0 - refuse forever.** Interpreter hooks (`setrecursionlimit`, `settrace`, `setprofile`, `getrefcount`); `__del__`/`weakref`/`gc` (PS4203 for the hook, `weakref`/`gc` calls still PS2002); `id()`/default `repr` - process identity is non-reproducible by construction; `__setattr__`/`__getattribute__`/descriptors on classes, and `__getattr__` outside its one D2 shape (PS4201; the plain-method hook lowers for unknown-name reads, issue #434); non-literal monkeypatching and `__dict__` writes; `globals()`/`locals()`/`vars()`/`dir()`; `itertools.count`/`cycle` - an unbounded iterator is a hang with no stack; `asyncio.gather` (if async ever lands); generators-as-values outside the lowered lanes (R24 territory); scalar `is` where the operands are runtime-built (the divergence above; the eager literal case is T2-adjacent but the pointer semantics make the general form T0); full UTF-8 `str` (Latin-1 by design - the one epic-sized refusal, documented as bounded rather than refused row-by-row); async/await (unchartered epic).
 
 **T1 - island-only.** `eval`/`exec`/`compile` (PS4001's native half stays T0; the island lane is a ~30-line `PyRun_String` shim); `importlib.import_module`/`__import__` (needs a `ps_island_call(mod, fn, args)` trampoline over lowered types only). These never lower natively: dynamic code defeats static resolution, which is a T0 property, but the island can honor it, which is a T1 property. The boxed ledger decides whether libpython linkage is worth carrying; if it is dropped, these convert to T0.
 
@@ -178,7 +178,7 @@ Assignment rule: a construct is T2 only when every CPython-observable result is 
 | Interpreter hooks (`setrecursionlimit`, `settrace`, `setprofile`, `getrefcount`) | refuse (PS4014) | T0 | none - compiler-owned process |
 | `__del__`, `weakref`, `gc` module | refuse (PS4203 for the hook) | T0 | `with` / explicit `close()` |
 | `id()`, `hash()` of str/bytes, default `repr` addresses | refuse (PS4016) | T0 (`hash` of int/bool is T3) | a field that carries the identity you need |
-| `__getattr__` / `__setattr__` / `__getattribute__`, `__delattr__`, descriptors on classes | refuse (PS4201, PS4202; property getters lower) | T0 | plain annotated fields and methods |
+| `__getattr__` / `__setattr__` / `__getattribute__`, `__delattr__`, descriptors on classes | refuse (PS4201, PS4202; property getters lower; `__getattr__` reads lower for the plain-method shape, #434) | T0 | plain annotated fields and methods; the D2 hook shape for unknown-name reads |
 | `from x import *` (cross-module) | refuse (PS4018) | T0 | named imports |
 | `*args` / `**kwargs` signatures | **supported** (lower as list/dict) | - | plain positional parameters still preferred |
 | `asyncio.gather` | refuse if async ever lands | T0 | structured concurrency only (`TaskGroup`) |
@@ -269,6 +269,12 @@ Post-census scope. `map`/`filter` already desugar to eager comprehensions (`rest
 
 **Registered (issue #432, D1/O1).** The hook *definition* now fences with `PS4201` at the definition site, so the silent `__setattr__` divergence is gone: a class that defines the hook no longer compiles and runs with the hook never called. The refusal is on the hook names only; `@property` getters keep lowering and the getter is still called at the read site. Coverage family: `refused-dynamic-attrs`.
 
+**D2 lift (issue #434).** `__getattr__` comes out of the refusal for exactly one shape: a plain instance method `def __getattr__(self, name: str) -> T`. An unknown-name READ on the class (or any subclass through the MRO, first definer wins) then lowers as a direct two-argument call of the hook with the attribute name as a compile-time string constant - no runtime name cells, no per-name dispatch. Known fields, `@property` getters and methods still resolve first, and `getattr(c, "name")` with a literal name rides the same path. The hook's declared return type must cover the read site exactly: a mismatch, `None`, or an optional return is a named `PS4204` fence at the read site (condition contexts pass their `bool` expectation down), never a silent wrong-type load. Every other shape keeps the D1 refusal: a decorated `__getattr__`, a parameter list that is not `(self, name: str)`, and a definition whose signature fenced. Writes (`__setattr__`, D3) and deletion (`__delattr__`) stay refused. Known gap: a read the hook itself performs on an unknown name recurses with no guard, where CPython raises `RecursionError` - the binary crashes instead.
+
+### PS4204 - `__getattr__` return type does not cover the read site
+
+The D2 read lowering turns the hook into a function with one declared return type, so the type discipline is checkable: the read site's expected type must equal the hook's return annotation. A `PS4204` fence names the owner class, the hook's type and the expected type. `None` and optional returns refuse outright (a read needs a value; there is no sentinel to mean "missing"). Tier: T0 for the fence, the check itself is the feature.
+
 ### PS4202 - attribute deletion protocol
 
 `__delattr__` intercepts `del obj.name`. The lowered subset has no attribute deletion (fields are fixed at lowering and never removed), so the hook would never run. Tier: T0. **Registered (issue #432)**: the definition fences with `PS4202`, coverage family `refused-dynamic-attrs`.
@@ -331,8 +337,9 @@ Recommendation: **hard fences for every T0 row, no warning tier yet.**
 
 | Code | Row | Fences at | Family |
 | --- | --- | --- | --- |
-| `PS4201` | dynamic attribute protocol (`__getattr__`, `__setattr__`, `__getattribute__`, `__get__`, `__set__`) | the hook definition in a class body | `refused-dynamic-attrs` |
+| `PS4201` | dynamic attribute protocol (`__setattr__`, `__getattribute__`, `__get__`, `__set__`; `__getattr__` outside the D2 shape) | the hook definition in a class body | `refused-dynamic-attrs` |
 | `PS4202` | attribute deletion protocol (`__delattr__`) | the hook definition in a class body | `refused-dynamic-attrs` |
 | `PS4203` | finalizer hook (`__del__`) | the hook definition in a class body | `refused-finalizer` |
+| `PS4204` | `__getattr__` return type does not cover the read site | the unknown-name read site (issue #434, D2) | `type-mismatch` |
 
-The rows landed with issue #432 (plan D1, OOP plan O1). The remaining rows keep their numbers from the tables above until they land, so a reader can tell a registered code from a proposed one.
+The first three rows landed with issue #432 (plan D1, OOP plan O1); `PS4204` and the `__getattr__` read lift landed with issue #434 (plan D2). The remaining rows keep their numbers from the tables above until they land, so a reader can tell a registered code from a proposed one.
