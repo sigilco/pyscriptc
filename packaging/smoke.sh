@@ -77,14 +77,14 @@ if [ -z "$got" ]; then
   echo "exit code: $rc" >&2
 fi
 
-# 3. the same function under CPython 3.12
-want="$(cd "$work/ref" && uv run --no-project --python 3.12 python -I -c '
+# 3. the same function under CPython 3.14
+want="$(cd "$work/ref" && uv run --no-project --python 3.14 python -I -c '
 import ast, importlib.util, sys
 spec = importlib.util.spec_from_file_location("prog", "prog.py")
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 print(getattr(mod, sys.argv[1])(*ast.literal_eval(sys.argv[2])))
-' "$func" "$fargs")" || fail "CPython 3.12 reference run failed"
+' "$func" "$fargs")" || fail "CPython 3.14 reference run failed"
 
 echo "binary : $got"
 echo "cpython: $want"

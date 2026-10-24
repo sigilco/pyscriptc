@@ -39,8 +39,8 @@ jobs:
           enable-cache: true
           python-version: "3.14"
       - run: uv sync --frozen
-      - name: oracle is CPython 3.14
-        run: uv run python -c "import sys; assert sys.version_info[:2] == (3, 14), sys.version"
+      - name: oracle is CPython 3.14.9
+        run: uv run python -c "import sys; assert sys.version_info[:3] == (3, 14, 9), sys.version"
       - name: compare against committed baseline
         if: github.event_name == 'pull_request'
         run: uv run python -m benchmarks.compat2.irscore benchmarks/compat2/probes --baseline benchmarks/compat2/probes/IR_HASHES.json

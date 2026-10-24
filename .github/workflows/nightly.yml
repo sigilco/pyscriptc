@@ -69,6 +69,9 @@ jobs:
           key: compat2-${{ runner.os }}-${{ steps.tc.outputs.v }}-${{ hashFiles('uv.lock', 'src/pyscriptc/**', 'benchmarks/compat2/**', '!benchmarks/compat2/.cache/**') }}
           restore-keys: compat2-${{ runner.os }}-${{ steps.tc.outputs.v }}-
 
+      - name: oracle is CPython 3.14.9
+        run: uv run python -c "import sys; assert sys.version_info[:3] == (3, 14, 9), sys.version"
+
       - name: Visible-corpus score
         id: score
         continue-on-error: true

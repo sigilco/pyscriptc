@@ -72,8 +72,8 @@ jobs:
           --exclude benchmarks/compat2/corpus/spec.py
           --exclude benchmarks/compat2/coverage_map.py
           --exclude benchmarks/compat2/score.py
-      - name: oracle is CPython 3.14
-        run: uv run python -c "import sys; assert sys.version_info[:2] == (3, 14), sys.version"
+      - name: oracle is CPython 3.14.9
+        run: uv run python -c "import sys; assert sys.version_info[:3] == (3, 14, 9), sys.version"
       - run: uv run pytest -q tests/compat2 -m "not linux_container"
 
   macos-safe:
