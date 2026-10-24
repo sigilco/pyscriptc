@@ -98,7 +98,9 @@ _FAMILIES = {
         Family("keyword-args", "Pass the arguments positionally."),
         Family("call-arity", "Match the lowered arity of the call."),
         Family("operator", "Convert the operands to a supported type pair."),
-        Family("non-latin1", "Use Latin-1 text. Other strings do not lower."),
+        Family(
+            "non-latin1", "Use text without lone surrogates. A lone surrogate has no UTF-8 bytes and does not lower."
+        ),
         Family("type-mismatch", "Convert the operand explicitly."),
         Family("fall-off-end", "End every path with a return or a raise."),
         Family("field-lookup", "Access only fields the class declares."),
