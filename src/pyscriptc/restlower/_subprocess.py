@@ -2,10 +2,12 @@
 
 `subprocess.run(cmd)` returns the CompletedProcess record, `subprocess.call`
 the exit code, and `subprocess.check_call` the exit code with a non-zero
-code raising RuntimeError. The command is a `list[str]`, the shape scripts
-use. `capture_output=True` captures stdout and stderr into the record;
-`text=True` is accepted and ignored, because the captured bytes are read
-as bytes like the island `check_output` spelling does.
+code raising RuntimeError. `run` takes `capture_output=True`, `text=` and
+`check=` as bool literals: check joins the flag to ps_sub_run so a non-zero
+code raises the check_call stand-in, and text rides the bytes capture
+whatever it says (a CPython text-mode record is str; the subset returns
+bytes; divergence row 41). `encoding=` and `errors=` carry names only.
+The command is a `list[str]`, the shape scripts use.
 """
 
 from __future__ import annotations
@@ -37,6 +39,22 @@ def _capture_output(node: ast.Call) -> bool:
     return False
 
 
+# The run keywords whose value is a bool; encoding/errors ride names only,
+# and text= rides the bytes capture whatever it says (divergence row 41).
+_RUN_BOOL = {"capture_output", "check", "text"}
+
+
+def _raise_flag(node: ast.Call) -> bool:
+    """`check=True` raises the check_call stand-in after the run records the exit code."""
+    for keyword in node.keywords:
+        if keyword.arg is None:
+            continue
+        if keyword.arg == "check" and isinstance(keyword.value, ast.Constant):
+            if keyword.value.value is True:
+                return True
+    return False
+
+
 def _run(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     lo.mobile_guard(node, "subprocess.run", "subprocess")
     for keyword in node.keywords:
@@ -44,9 +62,14 @@ def _run(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
             lo.fail(node, "PS2002", "**kwargs are not lowered")
         if keyword.arg not in {"capture_output", "text", "encoding", "errors", "check"}:
             lo.fail(node, "PS2003", f"subprocess.run keyword {keyword.arg} is not lowered")
+        if keyword.arg in _RUN_BOOL and not (
+            isinstance(keyword.value, ast.Constant) and isinstance(keyword.value.value, bool)
+        ):
+            lo.fail(keyword.value, "PS2003", f"subprocess.run {keyword.arg} takes a True or False literal")
     argv = _argv(lo, node, span)
     capture = 1 if _capture_output(node) else 0
-    flag = {"kind": "const", "value": str(capture), "type": {"kind": "int"}, "span": span}
+    check = 2 if _raise_flag(node) else 0
+    flag = {"kind": "const", "value": str(capture | check), "type": {"kind": "int"}, "span": span}
     return lo._abi_call(
         "subprocess",
         "run",
