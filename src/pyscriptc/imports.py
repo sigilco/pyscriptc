@@ -36,6 +36,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from pyscriptc.config import POLICY_TO_LANE, lane_for
 from pyscriptc.stdlib_queue import PACK_MODULES, canonical_module, module_status
 
 SCHEMA_VERSION = 1
@@ -50,6 +51,19 @@ LANE_PACK = "pack"
 LANE_EXTERN = "extern"
 LANE_ISLAND = "island"
 LANE_ABSENT = "absent"
+LANE_REFUSED = "refused"
+
+# The user-facing ladder. An import is answered `native` (compile from
+# source), `native: fences (PS20xx)` (the coverage report knows the codes) or
+# `island (requires libpython)` (the per-import policy route). Nothing else
+# reaches the island lane: it is never guessed from a package name or wheel
+# metadata, only selected by `[tool.pyscriptc.imports]`.
+LADDER_NATIVE = "native"
+LADDER_FENCED = "native: fences"
+LADDER_ISLAND = "island (requires libpython)"
+
+# The label coverage and binary metadata carry for the island lane.
+REQUIRES_LIBPYTHON = "requires libpython"
 
 # The classification of one import.
 KIND_STDLIB = "stdlib"
@@ -73,6 +87,16 @@ SOURCE_HEURISTIC = "heuristic"
 SOURCE_RELATIVE = "relative"
 
 
+def _ladder(lane: str) -> str:
+    """The user-facing answer for a lane: native or the island floor."""
+
+    if lane == LANE_ISLAND:
+        return LADDER_ISLAND
+    if lane == LANE_REFUSED:
+        return LANE_REFUSED
+    return LADDER_NATIVE
+
+
 def _verdict(
     name: str,
     kind: str,
@@ -84,10 +108,13 @@ def _verdict(
 ) -> dict[str, Any]:
     """One verdict, as the report holds it."""
 
+    island = lane == LANE_ISLAND
     return {
         "name": name,
         "kind": kind,
         "lane": lane,
+        "ladder": _ladder(lane),
+        "requiresLibpython": island,
         "reason": reason,
         "distribution": distribution,
         "pack": pack,
@@ -421,8 +448,62 @@ def _stdlib_verdict(name: str) -> dict[str, Any] | None:
     )
 
 
-def classify(name: str, distribution: str = "") -> dict[str, Any]:
-    """Classify one import name into a kind and a lane."""
+def _policy_key(name: str, policy: dict[str, str]) -> tuple[str, str] | None:
+    """The policy entry that answers an import, full name first then its root."""
+
+    lane, key = lane_for(name, policy)
+    if key == "default":
+        lane, key = lane_for(_top_level(name), policy)
+    if key == "default":
+        return None
+    return POLICY_TO_LANE[lane], key
+
+
+def apply_policy(verdict: dict[str, Any], policy: dict[str, str] | None) -> dict[str, Any]:
+    """Override a verdict with the per-import policy table, when it names the import.
+
+    The table is the only route to the `island` lane. A policy entry also
+    overrides a classifier verdict (a `native-backed` package the user
+    deliberately routes to a pack, an extern manifest or an `ImportError`
+    branch), because the policy is what the compile will do.
+    """
+
+    if not policy:
+        return verdict
+    found = _policy_key(verdict["name"], policy)
+    if found is None:
+        return verdict
+    lane, key = found
+    if lane == verdict["lane"]:
+        return verdict
+    chosen = f"per-import policy {key!r}: {lane}"
+    if lane == LANE_ISLAND:
+        chosen = f"per-import policy {key!r}: island ({REQUIRES_LIBPYTHON}); the binary links the host interpreter"
+    updated = dict(verdict)
+    updated.update(
+        {
+            "lane": lane,
+            "ladder": _ladder(lane),
+            "requiresLibpython": lane == LANE_ISLAND,
+            "reason": chosen,
+        }
+    )
+    return updated
+
+
+def classify(name: str, distribution: str = "", policy: dict[str, str] | None = None) -> dict[str, Any]:
+    """Classify one import name into a kind and a lane.
+
+    `policy` is the `[tool.pyscriptc.imports]` table when the caller has one.
+    Without it the island lane is unreachable: the classifier answers what
+    an import can take, not the user's opt-in choice.
+    """
+
+    return apply_policy(_classify_base(name, distribution), policy)
+
+
+def _classify_base(name: str, distribution: str = "") -> dict[str, Any]:
+    """The classifier verdict before the per-import policy is applied."""
 
     if not name:
         return _verdict(
@@ -495,13 +576,18 @@ def _group_key(verdict: dict[str, Any]) -> str:
     return _top_level(verdict["name"])
 
 
-def build_report(target: Path, distributions: dict[str, str] | None = None) -> dict[str, Any]:
+def build_report(
+    target: Path,
+    distributions: dict[str, str] | None = None,
+    policy: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """Classify every import of a file or package tree.
 
     `distributions` maps an import root to the distribution that provides it,
     so a caller that resolved the dependency graph can pass it in. Without it
     the classifier uses the data file and the metadata of the running
-    interpreter.
+    interpreter. `policy` is the `[tool.pyscriptc.imports]` table; it is the
+    only way an import reaches the island lane.
     """
 
     target = Path(target)
@@ -525,7 +611,7 @@ def build_report(target: Path, distributions: dict[str, str] | None = None) -> d
                 SOURCE_RELATIVE,
             )
         else:
-            verdict = classify(name, distributions.get(_top_level(name), ""))
+            verdict = classify(name, distributions.get(_top_level(name), ""), policy)
         key = _group_key(verdict)
         existing = grouped.get(key)
         if existing is None:
@@ -550,9 +636,18 @@ def build_report(target: Path, distributions: dict[str, str] | None = None) -> d
     imports = [grouped[key] for key in sorted(grouped)]
     by_lane: dict[str, int] = {}
     by_kind: dict[str, int] = {}
+    by_ladder: dict[str, int] = {}
+    island_imports: list[str] = []
+    island_statements = 0
     for item in imports:
         by_lane[item["lane"]] = by_lane.get(item["lane"], 0) + 1
         by_kind[item["kind"]] = by_kind.get(item["kind"], 0) + 1
+        answer = item["ladder"]
+        if item["requiresLibpython"]:
+            answer = LADDER_ISLAND
+            island_imports.append(item["name"])
+            island_statements += len(item["sites"])
+        by_ladder[answer] = by_ladder.get(answer, 0) + 1
 
     return {
         "schemaVersion": SCHEMA_VERSION,
@@ -562,13 +657,18 @@ def build_report(target: Path, distributions: dict[str, str] | None = None) -> d
             "statements": len(sites),
             "byLane": dict(sorted(by_lane.items())),
             "byKind": dict(sorted(by_kind.items())),
+            "byLadder": dict(sorted(by_ladder.items())),
+            "requiresLibpython": bool(island_imports),
+            "islandImports": island_imports,
+            "islandStatements": island_statements,
+            "reach": round(island_statements / len(sites), 4) if sites else 0.0,
         },
         "imports": imports,
     }
 
 
 def render_text(report: dict[str, Any]) -> str:
-    """The lane table, one line per import."""
+    """The ladder table, one line per import."""
 
     summary = report["summary"]
     lanes = ", ".join(f"{lane} {count}" for lane, count in summary["byLane"].items())
@@ -576,11 +676,52 @@ def render_text(report: dict[str, Any]) -> str:
         lanes = "none"
     parts = [
         f"{report['target']}: {summary['imports']} imports ({summary['statements']} statements) by lane {lanes}",
+        f"island: {'requires libpython' if summary['requiresLibpython'] else 'not used'}",
     ]
     for item in report["imports"]:
-        parts.append(f"  {item['name']}: {item['kind']} -> lane {item['lane']}")
+        parts.append(f"  {item['name']}: {item['ladder']} ({item['kind']} -> lane {item['lane']})")
         parts.append(f"    {item['reason']}")
     return "\n".join(parts)
+
+
+def island_statements(report: dict[str, Any]) -> int:
+    """Import statements that reach the island lane, from a report."""
+
+    return sum(len(item["sites"]) for item in report["imports"] if item["requiresLibpython"])
+
+
+def island_reach(report: dict[str, Any]) -> float:
+    """Island statements as a share of all import statements, rounded to 4 places."""
+
+    total = report["summary"]["statements"]
+    if not total:
+        return 0.0
+    return round(island_statements(report) / total, 4)
+
+
+def export_reach(report: dict[str, Any], path: Path) -> dict[str, Any]:
+    """Append the island reach of a report to a `boxed_cost.py --reach` file.
+
+    The file holds `{"boxed_only_reach": [oldest, ..., newest], "unit": "share"}`.
+    A missing file starts the series; an unreadable one is an error, so a typo
+    never silently resets the history.
+    """
+
+    path = Path(path)
+    payload: dict[str, Any] = {"boxed_only_reach": [], "unit": "share"}
+    if path.is_file():
+        existing = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(existing, dict):
+            raise ValueError(f"{path}: the reach file must hold a JSON object")
+        payload = existing
+        series = payload.setdefault("boxed_only_reach", [])
+        if not isinstance(series, list):
+            raise ValueError(f"{path}: boxed_only_reach must be a list")
+        payload["unit"] = "share"
+    payload["boxed_only_reach"].append(island_reach(report))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return payload
 
 
 def pack_candidates(report: dict[str, Any]) -> list[dict[str, Any]]:

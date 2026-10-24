@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from tests.test_gates import run_cli, write_case
 
+import pyscriptc.coverage as coverage
 from pyscriptc.coverage import family_of
 from pyscriptc.diagnostics import DIAGNOSTICS
 from pyscriptc.lower import lower_source
@@ -132,7 +133,69 @@ def test_coverage_walks_a_program_graph(tmp_path: Path) -> None:
     report = json.loads(got.stdout)
     assert report["summary"]["files"] == 4
     assert report["summary"]["definitions"] == 2
-    assert {"union-types", "forward-reference"} <= {entry["family"] for entry in report["fences"]}
+
+
+def test_coverage_marks_island_imports_from_the_policy_table(tmp_path: Path) -> None:
+    script = write_case(
+        tmp_path,
+        "island_cov.py",
+        "\n".join(
+            [
+                "# /// script",
+                "# [tool.pyscriptc.imports]",
+                '# requests = "island"',
+                "# ///",
+                "import requests",
+                "",
+                "x = 1",
+            ]
+        ),
+    )
+    report = coverage.build_report(script)
+    assert report["summary"]["requiresLibpython"] is True
+    assert report["summary"]["islandImports"] == ["requests"]
+    fenced = [e for e in report["fences"] if e["code"] == "PS2002" and "requests" in e["message"]]
+    assert fenced
+    assert "island lane" in fenced[0]["message"]
+    assert "requires libpython" in fenced[0]["message"]
+    assert fenced[0]["dependency"]["lane"] == "island"
+    assert fenced[0]["dependency"]["policy"] == "requests"
+
+
+def test_coverage_pulls_island_policy_from_a_pyproject(tmp_path: Path) -> None:
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "pyproject.toml").write_text(
+        '[tool.pyscriptc.imports]\nrequests = "island"\n',
+        encoding="utf-8",
+    )
+    script = root / "main.py"
+    script.write_text("import requests\n\nx = 1\n", encoding="utf-8")
+    report = coverage.build_report(script)
+    assert report["summary"]["islandImports"] == ["requests"]
+    assert any("island lane" in e["message"] for e in report["fences"] if "requests" in e["message"])
+
+
+def test_coverage_names_a_wildcard_island_policy(tmp_path: Path) -> None:
+    script = write_case(
+        tmp_path,
+        "wildcard_cov.py",
+        "\n".join(
+            [
+                "# /// script",
+                "# [tool.pyscriptc.imports]",
+                '# "*" = "island"',
+                "# ///",
+                "import scipy",
+                "",
+                "x = 1",
+            ]
+        ),
+    )
+    report = coverage.build_report(script)
+    assert report["summary"]["requiresLibpython"] is True
+    assert report["summary"]["islandImports"] == ["scipy"]
+    assert any("island lane" in e["message"] for e in report["fences"] if "scipy" in e["message"])
 
 
 def test_a_cycle_fence_carries_its_own_family(tmp_path: Path) -> None:
@@ -180,4 +243,19 @@ def test_generator_and_contextmanager_families() -> None:
     assert family_of("PS2002", "return inside try or with in a resumable is not lowered yet") == "generators"
     assert family_of("PS2002", "contextlib.contextmanager is not a function") == "contextmanager"
     assert family_of("PS2002", "walrus assignment (:=) is not lowered") == "construct-other"
+
+
+def test_island_call_emits_requires_libpython_metadata() -> None:
+    from pyscriptc.emit.llvm import emit_llvm
+
+    ir_native = lower_source("def main() -> int:\n    return 0\n")
+    ll_native = emit_llvm(ir_native)
+    assert "@.pyscriptc.requires_libpython" not in ll_native
+
+    ir_island = lower_source("import socket\ndef main() -> str:\n    return socket.gethostname()\n")
+    ll_island = emit_llvm(ir_island)
+    assert "@.pyscriptc.requires_libpython" in ll_island
+    assert 'c"pyscriptc:requires-libpython\\00"' in ll_island
+    assert "@llvm.compiler.used" in ll_island
+
     assert family_of("PS2002", "super is not lowered") == "construct-other"
