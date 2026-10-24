@@ -38,6 +38,7 @@ jobs:
           version: ">=0.13.4"
           enable-cache: true
           python-version: "3.14"
+      - run: uv python install 3.14.9
       - run: uv sync --frozen
       - name: oracle is CPython 3.14.9
         run: uv run python -c "import sys; assert sys.version_info[:3] == (3, 14, 9), sys.version"

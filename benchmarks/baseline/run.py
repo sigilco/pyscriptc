@@ -100,12 +100,35 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     args = parser.parse_args(argv)
-    if args.record and refuses_macos_record(args.record):
-        print(
-            "reference-macos-arm64.json is produced only by --record on macOS arm64",
-            file=sys.stderr,
-        )
+    from pyscriptc.target import TARGET_CPYTHON, TARGET_VERSION_INFO
+
+    if sys.version_info[:2] != TARGET_VERSION_INFO[:2]:
+        running = sys.version.split()[0]
+        target = f"{TARGET_VERSION_INFO[0]}.{TARGET_VERSION_INFO[1]}"
+        print(f"baseline requires CPython {target}, running {running}", file=sys.stderr)
         return 2
+
+    if args.record:
+        if refuses_macos_record(args.record):
+            print(
+                "reference-macos-arm64.json is produced only by --record on macOS arm64",
+                file=sys.stderr,
+            )
+            return 2
+        if sys.version_info[:3] != TARGET_VERSION_INFO:
+            print(
+                f"baseline recording requires CPython {TARGET_CPYTHON}, running {sys.version.split()[0]}",
+                file=sys.stderr,
+            )
+            return 2
+    elif sys.version_info[:3] != TARGET_VERSION_INFO:
+        import warnings
+
+        warnings.warn(
+            f"baseline running on CPython {sys.version.split()[0]}, declared target is {TARGET_CPYTHON}",
+            UserWarning,
+            stacklevel=2,
+        )
 
     suite = json.loads((HERE / "suite.json").read_text(encoding="utf-8"))
     runs = args.runs if args.runs is not None else int(suite["runs"])

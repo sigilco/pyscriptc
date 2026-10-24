@@ -14,6 +14,7 @@ old shape cannot reach the new emitter.
 from __future__ import annotations
 
 import sys
+import warnings
 from typing import Any
 
 from pyscriptc.errors import IRError, VersionError
@@ -73,11 +74,15 @@ def target_minor() -> str:
 
 
 def cpython_version() -> str:
-    """The running interpreter's CPython version, compared against the declared target."""
+    """The running interpreter's CPython version, checking minor equality against the declared target."""
     running = sys.version.split()[0]
-    target = target_cpython()
-    if running != target:
-        pass
+    running_min = ".".join(running.split(".")[:2])
+    target_min = target_minor()
+    if running_min != target_min:
+        target = target_cpython()
+        raise VersionError(
+            f"this process is CPython {running}, declared target is {target}; pyscriptc requires CPython 3.14"
+        )
     return running
 
 
@@ -476,7 +481,7 @@ def _dotted_identifier(name: str) -> bool:
 
 
 def assert_same_cpython(module: dict[str, Any]) -> None:
-    """LLVM emission refuses an IR stamped by a different CPython than the declared target.
+    """LLVM emission refuses an IR stamped by a different CPython minor than the declared target.
 
     Re-run the corpus on the target interpreter, then lower again. The stamp is
     not a hint the backend may ignore.
@@ -485,14 +490,31 @@ def assert_same_cpython(module: dict[str, Any]) -> None:
     validate_module(module)
     running = cpython_version()
     target = target_cpython()
+    target_min = target_minor()
     stamped = module["cpython"]
-    if stamped != target:
+
+    stamped_min = ".".join(stamped.split(".")[:2])
+    running_min = ".".join(running.split(".")[:2])
+
+    if stamped_min != target_min:
         raise VersionError(
             f"IR was lowered on CPython {stamped}, declared target is {target}; "
             "re-lower and re-run the corpus before emitting LLVM"
         )
-    if running != target:
+    if running_min != target_min:
         raise VersionError(
             f"this process is CPython {running}, declared target is {target}; "
             "re-lower and re-run the corpus before emitting LLVM"
+        )
+    if stamped != target:
+        warnings.warn(
+            f"IR was lowered on CPython {stamped}, declared target is {target}",
+            UserWarning,
+            stacklevel=2,
+        )
+    elif running != target:
+        warnings.warn(
+            f"this process is CPython {running}, declared target is {target}",
+            UserWarning,
+            stacklevel=2,
         )

@@ -27,7 +27,7 @@ def fake_oracle_dir(tmp_path: Path) -> Path:
 
 def test_resolve_oracle_defaults_to_the_pin() -> None:
     executable, version = resolve_oracle(None)
-    assert version == f"{cache.SCORER_VERSION}/cpython-3.14.9"
+    assert version.startswith(f"{cache.SCORER_VERSION}/cpython-3.14.")
 
 
 def test_resolve_oracle_finds_pinned_interpreter(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

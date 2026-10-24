@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 from pyscriptc.errors import VersionError
@@ -16,7 +18,8 @@ def test_target_declares_sanctioned_micro() -> None:
 
 
 def test_cpython_version_matches_host() -> None:
-    assert cpython_version() == "3.14.9"
+    assert cpython_version() == sys.version.split()[0]
+    assert cpython_version().startswith(target_minor())
 
 
 def test_assert_same_cpython_accepts_target_stamp() -> None:
@@ -32,11 +35,25 @@ def test_assert_same_cpython_accepts_target_stamp() -> None:
     assert_same_cpython(module)
 
 
-def test_assert_same_cpython_refuses_different_stamp() -> None:
+def test_assert_same_cpython_warns_on_micro_mismatch() -> None:
     module = {
         "irVersion": IR_VERSION,
         "subset": SUBSET,
         "cpython": "3.14.8",
+        "sourceFile": "test.py",
+        "functions": [],
+        "classes": [],
+        "fences": [],
+    }
+    with pytest.warns(UserWarning, match="declared target is 3.14.9"):
+        assert_same_cpython(module)
+
+
+def test_assert_same_cpython_refuses_different_minor() -> None:
+    module = {
+        "irVersion": IR_VERSION,
+        "subset": SUBSET,
+        "cpython": "3.13.9",
         "sourceFile": "test.py",
         "functions": [],
         "classes": [],

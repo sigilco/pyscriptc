@@ -16,3 +16,4 @@ _TARGET = _read_target()
 TARGET_CPYTHON: str = _TARGET["cpython"]
 TARGET_MINOR: str = _TARGET["minor"]
 TARGET_VERSION_INFO: tuple[int, int, int] = tuple(int(x) for x in TARGET_CPYTHON.split("."))  # type: ignore[assignment]
+TARGET_MINOR_INFO: tuple[int, int] = (TARGET_VERSION_INFO[0], TARGET_VERSION_INFO[1])
