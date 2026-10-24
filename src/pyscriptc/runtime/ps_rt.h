@@ -327,6 +327,7 @@ void ps_str_slice(
 PsSeq *ps_seq_slice(PsSeq *s, int64_t start, int64_t stop, int64_t has_start, int64_t has_stop, int64_t step);
 PsSeq *ps_str_split(int64_t n, const char *p, int64_t sn, const char *sp, int64_t mode);
 void ps_str_join(int64_t n, const char *sep, PsSeq *parts, PsBuf *out);
+void ps_repr_quoted(int64_t n, const char *p, PsBuf *out);
 void ps_utf8_encode(int64_t n, const char *p, PsBuf *out);
 void ps_utf8_decode(int64_t n, const char *p, PsBuf *out);
 void ps_i64_str(int64_t v, PsBuf *out);
@@ -365,6 +366,11 @@ int64_t ps_stdout_write(int64_t n, const char *s);
 int64_t ps_stderr_write(int64_t n, const char *s);
 void *ps_stderr_stream(void);
 void ps_input_line(PsBuf *out);
+
+/* The stdout stream for the `fwrite` writes that carry embedded NULs. On
+   Darwin `stdout` is a macro like `stderr`, so the emitted code goes through
+   the runtime for the FILE* too. */
+void *ps_stdout_stream(void);
 void ps_map_del(PsMap *m, void *key);
 void ps_map_clear(PsMap *m);
 void ps_map_update(PsMap *dst, PsMap *src);

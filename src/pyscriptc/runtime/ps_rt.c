@@ -243,8 +243,9 @@ static PsExc *ps_exc_new(int32_t code) {
     return e;
 }
 
-/* CPython prints a str message as its repr: quoted, with the escapes. */
-static void ps_report_quoted(PsGrow *g, const PsBuf *msg) {
+/* CPython prints a str message as its repr: quoted, with the escapes.
+   Shared with the tuple display (its str fields render as repr too). */
+void ps_report_quoted(PsGrow *g, const PsBuf *msg) {
     int quote = '\'';
     if (memchr(msg->data, '\'', (size_t)msg->len) != NULL && memchr(msg->data, '"', (size_t)msg->len) == NULL) {
         quote = '"';
@@ -280,6 +281,18 @@ static PsBuf ps_exc_quoted(const PsBuf *msg) {
     ps_report_quoted(&g, msg);
     ps_grow_finish(&g, &out);
     return out;
+}
+
+/* The `repr` of a str value: quoted, with the escapes. The tuple display
+   calls this for its str fields (CPython's `tuple.__str__` is its repr). */
+void ps_repr_quoted(int64_t n, const char *p, PsBuf *out) {
+    PsGrow g;
+    PsBuf msg;
+    msg.len = n;
+    msg.data = (char *)p;
+    ps_grow_init(&g);
+    ps_report_quoted(&g, &msg);
+    ps_grow_finish(&g, out);
 }
 
 static void ps_report_one(PsExc *e) {
