@@ -43,6 +43,8 @@ pyscriptc compile FILE [options]
 
 Environment defaults: `PYSC_CC`, `PYSC_LINKER` and `PYSC_TARGET` fill `--driver`, `--linker` and `--target` when the flag is absent. An explicit flag always wins.
 
+Diagnostic divergence: when compilation halts on fences, `pyscriptc compile` prints the root fence (the first in definition order) and counts the cascade (`(and N more fences that follow from it)`) rather than printing every downstream consequence. It prints at most 3 root fences when one root cause explains all or clusters of them. Use `pyscriptc coverage FILE` to inspect every individual fence and its refactor hint.
+
 ### Static libraries for mobile (`--emit lib`)
 
 ```sh

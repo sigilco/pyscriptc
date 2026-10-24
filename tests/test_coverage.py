@@ -87,6 +87,7 @@ def test_coverage_json_reports_each_fence(tmp_path: Path) -> None:
     assert "opt" not in by_name
     assert by_name["body"]["bodyAnalyzed"] is True
     assert by_name["body"]["capability"] == "fenced"
+    assert by_name["body"]["rootCause"] == by_name["body"]["fences"][0]
     caps = report["capabilities"]
     assert caps["totals"]["definitions"] == 7
     assert caps["totals"]["native"] == 2

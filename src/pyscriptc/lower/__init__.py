@@ -2271,16 +2271,184 @@ def lower_file(
 
 
 def render_fences(module: dict[str, Any], source: str) -> str:
-    parts: list[str] = []
-    for fence in module["fences"]:
-        text = source
-        path = fence.get("span", {}).get("file")
+    import re
+
+    raw_fences = module.get("fences") or []
+    if not raw_fences:
+        return ""
+
+    # Deduplicate fences while preserving lowering order.
+    seen: set[tuple[Any, ...]] = set()
+    fences: list[dict[str, Any]] = []
+    for f in raw_fences:
+        span = f.get("span") or {}
+        key = (f.get("code"), span.get("file"), span.get("line"), span.get("col"), f.get("message"))
+        if key in seen:
+            continue
+        seen.add(key)
+        fences.append(f)
+
+    def _source_for(f: dict[str, Any]) -> str:
+        path = f.get("span", {}).get("file")
         if path and path != module.get("sourceFile"):
             try:
-                text = open(path, encoding="utf-8").read()
+                return open(path, encoding="utf-8").read()
             except OSError:
-                text = source
-        parts.append(format_diagnostic(fence, text))
+                return source
+        return source
+
+    if len(fences) <= 1:
+        fence = fences[0] if fences else raw_fences[0]
+        return format_diagnostic(fence, _source_for(fence))
+
+    tree_cache: dict[str | None, Any] = {}
+
+    def _get_tree(file_path: str | None) -> Any:
+        if file_path not in tree_cache:
+            src = _source_for({"span": {"file": file_path}})
+            try:
+                tree_cache[file_path] = ast.parse(src)
+            except Exception:
+                tree_cache[file_path] = None
+        return tree_cache[file_path]
+
+    def _assign_targets(tree: Any, line: int) -> set[str]:
+        if tree is None:
+            return set()
+        targets: set[str] = set()
+        for node in ast.walk(tree):
+            if getattr(node, "lineno", None) == line:
+                if isinstance(node, ast.Assign):
+                    for t in node.targets:
+                        for sub in ast.walk(t):
+                            if isinstance(sub, ast.Name):
+                                targets.add(sub.id)
+                elif isinstance(node, ast.AnnAssign):
+                    for sub in ast.walk(node.target):
+                        if isinstance(sub, ast.Name):
+                            targets.add(sub.id)
+        return targets
+
+    def _assign_rhs_names(tree: Any, line: int) -> set[str]:
+        if tree is None:
+            return set()
+        names: set[str] = set()
+        for node in ast.walk(tree):
+            if getattr(node, "lineno", None) == line:
+                if isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value:
+                    for sub in ast.walk(node.value):
+                        if isinstance(sub, ast.Name):
+                            names.add(sub.id)
+        return names
+
+    def _def_at(tree: Any, line: int) -> str | None:
+        if tree is None:
+            return None
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                if node.lineno == line:
+                    return node.name
+        return None
+
+    def _stopped_names(fence: dict[str, Any]) -> set[str]:
+        msg = fence.get("message", "")
+        line = fence.get("span", {}).get("line", 0)
+        file_path = fence.get("span", {}).get("file")
+        tree = _get_tree(file_path)
+
+        names: set[str] = set()
+        m = re.search(r"^([a-zA-Z_]\w*)\s+needs an annotation before use", msg)
+        if m:
+            names.add(m.group(1))
+        m = re.search(r"^parameter\s+([a-zA-Z_]\w*)\s+needs an annotation", msg)
+        if m:
+            names.add(m.group(1))
+        m = re.search(r"^([a-zA-Z_]\w*)\s+needs an initial value", msg)
+        if m:
+            names.add(m.group(1))
+
+        names.update(_assign_targets(tree, line))
+        def_name = _def_at(tree, line)
+        if def_name:
+            names.add(def_name)
+        return names
+
+    from pyscriptc.coverage import family_of
+
+    def _resolves_to(fence: dict[str, Any]) -> set[str]:
+        msg = fence.get("message", "")
+        code = fence.get("code", "")
+        fam = family_of(code, msg)
+
+        res: set[str] = set()
+        m = re.search(r"^([a-zA-Z_]\w*)\s+is not a local or parameter", msg)
+        if m:
+            res.add(m.group(1))
+        m = re.search(r"^call to ([a-zA-Z_]\w*)\s+is not lowered", msg)
+        if m:
+            res.add(m.group(1))
+        m = re.search(r"^this class ([a-zA-Z_]\w*)\s+is not lowered", msg)
+        if m:
+            res.add(m.group(1))
+        m = re.search(r"^([a-zA-Z_]\w*)\s+is not exported", msg)
+        if m:
+            res.add(m.group(1))
+        m = re.search(r"cannot re-export unlowered ([a-zA-Z_]\w*)", msg)
+        if m:
+            res.add(m.group(1))
+
+        if fam in ("export-cascade", "class-cascade"):
+            words = set(re.findall(r"\b[a-zA-Z_]\w*\b", msg))
+            res.update(words)
+
+        line = fence.get("span", {}).get("line", 0)
+        file_path = fence.get("span", {}).get("file")
+        tree = _get_tree(file_path)
+        res.update(_assign_rhs_names(tree, line))
+        return res
+
+    root_fences: list[list[Any]] = []
+
+    for fence in fences:
+        target_names = _resolves_to(fence)
+        matched_root = None
+
+        if target_names:
+            for item in root_fences:
+                _rf, _cons, s_names = item
+                if target_names & s_names:
+                    matched_root = item
+                    break
+
+        if matched_root is not None:
+            matched_root[1].append(fence)
+            line = fence.get("span", {}).get("line", 0)
+            file_path = fence.get("span", {}).get("file")
+            tree = _get_tree(file_path)
+            matched_root[2].update(_assign_targets(tree, line))
+            matched_root[2].update(_stopped_names(fence))
+        else:
+            s_names = _stopped_names(fence)
+            root_fences.append([fence, [], s_names])
+
+    parts: list[str] = []
+    printed_roots = root_fences[:3]
+    for r_fence, consequences, _ in printed_roots:
+        text = _source_for(r_fence)
+        parts.append(format_diagnostic(r_fence, text))
+        count = len(consequences)
+        if count == 1:
+            parts.append("(and 1 more fence that follows from it)")
+        elif count > 1:
+            parts.append(f"(and {count} more fences that follow from it)")
+
+    if len(root_fences) > 3:
+        rem = sum(1 + len(cons) for _, cons, _ in root_fences[3:])
+        if rem == 1:
+            parts.append("(and 1 more fence)")
+        elif rem > 1:
+            parts.append(f"(and {rem} more fences)")
+
     return "\n".join(parts)
 
 

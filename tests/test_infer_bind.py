@@ -162,7 +162,7 @@ def test_unprovable_callee_return_keeps_fence(tmp_path: Path) -> None:
     got = compile_run(tmp_path, path, "probe")
     assert got.returncode == 3
     assert "other needs a return annotation" in got.stderr
-    assert "call to other is not lowered" in got.stderr
+    assert "(and 1 more fence that follows from it)" in got.stderr
 
 
 def test_param_without_default_or_calls_stays_fenced(tmp_path: Path) -> None:
