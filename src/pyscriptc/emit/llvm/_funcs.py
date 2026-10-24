@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pyscriptc.emit._ir import _elem_size, _fn_symbol, _ir_const_value, _llvm_type, _prepare_arg, _safe
+from pyscriptc.emit._ir import _elem_size, _fn_symbol, _ir_const_value, _llvm_type, _memory_type, _prepare_arg, _safe
 from pyscriptc.errors import FitError, IRError
 
 
@@ -46,7 +46,7 @@ class FuncsMixin:
                 ptr = self._call_ret("ptr", "ps_alloc", [f"i64 {_elem_size(local['type'])}"])
             else:
                 ptr = self.tmp()
-                self.line(f"{ptr} = alloca {_llvm_type(local['type'])}")
+                self.line(f"{ptr} = alloca {_memory_type(local['type'])}")
             self.slots[local["name"]] = (ptr, local["type"])
             self.slot_order.append(local["name"])
             self.slot_types[local["name"]] = local["type"]

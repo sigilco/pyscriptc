@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pyscriptc.emit._ir import _elem_size, _llvm_type
+from pyscriptc.emit._ir import _elem_size, _memory_type
 from pyscriptc.errors import IRError
 
 
@@ -83,18 +83,24 @@ class CallsMixin:
                     f"{t_ptr} = select i1 {values[0]}, ptr {self.format_global('boolT', b'True')}, "
                     f"ptr {self.format_global('boolF', b'False')}"
                 )
+                # "True"/"False" are ASCII: the count is the byte count and
+                # the flag is set.
                 agg = self.tmp()
-                self.line(f"{agg} = insertvalue %ps.str poison, i64 {t_len}, 0")
+                p1 = self.tmp()
+                p2 = self.tmp()
                 ret = self.tmp()
-                self.line(f"{ret} = insertvalue %ps.str {agg}, ptr {t_ptr}, 1")
+                self.line(f"{agg} = insertvalue %ps.str poison, i64 {t_len}, 0")
+                self.line(f"{p1} = insertvalue %ps.str {agg}, ptr {t_ptr}, 1")
+                self.line(f"{p2} = insertvalue %ps.str {p1}, i64 {t_len}, 2")
+                self.line(f"{ret} = insertvalue %ps.str {p2}, i32 1, 3")
                 return ret
             if kind == "bytes":
                 self._abi_decl("ps_repr_bytes", "void", ["i64", "ptr", "ptr"])
                 length, ptr = self._buf_parts(values[0])
                 return self._buf_out("ps_repr_bytes", [f"i64 {length}", f"ptr {ptr}"])
             if kind == "exc":
-                self._abi_decl("ps_exc_str", "%ps.str", ["ptr"])
-                return self._call_ret("%ps.str", "ps_exc_str", [f"ptr {values[0]}"])
+                self._abi_decl("ps_exc_str", "void", ["ptr", "ptr"])
+                return self._buf_out("ps_exc_str", [f"ptr {values[0]}"])
             if kind == "class" and arg_types[0].get("name") == "Path":
                 self._abi_decl("ps_path_posix", "void", ["ptr", "ptr"])
                 return self._buf_out("ps_path_posix", [f"ptr {values[0]}"])
@@ -122,34 +128,34 @@ class CallsMixin:
         if expr.get("symbol") == "ps_queue_put":
             # The item travels as a pointer to a stashed slot, the shape
             # `deque.append` uses: the queue stores element-sized slots.
-            slot = self._stash(expr["args"][2]["type"], values[2])
+            slot = self._stash_cell(expr["args"][2]["type"], values[2])
             self._abi_decl("ps_queue_put", "void", ["ptr", "i64", "ptr"])
             self._call_void("ps_queue_put", [f"ptr {values[0]}", f"i64 {values[1]}", f"ptr {slot}"])
             return ""
         if expr.get("symbol") == "ps_queue_get":
-            out = self._alloca(_llvm_type(expr["type"]))
+            out = self._alloca(_memory_type(expr["type"]))
             self._abi_decl("ps_queue_get", "void", ["ptr", "i64", "ptr"])
             self._call_void("ps_queue_get", [f"ptr {values[0]}", f"i64 {values[1]}", f"ptr {out}"])
-            return self._load(_llvm_type(expr["type"]), out)
+            return self._widen_cell(expr["type"], out)
         if expr.get("symbol") == "ps_aqueue_put":
             # The item travels as a pointer to a stashed slot, the shape
             # `deque.append` uses: the queue stores element-sized slots.
-            slot = self._stash(expr["args"][1]["type"], values[1])
+            slot = self._stash_cell(expr["args"][1]["type"], values[1])
             self._abi_decl("ps_aqueue_put", "i64", ["ptr", "ptr"])
             return self._call_ret("i64", "ps_aqueue_put", [f"ptr {values[0]}", f"ptr {slot}"])
         if expr.get("symbol") == "ps_aqueue_taken":
             # The element the take removed rides out through an out pointer.
             elem = expr["type"]
-            out = self._alloca(_llvm_type(elem))
+            out = self._alloca(_memory_type(elem))
             self._abi_decl("ps_aqueue_taken", "void", ["ptr", "i64", "ptr"])
             self._call_void("ps_aqueue_taken", [f"ptr {values[0]}", f"i64 {_elem_size(elem)}", f"ptr {out}"])
-            return self._load(_llvm_type(elem), out)
+            return self._widen_cell(elem, out)
         if expr.get("symbol") == "ps_to_thread_result":
             elem = expr["type"]
-            out = self._alloca(_llvm_type(elem))
+            out = self._alloca(_memory_type(elem))
             self._abi_decl("ps_to_thread_result", "void", ["ptr", "i64", "ptr"])
             self._call_void("ps_to_thread_result", [f"ptr {values[0]}", f"i64 {_elem_size(elem)}", f"ptr {out}"])
-            return self._load(_llvm_type(elem), out)
+            return self._widen_cell(elem, out)
         if expr.get("symbol") == "ps_to_thread_new":
             return self._emit_to_thread_new(expr, values)
         if expr.get("symbol") == "ps_to_thread_start":
@@ -166,7 +172,7 @@ class CallsMixin:
             return self._flag(raw)
         if expr.get("symbol") == "ps_map_del":
             self.needed.add("map")
-            key = self._stash(expr["args"][1]["type"], values[1])
+            key = self._stash_cell(expr["args"][1]["type"], values[1])
             self._abi_decl("ps_map_del", "void", ["ptr", "ptr"])
             self._call_void("ps_map_del", [f"ptr {values[0]}", f"ptr {key}"])
             return ""
@@ -262,9 +268,8 @@ class CallsMixin:
         self.needed.add("str")
         length, ptr = self._buf_parts(values[0])
         if name in {"strip", "lstrip", "rstrip", "upper", "lower"}:
-            out = self._alloca("%ps.str")
-            self.line(f"call void @ps_str_{name}(i64 {length}, ptr {ptr}, ptr {out})")
-            return self._load("%ps.str", out)
+            self._abi_decl(f"ps_str_{name}", "void", ["i64", "ptr", "ptr"])
+            return self._buf_out(f"ps_str_{name}", [f"i64 {length}", f"ptr {ptr}"])
         if name in {"title", "capitalize", "casefold", "swapcase"}:
             self._abi_decl(f"ps_str_{name}", "void", ["i64", "ptr", "ptr"])
             return self._buf_out(f"ps_str_{name}", [f"i64 {length}", f"ptr {ptr}"])
@@ -356,12 +361,11 @@ class CallsMixin:
             return self._buf_out(f"ps_str_{name}", [f"i64 {length}", f"ptr {ptr}", f"i64 {arg_len}", f"ptr {arg_ptr}"])
         if name == "replace":
             new_len, new_ptr = self._buf_parts(values[2])
-            out = self._alloca("%ps.str")
-            self.line(
-                "call void @ps_str_replace("
-                f"i64 {length}, ptr {ptr}, i64 {arg_len}, ptr {arg_ptr}, i64 {new_len}, ptr {new_ptr}, ptr {out})"
+            self._abi_decl("ps_str_replace", "void", ["i64", "ptr", "i64", "ptr", "i64", "ptr", "ptr"])
+            return self._buf_out(
+                "ps_str_replace",
+                [f"i64 {length}", f"ptr {ptr}", f"i64 {arg_len}", f"ptr {arg_ptr}", f"i64 {new_len}", f"ptr {new_ptr}"],
             )
-            return self._load("%ps.str", out)
         if name in {"find", "count", "index", "rfind"}:
             symbol = {"find": "ps_str_find", "count": "ps_str_count", "index": "ps_str_index", "rfind": "ps_str_rfind"}[
                 name

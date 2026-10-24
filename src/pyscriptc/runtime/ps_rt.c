@@ -373,18 +373,21 @@ __attribute__((noinline, noreturn)) void ps_raise_exc(PsExc *e) {
     ps_deliver();
 }
 
-PsBuf ps_exc_str(PsExc *e) {
+void ps_exc_str(PsExc *e, PsBuf *out) {
     if (e == NULL) {
-        PsBuf empty = {0, &ps_empty_byte};
-        return empty;
+        out->len = 0;
+        out->data = &ps_empty_byte;
+        return;
     }
     /* CPython's KeyError shows its argument as a repr: str(KeyError('k'))
        is "'k'", while str(ValueError('k')) is "k". A message that already
        holds the repr (a missing dict key) is left alone. */
     if (ps_exc_isa(e->code, PS_KEY) && e->message.len > 0 && (e->flags & PS_EXC_FLAG_PREQUOTED) == 0) {
-        return ps_exc_quoted(&e->message);
+        PsBuf quoted = ps_exc_quoted(&e->message);
+        *out = quoted;
+        return;
     }
-    return e->message;
+    *out = e->message;
 }
 
 void ps_exc_class(PsExc *e, PsBuf *out) {
@@ -1364,6 +1367,33 @@ void ps_buf_copy(PsBuf *out, const char *p, int64_t n) {
     q[n] = '\0';
     out->len = n;
     out->data = q;
+}
+
+void ps_str_counts(int64_t n, const char *p, int64_t *nchars, int32_t *flags) {
+    /* One pass over the bytes: the code-point count and the ASCII flag.
+       The Latin-1 model stores one byte per code point, so today the count
+       is n and the flag says "all bytes below 0x80"; the str model (epic
+       #472) replaces the body with a UTF-8 walk without changing the
+       signature or the callers. */
+    int32_t ascii = 1;
+    for (int64_t i = 0; i < n; i++) {
+        if ((unsigned char)p[i] >= 0x80) {
+            ascii = 0;
+            break;
+        }
+    }
+    if (nchars != NULL) {
+        *nchars = n;
+    }
+    if (flags != NULL) {
+        *flags = ascii ? PS_STR_FLAG_ASCII : 0;
+    }
+}
+
+void ps_str_header(int64_t nbytes, const char *p, int64_t *nchars, int32_t *flags, PsBuf *out) {
+    out->len = nbytes;
+    out->data = (char *)p;
+    ps_str_counts(nbytes, p, nchars, flags);
 }
 
 void ps_grow_init(PsGrow *g) {

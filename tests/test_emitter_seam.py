@@ -75,7 +75,7 @@ def test_make_module_rejects_a_bad_fragment() -> None:
 def test_emit_ir_text_returns_text_in_memory() -> None:
     module = make_module([_fn("f", [_assign("x", _int_const("1"))], [_local("x")])])
     text = emit_ir_text(module)
-    assert text.startswith("%ps.str = type { i64, ptr }")
+    assert text.startswith("%ps.str = type { i64, ptr, i64, i32 }")
     assert "define void @f()" in text
     assert text.endswith("\n")
 

@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-24",
-  "commit": "bc04f51d54052ff56dfae90d3629e74345167b0a",
+  "commit": "246a6bfe887f128f4d3af42405571897594132b2",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 5,
     "packages_none": 10,
     "weighted_pass": 0.0,
-    "fences": 3029
+    "fences": 3024
   },
   "builtins": [
     {
@@ -1431,13 +1431,13 @@
       "import_name": "filelock",
       "version": "4.1.1",
       "status": "partial",
-      "fences": 750,
+      "fences": 747,
       "definitions": 641,
       "fenced_definitions": 244,
       "top_families": [
         {
           "family": "name-resolution",
-          "count": 172
+          "count": 169
         },
         {
           "family": "construct-other",
@@ -1451,7 +1451,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 433
+          "count": 430
         },
         {
           "code": "PS1001",
@@ -1513,11 +1513,11 @@
       "top_families": [
         {
           "family": "name-resolution",
-          "count": 55
+          "count": 54
         },
         {
           "family": "local-inference",
-          "count": 30
+          "count": 31
         },
         {
           "family": "keyword-args",
@@ -1527,11 +1527,11 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 97
+          "count": 96
         },
         {
           "code": "PS1001",
-          "count": 30
+          "count": 31
         },
         {
           "code": "PS2003",
@@ -1621,13 +1621,13 @@
       "import_name": "jwt",
       "version": "2.15.1",
       "status": "partial",
-      "fences": 127,
+      "fences": 126,
       "definitions": 171,
       "fenced_definitions": 64,
       "top_families": [
         {
           "family": "name-resolution",
-          "count": 24
+          "count": 22
         },
         {
           "family": "dynamic-annotation",
@@ -1641,7 +1641,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 59
+          "count": 58
         },
         {
           "code": "PS1104",
@@ -1697,13 +1697,13 @@
       "import_name": "packaging",
       "version": "26.3",
       "status": "none",
-      "fences": 626,
+      "fences": 625,
       "definitions": 558,
       "fenced_definitions": 282,
       "top_families": [
         {
           "family": "name-resolution",
-          "count": 113
+          "count": 111
         },
         {
           "family": "unlowered-type-name",
@@ -1717,7 +1717,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 258
+          "count": 256
         },
         {
           "code": "PS1106",
@@ -1725,7 +1725,7 @@
         },
         {
           "code": "PS2001",
-          "count": 52
+          "count": 53
         }
       ],
       "pypi": "https://pypi.org/project/packaging/"
@@ -2002,13 +2002,13 @@
     {
       "code": "PS2002",
       "title": "construct not lowered",
-      "count": 1479,
+      "count": 1472,
       "packages": 15
     },
     {
       "code": "PS1001",
       "title": "annotation missing or not lowered",
-      "count": 517,
+      "count": 518,
       "packages": 15
     },
     {
@@ -2020,7 +2020,7 @@
     {
       "code": "PS2001",
       "title": "stdlib name not lowered",
-      "count": 184,
+      "count": 185,
       "packages": 14
     },
     {
@@ -2120,12 +2120,12 @@
     },
     {
       "date": "2026-10-24",
-      "commit": "bc04f51d54052ff56dfae90d3629e74345167b0a",
+      "commit": "246a6bfe887f128f4d3af42405571897594132b2",
       "weighted_pass": 0.0,
       "packages_full": 3,
       "packages_partial": 5,
       "packages_none": 10,
-      "fences": 3029
+      "fences": 3024
     }
   ]
 }

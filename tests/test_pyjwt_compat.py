@@ -45,9 +45,12 @@ def test_real_pyjwt_hmac_tree_still_fences() -> None:
     # 96 after the generator work (#165): the `collections.abc` import and
     # the Iterator/Sequence annotations lower, so four fences clear; one
     # SigOptions annotation fence reshapes.
+    # 95 after the str model S1 (#473): the AnnAssign fence branch binds the
+    # name on a fenced annotation, clearing the `byte_length` PS1001
+    # follow-on fence in jwt/utils.py.
     # Shrinking means a backlog lowering cleared fences here; update the pin
     # when that happens.
-    assert proc.stderr.count("PS") == 96
+    assert proc.stderr.count("PS") == 95
 
 
 @pytest.mark.linux_container  # HEAVY=1 docker/run.sh

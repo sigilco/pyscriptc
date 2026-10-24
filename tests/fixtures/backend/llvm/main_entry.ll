@@ -1,4 +1,5 @@
-%ps.str = type { i64, ptr }
+%ps.str = type { i64, ptr, i64, i32 }
+%ps.buf = type { i64, ptr }
 
 @ps.fmt.int = private unnamed_addr constant [5 x i8] c"%lld\00"
 @ps.fmt.nl = private unnamed_addr constant [2 x i8] c"\0A\00"

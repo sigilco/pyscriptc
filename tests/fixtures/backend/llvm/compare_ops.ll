@@ -1,4 +1,5 @@
-%ps.str = type { i64, ptr }
+%ps.str = type { i64, ptr, i64, i32 }
+%ps.buf = type { i64, ptr }
 
 @ps.str.0 = private unnamed_addr constant [2 x i8] c"a\00"
 @ps.str.1 = private unnamed_addr constant [2 x i8] c"b\00"
@@ -45,18 +46,22 @@ entry:
   store i1 %t18, ptr %t7
   %t19 = insertvalue %ps.str poison, i64 1, 0
   %t20 = insertvalue %ps.str %t19, ptr @ps.str.0, 1
-  %t21 = insertvalue %ps.str poison, i64 1, 0
-  %t22 = insertvalue %ps.str %t21, ptr @ps.str.1, 1
-  %t24 = extractvalue %ps.str %t20, 0
-  %t25 = extractvalue %ps.str %t20, 1
-  %t26 = extractvalue %ps.str %t22, 0
-  %t27 = extractvalue %ps.str %t22, 1
-  %t28 = call i32 @ps_str_cmp(i64 %t24, ptr %t25, i64 %t26, ptr %t27)
-  %t23 = icmp eq i32 %t28, 0
-  store i1 %t23, ptr %t8
-  %t29 = load ptr, ptr %t10
-  %t30 = load ptr, ptr %t10
-  %t31 = icmp eq ptr %t29, %t30
-  store i1 %t31, ptr %t9
+  %t21 = insertvalue %ps.str %t20, i64 1, 2
+  %t22 = insertvalue %ps.str %t21, i32 1, 3
+  %t23 = insertvalue %ps.str poison, i64 1, 0
+  %t24 = insertvalue %ps.str %t23, ptr @ps.str.1, 1
+  %t25 = insertvalue %ps.str %t24, i64 1, 2
+  %t26 = insertvalue %ps.str %t25, i32 1, 3
+  %t28 = extractvalue %ps.str %t22, 0
+  %t29 = extractvalue %ps.str %t22, 1
+  %t30 = extractvalue %ps.str %t26, 0
+  %t31 = extractvalue %ps.str %t26, 1
+  %t32 = call i32 @ps_str_cmp(i64 %t28, ptr %t29, i64 %t30, ptr %t31)
+  %t27 = icmp eq i32 %t32, 0
+  store i1 %t27, ptr %t8
+  %t33 = load ptr, ptr %t10
+  %t34 = load ptr, ptr %t10
+  %t35 = icmp eq ptr %t33, %t34
+  store i1 %t35, ptr %t9
   ret void
 }

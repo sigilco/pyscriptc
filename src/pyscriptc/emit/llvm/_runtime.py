@@ -8,9 +8,55 @@ them together.
 
 from __future__ import annotations
 
+import re
+
 from pyscriptc.builtins import EXCEPTIONS
 from pyscriptc.ir import zdi_variants
 from pyscriptc.stdlib_queue import MATH_FUNCTIONS
+
+
+def _prebaked_declarations() -> list[str]:
+    """Every symbol the declaration table can name, for the emitter's
+    duplicate check: `_abi_decl` must not re-declare these."""
+
+    found: list[str] = []
+    for line in _declarations(set()) + _declarations(
+        {
+            "printf",
+            "fprintf",
+            "iadd",
+            "isub",
+            "imul",
+            "ineg",
+            "strconcat",
+            "floordiv",
+            "imod",
+            "ishl",
+            "ishr",
+            "fdiv",
+            "fmod",
+            "ffloordiv",
+            "fpow",
+            "dbg",
+            "str",
+            "math",
+            "exc",
+            "alloc",
+            "map",
+            "seq",
+            "b64",
+            "hash",
+            "json",
+            "re",
+            "struct",
+            "url",
+            "try",
+        }
+    ):
+        match = re.search(r"@([A-Za-z_][\w.]*?)\(", line)
+        if match is not None:
+            found.append(match.group(1))
+    return found
 
 
 def _declarations(needed: set[str]) -> list[str]:
@@ -390,8 +436,12 @@ trap:
 entry:
   %na = extractvalue %ps.str %a, 0
   %pa = extractvalue %ps.str %a, 1
+  %ca = extractvalue %ps.str %a, 2
+  %fa = extractvalue %ps.str %a, 3
   %nb = extractvalue %ps.str %b, 0
   %pb = extractvalue %ps.str %b, 1
+  %cb = extractvalue %ps.str %b, 2
+  %fb = extractvalue %ps.str %b, 3
   %sum = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %na, i64 %nb)
   %ov = extractvalue { i64, i1 } %sum, 1
   br i1 %ov, label %trap, label %sized
@@ -410,9 +460,17 @@ copy:
   call void @llvm.memcpy.p0.p0.i64(ptr %dst2, ptr %pb, i64 %nb, i1 false)
   %end = getelementptr i8, ptr %mem, i64 %n
   store i8 0, ptr %end
+  %csum = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %ca, i64 %cb)
+  %cov = extractvalue { i64, i1 } %csum, 1
+  br i1 %cov, label %trap, label %counts
+counts:
+  %c = extractvalue { i64, i1 } %csum, 0
+  %andf = and i32 %fa, %fb
   %s0 = insertvalue %ps.str poison, i64 %n, 0
   %s1 = insertvalue %ps.str %s0, ptr %mem, 1
-  ret %ps.str %s1
+  %s2 = insertvalue %ps.str %s1, i64 %c, 2
+  %s3 = insertvalue %ps.str %s2, i32 %andf, 3
+  ret %ps.str %s3
 trap:
   call void @ps_raise_code(i32 @OVF@) noreturn ; OverflowError
   unreachable

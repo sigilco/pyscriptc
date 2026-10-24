@@ -16,6 +16,7 @@ from typing import Any
 from pyscriptc.restlower._shared import _const_int, _const_text
 
 _STATIC_MISSING = object()
+_PS2005_MESSAGE = "string literals outside Latin-1 are not lowered"
 
 
 def _static_scalar(expr: dict[str, Any]) -> Any:
@@ -78,7 +79,9 @@ def _static_const(value: Any, span: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
-def _static_builtin_fold(name: str, arg: dict[str, Any], span: dict[str, Any]) -> dict[str, Any] | None:
+def _static_builtin_fold(
+    name: str, arg: dict[str, Any], span: dict[str, Any], fence: Any = None
+) -> dict[str, Any] | None:
     """Tier-2 fold: `name(<const>)` becomes a const node when CPython's
     result is fully determined at lowering.
 
@@ -88,6 +91,13 @@ def _static_builtin_fold(name: str, arg: dict[str, Any], span: dict[str, Any]) -
     (str/bytes hashing is seed-randomized in CPython and belongs to the
     tier-3 dynamic tier), and `int`/`str`/`repr`/`abs`/`bool`/`len` only
     when Python's conversion cannot raise.
+
+    `fence` (a lowerer carrying `fail`) upgrades the non-Latin-1 `str`
+    result from a silent drop to a `PS2005` fence: a fold whose CPython
+    answer is a non-Latin-1 string is the same defect as a non-Latin-1
+    literal, and dropping it used to make the call fall through to a
+    misleading fence (or none). Without a lowerer the drop stands, for
+    the fold probes that run with no statement to attach the fence to.
     """
 
     value = _static_scalar(arg)
@@ -122,6 +132,11 @@ def _static_builtin_fold(name: str, arg: dict[str, Any], span: dict[str, Any]) -
         return None
     if result is _STATIC_MISSING:
         return None
+    if fence is not None and isinstance(result, str) and any(ord(ch) > 255 for ch in result):
+        # The fold proved the CPython answer is a non-Latin-1 string: the
+        # same defect as a non-Latin-1 literal, so it fences the way the
+        # literal path does instead of silently dropping the fold.
+        fence.fail(arg, "PS2005", _PS2005_MESSAGE)
     return _static_const(result, span)
 
 
@@ -147,6 +162,10 @@ def _eval_fold(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any] 
     numbers only, never arbitrary eval. Anything it cannot prove safe, and
     any non-scalar result, falls through to the generic call fence; general
     `eval`/`exec` stay tier-3 dynamic (CPython island), never tier-2.
+
+    A literal that turns out to hold a non-Latin-1 character fences the
+    way the same literal would outside `eval` (a drop here made the call
+    fall through to a misleading `eval is not lowered` fence).
     """
 
     if node.keywords or len(node.args) != 1:
@@ -159,6 +178,8 @@ def _eval_fold(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any] 
         value = ast.literal_eval(text)
     except Exception:  # literal_eval declined: the source is not provably safe
         return None
+    if isinstance(value, str) and any(ord(ch) > 255 for ch in value):
+        lo.fail(node, "PS2005", _PS2005_MESSAGE)
     return _static_const(value, span)
 
 

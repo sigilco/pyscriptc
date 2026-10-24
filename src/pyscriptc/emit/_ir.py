@@ -105,13 +105,28 @@ def _llvm_type(typ: dict[str, Any]) -> str:
     raise IRError(f"no LLVM type for {kind}")
 
 
+def _memory_type(typ: dict[str, Any]) -> str:
+    """The LLVM type of a str or bytes value at rest in memory the runtime
+    reads or writes: class fields, seq and map cells, the %ps.arg slot. The
+    runtime's PsBuf is 16 bytes ({ i64, ptr }), so a str cell carries only
+    that prefix; the count and flags live in the SSA %ps.str value and the
+    emitter widens on load (zero-filled) and narrows on store. `bytes` has
+    no payload fields, so its memory type is the same 16-byte shape."""
+
+    if typ["kind"] in {"str", "bytes"}:
+        return "%ps.buf"
+    return _llvm_type(typ)
+
+
 def _llvm_field_type(typ: dict[str, Any]) -> str:
     """The LLVM type of a class field. None is not a runtime value, but a
     field of None still occupies the struct (the coroutine frame's `.ps_result`
-    on a `-> None` coroutine), so it takes one placeholder byte."""
+    on a `-> None` coroutine), so it takes one placeholder byte. Str fields
+    use the 16-byte memory type the runtime writes."""
+
     if typ["kind"] == "none":
         return "i8"
-    return _llvm_type(typ)
+    return _memory_type(typ)
 
 
 def _elem_size(typ: dict[str, Any]) -> int:

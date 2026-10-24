@@ -22,11 +22,21 @@ class PrintMixin:
         self.string_data.append(data)
         symbol = f"@ps.str.{idx}"
         self.globals.append(f'{symbol} = private unnamed_addr constant [{len(data) + 1} x i8] c"{_llvm_bytes(data)}"')
+        # The compiler knows the code-point count and the ASCII flag from
+        # the source text, so the constant path fills all four fields. In
+        # the Latin-1 model the byte length is the count only for ASCII, so
+        # the non-ASCII case carries len(text) as the count already.
+        count = len(text)
+        ascii_flag = 1 if count == len(data) else 0
+        parts = self.tmp()
         first = self.tmp()
         second = self.tmp()
-        self.line(f"{first} = insertvalue %ps.str poison, i64 {len(data)}, 0")
-        self.line(f"{second} = insertvalue %ps.str {first}, ptr {symbol}, 1")
-        return second
+        third = self.tmp()
+        self.line(f"{parts} = insertvalue %ps.str poison, i64 {len(data)}, 0")
+        self.line(f"{first} = insertvalue %ps.str {parts}, ptr {symbol}, 1")
+        self.line(f"{second} = insertvalue %ps.str {first}, i64 {count}, 2")
+        self.line(f"{third} = insertvalue %ps.str {second}, i32 {ascii_flag}, 3")
+        return third
 
     def materialize_arg(self, typ: dict[str, Any], value: Any) -> str:
         kind = typ["kind"]
@@ -147,8 +157,8 @@ class PrintMixin:
             length, ptr = self._buf_parts(out)
             self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
         elif kind == "exc":
-            self._abi_decl("ps_exc_str", "%ps.str", ["ptr"])
-            out = self._call_ret("%ps.str", "ps_exc_str", [f"ptr {value}"])
+            self._abi_decl("ps_exc_str", "void", ["ptr", "ptr"])
+            out = self._buf_out("ps_exc_str", [f"ptr {value}"])
             length, ptr = self._buf_parts(out)
             self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
         elif kind == "class" and self._is_tuple(typ["name"]):
@@ -173,10 +183,18 @@ class PrintMixin:
         for index, field in enumerate(fields):
             if index:
                 self._print_fmt("tsep", b", ", err=err)
-            loaded = self._load(
-                _llvm_type(field["type"]), self._field_ptr(name, value, self._field(name, field["name"]))
-            )
-            self._print_one(field["type"], loaded, err)
+            slot = self._field_ptr(name, value, self._field(name, field["name"]))
+            if field["type"]["kind"] in {"str", "bytes"}:
+                length = self.tmp()
+                ptr = self.tmp()
+                self.line(f"{length} = load i64, ptr {slot}")
+                data_ptr = self.tmp()
+                self.line(f"{data_ptr} = getelementptr %ps.buf, ptr {slot}, i32 0, i32 1")
+                self.line(f"{ptr} = load ptr, ptr {data_ptr}")
+                self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
+            else:
+                loaded = self._load(_llvm_type(field["type"]), slot)
+                self._print_one(field["type"], loaded, err)
         if len(fields) == 1:
             self._print_fmt("tsep", b",", err=err)
         self._print_fmt("rparen", b")", err=err)

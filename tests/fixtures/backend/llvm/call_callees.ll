@@ -1,4 +1,5 @@
-%ps.str = type { i64, ptr }
+%ps.str = type { i64, ptr, i64, i32 }
+%ps.buf = type { i64, ptr }
 
 %cls.Point = type { i64 }
 @ps.str.0 = private unnamed_addr constant [2 x i8] c"a\00"
@@ -46,7 +47,7 @@ entry:
   %t2 = alloca i64
   %t3 = alloca i64
   %t4 = alloca i64
-  %t5 = alloca %ps.str
+  %t5 = alloca %ps.buf
   %t6 = alloca ptr
   %t7 = alloca i32
   %t8 = load ptr, ptr %t1
@@ -58,16 +59,27 @@ entry:
   store i64 %t11, ptr %t4
   %t12 = insertvalue %ps.str poison, i64 1, 0
   %t13 = insertvalue %ps.str %t12, ptr @ps.str.0, 1
-  %t14 = extractvalue %ps.str %t13, 0
-  %t15 = extractvalue %ps.str %t13, 1
-  %t16 = alloca %ps.str
-  call void @ps_str_upper(i64 %t14, ptr %t15, ptr %t16)
-  %t17 = load %ps.str, ptr %t16
-  store %ps.str %t17, ptr %t5
-  %t18 = getelementptr %cls.Point, ptr null, i64 1
-  %t19 = ptrtoint ptr %t18 to i64
-  %t20 = call ptr @ps_alloc(i64 %t19)
-  store ptr %t20, ptr %t6
+  %t14 = insertvalue %ps.str %t13, i64 1, 2
+  %t15 = insertvalue %ps.str %t14, i32 1, 3
+  %t16 = extractvalue %ps.str %t15, 0
+  %t17 = extractvalue %ps.str %t15, 1
+  %t18 = alloca %ps.str
+  %t19 = getelementptr %ps.str, ptr %t18, i32 0, i32 2
+  store i64 0, ptr %t19
+  %t20 = getelementptr %ps.str, ptr %t18, i32 0, i32 3
+  store i32 0, ptr %t20
+  call void @ps_str_upper(i64 %t16, ptr %t17, ptr %t18)
+  %t21 = load %ps.str, ptr %t18
+  %t22 = extractvalue %ps.str %t21, 0
+  %t23 = extractvalue %ps.str %t21, 1
+  %t24 = getelementptr %ps.buf, ptr %t5, i32 0, i32 0
+  store i64 %t22, ptr %t24
+  %t25 = getelementptr %ps.buf, ptr %t5, i32 0, i32 1
+  store ptr %t23, ptr %t25
+  %t26 = getelementptr %cls.Point, ptr null, i64 1
+  %t27 = ptrtoint ptr %t26 to i64
+  %t28 = call ptr @ps_alloc(i64 %t27)
+  store ptr %t28, ptr %t6
   ret void
 }
 

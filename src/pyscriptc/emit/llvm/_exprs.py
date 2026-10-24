@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pyscriptc.emit._ir import _elem_size, _fn_symbol, _llvm_double, _llvm_field_type, _llvm_type
+from pyscriptc.emit._ir import _elem_size, _fn_symbol, _llvm_double, _llvm_type, _memory_type
 from pyscriptc.errors import FitError, IRError
 from pyscriptc.ir import fits_i64
 
@@ -195,7 +195,7 @@ class ExprsMixin:
         values = [self.emit_expr(item) for item in expr["elems"]]
         reg = self._call_ret("ptr", "ps_seq_new", [f"i64 {_elem_size(elem)}", f"i64 {len(values)}"])
         for index, value in enumerate(values):
-            slot = self._stash(elem, value)
+            slot = self._stash_cell(elem, value)
             self.line(f"call void @ps_seq_set(ptr {reg}, i64 {index}, ptr {slot})")
         return reg
 
@@ -216,8 +216,8 @@ class ExprsMixin:
             ],
         )
         for key_v, val_v in stored:
-            key = self._stash(key_t, key_v)
-            value = self._stash(val_t, val_v)
+            key = self._stash_cell(key_t, key_v)
+            value = self._stash_cell(val_t, val_v)
             self.line(f"call void @ps_map_put(ptr {reg}, ptr {key}, ptr {value})")
         return reg
 
@@ -227,37 +227,36 @@ class ExprsMixin:
         kind = expr["value"]["type"]["kind"]
         if kind == "list":
             self.needed.add("seq")
-            out = self._alloca(_llvm_type(expr["type"]))
+            out = self._alloca(_memory_type(expr["type"]))
             self.line(f"call void @ps_seq_get(ptr {value}, i64 {index}, ptr {out})")
-            return self._load(_llvm_type(expr["type"]), out)
+            return self._widen_cell(expr["type"], out)
         if kind == "dict":
             self.needed.add("map")
-            key = self._stash(expr["index"]["type"], index)
-            out = self._alloca(_llvm_type(expr["type"]))
+            key = self._stash_cell(expr["index"]["type"], index)
+            out = self._alloca(_memory_type(expr["type"]))
             self.line(f"call void @ps_map_get(ptr {value}, ptr {key}, ptr {out})")
-            return self._load(_llvm_type(expr["type"]), out)
+            return self._widen_cell(expr["type"], out)
         if kind == "str":
             self.needed.add("str")
             length, ptr = self._buf_parts(value)
-            out = self._alloca("%ps.str")
-            self.line(f"call void @ps_str_get(i64 {length}, ptr {ptr}, i64 {index}, ptr {out})")
-            return self._load("%ps.str", out)
+            self._abi_decl("ps_str_get", "void", ["i64", "ptr", "i64", "ptr"])
+            return self._buf_out("ps_str_get", [f"i64 {length}", f"ptr {ptr}", f"i64 {index}"])
         if kind == "bytes":
             self.needed.add("str")
             length, ptr = self._buf_parts(value)
             return self._call_ret("i64", "ps_buf_at", [f"i64 {length}", f"ptr {ptr}", f"i64 {index}"])
         if kind == "class" and expr["value"]["type"].get("name") == "Deque":
-            out = self._alloca(_llvm_type(expr["type"]))
+            out = self._alloca(_memory_type(expr["type"]))
             self._abi_decl("ps_deque_get", "void", ["ptr", "i64", "ptr"])
             self._call_void("ps_deque_get", [f"ptr {value}", f"i64 {index}", f"ptr {out}"])
-            return self._load(_llvm_type(expr["type"]), out)
+            return self._widen_cell(expr["type"], out)
         raise IRError(f"cannot index {kind}")
 
     def emit_attr(self, expr: dict[str, Any]) -> str:
         obj = self.emit_expr(expr["value"])
         field = self._field(expr["value"]["type"]["name"], expr["name"])
         slot = self._field_ptr(expr["value"]["type"]["name"], obj, field)
-        return self._load(_llvm_field_type(field["type"]), slot)
+        return self._widen_cell(field["type"], slot)
 
     def emit_contains(self, expr: dict[str, Any]) -> str:
         needle = self.emit_expr(expr["needle"])
@@ -287,7 +286,7 @@ class ExprsMixin:
             flag = bit
         elif hay_kind == "dict":
             self.needed.add("map")
-            key = self._stash(expr["needle"]["type"], needle)
+            key = self._stash_cell(expr["needle"]["type"], needle)
             raw = self._call_ret("i32", "ps_map_has", [f"ptr {hay}", f"ptr {key}"])
             flag = self.tmp()
             self.line(f"{flag} = icmp ne i32 {raw}, 0")

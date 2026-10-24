@@ -1,4 +1,5 @@
-%ps.str = type { i64, ptr }
+%ps.str = type { i64, ptr, i64, i32 }
+%ps.buf = type { i64, ptr }
 
 declare void @ps_raise_code(i32) noreturn
 declare void @ps_raise_zdi(i32) noreturn

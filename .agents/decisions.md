@@ -26,6 +26,22 @@ Where: the plan is `.agents/plans/2026-10-24-codepoint-str-model.md`. The design
 
 Interim, until the model lands: a compile-time warning fires when a compiled program can emit a non-ASCII byte, and divergence item 3 names the stdout difference. The warning does not change the exit code and does not fence a working program.
 
+## 2026-10-24 S1 moves the frozen v2 gates for the str payload (gate change)
+
+Decision (recorded 2026-10-24, under the owner decision above): S1 of the str epic (issue #473) changes the IR shape, so the frozen v2 gate files move. This row is the recorded gate change that AGENTS.md requires before any frozen file is touched; the owner decision above is the why.
+
+What moves and what does not:
+
+- `benchmarks/compat2/probes/IR_HASHES.json`: every hash changes or is expected to, because the `%ps.str` payload widens and `IR_VERSION` stamps 2 into every module the probes lower. Regenerated with the A/B byte-identical discipline (two runs of `python -m benchmarks.compat2.irscore`, then `cmp`), on Linux only, never on macOS (`canonical.py` folds host constants, and the macOS baseline differs from the Linux one by hundreds of hashes).
+- `benchmarks/compat2/probes/*.jsonl`, `CALIBRATION.json` and `TRIAGE.md`: not moved by S1 itself. S1 changes the payload shape, not the semantics, and the probes' expected stdout does not change. They move in S7, when the model's semantics land and the probe expectations re-run against CPython.
+- `outcomes.py`, the `score.py` weights, `coverage_map.py` and `cache.py`: not moved at all. The S7 receipt records that they did not change.
+- `canonical.py` rules (`.agents/docs/spec/ir-canonicity.md`): unchanged; the canonical form stays deterministic and host-independent in its rules.
+- The `subset` stamp stays `gates-v1`: the same programs lower before and after S1.
+
+Procedural note carried with this row: the IR_HASHES regeneration for S1 lands in the same PR as the payload change and only after this decision, through the `ir-hashes` workflow (generate A and B, `cmp`, copy the artifact). On a macOS checkout the regeneration is never run by hand.
+
+Where: the plan phase S1 is `.agents/plans/2026-10-24-codepoint-str-model.md` ("The frozen gates"), the workflow is `.github/workflows/ir-hashes.yml`, and the platform note is `.agents/notes/2026-10-22-ir-hashes-regen.md`.
+
 ## 2026-10-24 The package tiering policy for the blessed list
 
 Decision (owner direction, researched and recorded 2026-10-24): the beta does not chase PyPI compatibility. The compiler builds on the CPython builtin and standard-library subset, and a short blessed list of packages gets a stated surface under exactly one tier each. The tier is the promise made to a beta tester about scope.

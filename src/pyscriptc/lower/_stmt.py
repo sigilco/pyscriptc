@@ -173,7 +173,16 @@ class StmtMixin:
             if stmt.value is None:
                 self.locals[stmt.target.id] = typ
                 return [_assign(stmt.target.id, _zero(typ, span), span)]
-            value = self._expr(stmt.value, typ)
+            try:
+                value = self._expr(stmt.value, typ)
+            except Fence:
+                # A value that fences must not unbind the name: the fence
+                # aborts the statement, and a later read of the name would
+                # raise a second, misleading PS2002 on top of the real
+                # fence. Bind the annotation's type so the name resolves,
+                # and re-raise the real fence.
+                self.locals[stmt.target.id] = typ
+                raise
             self._expect(stmt, value["type"], typ, stmt.target.id)
             if self._narrows_to_generator(typ, value["type"]):
                 # An Iterator[T]/Generator[T, None, None] local holding a

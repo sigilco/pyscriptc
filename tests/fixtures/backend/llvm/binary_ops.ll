@@ -1,4 +1,5 @@
-%ps.str = type { i64, ptr }
+%ps.str = type { i64, ptr, i64, i32 }
+%ps.buf = type { i64, ptr }
 
 @ps.str.0 = private unnamed_addr constant [2 x i8] c"a\00"
 @ps.str.1 = private unnamed_addr constant [2 x i8] c"b\00"
@@ -164,8 +165,12 @@ define internal %ps.str @ps.strconcat(%ps.str %a, %ps.str %b) {
 entry:
   %na = extractvalue %ps.str %a, 0
   %pa = extractvalue %ps.str %a, 1
+  %ca = extractvalue %ps.str %a, 2
+  %fa = extractvalue %ps.str %a, 3
   %nb = extractvalue %ps.str %b, 0
   %pb = extractvalue %ps.str %b, 1
+  %cb = extractvalue %ps.str %b, 2
+  %fb = extractvalue %ps.str %b, 3
   %sum = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %na, i64 %nb)
   %ov = extractvalue { i64, i1 } %sum, 1
   br i1 %ov, label %trap, label %sized
@@ -184,9 +189,17 @@ copy:
   call void @llvm.memcpy.p0.p0.i64(ptr %dst2, ptr %pb, i64 %nb, i1 false)
   %end = getelementptr i8, ptr %mem, i64 %n
   store i8 0, ptr %end
+  %csum = call { i64, i1 } @llvm.sadd.with.overflow.i64(i64 %ca, i64 %cb)
+  %cov = extractvalue { i64, i1 } %csum, 1
+  br i1 %cov, label %trap, label %counts
+counts:
+  %c = extractvalue { i64, i1 } %csum, 0
+  %andf = and i32 %fa, %fb
   %s0 = insertvalue %ps.str poison, i64 %n, 0
   %s1 = insertvalue %ps.str %s0, ptr %mem, 1
-  ret %ps.str %s1
+  %s2 = insertvalue %ps.str %s1, i64 %c, 2
+  %s3 = insertvalue %ps.str %s2, i32 %andf, 3
+  ret %ps.str %s3
 trap:
   call void @ps_raise_code(i32 10) noreturn ; OverflowError
   unreachable
@@ -209,7 +222,7 @@ entry:
   %t10 = alloca i64
   %t11 = alloca double
   %t12 = alloca double
-  %t13 = alloca %ps.str
+  %t13 = alloca %ps.buf
   %t14 = alloca i32
   %t15 = call i64 @ps.iadd(i64 1, i64 2)
   store i64 %t15, ptr %t1
@@ -237,9 +250,18 @@ entry:
   store double %t26, ptr %t12
   %t27 = insertvalue %ps.str poison, i64 1, 0
   %t28 = insertvalue %ps.str %t27, ptr @ps.str.0, 1
-  %t29 = insertvalue %ps.str poison, i64 1, 0
-  %t30 = insertvalue %ps.str %t29, ptr @ps.str.1, 1
-  %t31 = call %ps.str @ps.strconcat(%ps.str %t28, %ps.str %t30)
-  store %ps.str %t31, ptr %t13
+  %t29 = insertvalue %ps.str %t28, i64 1, 2
+  %t30 = insertvalue %ps.str %t29, i32 1, 3
+  %t31 = insertvalue %ps.str poison, i64 1, 0
+  %t32 = insertvalue %ps.str %t31, ptr @ps.str.1, 1
+  %t33 = insertvalue %ps.str %t32, i64 1, 2
+  %t34 = insertvalue %ps.str %t33, i32 1, 3
+  %t35 = call %ps.str @ps.strconcat(%ps.str %t30, %ps.str %t34)
+  %t36 = extractvalue %ps.str %t35, 0
+  %t37 = extractvalue %ps.str %t35, 1
+  %t38 = getelementptr %ps.buf, ptr %t13, i32 0, i32 0
+  store i64 %t36, ptr %t38
+  %t39 = getelementptr %ps.buf, ptr %t13, i32 0, i32 1
+  store ptr %t37, ptr %t39
   ret void
 }

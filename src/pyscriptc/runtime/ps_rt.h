@@ -1,7 +1,10 @@
 /* Shared layout for the runtime linked beside emitted LLVM.
 
-%ps.str is { i64, ptr }. PsBuf must stay 16 bytes. PsSeq keeps len, elem, and
-data in that order; cap is appended so existing stores still line up.
+%ps.str is { i64, ptr, i64, i32 }: byte length, data pointer, code-point count,
+flags (bit 0 ASCII). Until the str model lands (epic #472) the count is filled
+with the byte count and the flag stays 0. PsBuf must stay 16 bytes. PsSeq keeps
+len, elem, and data in that order; cap is appended so existing stores still line
+up.
 */
 
 #ifndef PYSCRIPTC_PS_RT_H
@@ -129,6 +132,13 @@ enum {
     PS_JSON_OPT = 7
 };
 
+/* The str payload crosses the ABI as { i64, ptr, i64, i32 } (byte length,
+   data, code-point count, flags) since IR version 2. Every runtime builder
+   writes the 16-byte PsBuf prefix through the out pointer; the emitter
+   zero-fills the count and flags before the call, so the fields are
+   conservative (wrong, not garbage) until the str model lands (epic
+   #472). PsBuf must stay 16 bytes: it is the bytes carrier and the prefix
+   of the str payload. */
 typedef struct PsBuf {
     int64_t len;
     char *data;
@@ -254,7 +264,7 @@ PsExc *ps_exc_make(int32_t code, int64_t n, const char *data);
 int32_t ps_exc_catch(int32_t (*fn)(void *), void *env, int32_t *status, PsExc **out);
 int32_t ps_exc_code_by_name(const char *name);
 void ps_exc_set_cause(PsExc *e, PsExc *cause);
-PsBuf ps_exc_str(PsExc *e);
+void ps_exc_str(PsExc *e, PsBuf *out);
 void ps_exc_repr(PsExc *e, PsBuf *out);
 void ps_exc_class(PsExc *e, PsBuf *out);
 int32_t ps_exc_isa_value(PsExc *e, int32_t wanted);
@@ -293,6 +303,18 @@ void ps_map_reset(PsMap *m);
 
 void ps_buf_view(PsBuf *out, const char *p, int64_t n);
 void ps_buf_copy(PsBuf *out, const char *p, int64_t n);
+
+/* The str payload header helpers (IR version 2, epic #472). The payload is
+   { i64 nbytes, char *data, i64 nchars, int32_t flags }; the first two
+   fields are the PsBuf prefix every runtime builder already writes. These
+   helpers are the constructors the str model phases call once the count
+   becomes the code-point count; today ps_str_counts is the only consumer,
+   and it reports the ASCII-ness of a Latin-1 buffer (which is the same
+   question UTF-8 asks). */
+#define PS_STR_FLAG_ASCII 0x1
+
+void ps_str_counts(int64_t n, const char *p, int64_t *nchars, int32_t *flags);
+void ps_str_header(int64_t nbytes, const char *p, int64_t *nchars, int32_t *flags, PsBuf *out);
 
 void ps_grow_init(PsGrow *g);
 void ps_grow_add(PsGrow *g, const char *p, int64_t n);

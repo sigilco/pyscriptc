@@ -90,7 +90,7 @@ class CallsMixin:
             self._reject_keywords(node)
             args = [self._expr(arg) for arg in node.args]
             if len(args) == 1:
-                folded = _static_builtin_fold(name, args[0], span)
+                folded = _static_builtin_fold(name, args[0], span, fence=self)
                 if folded is not None:
                     return folded
             spec = builtin_spec(name, [arg["type"] for arg in args])
@@ -1675,7 +1675,7 @@ class CallsMixin:
         if len(node.args) != 1:
             self.fail(node, "PS2003", "bool expects 1 argument(s)")
         arg = self._expr(node.args[0])
-        folded = _static_builtin_fold("bool", arg, span)
+        folded = _static_builtin_fold("bool", arg, span, fence=self)
         if folded is not None:
             return folded
         kind = arg["type"]["kind"]

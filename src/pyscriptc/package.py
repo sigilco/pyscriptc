@@ -28,7 +28,7 @@ from typing import Any
 
 from pyscriptc.builtins import USER_EXC_BASE
 from pyscriptc.errors import IRError
-from pyscriptc.ir import SUBSET, cpython_version
+from pyscriptc.ir import IR_VERSION, SUBSET, cpython_version
 from pyscriptc.lower import Lowerer
 from pyscriptc.stdlib_queue import dependency_lanes, ffi_modules
 
@@ -250,7 +250,7 @@ def _lower_units(
     fences = _promote_definition_fences(fences, failed)
     fences = _mark_dep_fences(fences, units, dep_names, dep_lane_report)
     merged = {
-        "irVersion": 1,
+        "irVersion": IR_VERSION,
         "subset": SUBSET,
         "cpython": cpython_version(),
         "sourceFile": str(root),
@@ -291,7 +291,7 @@ def _fenced_module(root: Path, fences: list[dict[str, Any]]) -> dict[str, Any]:
     """A module that carries only fences: the compile stops before emission."""
 
     return {
-        "irVersion": 1,
+        "irVersion": IR_VERSION,
         "subset": SUBSET,
         "cpython": cpython_version(),
         "sourceFile": str(root),
