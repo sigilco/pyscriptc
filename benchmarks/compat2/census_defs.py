@@ -18,15 +18,12 @@ lowering messages sits on one of its lines:
 - `yield is not lowered` and `yield from is not lowered` (the pass never ran)
 - `bare yield is not lowered yet`
 - `yield as an expression (send) is not lowered yet`
-- `yield inside try or with is not lowered yet`
-- `return with a value in a generator is not lowered yet`
-- `a generator is annotated Iterator[T], Iterable[T] or Generator[T, None, None]`
+- `a generator is annotated Iterator[T], Iterable[T] or Generator[T, S, R]`
 - `a bare or starred parameter form in a resumable is not lowered yet`
 - `a nested def or class in a resumable is not lowered yet`
 - `a lambda in a resumable is not lowered yet`
 - `a resumable whose locals a closure captures is not lowered yet`
 - `a generic resumable is not lowered yet`
-- `Generator[T, S, R] with send or return types is not lowered yet`
 - `a suspension inside try or with is not lowered yet`
 - `return inside try or with in a resumable is not lowered yet`
 
@@ -55,14 +52,11 @@ GENERATOR_FENCE = re.compile(
             r"^yield (?:from )?is not lowered$",
             r"^bare yield is not lowered yet$",
             r"^yield as an expression \(send\) is not lowered yet$",
-            r"^yield inside try or with is not lowered yet$",
-            r"^return with a value in a generator is not lowered yet$",
-            r"^a generator is annotated Iterator\[T\], Iterable\[T\] or Generator\[T, None, None\]$",
+            r"^a generator is annotated Iterator\[T\], Iterable\[T\] or Generator\[T, S, R\]$",
             r"^a nested def or class in a resumable is not lowered yet$",
             r"^return inside try or with in a resumable is not lowered yet$",
             r"^a suspension inside try or with is not lowered yet$",
             r"^a generic resumable is not lowered yet$",
-            r"^Generator\[T, S, R\] with send or return types is not lowered yet$",
             r"^a resumable whose locals a closure captures is not lowered yet$",
             r"^a lambda in a resumable is not lowered yet$",
             r"^bare yield in a resumable is not lowered yet$",
