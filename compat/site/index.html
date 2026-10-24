@@ -23,10 +23,16 @@
   </header>
 
   <main>
-    <section class="hero">
-      <h1>Are We Native Yet?</h1>
-      <p class="tagline">Live compatibility status of <a href="https://github.com/sigilco/pyscriptc">pyscriptc</a>: which builtins, standard-library modules, language features and PyPI packages compile to native code today.</p>
-      <p class="meta" id="meta">loading&hellip;</p>
+    <section class="hero bento" aria-label="Compatibility overview">
+      <div class="bento-cell bento-cell--headline">
+        <h1>Are We Native Yet?</h1>
+        <p class="tagline">Live compatibility status of <a href="https://github.com/sigilco/pyscriptc">pyscriptc</a>: which builtins, standard-library modules, language features and PyPI packages compile to native code today.</p>
+        <p class="meta" id="meta">loading&hellip;</p>
+      </div>
+      <div class="bento-cell bento-cell--stat">
+        <span class="stat-value" id="stat-value">&mdash;</span>
+        <span class="stat-label" id="stat-label">weighted pass on the compat2 visible corpus</span>
+      </div>
     </section>
 
     <noscript>
@@ -35,14 +41,32 @@
 
     <p class="error" id="error" hidden></p>
 
-    <section class="summary" id="summary" hidden>
-      <div class="cards">
-        <div class="card" id="card-builtins"><h2>Builtins</h2><p class="counts"></p></div>
-        <div class="card" id="card-stdlib"><h2>Standard library</h2><p class="counts"></p></div>
-        <div class="card" id="card-packages"><h2>PyPI top 100</h2><p class="counts"></p></div>
-        <div class="card" id="card-score"><h2>Weighted pass</h2><p class="big"></p><p class="sub">compat2 visible corpus</p></div>
-        <div class="card" id="card-fences"><h2>Fences</h2><p class="big"></p><p class="sub">in the measured packages</p></div>
+    <section class="search-command" aria-label="Search everything">
+      <div class="search-field">
+        <span class="search-prompt" aria-hidden="true">&rsaquo;</span>
+        <input type="search" id="search-input" autocomplete="off" spellcheck="false"
+               placeholder="Search every builtin, module and package&hellip;" aria-label="Search builtins, standard-library modules and packages">
+        <kbd class="search-shortcut" aria-hidden="true">/</kbd>
       </div>
+      <div class="search-results">
+        <div class="search-matches" id="search-matches" hidden>
+          <p class="search-heading" id="search-heading" aria-live="polite"></p>
+          <ul class="search-list" id="search-list"></ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="heat" class="heat-section" hidden>
+      <h2>Support at a glance</h2>
+      <p class="section-note">One square per probed item. Green is full, amber partial, red none. Hover for details; click a square to jump to its table row.</p>
+      <div class="bezel-outer">
+        <div id="heat-grid" class="heat-grid"></div>
+      </div>
+      <p class="heat-legend" aria-hidden="true">
+        <span class="dot status-full"></span> full
+        <span class="dot status-partial"></span> partial
+        <span class="dot status-none"></span> none
+      </p>
     </section>
 
     <nav class="toc" aria-label="Sections">

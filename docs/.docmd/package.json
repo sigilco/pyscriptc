@@ -13,5 +13,8 @@
   },
   "devDependencies": {
     "@docmd/core": "^0.9.5"
+  },
+  "dependencies": {
+    "@docmd/plugin-ai": "0.9.8"
   }
 }
