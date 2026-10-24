@@ -553,6 +553,12 @@ def _catalog_once(
         module = lowerer.module(tree)
         exc_n = lowerer.exc_n
         found[name] = _exports_of(name, lowerer)
+        # A re-export in an `__init__.py` (`from .core import where`,
+        # issue #405) makes the name part of the package's public surface,
+        # so `from pkg import where` binds the way it does in CPython.
+        for local, item in _reexports_of(name, tree, exports, is_package).items():
+            if local not in found[name]:
+                found[name][local] = item
         missed = _unexported_definitions(tree, lowerer, module["fences"])
         if missed:
             failed[name] = missed
@@ -582,6 +588,70 @@ def _exports_of(module_name: str, lowerer: Lowerer) -> dict[str, dict[str, Any]]
         if local not in bucket:
             bucket[local] = copy.deepcopy(item)
     return bucket
+
+
+def _reexports_of(
+    module_name: str,
+    tree: ast.Module,
+    exports: dict[str, dict[str, dict[str, Any]]],
+    is_package: bool,
+) -> dict[str, dict[str, Any]]:
+    """The names an `__init__.py` re-exports from a sibling module.
+
+    A package's `__init__.py` is the package's public face: `from .core
+    import where` makes `where` a name of the package, so `from certifi
+    import where` binds it. The lowerer binds the name in the importing
+    module, but the export table is what a consumer resolves against, so
+    the alias is recorded here.
+
+    The alias is a pointer, not a copy: the defining module still emits the
+    function or class, and the entry keeps the defining module's
+    `ir_name`. An alias chain (`pkg/__init__.py` re-exports from
+    `pkg.sub`, whose own `__init__.py` re-exports again) resolves through
+    the table the catalog fixpoint builds, so the chain lands in one pass
+    per fixpoint round.
+    """
+
+    if not is_package:
+        return {}
+    bucket: dict[str, dict[str, Any]] = {}
+    for node in tree.body:
+        if not isinstance(node, ast.ImportFrom) or not node.level:
+            continue
+        base = _base_of(module_name, is_package, node.level)
+        if base is None:
+            continue
+        if node.module:
+            # `from .core import where`: the sibling module holds the name.
+            source = ".".join([*base, *node.module.split(".")])
+            for alias in node.names:
+                if alias.name == "*":
+                    continue
+                item = _alias_item(exports, source, alias.name)
+                if item is not None:
+                    bucket[alias.asname or alias.name] = item
+            continue
+        # `from . import core`: the name is the submodule itself.
+        for alias in node.names:
+            if alias.name == "*":
+                continue
+            source = ".".join([*base, alias.name])
+            if source in exports:
+                bucket[alias.asname or alias.name] = {"kind": "module", "module": source}
+    return bucket
+
+
+def _alias_item(exports: dict[str, dict[str, dict[str, Any]]], module: str, name: str) -> dict[str, Any] | None:
+    """The export `name` of `module`, or None when it is not exported.
+
+    The entry is copied, so the alias carries the defining module's
+    `ir_name`: the defining module still emits the function or class.
+    """
+
+    item = exports.get(module, {}).get(name)
+    if item is None:
+        return None
+    return copy.deepcopy(item)
 
 
 def _class_export(info: dict[str, Any]) -> dict[str, Any]:

@@ -760,6 +760,11 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         if item["kind"] == "class":
             self._install_class_export(local, item, stmt, fences)
             return
+        if item["kind"] == "module":
+            # A module re-exported by the package (`from . import core` in
+            # `pkg/__init__.py`, issue #405): the name binds the submodule.
+            self._bind_pkg_module(local, str(item["module"]), stmt, fences)
+            return
         fences.append(
             Fence("PS2002", f"{module}.{name} is not a function or constant", span_of(stmt, self.filename), None)
         )
