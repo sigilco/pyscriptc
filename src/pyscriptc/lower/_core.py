@@ -255,6 +255,117 @@ def _plain_const_kind(node: ast.expr) -> str | None:
     return None
 
 
+def _ir_kinds_of(node: ast.expr) -> set[str]:
+    """The IR kinds one lowering pass over `node` could emit, structurally.
+
+    The inference peek uses it to refuse expressions whose value is
+    produced outside the emitted IR (abi thunks, handle frees and
+    consumes): the peek lowers the expression a second time, and a runtime
+    call must not run twice. The shape is a manifest ffi call, not a plain
+    method dispatch: an attribute call whose receiver is a name is a value
+    read plus a pure method, safe to lower twice; an attribute call on a
+    computed receiver (a call result, a subscript) may be a handle verb.
+    Attribute reads on a name (`mod.func(x)` style) are module calls, and
+    so is any call whose callee is a bare name.
+    """
+
+    def _safe_receiver(value: ast.expr, depth: int) -> bool:
+        if isinstance(value, ast.Name):
+            return True
+        if depth >= 4:
+            return False
+        if isinstance(value, ast.Call):
+            # `g().method()`: the receiver's type comes from a lowered call
+            # the peek evaluates speculatively, and the dispatch itself is
+            # pure. Recurse into the callee shape instead of refusing.
+            return _safe_callee(value.func, depth + 1)
+        return False
+
+    def _safe_callee(func: ast.expr, depth: int = 0) -> bool:
+        if isinstance(func, ast.Name):
+            return True
+        if isinstance(func, ast.Attribute):
+            if isinstance(func.value, ast.Constant):
+                # `'-'.join(parts)`: a str method dispatch, pure.
+                return True
+            if isinstance(func.value, ast.Attribute) and isinstance(func.value.value, ast.Name):
+                # `os.path.basename(p)`: a module chain callee, a lowered
+                # rest call, not a handle verb on a computed receiver.
+                return True
+            return _safe_receiver(func.value, depth)
+        return False
+
+    found: set[str] = set()
+    for item in ast.walk(node):
+        if isinstance(item, ast.Call) and not _safe_callee(item.func):
+            found.add("consume")
+    return found
+
+
+def _peek_annotated_params(lowerer: Any, fn: ast.FunctionDef | ast.AsyncFunctionDef) -> dict[str, dict[str, Any]]:
+    """The typed parameters of one `def`, as an IR local table.
+
+    The return peek lowers returned expressions to learn their types, so
+    the body's typed parameters must resolve like they do in a real body.
+    An annotation is the fact; a default of a proven type is the same fact
+    the signature pass binds (`def f(times=3)` reads `times: int`). A
+    parameter with neither stays out: the peek must not guess it.
+    """
+
+    table: dict[str, dict[str, Any]] = {}
+    plain = fn.args.posonlyargs + fn.args.args
+    missing = len(plain) - len(fn.args.defaults)
+    for index, arg in enumerate(plain):
+        if arg.annotation is not None:
+            table[arg.arg] = _peek_annotation(arg.annotation)
+        elif index >= missing:
+            default = lowerer._infer_type_of(fn.args.defaults[index - missing])
+            if default is not None and default["kind"] not in {"none", "func"}:
+                table[arg.arg] = default
+    for arg, default_node in zip(fn.args.kwonlyargs, fn.args.kw_defaults, strict=True):
+        if arg.annotation is not None:
+            table[arg.arg] = _peek_annotation(arg.annotation)
+        elif default_node is not None:
+            default = lowerer._infer_type_of(default_node)
+            if default is not None and default["kind"] not in {"none", "func"}:
+                table[arg.arg] = default
+    return table
+
+
+def _peek_annotation(node: ast.AST) -> dict[str, Any]:
+    """The IR type of one parameter annotation, read structurally.
+
+    Only the forms a returned expression can be checked against matter:
+    the scalar kinds, list[T], dict[K, V], set[T] and tuple[...] over the
+    same forms. Anything else (a class name the peek cannot resolve, a
+    typing form) returns a poison type the returned expression never
+    equals, so the peek refuses and the fence stands: never a guess.
+    """
+
+    if isinstance(node, ast.Name):
+        if node.id in {"int", "float", "bool", "str", "bytes"}:
+            return {"kind": node.id}
+    if isinstance(node, ast.Constant) and node.value is None:
+        return {"kind": "none"}
+    if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name):
+        elem = _peek_annotation(node.slice) if not isinstance(node.slice, ast.Tuple) else None
+        if node.value.id == "list" and elem is not None:
+            return {"kind": "list", "elem": elem}
+        if node.value.id == "set" and elem is not None and elem["kind"] in {"int", "str"}:
+            return {"kind": "list", "elem": elem, "set": True}
+        if node.value.id == "dict" and isinstance(node.slice, ast.Tuple) and len(node.slice.elts) == 2:
+            key = _peek_annotation(node.slice.elts[0])
+            value = _peek_annotation(node.slice.elts[1])
+            if key["kind"] in {"int", "str"}:
+                return {"kind": "dict", "key": key, "value": value}
+        if node.value.id == "tuple":
+            # A fixed-arity tuple lowers as a synthetic class keyed by its
+            # field types; the peek has no class table to build one in, so
+            # a tuple parameter refuses the peek rather than approximate.
+            return {"kind": "__peek_unresolved__"}
+    return {"kind": "__peek_unresolved__"}
+
+
 def _dotted(node: ast.Attribute) -> str:
     parts: list[str] = [node.attr]
     cur: ast.AST = node.value

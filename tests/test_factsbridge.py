@@ -151,10 +151,11 @@ def _fences(module: dict) -> list[str]:
 
 
 def test_no_bridge_keeps_the_inference_fences() -> None:
-    """Without a bridge the IR and the fences are exactly what they were."""
+    """Without a bridge the checker proves nothing; the lowerer's own
+    inference (#500) still types what the values prove (int + int, a str
+    literal), and the fence survives only for what no value proves."""
     module = lower_source(LOCAL_SOURCE, "probe.py")
-    assert "total needs an annotation before use" in _fences(module)
-    assert "label needs an annotation before use" in _fences(module)
+    assert _fences(module) == []
 
 
 @needs_mypy
@@ -208,10 +209,10 @@ def test_cli_bridge_flag(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> 
     assert ir_path.exists()
 
 
-@needs_mypy
-def test_cli_without_bridge_fences(tmp_path: Path, capfd: pytest.CaptureFixture[str]) -> None:
+def test_cli_without_bridge_lowers_now(tmp_path: Path, capfd: pytest.CaptureFixture[str]) -> None:
+    """The lowerer's own inference (#500) types the literal locals, so the
+    no-bridge compile succeeds; the mypy bridge path is covered above."""
     from pyscriptc import cli
 
     path = _write(tmp_path, LOCAL_SOURCE)
-    assert cli.main(["compile", str(path), "--skip-check", "--emit", "ir"]) == 3
-    assert "needs an annotation before use" in capfd.readouterr().err
+    assert cli.main(["compile", str(path), "--skip-check", "--emit", "ir"]) == 0

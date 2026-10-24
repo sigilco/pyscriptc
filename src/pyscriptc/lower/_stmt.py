@@ -255,9 +255,6 @@ class StmtMixin:
                         if value["type"]["kind"] != "func":
                             self.locals[target] = value["type"]
                             return [_assign(target, value, span)]
-                    self.fail(stmt, "PS1001", f"{target} needs an annotation before use")
-                if isinstance(stmt.value, ast.Lambda):
-                    self.fail(stmt, "PS1001", "a lambda needs a Callable[[args], ret] annotation")
                 if self._bridge_type(stmt.value) is not None:
                     # Checker bridge: an unannotated assignment whose inferred
                     # type the subset can express binds without an annotation.
@@ -265,7 +262,32 @@ class StmtMixin:
                     self.locals[target] = value["type"]
                     self._note_frozen(target, stmt.value)
                     return [_assign(target, value, span)]
-                self.fail(stmt, "PS1001", f"{target} needs an annotation before use")
+                # The inference peek (issue #500): a literal, a comprehension
+                # or a call of known return type types the name from its
+                # value. The peek discards the speculative IR; the real pass
+                # below emits the value once. Anything the peek refuses keeps
+                # the fence, and a bare `None` needs an Optional (#413).
+                # An empty display is ambiguous until a use says otherwise:
+                # the accumulated-type pass (below) reads the appends and
+                # item writes in the rest of the body, and only a proven
+                # single element type binds the name.
+                accumulated = self._infer_accumulated_type(stmt)
+                if accumulated is not None:
+                    self.locals[target] = accumulated
+                    value = self._expr(stmt.value, accumulated)
+                    self._expect(stmt, value["type"], accumulated, target)
+                    dropped = self._rebind_handle(target, accumulated, stmt.value, span)
+                    self._note_frozen(target, stmt.value)
+                    return [*dropped, _assign(target, value, span)]
+                inferred = self._infer_type_known(stmt.value) or self._infer_type_of(stmt.value)
+                if inferred is not None and inferred["kind"] != "none":
+                    self.locals[target] = inferred
+                    value = self._expr(stmt.value, inferred)
+                    self._expect(stmt, value["type"], inferred, target)
+                    dropped = self._rebind_handle(target, inferred, stmt.value, span)
+                    self._note_frozen(target, stmt.value)
+                    return [*dropped, _assign(target, value, span)]
+                self._infer_fence(stmt, target)
             value = self._expr(stmt.value, self.locals[target])
             self._expect(stmt, value["type"], self.locals[target], target)
             # Rebinding a handle frees the dropped value first: the new
@@ -593,6 +615,188 @@ class StmtMixin:
         for stmt in self.fn_body:
             visit(stmt)
         return (not state["seen"]) or state["hit"]
+
+    def _infer_accumulated_type(self, stmt: ast.Assign) -> dict[str, Any] | None:
+        """The container type an empty display accumulates in this body.
+
+        An empty `[]` or `{}` says nothing about its element type: the uses
+        do. This scans the rest of the function body for `name.append(v)`
+        and `name[k] = v` shapes on the display's own name, lowers each
+        contributing value under the peek, and returns the list or dict
+        type when every use agrees on it. The scan is structural and order
+        free: a key or value naming a local bound earlier in the same body
+        still resolves, because that binding lowers before the mutation in
+        a real run. Mixed element types, a use the peek cannot lower, or a
+        mutation that is not a plain append or item write is a refusal
+        (None): the name keeps its annotation fence. A display that is not
+        empty has its own element type and never reaches here.
+        """
+        if not isinstance(stmt.value, (ast.List, ast.Dict, ast.Set)):
+            return None
+        if isinstance(stmt.value, ast.List) and stmt.value.elts:
+            return None
+        if isinstance(stmt.value, ast.Set) and stmt.value.elts:
+            return None
+        if isinstance(stmt.value, ast.Dict) and stmt.value.keys:
+            return None
+        if self.function is None or self.inf_peek:
+            return None
+        target = stmt.targets[0].id
+
+        def _locals_upto(node: ast.AST) -> None:
+            """Bind the names assigned before `node` in source order.
+
+            The peek lowers a use of a local the body bound earlier (a key
+            variable); without the binding the peek sees a name error and
+            refuses. The types come from the same peek, so a value that
+            does not lower leaves the name out and the mutation is refused
+            later on its own read.
+            """
+
+            for item in self.fn_body:
+                if item is node:
+                    break
+                for inner in ast.walk(item):
+                    if isinstance(inner, ast.Assign) and isinstance(inner.targets[0], ast.Name):
+                        name = inner.targets[0].id
+                        if name == target or name in self.locals:
+                            continue
+                        if inner.value is stmt.value:
+                            continue
+                        typ = self._infer_type_of(inner.value)
+                        if typ is not None and typ["kind"] != "none":
+                            self.locals[name] = typ
+
+        def _bind_for_targets() -> None:
+            """Bind loop targets to their iterable's element type.
+
+            A key or value inside a `for` loop reads the loop variable; a
+            named iterable is already a local (the loop lowered before in a
+            real run), so the element type is its `elem`. A `range(...)`
+            iterable peeks directly: its element type is the int the loop
+            binds. Any other iterable the subset cannot read leaves the
+            target out. The whole body is scanned: the mutation node sits
+            inside the loop, not under it.
+            """
+
+            for outer in self.fn_body:
+                for loop in ast.walk(outer):
+                    if not isinstance(loop, ast.For) or not isinstance(loop.target, ast.Name):
+                        continue
+                    name = loop.target.id
+                    if name in self.locals:
+                        continue
+                    if isinstance(loop.iter, ast.Name):
+                        iter_typ = self.locals.get(loop.iter.id)
+                    else:
+                        # A display or call iterable peeks directly: its
+                        # element type is the fact, or the peek refuses and
+                        # the target stays out.
+                        iter_typ = self._infer_type_of(loop.iter)
+                    if iter_typ is not None and iter_typ.get("kind") == "list":
+                        self.locals[name] = iter_typ["elem"]
+
+        def _written_value(node: ast.expr) -> dict[str, Any] | None:
+            """The written value's type, read through the accumulator.
+
+            `dic[k] = dic.get(k, 0) + 1` is the count pattern: the read of
+            the accumulator itself is what the peek cannot resolve (the
+            type is being derived), so the read is replaced by the
+            default's type and the arithmetic runs on that. An int default
+            means int counts. Any other shape peeks with the partial
+            accumulator type bound, and refuses when the read still does
+            not resolve.
+            """
+
+            if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Sub)):
+                left = _written_value(node.left)
+                right = self._infer_type_of(node.right)
+                if left is None or right is None or right["kind"] != "int":
+                    return None
+                if left["kind"] == "int":
+                    return left
+                return None
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+                recv = node.func.value
+                if node.func.attr == "get" and isinstance(recv, ast.Name) and recv.id == target and len(node.args) == 2:
+                    default = self._infer_type_of(node.args[1])
+                    if default is None or default["kind"] == "none":
+                        return None
+                    return default
+            saved = dict(self.locals)
+            self.locals[target] = (
+                {"kind": "dict", "key": {"kind": "str"}, "value": {"kind": "int"}}
+                if value is None
+                else {"kind": "dict", "key": {"kind": "str"}, "value": value}
+            )
+            try:
+                return self._infer_type_of(node)
+            finally:
+                self.locals = saved
+
+        saved_locals = dict(self.locals)
+        elem: dict[str, Any] | None = None
+        value: dict[str, Any] | None = None
+        try:
+            _bind_for_targets()
+            for item in self.fn_body:
+                for node in ast.walk(item):
+                    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                        continue
+                    if node.func.attr != "append" or not isinstance(node.func.value, ast.Name):
+                        continue
+                    if node.func.value.id != target or len(node.args) != 1:
+                        continue
+                    _locals_upto(node)
+                    _bind_for_targets()
+                    typ = self._infer_type_of(node.args[0])
+                    if typ is None or typ["kind"] in {"none", "bool", "func"}:
+                        return None
+                    if elem is None:
+                        elem = typ
+                    elif not types_equal(elem, typ):
+                        return None
+                for node in ast.walk(item):
+                    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                        continue
+                    if node.func.attr != "setdefault" or not isinstance(node.func.value, ast.Name):
+                        continue
+                    if node.func.value.id != target or len(node.args) != 2:
+                        continue
+                    _locals_upto(node)
+                    _bind_for_targets()
+                    key = self._infer_type_of(node.args[0])
+                    val = self._infer_type_of(node.args[1])
+                    if key is None or val is None or key["kind"] not in {"int", "str"}:
+                        return None
+                    if value is None:
+                        value = val
+                    elif not types_equal(value, val):
+                        return None
+                for node in ast.walk(item):
+                    if (
+                        isinstance(node, ast.Assign)
+                        and isinstance(node.targets[0], ast.Subscript)
+                        and isinstance(node.targets[0].value, ast.Name)
+                        and node.targets[0].value.id == target
+                    ):
+                        _locals_upto(node)
+                        _bind_for_targets()
+                        key = self._infer_type_of(node.targets[0].slice)
+                        val = _written_value(node.value)
+                        if key is None or val is None or key["kind"] not in {"int", "str"}:
+                            return None
+                        if value is None:
+                            value = val
+                        elif not types_equal(value, val):
+                            return None
+        finally:
+            self.locals = saved_locals
+        if elem is not None:
+            return {"kind": "list", "elem": elem}
+        if value is not None:
+            return {"kind": "dict", "key": {"kind": "str"}, "value": value}
+        return None
 
     def _aug_assign(self, stmt: ast.AugAssign, span: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(stmt.target, ast.Name):

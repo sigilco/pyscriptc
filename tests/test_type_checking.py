@@ -65,7 +65,12 @@ def test_type_checking_branch_matches_cpython(tmp_path: Path) -> None:
 
 
 def test_user_type_checking_name_stays_a_module_if(tmp_path: Path) -> None:
-    cases = [
+    """A rebound TYPE_CHECKING whose value is a proven literal now binds at
+    module scope (#500 local inference): the guard folds like CPython's own
+    variable, so the True polarity lowers. The False polarity still fences
+    (the else branch binds at module scope, which is #502), and the rule
+    below keeps refusing the shapes where the guard stays unprovable."""
+    lowers = [
         (
             "assigned.py",
             "\n".join(
@@ -77,6 +82,26 @@ def test_user_type_checking_name_stays_a_module_if(tmp_path: Path) -> None:
                     "mark: str = 'Ada'",
                     "def probe() -> str:",
                     "    return mark",
+                    "",
+                ]
+            ),
+        ),
+    ]
+    for name, source in lowers:
+        path = write_case(tmp_path, name, source)
+        got = run_cli("compile", str(path), "--skip-check", "--emit", "llvm", "-o", str(tmp_path / f"{name}.ll"))
+        assert got.returncode == 0, f"{name}\n{got.stderr}"
+    cases = [
+        (
+            "runtime_guard.py",
+            "\n".join(
+                [
+                    "import sys",
+                    "TYPE_CHECKING = sys.flags.verbose",
+                    "if TYPE_CHECKING:",
+                    "    import argparse",
+                    "def probe() -> int:",
+                    "    return 0",
                     "",
                 ]
             ),
@@ -102,7 +127,7 @@ def test_user_type_checking_name_stays_a_module_if(tmp_path: Path) -> None:
         got = run_cli("compile", str(path), "--skip-check", "--emit", "llvm", "-o", str(tmp_path / f"{name}.ll"))
         assert got.returncode == 3, f"{name}\n{got.stderr}"
         # E1: the if no longer fences at module scope by kind, but a rebound
-        # TYPE_CHECKING still never folds: the guard stays live and the
-        # compilation still refuses (typing-name misuse, or the import and
-        # the module-scope binding it guards).
-        assert "PS2002" in got.stderr
+        # TYPE_CHECKING still never folds when the guard value stays
+        # unprovable (`sys.flags.verbose`), and the False polarity still
+        # fences on the module-scope else-binding (#502).
+        assert "PS2002" in got.stderr or "PS1001" in got.stderr

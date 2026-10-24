@@ -100,11 +100,12 @@ def test_checker_bridge_consumer_surface_pyrefly(tmp_path: Path) -> None:
 
 @needs_pyrefly
 def test_pyrefly_bridge_lowering_retires_the_local_fences(tmp_path: Path) -> None:
-    """A bridged compile lowers the unannotated local; the plain compile fences it."""
+    """The unannotated local lowers; #500 inference proves `n = 1 + 2` on
+    its own, so the plain compile is clean and the bridge retracts nothing."""
     path = _write(tmp_path)
     source = path.read_text(encoding="utf-8")
     plain = lower_source(source, str(path))
-    assert any(fence["code"] == "PS1001" for fence in plain["fences"])
+    assert plain["fences"] == []
     bridge = CheckerBridge.for_path(path, provider="pyrefly")
     bridged = lower_source(source, str(path), bridge=bridge)
     assert not any(fence["message"].endswith("needs an annotation before use") for fence in bridged["fences"])
