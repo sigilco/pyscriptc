@@ -32,6 +32,7 @@ from pyscriptc.emitlib import build_library
 from pyscriptc.errors import FitError, IRError, SpikeError, VersionError
 from pyscriptc.ffi_manifest import FfiManifestError, load_manifests
 from pyscriptc.imports import build_report as build_import_report
+from pyscriptc.imports import export_reach
 from pyscriptc.imports import render_text as render_import_text
 from pyscriptc.ir import validate_module
 from pyscriptc.irverify import verify_module
@@ -206,6 +207,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     imports_parser.add_argument("source")
     imports_parser.add_argument("--json", action="store_true", help="print the report as JSON")
+    imports_parser.add_argument(
+        "--reach",
+        metavar="FILE",
+        help="append the island reach share to a JSON file boxed_cost.py --reach reads",
+    )
     reduce_parser = sub.add_parser(
         "reduce", help="delta-debug a source to a minimal reproducer of a fence or crash", parents=[common]
     )
@@ -468,9 +474,16 @@ def coverage_cmd(args: argparse.Namespace) -> int:
 
 
 def imports_cmd(args: argparse.Namespace) -> int:
-    report = build_import_report(Path(args.source))
+    source = Path(args.source)
+    config = load_config(source)
+    report = build_import_report(source, policy=config.imports)
     log.info("imports.report", source=args.source)
     print(json.dumps(report, indent=2) if args.json else render_import_text(report))
+    if args.reach:
+        payload = export_reach(report, Path(args.reach))
+        share = payload["boxed_only_reach"][-1]
+        log.info("imports.reach", path=args.reach, reach=share)
+        print(f"island reach {share:.4f} appended to {args.reach}", file=sys.stderr)
     return 0
 
 
@@ -1212,13 +1225,15 @@ def _dependency_roots(source_path: Path, config: Any) -> tuple[list[Path], dict[
         # and the wheel tags); the `[imports]` table can only *keep* a
         # dependency off the compile lane, not put a native one on it.
         lane = package["lane"]
+        hint = package.get("hint", "")
         policy = _dependency_lane(distribution, config)
         if policy != "compile":
             lane = policy
+            hint = deps.POLICY_HINTS.get(policy, hint)
         entry = {
             "distribution": distribution,
             "lane": lane,
-            "hint": package.get("hint", ""),
+            "hint": hint,
         }
         names = tuple(package.get("import_names") or ())
         if not names:

@@ -62,6 +62,17 @@ LANE_HINTS = {
     "pure": "compile from source",
     "native": "needs a replacement pack, an `extern` C library lane or the opt-in island; refused by default",
     "sdist": "no wheel published; building an sdist runs arbitrary code, refused by default",
+    "island": "island lane: requires libpython; the binary links the host interpreter",
+}
+
+# The `[imports]` policy lane hints, used when the table overrides the lane a
+# locked dependency would otherwise take. The island is only ever selected
+# here, so its hint is the label the binary carries.
+POLICY_HINTS = {
+    "replace": "replaced by a curated pack",
+    "extern": "bound through a C ABI extern manifest",
+    "island": LANE_HINTS["island"],
+    "refuse": "refused by the `[imports]` policy",
 }
 
 
