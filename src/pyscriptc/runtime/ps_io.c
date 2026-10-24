@@ -19,6 +19,9 @@ typedef struct PsIO {
     FILE *fp;
     /* Set for tempfile.NamedTemporaryFile(delete=True): unlinked on close. */
     char *tmp_path;
+    /* The fopen mode letters ("r", "rb", ...): text reads use it to decide
+       whether universal-newline translation applies. */
+    const char *how;
 } PsIO;
 
 static PsIO *ps_blank(int kind) {
@@ -100,6 +103,7 @@ PsIO *ps_io_take_fd(int fd, const char *path, int64_t mode, int64_t keep) {
     }
     io = ps_blank(ps_open_kind(mode));
     io->fp = fp;
+    io->how = ps_open_how(mode);
     if (!keep) {
         size_t len = strlen(path);
         io->tmp_path = malloc(len + 1);
@@ -136,6 +140,7 @@ PsIO *ps_io_open(int64_t n, const char *path, int64_t mode) {
     }
     io = ps_blank(kind);
     io->fp = fp;
+    io->how = how;
     return io;
 }
 
@@ -144,6 +149,36 @@ static int ps_can_read(PsIO *io) {
         return 1;
     }
     return io->fp != NULL;
+}
+
+/* The mode letters the handle opened with ("r", "rb", ...). A handle with
+   no `how` (StringIO, a taken fd) is text by construction. */
+static const char *ps_io_mode_of(PsIO *io) {
+    return io->how != NULL ? io->how : "r";
+}
+
+/* CPython's universal newlines: in text mode a `\r\n` pair and a lone `\r`
+   read as `\n` (the default `newline=None`); `\n` passes through. Applied
+   to `read` and `readline` on every text-mode handle; binary mode is
+   untouched. `newline=` is fenced on `open`, so the default is the whole
+   story. */
+static void ps_universal_newlines(char *buf, int64_t size, int64_t *out_len) {
+    int64_t r = 0;
+    int64_t w = 0;
+    while (r < size) {
+        char c = buf[r];
+        if (c == '\r') {
+            buf[w++] = '\n';
+            r++;
+            if (r < size && buf[r] == '\n') {
+                r++;
+            }
+        } else {
+            buf[w++] = c;
+            r++;
+        }
+    }
+    *out_len = w;
 }
 
 void ps_io_read(PsIO *io, PsBuf *out) {
@@ -170,7 +205,15 @@ void ps_io_read(PsIO *io, PsBuf *out) {
             ps_raise_cstr(PS_RUNTIME, "read failed");
         }
         buf[size] = '\0';
-        out->len = size;
+        /* Text mode translates: a text handle's `how` never contains 'b'. */
+        if (size > 0 && !strchr(ps_io_mode_of(io), 'b')) {
+            int64_t shrunk = size;
+            ps_universal_newlines(buf, size, &shrunk);
+            buf[shrunk] = '\0';
+            out->len = shrunk;
+        } else {
+            out->len = size;
+        }
         out->data = buf;
         return;
     }
@@ -225,7 +268,8 @@ int64_t ps_io_write(PsIO *io, int64_t n, const char *s) {
 
 void ps_io_readline(PsIO *io, PsBuf *out) {
     /* `for line in f` / f.readline(): bytes through the next '\n' (kept),
-       an empty buffer at EOF. */
+       an empty buffer at EOF. Text mode translates `\r\n` and `\r` to `\n`
+       like CPython's universal newlines. */
     PsGrow line;
     ps_open_check(io);
     if (!ps_can_read(io)) {
@@ -234,13 +278,22 @@ void ps_io_readline(PsIO *io, PsBuf *out) {
     ps_grow_init(&line);
     if (io->fp != NULL) {
         int ch;
+        int text = !strchr(ps_io_mode_of(io), 'b');
         for (;;) {
             ch = fgetc(io->fp);
             if (ch == EOF) {
                 break;
             }
-            ps_grow_byte(&line, (unsigned char)ch);
-            if (ch == '\n') {
+            if (text && ch == '\r') {
+                ps_grow_byte(&line, '\n');
+                int next = fgetc(io->fp);
+                if (next != '\n' && next != EOF) {
+                    ungetc(next, io->fp);
+                }
+            } else {
+                ps_grow_byte(&line, (unsigned char)ch);
+            }
+            if (ch == '\n' || (text && ch == '\r')) {
                 break;
             }
         }
@@ -297,6 +350,8 @@ void ps_io_value(PsIO *io, PsBuf *out) {
 macro for `__stderrp`, so the emitted code cannot name the symbol; the
 runtime hands the FILE* over instead. */
 void *ps_stderr_stream(void) { return stderr; }
+
+void *ps_stdout_stream(void) { return stdout; }
 
 int64_t ps_stdout_write(int64_t n, const char *s) {
     if (n < 0) {
