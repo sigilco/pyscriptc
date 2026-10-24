@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from pyscriptc.errors import IRError, format_diagnostic
+from pyscriptc.imports import REQUIRES_LIBPYTHON
 from pyscriptc.lower import lower_file
 from pyscriptc.package import _discover, lower_directory
 
@@ -284,25 +285,59 @@ def _lower(target: Path, bridge: Any = None) -> tuple[dict[str, Any], list[str]]
     raise IRError(f"source not found: {target}")
 
 
-def _dependency_map(target: Path) -> dict[str, dict[str, str]]:
+def _policy_entries(target: Path) -> dict[str, dict[str, Any]]:
+    """The `[tool.pyscriptc.imports]` island entries, keyed by import name.
+
+    The policy table is the only route to the island lane, so a coverage
+    report can name that route before the resolver has anything to say: an
+    island policy entry is the user's opt-in, not a classifier guess. The
+    `*` key stands for every import the table does not name.
+    """
+
+    from pyscriptc.config import load_config
+
+    config = load_config(target)
+    entries: dict[str, dict[str, Any]] = {}
+    hint = f"island lane: {REQUIRES_LIBPYTHON}; the binary links the host interpreter"
+    for name, lane in config.imports.items():
+        if lane != "island":
+            continue
+        key = "*" if name == "*" else name.lower()
+        entries[key] = {"distribution": "", "lane": "island", "hint": hint, "policy": name}
+    return entries
+
+
+def _dependency_map(target: Path) -> dict[str, dict[str, Any]]:
     """The recorded import-name map of the target's locked dependencies.
 
     Read from the unpacked wheels' `.imports` records (issue #408) without
     touching the network: a tree whose config declares no dependencies has
-    nothing to read, and a resolution failure is not a coverage failure.
+    nothing to read, and a resolution failure is not a coverage failure. The
+    `[imports]` island policy entries are merged last and win, because they
+    are the only route that lane has.
     """
 
     from pyscriptc.config import load_config
-    from pyscriptc.deps import UNKNOWN_IMPORT_NAMES
 
     config = load_config(target)
-    if not config.dependencies:
-        return {}
-    try:
-        report = deps_run_deps(target, cache_dir=None)
-    except Exception:
-        return {}
-    mapping: dict[str, dict[str, str]] = {}
+    mapping: dict[str, dict[str, Any]] = {}
+    if config.dependencies:
+        try:
+            report = deps_run_deps(target, cache_dir=None)
+        except Exception:
+            report = None
+        if report is not None:
+            mapping = _wheel_map(report)
+    mapping.update(_policy_entries(target))
+    return mapping
+
+
+def _wheel_map(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """The import-name map of a deps report (unpacked wheels, issue #408)."""
+
+    from pyscriptc.deps import UNKNOWN_IMPORT_NAMES
+
+    mapping: dict[str, dict[str, Any]] = {}
     for package in report["packages"]:
         module = str(package["name"]).lower().replace("-", "_").replace(".", "_")
         names = tuple(package.get("import_names") or ())
@@ -401,7 +436,7 @@ def build_report(target: Path, bridge: Any = None) -> dict[str, Any]:
     return {
         "schemaVersion": SCHEMA_VERSION,
         "target": str(target),
-        "summary": _summary(entries, definitions, files, total_defs),
+        "summary": _summary(entries, definitions, files, total_defs, _island_imports(target, known)),
         "fences": entries,
         "definitions": definitions,
         "moduleFences": module_fences,
@@ -426,9 +461,19 @@ def _annotate(entry: dict[str, Any], known: dict[str, dict[str, str]]) -> dict[s
         candidate = name.strip(".,:;'\"()[]")
         found = known.get(candidate) or known.get(candidate.lower())
         if found is None:
+            found = known.get(candidate.split(".", 1)[0].lower())
+        if found is None:
+            found = known.get("*")
+        if found is None:
             continue
         entry["dependency"] = found
-        where = f" ({found['distribution']} provides {candidate}, on the {found['lane']} lane: {found['hint']})"
+        if found.get("policy") is not None:
+            where = (
+                f" ({candidate} is on the island lane ({REQUIRES_LIBPYTHON}); "
+                f"the per-import policy {found['policy']!r} routes it and the binary links the host interpreter)"
+            )
+        else:
+            where = f" ({found['distribution']} provides {candidate}, on the {found['lane']} lane: {found['hint']})"
         if found.get("ambiguous"):
             where = f" ({candidate} is claimed by more than one locked distribution: {found['ambiguous']})"
         entry["message"] = message + where
@@ -437,11 +482,37 @@ def _annotate(entry: dict[str, Any], known: dict[str, dict[str, str]]) -> dict[s
     return entry
 
 
+def _island_imports(target: Path, known: dict[str, dict[str, Any]]) -> list[str]:
+    """The imports the policy table routes to the island, sorted and unique.
+
+    Read from the source tree rather than from the fences, so the summary
+    answers "does this program need libpython?" even when the import is not
+    fenced today (a `compile` row that the lowering binds never fences).
+    """
+
+    from pyscriptc.imports import collect_imports
+
+    own = target.name if target.is_dir() else ""
+    found: list[str] = []
+    for site in collect_imports(target):
+        name = site["name"]
+        if not name or site["level"] > 0 or name.split(".", 1)[0] == own:
+            continue
+        root = name.split(".", 1)[0]
+        entry = known.get(name.lower()) or known.get(root.lower()) or known.get("*")
+        if entry is None or entry.get("lane") != "island":
+            continue
+        if name not in found:
+            found.append(name)
+    return sorted(found)
+
+
 def _summary(
     entries: list[dict[str, Any]],
     definitions: list[dict[str, Any]],
     files: list[str],
     total_defs: dict[str, int],
+    island_imports: list[str],
 ) -> dict[str, Any]:
     fences_by_family = Counter(e["family"] for e in entries)
     return {
@@ -450,6 +521,8 @@ def _summary(
         "fencedDefinitions": len(definitions),
         "fences": len(entries),
         "rootFences": sum(1 for e in entries if not e["derived"]),
+        "requiresLibpython": bool(island_imports),
+        "islandImports": island_imports,
         "byCode": dict(sorted(Counter(e["code"] for e in entries).items())),
         "byFamily": {
             family: {"fences": count, "derived": is_derived(family)}

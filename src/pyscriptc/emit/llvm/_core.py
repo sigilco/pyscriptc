@@ -139,6 +139,12 @@ class CoreMixin:
         header.extend(decls)
         if decls:
             header.append("")
+        # boxed:begin
+        metadata = self._island_metadata()
+        if metadata:
+            header.extend(metadata)
+            header.append("")
+        # boxed:end
         header.extend(_helpers(self.needed))
         body = header + self.out
         if self.dwarf is not None:
@@ -146,6 +152,29 @@ class CoreMixin:
             # `!DI*` records may reference anything the body defined.
             body = body + self.dwarf.render()
         return "\n".join(body).rstrip() + "\n"
+
+    # boxed:begin
+    def _island_metadata(self) -> list[str]:
+        """The `requires libpython` marker, when the module calls the island.
+
+        A private string constant retained through `@llvm.compiler.used`
+        survives the optimizer and lands in the linked binary, so the label
+        the coverage report prints is also readable from the artifact. A
+        module with no `ps_island_*` call emits nothing, so every native
+        binary keeps its historical text.
+        """
+
+        if not any(symbol.startswith("ps_island_") for symbol in self.abi_decls):
+            return []
+        text = b"pyscriptc:requires-libpython\0"
+        return [
+            f"@.pyscriptc.requires_libpython = private constant [{len(text)} x i8] "
+            'c"pyscriptc:requires-libpython\\00", align 1',
+            "@llvm.compiler.used = appending global [1 x ptr] "
+            '[ptr @.pyscriptc.requires_libpython], section "llvm.metadata"',
+        ]
+
+    # boxed:end
 
     def _field(self, class_name: str, name: str) -> dict[str, Any]:
         for index, field in enumerate(self.class_index[class_name]["fields"]):

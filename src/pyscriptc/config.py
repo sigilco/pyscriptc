@@ -31,6 +31,11 @@ PEP723_RE = re.compile(r"(?m)^# /// (?P<type>[a-zA-Z0-9-]+)$\s(?P<content>(^#(| 
 LANES = ("compile", "replace", "extern", "island", "refuse")
 DEFAULT_LANE = "compile"
 
+# The island is never automatic: only a per-import policy entry can select it,
+# and its binary always links the host interpreter. This is the user-facing
+# label coverage and binary metadata print for that lane.
+ISLAND_LABEL = "requires libpython"
+
 _KEYS: dict[str, tuple[type, ...]] = {
     "entry": (str,),
     "src": (str, list),
@@ -173,6 +178,14 @@ class Config:
         """Lane of each PEP 723 dependency, keyed by requirement string."""
         return dependency_lanes(self.dependencies, self.imports)
 
+    def island_imports(self) -> tuple[str, ...]:
+        """Import names the policy table routes to the island, sorted."""
+        return tuple(sorted(name for name, lane in self.imports.items() if lane == "island" and name != "*"))
+
+    def wildcard_island(self) -> bool:
+        """True when `* = "island"` makes every unlisted import island-bound."""
+        return self.imports.get("*") == "island"
+
 
 def lane_for(name: str, imports: dict[str, str]) -> tuple[str, str]:
     """(lane, matched key) for an imported top-level name.
@@ -187,8 +200,10 @@ def lane_for(name: str, imports: dict[str, str]) -> tuple[str, str]:
     return DEFAULT_LANE, "default"
 
 
-# Policy-table lane to the lane vocabulary of the import classifier.
-_POLICY_TO_DEP_LANE = {
+# Policy-table lane to the lane vocabulary of the import classifier. The
+# island entry is the only way an import reaches that lane: classification
+# never guesses it from the package name or its metadata.
+POLICY_TO_LANE = {
     "compile": "native",
     "replace": "pack",
     "extern": "extern",
@@ -227,7 +242,7 @@ def dependency_lanes(dependencies: tuple[str, ...], imports: dict[str, str] | No
         if chosen is None and star not in (None, "compile"):
             chosen = star
         if chosen is not None:
-            lanes[requirement] = _POLICY_TO_DEP_LANE[chosen]
+            lanes[requirement] = POLICY_TO_LANE[chosen]
             continue
         verdict = classify(module, distribution=dist)
         lane = verdict["lane"]
@@ -320,7 +335,7 @@ def _deps_of(meta: dict[str, Any]) -> tuple[str | None, tuple[str, ...]]:
         raise ConfigError("PEP 723 `requires-python` must be a string")
     deps = meta.get("dependencies")
     if deps is None:
-        deps = ()
+        return requires, ()
     if not isinstance(deps, list) or not all(isinstance(item, str) for item in deps):
         raise ConfigError("PEP 723 `dependencies` must be a list of requirement strings")
     return requires, tuple(deps)
@@ -355,28 +370,50 @@ def load_config(source: Path) -> Config:
                 break
     meta: dict[str, Any] = {}
     meta_source = "default"
+    meta_project: Config | None = None
     if start.is_file() and start.suffix == ".py":
         meta = _read_script_meta(start)
         if meta:
             meta_source = "pep723"
+            meta_table = _project_table(meta, start)
+            if meta_table is not None:
+                meta_project = _from_table(meta_table, start, "pep723")
     if project is None and not meta:
         return Config(origin=None, source="default")
     requires, deps = _deps_of(meta) if meta else (None, ())
+    if project is None and meta_project is not None:
+        return Config(
+            origin=meta_project.origin,
+            source=meta_project.source,
+            entry=meta_project.entry,
+            src=meta_project.src,
+            checker=meta_project.checker,
+            driver=meta_project.driver,
+            target=meta_project.target,
+            fail_on=meta_project.fail_on,
+            stub_path=meta_project.stub_path,
+            ffi=meta_project.ffi,
+            imports=meta_project.imports,
+            requires_python=requires,
+            dependencies=deps,
+        )
     if project is None:
         return Config(origin=start, source=meta_source, requires_python=requires, dependencies=deps)
     if meta:
+        merged_imports = dict(meta_project.imports if meta_project else {})
+        merged_imports.update(project.imports)
         return Config(
             origin=project.origin,
             source=project.source,
-            entry=project.entry,
-            src=project.src,
-            checker=project.checker,
-            driver=project.driver,
-            target=project.target,
-            fail_on=project.fail_on,
-            stub_path=project.stub_path,
-            ffi=project.ffi,
-            imports=project.imports,
+            entry=project.entry or (meta_project.entry if meta_project else None),
+            src=project.src or (meta_project.src if meta_project else ()),
+            checker=project.checker or (meta_project.checker if meta_project else None),
+            driver=project.driver or (meta_project.driver if meta_project else None),
+            target=project.target or (meta_project.target if meta_project else None),
+            fail_on=project.fail_on or (meta_project.fail_on if meta_project else None),
+            stub_path=project.stub_path or (meta_project.stub_path if meta_project else ()),
+            ffi=project.ffi or (meta_project.ffi if meta_project else ()),
+            imports=merged_imports,
             requires_python=requires,
             dependencies=deps,
         )
