@@ -16,45 +16,187 @@ import time
 from pathlib import Path
 from typing import Any
 
-from pyscriptc import assess, deps, reduce, runcache, telemetry, verify, zigshim
-from pyscriptc.check import CheckFailed, run_checker
+from pyscriptc import runcache
 from pyscriptc.config import apply_to_args, entry_points, load_config
-from pyscriptc.coverage import build_report, family_of, render_text
-from pyscriptc.debug import Debug, resolve
-from pyscriptc.diagnostics import explain
-from pyscriptc.doctor import doctor_cmd
-from pyscriptc.emit.llvm import (
-    compile_unit,
-    emit_llvm,
-    link_binary,
-    refuse_unsupported_target,
-    standalone_entry,
-)
-from pyscriptc.emitlib import build_library
-from pyscriptc.errors import FitError, IRError, SpikeError, VersionError
-from pyscriptc.ffi_manifest import FfiManifestError, load_manifests
-from pyscriptc.imports import build_report as build_import_report
-from pyscriptc.imports import export_reach
-from pyscriptc.imports import render_text as render_import_text
-from pyscriptc.ir import validate_module
-from pyscriptc.irverify import verify_module
-from pyscriptc.llvverify import LLVMVerifyError, verify_module_text
+from pyscriptc.errors import CheckFailed, FitError, IRError, SpikeError, VersionError
 from pyscriptc.log import enable_debug, get_logger, tail
-from pyscriptc.lower import lower_file, render_fences
-from pyscriptc.mobile import (
-    ANDROID_PAGE_FLAGS,
-    MobileRefusal,
-    is_mobile_target,
-    require_mobile_target,
-)
-from pyscriptc.package import lower_directory
-
-# boxed:begin
-from pyscriptc.stdlib_queue import island_policy
-
-# boxed:end
 
 log = get_logger()
+
+_VERIFY_DEFAULT_TIMEOUT = 60.0
+_REDUCE_DEFAULT_TIMEOUT = 120.0
+
+
+class _LazyTelemetry:
+    def __getattr__(self, name: str) -> Any:
+        from pyscriptc import telemetry as _t
+
+        globals()["telemetry"] = _t
+        return getattr(_t, name)
+
+
+telemetry: Any = _LazyTelemetry()
+
+
+def _load_compiler() -> None:
+    """Load compiler modules for compilation, verification and analysis commands."""
+    global assess, deps, reduce, verify, zigshim
+    global run_checker
+    global build_report, family_of, render_text
+    global Debug, resolve
+    global explain
+    global doctor_cmd
+    global compile_unit, emit_llvm, link_binary, refuse_unsupported_target, standalone_entry
+    global build_library
+    global FfiManifestError, load_manifests
+    global build_import_report, export_reach, render_import_text
+    global validate_module, verify_module, LLVMVerifyError, verify_module_text
+    global lower_file, render_fences
+    global ANDROID_PAGE_FLAGS, MobileRefusal, is_mobile_target, require_mobile_target
+    global lower_directory
+    # boxed:begin
+    global island_policy
+    # boxed:end
+
+    if "lower_file" in globals():
+        return
+
+    from pyscriptc import (
+        assess as _assess,
+    )
+    from pyscriptc import (
+        deps as _deps,
+    )
+    from pyscriptc import (
+        reduce as _reduce,
+    )
+    from pyscriptc import (
+        verify as _verify,
+    )
+    from pyscriptc import (
+        zigshim as _zigshim,
+    )
+    from pyscriptc.check import run_checker as _run_checker
+    from pyscriptc.coverage import (
+        build_report as _build_report,
+    )
+    from pyscriptc.coverage import (
+        family_of as _family_of,
+    )
+    from pyscriptc.coverage import (
+        render_text as _render_text,
+    )
+    from pyscriptc.debug import Debug as _Debug
+    from pyscriptc.debug import resolve as _resolve
+    from pyscriptc.diagnostics import explain as _explain
+    from pyscriptc.doctor import doctor_cmd as _doctor_cmd
+    from pyscriptc.emit.llvm import (
+        compile_unit as _compile_unit,
+    )
+    from pyscriptc.emit.llvm import (
+        emit_llvm as _emit_llvm,
+    )
+    from pyscriptc.emit.llvm import (
+        link_binary as _link_binary,
+    )
+    from pyscriptc.emit.llvm import (
+        refuse_unsupported_target as _refuse_unsupported_target,
+    )
+    from pyscriptc.emit.llvm import (
+        standalone_entry as _standalone_entry,
+    )
+    from pyscriptc.emitlib import build_library as _build_library
+    from pyscriptc.ffi_manifest import (
+        FfiManifestError as _FfiManifestError,
+    )
+    from pyscriptc.ffi_manifest import (
+        load_manifests as _load_manifests,
+    )
+    from pyscriptc.imports import (
+        build_report as _build_import_report,
+    )
+    from pyscriptc.imports import (
+        export_reach as _export_reach,
+    )
+    from pyscriptc.imports import (
+        render_text as _render_import_text,
+    )
+    from pyscriptc.ir import validate_module as _validate_module
+    from pyscriptc.irverify import verify_module as _verify_module
+    from pyscriptc.llvverify import (
+        LLVMVerifyError as _LLVMVerifyError,
+    )
+    from pyscriptc.llvverify import (
+        verify_module_text as _verify_module_text,
+    )
+    from pyscriptc.lower import lower_file as _lower_file
+    from pyscriptc.lower import render_fences as _render_fences
+    from pyscriptc.mobile import (
+        ANDROID_PAGE_FLAGS as _ANDROID_PAGE_FLAGS,
+    )
+    from pyscriptc.mobile import (
+        MobileRefusal as _MobileRefusal,
+    )
+    from pyscriptc.mobile import (
+        is_mobile_target as _is_mobile_target,
+    )
+    from pyscriptc.mobile import (
+        require_mobile_target as _require_mobile_target,
+    )
+    from pyscriptc.package import lower_directory as _lower_directory
+
+    # boxed:begin
+    from pyscriptc.stdlib_queue import island_policy as _island_policy
+
+    # boxed:end
+
+    assess = _assess
+    deps = _deps
+    reduce = _reduce
+    verify = _verify
+    zigshim = _zigshim
+    run_checker = _run_checker
+    build_report = _build_report
+    family_of = _family_of
+    render_text = _render_text
+    Debug = _Debug
+    resolve = _resolve
+    explain = _explain
+    doctor_cmd = _doctor_cmd
+    compile_unit = _compile_unit
+    emit_llvm = _emit_llvm
+    link_binary = _link_binary
+    refuse_unsupported_target = _refuse_unsupported_target
+    standalone_entry = _standalone_entry
+    build_library = _build_library
+    FfiManifestError = _FfiManifestError
+    load_manifests = _load_manifests
+    build_import_report = _build_import_report
+    export_reach = _export_reach
+    render_import_text = _render_import_text
+    validate_module = _validate_module
+    verify_module = _verify_module
+    LLVMVerifyError = _LLVMVerifyError
+    verify_module_text = _verify_module_text
+    lower_file = _lower_file
+    render_fences = _render_fences
+    ANDROID_PAGE_FLAGS = _ANDROID_PAGE_FLAGS
+    MobileRefusal = _MobileRefusal
+    is_mobile_target = _is_mobile_target
+    require_mobile_target = _require_mobile_target
+    lower_directory = _lower_directory
+    # boxed:begin
+    island_policy = _island_policy
+    # boxed:end
+
+
+def __getattr__(name: str) -> Any:
+    if name.startswith("__"):
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    _load_compiler()
+    if name in globals():
+        return globals()[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -228,9 +370,9 @@ def main(argv: list[str] | None = None) -> int:
     verify_parser.add_argument(
         "--timeout",
         type=float,
-        default=verify.DEFAULT_TIMEOUT,
+        default=_VERIFY_DEFAULT_TIMEOUT,
         metavar="S",
-        help=f"seconds each run may take before it is a divergence (default {verify.DEFAULT_TIMEOUT:g})",
+        help=f"seconds each run may take before it is a divergence (default {_VERIFY_DEFAULT_TIMEOUT:g})",
     )
     verify_parser.add_argument("--program", action="store_true", help="treat the directory as a program (see compile)")
     verify_parser.add_argument("--driver", choices=("clang", "zig"), default=None)
@@ -275,9 +417,9 @@ def main(argv: list[str] | None = None) -> int:
     assess_parser.add_argument(
         "--timeout",
         type=float,
-        default=verify.DEFAULT_TIMEOUT,
+        default=_VERIFY_DEFAULT_TIMEOUT,
         metavar="S",
-        help=f"seconds each run may take (default {verify.DEFAULT_TIMEOUT:g})",
+        help=f"seconds each run may take (default {_VERIFY_DEFAULT_TIMEOUT:g})",
     )
     assess_parser.add_argument("--program", action="store_true", help="treat the directory as a program")
     assess_parser.add_argument("--driver", choices=("clang", "zig"), default=None)
@@ -331,7 +473,7 @@ def main(argv: list[str] | None = None) -> int:
     group.add_argument("--fence", metavar="CODE", help="shorthand: lowering still reports a fence with this code")
     group.add_argument("--crash", action="store_true", help="shorthand: lowering still raises a non-fence error")
     reduce_parser.add_argument(
-        "--timeout", type=float, default=reduce.DEFAULT_TIMEOUT, help="seconds per --predicate command"
+        "--timeout", type=float, default=_REDUCE_DEFAULT_TIMEOUT, help="seconds per --predicate command"
     )
     reduce_parser.add_argument("--steps", type=int, default=10_000, help="cap on removal attempts")
     reduce_parser.add_argument(
@@ -359,7 +501,22 @@ def main(argv: list[str] | None = None) -> int:
     telemetry_parser.add_argument("action", choices=("disable", "enable", "status", "reset-id"))
     doctor_parser = sub.add_parser("doctor", help="report toolchain, cache and install shape", parents=[common])
     doctor_parser.add_argument("--json", action="store_true", help="print the report as JSON")
-    deps.register(sub, common)
+    deps_parser = sub.add_parser(
+        "deps",
+        help="resolve PyPI dependencies (PEP 723 or pyproject) and cache pure-Python wheels",
+        parents=[common],
+    )
+    deps_parser.add_argument(
+        "source", help="a .py script with a `# /// script` block, a pyproject.toml or its directory"
+    )
+    deps_parser.add_argument("--json", action="store_true", help="print the report as JSON")
+    deps_parser.add_argument("--frozen", action="store_true", help="use the existing lock, never resolve")
+    deps_parser.add_argument("--upgrade", action="store_true", help="re-resolve to the newest allowed versions")
+    deps_parser.add_argument("--offline", action="store_true", help="no network: uv offline, cached wheels only")
+    deps_parser.add_argument("--no-download", action="store_true", help="classify from wheel tags only")
+    deps_parser.add_argument(
+        "--cache-dir", metavar="DIR", help="cache root (env PYSC_CACHE_DIR, default ~/.cache/pyscriptc)"
+    )
     try:
         raw = list(sys.argv[1:] if argv is None else argv)
         run_argv: list[str] = []
@@ -377,30 +534,40 @@ def main(argv: list[str] | None = None) -> int:
             telemetry.maybe_print_notice()
             telemetry.track("cli.invoked", {"subcommand": args.cmd, **telemetry.base_properties()})
         if args.cmd == "compile":
+            _load_compiler()
             return compile_cmd(args)
         if args.cmd == "run":
             return run_cmd(args)
         if args.cmd == "verify":
+            _load_compiler()
             return verify_cmd(args)
         if args.cmd == "assess":
+            _load_compiler()
             return assess_cmd(args)
         if args.cmd == "coverage":
+            _load_compiler()
             return coverage_cmd(args)
         if args.cmd == "imports":
+            _load_compiler()
             return imports_cmd(args)
         if args.cmd == "config":
             return config_cmd(args)
         if args.cmd == "reduce":
+            _load_compiler()
             return reduce_cmd(args)
         if args.cmd == "build":
+            _load_compiler()
             return build_cmd(args)
         if args.cmd == "explain":
+            _load_compiler()
             return explain_cmd(args)
         if args.cmd == "logs":
             return logs_cmd(args)
         if args.cmd == "doctor":
+            _load_compiler()
             return doctor_cmd(args.json)
         if args.cmd == "deps":
+            _load_compiler()
             return deps.deps_cmd(args)
         if args.cmd == "telemetry":
             return telemetry.telemetry_cmd(args.action)
@@ -540,6 +707,7 @@ def _track_run(
 
 
 def _build_for_run(args: argparse.Namespace, output: Path) -> int:
+    _load_compiler()
     compile_args = argparse.Namespace(
         source=args.source,
         program=args.program,
@@ -589,6 +757,7 @@ def verify_cmd(args: argparse.Namespace) -> int:
     stdin exercised. Exit 0 when every check matches, 1 on a divergence, 3 when
     the compiler fences the program, 4 when no pinned oracle is available.
     """
+    _load_compiler()
     started = time.monotonic()
     _apply_env_defaults(args)
     source = Path(args.source)
@@ -651,6 +820,7 @@ def verify_cmd(args: argparse.Namespace) -> int:
 
 def assess_cmd(args: argparse.Namespace) -> int:
     """`pyscriptc assess PATH`: throw pyscriptc at any script, library or app."""
+    _load_compiler()
     _apply_env_defaults(args)
     source = Path(args.source)
     if not source.exists():
@@ -718,6 +888,7 @@ def _verify_binary(args: argparse.Namespace, name: str, key: str, scratch: Path)
 
 
 def coverage_cmd(args: argparse.Namespace) -> int:
+    _load_compiler()
     report = build_report(Path(args.source))
     log.info("coverage.report", source=args.source)
     print(json.dumps(report, indent=2) if args.json else render_text(report))
@@ -735,6 +906,7 @@ def coverage_cmd(args: argparse.Namespace) -> int:
 
 
 def imports_cmd(args: argparse.Namespace) -> int:
+    _load_compiler()
     source = Path(args.source)
     config = load_config(source)
     report = build_import_report(source, policy=config.imports)
@@ -827,6 +999,7 @@ def _reduce_predicate(args: argparse.Namespace) -> reduce.Predicate:
 
 def reduce_cmd(args: argparse.Namespace) -> int:
     """`pyscriptc reduce FILE`: shrink FILE to a minimal reproducer."""
+    _load_compiler()
     predicate = _reduce_predicate(args)
     out_path = Path(args.source).with_name(f"{Path(args.source).stem}.min.py")
     target = out_path if not args.print and not args.json else None
@@ -862,6 +1035,7 @@ def reduce_cmd(args: argparse.Namespace) -> int:
 
 
 def explain_cmd(args: argparse.Namespace) -> int:
+    _load_compiler()
     text = explain(args.code)
     log.info("explain.lookup", code=args.code, known=text is not None)
     if text is None:
@@ -948,6 +1122,7 @@ def build_cmd(args: argparse.Namespace) -> int:
 
 
 def compile_cmd(args: argparse.Namespace) -> int:
+    _load_compiler()
     started = time.monotonic()
     _compile_env_defaults(args)
     state: dict[str, Any] = {
@@ -1120,6 +1295,7 @@ def _require_mobile_refusals(args: argparse.Namespace) -> None:
 
 def _require_toolchain(args: argparse.Namespace) -> None:
     """Fail before any work when the requested output needs a C driver that is not on PATH."""
+    _load_compiler()
     if not (args.run or args.emit in ("asm", "obj", "bin", "lib", "binding")):
         return
     if args.emit == "lib":
@@ -1583,6 +1759,7 @@ def _stage_dependency_data(source_path: Path, config: Any, args: argparse.Namesp
     leave an unused directory; the search-path constant is empty there and
     the behavior stays exactly as before.
     """
+    _load_compiler()
 
     from pyscriptc.deps import data_files, stage_data_files
 
