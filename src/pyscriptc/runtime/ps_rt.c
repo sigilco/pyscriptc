@@ -245,33 +245,13 @@ static PsExc *ps_exc_new(int32_t code) {
 }
 
 /* CPython prints a str message as its repr: quoted, with the escapes.
-   Shared with the tuple display (its str fields render as repr too). */
+   The escape engine is ps_repr_str (ps_unicode.c), so the exception
+   message, the tuple display and repr() agree byte for byte. */
 void ps_report_quoted(PsGrow *g, const PsBuf *msg) {
-    int quote = '\'';
-    if (memchr(msg->data, '\'', (size_t)msg->len) != NULL && memchr(msg->data, '"', (size_t)msg->len) == NULL) {
-        quote = '"';
-    }
-    ps_grow_byte(g, (unsigned char)quote);
-    for (int64_t i = 0; i < msg->len; i++) {
-        unsigned char c = (unsigned char)msg->data[i];
-        if (c == (unsigned char)quote || c == '\\') {
-            ps_grow_byte(g, '\\');
-            ps_grow_byte(g, c);
-        } else if (c == '\n') {
-            ps_grow_add(g, "\\n", 2);
-        } else if (c == '\r') {
-            ps_grow_add(g, "\\r", 2);
-        } else if (c == '\t') {
-            ps_grow_add(g, "\\t", 2);
-        } else if (c < 0x20 || c == 0x7f) {
-            char esc[8];
-            snprintf(esc, sizeof esc, "\\x%02x", c);
-            ps_grow_add(g, esc, 4);
-        } else {
-            ps_grow_byte(g, c);
-        }
-    }
-    ps_grow_byte(g, (unsigned char)quote);
+    PsBuf quoted;
+    ps_repr_str(msg->len, msg->data, &quoted);
+    ps_grow_add(g, quoted.data, quoted.len);
+    free(quoted.data);
 }
 
 /* The message a KeyError shows: CPython prints its argument as a repr. */

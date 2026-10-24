@@ -340,6 +340,9 @@ void ps_utf8_encode(int64_t n, const char *p, PsBuf *out);
 void ps_utf8_decode(int64_t n, const char *p, PsBuf *out);
 void ps_latin1_encode(int64_t n, const char *p, PsBuf *out);
 void ps_latin1_decode(int64_t n, const char *p, PsBuf *out);
+/* CPython's repr escape rules for a str; defined in ps_unicode.c next to
+   the category table its printability test reads. */
+void ps_repr_str(int64_t n, const char *p, PsBuf *out);
 void ps_i64_str(int64_t v, PsBuf *out);
 void ps_f64_str(double v, PsBuf *out);
 int64_t ps_bisect_left(PsSeq *s, int64_t key);

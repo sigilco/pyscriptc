@@ -75,32 +75,54 @@ static void grow_bytes_repr(PsGrow *g, const PsBuf *b) {
     ps_grow_add(g, t.data, t.len);
 }
 
+/* The str repr goes through the shared escape engine (ps_unicode.c), the
+   same one repr() and the exception messages use, so all three agree.
+   ascii_only is the old `!a` flag: an ASCII-only repr escapes every code
+   point above 0x7F, which the shared engine does not track, so the !a
+   conversion walks the buffer itself and hands the engine runs below the
+   first wide code point. */
 static void repr_str_into(PsGrow *g, int64_t n, const char *p, int ascii_only) {
-    int quote = '\'';
-    if (memchr(p, '\'', (size_t)n) != NULL && memchr(p, '"', (size_t)n) == NULL) {
-        quote = '"';
+    if (!ascii_only) {
+        PsBuf t;
+        ps_repr_str(n, p, &t);
+        ps_grow_add(g, t.data, t.len);
+        free(t.data);
+        return;
     }
-    ps_grow_byte(g, (unsigned char)quote);
-    for (int64_t i = 0; i < n; i++) {
+    int64_t start = 0;
+    ps_grow_byte(g, '\'');
+    for (int64_t i = 0; i < n;) {
         unsigned char c = (unsigned char)p[i];
-        if (c == (unsigned char)quote || c == '\\') {
-            ps_grow_byte(g, '\\');
-            ps_grow_byte(g, c);
-        } else if (c == '\n') {
-            grow_text(g, "\\n");
-        } else if (c == '\r') {
-            grow_text(g, "\\r");
-        } else if (c == '\t') {
-            grow_text(g, "\\t");
-        } else if (c < 0x20 || c == 0x7f || (ascii_only && c >= 0x80)) {
-            char esc[8];
-            snprintf(esc, sizeof esc, "\\x%02x", c);
-            ps_grow_add(g, esc, 4);
-        } else {
-            ps_grow_byte(g, c);
+        if (c < 0x80) {
+            i++;
+            continue;
         }
+        if (i > start) {
+            PsBuf piece;
+            ps_repr_str(i - start, p + start, &piece);
+            ps_grow_add(g, piece.data + 1, piece.len - 2);
+            free(piece.data);
+        }
+        int width = ps_utf8_len(c);
+        uint32_t cp = c & (uint32_t)(0xFF >> (width + 1));
+        for (int k = 1; k < width && i + k < n; k++) {
+            cp = (cp << 6) | ((unsigned char)p[i + k] & 0x3F);
+        }
+        char esc[12];
+        int wn = cp < 0x100 ? snprintf(esc, sizeof esc, "\\x%02x", cp)
+                            : cp < 0x10000 ? snprintf(esc, sizeof esc, "\\u%04x", cp)
+                                           : snprintf(esc, sizeof esc, "\\U%08x", cp);
+        ps_grow_add(g, esc, wn);
+        i += width;
+        start = i;
     }
-    ps_grow_byte(g, (unsigned char)quote);
+    if (n > start) {
+        PsBuf piece;
+        ps_repr_str(n - start, p + start, &piece);
+        ps_grow_add(g, piece.data + 1, piece.len - 2);
+        free(piece.data);
+    }
+    ps_grow_byte(g, '\'');
 }
 
 /* `'%s' % d` prints the mapping repr; keys render by the map's key_kind,
@@ -422,7 +444,7 @@ static int64_t percent_int(Ctx *c, const char *what) {
     return a->i;
 }
 
-static void percent_spec(PsGrow *g, const PsArg *arg, Spec *s, char t) {
+static void percent_spec(PsGrow *g, const PsArg *arg, Spec *s, char t, int ascii_repr) {
     if (t == 'd' || t == 'i' || t == 'u' || t == 'x' || t == 'X' || t == 'o') {
         int64_t v;
         if (arg->kind == PS_ARG_FLOAT) {
@@ -483,7 +505,7 @@ static void percent_spec(PsGrow *g, const PsArg *arg, Spec *s, char t) {
     if (t == 's') {
         arg_as_str(&body, arg);
     } else if (t == 'r' || t == 'a') {
-        arg_as_repr(&body, arg, t == 'a');
+        arg_as_repr(&body, arg, t == 'a' || ascii_repr);
     } else {
         static char msg[80];
         snprintf(msg, sizeof msg, "unsupported format character '%c'", t);
@@ -1076,7 +1098,7 @@ void ps_str_format(int64_t fn, const char *f, const PsArg *args, int64_t an, int
         } else {
             arg = next_pos(&c);
         }
-        percent_spec(&g, arg, &s, t);
+        percent_spec(&g, arg, &s, t, 0);
     }
     if (c.at < c.npos && !(style == 2 && c.at == 0)) {
         ps_raise_cstr(PS_VALUE, "not all arguments converted during string formatting");
