@@ -1,4 +1,4 @@
-%ps.str = type { i64, ptr }
+%ps.str = type { i64, ptr, i64, i32 }
 
 define void @cast_int_to_float() {
 entry:

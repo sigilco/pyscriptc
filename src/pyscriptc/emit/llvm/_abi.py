@@ -8,8 +8,13 @@ from typing import Any
 
 from pyscriptc.builtins import EXCEPTIONS
 from pyscriptc.emit._ir import _elem_size, _fn_symbol, _llvm_type
+from pyscriptc.emit.llvm._runtime import _prebaked_declarations
 from pyscriptc.errors import IRError
 from pyscriptc.stdmore import COMPARE_CLASSES
+
+# The symbols `_declarations` already emits when their `needed` group is
+# active. A second declaration would be an invalid LLVM redefinition.
+_PREBAKED_DECLS = frozenset(_prebaked_declarations())
 
 
 class AbiMixin:
@@ -60,10 +65,25 @@ class AbiMixin:
 
     def _buf_out(self, symbol: str, args: list[str]) -> str:
         out = self._alloca("%ps.str")
+        # The runtime writes the 16-byte PsBuf prefix (len, data). Fields 2
+        # and 3 are zero-filled here until the str model moves the
+        # constructors into the runtime (S2): the count is then wrong, not
+        # garbage, and the flag reads "not ASCII", both conservative under
+        # the Latin-1 model.
+        count_ptr = self.tmp()
+        flags_ptr = self.tmp()
+        self.line(f"{count_ptr} = getelementptr %ps.str, ptr {out}, i32 0, i32 2")
+        self.line(f"store i64 0, ptr {count_ptr}")
+        self.line(f"{flags_ptr} = getelementptr %ps.str, ptr {out}, i32 0, i32 3")
+        self.line(f"store i32 0, ptr {flags_ptr}")
         self.line(f"call void @{symbol}({', '.join([*args, f'ptr {out}'])})")
         return self._load("%ps.str", out)
 
     def _abi_decl(self, symbol: str, ret: str, params: list[str]) -> None:
+        # A symbol already pre-baked in the `_declarations` table keeps that
+        # spelling; re-declaring it here would be an invalid redefinition.
+        if symbol in _PREBAKED_DECLS:
+            return
         self.abi_decls[symbol] = (ret, params)
 
     def _abi_lines(self) -> list[str]:

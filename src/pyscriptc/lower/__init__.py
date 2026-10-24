@@ -20,7 +20,7 @@ from pyscriptc.builtins import USER_EXC_BASE
 from pyscriptc.coro import CoroMixin
 from pyscriptc.errors import format_diagnostic, span_of
 from pyscriptc.ffi_manifest import is_handle_type
-from pyscriptc.ir import SUBSET, cpython_version, types_equal
+from pyscriptc.ir import IR_VERSION, SUBSET, cpython_version, types_equal
 from pyscriptc.lower._calls import CallsMixin
 from pyscriptc.lower._classes import ClassesMixin
 from pyscriptc.lower._closures import ClosuresMixin
@@ -380,7 +380,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             self.function = None
             notes = self._non_ascii_warnings()
             return {
-                "irVersion": 1,
+                "irVersion": IR_VERSION,
                 "subset": SUBSET,
                 "cpython": cpython_version(),
                 "sourceFile": self.filename,
@@ -477,7 +477,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         self.function = None
         names = [item["name"] for item in lowered]
         module = {
-            "irVersion": 1,
+            "irVersion": IR_VERSION,
             "subset": SUBSET,
             "cpython": cpython_version(),
             "sourceFile": self.filename,
@@ -1675,7 +1675,7 @@ def lower_file(
     if dep_fences:
         return (
             {
-                "irVersion": 1,
+                "irVersion": IR_VERSION,
                 "subset": SUBSET,
                 "cpython": cpython_version(),
                 "sourceFile": path,

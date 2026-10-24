@@ -3,6 +3,12 @@
 The schema is Python's, not scriptc's. `int` is a Python int (stored as a
 decimal string so JSON cannot round it). JavaScript kinds such as `f64` and
 `nullT` are rejected.
+
+`IR_VERSION` stamps the compiler-to-runtime ABI. Version 2 is the str-model
+payload: `%ps.str` carries `{ i64, ptr, i64, i32 }` (byte length, data
+pointer, code-point count, flags) instead of `{ i64, ptr }` (epic #472, S1
+#473). The validator refuses any other stamp, so a module lowered by the
+old shape cannot reach the new emitter.
 """
 
 from __future__ import annotations
@@ -12,7 +18,7 @@ from typing import Any
 
 from pyscriptc.errors import IRError, VersionError
 
-IR_VERSION = 1
+IR_VERSION = 2
 SUBSET = "gates-v1"
 
 TYPE_KINDS = {"int", "float", "bool", "none", "str", "bytes", "list", "dict", "class", "exc", "unknown", "func"}

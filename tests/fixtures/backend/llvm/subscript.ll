@@ -1,4 +1,4 @@
-%ps.str = type { i64, ptr }
+%ps.str = type { i64, ptr, i64, i32 }
 
 declare ptr @ps_seq_new(i64, i64)
 declare i64 @ps_seq_len(ptr)

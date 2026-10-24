@@ -239,9 +239,8 @@ class ExprsMixin:
         if kind == "str":
             self.needed.add("str")
             length, ptr = self._buf_parts(value)
-            out = self._alloca("%ps.str")
-            self.line(f"call void @ps_str_get(i64 {length}, ptr {ptr}, i64 {index}, ptr {out})")
-            return self._load("%ps.str", out)
+            self._abi_decl("ps_str_get", "void", ["i64", "ptr", "i64", "ptr"])
+            return self._buf_out("ps_str_get", [f"i64 {length}", f"ptr {ptr}", f"i64 {index}"])
         if kind == "bytes":
             self.needed.add("str")
             length, ptr = self._buf_parts(value)

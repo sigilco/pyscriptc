@@ -1,4 +1,4 @@
-%ps.str = type { i64, ptr }
+%ps.str = type { i64, ptr, i64, i32 }
 
 define i64 @return_stmt() {
 entry:

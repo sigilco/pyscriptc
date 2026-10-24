@@ -1,4 +1,4 @@
-%ps.str = type { i64, ptr }
+%ps.str = type { i64, ptr, i64, i32 }
 
 @ps.str.0 = private unnamed_addr constant [4 x i8] c"bad\00"
 
@@ -19,11 +19,13 @@ entry:
   %t2 = call ptr @ps_exc_make(i32 51, i64 0, ptr null)
   %t3 = insertvalue %ps.str poison, i64 3, 0
   %t4 = insertvalue %ps.str %t3, ptr @ps.str.0, 1
-  %t5 = extractvalue %ps.str %t4, 0
-  %t6 = extractvalue %ps.str %t4, 1
-  %t7 = call ptr @ps_exc_make(i32 51, i64 %t5, ptr %t6)
-  %t8 = call ptr @ps_exc_make(i32 50, i64 0, ptr null)
-  call void @ps_exc_set_cause(ptr %t7, ptr %t8)
-  call void @ps_raise_exc(ptr %t7) noreturn
+  %t5 = insertvalue %ps.str %t4, i64 3, 2
+  %t6 = insertvalue %ps.str %t5, i32 1, 3
+  %t7 = extractvalue %ps.str %t6, 0
+  %t8 = extractvalue %ps.str %t6, 1
+  %t9 = call ptr @ps_exc_make(i32 51, i64 %t7, ptr %t8)
+  %t10 = call ptr @ps_exc_make(i32 50, i64 0, ptr null)
+  call void @ps_exc_set_cause(ptr %t9, ptr %t10)
+  call void @ps_raise_exc(ptr %t9) noreturn
   unreachable
 }

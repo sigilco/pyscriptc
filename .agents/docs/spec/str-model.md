@@ -95,6 +95,8 @@ The IR needs no new node kind: `const` already carries the source text of a stri
 
 Frozen gates: the payload change moves `benchmarks/compat2/probes/IR_HASHES.json` (every module's canonical form changes). The gate-change decision is recorded in `.agents/decisions.md` (entry "S1 moves the frozen v2 gates for the str payload"). The regeneration runs on Linux only, through the `ir-hashes` workflow's A/B byte-identical discipline, never by hand on macOS. `outcomes.py`, the `score.py` weights, `coverage_map.py` and `cache.py` do not change.
 
+TODO (this PR, before merge): regenerate `IR_HASHES.json` through the `ir-hashes` workflow (`workflow_dispatch` on this branch), verify the A/B run is byte-identical (`cmp`), and copy the artifact into `benchmarks/compat2/probes/`. The baseline header also stamps the compiler ABI through the lowered modules, so it must land in the same PR as the `IR_VERSION` bump, and CI's irscore check stays red until it does.
+
 ## What does not change in S1
 
 - The Latin-1 encoding of literals (`emit/llvm/_print.py` `string_value` keeps `encode("latin1")` for now; the UTF-8 switch is S2/S6 work with the I/O half).

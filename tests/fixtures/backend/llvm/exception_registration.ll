@@ -1,4 +1,4 @@
-%ps.str = type { i64, ptr }
+%ps.str = type { i64, ptr, i64, i32 }
 
 %cls.MyError = type { i8 }
 @ps.str.0 = private unnamed_addr constant [8 x i8] c"MyError\00"
@@ -25,9 +25,11 @@ entry:
   call void @ps_argv_init(i32 %argc, ptr %argv)
   %t1 = insertvalue %ps.str poison, i64 7, 0
   %t2 = insertvalue %ps.str %t1, ptr @ps.str.0, 1
-  %t3 = extractvalue %ps.str %t2, 0
-  %t4 = extractvalue %ps.str %t2, 1
-  call void @ps_exc_register(i32 900, i32 0, ptr %t4)
+  %t3 = insertvalue %ps.str %t2, i64 7, 2
+  %t4 = insertvalue %ps.str %t3, i32 1, 3
+  %t5 = extractvalue %ps.str %t4, 0
+  %t6 = extractvalue %ps.str %t4, 1
+  call void @ps_exc_register(i32 900, i32 0, ptr %t6)
   call void @raises_custom()
   ret i32 0
 }

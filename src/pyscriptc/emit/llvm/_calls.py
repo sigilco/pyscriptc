@@ -83,18 +83,24 @@ class CallsMixin:
                     f"{t_ptr} = select i1 {values[0]}, ptr {self.format_global('boolT', b'True')}, "
                     f"ptr {self.format_global('boolF', b'False')}"
                 )
+                # "True"/"False" are ASCII: the count is the byte count and
+                # the flag is set.
                 agg = self.tmp()
-                self.line(f"{agg} = insertvalue %ps.str poison, i64 {t_len}, 0")
+                p1 = self.tmp()
+                p2 = self.tmp()
                 ret = self.tmp()
-                self.line(f"{ret} = insertvalue %ps.str {agg}, ptr {t_ptr}, 1")
+                self.line(f"{agg} = insertvalue %ps.str poison, i64 {t_len}, 0")
+                self.line(f"{p1} = insertvalue %ps.str {agg}, ptr {t_ptr}, 1")
+                self.line(f"{p2} = insertvalue %ps.str {p1}, i64 {t_len}, 2")
+                self.line(f"{ret} = insertvalue %ps.str {p2}, i32 1, 3")
                 return ret
             if kind == "bytes":
                 self._abi_decl("ps_repr_bytes", "void", ["i64", "ptr", "ptr"])
                 length, ptr = self._buf_parts(values[0])
                 return self._buf_out("ps_repr_bytes", [f"i64 {length}", f"ptr {ptr}"])
             if kind == "exc":
-                self._abi_decl("ps_exc_str", "%ps.str", ["ptr"])
-                return self._call_ret("%ps.str", "ps_exc_str", [f"ptr {values[0]}"])
+                self._abi_decl("ps_exc_str", "void", ["ptr", "ptr"])
+                return self._buf_out("ps_exc_str", [f"ptr {values[0]}"])
             if kind == "class" and arg_types[0].get("name") == "Path":
                 self._abi_decl("ps_path_posix", "void", ["ptr", "ptr"])
                 return self._buf_out("ps_path_posix", [f"ptr {values[0]}"])
@@ -262,9 +268,8 @@ class CallsMixin:
         self.needed.add("str")
         length, ptr = self._buf_parts(values[0])
         if name in {"strip", "lstrip", "rstrip", "upper", "lower"}:
-            out = self._alloca("%ps.str")
-            self.line(f"call void @ps_str_{name}(i64 {length}, ptr {ptr}, ptr {out})")
-            return self._load("%ps.str", out)
+            self._abi_decl(f"ps_str_{name}", "void", ["i64", "ptr", "ptr"])
+            return self._buf_out(f"ps_str_{name}", [f"i64 {length}", f"ptr {ptr}"])
         if name in {"title", "capitalize", "casefold", "swapcase"}:
             self._abi_decl(f"ps_str_{name}", "void", ["i64", "ptr", "ptr"])
             return self._buf_out(f"ps_str_{name}", [f"i64 {length}", f"ptr {ptr}"])
@@ -356,12 +361,11 @@ class CallsMixin:
             return self._buf_out(f"ps_str_{name}", [f"i64 {length}", f"ptr {ptr}", f"i64 {arg_len}", f"ptr {arg_ptr}"])
         if name == "replace":
             new_len, new_ptr = self._buf_parts(values[2])
-            out = self._alloca("%ps.str")
-            self.line(
-                "call void @ps_str_replace("
-                f"i64 {length}, ptr {ptr}, i64 {arg_len}, ptr {arg_ptr}, i64 {new_len}, ptr {new_ptr}, ptr {out})"
+            self._abi_decl("ps_str_replace", "void", ["i64", "ptr", "i64", "ptr", "i64", "ptr", "ptr"])
+            return self._buf_out(
+                "ps_str_replace",
+                [f"i64 {length}", f"ptr {ptr}", f"i64 {arg_len}", f"ptr {arg_ptr}", f"i64 {new_len}", f"ptr {new_ptr}"],
             )
-            return self._load("%ps.str", out)
         if name in {"find", "count", "index", "rfind"}:
             symbol = {"find": "ps_str_find", "count": "ps_str_count", "index": "ps_str_index", "rfind": "ps_str_rfind"}[
                 name
