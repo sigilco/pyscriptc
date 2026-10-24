@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-24",
-  "commit": "246a6bfe887f128f4d3af42405571897594132b2",
+  "commit": "43f5bbc64fe2f5f4fbbfee01aafacf474f7ea887",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -15,8 +15,8 @@
     "stdlib_full": 0,
     "stdlib_partial": 54,
     "stdlib_none": 1,
-    "packages_full": 3,
-    "packages_partial": 5,
+    "packages_full": 2,
+    "packages_partial": 6,
     "packages_none": 10,
     "weighted_pass": 0.0,
     "fences": 3024
@@ -1849,7 +1849,7 @@
       "import_name": "shellingham",
       "version": "1.5.4",
       "status": "none",
-      "fences": 47,
+      "fences": 46,
       "definitions": 25,
       "fenced_definitions": 19,
       "top_families": [
@@ -1869,7 +1869,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 28
+          "count": 27
         },
         {
           "code": "PS1001",
@@ -1886,12 +1886,22 @@
       "name": "trove-classifiers",
       "import_name": "trove_classifiers",
       "version": "2026.9.21.13",
-      "status": "full",
-      "fences": 0,
+      "status": "partial",
+      "fences": 1,
       "definitions": 0,
       "fenced_definitions": 0,
-      "top_families": [],
-      "codes": [],
+      "top_families": [
+        {
+          "family": "module-assign",
+          "count": 1
+        }
+      ],
+      "codes": [
+        {
+          "code": "PS2002",
+          "count": 1
+        }
+      ],
       "pypi": "https://pypi.org/project/trove-classifiers/"
     },
     {
@@ -2003,7 +2013,7 @@
       "code": "PS2002",
       "title": "construct not lowered",
       "count": 1472,
-      "packages": 15
+      "packages": 16
     },
     {
       "code": "PS1001",
@@ -2120,10 +2130,10 @@
     },
     {
       "date": "2026-10-24",
-      "commit": "246a6bfe887f128f4d3af42405571897594132b2",
+      "commit": "43f5bbc64fe2f5f4fbbfee01aafacf474f7ea887",
       "weighted_pass": 0.0,
-      "packages_full": 3,
-      "packages_partial": 5,
+      "packages_full": 2,
+      "packages_partial": 6,
       "packages_none": 10,
       "fences": 3024
     }

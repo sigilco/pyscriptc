@@ -1,7 +1,7 @@
 """E1 item 4: `assert` lowers in the entry exactly as in a function.
 
-The statement is `if not cond: raise Exception`, and the message sits on
-that raise. Decisions pinned here:
+The statement is `if not cond: raise AssertionError`, and the message
+sits on that raise. Decisions pinned here:
 
 - Assertions are KEPT: there is no `-O` stripping semantics in the subset,
   so a failing assert aborts the run with a nonzero exit and the message
@@ -13,8 +13,8 @@ that raise. Decisions pinned here:
   `assert 1` and `assert "nonempty"` pass like CPython's truthiness; a
   float condition is fenced (PS2004) - pinned in test_assert.py's
   existing fence cases, so not re-pinned here.
-- AssertionError is not a lowered exception; the raise surface is the
-  existing `Exception` path (message is a `str`).
+- AssertionError is a lowered exception (#515): `except AssertionError`
+  catches the failure, and the message is a `str`.
 
 Both forms (`assert cond`, `assert cond, msg`) are pinned in the
 synthesized entry (module-level script) and in a function, against the
@@ -170,7 +170,7 @@ assert probe() == 1, "entry broke"
     assert guard["kind"] == "if"
     assert guard["cond"]["kind"] == "unary" and guard["cond"]["op"] == "not"
     (raised,) = guard["then"]
-    assert raised["kind"] == "raise" and raised["exc"] == "Exception"
+    assert raised["kind"] == "raise" and raised["exc"] == "AssertionError"
     assert raised["message"]["kind"] == "const" and raised["message"]["value"] == "math broke"
     entry = _entry(mod)
     assert entry is not None

@@ -1,7 +1,7 @@
-"""assert is if-not plus the existing Exception raise.
+"""assert is if-not plus the AssertionError raise.
 
 A true assert falls through, so the next statement runs. The message expression
-runs only when the assert fails. AssertionError is not a lowered exception.
+runs only when the assert fails. `except AssertionError` catches it (#515).
 """
 
 from __future__ import annotations

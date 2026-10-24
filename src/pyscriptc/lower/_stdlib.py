@@ -31,6 +31,7 @@ from pyscriptc.lower._core import (
     _name,
     _package_base,
     _show,
+    module_needs_slot,
 )
 from pyscriptc.lower._stdlib_shared import _ERASED_MODULES
 from pyscriptc.restlower import alias_name, rest_call
@@ -840,10 +841,17 @@ class StdlibDispatchMixin:
                     # An optional target keeps its raw constant: each read
                     # boxes it into the tagged cell.
                     value = self._expr(stmt.value, None if typ.get("optional") else typ)
-                if typ["kind"] == "class" and typ.get("name") in PTR_CLASSES:
-                    # A runtime-pointer record (threading, queue) must keep
-                    # its identity, so it takes a global slot instead of a
-                    # stored constant that re-emits per read.
+                if (typ["kind"] == "class" and typ.get("name") in PTR_CLASSES) or (
+                    module_needs_slot(value) and _module_closed(value)
+                ):
+                    # A runtime-pointer record (threading, queue) or a
+                    # container (list, dict) must keep its identity: a stored
+                    # constant re-emits the constructor at every read, so the
+                    # value each read sees would be a fresh copy. It takes a
+                    # global slot instead, one pointer for the process (#512).
+                    # A value a name reaches into stays on the ordinary path:
+                    # the temp it carries is not storable, so the constant
+                    # check below keeps its fence.
                     self._bind_threading_global(stmt.target.id, value, typ, stmt)
                     return
                 if not _module_closed(value):
@@ -923,6 +931,13 @@ class StdlibDispatchMixin:
                 value = self._module_fold(stmt.value)
                 if value is None:
                     value = self._expr(stmt.value)
+                if module_needs_slot(value) and self._script_line is None:
+                    # A definition-only module binds a container or parser the
+                    # threading way: the slot keeps one pointer for the
+                    # process (#512). A script leaves it: the assignment
+                    # lowers inside the entry, a real store per run.
+                    self._bind_threading_global(target, value, value["type"], stmt)
+                    return
                 # re.compile of one str constant is the Pattern call a function
                 # already lowers. Store that call and re-emit it at each read.
                 # It is not a const kind and not a runtime global. Flags, extra
@@ -1014,7 +1029,7 @@ class StdlibDispatchMixin:
             raise
         finally:
             self.prelude = saved_prelude
-        if value["kind"] not in {"const", "list", "dict"} or not _module_closed(value):
+        if value["kind"] not in {"const", "list", "dict"} or not _module_closed(value) or module_needs_slot(value):
             self.locals = saved_locals
             self.classes = saved_classes
             return None

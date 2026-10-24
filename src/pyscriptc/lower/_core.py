@@ -156,8 +156,9 @@ def _module_closed(value: dict[str, Any]) -> bool:
     at each read, which is what stored calls and literals already do.
 
     A value with `identity` set re-emits too, but must NOT: an argparse
-    parser keeps runtime state (its registered options), so every read has
-    to be the same object. The assignment lowers inside the entry instead.
+    parser keeps runtime state (its registered options), and a list or dict
+    keeps its elements, so every read has to be the same object. The
+    assignment lowers inside the entry instead.
     """
     kind = value["kind"]
     if kind == "name":
@@ -168,6 +169,21 @@ def _module_closed(value: dict[str, Any]) -> bool:
         return all(_module_closed(elem) for elem in value["elems"])
     if kind == "dict":
         return all(_module_closed(pair["key"]) and _module_closed(pair["value"]) for pair in value["pairs"])
+    return True
+
+
+def module_needs_slot(value: dict[str, Any]) -> bool:
+    """A module value whose reads must be the same object every time.
+
+    A container literal (list, dict) and a value already marked with
+    `identity` (the argparse parser) hold runtime state. Re-emitting the
+    constructor at every read would give each read a fresh copy, so the
+    binding takes a global slot instead. A frozen set list keeps the
+    constant path: the mutation fence on it needs each read to be a fresh
+    copy, and a frozenset has no in-place state to lose.
+    """
+    if value.get("frozen") or value["kind"] not in {"list", "dict"}:
+        return bool(value.get("identity"))
     return True
 
 
