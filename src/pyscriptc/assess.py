@@ -13,6 +13,7 @@ import argparse
 import ast
 import os
 import re
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -23,6 +24,7 @@ from pyscriptc.errors import IRError
 from pyscriptc.reflection import mechanism_of, routes_to_island
 
 SCHEMA_VERSION = 1
+DEFAULT_TOP_N = 3
 
 STATUS_FULLY = "fully"
 STATUS_PARTLY = "partly"
@@ -31,6 +33,13 @@ STATUS_REFUSED = "refused"
 ROOT_REFLECTION = "reflection"
 ROOT_UNTYPED_IMPORT = "untyped-import"
 ROOT_UNSUPPORTED = "unsupported-construct"
+
+
+def is_stdlib_partial(fence: dict[str, Any]) -> bool:
+    """Return True if fence is an unlowered attribute of a partially lowered stdlib module."""
+    message = str(fence.get("message", ""))
+    family = str(fence.get("family", ""))
+    return "is not in the lowered subset of" in message or (family.startswith("stdlib:") and family != "queued-stdlib")
 
 
 def root_cause_of(fence: dict[str, Any]) -> str:
@@ -42,13 +51,14 @@ def root_cause_of(fence: dict[str, Any]) -> str:
     if routes_to_island(message) or family == "reflection" or mechanism_of(message) is not None:
         return ROOT_REFLECTION
 
+    if is_stdlib_partial(fence):
+        return ROOT_UNSUPPORTED
+
     if (
         family in ("import-table", "queued-stdlib")
         or fence.get("dependency") is not None
         or "is not in the closed import table" in message
-        or "is not in the lowered subset of" in message
         or (code == "PS2002" and ("import " in message or "circular import" in message or "is not exported" in message))
-        or family.startswith("stdlib:")
     ):
         return ROOT_UNTYPED_IMPORT
 
@@ -83,6 +93,9 @@ def _extract_import_name(fence: dict[str, Any]) -> str:
                     if node.names:
                         return node.names[0].name.split(".")[0]
                 elif isinstance(node, ast.ImportFrom):
+                    if node.level and node.level > 0:
+                        # Relative imports stay inside the assessed package
+                        return ""
                     if node.module:
                         return node.module.split(".")[0]
         except Exception:
@@ -92,13 +105,38 @@ def _extract_import_name(fence: dict[str, Any]) -> str:
     match = re.search(r"([\w.]+)\s+is not in the closed import table", message)
     if match:
         return match.group(1).split(".")[0]
-    match = re.search(r"subset of\s+([\w.]+)", message)
-    if match:
-        return match.group(1).split(".")[0]
-    family = str(fence.get("family", ""))
-    if family.startswith("stdlib:"):
-        return family.split(":", 1)[1].split(".")[0]
     return ""
+
+
+def _target_package_roots(target: Path, target_files: list[str]) -> set[str]:
+    """Return the set of package and module root names defined by the target."""
+    roots: set[str] = set()
+    target_resolved = target.resolve()
+    if target.is_file():
+        roots.add(target.stem)
+        return roots
+
+    roots.add(target.name)
+    roots.add(target_resolved.name)
+    for fpath in target_files:
+        try:
+            rel = Path(fpath).resolve().relative_to(target_resolved)
+            parts = rel.parts
+            if parts:
+                first = parts[0]
+                if first.endswith(".py"):
+                    roots.add(first[:-3])
+                else:
+                    roots.add(first)
+                if len(parts) > 1 and parts[0] == "src":
+                    sub = parts[1]
+                    if sub.endswith(".py"):
+                        roots.add(sub[:-3])
+                    else:
+                        roots.add(sub)
+        except ValueError:
+            pass
+    return roots
 
 
 def _discover_entry_points(target: Path) -> list[Path]:
@@ -269,6 +307,7 @@ def assess(
     file_results: list[dict[str, Any]] = []
     untyped_imports_needed: dict[str, dict[str, Any]] = {}
     stays_blocked: list[dict[str, Any]] = []
+    package_roots = _target_package_roots(target, target_files)
 
     for fpath in target_files:
         fpath_resolved = str(Path(fpath).resolve())
@@ -327,10 +366,19 @@ def assess(
         }
 
         for fence in local_fences:
-            root_cause = root_cause_of(fence)
+            is_not_exported = "is not exported" in fence.get("message", "")
+            is_partial_stdlib = is_stdlib_partial(fence)
+            root_cause = ROOT_UNSUPPORTED if is_partial_stdlib else root_cause_of(fence)
             idiom = nearest_typed_idiom(fence)
             culprit = mechanism_of(fence.get("message", "")) if root_cause == ROOT_REFLECTION else None
             import_name = _extract_import_name(fence) if root_cause == ROOT_UNTYPED_IMPORT else ""
+
+            # Filter out imports whose root is in the assessed package itself
+            is_own_pkg = bool(import_name and import_name.split(".")[0] in package_roots)
+            if is_own_pkg or is_not_exported or is_partial_stdlib:
+                route_import_name = ""
+            else:
+                route_import_name = import_name
 
             item = {
                 "code": fence.get("code", ""),
@@ -342,20 +390,27 @@ def assess(
                 "rootCause": root_cause,
                 "culprit": culprit,
                 "typedIdiom": idiom,
-                "importName": import_name,
+                "importName": route_import_name,
+                "nameMissing": is_not_exported,
+                "stdlibPartial": is_partial_stdlib,
             }
             grouped[root_cause].append(item)
 
-            if root_cause == ROOT_UNTYPED_IMPORT and import_name:
-                if import_name not in untyped_imports_needed:
-                    untyped_imports_needed[import_name] = {
-                        "name": import_name,
-                        "policyLine": f'{import_name} = "island"',
-                        "construct": fence.get("statement") or f"import {import_name}",
+            if root_cause == ROOT_UNTYPED_IMPORT and route_import_name:
+                if route_import_name not in untyped_imports_needed:
+                    untyped_imports_needed[route_import_name] = {
+                        "name": route_import_name,
+                        "policyLine": f'{route_import_name} = "island"',
+                        "construct": fence.get("statement") or f"import {route_import_name}",
                         "file": rel_path,
                         "line": fence.get("line", 1),
                     }
             elif root_cause == ROOT_UNSUPPORTED:
+                reason = (
+                    "partially lowered stdlib module keeps fence with named idiom"
+                    if is_partial_stdlib
+                    else "unsupported construct outside island routing"
+                )
                 stays_blocked.append(
                     {
                         "file": rel_path,
@@ -364,7 +419,7 @@ def assess(
                         "family": fence.get("family", ""),
                         "message": fence.get("message", ""),
                         "hint": idiom,
-                        "reason": "unsupported construct outside island routing",
+                        "reason": reason,
                     }
                 )
 
@@ -414,34 +469,46 @@ def assess(
     # 5. Imports classification
     assessed_imports = []
     for item in imp_report.get("imports", []):
+        imp_name = item["name"]
+        imp_root = imp_name.split(".")[0]
+        is_own = imp_root in package_roots
+
         cap = item.get("capability", {})
         routing = cap.get("routing", "native")
         codes = cap.get("codes", [])
-        if routing == "fenced" and codes:
-            ladder_text = f"native: fences ({', '.join(codes)})"
-        elif routing == "island":
+
+        if not is_own and (routing == "island" or imp_name in untyped_imports_needed):
+            effective_routing = "island"
             ladder_text = "island (requires libpython)"
+            requires_libpython = True
+        elif routing == "fenced" and codes:
+            effective_routing = "fenced"
+            ladder_text = f"native: fences ({', '.join(codes)})"
+            requires_libpython = item.get("requiresLibpython", False)
         else:
+            effective_routing = "native"
             ladder_text = "native"
+            requires_libpython = False
 
         assessed_imports.append(
             {
-                "name": item["name"],
+                "name": imp_name,
                 "ladder": ladder_text,
-                "routing": routing,
+                "routing": effective_routing,
                 "codes": codes,
-                "requiresLibpython": item.get("requiresLibpython", False),
+                "requiresLibpython": requires_libpython,
                 "distribution": item.get("distribution", ""),
             }
         )
-        if routing != "native" and item["name"] not in untyped_imports_needed:
-            untyped_imports_needed[item["name"]] = {
-                "name": item["name"],
-                "policyLine": f'{item["name"]} = "island"',
-                "construct": f"import {item['name']}",
-                "file": item.get("sites", [{}])[0].get("file", ""),
-                "line": item.get("sites", [{}])[0].get("line", 1),
-            }
+        if not is_own and routing != "native" and imp_name not in untyped_imports_needed:
+            if imp_name not in sys.stdlib_module_names:
+                untyped_imports_needed[imp_name] = {
+                    "name": imp_name,
+                    "policyLine": f'{imp_name} = "island"',
+                    "construct": f"import {imp_name}",
+                    "file": item.get("sites", [{}])[0].get("file", ""),
+                    "line": item.get("sites", [{}])[0].get("line", 1),
+                }
 
     # 6. Island Routing
     policy_lines = ["[tool.pyscriptc.imports]"]
@@ -453,6 +520,12 @@ def assess(
         "routes": sorted(untyped_imports_needed.values(), key=lambda r: r["name"]),
         "staysBlocked": stays_blocked,
     }
+
+    total_imports = len(assessed_imports)
+    isl_imports = sum(1 for i in assessed_imports if i["routing"] == "island")
+    nat_imports = sum(1 for i in assessed_imports if i["routing"] == "native")
+    fnc_imports = sum(1 for i in assessed_imports if i["routing"] == "fenced")
+    share_import_island = round(isl_imports / total_imports, 4) if total_imports > 0 else 0.0
 
     # 7. Compilable entry points
     entry_points = _discover_entry_points(target)
@@ -600,12 +673,14 @@ def assess(
             "native": share_nat,
             "island": share_isl,
             "blocked": share_blk,
+            "importIsland": share_import_island,
         },
         "imports": {
-            "total": len(assessed_imports),
-            "native": sum(1 for i in assessed_imports if i["routing"] == "native"),
-            "fenced": sum(1 for i in assessed_imports if i["routing"] == "fenced"),
-            "island": sum(1 for i in assessed_imports if i["routing"] == "island"),
+            "total": total_imports,
+            "native": nat_imports,
+            "fenced": fnc_imports,
+            "island": isl_imports,
+            "share": share_import_island,
         },
         "requiresLibpython": any(i["requiresLibpython"] or i["routing"] == "island" for i in assessed_imports)
         or isl_defs > 0,
@@ -624,7 +699,12 @@ def assess(
     }
 
 
-def render_text(report: dict[str, Any]) -> str:
+def render_text(
+    report: dict[str, Any],
+    *,
+    show_all: bool = False,
+    top_n: int = DEFAULT_TOP_N,
+) -> str:
     """Format the assessment report as human-readable text."""
     lines: list[str] = [f"assess {report['target']}:", ""]
 
@@ -637,12 +717,16 @@ def render_text(report: dict[str, Any]) -> str:
     lines.append("Summary:")
     if defs["total"] > 0:
         lines.append(f"  Native:   {shares['native'] * 100:5.1f}% ({defs['native']} of {defs['total']} definitions)")
-        lines.append(f"  Island:   {shares['island'] * 100:5.1f}% ({defs['island']} of {defs['total']} definitions)")
+        import_note = f", {shares['importIsland'] * 100:5.1f}% import-level" if imps["total"] > 0 else ""
+        lines.append(
+            f"  Island:   {shares['island'] * 100:5.1f}% ({defs['island']} of {defs['total']} definitions{import_note})"
+        )
         lines.append(f"  Blocked:  {shares['blocked'] * 100:5.1f}% ({defs['blocked']} of {defs['total']} definitions)")
     else:
         status_word = "compiles natively" if shares["native"] == 1.0 else "fenced"
         lines.append(f"  Native:   {shares['native'] * 100:5.1f}% ({files['total']} files, {status_word})")
-        lines.append(f"  Island:   {shares['island'] * 100:5.1f}%")
+        import_note = f" ({shares['importIsland'] * 100:5.1f}% import-level)" if imps["total"] > 0 else ""
+        lines.append(f"  Island:   {shares['island'] * 100:5.1f}%{import_note}")
         lines.append(f"  Blocked:  {shares['blocked'] * 100:5.1f}%")
 
     lines.append(
@@ -655,7 +739,15 @@ def render_text(report: dict[str, Any]) -> str:
     lines.append("")
 
     lines.append("Files:")
-    for f in report["files"]:
+    files_list = report["files"]
+    if not show_all and len(files_list) > 10:
+        display_files = files_list[:10]
+        files_overflow = len(files_list) - 10
+    else:
+        display_files = files_list
+        files_overflow = 0
+
+    for f in display_files:
         status_label = f"lowers {f['status']}" if f["status"] in (STATUS_FULLY, STATUS_PARTLY) else STATUS_REFUSED
         detail = (
             f"({f['native']} native, {f['fenced']} fenced, {f['island']} island "
@@ -666,34 +758,65 @@ def render_text(report: dict[str, Any]) -> str:
         lines.append(f"  {f['file']}: {status_label} {detail}")
 
         grouped = f["groupedFences"]
-        if grouped[ROOT_REFLECTION]:
-            lines.append("    reflection:")
-            for item in grouped[ROOT_REFLECTION]:
-                culprit_str = f"{item['culprit']}: " if item["culprit"] else ""
-                lines.append(f"      - line {item['line']}: {culprit_str}{item['message']}")
-                if item["typedIdiom"]:
-                    lines.append(f"        typed idiom: {item['typedIdiom']}")
+        for root_cause, label in (
+            (ROOT_REFLECTION, "reflection"),
+            (ROOT_UNTYPED_IMPORT, "untyped import"),
+            (ROOT_UNSUPPORTED, "unsupported construct"),
+        ):
+            items = grouped[root_cause]
+            if not items:
+                continue
+            lines.append(f"    {label}:")
+            if not show_all and len(items) > top_n:
+                to_show = items[:top_n]
+                overflow = len(items) - top_n
+            else:
+                to_show = items
+                overflow = 0
 
-        if grouped[ROOT_UNTYPED_IMPORT]:
-            lines.append("    untyped import:")
-            for item in grouped[ROOT_UNTYPED_IMPORT]:
-                lines.append(f"      - line {item['line']}: {item['message']}")
-                if item["importName"]:
-                    lines.append(f'        island route: {item["importName"]} = "island"')
+            for item in to_show:
+                if root_cause == ROOT_REFLECTION:
+                    culprit_str = f"{item['culprit']}: " if item["culprit"] else ""
+                    lines.append(f"      - line {item['line']}: {culprit_str}{item['message']}")
+                    if item["typedIdiom"]:
+                        lines.append(f"        typed idiom: {item['typedIdiom']}")
+                elif root_cause == ROOT_UNTYPED_IMPORT:
+                    lines.append(f"      - line {item['line']}: {item['message']}")
+                    if item.get("nameMissing") or "is not exported" in item.get("message", ""):
+                        lines.append("        name is missing")
+                    elif item.get("importName"):
+                        lines.append(f'        island route: {item["importName"]} = "island"')
+                else:  # ROOT_UNSUPPORTED
+                    lines.append(f"      - line {item['line']}: {item['code']} {item['message']}")
+                    if item["typedIdiom"]:
+                        lines.append(f"        typed idiom: {item['typedIdiom']}")
+                    if item.get("stdlibPartial"):
+                        lines.append(
+                            "        partially lowered stdlib module keeps fence with named idiom (no island route)"
+                        )
 
-        if grouped[ROOT_UNSUPPORTED]:
-            lines.append("    unsupported construct:")
-            for item in grouped[ROOT_UNSUPPORTED]:
-                lines.append(f"      - line {item['line']}: {item['code']} {item['message']}")
-                if item["typedIdiom"]:
-                    lines.append(f"        typed idiom: {item['typedIdiom']}")
+            if overflow > 0:
+                lines.append(f"        ... and {overflow} more {label} fence(s) (use --all for full list)")
+
+    if files_overflow > 0:
+        lines.append(f"  ... and {files_overflow} more file(s) (use --all for full list)")
 
     lines.append("")
 
     if report["imports"]:
         lines.append("Imports:")
-        for imp in report["imports"]:
+        imps_list = report["imports"]
+        if not show_all and len(imps_list) > 10:
+            display_imps = imps_list[:10]
+            imps_overflow = len(imps_list) - 10
+        else:
+            display_imps = imps_list
+            imps_overflow = 0
+
+        for imp in display_imps:
             lines.append(f"  {imp['name']}: {imp['ladder']}")
+        if imps_overflow > 0:
+            lines.append(f"  ... and {imps_overflow} more import(s) (use --all for full list)")
         lines.append("")
 
     island_routing = report["islandRouting"]
@@ -711,9 +834,25 @@ def render_text(report: dict[str, Any]) -> str:
     lines.append("")
     lines.append("  Stays blocked (cannot route to island):")
     if island_routing["staysBlocked"]:
-        for blk in island_routing["staysBlocked"]:
+        blocked_list = island_routing["staysBlocked"]
+        if not show_all and len(blocked_list) > top_n:
+            display_blocked = blocked_list[:top_n]
+            blocked_overflow = len(blocked_list) - top_n
+        else:
+            display_blocked = blocked_list
+            blocked_overflow = 0
+
+        for blk in display_blocked:
             hint_str = f" - {blk['hint']}" if blk["hint"] else ""
-            lines.append(f"    {blk['file']}:{blk['line']}: {blk['code']} {blk['family']}{hint_str}")
+            reason_str = (
+                f" ({blk['reason']})"
+                if blk.get("reason") and blk["reason"] != "unsupported construct outside island routing"
+                else ""
+            )
+            lines.append(f"    {blk['file']}:{blk['line']}: {blk['code']} {blk['family']}{hint_str}{reason_str}")
+
+        if blocked_overflow > 0:
+            lines.append(f"    ... and {blocked_overflow} more blocked construct(s) (use --all for full list)")
     else:
         lines.append("    (none)")
 
