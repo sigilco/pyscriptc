@@ -229,3 +229,80 @@ def test_dependency_lane_star_and_invalid() -> None:
     assert dependency_lanes(("zzzpure",), {"*": "compile"}) == {"zzzpure": "native"}
     with pytest.raises(ConfigError, match="not a valid requirement"):
         dependency_lanes(("==1",))
+
+
+def test_refuse_lane_lower_import(tmp_path: Path) -> None:
+    from pyscriptc.lower import lower_file
+
+    script = _project(tmp_path, "[tool.pyscriptc.imports]\nrich = 'refuse'\n")
+    script.write_text("import rich\n", encoding="utf-8")
+    mod, _ = lower_file(str(script))
+    assert len(mod["fences"]) == 1
+    fence = mod["fences"][0]
+    assert fence["code"] == "PS2002"
+    assert fence["message"] == "import `rich` is refused by the `imports` policy"
+
+
+def test_refuse_lane_lower_from_import(tmp_path: Path) -> None:
+    from pyscriptc.lower import lower_file
+
+    script = _project(tmp_path, "[tool.pyscriptc.imports]\nrich = 'refuse'\n")
+    script.write_text("from rich.tree import Tree\n", encoding="utf-8")
+    mod, _ = lower_file(str(script))
+    assert len(mod["fences"]) == 1
+    fence = mod["fences"][0]
+    assert fence["code"] == "PS2002"
+    assert fence["message"] == "import `rich` is refused by the `imports` policy"
+
+
+def test_refuse_lane_wildcard_and_override(tmp_path: Path) -> None:
+    from pyscriptc.lower import lower_file
+
+    script = _project(tmp_path, "[tool.pyscriptc.imports]\n'*' = 'refuse'\nrich = 'compile'\n")
+    script.write_text("import rich\nimport httpx\n", encoding="utf-8")
+    mod, _ = lower_file(str(script))
+    assert len(mod["fences"]) == 2
+    fences_by_msg = {f["message"]: f["code"] for f in mod["fences"]}
+    assert fences_by_msg["rich is not in the closed import table"] == "PS2002"
+    assert fences_by_msg["import `httpx` is refused by the `imports` policy"] == "PS2002"
+
+
+def test_other_lanes_unchanged_at_lower(tmp_path: Path) -> None:
+    from pyscriptc.lower import lower_file
+
+    script = _project(
+        tmp_path,
+        "[tool.pyscriptc.imports]\nrich = 'compile'\nfastapi = 'replace'\nclick = 'extern'\n",
+    )
+    script.write_text("import rich\nimport fastapi\nimport click\n", encoding="utf-8")
+    mod, _ = lower_file(str(script))
+    assert len(mod["fences"]) == 3
+    for fence in mod["fences"]:
+        assert fence["code"] == "PS2002"
+        assert "is not in the closed import table" in fence["message"]
+        assert "refused by" not in fence["message"]
+
+
+def test_no_policy_byte_identical_fence(tmp_path: Path) -> None:
+    from pyscriptc.lower import lower_file
+
+    plain = tmp_path / "plain.py"
+    plain.write_text("import rich\n", encoding="utf-8")
+    mod, _ = lower_file(str(plain))
+    assert len(mod["fences"]) == 1
+    assert mod["fences"][0]["code"] == "PS2002"
+    assert mod["fences"][0]["message"] == "rich is not in the closed import table"
+
+
+def test_pep723_refuse_lane(tmp_path: Path) -> None:
+    from pyscriptc.lower import lower_file
+
+    script = tmp_path / "script.py"
+    script.write_text(
+        "# /// script\n# [tool.pyscriptc.imports]\n# rich = 'refuse'\n# ///\nimport rich\n",
+        encoding="utf-8",
+    )
+    mod, _ = lower_file(str(script))
+    assert len(mod["fences"]) == 1
+    assert mod["fences"][0]["code"] == "PS2002"
+    assert mod["fences"][0]["message"] == "import `rich` is refused by the `imports` policy"

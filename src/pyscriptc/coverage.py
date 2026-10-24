@@ -369,14 +369,17 @@ def _definition_capability(entries: list[dict[str, Any]], indexes: list[int]) ->
 
 
 def _lower(target: Path, bridge: Any = None) -> tuple[dict[str, Any], list[str]]:
+    from pyscriptc.config import load_config
+
+    config = load_config(target)
     if target.is_dir():
-        module, _ = lower_directory(target, bridge=bridge)
+        module, _ = lower_directory(target, bridge=bridge, config=config)
         files = [str(path) for _, path, _ in _discover(target)[0]]
         return module, files
     if target.is_file():
         if bridge is not None and not hasattr(bridge, "inferred_type"):
             bridge = bridge.for_file(target)
-        module, _ = lower_file(str(target), bridge=bridge)
+        module, _ = lower_file(str(target), bridge=bridge, config=config)
         return module, [str(target)]
     raise IRError(f"source not found: {target}")
 

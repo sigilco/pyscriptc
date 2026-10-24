@@ -1278,6 +1278,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                     dep_roots=dep_roots,
                     dep_lane_report=dep_lanes,
                     resource_root=str(data_root) if data_root else "",
+                    config=config,
                 )
             elif source_path.is_file():
                 module, source = lower_file(
@@ -1289,6 +1290,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                     dep_roots=dep_roots,
                     dep_lane_report=dep_lanes,
                     resource_root=str(data_root) if data_root else "",
+                    config=config,
                 )
             else:
                 raise IRError(f"source not found: {source_path}")

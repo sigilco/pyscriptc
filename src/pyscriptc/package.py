@@ -44,6 +44,7 @@ def lower_directory(
     dep_roots: list[Path] | None = None,
     dep_lane_report: dict[str, dict[str, str]] | None = None,
     resource_root: str = "",
+    config: Any = None,
 ) -> tuple[dict[str, Any], str]:
     """Lower a directory tree into one IR module.
 
@@ -70,6 +71,14 @@ def lower_directory(
     ``_notes`` list instead of blocking the compile.
     """
 
+    if config is None:
+        try:
+            from pyscriptc.config import load_config
+
+            config = load_config(root)
+        except Exception:
+            config = None
+
     units, skipped = _discover(root, program_mode, entry=entry, prefix=prefix)
     program = program_mode or _is_program_dir(root)
     dep_units, dep_fences = _discover_dep_roots(dep_roots or [])
@@ -88,6 +97,7 @@ def lower_directory(
         dep_lane_report=dep_lane_report,
         catalog_units=catalogued,
         resource_root=resource_root,
+        config=config,
     )
     if skipped:
         notes = [*notes, *[_skip_note(root, rel) for rel in skipped]]
@@ -164,6 +174,7 @@ def _lower_units(
     dep_lane_report: dict[str, dict[str, str]] | None = None,
     catalog_units: list[tuple[str, Path, bool]] | None = None,
     resource_root: str = "",
+    config: Any = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Lower a set of module units into one IR module.
 
@@ -183,7 +194,7 @@ def _lower_units(
     entry never imports them, so CPython never runs their bodies.
     """
 
-    exports, failed = _catalog([*units, *(catalog_units or [])], program, entry=entry, target=target)
+    exports, failed = _catalog([*units, *(catalog_units or [])], program, entry=entry, target=target, config=config)
 
     # A bridge is built per file: mypy's TypeMap covers one module, so a
     # package tree runs the checker once per unit and lowering consults the
@@ -219,7 +230,7 @@ def _lower_units(
             tree = ast.parse(text, filename=str(path))
             if program:
                 tree = _inject_inits(tree, owners.get(name, []), exports, name, is_package)
-            lowerer = Lowerer(str(path), text, target=target)
+            lowerer = Lowerer(str(path), text, target=target, config=config)
             lowerer.module_name = name
             lowerer.is_package = is_package
             lowerer.package = exports
@@ -756,13 +767,14 @@ def _catalog(
     program: bool = False,
     entry: str | None = None,
     target: str | None = None,
+    config: Any = None,
 ) -> tuple[dict[str, dict[str, dict[str, Any]]], dict[str, dict[str, dict[str, Any]]]]:
     """Repeat until a subclass can see a base exported by an earlier pass."""
 
     exports: dict[str, dict[str, dict[str, Any]]] = {}
     failed: dict[str, dict[str, dict[str, Any]]] = {}
     for _ in range(len(units) + 1):
-        nxt, nxt_failed = _catalog_once(units, exports, program, entry=entry, target=target)
+        nxt, nxt_failed = _catalog_once(units, exports, program, entry=entry, target=target, config=config)
         if nxt == exports:
             return nxt, nxt_failed
         exports, failed = nxt, nxt_failed
@@ -775,6 +787,7 @@ def _catalog_once(
     program: bool = False,
     entry: str | None = None,
     target: str | None = None,
+    config: Any = None,
 ) -> tuple[dict[str, dict[str, dict[str, Any]]], dict[str, dict[str, dict[str, Any]]]]:
     found: dict[str, dict[str, dict[str, Any]]] = {}
     failed: dict[str, dict[str, dict[str, Any]]] = {}
@@ -782,7 +795,7 @@ def _catalog_once(
     for name, path, is_package in units:
         text = path.read_text(encoding="utf-8")
         tree = ast.parse(text, filename=str(path))
-        lowerer = Lowerer(str(path), text, target=target)
+        lowerer = Lowerer(str(path), text, target=target, config=config)
         lowerer.module_name = name
         lowerer.is_package = is_package
         lowerer.cataloguing = True
