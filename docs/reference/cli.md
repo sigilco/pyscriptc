@@ -38,7 +38,7 @@ pyscriptc compile FILE [options]
 | `--checker pyrefly\|mypy\|pyright` | Preflight checker (default `pyrefly`; mypy and pyright are deprecated) |
 | `--bridge mypy` | Feed the checker's inferred-type map into lowering so unannotated code stops fencing; needs mypy installed |
 | `--timings` | Print the per-stage wall-time table on its own |
-| `--debug[=WHAT]` | Print a stage table; `WHAT` is a comma list of `stages,fences,cc,paths,all` |
+| `--debug[=WHAT]` | Print a stage table plus the per-file capability split; `WHAT` is a comma list of `stages,fences,cc,paths,all` |
 | `--debug-dir DIR` | Write `ir.json`, `out.ll`, `cc.sh`, `summary.json` to `DIR` |
 
 Environment defaults: `PYSC_CC`, `PYSC_LINKER` and `PYSC_TARGET` fill `--driver`, `--linker` and `--target` when the flag is absent. An explicit flag always wins.
@@ -97,7 +97,7 @@ Verify is a differential smoke test, not a proof. It covers the paths the argv a
 pyscriptc coverage SOURCE [--json] [--fail-on blockers|any]
 ```
 
-Report every fence in a file or a package tree, per-module counts and codes, useful for scoping a port. Needs no C toolchain. `--fail-on` exits 1 when root fences (`blockers`) or any fence (`any`) exist; the default always exits 0 unless the resolved config sets `fail-on`.
+Report every fence in a file or a package tree, per-module counts and codes, useful for scoping a port. Needs no C toolchain. The text view carries a capability line: each definition is `native` (no fence), `fenced` (a fence that a rewrite clears) or `island` (the fence traces to runtime reflection and the definition routes to the island lane). The JSON has the same split under `capabilities.byFile` and `capabilities.totals`, with the fence codes and the reflection mechanisms per file. `--fail-on` exits 1 when root fences (`blockers`) or any fence (`any`) exist; the default always exits 0 unless the resolved config sets `fail-on`.
 
 ## `config`
 
@@ -121,7 +121,7 @@ Print the description of a diagnostic code.
 pyscriptc imports SOURCE [--json]
 ```
 
-Classify every import of a file or package tree into a compat lane (standard library, native-backed, curated-replacement, pure Python). Nothing reaches the network.
+Classify every import of a file or package tree into a compat lane (standard library, native-backed, curated-replacement, pure Python). The default view is the capability ladder: `native`, `native: fences (PS20xx)` or `island (requires libpython)`. A reflection fence (`inspect.signature`, `get_type_hints`, `__annotations__`, metaclass synthesis, dynamic `getattr`) puts the import on the island rung, and the JSON `imports[].capability` records the routing, codes, mechanisms, files and the `libpython` requirement. Nothing reaches the network.
 
 ## `deps`
 
