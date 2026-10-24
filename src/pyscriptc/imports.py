@@ -626,7 +626,7 @@ def _capability_of(lane: str, codes: list[str], reflection: bool) -> str:
     return CAP_NATIVE
 
 
-def _ladder(capability: dict[str, Any]) -> str:
+def _capability_ladder(capability: dict[str, Any]) -> str:
     routing = capability["routing"]
     if routing == CAP_ISLAND:
         return "island (requires libpython)"
@@ -767,7 +767,9 @@ def render_text(report: dict[str, Any]) -> str:
         f"island: {'requires libpython' if summary['requiresLibpython'] else 'not used'}",
     ]
     for item in report["imports"]:
-        parts.append(f"  {item['name']}: {_ladder(item['capability'])} [{item['kind']}, lane {item['lane']}]")
+        parts.append(
+            f"  {item['name']}: {_capability_ladder(item['capability'])} [{item['kind']}, lane {item['lane']}]"
+        )
         parts.append(f"    {item['reason']}")
     return "\n".join(parts)
 
