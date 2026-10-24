@@ -1,5 +1,6 @@
 {
   "slug": "copy_into",
+  "cpython": "3.14.8",
   "argv": [
     "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/lines.txt",
     "/var/folders/t1/j62yr7_d37v2g5gm6h62xdd00000gn/T/pyscriptc-corpus-copy_into/copied"

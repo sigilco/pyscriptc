@@ -1,5 +1,6 @@
 {
   "slug": "argparse_echo",
+  "cpython": "3.14.8",
   "argv": [
     "world",
     "--count",

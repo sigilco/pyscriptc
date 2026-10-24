@@ -194,3 +194,25 @@ def test_wrong_explicit_oracle_is_refused(
     monkeypatch.setenv("PYSC_ORACLE", "/bin/sh")
     assert cli.main(["verify", str(source), "--skip-check"]) == 4
     assert "pinned to CPython 3.14" in capsys.readouterr().err
+
+
+def test_receipt_carries_target_version_and_micro_mismatch(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    source = _script(tmp_path, MATCHING)
+    stdin = tmp_path / "in.txt"
+    stdin.write_text("hello\n", encoding="utf-8")
+    assert cli.main(["verify", str(source), "--skip-check", "--input", str(stdin), "--json"]) == 0
+    receipt = json.loads(capsys.readouterr().out)
+    assert receipt["targetVersion"] == "3.14.9"
+    assert "microMismatch" in receipt
+    assert "microMismatch" in receipt["oracle"]
+
+
+def test_oracle_micro_mismatch_warns(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_exe = tmp_path / "fake_python"
+    fake_exe.write_text("#!/bin/sh\nexit 0\n")
+    fake_exe.chmod(0o755)
+    monkeypatch.setenv("PYSC_ORACLE", str(fake_exe))
+    monkeypatch.setattr(verify, "_version_of", lambda _: "3.14.8")
+    with pytest.warns(UserWarning, match="oracle is CPython 3.14.8, declared target is 3.14.9"):
+        oracle = verify.find_oracle()
+    assert oracle.version == "3.14.8"

@@ -8,7 +8,7 @@ Real program corpus for scorer v2: pinned pure Python packages, per function sco
 | Closed signature functions | `package_spec.json` | 47 / 0 |
 | Scripts | `scripts/`, `holdout/scripts/` | 20 / 5 |
 
-Probes: 106 visible (20 script programs, 39 package programs, 47 package functions), 10 holdout.
+Probes: 106 visible (20 script programs, 39 package programs, 47 package functions), 10 holdout. Expected stdout was captured on CPython 3.14.8.
 
 Visible counts come from the files this table names. `package_spec.json` holds 47 `closed_functions`. `pins.json` holds 39 packages, one program probe each. `scripts/` holds 20 `main.py` programs. The loader reports the same split:
 

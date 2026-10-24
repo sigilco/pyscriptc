@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 from benchmarks.compat2.outcomes import CATEGORIES, WEIGHTS, Probe
+from benchmarks.compat2.version_surface import AXIS
 
 PROBES = Path(__file__).resolve().parents[1] / "benchmarks" / "compat2" / "probes"
 FILES = ("builtins", "surface", "modules", "language")
@@ -104,9 +105,6 @@ def test_loader_reads_the_probe_directory_without_continuity_rows() -> None:
     loaded = list(load_probes(PROBES))
     assert len(loaded) == len(rows())
     assert not any(p.id.endswith(".v1") for p in loaded)
-
-
-AXIS = ("3.10", "3.11", "3.12", "3.13", "3.14")
 
 
 def test_every_row_carries_a_sorted_subset_of_the_version_axis() -> None:

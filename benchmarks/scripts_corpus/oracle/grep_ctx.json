@@ -1,5 +1,6 @@
 {
   "slug": "grep_ctx",
+  "cpython": "3.14.8",
   "argv": [
     "b",
     "/Users/josocjoq/.worktrees/v06/n5chore/benchmarks/scripts_corpus/fixtures/lines.txt"

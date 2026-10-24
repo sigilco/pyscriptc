@@ -1,5 +1,6 @@
 {
   "slug": "url_encode",
+  "cpython": "3.14.8",
   "argv": [
     "encode",
     "a b&c"

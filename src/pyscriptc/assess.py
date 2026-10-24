@@ -692,9 +692,13 @@ def assess(
         or isl_defs > 0,
     }
 
+    micro_mismatch = (oracle.version != verify.TARGET_CPYTHON) if oracle is not None else False
+
     return {
         "schemaVersion": SCHEMA_VERSION,
         "target": str(target),
+        "targetVersion": verify.TARGET_CPYTHON,
+        "microMismatch": micro_mismatch,
         "summary": summary,
         "files": file_results,
         "imports": assessed_imports,

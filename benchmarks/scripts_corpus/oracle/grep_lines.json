@@ -1,5 +1,6 @@
 {
   "slug": "grep_lines",
+  "cpython": "3.14.8",
   "argv": [
     "b",
     "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/lines.txt"

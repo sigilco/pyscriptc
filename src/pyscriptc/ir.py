@@ -58,8 +58,31 @@ I64_MIN = -9223372036854775808
 I64_MAX = 9223372036854775807
 
 
+def target_cpython() -> str:
+    """The declared target CPython version."""
+    from pyscriptc.target import TARGET_CPYTHON
+
+    return TARGET_CPYTHON
+
+
+def target_minor() -> str:
+    """The declared target CPython minor."""
+    from pyscriptc.target import TARGET_MINOR
+
+    return TARGET_MINOR
+
+
 def cpython_version() -> str:
-    return sys.version.split()[0]
+    """The running interpreter's CPython version, checking minor equality against the declared target."""
+    running = sys.version.split()[0]
+    running_min = ".".join(running.split(".")[:2])
+    target_min = target_minor()
+    if running_min != target_min:
+        target = target_cpython()
+        raise VersionError(
+            f"this process is CPython {running}, declared target is {target}; pyscriptc requires CPython 3.14"
+        )
+    return running
 
 
 def zdi_variants() -> dict[str, int]:
@@ -457,17 +480,28 @@ def _dotted_identifier(name: str) -> bool:
 
 
 def assert_same_cpython(module: dict[str, Any]) -> None:
-    """LLVM emission refuses an IR stamped by a different CPython.
+    """LLVM emission refuses an IR stamped by a different CPython minor than the declared target.
 
-    Re-run the corpus on the new interpreter, then lower again. The stamp is
+    Re-run the corpus on the target interpreter, then lower again. The stamp is
     not a hint the backend may ignore.
     """
 
     validate_module(module)
     running = cpython_version()
+    target = target_cpython()
+    target_min = target_minor()
     stamped = module["cpython"]
-    if stamped != running:
+
+    stamped_min = ".".join(stamped.split(".")[:2])
+    running_min = ".".join(running.split(".")[:2])
+
+    if stamped_min != target_min:
         raise VersionError(
-            f"IR was lowered on CPython {stamped}, this process is {running}; "
+            f"IR was lowered on CPython {stamped}, declared target is {target}; "
+            "re-lower and re-run the corpus before emitting LLVM"
+        )
+    if running_min != target_min:
+        raise VersionError(
+            f"this process is CPython {running}, declared target is {target}; "
             "re-lower and re-run the corpus before emitting LLVM"
         )

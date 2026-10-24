@@ -75,11 +75,11 @@ packaging/build.sh
 packaging/smoke.sh [BINARY] [SOURCE.py] [FUNCTION] [ARGS_LITERAL]
 ```
 
-It copies the binary to an empty temp directory, runs it with a scrubbed environment (only `PATH`), checks that `explain PS2002` answers, compiles the source with `--run --call`, and compares stdout with the same function under CPython 3.12 (`uv run --python 3.12`). The default source is `examples/hello.py`; the repo has none yet, so it falls back to `packaging/smoke/hello.py`. Exit 0 means the outputs match.
+It copies the binary to an empty temp directory, runs it with a scrubbed environment (only `PATH`), checks that `explain PS2002` answers, compiles the source with `--run --call`, and compares stdout with the same function under CPython 3.14 (`uv run --python 3.14`). The default source is `examples/hello.py`; the repo has none yet, so it falls back to `packaging/smoke/hello.py`. Exit 0 means the outputs match.
 
 Two gotchas this script works around: `-o` must be an absolute path (cli.py runs the built program with `subprocess.run([str(binary)])`, and a bare name is resolved through `PATH`, never the cwd), and the preflight needs the typeshed stubs shipped inside the binary (see the build section).
 
-Run it on every target before attaching a binary to a release. The plan's acceptance line for this step: unpack the release binary on macOS arm64 and Linux aarch64, compile `examples/hello.py`, run it, and compare the output with CPython 3.12.
+Run it on every target before attaching a binary to a release. The plan's acceptance line for this step: unpack the release binary on macOS arm64 and Linux aarch64, compile `examples/hello.py`, run it, and compare the output with CPython 3.14.
 
 ## Status
 

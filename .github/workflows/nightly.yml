@@ -51,6 +51,8 @@ jobs:
       - name: Install clang
         run: sudo apt-get update -qq && sudo apt-get install -y -qq clang
 
+      - run: uv python install 3.14.9
+
       - name: Sync dependencies
         run: uv sync --frozen
 
@@ -68,6 +70,9 @@ jobs:
           path: benchmarks/compat2/.cache
           key: compat2-${{ runner.os }}-${{ steps.tc.outputs.v }}-${{ hashFiles('uv.lock', 'src/pyscriptc/**', 'benchmarks/compat2/**', '!benchmarks/compat2/.cache/**') }}
           restore-keys: compat2-${{ runner.os }}-${{ steps.tc.outputs.v }}-
+
+      - name: oracle is CPython 3.14.9
+        run: uv run python -c "import sys; assert sys.version_info[:3] == (3, 14, 9), sys.version"
 
       - name: Visible-corpus score
         id: score

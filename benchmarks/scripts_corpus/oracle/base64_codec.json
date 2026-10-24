@@ -1,5 +1,6 @@
 {
   "slug": "base64_codec",
+  "cpython": "3.14.8",
   "argv": [
     "encode",
     "hello world"

@@ -60,6 +60,7 @@ pyscriptc = [
     "runtime/*.c",
     "runtime/*.h",
     "native_packages.json",
+    "target.json",
     "_pyright_stubs/*/__init__.pyi",
     "_typeshed/LICENSE",
     "_typeshed/stdlib/VERSIONS",

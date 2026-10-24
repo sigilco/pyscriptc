@@ -19,15 +19,17 @@ import shutil
 import subprocess
 import sys
 import time
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from pyscriptc.errors import IRError, VersionError
+from pyscriptc.target import TARGET_CPYTHON, TARGET_MINOR, TARGET_MINOR_INFO
 
 SCHEMA_VERSION = 1
-ORACLE_PIN = (3, 14)
-ORACLE_NAME = "CPython 3.14"
+ORACLE_PIN = TARGET_MINOR_INFO
+ORACLE_NAME = f"CPython {TARGET_MINOR}"
 DEFAULT_TIMEOUT = 60.0
 TIMEOUT_EXIT = 124
 
@@ -102,10 +104,16 @@ class Receipt:
         return all(check["match"] for check in self.checks)
 
     def as_dict(self) -> dict[str, Any]:
+        micro_mismatch = self.oracle.version != TARGET_CPYTHON
         return {
             "schemaVersion": SCHEMA_VERSION,
             "source": self.source,
-            "oracle": {"executable": self.oracle.executable, "version": self.oracle.version},
+            "oracle": {
+                "executable": self.oracle.executable,
+                "version": self.oracle.version,
+                "targetVersion": TARGET_CPYTHON,
+                "microMismatch": micro_mismatch,
+            },
             "native": {"binary": self.binary, "bytes": self.binary_bytes},
             "compile": {"cacheHit": self.cache_hit, "milliseconds": self.compile_ms},
             "argv": list(self.argv),
@@ -115,6 +123,8 @@ class Receipt:
             "call": self.call,
             "match": self.match,
             "durationMs": self.duration_ms,
+            "targetVersion": TARGET_CPYTHON,
+            "microMismatch": micro_mismatch,
         }
 
 
@@ -151,6 +161,12 @@ def find_oracle() -> Oracle:
             raise VersionError(
                 f"PYSC_ORACLE={explicit!r} is CPython {version or 'unknown'}; the oracle is pinned to {ORACLE_NAME}"
             )
+        if version != TARGET_CPYTHON:
+            warnings.warn(
+                f"oracle is CPython {version}, declared target is {TARGET_CPYTHON}",
+                UserWarning,
+                stacklevel=2,
+            )
         return Oracle(explicit, version or "")
     candidates: list[str] = []
     oracle_dir = os.environ.get("PYSC_ORACLE_DIR")
@@ -167,10 +183,22 @@ def find_oracle() -> Oracle:
     except OSError, subprocess.SubprocessError:
         pass
     candidates.append(sys.executable)
+    chosen: Oracle | None = None
     for candidate in dict.fromkeys(candidate for candidate in candidates if candidate):
         version = _version_of(candidate)
         if _is_pinned(version):
-            return Oracle(candidate, version or "")
+            oracle = Oracle(candidate, version or "")
+            if version == TARGET_CPYTHON:
+                return oracle
+            if chosen is None:
+                chosen = oracle
+    if chosen is not None:
+        warnings.warn(
+            f"oracle is CPython {chosen.version}, declared target is {TARGET_CPYTHON}",
+            UserWarning,
+            stacklevel=2,
+        )
+        return chosen
     raise VersionError(
         f"no {ORACLE_NAME} interpreter for the oracle: set PYSC_ORACLE=/path/to/python3.14, "
         f"set PYSC_ORACLE_DIR, or run `uv python install 3.14`"
@@ -289,7 +317,12 @@ def render_text(receipt: Receipt) -> str:
     differing = sum(1 for check in receipt.checks if not check["match"])
     verdict = "match" if receipt.match else f"divergence ({differing} of {len(receipt.checks)} checks differ)"
     lines = [f"verify {receipt.source}: {verdict}"]
-    lines.append(f"  oracle: {receipt.oracle.executable} (CPython {receipt.oracle.version})")
+    if receipt.oracle.version != TARGET_CPYTHON:
+        lines.append(
+            f"  oracle: {receipt.oracle.executable} (CPython {receipt.oracle.version}, target {TARGET_CPYTHON})"
+        )
+    else:
+        lines.append(f"  oracle: {receipt.oracle.executable} (CPython {receipt.oracle.version})")
     size = f", {receipt.binary_bytes} bytes" if receipt.binary_bytes is not None else ""
     cache = " (cached)" if receipt.cache_hit else ""
     lines.append(f"  native: {receipt.binary}{size}{cache}")
@@ -339,13 +372,21 @@ def failure_receipt(
 ) -> dict[str, Any]:
     """The receipt for a program the compiler refused: fences or a build error."""
     kind = "fences" if exit_code == 3 else "build"
+    micro_mismatch = oracle.version != TARGET_CPYTHON
     return {
         "schemaVersion": SCHEMA_VERSION,
         "source": source,
-        "oracle": {"executable": oracle.executable, "version": oracle.version},
+        "oracle": {
+            "executable": oracle.executable,
+            "version": oracle.version,
+            "targetVersion": TARGET_CPYTHON,
+            "microMismatch": micro_mismatch,
+        },
         "match": False,
         "error": {"kind": kind, "exitCode": exit_code, "output": output},
         "timeoutSeconds": timeout_seconds,
+        "targetVersion": TARGET_CPYTHON,
+        "microMismatch": micro_mismatch,
     }
 
 

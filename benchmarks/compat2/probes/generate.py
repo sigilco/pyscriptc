@@ -25,6 +25,7 @@ from importlib.metadata import version
 from pathlib import Path
 
 from benchmarks.compat2.outcomes import WEIGHTS, Probe
+from benchmarks.compat2.version_surface import AXIS
 
 from . import typeshed
 
@@ -33,7 +34,7 @@ ROOT = HERE.parents[2]
 CONTINUITY = HERE.parent / "continuity"  # outside probes/ so a directory load never counts these rows
 DENOM = json.loads((ROOT / "benchmarks" / "compat" / "denominators.json").read_text(encoding="utf-8"))
 PRIMARY_ORACLE = "3.12"
-AXIS = ("3.10", "3.11", "3.12", "3.13", "3.14")
+
 WORKERS = 3
 MODULE_TIMEOUT = 1800
 HASH_SEEDS = (

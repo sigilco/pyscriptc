@@ -1,5 +1,6 @@
 {
   "slug": "env_layer",
+  "cpython": "3.14.8",
   "argv": [
     "PYSC_"
   ],

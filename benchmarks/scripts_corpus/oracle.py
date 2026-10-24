@@ -114,6 +114,7 @@ def run_script(slug: str, tmp: Path) -> dict[str, Any]:
     )
     return {
         "slug": slug,
+        "cpython": f"{sys.version_info[0]}.{sys.version_info[1]}.{sys.version_info[2]}",
         "argv": expanded(slug, tmp),
         "stdout": machine_free(completed.stdout),
         "stderr": completed.stderr,
@@ -133,6 +134,10 @@ def machine_free(text: str) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from pyscriptc.target import TARGET_CPYTHON, TARGET_VERSION_INFO
+
+    if sys.version_info[:3] != TARGET_VERSION_INFO:
+        raise SystemExit(f"scripts_corpus.oracle requires CPython {TARGET_CPYTHON}, running {sys.version.split()[0]}")
     parser = argparse.ArgumentParser(prog="scripts_corpus.oracle")
     parser.add_argument("--all", action="store_true", help="run every script in the corpus")
     parser.add_argument("--slug", help="run one script")

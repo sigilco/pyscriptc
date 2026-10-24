@@ -38,6 +38,7 @@ SCRIPTS_DIR = Path("benchmarks/compat2/corpus/scripts")
 
 TARGET_VERSIONS = [(3, minor) for minor in range(10, 15)]
 VERSION_LABELS = [f"3.{minor}" for _, minor in TARGET_VERSIONS]
+AXIS: tuple[str, ...] = tuple(VERSION_LABELS)
 NEWEST = TARGET_VERSIONS[-1]
 
 # Version-gated AST node kinds relevant to the subset. Grammar-level gates the
