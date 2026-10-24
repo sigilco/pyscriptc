@@ -52,9 +52,9 @@ import json
 import os
 import sys
 import threading
-import urllib.request
 import uuid
 from pathlib import Path
+from typing import Any
 
 POSTHOG_HOST = "https://eu.i.posthog.com"
 
@@ -252,6 +252,8 @@ def track(event: str, properties: dict | None = None) -> None:
 
 def _post(payload: dict) -> None:
     try:
+        import urllib.request
+
         body = json.dumps(payload).encode()
         request = urllib.request.Request(
             f"{POSTHOG_HOST}/capture/",
@@ -262,6 +264,15 @@ def _post(payload: dict) -> None:
             pass
     except Exception:
         pass
+
+
+def __getattr__(name: str) -> Any:
+    if name == "urllib":
+        import urllib.request
+
+        globals()["urllib"] = urllib
+        return urllib
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def base_properties() -> dict:
