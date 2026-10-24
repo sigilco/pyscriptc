@@ -1707,6 +1707,28 @@ static int ps_case_cased(uint32_t cp) {
     return rec != NULL && (rec->flags & PS_CASE_F_CASED) != 0;
 }
 
+/* The Cased property for callers outside ps_rt.c (the S3 predicates in
+   ps_more.c): shared with the case family so the property has one owner. */
+int ps_str_cased(uint32_t cp) {
+    return ps_case_cased(cp);
+}
+
+/* Whether the upper/lower mapping changes this code point, for callers
+   outside ps_rt.c (the S3 predicates). The multi-character expansions (the
+   eszett's upper is "SS") count as a change: CPython's isupper/islower
+   follow the Unicode category (Lu and Lt are upper, Ll is lower), and an
+   expansion source is by definition not its own opposite case (the eszett
+   is Ll, the titlecase digraphs are Lt). */
+int ps_str_upper_moves(uint32_t cp) {
+    const PsCaseRec *rec = ps_case_find(cp);
+    return rec != NULL && rec->up != cp;
+}
+
+int ps_str_lower_moves(uint32_t cp) {
+    const PsCaseRec *rec = ps_case_find(cp);
+    return rec != NULL && rec->lo != cp;
+}
+
 static int ps_case_ignorable(uint32_t cp) {
     if (cp < 0x80) {
         return cp == 0x27 || cp == 0x2E || cp == 0x3A || cp == 0x5E || cp == 0x60;

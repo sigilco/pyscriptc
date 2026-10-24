@@ -317,6 +317,12 @@ void ps_buf_copy(PsBuf *out, const char *p, int64_t n);
 
 void ps_str_counts(int64_t n, const char *p, int64_t *nchars, int32_t *flags);
 void ps_str_header(int64_t nbytes, const char *p, int64_t *nchars, int32_t *flags, PsBuf *out);
+/* The Cased property (Unicode, from the case tables) for the is* family. */
+int ps_str_cased(uint32_t cp);
+/* Whether the upper/lower mapping moves this code point (expansions count),
+   for the is* family. */
+int ps_str_upper_moves(uint32_t cp);
+int ps_str_lower_moves(uint32_t cp);
 
 void ps_grow_init(PsGrow *g);
 void ps_grow_add(PsGrow *g, const char *p, int64_t n);
