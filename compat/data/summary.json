@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "generated": "2026-10-24",
+  "commit": "fa92f0e5a4dac06077570760f3a284292c43a870",
+  "url": "https://pyscriptc.pages.dev/compat/",
+  "packages_full": 3,
+  "packages_partial": 5,
+  "packages_none": 10,
+  "packages_total": 18,
+  "stdlib_modules": 51,
+  "stdlib_full": 0,
+  "builtins_full": 2,
+  "builtins_total": 18,
+  "fences": 3045,
+  "divergences": 18,
+  "probes": 13798,
+  "probe_pass": 1301,
+  "probe_failures": 13,
+  "pass_rate": 0.1126,
+  "weighted_pass": 824.7,
+  "targets_native": 6,
+  "targets_experimental": 3
+}

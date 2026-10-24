@@ -33,6 +33,7 @@ COMPAT = ROOT / "compat"
 PAGE = COMPAT / "site"
 DEFAULT_OUT = ROOT / "dist" / "compat"
 DEFAULT_DATA = COMPAT / "data" / "compat.json"
+DEFAULT_SUMMARY = COMPAT / "data" / "summary.json"
 
 # The files the page is made of. Kept explicit so a stray file in the source
 # directory does not silently end up in the deploy tree.
@@ -47,6 +48,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT, help="output directory")
     parser.add_argument("--data", type=Path, default=DEFAULT_DATA, help="the compat JSON file")
+    parser.add_argument(
+        "--summary",
+        type=Path,
+        default=DEFAULT_SUMMARY,
+        help="the summary JSON file the landing page can consume",
+    )
     parser.add_argument(
         "--base",
         default="/compat/",
@@ -72,8 +79,13 @@ def check_data(path: Path) -> dict:
     return document
 
 
-def build(out: Path, data: Path, base: str) -> Path:
-    """Copy the page and the data into `out` and return the output path."""
+def build(out: Path, data: Path, base: str, summary: Path | None = None) -> Path:
+    """Copy the page and the data into `out` and return the output path.
+
+    `summary` is the small headline-count file the landing page consumes; it
+    ships next to the data when it exists, and the build does not fail when
+    it does not (the summary is optional for the compat page itself).
+    """
     document = check_data(data)
     if out.exists():
         shutil.rmtree(out)
@@ -89,6 +101,9 @@ def build(out: Path, data: Path, base: str) -> Path:
     data_out = out / "data"
     data_out.mkdir()
     shutil.copy2(data, data_out / "compat.json")
+    summary = summary or DEFAULT_SUMMARY
+    if summary.exists():
+        shutil.copy2(summary, data_out / "summary.json")
 
     for name, source in ASSETS.items():
         if not source.exists():
@@ -110,7 +125,7 @@ def build(out: Path, data: Path, base: str) -> Path:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    build(args.out, args.data, args.base)
+    build(args.out, args.data, args.base, args.summary)
     return 0
 
 

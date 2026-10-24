@@ -21,11 +21,24 @@ from scripts.build_compat_json import (
     build,
     check,
     render,
+    summary_document,
     write_atomic,
 )
-from scripts.compat_schema import HISTORY_LIMIT, SCHEMA_VERSION, STATUSES, validate
+from scripts.compat_schema import (
+    DIVERGENCE_FAMILIES,
+    HISTORY_LIMIT,
+    PREVIOUS_SCHEMA_VERSION,
+    SCHEMA_VERSION,
+    STATUSES,
+    SUMMARY_KEYS,
+    TARGET_STATUSES,
+    validate,
+    validate_summary,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
+
+SUMMARY = ROOT / "compat" / "data" / "summary.json"
 
 
 def _document() -> dict:
@@ -270,3 +283,206 @@ def test_validate_catches_an_unknown_top_level_key() -> None:
     document["extra"] = 1
     problems = validate(document)
     assert any("extra" in problem for problem in problems)
+
+
+# The targets section: hand-maintained, embedded by the builder.
+
+
+def test_targets_are_present_and_well_formed() -> None:
+    document = _document()
+    rows = document["targets"]
+    assert rows, "the targets table must not be empty"
+    ids = [row["id"] for row in rows]
+    assert len(ids) == len(set(ids))
+    for row in rows:
+        assert row["status"] in TARGET_STATUSES, row
+        assert row["triple"], row
+        assert row["label"], row
+        assert row["note"], row
+
+
+def test_target_statuses_are_counted_in_the_summary() -> None:
+    document = _document()
+    summary = document["summary"]
+    for status, key in (("native", "targets_native"), ("experimental", "targets_experimental")):
+        counted = sum(1 for row in document["targets"] if row["status"] == status)
+        assert summary[key] == counted, status
+
+
+def test_targets_file_is_the_source_of_the_section() -> None:
+    """The section is the hand-maintained file, not a measurement."""
+    from scripts.compat_targets import load
+
+    document = _document()
+    source = load()
+    assert [row["id"] for row in source["targets"]] == [row["id"] for row in document["targets"]]
+    assert document["sources"]["targets"].startswith("compat/data/targets.json")
+
+
+# The divergences section: parsed from the docs.
+
+
+def test_divergences_are_present_and_numbered() -> None:
+    document = _document()
+    rows = document["divergences"]
+    assert rows, "the divergence list must not be empty"
+    numbers = [row["number"] for row in rows]
+    assert numbers == sorted(numbers)
+    assert numbers == list(range(1, len(numbers) + 1)), "the numbers must be the doc's own numbering"
+
+
+def test_divergences_match_the_doc() -> None:
+    """The section must be the doc's list, item for item."""
+    from scripts.compat_divergences import read
+
+    document = _document()
+    parsed = read()
+    assert len(document["divergences"]) == len(parsed)
+    for row, source in zip(document["divergences"], parsed, strict=True):
+        assert row["number"] == source["number"]
+        assert row["text"] == source["text"]
+
+
+def test_divergences_have_a_family_and_a_source() -> None:
+    document = _document()
+    for row in document["divergences"]:
+        assert row["family"] in DIVERGENCE_FAMILIES, row
+        # Most items name where the difference comes from. The source is
+        # either a link or a note that points at another item; an item with
+        # neither is a doc item that states the difference and stops there.
+        assert row["sources"] or row["note"] or row["text"], row["number"]
+
+
+def test_divergence_count_is_in_the_summary() -> None:
+    document = _document()
+    assert document["summary"]["divergences"] == len(document["divergences"])
+
+
+def test_the_divergence_parser_reads_the_numbered_items() -> None:
+    from scripts.compat_divergences import parse
+
+    text = (
+        "# Title\n\n## Numbered divergences\n\n"
+        "1. `int` is `i64`. Overflow aborts the process. Source: [refused](https://example.test/a.md).\n"
+        "2. A second item that continues here.\n"
+        "And its continuation.\n\n"
+        "## Another section\n\n3. Not a divergence.\n"
+    )
+    rows = parse(text)
+    assert [row["number"] for row in rows] == [1, 2]
+    assert rows[0]["text"] == "`int` is `i64`. Overflow aborts the process."
+    assert rows[0]["sources"] == ["https://example.test/a.md"]
+    assert rows[1]["text"] == "A second item that continues here. And its continuation."
+
+
+def test_the_divergence_parser_refuses_an_empty_document(tmp_path: Path) -> None:
+    from scripts.compat_divergences import read
+
+    empty = tmp_path / "divergences.md"
+    empty.write_text("# Title\n\nNo numbered items here.\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="no numbered divergences"):
+        read(empty)
+
+
+def test_the_divergence_parser_reports_a_missing_doc(tmp_path: Path) -> None:
+    from scripts.compat_divergences import read
+
+    with pytest.raises(ValueError, match="not found"):
+        read(tmp_path / "absent.md")
+
+
+# The probe counters: the compat2 pass rate per row.
+
+
+def test_probe_counters_are_present_on_the_support_rows() -> None:
+    document = _document()
+    for section in ("builtins", "stdlib", "packages"):
+        for row in document[section]:
+            assert "probes" in row, (section, row.get("id") or row.get("name"))
+            assert "pass_rate" in row, (section, row.get("id") or row.get("name"))
+            if row["probes"] is None:
+                assert row["pass_rate"] is None
+            else:
+                assert 0 <= row["pass_rate"] <= 1
+
+
+def test_probe_counters_match_the_outcomes() -> None:
+    document = _document()
+    for section in ("builtins", "stdlib", "packages"):
+        for row in document[section]:
+            if row["probes"] is None:
+                continue
+            outcomes = row["probe_outcomes"]
+            total = outcomes["pass"] + outcomes["fence"] + outcomes["failures"]
+            assert total <= row["probes"], (section, row.get("name"))
+            scored = total
+            if scored:
+                assert row["pass_rate"] == pytest.approx(outcomes["pass"] / scored, abs=1e-4)
+
+
+def test_the_summary_carries_the_probe_counters() -> None:
+    document = _document()
+    summary = document["summary"]
+    assert summary["probes"] >= summary["probe_pass"]
+    assert summary["probe_failures"] >= 0
+    if summary["probes"]:
+        assert 0 <= summary["pass_rate"] <= 1
+
+
+def test_the_fence_rows_carry_the_remediation_hint() -> None:
+    from pyscriptc.diagnostics import DIAGNOSTICS
+
+    document = _document()
+    for row in document["fences"]:
+        assert row["why"], row["code"]
+        assert row["fix"], row["code"]
+        entry = DIAGNOSTICS[row["code"]]
+        assert row["why"] == entry.why
+        assert row["fix"] == entry.fix
+
+
+# The summary file: the contract the landing page reads.
+
+
+def test_the_summary_file_validates() -> None:
+    if not SUMMARY.exists():
+        pytest.skip("the summary file is not built yet")
+    document = json.loads(SUMMARY.read_text(encoding="utf-8"))
+    assert validate_summary(document) == []
+
+
+def test_the_summary_file_matches_the_data_file() -> None:
+    if not SUMMARY.exists():
+        pytest.skip("the summary file is not built yet")
+    summary = json.loads(SUMMARY.read_text(encoding="utf-8"))
+    document = _document()
+    assert summary["generated"] == document["generated"]
+    assert summary["fences"] == document["summary"]["fences"]
+    assert summary["divergences"] == document["summary"]["divergences"]
+    assert summary["packages_full"] == document["summary"]["packages_full"]
+    assert summary["packages_total"] == sum(
+        document["summary"][key] for key in ("packages_full", "packages_partial", "packages_none")
+    )
+
+
+def test_the_summary_document_is_built_from_the_data() -> None:
+    document = _document()
+    summary = summary_document(document)
+    assert validate_summary(summary) == []
+    assert summary["schema"] == 1
+    assert summary["url"].startswith("https://")
+
+
+def test_the_summary_document_has_a_stable_key_set() -> None:
+    """A rename would break the landing page, so the keys are pinned."""
+    document = _document()
+    assert set(summary_document(document)) == set(SUMMARY_KEYS)
+
+
+def test_the_schema_version_is_the_current_one() -> None:
+    assert _document()["schema"] == SCHEMA_VERSION
+
+
+def test_a_previous_schema_document_is_still_understood() -> None:
+    """The nightly bot PR carries data, not code: a bump must not break it."""
+    assert PREVIOUS_SCHEMA_VERSION == "1"
