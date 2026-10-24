@@ -354,7 +354,26 @@ def build_report(target: Path, bridge: Any = None) -> dict[str, Any]:
         family = family_of(fence["code"], fence["message"])
         lines = text.splitlines() if text else []
         statement = lines[span["line"] - 1].strip() if 1 <= span["line"] <= len(lines) else ""
-        entries.append(_annotate(entry, known))
+        entries.append(
+            _annotate(
+                {
+                    "code": fence["code"],
+                    "message": fence["message"],
+                    "family": family,
+                    "derived": is_derived(family),
+                    "file": path,
+                    "line": span["line"],
+                    "col": span["col"],
+                    "endLine": span["endLine"],
+                    "endCol": span["endCol"],
+                    "definition": owner.name if owner else None,
+                    "statement": statement,
+                    "frame": format_diagnostic(fence, text),
+                    "hint": hint_for(family, fence["message"]),
+                },
+                known,
+            )
+        )
 
     by_def: dict[tuple[str, str], list[int]] = defaultdict(list)
     for index, entry in enumerate(entries):

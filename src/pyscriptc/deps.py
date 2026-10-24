@@ -597,31 +597,35 @@ def import_module_map(packages: list[DepResult]) -> dict[str, dict[str, str]]:
             by_name.setdefault(import_name.lower(), []).append(result)
     mapping: dict[str, dict[str, str]] = {}
     for import_name, providers in by_name.items():
-        distribution = providers[0].name
-        entry: dict[str, str] = {
-            "distribution": distribution,
-            "lane": providers[0].lane,
-            "hint": providers[0].hint,
-        }
+        entry = _map_entry(providers[0])
         if len(providers) > 1:
             entry["ambiguous"] = ", ".join(sorted(p.name for p in providers))
         if len(providers[0].import_names) > 1:
             entry["provides"] = ", ".join(sorted(providers[0].import_names))
         mapping[import_name] = entry
     for result in packages:
-        if result.import_names or result.lane != "pure":
+        # Known import names are already in; a pure wheel with none of its
+        # own is `unknown` keyed by its distribution-shaped module name, so
+        # `import bare` still finds the locked distribution. A native or
+        # sdist lane keeps its distribution-shaped key without the marker:
+        # the fence names the lane, and there is no unpacked tree to lie
+        # about.
+        if result.import_names:
             continue
         module = result.name.lower().replace("-", "_").replace(".", "_")
-        mapping.setdefault(
-            module,
-            {
-                "distribution": result.name,
-                "lane": result.lane,
-                "hint": result.hint,
-                "importNames": UNKNOWN_IMPORT_NAMES,
-            },
-        )
+        entry = _map_entry(result)
+        if result.lane == "pure":
+            entry["importNames"] = UNKNOWN_IMPORT_NAMES
+        mapping.setdefault(module, entry)
     return mapping
+
+
+def _map_entry(result: DepResult) -> dict[str, str]:
+    return {
+        "distribution": result.name,
+        "lane": result.lane,
+        "hint": result.hint,
+    }
 
 
 def unpacked_import_names(root: str | Path) -> tuple[str, ...]:
