@@ -8,13 +8,20 @@ behaviour, measured against the CPython oracle:
 
 ```python
 class Ctx:
-    def __enter__(self): print("enter"); return 1
-    def __exit__(self, *a): print("exit"); return False
+    def __enter__(self):
+        print("enter")
+        return 1
+
+    def __exit__(self, *a):
+        print("exit")
+        return False
+
 
 def g():
     with Ctx():
         yield 1
         yield 2
+
 
 for v in g():
     print(v)
