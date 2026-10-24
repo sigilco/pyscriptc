@@ -22,7 +22,7 @@ Emit raw IEEE bits (`0x{bits:016X}`). Clang 18 rejects Python `float.hex()` insi
 
 ## Strings
 
-Non-ASCII literals are `PS2005`. `str` and `bytes` cross the C ABI as `%ps.str = { i64, ptr }`, never as a returned struct. The same rule applies to every aggregate the runtime returns: pass a pointer or write through an out-parameter.
+Non-ASCII literals are `PS2005` until the str model lands (epic #472). `str` crosses the C ABI as `%ps.str = { i64, ptr, i64, i32 }`: byte length, data pointer, code-point count, flags (bit 0 ASCII, bit 1 reserved zero). `bytes` crosses as `PsBuf` (16 bytes, `{ i64, ptr }`), never as a returned struct. The same rule applies to every aggregate the runtime returns: pass a pointer or write through an out-parameter, and no runtime call returns a `%ps.str` by value except `ps_exc_str`. Design: `.agents/docs/spec/str-model.md`.
 
 ## The island
 

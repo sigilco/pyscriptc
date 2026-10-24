@@ -1,7 +1,10 @@
 /* Shared layout for the runtime linked beside emitted LLVM.
 
-%ps.str is { i64, ptr }. PsBuf must stay 16 bytes. PsSeq keeps len, elem, and
-data in that order; cap is appended so existing stores still line up.
+%ps.str is { i64, ptr, i64, i32 }: byte length, data pointer, code-point count,
+flags (bit 0 ASCII). Until the str model lands (epic #472) the count is filled
+with the byte count and the flag stays 0. PsBuf must stay 16 bytes. PsSeq keeps
+len, elem, and data in that order; cap is appended so existing stores still line
+up.
 */
 
 #ifndef PYSCRIPTC_PS_RT_H
