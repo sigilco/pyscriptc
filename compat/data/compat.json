@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-24",
-  "commit": "b7a8ea67f487e659007dc2c00c3b268662ddc1f2",
+  "commit": "7d6a4390835e5dcfccf7a959281d745b2cf1d706",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 6,
     "packages_none": 10,
     "weighted_pass": 0.0,
-    "fences": 3019
+    "fences": 3017
   },
   "builtins": [
     {
@@ -1431,7 +1431,7 @@
       "import_name": "filelock",
       "version": "4.1.1",
       "status": "partial",
-      "fences": 747,
+      "fences": 746,
       "definitions": 641,
       "fenced_definitions": 244,
       "top_families": [
@@ -1441,7 +1441,7 @@
         },
         {
           "family": "construct-other",
-          "count": 81
+          "count": 80
         },
         {
           "family": "local-inference",
@@ -1459,7 +1459,7 @@
         },
         {
           "code": "PS2001",
-          "count": 68
+          "count": 67
         }
       ],
       "pypi": "https://pypi.org/project/filelock/"
@@ -1507,7 +1507,7 @@
       "import_name": "idna",
       "version": "3.20",
       "status": "none",
-      "fences": 165,
+      "fences": 164,
       "definitions": 56,
       "fenced_definitions": 40,
       "top_families": [
@@ -2030,7 +2030,7 @@
     {
       "code": "PS2001",
       "title": "stdlib name not lowered",
-      "count": 185,
+      "count": 183,
       "packages": 14
     },
     {
@@ -2124,12 +2124,12 @@
     },
     {
       "date": "2026-10-24",
-      "commit": "b7a8ea67f487e659007dc2c00c3b268662ddc1f2",
+      "commit": "7d6a4390835e5dcfccf7a959281d745b2cf1d706",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 6,
       "packages_none": 10,
-      "fences": 3019
+      "fences": 3017
     }
   ]
 }

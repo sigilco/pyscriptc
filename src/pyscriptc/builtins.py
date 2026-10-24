@@ -202,6 +202,7 @@ STR_METHODS: dict[str, dict[str, Any]] = {
     "isspace": {"params": [], "return": "bool"},
     "isupper": {"params": [], "return": "bool"},
     "islower": {"params": [], "return": "bool"},
+    "isascii": {"params": [], "return": "bool", "kinds": {"str"}},
     "title": {"params": [], "return": "self"},
     "capitalize": {"params": [], "return": "self"},
     # casefold is str-only in CPython; the "kinds" gate keeps bytes.casefold fenced.

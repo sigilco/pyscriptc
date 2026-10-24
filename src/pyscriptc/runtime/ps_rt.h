@@ -317,6 +317,12 @@ void ps_buf_copy(PsBuf *out, const char *p, int64_t n);
 
 void ps_str_counts(int64_t n, const char *p, int64_t *nchars, int32_t *flags);
 void ps_str_header(int64_t nbytes, const char *p, int64_t *nchars, int32_t *flags, PsBuf *out);
+/* The Cased property (Unicode, from the case tables) for the is* family. */
+int ps_str_cased(uint32_t cp);
+/* Whether the upper/lower mapping moves this code point (expansions count),
+   for the is* family. */
+int ps_str_upper_moves(uint32_t cp);
+int ps_str_lower_moves(uint32_t cp);
 
 void ps_grow_init(PsGrow *g);
 void ps_grow_add(PsGrow *g, const char *p, int64_t n);
@@ -334,6 +340,9 @@ void ps_utf8_encode(int64_t n, const char *p, PsBuf *out);
 void ps_utf8_decode(int64_t n, const char *p, PsBuf *out);
 void ps_latin1_encode(int64_t n, const char *p, PsBuf *out);
 void ps_latin1_decode(int64_t n, const char *p, PsBuf *out);
+/* CPython's repr escape rules for a str; defined in ps_unicode.c next to
+   the category table its printability test reads. */
+void ps_repr_str(int64_t n, const char *p, PsBuf *out);
 void ps_i64_str(int64_t v, PsBuf *out);
 void ps_f64_str(double v, PsBuf *out);
 int64_t ps_bisect_left(PsSeq *s, int64_t key);
@@ -414,6 +423,7 @@ int64_t ps_str_isalnum(int64_t n, const char *p);
 int64_t ps_str_isspace(int64_t n, const char *p);
 int64_t ps_str_isupper(int64_t n, const char *p);
 int64_t ps_str_islower(int64_t n, const char *p);
+int64_t ps_str_isascii(int64_t n, const char *p);
 void ps_str_title(int64_t n, const char *p, PsBuf *out);
 void ps_str_capitalize(int64_t n, const char *p, PsBuf *out);
 void ps_str_casefold(int64_t n, const char *p, PsBuf *out);

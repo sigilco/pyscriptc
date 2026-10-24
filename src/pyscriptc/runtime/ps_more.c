@@ -7,6 +7,7 @@ mutating helper works in place on the caller's PsSeq/PsMap.
 
 #include "ps_rt.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -296,7 +297,14 @@ PsSeq *ps_dict_items(PsMap *m, int64_t voff, int64_t csize) {
     return seq;
 }
 
-/* str tier-2 (R3): bytewise ASCII semantics */
+/* str tier-2 (R3): the shared predicates walk code points (S3).
+
+   The ASCII bytes decide on the bytewise tables above. Anything above
+   0x7F that the case tables (ps_case.c, the Cased flag) or the digit
+   and space families cannot answer raises at run time with a message
+   naming the predicate and the code point: the Unicode category tables
+   are S4's data, and a wrong answer is worse than a loud stop. The
+   ASCII output of a program that never mixes the ranges is unchanged. */
 
 static int ps_ws(unsigned char c) {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f' || c == 0x1c ||
@@ -308,6 +316,194 @@ static int ps_islo(unsigned char c) { return (c >= 'a' && c <= 'z') || (c >= 0xe
 static int ps_isup(unsigned char c) { return (c >= 'A' && c <= 'Z') || (c >= 0xc0 && c <= 0xde && c != 0xd7); }
 static int ps_isalpha2(unsigned char c) { return ps_islo(c) || ps_isup(c); }
 static int ps_isalnum2(unsigned char c) { return ps_isalpha2(c) || ps_isdig(c); }
+
+/* Walk the UTF-8 buffer, yielding each code point to step. Step returns 1
+   for a satisfied member, 0 for a satisfied non-member and -1 to stop the
+   walk with the predicate's "needs the Unicode tables" answer (the raise
+   already happened inside step, so the walk just unwinds). */
+static int64_t ps_pred_walk(int64_t n, const char *p, int64_t (*step)(uint32_t)) {
+    int64_t i = 0;
+    while (i < n) {
+        unsigned char c = (unsigned char)p[i];
+        int w = ps_utf8_len(c);
+        uint32_t cp = c;
+        if (w > 1 && i + w <= n) {
+            cp = c & (0xFF >> (w + 1));
+            for (int k = 1; k < w; k++) {
+                cp = (cp << 6) | ((unsigned char)p[i + k] & 0x3F);
+            }
+        }
+        int verdict = step(cp);
+        if (verdict < 0) {
+            return -1;
+        }
+        if (verdict == 0) {
+            return 0;
+        }
+        i += w;
+    }
+    return 1;
+}
+
+/* The named fence for a code point the ASCII tables cannot classify.
+   The predicate and the code point go into the message, so the fence is
+   attributable in a traceback. S4 (the category tables) deletes these. */
+__attribute__((noreturn)) static void ps_pred_unicode_fence(const char *name, uint32_t cp) {
+    char msg[96];
+    snprintf(msg, sizeof msg, "%s needs the Unicode category tables (S4) for U+%04X", name, (unsigned)cp);
+    ps_raise_cstr(PS_NOTIMPLEMENTEDERROR, msg);
+}
+
+static int64_t ps_pred_digit_step(uint32_t cp) {
+    if (cp < 0x80) {
+        return ps_isdig((unsigned char)cp);
+    }
+    ps_pred_unicode_fence("str.isdigit", cp);
+}
+
+static int64_t ps_pred_alpha_step(uint32_t cp) {
+    if (cp < 0x80) {
+        return ps_isalpha2((unsigned char)cp);
+    }
+    if (!ps_str_cased(cp)) {
+        ps_pred_unicode_fence("str.isalpha", cp);
+    }
+    return 1;
+}
+
+static int64_t ps_pred_alnum_step(uint32_t cp) {
+    if (cp < 0x80) {
+        return ps_isalnum2((unsigned char)cp);
+    }
+    if (!ps_str_cased(cp)) {
+        ps_pred_unicode_fence("str.isalnum", cp);
+    }
+    return 1;
+}
+
+static int64_t ps_pred_space_step(uint32_t cp) {
+    if (cp < 0x80) {
+        return cp == ' ' || cp == '\t' || cp == '\n' || cp == '\r' || cp == '\v' || cp == '\f';
+    }
+    ps_pred_unicode_fence("str.isspace", cp);
+}
+
+static int64_t ps_pred_upper_step(uint32_t cp) {
+    if (cp < 0x80) {
+        if (ps_islo((unsigned char)cp)) {
+            return 0;
+        }
+        return ps_isup((unsigned char)cp) ? 2 : 1;
+    }
+    /* A cased code point answers through its own mapping, the same
+       question isupper asks of the ASCII letters: uppercase means the
+       lower mapping moves away (ASCII 'A' lowers, the eszett does not).
+       An uncased code point fences (S4 deletes this). */
+    if (!ps_str_cased(cp)) {
+        ps_pred_unicode_fence("str.isupper", cp);
+    }
+    /* The titlecase letters (Lt, the 01C5 digraphs) are upper in CPython's
+       sense only when the predicate asks the title form; plain isupper is
+       the Lu test, and Lt moves in both directions, so "the lower mapping
+       moves" is exactly false for them. */
+    if (ps_str_lower_moves(cp) && ps_str_upper_moves(cp)) {
+        return 0;
+    }
+    return ps_str_lower_moves(cp) ? 2 : 0;
+}
+
+static int64_t ps_pred_lower_step(uint32_t cp) {
+    if (cp < 0x80) {
+        if (ps_isup((unsigned char)cp)) {
+            return 0;
+        }
+        return ps_islo((unsigned char)cp) ? 2 : 1;
+    }
+    if (!ps_str_cased(cp)) {
+        ps_pred_unicode_fence("str.islower", cp);
+    }
+    /* Lt (both mappings move) is not lower either; see isupper above. */
+    if (ps_str_lower_moves(cp) && ps_str_upper_moves(cp)) {
+        return 0;
+    }
+    return ps_str_upper_moves(cp) ? 2 : 0;
+}
+
+/* The shared body of the six predicates: empty is False, every code point
+   must satisfy the family, and at least one must be cased where the
+   predicate demands it (upper/lower). */
+static int64_t ps_pred_run(int64_t n, const char *p, const char *name, int64_t (*step)(uint32_t), int need_cased) {
+    if (n == 0) {
+        return 0;
+    }
+    int64_t result = ps_pred_walk(n, p, step);
+    if (result <= 0) {
+        return result < 0 ? need_cased : 0;
+    }
+    if (need_cased) {
+        /* Any cased member proves the "at least one cased" half; the walk
+           already proved no code point failed the family. */
+        int64_t i = 0;
+        while (i < n) {
+            unsigned char c = (unsigned char)p[i];
+            int w = ps_utf8_len(c);
+            uint32_t cp = c;
+            if (w > 1 && i + w <= n) {
+                cp = c & (0xFF >> (w + 1));
+                for (int k = 1; k < w; k++) {
+                    cp = (cp << 6) | ((unsigned char)p[i + k] & 0x3F);
+                }
+            }
+            if (cp < 0x80) {
+                if (ps_islo((unsigned char)cp) || ps_isup((unsigned char)cp)) {
+                    return 1;
+                }
+            } else if (ps_str_cased(cp)) {
+                return 1;
+            }
+            i += w;
+        }
+        return 0;
+    }
+    (void)name;
+    return 1;
+}
+
+int64_t ps_str_isdigit(int64_t n, const char *p) {
+    return ps_pred_run(n, p, "isdigit", ps_pred_digit_step, 0);
+}
+
+int64_t ps_str_isalpha(int64_t n, const char *p) {
+    return ps_pred_run(n, p, "isalpha", ps_pred_alpha_step, 0);
+}
+
+int64_t ps_str_isalnum(int64_t n, const char *p) {
+    return ps_pred_run(n, p, "isalnum", ps_pred_alnum_step, 0);
+}
+
+int64_t ps_str_isspace(int64_t n, const char *p) {
+    return ps_pred_run(n, p, "isspace", ps_pred_space_step, 0);
+}
+
+int64_t ps_str_isupper(int64_t n, const char *p) {
+    return ps_pred_run(n, p, "isupper", ps_pred_upper_step, 1);
+}
+
+int64_t ps_str_islower(int64_t n, const char *p) {
+    return ps_pred_run(n, p, "islower", ps_pred_lower_step, 1);
+}
+
+/* isascii is decidable without the category tables: CPython answers True
+   for the empty string and True exactly when every code point is below
+   U+0080, which on UTF-8 bytes is "every byte below 0x80". */
+int64_t ps_str_isascii(int64_t n, const char *p) {
+    for (int64_t i = 0; i < n; i++) {
+        if ((unsigned char)p[i] >= 0x80) {
+            return 0;
+        }
+    }
+    return 1;
+}
 
 int64_t ps_str_count(int64_t n, const char *p, int64_t sn, const char *sp) {
     int64_t i = 0, hits = 0;
@@ -322,7 +518,7 @@ int64_t ps_str_count(int64_t n, const char *p, int64_t sn, const char *sp) {
             hits++;
             i += sn;
         } else {
-            i++;
+            i += ps_utf8_len((unsigned char)p[i]);
         }
     }
     return hits;
@@ -339,7 +535,7 @@ int64_t ps_str_index(int64_t n, const char *p, int64_t sn, const char *sp) {
         }
         i += ps_utf8_len((unsigned char)p[i]);
     }
-    ps_raise_code(PS_VALUE);
+    ps_raise_cstr(PS_VALUE, "substring not found");
 }
 
 int64_t ps_str_rfind(int64_t n, const char *p, int64_t sn, const char *sp) {
@@ -574,90 +770,7 @@ PsSeq *ps_str_splitlines(int64_t n, const char *p, int64_t keepends) {
     return seq;
 }
 
-/* predicates: empty -> 0. */
-int64_t ps_str_isdigit(int64_t n, const char *p) {
-    int64_t i;
-    if (n == 0) {
-        return 0;
-    }
-    for (i = 0; i < n; i++) {
-        if (!ps_isdig((unsigned char)p[i])) {
-            return 0;
-        }
-    }
-    return 1;
-}
-
-int64_t ps_str_isalpha(int64_t n, const char *p) {
-    int64_t i;
-    if (n == 0) {
-        return 0;
-    }
-    for (i = 0; i < n; i++) {
-        if (!ps_isalpha2((unsigned char)p[i])) {
-            return 0;
-        }
-    }
-    return 1;
-}
-
-int64_t ps_str_isalnum(int64_t n, const char *p) {
-    int64_t i;
-    if (n == 0) {
-        return 0;
-    }
-    for (i = 0; i < n; i++) {
-        if (!ps_isalnum2((unsigned char)p[i])) {
-            return 0;
-        }
-    }
-    return 1;
-}
-
-int64_t ps_str_isspace(int64_t n, const char *p) {
-    int64_t i;
-    if (n == 0) {
-        return 0;
-    }
-    for (i = 0; i < n; i++) {
-        if (!ps_ws((unsigned char)p[i])) {
-            return 0;
-        }
-    }
-    return 1;
-}
-
-int64_t ps_str_isupper(int64_t n, const char *p) {
-    int64_t i, any = 0;
-    for (i = 0; i < n; i++) {
-        unsigned char c = (unsigned char)p[i];
-        if (ps_islo(c)) {
-            return 0;
-        }
-        if (ps_isup(c)) {
-            any = 1;
-        }
-    }
-    return any;
-}
-
-int64_t ps_str_islower(int64_t n, const char *p) {
-    int64_t i, any = 0;
-    for (i = 0; i < n; i++) {
-        unsigned char c = (unsigned char)p[i];
-        if (ps_isup(c)) {
-            return 0;
-        }
-        if (ps_islo(c)) {
-            any = 1;
-        }
-    }
-    return any;
-}
-
-/* The case family moved to ps_rt.c with the code-point model (S2); the
-   bytewise helpers here are gone. The predicates below keep the ASCII
-   Latin-1 tables (S3 owns the Unicode categories). */
+/* The predicate family moved to the code-point walk above (S3). */
 
 void ps_str_zfill(int64_t n, const char *p, int64_t width, PsBuf *out) {
     int64_t pad, s = 0, chars = ps_str_nchars(n, p);
