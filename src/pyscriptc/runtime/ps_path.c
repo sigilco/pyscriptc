@@ -325,11 +325,18 @@ void ps_os_makedirs(int64_t n, const char *s) {
         rc = ps_mkdir(text, 0755);
         if (rc != 0 && errno == EEXIST && i == n) {
             free(text);
-            ps_os_fail("makedirs failed");
+            ps_raise_cstr(PS_FILEEXISTSERROR, "File exists");
         }
         if (rc != 0 && errno != EEXIST) {
+            int err = errno;
             free(text);
-            ps_os_fail("makedirs failed");
+            if (err == ENOENT) {
+                ps_raise_cstr(PS_FILENOTFOUNDERROR, "No such file or directory");
+            } else if (err == EACCES) {
+                ps_raise_cstr(PS_PERMISSIONERROR, "Permission denied");
+            } else {
+                ps_os_fail("makedirs failed");
+            }
         }
         text[i] = save;
     }
@@ -716,9 +723,18 @@ void ps_os_chmod(int64_t n, const char *s, int64_t mode) {
 void ps_os_mkdir(int64_t n, const char *s) {
     char *text = ps_cstr(n, s);
     int rc = ps_mkdir(text, 0755);
+    int err = errno;
     free(text);
     if (rc != 0) {
-        ps_os_fail("mkdir failed");
+        if (err == EEXIST) {
+            ps_raise_cstr(PS_FILEEXISTSERROR, "File exists");
+        } else if (err == ENOENT) {
+            ps_raise_cstr(PS_FILENOTFOUNDERROR, "No such file or directory");
+        } else if (err == EACCES) {
+            ps_raise_cstr(PS_PERMISSIONERROR, "Permission denied");
+        } else {
+            ps_os_fail("mkdir failed");
+        }
     }
 }
 
@@ -1079,25 +1095,41 @@ void ps_path_mkdir(PsPath *path, int64_t mode, int64_t parents, int64_t exist_ok
                 if (errno == EEXIST && i == path->path.len) {
                     leaf_exists = 1;
                 } else if (errno != EEXIST) {
+                    int err = errno;
                     free(text);
-                    ps_os_fail("mkdir failed");
+                    if (err == ENOENT) {
+                        ps_raise_cstr(PS_FILENOTFOUNDERROR, "No such file or directory");
+                    } else if (err == EACCES) {
+                        ps_raise_cstr(PS_PERMISSIONERROR, "Permission denied");
+                    } else {
+                        ps_os_fail("mkdir failed");
+                    }
                 }
             }
             text[i] = save;
         }
         free(text);
         if (leaf_exists && (!exist_ok || !ps_path_isdir(path->path.len, path->path.data))) {
-            ps_os_fail("mkdir failed");
+            ps_raise_cstr(PS_FILEEXISTSERROR, "File exists");
         }
         return;
     }
     rc = ps_mkdir(text, (mode_t)mode);
+    int err = errno;
     free(text);
     if (rc != 0) {
-        if (exist_ok && errno == EEXIST && ps_path_isdir(path->path.len, path->path.data)) {
+        if (exist_ok && err == EEXIST && ps_path_isdir(path->path.len, path->path.data)) {
             return;
         }
-        ps_os_fail("mkdir failed");
+        if (err == EEXIST) {
+            ps_raise_cstr(PS_FILEEXISTSERROR, "File exists");
+        } else if (err == ENOENT) {
+            ps_raise_cstr(PS_FILENOTFOUNDERROR, "No such file or directory");
+        } else if (err == EACCES) {
+            ps_raise_cstr(PS_PERMISSIONERROR, "Permission denied");
+        } else {
+            ps_os_fail("mkdir failed");
+        }
     }
 }
 
