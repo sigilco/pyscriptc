@@ -1181,8 +1181,8 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             binary = binary.with_suffix(".exe")
         data_root = _stage_dependency_data(source_path, config, args, binary)
         # boxed:begin
-        island_names = {name for name, lane in config.imports.items() if lane == "island"}
-        island_default = bool(getattr(args, "island", False)) or config.imports.get("*") == "island"
+        island_names = set(config.island_imports())
+        island_default = bool(getattr(args, "island", False)) or config.wildcard_island()
         island_ctx = island_policy(island_names, island_default)
         # boxed:end
         with island_ctx:
