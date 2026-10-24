@@ -1,0 +1,3 @@
+{"id": "t1.import_module_native", "tier": "T1", "construct": "importlib.import_module native refusal", "code": "PS2001", "source": "import importlib\n\ndef main() -> int:\n    importlib.import_module('math')\n    return 0\n", "expected": "fence", "lane": "native"}
+{"id": "t1.inspect_cleandoc_island", "tier": "T1", "construct": "inspect.cleandoc island routing", "code": "", "source": "import inspect\n\ndef main() -> str:\n    return inspect.cleandoc(' hello ')\n", "expected": "pass", "lane": "island"}
+{"id": "t1.socket_hostname_island", "tier": "T1", "construct": "socket.gethostname island routing", "code": "", "source": "import socket\n\ndef main() -> str:\n    return socket.gethostname()\n", "expected": "pass", "lane": "island"}

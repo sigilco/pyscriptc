@@ -41,8 +41,30 @@ def _outcomes(results: dict[str, Any]) -> dict[str, str]:
 def soundness_gate(base: dict[str, Any], cand: dict[str, Any]) -> list[dict[str, str]]:
     before = _outcomes(base)
     out = []
-    for row in cand["rows"]:
-        if row["outcome"] in SOUNDNESS and before.get(row["id"]) not in SOUNDNESS:
+    for row in cand.get("rows", []):
+        is_must_fence = row["id"].startswith("must_fence:") or row.get("area") == "must_fence"
+        if is_must_fence:
+            if row["outcome"] != "pass" and before.get(row["id"]) == "pass":
+                out.append(
+                    _finding(
+                        "P0",
+                        f"soundness:{row['id']}",
+                        "construct must refuse with expected PS code (must-fence soundness ratchet)",
+                        f"{row['id']} stopped refusing: {row.get('evidence', '')}",
+                        "restore the refusal fence; dynamic constructs must not silently compile",
+                    )
+                )
+            elif row["outcome"] in SOUNDNESS and before.get(row["id"]) not in SOUNDNESS:
+                out.append(
+                    _finding(
+                        "P0",
+                        f"soundness:{row['id']}",
+                        "construct must refuse with expected PS code (must-fence soundness ratchet)",
+                        f"{row['id']} is now {row['outcome']}: {row.get('evidence', '')}",
+                        "restore the refusal fence; dynamic constructs must not silently compile",
+                    )
+                )
+        elif row["outcome"] in SOUNDNESS and before.get(row["id"]) not in SOUNDNESS:
             out.append(
                 _finding(
                     "P0",
@@ -52,6 +74,30 @@ def soundness_gate(base: dict[str, Any], cand: dict[str, Any]) -> list[dict[str,
                     "fix the lowering or fence the construct instead of miscompiling it",
                 )
             )
+    return out
+
+
+def must_fence_gate(must_fence_data: dict[str, Any] | None) -> list[dict[str, str]]:
+    """Hard gate for the must-fence adversarial corpus.
+
+    A construct that stopped refusing is a P0 soundness failure.
+    """
+    if not must_fence_data:
+        return []
+    out = []
+    for fail in must_fence_data.get("failures", []):
+        case_id = fail.get("id", "unknown")
+        evidence = fail.get("evidence", "")
+        expected_code = fail.get("expected_code", fail.get("code", "fence"))
+        out.append(
+            _finding(
+                "P0",
+                f"soundness:must_fence:{case_id}",
+                f"construct must refuse with {expected_code} (must-fence soundness ratchet)",
+                f"{case_id} stopped refusing: {evidence}",
+                "restore the refusal fence; dynamic constructs must not silently compile",
+            )
+        )
     return out
 
 
@@ -144,9 +190,12 @@ def verdict(
     ledger: Path | None = None,
     budget: float = 1.25,
     skip_perf: bool = False,
+    must_fence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    must_fence_data = must_fence if must_fence is not None else cand.get("must_fence")
     findings = [
         *soundness_gate(base, cand),
+        *must_fence_gate(must_fence_data),
         *pass_gate(base, cand),
         *compile_gate(base, cand, budget),
         *perf_gate(skip_perf),
@@ -184,6 +233,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--census-before")
     parser.add_argument("--census-after")
     parser.add_argument("--ledger", help="per-run anti-oscillation ledger JSON")
+    parser.add_argument("--must-fence", help="must-fence corpus results JSON")
     parser.add_argument("--compile-budget", type=float, default=1.25)
     parser.add_argument("--skip-perf", action="store_true")
     args = parser.parse_args(argv)
@@ -199,6 +249,7 @@ def main(argv: list[str] | None = None) -> int:
         ledger=Path(args.ledger) if args.ledger else None,
         budget=args.compile_budget,
         skip_perf=args.skip_perf,
+        must_fence=load(args.must_fence),
     )
     print(json.dumps(result, indent=2))
     return 0 if result["verdict"] == "PASS" else 1
