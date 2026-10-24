@@ -150,6 +150,15 @@ def test_recorded_oracle_matches_a_fresh_run(slug: str, tmp_path: Path) -> None:
     # so a recording from any machine stays comparable.
     assert fresh["stdout"] == recorded["stdout"], f"{slug} drifted from its recorded stdout"
     assert fresh["exitCode"] == recorded["exitCode"]
+    assert "cpython" in recorded
+    assert "cpython" in fresh
+
+
+def test_every_recorded_oracle_declares_cpython_version() -> None:
+    oracle = ROOT / "benchmarks" / "scripts_corpus" / "oracle"
+    for json_file in oracle.glob("*.json"):
+        data = json.loads(json_file.read_text(encoding="utf-8"))
+        assert "cpython" in data, f"{json_file.name} missing cpython version"
 
 
 def test_every_script_directory_has_an_oracle() -> None:

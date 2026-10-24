@@ -1,5 +1,6 @@
 {
   "slug": "template_fill",
+  "cpython": "3.14.8",
   "argv": [
     "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/template.txt",
     "NAME=world",

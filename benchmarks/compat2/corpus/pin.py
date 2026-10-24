@@ -147,7 +147,7 @@ def main() -> None:
         pin["origin"] = "v2"
         (held if project in HOLDOUT else visible)[project] = pin
         print(project, pin["version"])
-    head = {"fetched": FETCHED, "index": "https://pypi.org/pypi"}
+    head = {"cpython": "3.14.8", "fetched": FETCHED, "index": "https://pypi.org/pypi"}
     note = (
         "Pinned sdists. tree is relative to this file's directory. "
         "tests holds the upstream tests, usable as oracles only inside the Linux container."

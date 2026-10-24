@@ -1,5 +1,6 @@
 {
   "slug": "disk_usage",
+  "cpython": "3.14.8",
   "argv": [
     "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/lines.txt",
     "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/columns.csv"

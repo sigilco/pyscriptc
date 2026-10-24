@@ -1,5 +1,6 @@
 {
   "slug": "subprocess_run",
+  "cpython": "3.14.8",
   "argv": [
     "echo",
     "hello"

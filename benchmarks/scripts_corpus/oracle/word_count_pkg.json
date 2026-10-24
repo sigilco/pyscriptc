@@ -1,5 +1,6 @@
 {
   "slug": "word_count_pkg",
+  "cpython": "3.14.8",
   "argv": [
     "/Users/josocjoq/.worktrees/v06/n5chore/benchmarks/scripts_corpus/fixtures/lines.txt",
     "3"

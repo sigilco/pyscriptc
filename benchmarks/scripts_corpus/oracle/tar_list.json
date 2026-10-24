@@ -1,5 +1,6 @@
 {
   "slug": "tar_list",
+  "cpython": "3.14.8",
   "argv": [
     "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/bundle.tar"
   ],

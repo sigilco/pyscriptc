@@ -1,5 +1,6 @@
 {
   "slug": "csv_totals",
+  "cpython": "3.14.8",
   "argv": [
     "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/columns.csv"
   ],

@@ -1,5 +1,6 @@
 {
   "slug": "merge_dict",
+  "cpython": "3.14.8",
   "argv": [
     "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/a.env",
     "/Users/josocjoq/.worktrees/cifix/185/benchmarks/scripts_corpus/fixtures/b.env"
