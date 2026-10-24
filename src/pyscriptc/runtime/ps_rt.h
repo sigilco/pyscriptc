@@ -423,6 +423,7 @@ int64_t ps_str_isalnum(int64_t n, const char *p);
 int64_t ps_str_isspace(int64_t n, const char *p);
 int64_t ps_str_isupper(int64_t n, const char *p);
 int64_t ps_str_islower(int64_t n, const char *p);
+int64_t ps_str_isascii(int64_t n, const char *p);
 void ps_str_title(int64_t n, const char *p, PsBuf *out);
 void ps_str_capitalize(int64_t n, const char *p, PsBuf *out);
 void ps_str_casefold(int64_t n, const char *p, PsBuf *out);

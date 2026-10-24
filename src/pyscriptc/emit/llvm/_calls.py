@@ -281,6 +281,9 @@ class CallsMixin:
         if name in {"isdigit", "isalpha", "isalnum", "isspace", "isupper", "islower"}:
             self._abi_decl(f"ps_str_{name}", "i32", ["i64", "ptr"])
             return self._flag(self._call_ret("i32", f"ps_str_{name}", [f"i64 {length}", f"ptr {ptr}"]))
+        if name == "isascii":
+            self._abi_decl("ps_str_isascii", "i32", ["i64", "ptr"])
+            return self._flag(self._call_ret("i32", "ps_str_isascii", [f"i64 {length}", f"ptr {ptr}"]))
         if name == "encode":
             self._abi_decl("ps_utf8_encode", "void", ["i64", "ptr", "ptr"])
             return self._buf_out("ps_utf8_encode", [f"i64 {length}", f"ptr {ptr}"])

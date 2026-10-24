@@ -493,6 +493,18 @@ int64_t ps_str_islower(int64_t n, const char *p) {
     return ps_pred_run(n, p, "islower", ps_pred_lower_step, 1);
 }
 
+/* isascii is decidable without the category tables: CPython answers True
+   for the empty string and True exactly when every code point is below
+   U+0080, which on UTF-8 bytes is "every byte below 0x80". */
+int64_t ps_str_isascii(int64_t n, const char *p) {
+    for (int64_t i = 0; i < n; i++) {
+        if ((unsigned char)p[i] >= 0x80) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 int64_t ps_str_count(int64_t n, const char *p, int64_t sn, const char *sp) {
     int64_t i = 0, hits = 0;
     if (sn == 0) {

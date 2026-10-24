@@ -59,8 +59,8 @@ def test_repr_through_format_and_percent(tmp_path: Path) -> None:
         "repr_paths.py",
         [
             f"print('%r' % '{CAFE}', f\"{{'{EUR}'!r}}\")",
-            f"print('%c' % 0x20ac, '%c' % 0x1f642)",
-            f"print(f\"{{chr(0x3a3)}}\", f\"{{0x3a3:c}}\")",
+            "print('%c' % 0x20ac, '%c' % 0x1f642)",
+            'print(f"{chr(0x3a3)}", f"{0x3a3:c}")',
         ],
     )
 
@@ -83,7 +83,7 @@ def test_format_ascii_widths_unchanged(tmp_path: Path) -> None:
         tmp_path,
         "fmt_ascii.py",
         [
-            "print(f\"{'ab':>6}|\", f\"{'ab':06.3}|\", f\"{3.14159:.2f}\")",
+            'print(f"{\'ab\':>6}|", f"{\'ab\':06.3}|", f"{3.14159:.2f}")',
             "print('%5s|%-5s|' % ('a', 'b'))",
         ],
     )
@@ -98,6 +98,17 @@ def test_predicates_on_case_table_answers(tmp_path: Path) -> None:
             f"print('abc'.isalpha(), '{CAFE}'.isalpha(), 'ab1'.isalpha())",
             "print('123'.isdigit(), ''.isalpha(), ' '.isspace(), '\\t'.isspace())",
             "print('Ab'.isupper(), 'aB'.islower(), ''.isspace(), ''.isdigit())",
+        ],
+    )
+
+
+def test_isascii_decides_everything(tmp_path: Path) -> None:
+    _diff(
+        tmp_path,
+        "isascii_cp.py",
+        [
+            f"print('abc'.isascii(), ''.isascii(), '{CAFE}'.isascii(), '{EUR}'.isascii())",
+            f"print('{EMOJI}'.isascii(), 'ab\\t'.isascii())",
         ],
     )
 
