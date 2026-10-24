@@ -322,7 +322,7 @@ _ENTRIES = (
         "PS4201",
         "dynamic attribute protocol refused",
         (
-            "`__getattr__`, `__setattr__`, `__getattribute__`, `__get__` and `__set__` "
+            "`__setattr__`, `__getattribute__`, `__get__` and `__set__` "
             "intercept attribute access at run time. Attribute access is resolved "
             "statically to declared fields, so a hook that can intercept any name "
             "lookup or write has nothing to run in, and the hook would be silently "
@@ -330,7 +330,24 @@ _ENTRIES = (
         ),
         (
             "Use plain annotated fields and methods. `@property` getters lower; "
-            "unknown-name delegation becomes an explicit method call."
+            "`__getattr__` lowers for unknown-name reads (issue #434); "
+            "unknown-name delegation otherwise becomes an explicit method call."
+        ),
+    ),
+    Diagnostic(
+        "PS4204",
+        "__getattr__ return type does not cover the read site",
+        (
+            "An unknown-name read on a class with `__getattr__` lowers as a direct "
+            "call of the hook with the attribute name as a compile-time constant. "
+            "The hook's declared return type is what the read gets, so it must "
+            "cover the read site's expected type exactly; a hook that returns "
+            "`None`, `bool` or an optional cannot feed an arbitrary read."
+        ),
+        (
+            "Narrow the hook's return annotation to one lowered value type that "
+            "every read site expects, or split the class: one `__getattr__` per "
+            "return shape, or explicit methods instead of the hook."
         ),
     ),
     Diagnostic(

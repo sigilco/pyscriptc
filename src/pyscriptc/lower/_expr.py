@@ -155,7 +155,7 @@ class ExprMixin:
         if isinstance(node, ast.Call):
             return self._call(node, span, expect)
         if isinstance(node, ast.Attribute):
-            return self._attribute(node, span)
+            return self._attribute(node, span, expect)
         if isinstance(node, ast.List):
             return self._list(node, span, expect)
         if isinstance(node, ast.Set):
@@ -1201,7 +1201,9 @@ class ExprMixin:
         self.prelude.append({"kind": "if", "cond": cond, "then": then, "else": other, "span": span})
         return _name(v_t, val_t, span)
 
-    def _attribute(self, node: ast.Attribute, span: dict[str, Any]) -> dict[str, Any]:
+    def _attribute(
+        self, node: ast.Attribute, span: dict[str, Any], expect: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         if (
             isinstance(node.value, ast.Call)
             and node.attr == "name"
@@ -1269,7 +1271,7 @@ class ExprMixin:
                     self.fail(node, "PS2001", f"{node.value.id}.{node.attr} is not an enum member")
                 return {"kind": "const", "value": str(member), "type": {"kind": "int"}, "span": span}
         value = self._expr(node.value)
-        return self._lookup_attr(value, node.attr, span, node)
+        return self._lookup_attr(value, node.attr, span, node, expect)
 
     def _call(self, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None = None) -> dict[str, Any]:
         if isinstance(node.func, ast.Name):
