@@ -83,6 +83,7 @@ export default {
       collapsible: true,
       children: [
         { title: "The Python subset", path: "/guide/support-model/" },
+        { title: "Packages and apps", path: "/guide/packages/" },
         { title: "Reading .env files", path: "/guide/dotenv/" },
         { title: "Signing and verifying JWTs", path: "/guide/jwt/" },
         { title: "Fast JSON with orjson", path: "/guide/orjson/" },
