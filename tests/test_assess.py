@@ -278,3 +278,96 @@ def test_assess_graceful_on_syntax_error(tmp_path: Path, capsys: pytest.CaptureF
     data = json.loads(captured.out)
     assert data["summary"]["files"]["total"] >= 1
     assert data["summary"]["shares"]["native"] == 0.0
+
+
+def test_assess_filter_self_package_routes_and_missing_name(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    pkg = tmp_path / "mypkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("from .api import missing_fn\n", encoding="utf-8")
+    (pkg / "api.py").write_text("def existing_fn() -> int:\n    return 42\n", encoding="utf-8")
+
+    code = cli.main(["assess", str(pkg), "--json"])
+    assert code == 0
+    data = json.loads(capsys.readouterr().out)
+
+    # Neither api nor mypkg should be in policy lines or routes
+    assert not any(r["name"] in ("api", "mypkg") for r in data["islandRouting"]["routes"])
+    assert 'api = "island"' not in data["islandRouting"]["policyLines"]
+    assert 'mypkg = "island"' not in data["islandRouting"]["policyLines"]
+
+    # In text output, it should say 'name is missing' instead of proposing a route
+    code_text = cli.main(["assess", str(pkg)])
+    assert code_text == 0
+    text_out = capsys.readouterr().out
+    assert "name is missing" in text_out
+    assert 'island route: api = "island"' not in text_out
+
+
+def test_assess_partially_lowered_stdlib_module(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    script = tmp_path / "use_logging.py"
+    script.write_text("import logging\nlogging.NullHandler()\n", encoding="utf-8")
+
+    code = cli.main(["assess", str(script), "--json"])
+    assert code == 0
+    data = json.loads(capsys.readouterr().out)
+
+    # Should not propose logging = "island"
+    assert not any(r["name"] == "logging" for r in data["islandRouting"]["routes"])
+    assert 'logging = "island"' not in data["islandRouting"]["policyLines"]
+
+    # Should be in staysBlocked with reason
+    assert any("partially lowered stdlib module" in blk["reason"] for blk in data["islandRouting"]["staysBlocked"])
+
+    # Text report shows explicit note
+    code_text = cli.main(["assess", str(script)])
+    assert code_text == 0
+    text_out = capsys.readouterr().out
+    assert "partially lowered stdlib module keeps fence with named idiom" in text_out
+    assert 'logging = "island"' not in text_out
+
+
+def test_assess_import_level_island_share(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    script = tmp_path / "mixed_imports.py"
+    script.write_text("import math\nimport requests\n\ndef run() -> int:\n    return 1\n", encoding="utf-8")
+
+    code = cli.main(["assess", str(script), "--json"])
+    assert code == 0
+    data = json.loads(capsys.readouterr().out)
+
+    shares = data["summary"]["shares"]
+    assert "importIsland" in shares
+    assert shares["importIsland"] == 0.5
+
+    imps = data["summary"]["imports"]
+    assert imps["total"] == 2
+    assert imps["native"] == 1
+    assert imps["island"] == 1
+    assert imps["share"] == 0.5
+
+    code_text = cli.main(["assess", str(script)])
+    assert code_text == 0
+    text_out = capsys.readouterr().out
+    assert "50.0% import-level" in text_out
+
+
+def test_assess_capping_and_all_flag(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    # A script with 5 unsupported constructs (5 unions)
+    unions = "\n".join(f"def f{i}(x: int | str) -> int:\n    return 0" for i in range(5))
+    script = tmp_path / "many_fences.py"
+    script.write_text(unions + "\n", encoding="utf-8")
+
+    # Default capped report
+    code_capped = cli.main(["assess", str(script)])
+    assert code_capped == 0
+    text_capped = capsys.readouterr().out
+    assert "... and 2 more unsupported construct fence(s) (use --all for full list)" in text_capped
+
+    # Full report with --all
+    code_all = cli.main(["assess", str(script), "--all"])
+    assert code_all == 0
+    text_all = capsys.readouterr().out
+    assert "use --all for full list" not in text_all
+    assert "line 1:" in text_all
+    assert "line 7:" in text_all
+    assert "line 9:" in text_all
+    assert "line 7:" not in text_capped

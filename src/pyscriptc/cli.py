@@ -255,6 +255,11 @@ def main(argv: list[str] | None = None) -> int:
     assess_parser.add_argument("source", help="script, package directory or app")
     assess_parser.add_argument("--json", action="store_true", help="print the assessment report as JSON")
     assess_parser.add_argument(
+        "--all",
+        action="store_true",
+        help="print full assessment report without capping fences (default top-3 per root cause)",
+    )
+    assess_parser.add_argument(
         "--bench",
         action="store_true",
         help="time CPython against native binary on compilable entry points and print ratio",
@@ -665,7 +670,7 @@ def assess_cmd(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(report, indent=2))
     else:
-        print(assess.render_text(report))
+        print(assess.render_text(report, show_all=args.all))
 
     if args.verify and report.get("verify"):
         for rec in report["verify"]:

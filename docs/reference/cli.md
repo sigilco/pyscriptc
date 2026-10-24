@@ -94,14 +94,15 @@ Verify is a differential smoke test, not a proof. It covers the paths the argv a
 ## `assess`
 
 ```sh
-pyscriptc assess PATH [--json] [--bench] [--verify] [--input FILE] [--call FN] [--args '[...]'] [--timeout S]
+pyscriptc assess PATH [--json] [--all] [--bench] [--verify] [--input FILE] [--call FN] [--args '[...]'] [--timeout S]
 ```
 
-Evaluate any Python script, library or app directory without crashing, whatever the fence count. Reports lowering status per file, fences grouped by root cause (reflection culprit, untyped import, unsupported construct) with the nearest typed idiom, per-import ladder status, overall native vs island vs blocked shares, and concrete `[tool.pyscriptc.imports]` policy lines for the island floor.
+Evaluate any Python script, library or app directory without crashing, whatever the fence count. Reports lowering status per file, fences grouped by root cause (reflection culprit, untyped import, unsupported construct) with the nearest typed idiom, per-import ladder status, overall native vs island vs blocked shares with import-level island share, and concrete `[tool.pyscriptc.imports]` policy lines for the island floor. By default, output is capped to a one-screen summary with top-3 fences per root cause; pass `--all` for the full list.
 
 | Flag | Effect |
 | ---- | ------ |
 | `--json` | Print the report as JSON (`schemaVersion` 1) instead of text |
+| `--all` | Print the full assessment report without capping fences (default top-3 per root cause for a one-screen summary) |
 | `--bench` | For compilable entry points, time CPython against the native binary on user inputs and print the measured ratio with sample count (default 5 samples; without this flag, no speed numbers are printed) |
 | `--verify` | Run the differential verification on compilable entry points and show the receipt inline |
 | `--input FILE` | Feed `FILE` bytes on stdin to both runs |
@@ -124,7 +125,7 @@ On a single script, assess reports whether it lowers fully, partly, or is refuse
 pyscriptc assess mylib/
 ```
 
-On a library directory, assess inspects every module and definition without requiring an entry point. Modules that do not lower report their root-cause fences and mark what stays blocked (such as dynamic attributes or union types) alongside the nearest typed idiom.
+On a library directory, assess inspects every module and definition without requiring an entry point. Internal submodules of the assessed package are not proposed as third-party island routes, and missing submodule exports report that the name is missing instead of suggesting an import policy. Partially lowered standard-library modules stay native and keep their fence with the named typed idiom rather than routing whole to the island. Modules that do not lower report their root-cause fences and mark what stays blocked (such as dynamic attributes or union types) alongside the nearest typed idiom.
 
 ### Example 3: Application directory
 
