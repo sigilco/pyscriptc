@@ -25,6 +25,10 @@ Prebuilt binaries ship on the [release page](https://github.com/sigilco/pyscript
 
 Every compiler surface: the language subset (including whatever the release notes call out as new, such as project mode, async or FFI), `pyscriptc compile`, `run`, `doctor`, the emitted binaries, and the wheel install path. The beta is not the place to evaluate the compat numbers; those are measured separately on the [compat page](https://pyscriptc.pages.dev/compat/).
 
+Bringing a script you already have is in scope, and expected: the compiler is measured against real-world scripts for exactly this reason.
+Set the expectation first: most scripts today stop at a named fence, most often an assignment without an annotation (`PS1001`), a keyword argument to a stdlib call (`PS2003`), or an import outside the closed table (`PS2002`).
+The fences and what they mean are on [the subset page](../guide/support-model.md); a fence on your script is a correct refusal, not a crash, and it is exactly the feedback the beta wants.
+
 ## How to report
 
 Open an issue with the `beta-feedback` template: it asks for the version, the install channel and the smallest script that shows the problem. Attach `pyscriptc compile FILE --debug` output when a compile stops at a fence.
