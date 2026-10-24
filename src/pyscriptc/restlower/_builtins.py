@@ -65,7 +65,7 @@ def _abs(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if len(node.args) != 1:
         lo.fail(node, "PS2003", "abs expects 1 argument(s)")
     arg = lo._expr(node.args[0])
-    folded = _static_builtin_fold("abs", arg, span)
+    folded = _static_builtin_fold("abs", arg, span, fence=lo)
     if folded is not None:
         return folded
     kind = arg["type"]["kind"]
@@ -157,7 +157,7 @@ def _repr(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if len(node.args) != 1:
         lo.fail(node, "PS2003", "repr expects 1 argument(s)")
     arg = lo._expr(node.args[0])
-    folded = _static_builtin_fold("repr", arg, span)
+    folded = _static_builtin_fold("repr", arg, span, fence=lo)
     if folded is not None:
         return folded
     kind = arg["type"]["kind"]
@@ -186,7 +186,7 @@ def _ord(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if len(node.args) != 1:
         lo.fail(node, "PS2003", "ord expects 1 argument(s)")
     arg = lo._expr(node.args[0])
-    folded = _static_builtin_fold("ord", arg, span)
+    folded = _static_builtin_fold("ord", arg, span, fence=lo)
     if folded is not None:
         return folded
     if arg["type"]["kind"] != "str":
@@ -198,7 +198,7 @@ def _chr(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if len(node.args) != 1:
         lo.fail(node, "PS2003", "chr expects 1 argument(s)")
     arg = lo._expr(node.args[0])
-    folded = _static_builtin_fold("chr", arg, span)
+    folded = _static_builtin_fold("chr", arg, span, fence=lo)
     if folded is not None:
         return folded
     if arg["type"]["kind"] != "int":
