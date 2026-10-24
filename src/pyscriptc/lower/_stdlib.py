@@ -59,8 +59,10 @@ def _dep_lane_hint(module: str, message: str) -> str:
 
     A dependency on a lane the compiler cannot take (issue #398) is refused
     with the distribution and the lane hint, so the user knows which
-    dependency refused and what would unblock it. Any other import keeps
-    today's message.
+    dependency refused and what would unblock it. With the #408 map, the
+    key is the recorded import name, not the distribution name read as a
+    module: `import yaml` names PyYAML. An unknown distribution is named as
+    `unknown` rather than guessed; any other import keeps today's message.
     """
 
     lanes = dep_lanes()
@@ -70,7 +72,11 @@ def _dep_lane_hint(module: str, message: str) -> str:
     entry = lanes.get(head)
     if entry is None:
         return message
-    return f"{message} ({entry['distribution']} is on the {entry['lane']} lane: {entry['hint']})"
+    if entry.get("importNames") == "unknown":
+        return f"{message} ({entry['distribution']} is locked, on the {entry['lane']} lane: {entry['hint']})"
+    if entry.get("ambiguous"):
+        return f"{message} ({entry['ambiguous']} both provide {head}; lock only one)"
+    return f"{message} ({entry['distribution']} provides {head}, on the {entry['lane']} lane: {entry['hint']})"
 
 
 class StdlibDispatchMixin:

@@ -1188,8 +1188,10 @@ def _dependency_roots(source_path: Path, config: Any) -> tuple[list[Path], dict[
     import fences or binds on its own lane).
 
     The second value is the lane report the compiler fences against: every
-    locked dependency by import name, with its lane and the lane hint, so a
-    refused import names the distribution and what would unblock it.
+    locked dependency keyed by its recorded import names (issue #408; the
+    distribution-shaped module name when the wheel records none), with its
+    lane and the lane hint, so a refused import names the distribution and
+    what would unblock it.
 
     A source with no declared dependencies has no roots and no resolver
     call, so a compile that declares nothing never touches the network.
@@ -1210,15 +1212,26 @@ def _dependency_roots(source_path: Path, config: Any) -> tuple[list[Path], dict[
         policy = _dependency_lane(distribution, config)
         if policy != "compile":
             lane = policy
-        lanes[module] = {
+        entry = {
             "distribution": distribution,
             "lane": lane,
             "hint": package.get("hint", ""),
         }
-        root = package.get("source_root")
-        if not root or lane != "pure":
+        names = tuple(package.get("import_names") or ())
+        if not names:
+            entry["importNames"] = deps.UNKNOWN_IMPORT_NAMES
+            lanes.setdefault(module, entry)
+            root = package.get("source_root")
+            if root and lane == "pure":
+                roots.append(Path(root))
             continue
-        roots.append(Path(root))
+        if len(names) > 1:
+            entry["provides"] = ", ".join(sorted(names))
+        for import_name in names:
+            lanes.setdefault(import_name.lower(), entry)
+        root = package.get("source_root")
+        if root and lane == "pure":
+            roots.append(Path(root))
     return roots, lanes
 
 
