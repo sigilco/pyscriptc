@@ -204,6 +204,9 @@ def test_self_census_ballpark() -> None:
     # adds 1, the `staged_resources` marker in stdlib_queue.py adds 2 and the
     # `_resource_search` compile-time search in restlower/_system.py adds 4;
     # the module count is unchanged.
+    # Island per-import policy (#157): the `[imports]` island policy handling,
+    # ladder classification and reach export add 22 self-host fences across
+    # config.py, imports.py, coverage.py and cli.py; the module count is unchanged.
 
     # Local inference (#500): the pin walk and typed defaults let the self-host
     # sources lower without the annotation fences, 341 fewer in total.

@@ -208,6 +208,20 @@ def test_dependencies_mapped_to_lanes(tmp_path: Path) -> None:
     assert lanes['My-Pure.Pkg[x]; python_version>"3"'] == "native"
 
 
+def test_config_exposes_island_import_helpers(tmp_path: Path) -> None:
+    from pyscriptc.config import load_config
+
+    script = _project(tmp_path, "[tool.pyscriptc.imports]\nrequests = 'island'\nattrs = 'island'\n'*' = 'compile'\n")
+    cfg = load_config(script)
+    assert cfg.island_imports() == ("attrs", "requests")
+    assert cfg.wildcard_island() is False
+    b = tmp_path / "b"
+    b.mkdir()
+    script2 = _project(b, "[tool.pyscriptc.imports]\n'*' = 'island'\n")
+    (b / "main.py").write_text("def main() -> int:\n    return 0\n", encoding="utf-8")
+    assert load_config(script2).wildcard_island() is True
+
+
 def test_dependency_lane_star_and_invalid() -> None:
     from pyscriptc.config import dependency_lanes
 

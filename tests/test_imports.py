@@ -19,13 +19,19 @@ from pyscriptc.imports import (
     KIND_NATIVE,
     KIND_PURE,
     KIND_STDLIB,
+    LADDER_ISLAND,
+    LADDER_NATIVE,
     LANE_EXTERN,
+    LANE_ISLAND,
     LANE_NATIVE,
     LANE_PACK,
     build_report,
     classify,
     collect_imports,
     curated_packs,
+    export_reach,
+    island_reach,
+    island_statements,
     native_packages,
     pack_candidates,
     render_text,
@@ -222,12 +228,103 @@ def test_report_schema_is_stable(tmp_path: Path) -> None:
         "name",
         "kind",
         "lane",
+        "ladder",
+        "requiresLibpython",
         "reason",
         "distribution",
         "pack",
         "source",
         "sites",
     }
+
+
+def test_without_a_policy_no_import_reaches_the_island(tmp_path: Path) -> None:
+    path = write(tmp_path / "a.py", "import numpy\nimport json\n")
+    report = build_report(path)
+    assert all(item["lane"] != LANE_ISLAND for item in report["imports"])
+    assert report["summary"]["requiresLibpython"] is False
+    assert report["summary"]["islandImports"] == []
+    assert LADDER_ISLAND not in report["summary"]["byLadder"]
+
+
+def test_the_policy_is_the_only_route_to_the_island(tmp_path: Path) -> None:
+    path = write(tmp_path / "a.py", "import numpy\n")
+    report = build_report(path, policy={"numpy": "island"})
+    item = report["imports"][0]
+    assert item["lane"] == LANE_ISLAND
+    assert item["ladder"] == LADDER_ISLAND
+    assert item["requiresLibpython"] is True
+    assert "requires libpython" in item["reason"]
+    assert report["summary"]["requiresLibpython"] is True
+    assert report["summary"]["islandImports"] == ["numpy"]
+    assert report["summary"]["byLadder"] == {LADDER_ISLAND: 1}
+
+
+def test_the_policy_matches_a_full_module_name_before_its_root(tmp_path: Path) -> None:
+    path = write(tmp_path / "a.py", "import cryptography.fernet\n")
+    report = build_report(path, policy={"cryptography.fernet": "island"})
+    assert report["imports"][0]["lane"] == LANE_ISLAND
+
+
+def test_a_wildcard_policy_routes_every_unlisted_import_to_the_island(tmp_path: Path) -> None:
+    path = write(tmp_path / "a.py", "import orjson\nimport json\n")
+    report = build_report(path, policy={"json": "compile", "*": "island"})
+    lanes = {item["name"]: item["lane"] for item in report["imports"]}
+    assert lanes == {"json": LANE_NATIVE, "orjson": LANE_ISLAND}
+
+
+def test_a_policy_entry_overrides_the_classifier_verdict(tmp_path: Path) -> None:
+    path = write(tmp_path / "a.py", "import orjson\n")
+    report = build_report(path, policy={"orjson": "island"})
+    item = report["imports"][0]
+    assert item["lane"] == LANE_ISLAND
+    assert item["kind"] == KIND_CURATED
+
+
+def test_a_native_import_keeps_the_native_rung(tmp_path: Path) -> None:
+    path = write(tmp_path / "a.py", "import json\n")
+    assert build_report(path)["imports"][0]["ladder"] == LADDER_NATIVE
+
+
+def test_reach_is_island_statements_over_all_import_statements(tmp_path: Path) -> None:
+    path = write(tmp_path / "a.py", "import json\nimport requests\nimport requests.sessions\n")
+    report = build_report(path, policy={"requests": "island"})
+    assert island_statements(report) == 2
+    assert island_reach(report) == 0.6667
+    assert report["summary"]["islandStatements"] == 2
+    assert report["summary"]["reach"] == 0.6667
+
+
+def test_reach_of_a_program_without_imports_is_zero(tmp_path: Path) -> None:
+    report = build_report(write(tmp_path / "a.py", "x = 1\n"))
+    assert island_reach(report) == 0.0
+
+
+def test_export_reach_appends_to_the_boxed_cost_series(tmp_path: Path) -> None:
+    path = write(tmp_path / "a.py", "import json\nimport requests\n")
+    first = build_report(write(tmp_path / "b.py", "import json\nimport requests\n"), policy={"requests": "island"})
+    target = tmp_path / "reach.json"
+    assert export_reach(first, target) == {"boxed_only_reach": [0.5], "unit": "share"}
+    second = build_report(write(tmp_path / "c.py", "import requests\n"), policy={"requests": "island"})
+    assert export_reach(second, target)["boxed_only_reach"] == [0.5, 1.0]
+    on_disk = json.loads(target.read_text(encoding="utf-8"))
+    assert on_disk == {"boxed_only_reach": [0.5, 1.0], "unit": "share"}
+    assert path.is_file()
+
+
+def test_export_reach_refuses_a_file_that_is_not_a_reach_document(tmp_path: Path) -> None:
+    target = tmp_path / "reach.json"
+    target.write_text("[]", encoding="utf-8")
+    report = build_report(write(tmp_path / "a.py", "import json\n"))
+    with pytest.raises(ValueError, match="JSON object"):
+        export_reach(report, target)
+
+
+def test_render_text_marks_the_island_and_its_label(tmp_path: Path) -> None:
+    path = write(tmp_path / "a.py", "import requests\n")
+    text = render_text(build_report(path, policy={"requests": "island"}))
+    assert "island (requires libpython)" in text
+    assert "island: requires libpython" in text
 
 
 def test_render_text_names_the_lane_of_every_import(tmp_path: Path) -> None:
@@ -356,3 +453,16 @@ def test_imports_cli_walks_a_package_tree(tmp_path: Path) -> None:
     assert got.returncode == 0, got.stderr
     report = json.loads(got.stdout)
     assert report["summary"]["imports"] == 2
+
+
+def test_imports_cli_exports_reach(tmp_path: Path) -> None:
+    path = write(
+        tmp_path / "a.py",
+        "# /// script\n# [tool.pyscriptc.imports]\n# requests = 'island'\n# ///\nimport requests\nimport json\n",
+    )
+    reach_file = tmp_path / "reach.json"
+    got = run_cli("imports", str(path), "--reach", str(reach_file))
+    assert got.returncode == 0, got.stderr
+    assert "island reach 0.5000 appended to" in got.stderr
+    payload = json.loads(reach_file.read_text(encoding="utf-8"))
+    assert payload == {"boxed_only_reach": [0.5], "unit": "share"}
