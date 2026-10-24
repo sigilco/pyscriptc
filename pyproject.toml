@@ -43,6 +43,7 @@ dev = [
     "mypy>=2.4",
     "orjson>=3.13.0",
     "requests>=2.34.2",
+    "hypothesis>=6.170.9",
 ]
 # Release binary build only (packaging/). Not installed by a plain `uv sync`.
 packaging = ["nuitka>=4.0", "zstandard>=0.23", "ordered-set>=4.1"]
