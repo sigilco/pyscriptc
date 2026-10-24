@@ -52,8 +52,18 @@ def _resource_search() -> str:
     import os
     import sys
 
+    from pyscriptc.stdlib_queue import resource_root
+
     found: list[str] = []
     seen: set[str] = set()
+    # The staged data-file root beside the emitted binary (issue #410) goes
+    # first, so a dependency package's staged files win over any same-named
+    # host package. Skipped when empty: a compile that stages nothing keeps
+    # the host-only path exactly as before.
+    staged = resource_root()
+    if staged:
+        found.append(staged)
+        seen.add(staged)
     for entry in sys.path:
         if not entry:
             entry = os.getcwd()

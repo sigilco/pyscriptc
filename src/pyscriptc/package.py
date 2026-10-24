@@ -30,7 +30,7 @@ from pyscriptc.builtins import USER_EXC_BASE
 from pyscriptc.errors import IRError
 from pyscriptc.ir import IR_VERSION, SUBSET, cpython_version
 from pyscriptc.lower import Lowerer
-from pyscriptc.stdlib_queue import dependency_lanes, ffi_modules
+from pyscriptc.stdlib_queue import dependency_lanes, ffi_modules, staged_resources
 
 
 def lower_directory(
@@ -43,6 +43,7 @@ def lower_directory(
     target: str | None = None,
     dep_roots: list[Path] | None = None,
     dep_lane_report: dict[str, dict[str, str]] | None = None,
+    resource_root: str = "",
 ) -> tuple[dict[str, Any], str]:
     """Lower a directory tree into one IR module.
 
@@ -86,6 +87,7 @@ def lower_directory(
         dep_names={name for name, _path, _is_package in kept},
         dep_lane_report=dep_lane_report,
         catalog_units=catalogued,
+        resource_root=resource_root,
     )
     if skipped:
         notes = [*notes, *[_skip_note(root, rel) for rel in skipped]]
@@ -161,6 +163,7 @@ def _lower_units(
     dep_names: set[str],
     dep_lane_report: dict[str, dict[str, str]] | None = None,
     catalog_units: list[tuple[str, Path, bool]] | None = None,
+    resource_root: str = "",
 ) -> tuple[dict[str, Any], list[str]]:
     """Lower a set of module units into one IR module.
 
@@ -210,7 +213,7 @@ def _lower_units(
     fences: list[dict[str, Any]] = []
     class_names: dict[str, dict[str, Any]] = {}
     exc_n = USER_EXC_BASE
-    with ffi_modules(ffi or []), dependency_lanes(dep_lane_report or {}):
+    with ffi_modules(ffi or []), dependency_lanes(dep_lane_report or {}), staged_resources(resource_root):
         for name, path, is_package in units:
             text = path.read_text(encoding="utf-8")
             tree = ast.parse(text, filename=str(path))
