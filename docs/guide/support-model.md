@@ -40,7 +40,8 @@ What a script meets today, measured on that corpus (39 scripts, 2026-10-24, 0 co
 - A keyword argument to a stdlib call (`shutil.copy(src, dst, follow_symlinks=False)`, `subprocess.run(args, capture_output=True)`) fences with `PS2003`. 6 scripts stop here.
 - A module outside the closed import table (`platform`, `calendar`, `zipfile`, `tarfile`, `sqlite3`) fences with `PS2002` on the import. 6 scripts stop here.
 
-The per-module gap list, generated from the same corpus, lands as `docs/reference/what-will-fail.md` (#508); until then the first fence of a run, `pyscriptc compile FILE`, and `pyscriptc coverage FILE` name the exact gap in your script.
+The first-class script bar and its beta-readiness checklist are documented in [First-class scripts](../reference/first-class-scripts.md).
+The per-module gap list, generated from the same corpus, is documented in [What will fail](../reference/what-will-fail.md); until then the first fence of a run, `pyscriptc compile FILE`, and `pyscriptc coverage FILE` name the exact gap in your script.
 The grind plan and its tickets are #500 to #511; the measurement tool is `uv run python -m benchmarks.real_scripts.measure`.
 
 ## Checking your own code
