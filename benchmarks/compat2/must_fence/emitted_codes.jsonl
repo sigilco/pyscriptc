@@ -1,4 +1,4 @@
-{"id": "code.PS1001", "tier": "T0", "construct": "annotation missing on parameter", "code": "PS1001", "source": "def f(x) -> int:\n    return x\n\ndef main() -> int:\n    return f(1)\n", "expected": "fence"}
+{"id": "code.PS1001", "tier": "T0", "construct": "annotation missing on parameter", "code": "PS1001", "source": "def f(x) -> int:\n    return x\n\ndef main() -> int:\n    return 0\n", "expected": "fence"}
 {"id": "code.PS1003", "tier": "T0", "construct": "type mismatch in assignment", "code": "PS1003", "source": "def main() -> int:\n    x: int = 'bad'\n    return x\n", "expected": "fence"}
 {"id": "code.PS1004", "tier": "T0", "construct": "function can fall off end without return", "code": "PS1004", "source": "def main(x: int) -> int:\n    if x > 0:\n        return 1\n", "expected": "fence"}
 {"id": "code.PS1101", "tier": "T0", "construct": "union annotation", "code": "PS1101", "source": "def f(x: int | str) -> int:\n    return 1\n\ndef main() -> int:\n    return f(1)\n", "expected": "fence"}
