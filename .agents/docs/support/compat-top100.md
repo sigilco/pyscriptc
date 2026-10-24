@@ -7,7 +7,7 @@ pinned pure-Python libraries: 2 🟢 · 6 🟡 · 10 🔴
 | library | version | status | fenced defs | top blocking features (fences) | top codes |
 | --- | --- | --- | --- | --- | --- |
 | `colorama` | 0.4.6 | 🔴 | 60/77 | param-inference (38), return-inference (16), class-body (13) | PS1001, PS2002, PS1204 |
-| `h11` | 0.16.0 | 🔴 | 76/133 | generic-alias (17), unlowered-type-name (17), class-keywords (15) | PS2002, PS1103, PS1106 |
+| `h11` | 0.16.0 | 🔴 | 76/133 | generic-alias (17), unlowered-type-name (17), reflection (16) | PS2002, PS1103, PS1106 |
 | `idna` | 3.20 | 🔴 | 40/56 | name-resolution (54), local-inference (31), keyword-args (17) | PS2002, PS1001, PS2003 |
 | `jmespath` | 1.1.0 | 🔴 | 111/200 | param-inference (80), return-inference (18), class-body (9) | PS1001, PS2002, PS1204 |
 | `mdurl` | 0.1.2 | 🔴 | 9/12 | local-inference (11), name-resolution (11), construct-other (2) | PS2002, PS1001, PS2003 |
