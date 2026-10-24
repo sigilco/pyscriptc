@@ -1,0 +1,58 @@
+# pyscriptc-orjson: the orjson replacement pack in the #377 pack format.
+#
+# The identity block follows section 2 of .agents/docs/spec/pack-format.md.
+# The FFI tables below are the [ffi] embedding the spec defines: the
+# [[ffi.fn]] rows carry the same fields the sqlite pilot's ffi.toml rows do
+# (the [[ffi.source]]/[[ffi.handle]]/[[ffi.const]] sections stay empty; this
+# pack has no handles and no manifest constants).
+
+[pack]
+name = "pyscriptc-orjson"      # distribution name, equals the directory name
+version = "1.0.0"              # the pack's own SemVer release
+replaces = "orjson"            # the PyPI distribution whose imports it covers
+replaces-version = ">=3.8,<4"  # the upstream versions the surface mirrors
+ps-abi = 1                     # the compiler/runtime ABI epoch (ffi_manifest.CURRENT_PS_ABI)
+format = 1                     # this schema's version (pack-format spec)
+
+[[imports]]                    # import names the pack binds; native_packages.json
+name = "orjson"                # maps orjson, ujson and simplejson onto this pack
+
+[[imports]]
+name = "ujson"
+
+[[imports]]
+name = "simplejson"
+
+[[platform]]                   # platform targets; one row per shipped triple
+triple = "aarch64-apple-darwin"
+wheel-tag = "macosx_11_0_arm64"
+
+[[platform]]
+triple = "x86_64-unknown-linux-musl"
+wheel-tag = "manylinux_2_17_x86_64"
+
+[ffi]
+# [[ffi.source]], [[ffi.handle]], [[ffi.const]]: none. The pack's thunks sit
+# over the compiler runtime's ps_json.c (the same C the stdlib json lane
+# links), so no source is vendored here.
+
+[[ffi.fn]]
+name = "dumps"
+# The surface's own signature: `dumps(obj: Any, option: int = ...) -> bytes`.
+# The FFI type vocabulary has no `Any` (section 3 of the spec reuses the
+# vocabulary as it is), so the validator refuses this row today; the gap is
+# recorded on #377 and the pack does not paper over it.
+py = "(obj: Any, option: int = 0) -> bytes"
+c_symbol = "ps_json_dumps_opts"
+abi = "ps_pack_orjson_dumps"
+
+[[ffi.fn]]
+name = "loads"
+# `loads(__obj: str | bytes) -> Any`: the union argument and the `Any` result
+# are outside the FFI vocabulary for the same reason as above.
+py = "(__obj: str | bytes) -> Any"
+c_symbol = "ps_json_loads"
+abi = "ps_pack_orjson_loads"
+
+[conformance]
+suite = "conformance/suite.toml"
