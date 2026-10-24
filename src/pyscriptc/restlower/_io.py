@@ -9,6 +9,11 @@ from pyscriptc.restlower._shared import _class, _const_int
 
 _OPEN = {"r": 1, "w": 2, "rb": 3, "wb": 4, "a": 5, "ab": 6}
 
+# `encoding=` is accepted as a str constant and rides the same read path for
+# every value: text reads decode the file bytes exactly as the no-encoding
+# call does. Named after the subsets text handles meet: Path.read_text.
+_OPEN_ENCODINGS = {"utf-8", "utf8", "ascii", "latin-1", "latin1"}
+
 
 # NamedTemporaryFile adds the read/write `+` modes; `open` keeps _OPEN only.
 _TEMP_OPEN = {**_OPEN, "w+": 7, "w+b": 8}
@@ -146,7 +151,26 @@ def _named_temp(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]
 
 
 def _open(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
-    slots = lo._place_nodes(node, ["file", "mode"])
+    if len(node.args) > 2:
+        # CPython's third positional is `buffering`; the row keeps `file`,
+        # `mode` and the `encoding=` keyword, so extra positionals fence.
+        lo.fail(node, "PS2003", "open expects 1 or 2 positional arguments; buffering is not lowered")
+    slots: list[ast.expr | None] = [
+        node.args[0] if len(node.args) > 0 else None,
+        node.args[1] if len(node.args) > 1 else None,
+    ]
+    if any(kw.arg is None for kw in node.keywords):
+        lo.fail(node, "PS2002", "**kwargs are not lowered")
+    for kw in node.keywords:
+        if kw.arg == "encoding":
+            if len(node.args) > 2 or not isinstance(kw.value, ast.Constant) or kw.value.value not in _OPEN_ENCODINGS:
+                lo.fail(kw, "PS2001", "open encoding= is utf-8, ascii, or latin-1")
+        elif kw.arg == "mode":
+            if slots[1] is not None:
+                lo.fail(kw, "PS2003", "mode given more than once")
+            slots[1] = kw.value
+        else:
+            lo.fail(kw, "PS2003", f"open keyword {kw.arg} is not lowered; open lowers encoding= only")
     if slots[0] is None:
         lo.fail(node, "PS2003", "open expects a path and an optional mode literal")
     path = lo._expr(slots[0])

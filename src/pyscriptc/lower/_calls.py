@@ -87,8 +87,34 @@ class CallsMixin:
                 special = _float_special_arg(node)
                 if special is not None:
                     return {"kind": "const", "value": special, "type": {"kind": "float"}, "span": span}
-            self._reject_keywords(node)
+            if name != "int":
+                self._reject_keywords(node)
             args = [self._expr(arg) for arg in node.args]
+            if name == "int" and node.args and (len(node.args) == 2 or node.keywords):
+                # The `base` row: `int(text, base)` positional and `int(text,
+                # base=N)` keyword are the same call; an unknown keyword name
+                # stays fenced below.
+                if len(node.args) == 2 and any(kw.arg == "base" for kw in node.keywords):
+                    self.fail(node, "PS2003", "int got base given more than once")
+                named = [kw.arg for kw in node.keywords if kw.arg not in {None, "base"}]
+                if named:
+                    self.fail(node, "PS2003", f"unexpected keyword argument {named[0]}")
+                if any(kw.arg is None for kw in node.keywords):
+                    self.fail(node, "PS2002", "**kwargs are not lowered")
+                kind = args[0]["type"]["kind"]
+                if kind not in {"str", "bytes"}:
+                    self.fail(node, "PS2003", "int with an explicit base takes a str or bytes value")
+                if len(node.args) == 1:
+                    base_node = next(kw.value for kw in node.keywords if kw.arg == "base")
+                    if isinstance(base_node, ast.Constant) and isinstance(base_node.value, int):
+                        if base_node.value == 0:
+                            self.fail(node, "PS2003", "int base 0 is not lowered")
+                        if base_node.value < 2 or base_node.value > 36:
+                            self.fail(node, "PS2003", "int lowers base 2 to 36 only")
+                    args.append(self._expr(base_node, {"kind": "int"}))
+                elif args[1]["type"]["kind"] != "int":
+                    self.fail(node, "PS2003", "int base is int")
+                return self._abi_call("builtins", "int", args, {"kind": "int"}, "ps_int_from_base", span)
             if len(args) == 1:
                 folded = _static_builtin_fold(name, args[0], span, fence=self)
                 if folded is not None:
