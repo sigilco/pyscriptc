@@ -200,6 +200,68 @@ int64_t ps_int_from_bytes(int64_t n, const char *s) {
     return neg ? -(int64_t)(mag - 1) - 1 : (int64_t)mag;
 }
 
+/* int(s, base): CPython's literal read over the digit table, minus the
+   underscore subset the base-10 path already diverges on. Bases 2..36 only
+   (the lowerer fences base 0 and out-of-range with a named code); a 0x, 0o
+   or 0b prefix is allowed for its matching base, upper case spellings too,
+   and the sign sits in front of the prefix. Messages carry the base the
+   caller gave, like CPython. */
+static void ps_int_bad_base(int64_t base) {
+    char msg[80];
+    int len = snprintf(msg, sizeof msg, "invalid literal for int() with base %lld", (long long)base);
+    ps_raise_exc(ps_exc_make(PS_VALUE, len, msg));
+}
+
+int64_t ps_int_from_base(int64_t n, const char *s, int64_t base) {
+    if (base < 2 || base > 36) {
+        ps_raise_cstr(PS_VALUE, "int() base must be >= 2 and <= 36");
+    }
+    int64_t i = 0;
+    while (i < n && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r' || s[i] == '\f' || s[i] == '\v')) {
+        i++;
+    }
+    int neg = 0;
+    if (i < n && (s[i] == '+' || s[i] == '-')) {
+        neg = s[i] == '-';
+        i++;
+    }
+    if (n - i >= 2 && s[i] == '0') {
+        char p = (char)(s[i + 1] | 0x20);
+        char want = base == 16 ? 'x' : base == 8 ? 'o' : base == 2 ? 'b' : 0;
+        if (want && p == want) {
+            i += 2;
+        }
+    }
+    if (i >= n) {
+        ps_int_bad_base(base);
+    }
+    uint64_t mag = 0;
+    for (; i < n; i++) {
+        int d;
+        char c = s[i];
+        if (c >= '0' && c <= '9') {
+            d = c - '0';
+        } else if (c >= 'a' && c <= 'z') {
+            d = c - 'a' + 10;
+        } else if (c >= 'A' && c <= 'Z') {
+            d = c - 'A' + 10;
+        } else {
+            ps_int_bad_base(base);
+        }
+        if (d >= base) {
+            ps_int_bad_base(base);
+        }
+        if (mag > (UINT64_MAX - (uint64_t)d) / (uint64_t)base) {
+            ps_raise_cstr(PS_VALUE, "int() literal does not fit in i64");
+        }
+        mag = mag * (uint64_t)base + (uint64_t)d;
+    }
+    if (!neg && mag > (uint64_t)INT64_MAX) {
+        ps_raise_cstr(PS_VALUE, "int() literal does not fit in i64");
+    }
+    return neg ? -(int64_t)(mag - 1) - 1 : (int64_t)mag;
+}
+
 void ps_chr(int64_t c, PsBuf *out) {
     /* Full-range chr: encode the code point as UTF-8, matching CPython for
        every scalar (0..0x10FFFF); lone surrogates raise, like CPython. */
