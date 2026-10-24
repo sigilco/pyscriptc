@@ -452,3 +452,30 @@ jobs:
           echo "PYSC_ANDROID_NDK=/opt/android-ndk-r28c" >> "$GITHUB_ENV"
       - name: Build the mobile archives and link-check them
         run: PYSC_SMOKE_SKIP=${{ matrix.skip }} packaging/mobile/smoke.sh
+
+  # The library receipt (#409): a deps-driven certifi program compiles and
+  # matches CPython. Opt-in lane: the differential test is skipped without
+  # PYSC_NETWORK_TESTS=1, so the shards above never touch PyPI through it.
+  network-receipt:
+    name: network receipt (certifi library receipt)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"  # emSign CA incident: uv 0.13.4 dropped the compromised root
+          enable-cache: true
+          python-version: "3.14"
+      - run: uv sync --frozen
+      - name: Install clang
+        run: |
+          set -euo pipefail
+          command -v clang >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq clang; }
+      - name: The certifi receipt compiles and matches CPython
+        env:
+          PYSC_NETWORK_TESTS: "1"
+        run: uv run pytest -q tests/test_deps_receipt.py
