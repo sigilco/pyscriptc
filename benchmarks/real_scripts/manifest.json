@@ -1,0 +1,596 @@
+{
+  "schemaVersion": 1,
+  "generated": "2026-10-24",
+  "sources": {
+    "python/cpython": {
+      "commit": "dc28c3a358221b1e0ae5f926b72e112cbd1d03f7",
+      "license": "PSF-2.0",
+      "licenseFile": "licenses/python_cpython-PSF-2.0.txt",
+      "licensePath": "LICENSE"
+    },
+    "psf/black": {
+      "commit": "cc53620f5be541920f0c06939fc6a1de89e1234d",
+      "license": "MIT",
+      "licenseFile": "licenses/psf_black-MIT.txt",
+      "licensePath": "LICENSE"
+    },
+    "pypa/pipx": {
+      "commit": "9a49f1957fad930860189421f2cd29d5a5604fd4",
+      "license": "MIT",
+      "licenseFile": "licenses/pypa_pipx-MIT.txt",
+      "licensePath": "LICENSE"
+    },
+    "jazzband/pip-tools": {
+      "commit": "b03df325f429bf0212e3925ecbc584f3e14c7c5e",
+      "license": "BSD-3-Clause",
+      "licenseFile": "licenses/jazzband_pip-tools-BSD-3-Clause.txt",
+      "licensePath": "LICENSE"
+    },
+    "geekcomputers/Python": {
+      "commit": "70aea8e64bfce4bb59c639a108a30b95c940d35f",
+      "license": "MIT",
+      "licenseFile": "licenses/geekcomputers_Python-MIT.txt",
+      "licensePath": "LICENSE.md"
+    },
+    "Logan1x/Python-Scripts": {
+      "commit": "12102dd793525312037803455ffdab6ea2d62701",
+      "license": "MIT",
+      "licenseFile": "licenses/Logan1x_Python-Scripts-MIT.txt",
+      "licensePath": "LICENSE"
+    },
+    "avinashkranjan/Amazing-Python-Scripts": {
+      "commit": "905b1e6b0042c435c07f34c618f2f02f164232c5",
+      "license": "MIT",
+      "licenseFile": "licenses/avinashkranjan_Amazing-Python-Scripts-MIT.txt",
+      "licensePath": "LICENSE"
+    }
+  },
+  "scripts": [
+    {
+      "slug": "batch_file_rename",
+      "file": "scripts/batch_file_rename.py",
+      "source": {
+        "repo": "geekcomputers/Python",
+        "commit": "70aea8e64bfce4bb59c639a108a30b95c940d35f",
+        "path": "batch_file_rename.py",
+        "url": "https://github.com/geekcomputers/Python/blob/70aea8e64bfce4bb59c639a108a30b95c940d35f/batch_file_rename.py"
+      },
+      "license": "MIT",
+      "sha256": "1b80563773b6662ae2ae9ffb805e558ec5b04df55dd8bad19cad36b35cb8ef7e",
+      "bytes": 3236,
+      "kind": "third-party"
+    },
+    {
+      "slug": "black_schema",
+      "file": "scripts/black_schema.py",
+      "source": {
+        "repo": "psf/black",
+        "commit": "cc53620f5be541920f0c06939fc6a1de89e1234d",
+        "path": "src/black/schema.py",
+        "url": "https://github.com/psf/black/blob/cc53620f5be541920f0c06939fc6a1de89e1234d/src/black/schema.py"
+      },
+      "license": "MIT",
+      "sha256": "aeed33f4403e7f7c1f2cb54f79f785a4cd2ce0662c620fd48e93a230b86375b0",
+      "bytes": 431,
+      "kind": "third-party"
+    },
+    {
+      "slug": "black_width_table",
+      "file": "scripts/black_width_table.py",
+      "source": {
+        "repo": "psf/black",
+        "commit": "cc53620f5be541920f0c06939fc6a1de89e1234d",
+        "path": "src/black/_width_table.py",
+        "url": "https://github.com/psf/black/blob/cc53620f5be541920f0c06939fc6a1de89e1234d/src/black/_width_table.py"
+      },
+      "license": "MIT",
+      "sha256": "df03af6f43fa2d21f572e748fe896f6217428afee3f0952e2b6fdcaedaba88f5",
+      "bytes": 3096,
+      "kind": "third-party"
+    },
+    {
+      "slug": "brute_force",
+      "file": "scripts/brute_force.py",
+      "source": {
+        "repo": "geekcomputers/Python",
+        "commit": "70aea8e64bfce4bb59c639a108a30b95c940d35f",
+        "path": "BruteForce.py",
+        "url": "https://github.com/geekcomputers/Python/blob/70aea8e64bfce4bb59c639a108a30b95c940d35f/BruteForce.py"
+      },
+      "license": "MIT",
+      "sha256": "80fc999c01106161095f69dbed1e5b4c715973f3a88775783be34601275f25da",
+      "bytes": 2093,
+      "kind": "third-party"
+    },
+    {
+      "slug": "cat",
+      "file": "scripts/cat.py",
+      "source": {
+        "repo": "geekcomputers/Python",
+        "commit": "70aea8e64bfce4bb59c639a108a30b95c940d35f",
+        "path": "Cat/cat.py",
+        "url": "https://github.com/geekcomputers/Python/blob/70aea8e64bfce4bb59c639a108a30b95c940d35f/Cat/cat.py"
+      },
+      "license": "MIT",
+      "sha256": "bd68e01f4a12189b9ca2fca278d366b6e230639b34c6401be55168806fa572f5",
+      "bytes": 3588,
+      "kind": "third-party"
+    },
+    {
+      "slug": "check_file",
+      "file": "scripts/check_file.py",
+      "source": {
+        "repo": "geekcomputers/Python",
+        "commit": "70aea8e64bfce4bb59c639a108a30b95c940d35f",
+        "path": "check_file.py",
+        "url": "https://github.com/geekcomputers/Python/blob/70aea8e64bfce4bb59c639a108a30b95c940d35f/check_file.py"
+      },
+      "license": "MIT",
+      "sha256": "7a8e458cfdaeb5c6a301624d9326a33bcfe7afc64d795f5d71f90a48bfd8fa0d",
+      "bytes": 2186,
+      "kind": "third-party"
+    },
+    {
+      "slug": "checksum_script",
+      "file": "scripts/checksum_script.py",
+      "source": {
+        "repo": "avinashkranjan/Amazing-Python-Scripts",
+        "commit": "905b1e6b0042c435c07f34c618f2f02f164232c5",
+        "path": "checksum_Script/Checksum_Script.py",
+        "url": "https://github.com/avinashkranjan/Amazing-Python-Scripts/blob/905b1e6b0042c435c07f34c618f2f02f164232c5/checksum_Script/Checksum_Script.py"
+      },
+      "license": "MIT",
+      "sha256": "8c3a0150f19ab046399f1603af8dafbaca1d21a0d87fea0bb015744d64db1f83",
+      "bytes": 3313,
+      "kind": "third-party"
+    },
+    {
+      "slug": "combinerefs",
+      "file": "scripts/combinerefs.py",
+      "source": {
+        "repo": "python/cpython",
+        "commit": "dc28c3a358221b1e0ae5f926b72e112cbd1d03f7",
+        "path": "Tools/scripts/combinerefs.py",
+        "url": "https://github.com/python/cpython/blob/dc28c3a358221b1e0ae5f926b72e112cbd1d03f7/Tools/scripts/combinerefs.py"
+      },
+      "license": "PSF-2.0",
+      "sha256": "9bca73b526b8a765145e1388b3c0bffdf5dd9a3ceeb2f8b2df369a3835940cd7",
+      "bytes": 4454,
+      "kind": "third-party"
+    },
+    {
+      "slug": "daily_checks",
+      "file": "scripts/daily_checks.py",
+      "source": {
+        "repo": "geekcomputers/Python",
+        "commit": "70aea8e64bfce4bb59c639a108a30b95c940d35f",
+        "path": "daily_checks.py",
+        "url": "https://github.com/geekcomputers/Python/blob/70aea8e64bfce4bb59c639a108a30b95c940d35f/daily_checks.py"
+      },
+      "license": "MIT",
+      "sha256": "1d9068a980f55a38aba8ac29f9d15424697fe2cf89b16821794f51dd4efd6f05",
+      "bytes": 3693,
+      "kind": "third-party"
+    },
+    {
+      "slug": "dataclass_config",
+      "file": "scripts/dataclass_config.py",
+      "source": {
+        "repo": "geekcomputers/Python",
+        "commit": "70aea8e64bfce4bb59c639a108a30b95c940d35f",
+        "path": "ML/src/python/neuralforge/config.py",
+        "url": "https://github.com/geekcomputers/Python/blob/70aea8e64bfce4bb59c639a108a30b95c940d35f/ML/src/python/neuralforge/config.py"
+      },
+      "license": "MIT",
+      "sha256": "89629bc4e088aed92a2b906e06e3d2b5c46658907fa630a1ab99ffbdaec0b105",
+      "bytes": 1423,
+      "kind": "third-party"
+    },
+    {
+      "slug": "day_of_week",
+      "file": "scripts/day_of_week.py",
+      "source": {
+        "repo": "geekcomputers/Python",
+        "commit": "70aea8e64bfce4bb59c639a108a30b95c940d35f",
+        "path": "Day_of_week.py",
+        "url": "https://github.com/geekcomputers/Python/blob/70aea8e64bfce4bb59c639a108a30b95c940d35f/Day_of_week.py"
+      },
+      "license": "MIT",
+      "sha256": "b1e9873b1051667a4421e03ead4e7977420884af7db1fb2a712820a561d7f8df",
+      "bytes": 1096,
+      "kind": "third-party"
+    },
+    {
+      "slug": "divmod_threshold",
+      "file": "scripts/divmod_threshold.py",
+      "source": {
+        "repo": "python/cpython",
+        "commit": "dc28c3a358221b1e0ae5f926b72e112cbd1d03f7",
+        "path": "Tools/scripts/divmod_threshold.py",
+        "url": "https://github.com/python/cpython/blob/dc28c3a358221b1e0ae5f926b72e112cbd1d03f7/Tools/scripts/divmod_threshold.py"
+      },
+      "license": "PSF-2.0",
+      "sha256": "f059e5676e25b4db68cd553d4afae8601c1e55f1c30adea11a00f8d596bd450c",
+      "bytes": 1229,
+      "kind": "third-party"
+    },
+    {
+      "slug": "duplicate_file_finder",
+      "file": "scripts/duplicate_file_finder.py",
+      "source": {
+        "repo": "geekcomputers/Python",
+        "commit": "70aea8e64bfce4bb59c639a108a30b95c940d35f",
+        "path": "duplicate_file_finder.py",
+        "url": "https://github.com/geekcomputers/Python/blob/70aea8e64bfce4bb59c639a108a30b95c940d35f/duplicate_file_finder.py"
+      },
+      "license": "MIT",
+      "sha256": "b4cc15c7402b2c21bae2a0e5feea51b3d4e095e437e507bd5bbbfc858aa06bf8",
+      "bytes": 4637,
+      "kind": "third-party"
+    },
+    {
+      "slug": "file_dispatcher",
+      "file": "scripts/file_dispatcher.py",
+      "source": {
+        "repo": "Logan1x/Python-Scripts",
+        "commit": "12102dd793525312037803455ffdab6ea2d62701",
+        "path": "bin/File_Dispatcher/main.py",
+        "url": "https://github.com/Logan1x/Python-Scripts/blob/12102dd793525312037803455ffdab6ea2d62701/bin/File_Dispatcher/main.py"
+      },
+      "license": "MIT",
+      "sha256": "44ffea521da2655112d58c339c2ebf9532a65796d9aad6c8ee9dfc467a7d7f49",
+      "bytes": 442,
+      "kind": "third-party"
+    },
+    {
+      "slug": "file_ext_changer",
+      "file": "scripts/file_ext_changer.py",
+      "source": {
+        "repo": "geekcomputers/Python",
+        "commit": "70aea8e64bfce4bb59c639a108a30b95c940d35f",
+        "path": "file_ext_changer.py",
+        "url": "https://github.com/geekcomputers/Python/blob/70aea8e64bfce4bb59c639a108a30b95c940d35f/file_ext_changer.py"
+      },
+      "license": "MIT",
+      "sha256": "f931ad52bcfed400ab205ff4ba41abdeb82af762cb4dcd978dcd5f977b30e49f",
+      "bytes": 3921,
+      "kind": "third-party"
+    },
+    {
+      "slug": "file_separator",
+      "file": "scripts/file_separator.py",
+      "source": {
+        "repo": "avinashkranjan/Amazing-Python-Scripts",
+        "commit": "905b1e6b0042c435c07f34c618f2f02f164232c5",
+        "path": "File_Separator/file_separator.py",
+        "url": "https://github.com/avinashkranjan/Amazing-Python-Scripts/blob/905b1e6b0042c435c07f34c618f2f02f164232c5/File_Separator/file_separator.py"
+      },
+      "license": "MIT",
+      "sha256": "4517cc05159dd2b6c25d6c5a32a1da0ceeff606d1ff866c1b6fdfbff73991c7f",
+      "bytes": 2084,
+      "kind": "third-party"
+    },
+    {
+      "slug": "folder_size",
+      "file": "scripts/folder_size.py",
+      "source": {
+        "repo": "geekcomputers/Python",
+        "commit": "70aea8e64bfce4bb59c639a108a30b95c940d35f",
+        "path": "folder_size.py",
+        "url": "https://github.com/geekcomputers/Python/blob/70aea8e64bfce4bb59c639a108a30b95c940d35f/folder_size.py"
+      },
+      "license": "MIT",
+      "sha256": "69e9d0efa372056b9c0fa4a78a766395183ecca4d56532dbc3bf165111d7aa44",
+      "bytes": 1574,
+      "kind": "third-party"
+    },
+    {
+      "slug": "folder_to_zip",
+      "file": "scripts/folder_to_zip.py",
+      "source": {
+        "repo": "avinashkranjan/Amazing-Python-Scripts",
+        "commit": "905b1e6b0042c435c07f34c618f2f02f164232c5",
+        "path": "Folder-To-Zip/folder-to-zip.py",
+        "url": "https://github.com/avinashkranjan/Amazing-Python-Scripts/blob/905b1e6b0042c435c07f34c618f2f02f164232c5/Folder-To-Zip/folder-to-zip.py"
+      },
+      "license": "MIT",
+      "sha256": "631e3279c367e680a11cd064637a3d702844d0ded620b0b804ec2e1738693c63",
+      "bytes": 628,
+      "kind": "third-party"
+    },
+    {
+      "slug": "itertools_loader",
+      "file": "scripts/itertools_loader.py",
+      "source": {
+        "repo": "geekcomputers/Python",
+        "commit": "70aea8e64bfce4bb59c639a108a30b95c940d35f",
+        "path": "loader.py",
+        "url": "https://github.com/geekcomputers/Python/blob/70aea8e64bfce4bb59c639a108a30b95c940d35f/loader.py"
+      },
+      "license": "MIT",
+      "sha256": "f9f775566e789f71100741b1e3cf04cee22969b2f441cfa12ee143c226907b27",
+      "bytes": 752,
+      "kind": "third-party"
+    },
+    {
+      "slug": "job_scheduling",
+      "file": "scripts/job_scheduling.py",
+      "source": {
+        "repo": "geekcomputers/Python",
+        "commit": "70aea8e64bfce4bb59c639a108a30b95c940d35f",
+        "path": "Job_scheduling.py",
+        "url": "https://github.com/geekcomputers/Python/blob/70aea8e64bfce4bb59c639a108a30b95c940d35f/Job_scheduling.py"
+      },
+      "license": "MIT",
+      "sha256": "a554acbde2c6a3a8f40cb14f5dc1d9b3be6ccdafa0e3581fd3f1dd2cbebdd96f",
+      "bytes": 3856,
+      "kind": "third-party"
+    },
+    {
+      "slug": "json_to_csv",
+      "file": "scripts/json_to_csv.py",
+      "source": {
+        "repo": "avinashkranjan/Amazing-Python-Scripts",
+        "commit": "905b1e6b0042c435c07f34c618f2f02f164232c5",
+        "path": "JSON-to-CSV/json-to-csv.py",
+        "url": "https://github.com/avinashkranjan/Amazing-Python-Scripts/blob/905b1e6b0042c435c07f34c618f2f02f164232c5/JSON-to-CSV/json-to-csv.py"
+      },
+      "license": "MIT",
+      "sha256": "b404f70dab00ae4eef321f20053efb4d5a5277eec63ec134fb28f54ee486b534",
+      "bytes": 710,
+      "kind": "third-party"
+    },
+    {
+      "slug": "long_conv_tables",
+      "file": "scripts/long_conv_tables.py",
+      "source": {
+        "repo": "python/cpython",
+        "commit": "dc28c3a358221b1e0ae5f926b72e112cbd1d03f7",
+        "path": "Tools/scripts/long_conv_tables.py",
+        "url": "https://github.com/python/cpython/blob/dc28c3a358221b1e0ae5f926b72e112cbd1d03f7/Tools/scripts/long_conv_tables.py"
+      },
+      "license": "PSF-2.0",
+      "sha256": "d07ccc34ac2403c98f51b85743806901f6de0770bc986168ad449857ba8291b2",
+      "bytes": 1875,
+      "kind": "third-party"
+    },
+    {
+      "slug": "move_files_over_x_days",
+      "file": "scripts/move_files_over_x_days.py",
+      "source": {
+        "repo": "geekcomputers/Python",
+        "commit": "70aea8e64bfce4bb59c639a108a30b95c940d35f",
+        "path": "move_files_over_x_days.py",
+        "url": "https://github.com/geekcomputers/Python/blob/70aea8e64bfce4bb59c639a108a30b95c940d35f/move_files_over_x_days.py"
+      },
+      "license": "MIT",
+      "sha256": "510c715f6ac7940d587e8a83ef97437af22dd7b9ad3a3d0a8cdae9ae3cd8ecc3",
+      "bytes": 1973,
+      "kind": "third-party"
+    },
+    {
+      "slug": "network_troubleshooter",
+      "file": "scripts/network_troubleshooter.py",
+      "source": {
+        "repo": "avinashkranjan/Amazing-Python-Scripts",
+        "commit": "905b1e6b0042c435c07f34c618f2f02f164232c5",
+        "path": "Network-troubleshooter/ipreset.py",
+        "url": "https://github.com/avinashkranjan/Amazing-Python-Scripts/blob/905b1e6b0042c435c07f34c618f2f02f164232c5/Network-troubleshooter/ipreset.py"
+      },
+      "license": "MIT",
+      "sha256": "cde072bdb5ddfae05e36551cb274ffc73b3658324375d9175ee231634b7763b3",
+      "bytes": 726,
+      "kind": "third-party"
+    },
+    {
+      "slug": "organise",
+      "file": "scripts/organise.py",
+      "source": {
+        "repo": "geekcomputers/Python",
+        "commit": "70aea8e64bfce4bb59c639a108a30b95c940d35f",
+        "path": "Organise.py",
+        "url": "https://github.com/geekcomputers/Python/blob/70aea8e64bfce4bb59c639a108a30b95c940d35f/Organise.py"
+      },
+      "license": "MIT",
+      "sha256": "dacac949f4fbeb1e3efe0cbfeee4ba6d094c5ab466255dd910c6c8f741f28d58",
+      "bytes": 2578,
+      "kind": "third-party"
+    },
+    {
+      "slug": "organise_by_extension",
+      "file": "scripts/organise_by_extension.py",
+      "source": {
+        "repo": "avinashkranjan/Amazing-Python-Scripts",
+        "commit": "905b1e6b0042c435c07f34c618f2f02f164232c5",
+        "path": "Organise-Files-According-To-Their-Extensions/script_dirs.py",
+        "url": "https://github.com/avinashkranjan/Amazing-Python-Scripts/blob/905b1e6b0042c435c07f34c618f2f02f164232c5/Organise-Files-According-To-Their-Extensions/script_dirs.py"
+      },
+      "license": "MIT",
+      "sha256": "980faaa20d2ae04bb1487af1eebb2206a5b0dac127f2d06e33e1979f18b8c07d",
+      "bytes": 2438,
+      "kind": "third-party"
+    },
+    {
+      "slug": "ping_servers",
+      "file": "scripts/ping_servers.py",
+      "source": {
+        "repo": "geekcomputers/Python",
+        "commit": "70aea8e64bfce4bb59c639a108a30b95c940d35f",
+        "path": "ping_servers.py",
+        "url": "https://github.com/geekcomputers/Python/blob/70aea8e64bfce4bb59c639a108a30b95c940d35f/ping_servers.py"
+      },
+      "license": "MIT",
+      "sha256": "0bed987ab1fe218fc3172e8ad7d05b080042fc300f126b3d9be33191ab9dc2fa",
+      "bytes": 3641,
+      "kind": "third-party"
+    },
+    {
+      "slug": "powerup_checks",
+      "file": "scripts/powerup_checks.py",
+      "source": {
+        "repo": "geekcomputers/Python",
+        "commit": "70aea8e64bfce4bb59c639a108a30b95c940d35f",
+        "path": "powerup_checks.py",
+        "url": "https://github.com/geekcomputers/Python/blob/70aea8e64bfce4bb59c639a108a30b95c940d35f/powerup_checks.py"
+      },
+      "license": "MIT",
+      "sha256": "0cd04929d51c2ead07dc380ab8fd9cbc1beeab5e41760cb165e056a5703192ab",
+      "bytes": 5539,
+      "kind": "third-party"
+    },
+    {
+      "slug": "puttylogs",
+      "file": "scripts/puttylogs.py",
+      "source": {
+        "repo": "geekcomputers/Python",
+        "commit": "70aea8e64bfce4bb59c639a108a30b95c940d35f",
+        "path": "puttylogs.py",
+        "url": "https://github.com/geekcomputers/Python/blob/70aea8e64bfce4bb59c639a108a30b95c940d35f/puttylogs.py"
+      },
+      "license": "MIT",
+      "sha256": "3fb3ddf8f33fa2e72df438424a8f3f4a475450c356d8553f8fb4b0f667eea185",
+      "bytes": 1635,
+      "kind": "third-party"
+    },
+    {
+      "slug": "random_file_move",
+      "file": "scripts/random_file_move.py",
+      "source": {
+        "repo": "geekcomputers/Python",
+        "commit": "70aea8e64bfce4bb59c639a108a30b95c940d35f",
+        "path": "random_file_move.py",
+        "url": "https://github.com/geekcomputers/Python/blob/70aea8e64bfce4bb59c639a108a30b95c940d35f/random_file_move.py"
+      },
+      "license": "MIT",
+      "sha256": "b4ad6211cea4dcfe3af5e2b429a9b15d0560f57837841b7f902ec17f3ec4b562",
+      "bytes": 1815,
+      "kind": "third-party"
+    },
+    {
+      "slug": "repo_info",
+      "file": "scripts/repo_info.py",
+      "source": {
+        "repo": "avinashkranjan/Amazing-Python-Scripts",
+        "commit": "905b1e6b0042c435c07f34c618f2f02f164232c5",
+        "path": "Github-Automation/repoInfo.py",
+        "url": "https://github.com/avinashkranjan/Amazing-Python-Scripts/blob/905b1e6b0042c435c07f34c618f2f02f164232c5/Github-Automation/repoInfo.py"
+      },
+      "license": "MIT",
+      "sha256": "a5754478d4d07cafc8ccd1eaaa5fd2e49e4c31abf4a0946cb43c79f5005f89a4",
+      "bytes": 813,
+      "kind": "third-party"
+    },
+    {
+      "slug": "reveal_md",
+      "file": "scripts/reveal_md.py",
+      "source": {
+        "repo": "Logan1x/Python-Scripts",
+        "commit": "12102dd793525312037803455ffdab6ea2d62701",
+        "path": "bin/reveal-md.py",
+        "url": "https://github.com/Logan1x/Python-Scripts/blob/12102dd793525312037803455ffdab6ea2d62701/bin/reveal-md.py"
+      },
+      "license": "MIT",
+      "sha256": "eef557ffc9fe5857a36cbfe2c592e3e288cd72d84cc8651d48f430ba7208c631",
+      "bytes": 2271,
+      "kind": "third-party"
+    },
+    {
+      "slug": "smart_file_organizer",
+      "file": "scripts/smart_file_organizer.py",
+      "source": {
+        "repo": "geekcomputers/Python",
+        "commit": "70aea8e64bfce4bb59c639a108a30b95c940d35f",
+        "path": "smart_file_organizer.py",
+        "url": "https://github.com/geekcomputers/Python/blob/70aea8e64bfce4bb59c639a108a30b95c940d35f/smart_file_organizer.py"
+      },
+      "license": "MIT",
+      "sha256": "9124b59279f1d1f7a7444270769861f40e5e5477265b3cf196272a306295bea3",
+      "bytes": 3804,
+      "kind": "third-party"
+    },
+    {
+      "slug": "snake_case_renamer",
+      "file": "scripts/snake_case_renamer.py",
+      "source": {
+        "repo": "geekcomputers/Python",
+        "commit": "70aea8e64bfce4bb59c639a108a30b95c940d35f",
+        "path": "snake_case_renamer_depth_one.py",
+        "url": "https://github.com/geekcomputers/Python/blob/70aea8e64bfce4bb59c639a108a30b95c940d35f/snake_case_renamer_depth_one.py"
+      },
+      "license": "MIT",
+      "sha256": "4a1a1c55b5be015c00c5586d48854815a6ab5b4514f7f5dc0b10c4c592ba38d1",
+      "bytes": 2421,
+      "kind": "third-party"
+    },
+    {
+      "slug": "sortperf",
+      "file": "scripts/sortperf.py",
+      "source": {
+        "repo": "python/cpython",
+        "commit": "dc28c3a358221b1e0ae5f926b72e112cbd1d03f7",
+        "path": "Tools/scripts/sortperf.py",
+        "url": "https://github.com/python/cpython/blob/dc28c3a358221b1e0ae5f926b72e112cbd1d03f7/Tools/scripts/sortperf.py"
+      },
+      "license": "PSF-2.0",
+      "sha256": "0eb887f3a10e084a1e97f1ff565aa8233ee302c28d3eb2bef4e24ede2dcad4d9",
+      "bytes": 5870,
+      "kind": "third-party"
+    },
+    {
+      "slug": "ssh_host_script",
+      "file": "scripts/ssh_host_script.py",
+      "source": {
+        "repo": "avinashkranjan/Amazing-Python-Scripts",
+        "commit": "905b1e6b0042c435c07f34c618f2f02f164232c5",
+        "path": "SSH_Host_Script/SSH_Host_Script.py",
+        "url": "https://github.com/avinashkranjan/Amazing-Python-Scripts/blob/905b1e6b0042c435c07f34c618f2f02f164232c5/SSH_Host_Script/SSH_Host_Script.py"
+      },
+      "license": "MIT",
+      "sha256": "475e3461472855f44ea46c20605368f0f2ac3aed2d70ad4c2ebd82e5631a7cf4",
+      "bytes": 1109,
+      "kind": "third-party"
+    },
+    {
+      "slug": "time_delta",
+      "file": "scripts/time_delta.py",
+      "source": {
+        "repo": "geekcomputers/Python",
+        "commit": "70aea8e64bfce4bb59c639a108a30b95c940d35f",
+        "path": "time_delta.py",
+        "url": "https://github.com/geekcomputers/Python/blob/70aea8e64bfce4bb59c639a108a30b95c940d35f/time_delta.py"
+      },
+      "license": "MIT",
+      "sha256": "bb066f42df5c7b1314c861601feb418cc33aa29af9aa2996b3bf5f4374a13f6c",
+      "bytes": 3046,
+      "kind": "third-party"
+    },
+    {
+      "slug": "webserver_log",
+      "file": "scripts/webserver_log.py",
+      "source": {
+        "repo": "avinashkranjan/Amazing-Python-Scripts",
+        "commit": "905b1e6b0042c435c07f34c618f2f02f164232c5",
+        "path": "WebServer/webServerlog.py",
+        "url": "https://github.com/avinashkranjan/Amazing-Python-Scripts/blob/905b1e6b0042c435c07f34c618f2f02f164232c5/WebServer/webServerlog.py"
+      },
+      "license": "MIT",
+      "sha256": "9a188909328752386c33b5f621f0074d4d4ff3d89265d697bbb77350d6a794d7",
+      "bytes": 1797,
+      "kind": "third-party"
+    },
+    {
+      "slug": "work_connect",
+      "file": "scripts/work_connect.py",
+      "source": {
+        "repo": "geekcomputers/Python",
+        "commit": "70aea8e64bfce4bb59c639a108a30b95c940d35f",
+        "path": "work_connect.py",
+        "url": "https://github.com/geekcomputers/Python/blob/70aea8e64bfce4bb59c639a108a30b95c940d35f/work_connect.py"
+      },
+      "license": "MIT",
+      "sha256": "7f44435ad1de9fe347c792e29fcca78b23175d386d2b75a570b9e86460443bec",
+      "bytes": 2721,
+      "kind": "third-party"
+    }
+  ]
+}
