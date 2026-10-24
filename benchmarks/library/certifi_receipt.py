@@ -26,7 +26,7 @@ from certifi import contents, where
 def main() -> None:
     pem: str = contents()
     path: str = where()
-    data: bytes = pem.encode("ascii")
+    data: bytes = pem.encode("utf-8")
     print(len(data))
     print(data[:5], data[-5:])
     print(path.rpartition("certifi/")[2])
