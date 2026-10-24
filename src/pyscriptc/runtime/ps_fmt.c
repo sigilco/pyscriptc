@@ -194,8 +194,11 @@ static void arg_as_repr(PsGrow *g, const PsArg *a, int ascii_only) {
 
 /* Emit body padded per spec. head is the count of leading bytes that stay
    ahead of '=' padding (sign plus base prefix); numeric picks the
-   numeric default alignment and '0' semantics. */
-static void emit_padded(PsGrow *g, const char *body, int64_t n, int64_t head, const Spec *s, int numeric) {
+   numeric default alignment and '0' semantics. The width is a code-point
+   count (S3): the body's own byte length n measures text, so callers that
+   pad text pass the code-point count of the body in chars; numeric bodies
+   are ASCII and pass n. */
+static void emit_padded(PsGrow *g, const char *body, int64_t n, int64_t chars, int64_t head, const Spec *s, int numeric) {
     char fill = s->fill ? s->fill : ' ';
     char align = s->align ? s->align : (numeric ? '>' : '<');
     if (s->zero) {
@@ -204,11 +207,11 @@ static void emit_padded(PsGrow *g, const char *body, int64_t n, int64_t head, co
             align = '=';
         }
     }
-    if (s->width <= n) {
+    if (s->width <= chars) {
         ps_grow_add(g, body, n);
         return;
     }
-    int64_t pad = s->width - n;
+    int64_t pad = s->width - chars;
     if (align == '<') {
         ps_grow_add(g, body, n);
         grow_fill(g, fill, pad);
@@ -293,7 +296,7 @@ static void emit_int(PsGrow *g, int64_t v, const Spec *s, int percent) {
     } else {
         ps_grow_add(&body, raw, dn);
     }
-    emit_padded(g, body.data ? body.data : "", body.len, head, s, 1);
+    emit_padded(g, body.data ? body.data : "", body.len, body.len, head, s, 1);
     free(body.data);
 }
 
@@ -356,16 +359,18 @@ static void emit_f64(PsGrow *g, double v, const Spec *s, int percent, int fixup)
         ps_grow_byte(&body, '%');
     }
     int64_t head = (body.len > 0 && (body.data[0] == '-' || body.data[0] == '+' || body.data[0] == ' ')) ? 1 : 0;
-    emit_padded(g, body.data ? body.data : "", body.len, head, s, 1);
+    emit_padded(g, body.data ? body.data : "", body.len, body.len, head, s, 1);
     free(body.data);
     free(buf);
 }
 
+/* str (and bytes through its repr) formatting. The precision cuts code
+   points and the width counts code points (S3). */
 static void emit_text(PsGrow *g, const char *p, int64_t n, const Spec *s) {
-    if (s->prec >= 0 && s->prec < n) {
-        n = s->prec;
+    if (s->prec >= 0 && s->prec < ps_str_nchars(n, p)) {
+        n = ps_str_offset(n, p, s->prec);
     }
-    emit_padded(g, p, n, 0, s, 0);
+    emit_padded(g, p, n, ps_str_nchars(n, p), 0, s, 0);
 }
 
 static void bad_spec(const char *msg) { ps_raise_cstr(PS_VALUE, msg); }
@@ -436,20 +441,41 @@ static void percent_spec(PsGrow *g, const PsArg *arg, Spec *s, char t) {
         return;
     }
     if (t == 'c') {
-        int64_t ch;
+        int64_t ch = -1;
+        const char *text = NULL;
         if (arg->kind == PS_ARG_INT || arg->kind == PS_ARG_BOOL) {
             ch = arg->i;
-            if (ch < 0 || ch > 255) {
-                ps_raise_cstr(PS_VALUE, "%c arg not in range(256)");
+            /* CPython 3 str semantics: %c takes any scalar code point; the
+               0..255 range belonged to the bytes model. */
+            if (ch < 0 || ch > 0x10FFFF || (ch >= 0xD800 && ch <= 0xDFFF)) {
+                ps_raise_cstr(PS_VALUE, "%c arg not in range(0x110000)");
             }
-        } else if ((arg->kind == PS_ARG_STR || arg->kind == PS_ARG_BYTES) && arg->b.len == 1) {
-            ch = (unsigned char)arg->b.data[0];
+        } else if ((arg->kind == PS_ARG_STR || arg->kind == PS_ARG_BYTES) &&
+                   ps_str_nchars(arg->b.len, arg->b.data) == 1) {
+            text = arg->b.data;
         } else {
             ps_raise_cstr(PS_VALUE, "%c requires int or char");
         }
         s->zero = 0;
-        char byte = (char)ch;
-        emit_padded(g, &byte, 1, 0, s, 1);
+        if (text != NULL) {
+            emit_padded(g, text, arg->b.len, 1, 0, s, 1);
+            return;
+        }
+        if (ch < 0x80) {
+            char byte = (char)ch;
+            emit_padded(g, &byte, 1, 1, 0, s, 1);
+            return;
+        }
+        PsGrow enc;
+        ps_grow_init(&enc);
+        int width = ch < 0x800 ? 2 : ch < 0x10000 ? 3 : 4;
+        static const unsigned char heads[3] = {0xC0, 0xE0, 0xF0};
+        ps_grow_byte(&enc, (unsigned char)(heads[width - 2] | (ch >> (6 * (width - 1)))));
+        for (int i = width - 2; i >= 0; i--) {
+            ps_grow_byte(&enc, (unsigned char)(0x80 | ((ch >> (6 * i)) & 0x3F)));
+        }
+        emit_padded(g, enc.data ? enc.data : "", enc.len, 1, 0, s, 1);
+        free(enc.data);
         return;
     }
     PsGrow body;
@@ -465,10 +491,15 @@ static void percent_spec(PsGrow *g, const PsArg *arg, Spec *s, char t) {
     }
     s->zero = 0;
     int64_t n = body.len;
-    if (s->prec >= 0 && s->prec < n) {
+    /* %s with a precision cuts the text's code points; %r of a str goes
+       through the repr path above, whose escapes are ASCII, so the cut
+       splits code points for the former and bytes for the latter. */
+    if (t == 's' && s->prec >= 0 && s->prec < ps_str_nchars(n, body.data)) {
+        n = ps_str_offset(n, body.data, s->prec);
+    } else if (t != 's' && s->prec >= 0 && s->prec < n) {
         n = s->prec;
     }
-    emit_padded(g, body.data ? body.data : "", n, 0, s, 1);
+    emit_padded(g, body.data ? body.data : "", n, ps_str_nchars(n, body.data), 0, s, 1);
     free(body.data);
 }
 
@@ -769,11 +800,26 @@ static void apply_dot(PsGrow *g, const PsArg *arg, const Spec *s) {
         }
         if (t == 'c') {
             int64_t ch = arg->i;
-            if (ch < 0 || ch > 255) {
-                ps_raise_cstr(PS_VALUE, "%c arg not in range(256)");
+            /* CPython 3 str semantics: %c takes any scalar code point; the
+               0..255 range belonged to the bytes model. */
+            if (ch < 0 || ch > 0x10FFFF || (ch >= 0xD800 && ch <= 0xDFFF)) {
+                ps_raise_cstr(PS_VALUE, "%c arg not in range(0x110000)");
             }
-            char byte = (char)ch;
-            emit_padded(g, &byte, 1, 0, s, 1);
+            if (ch < 0x80) {
+                char byte = (char)ch;
+                emit_padded(g, &byte, 1, 1, 0, s, 1);
+                return;
+            }
+            PsGrow enc;
+            ps_grow_init(&enc);
+            int width = ch < 0x800 ? 2 : ch < 0x10000 ? 3 : 4;
+            static const unsigned char heads[3] = {0xC0, 0xE0, 0xF0};
+            ps_grow_byte(&enc, (unsigned char)(heads[width - 2] | (ch >> (6 * (width - 1)))));
+            for (int i = width - 2; i >= 0; i--) {
+                ps_grow_byte(&enc, (unsigned char)(0x80 | ((ch >> (6 * i)) & 0x3F)));
+            }
+            emit_padded(g, enc.data ? enc.data : "", enc.len, 1, 0, s, 1);
+            free(enc.data);
             return;
         }
         if (t && strchr("eEfFgG%", (int)t) != NULL) {
