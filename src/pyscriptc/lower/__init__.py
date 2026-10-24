@@ -26,9 +26,9 @@ from pyscriptc.lower._classes import ClassesMixin
 from pyscriptc.lower._closures import ClosuresMixin
 from pyscriptc.lower._core import (
     _CMP,
+    _TRUTHY,
     Binding,
     Fence,
-    _TRUTHY,
     _attr,
     _compare,
     _const_none,

@@ -39,7 +39,7 @@ def test_alias_and_parameter_mutation(tmp_path: Path) -> None:
         (
             "xs: list[int] = [3, 1, 2]\n"
             "ys: list[int] = xs\n"
-            "d: dict[str, list[int]] = {\"k\": [1, 2]}\n"
+            'd: dict[str, list[int]] = {"k": [1, 2]}\n'
             "\n"
             "\n"
             "def bump(v: list[int]) -> None:\n"
@@ -48,13 +48,13 @@ def test_alias_and_parameter_mutation(tmp_path: Path) -> None:
             "\n"
             "def deep() -> None:\n"
             "    ys[0] = 99\n"
-            "    d[\"k\"][0] = 99\n"
+            '    d["k"][0] = 99\n'
             "\n"
             "\n"
             "bump(xs)\n"
             "print(xs[0], ys[0])\n"
             "deep()\n"
-            "print(ys[0], d[\"k\"][0])\n"
+            'print(ys[0], d["k"][0])\n'
         ),
     )
 
@@ -66,8 +66,8 @@ def test_sort_on_module_scope_list(tmp_path: Path) -> None:
         (
             "xs: list[int] = [3, 1, 2]\n"
             "ys: list[float] = [2.5, 1.5]\n"
-            "ws: list[str] = [\"b\", \"a\"]\n"
-            "bs: list[bytes] = [b\"b\", b\"a\"]\n"
+            'ws: list[str] = ["b", "a"]\n'
+            'bs: list[bytes] = [b"b", b"a"]\n'
             "\n"
             "\n"
             "def f(ys: list[int]) -> int:\n"
@@ -90,19 +90,19 @@ def test_dict_setdefault_and_update(tmp_path: Path) -> None:
         tmp_path,
         "dictmut.py",
         (
-            "d: dict[str, int] = {\"a\": 1}\n"
-            "e: dict[str, int] = {\"b\": 2, \"c\": 5}\n"
+            'd: dict[str, int] = {"a": 1}\n'
+            'e: dict[str, int] = {"b": 2, "c": 5}\n'
             "\n"
             "\n"
             "def f() -> None:\n"
-            "    d.setdefault(\"a\", 9)\n"
-            "    d.setdefault(\"b\", 2)\n"
+            '    d.setdefault("a", 9)\n'
+            '    d.setdefault("b", 2)\n'
             "    d.update(e)\n"
-            "    d.update({\"c\": 3})\n"
+            '    d.update({"c": 3})\n'
             "\n"
             "\n"
             "f()\n"
-            "print(d[\"a\"], d[\"b\"], d[\"c\"])\n"
+            'print(d["a"], d["b"], d["c"])\n'
             "print(len(d))\n"
         ),
     )
@@ -115,7 +115,7 @@ def test_list_insert_extend_remove_reverse(tmp_path: Path) -> None:
         (
             "xs: list[int] = [1, 3]\n"
             "ys: list[int] = [1, 2, 3]\n"
-            "ws: list[str] = [\"a\", \"c\"]\n"
+            'ws: list[str] = ["a", "c"]\n'
             "\n"
             "\n"
             "def f(v: list[int]) -> None:\n"
@@ -128,9 +128,9 @@ def test_list_insert_extend_remove_reverse(tmp_path: Path) -> None:
             "f(xs)\n"
             "print(xs[0], xs[1], xs[2], xs[3], len(xs))\n"
             "ys.reverse()\n"
-            "ws.extend([\"b\"])\n"
-            "ws.insert(0, \"z\")\n"
-            "ws.remove(\"c\")\n"
+            'ws.extend(["b"])\n'
+            'ws.insert(0, "z")\n'
+            'ws.remove("c")\n'
             "print(ys[0], ws[0], ws[1], ws[2], len(ws))\n"
         ),
     )
@@ -150,7 +150,6 @@ def test_module_scope_container_one_allocation(tmp_path: Path) -> None:
 
 
 def test_definition_only_module_stays_definition_only() -> None:
-    from pyscriptc.canonical import hash_module
     from pyscriptc.lower import lower_source
 
     mod = lower_source(
