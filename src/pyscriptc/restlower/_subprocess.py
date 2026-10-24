@@ -6,7 +6,7 @@ code raising RuntimeError. `run` takes `capture_output=True`, `text=` and
 `check=` as bool literals: check joins the flag to ps_sub_run so a non-zero
 code raises the check_call stand-in, and text rides the bytes capture
 whatever it says (a CPython text-mode record is str; the subset returns
-bytes; divergence row 41). `encoding=` and `errors=` carry names only.
+bytes; divergence row 40). `encoding=` and `errors=` carry names only.
 The command is a `list[str]`, the shape scripts use.
 """
 
@@ -42,7 +42,7 @@ def _capture_output(node: ast.Call) -> bool:
 
 
 # The run keywords whose value is a bool; encoding/errors ride names only,
-# and text= rides the bytes capture whatever it says (divergence row 41).
+# and text= rides the bytes capture whatever it says (divergence row 40).
 _RUN_BOOL = {"capture_output", "check", "text"}
 
 
