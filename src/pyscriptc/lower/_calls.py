@@ -447,6 +447,10 @@ class CallsMixin:
             return self._module_call(node, span, module, member, expect)
         if isinstance(node.func.value, ast.Name):
             bound = self.bindings.get(node.func.value.id)
+            # boxed:begin
+            if bound is not None and bound.kind == "island":
+                return self._island_call(node, span, bound.module, node.func.attr, expect)
+            # boxed:end
             if bound is not None and bound.kind == "module" and self._ffi_module(bound.module) is not None:
                 return self._ffi_call(node, span, bound.module, node.func.attr)
         named = None
@@ -455,6 +459,10 @@ class CallsMixin:
         if named is not None and named in self.classes:
             return self._named_class_call(node, span, named)
         receiver = self._expr(node.func.value)
+        # boxed:begin
+        if receiver["type"].get("island"):
+            return self._island_method_call(node, span, receiver)
+        # boxed:end
         if receiver["type"]["kind"] == "class" and receiver["type"].get("name") == "ArgParser":
             # argparse parser methods need the lowerer state, so they have a
             # handler instead of a fixed method row.

@@ -248,6 +248,14 @@ class StmtMixin:
                     if value["type"]["kind"] == "func":
                         self.locals[target] = value["type"]
                         return [_assign(target, value, span)]
+                    # boxed:begin
+                    if value["type"].get("island"):
+                        # An island call yields an opaque handle; the name owns
+                        # it and the scope-exit free releases it (issue #553).
+                        self.locals[target] = value["type"]
+                        self._own_handle(target, value["type"])
+                        return [_assign(target, value, span)]
+                    # boxed:end
                     if self._bridge_type(stmt.value) is not None:
                         # Checker bridge: the checker proved the call's result
                         # type; bind the name to it instead of fencing.

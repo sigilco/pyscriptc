@@ -49,6 +49,11 @@ from pyscriptc.mobile import (
 )
 from pyscriptc.package import lower_directory
 
+# boxed:begin
+from pyscriptc.stdlib_queue import island_policy
+
+# boxed:end
+
 log = get_logger()
 
 
@@ -84,6 +89,14 @@ def main(argv: list[str] | None = None) -> int:
         help="bind a typed extern manifest (TOML) and link its C sources; repeatable. "
         "Also read from the `ffi` key of pyscriptc.toml / PEP 723 metadata",
     )
+    # boxed:begin
+    compile_parser.add_argument(
+        "--island",
+        action="store_true",
+        help="route every import outside the closed table to the embedded CPython island "
+        "(an untyped PyPI dependency); needs libpython and the packages on the host",
+    )
+    # boxed:end
     compile_parser.add_argument("--call", help="function the generated main calls")
     compile_parser.add_argument(
         "--args",
@@ -170,6 +183,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     run_parser.add_argument("source")
     run_parser.add_argument("--program", action="store_true", help="treat the directory as a program (see compile)")
+    # boxed:begin
+    run_parser.add_argument(
+        "--island",
+        action="store_true",
+        help="route every import outside the closed table to the embedded CPython island",
+    )
+    # boxed:end
     run_parser.add_argument("--call", help="function the generated main calls")
     run_parser.add_argument("--args", default="[]", help="Python literal list of arguments for --call")
     run_parser.add_argument("--driver", choices=("clang", "zig"), default=None)
@@ -480,6 +500,9 @@ def _build_for_run(args: argparse.Namespace, output: Path) -> int:
         call=args.call,
         args=args.args,
         run=False,
+        # boxed:begin
+        island=getattr(args, "island", False),
+        # boxed:end
         driver=args.driver,
         target=args.target,
         linker=args.linker,
@@ -1157,30 +1180,36 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         if ((args.target and "windows" in args.target) or sys.platform == "win32") and not binary.suffix:
             binary = binary.with_suffix(".exe")
         data_root = _stage_dependency_data(source_path, config, args, binary)
-        if source_path.is_dir():
-            module, source = lower_directory(
-                source_path,
-                program_mode=args.program,
-                bridge=bridge,
-                ffi=manifests,
-                target=args.target,
-                dep_roots=dep_roots,
-                dep_lane_report=dep_lanes,
-                resource_root=str(data_root) if data_root else "",
-            )
-        elif source_path.is_file():
-            module, source = lower_file(
-                str(source_path),
-                bridge=bridge,
-                timings=dbg.timings_map,
-                ffi=manifests,
-                target=args.target,
-                dep_roots=dep_roots,
-                dep_lane_report=dep_lanes,
-                resource_root=str(data_root) if data_root else "",
-            )
-        else:
-            raise IRError(f"source not found: {source_path}")
+        # boxed:begin
+        island_names = set(config.island_imports())
+        island_default = bool(getattr(args, "island", False)) or config.wildcard_island()
+        island_ctx = island_policy(island_names, island_default)
+        # boxed:end
+        with island_ctx:
+            if source_path.is_dir():
+                module, source = lower_directory(
+                    source_path,
+                    program_mode=args.program,
+                    bridge=bridge,
+                    ffi=manifests,
+                    target=args.target,
+                    dep_roots=dep_roots,
+                    dep_lane_report=dep_lanes,
+                    resource_root=str(data_root) if data_root else "",
+                )
+            elif source_path.is_file():
+                module, source = lower_file(
+                    str(source_path),
+                    bridge=bridge,
+                    timings=dbg.timings_map,
+                    ffi=manifests,
+                    target=args.target,
+                    dep_roots=dep_roots,
+                    dep_lane_report=dep_lanes,
+                    resource_root=str(data_root) if data_root else "",
+                )
+            else:
+                raise IRError(f"source not found: {source_path}")
         dbg.end("lower")
         dbg.exclude("lower", "parse")
         if args.run:

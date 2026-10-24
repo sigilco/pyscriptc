@@ -287,6 +287,37 @@ def dependency_lanes(lanes: dict[str, dict[str, str]]) -> Iterator[None]:
         _DEP_LANES = saved
 
 
+# boxed:begin
+# The island lane of the running compile (issue #553): import roots the
+# `[imports]` table pins to `island`, plus an opt-in CLI default that routes
+# every import outside the closed table there so a demo needs no config.
+# Module-level like `_DEP_LANES`, set around the same lowering pass. The
+# per-import policy owner (#157) replaces this table; the trampoline only
+# needs the yes/no answer.
+_ISLAND_LANES: frozenset[str] = frozenset()
+_ISLAND_DEFAULT = False
+
+
+def island_lane(name: str) -> bool:
+    """True when `name` resolves to the island lane for this compile."""
+    root = name.split(".", 1)[0]
+    return _ISLAND_DEFAULT or name in _ISLAND_LANES or root in _ISLAND_LANES
+
+
+@contextmanager
+def island_policy(names: Iterable[str], default: bool = False) -> Iterator[None]:
+    """Install the island lane for the duration of one lowering pass."""
+    global _ISLAND_LANES, _ISLAND_DEFAULT
+    saved = (_ISLAND_LANES, _ISLAND_DEFAULT)
+    _ISLAND_LANES = frozenset(names)
+    _ISLAND_DEFAULT = default
+    try:
+        yield
+    finally:
+        _ISLAND_LANES, _ISLAND_DEFAULT = saved
+# boxed:end
+
+
 # The staged data-file root of the running compile (issue #410): the
 # directory beside the emitted binary that carries the pure wheels' data
 # files under their dotted paths. Empty when the compile stages nothing, so

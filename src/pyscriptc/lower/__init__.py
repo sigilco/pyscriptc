@@ -133,6 +133,11 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # (a handle-typed parameter, or an alias of one) and must hand it back
         # alive, so the scope exit never frees it (issue #224).
         self.borrowed_handles: set[str] = set()
+        # boxed:begin
+        # Island module name -> the hidden local that owns its handle
+        # (issue #553). Reset per function scope, like `handle_locals`.
+        self.island_modules: dict[str, str] = {}
+        # boxed:end
         self.module_name = ""
         self.is_package = False
         self.cataloguing = False
@@ -952,6 +957,9 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             self.function = fn.name
             self.temp_n = 0
             self.prelude = []
+            # boxed:begin
+            self.island_modules = {}
+            # boxed:end
             self.caught = []
             self.fn_globals = self._globals_for(fn.body)
             self.fn_nonlocals = set()
@@ -1255,6 +1263,9 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 self.function = emit_name
                 self.temp_n = 0
                 self.prelude = []
+                # boxed:begin
+                self.island_modules = {}
+                # boxed:end
                 self.caught = []
                 self.fn_globals = self._globals_for(fn.body)
                 self.fn_nonlocals = set()

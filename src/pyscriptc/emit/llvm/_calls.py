@@ -237,6 +237,12 @@ class CallsMixin:
             self._abi_decl("ps_cond_init", "void", ["ptr"])
             self._call_void("ps_cond_init", [f"ptr {slot}"])
             return slot
+        # boxed:begin
+        if expr.get("symbol") == "ps_island_call":
+            return self._emit_island_call(expr, values)
+        if expr.get("symbol") == "ps_island_getattr":
+            return self._emit_island_getattr(expr, values)
+        # boxed:end
         if expr.get("symbol"):
             return self._emit_abi(expr, values)
         if module == "math":
