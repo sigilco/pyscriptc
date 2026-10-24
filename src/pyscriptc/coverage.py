@@ -275,7 +275,7 @@ def _lower(target: Path, bridge: Any = None) -> tuple[dict[str, Any], list[str]]
     if target.is_file():
         if bridge is not None and not hasattr(bridge, "inferred_type"):
             bridge = bridge.for_file(target)
-        module, _ = lower_file(str(target))
+        module, _ = lower_file(str(target), bridge=bridge)
         return module, [str(target)]
     raise IRError(f"source not found: {target}")
 
@@ -300,9 +300,7 @@ def _dependency_map(target: Path) -> dict[str, dict[str, str]]:
         return {}
     mapping: dict[str, dict[str, str]] = {}
     for package in report["packages"]:
-        module = str(package.get("import_module") or "")
-        if not module:
-            continue
+        module = str(package["name"]).lower().replace("-", "_").replace(".", "_")
         names = tuple(package.get("import_names") or ())
         if not names:
             mapping[module] = {

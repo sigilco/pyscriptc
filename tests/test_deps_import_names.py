@@ -89,8 +89,10 @@ YAML_WHEEL = make_wheel(
 TWO_WHEEL = make_wheel(
     "dateutil-ish",
     {
-        "dateutil/__init__.py": b"",
-        "dateutil/relativedelta.py": b"",
+        "dateutil/__init__.py": b"from .relativedelta import RelativeDelta, RelRelativeDelta\n",
+        "dateutil/relativedelta.py": (
+            b"class RelativeDelta:\n    pass\n\n\nclass RelRelativeDelta(RelativeDelta):\n    pass\n"
+        ),
         "six/__init__.py": b"",
         "dateutil-ish-1.0.dist-info/top_level.txt": b"dateutil\nsix\n",
     },
@@ -105,7 +107,11 @@ RECORD_ONLY_WHEEL = make_wheel(
 NO_NAMES_WHEEL = make_wheel("bare", {"tests/test_bare.py": b"pass\n"})
 NATIVE_WHEEL = make_wheel(
     "sneaky",
-    {"sneaky/__init__.py": b"", "sneaky/_speed.so": b"\x7fELF"},
+    {
+        "sneaky/__init__.py": b"",
+        "sneaky/_speed.so": b"\x7fELF",
+        "sneaky-1.0.dist-info/top_level.txt": b"sneaky\n",
+    },
 )
 
 ALL_WHEELS = {
@@ -212,9 +218,7 @@ def test_materialise_audit_event_carries_the_names(tmp_path: Path, monkeypatch: 
 # ------------------------------------------------------------ the report
 
 
-def test_the_deps_report_lists_import_names_per_distribution(
-    fake: dict[str, Any], tmp_path: Path
-) -> None:
+def test_the_deps_report_lists_import_names_per_distribution(fake: dict[str, Any], tmp_path: Path) -> None:
     report = deps.run_deps(_script(tmp_path))
     names = {p["name"]: p["import_names"] for p in report["packages"]}
     assert names == {
@@ -225,9 +229,7 @@ def test_the_deps_report_lists_import_names_per_distribution(
     }
 
 
-def test_the_report_maps_import_names_to_distributions(
-    fake: dict[str, Any], tmp_path: Path
-) -> None:
+def test_the_report_maps_import_names_to_distributions(fake: dict[str, Any], tmp_path: Path) -> None:
     report = deps.run_deps(_script(tmp_path))
     assert report["importNames"]["yaml"] == {
         "distribution": "pyyaml",
@@ -253,13 +255,11 @@ def test_text_report_says_provides(fake: dict[str, Any], tmp_path: Path, capsys:
     assert "provides: unknown" in out
 
 
-def test_a_native_wheel_contributes_no_import_names(
-    fake: dict[str, Any], tmp_path: Path
-) -> None:
+def test_a_native_wheel_contributes_no_import_names(fake: dict[str, Any], tmp_path: Path) -> None:
     fake["lock"] = _pylock([_wheel_entry("sneaky", "1.0", "sneaky-1.0-py3-none-any.whl", sha(NATIVE_WHEEL))])
     script = _script(
         tmp_path,
-        """\
+        """
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
@@ -276,9 +276,7 @@ print("hi")
 
 
 def test_two_distributions_claiming_one_name_is_ambiguous(tmp_path: Path) -> None:
-    left = deps.DepResult(
-        "first", "1.0", "pure", "none-any wheel", import_names=("shared", "left")
-    )
+    left = deps.DepResult("first", "1.0", "pure", "none-any wheel", import_names=("shared", "left"))
     right = deps.DepResult("second", "1.0", "native", "wheels", import_names=("shared",))
     mapping = deps.import_module_map([left, right])
     assert mapping["shared"]["distribution"] == "first"
@@ -289,31 +287,30 @@ def test_two_distributions_claiming_one_name_is_ambiguous(tmp_path: Path) -> Non
 # ------------------------------------------------------------ coverage
 
 
-def test_coverage_names_the_distribution_behind_a_fenced_import(
-    fake: dict[str, Any], tmp_path: Path
-) -> None:
+def test_coverage_names_the_distribution_behind_a_fenced_import(fake: dict[str, Any], tmp_path: Path) -> None:
+    # `dateutil` is outside the compiler's closed import table, so `import
+    # dateutil` fences; `yaml` is a lowered table module and never would.
     script = _script(
         tmp_path,
         """\
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#   "PyYAML",
+#   "dateutil-ish",
 # ]
 # ///
-import yaml
+import dateutil
 
-print(yaml.safe_load("x"))
+print(dateutil.RelativeDelta())
 """,
     )
     report = coverage.build_report(script)
-    fenced = [e for e in report["fences"] if e["code"] == "PS2002" and "yaml" in e["message"]]
+    fenced = [e for e in report["fences"] if e["code"] == "PS2002" and "dateutil" in e["message"]]
     assert fenced, report["fences"]
     entry = fenced[0]
-    assert entry["dependency"]["distribution"] == "pyyaml"
+    assert entry["dependency"]["distribution"] == "dateutil-ish"
     assert entry["dependency"]["lane"] == "pure"
-    assert "PyYAML" not in entry["message"]  # the report names the locked name, not a guess
-    assert "pyyaml provides yaml" in entry["message"]
+    assert "dateutil-ish provides dateutil" in entry["message"]
     assert "compile from source" in entry["message"]
 
 
@@ -336,7 +333,7 @@ def test_coverage_keeps_the_plain_message_when_the_map_does_not_know_the_name(
 ) -> None:
     script = _script(
         tmp_path,
-        """\
+        """
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
@@ -355,12 +352,10 @@ print(nosuch.f())
     assert fenced[0]["message"].endswith("is not in the closed import table")
 
 
-def test_coverage_reports_an_unknown_map_as_unknown(
-    fake: dict[str, Any], tmp_path: Path
-) -> None:
+def test_coverage_reports_an_unknown_map_as_unknown(fake: dict[str, Any], tmp_path: Path) -> None:
     script = _script(
         tmp_path,
-        """\
+        """
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
@@ -382,33 +377,36 @@ print(bare.x)
 
 
 @needs_clang
-def test_a_fence_on_yaml_names_the_distribution(
-    fake: dict[str, Any], tmp_path: Path
-) -> None:
+def test_a_policy_refusal_on_a_mapped_import_names_the_distribution(fake: dict[str, Any], tmp_path: Path) -> None:
+    """`refuse` in the `[imports]` table, keyed by the distribution name.
+
+    `dateutil` is outside the closed import table: a lowered table module
+    like `yaml` lowers through its own row and never reads the policy.
+    """
+
     script = _script(
         tmp_path,
         """\
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#   "PyYAML",
+#   "dateutil-ish",
 # ]
 # ///
-import yaml
+import dateutil
 
-print(yaml.safe_load("x"))
+print(dateutil.RelativeDelta())
 """,
     )
+    (tmp_path / "pyscriptc.toml").write_text('[imports]\ndateutil_ish = "refuse"\n', encoding="utf-8")
     code = cli.main(["compile", str(script), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "tool.ir.json")])
     assert code == 3
     fences = json.loads((tmp_path / "tool.ir.json").read_text(encoding="utf-8"))["fences"]
-    assert any("pyyaml provides yaml" in f["message"] for f in fences), fences
+    assert any("dateutil-ish provides dateutil" in f["message"] for f in fences), fences
 
 
 @needs_clang
-def test_a_fence_on_a_known_native_import_names_the_distribution(
-    fake: dict[str, Any], tmp_path: Path
-) -> None:
+def test_a_fence_on_a_known_native_import_names_the_distribution(fake: dict[str, Any], tmp_path: Path) -> None:
     script = _script(
         tmp_path,
         """\
@@ -440,14 +438,14 @@ def _pythonpath_for(fake: dict[str, Any], tmp_path: Path) -> str:
 
 
 @needs_clang
-def test_importing_through_the_mapped_name_matches_cpython(
-    fake: dict[str, Any], tmp_path: Path
-) -> None:
-    """The differential test: `import yaml` compiles and prints what CPython prints.
+def test_importing_through_the_mapped_name_matches_cpython(fake: dict[str, Any], tmp_path: Path) -> None:
+    """The differential test: `import dateutil` compiles and prints what CPython prints.
 
-    The wheel is the local fixture (distribution `PyYAML`, import `yaml`);
-    the CPython oracle resolves the same import from the unpacked fixture
-    root on PYTHONPATH. No network anywhere.
+    The wheel is the local fixture (distribution `dateutil-ish`, import
+    `dateutil`); the CPython oracle resolves the same import from the
+    unpacked fixture root on PYTHONPATH. No network anywhere. (`import
+    yaml` cannot carry this test: `yaml` is a lowered module of the closed
+    import table and never goes through the dependency roots.)
     """
 
     script = _script(
@@ -456,12 +454,12 @@ def test_importing_through_the_mapped_name_matches_cpython(
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#   "PyYAML",
+#   "dateutil-ish",
 # ]
 # ///
-import yaml
+import dateutil
 
-print(yaml.safe_load("world"))
+print(dateutil.RelRelativeDelta)
 """,
     )
     expected = subprocess.run(

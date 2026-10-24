@@ -44,7 +44,6 @@ from typing import Any
 
 from pyscriptc.config import ConfigError, read_pep723
 from pyscriptc.errors import SpikeError
-from pyscriptc.imports import classify
 from pyscriptc.log import get_logger
 
 DEPS_CODE = "PS3101"
@@ -447,13 +446,9 @@ def _top_level_names(zf: zipfile.ZipFile, names: list[str], dist_info: str) -> t
     if top_level in names:
         try:
             body = zf.read(top_level).decode("utf-8")
-        except (UnicodeDecodeError, zipfile.BadZipFile):
+        except UnicodeDecodeError, zipfile.BadZipFile:
             body = ""
-        return tuple(
-            line.strip()
-            for line in body.splitlines()
-            if line.strip() and not line.strip().startswith("#")
-        )
+        return tuple(line.strip() for line in body.splitlines() if line.strip() and not line.strip().startswith("#"))
     found: list[str] = []
     for row in csv.reader(io.StringIO(zf.read(f"{dist_info}/RECORD").decode("utf-8"))):
         if not row or not row[0]:
@@ -575,6 +570,14 @@ def analyse(
                 else:
                     result.lane = "native"
                     result.hint = LANE_HINTS["native"]
+                    # A native wheel is never unpacked, but its names are
+                    # still the mapping (issue #408): read them while the
+                    # wheel is open here.
+                    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                        names = zf.namelist()
+                        dist_infos = {n.split("/", 1)[0] for n in names if n.split("/", 1)[0].endswith(".dist-info")}
+                        if len(dist_infos) == 1:
+                            result.import_names = _top_level_names(zf, names, dist_infos.pop())
         results.append(result)
     return results
 
@@ -706,7 +709,9 @@ def render_text(report: dict[str, Any]) -> str:
             if provided:
                 lines.append(f"  {'':<{width}}  {'':<6}  provides: {', '.join(provided)}")
             else:
-                lines.append(f"  {'':<{width}}  {'':<6}  provides: {UNKNOWN_IMPORT_NAMES} (no top_level.txt, no RECORD entries)")
+                lines.append(
+                    f"  {'':<{width}}  {'':<6}  provides: {UNKNOWN_IMPORT_NAMES} (no top_level.txt, no RECORD entries)"
+                )
     if report["lanes"]:
         lines.append("lanes: " + ", ".join(f"{k} {v}" for k, v in report["lanes"].items()))
     return "\n".join(lines)
