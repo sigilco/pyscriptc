@@ -11,6 +11,8 @@
    version is stamped here and checked by the generator's self-test.
    Included by ps_rt.c; it compiles only through that include. */
 
+#include <stdint.h>
+
 #define PS_CASE_EXP 0xFFFFFFFEu
 #define PS_CASE_F_CASED 0x1u
 #define PS_CASE_F_IGNORABLE 0x2u
