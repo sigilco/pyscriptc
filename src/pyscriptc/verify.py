@@ -24,10 +24,11 @@ from pathlib import Path
 from typing import Any
 
 from pyscriptc.errors import IRError, VersionError
+from pyscriptc.target import TARGET_CPYTHON, TARGET_VERSION_INFO
 
 SCHEMA_VERSION = 1
-ORACLE_PIN = (3, 14)
-ORACLE_NAME = "CPython 3.14"
+ORACLE_PIN = TARGET_VERSION_INFO
+ORACLE_NAME = f"CPython {TARGET_CPYTHON}"
 DEFAULT_TIMEOUT = 60.0
 TIMEOUT_EXIT = 124
 
@@ -181,7 +182,7 @@ def _is_pinned(version: str | None) -> bool:
     if not version:
         return False
     try:
-        parts = tuple(int(part) for part in version.split(".")[:2])
+        parts = tuple(int(part) for part in version.split(".")[:3])
     except ValueError:
         return False
     return parts == ORACLE_PIN
