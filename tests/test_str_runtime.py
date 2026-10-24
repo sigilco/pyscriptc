@@ -199,7 +199,7 @@ def test_split_and_join(tmp_path: Path) -> None:
         [
             f"parts: list[str] = '{CAFE},b,{EUR}'.split(',')",
             "print(len(parts), parts[0], parts[1], parts[2])",
-            f"print(','.join(['x', 'y', 'z']))",
+            "print(','.join(['x', 'y', 'z']))",
             f"print('{CAFE}'.join(['1', '2']))",
         ],
     )
@@ -275,7 +275,7 @@ def test_ord_chr_full_range(tmp_path: Path) -> None:
         "ordchr_cp.py",
         [
             f"print(ord('{CAFE}'[3]), ord('{EUR}'))",
-            f"print(chr(0x20AC), chr(233), chr(0x1F600))",
+            "print(chr(0x20AC), chr(233), chr(0x1F600))",
             "print(chr(0x10FFFF) != '')",
         ],
     )
