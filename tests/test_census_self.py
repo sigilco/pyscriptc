@@ -48,7 +48,8 @@ def test_self_census_ballpark() -> None:
     # restlower/_asyncio_sync.py (the asyncio Lock, Event, Semaphore, Queue
     # and to_thread, #180 Stage D3) adds 1 module.
     # verify.py (#555, the differential receipt) adds 1 module.
-    assert census["modules"] == 96
+    # assess.py (#558, assess PATH for native gains and island routes) adds 1 module.
+    assert census["modules"] == 97
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -213,6 +214,7 @@ def test_self_census_ballpark() -> None:
     # sources lower without the annotation fences, 341 fewer in total.
     # Reflection diagnostics (#556): reflection.py adds 8 self-host fences
     # (the note helpers, regex and pattern lookups).
+    # assess.py (#558): assess.py and the assess subcommand add 40 self-host fences.
 
     assert census["fences"] == 2845
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
