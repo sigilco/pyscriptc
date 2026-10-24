@@ -27,11 +27,11 @@ Targets CPython 3.14. Deliberate differences from CPython: [divergences.md](../.
 | `frozenset` | 🟡 | non-constant argument | PS2002 |
 | `id` | 🟡 | id of int | PS2003 |
 | `input` | 🟡 | prompt argument | PS2003 |
-| `int` | 🟡 | base argument, int(bool) | PS2003 |
+| `int` | 🟡 | unknown keyword, int(bool) | PS2003 |
 | `isinstance` | 🟡 | tuple of types | PS2001 |
 | `list` | 🟡 | list(str) | PS2002 |
 | `min`, `max` | 🟡 | key= a function name | PS2003 |
-| `open` | 🟡 | encoding= and other keywords | PS2003 |
+| `open` | 🟡 | keywords other than encoding= | PS2003 |
 | `print` | 🟡 | file= other than sys.stdout or sys.stderr | PS2002 |
 | `sorted` | 🟡 | key= a function name, sorted(dict) | PS2003 |
 | `str` | 🟡 | str of a user class | PS2003 |

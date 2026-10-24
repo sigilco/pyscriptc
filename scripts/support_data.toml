@@ -67,8 +67,8 @@ no = [["prompt argument", 'y: str = input("p")', "PS2003"]]
 
 [[builtin]]
 names = ["int"]
-ok = ['y: int = int(s)', 'y: int = int(x)', 'y: int = int(b)']
-no = [["base argument", 'y: int = int(s, 16)', "PS2003"], ["int(bool)", 'y: int = int(t)', "PS2003"]]
+ok = ['y: int = int(s)', 'y: int = int(x)', 'y: int = int(b)', 'y: int = int(s, 16)']
+no = [["unknown keyword", 'y: int = int(s, radix=8)', "PS2003"], ["int(bool)", 'y: int = int(t)', "PS2003"]]
 
 [[builtin]]
 names = ["float"]
@@ -111,8 +111,8 @@ no = [["tuple of types", 'y: bool = isinstance(n, (int, str))', "PS2001"]]
 
 [[builtin]]
 names = ["open"]
-ok = ['with open(s) as fh: pass', 'with open(s, "w") as fh: pass', 'for line in open(s): pass']
-no = [["encoding= and other keywords", 'with open(s, "r", encoding="utf-8") as fh: pass', "PS2003"]]
+ok = ['with open(s) as fh: pass', 'with open(s, "w") as fh: pass', 'for line in open(s): pass', 'with open(s, "r", encoding="utf-8") as fh: pass']
+no = [["keywords other than encoding=", 'with open(s, "r", buffering=1) as fh: pass', "PS2003"]]
 
 [[builtin]]
 names = ["id"]

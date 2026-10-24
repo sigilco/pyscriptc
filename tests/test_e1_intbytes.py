@@ -132,6 +132,6 @@ def test_int_other_overloads_keep_fencing() -> None:
     fence = mod["fences"][0]
     assert fence["code"] == "PS2003"
     assert "int is not lowered for these arguments" in fence["message"]
-    for source in ('int(2.5, 10)\n', 'int("ff", base=16, radix=8)\n'):
+    for source in ("int(2.5, 10)\n", 'int("ff", base=16, radix=8)\n'):
         mod = lower_source(source)
         assert [f["code"] for f in mod["fences"]] == ["PS2003"], source
