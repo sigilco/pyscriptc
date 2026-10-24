@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.6.1] - 2026-10-24
+
+### Added
+- S1, the decision record, the fence fixes, and the interim warning (#538)
+- __getattr__ reads lower to a direct hook call with a constant name (#434, D2) (#542)
+- prune the unreached dependency fences by reach (#424) (#535)
+- a re-export in an __init__.py binds like CPython (#516)
+- the four generator statement shapes lower (G1) (#482)
+- migrate pyscriptc-orjson onto the #377 pack format (#471)
+- feed the deps report sourceRoots into the compile path (#398) (#463)
+- refuse the dynamic attribute protocol hooks by name (PS42xx) (#461)
+- skip tests, test_*.py and dist-info when unpacking pure wheels (#431)
+
+### Fixed
+- byte-parity with CPython 3.14 for sum, round, tuple display, NUL in str and universal newlines (#514, #517, #518, #519, #528) (#544)
+- module-scope containers keep reference semantics (#512), plus sort, mutators, assert and bare-raise (#541)
+- bare deque annotation crash, regenerate IR_HASHES for IR_VERSION 2 (#545)
+- compute the snapshot date in the shell, env values are not expanded (#462)
+
+### Performance
+- the map and set indexes replace the linear scans (#464)
+
+### Docs
+- the real-script support statement and the beta scope expectation (#537)
+- the 2026-10-24 CPython divergence audit (#536)
+- the packages and apps page, the tiering policy for the blessed list (#521)
+- the code-point str model plan and the owner decision (#480)
+- the pack format spec for #377 (#460)
+
+### Other
+- lower: local, parameter and return inference from the bound value (#500) (#540)
+- deps: map import names to distributions from top_level.txt, recorded at unpack (#539)
+
 ## [0.6.0] - 2026-10-23
 
 ### Added
