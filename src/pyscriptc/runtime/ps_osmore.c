@@ -313,7 +313,7 @@ static void ps_copy_bytes(FILE *in, FILE *out) {
         rewind(in);
         rewind(out);
         (void)ftruncate(outfd, 0);
-#elif defined(__linux__)
+#elif defined(__linux__) && !defined(__ANDROID__)
         int cfr_failed = 0;
         off_t total_copied = 0;
         while (1) {
