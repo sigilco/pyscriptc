@@ -174,6 +174,12 @@ class StmtsMixin:
             self.block(take_l)
             slot = handler.get("excslot")
             if slot is not None:
+                if slot not in self.slots:
+                    # A slot the outline never packed: the compile must
+                    # answer with a diagnostic, not a KeyError traceback
+                    # (#530). The used-name walk packs every handler
+                    # excslot, so this is a last resort.
+                    raise IRError(f"except handler slot {slot} is not packed")
                 # `except E as e` binding (or a bare-raise temp slot).
                 self._abi_decl("ps_exc_current", "ptr", [])
                 current = self._call_ret("ptr", "ps_exc_current", [])
@@ -497,6 +503,11 @@ def _used_names(body: list[dict[str, Any]]) -> set[str]:
             names.add(node.get("target", ""))
         elif kind == "excslot":
             names.add(node)
+        elif kind is None and "excslot" in node:
+            # An except handler: its excslot stores the bound record before
+            # the body emits beside the try's callsite, so the slot must be
+            # packed even when no statement names it (#530).
+            names.add(node["excslot"])
         for key, value in node.items():
             if key in {"target", "id", "excslot"} and isinstance(value, str):
                 continue

@@ -196,3 +196,70 @@ def test_assert_raises_assertionerror(tmp_path: Path) -> None:
     expected = subprocess.run([sys.executable, "-c", path.read_text()], capture_output=True, text=True, check=False)
     assert got.returncode == expected.returncode == 1
     assert "AssertionError: one is not two" in got.stderr
+
+
+def test_nested_bare_raise_recaught(tmp_path: Path) -> None:
+    import subprocess
+    import sys
+
+    source = (
+        "try:\n"
+        "    try:\n"
+        "        raise ValueError('x')\n"
+        "    except ValueError as e:\n"
+        "        print('inner', str(e))\n"
+        "        raise\n"
+        "except ValueError as e:\n"
+        "    print('recaught', str(e))\n"
+        "\n"
+        "try:\n"
+        "    try:\n"
+        "        raise KeyError('k')\n"
+        "    except KeyError:\n"
+        "        raise\n"
+        "except KeyError as f:\n"
+        "    print('recaught2', str(f))\n"
+    )
+    differential(tmp_path, "nested_raise.py", source)
+    path = write_case(tmp_path, "nested_raise.py", source)
+    expected = subprocess.run([sys.executable, "-c", source], capture_output=True, text=True, check=False)
+    assert expected.stdout == "inner x\nrecaught x\nrecaught2 'k'\n"
+    assert got_channels(tmp_path, path) == (0, expected.stdout, expected.stderr)
+
+
+def got_channels(tmp_path: Path, path: Path) -> tuple[int, str, str]:
+    out = str(tmp_path / (path.stem + ".rerun.bin"))
+    got = run_cli("compile", str(path), "--run", "--emit", "bin", "-o", out)
+    return got.returncode, got.stdout, got.stderr
+
+
+def test_nested_bare_raise_never_crashes_the_compiler(tmp_path: Path) -> None:
+    # The audit repro: the inner handler's bare raise once reached a slot
+    # the outer outline never packed and died with a KeyError traceback.
+    # The walk packs handler excslots now, so the repro lowers and matches
+    # CPython (the test above). This pin keeps a compiler crash from
+    # returning under another IR shape: a missing slot is an IRError, not
+    # an uncaught KeyError.
+    from pyscriptc.lower import lower_source
+
+    mod = lower_source(
+        """
+try:
+    try:
+        raise ValueError("x")
+    except ValueError as e:
+        raise
+except ValueError as e:
+    print("recaught", str(e))
+"""
+    )
+    assert mod["fences"] == []
+    handler = mod["functions"][0]["body"][0]["handlers"][0]
+    assert handler["excslot"] == "e"
+    # The used-name walk packs the handler excslot, so the outer outline
+    # carries the slot the bare raise loads. A slot that is still not
+    # packed raises IRError, which the CLI prints as a diagnostic.
+    from pyscriptc.emit.llvm._stmts import _used_names
+
+    names = _used_names([{"exc": ["ValueError"], "excslot": "e", "bind": "e", "body": []}])
+    assert names == {"e"}
