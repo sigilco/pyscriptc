@@ -32,6 +32,5 @@ Everything else in orjson stays fenced: the `default=` callable, every other `OP
 
 ## Where it differs from orjson
 
-orjson is not vendored in the compat corpus, so the pack follows orjson's documented output rather than a byte-for-byte vendored oracle.
-Compact output (`{"a":1}` with no spaces) and the two flags above match orjson; serialization of orjson's extended types (`numpy` arrays, `dataclass`, `UUID`, `datetime`) is not in the subset.
+The pack's C thunk is diffed byte for byte against the real orjson under CPython (the sequences in the pack's `conformance/suite.toml`, run by `tests/test_pack_orjson_conformance.py`). Compact output (`{"a":1}` with no spaces) and the two flags above match orjson; serialization of orjson's extended types (`numpy` arrays, `dataclass`, `UUID`, `datetime`) is not in the subset.
 Errors surface as `ValueError` rather than `orjson.JSONDecodeError`.
