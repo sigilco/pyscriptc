@@ -84,6 +84,9 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         self.synthetics: set[str] = set()
         self.temp_n = 0
         self.caught: list[Fence] = []
+        # The interim non-ASCII notes (issue #473): Latin-1 literals whose
+        # output bytes differ from CPython until the str model lands.
+        self.non_ascii_notes: list[dict[str, Any]] = []
         self.prelude: list[dict[str, Any]] = []
         self.constants: dict[str, dict[str, Any]] = {}
         self.type_aliases: dict[str, str] = {}
@@ -243,6 +246,46 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
     def fail(self, node: ast.AST, code: str, message: str) -> NoReturn:
         raise Fence(code, message, span_of(node, self.filename), self.function)
 
+    def _note_non_ascii(self, node: ast.AST, value: str) -> None:
+        """Record a Latin-1 literal whose bytes will not match CPython's stdout.
+
+        The interim honesty step (issue #473): a compiled program that
+        prints this literal writes one Latin-1 byte per code point where
+        CPython writes UTF-8, and the divergence is silent. The note is a
+        warning, not a fence: the program still lowers, the exit code is
+        unchanged, and the module carries the notes for the compile to
+        print. The runtime side (a string that becomes non-ASCII through
+        decoding) is covered by divergence item 3, not by this note.
+        """
+
+        shown = "".join(ch if 32 <= ord(ch) < 127 else f"\\u{ord(ch):04x}" for ch in value[:24])
+        self.non_ascii_notes.append(
+            {
+                "line": span_of(node, self.filename)["line"],
+                "col": span_of(node, self.filename)["col"],
+                "text": shown,
+            }
+        )
+
+    def _non_ascii_warnings(self) -> list[dict[str, Any]]:
+        """One warning per line, first literal wins, in source order."""
+
+        by_line: dict[int, dict[str, Any]] = {}
+        for note in self.non_ascii_notes:
+            by_line.setdefault(note["line"], note)
+        return [
+            {
+                "code": "PSW2005",
+                "message": (
+                    "this program prints Latin-1 bytes where CPython 3.14 writes UTF-8 "
+                    f'(str model epic #472 in flight): first non-ASCII text "{note["text"]}"'
+                ),
+                "line": note["line"],
+                "col": note["col"],
+            }
+            for note in sorted(by_line.values(), key=lambda item: item["line"])
+        ]
+
     def mobile_guard(self, node: ast.AST, surface: str, key: str) -> None:
         """Fence a surface a mobile target cannot carry.
 
@@ -335,6 +378,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             self._bind_deferred_module(fences)
         if self.cataloguing:
             self.function = None
+            notes = self._non_ascii_warnings()
             return {
                 "irVersion": 1,
                 "subset": SUBSET,
@@ -344,6 +388,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 "functions": [],
                 "classes": [],
                 "fences": [fence.as_dict() for fence in fences],
+                **({"warnings": notes} if notes else {}),
             }
         lowered_classes: list[dict[str, Any]] = []
         for node in class_nodes:
@@ -443,6 +488,11 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             "classes": lowered_classes,
             "fences": [fence.as_dict() for fence in fences],
         }
+        # The non-ASCII notes are read after the bodies lower: the const
+        # pass that appends them runs inside the function loops above.
+        notes = self._non_ascii_warnings()
+        if notes:
+            module["warnings"] = notes
         if self.global_inits:
             module["globals"] = self.global_inits
         return self._coro_finish(module)

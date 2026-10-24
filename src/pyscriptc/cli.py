@@ -1027,6 +1027,14 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         ir_path.parent.mkdir(parents=True, exist_ok=True)
         ir_path.write_text(json.dumps(module, indent=2) + "\n", encoding="utf-8")
         outputs["ir"] = str(ir_path)
+        for note in module.get("warnings", []):
+            # The interim honesty step (issue #473): a warning, never a
+            # fence. The program still compiles and the exit code is
+            # unchanged; the message says what will differ from CPython.
+            print(
+                f"warning: {source_path}:{note['line']}:{note['col']}: {note['code']}: {note['message']}",
+                file=sys.stderr,
+            )
         if module["fences"]:
             state["fence_count"] = len(module["fences"])
             state["fence_families"] = _fence_families(module["fences"])

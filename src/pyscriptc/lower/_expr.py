@@ -283,6 +283,8 @@ class ExprMixin:
         if isinstance(value, str):
             if any(ord(ch) > 255 for ch in value):
                 self.fail(node, "PS2005", "string literals outside Latin-1 are not lowered")
+            if any(ord(ch) > 127 for ch in value):
+                self._note_non_ascii(node, value)
             return {"kind": "const", "value": value, "type": {"kind": "str"}, "span": span}
         if isinstance(value, bytes):
             return {"kind": "const", "value": value.decode("latin1"), "type": {"kind": "bytes"}, "span": span}
