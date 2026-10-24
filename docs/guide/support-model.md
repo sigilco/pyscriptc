@@ -29,6 +29,20 @@ Deliberate differences from CPython are numbered in [Divergences](../reference/d
 `https://` raises `OSError` until TLS lands, `http.client` and `http.server` are not lowered, and the rest of the module fences.
 The shape and its divergences are on the [HTTP](../guide/http.md) page; the remaining network work (TLS, `http.client`, inbound servers, the event loop) is tracked on epic [#219](https://github.com/sigilco/pyscriptc/issues/219).
 
+## Real scripts
+
+The compiler is measured against third-party scripts, not only against code written for it: `benchmarks/real_scripts/` holds real-world CLI and automation scripts vendored from public repositories at pinned commits, and a nightly lane scores them the way the rest of the ladder is scored.
+A script that stops at a fence is a signal about the compiler, so the corpus scripts are never edited to make them compile.
+
+What a script meets today, measured on that corpus (39 scripts, 2026-10-24, 0 compile with zero fences):
+
+- An assignment without an annotation (`files = os.listdir(d)`) fences with `PS1001`, and every later read of the name fences with `PS2002`; the first fence is the cause and the rest follow from it. 23 of the 39 scripts stop here.
+- A keyword argument to a stdlib call (`shutil.copy(src, dst, follow_symlinks=False)`, `subprocess.run(args, capture_output=True)`) fences with `PS2003`. 6 scripts stop here.
+- A module outside the closed import table (`platform`, `calendar`, `zipfile`, `tarfile`, `sqlite3`) fences with `PS2002` on the import. 6 scripts stop here.
+
+The per-module gap list, generated from the same corpus, lands as `docs/reference/what-will-fail.md` (#508); until then the first fence of a run, `pyscriptc compile FILE`, and `pyscriptc coverage FILE` name the exact gap in your script.
+The grind plan and its tickets are #500 to #511; the measurement tool is `uv run python -m benchmarks.real_scripts.measure`.
+
 ## Checking your own code
 
 Run `pyscriptc coverage FILE` to get a per-line fence report before compiling, or `pyscriptc explain PS2001` to look up what a fence code means and the smallest rewrite that clears it.
