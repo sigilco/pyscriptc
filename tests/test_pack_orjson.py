@@ -83,9 +83,9 @@ def _ffi_manifest_text(data: dict) -> str:
     ffi = data["ffi"]
     lines = [
         "[manifest]",
-        f'module = "pyscriptc_orjson"',
-        f'ps_abi = {data["pack"]["ps-abi"]}',
-        f'format = {data["pack"]["format"]}',
+        'module = "pyscriptc_orjson"',
+        f"ps_abi = {data['pack']['ps-abi']}",
+        f"format = {data['pack']['format']}",
     ]
     for table in ("source", "handle", "const", "fn"):
         for row in ffi.get(table, []):
@@ -149,9 +149,7 @@ def test_ffi_tables_refuse_an_unsupported_abi_pin() -> None:
 def test_surface_is_the_vendored_stub_byte_identical() -> None:
     # Spec section 11: the surface is byte-identical to the vendored stub the
     # compiler still serves, so user-facing behaviour is unchanged.
-    vendored = (ROOT / "src" / "pyscriptc" / "_pyright_stubs" / "orjson" / "__init__.pyi").read_text(
-        encoding="utf-8"
-    )
+    vendored = (ROOT / "src" / "pyscriptc" / "_pyright_stubs" / "orjson" / "__init__.pyi").read_text(encoding="utf-8")
     surface = (PACK / "surface" / "orjson" / "__init__.pyi").read_text(encoding="utf-8")
     assert surface.split("\n\n", 1)[1] == vendored.split("\n\n", 1)[1]
     tree = ast.parse(surface)
