@@ -609,6 +609,15 @@ def _program_imports(
                     child = f"{node.module}.{alias.name}"
                     if child in exports:
                         note(child)
+                    elif (
+                        node.module in exports
+                        and alias.name not in exports[node.module]
+                        and alias.name in {e.split(".")[-1] for e in exports if e.startswith(node.module + ".")}
+                    ):
+                        # CPython's submodule fallback (`from pkg.sub import
+                        # blob` imports `pkg.sub.blob`): the import runs that
+                        # module's body, so the reach edge exists.
+                        note(child)
             elif node.level and module:
                 for target in resolve(node):
                     note(target)
@@ -1005,7 +1014,16 @@ def _discover_dep_package(package_dir: Path, name: str) -> list[tuple[str, Path,
     units: list[tuple[str, Path, bool]] = [(name, package_dir / "__init__.py", True)]
     for path in sorted(package_dir.rglob("*.py")):
         relative = path.relative_to(package_dir)
-        if path.name == "__init__.py" or any(part.startswith(".") or part == "__pycache__" for part in relative.parts):
+        if any(part.startswith(".") or part == "__pycache__" for part in relative.parts):
+            continue
+        if path.name == "__init__.py":
+            # An intermediate package is its own importable unit: a program
+            # that imports `pkg.sub` (or reads `files("pkg.sub")`) binds the
+            # package body the way CPython runs it, so the unit exists even
+            # when nothing else inside it is reached.
+            parts = relative.parts[:-1]
+            if parts:
+                units.append((".".join((name, *parts)), path, True))
             continue
         stem = relative.with_suffix("")
         if not all(part.isidentifier() for part in stem.parts):
