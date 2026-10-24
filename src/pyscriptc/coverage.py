@@ -23,6 +23,13 @@ from pyscriptc.package import _discover, lower_directory
 SCHEMA_VERSION = 1
 
 
+def deps_run_deps(source: Path, *, cache_dir: str | Path | None = None) -> dict[str, Any]:
+    """Indirection over `deps.run_deps` so tests can fake the resolver."""
+    from pyscriptc import deps
+
+    return deps.run_deps(source, cache_dir=cache_dir)
+
+
 @dataclass(frozen=True)
 class Family:
     key: str
@@ -273,8 +280,48 @@ def _lower(target: Path, bridge: Any = None) -> tuple[dict[str, Any], list[str]]
     raise IRError(f"source not found: {target}")
 
 
+def _dependency_map(target: Path) -> dict[str, dict[str, str]]:
+    """The recorded import-name map of the target's locked dependencies.
+
+    Read from the unpacked wheels' `.imports` records (issue #408) without
+    touching the network: a tree whose config declares no dependencies has
+    nothing to read, and a resolution failure is not a coverage failure.
+    """
+
+    from pyscriptc.config import load_config
+    from pyscriptc.deps import UNKNOWN_IMPORT_NAMES
+
+    config = load_config(target)
+    if not config.dependencies:
+        return {}
+    try:
+        report = deps_run_deps(target, cache_dir=None)
+    except Exception:
+        return {}
+    mapping: dict[str, dict[str, str]] = {}
+    for package in report["packages"]:
+        module = str(package["name"]).lower().replace("-", "_").replace(".", "_")
+        names = tuple(package.get("import_names") or ())
+        if not names:
+            mapping[module] = {
+                "distribution": package["name"],
+                "lane": package["lane"],
+                "hint": package["hint"],
+                "importNames": UNKNOWN_IMPORT_NAMES,
+            }
+            continue
+        for name in names:
+            mapping[name.lower()] = {
+                "distribution": package["name"],
+                "lane": package["lane"],
+                "hint": package["hint"],
+            }
+    return mapping
+
+
 def build_report(target: Path, bridge: Any = None) -> dict[str, Any]:
     module, files = _lower(target, bridge)
+    known = _dependency_map(target)
     sources: dict[str, str | None] = {}
     trees: dict[str, list[_Def]] = {}
     total_defs: dict[str, int] = {}
@@ -306,21 +353,24 @@ def build_report(target: Path, bridge: Any = None) -> dict[str, Any]:
         lines = text.splitlines() if text else []
         statement = lines[span["line"] - 1].strip() if 1 <= span["line"] <= len(lines) else ""
         entries.append(
-            {
-                "code": fence["code"],
-                "message": fence["message"],
-                "family": family,
-                "derived": is_derived(family),
-                "file": path,
-                "line": span["line"],
-                "col": span["col"],
-                "endLine": span["endLine"],
-                "endCol": span["endCol"],
-                "definition": owner.name if owner else None,
-                "statement": statement,
-                "frame": format_diagnostic(fence, text),
-                "hint": hint_for(family, fence["message"]),
-            }
+            _annotate(
+                {
+                    "code": fence["code"],
+                    "message": fence["message"],
+                    "family": family,
+                    "derived": is_derived(family),
+                    "file": path,
+                    "line": span["line"],
+                    "col": span["col"],
+                    "endLine": span["endLine"],
+                    "endCol": span["endCol"],
+                    "definition": owner.name if owner else None,
+                    "statement": statement,
+                    "frame": format_diagnostic(fence, text),
+                    "hint": hint_for(family, fence["message"]),
+                },
+                known,
+            )
         )
 
     by_def: dict[tuple[str, str], list[int]] = defaultdict(list)
@@ -353,6 +403,34 @@ def build_report(target: Path, bridge: Any = None) -> dict[str, Any]:
         "moduleFences": module_fences,
         "chain": _chain(entries, definitions),
     }
+
+
+def _annotate(entry: dict[str, Any], known: dict[str, dict[str, str]]) -> dict[str, Any]:
+    """One fence entry, named after the distribution when the map knows it.
+
+    A PS2002 fence on an import a locked distribution provides (`import
+    yaml` with PyYAML locked) carries `dependency`: the distribution, its
+    lane and the lane hint, so the report says what to do about it instead
+    of a bare "not in the closed import table". An ambiguous name says so
+    and lists the claimants.
+    """
+
+    message = entry["message"]
+    if entry["code"] != "PS2002" or "is not in the closed import table" not in message:
+        return entry
+    for name in message.split():
+        candidate = name.strip(".,:;'\"()[]")
+        found = known.get(candidate) or known.get(candidate.lower())
+        if found is None:
+            continue
+        entry["dependency"] = found
+        where = f" ({found['distribution']} provides {candidate}, on the {found['lane']} lane: {found['hint']})"
+        if found.get("ambiguous"):
+            where = f" ({candidate} is claimed by more than one locked distribution: {found['ambiguous']})"
+        entry["message"] = message + where
+        entry["frame"] = entry["frame"].replace(message, entry["message"])
+        break
+    return entry
 
 
 def _summary(

@@ -52,6 +52,7 @@ EXTENSION_SUFFIXES = (".so", ".pyd", ".dylib", ".dll")
 SKIPPED_DATA_DIRS = ("scripts", "headers", "data")
 SKIPPED_DIR_NAMES = ("test", "docs", "examples")  # only at the wheel root
 SKIPPED_ANYWHERE = ("tests",)
+UNKNOWN_IMPORT_NAMES = "unknown"
 
 log = get_logger()
 
@@ -432,6 +433,43 @@ def _should_skip_member(parts: tuple[str, ...]) -> bool:
     return False
 
 
+def _top_level_names(zf: zipfile.ZipFile, names: list[str], dist_info: str) -> tuple[str, ...]:
+    """The import names a wheel provides: `top_level.txt`, else RECORD's top level.
+
+    `top_level.txt` is the authoritative mapping (issue #408). A wheel
+    without it falls back to the top-level entries of its RECORD; a wheel
+    with neither returns `()`, and the report says `unknown` rather than
+    guessing from the distribution name.
+    """
+
+    top_level = f"{dist_info}/top_level.txt"
+    if top_level in names:
+        try:
+            body = zf.read(top_level).decode("utf-8")
+        except UnicodeDecodeError, zipfile.BadZipFile:
+            body = ""
+        return tuple(line.strip() for line in body.splitlines() if line.strip() and not line.strip().startswith("#"))
+    found: list[str] = []
+    for row in csv.reader(io.StringIO(zf.read(f"{dist_info}/RECORD").decode("utf-8"))):
+        if not row or not row[0]:
+            continue
+        path = PurePosixPath(row[0])
+        parts = path.parts
+        if not parts or parts[0].endswith(".dist-info") or parts[0].endswith(".data"):
+            continue
+        # A top-level entry is a root `.py` module or a package directory
+        # (it owns the `__init__.py` the unpack skips dist-info to record).
+        if len(parts) == 1 and parts[0].endswith(".py"):
+            name = parts[0][:-3]
+        elif f"{parts[0]}/__init__.py" in names:
+            name = parts[0]
+        else:
+            continue
+        if name and name not in found:
+            found.append(name)
+    return tuple(found)
+
+
 def materialise(data: bytes, sha256: str, cache: Path, *, name: str | None = None) -> Path:
     """Unpack a verified pure wheel into `src/<sha256>/` once; returns the import root."""
     dest = cache / "src" / sha256
@@ -442,6 +480,7 @@ def materialise(data: bytes, sha256: str, cache: Path, *, name: str | None = Non
     skipped: list[str] = []
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            names = zf.namelist()
             for info in zf.infolist():
                 _safe_member(info)
                 if info.is_dir():
@@ -455,7 +494,11 @@ def materialise(data: bytes, sha256: str, cache: Path, *, name: str | None = Non
                 target = tmp.joinpath(*parts)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(zf.read(info))
+            dist_infos = {n.split("/", 1)[0] for n in names if n.split("/", 1)[0].endswith(".dist-info")}
+            top_level = sorted(_top_level_names(zf, names, dist_infos.pop())) if len(dist_infos) == 1 else []
         (tmp / ".complete").write_text(sha256 + "\n", encoding="utf-8")
+        if top_level:
+            (tmp / ".imports").write_text("\n".join(top_level) + "\n", encoding="utf-8")
         if dest.exists():
             shutil.rmtree(dest)
         os.replace(tmp, dest)
@@ -465,6 +508,7 @@ def materialise(data: bytes, sha256: str, cache: Path, *, name: str | None = Non
             sha256=sha256,
             source_root=str(dest),
             skipped={"count": len(skipped), "paths": skipped},
+            importNames={"count": len(top_level), "names": top_level},
         )
     finally:
         if tmp.exists():
@@ -485,6 +529,7 @@ class DepResult:
     sha256: str | None = None
     source_root: str | None = None
     marker: str | None = None
+    import_names: tuple[str, ...] = ()
     hint: str = field(init=False)
 
     def __post_init__(self) -> None:
@@ -506,12 +551,86 @@ def analyse(
                 pure, reason = inspect_wheel(data)
                 result.reason = reason
                 if pure:
-                    result.source_root = str(materialise(data, wheel.sha256, cache, name=pkg.name))
+                    root = materialise(data, wheel.sha256, cache, name=pkg.name)
+                    result.source_root = str(root)
+                    result.import_names = unpacked_import_names(root)
                 else:
                     result.lane = "native"
                     result.hint = LANE_HINTS["native"]
+                    # A native wheel is never unpacked, but its names are
+                    # still the mapping (issue #408): read them while the
+                    # wheel is open here.
+                    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                        names = zf.namelist()
+                        dist_infos = {n.split("/", 1)[0] for n in names if n.split("/", 1)[0].endswith(".dist-info")}
+                        if len(dist_infos) == 1:
+                            result.import_names = _top_level_names(zf, names, dist_infos.pop())
         results.append(result)
     return results
+
+
+def import_module_map(packages: list[DepResult]) -> dict[str, dict[str, str]]:
+    """Import name to the distribution that provides it (issue #408).
+
+    Keyed by the import name as recorded at unpack (`yaml`, `dateutil`),
+    lowered, so a fence or a coverage entry on the import finds the
+    distribution. Two distributions claiming one name is ambiguous: the
+    first lock order wins and the entry keeps both names so the caller can
+    say so. A pure distribution with no recorded names contributes one
+    `unknown` entry keyed by its distribution-shaped module name, never a
+    guess at the import names it might provide.
+    """
+
+    by_name: dict[str, list[DepResult]] = {}
+    for result in packages:
+        for import_name in result.import_names:
+            by_name.setdefault(import_name.lower(), []).append(result)
+    mapping: dict[str, dict[str, str]] = {}
+    for import_name, providers in by_name.items():
+        entry = _map_entry(providers[0])
+        if len(providers) > 1:
+            entry["ambiguous"] = ", ".join(sorted(p.name for p in providers))
+        if len(providers[0].import_names) > 1:
+            entry["provides"] = ", ".join(sorted(providers[0].import_names))
+        mapping[import_name] = entry
+    for result in packages:
+        # Known import names are already in; a pure wheel with none of its
+        # own is `unknown` keyed by its distribution-shaped module name, so
+        # `import bare` still finds the locked distribution. A native or
+        # sdist lane keeps its distribution-shaped key without the marker:
+        # the fence names the lane, and there is no unpacked tree to lie
+        # about.
+        if result.import_names:
+            continue
+        module = result.name.lower().replace("-", "_").replace(".", "_")
+        entry = _map_entry(result)
+        if result.lane == "pure":
+            entry["importNames"] = UNKNOWN_IMPORT_NAMES
+        mapping.setdefault(module, entry)
+    return mapping
+
+
+def _map_entry(result: DepResult) -> dict[str, str]:
+    return {
+        "distribution": result.name,
+        "lane": result.lane,
+        "hint": result.hint,
+    }
+
+
+def unpacked_import_names(root: str | Path) -> tuple[str, ...]:
+    """The recorded import names of one unpacked pure wheel, `()` when unknown.
+
+    `materialise` writes the wheel's `top_level.txt` names (or its RECORD's
+    top-level entries, issue #408) to `.imports` beside the unpacked
+    source root; this reads it back.
+    """
+
+    try:
+        body = (Path(root) / ".imports").read_text(encoding="utf-8")
+    except OSError:
+        return ()
+    return tuple(line.strip() for line in body.splitlines() if line.strip())
 
 
 def run_deps(
@@ -530,6 +649,7 @@ def run_deps(
     lanes: dict[str, int] = {}
     for r in results:
         lanes[r.lane] = lanes.get(r.lane, 0) + 1
+    mapping = import_module_map(results)
     return {
         "source": str(spec.origin),
         "kind": spec.kind,
@@ -542,6 +662,7 @@ def run_deps(
         "lanes": dict(sorted(lanes.items())),
         "packages": [vars(r) for r in results],
         "sourceRoots": [r.source_root for r in results if r.source_root],
+        "importNames": dict(sorted(mapping.items())),
     }
 
 
@@ -570,6 +691,14 @@ def render_text(report: dict[str, Any]) -> str:
         lines.append(f"  {label}  {p['lane']:<6}  {p['reason']}")
         if p["lane"] != "pure":
             lines.append(f"  {'':<{width}}  {'':<6}  hint: {p['hint']}")
+        if p["lane"] == "pure":
+            provided = p.get("import_names") or ()
+            if provided:
+                lines.append(f"  {'':<{width}}  {'':<6}  provides: {', '.join(provided)}")
+            else:
+                lines.append(
+                    f"  {'':<{width}}  {'':<6}  provides: {UNKNOWN_IMPORT_NAMES} (no top_level.txt, no RECORD entries)"
+                )
     if report["lanes"]:
         lines.append("lanes: " + ", ".join(f"{k} {v}" for k, v in report["lanes"].items()))
     return "\n".join(lines)
