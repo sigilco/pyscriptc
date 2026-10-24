@@ -185,10 +185,10 @@ class CoreMixin:
 
     def _widen_cell(self, typ: dict[str, Any], slot: str) -> str:
         """Load a value out of a runtime-visible cell: a str widens from the
-        16-byte %ps.buf prefix, with the count and flag zero-filled
-        (conservative until the str model moves the constructors into C).
-        None has no runtime value: the field slot is a placeholder byte and
-        the read folds to the singleton."""
+        16-byte %ps.buf prefix, and `ps_str_counts` refills the count and
+        flag from the bytes (the cell stores only the prefix). None has no
+        runtime value: the field slot is a placeholder byte and the read
+        folds to the singleton."""
 
         if typ["kind"] == "none":
             return "0"
@@ -208,6 +208,18 @@ class CoreMixin:
         self.line(f"{third} = insertvalue %ps.str {second}, i64 0, 2")
         reg = self.tmp()
         self.line(f"{reg} = insertvalue %ps.str {third}, i32 0, 3")
+        if typ["kind"] == "str":
+            # Bytes keep the zero count (their count is their byte length);
+            # str recomputes so len() and the case family read true values.
+            slot_ptr = self._alloca("%ps.str")
+            count_ptr2 = self.tmp()
+            flags_ptr2 = self.tmp()
+            self.line(f"store %ps.str {reg}, ptr {slot_ptr}")
+            self.line(f"{count_ptr2} = getelementptr %ps.str, ptr {slot_ptr}, i32 0, i32 2")
+            self.line(f"{flags_ptr2} = getelementptr %ps.str, ptr {slot_ptr}, i32 0, i32 3")
+            self._abi_decl("ps_str_counts", "void", ["i64", "ptr", "ptr", "ptr"])
+            self.line(f"call void @ps_str_counts(i64 {length}, ptr {ptr}, ptr {count_ptr2}, ptr {flags_ptr2})")
+            reg = self._load("%ps.str", slot_ptr)
         return reg
 
     def _alloca(self, llvm_type: str) -> str:

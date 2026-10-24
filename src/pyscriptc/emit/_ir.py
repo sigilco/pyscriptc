@@ -75,8 +75,8 @@ def _prepare_arg(param: dict[str, Any], value: Any) -> Any:
     if kind == "str":
         if not isinstance(value, str):
             raise FitError(f"argument {name} must be a str")
-        if any(ord(ch) > 255 for ch in value):
-            raise FitError(f"argument {name} is outside Latin-1 and is not lowered")
+        if any(0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+            raise FitError(f"argument {name} carries a lone surrogate and is not lowered")
         return value
     raise FitError(f"argument {name} has type {kind}, which main cannot pass")
 

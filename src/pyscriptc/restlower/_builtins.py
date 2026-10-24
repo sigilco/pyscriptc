@@ -54,8 +54,6 @@ def _hasattr(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
 def _literal_name(lo: Any, node: ast.Call) -> str:
     arg = node.args[1]
     if isinstance(arg, ast.Constant) and isinstance(arg.value, str) and arg.value.isidentifier():
-        if any(ord(ch) > 127 for ch in arg.value):
-            lo.fail(node, "PS2005", "non-ASCII string literals are not lowered")
         return arg.value
     lo.fail(node, "PS2001", "the attribute name is a string literal")
     raise AssertionError("unreachable")

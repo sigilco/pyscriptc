@@ -17,15 +17,15 @@ class PrintMixin:
         return reg
 
     def string_value(self, text: str, binary: bool = False) -> str:
-        data = text.encode("latin1")
+        # str constants encode UTF-8; bytes constants ride as Latin-1 (the
+        # IR decodes bytes Latin-1 so every byte round-trips one-to-one).
+        data = text.encode("latin1" if binary else "utf-8")
         idx = len(self.string_data)
         self.string_data.append(data)
         symbol = f"@ps.str.{idx}"
         self.globals.append(f'{symbol} = private unnamed_addr constant [{len(data) + 1} x i8] c"{_llvm_bytes(data)}"')
         # The compiler knows the code-point count and the ASCII flag from
-        # the source text, so the constant path fills all four fields. In
-        # the Latin-1 model the byte length is the count only for ASCII, so
-        # the non-ASCII case carries len(text) as the count already.
+        # the source text, so the constant path fills all four fields.
         count = len(text)
         ascii_flag = 1 if count == len(data) else 0
         parts = self.tmp()

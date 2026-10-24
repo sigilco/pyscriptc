@@ -28,7 +28,12 @@ class CallsMixin:
         if name == "print":
             self._emit_print(values, arg_types, expr)
             return ""
-        if name == "len" and arg_types[0]["kind"] in {"str", "bytes"}:
+        if name == "len" and arg_types[0]["kind"] == "str":
+            # The code-point count: field 2 (field 0 is the byte length).
+            reg = self.tmp()
+            self.line(f"{reg} = extractvalue %ps.str {values[0]}, 2")
+            return reg
+        if name == "len" and arg_types[0]["kind"] == "bytes":
             reg = self.tmp()
             self.line(f"{reg} = extractvalue %ps.str {values[0]}, 0")
             return reg
