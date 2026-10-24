@@ -2270,17 +2270,138 @@ def lower_file(
     return merged, text
 
 
+def _fence_source(fence: dict[str, Any], module: dict[str, Any], source: str) -> str:
+    path = fence.get("span", {}).get("file")
+    if path and path != module.get("sourceFile"):
+        try:
+            return open(path, encoding="utf-8").read()
+        except OSError:
+            return source
+    return source
+
+
 def render_fences(module: dict[str, Any], source: str) -> str:
+    import re
+
+    raw_fences = module.get("fences") or []
+    if not raw_fences:
+        return ""
+
+    # Sort fences in definition / source order.
+    sorted_fences = sorted(
+        raw_fences,
+        key=lambda f: (
+            f.get("span", {}).get("file") or "",
+            f.get("span", {}).get("line", 0),
+            f.get("span", {}).get("col", 0),
+            f.get("code", ""),
+        ),
+    )
+
+    seen: set[tuple[Any, ...]] = set()
+    fences: list[dict[str, Any]] = []
+    for f in sorted_fences:
+        span = f.get("span") or {}
+        key = (f.get("code"), span.get("file"), span.get("line"), span.get("col"), f.get("message"))
+        if key in seen:
+            continue
+        seen.add(key)
+        fences.append(f)
+
+    if len(fences) <= 1:
+        fence = fences[0] if fences else raw_fences[0]
+        return format_diagnostic(fence, _fence_source(fence, module, source))
+
+    try:
+        tree = ast.parse(source)
+        from pyscriptc.coverage import _definitions, family_of
+
+        defs = _definitions(tree)
+    except Exception:
+        defs = []
+        from pyscriptc.coverage import family_of
+
+    def _referenced_names(node: ast.AST) -> set[str]:
+        names: set[str] = set()
+        for child in ast.walk(node):
+            if isinstance(child, ast.Name):
+                names.add(child.id)
+            elif isinstance(child, ast.Attribute):
+                names.add(child.attr)
+        return names
+
+    def_nodes: dict[str, ast.AST] = {}
+    if defs:
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                def_nodes[node.name] = node
+    def_refs = {name: _referenced_names(node) for name, node in def_nodes.items()}
+
+    def _owner_def(fence: dict[str, Any], defs_list: list[Any]) -> Any | None:
+        line = fence.get("span", {}).get("line", 0)
+        best = None
+        for item in defs_list:
+            if item.line <= line <= item.end_line and (best is None or item.line >= best.line):
+                best = item
+        return best
+
+    def _fence_names(fence: dict[str, Any]) -> set[str]:
+        msg = fence.get("message", "")
+        return set(re.findall(r"\b[a-zA-Z_]\w*\b", msg))
+
+    root_fences: list[list[Any]] = []
+
+    for fence in fences:
+        owner = _owner_def(fence, defs)
+        f_names = _fence_names(fence)
+        fam = family_of(fence.get("code", ""), fence.get("message", ""))
+
+        matched_root = None
+        for item in root_fences:
+            _rf, _cons, s_names = item
+            if owner and owner.name in s_names:
+                matched_root = item
+                break
+            if f_names & s_names:
+                matched_root = item
+                break
+            if owner and (def_refs.get(owner.name, set()) & s_names):
+                matched_root = item
+                s_names.add(owner.name)
+                break
+            if fam in ("export-cascade", "class-cascade"):
+                matched_root = item
+                break
+
+        if matched_root is not None:
+            matched_root[1].append(fence)
+            if owner:
+                matched_root[2].add(owner.name)
+            matched_root[2].update(f_names)
+        else:
+            s_names = set(f_names)
+            if owner:
+                s_names.add(owner.name)
+            root_fences.append([fence, [], s_names])
+
     parts: list[str] = []
-    for fence in module["fences"]:
-        text = source
-        path = fence.get("span", {}).get("file")
-        if path and path != module.get("sourceFile"):
-            try:
-                text = open(path, encoding="utf-8").read()
-            except OSError:
-                text = source
-        parts.append(format_diagnostic(fence, text))
+    printed_roots = root_fences[:3]
+    for r_fence, consequences, _ in printed_roots:
+        text = _fence_source(r_fence, module, source)
+        parts.append(format_diagnostic(r_fence, text))
+        count = len(consequences)
+        if count == 1:
+            parts.append("(and 1 more fence that follows from it)")
+        elif count > 1:
+            parts.append(f"(and {count} more fences that follow from it)")
+
+    if len(root_fences) > 3:
+        rem = sum(1 + len(cons) for _, cons, _ in root_fences[3:])
+        if rem == 1:
+            parts.append("(and 1 more fence)")
+        elif rem > 1:
+            parts.append(f"(and {rem} more fences)")
+
     return "\n".join(parts)
 
 

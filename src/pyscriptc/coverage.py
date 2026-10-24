@@ -524,6 +524,7 @@ def build_report(target: Path, bridge: Any = None) -> dict[str, Any]:
                 "kind": owner.kind,
                 "line": owner.line,
                 "fences": indexes,
+                "rootCause": indexes[0],
                 "bodyAnalyzed": not header,
                 "capability": _definition_capability(entries, indexes),
             }

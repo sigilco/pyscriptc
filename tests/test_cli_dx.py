@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -65,6 +66,50 @@ def test_coverage_fail_on(tmp_path: Path, source: str, mode: str | None, code: i
     path = write_case(tmp_path, "case.py", source)
     extra = ["--fail-on", mode] if mode else []
     assert run_cli("coverage", str(path), *extra).returncode == code
+
+
+def test_compile_single_fence_output_unchanged(tmp_path: Path) -> None:
+    path = write_case(tmp_path, "single.py", "def f(x: int | str) -> int:\n    return 1\n")
+    got = run_cli("compile", str(path), "--skip-check")
+    assert got.returncode == 3
+    assert "PS1101" in got.stderr
+    assert "more fence" not in got.stderr
+
+
+def test_compile_root_fence_and_cascade_count(tmp_path: Path) -> None:
+    source = "def f() -> int:\n    x = 1 + 'a'\n    y = x + 2\n    return y\n"
+    path = write_case(tmp_path, "cascade.py", source)
+    got = run_cli("compile", str(path), "--skip-check")
+    assert got.returncode == 3
+    assert "PS1001" in got.stderr
+    assert "(and 2 more fences that follow from it)" in got.stderr
+    assert "y is not a local or parameter" not in got.stderr
+
+
+def test_compile_corpus_prints_at_most_three_fences() -> None:
+    source_path = Path("benchmarks/real_scripts/scripts/duplicate_file_finder.py")
+    if not source_path.exists():
+        pytest.skip("corpus file missing")
+    got = run_cli("compile", str(source_path), "--skip-check")
+    assert got.returncode == 3
+    assert got.stderr.count("PS2003:") == 1
+    assert "(and 20 more fences that follow from it)" in got.stderr
+    frame_count = len([line for line in got.stderr.splitlines() if re.match(r"^.+:\d+:\d+: PS\d+:", line)])
+    assert 1 <= frame_count <= 3
+
+
+def test_coverage_json_marks_root_cause(tmp_path: Path) -> None:
+    source = "def f() -> int:\n    x = 1 + 'a'\n    return x\n"
+    path = write_case(tmp_path, "root_cause.py", source)
+    got = run_cli("coverage", str(path), "--json")
+    assert got.returncode == 0, got.stderr
+    report = json.loads(got.stdout)
+    defs = report["definitions"]
+    assert len(defs) == 1
+    d = defs[0]
+    assert "rootCause" in d
+    assert d["rootCause"] == d["fences"][0]
+    assert d["name"] == "f"
 
 
 def test_doctor_json_reports_toolchain() -> None:
