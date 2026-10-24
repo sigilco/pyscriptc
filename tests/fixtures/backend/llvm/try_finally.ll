@@ -1,4 +1,5 @@
 %ps.str = type { i64, ptr, i64, i32 }
+%ps.buf = type { i64, ptr }
 
 declare i32 @ps_try_call(ptr, ptr, ptr)
 declare void @ps_raise(i32) noreturn

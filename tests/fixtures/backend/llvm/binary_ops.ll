@@ -1,4 +1,5 @@
 %ps.str = type { i64, ptr, i64, i32 }
+%ps.buf = type { i64, ptr }
 
 @ps.str.0 = private unnamed_addr constant [2 x i8] c"a\00"
 @ps.str.1 = private unnamed_addr constant [2 x i8] c"b\00"
@@ -221,7 +222,7 @@ entry:
   %t10 = alloca i64
   %t11 = alloca double
   %t12 = alloca double
-  %t13 = alloca %ps.str
+  %t13 = alloca %ps.buf
   %t14 = alloca i32
   %t15 = call i64 @ps.iadd(i64 1, i64 2)
   store i64 %t15, ptr %t1
@@ -256,6 +257,11 @@ entry:
   %t33 = insertvalue %ps.str %t32, i64 1, 2
   %t34 = insertvalue %ps.str %t33, i32 1, 3
   %t35 = call %ps.str @ps.strconcat(%ps.str %t30, %ps.str %t34)
-  store %ps.str %t35, ptr %t13
+  %t36 = extractvalue %ps.str %t35, 0
+  %t37 = extractvalue %ps.str %t35, 1
+  %t38 = getelementptr %ps.buf, ptr %t13, i32 0, i32 0
+  store i64 %t36, ptr %t38
+  %t39 = getelementptr %ps.buf, ptr %t13, i32 0, i32 1
+  store ptr %t37, ptr %t39
   ret void
 }

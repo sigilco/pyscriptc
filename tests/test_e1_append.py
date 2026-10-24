@@ -148,7 +148,8 @@ def probe(xs: list[int]) -> int:
     assert mod["fences"] == []
     assert mod["entry"] == "probe"
     assert "main" not in {fn["name"] for fn in mod["functions"]}
-    assert hash_module(mod) == "3b10e996f3e550c38c1711a9a89dbe44af0c0670cbc08a20bd23f4770c2df888"
+    # Hash moved with the S1 IR_VERSION 2 stamp (#473); the shape is unchanged.
+    assert hash_module(mod) == "759b9192c117837cdb862e74b63b8920f13cb34a3afac8b9d8c104f97088d7fc"
 
 
 def test_append_in_defonly_module_synthesizes_no_fence() -> None:

@@ -393,13 +393,13 @@ class StmtsMixin:
         kind = stmt["container"]["type"]["kind"]
         if kind == "list":
             self.needed.add("seq")
-            slot = self._stash(stmt["value"]["type"], value)
+            slot = self._stash_cell(stmt["value"]["type"], value)
             self.line(f"call void @ps_seq_set(ptr {container}, i64 {index}, ptr {slot})")
             return
         if kind == "dict":
             self.needed.add("map")
-            key = self._stash(stmt["index"]["type"], index)
-            slot = self._stash(stmt["value"]["type"], value)
+            key = self._stash_cell(stmt["index"]["type"], index)
+            slot = self._stash_cell(stmt["value"]["type"], value)
             self.line(f"call void @ps_map_put(ptr {container}, ptr {key}, ptr {slot})")
             return
         raise IRError(f"cannot assign into {kind}")
@@ -412,6 +412,18 @@ class StmtsMixin:
         if field["type"]["kind"] == "none":
             # A None field holds the singleton: one placeholder byte, zero.
             self.line(f"store i8 0, ptr {slot}")
+            return
+        if field["type"]["kind"] in {"str", "bytes"}:
+            length = self.tmp()
+            ptr = self.tmp()
+            self.line(f"{length} = extractvalue %ps.str {value}, 0")
+            self.line(f"{ptr} = extractvalue %ps.str {value}, 1")
+            len_ptr = self.tmp()
+            data_ptr = self.tmp()
+            self.line(f"{len_ptr} = getelementptr %ps.buf, ptr {slot}, i32 0, i32 0")
+            self.line(f"store i64 {length}, ptr {len_ptr}")
+            self.line(f"{data_ptr} = getelementptr %ps.buf, ptr {slot}, i32 0, i32 1")
+            self.line(f"store ptr {ptr}, ptr {data_ptr}")
             return
         self.line(f"store {_llvm_field_type(field['type'])} {value}, ptr {slot}")
 

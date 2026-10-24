@@ -37,8 +37,9 @@ if __name__ == "__main__":
     assert "main" not in {fn["name"] for fn in mod["functions"]}
     assert "__entry__" not in {fn["name"] for fn in mod["functions"]}
     assert mod["fences"] == []
-    # Byte-identical with the pre-E1 module: a frozen probe shape.
-    assert hash_module(mod) == "c639ef8d1cb2c9d2ec879ea3e6cc9be5870baa179f0facf0ac5cb1511b645072"
+    # Byte-identical with the pre-E1 module: a frozen probe shape. Hash moved
+    # with the S1 IR_VERSION 2 stamp (#473).
+    assert hash_module(mod) == "13bb3095796f0e0b150e4bba80afb849af56437dde775b69517e25aefd7a3c4d"
 
 
 def test_simple_script_produces_entry_in_source_order() -> None:

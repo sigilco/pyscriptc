@@ -1,4 +1,5 @@
 %ps.str = type { i64, ptr, i64, i32 }
+%ps.buf = type { i64, ptr }
 
 @ps.str.0 = private unnamed_addr constant [4 x i8] c"bad\00"
 

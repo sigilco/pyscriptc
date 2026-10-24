@@ -1,4 +1,5 @@
 %ps.str = type { i64, ptr, i64, i32 }
+%ps.buf = type { i64, ptr }
 
 @ps.str.0 = private unnamed_addr constant [2 x i8] c"a\00"
 @ps.str.1 = private unnamed_addr constant [3 x i8] c"ab\00"
@@ -61,11 +62,16 @@ entry:
   %t26 = insertvalue %ps.str %t25, i64 1, 2
   %t27 = insertvalue %ps.str %t26, i32 1, 3
   %t28 = load ptr, ptr %t2
-  %t29 = alloca %ps.str
-  store %ps.str %t27, ptr %t29
-  %t30 = call i32 @ps_map_has(ptr %t28, ptr %t29)
-  %t31 = icmp ne i32 %t30, 0
-  %t32 = xor i1 %t31, true
-  store i1 %t32, ptr %t5
+  %t29 = alloca %ps.buf
+  %t30 = extractvalue %ps.str %t27, 0
+  %t31 = extractvalue %ps.str %t27, 1
+  %t32 = getelementptr %ps.buf, ptr %t29, i32 0, i32 0
+  store i64 %t30, ptr %t32
+  %t33 = getelementptr %ps.buf, ptr %t29, i32 0, i32 1
+  store ptr %t31, ptr %t33
+  %t34 = call i32 @ps_map_has(ptr %t28, ptr %t29)
+  %t35 = icmp ne i32 %t34, 0
+  %t36 = xor i1 %t35, true
+  store i1 %t36, ptr %t5
   ret void
 }

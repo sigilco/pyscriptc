@@ -183,10 +183,18 @@ class PrintMixin:
         for index, field in enumerate(fields):
             if index:
                 self._print_fmt("tsep", b", ", err=err)
-            loaded = self._load(
-                _llvm_type(field["type"]), self._field_ptr(name, value, self._field(name, field["name"]))
-            )
-            self._print_one(field["type"], loaded, err)
+            slot = self._field_ptr(name, value, self._field(name, field["name"]))
+            if field["type"]["kind"] in {"str", "bytes"}:
+                length = self.tmp()
+                ptr = self.tmp()
+                self.line(f"{length} = load i64, ptr {slot}")
+                data_ptr = self.tmp()
+                self.line(f"{data_ptr} = getelementptr %ps.buf, ptr {slot}, i32 0, i32 1")
+                self.line(f"{ptr} = load ptr, ptr {data_ptr}")
+                self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
+            else:
+                loaded = self._load(_llvm_type(field["type"]), slot)
+                self._print_one(field["type"], loaded, err)
         if len(fields) == 1:
             self._print_fmt("tsep", b",", err=err)
         self._print_fmt("rparen", b")", err=err)

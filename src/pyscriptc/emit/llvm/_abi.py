@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from pyscriptc.builtins import EXCEPTIONS
-from pyscriptc.emit._ir import _elem_size, _fn_symbol, _llvm_type
+from pyscriptc.emit._ir import _elem_size, _fn_symbol, _llvm_type, _memory_type
 from pyscriptc.emit.llvm._runtime import _prebaked_declarations
 from pyscriptc.errors import IRError
 from pyscriptc.stdmore import COMPARE_CLASSES
@@ -19,7 +19,7 @@ _PREBAKED_DECLS = frozenset(_prebaked_declarations())
 
 class AbiMixin:
     def _ensure_arg_type(self) -> None:
-        line = "%ps.arg = type { i32, i32, i64, double, %ps.str }"
+        line = "%ps.arg = type { i32, i32, i64, double, %ps.buf }"
         if line not in self.globals:
             self.globals.append(line)
 
@@ -56,12 +56,24 @@ class AbiMixin:
             b_ptr = self.tmp()
             self.line(f"{b_ptr} = getelementptr %ps.arg, ptr {base}, i32 0, i32 4")
             data = self.tmp()
-            self.line(f"{data} = getelementptr %ps.str, ptr {b_ptr}, i32 0, i32 1")
+            self.line(f"{data} = getelementptr %ps.buf, ptr {b_ptr}, i32 0, i32 1")
             self.line(f"store ptr {value}, ptr {data}")
             return
         slot = self.tmp()
         self.line(f"{slot} = getelementptr %ps.arg, ptr {base}, i32 0, i32 4")
-        self.line(f"store %ps.str {value}, ptr {slot}")
+        if kind in {"str", "bytes"}:
+            length = self.tmp()
+            ptr = self.tmp()
+            self.line(f"{length} = extractvalue %ps.str {value}, 0")
+            self.line(f"{ptr} = extractvalue %ps.str {value}, 1")
+            len_ptr = self.tmp()
+            data_ptr = self.tmp()
+            self.line(f"{len_ptr} = getelementptr %ps.buf, ptr {slot}, i32 0, i32 0")
+            self.line(f"store i64 {length}, ptr {len_ptr}")
+            self.line(f"{data_ptr} = getelementptr %ps.buf, ptr {slot}, i32 0, i32 1")
+            self.line(f"store ptr {ptr}, ptr {data_ptr}")
+            return
+        self.line(f"store {_llvm_type(typ)} {value}, ptr {slot}")
 
     def _buf_out(self, symbol: str, args: list[str]) -> str:
         out = self._alloca("%ps.str")
@@ -233,7 +245,7 @@ class AbiMixin:
 
     def _emit_list_push(self, expr: dict[str, Any], values: list[str]) -> str:
         seq, elem = values
-        slot = self._stash(expr["args"][1]["type"], elem)
+        slot = self._stash_cell(expr["args"][1]["type"], elem)
         self._abi_decl("ps_seq_push", "void", ["ptr", "ptr"])
         self._call_void("ps_seq_push", [f"ptr {seq}", f"ptr {slot}"])
         return ""
@@ -269,29 +281,38 @@ class AbiMixin:
     def _emit_join(self, values: list[str]) -> str:
         count = len(values)
         slot = self.tmp()
-        self.line(f"{slot} = alloca [{count} x %ps.str]")
+        self.line(f"{slot} = alloca [{count} x %ps.buf]")
         for index, value in enumerate(values):
             dest = self.tmp()
-            self.line(f"{dest} = getelementptr [{count} x %ps.str], ptr {slot}, i64 0, i64 {index}")
-            self.line(f"store %ps.str {value}, ptr {dest}")
+            self.line(f"{dest} = getelementptr [{count} x %ps.buf], ptr {slot}, i64 0, i64 {index}")
+            length = self.tmp()
+            ptr = self.tmp()
+            self.line(f"{length} = extractvalue %ps.str {value}, 0")
+            self.line(f"{ptr} = extractvalue %ps.str {value}, 1")
+            len_ptr = self.tmp()
+            data_ptr = self.tmp()
+            self.line(f"{len_ptr} = getelementptr %ps.buf, ptr {dest}, i32 0, i32 0")
+            self.line(f"store i64 {length}, ptr {len_ptr}")
+            self.line(f"{data_ptr} = getelementptr %ps.buf, ptr {dest}, i32 0, i32 1")
+            self.line(f"store ptr {ptr}, ptr {data_ptr}")
         first = self.tmp()
-        self.line(f"{first} = getelementptr [{count} x %ps.str], ptr {slot}, i64 0, i64 0")
+        self.line(f"{first} = getelementptr [{count} x %ps.buf], ptr {slot}, i64 0, i64 0")
         self._abi_decl("ps_path_join", "void", ["ptr", "i64", "ptr"])
         return self._buf_out("ps_path_join", [f"ptr {first}", f"i64 {count}"])
 
     def _emit_deque_store(self, expr: dict[str, Any], values: list[str]) -> str:
-        slot = self._stash(expr["args"][1]["type"], values[1])
+        slot = self._stash_cell(expr["args"][1]["type"], values[1])
         symbol = expr["symbol"]
         self._abi_decl(symbol, "void", ["ptr", "ptr"])
         self._call_void(symbol, [f"ptr {values[0]}", f"ptr {slot}"])
         return ""
 
     def _emit_deque_load(self, expr: dict[str, Any], values: list[str]) -> str:
-        out = self._alloca(_llvm_type(expr["type"]))
+        out = self._alloca(_memory_type(expr["type"]))
         symbol = expr["symbol"]
         self._abi_decl(symbol, "void", ["ptr", "ptr"])
         self._call_void(symbol, [f"ptr {values[0]}", f"ptr {out}"])
-        return self._load(_llvm_type(expr["type"]), out)
+        return self._widen_cell(expr["type"], out)
 
     def _emit_class_cmp(self, expr: dict[str, Any], left: str, right: str) -> str:
         name = expr["left"]["type"]["name"]
@@ -301,7 +322,7 @@ class AbiMixin:
             right_ptr = self.tmp()
             self.line(f"{left_ptr} = getelementptr %cls.Path, ptr {left}, i32 0, i32 0")
             self.line(f"{right_ptr} = getelementptr %cls.Path, ptr {right}, i32 0, i32 0")
-            cmp = self._buf_cmp(self._load("%ps.str", left_ptr), self._load("%ps.str", right_ptr))
+            cmp = self._buf_cmp_cells(self._load("%ps.buf", left_ptr), self._load("%ps.buf", right_ptr))
         elif name in COMPARE_CLASSES:
             count = len(self.class_index[name]["fields"])
             self._abi_decl("ps_i64_lex", "i32", ["ptr", "ptr", "i64"])
@@ -420,9 +441,9 @@ class AbiMixin:
 
     def _seq_at(self, seq: str, index: str, elem: dict[str, Any]) -> str:
         self.needed.add("seq")
-        out = self._alloca(_llvm_type(elem))
+        out = self._alloca(_memory_type(elem))
         self.line(f"call void @ps_seq_get(ptr {seq}, i64 {index}, ptr {out})")
-        return self._load(_llvm_type(elem), out)
+        return self._widen_cell(elem, out)
 
     def _emit_partial_stub(self, symbol: str, spec: dict[str, Any]) -> None:
         """`pa.partial.N(env, p...)`: load the bound arguments and the inner
@@ -529,9 +550,19 @@ class AbiMixin:
         else:
             self.out.append(f"  %r = call {ret} %impl({', '.join(call_args)})")
             # The result travels into the record: the worker stores it, the
-            # loop hands it back to the awaiting frame.
-            self.out.append(f"  %slot = alloca {ret}")
-            self.out.append(f"  store {ret} %r, ptr %slot")
+            # loop hands it back to the awaiting frame. A str result narrows
+            # to the 16-byte prefix the record cell holds.
+            if spec["return"]["kind"] in {"str", "bytes"}:
+                self.out.append("  %slot = alloca %ps.buf")
+                self.out.append("  %rn = extractvalue %ps.str %r, 0")
+                self.out.append("  %rp = extractvalue %ps.str %r, 1")
+                self.out.append("  %slen = getelementptr %ps.buf, ptr %slot, i32 0, i32 0")
+                self.out.append("  store i64 %rn, ptr %slen")
+                self.out.append("  %sdata = getelementptr %ps.buf, ptr %slot, i32 0, i32 1")
+                self.out.append("  store ptr %rp, ptr %sdata")
+            else:
+                self.out.append(f"  %slot = alloca {ret}")
+                self.out.append(f"  store {ret} %r, ptr %slot")
             self.out.append(f"  call void @ps_to_thread_store(ptr %rec, ptr %slot, i64 {_elem_size(spec['return'])})")
             self.out.append(f"  ret {ret} %r")
         self.out.append("}")
@@ -540,6 +571,18 @@ class AbiMixin:
     def _heap_cell(self, typ: dict[str, Any], value: str) -> str:
         self.needed.add("alloc")
         cell = self._call_ret("ptr", "ps_alloc", [f"i64 {_elem_size(typ)}"])
+        if typ["kind"] in {"str", "bytes"}:
+            length = self.tmp()
+            ptr = self.tmp()
+            self.line(f"{length} = extractvalue %ps.str {value}, 0")
+            self.line(f"{ptr} = extractvalue %ps.str {value}, 1")
+            len_ptr = self.tmp()
+            data_ptr = self.tmp()
+            self.line(f"{len_ptr} = getelementptr %ps.buf, ptr {cell}, i32 0, i32 0")
+            self.line(f"store i64 {length}, ptr {len_ptr}")
+            self.line(f"{data_ptr} = getelementptr %ps.buf, ptr {cell}, i32 0, i32 1")
+            self.line(f"store ptr {ptr}, ptr {data_ptr}")
+            return cell
         self.line(f"store {_llvm_type(typ)} {value}, ptr {cell}")
         return cell
 
@@ -556,10 +599,10 @@ class AbiMixin:
         `task.result()` on a failed task raises, the way CPython's does.
         """
         elem = expr["args"][0]["type"]["elem"]
-        out = self._alloca(_llvm_type(elem))
+        out = self._alloca(_memory_type(elem))
         self._abi_decl("ps_task_failure", "void", ["ptr"])
         self._call_void("ps_task_failure", [f"ptr {values[0]}"])
         symbol = expr["symbol"]
         self._abi_decl(symbol, "void", ["ptr", "i64", "ptr"])
         self._call_void(symbol, [f"ptr {values[0]}", f"i64 {_elem_size(elem)}", f"ptr {out}"])
-        return self._load(_llvm_type(elem), out)
+        return self._widen_cell(elem, out)

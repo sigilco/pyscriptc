@@ -1,4 +1,5 @@
 %ps.str = type { i64, ptr, i64, i32 }
+%ps.buf = type { i64, ptr }
 
 %cls.MyError = type { i8 }
 @ps.str.0 = private unnamed_addr constant [8 x i8] c"MyError\00"

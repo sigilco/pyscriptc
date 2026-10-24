@@ -44,7 +44,9 @@ def test_sum_squares_ir_is_python_not_javascript() -> None:
     from pyscriptc.lower import lower_file
 
     module, _source = lower_file(str(EXAMPLES / "sum_squares.py"))
-    assert module["irVersion"] == 1
+    from pyscriptc.ir import IR_VERSION
+
+    assert module["irVersion"] == IR_VERSION
     assert module["subset"] == "gates-v1"
     assert module["cpython"].startswith("3.14.")
     # E1 items 1+2: the module-level print lowers into the synthesized entry

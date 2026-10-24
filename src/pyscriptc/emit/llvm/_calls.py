@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pyscriptc.emit._ir import _elem_size, _llvm_type
+from pyscriptc.emit._ir import _elem_size, _memory_type
 from pyscriptc.errors import IRError
 
 
@@ -128,34 +128,34 @@ class CallsMixin:
         if expr.get("symbol") == "ps_queue_put":
             # The item travels as a pointer to a stashed slot, the shape
             # `deque.append` uses: the queue stores element-sized slots.
-            slot = self._stash(expr["args"][2]["type"], values[2])
+            slot = self._stash_cell(expr["args"][2]["type"], values[2])
             self._abi_decl("ps_queue_put", "void", ["ptr", "i64", "ptr"])
             self._call_void("ps_queue_put", [f"ptr {values[0]}", f"i64 {values[1]}", f"ptr {slot}"])
             return ""
         if expr.get("symbol") == "ps_queue_get":
-            out = self._alloca(_llvm_type(expr["type"]))
+            out = self._alloca(_memory_type(expr["type"]))
             self._abi_decl("ps_queue_get", "void", ["ptr", "i64", "ptr"])
             self._call_void("ps_queue_get", [f"ptr {values[0]}", f"i64 {values[1]}", f"ptr {out}"])
-            return self._load(_llvm_type(expr["type"]), out)
+            return self._widen_cell(expr["type"], out)
         if expr.get("symbol") == "ps_aqueue_put":
             # The item travels as a pointer to a stashed slot, the shape
             # `deque.append` uses: the queue stores element-sized slots.
-            slot = self._stash(expr["args"][1]["type"], values[1])
+            slot = self._stash_cell(expr["args"][1]["type"], values[1])
             self._abi_decl("ps_aqueue_put", "i64", ["ptr", "ptr"])
             return self._call_ret("i64", "ps_aqueue_put", [f"ptr {values[0]}", f"ptr {slot}"])
         if expr.get("symbol") == "ps_aqueue_taken":
             # The element the take removed rides out through an out pointer.
             elem = expr["type"]
-            out = self._alloca(_llvm_type(elem))
+            out = self._alloca(_memory_type(elem))
             self._abi_decl("ps_aqueue_taken", "void", ["ptr", "i64", "ptr"])
             self._call_void("ps_aqueue_taken", [f"ptr {values[0]}", f"i64 {_elem_size(elem)}", f"ptr {out}"])
-            return self._load(_llvm_type(elem), out)
+            return self._widen_cell(elem, out)
         if expr.get("symbol") == "ps_to_thread_result":
             elem = expr["type"]
-            out = self._alloca(_llvm_type(elem))
+            out = self._alloca(_memory_type(elem))
             self._abi_decl("ps_to_thread_result", "void", ["ptr", "i64", "ptr"])
             self._call_void("ps_to_thread_result", [f"ptr {values[0]}", f"i64 {_elem_size(elem)}", f"ptr {out}"])
-            return self._load(_llvm_type(elem), out)
+            return self._widen_cell(elem, out)
         if expr.get("symbol") == "ps_to_thread_new":
             return self._emit_to_thread_new(expr, values)
         if expr.get("symbol") == "ps_to_thread_start":
@@ -172,7 +172,7 @@ class CallsMixin:
             return self._flag(raw)
         if expr.get("symbol") == "ps_map_del":
             self.needed.add("map")
-            key = self._stash(expr["args"][1]["type"], values[1])
+            key = self._stash_cell(expr["args"][1]["type"], values[1])
             self._abi_decl("ps_map_del", "void", ["ptr", "ptr"])
             self._call_void("ps_map_del", [f"ptr {values[0]}", f"ptr {key}"])
             return ""
