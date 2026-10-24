@@ -315,6 +315,8 @@ def island_policy(names: Iterable[str], default: bool = False) -> Iterator[None]
         yield
     finally:
         _ISLAND_LANES, _ISLAND_DEFAULT = saved
+
+
 # boxed:end
 
 

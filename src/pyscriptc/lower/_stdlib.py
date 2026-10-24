@@ -836,6 +836,7 @@ class StdlibDispatchMixin:
         expr = self._abi_call(obj["type"].get("name", "island"), name, [obj], expect, "ps_island_getattr", span)
         expr["island"] = {"name": name, "want": expect}
         return expr
+
     # boxed:end
 
     def _resolve_module(self, node: ast.Attribute) -> tuple[str, str, str, str] | None:
