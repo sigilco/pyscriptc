@@ -1599,7 +1599,13 @@ def lower_file(
     if not dep_roots:
         return lower_source(text, path, bridge, timings, ffi, target, dep_lane_report), text
 
-    from pyscriptc.package import _discover_dep_roots, _lower_units
+    from pyscriptc.package import (
+        _catalogued_note,
+        _discover_dep_roots,
+        _lower_units,
+        _prune_unreached,
+        _pruned_note,
+    )
 
     script = Path(path)
     dep_units, dep_fences = _discover_dep_roots(dep_roots)
@@ -1617,18 +1623,28 @@ def lower_file(
             },
             text,
         )
+    kept, catalogued, pruned = _prune_unreached(
+        [("__main__", script, False)], dep_units, program=True, entry="__main__"
+    )
     merged, _notes = _lower_units(
-        [("__main__", script, False), *dep_units],
+        [("__main__", script, False), *kept],
         script,
         program=True,
         entry="__main__",
         bridge=bridge,
         ffi=ffi,
         target=target,
-        dep_names={name for name, _p, _ip in dep_units},
+        dep_names={name for name, _p, _ip in kept},
         dep_lane_report=dep_lane_report,
+        catalog_units=catalogued,
     )
     merged["sourceFile"] = str(script)
+    notes = [
+        *[_pruned_note(name, dep_path) for name, dep_path, _is_package in pruned],
+        *[_catalogued_note(name, dep_path) for name, dep_path, _is_package in catalogued],
+    ]
+    if notes:
+        merged["_notes"] = notes
     return merged, text
 
 
