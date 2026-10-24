@@ -99,6 +99,21 @@ def test_first_difference_when_one_stream_is_a_prefix() -> None:
 
 
 @needs_cc
+def test_timeout_names_the_side_that_hung() -> None:
+    hung = verify.Observation(stdout=b"", stderr=b"", exit_code=124, timed_out=True)
+    fine = verify.Observation(stdout=b"", stderr=b"", exit_code=0)
+    for oracle, native, expected in [
+        (hung, fine, "  exit: the oracle timed out"),
+        (fine, hung, "  exit: the native run timed out"),
+        (hung, hung, "  exit: both sides timed out"),
+    ]:
+        checks = verify.compare(oracle, native)
+        exit_check = next(check for check in checks if check["name"] == "exit")
+        assert exit_check["oracleTimedOut"] is oracle.timed_out
+        assert exit_check["nativeTimedOut"] is native.timed_out
+        assert verify._render_check(exit_check) == [expected]
+
+
 def test_matching_program_emits_a_clean_receipt(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     source = _script(tmp_path, MATCHING)
     stdin = tmp_path / "in.txt"
