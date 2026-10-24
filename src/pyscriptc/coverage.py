@@ -19,8 +19,15 @@ from typing import Any
 from pyscriptc.errors import IRError, format_diagnostic
 from pyscriptc.lower import lower_file
 from pyscriptc.package import _discover, lower_directory
+from pyscriptc.reflection import mechanism_of, routes_to_island
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+# A definition is routed by the fences inside it: island when one traces to
+# runtime reflection, fenced when any other fence sits in it, native otherwise.
+CAP_NATIVE = "native"
+CAP_FENCED = "fenced"
+CAP_ISLAND = "island"
 
 
 def deps_run_deps(source: Path, *, cache_dir: str | Path | None = None) -> dict[str, Any]:
@@ -40,6 +47,11 @@ class Family:
 _FAMILIES = {
     family.key: family
     for family in (
+        Family(
+            "reflection",
+            "Native code keeps no runtime type, signature or annotation table. Use the typed "
+            "idiom the fence names, or let the definition route to the island lane.",
+        ),
         Family(
             "union-types",
             "Narrow the annotation to one arm, or split the function per arm. A tagged union is a compiler epic.",
@@ -144,6 +156,8 @@ def _stdlib_family(match: re.Match[str]) -> str:
 
 # Order matters: the first matching rule wins. A rule is (code or None, message regex, family).
 _RULES: tuple[tuple[str | None, str, str], ...] = (
+    (None, r"runtime reflection \(", "reflection"),
+    (None, r"keyword forwarding \(\*\*kwargs\)", "reflection"),
     ("PS1101", r"", "union-types"),
     ("PS1102", r"", "optional-types"),
     ("PS1103", r"", "generic-alias"),
@@ -271,6 +285,88 @@ def _read(path: str, cache: dict[str, str | None]) -> str | None:
     return cache[path]
 
 
+def capabilities(module: dict[str, Any], files: list[str]) -> dict[str, Any]:
+    """Per-file split of definitions into native, fenced and island routed.
+
+    A definition is island when a fence inside it traces to runtime reflection
+    (the message names the mechanism), fenced when any other fence sits inside
+    it, and native otherwise. Module-level fences belong to no definition and
+    are counted on their own. This reads the sources and the lowered fences
+    only; it never lowers anything itself.
+    """
+
+    sources: dict[str, str | None] = {}
+    fences_by_file: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for fence in module.get("fences", []):
+        fences_by_file[fence["span"]["file"]].append(fence)
+    paths = list(dict.fromkeys([*files, *sorted(fences_by_file)]))
+    by_file: list[dict[str, Any]] = []
+    totals = {
+        "files": 0,
+        "definitions": 0,
+        "native": 0,
+        "fenced": 0,
+        "island": 0,
+        "moduleFences": 0,
+        "fences": 0,
+    }
+    all_codes: set[str] = set()
+    all_mechanisms: set[str] = set()
+    for path in paths:
+        text = _read(path, sources)
+        defs = _definitions(ast.parse(text, filename=path)) if text is not None else []
+        local = fences_by_file.get(path, [])
+        owned: dict[str, list[dict[str, Any]]] = {item.name: [] for item in defs}
+        module_fences = 0
+        for fence in local:
+            owner = _innermost(defs, fence["span"]["line"])
+            if owner is None:
+                module_fences += 1
+            else:
+                owned[owner.name].append(fence)
+        buckets = Counter()
+        for name in owned:
+            inside = owned[name]
+            if any(routes_to_island(fence["message"]) for fence in inside):
+                buckets[CAP_ISLAND] += 1
+            elif inside:
+                buckets[CAP_FENCED] += 1
+            else:
+                buckets[CAP_NATIVE] += 1
+        codes = {fence["code"] for fence in local}
+        mechanisms = {found for fence in local if (found := mechanism_of(fence["message"])) is not None}
+        all_codes |= codes
+        all_mechanisms |= mechanisms
+        entry = {
+            "file": path,
+            "definitions": len(defs),
+            "native": buckets[CAP_NATIVE],
+            "fenced": buckets[CAP_FENCED],
+            "island": buckets[CAP_ISLAND],
+            "moduleFences": module_fences,
+            "fences": len(local),
+            "codes": sorted(codes),
+            "mechanisms": sorted(mechanisms),
+        }
+        by_file.append(entry)
+        totals["files"] += 1
+        for key in ("definitions", "native", "fenced", "island", "moduleFences", "fences"):
+            totals[key] += entry[key]
+    return {
+        "byFile": by_file,
+        "totals": {**totals, "codes": sorted(all_codes), "mechanisms": sorted(all_mechanisms)},
+    }
+
+
+def _definition_capability(entries: list[dict[str, Any]], indexes: list[int]) -> str:
+    inside = [entries[index] for index in indexes]
+    if any(routes_to_island(entry["message"]) for entry in inside):
+        return CAP_ISLAND
+    if inside:
+        return CAP_FENCED
+    return CAP_NATIVE
+
+
 def _lower(target: Path, bridge: Any = None) -> tuple[dict[str, Any], list[str]]:
     if target.is_dir():
         module, _ = lower_directory(target, bridge=bridge)
@@ -394,6 +490,7 @@ def build_report(target: Path, bridge: Any = None) -> dict[str, Any]:
                 "line": owner.line,
                 "fences": indexes,
                 "bodyAnalyzed": not header,
+                "capability": _definition_capability(entries, indexes),
             }
         )
     module_fences = [i for i, e in enumerate(entries) if e["definition"] is None]
@@ -405,6 +502,7 @@ def build_report(target: Path, bridge: Any = None) -> dict[str, Any]:
         "fences": entries,
         "definitions": definitions,
         "moduleFences": module_fences,
+        "capabilities": capabilities(module, files),
         "chain": _chain(entries, definitions),
     }
 
@@ -486,6 +584,19 @@ def render_text(report: dict[str, Any]) -> str:
         f"{report['target']}: {summary['fences']} fences "
         f"({summary['rootFences']} root) in {summary['fencedDefinitions']} of {summary['definitions']} definitions"
     ]
+    cap = report["capabilities"]["totals"]
+    parts.append(
+        f"capability: {cap['native']} native, {cap['fenced']} fenced, {cap['island']} island "
+        f"definitions of {cap['definitions']} ({cap['files']} files)"
+    )
+    for item in report["capabilities"]["byFile"]:
+        if not (item["fences"] or item["definitions"]):
+            continue
+        mechanisms = f", reflection: {', '.join(item['mechanisms'])}" if item["mechanisms"] else ""
+        parts.append(
+            f"  {item['file']}: {item['native']} native, {item['fenced']} fenced, {item['island']} island "
+            f"of {item['definitions']} definitions, {item['fences']} fences{mechanisms}"
+        )
     entries = report["fences"]
     for entry in entries:
         parts.append(entry["frame"])

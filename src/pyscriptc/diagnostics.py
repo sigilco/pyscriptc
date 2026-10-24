@@ -134,14 +134,18 @@ _ENTRIES = (
     Diagnostic(
         "PS1202",
         "parameter form",
-        "Positional-only, keyword-only, *args and **kwargs parameters are not lowered.",
-        "Use plain positional parameters, with defaults where needed.",
+        "Positional-only, keyword-only, *args and **kwargs parameters are not lowered. "
+        "An unannotated **kwargs parameter needs a runtime keyword mapping.",
+        "Use plain positional parameters, with defaults where needed. A **kwargs parameter "
+        "routes to the island lane; declare its keys with PEP 692 Unpack[TypedDict].",
     ),
     Diagnostic(
         "PS1203",
         "class header form",
-        "Class keywords (metaclass=...) and multiple inheritance are not lowered.",
-        "Use a single lowered base class and no class keywords.",
+        "Class keywords (metaclass=...) and multiple inheritance are not lowered. "
+        "A metaclass builds the class at run time and native code fixes the layout at compile time.",
+        "Use a single lowered base class and no class keywords. Write the class explicitly, "
+        "or use PEP 695 generics instead of metaclass synthesis.",
     ),
     Diagnostic(
         "PS1204",
@@ -164,14 +168,20 @@ _ENTRIES = (
     Diagnostic(
         "PS2001",
         "stdlib name not lowered",
-        "The module imports, but this attribute is outside its lowered surface.",
-        "Use a lowered attribute of the module, or hand-write the logic.",
+        "The module imports, but this attribute is outside its lowered surface. "
+        "An attribute that reads runtime metadata (inspect.signature, __annotations__) is "
+        "runtime reflection and the fence names the island lane.",
+        "Use a lowered attribute of the module. For reflection, use the typed idiom the fence "
+        "names, or route the definition to the island lane.",
     ),
     Diagnostic(
         "PS2002",
         "construct not lowered",
-        "A statement, expression, import, or definition has no lowering.",
-        "Rewrite it with the lowered constructs, as the hint for this fence says.",
+        "A statement, expression, import, or definition has no lowering. Dynamic forms such "
+        "as **kwargs keyword forwarding or an annotation read at run time are runtime "
+        "reflection and cannot be compiled natively.",
+        "Rewrite it with the typed idiom the fence names (PEP 692 Unpack[TypedDict] for "
+        "**kwargs), or route the definition to the island lane.",
     ),
     Diagnostic(
         "PS2003",
