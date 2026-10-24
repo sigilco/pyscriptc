@@ -1254,7 +1254,7 @@ def _stage_dependency_data(source_path: Path, config: Any, args: argparse.Namesp
 
     if not config.dependencies:
         return None
-    if args.emit not in ("bin", "llvm") and not args.run:
+    if getattr(args, "emit", "") not in ("bin", "llvm") and not getattr(args, "run", False):
         return None
     report = deps.run_deps(source_path)
     collected: list[tuple[str, list[tuple[str, bytes]]]] = []
