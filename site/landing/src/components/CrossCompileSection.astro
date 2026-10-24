@@ -1,0 +1,250 @@
+---
+// Bento Grid showcasing pyscriptc platform features
+---
+
+<section class="w-full max-w-6xl mx-auto px-6 py-20 lg:py-28 text-left" id="features">
+  <!-- Section Header (Option 4) -->
+  <div class="max-w-3xl mb-12">
+    <h2 class="text-3xl sm:text-4xl lg:text-5xl font-normal tracking-tight text-white leading-[1.12] mb-4">
+      Built for production systems.
+    </h2>
+    <p class="text-base sm:text-lg text-slate-400 font-light leading-relaxed">
+      Single-command compilation across architectures with no per-target sysroot or SDK setup (zig cc does the linking), pure package support, and documented, numbered divergences.
+    </p>
+  </div>
+
+  <!-- Bento Grid Container -->
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-5 sm:gap-6">
+    <!-- Card 1: Deploy Anywhere (Large Hero Bento Card - 7 Cols) -->
+    <div
+      class="lg:col-span-7 rounded-2xl bg-[#0b0f19]/80 hover:bg-[#0b0f19] border border-white/10 hover:border-white/20 p-6 sm:p-8 flex flex-col justify-between transition-all duration-300 relative overflow-hidden group"
+    >
+      <div>
+        <div class="mb-5">
+          <div class="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+            <!-- Package / Works Anywhere Box Icon -->
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+              <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+              <line x1="12" y1="22.08" x2="12" y2="12" />
+            </svg>
+          </div>
+        </div>
+
+        <h3 class="text-xl sm:text-2xl font-normal text-white tracking-tight mb-2">
+          Deploy Anywhere
+        </h3>
+        <p class="text-sm text-slate-400 font-light leading-relaxed mb-6">
+          Single-command cross-compilation for any cloud or desktop platform.
+          No per-target sysroot or SDK setup: zig cc links the output for each target.
+        </p>
+
+        <!-- Platform Targets List -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+          <div class="p-3 rounded-xl bg-white/[0.03] border border-white/5">
+            <div class="flex items-center gap-2 mb-1">
+              <svg class="w-3.5 h-3.5 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                <line x1="8" y1="21" x2="16" y2="21" />
+                <line x1="12" y1="17" x2="12" y2="21" />
+              </svg>
+              <span class="text-xs font-semibold text-white">Linux</span>
+            </div>
+            <p class="text-[11px] text-slate-400 font-light">x86_64, aarch64, riscv64 · glibc &amp; musl</p>
+          </div>
+
+          <div class="p-3 rounded-xl bg-white/[0.03] border border-white/5">
+            <div class="flex items-center gap-2 mb-1">
+              <svg class="w-3.5 h-3.5 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
+                <line x1="12" y1="18" x2="12.01" y2="18" />
+              </svg>
+              <span class="text-xs font-semibold text-white">macOS</span>
+            </div>
+            <p class="text-[11px] text-slate-400 font-light">aarch64 (Apple Silicon) &amp; x86_64 · Mach-O</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Command Snippet Footer -->
+      <div class="flex items-center gap-2 font-mono text-xs px-3.5 py-2.5 rounded-lg bg-[#06080d] border border-white/5 text-slate-300">
+        <span class="text-slate-500 font-bold">$</span>
+        <span>pyscriptc compile app.py --target=aarch64-linux</span>
+      </div>
+    </div>
+
+    <!-- Card 2: PyPI Package Support (5 Cols) -->
+    <div
+      class="lg:col-span-5 rounded-2xl bg-[#0b0f19]/80 hover:bg-[#0b0f19] border border-white/10 hover:border-white/20 p-6 sm:p-8 flex flex-col justify-between transition-all duration-300 group"
+    >
+      <div>
+        <div class="mb-5">
+          <div class="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+            <!-- Layers / PyPI Box Icon -->
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polygon points="12 2 2 7 12 12 22 7 12 2" />
+              <polyline points="2 17 12 22 22 17" />
+              <polyline points="2 12 12 17 22 12" />
+            </svg>
+          </div>
+        </div>
+
+        <h3 class="text-xl sm:text-2xl font-normal text-white tracking-tight mb-2">
+          PyPI Package Support
+        </h3>
+        <p class="text-sm text-slate-400 font-light leading-relaxed mb-6">
+          Compile pure Python packages directly into machine code. Eliminate virtualenv setup,
+          wheel build-matrix hurdles, and runtime dependency bloat in production containers.
+          Today, 3 of 18 pinned top-100 libraries compile fence-free.
+        </p>
+      </div>
+
+      <div class="p-3.5 rounded-xl bg-white/[0.03] border border-white/5 font-mono text-xs">
+        <div class="text-slate-400 mb-1.5 text-[11px]">
+          Pure Python package acceleration
+        </div>
+        <div class="flex flex-wrap gap-1.5 pt-1">
+          <span class="px-2 py-0.5 rounded bg-white/5 text-[11px] text-slate-300">certifi</span>
+          <span class="px-2 py-0.5 rounded bg-white/5 text-[11px] text-slate-300">trove-classifiers</span>
+          <span class="px-2 py-0.5 rounded bg-white/5 text-[11px] text-slate-300">tzdata</span>
+          <span class="px-2 py-0.5 rounded bg-white/5 text-[11px] text-slate-400">3 of 18 pinned compile fence-free today</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 3: Programmatic & CLI API (5 Cols) -->
+    <div
+      class="lg:col-span-5 rounded-2xl bg-[#0b0f19]/80 hover:bg-[#0b0f19] border border-white/10 hover:border-white/20 p-6 sm:p-8 flex flex-col justify-between transition-all duration-300 group"
+    >
+      <div>
+        <div class="mb-5">
+          <div class="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+            <!-- Code / Terminal API Icon -->
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="16 18 22 12 16 6" />
+              <polyline points="8 6 2 12 8 18" />
+            </svg>
+          </div>
+        </div>
+
+        <h3 class="text-xl sm:text-2xl font-normal text-white tracking-tight mb-2">
+          CLI-First Compiler
+        </h3>
+        <p class="text-sm text-slate-400 font-light leading-relaxed mb-4">
+          Control the compiler from the terminal or automate inside CI scripts.
+          Full access to IR stages, LLVM output, and fence diagnostics.
+        </p>
+      </div>
+
+      <div class="rounded-xl bg-[#08090d] border border-white/5 p-3.5 font-mono text-xs text-slate-300">
+        <div class="text-slate-500 mb-1"># CLI emits ir, llvm, asm, obj, bin</div>
+        <div>pyscriptc compile service.py --emit=<span class="text-slate-200">bin</span> --target=<span class="text-slate-200">aarch64-linux</span> -O3</div>
+        <div><span class="text-slate-500"># a Python API (</span><span class="text-cyan-400">import pyscriptc</span><span class="text-slate-500">) is planned, not shipped</span></div>
+      </div>
+
+      <div class="rounded-xl bg-[#06080d] border border-white/5 p-3.5 font-mono text-xs text-slate-300">
+        <div class="text-slate-500 mb-1"># Programmatic Python API</div>
+        <div><span class="text-cyan-400">import</span> pyscriptc</div>
+        <div>pyscriptc.<span class="text-cyan-300">build</span>(<span class="text-slate-200">"service.py"</span>, target=<span class="text-slate-200">"native"</span>, opt_level=<span class="text-slate-300">3</span>)</div>
+      </div>
+    </div>
+
+    <!-- Card 4: C-ABI Shared Libraries (Planned) (7 Cols) -->
+    <div
+      class="lg:col-span-7 rounded-2xl bg-[#0b0f19]/80 hover:bg-[#0b0f19] border border-white/10 hover:border-white/20 p-6 sm:p-8 flex flex-col justify-between transition-all duration-300 group"
+    >
+      <div>
+        <div class="mb-5">
+          <div class="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+            <!-- Plug / Link / C ABI Icon -->
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+            </svg>
+          </div>
+        </div>
+
+        <h3 class="text-xl sm:text-2xl font-normal text-white tracking-tight mb-2">
+          C-ABI Shared Libraries <span class="text-slate-500 text-sm">(planned)</span>
+        </h3>
+        <p class="text-sm text-slate-400 font-light leading-relaxed mb-6">
+          A planned export surface: shared native libraries (<code class="font-mono text-slate-300">.so</code>, <code class="font-mono text-slate-300">.dylib</code>, <code class="font-mono text-slate-300">.dll</code>)
+          callable from C, C++, Rust, or Go. The CLI today emits ir, llvm, asm, obj and bin only.
+        </p>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 font-mono text-xs">
+        <div class="p-3 rounded-xl bg-white/[0.03] border border-white/5">
+          <span class="text-white font-semibold block mb-0.5">Planned: Shared Library Output</span>
+          <span class="text-slate-400 text-[11px]">C calling convention, zero marshaling overhead (not yet implemented).</span>
+        </div>
+        <div class="p-3 rounded-xl bg-white/[0.03] border border-white/5">
+          <span class="text-white font-semibold block mb-0.5">Planned: Native Header Exports</span>
+          <span class="text-slate-400 text-[11px]">Auto-generated <code class="text-slate-300">.h</code> signatures for typed Python functions.</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Card 5: CPython 3.14 Parity (6 Cols) -->
+    <div
+      class="lg:col-span-6 rounded-2xl bg-[#0b0f19]/80 hover:bg-[#0b0f19] border border-white/10 hover:border-white/20 p-6 sm:p-8 flex flex-col justify-between transition-all duration-300 group"
+    >
+      <div>
+        <div class="mb-5">
+          <div class="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+            <!-- Shield / Parity Checkmark Icon -->
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+              <polyline points="9 12 11 14 15 10" />
+            </svg>
+          </div>
+        </div>
+
+        <h3 class="text-xl sm:text-2xl font-normal text-white tracking-tight mb-2">
+          CPython 3.14 Parity
+        </h3>
+        <p class="text-sm text-slate-400 font-light leading-relaxed mb-4">
+          CPython 3.14 parity for the supported subset. Write idiomatic standard Python: pattern matching
+          and standard exception handling compile into native machine instructions; generator expressions
+          materialize eagerly today.
+        </p>
+      </div>
+
+      <div class="flex items-center gap-3 text-xs text-slate-400 pt-2 border-t border-white/5">
+        <span class="text-cyan-400 font-bold">✓</span>
+        <span>Validated against a frozen CPython 3.14 oracle corpus; numbered divergences documented</span>
+      </div>
+    </div>
+
+    <!-- Card 6: Strict Type Diagnostics & Verification (6 Cols) -->
+    <div
+      class="lg:col-span-6 rounded-2xl bg-[#0b0f19]/80 hover:bg-[#0b0f19] border border-white/10 hover:border-white/20 p-6 sm:p-8 flex flex-col justify-between transition-all duration-300 group"
+    >
+      <div>
+        <div class="mb-5">
+          <div class="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+            <!-- Diagnostic Radar / Target Icon -->
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10" />
+              <circle cx="12" cy="12" r="6" />
+              <circle cx="12" cy="12" r="2" />
+            </svg>
+          </div>
+        </div>
+
+        <h3 class="text-xl sm:text-2xl font-normal text-white tracking-tight mb-2">
+          Compile-Time Diagnostics
+        </h3>
+        <p class="text-sm text-slate-400 font-light leading-relaxed mb-4">
+          Deep static type verification and fence boundary checks. Identifies type instability, unboxed scalar leaks,
+          and dynamic fallback barriers before your binary reaches production servers.
+        </p>
+      </div>
+
+      <div class="flex items-center gap-3 text-xs text-slate-400 pt-2 border-t border-white/5">
+        <span class="text-cyan-400 font-bold">✓</span>
+        <span>Deterministic execution: First-iteration speed equals 1,000,000th iteration speed</span>
+      </div>
+    </div>
+  </div>
+</section>

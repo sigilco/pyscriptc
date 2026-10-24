@@ -153,10 +153,11 @@
     var tbody = el("tbody");
     var needle = st.filter.trim().toLowerCase();
     var shown = 0;
-    st.rows.forEach(function (r) {
+    st.rows.forEach(function (r, index) {
       if (st.status !== "all" && r.status !== st.status) return;
       if (needle && cfg.search(r).toLowerCase().indexOf(needle) === -1) return;
       var tr = el("tr");
+      tr.id = "row-" + key + "-" + index;
       cfg.row(r).forEach(function (td) { tr.appendChild(td); });
       tbody.appendChild(tr);
       shown += 1;
@@ -230,6 +231,212 @@
       if (scoreCard) scoreCard.hidden = true;
     }
     if (typeof s.fences === "number") fill("card-fences", String(s.fences));
+  }
+
+  // --- Hero stat: the live supported-% headline, the same number the
+  // scorer reports as weighted pass.
+  function renderHeroStat(doc) {
+    var value = document.getElementById("stat-value");
+    var label = document.getElementById("stat-label");
+    if (!value) return;
+    var weighted = (doc.summary || {}).weighted_pass;
+    if (typeof weighted !== "number") {
+      value.textContent = "\u2014";
+      if (label) label.textContent = "no corpus measurement yet";
+      return;
+    }
+    var pct = Math.round(weighted * 1000) / 10;
+    value.textContent = pct + "%";
+    var counts = countBy((doc.builtins || []).concat(doc.stdlib || []));
+    var total = (doc.builtins || []).length + (doc.stdlib || []).length;
+    if (label) {
+      label.textContent = counts.full + " of " + total + " builtin and module groups compile native today";
+    }
+  }
+
+  // --- Search index. One flat list over every listed module, whatever its
+  // category: builtins (one entry per builtin name), standard-library
+  // modules and PyPI packages.
+  function buildSearchIndex(doc) {
+    var entries = [];
+
+    (doc.builtins || []).forEach(function (row, index) {
+      var names = row.names && row.names.length ? row.names : [row.label];
+      names.forEach(function (name) {
+        entries.push({
+          name: name,
+          kind: "builtin",
+          status: row.status || "unknown",
+          href: "#row-builtins-" + index,
+          haystack: (row.label + " " + names.join(" ") + " " + (row.note || "")).toLowerCase()
+        });
+      });
+    });
+
+    (doc.stdlib || []).forEach(function (row, index) {
+      var names = row.names && row.names.length ? row.names : [row.label];
+      names.forEach(function (name) {
+        entries.push({
+          name: name,
+          kind: "stdlib",
+          status: row.status || "unknown",
+          href: "#row-stdlib-" + index,
+          haystack: (row.label + " " + names.join(" ") + " " + (row.unsupported || []).join(" ") +
+            " " + (row.fences || []).join(" ") + " " + (row.note || "")).toLowerCase()
+        });
+      });
+    });
+
+    (doc.packages || []).forEach(function (row, index) {
+      entries.push({
+        name: row.name,
+        kind: "package",
+        status: row.status || "unknown",
+        href: row.pypi || "#row-packages-" + index,
+        external: !!row.pypi,
+        haystack: (row.name + " " + (row.import_name || "") + " " + (row.version || "") + " " +
+          (row.codes || []).map(function (c) { return c.code; }).join(" ")).toLowerCase()
+      });
+    });
+
+    return entries;
+  }
+
+  function makeSearchItem(entry) {
+    var li = el("li", "search-item");
+    var a = el("a", "search-link");
+    if (entry.external) {
+      a.target = "_blank";
+      a.rel = "noopener";
+    }
+
+    var nameWrap = el("span", "search-name-wrap");
+    nameWrap.appendChild(el("span", "search-name", entry.name));
+    nameWrap.appendChild(el("span", "search-kind", entry.kind));
+
+    var statusWrap = el("span", "search-status");
+    var dot = el("span", "dot status-" + entry.status);
+    dot.setAttribute("aria-hidden", "true");
+    statusWrap.appendChild(dot);
+    statusWrap.appendChild(el("span", "search-status-text", STATUS_TEXT[entry.status] || entry.status));
+
+    a.appendChild(nameWrap);
+    a.appendChild(statusWrap);
+    a.href = entry.href;
+    li.appendChild(a);
+    return li;
+  }
+
+  // exact > prefix > substring, the same ranking the reference site uses.
+  function rank(term, entry) {
+    var name = entry.name.toLowerCase();
+    if (name === term) return -2;
+    if (name.indexOf(term) === 0) return -1;
+    return 0;
+  }
+
+  function wireSearch(index) {
+    var input = document.getElementById("search-input");
+    var list = document.getElementById("search-list");
+    var heading = document.getElementById("search-heading");
+    var matches = document.getElementById("search-matches");
+    var shortcut = document.querySelector(".search-shortcut");
+    if (!input || !list) return;
+
+    function render(entries) {
+      list.textContent = "";
+      entries.forEach(function (entry) { list.appendChild(makeSearchItem(entry)); });
+      if (heading) {
+        heading.textContent = entries.length + (entries.length === 1 ? " module matches" : " modules match");
+      }
+    }
+
+    function filter() {
+      var term = input.value.trim().toLowerCase();
+      if (!term) {
+        matches.hidden = true;
+        list.textContent = "";
+        return;
+      }
+      matches.hidden = false;
+      var found = index.filter(function (entry) {
+        return entry.haystack.indexOf(term) !== -1;
+      });
+      found.sort(function (a, b) {
+        return rank(term, a) - rank(term, b) || a.name.localeCompare(b.name);
+      });
+      render(found);
+    }
+
+    input.addEventListener("input", filter);
+
+    input.addEventListener("focus", function () {
+      if (shortcut) shortcut.classList.add("is-hidden");
+    });
+
+    input.addEventListener("blur", function () {
+      if (!input.value && shortcut) shortcut.classList.remove("is-hidden");
+    });
+
+    document.addEventListener("keydown", function (event) {
+      var active = document.activeElement;
+      var typing = active && (active.tagName === "INPUT" || active.tagName === "TEXTAREA" || active.isContentEditable);
+      if (event.key === "/" && !typing) {
+        event.preventDefault();
+        input.focus();
+      }
+    });
+  }
+
+  // --- Heat grid. One square per probed item, grouped by category, in the
+  // same GitHub-style layout the reference site uses.
+  function renderHeat(doc) {
+    var grid = document.getElementById("heat-grid");
+    if (!grid) return;
+    var groups = [];
+
+    (doc.builtins || []).forEach(function (row, index) {
+      groups.push({ label: "Builtins", status: row.status, name: row.label, href: "#row-builtins-" + index });
+    });
+    (doc.stdlib || []).forEach(function (row, index) {
+      groups.push({ label: "Standard library", status: row.status, name: row.label, href: "#row-stdlib-" + index });
+    });
+    (doc.packages || []).forEach(function (row, index) {
+      groups.push({ label: "PyPI packages", status: row.status, name: row.name, href: "#row-packages-" + index });
+    });
+
+    if (!groups.length) return;
+
+    grid.textContent = "";
+    groups.forEach(function (item) {
+      var cell = el("span", "heat-cell status-" + (item.status || "unknown"));
+      cell.setAttribute("role", "link");
+      cell.setAttribute("tabindex", "0");
+      cell.setAttribute("title", item.label + " \u00b7 " + item.name + " \u00b7 " + (STATUS_TEXT[item.status] || "unknown"));
+      cell.setAttribute("aria-label", cell.getAttribute("title"));
+      cell.dataset.href = item.href;
+      grid.appendChild(cell);
+    });
+
+    function go(event) {
+      var target = event.target.closest(".heat-cell");
+      if (!target) return;
+      var href = target.dataset.href;
+      if (!href) return;
+      var row = document.querySelector(href);
+      if (row) {
+        row.scrollIntoView({ block: "center" });
+      }
+    }
+    grid.addEventListener("click", go);
+    grid.addEventListener("keydown", function (event) {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        go(event);
+      }
+    });
+
+    document.getElementById("heat").hidden = false;
   }
 
   function renderHistory(doc) {
@@ -375,6 +582,7 @@
     renderMeta(doc);
     renderSummary(doc);
     renderLadder(doc);
+    renderHeroStat(doc);
     var anyRows = false;
     Object.keys(SECTIONS).forEach(function (key) {
       var rows = doc[key] || [];
@@ -394,6 +602,8 @@
       document.getElementById("history").hidden = false;
       renderHistory(doc);
     }
+    wireSearch(buildSearchIndex(doc));
+    renderHeat(doc);
     if (!anyRows && !(doc.history || []).length) {
       showError("The data file has no rows. This is a data problem, not a page problem.");
     }
