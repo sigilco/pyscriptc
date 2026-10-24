@@ -182,6 +182,7 @@ _BEFORE_KEYWORDS: dict[tuple[str, str], Handler] = {
     ("subprocess", "run"): lambda lo, node, span, expect, attr: _sub_run(lo, node, span),
     ("subprocess", "call"): lambda lo, node, span, expect, attr: _sub_call(lo, node, span),
     ("subprocess", "check_call"): lambda lo, node, span, expect, attr: _sub_check_call(lo, node, span),
+    ("argparse", "ArgumentParser"): lambda lo, node, span, expect, attr: _parser(lo, node, span),
 }
 
 # Per-attribute handlers that run after keyword arguments are rejected.
@@ -200,7 +201,6 @@ _AFTER_KEYWORDS: dict[tuple[str, str], Handler] = {
     ("posixpath", "relpath"): lambda lo, node, span, expect, attr: _relpath(lo, node, span),
     ("os", "open"): lambda lo, node, span, expect, attr: _os_open(lo, node, span),
     ("os", "read"): lambda lo, node, span, expect, attr: _os_read(lo, node, span),
-    ("argparse", "ArgumentParser"): lambda lo, node, span, expect, attr: _parser(lo, node, span),
     ("pathlib", "Path"): lambda lo, node, span, expect, attr: _one(
         lo, node, span, "pathlib", "Path", "ps_path_new", {"kind": "str"}, {"kind": "class", "name": "Path"}
     ),
