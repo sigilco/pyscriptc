@@ -559,6 +559,51 @@ _MEASURED_SECTIONS = (
     "summary",
 )
 
+# The summary keys the scorer output produces. A run without a score cannot
+# reproduce them, so a `--check` without a score leaves them out of the
+# comparison: the nightly is the only producer of those numbers.
+_SCORE_SUMMARY_KEYS = (
+    "weighted_pass",
+    "probes",
+    "probe_pass",
+    "probe_failures",
+    "pass_rate",
+)
+
+
+def _strip_probe_fields(document: dict[str, Any]) -> dict[str, Any]:
+    """A copy of the document without the fields the scorer output produces.
+
+    The per-row probe counters and the language section come from the
+    compat2 scorer output. A `--check` run without a score file has no
+    scorer output, so it cannot reproduce them and must not report them as
+    drift.
+    """
+    stripped = dict(document)
+    for key in ("builtins", "stdlib", "packages"):
+        rows = stripped.get(key)
+        if not isinstance(rows, list):
+            continue
+        cleaned = []
+        for row in rows:
+            if not isinstance(row, dict):
+                cleaned.append(row)
+                continue
+            copy = dict(row)
+            copy.pop("probes", None)
+            copy.pop("pass_rate", None)
+            copy.pop("probe_outcomes", None)
+            copy.pop("probe_codes", None)
+            cleaned.append(copy)
+        stripped[key] = cleaned
+    # The language section is the scorer output, grouped.
+    stripped["language"] = []
+    summary = stripped.get("summary")
+    if isinstance(summary, dict):
+        trimmed = {key: value for key, value in summary.items() if key not in _SCORE_SUMMARY_KEYS}
+        stripped["summary"] = trimmed
+    return stripped
+
 
 def summary_document(document: dict[str, Any]) -> dict[str, Any]:
     """The headline counts, as the small file the landing page can consume.
@@ -605,6 +650,11 @@ def check(document: dict[str, Any], out: Path, measured: bool = False) -> list[s
     `measured=True` (a `--score` run) compares the run-stamped top level too:
     the nightly is about to overwrite the file, so its date and commit must be
     part of the diff.
+
+    A run without a scorer output cannot reproduce the probe counters, so the
+    probe-derived fields are compared only when the run has a score. The
+    compiler-measured fields (the support rows, the packages, the fences) are
+    compared either way: those are what the tree alone can drift on.
     """
     if not out.exists():
         return [f"missing: {out} (run scripts/build_compat_json.py)"]
@@ -616,6 +666,8 @@ def check(document: dict[str, Any], out: Path, measured: bool = False) -> list[s
     if not measured:
         document = {key: value for key, value in document.items() if key in _MEASURED_SECTIONS}
         committed = {key: value for key, value in committed.items() if key in _MEASURED_SECTIONS}
+        document = _strip_probe_fields(document)
+        committed = _strip_probe_fields(committed)
     if document != committed:
         differing = sorted(key for key in set(document) | set(committed) if document.get(key) != committed.get(key))
         problems.append(f"stale (run scripts/build_compat_json.py): {out}, sections differ: {', '.join(differing)}")
