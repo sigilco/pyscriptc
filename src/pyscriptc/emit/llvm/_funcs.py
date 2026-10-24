@@ -47,6 +47,10 @@ class FuncsMixin:
             else:
                 ptr = self.tmp()
                 self.line(f"{ptr} = alloca {_memory_type(local['type'])}")
+                # boxed:begin
+                if local["type"].get("island") or local["type"].get("handle"):
+                    self.line(f"store ptr null, ptr {ptr}")
+                # boxed:end
             self.slots[local["name"]] = (ptr, local["type"])
             self.slot_order.append(local["name"])
             self.slot_types[local["name"]] = local["type"]

@@ -75,6 +75,159 @@ class AbiMixin:
             return
         self.line(f"store {_llvm_type(typ)} {value}, ptr {slot}")
 
+    # boxed:begin
+    # Island trampoline marshalling (issue #553). The kind codes match
+    # `ps_island.c`; `pad` carries the element kind for a list.
+    _ISLAND_ARG_CODES = {"int": 1, "float": 2, "str": 3, "bool": 4, "list": 5, "bytes": 6}
+
+    def _island_code(self, typ: dict[str, Any]) -> int:
+        if typ.get("island"):
+            return 7
+        return self._ISLAND_ARG_CODES[typ["kind"]]
+
+    def _store_island_arg(self, base: str, value: str, typ: dict[str, Any]) -> None:
+        code = self._island_code(typ)
+        kind_ptr = self.tmp()
+        self.line(f"{kind_ptr} = getelementptr %ps.arg, ptr {base}, i32 0, i32 0")
+        self.line(f"store i32 {code}, ptr {kind_ptr}")
+        kind = typ["kind"]
+        if kind == "int":
+            slot = self.tmp()
+            self.line(f"{slot} = getelementptr %ps.arg, ptr {base}, i32 0, i32 2")
+            self.line(f"store i64 {value}, ptr {slot}")
+            return
+        if kind == "float":
+            slot = self.tmp()
+            self.line(f"{slot} = getelementptr %ps.arg, ptr {base}, i32 0, i32 3")
+            self.line(f"store double {value}, ptr {slot}")
+            return
+        if kind == "bool":
+            slot = self.tmp()
+            self.line(f"{slot} = getelementptr %ps.arg, ptr {base}, i32 0, i32 2")
+            wide = self.tmp()
+            self.line(f"{wide} = zext i1 {value} to i64")
+            self.line(f"store i64 {wide}, ptr {slot}")
+            return
+        if kind == "list":
+            pad_ptr = self.tmp()
+            self.line(f"{pad_ptr} = getelementptr %ps.arg, ptr {base}, i32 0, i32 1")
+            self.line(f"store i32 {self._island_code(typ['elem'])}, ptr {pad_ptr}")
+            slot = self.tmp()
+            self.line(f"{slot} = getelementptr %ps.arg, ptr {base}, i32 0, i32 2")
+            raw = self.tmp()
+            self.line(f"{raw} = ptrtoint ptr {value} to i64")
+            self.line(f"store i64 {raw}, ptr {slot}")
+            return
+        if typ.get("island"):
+            slot = self.tmp()
+            self.line(f"{slot} = getelementptr %ps.arg, ptr {base}, i32 0, i32 2")
+            raw = self.tmp()
+            self.line(f"{raw} = ptrtoint ptr {value} to i64")
+            self.line(f"store i64 {raw}, ptr {slot}")
+            return
+        if kind in {"str", "bytes"}:
+            slot = self.tmp()
+            self.line(f"{slot} = getelementptr %ps.arg, ptr {base}, i32 0, i32 4")
+            length = self.tmp()
+            ptr = self.tmp()
+            self.line(f"{length} = extractvalue %ps.str {value}, 0")
+            self.line(f"{ptr} = extractvalue %ps.str {value}, 1")
+            len_ptr = self.tmp()
+            data_ptr = self.tmp()
+            self.line(f"{len_ptr} = getelementptr %ps.buf, ptr {slot}, i32 0, i32 0")
+            self.line(f"store i64 {length}, ptr {len_ptr}")
+            self.line(f"{data_ptr} = getelementptr %ps.buf, ptr {slot}, i32 0, i32 1")
+            self.line(f"store ptr {ptr}, ptr {data_ptr}")
+            return
+        raise IRError(f"cannot marshal {kind} to the island")
+
+    def _island_name(self, expr: dict[str, Any]) -> tuple[int, str]:
+        name = expr["island"]["name"]
+        data = name.encode("utf-8")
+        return len(data), self.format_global(f"island.{name}", data)
+
+    def _emit_island_call(self, expr: dict[str, Any], values: list[str]) -> str:
+        """One trampoline call: `island_call(handle, name, args...) -> handle`."""
+        self._ensure_arg_type()
+        target = values[0]
+        extra = values[1:]
+        count = len(extra)
+        if count:
+            slot = self.tmp()
+            self.line(f"{slot} = alloca [{count} x %ps.arg]")
+            for index in range(count):
+                base = self.tmp()
+                self.line(f"{base} = getelementptr [{count} x %ps.arg], ptr {slot}, i64 0, i64 {index}")
+                self._store_island_arg(base, extra[index], expr["args"][index + 1]["type"])
+            arg_ptr = self.tmp()
+            self.line(f"{arg_ptr} = getelementptr [{count} x %ps.arg], ptr {slot}, i64 0, i64 0")
+        else:
+            arg_ptr = "null"
+        size, symbol = self._island_name(expr)
+        self._abi_decl("ps_island_call", "ptr", ["ptr", "i64", "ptr", "i64", "ptr"])
+        return self._call_ret(
+            "ptr",
+            "ps_island_call",
+            [f"ptr {target}", f"i64 {size}", f"ptr {symbol}", f"i64 {count}", f"ptr {arg_ptr}"],
+        )
+
+    def _emit_island_getattr(self, expr: dict[str, Any], values: list[str]) -> str:
+        """One attribute read: `island_getattr(handle, name, want, &out)`."""
+        self._ensure_arg_type()
+        want = expr["island"]["want"]
+        code = self._island_code(want)
+        pad = self._island_code(want["elem"]) if want["kind"] == "list" else 0
+        size, symbol = self._island_name(expr)
+        out = self._alloca("%ps.arg")
+        self._abi_decl("ps_island_getattr", "void", ["ptr", "i64", "ptr", "i32", "i32", "ptr"])
+        self._call_void(
+            "ps_island_getattr",
+            [f"ptr {values[0]}", f"i64 {size}", f"ptr {symbol}", f"i32 {code}", f"i32 {pad}", f"ptr {out}"],
+        )
+        kind = want["kind"]
+        if kind == "int":
+            slot = self.tmp()
+            self.line(f"{slot} = getelementptr %ps.arg, ptr {out}, i32 0, i32 2")
+            return self._load("i64", slot)
+        if kind == "float":
+            slot = self.tmp()
+            self.line(f"{slot} = getelementptr %ps.arg, ptr {out}, i32 0, i32 3")
+            return self._load("double", slot)
+        if kind == "bool":
+            slot = self.tmp()
+            self.line(f"{slot} = getelementptr %ps.arg, ptr {out}, i32 0, i32 2")
+            wide = self._load("i64", slot)
+            reg = self.tmp()
+            self.line(f"{reg} = trunc i64 {wide} to i1")
+            return reg
+        if kind == "list":
+            slot = self.tmp()
+            self.line(f"{slot} = getelementptr %ps.arg, ptr {out}, i32 0, i32 2")
+            return self._load("ptr", slot)
+        if kind in {"str", "bytes"}:
+            buf = self.tmp()
+            self.line(f"{buf} = getelementptr %ps.arg, ptr {out}, i32 0, i32 4")
+            len_ptr = self.tmp()
+            data_ptr = self.tmp()
+            self.line(f"{len_ptr} = getelementptr %ps.buf, ptr {buf}, i32 0, i32 0")
+            self.line(f"{data_ptr} = getelementptr %ps.buf, ptr {buf}, i32 0, i32 1")
+            length = self._load("i64", len_ptr)
+            data = self._load("ptr", data_ptr)
+            str_slot = self._alloca("%ps.str")
+            self.line(f"store i64 {length}, ptr {str_slot}")
+            data_slot = self.tmp()
+            self.line(f"{data_slot} = getelementptr %ps.str, ptr {str_slot}, i32 0, i32 1")
+            self.line(f"store ptr {data}, ptr {data_slot}")
+            count_ptr = self.tmp()
+            flags_ptr = self.tmp()
+            self.line(f"{count_ptr} = getelementptr %ps.str, ptr {str_slot}, i32 0, i32 2")
+            self.line(f"{flags_ptr} = getelementptr %ps.str, ptr {str_slot}, i32 0, i32 3")
+            self._abi_decl("ps_str_counts", "void", ["i64", "ptr", "ptr", "ptr"])
+            self.line(f"call void @ps_str_counts(i64 {length}, ptr {data}, ptr {count_ptr}, ptr {flags_ptr})")
+            return self._load("%ps.str", str_slot)
+        raise IRError(f"cannot read an island attribute of kind {kind}")
+    # boxed:end
+
     def _buf_out(self, symbol: str, args: list[str]) -> str:
         out = self._alloca("%ps.str")
         # The runtime writes the 16-byte PsBuf prefix (len, data). S2 fills
@@ -190,6 +343,9 @@ class AbiMixin:
                     "ThreadCall",
                 }
                 or symbol.startswith("ps_ffi_")
+                # boxed:begin
+                or symbol.startswith("ps_island_")
+                # boxed:end
             )
         ):
             self._abi_decl(symbol, "ptr", types)

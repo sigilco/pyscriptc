@@ -24,6 +24,7 @@ from pyscriptc.lower._core import (
     _FUTURE_OK,
     Binding,
     Fence,
+    _assign,
     _const_bool,
     _const_truthy,
     _is_none_expr,
@@ -43,6 +44,7 @@ from pyscriptc.stdlib_queue import (
     canonical_module,
     dep_lanes,
     ffi_manifests,
+    island_lane,
     module_status,
     wave_function,
 )
@@ -53,6 +55,19 @@ from pyscriptc.stdmore import (
     member_callable,
     module_constant,
 )
+
+
+# boxed:begin
+def _island_handle(name: str) -> dict[str, Any]:
+    """The opaque handle type of an island value (issue #553)."""
+    return {"kind": "class", "name": name, "handle": True, "island": True}
+
+
+# The `%ps.arg` kind codes the trampoline marshals (issue #553); they match
+# `ps_island.c`.
+_ISLAND_CODES = {"int": 1, "float": 2, "str": 3, "bool": 4, "list": 5, "bytes": 6, "handle": 7}
+_ISLAND_SCALARS = frozenset({"int", "float", "str", "bool", "bytes"})
+# boxed:end
 
 
 def _dep_lane_hint(module: str, message: str) -> str:
@@ -98,6 +113,20 @@ class StdlibDispatchMixin:
                 continue
             status = module_status(alias.name)
             if status is None:
+                # boxed:begin
+                if island_lane(alias.name):
+                    parts = alias.name.split(".")
+                    if alias.asname or len(parts) == 1:
+                        bound = alias.asname or parts[0]
+                        module = alias.name
+                        rooted = False
+                    else:
+                        bound = parts[0]
+                        module = parts[0]
+                        rooted = True
+                    self.bindings[bound] = Binding("island", module, "", False, rooted=rooted)
+                    continue
+                # boxed:end
                 fences.append(
                     Fence(
                         "PS2002",
@@ -588,6 +617,12 @@ class StdlibDispatchMixin:
         nothing to call, and the compiler refuses the program (PS4013)
         rather than leak the handle silently.
         """
+        # boxed:begin
+        if typ.get("island"):
+            # The island handle's ownership ends at the seam: one trampoline
+            # free releases the island object (issue #553).
+            return self._abi_call("island", "free", [_name(name, typ, span)], {"kind": "none"}, "ps_island_free", span)
+        # boxed:end
         module, fn = self._consuming_fn(typ["name"])
         if fn is None:
             self.fail(
@@ -698,6 +733,110 @@ class StdlibDispatchMixin:
         if spec is None:
             self.fail(node, "PS2001", f"{module}.{attr} is not in the lowered subset of {module}")
         return self._fixed_call(node, span, module, attr, spec)
+
+    # boxed:begin
+    def _island_check_arg(self, node: ast.AST, arg: dict[str, Any]) -> None:
+        typ = arg["type"]
+        if typ.get("island"):
+            return
+        if typ["kind"] in _ISLAND_SCALARS:
+            return
+        if typ["kind"] == "list":
+            elem = typ.get("elem") or {}
+            if elem.get("island") or elem.get("kind") in _ISLAND_SCALARS:
+                return
+            self.fail(node, "PS1003", "island list arguments carry int, float, str, bytes or bool elements")
+        self.fail(node, "PS1003", f"island cannot marshal {_show(typ)}")
+
+    def _island_args(self, node: ast.Call, span: dict[str, Any]) -> list[dict[str, Any]]:
+        self._reject_keywords(node)
+        args: list[dict[str, Any]] = []
+        for arg_node in node.args:
+            arg = self._expr(arg_node)
+            self._island_check_arg(node, arg)
+            args.append(arg)
+        return args
+
+    def _island_module_handle(self, module: str, span: dict[str, Any]) -> dict[str, Any]:
+        """The hidden local that owns one imported island module.
+
+        The import runs once per function scope, in the statement prelude;
+        the handle joins `handle_locals`, so the scope-exit free releases it
+        like any other island value (issue #553).
+        """
+        name = self.island_modules.get(module)
+        if name is None:
+            name = self._temp("imod").replace(".", "_")
+            typ = _island_handle(f"{module} module")
+            self.locals[name] = typ
+            call = self._abi_call(
+                module,
+                "import",
+                [{"kind": "const", "value": module, "type": {"kind": "str"}, "span": span}],
+                typ,
+                "ps_island_import",
+                span,
+            )
+            self.prelude.append(_assign(name, call, span))
+            self._own_handle(name, typ)
+            self.island_modules[module] = name
+        return _name(name, self.locals[name], span)
+
+    def _island_call(
+        self, node: ast.Call, span: dict[str, Any], module: str, attr: str, expect: dict[str, Any] | None
+    ) -> dict[str, Any]:
+        """`requests.get(...)`: a trampoline call on the imported module handle."""
+        args = [self._island_module_handle(module, span), *self._island_args(node, span)]
+        return {
+            "kind": "call",
+            "callee": {"kind": "module", "module": module, "name": attr},
+            "args": args,
+            "type": _island_handle(f"{module}.{attr}()"),
+            "symbol": "ps_island_call",
+            "island": {"name": attr},
+            "span": span,
+        }
+
+    def _island_method_call(self, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
+        """`response.raise_for_status(...)`: a trampoline call on one handle."""
+        assert isinstance(node.func, ast.Attribute)
+        attr = node.func.attr
+        args = [receiver, *self._island_args(node, span)]
+        return {
+            "kind": "call",
+            "callee": {"kind": "module", "module": receiver["type"].get("name", "island"), "name": attr},
+            "args": args,
+            "type": _island_handle(f"{receiver['type'].get('name', 'island')}.{attr}()"),
+            "symbol": "ps_island_call",
+            "island": {"name": attr},
+            "span": span,
+        }
+
+    def _island_getattr(
+        self, obj: dict[str, Any], name: str, span: dict[str, Any], node: ast.AST, expect: dict[str, Any] | None
+    ) -> dict[str, Any]:
+        """`response.status_code`: one attribute out of an island handle.
+
+        The value's type has to come from the destination annotation: the
+        island returns a boxed value and the trampoline needs to know which
+        scalar to ask for (`island_getattr(handle, name, want)`).
+        """
+        if expect is None or expect.get("island"):
+            self.fail(
+                node,
+                "PS1001",
+                f"{name} needs an annotation (int, float, bool, str, bytes or list[...]) before use",
+            )
+        if expect["kind"] not in _ISLAND_SCALARS and expect["kind"] != "list":
+            self.fail(node, "PS1003", f"island cannot box {_show(expect)}")
+        if expect["kind"] == "list":
+            elem = expect.get("elem") or {}
+            if not (elem.get("island") or elem.get("kind") in _ISLAND_SCALARS):
+                self.fail(node, "PS1003", "island lists carry int, float, str, bytes or bool elements")
+        expr = self._abi_call(obj["type"].get("name", "island"), name, [obj], expect, "ps_island_getattr", span)
+        expr["island"] = {"name": name, "want": expect}
+        return expr
+    # boxed:end
 
     def _resolve_module(self, node: ast.Attribute) -> tuple[str, str, str, str] | None:
         """Dotted spelling, module, member, and status for an import chain.

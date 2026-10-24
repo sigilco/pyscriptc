@@ -797,6 +797,9 @@ class ClassesMixin:
         self.function = f"{class_name}.{stmt.name}"
         self.temp_n = 0
         self.prelude = []
+        # boxed:begin
+        self.island_modules = {}
+        # boxed:end
         self.fn_globals = self._globals_for(stmt.body)
         params, ret = info["methods"][stmt.name]
         kind = info["method_kind"].get(stmt.name, "method")
@@ -1476,6 +1479,10 @@ class ClassesMixin:
                 self.fail(node, "PS2001", note)
             self.fail(node, "PS2001", f"attribute access is not lowered ({name})")
         class_name = obj["type"]["name"]
+        # boxed:begin
+        if obj["type"].get("island"):
+            return self._island_getattr(obj, name, span, node, expect)
+        # boxed:end
         if obj["type"].get("handle"):
             # An opaque handle has no fields: it is a bare pointer at the
             # ABI, and reading a field would be a wild access (issue #224).
