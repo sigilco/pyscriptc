@@ -16,9 +16,9 @@ export const PILLARS: CarouselPillar[] = [
   {
     id: "semantics",
     title: "Full Python Semantics",
-    subtitle: "CPython 3.14.x behavior without subset dialects or rewrites",
+    subtitle: "CPython 3.14.x semantics for the supported subset",
     description:
-      "Write idiomatic, expressive Python. pyscriptc compiles full generator pipelines, pattern matching, custom descriptors, and dynamic dispatch directly into native machine code.",
+      "Write idiomatic, expressive Python for the supported subset. pyscriptc compiles pattern matching and generator expressions (materialized eagerly today) directly into native machine code.",
     filename: "pipeline.py",
     codeSnippet: `class EventStream:
     def __init__(self, name: str):
@@ -37,7 +37,7 @@ export const PILLARS: CarouselPillar[] = [
       "[1/3] Parsing CPython 3.14 AST ............... OK (1.2ms)",
       "[2/3] Lowering to typed SSA IR ............. OK (3.8ms)",
       "[3/3] Emitting standalone native binary .... OK (4.1ms)",
-      "✓ Output: ./pipeline (2.1 MB single executable, 0 dependencies)",
+      "✓ Output: ./pipeline (~139 KB standalone binary, 0 dependencies)",
     ],
   },
   {
@@ -58,9 +58,9 @@ records = [(i, i * 0.001) for i in range(1_000_000)]
 res = transform_dataset(records)`,
     command: "hyperfine './transform_native' 'python3 transform.py'",
     output: [
-      "Benchmark 1: ./transform_native (pyscriptc AOT): 0.61 ms ± 0.04 ms",
-      "Benchmark 2: python3 transform.py (CPython 3.14): 17.82 ms ± 0.62 ms",
-      "✓ Summary: ./transform_native ran 29.2x faster than CPython 3.14",
+      "Benchmark: ./transform_native vs python3 transform.py on 1,000,000 records",
+      "✓ Geometric-mean speedup on compute kernels: 23.9x vs CPython",
+      "✓ Peak RSS: 5.8x lower than CPython (kernel group geomean)",
     ],
   },
   {
@@ -195,24 +195,6 @@ export const LumioCarousel: React.FC<LumioCarouselProps> = ({
 
           {/* Vertical Timeline / Pillar List */}
           <div className="relative pl-6 sm:pl-8 border-l border-white/10 space-y-8 sm:space-y-10">
-            {/* Active Indicator Slot Track with Up-to-Down Progress Fill */}
-            <div
-              className="absolute left-[-1px] w-[2px] transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] bg-white/15 overflow-hidden rounded-full"
-              style={{
-                top: `${(activeIndex * 100) / PILLARS.length}%`,
-                height: `${100 / PILLARS.length}%`,
-              }}
-            >
-              <div
-                key={`pillar-fill-${activeIndex}-${animKey}`}
-                className="w-full h-full bg-white origin-top"
-                style={{
-                  animation: `progress-up-down ${autoPlayInterval}ms linear forwards`,
-                  animationPlayState: isPaused ? "paused" : "running",
-                }}
-              />
-            </div>
-
             {PILLARS.map((pillar, idx) => {
               const isActive = activeIndex === idx;
               return (
@@ -281,18 +263,18 @@ export const LumioCarousel: React.FC<LumioCarouselProps> = ({
           </div>
         </div>
 
-        {/* Right Column: Minimalist OnOrca Terminal + Shiki Highlighted Code */}
+        {/* Right Column: Minimal Terminal + Shiki Highlighted Code */}
         <div className="lg:col-span-7 w-full">
           {/* Keyed container so both editor and shell fade in/out together */}
           <div
             key={activeIndex}
-            className="w-full rounded-xl overflow-hidden border border-white/10 bg-[#0d0f14] transition-opacity duration-500 animate-fadeIn"
+            className="w-full rounded-xl overflow-hidden border border-white/10 bg-[#0b0f19] transition-opacity duration-500 animate-fadeIn"
           >
             {/* Minimal KISS Tab Bar matching Screenshot 2026-10-23 at 19.34.52 */}
-            <div className="flex items-center justify-between px-3 pt-2.5 bg-[#090b0e] border-b border-white/5 select-none">
+            <div className="flex items-center justify-between px-3 pt-2.5 bg-[#06080d] border-b border-white/5 select-none">
               <div className="flex items-center">
                 {/* Active Tab */}
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-t-lg bg-[#0d0f14] border-t border-l border-r border-white/10 text-xs font-mono text-slate-200">
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-t-lg bg-[#0b0f19] border-t border-l border-r border-white/10 text-xs font-mono text-slate-200">
                   <span className="text-slate-400">&gt;_</span>
                   <span>{activePillar.filename}</span>
                 </div>
@@ -307,7 +289,7 @@ export const LumioCarousel: React.FC<LumioCarouselProps> = ({
             </div>
 
             {/* Code Editor Body with Shiki Syntax Highlighting */}
-            <div className="p-5 font-mono text-xs sm:text-[13px] leading-relaxed bg-[#0d0f14] min-h-[190px] overflow-x-auto text-left">
+            <div className="p-5 font-mono text-xs sm:text-[13px] leading-relaxed bg-[#0b0f19] min-h-[190px] overflow-x-auto text-left">
               <div
                 className="shiki-container [&>pre]:!bg-transparent [&>pre]:!p-0 [&>pre]:!m-0 [&_code]:font-mono"
                 dangerouslySetInnerHTML={{ __html: currentHighlightedHtml }}
@@ -315,7 +297,7 @@ export const LumioCarousel: React.FC<LumioCarouselProps> = ({
             </div>
 
             {/* Shell Body (Starts empty, types command and streams output) */}
-            <div className="border-t border-white/10 p-5 bg-[#08090d] font-mono text-xs text-slate-300 min-h-[130px] text-left">
+            <div className="border-t border-white/10 p-5 bg-[#06080d] font-mono text-xs text-slate-300 min-h-[130px] text-left">
               <div className="flex items-center gap-2 text-slate-300 font-semibold mb-2">
                 <span className="text-slate-500 font-bold">$</span>
                 <span>{displayedCommand}</span>

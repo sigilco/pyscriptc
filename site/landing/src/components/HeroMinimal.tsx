@@ -16,14 +16,14 @@ export const HeroMinimal: React.FC<HeroMinimalProps> = ({
     <HeroMeshGrid
       state="active"
       theme={theme}
-      activeCount={0}
+      activeCount={8}
       showGridLines={false}
       interactiveHover={true}
       className="relative w-full"
     >
       {/* Strictly left-aligned Hero matching Screenshot 2026-10-23 at 22.42.22 with pure CSS blur */}
-      <div className="w-full max-w-5xl mx-auto px-6 pt-32 pb-24 sm:pt-40 sm:pb-32 text-left relative z-10">
-        <div className="max-w-3xl backdrop-blur-md bg-transparent p-0">
+      <div className="w-full max-w-5xl mx-auto px-6 pt-32 pb-24 sm:pt-40 sm:pb-32 text-left relative z-10 pointer-events-none">
+        <div className="max-w-3xl backdrop-blur-md bg-transparent p-0 pointer-events-auto">
           <h1 className="text-4xl sm:text-6xl lg:text-7xl font-normal tracking-tight text-white leading-[1.08] mb-8">
             Python at C speed.<br />
             <span className="text-slate-400">Without rewrites.</span>
@@ -31,7 +31,7 @@ export const HeroMinimal: React.FC<HeroMinimalProps> = ({
 
           <p className="text-xl sm:text-2xl text-slate-300 font-light max-w-2xl leading-relaxed mb-10">
             pyscriptc compiles pure Python workloads into standalone single executables.
-            No runtime virtual environments. No Docker layers. Sub-millisecond cold start.
+            No runtime virtual environments. No Docker layers.
           </p>
 
           <div className="flex flex-wrap items-center gap-6">
