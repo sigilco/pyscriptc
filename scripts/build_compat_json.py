@@ -35,6 +35,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from benchmarks.compat2.census import DEFAULT_SRC  # noqa: E402
+from scripts import compat_divergences, compat_targets  # noqa: E402
 from scripts.compat_schema import HISTORY_LIMIT, SCHEMA_VERSION, validate  # noqa: E402
 from scripts.gen_support_table import evaluate  # noqa: E402
 
@@ -44,6 +45,9 @@ from pyscriptc.diagnostics import DIAGNOSTICS  # noqa: E402
 DATA = ROOT / "scripts" / "support_data.toml"
 PINS = ROOT / "benchmarks" / "compat" / "top100" / "pins.json"
 DEFAULT_OUT = ROOT / "compat" / "data" / "compat.json"
+
+# The small summary file the landing page can consume for live numbers.
+DEFAULT_SUMMARY = ROOT / "compat" / "data" / "summary.json"
 
 GREEN, YELLOW, RED = "🟢", "🟡", "🔴"
 STATUS_FULL, STATUS_PARTIAL, STATUS_NONE = "full", "partial", "none"
@@ -60,6 +64,12 @@ LANGUAGE_GROUPS = (
     ("surface.", "stdlib surface"),
     ("top100.", "PyPI packages"),
 )
+
+# The outcome names that count as a success, and the ones that count as a
+# failure the site must lead with. `excluded` is neither: a probe that cannot
+# be scored is not a pass and not a failure.
+PASS_OUTCOME = "pass"
+FAILURE_OUTCOMES = ("wrong-output", "crash", "timeout", "build-error")
 
 
 def _status_for(status: str) -> str:
@@ -182,7 +192,9 @@ def _fence_rows(counts: Counter[str], packages: Counter[str]) -> list[dict[str, 
     """Fence-code counters from the package measurement.
 
     `counts` maps a code to how often the pinned trees emit it, `packages`
-    maps a code to how many trees carry it.
+    maps a code to how many trees carry it. The `why` and `fix` come from the
+    diagnostic registry, so the page can show the remediation hint next to
+    the code without a second lookup.
     """
     rows = []
     for code, count in counts.most_common():
@@ -191,6 +203,8 @@ def _fence_rows(counts: Counter[str], packages: Counter[str]) -> list[dict[str, 
             {
                 "code": code,
                 "title": entry.title if entry else "",
+                "why": entry.why if entry else "",
+                "fix": entry.fix if entry else "",
                 "count": count,
                 "packages": packages[code],
             }
@@ -225,6 +239,155 @@ def _language_rows(score: dict[str, Any] | None) -> list[dict[str, Any]]:
     return rows
 
 
+def _probe_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """The outcome counters of a group of scorer rows.
+
+    `probes` counts every row, `pass` the ones that matched the CPython
+    oracle, `fence` the ones the compiler refused, and `failures` the ones
+    that ran and did not match: a wrong output, a crash, a timeout or a
+    build error. `excluded` is a row that cannot be scored at all.
+    """
+    outcomes = Counter(row["outcome"] for row in rows)
+    failures = sum(outcomes.get(name, 0) for name in FAILURE_OUTCOMES)
+    scored = len(rows) - outcomes.get("excluded", 0)
+    passed = outcomes.get(PASS_OUTCOME, 0)
+    return {
+        "probes": len(rows),
+        "pass": passed,
+        "fence": outcomes.get("fence", 0),
+        "failures": failures,
+        "excluded": outcomes.get("excluded", 0),
+        "pass_rate": round(passed / scored, 4) if scored else None,
+    }
+
+
+def _module_probe_stats(score: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    """Per-module probe counters, from the scorer output.
+
+    The compat2 probe namespace is `stdlib.<module>` for a module-level probe
+    and `stdlib.<module>.<member>` for a surface probe. The module counters
+    cover both: the site shows the module surface, not one probe per module.
+    """
+    if not score:
+        return {}
+    stats: dict[str, dict[str, Any]] = {}
+    for row in score.get("rows", []):
+        probe_id = row.get("id", "")
+        if not probe_id.startswith("stdlib."):
+            continue
+        parts = probe_id.split(".")
+        module = ".".join(parts[:2]) if len(parts) > 2 else probe_id
+        entry = stats.setdefault(module, {"rows": [], "codes": Counter()})
+        entry["rows"].append(row)
+        if row["outcome"] == "fence" and row.get("code"):
+            entry["codes"][row["code"]] += 1
+    result: dict[str, dict[str, Any]] = {}
+    for module, entry in stats.items():
+        counters = _probe_stats(entry["rows"])
+        counters["codes"] = dict(sorted(entry["codes"].items(), key=lambda kv: (-kv[1], kv[0])))
+        result[module] = counters
+    return result
+
+
+def _package_probe_stats(score: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    """Per-package probe counters, from the scorer output.
+
+    The compat2 namespace is `top100.<project>`, where the project is the
+    pinned project name (`python-dotenv`, not `dotenv`), so the join is by
+    the project name.
+    """
+    if not score:
+        return {}
+    stats: dict[str, dict[str, Any]] = {}
+    for row in score.get("rows", []):
+        probe_id = row.get("id", "")
+        if not probe_id.startswith("top100."):
+            continue
+        project = probe_id.split(".")[1]
+        entry = stats.setdefault(project, {"rows": [], "codes": Counter()})
+        entry["rows"].append(row)
+        if row["outcome"] == "fence" and row.get("code"):
+            entry["codes"][row["code"]] += 1
+    result: dict[str, dict[str, Any]] = {}
+    for project, entry in stats.items():
+        counters = _probe_stats(entry["rows"])
+        counters["codes"] = dict(sorted(entry["codes"].items(), key=lambda kv: (-kv[1], kv[0])))
+        result[project] = counters
+    return result
+
+
+def _builtin_probe_stats(score: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    """Per-builtin probe counters, from the scorer output."""
+    if not score:
+        return {}
+    stats: dict[str, dict[str, Any]] = {}
+    for row in score.get("rows", []):
+        probe_id = row.get("id", "")
+        if not probe_id.startswith("builtins."):
+            continue
+        name = probe_id.split(".")[1]
+        entry = stats.setdefault(name, {"rows": [], "codes": Counter()})
+        entry["rows"].append(row)
+        if row["outcome"] == "fence" and row.get("code"):
+            entry["codes"][row["code"]] += 1
+    result: dict[str, dict[str, Any]] = {}
+    for name, entry in stats.items():
+        counters = _probe_stats(entry["rows"])
+        counters["codes"] = dict(sorted(entry["codes"].items(), key=lambda kv: (-kv[1], kv[0])))
+        result[name] = counters
+    return result
+
+
+def _attach_probe_stats(
+    rows: list[dict[str, Any]],
+    stats: dict[str, dict[str, Any]],
+    key_of: Any,
+) -> list[dict[str, Any]]:
+    """Copy the probe counters onto the rows they belong to.
+
+    `key_of` maps a row to the key its probes are filed under. A row with no
+    probe of its own keeps the counters empty, so the page can say "not
+    measured" instead of "0% pass".
+    """
+    for row in rows:
+        counters = stats.get(key_of(row))
+        if counters is None:
+            row["probes"] = None
+            row["pass_rate"] = None
+            row["probe_outcomes"] = {}
+            row["probe_codes"] = {}
+            continue
+        row["probes"] = counters["probes"]
+        row["pass_rate"] = counters["pass_rate"]
+        row["probe_outcomes"] = {name: counters[name] for name in ("pass", "fence", "failures", "excluded")}
+        row["probe_codes"] = counters["codes"]
+    return rows
+
+
+def _target_rows(path: Path | None) -> list[dict[str, Any]]:
+    """The per-target status rows, from the hand-maintained targets file."""
+    document = compat_targets.load(path)
+    rows = []
+    for row in document.get("targets", []):
+        rows.append(
+            {
+                "id": row.get("id", ""),
+                "triple": row.get("triple", ""),
+                "label": row.get("label", ""),
+                "status": row.get("status", "planned"),
+                "family": row.get("family", ""),
+                "note": row.get("note", ""),
+                "proof": row.get("proof", ""),
+            }
+        )
+    return rows
+
+
+def _divergence_rows(path: Path | None) -> list[dict[str, Any]]:
+    """The numbered divergences, parsed from the docs."""
+    return compat_divergences.read(path)
+
+
 def _history(previous: dict[str, Any] | None, point: dict[str, Any]) -> list[dict[str, Any]]:
     """The previous history plus the current point, capped at the limit."""
     history: list[dict[str, Any]] = []
@@ -243,11 +406,15 @@ def build(
     previous_path: Path | None = None,
     date: str | None = None,
     pin: Path | None = None,
+    targets_path: Path | None = None,
+    divergences_path: Path | None = None,
 ) -> dict[str, Any]:
     """Build the document. Raises ValueError when a source is missing or invalid.
 
     `pin` is a previous document whose `generated` date and `commit` are
     reused, so a `--check` run over an unchanged tree sees the same bytes.
+    `targets_path` overrides the hand-maintained targets file and
+    `divergences_path` the divergences doc, for the tests.
     """
     data = tomllib.loads(DATA.read_text(encoding="utf-8"))
     errors: list[str] = []
@@ -258,6 +425,17 @@ def build(
     packages, fences = _package_rows()
     score = _load_score(score_path)
     language = _language_rows(score)
+    builtin_stats = _builtin_probe_stats(score)
+    module_stats = _module_probe_stats(score)
+    package_stats = _package_probe_stats(score)
+    builtins = _attach_probe_stats(builtins, builtin_stats, lambda row: row["names"][0])
+    # The compat2 probe namespace files a dotted module under its first
+    # segment: `urllib.parse` is probed as `stdlib.urllib.parse`, and the
+    # module-level probes live under `stdlib.urllib`.
+    stdlib = _attach_probe_stats(stdlib, module_stats, lambda row: f"stdlib.{row['names'][0].split('.')[0]}")
+    packages = _attach_probe_stats(packages, package_stats, lambda row: row["name"])
+    targets = _target_rows(targets_path)
+    divergences = _divergence_rows(divergences_path)
     previous = _load_previous(previous_path)
     pinned = _load_previous(pin) if pin else None
     commit = pinned["commit"] if pinned else _commit()
@@ -271,6 +449,7 @@ def build(
         weighted_pass = round(
             sum(weights.get(row["id"], 1.0) for row in score.get("rows", []) if row["outcome"] == "pass"), 3
         )
+    all_stats = _probe_stats(score.get("rows", []) if score else [])
     point = {
         "date": generated,
         "commit": commit,
@@ -289,6 +468,8 @@ def build(
             "pins": "benchmarks/compat/top100/pins.json",
             "coverage": "pyscriptc coverage over benchmarks/compat/top100/src",
             "score": _relative(score_path),
+            "targets": "compat/data/targets.json (hand-maintained)",
+            "divergences": "docs/reference/divergences.md",
         },
         "summary": {
             "builtins_full": sum(1 for row in builtins if row["status"] == STATUS_FULL),
@@ -302,12 +483,21 @@ def build(
             "packages_none": packages_none,
             "weighted_pass": weighted_pass,
             "fences": point["fences"],
+            "divergences": len(divergences),
+            "targets_native": sum(1 for row in targets if row["status"] == "native"),
+            "targets_experimental": sum(1 for row in targets if row["status"] == "experimental"),
+            "probes": all_stats["probes"],
+            "probe_pass": all_stats["pass"],
+            "probe_failures": all_stats["failures"],
+            "pass_rate": all_stats["pass_rate"],
         },
         "builtins": builtins,
         "stdlib": stdlib,
         "packages": packages,
         "language": language,
         "fences": fences,
+        "targets": targets,
+        "divergences": divergences,
         "history": _history(previous, point),
     }
     problems = validate(document)
@@ -349,7 +539,55 @@ def render(document: dict[str, Any]) -> str:
 # Sections a `--check` compares. The generated date and the commit change with
 # every run, so the check compares what the tree measures and leaves the
 # run-time stamps to the nightly.
-_MEASURED_SECTIONS = ("builtins", "stdlib", "packages", "fences", "language", "summary")
+_MEASURED_SECTIONS = (
+    "builtins",
+    "stdlib",
+    "packages",
+    "fences",
+    "language",
+    "targets",
+    "divergences",
+    "summary",
+)
+
+
+def summary_document(document: dict[str, Any]) -> dict[str, Any]:
+    """The headline counts, as the small file the landing page can consume.
+
+    The contract is deliberately flat and small: a page that wants one number
+    reads one key, and it never has to parse the whole document. The keys
+    are stable: a rename is a breaking change for the landing page.
+    """
+    summary = document.get("summary", {})
+    return {
+        "schema": 1,
+        "generated": document.get("generated", ""),
+        "commit": document.get("commit", ""),
+        "url": "https://pyscriptc.pages.dev/compat/",
+        "packages_full": summary.get("packages_full", 0),
+        "packages_partial": summary.get("packages_partial", 0),
+        "packages_none": summary.get("packages_none", 0),
+        "packages_total": (
+            summary.get("packages_full", 0) + summary.get("packages_partial", 0) + summary.get("packages_none", 0)
+        ),
+        "stdlib_modules": (
+            summary.get("stdlib_full", 0) + summary.get("stdlib_partial", 0) + summary.get("stdlib_none", 0)
+        ),
+        "stdlib_full": summary.get("stdlib_full", 0),
+        "builtins_full": summary.get("builtins_full", 0),
+        "builtins_total": (
+            summary.get("builtins_full", 0) + summary.get("builtins_partial", 0) + summary.get("builtins_none", 0)
+        ),
+        "fences": summary.get("fences", 0),
+        "divergences": summary.get("divergences", 0),
+        "probes": summary.get("probes", 0),
+        "probe_pass": summary.get("probe_pass", 0),
+        "probe_failures": summary.get("probe_failures", 0),
+        "pass_rate": summary.get("pass_rate"),
+        "weighted_pass": summary.get("weighted_pass", 0.0),
+        "targets_native": summary.get("targets_native", 0),
+        "targets_experimental": summary.get("targets_experimental", 0),
+    }
 
 
 def check(document: dict[str, Any], out: Path, measured: bool = False) -> list[str]:
@@ -389,6 +627,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--score", type=Path, default=None, help="compat2 scorer output to read")
     parser.add_argument("--previous", type=Path, default=None, help="previous compat.json, for the history")
     parser.add_argument("--date", default=None, help="measurement date (YYYY-MM-DD)")
+    parser.add_argument(
+        "--summary",
+        type=Path,
+        default=None,
+        help="also write the small summary file here (default: compat/data/summary.json next to --out)",
+    )
+    parser.add_argument(
+        "--no-summary",
+        action="store_true",
+        help="do not write the summary file",
+    )
     parser.add_argument("--check", action="store_true", help="fail when the measured sections differ from the file")
     args = parser.parse_args(argv)
     previous = args.previous if args.previous is not None else args.out
@@ -406,6 +655,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     write_atomic(args.out, render(document))
     print(f"wrote {args.out}")
+    if not args.no_summary:
+        summary_out = args.summary
+        if summary_out is None:
+            summary_out = args.out.parent / "summary.json" if args.out.parent.name == "data" else DEFAULT_SUMMARY
+        write_atomic(summary_out, render(summary_document(document)))
+        print(f"wrote {summary_out}")
     return 0
 
 

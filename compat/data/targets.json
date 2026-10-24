@@ -1,0 +1,87 @@
+{
+  "note": "Per-target status, hand-maintained. What works per target is proven by a CI lane or a smoke script, not by a measurement this tree can redo, so the table lives here and the builder embeds it. `status` is native (built and smoke tested), experimental (works with known gaps) or planned (on a milestone, not measured). `family` groups the rows on the page. `proof` names the lane that proves the row.",
+  "generated": "2026-10-24",
+  "targets": [
+    {
+      "id": "linux-x86_64",
+      "triple": "x86_64-linux-gnu.2.39",
+      "label": "Linux x86_64",
+      "status": "native",
+      "family": "linux",
+      "note": "The reference target. The release binary is built on ubuntu-24.04 and the emitted programs run natively.",
+      "proof": ".github/workflows/release.yml (linux-x86_64) and packaging/zig/smoke.sh"
+    },
+    {
+      "id": "linux-aarch64",
+      "triple": "aarch64-linux-gnu.2.39",
+      "label": "Linux ARM64",
+      "status": "native",
+      "family": "linux",
+      "note": "Built on an ARM64 runner. The zig cross matrix compiles for this triple; the release binary runs the full smoke.",
+      "proof": ".github/workflows/release.yml (linux-aarch64) and packaging/zig/smoke.sh"
+    },
+    {
+      "id": "linux-x86_64-musl",
+      "triple": "x86_64-linux-musl",
+      "label": "Linux x86_64 (musl)",
+      "status": "native",
+      "family": "linux",
+      "note": "Static musl binary. The zig smoke builds and runs it natively; the mix seam is out of scope because a static musl binary cannot dlopen.",
+      "proof": "packaging/zig/smoke.sh (x86_64-musl)"
+    },
+    {
+      "id": "linux-aarch64-musl",
+      "triple": "aarch64-linux-musl",
+      "label": "Linux ARM64 (musl)",
+      "status": "native",
+      "family": "linux",
+      "note": "Static musl binary. The zig smoke builds it and runs it under qemu when the runner has qemu-aarch64-static.",
+      "proof": "packaging/zig/smoke.sh (aarch64-musl)"
+    },
+    {
+      "id": "linux-riscv64",
+      "triple": "riscv64-linux-gnu.2.39",
+      "label": "Linux RISC-V 64",
+      "status": "experimental",
+      "family": "linux",
+      "note": "Cross-compiles and links. The zig smoke builds it for the gnu and musl flavours; it runs under qemu when the runner has the emulator. No release binary is published for it.",
+      "proof": "packaging/zig/smoke.sh (riscv64-gnu, riscv64-musl)"
+    },
+    {
+      "id": "macos-arm64",
+      "triple": "aarch64-macos",
+      "label": "macOS Apple Silicon",
+      "status": "native",
+      "family": "macos",
+      "note": "Built on macos-14. The zig cross matrix links for this triple and the release binary runs the full smoke.",
+      "proof": ".github/workflows/release.yml (macos-arm64) and packaging/zig/smoke.sh"
+    },
+    {
+      "id": "macos-x86_64",
+      "triple": "x86_64-macos",
+      "label": "macOS Intel",
+      "status": "native",
+      "family": "macos",
+      "note": "Built on macos-15-intel. The zig cross matrix links for this triple; the release binary runs the full smoke.",
+      "proof": ".github/workflows/release.yml (macos-x86_64) and packaging/zig/smoke.sh"
+    },
+    {
+      "id": "windows-x86_64",
+      "triple": "x86_64-windows-gnu",
+      "label": "Windows x86_64",
+      "status": "experimental",
+      "family": "windows",
+      "note": "The compiler binary is built for Windows, but the emitted programs are not: the runtime needs POSIX headers the Win32 target does not provide. The Windows smoke never compiles or runs a program. There is no native Windows compile.",
+      "proof": ".github/workflows/release.yml (windows-x86_64, explain smoke only)"
+    },
+    {
+      "id": "wasm32-wasi-musl",
+      "triple": "wasm32-wasi-musl",
+      "label": "WebAssembly (WASI preview1)",
+      "status": "experimental",
+      "family": "wasm",
+      "note": "A WASI preview1 command module. No subprocess, no dlopen and therefore no mix seam, no island fallback, and a preopen-only filesystem. The smoke lane proves stdout byte-identical to the native binary on the same program.",
+      "proof": "packaging/zig/wasm-smoke.sh"
+    }
+  ]
+}

@@ -1,12 +1,14 @@
 {
-  "schema": "1",
-  "generated": "2026-10-22",
-  "commit": "ce6b8188f1b37ea4cb8150bdb4556f0c40efe9f6",
+  "schema": "2",
+  "generated": "2026-10-24",
+  "commit": "34509b56ba8c6565263af854ec0b597f15e16e95",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
     "coverage": "pyscriptc coverage over benchmarks/compat/top100/src",
-    "score": ""
+    "score": "/tmp/maki/visible-score.json",
+    "targets": "compat/data/targets.json (hand-maintained)",
+    "divergences": "docs/reference/divergences.md"
   },
   "summary": {
     "builtins_full": 2,
@@ -18,8 +20,15 @@
     "packages_full": 3,
     "packages_partial": 5,
     "packages_none": 10,
-    "weighted_pass": 0.0,
-    "fences": 3045
+    "weighted_pass": 824.7,
+    "fences": 3045,
+    "divergences": 18,
+    "targets_native": 6,
+    "targets_experimental": 3,
+    "probes": 13798,
+    "probe_pass": 1301,
+    "probe_failures": 13,
+    "pass_rate": 0.1126
   },
   "builtins": [
     {
@@ -56,7 +65,16 @@
       "count": 24,
       "unsupported": [],
       "fences": [],
-      "note": ""
+      "note": "",
+      "probes": 1,
+      "pass_rate": 1.0,
+      "probe_outcomes": {
+        "pass": 1,
+        "fence": 0,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {}
     },
     {
       "id": "builtin.print",
@@ -73,7 +91,16 @@
       "fences": [
         "PS2002"
       ],
-      "note": ""
+      "note": "",
+      "probes": 1,
+      "pass_rate": 1.0,
+      "probe_outcomes": {
+        "pass": 1,
+        "fence": 0,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {}
     },
     {
       "id": "builtin.input",
@@ -90,7 +117,18 @@
       "fences": [
         "PS2003"
       ],
-      "note": ""
+      "note": "",
+      "probes": 1,
+      "pass_rate": 0.0,
+      "probe_outcomes": {
+        "pass": 0,
+        "fence": 1,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS2003": 1
+      }
     },
     {
       "id": "builtin.int",
@@ -107,7 +145,20 @@
       "fences": [
         "PS2003"
       ],
-      "note": ""
+      "note": "",
+      "probes": 12,
+      "pass_rate": 0.0,
+      "probe_outcomes": {
+        "pass": 0,
+        "fence": 12,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS2001": 10,
+        "PS2002": 1,
+        "PS2003": 1
+      }
     },
     {
       "id": "builtin.float",
@@ -124,7 +175,20 @@
       "fences": [
         "PS2003"
       ],
-      "note": ""
+      "note": "",
+      "probes": 8,
+      "pass_rate": 0.0,
+      "probe_outcomes": {
+        "pass": 0,
+        "fence": 8,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS2001": 6,
+        "PS2002": 1,
+        "PS2003": 1
+      }
     },
     {
       "id": "builtin.str",
@@ -141,7 +205,20 @@
       "fences": [
         "PS2003"
       ],
-      "note": ""
+      "note": "",
+      "probes": 48,
+      "pass_rate": 0.7292,
+      "probe_outcomes": {
+        "pass": 35,
+        "fence": 13,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS2001": 9,
+        "PS2003": 3,
+        "PS2002": 1
+      }
     },
     {
       "id": "builtin.list",
@@ -158,7 +235,19 @@
       "fences": [
         "PS2002"
       ],
-      "note": ""
+      "note": "",
+      "probes": 12,
+      "pass_rate": 0.8333,
+      "probe_outcomes": {
+        "pass": 10,
+        "fence": 2,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS1003": 1,
+        "PS2003": 1
+      }
     },
     {
       "id": "builtin.min",
@@ -176,7 +265,16 @@
       "fences": [
         "PS2003"
       ],
-      "note": ""
+      "note": "",
+      "probes": 1,
+      "pass_rate": 1.0,
+      "probe_outcomes": {
+        "pass": 1,
+        "fence": 0,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {}
     },
     {
       "id": "builtin.sorted",
@@ -193,7 +291,16 @@
       "fences": [
         "PS2003"
       ],
-      "note": ""
+      "note": "",
+      "probes": 1,
+      "pass_rate": 1.0,
+      "probe_outcomes": {
+        "pass": 1,
+        "fence": 0,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {}
     },
     {
       "id": "builtin.zip",
@@ -210,7 +317,18 @@
       "fences": [
         "PS2003"
       ],
-      "note": ""
+      "note": "",
+      "probes": 1,
+      "pass_rate": 0.0,
+      "probe_outcomes": {
+        "pass": 0,
+        "fence": 1,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS1106": 1
+      }
     },
     {
       "id": "builtin.filter",
@@ -223,7 +341,18 @@
       "count": 1,
       "unsupported": [],
       "fences": [],
-      "note": ""
+      "note": "",
+      "probes": 1,
+      "pass_rate": 0.0,
+      "probe_outcomes": {
+        "pass": 0,
+        "fence": 1,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS1106": 1
+      }
     },
     {
       "id": "builtin.isinstance",
@@ -240,7 +369,16 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 1,
+      "pass_rate": 1.0,
+      "probe_outcomes": {
+        "pass": 1,
+        "fence": 0,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {}
     },
     {
       "id": "builtin.open",
@@ -257,7 +395,18 @@
       "fences": [
         "PS2003"
       ],
-      "note": ""
+      "note": "",
+      "probes": 1,
+      "pass_rate": 0.0,
+      "probe_outcomes": {
+        "pass": 0,
+        "fence": 1,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS1106": 1
+      }
     },
     {
       "id": "builtin.id",
@@ -274,7 +423,18 @@
       "fences": [
         "PS2003"
       ],
-      "note": ""
+      "note": "",
+      "probes": 1,
+      "pass_rate": 0.0,
+      "probe_outcomes": {
+        "pass": 0,
+        "fence": 1,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS2003": 1
+      }
     },
     {
       "id": "builtin.frozenset",
@@ -291,7 +451,18 @@
       "fences": [
         "PS2002"
       ],
-      "note": ""
+      "note": "",
+      "probes": 9,
+      "pass_rate": 0.0,
+      "probe_outcomes": {
+        "pass": 0,
+        "fence": 9,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS1103": 9
+      }
     },
     {
       "id": "builtin.eval",
@@ -308,7 +479,18 @@
       "fences": [
         "PS2002"
       ],
-      "note": ""
+      "note": "",
+      "probes": 1,
+      "pass_rate": 0.0,
+      "probe_outcomes": {
+        "pass": 0,
+        "fence": 1,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS2002": 1
+      }
     },
     {
       "id": "builtin.baseexception",
@@ -331,7 +513,16 @@
       "fences": [
         "PS2003"
       ],
-      "note": ""
+      "note": "",
+      "probes": 1,
+      "pass_rate": 1.0,
+      "probe_outcomes": {
+        "pass": 1,
+        "fence": 0,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {}
     },
     {
       "id": "builtin.bytes",
@@ -370,7 +561,20 @@
       "fences": [
         "PS2002"
       ],
-      "note": "all (`dict` displays and `{}` work; `dict(...)` does not)"
+      "note": "all (`dict` displays and `{}` work; `dict(...)` does not)",
+      "probes": 43,
+      "pass_rate": 0.7674,
+      "probe_outcomes": {
+        "pass": 33,
+        "fence": 10,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS2001": 5,
+        "PS2002": 3,
+        "PS2003": 2
+      }
     }
   ],
   "stdlib": [
@@ -390,7 +594,19 @@
         "PS2001",
         "PS2003"
       ],
-      "note": ""
+      "note": "",
+      "probes": 62,
+      "pass_rate": 0.3871,
+      "probe_outcomes": {
+        "pass": 24,
+        "fence": 38,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS2001": 36,
+        "PS2003": 2
+      }
     },
     {
       "id": "stdlib.re",
@@ -409,7 +625,22 @@
         "PS2001",
         "PS2002"
       ],
-      "note": ""
+      "note": "",
+      "probes": 85,
+      "pass_rate": 0.1212,
+      "probe_outcomes": {
+        "pass": 8,
+        "fence": 58,
+        "failures": 0,
+        "excluded": 19
+      },
+      "probe_codes": {
+        "PS1106": 48,
+        "PS2001": 4,
+        "PS1003": 3,
+        "PS2002": 2,
+        "PS2003": 1
+      }
     },
     {
       "id": "stdlib.json",
@@ -428,7 +659,20 @@
         "PS2001",
         "PS2003"
       ],
-      "note": ""
+      "note": "",
+      "probes": 20,
+      "pass_rate": 0.15,
+      "probe_outcomes": {
+        "pass": 3,
+        "fence": 17,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS1106": 9,
+        "PS2002": 5,
+        "PS2001": 3
+      }
     },
     {
       "id": "stdlib.tomllib",
@@ -446,7 +690,19 @@
         "PS2001",
         "PS2003"
       ],
-      "note": ""
+      "note": "",
+      "probes": 4,
+      "pass_rate": 0.5,
+      "probe_outcomes": {
+        "pass": 2,
+        "fence": 2,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS2001": 1,
+        "PS2002": 1
+      }
     },
     {
       "id": "stdlib.dotenv",
@@ -464,7 +720,11 @@
         "PS2001",
         "PS2003"
       ],
-      "note": ""
+      "note": "",
+      "probes": null,
+      "pass_rate": null,
+      "probe_outcomes": {},
+      "probe_codes": {}
     },
     {
       "id": "stdlib.yaml",
@@ -482,7 +742,11 @@
         "PS2001",
         "PS2003"
       ],
-      "note": ""
+      "note": "",
+      "probes": null,
+      "pass_rate": null,
+      "probe_outcomes": {},
+      "probe_codes": {}
     },
     {
       "id": "stdlib.urllib-parse",
@@ -499,7 +763,21 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 122,
+      "pass_rate": 0.1048,
+      "probe_outcomes": {
+        "pass": 11,
+        "fence": 94,
+        "failures": 0,
+        "excluded": 17
+      },
+      "probe_codes": {
+        "PS2001": 53,
+        "PS1106": 37,
+        "PS1003": 2,
+        "PS2002": 2
+      }
     },
     {
       "id": "stdlib.base64",
@@ -516,7 +794,20 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 27,
+      "pass_rate": 0.3704,
+      "probe_outcomes": {
+        "pass": 10,
+        "fence": 17,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS2001": 15,
+        "PS1106": 1,
+        "PS2002": 1
+      }
     },
     {
       "id": "stdlib.hashlib",
@@ -534,7 +825,19 @@
         "PS2001",
         "PS2003"
       ],
-      "note": ""
+      "note": "",
+      "probes": 43,
+      "pass_rate": 0.0233,
+      "probe_outcomes": {
+        "pass": 1,
+        "fence": 42,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS1106": 36,
+        "PS2001": 6
+      }
     },
     {
       "id": "stdlib.struct",
@@ -551,7 +854,20 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 16,
+      "pass_rate": 0.0625,
+      "probe_outcomes": {
+        "pass": 1,
+        "fence": 15,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS1106": 8,
+        "PS2001": 6,
+        "PS2002": 1
+      }
     },
     {
       "id": "stdlib.datetime",
@@ -568,7 +884,21 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 105,
+      "pass_rate": 0.3366,
+      "probe_outcomes": {
+        "pass": 34,
+        "fence": 66,
+        "failures": 1,
+        "excluded": 4
+      },
+      "probe_codes": {
+        "PS2001": 43,
+        "PS1106": 13,
+        "PS1003": 8,
+        "PS2003": 2
+      }
     },
     {
       "id": "stdlib.time",
@@ -585,7 +915,21 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 54,
+      "pass_rate": 0.2553,
+      "probe_outcomes": {
+        "pass": 12,
+        "fence": 35,
+        "failures": 0,
+        "excluded": 7
+      },
+      "probe_codes": {
+        "PS2001": 19,
+        "PS1106": 12,
+        "PS1001": 2,
+        "PS2003": 2
+      }
     },
     {
       "id": "stdlib.collections",
@@ -602,7 +946,21 @@
       "fences": [
         "PS1106"
       ],
-      "note": ""
+      "note": "",
+      "probes": 147,
+      "pass_rate": 0.0068,
+      "probe_outcomes": {
+        "pass": 1,
+        "fence": 146,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS1106": 128,
+        "PS1001": 16,
+        "PS2001": 1,
+        "PS2002": 1
+      }
     },
     {
       "id": "stdlib.functools",
@@ -620,7 +978,20 @@
         "PS2001",
         "PS2002"
       ],
-      "note": ""
+      "note": "",
+      "probes": 26,
+      "pass_rate": 0.0385,
+      "probe_outcomes": {
+        "pass": 1,
+        "fence": 25,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS1106": 18,
+        "PS2001": 6,
+        "PS1001": 1
+      }
     },
     {
       "id": "stdlib.itertools",
@@ -637,7 +1008,19 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 22,
+      "pass_rate": 0.0455,
+      "probe_outcomes": {
+        "pass": 1,
+        "fence": 21,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS1106": 20,
+        "PS2001": 1
+      }
     },
     {
       "id": "stdlib.operator",
@@ -654,7 +1037,19 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 56,
+      "pass_rate": 0.2679,
+      "probe_outcomes": {
+        "pass": 15,
+        "fence": 41,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS2001": 38,
+        "PS1106": 3
+      }
     },
     {
       "id": "stdlib.contextlib",
@@ -671,7 +1066,19 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 51,
+      "pass_rate": 0.0784,
+      "probe_outcomes": {
+        "pass": 4,
+        "fence": 47,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS1106": 44,
+        "PS2001": 3
+      }
     },
     {
       "id": "stdlib.os",
@@ -689,7 +1096,23 @@
         "PS2001",
         "PS2003"
       ],
-      "note": ""
+      "note": "",
+      "probes": 479,
+      "pass_rate": 0.3137,
+      "probe_outcomes": {
+        "pass": 101,
+        "fence": 221,
+        "failures": 0,
+        "excluded": 157
+      },
+      "probe_codes": {
+        "PS2001": 155,
+        "PS1106": 53,
+        "PS2003": 10,
+        "PS1001": 1,
+        "PS1003": 1,
+        "PS2002": 1
+      }
     },
     {
       "id": "stdlib.posixpath",
@@ -706,7 +1129,20 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 46,
+      "pass_rate": 0.5435,
+      "probe_outcomes": {
+        "pass": 25,
+        "fence": 20,
+        "failures": 1,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS2001": 13,
+        "PS1003": 6,
+        "PS2002": 1
+      }
     },
     {
       "id": "stdlib.pathlib",
@@ -723,7 +1159,20 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 277,
+      "pass_rate": 0.0409,
+      "probe_outcomes": {
+        "pass": 9,
+        "fence": 211,
+        "failures": 0,
+        "excluded": 57
+      },
+      "probe_codes": {
+        "PS1106": 201,
+        "PS2001": 9,
+        "PS2002": 1
+      }
     },
     {
       "id": "stdlib.stat",
@@ -740,7 +1189,18 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 82,
+      "pass_rate": 0.878,
+      "probe_outcomes": {
+        "pass": 72,
+        "fence": 10,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS2001": 10
+      }
     },
     {
       "id": "stdlib.fnmatch",
@@ -757,7 +1217,18 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 9,
+      "pass_rate": 0.7778,
+      "probe_outcomes": {
+        "pass": 7,
+        "fence": 2,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS2001": 2
+      }
     },
     {
       "id": "stdlib.warnings",
@@ -774,7 +1245,19 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 14,
+      "pass_rate": 0.2857,
+      "probe_outcomes": {
+        "pass": 4,
+        "fence": 10,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS2001": 8,
+        "PS1106": 2
+      }
     },
     {
       "id": "stdlib.io",
@@ -791,7 +1274,20 @@
       "fences": [
         "PS1106"
       ],
-      "note": ""
+      "note": "",
+      "probes": 282,
+      "pass_rate": 0.0331,
+      "probe_outcomes": {
+        "pass": 6,
+        "fence": 175,
+        "failures": 0,
+        "excluded": 101
+      },
+      "probe_codes": {
+        "PS1106": 166,
+        "PS2001": 7,
+        "PS2002": 2
+      }
     },
     {
       "id": "stdlib.sys",
@@ -808,7 +1304,21 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 78,
+      "pass_rate": 0.2338,
+      "probe_outcomes": {
+        "pass": 18,
+        "fence": 58,
+        "failures": 1,
+        "excluded": 1
+      },
+      "probe_codes": {
+        "PS2001": 50,
+        "PS1106": 6,
+        "PS1103": 1,
+        "PS2003": 1
+      }
     },
     {
       "id": "stdlib.importlib",
@@ -825,7 +1335,20 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 70,
+      "pass_rate": 0.1111,
+      "probe_outcomes": {
+        "pass": 2,
+        "fence": 16,
+        "failures": 0,
+        "excluded": 52
+      },
+      "probe_codes": {
+        "PS2001": 13,
+        "PS2003": 2,
+        "PS2002": 1
+      }
     },
     {
       "id": "stdlib.inspect",
@@ -842,7 +1365,20 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 224,
+      "pass_rate": 0.1589,
+      "probe_outcomes": {
+        "pass": 34,
+        "fence": 180,
+        "failures": 0,
+        "excluded": 10
+      },
+      "probe_codes": {
+        "PS1106": 86,
+        "PS2001": 85,
+        "PS2002": 9
+      }
     },
     {
       "id": "stdlib.threading",
@@ -862,7 +1398,23 @@
         "PS2001",
         "PS2002"
       ],
-      "note": ""
+      "note": "",
+      "probes": 103,
+      "pass_rate": 0.1188,
+      "probe_outcomes": {
+        "pass": 12,
+        "fence": 88,
+        "failures": 1,
+        "excluded": 2
+      },
+      "probe_codes": {
+        "PS1106": 47,
+        "PS2001": 20,
+        "PS2002": 14,
+        "PS2003": 5,
+        "PS1001": 1,
+        "PS1003": 1
+      }
     },
     {
       "id": "stdlib.logging",
@@ -880,7 +1432,23 @@
         "PS2001",
         "PS2003"
       ],
-      "note": ""
+      "note": "",
+      "probes": 265,
+      "pass_rate": 0.0913,
+      "probe_outcomes": {
+        "pass": 24,
+        "fence": 239,
+        "failures": 0,
+        "excluded": 2
+      },
+      "probe_codes": {
+        "PS1106": 189,
+        "PS2001": 41,
+        "PS1003": 5,
+        "PS2002": 2,
+        "PS1103": 1,
+        "PS2003": 1
+      }
     },
     {
       "id": "stdlib.asyncio",
@@ -899,7 +1467,22 @@
         "PS2001",
         "PS2002"
       ],
-      "note": ""
+      "note": "",
+      "probes": 547,
+      "pass_rate": 0.0131,
+      "probe_outcomes": {
+        "pass": 5,
+        "fence": 378,
+        "failures": 0,
+        "excluded": 164
+      },
+      "probe_codes": {
+        "PS1106": 307,
+        "PS2002": 38,
+        "PS2001": 25,
+        "PS1104": 7,
+        "PS2003": 1
+      }
     },
     {
       "id": "stdlib.subprocess",
@@ -917,7 +1500,22 @@
         "PS1003",
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 39,
+      "pass_rate": 0.3636,
+      "probe_outcomes": {
+        "pass": 12,
+        "fence": 21,
+        "failures": 0,
+        "excluded": 6
+      },
+      "probe_codes": {
+        "PS2002": 10,
+        "PS2001": 5,
+        "PS2003": 4,
+        "PS1003": 1,
+        "PS1106": 1
+      }
     },
     {
       "id": "stdlib.socket",
@@ -934,7 +1532,20 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 620,
+      "pass_rate": 0.3705,
+      "probe_outcomes": {
+        "pass": 143,
+        "fence": 243,
+        "failures": 0,
+        "excluded": 234
+      },
+      "probe_codes": {
+        "PS1106": 201,
+        "PS2001": 38,
+        "PS2002": 4
+      }
     },
     {
       "id": "stdlib.ssl",
@@ -951,7 +1562,20 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 430,
+      "pass_rate": 0.082,
+      "probe_outcomes": {
+        "pass": 30,
+        "fence": 336,
+        "failures": 0,
+        "excluded": 64
+      },
+      "probe_codes": {
+        "PS1106": 301,
+        "PS2001": 26,
+        "PS2002": 9
+      }
     },
     {
       "id": "stdlib.ctypes",
@@ -968,7 +1592,20 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 109,
+      "pass_rate": 0.0472,
+      "probe_outcomes": {
+        "pass": 5,
+        "fence": 101,
+        "failures": 0,
+        "excluded": 3
+      },
+      "probe_codes": {
+        "PS1106": 70,
+        "PS2001": 30,
+        "PS2002": 1
+      }
     },
     {
       "id": "stdlib.string",
@@ -985,7 +1622,19 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 30,
+      "pass_rate": 0.3333,
+      "probe_outcomes": {
+        "pass": 10,
+        "fence": 20,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS1106": 19,
+        "PS2001": 1
+      }
     },
     {
       "id": "stdlib.bisect",
@@ -1002,7 +1651,19 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 7,
+      "pass_rate": 0.1429,
+      "probe_outcomes": {
+        "pass": 1,
+        "fence": 6,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS2001": 4,
+        "PS2003": 2
+      }
     },
     {
       "id": "stdlib.errno",
@@ -1019,7 +1680,18 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 135,
+      "pass_rate": 0.989,
+      "probe_outcomes": {
+        "pass": 90,
+        "fence": 1,
+        "failures": 0,
+        "excluded": 44
+      },
+      "probe_codes": {
+        "PS2001": 1
+      }
     },
     {
       "id": "stdlib.importlib-resources",
@@ -1036,7 +1708,20 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 70,
+      "pass_rate": 0.1111,
+      "probe_outcomes": {
+        "pass": 2,
+        "fence": 16,
+        "failures": 0,
+        "excluded": 52
+      },
+      "probe_codes": {
+        "PS2001": 13,
+        "PS2003": 2,
+        "PS2002": 1
+      }
     },
     {
       "id": "stdlib.hmac",
@@ -1053,7 +1738,20 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 16,
+      "pass_rate": 0.1667,
+      "probe_outcomes": {
+        "pass": 2,
+        "fence": 10,
+        "failures": 0,
+        "excluded": 4
+      },
+      "probe_codes": {
+        "PS2001": 6,
+        "PS1106": 3,
+        "PS1003": 1
+      }
     },
     {
       "id": "stdlib.unicodedata",
@@ -1070,7 +1768,21 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 31,
+      "pass_rate": 0.7222,
+      "probe_outcomes": {
+        "pass": 13,
+        "fence": 5,
+        "failures": 0,
+        "excluded": 13
+      },
+      "probe_codes": {
+        "PS1106": 2,
+        "PS1003": 1,
+        "PS2001": 1,
+        "PS2003": 1
+      }
     },
     {
       "id": "stdlib.tempfile",
@@ -1087,7 +1799,20 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 42,
+      "pass_rate": 0.1111,
+      "probe_outcomes": {
+        "pass": 4,
+        "fence": 31,
+        "failures": 1,
+        "excluded": 6
+      },
+      "probe_codes": {
+        "PS1106": 24,
+        "PS2001": 6,
+        "PS1001": 1
+      }
     },
     {
       "id": "stdlib.atexit",
@@ -1104,7 +1829,19 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 3,
+      "pass_rate": 0.3333,
+      "probe_outcomes": {
+        "pass": 1,
+        "fence": 2,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS1106": 1,
+        "PS2001": 1
+      }
     },
     {
       "id": "stdlib.shutil",
@@ -1121,7 +1858,22 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 38,
+      "pass_rate": 0.2424,
+      "probe_outcomes": {
+        "pass": 8,
+        "fence": 24,
+        "failures": 1,
+        "excluded": 5
+      },
+      "probe_codes": {
+        "PS2001": 11,
+        "PS2002": 7,
+        "PS1003": 3,
+        "PS1106": 2,
+        "PS2003": 1
+      }
     },
     {
       "id": "stdlib.enum",
@@ -1138,7 +1890,19 @@
       "fences": [
         "PS2002"
       ],
-      "note": ""
+      "note": "",
+      "probes": 206,
+      "pass_rate": 0.0068,
+      "probe_outcomes": {
+        "pass": 1,
+        "fence": 145,
+        "failures": 0,
+        "excluded": 60
+      },
+      "probe_codes": {
+        "PS1106": 123,
+        "PS2001": 22
+      }
     },
     {
       "id": "stdlib.dataclasses",
@@ -1156,7 +1920,20 @@
         "PS1201",
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 25,
+      "pass_rate": 0.0714,
+      "probe_outcomes": {
+        "pass": 1,
+        "fence": 13,
+        "failures": 0,
+        "excluded": 11
+      },
+      "probe_codes": {
+        "PS2001": 8,
+        "PS1106": 4,
+        "PS2002": 1
+      }
     },
     {
       "id": "stdlib.random",
@@ -1174,7 +1951,21 @@
         "PS2001",
         "PS2003"
       ],
-      "note": ""
+      "note": "",
+      "probes": 77,
+      "pass_rate": 0.026,
+      "probe_outcomes": {
+        "pass": 2,
+        "fence": 75,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS1106": 52,
+        "PS2001": 16,
+        "PS1001": 6,
+        "PS2003": 1
+      }
     },
     {
       "id": "stdlib.csv",
@@ -1191,7 +1982,20 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 56,
+      "pass_rate": 0.1607,
+      "probe_outcomes": {
+        "pass": 9,
+        "fence": 47,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS1106": 33,
+        "PS2001": 13,
+        "PS2002": 1
+      }
     },
     {
       "id": "stdlib.textwrap",
@@ -1208,7 +2012,18 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 13,
+      "pass_rate": 0.4615,
+      "probe_outcomes": {
+        "pass": 6,
+        "fence": 7,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS1106": 7
+      }
     },
     {
       "id": "stdlib.copy",
@@ -1225,7 +2040,18 @@
       "fences": [
         "PS2001"
       ],
-      "note": ""
+      "note": "",
+      "probes": 4,
+      "pass_rate": 0.75,
+      "probe_outcomes": {
+        "pass": 3,
+        "fence": 1,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS2002": 1
+      }
     },
     {
       "id": "stdlib.argparse",
@@ -1242,7 +2068,21 @@
       "fences": [
         "PS2003"
       ],
-      "note": ""
+      "note": "",
+      "probes": 74,
+      "pass_rate": 0.0282,
+      "probe_outcomes": {
+        "pass": 2,
+        "fence": 69,
+        "failures": 0,
+        "excluded": 3
+      },
+      "probe_codes": {
+        "PS1106": 45,
+        "PS2001": 21,
+        "PS2002": 2,
+        "PS2003": 1
+      }
     },
     {
       "id": "stdlib.typing",
@@ -1258,7 +2098,20 @@
         "annotation-only: imports are free, values are checked, there is no runtime surface"
       ],
       "fences": [],
-      "note": "annotation-only: imports are free, values are checked, there is no runtime surface"
+      "note": "annotation-only: imports are free, values are checked, there is no runtime surface",
+      "probes": 208,
+      "pass_rate": 0.0048,
+      "probe_outcomes": {
+        "pass": 1,
+        "fence": 207,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS2002": 162,
+        "PS1106": 41,
+        "PS1104": 4
+      }
     }
   ],
   "packages": [
@@ -1272,7 +2125,16 @@
       "fenced_definitions": 0,
       "top_families": [],
       "codes": [],
-      "pypi": "https://pypi.org/project/certifi/"
+      "pypi": "https://pypi.org/project/certifi/",
+      "probes": 1,
+      "pass_rate": 1.0,
+      "probe_outcomes": {
+        "pass": 1,
+        "fence": 0,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {}
     },
     {
       "name": "colorama",
@@ -1310,7 +2172,18 @@
           "count": 13
         }
       ],
-      "pypi": "https://pypi.org/project/colorama/"
+      "pypi": "https://pypi.org/project/colorama/",
+      "probes": 1,
+      "pass_rate": 0.0,
+      "probe_outcomes": {
+        "pass": 0,
+        "fence": 1,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS1001": 1
+      }
     },
     {
       "name": "python-dotenv",
@@ -1348,7 +2221,19 @@
           "count": 10
         }
       ],
-      "pypi": "https://pypi.org/project/python-dotenv/"
+      "pypi": "https://pypi.org/project/python-dotenv/",
+      "probes": 2,
+      "pass_rate": 0.0,
+      "probe_outcomes": {
+        "pass": 0,
+        "fence": 2,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS1106": 1,
+        "PS2002": 1
+      }
     },
     {
       "name": "filelock",
@@ -1386,7 +2271,16 @@
           "count": 71
         }
       ],
-      "pypi": "https://pypi.org/project/filelock/"
+      "pypi": "https://pypi.org/project/filelock/",
+      "probes": 1,
+      "pass_rate": 0.0,
+      "probe_outcomes": {
+        "pass": 0,
+        "fence": 0,
+        "failures": 1,
+        "excluded": 0
+      },
+      "probe_codes": {}
     },
     {
       "name": "h11",
@@ -1424,7 +2318,18 @@
           "count": 17
         }
       ],
-      "pypi": "https://pypi.org/project/h11/"
+      "pypi": "https://pypi.org/project/h11/",
+      "probes": 1,
+      "pass_rate": 0.0,
+      "probe_outcomes": {
+        "pass": 0,
+        "fence": 1,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS1203": 1
+      }
     },
     {
       "name": "idna",
@@ -1462,7 +2367,19 @@
           "count": 20
         }
       ],
-      "pypi": "https://pypi.org/project/idna/"
+      "pypi": "https://pypi.org/project/idna/",
+      "probes": 7,
+      "pass_rate": 0.0,
+      "probe_outcomes": {
+        "pass": 0,
+        "fence": 7,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS2002": 6,
+        "PS1101": 1
+      }
     },
     {
       "name": "iniconfig",
@@ -1500,7 +2417,16 @@
           "count": 7
         }
       ],
-      "pypi": "https://pypi.org/project/iniconfig/"
+      "pypi": "https://pypi.org/project/iniconfig/",
+      "probes": 1,
+      "pass_rate": 0.0,
+      "probe_outcomes": {
+        "pass": 0,
+        "fence": 0,
+        "failures": 1,
+        "excluded": 0
+      },
+      "probe_codes": {}
     },
     {
       "name": "jmespath",
@@ -1538,7 +2464,18 @@
           "count": 9
         }
       ],
-      "pypi": "https://pypi.org/project/jmespath/"
+      "pypi": "https://pypi.org/project/jmespath/",
+      "probes": 1,
+      "pass_rate": 0.0,
+      "probe_outcomes": {
+        "pass": 0,
+        "fence": 1,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS1001": 1
+      }
     },
     {
       "name": "pyjwt",
@@ -1576,7 +2513,18 @@
           "count": 13
         }
       ],
-      "pypi": "https://pypi.org/project/pyjwt/"
+      "pypi": "https://pypi.org/project/pyjwt/",
+      "probes": 1,
+      "pass_rate": 0.0,
+      "probe_outcomes": {
+        "pass": 0,
+        "fence": 1,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS2002": 1
+      }
     },
     {
       "name": "mdurl",
@@ -1614,7 +2562,18 @@
           "count": 3
         }
       ],
-      "pypi": "https://pypi.org/project/mdurl/"
+      "pypi": "https://pypi.org/project/mdurl/",
+      "probes": 1,
+      "pass_rate": 0.0,
+      "probe_outcomes": {
+        "pass": 0,
+        "fence": 1,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS1106": 1
+      }
     },
     {
       "name": "packaging",
@@ -1652,7 +2611,19 @@
           "count": 61
         }
       ],
-      "pypi": "https://pypi.org/project/packaging/"
+      "pypi": "https://pypi.org/project/packaging/",
+      "probes": 3,
+      "pass_rate": 0.0,
+      "probe_outcomes": {
+        "pass": 0,
+        "fence": 3,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS2002": 2,
+        "PS2001": 1
+      }
     },
     {
       "name": "pathspec",
@@ -1690,7 +2661,18 @@
           "count": 20
         }
       ],
-      "pypi": "https://pypi.org/project/pathspec/"
+      "pypi": "https://pypi.org/project/pathspec/",
+      "probes": 1,
+      "pass_rate": 0.0,
+      "probe_outcomes": {
+        "pass": 0,
+        "fence": 1,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS2002": 1
+      }
     },
     {
       "name": "platformdirs",
@@ -1728,7 +2710,18 @@
           "count": 33
         }
       ],
-      "pypi": "https://pypi.org/project/platformdirs/"
+      "pypi": "https://pypi.org/project/platformdirs/",
+      "probes": 12,
+      "pass_rate": 0.0,
+      "probe_outcomes": {
+        "pass": 0,
+        "fence": 12,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS2002": 12
+      }
     },
     {
       "name": "pytz",
@@ -1766,7 +2759,18 @@
           "count": 3
         }
       ],
-      "pypi": "https://pypi.org/project/pytz/"
+      "pypi": "https://pypi.org/project/pytz/",
+      "probes": 1,
+      "pass_rate": 0.0,
+      "probe_outcomes": {
+        "pass": 0,
+        "fence": 1,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS2002": 1
+      }
     },
     {
       "name": "shellingham",
@@ -1804,7 +2808,18 @@
           "count": 1
         }
       ],
-      "pypi": "https://pypi.org/project/shellingham/"
+      "pypi": "https://pypi.org/project/shellingham/",
+      "probes": 1,
+      "pass_rate": 0.0,
+      "probe_outcomes": {
+        "pass": 0,
+        "fence": 1,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS1001": 1
+      }
     },
     {
       "name": "trove-classifiers",
@@ -1816,7 +2831,16 @@
       "fenced_definitions": 0,
       "top_families": [],
       "codes": [],
-      "pypi": "https://pypi.org/project/trove-classifiers/"
+      "pypi": "https://pypi.org/project/trove-classifiers/",
+      "probes": 1,
+      "pass_rate": 1.0,
+      "probe_outcomes": {
+        "pass": 1,
+        "fence": 0,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {}
     },
     {
       "name": "tzdata",
@@ -1828,7 +2852,16 @@
       "fenced_definitions": 0,
       "top_families": [],
       "codes": [],
-      "pypi": "https://pypi.org/project/tzdata/"
+      "pypi": "https://pypi.org/project/tzdata/",
+      "probes": 1,
+      "pass_rate": 1.0,
+      "probe_outcomes": {
+        "pass": 1,
+        "fence": 0,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {}
     },
     {
       "name": "zipp",
@@ -1866,106 +2899,459 @@
           "count": 3
         }
       ],
-      "pypi": "https://pypi.org/project/zipp/"
+      "pypi": "https://pypi.org/project/zipp/",
+      "probes": 1,
+      "pass_rate": 0.0,
+      "probe_outcomes": {
+        "pass": 0,
+        "fence": 1,
+        "failures": 0,
+        "excluded": 0
+      },
+      "probe_codes": {
+        "PS2002": 1
+      }
     }
   ],
-  "language": [],
+  "language": [
+    {
+      "id": "lang",
+      "label": "language",
+      "probes": 440,
+      "outcomes": {
+        "fence": 137,
+        "pass": 300,
+        "wrong-output": 3
+      },
+      "weighted_pass": 300.0,
+      "fence_codes": {
+        "PS2002": 60,
+        "PS1001": 38,
+        "PS2003": 15,
+        "PS1004": 10,
+        "PS2001": 6,
+        "PS2004": 3,
+        "PS1003": 2,
+        "PS1106": 2,
+        "PS2005": 1
+      }
+    },
+    {
+      "id": "builtins",
+      "label": "builtins",
+      "probes": 403,
+      "outcomes": {
+        "excluded": 2,
+        "fence": 234,
+        "pass": 167
+      },
+      "weighted_pass": 164.3,
+      "fence_codes": {
+        "PS1106": 108,
+        "PS2001": 57,
+        "PS2002": 34,
+        "PS2003": 22,
+        "PS1103": 9,
+        "PS1003": 3,
+        "PS1104": 1
+      }
+    },
+    {
+      "id": "stdlib",
+      "label": "stdlib modules",
+      "probes": 12849,
+      "outcomes": {
+        "build-error": 1,
+        "crash": 3,
+        "excluded": 2241,
+        "fence": 9773,
+        "pass": 829,
+        "wrong-output": 2
+      },
+      "weighted_pass": 339.4,
+      "fence_codes": {
+        "PS2002": 6408,
+        "PS1106": 2371,
+        "PS2001": 883,
+        "PS2003": 37,
+        "PS1003": 32,
+        "PS1001": 28,
+        "PS1104": 12,
+        "PS1103": 2
+      }
+    },
+    {
+      "id": "top100",
+      "label": "PyPI packages",
+      "probes": 86,
+      "outcomes": {
+        "build-error": 4,
+        "fence": 79,
+        "pass": 3
+      },
+      "weighted_pass": 15.0,
+      "fence_codes": {
+        "PS2002": 63,
+        "PS1001": 7,
+        "PS1106": 2,
+        "PS1201": 2,
+        "PS1101": 1,
+        "PS1103": 1,
+        "PS1104": 1,
+        "PS1203": 1,
+        "PS2001": 1
+      }
+    }
+  ],
   "fences": [
     {
       "code": "PS2002",
       "title": "construct not lowered",
+      "why": "A statement, expression, import, or definition has no lowering.",
+      "fix": "Rewrite it with the lowered constructs, as the hint for this fence says.",
       "count": 1456,
       "packages": 15
     },
     {
       "code": "PS1001",
       "title": "annotation missing or not lowered",
+      "why": "A parameter, return, or variable needs an annotation the subset can read, or an annotation form has no more specific code.",
+      "fix": "Annotate the name with int, float, bool, str, bytes, list[T], dict[K, V], tuple[...], or a lowered class.",
       "count": 493,
       "packages": 15
     },
     {
       "code": "PS1103",
       "title": "generic alias annotation",
+      "why": "A subscripted annotation such as Mapping[K, V], Sequence[T], Iterator[T], Callable[...], or type[T] is not a lowered container.",
+      "fix": "Use list[T], dict[K, V], or tuple[...] in the signature.",
       "count": 200,
       "packages": 10
     },
     {
       "code": "PS1106",
       "title": "annotation names an unlowered type",
+      "why": "The annotation is a plain name that is not a builtin scalar, a lowered class, or a known alias.",
+      "fix": "Import a lowered class, or replace the alias with the concrete type.",
       "count": 187,
       "packages": 9
     },
     {
       "code": "PS2001",
       "title": "stdlib name not lowered",
+      "why": "The module imports, but this attribute is outside its lowered surface.",
+      "fix": "Use a lowered attribute of the module, or hand-write the logic.",
       "count": 181,
       "packages": 14
     },
     {
       "code": "PS1204",
       "title": "class body statement",
+      "why": "A class body holds only annotated fields without values and method definitions.",
+      "fix": "Move assignments into __init__ and declare fields with an annotation only.",
       "count": 116,
       "packages": 8
     },
     {
       "code": "PS1101",
       "title": "union annotation",
+      "why": "The IR has no tagged union yet, so `A | B` and `Union[A, B]` have no representation.",
+      "fix": "Narrow the annotation to one arm, or split the function per arm.",
       "count": 92,
       "packages": 9
     },
     {
       "code": "PS2003",
       "title": "call arguments not lowered",
+      "why": "A call has keyword arguments, or the wrong number of arguments, for its lowered form.",
+      "fix": "Pass positional arguments in the lowered arity.",
       "count": 72,
       "packages": 8
     },
     {
       "code": "PS1201",
       "title": "decorator",
+      "why": "Only a closed set of decorators lowers. Other decorators change behavior the compiler cannot see.",
+      "fix": "Remove the decorator, or inline what it does.",
       "count": 70,
       "packages": 8
     },
     {
       "code": "PS1104",
       "title": "dynamic or structural annotation",
+      "why": "object, Any, Protocol, TypeVar, Generic, Callable and ABC bases describe types the subset cannot represent natively.",
+      "fix": "Annotate with the concrete type the function really takes.",
       "count": 58,
       "packages": 5
     },
     {
       "code": "PS1102",
       "title": "Optional annotation",
+      "why": "An optional of one type (`T | None`, `Optional[T]`) is lowered. `A | B | None` and `Union[A, B, None]` need a multi-arm union, which the IR does not have yet.",
+      "fix": "Narrow to `T | None` with one arm, or split the function per arm.",
       "count": 40,
       "packages": 4
     },
     {
       "code": "PS1003",
       "title": "type mismatch",
+      "why": "An operation received a type the lowered subset does not accept for it.",
+      "fix": "Convert the operand explicitly, for example int(flag) before math calls.",
       "count": 32,
       "packages": 7
     },
     {
       "code": "PS1203",
       "title": "class header form",
+      "why": "Class keywords (metaclass=...) and multiple inheritance are not lowered.",
+      "fix": "Use a single lowered base class and no class keywords.",
       "count": 25,
       "packages": 5
     },
     {
       "code": "PS1105",
       "title": "forward reference annotation",
+      "why": "A quoted annotation such as 'Node' is not resolved by the lowering.",
+      "fix": "Define the class before use and write the name unquoted.",
       "count": 12,
       "packages": 6
     },
     {
       "code": "PS2004",
       "title": "operator or operand not lowered",
+      "why": "The operator is not lowered for these operand types.",
+      "fix": "Convert the operands to a supported pair of types.",
       "count": 7,
       "packages": 5
     },
     {
       "code": "PS2005",
       "title": "string literal outside Latin-1",
+      "why": "Strings are byte sequences in the runtime, so only Latin-1 text lowers.",
+      "fix": "Use Latin-1 text, or move the literal to bytes.",
       "count": 4,
       "packages": 2
+    }
+  ],
+  "targets": [
+    {
+      "id": "linux-x86_64",
+      "triple": "x86_64-linux-gnu.2.39",
+      "label": "Linux x86_64",
+      "status": "native",
+      "family": "linux",
+      "note": "The reference target. The release binary is built on ubuntu-24.04 and the emitted programs run natively.",
+      "proof": ".github/workflows/release.yml (linux-x86_64) and packaging/zig/smoke.sh"
+    },
+    {
+      "id": "linux-aarch64",
+      "triple": "aarch64-linux-gnu.2.39",
+      "label": "Linux ARM64",
+      "status": "native",
+      "family": "linux",
+      "note": "Built on an ARM64 runner. The zig cross matrix compiles for this triple; the release binary runs the full smoke.",
+      "proof": ".github/workflows/release.yml (linux-aarch64) and packaging/zig/smoke.sh"
+    },
+    {
+      "id": "linux-x86_64-musl",
+      "triple": "x86_64-linux-musl",
+      "label": "Linux x86_64 (musl)",
+      "status": "native",
+      "family": "linux",
+      "note": "Static musl binary. The zig smoke builds and runs it natively; the mix seam is out of scope because a static musl binary cannot dlopen.",
+      "proof": "packaging/zig/smoke.sh (x86_64-musl)"
+    },
+    {
+      "id": "linux-aarch64-musl",
+      "triple": "aarch64-linux-musl",
+      "label": "Linux ARM64 (musl)",
+      "status": "native",
+      "family": "linux",
+      "note": "Static musl binary. The zig smoke builds it and runs it under qemu when the runner has qemu-aarch64-static.",
+      "proof": "packaging/zig/smoke.sh (aarch64-musl)"
+    },
+    {
+      "id": "linux-riscv64",
+      "triple": "riscv64-linux-gnu.2.39",
+      "label": "Linux RISC-V 64",
+      "status": "experimental",
+      "family": "linux",
+      "note": "Cross-compiles and links. The zig smoke builds it for the gnu and musl flavours; it runs under qemu when the runner has the emulator. No release binary is published for it.",
+      "proof": "packaging/zig/smoke.sh (riscv64-gnu, riscv64-musl)"
+    },
+    {
+      "id": "macos-arm64",
+      "triple": "aarch64-macos",
+      "label": "macOS Apple Silicon",
+      "status": "native",
+      "family": "macos",
+      "note": "Built on macos-14. The zig cross matrix links for this triple and the release binary runs the full smoke.",
+      "proof": ".github/workflows/release.yml (macos-arm64) and packaging/zig/smoke.sh"
+    },
+    {
+      "id": "macos-x86_64",
+      "triple": "x86_64-macos",
+      "label": "macOS Intel",
+      "status": "native",
+      "family": "macos",
+      "note": "Built on macos-15-intel. The zig cross matrix links for this triple; the release binary runs the full smoke.",
+      "proof": ".github/workflows/release.yml (macos-x86_64) and packaging/zig/smoke.sh"
+    },
+    {
+      "id": "windows-x86_64",
+      "triple": "x86_64-windows-gnu",
+      "label": "Windows x86_64",
+      "status": "experimental",
+      "family": "windows",
+      "note": "The compiler binary is built for Windows, but the emitted programs are not: the runtime needs POSIX headers the Win32 target does not provide. The Windows smoke never compiles or runs a program. There is no native Windows compile.",
+      "proof": ".github/workflows/release.yml (windows-x86_64, explain smoke only)"
+    },
+    {
+      "id": "wasm32-wasi-musl",
+      "triple": "wasm32-wasi-musl",
+      "label": "WebAssembly (WASI preview1)",
+      "status": "experimental",
+      "family": "wasm",
+      "note": "A WASI preview1 command module. No subprocess, no dlopen and therefore no mix seam, no island fallback, and a preopen-only filesystem. The smoke lane proves stdout byte-identical to the native binary on the same program.",
+      "proof": "packaging/zig/wasm-smoke.sh"
+    }
+  ],
+  "divergences": [
+    {
+      "number": 1,
+      "text": "`int` is `i64`. Overflow aborts the process instead of growing a big int. Source: [refused-features](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md) Tier C.",
+      "family": "numeric",
+      "sources": [
+        "https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md"
+      ]
+    },
+    {
+      "number": 2,
+      "text": "`//` by zero aborts the process instead of raising `ZeroDivisionError`. Source: same as item 1.",
+      "family": "numeric",
+      "sources": []
+    },
+    {
+      "number": 3,
+      "text": "Strings are a Latin-1 byte model. A string literal outside Latin-1 is a fence, and `unicodedata` covers only Latin-1 code points. A normalization that would leave Latin-1 raises `ValueError`. Source: the `unicodedata` row of the generated [supported](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md) table.",
+      "family": "text",
+      "sources": [
+        "https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md"
+      ]
+    },
+    {
+      "number": 4,
+      "text": "`re` is the runtime's byte-oriented backtracking subset, not CPython's `re`. `L`, `T`, `DEBUG` and unknown flag bits raise `ValueError`, `A` and `U` are no-ops, and a pattern that can loop without consuming stops with `RuntimeError` once its fuel is spent. Five or more groups are refused. Source: header of `src/pyscriptc/runtime/ps_re.c`, `re` row of the generated [supported](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md) table.",
+      "family": "stdlib",
+      "sources": [
+        "https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md"
+      ]
+    },
+    {
+      "number": 5,
+      "text": "`json` has no non-ASCII text. Source: `json` row of the generated [supported](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md) table.",
+      "family": "stdlib",
+      "sources": [
+        "https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md"
+      ]
+    },
+    {
+      "number": 6,
+      "text": "Set and `frozenset` iteration is insertion order, not CPython's hash order. Length and membership match. Source: [refused-features](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md) Tier C.",
+      "family": "collections",
+      "sources": [
+        "https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md"
+      ]
+    },
+    {
+      "number": 7,
+      "text": "After `for i in range(0)`, a new loop target reads as `0` instead of raising `UnboundLocalError`. Source: [refused-features](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md) Tier C.",
+      "family": "stdlib",
+      "sources": [
+        "https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md"
+      ]
+    },
+    {
+      "number": 8,
+      "text": "A subclass `__init__` that never assigns an inherited field leaves it at the zero value of its type instead of raising `AttributeError`. Source: [refused-features](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md) Tier C.",
+      "family": "objects",
+      "sources": [
+        "https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md"
+      ]
+    },
+    {
+      "number": 9,
+      "text": "`raise AppError(\"no\")` for a user exception class stores a code and an optional `str` and does not call `__init__`. Source: same paragraph as item 8.",
+      "family": "objects",
+      "sources": []
+    },
+    {
+      "number": 10,
+      "text": "`@classmethod` and `@staticmethod` of the form `Class.method(...)` do not pass the class object. Source: same paragraph as item 8.",
+      "family": "objects",
+      "sources": []
+    },
+    {
+      "number": 11,
+      "text": "Some library failures surface as a different exception type: `importlib.resources.files` on a zip or missing package raises `ValueError` rather than `ModuleNotFoundError`, `shutil.copyfile` of the same path raises `RuntimeError` rather than `SameFileError`, other `shutil` and `os` failures are `RuntimeError`, and type errors on `unicodedata` calls surface as `ValueError`. Source: the `unicodedata` and `importlib.resources` rows of the generated [supported](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md) table.",
+      "family": "text",
+      "sources": [
+        "https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md"
+      ]
+    },
+    {
+      "number": 12,
+      "text": "`assert` is always evaluated; a compiled binary has no `-O`. Source: [refused-features](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md) Tier C.",
+      "family": "stdlib",
+      "sources": [
+        "https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md"
+      ]
+    },
+    {
+      "number": 13,
+      "text": "`x is None` lowers as `==` against `None`. Identical for `None` because it is a singleton; every other `is` on a scalar is refused. Source: [refused-features](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md) Tier C.",
+      "family": "stdlib",
+      "sources": [
+        "https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md"
+      ]
+    },
+    {
+      "number": 14,
+      "text": "`ABC`, `ABCMeta`, `Protocol`, `@abstractmethod` and `@overload` lower as plain classes and methods with no CPython runtime semantics. Source: [refused-features](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md) Tier C.",
+      "family": "objects",
+      "sources": [
+        "https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md"
+      ]
+    },
+    {
+      "number": 15,
+      "text": "Island calls (`subprocess.check_output`, `socket.gethostname`, `threading`, `logging`) run in an embedded CPython, so those follow the interpreter the binary links, not the pin.",
+      "family": "stdlib",
+      "sources": []
+    },
+    {
+      "number": 16,
+      "text": "`dotenv` lowers a closed subset of python-dotenv's parsing rules, and it differs from the library in three places. The subset: a UTF-8 BOM is stripped, blank lines and whole-line comments are skipped, an `export ` prefix is allowed, keys are bare (`KEY` alone binds `None`), an unquoted value runs to the end of the line with the ` #` comment cut and the rest right-stripped, a double-quoted value decodes `\\\" \\\\' \\\\ \\a \\b \\f \\n \\r \\t \\v` and a single-quoted one only `\\\\` and `\\'`, and a later binding overwrites an earlier one. No interpolation (`$NAME` stays literal), no multi-line values, no quoted keys, and the `stream`, `verbose`, `interpolate`, `override` and `encoding` arguments are fenced. The three differences: a malformed line raises `ValueError` where python-dotenv skips it with a warning, a missing file parses as the empty document where python-dotenv searches with `find_dotenv()`, and `load_dotenv` does not overwrite a variable that is already in the environment (its `override=False` default) while still returning `True` for a document with bindings. Source: header of `src/pyscriptc/runtime/ps_dotenv.c`, `dotenv` row of the generated [supported](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md) table.",
+      "family": "stdlib",
+      "sources": [
+        "https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md"
+      ]
+    },
+    {
+      "number": 17,
+      "text": "`yaml.safe_load` covers a closed YAML subset, not all of PyYAML: timestamps and sexagesimal numbers (`1:30`) raise `ValueError` where PyYAML resolves them to `date` and `int` objects, and errors surface as `ValueError` rather than `yaml.YAMLError`. Source: header of `src/pyscriptc/runtime/ps_yaml.c`, `yaml` row of the generated [supported](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md) table.",
+      "family": "stdlib",
+      "sources": [
+        "https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md"
+      ]
+    },
+    {
+      "number": 18,
+      "text": "HTTP and HTTPS go through a `curl` subprocess bridge, so the request is made by the host `curl` and depends on `curl` being on `PATH` at run time; a host without `curl` cannot make the call. The bridge needs the libpython-linked island shape, holds the whole body in memory with no streaming, and its TLS, proxy and redirect behavior is `curl`'s rather than CPython's. Source: the [HTTP today](https://pyscriptc.pages.dev/docs/guide/http/) page and `src/pyscriptc/runtime/ps_sub.c`.",
+      "family": "stdlib",
+      "sources": [
+        "https://pyscriptc.pages.dev/docs/guide/http/"
+      ]
     }
   ],
   "history": [
@@ -1973,6 +3359,15 @@
       "date": "2026-10-22",
       "commit": "ce6b8188f1b37ea4cb8150bdb4556f0c40efe9f6",
       "weighted_pass": 0.0,
+      "packages_full": 3,
+      "packages_partial": 5,
+      "packages_none": 10,
+      "fences": 3045
+    },
+    {
+      "date": "2026-10-24",
+      "commit": "34509b56ba8c6565263af854ec0b597f15e16e95",
+      "weighted_pass": 824.7,
       "packages_full": 3,
       "packages_partial": 5,
       "packages_none": 10,
