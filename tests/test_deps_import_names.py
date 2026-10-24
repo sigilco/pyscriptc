@@ -215,6 +215,95 @@ def test_materialise_audit_event_carries_the_names(tmp_path: Path, monkeypatch: 
     assert event["importNames"] == {"count": 1, "names": ["yaml"]}
 
 
+# ------------------------------------------------------------ unpack cache schema versioning (#562)
+
+
+def test_old_format_cache_entry_gains_imports(tmp_path: Path) -> None:
+    digest = sha(YAML_WHEEL)
+    dest = tmp_path / "src" / digest
+    dest.mkdir(parents=True)
+    # Old format: only sha256 in .complete, no schema version, no .imports.
+    (dest / ".complete").write_text(digest + "\n", encoding="utf-8")
+    assert not (dest / ".imports").exists()
+
+    root = deps.materialise(YAML_WHEEL, digest, tmp_path, name="pyyaml")
+    assert root == dest
+    assert (root / ".imports").is_file()
+    assert (root / ".imports").read_text(encoding="utf-8") == "yaml\n"
+    assert deps.unpacked_import_names(root) == ("yaml",)
+    assert (root / ".complete").read_text(encoding="utf-8") == f"{digest}\n{deps.UNPACK_SCHEMA_VERSION}\n"
+
+
+def test_current_format_cache_entry_is_untouched(tmp_path: Path) -> None:
+    digest = sha(YAML_WHEEL)
+    dest = deps.materialise(YAML_WHEEL, digest, tmp_path, name="pyyaml")
+    assert (dest / ".imports").is_file()
+    assert (dest / ".complete").read_text(encoding="utf-8") == f"{digest}\n{deps.UNPACK_SCHEMA_VERSION}\n"
+
+    stat_complete = (dest / ".complete").stat()
+    stat_imports = (dest / ".imports").stat()
+
+    # Re-running materialise on a current cache entry leaves files untouched.
+    root = deps.materialise(YAML_WHEEL, digest, tmp_path, name="pyyaml")
+    assert root == dest
+    assert (dest / ".complete").stat().st_mtime_ns == stat_complete.st_mtime_ns
+    assert (dest / ".imports").stat().st_mtime_ns == stat_imports.st_mtime_ns
+
+
+def test_old_format_cache_entry_no_longer_reports_unknown(
+    fake: dict[str, Any], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cache = deps.cache_root(tmp_path / "cache")
+    digest = sha(YAML_WHEEL)
+
+    # Pre-populate blob cache with the wheel so no download is needed.
+    blob = cache / "blobs" / "sha256" / digest[:2] / f"{digest}.whl"
+    blob.parent.mkdir(parents=True, exist_ok=True)
+    blob.write_bytes(YAML_WHEEL)
+
+    # Pre-populate src unpack cache in old format (no .imports, schema 1).
+    src_dir = cache / "src" / digest
+    src_dir.mkdir(parents=True, exist_ok=True)
+    (src_dir / ".complete").write_text(digest + "\n", encoding="utf-8")
+    (src_dir / "yaml").mkdir(exist_ok=True)
+    (src_dir / "yaml" / "__init__.py").write_text("def safe_load(text: str) -> int: return 1\n", encoding="utf-8")
+
+    script = _script(
+        tmp_path,
+        """\
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#   "PyYAML",
+# ]
+# ///
+import yaml
+print("hi")
+""",
+    )
+    fake["lock"] = _pylock([_wheel_entry("pyyaml", "1.0", "pyyaml-1.0-py3-none-any.whl", digest)])
+    fake["fetched"].clear()
+
+    # Run deps report: should backfill .imports from the cached wheel without downloading.
+    report = deps.run_deps(script, cache_dir=tmp_path / "cache")
+    assert fake["fetched"] == []  # Not re-downloaded
+    assert (src_dir / ".imports").read_text(encoding="utf-8") == "yaml\n"
+    assert report["packages"][0]["import_names"] == ("yaml",)
+    assert report["importNames"]["yaml"]["distribution"] == "pyyaml"
+    assert "importNames" not in report["importNames"]["yaml"]
+
+    # pyscriptc deps CLI no longer reports unknown
+    capsys.readouterr()
+    code = cli.main(["deps", str(script), "--cache-dir", str(tmp_path / "cache")])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "provides: yaml" in out
+    assert "unknown" not in out
+
+    # pyscriptc imports CLI runs cleanly
+    assert cli.main(["imports", str(script)]) == 0
+
+
 # ------------------------------------------------------------ the report
 
 
