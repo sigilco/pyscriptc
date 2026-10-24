@@ -226,6 +226,7 @@ class AbiMixin:
             self.line(f"call void @ps_str_counts(i64 {length}, ptr {data}, ptr {count_ptr}, ptr {flags_ptr})")
             return self._load("%ps.str", str_slot)
         raise IRError(f"cannot read an island attribute of kind {kind}")
+
     # boxed:end
 
     def _buf_out(self, symbol: str, args: list[str]) -> str:

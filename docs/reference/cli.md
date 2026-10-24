@@ -91,6 +91,49 @@ Verify is a differential smoke test, not a proof. It covers the paths the argv a
 
 `--call` compares the call, not the module body: the compiled main runs the global initializers and then the function, so the oracle side hides the output of the module's top-level statements. The function's own output and its printed return value are compared.
 
+## `assess`
+
+```sh
+pyscriptc assess PATH [--json] [--bench] [--verify] [--input FILE] [--call FN] [--args '[...]'] [--timeout S]
+```
+
+Evaluate any Python script, library or app directory without crashing, whatever the fence count. Reports lowering status per file, fences grouped by root cause (reflection culprit, untyped import, unsupported construct) with the nearest typed idiom, per-import ladder status, overall native vs island vs blocked shares, and concrete `[tool.pyscriptc.imports]` policy lines for the island floor.
+
+| Flag | Effect |
+| ---- | ------ |
+| `--json` | Print the report as JSON (`schemaVersion` 1) instead of text |
+| `--bench` | For compilable entry points, time CPython against the native binary on user inputs and print the measured ratio with sample count (default 5 samples; without this flag, no speed numbers are printed) |
+| `--verify` | Run the differential verification on compilable entry points and show the receipt inline |
+| `--input FILE` | Feed `FILE` bytes on stdin to both runs |
+| `--call FUNC` | Function to call on entry points instead of the program entry |
+| `--args '[...]'` | Arguments for `--call`, a Python list literal |
+| `--timeout S` | Seconds each run may take (default 60) |
+| `--program` | Treat directory as a program |
+
+### Example 1: Single script
+
+```sh
+pyscriptc assess script.py --bench --verify
+```
+
+On a single script, assess reports whether it lowers fully, partly, or is refused. If the script compiles natively and has a runnable entry point, `--bench` prints the measured speedup against CPython 3.14 and `--verify` displays the differential receipt inline. Untyped dependencies such as `requests` report the exact `requests = "island"` policy line.
+
+### Example 2: Pure-Python library directory
+
+```sh
+pyscriptc assess mylib/
+```
+
+On a library directory, assess inspects every module and definition without requiring an entry point. Modules that do not lower report their root-cause fences and mark what stays blocked (such as dynamic attributes or union types) alongside the nearest typed idiom.
+
+### Example 3: Application directory
+
+```sh
+pyscriptc assess myapp/ --bench
+```
+
+On an application directory containing `__main__.py` or `main.py`, assess evaluates the whole package tree. Compilable entry points are benchmarked against CPython, while unlowered imports and reflection culprits report the island routing configuration needed to run on the hybrid floor.
+
 ## `coverage`
 
 ```sh
