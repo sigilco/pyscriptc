@@ -518,7 +518,7 @@ def verify_cmd(args: argparse.Namespace) -> int:
         raise IRError(f"source not found: {source}")
     if not source.is_file():
         raise IRError("verify takes one file; run it per file, or `pyscriptc coverage DIR` for a package tree")
-    if args.timeout <= 0:
+    if not (args.timeout > 0):
         raise IRError("--timeout must be a positive number of seconds")
     if args.input is not None and not Path(args.input).exists():
         raise IRError(f"--input file not found: {args.input}")

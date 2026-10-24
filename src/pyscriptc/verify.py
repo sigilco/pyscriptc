@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from pyscriptc.errors import VersionError
+from pyscriptc.errors import IRError, VersionError
 
 SCHEMA_VERSION = 1
 ORACLE_PIN = (3, 14)
@@ -240,6 +240,8 @@ def compare(oracle: Observation, native: Observation) -> list[dict[str, Any]]:
             "oracle": oracle.exit_code,
             "native": native.exit_code,
             "timedOut": timed_out,
+            "oracleTimedOut": oracle.timed_out,
+            "nativeTimedOut": native.timed_out,
         }
     )
     return checks
@@ -273,8 +275,12 @@ def oracle_command(
     """
     if call is None:
         return [oracle.executable, str(source), *argv]
+    try:
+        payload = json.dumps(call_args)
+    except TypeError as exc:
+        raise IRError(f"--args must be JSON-serializable for the CPython side: {exc}") from exc
     args_path = scratch / "verify-call-args.json"
-    args_path.write_text(json.dumps(call_args), encoding="utf-8")
+    args_path.write_text(payload, encoding="utf-8")
     return [oracle.executable, "-c", CALL_HARNESS, str(source), call, str(args_path), *argv]
 
 
@@ -304,7 +310,11 @@ def _render_check(check: dict[str, Any]) -> list[str]:
     name = check["name"]
     if name == "exit":
         if check["timedOut"]:
-            return ["  exit: one side timed out"]
+            if check.get("oracleTimedOut") and check.get("nativeTimedOut"):
+                return ["  exit: both sides timed out"]
+            return [
+                "  exit: the oracle timed out" if check.get("oracleTimedOut") else "  exit: the native run timed out"
+            ]
         if check["match"]:
             return [f"  exit: {check['oracle']}, match"]
         return [f"  exit: oracle {check['oracle']}, native {check['native']}"]
