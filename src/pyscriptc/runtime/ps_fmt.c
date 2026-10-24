@@ -104,16 +104,24 @@ static void repr_str_into(PsGrow *g, int64_t n, const char *p, int ascii_only) {
 }
 
 /* `'%s' % d` prints the mapping repr; keys render by the map's key_kind,
-   values by the vkind stashed in the PsArg's int slot. */
+   values by the vkind stashed in the PsArg's int slot. Deleted keys keep
+   their dense row (marked dead in the index), so the row of iteration
+   position i comes from the order cache, not the raw arrays. */
 static void repr_map_into(PsGrow *g, const PsArg *a, int ascii_only) {
     PsMap *m = (PsMap *)a->b.data;
     int64_t vkind = a->i;
+    char *key = malloc((size_t)m->key_size);
+    char *val = malloc((size_t)m->val_size);
+    if (key == NULL || val == NULL) {
+        abort();
+    }
     ps_grow_byte(g, '{');
     for (int64_t i = 0; i < m->len; i++) {
         if (i > 0) {
             grow_text(g, ", ");
         }
-        void *key = (char *)m->keys + (size_t)i * (size_t)m->key_size;
+        ps_map_key_at(m, i, key);
+        ps_map_val_at(m, i, val);
         if (m->key_kind == 1) {
             int64_t k;
             memcpy(&k, key, 8);
@@ -124,7 +132,6 @@ static void repr_map_into(PsGrow *g, const PsArg *a, int ascii_only) {
             repr_str_into(g, k.len, k.data, ascii_only);
         }
         grow_text(g, ": ");
-        void *val = (char *)m->vals + (size_t)i * (size_t)m->val_size;
         if (vkind == 1) {
             int64_t v;
             memcpy(&v, val, 8);
@@ -144,6 +151,8 @@ static void repr_map_into(PsGrow *g, const PsArg *a, int ascii_only) {
         }
     }
     ps_grow_byte(g, '}');
+    free(key);
+    free(val);
 }
 
 static void arg_as_str(PsGrow *g, const PsArg *a) {

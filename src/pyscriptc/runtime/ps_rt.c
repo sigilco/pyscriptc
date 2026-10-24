@@ -774,6 +774,173 @@ void ps_seq_get(PsSeq *s, int64_t i, void *out) {
     memcpy(out, (char *)s->data + (size_t)i * (size_t)s->elem, (size_t)s->elem);
 }
 
+/* The membership index of a sequence used as a set (#382). A set is a
+   sequence, and `s.add(x)` lowers to a containment test plus a push, so
+   the linear `ps_seq_has_*` scan made every add O(n). The index is a
+   hash table over the cells, built once the sequence is long enough for
+   the linear scan to dominate (PS_IDX_MIN, so short sequences never pay
+   for it), and dropped by any mutation that moves cells around. */
+
+#define PS_IDX_MIN 32
+static uint64_t ps_seq_mix64(uint64_t x) {
+    x += 0x9E3779B97F4A7C15ULL;
+    x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    x = (x ^ (x >> 27)) * 0x94D049BB133111EBULL;
+    return x ^ (x >> 31);
+}
+
+static int64_t ps_seq_cell_hash(PsSeq *s, int32_t kind, const void *cell) {
+    if (kind == 1) {
+        int64_t k = 0;
+        memcpy(&k, cell, 8);
+        return (int64_t)ps_seq_mix64((uint64_t)k);
+    }
+    PsBuf b;
+    memcpy(&b, cell, sizeof b);
+    uint64_t h = 0xCBF29CE484222325ULL;
+    for (int64_t i = 0; i < b.len; i++) {
+        h ^= (unsigned char)b.data[i];
+        h *= 0x100000001B3ULL;
+    }
+    return (int64_t)ps_seq_mix64(h);
+}
+
+static int ps_seq_cell_eq(PsSeq *s, int32_t kind, const void *cell, const void *key) {
+    if (kind == 1) {
+        return memcmp(cell, key, 8) == 0;
+    }
+    PsBuf a;
+    PsBuf b;
+    memcpy(&a, cell, sizeof a);
+    memcpy(&b, key, sizeof b);
+    return a.len == b.len && (a.len == 0 || memcmp(a.data, b.data, (size_t)a.len) == 0);
+}
+
+static int64_t ps_seq_idx_count_for(int64_t len) {
+    int64_t want = len * 2;
+    int64_t n = 64;
+    while (n < want) {
+        n *= 2;
+    }
+    return n;
+}
+
+static void ps_seq_index_build(PsSeq *s) {
+    int64_t n = ps_seq_idx_count_for(s->len > 0 ? s->len : 1);
+    int64_t cells = s->cap > s->len ? s->cap : (s->len > 0 ? s->len : 1);
+    int32_t *slots = calloc((size_t)n, sizeof(int32_t));
+    int64_t *hashes = malloc((size_t)cells * sizeof(int64_t));
+    if (slots == NULL || hashes == NULL) {
+        abort();
+    }
+    free(s->idx_slots);
+    free(s->idx_hashes);
+    s->idx_slots = slots;
+    s->idx_hashes = hashes;
+    s->idx_mask = (int32_t)(n - 1);
+    s->idx_count = n;
+    s->idx_kind = 0;
+    for (int64_t i = 0; i < s->len; i++) {
+        void *cell = (char *)s->data + (size_t)i * (size_t)s->elem;
+        int32_t kind = s->elem == 8 ? 1 : 2;
+        int64_t h = ps_seq_cell_hash(s, kind, cell);
+        s->idx_hashes[i] = h;
+        int64_t at = (uint64_t)h & (uint64_t)s->idx_mask;
+        while (s->idx_slots[at] != 0) {
+            at = (at + 1) & s->idx_mask;
+        }
+        s->idx_slots[at] = (int32_t)(i + 1);
+        if (s->idx_kind == 0) {
+            s->idx_kind = kind;
+        }
+    }
+    if (s->idx_kind == 0) {
+        s->idx_kind = s->elem == 8 ? 1 : 2;
+    }
+}
+
+/* Build the index when the caller asks for the kind the cells carry and the
+   sequence is long enough to pay for it. Returns 1 when the index is live. */
+static int ps_seq_index_load(PsSeq *s, int32_t kind) {
+    if (s->idx_slots != NULL) {
+        return s->idx_kind == kind;
+    }
+    if (s->len < PS_IDX_MIN || (s->elem != 8 && s->elem != 16)) {
+        return 0;
+    }
+    ps_seq_index_build(s);
+    return s->idx_kind == kind;
+}
+
+/* The cell holding key, or -1 when it is absent. */
+static int64_t ps_seq_index_hit(PsSeq *s, const void *key) {
+    if (s->idx_slots == NULL || s->len == 0) {
+        return -1;
+    }
+    int64_t h = ps_seq_cell_hash(s, s->idx_kind, key);
+    int64_t at = (uint64_t)h & (uint64_t)s->idx_mask;
+    while (s->idx_slots[at] != 0) {
+        int32_t cell = s->idx_slots[at];
+        if (cell > 0 && cell <= s->len) {
+            void *p = (char *)s->data + (size_t)(cell - 1) * (size_t)s->elem;
+            if (s->idx_hashes[cell - 1] == h && ps_seq_cell_eq(s, s->idx_kind, p, key)) {
+                return cell - 1;
+            }
+        }
+        at = (at + 1) & s->idx_mask;
+    }
+    return -1;
+}
+
+static void ps_seq_index_drop(PsSeq *s) {
+    free(s->idx_slots);
+    free(s->idx_hashes);
+    s->idx_slots = NULL;
+    s->idx_hashes = NULL;
+    s->idx_mask = 0;
+    s->idx_count = 0;
+    s->idx_kind = 0;
+}
+
+/* Drop the membership index: a mutation that moves cells around (an
+   insert, a remove, a splice, a sort, a reverse) invalidates it. The next
+   containment test rebuilds it from the cells. */
+void ps_seq_index_invalidate(PsSeq *s) { ps_seq_index_drop(s); }
+
+/* Grow the hash cache along with the data array, so a push into a live
+   index never writes past the cache. */
+void ps_seq_index_reserve(PsSeq *s, int64_t cap) {
+    if (s->idx_slots == NULL || s->idx_hashes == NULL) {
+        return;
+    }
+    int64_t *hashes = realloc(s->idx_hashes, (size_t)cap * sizeof(int64_t));
+    if (hashes == NULL) {
+        abort();
+    }
+    s->idx_hashes = hashes;
+}
+
+/* A push keeps a live index in sync when the table still has room; the
+   table grows through a rebuild like the map index does. The hash cache
+   rides the same capacity as the data array (ps_seq_gap grows it). */
+static void ps_seq_index_add(PsSeq *s) {
+    if (s->idx_slots == NULL || s->idx_hashes == NULL) {
+        return;
+    }
+    if ((s->len + 1) * 2 > s->idx_count) {
+        ps_seq_index_build(s);
+        return;
+    }
+    void *cell = (char *)s->data + (size_t)(s->len - 1) * (size_t)s->elem;
+    int64_t h = ps_seq_cell_hash(s, s->idx_kind, cell);
+    s->idx_hashes[s->len - 1] = h;
+    int64_t at = (uint64_t)h & (uint64_t)s->idx_mask;
+    while (s->idx_slots[at] != 0) {
+        at = (at + 1) & s->idx_mask;
+    }
+    s->idx_slots[at] = (int32_t)s->len;
+}
+
 void ps_seq_push(PsSeq *s, const void *src) {
     if (s->len == s->cap) {
         int64_t cap = s->cap == 0 ? 4 : s->cap * 2;
@@ -789,14 +956,17 @@ void ps_seq_push(PsSeq *s, const void *src) {
         }
         s->data = data;
         s->cap = cap;
+        ps_seq_index_reserve(s, cap);
     }
     memcpy((char *)s->data + (size_t)s->len * (size_t)s->elem, src, (size_t)s->elem);
     s->len += 1;
+    ps_seq_index_add(s);
 }
 
 void ps_seq_set(PsSeq *s, int64_t i, void *src) {
     i = ps_index(s->len, i, "list");
     memcpy((char *)s->data + (size_t)i * (size_t)s->elem, src, (size_t)s->elem);
+    ps_seq_index_invalidate(s);
 }
 
 static int ps_buf_eq(PsBuf a, PsBuf b) {
@@ -810,14 +980,17 @@ static int ps_buf_eq(PsBuf a, PsBuf b) {
 }
 
 int32_t ps_seq_has_i64(PsSeq *s, int64_t needle) {
-    for (int64_t i = 0; i < s->len; i++) {
-        int64_t cur = 0;
-        memcpy(&cur, (char *)s->data + (size_t)i * (size_t)s->elem, 8);
-        if (cur == needle) {
-            return 1;
+    if (ps_seq_index_load(s, 1) == 0) {
+        for (int64_t i = 0; i < s->len; i++) {
+            int64_t cur = 0;
+            memcpy(&cur, (char *)s->data + (size_t)i * (size_t)s->elem, 8);
+            if (cur == needle) {
+                return 1;
+            }
         }
+        return 0;
     }
-    return 0;
+    return ps_seq_index_hit(s, &needle) >= 0;
 }
 
 int32_t ps_seq_has_f64(PsSeq *s, double needle) {
@@ -833,14 +1006,82 @@ int32_t ps_seq_has_f64(PsSeq *s, double needle) {
 
 int32_t ps_seq_has_buf(PsSeq *s, int64_t n, char *p) {
     PsBuf needle = {n, p};
-    for (int64_t i = 0; i < s->len; i++) {
-        PsBuf cur;
-        memcpy(&cur, (char *)s->data + (size_t)i * (size_t)s->elem, 16);
-        if (ps_buf_eq(cur, needle)) {
-            return 1;
+    if (ps_seq_index_load(s, 2) == 0) {
+        for (int64_t i = 0; i < s->len; i++) {
+            PsBuf cur;
+            memcpy(&cur, (char *)s->data + (size_t)i * (size_t)s->elem, 16);
+            if (ps_buf_eq(cur, needle)) {
+                return 1;
+            }
         }
+        return 0;
     }
-    return 0;
+    return ps_seq_index_hit(s, &needle) >= 0;
+}
+
+/* Splitmix64 for int keys and FNV-1a for str keys: the map's key hashes.
+   Both mix all input bits, so sequential int keys land on scattered slots
+   and a str key uses every byte. */
+static uint64_t ps_mix64(uint64_t x) {
+    x += 0x9E3779B97F4A7C15ULL;
+    x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    x = (x ^ (x >> 27)) * 0x94D049BB133111EBULL;
+    return x ^ (x >> 31);
+}
+
+static int64_t ps_key_hash(PsMap *m, const void *key) {
+    if (m->key_kind == 1) {
+        int64_t k = 0;
+        memcpy(&k, key, 8);
+        return (int64_t)ps_mix64((uint64_t)k);
+    }
+    PsBuf b;
+    memcpy(&b, key, sizeof b);
+    uint64_t h = 0xCBF29CE484222325ULL;
+    for (int64_t i = 0; i < b.len; i++) {
+        h ^= (unsigned char)b.data[i];
+        h *= 0x100000001B3ULL;
+    }
+    return (int64_t)ps_mix64(h);
+}
+
+#define PS_DEAD_HASH ((int64_t)INT64_MIN)
+
+/* The probe table is a power of two with two slots per dense row, so the
+   load never passes one half and a probe always ends on an empty slot. */
+static int64_t ps_slot_count(int64_t cap) {
+    int64_t want = cap * 2;
+    int64_t n = 16;
+    while (n < want) {
+        n *= 2;
+    }
+    return n;
+}
+
+/* Rebuild the probe table from the cached hashes. The hashes live in their
+   own array, so a rebuild (a bigger table, or a table full of tombstones)
+   never re-hashes a string. */
+static void ps_index_build(PsMap *m) {
+    int64_t n = ps_slot_count(m->cap);
+    int32_t *slots = calloc((size_t)n, sizeof(int32_t));
+    if (slots == NULL) {
+        abort();
+    }
+    free(m->slots);
+    m->slots = slots;
+    m->slot_count = n;
+    m->slot_mask = (int32_t)(n - 1);
+    m->tombs = 0;
+    for (int64_t i = 0; i < m->rows; i++) {
+        if (m->hashes[i] == PS_DEAD_HASH) {
+            continue;
+        }
+        int64_t at = (uint64_t)m->hashes[i] & (uint64_t)m->slot_mask;
+        while (m->slots[at] != 0) {
+            at = (at + 1) & m->slot_mask;
+        }
+        m->slots[at] = (int32_t)(i + 1);
+    }
 }
 
 PsMap *ps_map_new(int32_t key_kind, int64_t key_size, int64_t val_size, int64_t cap) {
@@ -857,12 +1098,16 @@ PsMap *ps_map_new(int32_t key_kind, int64_t key_size, int64_t val_size, int64_t 
     m->val_size = val_size;
     m->cap = cap;
     m->len = 0;
+    m->rows = 0;
     if (cap > 0) {
         m->keys = calloc((size_t)cap, (size_t)key_size);
         m->vals = calloc((size_t)cap, (size_t)val_size);
-        if (m->keys == NULL || m->vals == NULL) {
+        m->hashes = calloc((size_t)cap, sizeof(int64_t));
+        m->order = calloc((size_t)cap, sizeof(int32_t));
+        if (m->keys == NULL || m->vals == NULL || m->hashes == NULL || m->order == NULL) {
             abort();
         }
+        ps_index_build(m);
     }
     return m;
 }
@@ -884,38 +1129,97 @@ static int ps_key_eq(PsMap *m, const void *a, const void *b) {
     return ps_buf_eq(ba, bb);
 }
 
+/* The dense row holding key, or -1 when it is absent. The probe walks live
+   keys and tombstones until an empty slot ends the chain; a hit compares
+   the cached hash first, then the key bytes, so a miss on a str key never
+   re-reads the string. */
 static int64_t ps_map_find(PsMap *m, const void *key) {
-    for (int64_t i = 0; i < m->len; i++) {
-        if (ps_key_eq(m, (char *)m->keys + (size_t)i * (size_t)m->key_size, key)) {
-            return i;
+    if (m->slot_mask == 0 || m->len == 0) {
+        return -1;
+    }
+    int64_t h = ps_key_hash(m, key);
+    int64_t at = (uint64_t)h & (uint64_t)m->slot_mask;
+    while (m->slots[at] != 0) {
+        int32_t cell = m->slots[at];
+        if (cell > 0) {
+            int64_t i = cell - 1;
+            if (m->hashes[i] == h && ps_key_eq(m, (char *)m->keys + (size_t)i * (size_t)m->key_size, key)) {
+                return i;
+            }
         }
+        at = (at + 1) & m->slot_mask;
     }
     return -1;
 }
 
 static void ps_map_grow(PsMap *m) {
     int64_t cap = m->cap == 0 ? 4 : m->cap * 2;
+    if (cap < m->rows + 1) {
+        ps_raise_code(PS_OVERFLOW);
+    }
+    if ((uint64_t)cap > UINT64_MAX / (uint64_t)m->key_size || (uint64_t)cap > UINT64_MAX / (uint64_t)m->val_size) {
+        ps_raise_code(PS_OVERFLOW);
+    }
     void *keys = realloc(m->keys, (size_t)cap * (size_t)m->key_size);
     void *vals = realloc(m->vals, (size_t)cap * (size_t)m->val_size);
-    if (keys == NULL || vals == NULL) {
+    int64_t *hashes = realloc(m->hashes, (size_t)cap * sizeof(int64_t));
+    int32_t *order = realloc(m->order, (size_t)cap * sizeof(int32_t));
+    if (keys == NULL || vals == NULL || hashes == NULL || order == NULL) {
         abort();
     }
     m->keys = keys;
     m->vals = vals;
+    m->hashes = hashes;
+    m->order = order;
     m->cap = cap;
+    ps_index_build(m);
 }
 
 void ps_map_put(PsMap *m, void *key, void *val) {
-    int64_t at = ps_map_find(m, key);
-    if (at < 0) {
-        if (m->len == m->cap) {
-            ps_map_grow(m);
-        }
-        at = m->len;
-        m->len += 1;
-        memcpy((char *)m->keys + (size_t)at * (size_t)m->key_size, key, (size_t)m->key_size);
+    if (m->slot_mask == 0) {
+        ps_index_build(m);
     }
-    memcpy((char *)m->vals + (size_t)at * (size_t)m->val_size, val, (size_t)m->val_size);
+    int64_t h = ps_key_hash(m, key);
+    int64_t at = (uint64_t)h & (uint64_t)m->slot_mask;
+    while (m->slots[at] != 0) {
+        int32_t cell = m->slots[at];
+        if (cell > 0) {
+            int64_t i = cell - 1;
+            if (m->hashes[i] == h && ps_key_eq(m, (char *)m->keys + (size_t)i * (size_t)m->key_size, key)) {
+                memcpy((char *)m->vals + (size_t)i * (size_t)m->val_size, val, (size_t)m->val_size);
+                return;
+            }
+        }
+        at = (at + 1) & m->slot_mask;
+    }
+    if (m->rows == m->cap) {
+        ps_map_grow(m);
+    }
+    /* Delete-heavy workloads fill the table with tombstones; rebuild when
+       they pass a quarter of the table so the probes stay short. */
+    if (m->tombs * 4 >= m->slot_count) {
+        ps_index_build(m);
+    }
+    at = (uint64_t)h & (uint64_t)m->slot_mask;
+    while (m->slots[at] != 0) {
+        at = (at + 1) & m->slot_mask;
+    }
+    int64_t i = m->rows;
+    m->rows += 1;
+    m->len += 1;
+    memcpy((char *)m->keys + (size_t)i * (size_t)m->key_size, key, (size_t)m->key_size);
+    m->hashes[i] = h;
+    m->slots[at] = (int32_t)(i + 1);
+    /* The order cache holds the live rows in insertion order. It is
+       appendable while it is in sync; a delete leaves a hole in it, so the
+       next iteration rebuilds it from the dense rows. */
+    if (!m->order_dirty && m->order_len < m->cap) {
+        m->order[m->order_len] = (int32_t)i;
+        m->order_len += 1;
+    } else {
+        m->order_dirty = 1;
+    }
+    memcpy((char *)m->vals + (size_t)i * (size_t)m->val_size, val, (size_t)m->val_size);
 }
 
 void ps_map_get(PsMap *m, void *key, void *out) {
@@ -947,26 +1251,91 @@ void ps_map_get(PsMap *m, void *key, void *out) {
 
 int32_t ps_map_has(PsMap *m, void *key) { return ps_map_find(m, key) >= 0; }
 
+/* Delete the key the probe finds: the dense row is marked dead and its slot
+   becomes a tombstone, so the probe chain of the other keys stays intact and
+   the survivors keep their insertion order. The order cache is stale after
+   this, and ps_map_row_at rebuilds it on the next iteration. */
+int64_t ps_map_delete(PsMap *m, void *key) {
+    int64_t at = ps_map_find(m, key);
+    if (at < 0) {
+        return -1;
+    }
+    int64_t h = m->hashes[at];
+    int64_t slot = (uint64_t)h & (uint64_t)m->slot_mask;
+    while (m->slots[slot] != 0) {
+        if (m->slots[slot] > 0 && m->slots[slot] - 1 == at) {
+            m->slots[slot] = -1;
+            m->tombs += 1;
+            break;
+        }
+        slot = (slot + 1) & m->slot_mask;
+    }
+    m->hashes[at] = PS_DEAD_HASH;
+    m->len -= 1;
+    m->order_dirty = 1;
+    return at;
+}
+
+/* Drop every key: the probe table is emptied and the dense rows are
+   released, so the map is empty but keeps its capacity. */
+void ps_map_reset(PsMap *m) {
+    if (m->slot_count > 0) {
+        memset(m->slots, 0, (size_t)m->slot_count * sizeof(int32_t));
+    }
+    m->tombs = 0;
+    m->len = 0;
+    m->rows = 0;
+    m->order_len = 0;
+    m->order_dirty = 0;
+}
+
+/* The dense row of the live key at iteration position p: order[p] when the
+   order cache is current, else a rebuild first. Callers walk positions 0
+   .. len-1, so one rebuild serves a whole iteration. */
+static int64_t ps_map_row_at(PsMap *m, int64_t p) {
+    if (p < 0 || p >= m->len) {
+        return -1;
+    }
+    if (m->order == NULL || m->order_len < m->len) {
+        m->order_dirty = 1;
+    }
+    if (m->order_dirty) {
+        int64_t live = 0;
+        for (int64_t r = 0; r < m->rows && live < m->len; r++) {
+            if (m->hashes[r] != PS_DEAD_HASH) {
+                m->order[live] = (int32_t)r;
+                live += 1;
+            }
+        }
+        m->order_len = live;
+        m->order_dirty = 0;
+    }
+    return m->order[p];
+}
+
 void ps_map_key_at(PsMap *m, int64_t i, void *out) {
-    if (i < 0 || i >= m->len) {
+    int64_t r = ps_map_row_at(m, i);
+    if (r < 0) {
         ps_raise_code(PS_INDEX);
     }
-    memcpy(out, (char *)m->keys + (size_t)i * (size_t)m->key_size, (size_t)m->key_size);
+    memcpy(out, (char *)m->keys + (size_t)r * (size_t)m->key_size, (size_t)m->key_size);
 }
 
 PsSeq *ps_dict_keys(PsMap *m) {
     PsSeq *seq = ps_seq_new(m->key_size, m->len);
-    for (int64_t i = 0; i < m->len; i++) {
-        ps_seq_set(seq, i, (char *)m->keys + (size_t)i * (size_t)m->key_size);
+    for (int64_t p = 0; p < m->len; p++) {
+        int64_t r = ps_map_row_at(m, p);
+        ps_seq_set(seq, p, (char *)m->keys + (size_t)r * (size_t)m->key_size);
     }
     return seq;
 }
 
 void ps_map_val_at(PsMap *m, int64_t i, void *out) {
-    if (i < 0 || i >= m->len) {
+    int64_t r = ps_map_row_at(m, i);
+    if (r < 0) {
         ps_raise_code(PS_INDEX);
     }
-    memcpy(out, (char *)m->vals + (size_t)i * (size_t)m->val_size, (size_t)m->val_size);
+    memcpy(out, (char *)m->vals + (size_t)r * (size_t)m->val_size, (size_t)m->val_size);
 }
 
 static int ps_space(unsigned char c) {
@@ -1540,6 +1909,7 @@ void ps_seq_splice(PsSeq *s, int64_t start, int64_t stop, int64_t has_start, int
     }
     s->len = len;
     free(held);
+    ps_seq_index_invalidate(s);
 }
 
 static int ps_ascii_space(unsigned char c) {

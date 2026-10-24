@@ -139,16 +139,54 @@ typedef struct PsSeq {
     int64_t elem;
     void *data;
     int64_t cap;
+    /* The membership index (#382). A set is a sequence whose `in` test was
+       a linear scan, so `s.add` was O(n) and a build of n members was
+       O(n^2). The index is built on demand once the sequence is long
+       enough to pay for it, and it is dropped by any mutation that moves
+       the cells around. The slots hold the cell position plus one; the
+       hashes cache the hash of every indexed cell, so a lookup does not
+       re-hash a string. */
+    int32_t *idx_slots;
+    int32_t idx_mask;
+    int64_t idx_count; /* slots in use */
+    int64_t *idx_hashes;
+    int32_t idx_kind; /* 1 int, 2 str; 0 when there is no index */
 } PsSeq;
 
 typedef struct PsMap {
-    int64_t len;
-    int64_t cap;
+    int64_t len; /* live keys */
+    int64_t cap; /* dense rows the keys and vals arrays hold */
     int32_t key_kind;
     int64_t key_size;
     int64_t val_size;
     void *keys;
     void *vals;
+    /* The open-addressing index (#382). The dense arrays above stay the
+       source of truth for the iteration order (divergence 6: dict and set
+       iteration is insertion order), and a row is never moved: a delete
+       leaves the row in place and marks it dead, so the survivors keep
+       their order and the delete stays O(1) amortized.
+
+       slots is the probe table: a slot holds the dense row plus one, zero
+       is an empty slot and -1 is a tombstone left by a delete. The table is
+       a power of two with two slots per dense row, so it is never more than
+       half full and a probe always ends on an empty slot.
+
+       hashes caches the hash of every dense row (PS_DEAD_HASH marks a dead
+       row), so a rebuild never re-hashes a string and a lookup compares the
+       cached hash before the key bytes.
+
+       order holds the live rows in insertion order. A delete leaves a hole
+       in it, so it is rebuilt on demand; an insert appends to it. */
+    int32_t *slots;
+    int32_t slot_mask;
+    int64_t slot_count;
+    int64_t tombs; /* tombstones in the probe table */
+    int64_t *hashes;
+    int32_t *order; /* live rows in insertion order */
+    int64_t order_len;
+    int32_t order_dirty;
+    int64_t rows; /* dense rows written so far; len is the live subset */
 } PsMap;
 
 typedef struct PsType {
@@ -231,6 +269,14 @@ int64_t ps_seq_len(PsSeq *s);
 void ps_seq_get(PsSeq *s, int64_t i, void *out);
 void ps_seq_set(PsSeq *s, int64_t i, void *src);
 void ps_seq_push(PsSeq *s, const void *src);
+/* The membership index of a sequence used as a set: a mutation that moves
+   cells around drops the index, and the next containment test rebuilds
+   it. */
+void ps_seq_index_invalidate(PsSeq *s);
+void ps_seq_index_reserve(PsSeq *s, int64_t cap);
+int32_t ps_seq_has_i64(PsSeq *s, int64_t needle);
+int32_t ps_seq_has_f64(PsSeq *s, double needle);
+int32_t ps_seq_has_buf(PsSeq *s, int64_t n, char *p);
 
 PsMap *ps_map_new(int32_t key_kind, int64_t key_size, int64_t val_size, int64_t cap);
 void ps_map_put(PsMap *m, void *key, void *val);
@@ -240,6 +286,10 @@ int64_t ps_map_len(PsMap *m);
 void ps_map_key_at(PsMap *m, int64_t i, void *out);
 PsSeq *ps_dict_keys(PsMap *m);
 void ps_map_val_at(PsMap *m, int64_t i, void *out);
+/* The delete and the reset live beside the index they touch; ps_map_del and
+   ps_map_clear in ps_more.c are the wrappers that raise on a missing key. */
+int64_t ps_map_delete(PsMap *m, void *key);
+void ps_map_reset(PsMap *m);
 
 void ps_buf_view(PsBuf *out, const char *p, int64_t n);
 void ps_buf_copy(PsBuf *out, const char *p, int64_t n);

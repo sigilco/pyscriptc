@@ -92,6 +92,7 @@ void ps_seq_insert(PsSeq *s, int64_t i, void *src) {
     memmove(ps_cell(s, i + 1), ps_cell(s, i), (size_t)(s->len - i) * (size_t)s->elem);
     memcpy(ps_cell(s, i), src, (size_t)s->elem);
     s->len += 1;
+    ps_seq_index_invalidate(s);
 }
 
 void ps_seq_reverse(PsSeq *s) {
@@ -108,6 +109,7 @@ void ps_seq_reverse(PsSeq *s) {
         memcpy(b, tmp, (size_t)s->elem);
     }
     free(tmp);
+    ps_seq_index_invalidate(s);
 }
 
 static int ps_cmp_i64(const void *a, const void *b) {
@@ -138,6 +140,7 @@ void ps_seq_sort_i64(PsSeq *s, int64_t desc) {
     if (desc) {
         ps_seq_reverse(s);
     }
+    ps_seq_index_invalidate(s);
 }
 
 void ps_seq_sort_f64(PsSeq *s, int64_t desc) {
@@ -145,6 +148,7 @@ void ps_seq_sort_f64(PsSeq *s, int64_t desc) {
     if (desc) {
         ps_seq_reverse(s);
     }
+    ps_seq_index_invalidate(s);
 }
 
 void ps_seq_sort_buf(PsSeq *s, int64_t desc) {
@@ -152,6 +156,7 @@ void ps_seq_sort_buf(PsSeq *s, int64_t desc) {
     if (desc) {
         ps_seq_reverse(s);
     }
+    ps_seq_index_invalidate(s);
 }
 
 int64_t ps_seq_index_i64(PsSeq *s, int64_t needle) {
@@ -219,6 +224,7 @@ int64_t ps_seq_count_buf(PsSeq *s, int64_t n, char *p) {
 static void ps_seq_drop(PsSeq *s, int64_t i) {
     memmove(ps_cell(s, i), ps_cell(s, i + 1), (size_t)(s->len - i - 1) * (size_t)s->elem);
     s->len -= 1;
+    ps_seq_index_invalidate(s);
 }
 
 void ps_seq_remove_i64(PsSeq *s, int64_t needle) {
@@ -236,63 +242,39 @@ void ps_seq_remove_buf(PsSeq *s, int64_t n, char *p) {
 /* dict core (R1) */
 
 void ps_map_del(PsMap *m, void *key) {
-    /* key cells are int64_t (key_kind 1) or PsBuf; find inline to avoid an
-       extra exported lookup beside ps_map_get/ps_map_has. */
-    int64_t i, at = -1;
-    for (i = 0; i < m->len; i++) {
-        void *cell = (char *)m->keys + (size_t)i * (size_t)m->key_size;
-        if (m->key_kind == 1) {
-            if (*(int64_t *)cell == *(int64_t *)key) {
-                at = i;
-                break;
-            }
-        } else {
-            PsBuf *a = cell, *b = key;
-            if (a->len == b->len && (a->len == 0 || memcmp(a->data, b->data, (size_t)a->len) == 0)) {
-                at = i;
-                break;
-            }
-        }
-    }
-    if (at < 0) {
+    /* The lookup runs in ps_rt.c over the open-addressing index; the dead
+       row keeps its place in the dense arrays, so the iteration order of the
+       survivors is untouched and the delete stays O(1) amortized. */
+    if (ps_map_delete(m, key) < 0) {
         ps_raise_code(PS_KEY);
     }
-    if (at < m->len - 1) {
-        memmove(
-            (char *)m->keys + (size_t)at * (size_t)m->key_size,
-            (char *)m->keys + (size_t)(at + 1) * (size_t)m->key_size,
-            (size_t)(m->len - at - 1) * (size_t)m->key_size
-        );
-        memmove(
-            (char *)m->vals + (size_t)at * (size_t)m->val_size,
-            (char *)m->vals + (size_t)(at + 1) * (size_t)m->val_size,
-            (size_t)(m->len - at - 1) * (size_t)m->val_size
-        );
-    }
-    m->len -= 1;
 }
 
-void ps_map_clear(PsMap *m) { m->len = 0; }
+void ps_map_clear(PsMap *m) { ps_map_reset(m); }
 
 void ps_map_update(PsMap *dst, PsMap *src) {
     int64_t i;
     if (dst->key_kind != src->key_kind || dst->key_size != src->key_size || dst->val_size != src->val_size) {
         ps_raise_cstr(PS_VALUE, "dict update layout mismatch");
     }
-    for (i = 0; i < src->len; i++) {
-        ps_map_put(
-            dst,
-            (char *)src->keys + (size_t)i * (size_t)src->key_size,
-            (char *)src->vals + (size_t)i * (size_t)src->val_size
-        );
+    char *key = malloc((size_t)src->key_size);
+    char *val = malloc((size_t)src->val_size);
+    if (key == NULL || val == NULL) {
+        abort();
     }
+    for (i = 0; i < src->len; i++) {
+        ps_map_key_at(src, i, key);
+        ps_map_val_at(src, i, val);
+        ps_map_put(dst, key, val);
+    }
+    free(key);
+    free(val);
 }
 
 PsSeq *ps_dict_values(PsMap *m) {
     PsSeq *seq = ps_seq_new(m->val_size, m->len);
-    int64_t i;
-    for (i = 0; i < m->len; i++) {
-        ps_seq_set(seq, i, (char *)m->vals + (size_t)i * (size_t)m->val_size);
+    for (int64_t i = 0; i < m->len; i++) {
+        ps_map_val_at(m, i, (char *)ps_cell(seq, i));
     }
     return seq;
 }
@@ -302,14 +284,13 @@ PsSeq *ps_dict_values(PsMap *m) {
    layout ps_re_findall_groups uses for list[tuple]. */
 PsSeq *ps_dict_items(PsMap *m, int64_t voff, int64_t csize) {
     PsSeq *seq = ps_seq_new((int64_t)sizeof(void *), m->len);
-    int64_t i;
-    for (i = 0; i < m->len; i++) {
+    for (int64_t i = 0; i < m->len; i++) {
         char *tup = malloc((size_t)csize);
         if (tup == NULL) {
             abort();
         }
-        memcpy(tup, (char *)m->keys + (size_t)i * (size_t)m->key_size, (size_t)m->key_size);
-        memcpy(tup + voff, (char *)m->vals + (size_t)i * (size_t)m->val_size, (size_t)m->val_size);
+        ps_map_key_at(m, i, tup);
+        ps_map_val_at(m, i, tup + voff);
         *(void **)ps_cell(seq, i) = tup;
     }
     return seq;
