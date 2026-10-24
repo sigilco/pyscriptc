@@ -312,7 +312,10 @@ static int ps_isalnum2(unsigned char c) { return ps_isalpha2(c) || ps_isdig(c); 
 int64_t ps_str_count(int64_t n, const char *p, int64_t sn, const char *sp) {
     int64_t i = 0, hits = 0;
     if (sn == 0) {
-        return n + 1;
+        /* CPython: the empty needle matches between code points, so the
+           answer is the code-point count plus one (bytes between, plus the
+           two ends, collapses to that). */
+        return ps_str_nchars(n, p) + 1;
     }
     while (i + sn <= n) {
         if (memcmp(p + i, sp, (size_t)sn) == 0) {
