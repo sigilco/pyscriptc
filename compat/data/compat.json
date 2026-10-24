@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-10-24",
-  "commit": "0487ccf5832c37d423995d8183d03e754f427de0",
+  "generated": "2026-10-25",
+  "commit": "bb1bb6c10df20096a9d60c4d4f4ac94bb1986d80",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 6,
     "packages_none": 10,
     "weighted_pass": 0.0,
-    "fences": 2776
+    "fences": 2774
   },
   "builtins": [
     {
@@ -1507,35 +1507,35 @@
       "import_name": "idna",
       "version": "3.20",
       "status": "none",
-      "fences": 101,
+      "fences": 99,
       "definitions": 56,
       "fenced_definitions": 37,
       "top_families": [
         {
           "family": "keyword-args",
-          "count": 17
+          "count": 16
         },
         {
           "family": "construct-other",
-          "count": 11
+          "count": 10
         },
         {
-          "family": "name-resolution",
-          "count": 11
+          "family": "call-arity",
+          "count": 8
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 52
+          "count": 49
         },
         {
           "code": "PS2003",
-          "count": 20
+          "count": 24
         },
         {
-          "code": "PS2001",
-          "count": 8
+          "code": "PS1101",
+          "count": 7
         }
       ],
       "pypi": "https://pypi.org/project/idna/"
@@ -2012,7 +2012,7 @@
     {
       "code": "PS2002",
       "title": "construct not lowered",
-      "count": 1360,
+      "count": 1357,
       "packages": 16
     },
     {
@@ -2024,7 +2024,7 @@
     {
       "code": "PS2001",
       "title": "stdlib name not lowered",
-      "count": 204,
+      "count": 201,
       "packages": 15
     },
     {
@@ -2054,7 +2054,7 @@
     {
       "code": "PS2003",
       "title": "call arguments not lowered",
-      "count": 76,
+      "count": 80,
       "packages": 10
     },
     {
@@ -2130,6 +2130,15 @@
       "packages_partial": 6,
       "packages_none": 10,
       "fences": 2776
+    },
+    {
+      "date": "2026-10-25",
+      "commit": "bb1bb6c10df20096a9d60c4d4f4ac94bb1986d80",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 6,
+      "packages_none": 10,
+      "fences": 2774
     }
   ]
 }

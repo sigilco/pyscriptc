@@ -256,6 +256,9 @@ class StmtMixin:
                         self._own_handle(target, value["type"])
                         return [_assign(target, value, span)]
                     # boxed:end
+                    if value["type"]["kind"] == "class" and value["type"].get("name") in {"ArgParser", "Namespace"}:
+                        self.locals[target] = value["type"]
+                        return [_assign(target, value, span)]
                     if self._bridge_type(stmt.value) is not None:
                         # Checker bridge: the checker proved the call's result
                         # type; bind the name to it instead of fencing.

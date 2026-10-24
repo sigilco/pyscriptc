@@ -496,7 +496,7 @@ class CallsMixin:
                 return _add_argument(self, node, span, receiver)
             if node.func.attr == "parse_args":
                 return _parse_args(self, node, span, receiver)
-            self.fail(node, "PS2001", f"ArgParser.{node.func.attr} is not lowered")
+            self.fail(node, "PS2003", f"ArgParser.{node.func.attr} is not lowered")
         if receiver["type"]["kind"] == "class" and receiver["type"].get("name") == "Path":
             if node.func.attr in {"__enter__", "__exit__"}:
                 return self._path_context(node, span, receiver)
