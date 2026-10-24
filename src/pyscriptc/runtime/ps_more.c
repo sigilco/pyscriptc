@@ -523,7 +523,7 @@ int64_t ps_str_index(int64_t n, const char *p, int64_t sn, const char *sp) {
         }
         i += ps_utf8_len((unsigned char)p[i]);
     }
-    ps_raise_code(PS_VALUE);
+    ps_raise_cstr(PS_VALUE, "substring not found");
 }
 
 int64_t ps_str_rfind(int64_t n, const char *p, int64_t sn, const char *sp) {
