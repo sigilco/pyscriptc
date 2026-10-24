@@ -173,12 +173,11 @@ def test_family_rules() -> None:
 
 
 def test_generator_and_contextmanager_families() -> None:
-    assert family_of("PS2002", "yield inside try or with is not lowered yet") == "generators"
-    assert family_of("PS2002", "bare yield is not lowered yet") == "generators"
+    assert family_of("PS2002", "a bare yield needs an Optional element type") == "generators"
     assert family_of("PS2002", "yield as an expression (send) is not lowered yet") == "generators"
     assert family_of("PS2002", "a nested def or class in a resumable is not lowered yet") == "generators"
     assert family_of("PS2002", "a generic resumable is not lowered yet") == "generators"
-    assert family_of("PS2002", "return with a value in a generator is not lowered yet") == "generators"
+    assert family_of("PS2002", "return inside try or with in a resumable is not lowered yet") == "generators"
     assert family_of("PS2002", "contextlib.contextmanager is not a function") == "contextmanager"
     assert family_of("PS2002", "walrus assignment (:=) is not lowered") == "construct-other"
     assert family_of("PS2002", "super is not lowered") == "construct-other"

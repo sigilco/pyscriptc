@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-10-23",
-  "commit": "fc74dc701e8fedbe754a817ea448223342051140",
+  "generated": "2026-10-24",
+  "commit": "94f03b06fe6ab51e1006d8b9e3029e3655ed0145",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 5,
     "packages_none": 10,
     "weighted_pass": 0.0,
-    "fences": 3028
+    "fences": 3031
   },
   "builtins": [
     {
@@ -1393,9 +1393,9 @@
       "import_name": "dotenv",
       "version": "1.2.4",
       "status": "none",
-      "fences": 127,
+      "fences": 125,
       "definitions": 75,
-      "fenced_definitions": 46,
+      "fenced_definitions": 44,
       "top_families": [
         {
           "family": "unlowered-call",
@@ -1413,7 +1413,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 92
+          "count": 88
         },
         {
           "code": "PS1001",
@@ -1421,7 +1421,7 @@
         },
         {
           "code": "PS1106",
-          "count": 8
+          "count": 10
         }
       ],
       "pypi": "https://pypi.org/project/python-dotenv/"
@@ -1697,9 +1697,9 @@
       "import_name": "packaging",
       "version": "26.3",
       "status": "none",
-      "fences": 627,
+      "fences": 626,
       "definitions": 558,
-      "fenced_definitions": 283,
+      "fenced_definitions": 282,
       "top_families": [
         {
           "family": "name-resolution",
@@ -1717,14 +1717,14 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 261
+          "count": 258
         },
         {
           "code": "PS1106",
           "count": 90
         },
         {
-          "code": "PS1001",
+          "code": "PS2001",
           "count": 52
         }
       ],
@@ -1735,17 +1735,17 @@
       "import_name": "pathspec",
       "version": "1.1.1",
       "status": "none",
-      "fences": 253,
+      "fences": 259,
       "definitions": 132,
       "fenced_definitions": 94,
       "top_families": [
         {
           "family": "name-resolution",
-          "count": 45
+          "count": 49
         },
         {
           "family": "local-inference",
-          "count": 24
+          "count": 25
         },
         {
           "family": "unlowered-type-name",
@@ -1755,11 +1755,11 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 131
+          "count": 134
         },
         {
           "code": "PS1001",
-          "count": 27
+          "count": 28
         },
         {
           "code": "PS1106",
@@ -2002,25 +2002,25 @@
     {
       "code": "PS2002",
       "title": "construct not lowered",
-      "count": 1486,
+      "count": 1482,
       "packages": 15
     },
     {
       "code": "PS1001",
       "title": "annotation missing or not lowered",
-      "count": 515,
+      "count": 516,
       "packages": 15
     },
     {
       "code": "PS1106",
       "title": "annotation names an unlowered type",
-      "count": 196,
+      "count": 198,
       "packages": 9
     },
     {
       "code": "PS2001",
       "title": "stdlib name not lowered",
-      "count": 181,
+      "count": 184,
       "packages": 14
     },
     {
@@ -2042,15 +2042,15 @@
       "packages": 7
     },
     {
+      "code": "PS2003",
+      "title": "call arguments not lowered",
+      "count": 72,
+      "packages": 9
+    },
+    {
       "code": "PS1201",
       "title": "decorator",
       "count": 72,
-      "packages": 8
-    },
-    {
-      "code": "PS2003",
-      "title": "call arguments not lowered",
-      "count": 71,
       "packages": 8
     },
     {
@@ -2117,6 +2117,15 @@
       "packages_partial": 5,
       "packages_none": 10,
       "fences": 3028
+    },
+    {
+      "date": "2026-10-24",
+      "commit": "94f03b06fe6ab51e1006d8b9e3029e3655ed0145",
+      "weighted_pass": 0.0,
+      "packages_full": 3,
+      "packages_partial": 5,
+      "packages_none": 10,
+      "fences": 3031
     }
   ]
 }

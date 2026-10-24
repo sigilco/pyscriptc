@@ -36,11 +36,14 @@ tasks and drives them together, so the children interleave exactly like
 CPython's.
 
 Scope today: module-level generators annotated `Iterator[T]`, `Iterable[T]` or
-`Generator[T, None, None]`, module-level `async def` coroutines with a return
-annotation, `yield v` and `yield from <iterable>` as statements, bare
-`return`, yields under `if`/`while`/`for`, `await <coroutine call>` as a
-statement or the whole value of an assignment, `asyncio.run`,
-`asyncio.sleep` and `asyncio.gather`. `@contextmanager` (module level, on a
+`Generator[T]`/`Generator[T, S, R]`, module-level `async def` coroutines with
+a return annotation, `yield v` and `yield from <iterable>` as statements, a
+bare `yield` (the element type has to accept None), `return v` in a generator
+(the value rides in the frame; CPython's `StopIteration.value` is not read
+back), yields under `if`/`while`/`for`, yields inside `with` (the block
+desugars into a `try` and the suspension skips the `__exit__` half),
+`await <coroutine call>` as a statement or the whole value of an assignment,
+`asyncio.run`, `asyncio.sleep` and `asyncio.gather`. `@contextmanager` (module level, on a
 method, and in package units) lowers to a `cm.<name>` wrapper whose
 `__enter__`/`__exit__` drive the generator frame. A suspension inside
 `try`/`except`/`else`/`finally` lowers: the guard transform re-enters the
@@ -50,9 +53,9 @@ back on the resume). An `await` inside a `with` lowers too: the `with`
 desugars into a `try`, and the guard transform handles that shape. A child
 coroutine that raises after a suspension reaches its awaiter: the loop parks
 the exception against the child frame and the awaiter re-raises it at its
-own await point, so a `try` around the await sees it. Not yet: yield inside
-with, nested or generic resumables, `async with`, `async for`, async
-generators, `contextmanager` used as a call.
+own await point, so a `try` around the await sees it. Not yet: nested or
+generic resumables, `async with`, `async for`, async generators,
+`contextmanager` used as a call, `yield from` expressions (send delegation).
 `PYSC_CORO=0` turns the lowering off (generators and coroutines fence as
 before).
 """
@@ -87,6 +90,11 @@ SLEEP_MARKER = "__ps_sleep__"
 RETURN_MARKER = "__ps_return__"
 STATE = ".ps_state"
 RESULT = ".ps_result"
+# The value a generator's `return v` carries. CPython hands it to the
+# `yield from` that drains the generator as `StopIteration.value`; the
+# statement-form `yield from` this subset lowers discards it, so the value
+# rides in the frame until then.
+STOP = ".ps_stop"
 TASK = ".ps_task"
 SELF = ".ps_self"
 RESUME = ".ps_rs"
@@ -152,6 +160,7 @@ class FramePlan:
     ir_name: str = ""  # the wrapper's IR name (`pkg.mod.g` in a package unit)
     send: dict[str, Any] = field(default_factory=lambda: dict(_NONE))  # the Generator[T, S, R] send type
     manager: str = ""  # `@contextmanager` wrapper class (`cm.<name>`), "" for a plain generator
+    ret: dict[str, Any] = field(default_factory=lambda: dict(_NONE))  # the Generator[T, S, R] return type
 
 
 def enabled() -> bool:
@@ -192,7 +201,15 @@ def _own_nodes(body: list[ast.stmt]):
 
 
 def _shape_error(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[ast.AST, str] | None:
-    """The first body construct outside today's resumable scope, or None."""
+    """The first body construct outside today's resumable scope, or None.
+
+    A `with` block is not a fence any more: every `with` the lowerer
+    supports desugars into a `try` before the guard transform sees it, and
+    the suspension inside that try skips the `__exit__` half (the emitter's
+    flow code 2), so the guard transform handles the shape unchanged.
+    `in_with` still tracks the one shape the desugar cannot carry: a
+    `return` inside a `with`.
+    """
 
     coroutine = isinstance(fn, ast.AsyncFunctionDef)
 
@@ -201,20 +218,13 @@ def _shape_error(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[ast.AST, s
             if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 return stmt, "a nested def or class in a resumable is not lowered yet"
             if isinstance(stmt, ast.Return):
-                if stmt.value is not None and not (isinstance(stmt.value, ast.Constant) and stmt.value.value is None):
-                    if not coroutine:
-                        return stmt, "return with a value in a generator is not lowered yet"
                 if in_try or in_with:
                     return stmt, "return inside try or with in a resumable is not lowered yet"
             if isinstance(stmt, ast.Expr) and isinstance(stmt.value, (ast.Yield, ast.YieldFrom)):
-                if in_with:
-                    return stmt, "yield inside try or with is not lowered yet"
                 inner = [stmt.value.value] if stmt.value.value is not None else []
             elif isinstance(stmt, (ast.Assign, ast.AnnAssign)) and isinstance(stmt.value, ast.Yield) and not coroutine:
                 # `x = yield v` / `x: T = yield v`: send support. Only the
                 # plain single-name form; anything else stays fenced below.
-                if in_with:
-                    return stmt, "yield inside try or with is not lowered yet"
                 target = stmt.targets[0] if isinstance(stmt, ast.Assign) else stmt.target
                 if not isinstance(target, ast.Name):
                     return stmt, "yield as an expression (send) is not lowered yet"
@@ -275,8 +285,12 @@ class CoroMixin:
         ):
             return None
         coroutine = isinstance(fn, ast.AsyncFunctionDef)
-        elem = self._coro_types(fn)[0] if not coroutine else self._coro_result(fn)
-        send = dict(_NONE) if coroutine else self._coro_types(fn)[1]
+        if coroutine:
+            elem = self._coro_result(fn)
+            send = dict(_NONE)
+            ret = dict(_NONE)
+        else:
+            elem, send, ret = self._coro_types(fn)
         shape = _shape_error(fn)
         if shape is not None:
             self.fail(shape[0], "PS2002", shape[1])
@@ -353,6 +367,7 @@ class CoroMixin:
             self._ir_name(fn.name),
             send,
             manager,
+            ret,
         )
         return params, outward
 
@@ -365,31 +380,34 @@ class CoroMixin:
     def _coro_elem(self, fn: ast.FunctionDef) -> dict[str, Any]:
         return self._coro_types(fn)[0]
 
-    def _coro_types(self, fn: ast.FunctionDef) -> tuple[dict[str, Any], dict[str, Any]]:
-        """The yield element type and the send type of a generator.
+    def _coro_types(self, fn: ast.FunctionDef) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+        """The yield element, send and return types of a generator.
 
-        `Iterator[T]` and `Generator[T, None, None]` send None; a
-        `Generator[T, S, R]` sends S. The return type R is not lowered yet.
+        `Iterator[T]` and `Iterable[T]` send None and return None; a
+        `Generator[T]` is `Generator[T, None, None]`; a `Generator[T, S, R]`
+        sends S and returns R. The return type R is the value a `return v`
+        in the generator body carries into the frame's stop value.
         """
         ann = fn.returns
         if ann is None:
             self.fail(fn, "PS1001", f"{fn.name} needs a return annotation")
         form = self._typing_alias(ann.value) if isinstance(ann, ast.Subscript) else None
         if form not in _GENERATOR_FORMS:
-            self.fail(ann, "PS1001", "a generator is annotated Iterator[T], Iterable[T] or Generator[T, None, None]")
+            self.fail(ann, "PS1001", "a generator is annotated Iterator[T], Iterable[T] or Generator[T, S, R]")
         args = list(ann.slice.elts) if isinstance(ann.slice, ast.Tuple) else [ann.slice]
         send: dict[str, Any] = dict(_NONE)
+        ret: dict[str, Any] = dict(_NONE)
         if form == "Generator":
             if len(args) not in {1, 3}:
                 self.fail(ann, "PS1001", "Generator is Generator[T] or Generator[T, S, R]")
             if len(args) == 3:
-                if not (isinstance(args[2], ast.Constant) and args[2].value is None):
-                    self.fail(ann, "PS2002", "Generator[T, S, R] with a return type is not lowered yet")
                 if not (isinstance(args[1], ast.Constant) and args[1].value is None):
                     send = self._annotation(args[1])
+                if not (isinstance(args[2], ast.Constant) and args[2].value is None):
+                    ret = self._annotation(args[2])
         elif len(args) != 1:
             self.fail(ann, "PS1001", f"{form}[T] takes one type")
-        return self._annotation(args[0]), send
+        return self._annotation(args[0]), send, ret
 
     def _coro_body_sig(self, name: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Signature the body lowers under: a resumable body returns None."""
@@ -418,8 +436,9 @@ class CoroMixin:
         if coroutine:
             elem = self._coro_result(fn)
             send = dict(_NONE)
+            ret = dict(_NONE)
         else:
-            elem, send = self._coro_types(fn)
+            elem, send, ret = self._coro_types(fn)
         shape = _shape_error(fn)
         if shape is not None:
             self.fail(shape[0], "PS2002", shape[1])
@@ -497,6 +516,7 @@ class CoroMixin:
             "",
             send,
             manager,
+            ret,
         )
         return params, outward
 
@@ -545,15 +565,26 @@ class CoroMixin:
                 if isinstance(stmt, ast.AnnAssign):
                     typ = self._annotation(stmt.annotation)
                     self.locals[target.id] = typ
-                stmts.append(_assign(target.id, _name(recv, typ, span), span))
+                if plan.send.get("kind") != "none":
+                    # The recv temp holds the send type (`Generator[T, S, R]`
+                    # sends S), so the target's own type has to accept it. A
+                    # `Generator[T, None, None]` never delivers a value: the
+                    # recv temp reads as the None singleton and the target's
+                    # own type stands.
+                    self._expect(stmt, plan.send, typ, "the sent value")
+                    stmts.append(_assign(target.id, _name(recv, plan.send, span), span))
+                else:
+                    stmts.append(_assign(target.id, _name(recv, typ, span), span))
                 return stmts
             if isinstance(stmt, ast.Return):
                 span = span_of(stmt, self.filename)
-                if plan.kind == "coroutine" and stmt.value is not None:
-                    # The result travels in the frame's `result` field; the
+                if stmt.value is not None and plan.kind in {"coroutine", "generator"}:
+                    # The value travels in the frame: a coroutine in its
+                    # `result` field, a generator in its `stop` field. The
                     # body itself returns None.
-                    value = self._expr(stmt.value, plan.elem)
-                    self._expect(stmt.value, value["type"], plan.elem, "return")
+                    want = plan.elem if plan.kind == "coroutine" else plan.ret
+                    value = self._expr(stmt.value, want)
+                    self._expect(stmt.value, value["type"], want, "return")
                     call = {
                         "kind": "call",
                         "callee": {"kind": "builtin", "name": RETURN_MARKER},
@@ -579,7 +610,16 @@ class CoroMixin:
     ) -> list[dict[str, Any]]:
         span = span_of(stmt, self.filename)
         if node.value is None:
-            value = _const(None, dict(_NONE), span)
+            # A bare `yield` hands None to the consumer, exactly like CPython.
+            # The element type has to accept None: `Iterator[None]` is None
+            # itself, an optional element boxes the None (tag false), and a
+            # non-optional element keeps the fence.
+            if plan.elem.get("kind") == "none":
+                value = _const(None, dict(_NONE), span)
+            elif plan.elem.get("optional"):
+                value = self._opt_box(None, plan.elem, span)
+            else:
+                self.fail(node, "PS2002", "a bare yield needs an Optional element type")
         else:
             value = self._expr(node.value, plan.elem)
             self._expect(node, value["type"], plan.elem, "yield")
@@ -1175,6 +1215,12 @@ class _Frame:
             # ps_loop.c reads the resume cell at a fixed offset.
             fields.append({"name": TASK, "type": _RESUME_FUNC})
         fields.append({"name": RESULT, "type": self.plan.elem})
+        if self.plan.kind == "generator" and self.plan.ret.get("kind") != "none":
+            # The value a `return v` in the generator carries (CPython's
+            # StopIteration.value). Only frames whose annotation spells a
+            # return type carry the field, so layouts that never return a
+            # value stay byte-identical.
+            fields.append({"name": STOP, "type": self.plan.ret})
         if self.plan.send.get("kind") != "none":
             # The value a `send()` delivers into the generator.
             fields.append({"name": SEND, "type": self.plan.send})
@@ -2060,13 +2106,14 @@ class _Frame:
         if kind == "return":
             value = stmt.get("value")
             if _is_return_marker(value):
-                # `return v` in a coroutine: the frame's result field carries
-                # v. Wrapped in an always-true if so the caller keeps a single
-                # statement per input.
+                # `return v`: the frame carries the value — a coroutine in
+                # its `result` field, a generator in its `stop` field — and
+                # completes. Wrapped in an always-true if so the caller
+                # keeps a single statement per input.
                 result = value["args"][0]
                 leave = [
-                    self.field_set(RESULT, result, stmt["span"]),
-                    {"kind": "return", "value": _const(COMPLETE, _INT, stmt["span"]), "span": stmt["span"]},
+                    self.field_set(RESULT if self.plan.kind == "coroutine" else STOP, result, stmt["span"]),
+                    *self.kind.finish(self, stmt["span"]),
                 ]
                 return _if(_const(True, _BOOL, stmt["span"]), leave, [], stmt["span"])
             finish = self.kind.finish(self, stmt["span"])
