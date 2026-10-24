@@ -25,3 +25,27 @@ Cost accepted: the runtime audit. The `str` surface is roughly 9.3k lines of byt
 Where: the plan is `.agents/plans/2026-10-24-codepoint-str-model.md`. The design detail is `.agents/docs/spec/str-model.md` (landed with S1). The epic is issue #472 and the phases are #473 (S1), #474 (S2), #475 (S3), #476 (S4), #477 (S5), #478 (S6) and #479 (S7).
 
 Interim, until the model lands: a compile-time warning fires when a compiled program can emit a non-ASCII byte, and divergence item 3 names the stdout difference. The warning does not change the exit code and does not fence a working program.
+
+## 2026-10-24 The package tiering policy for the blessed list
+
+Decision (owner direction, researched and recorded 2026-10-24): the beta does not chase PyPI compatibility. The compiler builds on the CPython builtin and standard-library subset, and a short blessed list of packages gets a stated surface under exactly one tier each. The tier is the promise made to a beta tester about scope.
+
+The four tiers: T1 compiles the real package from source, unmodified, matching CPython. T2 ships a blessed native pack under the pack format (`.agents/docs/spec/pack-format.md`), the real import name, a subset surface, out of the compiler tree. T3 ships a pyscriptc-native alternative with a CPython-compatible API subset, reached by changing one import line. T4 is out of scope, said plainly.
+
+Two rules bind the policy, and they are what make the promise keepable.
+
+First, a tier is per package, never per feature. A part of a package that is outside its tier's surface is not "partially supported"; the user who needs it is out of scope for that package. A per-feature tier would be a promise nobody can check.
+
+Second, the compiler never approximates a real package. Every name outside a pack's or an alternative's surface fences at compile time with the package name in the reason. This is what makes a conformance suite meaningful: the supported surface is exactly the written surface, and a diff against the real library under CPython covers all of it.
+
+The assignments: `requests` is T1 (epic #428, the pure-Python lane is already open). `orjson` is T2 (the pack format's worked example, #411). `pydantic` is T3 (`pyscriptc-val`, #156). `fastapi` is T3 (`pyscriptc-fastapi`, #231 to #234 under epic #219). `numpy` is T3 (`pyscriptc-ndarray`, #496). `pandas` is T3 (`pyscriptc-frame`, #497). `langchain` is T4.
+
+Why `langchain` is refused: 40 distributions, 7 native extensions, three frameworks deep, and I/O bound against a remote API, so native compilation buys nothing over CPython while every dependency costs fences. Measured fence counts for the rest are in the plan.
+
+Why `pydantic`, `fastapi`, `numpy` and `pandas` are alternatives and not compiled originals: the fence census is dominated by the typing surface (`pydantic` alone is 2565 fences), and `numpy` and `pandas` are ABI-specific wheels, so compiling them is the island tier by another name. The alternatives carry the shapes a compiled program actually wants (validated models, sync routes, a flat typed buffer, a columnar frame) and one import line changes them.
+
+The rejected alternatives: chasing the full typing-introspection surface so the real `pydantic` compiles (real work, recorded on #86 and #88, but it does not unblock the other packages and it cannot compile `pydantic-core`, a Rust extension); an island for `numpy` (links `libpython`, pins the speedup near 1x, and puts the binary back under the boxed ledger); and pretending T4 does not need saying (a tester who asks for `langchain` needs a plain answer, not silence).
+
+What reopens the decision: a package shown to need a second tier (a real-package subset plus an alternative), or a tier surface shown unusable for the archetype it was picked for. A tier change for one package is a new entry, not an edit of this one.
+
+Where: the plan is `.agents/plans/2026-10-24-apps-and-package-strategy.md` (the fence census, the two app archetypes, the grind plan). The probes are `.agents/probes/web_server.py` and `.agents/probes/log_pipeline.py`. The user-facing statement is `docs/guide/packages.md`.
