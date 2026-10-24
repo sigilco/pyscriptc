@@ -55,10 +55,18 @@ def lower_directory(
     ``dep_roots`` are extra module roots (one per unpacked pure-Python
     dependency wheel, issue #398): each lowers into the same merged IR with
     its plain import name, exactly the way a program's sibling modules
-    merge, and a fence inside one refuses the whole compile.
-    ``dep_lane_report`` names the locked dependencies by import name, so a
-    dependency on a lane the compiler cannot take is refused with the
-    distribution and the lane hint.
+    merge. ``dep_lane_report`` names the locked dependencies by import
+    name, so a dependency on a lane the compiler cannot take is refused
+    with the distribution and the lane hint.
+
+    Fences follow the reach rule (issue #424): the program's own units are
+    all-or-nothing, and a dependency unit that the program's import graph
+    reaches refuses the compile with its fence, its code and the
+    distribution that ships it. A dependency unit the program never
+    reaches is pruned: CPython runs a module body only at the import that
+    reaches it, so a body the program never triggers cannot affect the
+    output, and the fences inside the pruned unit are reported in the
+    ``_notes`` list instead of blocking the compile.
     """
 
     units, skipped = _discover(root, program_mode, entry=entry, prefix=prefix)
@@ -66,22 +74,79 @@ def lower_directory(
     dep_units, dep_fences = _discover_dep_roots(dep_roots or [])
     if dep_fences:
         return _fenced_module(root, dep_fences), ""
+    kept, catalogued, pruned = _prune_unreached(units, dep_units, program=program, entry=entry)
     merged, notes = _lower_units(
-        [*units, *dep_units],
+        [*units, *kept],
         root,
         program=program,
         entry=entry,
         bridge=bridge,
         ffi=ffi,
         target=target,
-        dep_names={name for name, _path, _is_package in dep_units},
+        dep_names={name for name, _path, _is_package in kept},
         dep_lane_report=dep_lane_report,
+        catalog_units=catalogued,
     )
     if skipped:
         notes = [*notes, *[_skip_note(root, rel) for rel in skipped]]
+    notes = [*notes, *[_pruned_note(name, path) for name, path, _is_package in pruned]]
+    notes = [*notes, *[_catalogued_note(name, path) for name, path, _is_package in catalogued]]
     if notes:
         merged["_notes"] = notes
     return merged, ""
+
+
+def _prune_unreached(
+    units: list[tuple[str, Path, bool]],
+    dep_units: list[tuple[str, Path, bool]],
+    *,
+    program: bool,
+    entry: str | None,
+) -> tuple[list[tuple[str, Path, bool]], list[tuple[str, Path, bool]], list[tuple[str, Path, bool]]]:
+    """Split the dependency units by how the program's import graph reaches them.
+
+    Three buckets come out:
+
+    * **kept** - the dependency units the entry's import graph reaches.
+      They lower into the program and their fences refuse the compile.
+    * **catalogued** - the dependency units the program's tree references
+      but the entry does not reach. They stay in the export table (the
+      import of an unreached program module binds the way CPython's
+      would), but they do not lower and their fences do not refuse.
+    * **pruned** - the dependency units nothing in the program imports.
+      They are dropped entirely and their fences stop being root fences
+      (issue #424).
+
+    The program's own units are always kept: the whole-tree rule stays for
+    code the user wrote.
+
+    The pruning is sound because of CPython's import-time side effect
+    rule: a module body runs once, at the import that reaches it, and
+    never otherwise. A dependency module the entry never reaches never
+    runs, so its body cannot affect the program's output and a fence
+    inside it cannot change what the compiled program does.
+
+    The reach walk is static and name-based: it follows the same import
+    statements the program plan does, and a dynamic import
+    (`importlib.import_module`, `__import__`) does not lower, so no
+    lowered program can reach past it.
+    """
+
+    if not dep_units:
+        return [], [], []
+    reached = _reachable_modules([*units, *dep_units], _program_seeds(units, program=program, entry=entry))
+    referenced = _reachable_modules([*units, *dep_units], [name for name, _path, _is_package in units])
+    kept: list[tuple[str, Path, bool]] = []
+    catalogued: list[tuple[str, Path, bool]] = []
+    pruned: list[tuple[str, Path, bool]] = []
+    for unit in dep_units:
+        if unit[0] in reached:
+            kept.append(unit)
+        elif unit[0] in referenced:
+            catalogued.append(unit)
+        else:
+            pruned.append(unit)
+    return kept, catalogued, pruned
 
 
 def _lower_units(
@@ -95,16 +160,27 @@ def _lower_units(
     target: str | None,
     dep_names: set[str],
     dep_lane_report: dict[str, dict[str, str]] | None = None,
+    catalog_units: list[tuple[str, Path, bool]] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Lower a set of module units into one IR module.
 
     The units are the program's own modules plus the dependency roots'
     (issue #398), and they share one export table, so a dependency module
-    imports by its plain name exactly like a sibling. Any fence in any unit
-    refuses the whole compile: the whole-tree rule stays.
+    imports by its plain name exactly like a sibling. Any fence in any
+    unit that is still here refuses the whole compile: the pruning in
+    ``lower_directory`` has already dropped the unreached dependency
+    units, so a fence that survives the split is a reached one. A fence
+    inside a reached dependency names the distribution that ships it, so
+    the user knows which dependency to fix.
+
+    ``catalog_units`` are the dependency units the program references but
+    the entry does not reach (issue #424). They contribute their exports
+    to the table, so an import in an unreached program module still
+    binds, but they lower no code and their fences do not refuse: the
+    entry never imports them, so CPython never runs their bodies.
     """
 
-    exports, failed = _catalog(units, program, entry=entry, target=target)
+    exports, failed = _catalog([*units, *(catalog_units or [])], program, entry=entry, target=target)
 
     # A bridge is built per file: mypy's TypeMap covers one module, so a
     # package tree runs the checker once per unit and lowering consults the
@@ -172,6 +248,7 @@ def _lower_units(
                 classes.append(cls)
             fences.extend(module["fences"])
     fences = _promote_definition_fences(fences, failed)
+    fences = _mark_dep_fences(fences, units, dep_names, dep_lane_report)
     merged = {
         "irVersion": 1,
         "subset": SUBSET,
@@ -223,6 +300,158 @@ def _fenced_module(root: Path, fences: list[dict[str, Any]]) -> dict[str, Any]:
         "classes": [],
         "fences": fences,
     }
+
+
+def _program_seeds(units: list[tuple[str, Path, bool]], *, program: bool, entry: str | None) -> list[str]:
+    """The modules a reach walk starts from.
+
+    A program starts at its entry module: that is the code CPython runs,
+    and what it imports is what runs. A library package has no entry, so
+    the whole tree is the seed: every module can be imported by the
+    package's consumer.
+    """
+
+    names = [name for name, _path, _is_package in units]
+    if entry is not None and entry in names:
+        return [entry]
+    if program:
+        mains = [name for name in ("__main__", "main") if name in names]
+        if mains:
+            return mains
+    return names
+
+
+def _reachable_modules(
+    units: list[tuple[str, Path, bool]],
+    seeds: list[str],
+) -> set[str]:
+    """The module names the import graph reaches from the seeds.
+
+    The walk follows the same import statements the program plan does,
+    plus the parent edge a submodule import implies (`import pkg.sub`
+    imports `pkg` first: CPython runs its body before the submodule
+    binds). Only names in the unit table count; every other import is
+    stdlib, a pack or a refused name and never a unit.
+    """
+
+    trees: dict[str, ast.Module] = {}
+    packages: dict[str, bool] = {}
+    for name, path, is_package in units:
+        trees[name] = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        packages[name] = is_package
+    # The reach walk needs the module names, not their exports: an empty
+    # bucket per module is enough for the import resolvers to resolve a
+    # name against the unit table.
+    exports: dict[str, dict[str, dict[str, Any]]] = {name: {} for name in trees}
+
+    def parents_of(name: str) -> list[str]:
+        """The package bodies an import of `name` runs first.
+
+        `import pkg.sub` imports `pkg` before `pkg.sub`: CPython runs the
+        package's body first, so a fence in `pkg/__init__.py` matters even
+        when the program only names the submodule.
+        """
+
+        parts = name.split(".")
+        found: list[str] = []
+        for i in range(1, len(parts)):
+            parent = ".".join(parts[:i])
+            if parent in exports and parent not in found:
+                found.append(parent)
+        return found
+
+    def edges_of(name: str) -> list[str]:
+        found = _program_imports(trees[name], exports, name, packages[name])
+        edges: list[str] = []
+        for target in found:
+            if target not in exports:
+                continue
+            if target not in edges:
+                edges.append(target)
+            for parent in parents_of(target):
+                if parent not in edges:
+                    edges.append(parent)
+        return edges
+
+    reached: set[str] = set()
+    stack: list[str] = []
+    for seed in seeds:
+        if seed in exports and seed not in stack:
+            stack.append(seed)
+        stack.extend(parents_of(seed))
+    while stack:
+        name = stack.pop()
+        if name not in exports or name in reached:
+            continue
+        reached.add(name)
+        stack.extend(edges_of(name))
+    return reached
+
+
+def _pruned_note(name: str, path: Path) -> str:
+    return (
+        f"note: pruned {name} ({path}): the program's import graph does not reach it, "
+        "so its fences do not block the compile"
+    )
+
+
+def _catalogued_note(name: str, path: Path) -> str:
+    return (
+        f"note: unreached {name} ({path}): the program imports it but the entry never reaches it, "
+        "so its fences do not block the compile"
+    )
+
+
+def _dep_distribution(module: str, dep_lane_report: dict[str, dict[str, str]] | None) -> str:
+    """The distribution that ships a dependency module.
+
+    The lane report is keyed by import name (issue #398), and a dependency
+    module's top-level package is the import name the distribution ships
+    under, so the head of the dotted name finds the distribution.
+    """
+
+    if not dep_lane_report:
+        return ""
+    entry = dep_lane_report.get(module.split(".", 1)[0])
+    if entry is None:
+        return ""
+    return entry.get("distribution", "")
+
+
+def _mark_dep_fences(
+    fences: list[dict[str, Any]],
+    units: list[tuple[str, Path, bool]],
+    dep_names: set[str],
+    dep_lane_report: dict[str, dict[str, str]] | None,
+) -> list[dict[str, Any]]:
+    """Name the distribution on a fence that comes from a dependency.
+
+    A fence inside a reached dependency refuses the compile, so the user
+    needs to know which dependency to fix: the fence keeps its own code
+    and gains the distribution that ships the offending module.
+    """
+
+    if not dep_names or not dep_lane_report:
+        return fences
+    by_file: dict[str, str] = {}
+    for name, path, _is_package in units:
+        if name in dep_names:
+            by_file[str(path)] = name
+    if not by_file:
+        return fences
+    out: list[dict[str, Any]] = []
+    for fence in fences:
+        span = fence.get("span") or {}
+        module = by_file.get(span.get("file", ""))
+        if module is None:
+            out.append(fence)
+            continue
+        distribution = _dep_distribution(module, dep_lane_report)
+        message = fence.get("message", "")
+        if distribution and distribution not in message:
+            fence = {**fence, "message": f"{message} ({distribution} ships {module})"}
+        out.append(fence)
+    return out
 
 
 def _program_plan(
@@ -742,8 +971,10 @@ def _discover_dep_roots(roots: list[Path]) -> tuple[list[tuple[str, Path, bool]]
     `src/<sha256>/`), so its top-level packages and modules import under
     their plain names, the way `sys.path` resolves them. A root that is not
     an identifier (a wheel shipping a non-identifier top-level name) is
-    refused with PS3101; a fence inside any root refuses the whole compile,
-    the same whole-tree rule the program tree follows.
+    refused with PS3101. The discovery is structural, before any lowering:
+    a wheel that cannot be named is refused whatever the program imports,
+    while a module-level fence only refuses when the program reaches that
+    module (issue #424, the pruning in `lower_directory`).
     """
 
     units: list[tuple[str, Path, bool]] = []
