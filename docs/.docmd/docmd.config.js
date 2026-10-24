@@ -101,6 +101,7 @@ export default {
         { title: "CLI", path: "/reference/cli/" },
         { title: "Config", path: "/reference/config/" },
         { title: "Divergences from CPython", path: "/reference/divergences/" },
+        { title: "First-class scripts", path: "/reference/first-class-scripts/" },
         { title: "What will fail", path: "/reference/what-will-fail/" },
       ],
     },
