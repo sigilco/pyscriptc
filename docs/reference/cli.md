@@ -21,7 +21,7 @@ pyscriptc compile FILE [options]
 
 | Flag | Effect |
 | ---- | ------ |
-| `--emit ir\|llvm\|asm\|obj\|bin\|lib` | Stop after JSON IR, textual LLVM, assembly (`.s`), an object (`.o`), a linked binary, or a static library (default `llvm`) |
+| `--emit ir\|llvm\|asm\|obj\|bin\|lib\|binding` | Stop after JSON IR, textual LLVM, assembly (`.s`), an object (`.o`), a linked binary, a static library, or a ctypes binding (default `llvm`) |
 | `--out-dir DIR` | Write artifacts to `DIR/<source name>` instead of beside the source; use for directory compiles |
 | `-o PATH` | Output path; defaults to the source stem |
 | `--call FUNC` | Emit a `main` that calls `FUNC` and prints its return |
@@ -32,7 +32,8 @@ pyscriptc compile FILE [options]
 | `--linker clang\|zig` | Driver for the final link step only (env `PYSC_LINKER`, defaults to `--driver`) |
 | `--target TRIPLE` | Cross-compile triple for `zig cc`, e.g. `aarch64-linux-gnu.2.39` (env `PYSC_TARGET`) |
 | `--emit lib` | Build a static library instead of a binary; needs a mobile `--target` (`aarch64-apple-ios`, `aarch64-apple-ios-simulator`, `aarch64-linux-android`); see below |
-| `--sanitize LIST` | Comma list of sanitizers for the C runtime and emitted code, e.g. `address,undefined` (env `PYSC_SANITIZE`); needs `--emit bin` |
+| `--emit binding` | Compile a shared library and emit a ctypes loader module next to it; see below |
+| `--sanitize LIST` | Comma list of sanitizers for the C runtime and emitted code, e.g. `address,undefined` (env `PYSC_SANITIZE`); needs `--emit bin` or `--emit binding` |
 | `--skip-check` | Skip the type-checker preflight |
 | `--ffi MANIFEST` | Bind a typed extern manifest (TOML) and link its C sources; repeatable. Also read from the `ffi` key of the config or PEP 723 metadata |
 | `--checker pyrefly\|mypy\|pyright` | Preflight checker (default `pyrefly`; mypy and pyright are deprecated) |
@@ -58,6 +59,16 @@ The exported surface is exactly `pyscriptc_init` plus `pyscriptc_main`; everythi
 Android consumers must link the archive into a shared object carrying `-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384` (the Google Play 16 KB rule for Android 15+). The archive itself has no program headers, so the flags belong to the shared-object link.
 
 `--emit bin` and `--run` refuse mobile targets with `PS4101` (see `pyscriptc explain PS4101`).
+
+### CPython ctypes bindings (`--emit binding`)
+
+```sh
+pyscriptc compile FILE --emit binding [-o OUT]
+```
+
+`--emit binding` compiles the typed module and the C runtime into a shared library (`.so`, `.dylib`, or `.dll`) and writes `<name>_binding.py` next to it. The loader module uses `ctypes.CDLL` to expose top-level typed functions directly to CPython without requiring `Python.h` or extension modules.
+
+First-cut scope covers top-level functions with `int`, `float`, `bool` parameters and returns (including `None` return). Any unsupported function, parameter type, return type, or class is skipped with a named note in the generated module docstring and a nonzero count in the compile summary (`summary.json`).
 
 ## `run`
 

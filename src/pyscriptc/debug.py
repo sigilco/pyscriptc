@@ -67,6 +67,15 @@ class Debug:
         # verifier over the emitted text.
         self.ir_verifications: list[dict[str, Any]] = []
         self.llvm_verification: dict[str, Any] | None = None
+        self.binding_info: dict[str, Any] | None = None
+
+    def set_binding(self, emitted: list[dict[str, Any]], skipped: list[tuple[str, str]]) -> None:
+        self.binding_info = {
+            "emitted": [fn["name"] for fn in emitted],
+            "emittedCount": len(emitted),
+            "skipped": [{"name": name, "reason": reason} for name, reason in skipped],
+            "skippedCount": len(skipped),
+        }
 
     def wants(self, topic: str) -> bool:
         return "all" in self.topics or topic in self.topics
@@ -139,10 +148,15 @@ class Debug:
                     lines.append(f"[debug] llvmverify: ok ({result.get('tool')})")
                 else:
                     lines.append(f"[debug] llvmverify: {result.get('tool')}: {result.get('message')}")
+        if self.binding_info is not None and self.wants("stages"):
+            lines.append(
+                f"[debug] binding: {self.binding_info['emittedCount']} exported, "
+                f"{self.binding_info['skippedCount']} skipped"
+            )
         return "\n".join(lines)
 
     def summary(self, module: dict[str, Any] | None, outputs: dict[str, str], status: str) -> dict[str, Any]:
-        return {
+        res: dict[str, Any] = {
             "stages": [{"name": name, "ms": round(ms, 3)} for name, ms in self.stages],
             "timings": self.timings(),
             "totalMs": round((time.perf_counter() - self._t0) * 1000.0, 3),
@@ -157,6 +171,11 @@ class Debug:
                 "llvm": self.llvm_verification,
             },
         }
+        if self.binding_info is not None:
+            res["binding"] = self.binding_info
+            if self.binding_info.get("skippedCount", 0) > 0:
+                res["bindingSkipped"] = self.binding_info["skippedCount"]
+        return res
 
     def write_dir(
         self,

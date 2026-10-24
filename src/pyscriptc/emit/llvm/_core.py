@@ -72,10 +72,21 @@ class CoreMixin:
         # `--emit lib` state: definitions are hidden and the module entry is
         # the exported `pyscriptc_main` instead of a process `main`.
         self.library = False
+        # `--emit binding` state: definitions have default visibility and the
+        # module entry is the exported `pyscriptc_main`.
+        self.binding = False
 
-    def emit(self, call: str | None, args: list[Any], standalone: bool = False, library: bool = False) -> str:
+    def emit(
+        self,
+        call: str | None,
+        args: list[Any],
+        standalone: bool = False,
+        library: bool = False,
+        binding: bool = False,
+    ) -> str:
         self.class_index = {cls["name"]: cls for cls in self.module.get("classes", [])}
         self.library = library
+        self.binding = binding
         for cls in self.module.get("classes", []):
             body = "i8" if not cls["fields"] else ", ".join(_llvm_field_type(field["type"]) for field in cls["fields"])
             self.globals.append(f"%cls.{cls['name']} = type {{ {body} }}")
@@ -88,7 +99,7 @@ class CoreMixin:
             for method in cls["methods"]:
                 self.emit_function(self.functions[f"cls.{cls['name']}.{method['name']}"])
         if call is not None:
-            self.emit_main(call, args, library=library)
+            self.emit_main(call, args, library=library or binding)
         elif standalone:
             # A script's synthesized entry (E1 item 1) is the program: run it
             # in source order. A definition-only module keeps the no-op main.
@@ -102,8 +113,8 @@ class CoreMixin:
                 self._emit_exc_registrations()
                 self.line("ret i32 0")
                 self.out.extend(["}", ""])
-        elif library:
-            # `--emit lib`: the module entry becomes an exported
+        elif library or binding:
+            # `--emit lib` / `--emit binding`: the module entry becomes an exported
             # pyscriptc_main instead of a process main. A definition-only
             # module still defines it: the host gets an entry that
             # initializes and returns 0, so the ABI does not depend on the
