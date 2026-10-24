@@ -359,6 +359,13 @@ class StdlibDispatchMixin:
                 self._bind_pkg_module(local, child, stmt, fences)
                 continue
             if module in package:
+                if module != self.module_name and child in package and alias.name not in package.get(module, {}):
+                    # CPython's submodule fallback: `from pkg.sub import blob`
+                    # with no `blob` export in `pkg.sub` imports the module
+                    # `pkg.sub.blob` and binds it. The import runs the
+                    # submodule's body, so the unit must be kept too.
+                    self._bind_pkg_module(local, child, stmt, fences)
+                    continue
                 self._bind_one_export(module, alias.name, local, stmt, fences)
                 continue
             fences.append(
