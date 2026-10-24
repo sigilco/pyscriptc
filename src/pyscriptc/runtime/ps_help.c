@@ -45,15 +45,28 @@ int64_t ps_sum_i64(PsSeq *s) {
     return acc;
 }
 
+/* CPython's `sum` over floats is a Neumaier compensated sum (the `float_sum`
+   path in CPython's bltinmodule.c): the low-order bits a plain fold loses ride
+   in a compensation term flushed at the end, which is what makes
+   `sum([0.1, 0.2, 0.3])` spell `0.6` and `sum([1e16, 1.0, -1e16])` come out
+   `1.0`. */
 double ps_sum_f64(PsSeq *s) {
     double acc = 0;
+    double comp = 0;
     int64_t i;
     for (i = 0; i < s->len; i++) {
         double item;
+        double total;
         memcpy(&item, (char *)s->data + (size_t)i * (size_t)s->elem, sizeof item);
-        acc += item;
+        total = acc + item;
+        if (fabs(acc) >= fabs(item)) {
+            comp += (acc - total) + item;
+        } else {
+            comp += (item - total) + acc;
+        }
+        acc = total;
     }
-    return acc;
+    return acc + comp;
 }
 
 static int ps_cmp_i64(const void *a, const void *b) {
@@ -194,18 +207,137 @@ static int64_t ps_half_even(double x) {
 
 int64_t ps_round_i64(double x) { return ps_half_even(x); }
 
+/* CPython rounds the exact binary value of `x` (its `_Py_dg_dtoa` path), so
+   `round(2.675, 2)` is `2.67`: the double nearest 2.675 is really
+   2.67499999..., and scaling before rounding amplifies that representation
+   error instead. The exact-decimal algorithm here reads the exact decimal
+   expansion of the double from a 55-digit `%.*e` spelling (17 significant
+   digits plus the exponent slack covers every nd in 0..8), cuts at the nd-th
+   decimal place, and rounds the exact remainder half-to-even with a carry
+   walk, which is CPython's answer for every in-range double. Bounds stay a
+   runtime check: constant ndigits outside 0..8 fences at compile time, and a
+   variable ndigits still needs the runtime. */
 double ps_round_nd(double x, int64_t nd) {
-    double scale;
-    int64_t rounded;
+    char tmp[96];
+    char digits[96];
+    char out[96];
+    int exp10;
+    int keep;
+    int len;
+    int drop;
+    int nonzero;
+    int carry;
+    const char *mant;
     if (nd < 0 || nd > 8) {
         ps_raise_cstr(PS_VALUE, "round ndigits is out of the lowered range");
     }
     if (!isfinite(x)) {
         ps_raise_cstr(PS_VALUE, "cannot round this float");
     }
-    scale = pow(10.0, (double)nd);
-    rounded = ps_half_even(x * scale);
-    return (double)rounded / scale;
+    if (nd == 0) {
+        return (double)ps_half_even(x);
+    }
+    /* Exact mantissa: %.55e gives the full binary-to-decimal expansion,
+       56 significant digits (one before the point, 55 after). */
+    snprintf(tmp, sizeof tmp, "%.55e", x);
+    mant = tmp[0] == '-' ? tmp + 1 : tmp;
+    exp10 = 0;
+    sscanf(strchr(tmp, 'e') + 1, "%d", &exp10);
+    /* digits: the 56 mantissa digits with the '.' dropped. */
+    digits[0] = mant[0];
+    memcpy(digits + 1, mant + 2, 55);
+    digits[56] = '\0';
+    /* Index of the last kept digit: the 10^-nd place sits nd digits right
+       of the 10^0 digit, which is mantissa index exp10. */
+    keep = exp10 + (int)nd + 1;
+    if (keep <= 0) {
+        /* The cut sits at or left of the first digit. For magnitudes near
+           1.0 (1e-05 at nd=2) scaling is exact while the mantissa is short;
+           for deep subnormals-and-beyond magnitudes CPython rounds to its
+           signed zero, so the sign of x is the answer. */
+        if (x == 0.0) {
+            return x;
+        }
+        if (x < 0.0) {
+            if (-exp10 <= 16) {
+                return -((double)ps_half_even(-x * pow(10.0, (double)nd))) / pow(10.0, (double)nd);
+            }
+            return -0.0;
+        }
+        if (-exp10 <= 16) {
+            return (double)ps_half_even(x * pow(10.0, (double)nd)) / pow(10.0, (double)nd);
+        }
+        return 0.0;
+    }
+    if (keep >= 56) {
+        return x; /* the cut sits beyond the exact expansion */
+    }
+    /* Half-to-even: round up on a remainder above half, or exactly half
+       with an odd last kept digit. */
+    nonzero = 0;
+    for (int i = keep + 1; i < 56; i++) {
+        if (digits[i] != '0') {
+            nonzero = 1;
+            break;
+        }
+    }
+    drop = digits[keep] - '0';
+    snprintf(out, sizeof out, "%.*s", keep, digits);
+    carry = drop > 5 || (drop == 5 && (nonzero || (out[keep - 1] - '0') % 2 == 1));
+    len = keep;
+    while (carry && len > 0) {
+        if (out[len - 1] == '9') {
+            out[len - 1] = '0';
+            len--;
+        } else {
+            out[len - 1] = (char)(out[len - 1] + 1);
+            carry = 0;
+        }
+    }
+    if (carry) {
+        /* Every kept digit was a 9 (0.999 -> 1.0): the 9.99 -> 10.0 shift
+           moved the point one place right. */
+        memmove(out + 1, out, (size_t)keep);
+        out[0] = '1';
+        keep += 1;
+        exp10 += 1;
+    }
+    /* Reassemble with the '.' at exp10+1 and the sign. */
+    {
+        char full[112];
+        int at = 0;
+        if (x < 0) {
+            full[at++] = '-';
+        }
+        if (exp10 >= 0) {
+            int whole = exp10 + 1;
+            if (whole >= keep) {
+                memcpy(full + at, out, (size_t)keep);
+                at += keep;
+                for (int i = 0; i < whole - keep; i++) {
+                    full[at++] = '0';
+                }
+                full[at] = '\0';
+            } else {
+                memcpy(full + at, out, (size_t)whole);
+                at += whole;
+                full[at++] = '.';
+                memcpy(full + at, out + whole, (size_t)(keep - whole));
+                at += keep - whole;
+                full[at] = '\0';
+            }
+        } else {
+            full[at++] = '0';
+            full[at++] = '.';
+            for (int i = 0; i < -exp10 - 1; i++) {
+                full[at++] = '0';
+            }
+            memcpy(full + at, out, (size_t)keep);
+            at += keep;
+            full[at] = '\0';
+        }
+        return strtod(full, NULL);
+    }
 }
 
 void ps_warn(int64_t n, const char *s) {
