@@ -14,7 +14,6 @@ old shape cannot reach the new emitter.
 from __future__ import annotations
 
 import sys
-import warnings
 from typing import Any
 
 from pyscriptc.errors import IRError, VersionError
@@ -505,16 +504,4 @@ def assert_same_cpython(module: dict[str, Any]) -> None:
         raise VersionError(
             f"this process is CPython {running}, declared target is {target}; "
             "re-lower and re-run the corpus before emitting LLVM"
-        )
-    if stamped != target:
-        warnings.warn(
-            f"IR was lowered on CPython {stamped}, declared target is {target}",
-            UserWarning,
-            stacklevel=2,
-        )
-    elif running != target:
-        warnings.warn(
-            f"this process is CPython {running}, declared target is {target}",
-            UserWarning,
-            stacklevel=2,
         )

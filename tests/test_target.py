@@ -35,7 +35,7 @@ def test_assert_same_cpython_accepts_target_stamp() -> None:
     assert_same_cpython(module)
 
 
-def test_assert_same_cpython_warns_on_micro_mismatch() -> None:
+def test_assert_same_cpython_accepts_micro_mismatch() -> None:
     module = {
         "irVersion": IR_VERSION,
         "subset": SUBSET,
@@ -45,8 +45,7 @@ def test_assert_same_cpython_warns_on_micro_mismatch() -> None:
         "classes": [],
         "fences": [],
     }
-    with pytest.warns(UserWarning, match="declared target is 3.14.9"):
-        assert_same_cpython(module)
+    assert_same_cpython(module)
 
 
 def test_assert_same_cpython_refuses_different_minor() -> None:

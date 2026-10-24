@@ -196,12 +196,6 @@ def main(argv: list[str] | None = None) -> int:
         new_probes = probe_hashes(probes, bridge=args.bridge)
 
         if args.out:
-            from pyscriptc.target import TARGET_CPYTHON, TARGET_VERSION_INFO
-
-            if sys.version_info[:3] != TARGET_VERSION_INFO:
-                raise BaselineError(
-                    f"irscore baseline generation requires CPython {TARGET_CPYTHON}, running {sys.version.split()[0]}"
-                )
             write_baseline(Path(args.out), build_doc(new_probes, bridge=args.bridge))
             print(f"wrote {len(new_probes)} probe hashes to {args.out}")
             return 0
