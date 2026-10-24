@@ -72,6 +72,7 @@ def emit_llvm(
     standalone: bool = False,
     debug_info: bool = False,
     library: bool = False,
+    binding: bool = False,
     wasm: bool = False,
 ) -> str:
     """With `standalone` and no `call`, main does nothing: module level code is not lowered.
@@ -80,6 +81,10 @@ def emit_llvm(
     `pyscriptc_main` that initializes the runtime and runs the module entry,
     and default visibility on the exported symbols while everything else
     stays hidden.
+
+    `binding` is the `--emit binding` shape: no `main`, an exported
+    `pyscriptc_main` that initializes runtime state, with default visibility
+    on function definitions so the shared library exports them.
 
     `wasm` targets the WASI command ABI: the entry becomes `@__main_argc_argv`
     and `%.*s` printf lengths truncate to i32 (wasm32 varargs are 32-bit).
@@ -90,7 +95,9 @@ def emit_llvm(
     if not module["functions"]:
         raise IRError("module has no functions to emit")
     dwarf = DwarfEmitter(module["sourceFile"]) if debug_info else None
-    return Emitter(module, dwarf, wasm=wasm).emit(call, [] if args is None else args, standalone, library=library)
+    return Emitter(module, dwarf, wasm=wasm).emit(
+        call, [] if args is None else args, standalone, library=library, binding=binding
+    )
 
 
 def sanitize_flags(sanitize: list[str] | None) -> list[str]:
@@ -158,6 +165,7 @@ def link_binary(
     link_units: list[Path] | None = None,
     link_flags: list[str] | None = None,
     include_dirs: list[Path] | None = None,
+    shared: bool = False,
 ) -> None:
     """Link `.ll` text plus the C runtime into `output`.
 
@@ -238,6 +246,7 @@ def link_binary(
         output = output.with_suffix(".wasm")
     san_flags = sanitize_flags(sanitize)
     dbg_flags = ["-g"] if debug_info else []
+    pic_flags = ["-fPIC"] if shared else []
     tail = [*san_flags, "-lm", "-o", str(output)]
     if "ps_island_" in text:
         if target is not None:
@@ -287,6 +296,7 @@ def link_binary(
     ll_argv = [
         *cc.split(),
         "-O2",
+        *pic_flags,
         *wasm_flags,
         *dbg_flags,
         *san_flags,
@@ -312,7 +322,7 @@ def link_binary(
     manifest_sources = frozenset(ffi_sources)
     for source in sources:
         src = Path(source)
-        flags = ["-O2", *wasm_flags, *san_flags, *target_flags]
+        flags = ["-O2", *pic_flags, *wasm_flags, *san_flags, *target_flags]
         extra_dirs: tuple[Path, ...] = ()
         if source in manifest_sources:
             flags.extend(ffi_include_flags)
@@ -342,8 +352,10 @@ def link_binary(
         # no -O on the link line: it is a compile flag and zig's Mach-O
         # driver crashes on it (0.16.0)
         link_cc = ("zig cc" if link_driver == "zig" else link_driver) if link_driver else cc
+        link_mode = ["-shared"] if shared else []
         argv = [
             *_cc_argv(link_cc),
+            *link_mode,
             *objects,
             *ffi_archives,
             *target_flags,

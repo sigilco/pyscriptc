@@ -74,7 +74,7 @@ def main(argv: list[str] | None = None) -> int:
         "entry point even when the directory has an `__init__.py`, and its modules are "
         "namespaced under the directory name",
     )
-    compile_parser.add_argument("--emit", choices=("ir", "llvm", "asm", "obj", "bin", "lib"), default="llvm")
+    compile_parser.add_argument("--emit", choices=("ir", "llvm", "asm", "obj", "bin", "lib", "binding"), default="llvm")
     compile_parser.add_argument(
         "--out-dir",
         metavar="DIR",
@@ -1060,8 +1060,11 @@ def _require_sanitize(args: argparse.Namespace) -> list[str]:
     names = _sanitize_list(getattr(args, "sanitize", None))
     if not names:
         return []
-    if args.emit != "bin":
-        raise IRError(f"--sanitize needs a linked binary, so it works with --emit bin only (got --emit {args.emit})")
+    if args.emit not in ("bin", "binding"):
+        raise IRError(
+            "--sanitize needs a linked binary or shared library, "
+            f"so it works with --emit bin/binding only (got --emit {args.emit})"
+        )
     if args.target is not None:
         raise IRError("--sanitize cannot cross-compile: the sanitizer runtime must match the host")
     return names
@@ -1117,7 +1120,7 @@ def _require_mobile_refusals(args: argparse.Namespace) -> None:
 
 def _require_toolchain(args: argparse.Namespace) -> None:
     """Fail before any work when the requested output needs a C driver that is not on PATH."""
-    if not (args.run or args.emit in ("asm", "obj", "bin", "lib")):
+    if not (args.run or args.emit in ("asm", "obj", "bin", "lib", "binding")):
         return
     if args.emit == "lib":
         # The library mode resolves its own toolchain (the Xcode SDK clang or
@@ -1346,6 +1349,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             standalone=args.emit == "bin",
             debug_info=debug_info,
             library=args.emit == "lib",
+            binding=args.emit == "binding",
             wasm=bool(args.target and args.target.startswith("wasm32")),
         )
         dbg.end("emit_llvm")
@@ -1399,6 +1403,52 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                     + " ".join(ANDROID_PAGE_FLAGS)
                     + " (Google Play 16 KB page rule)"
                 )
+            return 0
+        if args.emit == "binding":
+            from pyscriptc import binding
+
+            state["stage"] = "binding"
+            dbg.begin("binding")
+            base = Path(args.output) if args.output else _artifact_base(args, source_path)
+            stem = base.stem.removesuffix("_binding")
+            shlib_name = binding.shared_library_name(stem, target=args.target)
+            shlib_path = base.parent / shlib_name
+            binding_path = base.parent / f"{stem}_binding.py"
+
+            link_binary(
+                ll_path,
+                shlib_path,
+                driver=args.driver or "clang",
+                target=args.target,
+                record=dbg.commands,
+                link_driver=args.linker,
+                sanitize=sanitize,
+                timings=dbg.timings_map,
+                debug_info=debug_info,
+                compile_units=[unit for manifest in manifests for unit in manifest.compile_units()],
+                link_units=[unit for manifest in manifests for unit in manifest.link_units()],
+                link_flags=[flag for manifest in manifests for flag in manifest.link_flags()],
+                include_dirs=[manifest.path.parent for manifest in manifests if manifest.sources],
+                shared=True,
+            )
+
+            emitted, skipped = binding.analyze_binding(module)
+            dbg.set_binding(emitted, skipped)
+            binding_code = binding.render_binding_module(stem, shlib_name, emitted, skipped)
+            binding_path.parent.mkdir(parents=True, exist_ok=True)
+            binding_path.write_text(binding_code, encoding="utf-8")
+
+            outputs["shared"] = str(shlib_path)
+            outputs["binding"] = str(binding_path)
+            log.info(
+                "emit.binding",
+                output=str(binding_path),
+                shared=str(shlib_path),
+                emitted=len(emitted),
+                skipped=len(skipped),
+            )
+            dbg.end("binding")
+            print(binding_path)
             return 0
         if args.emit in ("asm", "obj"):
             suffix = ".s" if args.emit == "asm" else ".o"
@@ -1651,6 +1701,10 @@ def _output_path(args: argparse.Namespace, source: Path, suffix: str) -> Path:
         return Path(args.output)
     if args.output and args.emit == "obj" and suffix == ".o":
         return Path(args.output)
+    if args.output and args.emit == "binding":
+        base = Path(args.output)
+        stem = base.stem.removesuffix("_binding")
+        return base.parent / f"{stem}{suffix}"
     if args.output:
         return Path(str(args.output) + suffix)
     if args.out_dir:

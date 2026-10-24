@@ -21,8 +21,8 @@ class FuncsMixin:
         symbol = _fn_symbol(fn["name"])
         # In library mode only pyscriptc_main is exported; every other
         # definition is hidden, so an app link does not inherit the whole
-        # module namespace.
-        visibility = "hidden " if self.library else ""
+        # module namespace. In binding mode, definition symbols remain visible.
+        visibility = "hidden " if (self.library and not self.binding) else ""
         define = f"define {visibility}{ret} @{symbol}({', '.join(plist)})"
         if self.dwarf is not None:
             self.dwarf.enter_function(fn["name"], symbol, fn["span"], fn["params"], fn["returnType"], env="env" in fn)
