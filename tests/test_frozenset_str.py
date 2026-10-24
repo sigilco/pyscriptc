@@ -44,11 +44,6 @@ def test_frozenset_str_stays_fenced(tmp_path: Path) -> None:
             "call to frozenset is not lowered",
         ),
         (
-            "wide.py",
-            'CHARS = frozenset("\\u0100")\n\ndef probe() -> int:\n    return len(CHARS)\n',
-            "string literals outside Latin-1 are not lowered",
-        ),
-        (
             "add.py",
             (
                 'CHARS = frozenset(".0")\n'

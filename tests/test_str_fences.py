@@ -1,9 +1,9 @@
-"""The PS2005 fence cases from the str-model plan, diffed against CPython.
+"""The S2 lowering reality: non-ASCII lowers, lone surrogates fence.
 
-Each case pairs the compiler's report with CPython 3.14's answer for the
-same source: the fence defects are about what the compiler *reports*, and
-the CPython side pins what a correct report protects (the string's code
-points, which is why each case names the code point CPython sees).
+The Latin-1 fence and the interim PSW2005 warning are gone (issue #474):
+a str literal is a code-point sequence stored UTF-8, so any scalar code
+point lowers and only a lone surrogate has no bytes to store. These tests
+pin the new behavior and the CPython agreement behind it.
 """
 
 from __future__ import annotations
@@ -35,66 +35,92 @@ def _cpython_value(source: str) -> str:
     return got.stdout.strip()
 
 
-def test_defect_1_one_fence_not_two() -> None:
-    """`s` binds when its value fences, so `return s` adds no second fence."""
-    source = f"def f() -> str:\n    s: str = 'price: {EUR}5'\n    return s\n"
-    assert _codes(source) == [("PS2005", 2)]
-
-
-def test_defect_1_cascade_still_gone_with_later_reads(tmp_path: Path) -> None:
-    path = write_case(tmp_path, "one.py", f"def f() -> str:\n    s: str = 'price: {EUR}5'\n    return s\n")
-    got = run_cli("coverage", str(path))
-    assert got.returncode == 0, got.stderr
-    assert got.stdout.count("PS2002") == 0
-    assert "PS2005" in got.stdout
-
-
-def test_defect_2_eval_fold_fences_not_masks() -> None:
-    """`eval("'<non-latin1>'")` reports PS2005, not a misleading eval fence."""
-    source = f"def f() -> str:\n    return eval(\"'{EUR}'\")\n"
-    assert _codes(source) == [("PS2005", 2)]
-
-
-def test_defect_2_fold_result_fences() -> None:
-    """A fold whose CPython result is non-Latin-1 (ord of a char above 255) fences."""
-    value = _cpython_value("'\\u20ac'")
-    assert value == EUR
-    source = f"def f() -> str:\n    return chr(ord('{EUR}'))\n"
-    assert _codes(source) == [("PS2005", 2)]
-
-
-def test_defect_2_repr_of_non_latin1_fences() -> None:
-    source = f"def f() -> str:\n    return repr('{EUR}')\n"
-    assert _codes(source) == [("PS2005", 2)]
-
-
-def test_latin1_literal_is_not_a_fence_yet() -> None:
-    """`é` is inside Latin-1, so it lowers; the divergence is item 3, not a fence."""
-    source = f"def f() -> str:\n    s: str = '{CAFE}'\n    return s\n"
+def test_non_ascii_literal_lowers_clean() -> None:
+    """`é` and `€` are code points with UTF-8 bytes: they lower, no fence."""
+    source = f"def f() -> str:\n    s: str = 'price: {EUR}5 {CAFE}'\n    return s\n"
     assert _codes(source) == []
 
 
-def test_non_latin1_literal_direct_fence() -> None:
-    source = f"def f() -> str:\n    return '{EUR}'.upper()\n"
+def test_only_lone_surrogates_fence() -> None:
+    """A lone surrogate has no UTF-8 bytes: PS2005 at the literal."""
+    source = "def f() -> str:\n    return '\\ud800'.upper()\n"
     assert _codes(source) == [("PS2005", 2)]
 
 
-def test_cpython_sees_the_code_points(tmp_path: Path) -> None:
+def test_paired_surrogate_escape_is_alone() -> None:
+    """Two escapes are two lone surrogates: CPython also refuses to encode."""
+    source = "def f() -> str:\n    return '\\ud83d\\ude00'\n"
+    assert _codes(source) == [("PS2005", 2)]
+
+
+def test_cascade_gone_with_later_reads(tmp_path: Path) -> None:
+    """`s` binds when its value lowers, so `return s` adds no fence."""
+    path = write_case(tmp_path, "one.py", f"def f() -> str:\n    s: str = 'price: {EUR}5'\n    return s\n")
+    got = run_cli("coverage", str(path))
+    assert got.returncode == 0, got.stderr
+    assert got.stdout.count("PS2005") == 0
+    assert got.stdout.count("PS2002") == 0
+
+
+def test_eval_fold_of_non_ascii_lowers() -> None:
+    """`eval("'<non-ascii>'")` folds to the str constant and lowers."""
+    source = f"def f() -> str:\n    return eval(\"'{EUR}'\")\n"
+    assert _codes(source) == []
+
+
+def test_ord_chr_of_non_ascii_lowers() -> None:
+    """`chr(ord('€'))` folds through CPython's answer and lowers."""
+    value = _cpython_value("'\\u20ac'")
+    assert value == EUR
+    source = f"def f() -> str:\n    return chr(ord('{EUR}'))\n"
+    assert _codes(source) == []
+
+
+def test_repr_of_non_ascii_lowers() -> None:
+    source = f"def f() -> str:\n    return repr('{EUR}')\n"
+    assert _codes(source) == []
+
+
+def test_non_ascii_method_calls_lower() -> None:
+    """The methods the S2 runtime owns lower on non-ASCII operands."""
+    for expr, typ in (
+        (f"'{CAFE}'.upper()", "str"),
+        (f"'{EUR}'.lower()", "str"),
+        (f"'{CAFE}'.find('f')", "int"),
+        (f"len('{CAFE}')", "int"),
+        (f"'{CAFE}'[1]", "str"),
+        (f"'{CAFE}'.startswith('caf')", "bool"),
+        (f"'{CAFE}'.replace('f', 'g')", "str"),
+    ):
+        assert _codes(f"def f() -> {typ}:\n    return {expr}\n") == []
+
+
+def test_cpython_sees_the_code_points() -> None:
     """The CPython side of the differential: the same literals are code points."""
     assert len(ast.literal_eval(f"'{CAFE}'")) == 4
     assert _cpython_value(f"'{CAFE}'.upper()") == CAFE.upper()
     assert _cpython_value("'\\u20ac'") == EUR
 
 
-def test_compile_exits_3_with_one_fence(tmp_path: Path) -> None:
+def test_compile_exits_zero_with_no_fence(tmp_path: Path) -> None:
     path = write_case(tmp_path, "one.py", f"def f() -> str:\n    s: str = 'price: {EUR}5'\n    return s\n")
     got = run_cli("compile", str(path), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "o.json"))
-    assert got.returncode == 3
-    assert got.stderr.count("PS2005") == 1
+    assert got.returncode == 0, got.stderr
+    assert "PS2005" not in got.stderr
     assert "PS2002" not in got.stderr
 
 
-def test_latin1_program_still_compiles_clean(tmp_path: Path) -> None:
-    path = write_case(tmp_path, "one.py", f"def f() -> str:\n    return '{CAFE}'.upper()\n")
+def test_surrogate_fence_exits_3(tmp_path: Path) -> None:
+    path = write_case(tmp_path, "one.py", "def f() -> str:\n    return '\\ud800'\n")
     got = run_cli("compile", str(path), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "o.json"))
-    assert got.returncode == 0, got.stderr
+    assert got.returncode == 3
+    assert got.stderr.count("PS2005") == 1
+    assert "PSW2005" not in got.stderr
+
+
+def test_ir_carries_the_utf8_constant(tmp_path: Path) -> None:
+    """The IR's str constant is the code-point text, no warning key."""
+    source = f"def f() -> str:\n    return '{CAFE}'\n"
+    module = lower_source(source, "one.py")
+    assert module["fences"] == []
+    assert "warnings" not in module

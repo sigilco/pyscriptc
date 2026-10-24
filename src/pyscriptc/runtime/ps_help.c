@@ -130,10 +130,38 @@ PsSeq *ps_sorted_f64(PsSeq *s) { return ps_sorted(s, ps_cmp_f64); }
 PsSeq *ps_sorted_buf(PsSeq *s) { return ps_sorted(s, ps_cmp_buf); }
 
 int64_t ps_ord(int64_t n, const char *s) {
-    if (n != 1) {
+    /* The one code point of a 1-length str: decode its UTF-8 bytes. The
+       argument check is on the code-point count (a non-continuation byte
+       count of 1), not the byte length, so `ord("é")` takes the two-byte
+       path and `ord("ab")` still raises. */
+    int64_t chars = 0;
+    for (int64_t i = 0; i < n; i++) {
+        chars += ((unsigned char)s[i] & 0xC0) != 0x80;
+    }
+    if (chars != 1) {
         ps_raise_cstr(PS_VALUE, "ord() expected a character");
     }
-    return (unsigned char)s[0];
+    unsigned char c = (unsigned char)s[0];
+    if (c < 0x80) {
+        return c;
+    }
+    int w = ps_utf8_len(c);
+    uint32_t cp;
+    switch (w) {
+    case 2:
+        cp = (uint32_t)(c & 0x1F);
+        break;
+    case 3:
+        cp = (uint32_t)(c & 0x0F);
+        break;
+    default:
+        cp = (uint32_t)(c & 0x07);
+        break;
+    }
+    for (int k = 1; k < w && k < n; k++) {
+        cp = (cp << 6) | (uint32_t)((unsigned char)s[k] & 0x3F);
+    }
+    return (int64_t)cp;
 }
 
 /* int(bytes): base 10, CPython's surrounding-whitespace strip, optional
@@ -173,12 +201,34 @@ int64_t ps_int_from_bytes(int64_t n, const char *s) {
 }
 
 void ps_chr(int64_t c, PsBuf *out) {
-    char buf[1];
-    if (c < 0 || c > 127) {
-        ps_raise_cstr(PS_VALUE, "chr is ASCII in this subset");
+    /* Full-range chr: encode the code point as UTF-8, matching CPython for
+       every scalar (0..0x10FFFF); lone surrogates raise, like CPython. */
+    char buf[4];
+    if (c < 0 || c > 0x10FFFF || (c >= 0xD800 && c <= 0xDFFF)) {
+        ps_raise_cstr(PS_VALUE, "chr() arg not in range(0x110000)");
     }
-    buf[0] = (char)c;
-    ps_buf_copy(out, buf, 1);
+    uint32_t cp = (uint32_t)c;
+    int w;
+    if (cp < 0x80) {
+        buf[0] = (char)cp;
+        w = 1;
+    } else if (cp < 0x800) {
+        buf[0] = (char)(0xC0 | (cp >> 6));
+        buf[1] = (char)(0x80 | (cp & 0x3F));
+        w = 2;
+    } else if (cp < 0x10000) {
+        buf[0] = (char)(0xE0 | (cp >> 12));
+        buf[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        buf[2] = (char)(0x80 | (cp & 0x3F));
+        w = 3;
+    } else {
+        buf[0] = (char)(0xF0 | (cp >> 18));
+        buf[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+        buf[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        buf[3] = (char)(0x80 | (cp & 0x3F));
+        w = 4;
+    }
+    ps_buf_copy(out, buf, w);
 }
 
 static int64_t ps_half_even(double x) {

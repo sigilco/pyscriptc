@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-24",
-  "commit": "43f5bbc64fe2f5f4fbbfee01aafacf474f7ea887",
+  "commit": "7c2344e390d3bdceb1832acdcdac22381f95f390",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 6,
     "packages_none": 10,
     "weighted_pass": 0.0,
-    "fences": 3024
+    "fences": 3019
   },
   "builtins": [
     {
@@ -1507,7 +1507,7 @@
       "import_name": "idna",
       "version": "3.20",
       "status": "none",
-      "fences": 169,
+      "fences": 165,
       "definitions": 56,
       "fenced_definitions": 40,
       "top_families": [
@@ -1527,7 +1527,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 96
+          "count": 95
         },
         {
           "code": "PS1001",
@@ -1735,7 +1735,7 @@
       "import_name": "pathspec",
       "version": "1.1.1",
       "status": "none",
-      "fences": 258,
+      "fences": 257,
       "definitions": 132,
       "fenced_definitions": 94,
       "top_families": [
@@ -2012,7 +2012,7 @@
     {
       "code": "PS2002",
       "title": "construct not lowered",
-      "count": 1472,
+      "count": 1471,
       "packages": 16
     },
     {
@@ -2100,12 +2100,6 @@
       "packages": 6
     },
     {
-      "code": "PS2005",
-      "title": "string literal outside Latin-1",
-      "count": 4,
-      "packages": 2
-    },
-    {
       "code": "PS4203",
       "title": "finalizer refused",
       "count": 1,
@@ -2130,12 +2124,12 @@
     },
     {
       "date": "2026-10-24",
-      "commit": "43f5bbc64fe2f5f4fbbfee01aafacf474f7ea887",
+      "commit": "7c2344e390d3bdceb1832acdcdac22381f95f390",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 6,
       "packages_none": 10,
-      "fences": 3024
+      "fences": 3019
     }
   ]
 }

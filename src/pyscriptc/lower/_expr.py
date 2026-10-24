@@ -281,10 +281,11 @@ class ExprMixin:
         if isinstance(value, float):
             return {"kind": "const", "value": repr(value), "type": {"kind": "float"}, "span": span}
         if isinstance(value, str):
-            if any(ord(ch) > 255 for ch in value):
-                self.fail(node, "PS2005", "string literals outside Latin-1 are not lowered")
-            if any(ord(ch) > 127 for ch in value):
-                self._note_non_ascii(node, value)
+            # S2: str is a code-point sequence stored UTF-8, so any scalar
+            # code point lowers; lone surrogates have no UTF-8 bytes and
+            # stay fenced (the surrogate policy, divergences item 8).
+            if any(0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+                self.fail(node, "PS2005", "string literals with lone surrogates are not lowered")
             return {"kind": "const", "value": value, "type": {"kind": "str"}, "span": span}
         if isinstance(value, bytes):
             return {"kind": "const", "value": value.decode("latin1"), "type": {"kind": "bytes"}, "span": span}

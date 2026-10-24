@@ -1665,7 +1665,7 @@ def _ir_const(value: Any) -> tuple[Any, dict[str, Any]] | None:
     if isinstance(value, int):
         return str(int(value)), _I
     if isinstance(value, str):
-        if any(ord(ch) > 127 for ch in value):
+        if any(0xD800 <= ord(ch) <= 0xDFFF for ch in value):
             return None
         return value, _S
     if isinstance(value, float):

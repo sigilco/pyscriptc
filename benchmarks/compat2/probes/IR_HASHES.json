@@ -830,7 +830,7 @@
   "lang.cpython.float.RoundTestCase.test_previous_round_bugs": "6732d9d45f8ee9e8e8fdd2858a97ae09233648f3bff5789eb5d3d7f8610a2e25",
   "lang.cpython.grammar.GrammarTests.test_paren_evaluation": "9ef58757fd6d591cf372bb57935026a31c0109e6ebfbf01be987cdbda770668e",
   "lang.cpython.grammar.TokenTests.test_string_literals": "ff2665bbb9c1e5e6f9da21fb9f92555c22ec83d7d20d91af259e82759469d6ac",
-  "lang.cpython.int.IntTestCases.test_basic": "ec141b1c6cbe001fe3ac1168bea998fc91eb3025ca9851b9b95e2addd136693f",
+  "lang.cpython.int.IntTestCases.test_basic": "ed6921332cbcb34088a3d292d7988cc4b1da0247ebec5f5e5911b20e2281d38b",
   "lang.cpython.int.IntTestCases.test_issue31619": "fe53652f5d1825bf6c2adae4f069a8f97adeca8955a68c062dff51d2808f9cc1",
   "lang.cpython.int.IntTestCases.test_no_args": "ed6921332cbcb34088a3d292d7988cc4b1da0247ebec5f5e5911b20e2281d38b",
   "lang.cpython.int.IntTestCases.test_small_ints": "18b2f494ba1a1becd71606a8c9e7e84e9ed41570da5e2ec58e3b3d08fe016577",

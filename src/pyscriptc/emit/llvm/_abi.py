@@ -77,18 +77,25 @@ class AbiMixin:
 
     def _buf_out(self, symbol: str, args: list[str]) -> str:
         out = self._alloca("%ps.str")
-        # The runtime writes the 16-byte PsBuf prefix (len, data). Fields 2
-        # and 3 are zero-filled here until the str model moves the
-        # constructors into the runtime (S2): the count is then wrong, not
-        # garbage, and the flag reads "not ASCII", both conservative under
-        # the Latin-1 model.
+        # The runtime writes the 16-byte PsBuf prefix (len, data). S2 fills
+        # fields 2 and 3 after the call: a `ps_str_counts` scan derives the
+        # code-point count and the ASCII flag from the bytes the call
+        # produced. The scan is the price of not threading the header
+        # through every runtime constructor; the constant path (_print.py)
+        # computes both fields at emit time instead.
+        self.line(f"call void @{symbol}({', '.join([*args, f'ptr {out}'])})")
         count_ptr = self.tmp()
         flags_ptr = self.tmp()
+        length = self.tmp()
+        raw_ptr = self.tmp()
+        data_ptr = self.tmp()
+        self.line(f"{length} = load i64, ptr {out}")
+        self.line(f"{raw_ptr} = getelementptr %ps.str, ptr {out}, i32 0, i32 1")
+        self.line(f"{data_ptr} = load ptr, ptr {raw_ptr}")
         self.line(f"{count_ptr} = getelementptr %ps.str, ptr {out}, i32 0, i32 2")
-        self.line(f"store i64 0, ptr {count_ptr}")
         self.line(f"{flags_ptr} = getelementptr %ps.str, ptr {out}, i32 0, i32 3")
-        self.line(f"store i32 0, ptr {flags_ptr}")
-        self.line(f"call void @{symbol}({', '.join([*args, f'ptr {out}'])})")
+        self._abi_decl("ps_str_counts", "void", ["i64", "ptr", "ptr", "ptr"])
+        self.line(f"call void @ps_str_counts(i64 {length}, ptr {data_ptr}, ptr {count_ptr}, ptr {flags_ptr})")
         return self._load("%ps.str", out)
 
     def _abi_decl(self, symbol: str, ret: str, params: list[str]) -> None:

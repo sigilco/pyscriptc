@@ -1,8 +1,8 @@
 # T2-5 static-fold boundary: `eval(<string-const>)` folds only through
 # `ast.literal_eval` with a scalar result; arbitrary eval/exec stay fenced
 # (tier-3 dynamic). `hash(<const>)` folds only on int/bool — str/bytes
-# hashing is seed-randomized in CPython. `chr` folds only inside the
-# Latin-1 literal range (PS2005 boundary); `ord` only on single chars.
+# hashing is seed-randomized in CPython. `chr` folds only on scalar code
+# points (the surrogate fence is PS2005); `ord` only on single chars.
 # `int` of str/bytes consts keeps the `ps_int_from_bytes` path so the
 # subset's i64 fence and underscore rejection survive. `len` of a
 # list/dict literal folds only when every element is itself a const (a
@@ -16,7 +16,11 @@ from typing import Any
 from pyscriptc.restlower._shared import _const_int, _const_text
 
 _STATIC_MISSING = object()
-_PS2005_MESSAGE = "string literals outside Latin-1 are not lowered"
+_PS2005_MESSAGE = "string literals with lone surrogates are not lowered"
+
+
+def _has_surrogate(value: str) -> bool:
+    return any(0xD800 <= ord(ch) <= 0xDFFF for ch in value)
 
 
 def _static_scalar(expr: dict[str, Any]) -> Any:
@@ -69,7 +73,7 @@ def _static_const(value: Any, span: dict[str, Any]) -> dict[str, Any] | None:
     if isinstance(value, float):
         return {"kind": "const", "value": repr(value), "type": {"kind": "float"}, "span": span}
     if isinstance(value, str):
-        if any(ord(ch) > 255 for ch in value):
+        if _has_surrogate(value):
             return None
         return _const_text(value, "str", span)
     if isinstance(value, bytes):
@@ -124,7 +128,13 @@ def _static_builtin_fold(
             result = len(value)
         elif name == "ord" and isinstance(value, str) and len(value) == 1:
             result = ord(value)
-        elif name == "chr" and isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 255:
+        elif (
+            name == "chr"
+            and isinstance(value, int)
+            and not isinstance(value, bool)
+            and 0 <= value <= 0x10FFFF
+            and not 0xD800 <= value <= 0xDFFF
+        ):
             result = chr(value)
         elif name == "hash" and isinstance(value, (int, bool)):
             result = hash(value)
@@ -136,9 +146,9 @@ def _static_builtin_fold(
         return None
     if result is _STATIC_MISSING:
         return None
-    if fence is not None and isinstance(result, str) and any(ord(ch) > 255 for ch in result):
-        # The fold proved the CPython answer is a non-Latin-1 string: the
-        # same defect as a non-Latin-1 literal, so it fences the way the
+    if fence is not None and isinstance(result, str) and _has_surrogate(result):
+        # The fold proved the CPython answer carries a lone surrogate: the
+        # same defect as a surrogate literal, so it fences the way the
         # literal path does instead of silently dropping the fold.
         fence.fail(arg, "PS2005", _PS2005_MESSAGE)
     return _static_const(result, span)
@@ -182,7 +192,7 @@ def _eval_fold(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any] 
         value = ast.literal_eval(text)
     except Exception:  # literal_eval declined: the source is not provably safe
         return None
-    if isinstance(value, str) and any(ord(ch) > 255 for ch in value):
+    if isinstance(value, str) and _has_surrogate(value):
         lo.fail(node, "PS2005", _PS2005_MESSAGE)
     return _static_const(value, span)
 
