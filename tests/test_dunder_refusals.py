@@ -44,7 +44,6 @@ def _class_source(hook: str, body: list[str]) -> str:
 
 
 _HOOKS = [
-    ("__getattr__", "PS4201", ["self", "name: str"]),
     ("__setattr__", "PS4201", ["self", "name: str", "value: int"]),
     ("__getattribute__", "PS4201", ["self", "name: str"]),
     ("__get__", "PS4201", ["self", "obj: int", "owner: int"]),
@@ -69,6 +68,21 @@ def test_hook_definition_is_refused_by_name(tmp_path: Path, hook: str, code: str
     assert got.returncode == 3, got.stderr
     assert code in got.stderr, got.stderr
     assert f"the {hook} hook is refused by design" in got.stderr, got.stderr
+
+
+def test_a_plain_getattr_definition_lowers_now(tmp_path: Path) -> None:
+    """D2 (issue #434) lifts the refusal for the one supported shape: the
+    plain `def __getattr__(self, name: str) -> T` method. Unknown-name reads
+    then lower as direct hook calls; see tests/test_getattr_reads.py."""
+    source = _class_source("__getattr__", ["self", "name: str"])
+    source = source.replace(
+        f"    def __getattr__({', '.join(['self', 'name: str'])}) -> None:",
+        "    def __getattr__(self, name: str) -> int:",
+    ).replace("        pass", "        return self.a")
+    path = write_case(tmp_path, "getattr.py", source)
+    got = compile_run(tmp_path, path, "run")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle(path, "run")
 
 
 def test_finalizer_is_refused_by_name(tmp_path: Path) -> None:
