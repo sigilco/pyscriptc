@@ -17,10 +17,10 @@ export default {
   "Variation 2: Tokyo Precision (Light)": () => (
     <VariationsStudio initialVariation="v2-tokyo" initialTheme="light" />
   ),
-  "Variation 3: MUJI Restraint (Dark)": () => (
+  "Variation 3: Pure Restraint (Dark)": () => (
     <VariationsStudio initialVariation="v3-muji" initialTheme="dark" />
   ),
-  "Variation 3: MUJI Restraint (Light)": () => (
+  "Variation 3: Pure Restraint (Light)": () => (
     <VariationsStudio initialVariation="v3-muji" initialTheme="light" />
   ),
 };

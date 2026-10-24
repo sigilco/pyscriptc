@@ -27,34 +27,34 @@ const BENCHMARKS: BenchmarkCardData[] = [
   {
     title: "Throughput",
     subtitle: "Compute kernels geometric mean",
-    unit: "Speedup vs CPython",
+    unit: "Speedup vs CPython 3.15 (Linux x86_64)",
     better: "Higher is better",
     series: [
-      { name: "CPython 3.14", shortName: "CPython", value: "1.0x", numericVal: 1.0, heightPct: 10, color: "#334155" },
-      { name: "Island Fallback", shortName: "Island", value: "4.2x", numericVal: 4.2, heightPct: 32, color: "#fbbf24" },
-      { name: "Pure Native", shortName: "Native", value: "29.2x", numericVal: 29.2, heightPct: 100, color: "#00c2ff", isFlagship: true },
+      { name: "CPython 3.15", shortName: "CPython", value: "1.0x", numericVal: 1.0, heightPct: 4, color: "#334155" },
+      { name: "Island Fallback", shortName: "Island", value: "1.2x", numericVal: 1.2, heightPct: 5, color: "#fbbf24" },
+      { name: "Pure Native", shortName: "Native", value: "23.9x", numericVal: 23.9, heightPct: 100, color: "#00c2ff", isFlagship: true },
     ],
   },
   {
     title: "Peak Memory (RSS)",
-    subtitle: "Dataset transformation loop",
-    unit: "Megabytes (MB)",
+    subtitle: "Peak RSS, kernel group",
+    unit: "Megabytes (MB) vs CPython 3.15",
     better: "Lower is better",
     series: [
-      { name: "CPython 3.14", shortName: "CPython", value: "84 MB", numericVal: 84, heightPct: 100, color: "#334155" },
-      { name: "Island Fallback", shortName: "Island", value: "38 MB", numericVal: 38, heightPct: 45, color: "#fbbf24" },
-      { name: "Pure Native", shortName: "Native", value: "14 MB", numericVal: 14, heightPct: 17, color: "#00c2ff", isFlagship: true },
+      { name: "CPython 3.15", shortName: "CPython", value: "~12.4 MB", numericVal: 12.4, heightPct: 100, color: "#334155" },
+      { name: "Island Fallback", shortName: "Island", value: "~13.1 MB", numericVal: 13.1, heightPct: 95, color: "#fbbf24" },
+      { name: "Pure Native", shortName: "Native", value: "~2.0 MB", numericVal: 2.0, heightPct: 16, color: "#00c2ff", isFlagship: true },
     ],
   },
   {
-    title: "Cold Start Latency",
-    subtitle: "Process initialization to exec",
-    unit: "Milliseconds (ms)",
+    title: "Start Latency",
+    subtitle: "Process startup to execution",
+    unit: "Milliseconds (ms) vs CPython 3.15",
     better: "Lower is better",
     series: [
-      { name: "CPython 3.14", shortName: "CPython", value: "17.8 ms", numericVal: 17.8, heightPct: 100, color: "#334155" },
-      { name: "Island Fallback", shortName: "Island", value: "4.2 ms", numericVal: 4.2, heightPct: 24, color: "#fbbf24" },
-      { name: "Pure Native", shortName: "Native", value: "0.6 ms", numericVal: 0.6, heightPct: 7, color: "#00c2ff", isFlagship: true },
+      { name: "CPython 3.15", shortName: "CPython", value: "~24.0 ms", numericVal: 24.0, heightPct: 100, color: "#334155" },
+      { name: "Island Fallback", shortName: "Island", value: "~21.5 ms", numericVal: 21.5, heightPct: 90, color: "#fbbf24" },
+      { name: "Pure Native", shortName: "Native", value: "~0.7 ms", numericVal: 0.7, heightPct: 4, color: "#00c2ff", isFlagship: true },
     ],
   },
 ];
@@ -73,6 +73,7 @@ export const BenchmarkRow: React.FC<BenchmarkRowProps> = ({
 }) => {
   const [animProgress, setAnimProgress] = useState(0);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const animatedRef = useRef(false);
 
   // Smooth ease-out cubic animation triggered via IntersectionObserver
   useEffect(() => {
@@ -81,6 +82,8 @@ export const BenchmarkRow: React.FC<BenchmarkRowProps> = ({
     const duration = 900; // 900ms smooth animation
 
     const startAnimation = () => {
+      if (animatedRef.current) return;
+      animatedRef.current = true;
       const step = (timestamp: number) => {
         if (!startTime) startTime = timestamp;
         const elapsed = timestamp - startTime;
@@ -96,6 +99,16 @@ export const BenchmarkRow: React.FC<BenchmarkRowProps> = ({
       animationFrameId = requestAnimationFrame(step);
     };
 
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      if (rect.top < window.innerHeight && rect.bottom > 0) {
+        startAnimation();
+        return () => {
+          if (animationFrameId) cancelAnimationFrame(animationFrameId);
+        };
+      }
+    }
+
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting) {
@@ -103,7 +116,7 @@ export const BenchmarkRow: React.FC<BenchmarkRowProps> = ({
           observer.disconnect();
         }
       },
-      { threshold: 0.2 }
+      { threshold: 0.05 }
     );
 
     if (containerRef.current) {
@@ -205,7 +218,7 @@ export const BenchmarkRow: React.FC<BenchmarkRowProps> = ({
 
       {/* Reproducible Benchmark Link */}
       <div className="mt-10 pt-6 border-t border-white/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-slate-400">
-        <span>Workload tested on Apple M3 Max & Linux x86_64 host</span>
+        <span>Baseline: CPython 3.15.0, Linux x86_64. Island fallback: opt-in to host CPython.</span>
         <a
           href={benchmarkUrl}
           target="_blank"

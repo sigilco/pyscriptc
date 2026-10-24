@@ -57,10 +57,10 @@ export const VariationsStudio: React.FC<VariationsStudioProps> = ({
       className={`w-full min-h-screen transition-colors duration-500 font-sans antialiased ${
         isDark
           ? variation === "v1-kyoto"
-            ? "bg-[#0c0d12] text-slate-100"
+            ? "bg-[#0b0f19] text-slate-100"
             : variation === "v2-tokyo"
-            ? "bg-[#07080c] text-white"
-            : "bg-[#101114] text-slate-200"
+            ? "bg-[#06080d] text-white"
+            : "bg-[#0b0f19] text-slate-200"
           : variation === "v1-kyoto"
           ? "bg-[#f7f7f5] text-[#111111]"
           : variation === "v2-tokyo"
@@ -106,7 +106,7 @@ export const VariationsStudio: React.FC<VariationsStudioProps> = ({
                   : "text-slate-300 hover:text-white"
               }`}
             >
-              V3: MUJI Restraint
+              V3: Pure Restraint
             </button>
           </div>
         </div>
@@ -137,15 +137,15 @@ export const VariationsStudio: React.FC<VariationsStudioProps> = ({
       <div
         className={`w-full py-2 px-4 text-center font-mono text-xs border-b ${
           variation === "v1-kyoto"
-            ? "bg-sky-950/30 border-sky-500/20 text-sky-300"
+            ? "bg-cyan-950/30 border-cyan-500/20 text-cyan-300"
             : variation === "v2-tokyo"
             ? "bg-cyan-950/40 border-cyan-500/30 text-cyan-300"
-            : "bg-amber-950/20 border-amber-500/20 text-amber-200"
+            : "bg-cyan-950/40 border-cyan-500/20 text-cyan-200"
         }`}
       >
         {variation === "v1-kyoto" && (
           <span>
-            <strong>VARIATION 1: KYOTO PAPER & OBSIDIAN</strong> — Centered architectural editorial, warm neutrals, Lumio vertical timeline, and centered isometric stack.
+            <strong>VARIATION 1: PAPER & OBSIDIAN</strong> — Centered architectural editorial, warm neutrals, vertical timeline, and centered isometric stack.
           </span>
         )}
         {variation === "v2-tokyo" && (
@@ -155,7 +155,7 @@ export const VariationsStudio: React.FC<VariationsStudioProps> = ({
         )}
         {variation === "v3-muji" && (
           <span>
-            <strong>VARIATION 3: MUJI STUDIO / PURE RESTRAINT</strong> — Ultra-minimalism inspired by MUJI & Notion. Extreme whitespace rhythm, zero decorative borders, pure typographic contrast.
+            <strong>VARIATION 3: PURE RESTRAINT</strong> — Ultra-minimalism. Extreme whitespace rhythm, zero decorative borders, pure typographic contrast.
           </span>
         )}
       </div>
@@ -203,7 +203,7 @@ export const VariationsStudio: React.FC<VariationsStudioProps> = ({
                 {/* Protective Blur Capsule */}
                 <div
                   className={`absolute inset-0 -z-10 rounded-3xl backdrop-blur-md transition-colors duration-500 ${
-                    isDark ? "bg-[#0c0d12]/70 shadow-[0_0_80px_rgba(12,13,18,0.95)]" : "bg-[#f7f7f5]/75 shadow-[0_0_80px_rgba(247,247,245,0.95)]"
+                    isDark ? "bg-[#0b0f19]/70 shadow-[0_0_80px_rgba(11,15,25,0.95)]" : "bg-[#f7f7f5]/75 shadow-[0_0_80px_rgba(247,247,245,0.95)]"
                   }`}
                 />
                 <p className="text-xs sm:text-sm font-mono uppercase tracking-[0.25em] text-cyan-400 font-semibold mb-6">
@@ -338,7 +338,7 @@ export const VariationsStudio: React.FC<VariationsStudioProps> = ({
 
               {/* Right Column (5 cols): Embedded Real-Time Compiler Diagnostics Panel */}
               <div className="lg:col-span-5">
-                <div className="rounded-2xl border border-cyan-500/30 bg-[#090b12] p-5 shadow-[0_20px_50px_rgba(0,0,0,0.8)] font-mono text-xs space-y-4">
+                <div className="rounded-2xl border border-cyan-500/30 bg-[#0b0f19] p-5 shadow-[0_20px_50px_rgba(0,0,0,0.8)] font-mono text-xs space-y-4">
                   <div className="flex items-center justify-between pb-3 border-b border-white/10 text-slate-400">
                     <span className="text-cyan-400 font-bold">COMPILER_PIPELINE.LOG</span>
                     <span>3.14.0 FINAL</span>
@@ -385,7 +385,7 @@ export const VariationsStudio: React.FC<VariationsStudioProps> = ({
       )}
 
       {/* =========================================================================
-          VARIATION 3: MUJI STUDIO / PURE RESTRAINT (Direct MUJI & Notion Reduction)
+          VARIATION 3: PURE RESTRAINT
           ========================================================================= */}
       {variation === "v3-muji" && (
         <div className="w-full">
@@ -467,7 +467,7 @@ export const VariationsStudio: React.FC<VariationsStudioProps> = ({
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-1.5">
             <span>Made with</span>
-            <span className="text-rose-500 inline-block animate-pulse">❤️</span>
+            <span className="text-rose-400 inline-block animate-pulse">❤️</span>
             <span>from Spain</span>
           </div>
           <div className="flex items-center gap-6">

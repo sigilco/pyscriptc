@@ -18,21 +18,21 @@ export const SURFACE_TIERS: SurfaceTier[] = [
     number: "01",
     name: "Pure Native Binary",
     subtitle: "The Flagship Bedrock",
-    headline: "Zero dependencies. Sub-millisecond cold starts. Machine code.",
+    headline: "Zero dependencies. Machine code. One self-contained file.",
     description:
-      "Your Python source is compiled down to optimized native assembly. No bundled interpreter, no container bloat, no virtualenv. A single self-contained binary that launches in 0.6 milliseconds and runs anywhere.",
+      "Your Python source is compiled down to optimized native assembly. No bundled interpreter, no container bloat, no virtualenv. A single self-contained binary of roughly 139 KB for programs inside the supported subset.",
     highlights: [
       {
         title: "Standalone Single Binary",
         desc: "Ship a self-contained executable with zero runtime dependencies. Drop it into a distroless container, a bare metal server, or an embedded device.",
       },
       {
-        title: "Sub-Millisecond Cold Starts",
-        desc: "Eliminate interpreter bootstrap overhead entirely. Execution begins at the first instruction in 0.6ms.",
+        title: "Measured Kernel Speedup",
+        desc: "23.9x geometric-mean speedup on compute kernels and 5.8x lower peak RSS than CPython 3.15 on Linux x86_64.",
       },
       {
-        title: "Target Every Architecture",
-        desc: "One command compiles for Linux x86_64, ARM64 Apple Silicon, Windows, and WebAssembly.",
+        title: "Target Every Real Architecture",
+        desc: "One command compiles for Linux x86_64, aarch64 and riscv64 (glibc and musl), plus aarch64 and x86_64 macOS.",
       },
     ],
     accentColor: "#00c2ff",
@@ -41,48 +41,48 @@ export const SURFACE_TIERS: SurfaceTier[] = [
   {
     id: "shared",
     number: "02",
-    name: "Native Shared Library",
-    subtitle: "Universal C ABI Interop",
-    headline: "Call Python at native speed from Rust, Go, C++, or Node.",
+    name: "C-ABI Shared Library",
+    subtitle: "Planned, Not Shipped",
+    headline: "Planned: export typed Python as a C ABI shared library.",
     description:
-      "Export Python functions as clean, standard C ABI shared objects (.so, .dylib, .dll). Link Python algorithms directly into foreign language runtimes without GIL contention or foreign function interface friction.",
+      "A C-ABI export surface with generated headers is on the roadmap. The compiler today emits ir, llvm, asm, obj and bin only: no shared library, no .h generation.",
     highlights: [
       {
-        title: "Standard C Calling Convention",
-        desc: "Expose clean C ABI entry points that integrate into Rust, C++, Go, or iOS/Android toolchains seamlessly.",
+        title: "Planned: C Calling Convention",
+        desc: "Clean C ABI entry points for Rust, C++, Go and other foreign language runtimes are a planned interface, not a released one.",
       },
       {
-        title: "True Multi-Threaded Execution",
-        desc: "Compiled algorithms execute concurrently across all available CPU cores without Global Interpreter Lock bottlenecks.",
+        title: "Planned: Native Header Exports",
+        desc: "Auto-generated .h signatures for typed Python functions are planned alongside the shared library target.",
       },
       {
-        title: "Zero PyObject Overhead",
-        desc: "Pass native pointers, structs, and primitives directly without marshalling through interpreter object wrappers.",
+        title: "Today: Binaries Only",
+        desc: "The current CLI emits ir, llvm, asm, obj and bin. Nothing else is claimed as available.",
       },
     ],
     accentColor: "#38bdf8",
-    badge: "Optional Interface",
+    badge: "Planned / Upcoming",
   },
   {
     id: "island",
     number: "03",
     name: "CPython Island Fallback",
-    subtitle: "Zero-Risk Migration Safety Net",
-    headline: "100% ecosystem compatibility when you need legacy extensions.",
+    subtitle: "Opt-in Migration Safety Net",
+    headline: "Falls back to the host CPython runtime when a call cannot be compiled.",
     description:
-      "When your code calls deeply coupled C-extensions or dynamic metaprogramming that hasn't migrated yet, pyscriptc isolates those modules into an isolated CPython island. Your compiled core runs at native speed; only the legacy call branches to the island.",
+      "When your code calls deeply coupled C-extensions or dynamic metaprogramming that has not migrated yet, you can opt in to an island fallback: the compiled core runs at native speed and only the uncompiled call branches out to the host CPython runtime.",
     highlights: [
       {
-        title: "Zero Regression Guarantee",
-        desc: "Never get blocked by an unmigrated third-party package. The island sandbox catches dynamic idioms automatically.",
+        title: "Opt-In, Not Automatic",
+        desc: "The island is opt-in via the fallback tier. Compatibility and overhead of that tier are not separately measured yet.",
       },
       {
-        title: "Zero Cost When Unused",
-        desc: "If your program stays on the ahead-of-time path, the CPython island is never initialized and consumes 0% CPU or memory.",
+        title: "Fallback Cost Is Not Zero",
+        desc: "Branching into the island costs what the host interpreter costs. We do not claim a measured 0% CPU or memory overhead.",
       },
       {
         title: "Audit & Drop Path",
-        desc: "Clear compiler diagnostics show exactly which calls trigger the island, giving your team a clean checklist to reach 100% native.",
+        desc: "Clear compiler diagnostics show exactly which calls trigger the island, giving your team a checklist to reach a fully native build.",
       },
     ],
     accentColor: "#fbbf24",
@@ -136,11 +136,11 @@ export const IsometricSurfaceStack: React.FC<IsometricSurfaceStackProps> = ({
       {/* Section Header (No chips) */}
       <div className="max-w-3xl mb-14 text-left">
         <h2 className="text-3xl sm:text-4xl lg:text-5xl font-normal tracking-tight text-white leading-[1.12] mb-4">
-          Three surfaces. One unified compiler.
+          Two surfaces today. One unified compiler.
         </h2>
         <p className="text-base sm:text-lg text-slate-400 font-light leading-relaxed">
           Target the execution surface your infrastructure requires without rewriting a single line
-          of Python. From zero-dependency native binaries to embedded plugins and resilient sandbox fallbacks.
+          of Python. Today that means zero-dependency native binaries and an opt-in island fallback.
         </p>
       </div>
 
@@ -203,7 +203,7 @@ export const IsometricSurfaceStack: React.FC<IsometricSurfaceStackProps> = ({
                 <circle cx="230" cy="115" r="2" fill="#fbbf24" opacity={activeIndex === 2 ? 0.95 : 0.35} />
               </g>
 
-              {/* TIER 2: Middle Slab (Native Shared Library - Dotted/Optional) */}
+              {/* TIER 2: Middle Slab (C-ABI Shared Library - Planned / Dotted) */}
               <g
                 onClick={() => handleSelect(1)}
                 className="transition-all duration-300 group"
@@ -318,13 +318,13 @@ export const IsometricSurfaceStack: React.FC<IsometricSurfaceStackProps> = ({
           </div>
         </div>
 
-        {/* Right Column: Together.ai Style Bold Narrative */}
+        {/* Right Column: Bold Narrative */}
         <div
           key={selectedTier.id}
           className="lg:col-span-7 flex flex-col justify-center text-left transition-all duration-500 animate-fadeIn"
         >
           {/* Surface Tier Name & Badge */}
-          <div className="flex items-center gap-3 mb-2">
+          <div className="flex items-center gap-3 mb-4">
             <span className="font-mono text-xs text-slate-400 font-semibold">
               {selectedTier.number}
             </span>
@@ -335,19 +335,6 @@ export const IsometricSurfaceStack: React.FC<IsometricSurfaceStackProps> = ({
             >
               {selectedTier.name}
             </span>
-          </div>
-
-          {/* Progress countdown indicator bar (LTR) */}
-          <div className="w-full max-w-xs h-[2px] bg-white/10 rounded-full overflow-hidden mb-4">
-            <div
-              key={`narrative-fill-${activeIndex}-${animKey}`}
-              className="h-full origin-left rounded-full"
-              style={{
-                backgroundColor: selectedTier.accentColor,
-                animation: `progress-ltr ${autoPlayInterval}ms linear forwards`,
-                animationPlayState: isPaused ? "paused" : "running",
-              }}
-            />
           </div>
 
           {/* Prominent Headline */}
