@@ -6,6 +6,25 @@ digest buffer; hexdigest formats it. */
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(__wasm__) || defined(__wasm32__)
+#define PS_HASH_WASMTARGET 1
+#elif (defined(__x86_64__) || defined(_M_X64)) && (defined(__GNUC__) || defined(__clang__))
+#define PS_HASH_X86_64 1
+#include <cpuid.h>
+#include <immintrin.h>
+#elif defined(__aarch64__) || defined(_M_ARM64)
+#define PS_HASH_AARCH64 1
+#include <arm_neon.h>
+#if defined(__APPLE__)
+#include <sys/sysctl.h>
+#elif defined(__linux__)
+#include <sys/auxv.h>
+#ifndef HWCAP_SHA2
+#define HWCAP_SHA2 (1 << 3)
+#endif
+#endif
+#endif
+
 static uint32_t ps_rotr32(uint32_t x, int n) { return (x >> n) | (x << (32 - n)); }
 static uint64_t ps_rotr64(uint64_t x, int n) { return (x >> n) | (x << (64 - n)); }
 static uint32_t ps_rotl32(uint32_t x, int n) { return (x << n) | (x >> (32 - n)); }
@@ -205,7 +224,7 @@ static const uint32_t PS_K256[64] = {
     0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
     0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
 
-static void ps_sha256_block(uint32_t st[8], const uint8_t block[64]) {
+static void ps_sha256_block_portable(uint32_t st[8], const uint8_t block[64]) {
     uint32_t w[64];
     for (int i = 0; i < 16; i++) {
         w[i] = ps_be32(block + (size_t)i * 4);
@@ -249,29 +268,255 @@ static void ps_sha256_block(uint32_t st[8], const uint8_t block[64]) {
     st[7] += hh;
 }
 
+static void ps_sha256_blocks_portable(uint32_t st[8], const uint8_t *data, size_t num_blocks) {
+    for (size_t i = 0; i < num_blocks; i++) {
+        ps_sha256_block_portable(st, data + i * 64);
+    }
+}
+
+#if defined(PS_HASH_AARCH64)
+#if defined(__clang__) || defined(__GNUC__)
+__attribute__((target("+crypto")))
+#endif
+static void ps_sha256_blocks_armv8(uint32_t st[8], const uint8_t *data, size_t num_blocks) {
+    uint32x4_t abcd = vld1q_u32(st);
+    uint32x4_t efgh = vld1q_u32(st + 4);
+
+    #define PS_ARM_RND4(w, k_idx) \
+        do { \
+            uint32x4_t wk = vaddq_u32(w, vld1q_u32(PS_K256 + (k_idx))); \
+            abcd_prev = abcd; \
+            abcd = vsha256hq_u32(abcd, efgh, wk); \
+            efgh = vsha256h2q_u32(efgh, abcd_prev, wk); \
+        } while (0)
+
+    #define PS_ARM_EXT(w0, w1, w2, w3) \
+        vsha256su1q_u32(vsha256su0q_u32(w0, w1), w2, w3)
+
+    while (num_blocks--) {
+        uint32x4_t abcd_orig = abcd;
+        uint32x4_t efgh_orig = efgh;
+        uint32x4_t abcd_prev;
+
+        uint32x4_t w0 = vreinterpretq_u32_u8(vrev32q_u8(vld1q_u8(data + 0)));
+        uint32x4_t w1 = vreinterpretq_u32_u8(vrev32q_u8(vld1q_u8(data + 16)));
+        uint32x4_t w2 = vreinterpretq_u32_u8(vrev32q_u8(vld1q_u8(data + 32)));
+        uint32x4_t w3 = vreinterpretq_u32_u8(vrev32q_u8(vld1q_u8(data + 48)));
+
+        PS_ARM_RND4(w0, 0);   PS_ARM_RND4(w1, 4);   PS_ARM_RND4(w2, 8);   PS_ARM_RND4(w3, 12);
+        w0 = PS_ARM_EXT(w0, w1, w2, w3); PS_ARM_RND4(w0, 16);
+        w1 = PS_ARM_EXT(w1, w2, w3, w0); PS_ARM_RND4(w1, 20);
+        w2 = PS_ARM_EXT(w2, w3, w0, w1); PS_ARM_RND4(w2, 24);
+        w3 = PS_ARM_EXT(w3, w0, w1, w2); PS_ARM_RND4(w3, 28);
+        w0 = PS_ARM_EXT(w0, w1, w2, w3); PS_ARM_RND4(w0, 32);
+        w1 = PS_ARM_EXT(w1, w2, w3, w0); PS_ARM_RND4(w1, 36);
+        w2 = PS_ARM_EXT(w2, w3, w0, w1); PS_ARM_RND4(w2, 40);
+        w3 = PS_ARM_EXT(w3, w0, w1, w2); PS_ARM_RND4(w3, 44);
+        w0 = PS_ARM_EXT(w0, w1, w2, w3); PS_ARM_RND4(w0, 48);
+        w1 = PS_ARM_EXT(w1, w2, w3, w0); PS_ARM_RND4(w1, 52);
+        w2 = PS_ARM_EXT(w2, w3, w0, w1); PS_ARM_RND4(w2, 56);
+        w3 = PS_ARM_EXT(w3, w0, w1, w2); PS_ARM_RND4(w3, 60);
+
+        abcd = vaddq_u32(abcd, abcd_orig);
+        efgh = vaddq_u32(efgh, efgh_orig);
+        data += 64;
+    }
+
+    #undef PS_ARM_RND4
+    #undef PS_ARM_EXT
+
+    vst1q_u32(st, abcd);
+    vst1q_u32(st + 4, efgh);
+}
+#endif
+
+#if defined(PS_HASH_X86_64)
+#if defined(__clang__) || defined(__GNUC__)
+__attribute__((target("sha,sse4.1")))
+#endif
+static void ps_sha256_blocks_x86_ni(uint32_t st[8], const uint8_t *data, size_t num_blocks) {
+    __m128i STATE0, STATE1;
+    __m128i MSG, TMP;
+    __m128i MSG0, MSG1, MSG2, MSG3;
+    __m128i ABEF_SAVE, CDGH_SAVE;
+    const __m128i MASK = _mm_set_epi64x(0x0c0d0e0f08090a0bULL, 0x0405060700010203ULL);
+
+    TMP = _mm_loadu_si128((const __m128i *)&st[0]);
+    STATE1 = _mm_loadu_si128((const __m128i *)&st[4]);
+    TMP = _mm_shuffle_epi32(TMP, 0xB1);
+    STATE1 = _mm_shuffle_epi32(STATE1, 0x1B);
+    STATE0 = _mm_alignr_epi8(TMP, STATE1, 8);
+    STATE1 = _mm_blend_epi16(STATE1, TMP, 0xF0);
+
+    #define PS_X86_RNDS4(MSG_REG, k_idx) \
+        do { \
+            MSG = _mm_add_epi32(MSG_REG, _mm_loadu_si128((const __m128i *)(PS_K256 + (k_idx)))); \
+            STATE1 = _mm_sha256rnds2_epu32(STATE1, STATE0, MSG); \
+            MSG = _mm_shuffle_epi32(MSG, 0x0E); \
+            STATE0 = _mm_sha256rnds2_epu32(STATE0, STATE1, MSG); \
+        } while (0)
+
+    #define PS_X86_SCHED(M0, M1, M2, M3) \
+        do { \
+            TMP = _mm_alignr_epi8(M3, M2, 4); \
+            M0 = _mm_add_epi32(M0, TMP); \
+            M0 = _mm_sha256msg2_epu32(M0, M3); \
+        } while (0)
+
+    while (num_blocks--) {
+        ABEF_SAVE = STATE0;
+        CDGH_SAVE = STATE1;
+
+        MSG0 = _mm_loadu_si128((const __m128i *)(data + 0));
+        MSG0 = _mm_shuffle_epi8(MSG0, MASK);
+        PS_X86_RNDS4(MSG0, 0);
+
+        MSG1 = _mm_loadu_si128((const __m128i *)(data + 16));
+        MSG1 = _mm_shuffle_epi8(MSG1, MASK);
+        PS_X86_RNDS4(MSG1, 4);
+        MSG0 = _mm_sha256msg1_epu32(MSG0, MSG1);
+
+        MSG2 = _mm_loadu_si128((const __m128i *)(data + 32));
+        MSG2 = _mm_shuffle_epi8(MSG2, MASK);
+        PS_X86_RNDS4(MSG2, 8);
+        MSG1 = _mm_sha256msg1_epu32(MSG1, MSG2);
+
+        MSG3 = _mm_loadu_si128((const __m128i *)(data + 48));
+        MSG3 = _mm_shuffle_epi8(MSG3, MASK);
+        PS_X86_RNDS4(MSG3, 12);
+        MSG2 = _mm_sha256msg1_epu32(MSG2, MSG3);
+
+        PS_X86_SCHED(MSG0, MSG1, MSG2, MSG3);
+        PS_X86_RNDS4(MSG0, 16);
+        MSG3 = _mm_sha256msg1_epu32(MSG3, MSG0);
+
+        PS_X86_SCHED(MSG1, MSG2, MSG3, MSG0);
+        PS_X86_RNDS4(MSG1, 20);
+        MSG0 = _mm_sha256msg1_epu32(MSG0, MSG1);
+
+        PS_X86_SCHED(MSG2, MSG3, MSG0, MSG1);
+        PS_X86_RNDS4(MSG2, 24);
+        MSG1 = _mm_sha256msg1_epu32(MSG1, MSG2);
+
+        PS_X86_SCHED(MSG3, MSG0, MSG1, MSG2);
+        PS_X86_RNDS4(MSG3, 28);
+        MSG2 = _mm_sha256msg1_epu32(MSG2, MSG3);
+
+        PS_X86_SCHED(MSG0, MSG1, MSG2, MSG3);
+        PS_X86_RNDS4(MSG0, 32);
+        MSG3 = _mm_sha256msg1_epu32(MSG3, MSG0);
+
+        PS_X86_SCHED(MSG1, MSG2, MSG3, MSG0);
+        PS_X86_RNDS4(MSG1, 36);
+        MSG0 = _mm_sha256msg1_epu32(MSG0, MSG1);
+
+        PS_X86_SCHED(MSG2, MSG3, MSG0, MSG1);
+        PS_X86_RNDS4(MSG2, 40);
+        MSG1 = _mm_sha256msg1_epu32(MSG1, MSG2);
+
+        PS_X86_SCHED(MSG3, MSG0, MSG1, MSG2);
+        PS_X86_RNDS4(MSG3, 44);
+        MSG2 = _mm_sha256msg1_epu32(MSG2, MSG3);
+
+        PS_X86_SCHED(MSG0, MSG1, MSG2, MSG3);
+        PS_X86_RNDS4(MSG0, 48);
+        MSG3 = _mm_sha256msg1_epu32(MSG3, MSG0);
+
+        PS_X86_SCHED(MSG1, MSG2, MSG3, MSG0);
+        PS_X86_RNDS4(MSG1, 52);
+        MSG0 = _mm_sha256msg1_epu32(MSG0, MSG1);
+
+        PS_X86_SCHED(MSG2, MSG3, MSG0, MSG1);
+        PS_X86_RNDS4(MSG2, 56);
+        MSG1 = _mm_sha256msg1_epu32(MSG1, MSG2);
+
+        PS_X86_SCHED(MSG3, MSG0, MSG1, MSG2);
+        PS_X86_RNDS4(MSG3, 60);
+
+        STATE0 = _mm_add_epi32(STATE0, ABEF_SAVE);
+        STATE1 = _mm_add_epi32(STATE1, CDGH_SAVE);
+        data += 64;
+    }
+
+    #undef PS_X86_RNDS4
+    #undef PS_X86_SCHED
+
+    st[0] = (uint32_t)_mm_extract_epi32(STATE0, 3);
+    st[1] = (uint32_t)_mm_extract_epi32(STATE0, 2);
+    st[2] = (uint32_t)_mm_extract_epi32(STATE1, 3);
+    st[3] = (uint32_t)_mm_extract_epi32(STATE1, 2);
+    st[4] = (uint32_t)_mm_extract_epi32(STATE0, 1);
+    st[5] = (uint32_t)_mm_extract_epi32(STATE0, 0);
+    st[6] = (uint32_t)_mm_extract_epi32(STATE1, 1);
+    st[7] = (uint32_t)_mm_extract_epi32(STATE1, 0);
+}
+#endif
+
+typedef void (*ps_sha256_blocks_fn_t)(uint32_t st[8], const uint8_t *data, size_t num_blocks);
+static void ps_sha256_blocks_dispatch(uint32_t st[8], const uint8_t *data, size_t num_blocks);
+static ps_sha256_blocks_fn_t ps_sha256_blocks_active = ps_sha256_blocks_dispatch;
+
+static void ps_sha_init_dispatch(void) {
+    if (getenv("PYSC_SHA_PORTABLE") != NULL) {
+        ps_sha256_blocks_active = ps_sha256_blocks_portable;
+        return;
+    }
+#if defined(PS_HASH_AARCH64)
+#if defined(__APPLE__)
+    int val = 0;
+    size_t len = sizeof(val);
+    if ((sysctlbyname("hw.optional.arm.FEAT_SHA256", &val, &len, NULL, 0) == 0 && val == 1) ||
+        (sysctlbyname("hw.optional.armv8_crc32", &val, &len, NULL, 0) == 0 && val == 1)) {
+        ps_sha256_blocks_active = ps_sha256_blocks_armv8;
+        return;
+    }
+#elif defined(__linux__)
+    unsigned long hw = getauxval(AT_HWCAP);
+    if (hw & HWCAP_SHA2) {
+        ps_sha256_blocks_active = ps_sha256_blocks_armv8;
+        return;
+    }
+#endif
+#elif defined(PS_HASH_X86_64)
+    unsigned int eax = 0, ebx = 0, ecx = 0, edx = 0;
+    if (__get_cpuid_count(7, 0, &eax, &ebx, &ecx, &edx)) {
+        if (ebx & (1u << 29)) {
+            ps_sha256_blocks_active = ps_sha256_blocks_x86_ni;
+            return;
+        }
+    }
+#endif
+    ps_sha256_blocks_active = ps_sha256_blocks_portable;
+}
+
+static void ps_sha256_blocks_dispatch(uint32_t st[8], const uint8_t *data, size_t num_blocks) {
+    ps_sha_init_dispatch();
+    ps_sha256_blocks_active(st, data, num_blocks);
+}
+
 static PsBuf *ps_sha256_of(const char *p, int64_t n) {
     uint32_t st[8] = {0x6a09e667u, 0xbb67ae85u, 0x3c6ef372u, 0xa54ff53au, 0x510e527fu, 0x9b05688cu, 0x1f83d9abu, 0x5be0cd19u};
-    uint8_t block[64];
-    int64_t off = 0;
-    while (off + 64 <= n) {
-        ps_sha256_block(st, (const uint8_t *)p + off);
-        off += 64;
+    int64_t num_blocks = n / 64;
+    if (num_blocks > 0) {
+        ps_sha256_blocks_active(st, (const uint8_t *)p, (size_t)num_blocks);
     }
+    int64_t off = num_blocks * 64;
     int64_t rem = n - off;
+    uint8_t block[64];
     memset(block, 0, 64);
     if (rem > 0) {
         memcpy(block, p + off, (size_t)rem);
     }
     block[rem] = 0x80;
     if (rem >= 56) {
-        ps_sha256_block(st, block);
+        ps_sha256_blocks_active(st, block, 1);
         memset(block, 0, 64);
     }
     uint64_t bits = (uint64_t)n * 8;
     for (int i = 0; i < 8; i++) {
         block[56 + i] = (uint8_t)(bits >> (8 * (7 - i)));
     }
-    ps_sha256_block(st, block);
+    ps_sha256_blocks_active(st, block, 1);
     uint8_t out[32];
     for (int i = 0; i < 8; i++) {
         ps_store_be32(out + i * 4, st[i]);
@@ -342,13 +587,13 @@ static void ps_sha512_block(uint64_t st[8], const uint8_t block[128]) {
 }
 
 static void ps_sha512_pad(uint64_t st[8], const char *p, int64_t n) {
-    uint8_t block[128];
-    int64_t off = 0;
-    while (off + 128 <= n) {
-        ps_sha512_block(st, (const uint8_t *)p + off);
-        off += 128;
+    int64_t num_blocks = n / 128;
+    for (int64_t b = 0; b < num_blocks; b++) {
+        ps_sha512_block(st, (const uint8_t *)p + b * 128);
     }
+    int64_t off = num_blocks * 128;
     int64_t rem = n - off;
+    uint8_t block[128];
     memset(block, 0, 128);
     if (rem > 0) {
         memcpy(block, p + off, (size_t)rem);
