@@ -126,8 +126,7 @@ class PrintMixin:
         # The write becomes one `fwrite` per `%.*s` plus a literal write for
         # the rest of the format, so the recorded length is what goes out.
         if data.startswith(b"%.*s"):
-            self.needed.add("fwrite")
-            self._abi_decl("fwrite", "i64", ["ptr", "i64", "i64", "ptr"])
+            self._abi_decl("ps_stream_write", "void", ["ptr", "ptr", "i64"])
             self._abi_decl("ps_stdout_stream" if not err else "ps_stderr_stream", "ptr", [])
             stream = self.tmp()
             self.line(f"{stream} = call ptr @ps_{'stdout' if not err else 'stderr'}_stream()")
@@ -136,7 +135,7 @@ class PrintMixin:
                 if index % 2 == 0:
                     alen = arg[4:]
                 else:
-                    self.line(f"call i64 @fwrite(ptr {arg[4:]}, i64 1, i64 {alen}, ptr {stream})")
+                    self.line(f"call void @ps_stream_write(ptr {stream}, ptr {arg[4:]}, i64 {alen})")
             if tail:
                 self._print_fmt("plain", tail, err=err)
             return

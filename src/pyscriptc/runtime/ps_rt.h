@@ -371,6 +371,7 @@ void ps_input_line(PsBuf *out);
    Darwin `stdout` is a macro like `stderr`, so the emitted code goes through
    the runtime for the FILE* too. */
 void *ps_stdout_stream(void);
+void ps_stream_write(void *stream, const char *data, int64_t len);
 void ps_map_del(PsMap *m, void *key);
 void ps_map_clear(PsMap *m);
 void ps_map_update(PsMap *dst, PsMap *src);

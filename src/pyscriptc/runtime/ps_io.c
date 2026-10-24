@@ -353,6 +353,10 @@ void *ps_stderr_stream(void) { return stderr; }
 
 void *ps_stdout_stream(void) { return stdout; }
 
+/* Write len bytes to a stream: the size_t arguments of fwrite stay in C, so
+   a wasm32 target (32-bit size_t) never sees an i64 call signature. */
+void ps_stream_write(void *stream, const char *data, int64_t len) { fwrite(data, 1, (size_t)len, (FILE *)stream); }
+
 int64_t ps_stdout_write(int64_t n, const char *s) {
     if (n < 0) {
         ps_raise_code(PS_VALUE);
