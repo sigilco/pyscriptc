@@ -501,7 +501,7 @@ def _top_level_names(zf: zipfile.ZipFile, names: list[str], dist_info: str) -> t
     if top_level in names:
         try:
             body = zf.read(top_level).decode("utf-8")
-        except (UnicodeDecodeError, zipfile.BadZipFile):
+        except UnicodeDecodeError, zipfile.BadZipFile:
             body = ""
         return tuple(line.strip() for line in body.splitlines() if line.strip() and not line.strip().startswith("#"))
     found: list[str] = []
@@ -805,12 +805,14 @@ def stage_data_files(
     `importlib.resources` searches, laid out under the package's dotted path
     (`certifi/cacert.pem`, `pkg/sub/data.bin`). The staging root is a sibling
     of the binary named `<binary>-data/`, written fresh on every compile (the
-    old tree is removed first, so a recompile never leaves a stale file).
+    old tree is removed first, so a recompile never leaves a stale file) and
+    resolved to an absolute path: the binary's search path is a compile-time
+    constant, so a relative root would break for any other working directory.
     Empty input stages nothing and returns the (not created) root: a package
     with no data files behaves exactly as before.
     """
 
-    root = binary.parent / (binary.name + "-data")
+    root = (binary.parent / (binary.name + "-data")).resolve()
     members = [(path, body) for _wheel, files in data for path, body in files]
     if not members:
         if root.exists():

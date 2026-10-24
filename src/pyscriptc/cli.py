@@ -984,7 +984,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         binary = Path(args.output) if args.output else _artifact_base(args, source_path)
         if ((args.target and "windows" in args.target) or sys.platform == "win32") and not binary.suffix:
             binary = binary.with_suffix(".exe")
-        data_root = _stage_dependency_data(source_path, config, binary)
+        data_root = _stage_dependency_data(source_path, config, args, binary)
         if source_path.is_dir():
             module, source = lower_directory(
                 source_path,
@@ -1238,7 +1238,7 @@ def _dependency_roots(source_path: Path, config: Any) -> tuple[list[Path], dict[
     return roots, lanes
 
 
-def _stage_dependency_data(source_path: Path, config: Any, binary: Path) -> Path | None:
+def _stage_dependency_data(source_path: Path, config: Any, args: argparse.Namespace, binary: Path) -> Path | None:
     """Stage the pure wheels' data files beside the emitted binary (issue #410).
 
     Only the compile lanes (`bin` and the `--run` that implies it) need the
@@ -1253,6 +1253,8 @@ def _stage_dependency_data(source_path: Path, config: Any, binary: Path) -> Path
     from pyscriptc.deps import data_files, stage_data_files
 
     if not config.dependencies:
+        return None
+    if args.emit not in ("bin", "llvm") and not args.run:
         return None
     report = deps.run_deps(source_path)
     collected: list[tuple[str, list[tuple[str, bytes]]]] = []
