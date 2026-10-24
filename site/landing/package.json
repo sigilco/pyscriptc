@@ -15,7 +15,7 @@
     "@visx/group": "^4.0.0",
     "@visx/scale": "^4.0.0",
     "@visx/shape": "^4.0.0",
-    "astro": "^5.18.2",
+    "astro": "^7.4.2",
     "daisyui": "^5.7.50"
   },
   "devDependencies": {
