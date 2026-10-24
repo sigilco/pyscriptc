@@ -40,6 +40,7 @@ declare double @ps_math_atan2(double, double)
 declare i64 @ps_math_floor(double)
 declare i64 @ps_math_ceil(double)
 declare i64 @ps_math_trunc(double)
+declare void @ps_str_counts(i64, ptr, ptr, ptr)
 
 define void @call_callees() {
 entry:
@@ -64,22 +65,24 @@ entry:
   %t16 = extractvalue %ps.str %t15, 0
   %t17 = extractvalue %ps.str %t15, 1
   %t18 = alloca %ps.str
-  %t19 = getelementptr %ps.str, ptr %t18, i32 0, i32 2
-  store i64 0, ptr %t19
-  %t20 = getelementptr %ps.str, ptr %t18, i32 0, i32 3
-  store i32 0, ptr %t20
   call void @ps_str_upper(i64 %t16, ptr %t17, ptr %t18)
-  %t21 = load %ps.str, ptr %t18
-  %t22 = extractvalue %ps.str %t21, 0
-  %t23 = extractvalue %ps.str %t21, 1
-  %t24 = getelementptr %ps.buf, ptr %t5, i32 0, i32 0
-  store i64 %t22, ptr %t24
-  %t25 = getelementptr %ps.buf, ptr %t5, i32 0, i32 1
-  store ptr %t23, ptr %t25
-  %t26 = getelementptr %cls.Point, ptr null, i64 1
-  %t27 = ptrtoint ptr %t26 to i64
-  %t28 = call ptr @ps_alloc(i64 %t27)
-  store ptr %t28, ptr %t6
+  %t21 = load i64, ptr %t18
+  %t22 = getelementptr %ps.str, ptr %t18, i32 0, i32 1
+  %t23 = load ptr, ptr %t22
+  %t19 = getelementptr %ps.str, ptr %t18, i32 0, i32 2
+  %t20 = getelementptr %ps.str, ptr %t18, i32 0, i32 3
+  call void @ps_str_counts(i64 %t21, ptr %t23, ptr %t19, ptr %t20)
+  %t24 = load %ps.str, ptr %t18
+  %t25 = extractvalue %ps.str %t24, 0
+  %t26 = extractvalue %ps.str %t24, 1
+  %t27 = getelementptr %ps.buf, ptr %t5, i32 0, i32 0
+  store i64 %t25, ptr %t27
+  %t28 = getelementptr %ps.buf, ptr %t5, i32 0, i32 1
+  store ptr %t26, ptr %t28
+  %t29 = getelementptr %cls.Point, ptr null, i64 1
+  %t30 = ptrtoint ptr %t29 to i64
+  %t31 = call ptr @ps_alloc(i64 %t30)
+  store ptr %t31, ptr %t6
   ret void
 }
 
