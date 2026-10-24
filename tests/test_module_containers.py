@@ -166,3 +166,33 @@ def probe() -> int:
     assert "main" not in {fn["name"] for fn in mod["functions"]}
     assert "__entry__" not in {fn["name"] for fn in mod["functions"]}
     assert mod.get("globals"), "the container slot initializer exists without an entry"
+
+
+def test_assert_raises_assertionerror(tmp_path: Path) -> None:
+    differential(
+        tmp_path,
+        "assert.py",
+        (
+            "try:\n"
+            "    assert 1 == 2, 'one is not two'\n"
+            "except AssertionError:\n"
+            "    print('caught AssertionError')\n"
+            "except Exception:\n"
+            "    print('caught plain Exception')\n"
+            "\n"
+            "flag: bool = False\n"
+            "try:\n"
+            "    assert flag\n"
+            "except AssertionError:\n"
+            "    print('caught bare')\n"
+        ),
+    )
+    import subprocess
+    import sys
+
+    path = write_case(tmp_path, "assert_uncaught.py", "assert 1 == 2, 'one is not two'\n")
+    out = str(tmp_path / "assert_uncaught.bin")
+    got = run_cli("compile", str(path), "--run", "--emit", "bin", "-o", out)
+    expected = subprocess.run([sys.executable, "-c", path.read_text()], capture_output=True, text=True, check=False)
+    assert got.returncode == expected.returncode == 1
+    assert "AssertionError: one is not two" in got.stderr

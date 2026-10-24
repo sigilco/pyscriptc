@@ -1193,12 +1193,12 @@ class StmtMixin:
         return False
 
     def _assert(self, stmt: ast.Assert, span: dict[str, Any]) -> list[dict[str, Any]]:
-        """`assert cond` is `if not cond: raise Exception`, and a message sits on that raise.
+        """`assert cond` is `if not cond: raise AssertionError`, and a message sits on that raise.
 
-        The condition is whatever `if` already accepts. AssertionError is not a
-        lowered exception, so the failure is the existing `Exception` raise.
-        The message is a `str`, same as `raise`, and it is lowered only in the
-        failing branch.
+        The condition is whatever `if` already accepts. AssertionError is in
+        the exception table (#515), so `except AssertionError` catches the
+        failure the way CPython does. The message is a `str`, same as
+        `raise`, and it is lowered only in the failing branch.
         """
         cond = self._bool_cond(stmt.test)
         then: list[dict[str, Any]] = []
@@ -1213,7 +1213,7 @@ class StmtMixin:
                 then = self.prelude
             finally:
                 self.prelude = saved
-        then.append({"kind": "raise", "exc": "Exception", "message": message, "span": span})
+        then.append({"kind": "raise", "exc": "AssertionError", "message": message, "span": span})
         negated = {"kind": "unary", "op": "not", "operand": cond, "type": {"kind": "bool"}, "span": span}
         return [{"kind": "if", "cond": negated, "then": then, "else": [], "span": span}]
 
