@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import ast
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -14,7 +16,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from pyscriptc import deps, reduce, runcache, telemetry, zigshim
+from pyscriptc import deps, reduce, runcache, telemetry, verify, zigshim
 from pyscriptc.check import CheckFailed, run_checker
 from pyscriptc.config import apply_to_args, entry_points, load_config
 from pyscriptc.coverage import build_report, family_of, render_text
@@ -188,6 +190,42 @@ def main(argv: list[str] | None = None) -> int:
         default=[],
         help="bind a typed extern manifest (TOML) and link its C sources; repeatable",
     )
+    verify_parser = sub.add_parser(
+        "verify",
+        help="compile, run under CPython 3.14 and natively, and diff stdout, stderr and the exit code",
+        parents=[common],
+    )
+    verify_parser.add_argument("source")
+    verify_parser.add_argument("--call", help="function to call on both sides instead of the program entry")
+    verify_parser.add_argument("--args", default="[]", help="Python literal list of arguments for --call")
+    verify_parser.add_argument(
+        "--input",
+        metavar="FILE",
+        help="feed FILE's bytes on stdin to both runs (default: an empty stdin, so input() sees EOF)",
+    )
+    verify_parser.add_argument("--json", action="store_true", help="print the receipt as JSON instead of text")
+    verify_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=verify.DEFAULT_TIMEOUT,
+        metavar="S",
+        help=f"seconds each run may take before it is a divergence (default {verify.DEFAULT_TIMEOUT:g})",
+    )
+    verify_parser.add_argument("--program", action="store_true", help="treat the directory as a program (see compile)")
+    verify_parser.add_argument("--driver", choices=("clang", "zig"), default=None)
+    verify_parser.add_argument("--target", help="cross-compilation triple for `zig cc`")
+    verify_parser.add_argument("--linker", choices=("clang", "zig"), default=None)
+    verify_parser.add_argument("--skip-check", action="store_true")
+    verify_parser.add_argument("--checker", choices=("pyrefly", "mypy", "pyright"), default="pyrefly")
+    verify_parser.add_argument("--no-cache", action="store_true", help="always recompile (env PYSC_NO_RUN_CACHE=1)")
+    verify_parser.add_argument(
+        "--ffi",
+        action="append",
+        metavar="MANIFEST",
+        default=[],
+        help="bind a typed extern manifest (TOML) and link its C sources; repeatable",
+    )
+    verify_parser.set_defaults(sanitize=None, debug_info=False)
     coverage_parser = sub.add_parser("coverage", help="report every fence in a file or package tree", parents=[common])
     coverage_parser.add_argument("source")
     coverage_parser.add_argument("--json", action="store_true", help="print the report as JSON")
@@ -257,8 +295,8 @@ def main(argv: list[str] | None = None) -> int:
             raw, run_argv = raw[:split], raw[split + 1 :]
         args = parser.parse_args(raw)
         args.run_argv = run_argv
-        if run_argv and not (args.cmd == "run" or (args.cmd == "compile" and args.run)):
-            parser.error("arguments after `--` need `run` or `compile --run`")
+        if run_argv and not (args.cmd in ("verify", "run") or (args.cmd == "compile" and args.run)):
+            parser.error("arguments after `--` need `run`, `compile --run` or `verify`")
         if getattr(args, "verbose", False):
             enable_debug()
         log.info("cli.invoke", cmd=args.cmd)
@@ -269,6 +307,8 @@ def main(argv: list[str] | None = None) -> int:
             return compile_cmd(args)
         if args.cmd == "run":
             return run_cmd(args)
+        if args.cmd == "verify":
+            return verify_cmd(args)
         if args.cmd == "coverage":
             return coverage_cmd(args)
         if args.cmd == "imports":
@@ -309,25 +349,7 @@ def run_cmd(args: argparse.Namespace) -> int:
     if not source.exists():
         raise IRError(f"source not found: {source}")
     use_cache = runcache.enabled() and not args.no_cache
-    ffi_paths = [str(p) for p in getattr(args, "ffi", None) or []]
-    ffi_paths.extend(str(p) for p in load_config(source).ffi_manifests)
-    key = runcache.key_for(
-        source,
-        load_config(source).origin,
-        [
-            f"program={args.program}",
-            f"call={args.call}",
-            f"args={args.args if args.call else ''}",
-            f"driver={args.driver}",
-            f"target={args.target}",
-            f"linker={args.linker}",
-            f"sanitize={args.sanitize}",
-            f"debug_info={getattr(args, 'debug_info', False)}",
-            f"skip_check={args.skip_check}",
-            f"checker={args.checker}",
-            f"ffi={','.join(ffi_paths)}",
-        ],
-    )
+    key = _run_key(args)
     name = (source.resolve().name if source.is_dir() else source.stem) or "app"
     binary = runcache.binary_path(key, name)
     if use_cache and binary.is_file():
@@ -377,6 +399,38 @@ def run_cmd(args: argparse.Namespace) -> int:
         return code
     finally:
         shutil.rmtree(build, ignore_errors=True)
+
+
+def _run_key(args: argparse.Namespace) -> str:
+    """The content-hash key of the binary `run` and `verify` share.
+
+    Everything that changes the linked output is a part; argv and stdin do not
+    change the binary, so they stay out. The source file's own name is a part
+    too: sibling scripts in one directory share the content tree, so without it
+    two different programs would claim the same cache entry.
+    """
+    source = Path(args.source)
+    name = (source.resolve().name if source.is_dir() else source.stem) or "app"
+    ffi_paths = [str(p) for p in getattr(args, "ffi", None) or []]
+    ffi_paths.extend(str(p) for p in load_config(source).ffi_manifests)
+    return runcache.key_for(
+        source,
+        load_config(source).origin,
+        [
+            f"source={name}",
+            f"program={args.program}",
+            f"call={args.call}",
+            f"args={args.args if args.call else ''}",
+            f"driver={args.driver}",
+            f"target={args.target}",
+            f"linker={args.linker}",
+            f"sanitize={args.sanitize}",
+            f"debug_info={getattr(args, 'debug_info', False)}",
+            f"skip_check={args.skip_check}",
+            f"checker={args.checker}",
+            f"ffi={','.join(ffi_paths)}",
+        ],
+    )
 
 
 def _binary_size(binary: Path) -> int | None:
@@ -448,6 +502,111 @@ def _exec_binary(binary: Path, argv: list[str]) -> int:
     code = 128 + (-completed.returncode) if completed.returncode < 0 else completed.returncode
     log.info("run.exit", binary=str(binary), code=code)
     return code
+
+
+def verify_cmd(args: argparse.Namespace) -> int:
+    """`pyscriptc verify FILE`: run under the CPython 3.14 oracle and natively, then diff.
+
+    A differential smoke test, not a proof: it covers the paths the argv and
+    stdin exercised. Exit 0 when every check matches, 1 on a divergence, 3 when
+    the compiler fences the program, 4 when no pinned oracle is available.
+    """
+    started = time.monotonic()
+    _apply_env_defaults(args)
+    source = Path(args.source)
+    if not source.exists():
+        raise IRError(f"source not found: {source}")
+    if not source.is_file():
+        raise IRError("verify takes one file; run it per file, or `pyscriptc coverage DIR` for a package tree")
+    if not (args.timeout > 0):
+        raise IRError("--timeout must be a positive number of seconds")
+    if args.input is not None and not Path(args.input).exists():
+        raise IRError(f"--input file not found: {args.input}")
+    stdin = Path(args.input).read_bytes() if args.input is not None else b""
+    oracle = verify.find_oracle()
+    call_args = _parse_args(args.args) if args.call else []
+    name = source.stem or "app"
+    key = _run_key(args)
+    with tempfile.TemporaryDirectory(prefix="pyscriptc-verify-") as scratch_name:
+        scratch = Path(scratch_name)
+        compile_started = time.monotonic()
+        binary, cache_hit, code, compile_log = _verify_binary(args, name, key, scratch)
+        compile_ms = int((time.monotonic() - compile_started) * 1000)
+        if code != 0:
+            failure = verify.failure_receipt(str(source), oracle, code, compile_log, timeout_seconds=args.timeout)
+            print(json.dumps(failure, indent=2) if args.json else verify.render_failure(failure))
+            log.info("verify.refused", source=str(source), exit_code=code)
+            return code
+        resolved = source.resolve()
+        receipt = verify.measure(
+            resolved,
+            oracle,
+            binary,
+            argv=list(args.run_argv),
+            stdin=stdin,
+            stdin_path=args.input,
+            call=args.call,
+            call_args=call_args,
+            timeout=args.timeout,
+            scratch=scratch,
+            cache_hit=cache_hit,
+            compile_ms=compile_ms,
+            started=started,
+        )
+    print(json.dumps(receipt.as_dict(), indent=2) if args.json else verify.render_text(receipt))
+    log.info("verify.finished", source=str(source), match=receipt.match, cache_hit=cache_hit)
+    telemetry.track(
+        "verify.finished",
+        {
+            "duration_ms": receipt.duration_ms,
+            "compile_ms": compile_ms,
+            "match": receipt.match,
+            "cache_hit": cache_hit,
+            "check_count": len(receipt.checks),
+            "diverged": [check["name"] for check in receipt.checks if not check["match"]],
+            "call": args.call is not None,
+            "timeout": args.timeout,
+        },
+    )
+    return 0 if receipt.match else 1
+
+
+def _verify_binary(args: argparse.Namespace, name: str, key: str, scratch: Path) -> tuple[Path, bool, int, str]:
+    """The binary to verify, its cache state, and the compile's exit code and log.
+
+    The build goes through `_build_for_run`, so verify compiles exactly what
+    `run` compiles and shares its content-hash cache. The compiler's own stderr
+    is captured: a fence report belongs in the receipt, not above it.
+    """
+    use_cache = runcache.enabled() and not args.no_cache
+    cached = runcache.binary_path(key, name)
+    if use_cache and cached.is_file():
+        log.info("verify.cache_hit", key=key, binary=str(cached))
+        return cached, True, 0, ""
+    build = scratch / "build"
+    build.mkdir(parents=True, exist_ok=True)
+    output = io.StringIO()
+    try:
+        with contextlib.redirect_stderr(output):
+            code = _build_for_run(args, build / name)
+    except BaseException:
+        sys.stderr.write(output.getvalue())
+        raise
+    if code != 0:
+        return build / name, False, code, output.getvalue()
+    if not use_cache:
+        return build / name, False, 0, output.getvalue()
+    try:
+        cached.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(build, cached.parent)
+    except OSError:
+        # another store owns the entry (or left a partial one); a fresh build
+        # in the scratch directory is still a valid binary to verify
+        log.info("verify.cache_store_skipped", key=key)
+        if cached.is_file():
+            return cached, False, 0, output.getvalue()
+        return build / name, False, 0, output.getvalue()
+    return cached, False, 0, output.getvalue()
 
 
 def coverage_cmd(args: argparse.Namespace) -> int:
