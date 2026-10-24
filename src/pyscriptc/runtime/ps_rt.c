@@ -6,6 +6,7 @@ frame is still live if the body raises. Arithmetic overflow stays an LLVM trap.
 */
 
 #include "ps_rt.h"
+#include "ps_case.c"
 
 #include <math.h>
 #include <setjmp.h>
@@ -1383,20 +1384,25 @@ void ps_buf_copy(PsBuf *out, const char *p, int64_t n) {
 }
 
 void ps_str_counts(int64_t n, const char *p, int64_t *nchars, int32_t *flags) {
-    /* One pass over the bytes: the code-point count and the ASCII flag.
-       The Latin-1 model stores one byte per code point, so today the count
-       is n and the flag says "all bytes below 0x80"; the str model (epic
-       #472) replaces the body with a UTF-8 walk without changing the
-       signature or the callers. */
+    /* One pass over the UTF-8 bytes: the code-point count and the ASCII
+       flag. A continuation byte (10xxxxxx) never starts a code point, so
+       the count is the number of bytes that are not continuations. The
+       input is a well-formed UTF-8 buffer by construction (every producer
+       encodes through ps_utf8_encode or the compiler's literal path), so
+       the walk does not re-validate; ps_utf8_decode owns rejection. */
+    int64_t chars = 0;
     int32_t ascii = 1;
     for (int64_t i = 0; i < n; i++) {
-        if ((unsigned char)p[i] >= 0x80) {
+        unsigned char c = (unsigned char)p[i];
+        if ((c & 0xC0) != 0x80) {
+            chars++;
+        }
+        if (c >= 0x80) {
             ascii = 0;
-            break;
         }
     }
     if (nchars != NULL) {
-        *nchars = n;
+        *nchars = chars;
     }
     if (flags != NULL) {
         *flags = ascii ? PS_STR_FLAG_ASCII : 0;
@@ -1407,6 +1413,76 @@ void ps_str_header(int64_t nbytes, const char *p, int64_t *nchars, int32_t *flag
     out->len = nbytes;
     out->data = (char *)p;
     ps_str_counts(nbytes, p, nchars, flags);
+}
+
+/* ---- UTF-8 cursor helpers (S2, issue #474) ----
+
+A code point is 1 to 4 bytes. The helpers below walk and measure UTF-8 on
+buffers the producers already validated (the compiler's literal path and
+ps_utf8_decode both reject malformed input), so the fast paths do not
+re-check every byte. The ASCII flag makes every ASCII string O(1): the
+code-point index is the byte offset. */
+
+static int ps_utf8_len(unsigned char c) {
+    if (c < 0x80) {
+        return 1;
+    }
+    if ((c & 0xE0) == 0xC0) {
+        return 2;
+    }
+    if ((c & 0xF0) == 0xE0) {
+        return 3;
+    }
+    return 4;
+}
+
+/* The byte offset of code point `i` (negative wraps like ps_index), or -1
+   when `i` is out of range. A negative index needs the full count first, so
+   it pays the same one pass the count itself costs. */
+static int64_t ps_str_offset(int64_t n, const char *p, int64_t i) {
+    int64_t at = 0;
+    int64_t seen = 0;
+    if (i < 0) {
+        int64_t chars = 0;
+        for (int64_t k = 0; k < n; k++) {
+            chars += ((unsigned char)p[k] & 0xC0) != 0x80;
+        }
+        i += chars;
+        if (i < 0) {
+            return -1;
+        }
+    }
+    while (at < n && seen < i) {
+        at += ps_utf8_len((unsigned char)p[at]);
+        seen++;
+    }
+    return seen == i ? at : -1;
+}
+
+/* The byte width of the code point at `at` (a lead byte position). */
+static int64_t ps_str_char_len(int64_t n, const char *p, int64_t at) {
+    int w = ps_utf8_len((unsigned char)p[at]);
+    return at + w <= n ? w : n - at;
+}
+
+/* The ASCII flag decides the fast path; a buffer whose bytes are all below
+   0x80 is the same question the flag answers for well-formed input. */
+static int ps_all_ascii(int64_t n, const char *p) {
+    for (int64_t i = 0; i < n; i++) {
+        if ((unsigned char)p[i] >= 0x80) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* The code-point length of the buffer. */
+static int64_t ps_str_nchars(int64_t n, const char *p) {
+    int64_t chars = 0;
+    for (int64_t k = 0; k < n; k++) {
+        chars += ((unsigned char)p[k] & 0xC0) != 0x80;
+    }
+    return chars;
 }
 
 void ps_grow_init(PsGrow *g) {
@@ -1462,8 +1538,18 @@ void ps_grow_finish(PsGrow *g, PsBuf *out) {
 }
 
 void ps_str_get(int64_t n, char *p, int64_t i, PsBuf *out) {
-    i = ps_index(n, i, "string");
-    ps_view(out, p + i, 1);
+    /* s[i] is the i-th code point: a one-byte view on an ASCII string (the
+       byte offset is the index), the scanned offset otherwise. */
+    if (ps_all_ascii(n, p)) {
+        i = ps_index(n, i, "string");
+        ps_view(out, p + i, 1);
+        return;
+    }
+    int64_t at = ps_str_offset(n, p, i);
+    if (at < 0) {
+        ps_index(ps_str_nchars(n, p), i, "string");
+    }
+    ps_view(out, p + at, ps_str_char_len(n, p, at));
 }
 
 int64_t ps_buf_at(int64_t n, char *p, int64_t i) {
@@ -1512,6 +1598,12 @@ int32_t ps_str_endswith(int64_t n, char *p, int64_t pn, char *pp) {
 }
 
 int64_t ps_str_find(int64_t n, char *p, int64_t pn, char *pp) {
+    /* find over code points: the needle's UTF-8 bytes match at exactly one
+       code-point boundary (UTF-8 is self-synchronizing, so a byte match
+       inside a multi-byte code point cannot happen unless the offsets agree
+       with a code-point boundary). The returned offset is already a
+       code-point index only on ASCII; the general case counts the code
+       points before the match. */
     if (pn == 0) {
         return 0;
     }
@@ -1520,19 +1612,26 @@ int64_t ps_str_find(int64_t n, char *p, int64_t pn, char *pp) {
     }
     for (int64_t i = 0; i + pn <= n; i++) {
         if (memcmp(p + i, pp, (size_t)pn) == 0) {
-            return i;
+            if (ps_all_ascii(n, p)) {
+                return i;
+            }
+            return ps_str_nchars(i, p);
         }
     }
     return -1;
 }
 
 int32_t ps_str_eq(int64_t an, char *ap, int64_t bn, char *bp) {
+    /* Code-point equality is byte equality: UTF-8 is a bijection between
+       code-point sequences and byte sequences, so no decode is needed. */
     PsBuf a = {an, ap};
     PsBuf b = {bn, bp};
     return ps_buf_eq(a, b);
 }
 
 int32_t ps_str_cmp(int64_t an, char *ap, int64_t bn, char *bp) {
+    /* Code-point ordering is byte ordering: UTF-8 preserves code-point
+       order, so a memcmp with a length tiebreak is CPython's `<`. */
     int64_t n = an < bn ? an : bn;
     int cmp = n == 0 ? 0 : memcmp(ap, bp, (size_t)n);
     if (cmp < 0) {
@@ -1550,28 +1649,337 @@ int32_t ps_str_cmp(int64_t an, char *ap, int64_t bn, char *bp) {
     return 0;
 }
 
-static void ps_case(int64_t n, const char *p, int upper, PsBuf *out) {
-    char *q = malloc((size_t)n + 1);
-    if (q == NULL) {
-        abort();
-    }
-    for (int64_t i = 0; i < n; i++) {
-        unsigned char c = (unsigned char)p[i];
-        if (upper && c >= 'a' && c <= 'z') {
-            c = (unsigned char)(c - 'a' + 'A');
+/* The case family. Each function walks code points; the ASCII bytes keep
+   the old branch (no table hit), everything else looks up ps_case_map
+   (Unicode 16.0.0, generated by scripts/gen_case_tables.py). The full mappings
+   match CPython: an expansion (upper of the eszett, fold of the same,
+   lower of the dotted I) emits every code point of the mapping. */
+
+static const PsCaseRec *ps_case_find(uint32_t cp) {
+    int64_t lo = 0;
+    int64_t hi = PS_CASE_MAP_N;
+    while (lo < hi) {
+        int64_t mid = lo + (hi - lo) / 2;
+        if (ps_case_map[mid].cp < cp) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
         }
-        if (!upper && c >= 'A' && c <= 'Z') {
-            c = (unsigned char)(c - 'A' + 'a');
-        }
-        q[i] = (char)c;
     }
-    q[n] = '\0';
-    out->len = n;
-    out->data = q;
+    if (lo < PS_CASE_MAP_N && ps_case_map[lo].cp == cp) {
+        return &ps_case_map[lo];
+    }
+    return NULL;
 }
 
-void ps_str_upper(int64_t n, char *p, PsBuf *out) { ps_case(n, p, 1, out); }
-void ps_str_lower(int64_t n, char *p, PsBuf *out) { ps_case(n, p, 0, out); }
+static const char *ps_case_exp(const PsCaseExp *table, int64_t n, uint32_t cp, uint32_t *len) {
+    int64_t lo = 0;
+    int64_t hi = n;
+    while (lo < hi) {
+        int64_t mid = lo + (hi - lo) / 2;
+        if (table[mid].cp < cp) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    if (lo < n && table[lo].cp == cp) {
+        *len = table[lo].len;
+        return ps_case_pool + table[lo].off;
+    }
+    *len = 0;
+    return NULL;
+}
+
+typedef enum {
+    PS_CASE_TO_UPPER = 0,
+    PS_CASE_TO_LOWER = 1,
+    PS_CASE_TO_FOLD = 2,
+    PS_CASE_TO_TITLE = 3
+} PsCaseKind;
+
+/* The Cased / Case_Ignorable properties from the generated tables. */
+static int ps_case_cased(uint32_t cp) {
+    if (cp < 0x80) {
+        return (cp >= 'a' && cp <= 'z') || (cp >= 'A' && cp <= 'Z');
+    }
+    const PsCaseRec *rec = ps_case_find(cp);
+    return rec != NULL && (rec->flags & PS_CASE_F_CASED) != 0;
+}
+
+static int ps_case_ignorable(uint32_t cp) {
+    if (cp < 0x80) {
+        return cp == 0x27 || cp == 0x2E || cp == 0x3A || cp == 0x5E || cp == 0x60;
+    }
+    const PsCaseRec *rec = ps_case_find(cp);
+    return rec != NULL && (rec->flags & PS_CASE_F_IGNORABLE) != 0;
+}
+
+/* The Final_Sigma context: the sigma at `cps[at]` is final when preceded by
+   a cased code point (skipping case-ignorables backwards) and not followed
+   by one (skipping case-ignorables forwards, end of string counts as
+   not-cased). */
+static int ps_sigma_final(const uint32_t *cps, int64_t n, int64_t at) {
+    int64_t j = at - 1;
+    while (j >= 0 && ps_case_ignorable(cps[j])) {
+        j--;
+    }
+    if (j < 0 || !ps_case_cased(cps[j])) {
+        return 0;
+    }
+    int64_t k = at + 1;
+    while (k < n && ps_case_ignorable(cps[k])) {
+        k++;
+    }
+    return k >= n || !ps_case_cased(cps[k]);
+}
+
+/* Decode the code point starting at p[at] (n is the byte length). Writes
+   the code point and its width; invalid UTF-8 cannot reach the case
+   functions (the decoder validated the bytes). */
+static void ps_case_decode(int64_t n, const char *p, int64_t at, uint32_t *cp, int *w) {
+    unsigned char c = (unsigned char)p[at];
+    if (c < 0x80) {
+        *cp = c;
+        *w = 1;
+        return;
+    }
+    int width = ps_utf8_len(c);
+    uint32_t v = 0;
+    switch (width) {
+    case 2:
+        v = (uint32_t)(c & 0x1F);
+        break;
+    case 3:
+        v = (uint32_t)(c & 0x0F);
+        break;
+    default:
+        v = (uint32_t)(c & 0x07);
+        break;
+    }
+    for (int k = 1; k < width && at + k < n; k++) {
+        v = (v << 6) | (uint32_t)((unsigned char)p[at + k] & 0x3F);
+    }
+    *cp = v;
+    *w = width;
+}
+
+/* Emit one code point as UTF-8. */
+static void ps_case_emit_cp(PsGrow *g, uint32_t want) {
+    if (want < 0x80) {
+        ps_grow_byte(g, (unsigned char)want);
+    } else if (want < 0x800) {
+        ps_grow_byte(g, (unsigned char)(0xC0 | (want >> 6)));
+        ps_grow_byte(g, (unsigned char)(0x80 | (want & 0x3F)));
+    } else if (want < 0x10000) {
+        ps_grow_byte(g, (unsigned char)(0xE0 | (want >> 12)));
+        ps_grow_byte(g, (unsigned char)(0x80 | ((want >> 6) & 0x3F)));
+        ps_grow_byte(g, (unsigned char)(0x80 | (want & 0x3F)));
+    } else {
+        ps_grow_byte(g, (unsigned char)(0xF0 | (want >> 18)));
+        ps_grow_byte(g, (unsigned char)(0x80 | ((want >> 12) & 0x3F)));
+        ps_grow_byte(g, (unsigned char)(0x80 | ((want >> 6) & 0x3F)));
+        ps_grow_byte(g, (unsigned char)(0x80 | (want & 0x3F)));
+    }
+}
+
+/* True when the code point's title mapping is the identity: the titlecase
+   letters swapcase to themselves (unlike the digraph upper letters, whose
+   title mapping moves). */
+static int ps_case_is_title_identity(uint32_t cp) {
+    uint32_t tlen = 0;
+    const char *ts = ps_case_exp(ps_case_exp_title, PS_CASE_EXP_TITLE_N, cp, &tlen);
+    if (ts == NULL) {
+        /* Not in the specials table: the title mapping is the upper
+           mapping, which differs for every char with both directions
+           differing - the only callers of this predicate. */
+        return 0;
+    }
+    char buf[4];
+    int w = 0;
+    if (cp < 0x80) {
+        buf[w++] = (char)cp;
+    } else if (cp < 0x800) {
+        buf[w++] = (char)(0xC0 | (cp >> 6));
+        buf[w++] = (char)(0x80 | (cp & 0x3F));
+    } else if (cp < 0x10000) {
+        buf[w++] = (char)(0xE0 | (cp >> 12));
+        buf[w++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        buf[w++] = (char)(0x80 | (cp & 0x3F));
+    } else {
+        buf[w++] = (char)(0xF0 | (cp >> 18));
+        buf[w++] = (char)(0x80 | ((cp >> 12) & 0x3F));
+        buf[w++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        buf[w++] = (char)(0x80 | (cp & 0x3F));
+    }
+    return tlen == (uint32_t)w && memcmp(ts, buf, (size_t)w) == 0;
+}
+
+/* The lower mapping of one code point inside a sequence: the final-sigma
+   rule maps U+03A3 to U+03C2 in final position. `cps` may be NULL when the
+   caller only has the single code point (then the context is empty). */
+static uint32_t ps_case_lower_cp(const uint32_t *cps, int64_t n, int64_t at, uint32_t cp) {
+    if (cp == 0x3A3 && cps != NULL && ps_sigma_final(cps, n, at)) {
+        return 0x3C2;
+    }
+    const PsCaseRec *rec = ps_case_find(cp);
+    return rec != NULL ? rec->lo : cp;
+}
+
+/* The replacement for one code point under `kind`: appended to `g`.
+   The title kind uses the title mapping (the specials table, then upper)
+   at a word start and the lower mapping otherwise; lower expands the
+   final sigma. Returns nothing; *prev_cased receives the Cased property
+   of the input code point (the title word scan feeds it back). */
+static void ps_case_apply(PsGrow *g, uint32_t cp, PsCaseKind kind, int title_first, const uint32_t *cps, int64_t n, int64_t at, int *prev_cased) {
+    const PsCaseRec *rec = ps_case_find(cp);
+    uint32_t want;
+    /* The kind whose expansion table answers a PS_CASE_EXP want: the
+       non-start path of title lowers, so its expansions are lower ones. */
+    PsCaseKind exp_kind = kind;
+    if (kind == PS_CASE_TO_UPPER) {
+        want = rec != NULL ? rec->up : cp;
+    } else if (kind == PS_CASE_TO_LOWER) {
+        want = ps_case_lower_cp(cps, n, at, cp);
+    } else if (kind == PS_CASE_TO_FOLD) {
+        want = rec != NULL ? rec->fold : cp;
+    } else {
+        /* Title: the specials table first (the titlecase letters and the
+           eszett), then the upper mapping for a word start, the lower
+           mapping otherwise. */
+        uint32_t tlen = 0;
+        const char *ts = title_first ? ps_case_exp(ps_case_exp_title, PS_CASE_EXP_TITLE_N, cp, &tlen) : NULL;
+        if (ts != NULL) {
+            ps_grow_add(g, ts, (int64_t)tlen);
+            *prev_cased = ps_case_cased(cp);
+            return;
+        }
+        if (title_first) {
+            want = rec != NULL ? rec->up : cp;
+        } else {
+            want = ps_case_lower_cp(cps, n, at, cp);
+            exp_kind = PS_CASE_TO_LOWER;
+        }
+    }
+    if (want == PS_CASE_EXP) {
+        const PsCaseExp *table = exp_kind == PS_CASE_TO_UPPER ? ps_case_exp_up
+                                 : exp_kind == PS_CASE_TO_LOWER ? ps_case_exp_lo
+                                 : exp_kind == PS_CASE_TO_TITLE ? ps_case_exp_up
+                                                              : ps_case_exp_fold;
+        int64_t n_exp = exp_kind == PS_CASE_TO_UPPER ? PS_CASE_EXP_UP_N
+                        : exp_kind == PS_CASE_TO_LOWER ? PS_CASE_EXP_LO_N
+                        : exp_kind == PS_CASE_TO_TITLE ? PS_CASE_EXP_UP_N
+                                                       : PS_CASE_EXP_FOLD_N;
+        uint32_t len = 0;
+        const char *s = ps_case_exp(table, n_exp, cp, &len);
+        if (s != NULL && len > 0) {
+            ps_grow_add(g, s, (int64_t)len);
+            *prev_cased = ps_case_cased(cp);
+            return;
+        }
+        /* The expansion table of this kind has no entry: fall through to
+           the single-value path. */
+    }
+    /* A single-code-point mapping: emit the mapped value as UTF-8. The
+       identity (want == cp) lands here too, which is the unmapped pass-
+       through the case functions need. */
+    ps_case_emit_cp(g, want);
+    *prev_cased = ps_case_cased(cp);
+}
+
+/* Decode the whole byte string into a code-point array (allocation via
+   malloc; the case functions abort on OOM like the rest of the runtime). */
+static uint32_t *ps_casecps(int64_t n, const char *p, int64_t *out_n) {
+    int64_t cap = n + 1;
+    uint32_t *cps = malloc((size_t)cap * sizeof(uint32_t));
+    if (cps == NULL) {
+        abort();
+    }
+    int64_t at = 0;
+    int64_t m = 0;
+    while (at < n) {
+        uint32_t cp;
+        int w;
+        ps_case_decode(n, p, at, &cp, &w);
+        cps[m++] = cp;
+        at += w;
+    }
+    *out_n = m;
+    return cps;
+}
+
+static void ps_case_run(int64_t n, const char *p, PsCaseKind kind, PsBuf *out) {
+    uint32_t *cps = NULL;
+    int64_t m = 0;
+    if (n > 0) {
+        cps = ps_casecps(n, p, &m);
+    }
+    PsGrow g;
+    ps_grow_init(&g);
+    int word_start = 1;
+    for (int64_t i = 0; i < m; i++) {
+        int prev_cased = 0;
+        ps_case_apply(&g, cps[i], kind, kind == PS_CASE_TO_TITLE && word_start, cps, m, i, &prev_cased);
+        word_start = !prev_cased;
+    }
+    free(cps);
+    ps_grow_finish(&g, out);
+}
+
+void ps_str_upper(int64_t n, char *p, PsBuf *out) { ps_case_run(n, p, PS_CASE_TO_UPPER, out); }
+void ps_str_lower(int64_t n, char *p, PsBuf *out) { ps_case_run(n, p, PS_CASE_TO_LOWER, out); }
+void ps_str_title(int64_t n, const char *p, PsBuf *out) { ps_case_run(n, p, PS_CASE_TO_TITLE, out); }
+void ps_str_capitalize(int64_t n, const char *p, PsBuf *out) {
+    /* CPython's capitalize: the first code point takes the title mapping,
+       every following one the context-aware lower (the final-sigma rule
+       sees the whole string). */
+    uint32_t *cps = NULL;
+    int64_t m = 0;
+    if (n > 0) {
+        cps = ps_casecps(n, p, &m);
+    }
+    PsGrow g;
+    ps_grow_init(&g);
+    for (int64_t i = 0; i < m; i++) {
+        int prev_cased = 0;
+        ps_case_apply(&g, cps[i], PS_CASE_TO_TITLE, i == 0, cps, m, i, &prev_cased);
+    }
+    free(cps);
+    ps_grow_finish(&g, out);
+}
+void ps_str_casefold(int64_t n, const char *p, PsBuf *out) { ps_case_run(n, p, PS_CASE_TO_FOLD, out); }
+void ps_str_swapcase(int64_t n, const char *p, PsBuf *out) {
+    /* CPython's swapcase: a lower code point takes the full upper mapping,
+       an upper one the context-aware lower (the final-sigma rule applies),
+       everything else is identity. The tables classify a code point by
+       which mapping directions differ from identity: only up differs means
+       a lower char, only lo differs an upper char, and both differing is
+       an Lt (title == identity, swaps to itself) or a digraph Lu (title !=
+       identity, swaps down). */
+    uint32_t *cps = NULL;
+    int64_t m = 0;
+    if (n > 0) {
+        cps = ps_casecps(n, p, &m);
+    }
+    PsGrow g;
+    ps_grow_init(&g);
+    for (int64_t i = 0; i < m; i++) {
+        uint32_t cp = cps[i];
+        const PsCaseRec *rec = ps_case_find(cp);
+        int up_diff = rec != NULL && rec->up != cp;
+        int lo_diff = rec != NULL && rec->lo != cp;
+        int prev_cased = 0;
+        if (up_diff && !lo_diff) {
+            ps_case_apply(&g, cp, PS_CASE_TO_UPPER, 0, cps, m, i, &prev_cased);
+        } else if (lo_diff && (!up_diff || !ps_case_is_title_identity(cp))) {
+            ps_case_apply(&g, cp, PS_CASE_TO_LOWER, 0, cps, m, i, &prev_cased);
+        } else {
+            ps_case_emit_cp(&g, cp);
+        }
+    }
+    free(cps);
+    ps_grow_finish(&g, out);
+}
 
 void ps_str_replace(int64_t n, char *p, int64_t on, char *op, int64_t nn, char *np, PsBuf *out) {
     if (on == 0) {
@@ -1840,35 +2248,82 @@ static int64_t ps_slice_count_neg(int64_t from, int64_t to, int64_t step) {
 void ps_str_slice(
     int64_t n, const char *p, int64_t start, int64_t stop, int64_t has_start, int64_t has_stop, int64_t step, PsBuf *out
 ) {
+    /* Slice bounds are code-point bounds. An ASCII string keeps the byte
+       arithmetic (the flag makes one code point one byte); a non-ASCII
+       string maps both ends through the O(n) scan once each. The step-1
+       result is a view; a stepped slice copies the code points it picks. */
     ps_slice_step_ok(step);
-    int64_t lo = 0;
-    int64_t hi = 0;
-    if (step < 0) {
-        ps_slice_bounds_neg(n, start, stop, has_start, has_stop, &lo, &hi);
-    } else {
-        ps_slice_bounds(n, start, stop, has_start, has_stop, &lo, &hi);
-    }
-    if (step == 1) {
-        ps_view(out, p + lo, hi - lo);
+    if (step > 0) {
+        int64_t lo = 0;
+        int64_t hi = 0;
+        if (ps_all_ascii(n, p)) {
+            ps_slice_bounds(n, start, stop, has_start, has_stop, &lo, &hi);
+            if (step == 1) {
+                ps_view(out, p + lo, hi - lo);
+                return;
+            }
+            int64_t count = ps_slice_count(lo, hi, step);
+            if (count == 0) {
+                ps_view(out, "", 0);
+                return;
+            }
+            char *q = malloc((size_t)count + 1);
+            if (q == NULL) {
+                abort();
+            }
+            int64_t i = lo;
+            for (int64_t w = 0; w < count; w++) {
+                q[w] = p[i];
+                i += step;
+            }
+            q[count] = '\0';
+            out->len = count;
+            out->data = q;
+            return;
+        }
+        int64_t chars = ps_str_nchars(n, p);
+        ps_slice_bounds(chars, start, stop, has_start, has_stop, &lo, &hi);
+        int64_t at = ps_str_offset(n, p, lo);
+        int64_t end = hi >= chars ? n : ps_str_offset(n, p, hi);
+        if (step == 1) {
+            ps_view(out, p + at, end - at);
+            return;
+        }
+        int64_t count = ps_slice_count(lo, hi, step);
+        if (count == 0) {
+            ps_view(out, "", 0);
+            return;
+        }
+        PsGrow grow;
+        ps_grow_init(&grow);
+        int64_t i = lo;
+        for (int64_t w = 0; w < count; w++) {
+            int64_t off = ps_str_offset(n, p, i);
+            ps_grow_add(&grow, p + off, ps_str_char_len(n, p, off));
+            i += step;
+        }
+        ps_grow_finish(&grow, out);
         return;
     }
-    int64_t count = step < 0 ? ps_slice_count_neg(lo, hi, step) : ps_slice_count(lo, hi, step);
+    /* Negative step: code-point indices, walked right to left. */
+    int64_t chars = ps_str_nchars(n, p);
+    int64_t lo = 0;
+    int64_t hi = 0;
+    ps_slice_bounds_neg(chars, start, stop, has_start, has_stop, &lo, &hi);
+    int64_t count = ps_slice_count_neg(lo, hi, step);
     if (count == 0) {
         ps_view(out, "", 0);
         return;
     }
-    char *q = malloc((size_t)count + 1);
-    if (q == NULL) {
-        abort();
-    }
+    PsGrow grow;
+    ps_grow_init(&grow);
     int64_t i = lo;
     for (int64_t w = 0; w < count; w++) {
-        q[w] = p[i];
+        int64_t off = ps_str_offset(n, p, i);
+        ps_grow_add(&grow, p + off, ps_str_char_len(n, p, off));
         i += step;
     }
-    q[count] = '\0';
-    out->len = count;
-    out->data = q;
+    ps_grow_finish(&grow, out);
 }
 
 PsSeq *ps_seq_slice(PsSeq *s, int64_t start, int64_t stop, int64_t has_start, int64_t has_stop, int64_t step) {
@@ -2066,6 +2521,95 @@ void ps_str_join(int64_t n, const char *sep, PsSeq *parts, PsBuf *out) {
 }
 
 void ps_utf8_encode(int64_t n, const char *p, PsBuf *out) {
+    /* encode("utf-8"): the buffer holds code points as UTF-8 already, so
+       this is a copy. The name is kept for the emitter's ABI stability; the
+       Latin-1 lifting the old two-byte body did is gone with the model. */
+    ps_buf_copy(out, p, n);
+}
+
+void ps_utf8_decode(int64_t n, const char *p, PsBuf *out) {
+    /* decode("utf-8") over raw bytes: one to four byte sequences, with
+       CPython's rejections (surrogates, overlongs, above U+10FFFF,
+       continuation or truncated tails) as ValueError-family raises. The
+       valid result is the bytes themselves, so validation is the work. */
+    int64_t i = 0;
+    while (i < n) {
+        unsigned char c = (unsigned char)p[i];
+        if (c < 0x80) {
+            i++;
+            continue;
+        }
+        unsigned int cp;
+        int w;
+        if ((c & 0xE0) == 0xC0) {
+            w = 2;
+            cp = (unsigned int)(c & 0x1F);
+        } else if ((c & 0xF0) == 0xE0) {
+            w = 3;
+            cp = (unsigned int)(c & 0x0F);
+        } else if ((c & 0xF8) == 0xF0) {
+            w = 4;
+            cp = (unsigned int)(c & 0x07);
+        } else {
+            ps_raise_cstr(PS_UNICODEDECODE, "'utf-8' codec can't decode byte in position: invalid continuation byte");
+        }
+        if (i + w > n) {
+            ps_raise_cstr(PS_UNICODEDECODE, "'utf-8' codec can't decode byte in position: unexpected end of data");
+        }
+        for (int k = 1; k < w; k++) {
+            unsigned char cc = (unsigned char)p[i + k];
+            if ((cc & 0xC0) != 0x80) {
+                ps_raise_cstr(PS_UNICODEDECODE, "'utf-8' codec can't decode byte in position: invalid continuation byte");
+            }
+            cp = (cp << 6) | (unsigned int)(cc & 0x3F);
+        }
+        if (w == 2 && cp < 0x80) {
+            ps_raise_cstr(PS_UNICODEDECODE, "'utf-8' codec can't decode byte in position: invalid start byte");
+        }
+        if (w == 3 && cp < 0x800) {
+            ps_raise_cstr(PS_UNICODEDECODE, "'utf-8' codec can't decode byte in position: invalid start byte");
+        }
+        if (w == 4 && cp < 0x10000) {
+            ps_raise_cstr(PS_UNICODEDECODE, "'utf-8' codec can't decode byte in position: invalid start byte");
+        }
+        if (cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) {
+            ps_raise_cstr(PS_UNICODEDECODE, "'utf-8' codec can't decode byte in position: code point out of range");
+        }
+        i += w;
+    }
+    ps_buf_copy(out, p, n);
+}
+
+void ps_latin1_encode(int64_t n, const char *p, PsBuf *out) {
+    /* encode("latin-1"): a raise above U+00FF is the codec's boundary
+       behavior, not a fence. The buffer holds UTF-8, so the walk re-decodes
+       it code point by code point; the ASCII fast path copies. */
+    int64_t at = 0;
+    while (at < n) {
+        unsigned char c = (unsigned char)p[at];
+        if (c < 0x80) {
+            at++;
+            continue;
+        }
+        int w = ps_utf8_len(c);
+        unsigned int cp = 0;
+        int64_t end = at + w <= n ? at + w : n;
+        for (int k = 1; k < w && at + k < end; k++) {
+            cp = (cp << 6) | (unsigned int)((unsigned char)p[at + k] & 0x3F);
+        }
+        cp |= (unsigned int)(c & (w == 2 ? 0x1F : w == 3 ? 0x0F : 0x07)) << ((w - 1) * 6);
+        if (cp > 0xFF) {
+            ps_raise_cstr(PS_UNICODEENCODE, "'latin-1' codec can't encode character in position: ordinal not in range(256)");
+        }
+        at += w;
+    }
+    ps_buf_copy(out, p, n);
+}
+
+void ps_latin1_decode(int64_t n, const char *p, PsBuf *out) {
+    /* decode("latin-1"): every byte becomes the code point of the same
+       value, so the UTF-8 encoding of the result is the bytes lifted
+       through the two/three-byte forms. */
     PsGrow grow;
     ps_grow_init(&grow);
     for (int64_t i = 0; i < n; i++) {
@@ -2076,33 +2620,6 @@ void ps_utf8_encode(int64_t n, const char *p, PsBuf *out) {
             ps_grow_byte(&grow, (unsigned char)(0xC0 | (c >> 6)));
             ps_grow_byte(&grow, (unsigned char)(0x80 | (c & 0x3F)));
         }
-    }
-    ps_grow_finish(&grow, out);
-}
-
-void ps_utf8_decode(int64_t n, const char *p, PsBuf *out) {
-    PsGrow grow;
-    ps_grow_init(&grow);
-    for (int64_t i = 0; i < n;) {
-        unsigned char c = (unsigned char)p[i];
-        if (c < 0x80) {
-            ps_grow_byte(&grow, c);
-            i++;
-            continue;
-        }
-        if (c < 0xC2 || c > 0xC3 || i + 1 >= n) {
-            ps_raise_cstr(PS_VALUE, "utf-8 decode failed");
-        }
-        unsigned char d = (unsigned char)p[i + 1];
-        if ((d & 0xC0) != 0x80) {
-            ps_raise_cstr(PS_VALUE, "utf-8 decode failed");
-        }
-        unsigned int cp = ((unsigned int)(c & 0x1F) << 6) | (unsigned int)(d & 0x3F);
-        if (cp > 255) {
-            ps_raise_cstr(PS_VALUE, "utf-8 decode failed");
-        }
-        ps_grow_byte(&grow, (unsigned char)cp);
-        i += 2;
     }
     ps_grow_finish(&grow, out);
 }
