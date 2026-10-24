@@ -48,9 +48,12 @@ def test_real_pyjwt_hmac_tree_still_fences() -> None:
     # 95 after the str model S1 (#473): the AnnAssign fence branch binds the
     # name on a fenced annotation, clearing the `byte_length` PS1001
     # follow-on fence in jwt/utils.py.
+    # 93 after the local, parameter and return inference (#500): the vendored
+    # tree's own unannotated locals and defaulted parameters now bind from
+    # their values, clearing two fences in jwt/math_.py.
     # Shrinking means a backlog lowering cleared fences here; update the pin
     # when that happens.
-    assert proc.stderr.count("PS") == 95
+    assert proc.stderr.count("PS") == 93
 
 
 @pytest.mark.linux_container  # HEAVY=1 docker/run.sh
