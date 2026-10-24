@@ -841,12 +841,17 @@ class StdlibDispatchMixin:
                     # An optional target keeps its raw constant: each read
                     # boxes it into the tagged cell.
                     value = self._expr(stmt.value, None if typ.get("optional") else typ)
-                if (typ["kind"] == "class" and typ.get("name") in PTR_CLASSES) or module_needs_slot(value):
+                if (typ["kind"] == "class" and typ.get("name") in PTR_CLASSES) or (
+                    module_needs_slot(value) and _module_closed(value)
+                ):
                     # A runtime-pointer record (threading, queue) or a
                     # container (list, dict) must keep its identity: a stored
                     # constant re-emits the constructor at every read, so the
                     # value each read sees would be a fresh copy. It takes a
                     # global slot instead, one pointer for the process (#512).
+                    # A value a name reaches into stays on the ordinary path:
+                    # the temp it carries is not storable, so the constant
+                    # check below keeps its fence.
                     self._bind_threading_global(stmt.target.id, value, typ, stmt)
                     return
                 if not _module_closed(value):
@@ -1024,7 +1029,7 @@ class StdlibDispatchMixin:
             raise
         finally:
             self.prelude = saved_prelude
-        if value["kind"] not in {"const", "list", "dict"} or not _module_closed(value):
+        if value["kind"] not in {"const", "list", "dict"} or not _module_closed(value) or module_needs_slot(value):
             self.locals = saved_locals
             self.classes = saved_classes
             return None

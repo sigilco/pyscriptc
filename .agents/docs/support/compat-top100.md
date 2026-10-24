@@ -1,6 +1,6 @@
 # Top-100 library compatibility
 
-pinned pure-Python libraries: 3 🟢 · 5 🟡 · 10 🔴
+pinned pure-Python libraries: 2 🟢 · 6 🟡 · 10 🔴
 
 🟢 compiles with no fence · 🟡 at most half of the definitions fence · 🔴 more than half fence. Counts are live `pyscriptc coverage` runs over `benchmarks/compat/top100/src` (pins and hashes in `pins.json`). A library only counts toward the score when one of its own functions runs and matches CPython. Fence codes are per construct, see [supported.md](supported.md). Tiers T0 to T3: [refused-features.md](../spec/refused-features.md). Deliberate differences: [divergences.md](../../../docs/reference/divergences.md).
 
@@ -21,8 +21,8 @@ pinned pure-Python libraries: 3 🟢 · 5 🟡 · 10 🔴
 | `platformdirs` | 4.13.0 | 🟡 | 160/388 | name-resolution (87), construct-other (60), local-inference (48) | PS2002, PS1001, PS1102 |
 | `pyjwt` | 2.15.1 | 🟡 | 64/171 | name-resolution (22), dynamic-annotation (20), union-types (13) | PS2002, PS1104, PS1101 |
 | `pytz` | 2026.5 | 🟡 | 32/102 | param-inference (16), return-inference (2), stdlib:datetime (2) | PS2002, PS1001, PS2001 |
+| `trove-classifiers` | 2026.9.21.13 | 🟡 | 0/0 | module-assign (1) | PS2002 |
 | `certifi` | 2026.7.22 | 🟢 | 0/5 |  |  |
-| `trove-classifiers` | 2026.9.21.13 | 🟢 | 0/0 |  |  |
 | `tzdata` | 2026.5 | 🟢 | 0/0 |  |  |
 
 Regenerate: `mise run support:table`.

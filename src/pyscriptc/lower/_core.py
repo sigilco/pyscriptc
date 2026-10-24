@@ -178,9 +178,13 @@ def module_needs_slot(value: dict[str, Any]) -> bool:
     A container literal (list, dict) and a value already marked with
     `identity` (the argparse parser) hold runtime state. Re-emitting the
     constructor at every read would give each read a fresh copy, so the
-    binding takes a global slot instead.
+    binding takes a global slot instead. A frozen set list keeps the
+    constant path: the mutation fence on it needs each read to be a fresh
+    copy, and a frozenset has no in-place state to lose.
     """
-    return bool(value.get("identity")) or value["kind"] in {"list", "dict"}
+    if value.get("frozen") or value["kind"] not in {"list", "dict"}:
+        return bool(value.get("identity"))
+    return True
 
 
 def _len_call(seq: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
