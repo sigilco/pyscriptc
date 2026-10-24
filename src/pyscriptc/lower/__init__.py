@@ -64,6 +64,7 @@ from pyscriptc.stdlib_queue import (
     dependency_lanes,
     ffi_modules,
     module_status,
+    staged_resources,
 )
 from pyscriptc.stdmore import PTR_CLASSES, member_callable, module_constant
 
@@ -1585,12 +1586,13 @@ def lower_source(
     ffi: list[Any] | None = None,
     target: str | None = None,
     dep_lane_report: dict[str, dict[str, str]] | None = None,
+    resource_root: str = "",
 ) -> dict[str, Any]:
     started = time.perf_counter()
     tree = ast.parse(source, filename=filename)
     if timings is not None:
         timings["parse"] = round((time.perf_counter() - started) * 1000.0, 3)
-    with dependency_lanes(dep_lane_report or {}):
+    with dependency_lanes(dep_lane_report or {}), staged_resources(resource_root):
         if ffi:
             # The FFI table is a module-level registry the caller may have
             # installed already; only replace it when this call brings its
@@ -1612,6 +1614,7 @@ def lower_file(
     target: str | None = None,
     dep_roots: list[Path] | None = None,
     dep_lane_report: dict[str, dict[str, str]] | None = None,
+    resource_root: str = "",
 ) -> tuple[dict[str, Any], str]:
     """Lower one script file, with the dependency roots as extra modules.
 
@@ -1623,7 +1626,7 @@ def lower_file(
 
     text = open(path, encoding="utf-8").read()
     if not dep_roots:
-        return lower_source(text, path, bridge, timings, ffi, target, dep_lane_report), text
+        return lower_source(text, path, bridge, timings, ffi, target, dep_lane_report, resource_root), text
 
     from pyscriptc.package import (
         _catalogued_note,
@@ -1663,6 +1666,7 @@ def lower_file(
         dep_names={name for name, _p, _ip in kept},
         dep_lane_report=dep_lane_report,
         catalog_units=catalogued,
+        resource_root=resource_root,
     )
     merged["sourceFile"] = str(script)
     notes = [

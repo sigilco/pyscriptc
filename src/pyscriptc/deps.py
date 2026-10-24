@@ -433,6 +433,61 @@ def _should_skip_member(parts: tuple[str, ...]) -> bool:
     return False
 
 
+def _is_code_member(parts: tuple[str, ...]) -> bool:
+    """A wheel member the compiler can lower or refuses by lane, not data.
+
+    Everything under a top-level directory that owns (or is) a Python
+    module is code: the compiler reads it from the unpacked source root.
+    A top-level `.py` file is a module too. Anything else the wheel's
+    RECORD carries is data the compiled binary reads from the filesystem
+    (`cacert.pem`, grammar files, `tzdata` zone tables).
+    """
+
+    if not parts or parts[-1].endswith((".py", ".pyc", ".pyi")):
+        return True
+    return f"{parts[0]}/__init__.py" in _CODE_ROOTS
+
+
+# The top-level code roots of the wheel currently being read. `_should_skip_member`
+# and `data_files` are wheel-scoped readers, so the root set is per wheel; both
+# callers read it before iterating the archive. Thread safety: the compiler
+# unpacks one wheel at a time inside `materialise`.
+_CODE_ROOTS: set[str] = set()
+
+
+def data_files(data: bytes) -> list[tuple[str, bytes]]:
+    """The non-code members of a wheel, in RECORD order, paths kept wheel-relative.
+
+    Issue #410: a pure wheel's data files (anything the RECORD marks that is
+    neither a Python module nor inside a code package) are staged next to the
+    emitted binary under the package's dotted path, so `importlib.resources`
+    resolves in the compiled binary the way it does in CPython. Nothing here is
+    executed and nothing is fetched at runtime: the bytes come from the same
+    verified wheel the compiler reads the code from.
+    """
+
+    found: list[tuple[str, bytes]] = []
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        names = zf.namelist()
+        dist_infos = [n.split("/", 1)[0] for n in names if n.split("/", 1)[0].endswith(".dist-info")]
+        _CODE_ROOTS.clear()
+        if len(dist_infos) == 1:
+            _CODE_ROOTS.update(_top_level_names(zf, names, dist_infos[0]))
+        for info in zf.infolist():
+            _safe_member(info)
+            if info.is_dir():
+                continue
+            parts = PurePosixPath(info.filename).parts
+            if _should_skip_member(parts) or _is_code_member(parts):
+                continue
+            if parts[0].endswith(".data"):
+                parts = parts[2:]  # purelib/platlib content lands at the root
+                if not parts or _is_code_member(parts):
+                    continue
+            found.append((info.filename, zf.read(info)))
+    return found
+
+
 def _top_level_names(zf: zipfile.ZipFile, names: list[str], dist_info: str) -> tuple[str, ...]:
     """The import names a wheel provides: `top_level.txt`, else RECORD's top level.
 
@@ -734,3 +789,48 @@ def deps_cmd(args: argparse.Namespace) -> int:
     )
     print(json.dumps(report, indent=2) if args.json else render_text(report))
     return 0 if all(p["lane"] == "pure" for p in report["packages"]) else 3
+
+
+# ---------------------------------------------------------------- staging (issue #410)
+
+
+def stage_data_files(
+    data: list[tuple[str, list[tuple[str, bytes]]]],
+    binary: Path,
+) -> Path:
+    """Stage the wheels' non-code files next to the emitted binary; returns the root.
+
+    Issue #410: a pure wheel's data files (`cacert.pem`, zone tables, grammar
+    files) must be on the compile-time path the compiled binary's
+    `importlib.resources` searches, laid out under the package's dotted path
+    (`certifi/cacert.pem`, `pkg/sub/data.bin`). The staging root is a sibling
+    of the binary named `<binary>-data/`, written fresh on every compile (the
+    old tree is removed first, so a recompile never leaves a stale file) and
+    resolved to an absolute path: the binary's search path is a compile-time
+    constant, so a relative root would break for any other working directory.
+    Empty input stages nothing and returns the (not created) root: a package
+    with no data files behaves exactly as before.
+    """
+
+    root = (binary.parent / (binary.name + "-data")).resolve()
+    members = [(path, body) for _wheel, files in data for path, body in files]
+    if not members:
+        if root.exists():
+            shutil.rmtree(root)
+        return root
+    tmp = Path(tempfile.mkdtemp(dir=root.parent, prefix=".tmp-data-"))
+    try:
+        for _wheel, files in data:
+            for path, body in files:
+                parts = PurePosixPath(path).parts
+                target = tmp.joinpath(*parts)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(body)
+        if root.exists():
+            shutil.rmtree(root)
+        os.replace(tmp, root)
+        log.info("deps.stage_data", binary=str(binary), root=str(root), files=len(members))
+    finally:
+        if tmp.exists():
+            shutil.rmtree(tmp, ignore_errors=True)
+    return root

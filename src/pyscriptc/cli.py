@@ -981,6 +981,10 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             dbg.end("bridge")
         dbg.begin("lower")
         dep_roots, dep_lanes = _dependency_roots(source_path, config)
+        binary = Path(args.output) if args.output else _artifact_base(args, source_path)
+        if ((args.target and "windows" in args.target) or sys.platform == "win32") and not binary.suffix:
+            binary = binary.with_suffix(".exe")
+        data_root = _stage_dependency_data(source_path, config, args, binary)
         if source_path.is_dir():
             module, source = lower_directory(
                 source_path,
@@ -990,6 +994,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                 target=args.target,
                 dep_roots=dep_roots,
                 dep_lane_report=dep_lanes,
+                resource_root=str(data_root) if data_root else "",
             )
         elif source_path.is_file():
             module, source = lower_file(
@@ -1000,6 +1005,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                 target=args.target,
                 dep_roots=dep_roots,
                 dep_lane_report=dep_lanes,
+                resource_root=str(data_root) if data_root else "",
             )
         else:
             raise IRError(f"source not found: {source_path}")
@@ -1131,9 +1137,6 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             outputs[args.emit] = str(unit_path)
             print(unit_path)
             return 0
-        binary = Path(args.output) if args.output else _artifact_base(args, source_path)
-        if ((args.target and "windows" in args.target) or sys.platform == "win32") and not binary.suffix:
-            binary = binary.with_suffix(".exe")
         state["stage"] = "link"
         dbg.begin("link")
         link_binary(
@@ -1233,6 +1236,44 @@ def _dependency_roots(source_path: Path, config: Any) -> tuple[list[Path], dict[
         if root and lane == "pure":
             roots.append(Path(root))
     return roots, lanes
+
+
+def _stage_dependency_data(source_path: Path, config: Any, args: argparse.Namespace, binary: Path) -> Path | None:
+    """Stage the pure wheels' data files beside the emitted binary (issue #410).
+
+    Only the compile lanes (`bin` and the `--run` that implies it) need the
+    staged tree: the binary's `importlib.resources` searches the compile-time
+    path, and the staged root sits next to the binary under the package's
+    dotted path. Every other emit (`ir`, `llvm`, `asm`, `obj`, `lib`) lowers
+    nothing that reads files beside the artifact, so staging would only
+    leave an unused directory; the search-path constant is empty there and
+    the behavior stays exactly as before.
+    """
+
+    from pyscriptc.deps import data_files, stage_data_files
+
+    if not config.dependencies:
+        return None
+    if getattr(args, "emit", "") not in ("bin", "llvm") and not getattr(args, "run", False):
+        return None
+    report = deps.run_deps(source_path)
+    collected: list[tuple[str, list[tuple[str, bytes]]]] = []
+    for package in report["packages"]:
+        policy = _dependency_lane(package["name"], config)
+        if policy != "compile" or package["lane"] != "pure":
+            continue
+        root = package.get("source_root")
+        wheel = package.get("wheel")
+        sha = package.get("sha256")
+        if not root or not wheel or not sha:
+            continue
+        blob = deps.cache_root() / "blobs" / "sha256" / sha[:2] / f"{sha}.whl"
+        if not blob.is_file():
+            continue
+        files = data_files(blob.read_bytes())
+        if files:
+            collected.append((package["name"], files))
+    return stage_data_files(collected, binary)
 
 
 def _dependency_lane(distribution: str, config: Any) -> str:

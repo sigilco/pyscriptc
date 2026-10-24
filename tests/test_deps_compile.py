@@ -302,3 +302,255 @@ print(greet("world"))
     assert module["fences"] == []
     names = {fn["name"] for fn in module["functions"]}
     assert "tinydep.core.greet" in names
+
+
+# ------------------------------------------------------------ data files (issue #410)
+
+
+def make_data_wheel(name: str, files: dict[str, bytes]) -> bytes:
+    """A pure wheel whose top-level entry is a package plus loose data files."""
+    dist = f"{name}-1.0.dist-info"
+    files = dict(files)
+    files[f"{dist}/METADATA"] = f"Metadata-Version: 2.1\nName: {name}\nVersion: 1.0\n".encode()
+    files[f"{dist}/WHEEL"] = b"Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n"
+    rows = [f"{path},sha256={_b64(data)},{len(data)}" for path, data in files.items()]
+    rows.append(f"{dist}/RECORD,,")
+    files[f"{dist}/RECORD"] = ("\n".join(rows) + "\n").encode()
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for path, data in files.items():
+            zf.writestr(path, data)
+    return buf.getvalue()
+
+
+# The certifi shape: a package whose code reads a data file through
+# `importlib.resources.files`, plus a nested package's data file for the
+# dotted-path layout (`pkg/sub/data.bin`).
+CERTIFI_WHEEL = make_data_wheel(
+    "certifi",
+    {
+        "certifi/__init__.py": b"from certifi.core import where, contents\n\n__all__ = ['where', 'contents']\n",
+        "certifi/core.py": (
+            b"from importlib.resources import files\n\n"
+            b"def where() -> str:\n"
+            b"    return str(files('certifi').joinpath('cacert.pem'))\n\n"
+            b"def contents() -> str:\n"
+            b"    return files('certifi').joinpath('cacert.pem').read_text(encoding='ascii')\n"
+        ),
+        "certifi/cacert.pem": b"-----BEGIN CERTIFICATE-----\nMIIBkTCB+wIIAN\n-----END CERTIFICATE-----\n",
+    },
+)
+
+NESTED_WHEEL = make_data_wheel(
+    "pkgx",
+    {
+        "pkgx/__init__.py": b"",
+        "pkgx/sub/__init__.py": b"",
+        "pkgx/sub/reader.py": (
+            b"from importlib.resources import files\n\n\ndef blob() -> bytes:\n"
+            b"    return files('pkgx.sub').joinpath('data.bin').read_bytes()\n"
+        ),
+        "pkgx/sub/data.bin": bytes(range(256)),
+    },
+)
+
+
+DATA_SCRIPT = """\
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#   "certifi",
+# ]
+# ///
+from certifi import contents, where
+
+
+def main() -> None:
+    pem: bytes = contents().encode("utf-8")
+    print(len(pem))
+    print(where().endswith("certifi/cacert.pem"))
+    print(pem[0:5])
+
+
+if __name__ == "__main__":
+    main()
+"""
+
+
+def _data_fake(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, wheels: dict[str, bytes]) -> dict[str, Any]:
+    """A fake uv and wheel fetch over the given wheel bytes."""
+    entries = []
+    blobs: dict[str, bytes] = {}
+    for name, data in wheels.items():
+        filename = f"{name}-1.0-py3-none-any.whl"
+        entries.append(_wheel_entry(name, "1.0", filename, sha(data)))
+        blobs[filename] = data
+    state: dict[str, Any] = {
+        "lock": _pylock(entries),
+        "calls": [],
+        "blobs": blobs,
+        "fetched": [],
+    }
+
+    def run_uv(argv: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+        state["calls"].append(argv)
+        if argv[1:3] == ["pip", "compile"]:
+            Path(argv[argv.index("-o") + 1]).write_text(state["lock"], encoding="utf-8")
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        if argv[1] == "export":
+            return subprocess.CompletedProcess(argv, 0, state["lock"], "")
+        raise AssertionError(argv)
+
+    def urlopen(url: str) -> bytes:
+        name = url.rsplit("/", 1)[-1]
+        state["fetched"].append(name)
+        return state["blobs"][name]
+
+    monkeypatch.setattr(deps, "_run_uv", run_uv)
+    monkeypatch.setattr(deps, "_urlopen", urlopen)
+    monkeypatch.setenv("PYSC_UV", "uv")
+    monkeypatch.setenv("PYSC_NO_TELEMETRY", "1")
+    monkeypatch.setenv("PYSC_CACHE_DIR", str(tmp_path / "cache"))
+    return state
+
+
+def test_data_files_picks_the_non_code_members(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    found = deps.data_files(CERTIFI_WHEEL)
+    assert [path for path, _body in found] == ["certifi/cacert.pem"]
+    nested = deps.data_files(NESTED_WHEEL)
+    assert [path for path, _body in nested] == ["pkgx/sub/data.bin"]
+    assert dict(nested)["pkgx/sub/data.bin"] == bytes(range(256))
+
+
+def test_a_wheel_without_data_files_stages_nothing(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    assert deps.data_files(PURE_WHEEL) == []
+    _data_fake(monkeypatch, tmp_path, {"tinydep": PURE_WHEEL})
+    script = _script(tmp_path)
+    binary = tmp_path / "tool"
+    from pyscriptc.cli import _stage_dependency_data
+
+    staged = _stage_dependency_data(script, _deps_config(script), _Args("bin", False), binary)
+    assert staged is not None and staged.name == "tool-data"
+    assert not staged.exists(), "a package with no data files must stage nothing"
+
+
+class _Args:
+    """The emit lane fields `_stage_dependency_data` reads off the argparse namespace."""
+
+    def __init__(self, emit: str, run: bool) -> None:
+        self.emit = emit
+        self.run = run
+
+
+def _deps_config(script: Path) -> Any:
+    from pyscriptc import config
+
+    return config.load_config(script)
+
+
+@needs_clang
+def test_certifi_resources_match_cpython(fake: dict[str, Any], tmp_path: Path) -> None:
+    """The differential test: the compiled binary reads the staged PEM like CPython."""
+    monkey = pytest.MonkeyPatch()
+    try:
+        _data_fake(monkey, tmp_path, {"certifi": CERTIFI_WHEEL})
+        script = _script(tmp_path, DATA_SCRIPT)
+        # CPython reads the data file next to the unpacked wheel's source root
+        # (the host cannot see the wheel's package layout), so the oracle run
+        # happens with that root on PYTHONPATH and the tree's parent as cwd:
+        # the staged tree in the compiled run is the parent's image of it.
+        root = _pure_root_named(monkey, tmp_path, "certifi")
+        expected = subprocess.run(
+            [sys.executable, str(script)],
+            capture_output=True,
+            text=True,
+            cwd=str(root.parent),
+            env={**os.environ, "PYTHONPATH": str(root)},
+        )
+        binary = tmp_path / "bin"
+        got = cli.main(["compile", str(script), "--skip-check", "--run", "-o", str(binary)])
+        assert got == 0
+        ran = subprocess.run([str(binary)], capture_output=True, text=True)
+        assert ran.stdout == expected.stdout, (ran.stdout, expected.stdout, ran.stderr)
+        assert ran.returncode == expected.returncode
+        staged = tmp_path / "bin-data" / "certifi" / "cacert.pem"
+        assert staged.is_file(), "the data file is laid out under the dotted path"
+    finally:
+        monkey.undo()
+
+
+def _pure_root_named(monkey: pytest.MonkeyPatch, tmp_path: Path, name: str, body: str = DATA_SCRIPT) -> Path:
+    report = deps.run_deps(_script(tmp_path, body))
+    return Path(next(p["source_root"] for p in report["packages"] if p["name"] == name))
+
+
+@needs_clang
+def test_nested_package_data_lands_under_the_dotted_path(fake: dict[str, Any], tmp_path: Path) -> None:
+    monkey = pytest.MonkeyPatch()
+    try:
+        _data_fake(monkey, tmp_path, {"pkgx": NESTED_WHEEL})
+        body = """\
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#   "pkgx",
+# ]
+# ///
+from pkgx.sub.reader import blob
+
+
+def main() -> None:
+    data: bytes = blob()
+    print(len(data))
+    print(data[0], data[255])
+
+
+if __name__ == "__main__":
+    main()
+"""
+        script = _script(tmp_path, body)
+        binary = tmp_path / "nested"
+        got = cli.main(["compile", str(script), "--skip-check", "--run", "-o", str(binary)])
+        assert got == 0
+        staged = tmp_path / "nested-data" / "pkgx" / "sub" / "data.bin"
+        assert staged.is_file()
+        ran = subprocess.run([str(binary)], capture_output=True, text=True)
+        root = _pure_root_named(monkey, tmp_path, "pkgx", body)
+        expected = subprocess.run(
+            [sys.executable, str(script)],
+            capture_output=True,
+            text=True,
+            cwd=str(root.parent),
+            env={**os.environ, "PYTHONPATH": str(root)},
+        )
+        assert ran.stdout == expected.stdout, (ran.stdout, expected.stdout, ran.stderr)
+        assert ran.returncode == 0
+    finally:
+        monkey.undo()
+
+
+@needs_clang
+def test_a_recompile_replaces_the_staged_tree(fake: dict[str, Any], tmp_path: Path) -> None:
+    """The stale staged file from the previous compile is gone after a recompile."""
+    monkey = pytest.MonkeyPatch()
+    try:
+        _data_fake(monkey, tmp_path, {"certifi": CERTIFI_WHEEL})
+        script = _script(tmp_path, DATA_SCRIPT)
+        binary = tmp_path / "bin"
+        assert cli.main(["compile", str(script), "--skip-check", "--run", "-o", str(binary)]) == 0
+        stale = tmp_path / "bin-data" / "certifi" / "stale.pem"
+        stale.write_bytes(b"old")
+        assert cli.main(["compile", str(script), "--skip-check", "--run", "-o", str(binary)]) == 0
+        assert not stale.exists(), "the recompile removed the staged tree"
+        assert (tmp_path / "bin-data" / "certifi" / "cacert.pem").is_file()
+    finally:
+        monkey.undo()
+
+
+@needs_clang
+def test_no_dependencies_compiles_without_a_staged_tree(tmp_path: Path) -> None:
+    script = tmp_path / "plain.py"
+    script.write_text("print('hi')\n", encoding="utf-8")
+    binary = tmp_path / "plain"
+    assert cli.main(["compile", str(script), "--skip-check", "-o", str(binary)]) == 0
+    assert not (tmp_path / "plain-data").exists()

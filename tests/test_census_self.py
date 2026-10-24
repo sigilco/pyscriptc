@@ -199,8 +199,13 @@ def test_self_census_ballpark() -> None:
     # the `tuple[str, dict] | None` return annotation and the `dict[str, Any]`
     # parameter annotations are dynamic-annotation fences, the module count
     # is unchanged.
+    # Data-file staging (#410): `data_files` and `stage_data_files` in deps.py
+    # add 19 self-host fences, the `_stage_dependency_data` hook in cli.py
+    # adds 1, the `staged_resources` marker in stdlib_queue.py adds 2 and the
+    # `_resource_search` compile-time search in restlower/_system.py adds 4;
+    # the module count is unchanged.
 
-    assert census["fences"] == 3013
+    assert census["fences"] == 3039
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     # Project mode (#150): project.py adds about 240 lines.
@@ -208,4 +213,4 @@ def test_self_census_ballpark() -> None:
     # adds about 150 lines in coro.py. The asyncio primitives (#180 D3) add
     # about 400 in ps_async.c and restlower/_asyncio_sync.py.
     assert 11_000 <= census["lines"] <= 41_500
-    assert sum(p["fences"] for p in census["packages"]) == 3013
+    assert sum(p["fences"] for p in census["packages"]) == 3039

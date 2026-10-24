@@ -285,3 +285,28 @@ def dependency_lanes(lanes: dict[str, dict[str, str]]) -> Iterator[None]:
         yield
     finally:
         _DEP_LANES = saved
+
+
+# The staged data-file root of the running compile (issue #410): the
+# directory beside the emitted binary that carries the pure wheels' data
+# files under their dotted paths. Empty when the compile stages nothing, so
+# `importlib.resources.files` searches the host sys.path exactly as before.
+# Module-level like `_DEP_LANES`, set around the same lowering pass.
+_RESOURCE_ROOT = ""
+
+
+def resource_root() -> str:
+    """The staged data-file root of the running compile, "" when none."""
+    return _RESOURCE_ROOT
+
+
+@contextmanager
+def staged_resources(root: str) -> Iterator[None]:
+    """Install the staged data-file root for the duration of one lowering pass."""
+    global _RESOURCE_ROOT
+    saved = _RESOURCE_ROOT
+    _RESOURCE_ROOT = root
+    try:
+        yield
+    finally:
+        _RESOURCE_ROOT = saved
