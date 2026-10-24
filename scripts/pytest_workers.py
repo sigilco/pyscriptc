@@ -1,6 +1,8 @@
 """Pick a pytest-xdist worker count bounded by available CPU and memory.
 
-workers = clamp(min(cpus, floor((mem_gb - RESERVE_GB) / PER_WORKER_GB)), 1, CAP)
+workers = clamp(min(cpus - load, floor((mem_gb - RESERVE_GB) / PER_WORKER_GB)), MIN, CAP)
+
+load is the 1-minute load average, so several sessions sharing one machine each take a smaller share.
 
 Usage: `uv run pytest -n auto` (conftest hook) or `-n $(python scripts/pytest_workers.py)`.
 Override with PYTEST_WORKERS=<int>. `--explain` prints the inputs.
@@ -19,6 +21,7 @@ from pathlib import Path
 # for the heaviest compiles and for page cache.
 PER_WORKER_GB = 0.15
 RESERVE_GB = 0.25  # left for the OS, uv, editors
+MIN_WORKERS = 2  # a loaded machine still gets a parallel run, memory permitting
 CAP = 6  # measured knee on an 8-core Mac; CI runners have fewer cores anyway
 GB = 1024**3
 
@@ -66,21 +69,29 @@ def mem_gb() -> float | None:
     return min(limits) if limits else None
 
 
+def load() -> float:
+    """1-minute load average, or 0 where the platform does not report it."""
+    try:
+        return os.getloadavg()[0]
+    except AttributeError, OSError:
+        return 0.0
+
+
 def workers() -> int:
     forced = os.environ.get("PYTEST_WORKERS")
     if forced:
         return max(1, int(forced))
-    n = cpus()
+    n = int(cpus() - load())
     m = mem_gb()
-    if m is not None:
-        n = min(n, int((m - RESERVE_GB) // PER_WORKER_GB))
-    return max(1, min(n, CAP))
+    mem_cap = CAP if m is None else int((m - RESERVE_GB) // PER_WORKER_GB)
+    return max(1, min(max(n, MIN_WORKERS), mem_cap, CAP))
 
 
 if __name__ == "__main__":
     if "--explain" in sys.argv:
         print(
-            f"cpus={cpus()} mem_gb={mem_gb()} per_worker={PER_WORKER_GB} reserve={RESERVE_GB} cap={CAP}",
+            f"cpus={cpus()} load={load():.1f} mem_gb={mem_gb()} per_worker={PER_WORKER_GB} "
+            f"reserve={RESERVE_GB} min={MIN_WORKERS} cap={CAP}",
             file=sys.stderr,
         )
     print(workers())
