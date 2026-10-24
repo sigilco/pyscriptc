@@ -49,3 +49,15 @@ The rejected alternatives: chasing the full typing-introspection surface so the 
 What reopens the decision: a package shown to need a second tier (a real-package subset plus an alternative), or a tier surface shown unusable for the archetype it was picked for. A tier change for one package is a new entry, not an edit of this one.
 
 Where: the plan is `.agents/plans/2026-10-24-apps-and-package-strategy.md` (the fence census, the two app archetypes, the grind plan). The probes are `.agents/probes/web_server.py` and `.agents/probes/log_pipeline.py`. The user-facing statement is `docs/guide/packages.md`.
+
+## 2026-10-24 The R0 corpus is measurement-only, never edited
+
+Decision (this task): the R0 real-scripts corpus (`benchmarks/real_scripts/`) holds third-party scripts vendored byte-identical at pinned commits, and the corpus is never edited to fit the compiler. When a script blocks the measurement, it does not parse under CPython 3.14, or it needs a third-party import outside the target surface, the script is dropped from the corpus, not fixed in place.
+
+Why: the corpus exists to tell the grind what real scripts hit. A script edited until it compiles measures the edit, not the compiler, and it poisons the pass rate the beta bar is set on. The R1 corpus (`benchmarks/scripts_corpus/`) is the opposite instrument, original scripts written to the lowered shape, and it stays that way; the two numbers answer different questions (R1: does the lowered shape work; R0: does a script a tester brings work).
+
+The alternatives: editing vendored scripts minimally (rejected: "minimal" has no floor and every edit moves the measured rate), generating scripts from the fence list (rejected: generated fences are circular, they measure the generator), and measuring on the closed compat2 scripts set (rejected: closed to generator agents, and it is the scorer's corpus, not a public one).
+
+What reopens the decision: a measurement the corpus cannot answer, for example a shape no public script collection contains, which would argue for extending R1 instead.
+
+Where: the plan is `.agents/plans/2026-10-24-real-script-support.md`. The corpus rules are `benchmarks/real_scripts/README.md`; the manifest with the pins and licences is `benchmarks/real_scripts/manifest.json`. The lane is #506, the bar is #507.
