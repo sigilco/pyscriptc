@@ -9,7 +9,7 @@ description: Every pyscriptc subcommand and flag.
 pyscriptc <command> [options]
 ```
 
-Global flag: `-v` / `--verbose` enables DEBUG audit records on any subcommand (see [debugging and logs](../guide/debugging/)).
+Global flag: `-v` / `--verbose` enables DEBUG audit records on any subcommand (see [debugging and logs](../guide/debugging/)). Exit codes, diagnostic codes, and artifact schemas follow the contractual tiers in [Stability and contracts](stability.md).
 
 ## `compile`
 

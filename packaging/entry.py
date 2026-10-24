@@ -42,8 +42,8 @@ def _load_cli():
 def _point_executable_at_binary() -> None:
     """Make `sys.executable` the release binary.
 
-    Under onefile Nuitka reports `<extract dir>/python`, which does not exist, so the mypy
-    subprocess in check.py cannot start. `sys.argv[0]` is the path the user ran; resolve it
+    Under onefile Nuitka reports `<extract dir>/python`, which does not exist, so a
+    subprocess spawning `sys.executable` cannot start. `sys.argv[0]` is the path the user ran; resolve it
     through PATH when it was a bare command name.
     """
     import os

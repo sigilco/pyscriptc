@@ -33,4 +33,5 @@ That prints `285`, the same value CPython returns, from a native binary.
 - [The Python subset](/guide/support-model/): what lowers, what fences.
 - [Mobile apps](/guide/mobile/): a static library for iOS and Android.
 - [CLI](/reference/cli/): every subcommand and flag.
+- [Stability and contracts](/reference/stability/): frozen tiers, driver API, and internal surfaces.
 - [Examples](/examples/): programs that compile today.

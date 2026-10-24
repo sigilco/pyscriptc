@@ -107,7 +107,7 @@ pyscriptc compile FILE --run [--call FUNC --args '[...]'] [-o /tmp/name] [-- ARG
 | 3 | The subset refused the file. The message names a `PS` code |
 | 4 | The integer or the CPython stamp does not fit this backend |
 
-A fence is the whole file. Fix the named construct, or keep that program on CPython.
+A fence is the whole file. Fix the named construct, or keep that program on CPython. Exit codes and diagnostic codes follow contractual stability guarantees documented in [Stability and contracts](../reference/stability.md).
 
 ## What you get
 
