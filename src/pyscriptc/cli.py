@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from pyscriptc import deps, reduce, runcache, telemetry, verify, zigshim
+from pyscriptc import assess, deps, reduce, runcache, telemetry, verify, zigshim
 from pyscriptc.check import CheckFailed, run_checker
 from pyscriptc.config import apply_to_args, entry_points, load_config
 from pyscriptc.coverage import build_report, family_of, render_text
@@ -247,6 +247,48 @@ def main(argv: list[str] | None = None) -> int:
         help="bind a typed extern manifest (TOML) and link its C sources; repeatable",
     )
     verify_parser.set_defaults(sanitize=None, debug_info=False)
+    assess_parser = sub.add_parser(
+        "assess",
+        help="assess any script, library or app for native gains and island routes",
+        parents=[common],
+    )
+    assess_parser.add_argument("source", help="script, package directory or app")
+    assess_parser.add_argument("--json", action="store_true", help="print the assessment report as JSON")
+    assess_parser.add_argument(
+        "--bench",
+        action="store_true",
+        help="time CPython against native binary on compilable entry points and print ratio",
+    )
+    assess_parser.add_argument(
+        "--verify",
+        action="store_true",
+        help="run differential verify on compilable entry points and show receipt inline",
+    )
+    assess_parser.add_argument("--call", help="function to call on entry points instead of the program entry")
+    assess_parser.add_argument("--args", default="[]", help="Python literal list of arguments for --call")
+    assess_parser.add_argument("--input", metavar="FILE", help="feed FILE's bytes on stdin to verify and bench")
+    assess_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=verify.DEFAULT_TIMEOUT,
+        metavar="S",
+        help=f"seconds each run may take (default {verify.DEFAULT_TIMEOUT:g})",
+    )
+    assess_parser.add_argument("--program", action="store_true", help="treat the directory as a program")
+    assess_parser.add_argument("--driver", choices=("clang", "zig"), default=None)
+    assess_parser.add_argument("--target", help="cross-compilation triple for `zig cc`")
+    assess_parser.add_argument("--linker", choices=("clang", "zig"), default=None)
+    assess_parser.add_argument("--skip-check", action="store_true")
+    assess_parser.add_argument("--checker", choices=("pyrefly", "mypy", "pyright"), default="pyrefly")
+    assess_parser.add_argument("--no-cache", action="store_true", help="always recompile (env PYSC_NO_RUN_CACHE=1)")
+    assess_parser.add_argument(
+        "--ffi",
+        action="append",
+        metavar="MANIFEST",
+        default=[],
+        help="bind a typed extern manifest (TOML) and link its C sources; repeatable",
+    )
+    assess_parser.set_defaults(sanitize=None, debug_info=False)
     coverage_parser = sub.add_parser("coverage", help="report every fence in a file or package tree", parents=[common])
     coverage_parser.add_argument("source")
     coverage_parser.add_argument("--json", action="store_true", help="print the report as JSON")
@@ -321,8 +363,8 @@ def main(argv: list[str] | None = None) -> int:
             raw, run_argv = raw[:split], raw[split + 1 :]
         args = parser.parse_args(raw)
         args.run_argv = run_argv
-        if run_argv and not (args.cmd in ("verify", "run") or (args.cmd == "compile" and args.run)):
-            parser.error("arguments after `--` need `run`, `compile --run` or `verify`")
+        if run_argv and not (args.cmd in ("verify", "run", "assess") or (args.cmd == "compile" and args.run)):
+            parser.error("arguments after `--` need `run`, `compile --run`, `verify` or `assess`")
         if getattr(args, "verbose", False):
             enable_debug()
         log.info("cli.invoke", cmd=args.cmd)
@@ -335,6 +377,8 @@ def main(argv: list[str] | None = None) -> int:
             return run_cmd(args)
         if args.cmd == "verify":
             return verify_cmd(args)
+        if args.cmd == "assess":
+            return assess_cmd(args)
         if args.cmd == "coverage":
             return coverage_cmd(args)
         if args.cmd == "imports":
@@ -598,6 +642,36 @@ def verify_cmd(args: argparse.Namespace) -> int:
         },
     )
     return 0 if receipt.match else 1
+
+
+def assess_cmd(args: argparse.Namespace) -> int:
+    """`pyscriptc assess PATH`: throw pyscriptc at any script, library or app."""
+    _apply_env_defaults(args)
+    source = Path(args.source)
+    if not source.exists():
+        raise IRError(f"source not found: {source}")
+    call_args = _parse_args(args.args) if args.call else []
+    report = assess.assess(
+        source,
+        bench=args.bench,
+        verify_diff=args.verify,
+        run_argv=args.run_argv,
+        stdin_path=args.input,
+        call=args.call,
+        call_args=call_args,
+        timeout=args.timeout,
+        compile_args=args,
+    )
+    if args.json:
+        print(json.dumps(report, indent=2))
+    else:
+        print(assess.render_text(report))
+
+    if args.verify and report.get("verify"):
+        for rec in report["verify"]:
+            if rec.get("match") is False or "error" in rec:
+                return 1
+    return 0
 
 
 def _verify_binary(args: argparse.Namespace, name: str, key: str, scratch: Path) -> tuple[Path, bool, int, str]:
