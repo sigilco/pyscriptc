@@ -1,0 +1,5 @@
+print(10.0)
+print(100.0)
+print(0.5)
+print(16.1)
+print(0.1)
