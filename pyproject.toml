@@ -84,6 +84,7 @@ extend-exclude = [
     "benchmarks/compat2/corpus/holdout/tests",
     "benchmarks/compat2/corpus/scripts",
     "benchmarks/compat2/corpus/holdout/scripts",
+    "benchmarks/real_scripts/scripts",
     "src/pyscriptc/_pyright_stubs",
     "src/pyscriptc/_typeshed",
 ]
