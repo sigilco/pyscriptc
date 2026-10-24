@@ -1546,7 +1546,7 @@ class ClassesMixin:
                 f"{owner}.__getattr__ returns {_show(ret)}; the return type must cover the read site exactly",
             )
             raise AssertionError("unreachable")
-        if ret["kind"] in {"none", "bool"}:
+        if ret["kind"] in {"none"}:
             self.fail(
                 node,
                 "PS4204",
