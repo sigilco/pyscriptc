@@ -89,3 +89,33 @@ def test_int_unknown_forms_fence_with_named_codes() -> None:
     _fence("x: int = int('ff', radix=16)\n", "PS2003", "unexpected keyword argument radix")
     _fence("x: int = int(255, base=16)\n", "PS2003", "takes a str or bytes value")
     _fence("x: int = int('ff', 16, base=10)\n", "PS2003", "base given more than once")
+
+
+def test_open_encoding_read_write_match_cpython(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "enc.py",
+        "\n".join(
+            [
+                "def run() -> int:",
+                "    with open('data.txt', 'w', encoding='utf-8') as handle:",
+                "        handle.write('alpha bravo\\ncharlie')",
+                "    with open('data.txt', 'r', encoding='utf-8') as handle:",
+                "        s: str = handle.read()",
+                "    print(s)",
+                "    with open('data.txt', encoding='ascii') as handle:",
+                "        print(len(handle.read()) > 0)",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_open_unknown_forms_fence_with_named_codes() -> None:
+    # Unknown keyword names itself; a non-listed encoding names the set.
+    _fence("with open('a', errors='ignore') as h:\n    s: str = h.read()\n", "PS2003", "keyword errors is not lowered")
+    _fence(
+        "with open('a', 'r', encoding='utf-16') as h:\n    s: str = h.read()\n", "PS2001", "utf-8, ascii, or latin-1"
+    )
+    _fence("with open('a', 'r', -1) as h:\n    s: str = h.read()\n", "PS2003", "buffering is not lowered")
