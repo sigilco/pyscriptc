@@ -73,13 +73,12 @@ def is_case_ignorable(ch: str) -> bool:
     # sigma and a cased char forces the final form), clause two the
     # backward scan (a cased non-ignorable char before the sigma forces
     # the final form even at end of string).
-    return (
-        ("aΣ" + ch + "b").lower() == "aσ" + ch + "b"
-        and (ch + "Σ").lower().endswith("σ")
-    )
+    return ("aΣ" + ch + "b").lower() == "aσ" + ch + "b" and (ch + "Σ").lower().endswith("σ")
 
 
-def build() -> tuple[list[tuple[int, int, int, int, int]], dict[int, str], dict[int, str], dict[int, str], dict[int, str]]:
+def build() -> tuple[
+    list[tuple[int, int, int, int, int]], dict[int, str], dict[int, str], dict[int, str], dict[int, str]
+]:
     recs: list[tuple[int, int, int, int, int]] = []
     exp_up: dict[int, str] = {}
     exp_lo: dict[int, str] = {}
@@ -208,10 +207,37 @@ def _replay_check(
     import random
 
     alphabet = [
-        0xDF, 0x1C4, 0x1C5, 0x1C6, 0x130, 0x131, 0x2B0, 0x138, 0x10D0,
-        0x1C90, 0x30, 0x41, 0x61, 0x20, 0x27, 0xAD, 0x301, 0x345,
-        0x1F130, 0x3A3, 0x3C2, 0x3C3, 0x387, 0x2019, 0xB5, 0xFF, 0xB7,
-        0x308, 0x897, 0x10D4E, 0x2E,
+        0xDF,
+        0x1C4,
+        0x1C5,
+        0x1C6,
+        0x130,
+        0x131,
+        0x2B0,
+        0x138,
+        0x10D0,
+        0x1C90,
+        0x30,
+        0x41,
+        0x61,
+        0x20,
+        0x27,
+        0xAD,
+        0x301,
+        0x345,
+        0x1F130,
+        0x3A3,
+        0x3C2,
+        0x3C3,
+        0x387,
+        0x2019,
+        0xB5,
+        0xFF,
+        0xB7,
+        0x308,
+        0x897,
+        0x10D4E,
+        0x2E,
     ]
 
     def flags_of(cp: int) -> int:
@@ -245,10 +271,7 @@ def _replay_check(
         return k >= len(cps) or not cased(cps[k])
 
     def lower_full(cps: list[int]) -> str:
-        return "".join(
-            "ς" if c == 0x3A3 and sigma_final(cps, i) else lower1(c)
-            for i, c in enumerate(cps)
-        )
+        return "".join("ς" if c == 0x3A3 and sigma_final(cps, i) else lower1(c) for i, c in enumerate(cps))
 
     def title_full(cps: list[int]) -> str:
         out: list[str] = []
