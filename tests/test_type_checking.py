@@ -89,9 +89,7 @@ def test_user_type_checking_name_stays_a_module_if(tmp_path: Path) -> None:
     ]
     for name, source in lowers:
         path = write_case(tmp_path, name, source)
-        got = run_cli(
-            "compile", str(path), "--skip-check", "--emit", "llvm", "-o", str(tmp_path / f"{name}.ll")
-        )
+        got = run_cli("compile", str(path), "--skip-check", "--emit", "llvm", "-o", str(tmp_path / f"{name}.ll"))
         assert got.returncode == 0, f"{name}\n{got.stderr}"
     cases = [
         (

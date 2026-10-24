@@ -718,12 +718,7 @@ class StmtMixin:
                 return None
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
                 recv = node.func.value
-                if (
-                    node.func.attr == "get"
-                    and isinstance(recv, ast.Name)
-                    and recv.id == target
-                    and len(node.args) == 2
-                ):
+                if node.func.attr == "get" and isinstance(recv, ast.Name) and recv.id == target and len(node.args) == 2:
                     default = self._infer_type_of(node.args[1])
                     if default is None or default["kind"] == "none":
                         return None
@@ -802,6 +797,7 @@ class StmtMixin:
         if value is not None:
             return {"kind": "dict", "key": {"kind": "str"}, "value": value}
         return None
+
     def _aug_assign(self, stmt: ast.AugAssign, span: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(stmt.target, ast.Name):
             self.fail(stmt, "PS2002", "augmented assignment is only lowered for a name")

@@ -29,32 +29,17 @@ _DIFFERENTIAL_CASES: dict[str, str] = {
     "str literal": "def probe() -> int:\n    who = 'py'\n    return len(who + '!')\n",
     "list display": "def probe() -> int:\n    xs = [1, 2, 3]\n    return xs[0] + xs[2]\n",
     "dict display": "def probe() -> int:\n    d = {'a': 1, 'b': 2}\n    return d['a'] + d['b']\n",
-    "set display": (
-        "def probe() -> int:\n"
-        "    s = {1, 2}\n"
-        "    return len(s) * 10 + (1 if 1 in s else 0)\n"
-    ),
+    "set display": ("def probe() -> int:\n    s = {1, 2}\n    return len(s) * 10 + (1 if 1 in s else 0)\n"),
     "list comp": "def probe() -> int:\n    xs = [v * 2 for v in [1, 2, 3]]\n    return xs[1]\n",
     "str method call": (
-        "def probe() -> int:\n"
-        "    tag = '-'.join(['a', 'b'])\n"
-        "    return len(tag) * 10 + ord(tag[1])\n"
+        "def probe() -> int:\n    tag = '-'.join(['a', 'b'])\n    return len(tag) * 10 + ord(tag[1])\n"
     ),
     "len call": "def probe() -> int:\n    n = len([1, 2, 3, 4])\n    return n * 2\n",
     "user call": (
-        "def inner(v: int) -> int:\n"
-        "    return v + 1\n"
-        "\n"
-        "def probe() -> int:\n"
-        "    got = inner(4)\n"
-        "    return got\n"
+        "def inner(v: int) -> int:\n    return v + 1\n\ndef probe() -> int:\n    got = inner(4)\n    return got\n"
     ),
     "empty list appended": (
-        "def probe() -> int:\n"
-        "    xs = []\n"
-        "    for i in range(4):\n"
-        "        xs.append(i * i)\n"
-        "    return xs[2]\n"
+        "def probe() -> int:\n    xs = []\n    for i in range(4):\n        xs.append(i * i)\n    return xs[2]\n"
     ),
     "empty dict written": (
         "def probe() -> int:\n"
@@ -79,26 +64,12 @@ _DIFFERENTIAL_CASES: dict[str, str] = {
         "    return len(stem) * 10 + len(ext)\n"
     ),
     "default param": (
-        "def shout(msg, times=3):\n"
-        "    return msg * times\n"
-        "\n"
-        "def probe() -> int:\n"
-        "    return len(shout('ha'))\n"
+        "def shout(msg, times=3):\n    return msg * times\n\ndef probe() -> int:\n    return len(shout('ha'))\n"
     ),
     "default param call override": (
-        "def shout(msg, times=3):\n"
-        "    return msg * times\n"
-        "\n"
-        "def probe() -> int:\n"
-        "    return len(shout('ha', 2))\n"
+        "def shout(msg, times=3):\n    return msg * times\n\ndef probe() -> int:\n    return len(shout('ha', 2))\n"
     ),
-    "pinned param": (
-        "def twice(v):\n"
-        "    return v + v\n"
-        "\n"
-        "def probe() -> int:\n"
-        "    return twice(21)\n"
-    ),
+    "pinned param": ("def twice(v):\n    return v + v\n\ndef probe() -> int:\n    return twice(21)\n"),
     "pinned param unpack arg": (
         "import os\n"
         "\n"
@@ -108,32 +79,13 @@ _DIFFERENTIAL_CASES: dict[str, str] = {
         "def probe() -> int:\n"
         "    return report(os.path.splitext('a.txt'))\n"
     ),
-    "return from body": (
-        "def pick():\n"
-        "    return 42\n"
-        "\n"
-        "def probe() -> int:\n"
-        "    return pick() + 1\n"
-    ),
-    "return none body": (
-        "def side():\n"
-        "    print('ran')\n"
-        "\n"
-        "def probe() -> int:\n"
-        "    side()\n"
-        "    return 0\n"
-    ),
+    "return from body": ("def pick():\n    return 42\n\ndef probe() -> int:\n    return pick() + 1\n"),
+    "return none body": ("def side():\n    print('ran')\n\ndef probe() -> int:\n    side()\n    return 0\n"),
     "return from pinned callee": (
-        "def label(v):\n"
-        "    return 'x' * v\n"
-        "\n"
-        "def probe() -> int:\n"
-        "    return len(label(3))\n"
+        "def label(v):\n    return 'x' * v\n\ndef probe() -> int:\n    return len(label(3))\n"
     ),
     "str repeat": (
-        "def probe() -> int:\n"
-        "    bar = 'ab' * 3\n"
-        "    return len(bar) * 10 + (1 if bar == 'ababab' else 0)\n"
+        "def probe() -> int:\n    bar = 'ab' * 3\n    return len(bar) * 10 + (1 if bar == 'ababab' else 0)\n"
     ),
     "unpack local reuse": (
         "def probe() -> int:\n"

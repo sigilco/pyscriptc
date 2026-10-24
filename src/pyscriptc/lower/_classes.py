@@ -2100,7 +2100,9 @@ class ClassesMixin:
         return {"kind": "class", "name": name, "label": _show(elem) + " | None", "optional": True, "elem": elem}
 
 
-def _param(lowerer: Any, arg: ast.arg, fn: ast.FunctionDef | None = None, default: ast.expr | None = None) -> dict[str, Any]:
+def _param(
+    lowerer: Any, arg: ast.arg, fn: ast.FunctionDef | None = None, default: ast.expr | None = None
+) -> dict[str, Any]:
     if arg.annotation is None:
         # Checker bridge: the checker inferred the parameter's type (from the
         # default, the callers, or the body). Without a bridged answer the

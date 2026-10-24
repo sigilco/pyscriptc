@@ -302,9 +302,7 @@ def _ir_kinds_of(node: ast.expr) -> set[str]:
     return found
 
 
-def _peek_annotated_params(
-    lowerer: Any, fn: ast.FunctionDef | ast.AsyncFunctionDef
-) -> dict[str, dict[str, Any]]:
+def _peek_annotated_params(lowerer: Any, fn: ast.FunctionDef | ast.AsyncFunctionDef) -> dict[str, dict[str, Any]]:
     """The typed parameters of one `def`, as an IR local table.
 
     The return peek lowers returned expressions to learn their types, so

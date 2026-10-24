@@ -415,9 +415,7 @@ class ExprMixin:
                 return self._abi_call("builtins", "repeat", [right, left], right["type"], "ps_seq_repeat", span)
             for seq, count, seq_kind in ((left, right, left_kind), (right, left, right_kind)):
                 if seq_kind in {"str", "bytes"} and count["type"]["kind"] == "int":
-                    return self._abi_call(
-                        "builtins", "str_repeat", [seq, count], seq["type"], "ps_str_repeat", span
-                    )
+                    return self._abi_call("builtins", "str_repeat", [seq, count], seq["type"], "ps_str_repeat", span)
         self.fail(node, "PS2004", f"{_op_text(node.op)} on {left_kind} and {right_kind} is not lowered")
         raise AssertionError("unreachable")
 

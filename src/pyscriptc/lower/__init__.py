@@ -255,7 +255,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             return None
         return self.bridge.return_type(fn, self.classes)
 
-    _PEEK_UNSAFE = {"abi_call", "free", "consume", "yield_expr", "await_expr", "consume"}
+    _PEEK_UNSAFE = {"abi_call", "free", "consume", "yield_expr", "await_expr"}
 
     def _infer_type_of(self, node: ast.expr) -> dict[str, Any] | None:
         """The type lowering would give `node`, or None when it does not lower.
@@ -538,7 +538,6 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # pass is about to prove. A def the pin rescues has its stale
         # first-pass fence dropped: the rescued signature is the answer and
         # the earlier PS1001 was a state this pass replaces.
-        rescued: list[Fence] = []
         for _round in range(3):
             changed = False
             for fn in pending:
@@ -619,6 +618,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
 
         wanted = {arg.arg: arg for arg in unannotated}
         pins: dict[str, dict[str, Any]] = {}
+
         def _call_site_locals(caller: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
             """Bind the caller body's own local names for the argument peeks.
 
@@ -677,7 +677,9 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                     if isinstance(item, ast.AugAssign) and isinstance(item.target, ast.Name):
                         left = self.locals.get(item.target.id)
                         if left is not None:
-                            binop = ast.BinOp(left=ast.Name(id=item.target.id, ctx=ast.Load()), op=item.op, right=item.value)
+                            binop = ast.BinOp(
+                                left=ast.Name(id=item.target.id, ctx=ast.Load()), op=item.op, right=item.value
+                            )
                             ast.copy_location(binop, item)
                             _bind(item.target.id, self._infer_type_of(binop))
                     if isinstance(item, ast.For) and isinstance(item.target, ast.Name):
@@ -791,7 +793,9 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         if kind in {"int", "float", "bool", "str", "bytes"}:
             return ast.Name(id=kind, ctx=ast.Load())
         if kind == "list" and typ.get("set"):
-            return ast.Subscript(value=ast.Name(id="set", ctx=ast.Load()), slice=ast.Name(id="int", ctx=ast.Load()), ctx=ast.Load())
+            return ast.Subscript(
+                value=ast.Name(id="set", ctx=ast.Load()), slice=ast.Name(id="int", ctx=ast.Load()), ctx=ast.Load()
+            )
         if kind == "list":
             elem = self._pin_annotation(typ["elem"])
             return ast.Subscript(value=ast.Name(id="list", ctx=ast.Load()), slice=elem, ctx=ast.Load())

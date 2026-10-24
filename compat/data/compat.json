@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-24",
-  "commit": "632fb960dd5837ca80648975cc853ab3b871523e",
+  "commit": "87886e87d0010c6080ea89de50b691428a31afda",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -2124,7 +2124,7 @@
     },
     {
       "date": "2026-10-24",
-      "commit": "632fb960dd5837ca80648975cc853ab3b871523e",
+      "commit": "87886e87d0010c6080ea89de50b691428a31afda",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 6,
