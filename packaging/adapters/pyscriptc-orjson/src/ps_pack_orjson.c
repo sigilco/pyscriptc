@@ -26,6 +26,11 @@ child). */
 #define PS_PACK_ORJSON_INDENT_2 (2 << 8)
 #define PS_PACK_ORJSON_COMPACT 0x10000
 
+/* The runtime entry points the thunks sit over, declared here because the
+   runtime ships no header that names them (ps_json.c declares its own). */
+void ps_json_dumps_opts(const PsType *types, int32_t root, void *value, int32_t flags, PsBuf *out);
+void ps_json_loads(int64_t n, char *p, const PsType *types, int32_t root, void *out);
+
 /* The writer flags a compiled `dumps` call passes: compact by default, with
    the caller's orjson options mapped onto the writer's word. */
 int32_t ps_pack_orjson_flags(int32_t option) {
