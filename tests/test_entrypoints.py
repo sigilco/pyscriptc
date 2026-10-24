@@ -121,11 +121,12 @@ def test_validation_marks_entry_fences():
     #500: local and parameter inference lifts the definition fences of
     bit_tricks and gcd_lcm, so their first fence now sits on the entry
     statement and the validator marks them; exceptions_flow's entry fences
-    are the print-of-list and print-of-exc shapes, untouched here."""
+    are the print-of-list and print-of-exc shapes, untouched here.
+    #501: `int(text, base)` lowers, so bit_tricks has no fence left at all
+    and drops out of the predicted flips (it compiles end to end)."""
     records = entrypoints.scan(with_fences=True)
     flips = sorted(r["path"] for r in records if r.get("predicted_flip"))
     assert flips == [
-        "benchmarks/compat2/corpus/scripts/bit_tricks/main.py",
         "benchmarks/compat2/corpus/scripts/exceptions_flow/main.py",
         "benchmarks/compat2/corpus/scripts/gcd_lcm/main.py",
     ]

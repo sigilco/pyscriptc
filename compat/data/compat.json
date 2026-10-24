@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-24",
-  "commit": "05aa2e4b5581d6e12bc7256359c6b79e24980c5f",
+  "commit": "e9f13534fac3cbc1f39a0121d88f4260b8e917fd",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 6,
     "packages_none": 10,
     "weighted_pass": 0.0,
-    "fences": 2791
+    "fences": 2776
   },
   "builtins": [
     {
@@ -102,7 +102,7 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "base argument, int(bool)"
+        "unknown keyword, int(bool)"
       ],
       "fences": [
         "PS2003"
@@ -252,7 +252,7 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "encoding= and other keywords"
+        "keywords other than encoding="
       ],
       "fences": [
         "PS2003"
@@ -1659,31 +1659,31 @@
       "import_name": "mdurl",
       "version": "0.1.2",
       "status": "none",
-      "fences": 39,
+      "fences": 24,
       "definitions": 12,
       "fenced_definitions": 8,
       "top_families": [
         {
           "family": "name-resolution",
-          "count": 14
-        },
-        {
-          "family": "call-arity",
-          "count": 9
+          "count": 6
         },
         {
           "family": "construct-other",
+          "count": 3
+        },
+        {
+          "family": "unlowered-call",
           "count": 3
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 25
+          "count": 17
         },
         {
           "code": "PS2003",
-          "count": 9
+          "count": 2
         },
         {
           "code": "PS2001",
@@ -2012,7 +2012,7 @@
     {
       "code": "PS2002",
       "title": "construct not lowered",
-      "count": 1368,
+      "count": 1360,
       "packages": 16
     },
     {
@@ -2054,7 +2054,7 @@
     {
       "code": "PS2003",
       "title": "call arguments not lowered",
-      "count": 83,
+      "count": 76,
       "packages": 10
     },
     {
@@ -2124,12 +2124,12 @@
     },
     {
       "date": "2026-10-24",
-      "commit": "05aa2e4b5581d6e12bc7256359c6b79e24980c5f",
+      "commit": "e9f13534fac3cbc1f39a0121d88f4260b8e917fd",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 6,
       "packages_none": 10,
-      "fences": 2791
+      "fences": 2776
     }
   ]
 }

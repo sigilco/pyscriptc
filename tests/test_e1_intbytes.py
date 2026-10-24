@@ -3,9 +3,10 @@
 The builtin table gains one entry: `int` over a single `bytes` value lowers
 to `ps_int_from_bytes`, a pure parser in ps_help.c (base 10, CPython's
 surrounding-whitespace strip, optional sign, all remaining bytes digits,
-i64 range). The other `int()` overloads keep their fence: `str` (with or
-without a base argument) and the no-arg form stay PS2003. `int(float)` is
-pre-existing surface (ps_float_to_int) and is not touched here.
+i64 range). The other `int()` overloads keep their fence: the no-arg form
+stays PS2003, and #501 later added the `int(text, base)` row onto
+ps_int_from_base. `int(float)` is pre-existing surface (ps_float_to_int)
+and is not touched here.
 """
 
 from __future__ import annotations
@@ -123,15 +124,14 @@ def test_int_bytes_out_of_i64_range_stays_a_runtime_error(tmp_path: Path) -> Non
 
 
 def test_int_other_overloads_keep_fencing() -> None:
-    # str (with or without a base argument) and the no-arg form fence.
-    # int(float) is not part of this item: it was already lowered on master
-    # (ps_float_to_int) and stays as-is.
-    for source in ('int("ff", 16)\n', "int()\n"):
+    # The no-arg form fences. int(float) is not part of this item: it was
+    # already lowered on master (ps_float_to_int) and stays as-is. The
+    # base row takes str or bytes: a non-text base call fences naming it.
+    mod = lower_source("int()\n")
+    assert len(mod["fences"]) == 1
+    fence = mod["fences"][0]
+    assert fence["code"] == "PS2003"
+    assert "int is not lowered for these arguments" in fence["message"]
+    for source in ("int(2.5, 10)\n", 'int("ff", base=16, radix=8)\n'):
         mod = lower_source(source)
-        assert len(mod["fences"]) == 1, source
-        fence = mod["fences"][0]
-        assert fence["code"] == "PS2003", source
-        assert "int is not lowered for these arguments" in fence["message"], source
-    mod = lower_source("int(2.5, 10)\n")
-    assert [f["code"] for f in mod["fences"]] == ["PS2003"]
-    assert "int is not lowered for these arguments" in mod["fences"][0]["message"]
+        assert [f["code"] for f in mod["fences"]] == ["PS2003"], source

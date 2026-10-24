@@ -10,7 +10,7 @@ pinned pure-Python libraries: 2 🟢 · 6 🟡 · 10 🔴
 | `h11` | 0.16.0 | 🔴 | 76/133 | generic-alias (17), unlowered-type-name (17), reflection (16) | PS2002, PS1103, PS1106 |
 | `idna` | 3.20 | 🔴 | 37/56 | keyword-args (17), construct-other (11), name-resolution (11) | PS2002, PS2003, PS2001 |
 | `jmespath` | 1.1.0 | 🔴 | 107/200 | param-inference (78), return-inference (15), class-body (9) | PS1001, PS2002, PS1204 |
-| `mdurl` | 0.1.2 | 🔴 | 8/12 | name-resolution (14), call-arity (9), construct-other (3) | PS2002, PS2003, PS2001 |
+| `mdurl` | 0.1.2 | 🔴 | 8/12 | name-resolution (6), construct-other (3), unlowered-call (3) | PS2002, PS2003, PS2001 |
 | `packaging` | 26.3 | 🔴 | 281/558 | unlowered-type-name (90), name-resolution (84), class-body (52) | PS2002, PS1106, PS2001 |
 | `pathspec` | 1.1.1 | 🔴 | 93/132 | name-resolution (27), unlowered-type-name (22), decorators (21) | PS2002, PS1106, PS1201 |
 | `python-dotenv` | 1.2.4 | 🔴 | 43/75 | unlowered-call (25), construct-other (21), name-resolution (17) | PS2002, PS1106, PS1001 |
