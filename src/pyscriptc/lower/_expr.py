@@ -263,7 +263,7 @@ class ExprMixin:
                         self.fail(node, "PS2001", f"{binding.module}.{binding.attr} is not a constant")
                     value, typ = found
                 return {"kind": "const", "value": value, "type": typ, "span": span}
-            if binding.kind in {"module", "pkg"}:
+            if binding.kind in {"module", "pkg", "island", "island_member"}:
                 self.fail(node, "PS2002", f"module {node.id} is not a value in the static subset")
             self.fail(node, "PS2002", f"{node.id} is a function and is not a value")
         if node.id in self.classes:

@@ -590,13 +590,14 @@ def run_cmd(args: argparse.Namespace) -> int:
     source = Path(args.source)
     if not source.exists():
         raise IRError(f"source not found: {source}")
+    run_env = _run_environment(source)
     use_cache = runcache.enabled() and not args.no_cache
     key = _run_key(args)
     name = (source.resolve().name if source.is_dir() else source.stem) or "app"
     binary = runcache.binary_path(key, name)
     if use_cache and binary.is_file():
         log.info("run.cache_hit", key=key, binary=str(binary))
-        code = _exec_binary(binary, args.run_argv)
+        code = _exec_binary(binary, args.run_argv, env=run_env)
         _track_run(
             args,
             code,
@@ -621,7 +622,7 @@ def run_cmd(args: argparse.Namespace) -> int:
                 if not binary.is_file():
                     raise
             else:
-                code = _exec_binary(binary, args.run_argv)
+                code = _exec_binary(binary, args.run_argv, env=run_env)
                 _track_run(
                     args,
                     code,
@@ -630,7 +631,7 @@ def run_cmd(args: argparse.Namespace) -> int:
                     binary_bytes=_binary_size(binary),
                 )
                 return code
-        code = _exec_binary(build / name, args.run_argv)
+        code = _exec_binary(build / name, args.run_argv, env=run_env)
         _track_run(
             args,
             code,
@@ -743,8 +744,17 @@ def _build_for_run(args: argparse.Namespace, output: Path) -> int:
         sys.stdout = real_stdout
 
 
-def _exec_binary(binary: Path, argv: list[str]) -> int:
-    completed = subprocess.run([str(binary.absolute()), *argv])
+def _run_environment(source_path: Path) -> dict[str, str]:
+    env = dict(os.environ)
+    prog_dir = str((source_path if source_path.is_dir() else source_path.parent).resolve())
+    env.setdefault("PYSC_PROGRAM_DIR", prog_dir)
+    if "VIRTUAL_ENV" not in env and sys.prefix != sys.base_prefix:
+        env["VIRTUAL_ENV"] = sys.prefix
+    return env
+
+
+def _exec_binary(binary: Path, argv: list[str], env: dict[str, str] | None = None) -> int:
+    completed = subprocess.run([str(binary.absolute()), *argv], env=env)
     code = 128 + (-completed.returncode) if completed.returncode < 0 else completed.returncode
     log.info("run.exit", binary=str(binary), code=code)
     return code
@@ -1684,7 +1694,8 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         state["stage"] = "run"
         log.info("run.start", binary=str(binary))
         dbg.begin("run")
-        completed = subprocess.run([str(binary.absolute()), *args.run_argv])
+        run_env = _run_environment(source_path)
+        completed = subprocess.run([str(binary.absolute()), *args.run_argv], env=run_env)
         dbg.end("run")
         code = 128 + (-completed.returncode) if completed.returncode < 0 else completed.returncode
         log.info("run.exit", binary=str(binary), code=code)

@@ -6,6 +6,7 @@ CI); the compiled binary matches CPython output on status code and body length.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -16,10 +17,18 @@ ROOT = Path(__file__).resolve().parents[1]
 _BODY_LEN = len(BODY)
 
 
-def _run_cli(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+def _run_cli(
+    *args: str,
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    run_env = dict(os.environ)
+    if env:
+        run_env.update(env)
     return subprocess.run(
         [sys.executable, "-m", "pyscriptc", *args],
         cwd=cwd or ROOT,
+        env=run_env,
         capture_output=True,
         text=True,
         timeout=60,
@@ -193,3 +202,119 @@ def main() -> None:
     assert comp.returncode != 0
     assert "PS1001" in comp.stderr
     assert "status_code needs an annotation" in comp.stderr
+
+
+def test_island_runtime_resolves_local_module_in_program_dir(tmp_path: Path) -> None:
+    helper = tmp_path / "helper.py"
+    helper.write_text(
+        """class Box:
+    def __init__(self, msg: str):
+        self.msg = msg
+
+def make_box(text: str) -> Box:
+    return Box(f"boxed:{text}")
+""",
+        encoding="utf-8",
+    )
+    src = tmp_path / "app.py"
+    src.write_text(
+        """import helper
+
+def main() -> None:
+    b = helper.make_box("hello")
+    msg: str = b.msg
+    print(msg)
+
+if __name__ == "__main__":
+    main()
+""",
+        encoding="utf-8",
+    )
+    binary = tmp_path / "app_bin"
+    comp = _run_cli("compile", "--island", str(src), "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    assert comp.returncode == 0, comp.stderr
+
+    # Execute from a different working directory (/tmp)
+    run = subprocess.run([str(binary)], cwd="/tmp", capture_output=True, text=True, timeout=60)
+    assert run.returncode == 0, run.stderr
+    assert run.stdout.strip() == "boxed:hello"
+
+
+def test_island_runtime_respects_pythonpath(tmp_path: Path) -> None:
+    ext_dir = tmp_path / "somewhere_else"
+    ext_dir.mkdir()
+    (ext_dir / "extmod.py").write_text(
+        """class Box:
+    def __init__(self, val: int):
+        self.val = val
+
+def answer() -> Box:
+    return Box(42)
+""",
+        encoding="utf-8",
+    )
+    src = tmp_path / "path_test.py"
+    src.write_text(
+        """import extmod
+
+def main() -> None:
+    b = extmod.answer()
+    val: int = b.val
+    print("val:", val)
+
+if __name__ == "__main__":
+    main()
+""",
+        encoding="utf-8",
+    )
+    binary = tmp_path / "path_test_bin"
+    comp = _run_cli(
+        "compile",
+        "--island",
+        str(src),
+        "--emit",
+        "bin",
+        "-o",
+        str(binary),
+        cwd=tmp_path,
+        env={"PYTHONPATH": str(ext_dir)},
+    )
+    assert comp.returncode == 0, comp.stderr
+
+    run = subprocess.run(
+        [str(binary)],
+        cwd="/tmp",
+        env={"PYTHONPATH": str(ext_dir)},
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert run.returncode == 0, run.stderr
+    assert run.stdout.strip() == "val: 42"
+
+
+def test_island_import_forms_submodule_and_from_import(tmp_path: Path) -> None:
+    src = tmp_path / "forms_test.py"
+    src.write_text(
+        """import packaging.version
+from packaging.version import parse
+
+def main() -> None:
+    v1 = packaging.version.parse("1.2.3")
+    m1: int = v1.major
+    v2 = parse("4.5.6")
+    m2: int = v2.major
+    print(m1, m2)
+
+if __name__ == "__main__":
+    main()
+""",
+        encoding="utf-8",
+    )
+    binary = tmp_path / "forms_test_bin"
+    comp = _run_cli("compile", "--island", str(src), "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    assert comp.returncode == 0, comp.stderr
+
+    run = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60)
+    assert run.returncode == 0, run.stderr
+    assert run.stdout.strip() == "1 4"

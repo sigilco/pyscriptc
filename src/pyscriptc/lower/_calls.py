@@ -162,6 +162,10 @@ class CallsMixin:
                     self.fail(node, "PS2002", note)
             if binding.kind == "func":
                 return self._module_call(node, span, binding.module, binding.attr, expect)
+            # boxed:begin
+            if binding.kind == "island_member":
+                return self._island_call(node, span, binding.module, binding.attr, expect)
+            # boxed:end
             if binding.kind == "pyfunc":
                 return self._linked_call(node, span, self.pkg_funcs[name], name)
             if binding.kind == "const" and self._ffi_module(binding.module) is not None:
@@ -451,6 +455,10 @@ class CallsMixin:
         resolved = self._resolve_module(node.func)
         if resolved is not None:
             dotted, module, member, status = resolved
+            # boxed:begin
+            if status == "island":
+                return self._island_call(node, span, module, member, expect)
+            # boxed:end
             if status == "erased":
                 note = typing_note(member)
                 if note is not None:
@@ -476,6 +484,9 @@ class CallsMixin:
             # boxed:begin
             if bound is not None and bound.kind == "island":
                 return self._island_call(node, span, bound.module, node.func.attr, expect)
+            if bound is not None and bound.kind == "island_member":
+                target_mod = f"{bound.module}.{bound.attr}" if bound.attr else bound.module
+                return self._island_call(node, span, target_mod, node.func.attr, expect)
             # boxed:end
             if bound is not None and bound.kind == "module" and self._ffi_module(bound.module) is not None:
                 return self._ffi_call(node, span, bound.module, node.func.attr)
