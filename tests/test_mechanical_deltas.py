@@ -156,6 +156,54 @@ except TypeError:
     print("TypeError")
 print(second("5"))
 """,
+    "kwargs_calls": """
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional
+
+
+def t(tag: str, v: int) -> int:
+    print(tag)
+    return v
+
+
+def f(a: int, b: int, c: int = 0) -> int:
+    return a * 100 + b * 10 + c
+
+
+def kwonly(a: int, *, b: int = 1, c: int) -> int:
+    return a + b + c
+
+
+@dataclass
+class Cfg:
+    base: Path
+    out: Optional[Path] = None
+    label: Optional[str] = None
+    n: int = 0
+
+
+def mk(base: Path, out: Optional[Path] = None, n: int = 0) -> Cfg:
+    return Cfg(n=n, base=base, out=out)
+
+
+def outer(k: int) -> int:
+    def inner(a: int, b: int = 1) -> int:
+        return a + b + k
+
+    return inner(b=2, a=5) + inner(1) + inner(3, b=t("inner", 4))
+
+
+print(f(b=t("b", 2), a=t("a", 1)))
+print(f(t("a", 1), c=t("c", 3), b=t("b", 2)))
+print(kwonly(1, c=2), kwonly(1, c=2, b=5))
+print(outer(10))
+c = mk(base=Path("/a"), n=2)
+print(str(c.base), c.out is None, c.label is None, c.n)
+d = Cfg(Path("/b"), label="x", n=7)
+lab = d.label
+print(lab if lab is not None else "none", d.n)
+""",
 }
 
 

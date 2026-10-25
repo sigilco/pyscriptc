@@ -250,6 +250,11 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # `if x is not None:` narrowing on a tagged optional: inside the taken
         # branch a read of the name lowers to its `_val` field. name -> opt typ.
         self.opt_unwrap: dict[str, dict[str, Any]] = {}
+        # Full signatures (names, defaults, keyword-only flags) of nested defs,
+        # keyed by the identity of the local's func type, so a call through
+        # that local binds keywords like a call to a module-level def. A
+        # rebound local carries a different type object and loses the entry.
+        self.local_sigs: dict[int, tuple[dict[str, Any], list[dict[str, Any]]]] = {}
         # User exception classes take codes after the builtin table (1–8).
         self.exc_n = USER_EXC_BASE
         # TypeVar erasure (tier-2): name -> bound type or None when unbound.
