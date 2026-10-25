@@ -44,13 +44,14 @@ Calls that pass keyword arguments, unsupported argument counts, or non-scalar ar
 
 | Module | Call or construct | Code | Diagnostic |
 | --- | --- | --- | --- |
-| `argparse` | `argparse` option/default | [`pyscriptc explain PS2003`](cli.md#explain) | `argparse option names start with a dash` |
+| `argparse` | `argparse` option/default | [`pyscriptc explain PS2003`](cli.md#explain) | `argparse.add_argument keyword nargs is not lowered` |
+| `argparse` | call arity | [`pyscriptc explain PS2003`](cli.md#explain) | `ArgParser.add_mutually_exclusive_group is not lowered` |
 | `builtins` | `abs()` on non-number | [`pyscriptc explain PS2003`](cli.md#explain) | `abs is lowered for int and float` |
 | `builtins` | `input()` with prompt | [`pyscriptc explain PS2003`](cli.md#explain) | `input expects 0 argument(s)` |
 | `builtins` | `open(newline=...)` | [`pyscriptc explain PS2003`](cli.md#explain) | `open keyword newline is not lowered; open lowers encoding= only` |
 | `builtins` | `print(list)` | [`pyscriptc explain PS2003`](cli.md#explain) | `print is lowered for str, int, float, bool, and bytes values, not list; wrap it in str(...)` |
 | `builtins` | `zip()` with >2 args | [`pyscriptc explain PS2003`](cli.md#explain) | `zip takes 2 lists` |
-| `builtins` | call to unlowered function | [`pyscriptc explain PS2002`](cli.md#explain) | `call to get_parser is not lowered` |
+| `builtins` | call to unlowered function | [`pyscriptc explain PS2002`](cli.md#explain) | `call to batch_rename is not lowered` |
 | `builtins` | keyword arguments | [`pyscriptc explain PS2003`](cli.md#explain) | `keyword arguments are not lowered` |
 | `hashlib` | `hashlib.sha256()` | [`pyscriptc explain PS2003`](cli.md#explain) | `hashlib.sha256 expects 1 argument(s)` |
 | `sys` | `sys.exit()` | [`pyscriptc explain PS2003`](cli.md#explain) | `sys.exit expects 1 argument(s)` |
@@ -62,9 +63,9 @@ pyscriptc requires type annotations on function parameters, return types, and lo
 | Module | Call or construct | Code | Diagnostic |
 | --- | --- | --- | --- |
 | `builtins` | forward class reference | [`pyscriptc explain PS1105`](cli.md#explain) | `the forward reference 'Config' is not lowered` |
-| `builtins` | function without return annotation | [`pyscriptc explain PS1001`](cli.md#explain) | `get_parser needs a return annotation` |
-| `builtins` | local variable without annotation | [`pyscriptc explain PS1001`](cli.md#explain) | `work_dir needs an annotation before use` |
-| `builtins` | name read after unannotated assignment | [`pyscriptc explain PS2002`](cli.md#explain) | `parser is not a local or parameter` |
+| `builtins` | function without return annotation | [`pyscriptc explain PS1001`](cli.md#explain) | `read needs a return annotation` |
+| `builtins` | local variable without annotation | [`pyscriptc explain PS1001`](cli.md#explain) | `state needs an annotation before use` |
+| `builtins` | name read after unannotated assignment | [`pyscriptc explain PS2002`](cli.md#explain) | `had_error is not a local or parameter` |
 | `builtins` | parameter without annotation | [`pyscriptc explain PS1001`](cli.md#explain) | `parameter work_dir needs an annotation` |
 | `collections` | `collections.defaultdict` | [`pyscriptc explain PS1103`](cli.md#explain) | `DefaultDict is not a value type in the IR` |
 | `random` | unlowered type annotation | [`pyscriptc explain PS1106`](cli.md#explain) | `the annotation random.Random names a type that is not lowered` |
@@ -96,7 +97,7 @@ Class attributes, method declarations, and class decorators outside the lowered 
 
 | Module | Call or construct | Code | Diagnostic |
 | --- | --- | --- | --- |
-| `builtins` | class attribute access | [`pyscriptc explain PS2001`](cli.md#explain) | `Scheduling.jobs is not a field` |
+| `builtins` | class attribute access | [`pyscriptc explain PS2001`](cli.md#explain) | `Namespace.files is not a field` |
 
 ## Operators
 
