@@ -93,8 +93,8 @@ class AbiMixin:
             return (self._island_code(want["key"]) << 16) | self._island_code(want["value"])
         return 0
 
-    def _store_island_arg(self, base: str, value: str, typ: dict[str, Any]) -> None:
-        code = self._island_code(typ)
+    def _store_island_arg(self, base: str, value: str, typ: dict[str, Any], starred: bool = False) -> None:
+        code = self._island_code(typ) | (0x100 if starred else 0)
         kind_ptr = self.tmp()
         self.line(f"{kind_ptr} = getelementptr %ps.arg, ptr {base}, i32 0, i32 0")
         self.line(f"store i32 {code}, ptr {kind_ptr}")
@@ -165,44 +165,98 @@ class AbiMixin:
         data = name.encode("utf-8")
         return len(data), self.format_global(f"island.{name}", data)
 
+    def _prepare_island_call_args(
+        self,
+        pos_values: list[str],
+        pos_args: list[dict[str, Any]],
+        kw_values: list[str],
+        kw_args: list[dict[str, Any]],
+    ) -> tuple[str, str]:
+        self._ensure_arg_type()
+        npos = len(pos_values)
+        if npos:
+            slot = self.tmp()
+            self.line(f"{slot} = alloca [{npos} x %ps.arg]")
+            for index in range(npos):
+                base = self.tmp()
+                self.line(f"{base} = getelementptr [{npos} x %ps.arg], ptr {slot}, i64 0, i64 {index}")
+                starred = bool(pos_args[index].get("island_starred"))
+                self._store_island_arg(base, pos_values[index], pos_args[index]["type"], starred=starred)
+            pos_ptr = self.tmp()
+            self.line(f"{pos_ptr} = getelementptr [{npos} x %ps.arg], ptr {slot}, i64 0, i64 0")
+        else:
+            pos_ptr = "null"
+
+        nkw_items = len(kw_values) // 2
+        if nkw_items:
+            total_kw = nkw_items * 2
+            slot = self.tmp()
+            self.line(f"{slot} = alloca [{total_kw} x %ps.arg]")
+            for index in range(nkw_items):
+                base_k = self.tmp()
+                base_v = self.tmp()
+                self.line(f"{base_k} = getelementptr [{total_kw} x %ps.arg], ptr {slot}, i64 0, i64 {2 * index}")
+                self.line(f"{base_v} = getelementptr [{total_kw} x %ps.arg], ptr {slot}, i64 0, i64 {2 * index + 1}")
+                k_arg = kw_args[2 * index]
+                v_arg = kw_args[2 * index + 1]
+                if k_arg.get("island_kwargs"):
+                    kind_ptr = self.tmp()
+                    self.line(f"{kind_ptr} = getelementptr %ps.arg, ptr {base_k}, i32 0, i32 0")
+                    self.line(f"store i32 0, ptr {kind_ptr}")
+                else:
+                    self._store_island_arg(base_k, kw_values[2 * index], k_arg["type"])
+                self._store_island_arg(base_v, kw_values[2 * index + 1], v_arg["type"])
+            kw_ptr = self.tmp()
+            self.line(f"{kw_ptr} = getelementptr [{total_kw} x %ps.arg], ptr {slot}, i64 0, i64 0")
+        else:
+            kw_ptr = "null"
+        return pos_ptr, kw_ptr
+
     def _emit_island_call(self, expr: dict[str, Any], values: list[str]) -> str:
         """One trampoline call: `island_call(handle, name, args...) -> handle or value`."""
-        self._ensure_arg_type()
         target = values[0]
-        extra = values[1:]
-        count = len(extra)
-        if count:
-            slot = self.tmp()
-            self.line(f"{slot} = alloca [{count} x %ps.arg]")
-            for index in range(count):
-                base = self.tmp()
-                self.line(f"{base} = getelementptr [{count} x %ps.arg], ptr {slot}, i64 0, i64 {index}")
-                self._store_island_arg(base, extra[index], expr["args"][index + 1]["type"])
-            arg_ptr = self.tmp()
-            self.line(f"{arg_ptr} = getelementptr [{count} x %ps.arg], ptr {slot}, i64 0, i64 0")
-        else:
-            arg_ptr = "null"
+        npos = expr.get("island_npos", len(values) - 1)
+        nkw = expr.get("island_nkw", 0)
+        pos_values = values[1 : 1 + npos]
+        pos_args = expr["args"][1 : 1 + npos]
+        kw_values = values[1 + npos :]
+        kw_args = expr["args"][1 + npos :]
+        pos_ptr, kw_ptr = self._prepare_island_call_args(pos_values, pos_args, kw_values, kw_args)
         size, symbol = self._island_name(expr)
         if expr["type"].get("island"):
-            self._abi_decl("ps_island_call", "ptr", ["ptr", "i64", "ptr", "i64", "ptr"])
+            self._abi_decl("ps_island_call", "ptr", ["ptr", "i64", "ptr", "i64", "ptr", "i64", "ptr"])
             return self._call_ret(
                 "ptr",
                 "ps_island_call",
-                [f"ptr {target}", f"i64 {size}", f"ptr {symbol}", f"i64 {count}", f"ptr {arg_ptr}"],
+                [
+                    f"ptr {target}",
+                    f"i64 {size}",
+                    f"ptr {symbol}",
+                    f"i64 {npos}",
+                    f"ptr {pos_ptr}",
+                    f"i64 {nkw}",
+                    f"ptr {kw_ptr}",
+                ],
             )
         want = expr["island"]["want"]
         code = self._island_code(want)
         pad = self._island_pad(want)
         out = self._alloca("%ps.arg")
-        self._abi_decl("ps_island_call_value", "void", ["ptr", "i64", "ptr", "i64", "ptr", "i32", "i32", "ptr"])
+        self._abi_decl(
+            "ps_island_call_value",
+            "void",
+            ["ptr", "i64", "ptr", "i64", "ptr", "i64", "ptr", "i32", "i32", "ptr"],
+        )
         self._call_void(
             "ps_island_call_value",
             [
                 f"ptr {target}",
                 f"i64 {size}",
                 f"ptr {symbol}",
-                f"i64 {count}",
-                f"ptr {arg_ptr}",
+                f"i64 {npos}",
+                f"ptr {pos_ptr}",
+                f"i64 {nkw}",
+                f"ptr {kw_ptr}",
                 f"i32 {code}",
                 f"i32 {pad}",
                 f"ptr {out}",
@@ -214,26 +268,19 @@ class AbiMixin:
     def _emit_island_fn_call(self, expr: dict[str, Any], values: list[str]) -> str:
         """One call into the boxed island namespace (issue #612).
 
-        `ps_island_fn_invoke(name, nargs, args)` returns the boxed result as
-        a handle; `ps_island_fn_invoke_value(name, nargs, args, want, pad,
-        &out)` unboxes through the same `want` mechanism as
-        `ps_island_call_value`. The namespace is seeded once with the
-        module's own source before `main` runs.
+        `ps_island_fn_invoke(name, nargs, args, nkw, kws)` returns the boxed
+        result as a handle; `ps_island_fn_invoke_value(name, nargs, args,
+        nkw, kws, want, pad, &out)` unboxes through the same `want`
+        mechanism as `ps_island_call_value`. The namespace is seeded once
+        with the module's own source before `main` runs.
         """
-        self._ensure_arg_type()
-        extra = values
-        count = len(extra)
-        if count:
-            slot = self.tmp()
-            self.line(f"{slot} = alloca [{count} x %ps.arg]")
-            for index in range(count):
-                base = self.tmp()
-                self.line(f"{base} = getelementptr [{count} x %ps.arg], ptr {slot}, i64 0, i64 {index}")
-                self._store_island_arg(base, extra[index], expr["args"][index]["type"])
-            arg_ptr = self.tmp()
-            self.line(f"{arg_ptr} = getelementptr [{count} x %ps.arg], ptr {slot}, i64 0, i64 0")
-        else:
-            arg_ptr = "null"
+        npos = expr.get("island_npos", len(values))
+        nkw = expr.get("island_nkw", 0)
+        pos_values = values[:npos]
+        pos_args = expr["args"][:npos]
+        kw_values = values[npos:]
+        kw_args = expr["args"][npos:]
+        pos_ptr, kw_ptr = self._prepare_island_call_args(pos_values, pos_args, kw_values, kw_args)
         fn = expr["island_fn"]
         name = fn["name"]
         data = name.encode("utf-8")
@@ -244,23 +291,31 @@ class AbiMixin:
             code = self._island_code(want)
             pad = self._island_pad(want)
             out = self._alloca("%ps.arg")
-            self._abi_decl("ps_island_fn_invoke_value", "void", ["i64", "ptr", "i64", "ptr", "i32", "i32", "ptr"])
+            self._abi_decl(
+                "ps_island_fn_invoke_value",
+                "void",
+                ["i64", "ptr", "i64", "ptr", "i64", "ptr", "i32", "i32", "ptr"],
+            )
             self._call_void(
                 "ps_island_fn_invoke_value",
                 [
                     f"i64 {size}",
                     f"ptr {symbol}",
-                    f"i64 {count}",
-                    f"ptr {arg_ptr}",
+                    f"i64 {npos}",
+                    f"ptr {pos_ptr}",
+                    f"i64 {nkw}",
+                    f"ptr {kw_ptr}",
                     f"i32 {code}",
                     f"i32 {pad}",
                     f"ptr {out}",
                 ],
             )
             return self._load_island_result(out, want)
-        self._abi_decl("ps_island_fn_invoke", "ptr", ["i64", "ptr", "i64", "ptr"])
+        self._abi_decl("ps_island_fn_invoke", "ptr", ["i64", "ptr", "i64", "ptr", "i64", "ptr"])
         return self._call_ret(
-            "ptr", "ps_island_fn_invoke", [f"i64 {size}", f"ptr {symbol}", f"i64 {count}", f"ptr {arg_ptr}"]
+            "ptr",
+            "ps_island_fn_invoke",
+            [f"i64 {size}", f"ptr {symbol}", f"i64 {npos}", f"ptr {pos_ptr}", f"i64 {nkw}", f"ptr {kw_ptr}"],
         )
 
     def _emit_island_getitem(self, expr: dict[str, Any], values: list[str]) -> str:

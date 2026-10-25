@@ -858,13 +858,136 @@ void *ps_island_import(int64_t n, const char *name) {
     return mod;
 }
 
-void *ps_island_call(void *handle, int64_t n, const char *name, int64_t nargs, const PsArg *args) {
+static PyObject *ps_island_build_args(int64_t nargs, const PsArg *args) {
+    int has_starred = 0;
+    int64_t i;
+    for (i = 0; i < nargs; i++) {
+        if ((args[i].kind & 0x100) != 0) {
+            has_starred = 1;
+            break;
+        }
+    }
+    if (!has_starred) {
+        PyObject *tuple = PyTuple_New((Py_ssize_t)nargs);
+        if (tuple == NULL) {
+            return NULL;
+        }
+        for (i = 0; i < nargs; i++) {
+            PyObject *item = ps_island_from_arg(&args[i]);
+            if (item == NULL || PyTuple_SetItem(tuple, (Py_ssize_t)i, item) < 0) {
+                Py_XDECREF(item);
+                Py_DECREF(tuple);
+                return NULL;
+            }
+        }
+        return tuple;
+    }
+    PyObject *list = PyList_New(0);
+    if (list == NULL) {
+        return NULL;
+    }
+    for (i = 0; i < nargs; i++) {
+        if ((args[i].kind & 0x100) != 0) {
+            PsArg base = args[i];
+            base.kind &= ~0x100;
+            PyObject *seq = ps_island_from_arg(&base);
+            if (seq == NULL) {
+                Py_DECREF(list);
+                return NULL;
+            }
+            PyObject *iter = PyObject_GetIter(seq);
+            Py_DECREF(seq);
+            if (iter == NULL) {
+                Py_DECREF(list);
+                return NULL;
+            }
+            PyObject *sub;
+            while ((sub = PyIter_Next(iter)) != NULL) {
+                if (PyList_Append(list, sub) < 0) {
+                    Py_DECREF(sub);
+                    Py_DECREF(iter);
+                    Py_DECREF(list);
+                    return NULL;
+                }
+                Py_DECREF(sub);
+            }
+            Py_DECREF(iter);
+            if (PyErr_Occurred()) {
+                Py_DECREF(list);
+                return NULL;
+            }
+        } else {
+            PyObject *item = ps_island_from_arg(&args[i]);
+            if (item == NULL) {
+                Py_DECREF(list);
+                return NULL;
+            }
+            if (PyList_Append(list, item) < 0) {
+                Py_DECREF(item);
+                Py_DECREF(list);
+                return NULL;
+            }
+            Py_DECREF(item);
+        }
+    }
+    PyObject *tuple = PyList_AsTuple(list);
+    Py_DECREF(list);
+    return tuple;
+}
+
+static PyObject *ps_island_build_kwargs(int64_t nkw, const PsArg *kws) {
+    if (nkw == 0 || kws == NULL) {
+        return NULL;
+    }
+    PyObject *kwdict = PyDict_New();
+    if (kwdict == NULL) {
+        return NULL;
+    }
+    int64_t i;
+    for (i = 0; i < nkw; i++) {
+        const PsArg *k_arg = &kws[2 * i];
+        const PsArg *v_arg = &kws[2 * i + 1];
+        if (k_arg->kind == 0) {
+            PyObject *d = ps_island_from_arg(v_arg);
+            if (d == NULL) {
+                Py_DECREF(kwdict);
+                return NULL;
+            }
+            if (PyDict_Update(kwdict, d) < 0) {
+                Py_DECREF(d);
+                Py_DECREF(kwdict);
+                return NULL;
+            }
+            Py_DECREF(d);
+        } else {
+            PyObject *key = ps_island_from_arg(k_arg);
+            PyObject *val = ps_island_from_arg(v_arg);
+            if (key == NULL || val == NULL) {
+                Py_XDECREF(key);
+                Py_XDECREF(val);
+                Py_DECREF(kwdict);
+                return NULL;
+            }
+            if (PyDict_SetItem(kwdict, key, val) < 0) {
+                Py_DECREF(key);
+                Py_DECREF(val);
+                Py_DECREF(kwdict);
+                return NULL;
+            }
+            Py_DECREF(key);
+            Py_DECREF(val);
+        }
+    }
+    return kwdict;
+}
+
+void *ps_island_call(void *handle, int64_t n, const char *name, int64_t nargs, const PsArg *args, int64_t nkw, const PsArg *kws) {
     PyObject *target = (PyObject *)handle;
     PyObject *name_obj;
     PyObject *fn;
     PyObject *tuple;
+    PyObject *kwdict;
     PyObject *result;
-    int64_t i;
     ps_island_ensure();
     name_obj = PyUnicode_FromStringAndSize(name, (Py_ssize_t)n);
     if (name_obj == NULL) {
@@ -875,23 +998,21 @@ void *ps_island_call(void *handle, int64_t n, const char *name, int64_t nargs, c
     if (fn == NULL) {
         ps_island_fail();
     }
-    tuple = PyTuple_New((Py_ssize_t)nargs);
+    tuple = ps_island_build_args(nargs, args);
     if (tuple == NULL) {
         Py_DECREF(fn);
         ps_island_fail();
     }
-    for (i = 0; i < nargs; i++) {
-        PyObject *item = ps_island_from_arg(&args[i]);
-        if (item == NULL || PyTuple_SetItem(tuple, (Py_ssize_t)i, item) < 0) {
-            Py_XDECREF(item);
-            Py_DECREF(tuple);
-            Py_DECREF(fn);
-            ps_island_fail();
-        }
+    kwdict = ps_island_build_kwargs(nkw, kws);
+    if (kwdict == NULL && PyErr_Occurred()) {
+        Py_DECREF(fn);
+        Py_DECREF(tuple);
+        ps_island_fail();
     }
-    result = PyObject_Call(fn, tuple, NULL);
+    result = PyObject_Call(fn, tuple, kwdict);
     Py_DECREF(fn);
     Py_DECREF(tuple);
+    Py_XDECREF(kwdict);
     if (result == NULL) {
         ps_island_fail();
     }
@@ -920,43 +1041,9 @@ void ps_island_getattr(void *handle, int64_t n, const char *name, int32_t want, 
     ps_island_done();
 }
 
-void ps_island_call_value(void *handle, int64_t n, const char *name, int64_t nargs, const PsArg *args, int32_t want, int32_t pad, PsArg *out) {
-    PyObject *target = (PyObject *)handle;
-    PyObject *name_obj;
-    PyObject *fn;
-    PyObject *tuple;
-    PyObject *result;
-    int64_t i;
+void ps_island_call_value(void *handle, int64_t n, const char *name, int64_t nargs, const PsArg *args, int64_t nkw, const PsArg *kws, int32_t want, int32_t pad, PsArg *out) {
+    PyObject *result = (PyObject *)ps_island_call(handle, n, name, nargs, args, nkw, kws);
     ps_island_ensure();
-    name_obj = PyUnicode_FromStringAndSize(name, (Py_ssize_t)n);
-    if (name_obj == NULL) {
-        ps_island_fail();
-    }
-    fn = PyObject_GetAttr(target, name_obj);
-    Py_DECREF(name_obj);
-    if (fn == NULL) {
-        ps_island_fail();
-    }
-    tuple = PyTuple_New((Py_ssize_t)nargs);
-    if (tuple == NULL) {
-        Py_DECREF(fn);
-        ps_island_fail();
-    }
-    for (i = 0; i < nargs; i++) {
-        PyObject *item = ps_island_from_arg(&args[i]);
-        if (item == NULL || PyTuple_SetItem(tuple, (Py_ssize_t)i, item) < 0) {
-            Py_XDECREF(item);
-            Py_DECREF(tuple);
-            Py_DECREF(fn);
-            ps_island_fail();
-        }
-    }
-    result = PyObject_Call(fn, tuple, NULL);
-    Py_DECREF(fn);
-    Py_DECREF(tuple);
-    if (result == NULL) {
-        ps_island_fail();
-    }
     ps_island_set_arg(result, want, pad, out);
     if (want != 7) {
         Py_DECREF(result);
@@ -1201,12 +1288,12 @@ void ps_island_fn_name(int64_t n, const char *name) {
     ps_island_done();
 }
 
-void *ps_island_fn_invoke(int64_t n, const char *name, int64_t nargs, const PsArg *args) {
+void *ps_island_fn_invoke(int64_t n, const char *name, int64_t nargs, const PsArg *args, int64_t nkw, const PsArg *kws) {
     PyObject *name_obj;
     PyObject *fn;
     PyObject *tuple;
+    PyObject *kwdict;
     PyObject *result;
-    int64_t i;
     ps_island_ensure();
     if (ps_island_ns == NULL) {
         PyErr_SetString(PyExc_RuntimeError, "island module namespace is not seeded");
@@ -1225,23 +1312,21 @@ void *ps_island_fn_invoke(int64_t n, const char *name, int64_t nargs, const PsAr
         ps_island_fail();
     }
     Py_INCREF(fn);
-    tuple = PyTuple_New((Py_ssize_t)nargs);
+    tuple = ps_island_build_args(nargs, args);
     if (tuple == NULL) {
         Py_DECREF(fn);
         ps_island_fail();
     }
-    for (i = 0; i < nargs; i++) {
-        PyObject *item = ps_island_from_arg(&args[i]);
-        if (item == NULL || PyTuple_SetItem(tuple, (Py_ssize_t)i, item) < 0) {
-            Py_XDECREF(item);
-            Py_DECREF(tuple);
-            Py_DECREF(fn);
-            ps_island_fail();
-        }
+    kwdict = ps_island_build_kwargs(nkw, kws);
+    if (kwdict == NULL && PyErr_Occurred()) {
+        Py_DECREF(fn);
+        Py_DECREF(tuple);
+        ps_island_fail();
     }
-    result = PyObject_Call(fn, tuple, NULL);
+    result = PyObject_Call(fn, tuple, kwdict);
     Py_DECREF(fn);
     Py_DECREF(tuple);
+    Py_XDECREF(kwdict);
     if (result == NULL) {
         ps_island_fail();
     }
@@ -1249,8 +1334,8 @@ void *ps_island_fn_invoke(int64_t n, const char *name, int64_t nargs, const PsAr
     return result;
 }
 
-void ps_island_fn_invoke_value(int64_t n, const char *name, int64_t nargs, const PsArg *args, int32_t want, int32_t pad, PsArg *out) {
-    PyObject *result = (PyObject *)ps_island_fn_invoke(n, name, nargs, args);
+void ps_island_fn_invoke_value(int64_t n, const char *name, int64_t nargs, const PsArg *args, int64_t nkw, const PsArg *kws, int32_t want, int32_t pad, PsArg *out) {
+    PyObject *result = (PyObject *)ps_island_fn_invoke(n, name, nargs, args, nkw, kws);
     ps_island_ensure();
     ps_island_set_arg(result, want, pad, out);
     if (want != 7) {
