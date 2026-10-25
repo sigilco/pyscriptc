@@ -349,6 +349,19 @@ class AbiMixin:
         self._abi_decl("ps_island_fn_seed", "void", ["i64", "ptr"])
         self._call_void("ps_island_fn_seed", [f"i64 {size}", f"ptr {symbol}"])
 
+    def _emit_island_def_handle(self, expr: dict[str, Any]) -> str:
+        """A handle to one object the island namespace defines (issue #628).
+
+        `ps_island_def_handle(name)` returns a new reference to the object
+        under that name, which is a class when a class definition was planned
+        island-side. The class object crosses as an opaque handle: attribute
+        reads go through `ps_island_getattr` and instantiations through
+        `ps_island_fn_invoke`, the same path an island function result takes.
+        """
+        size, symbol = self._island_name(expr)
+        self._abi_decl("ps_island_def_handle", "ptr", ["i64", "ptr"])
+        return self._call_ret("ptr", "ps_island_def_handle", [f"i64 {size}", f"ptr {symbol}"])
+
     def _emit_island_seed_global(self) -> None:
         """The main-prologue seed, when the module plans island definitions."""
         source = self.module.get("islandSource")

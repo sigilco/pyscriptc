@@ -650,6 +650,211 @@ if __name__ == "__main__":
     assert run_bin.stdout == run_cpython.stdout
 
 
+def test_fallback_island_class_plane_map(tmp_path: Path) -> None:
+    """A decorated class plans island, a plain class stays native (issue #628)."""
+    src = tmp_path / "planes.py"
+    src.write_text(
+        """import dataclasses
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class Point:
+    x: int
+    y: int
+
+
+class Pair:
+    left: int
+    right: int
+
+    def __init__(self, left: int, right: int) -> None:
+        self.left = left
+        self.right = right
+
+    def total(self) -> int:
+        return self.left + self.right
+
+
+def main() -> None:
+    print(Pair(1, 2).total())
+
+
+if __name__ == "__main__":
+    main()
+""",
+        encoding="utf-8",
+    )
+    dbg = tmp_path / "dbg_classes"
+    comp = _run_cli(
+        "compile",
+        str(src),
+        *FALLBACK_FLAGS,
+        "--emit",
+        "ir",
+        "-o",
+        str(tmp_path / "planes.ir.json"),
+        "--debug-dir",
+        str(dbg),
+        cwd=tmp_path,
+    )
+    assert comp.returncode == 0, comp.stderr
+    summary = json.loads((dbg / "summary.json").read_text(encoding="utf-8"))
+    assert summary["fallback"]["classes"]["Point"] == "island"
+    assert summary["fallback"]["classes"]["Pair"] == "native"
+    module = json.loads((tmp_path / "planes.ir.json").read_text(encoding="utf-8"))
+    assert "@dataclasses.dataclass(frozen=True, slots=True)" in module["islandSource"]
+
+
+def test_fallback_island_class_total_ordering(tmp_path: Path) -> None:
+    """`@functools.total_ordering` falls to the island and runs as CPython (issue #628)."""
+    source_text = """import functools
+
+
+@functools.total_ordering
+class Version:
+    def __init__(self, text: str, weight: int) -> None:
+        self.text = text
+        self.weight = weight
+
+    def __lt__(self, other: Version) -> bool:
+        return self.weight < other.weight
+
+
+def main() -> None:
+    older = Version("alpha", 2)
+    newer = Version("beta", 1)
+    print(older.text)
+    print(newer < older)
+
+
+if __name__ == "__main__":
+    main()
+"""
+    native, cpython = _compile_and_compare(tmp_path, source_text, name="total_ordering")
+    assert native.returncode == 0, native.stderr
+    assert cpython.returncode == 0, cpython.stderr
+    assert native.stdout == cpython.stdout
+    assert native.stdout == "alpha\nTrue\n"
+
+
+def test_fallback_island_class_dataclass_unusual_args(tmp_path: Path) -> None:
+    """A dataclass with arguments the native form refuses runs island-side (issue #628)."""
+    source_text = """import dataclasses
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class Point:
+    x: int
+    y: int
+
+
+def main() -> None:
+    p = Point(10, 20)
+    print(p.x, p.y)
+    print(p)
+    p.x = 5
+
+
+if __name__ == "__main__":
+    main()
+"""
+    native, cpython = _compile_and_compare(tmp_path, source_text, name="frozen_dc")
+    # The frozen write raises CPython's FrozenInstanceError on the island.
+    assert cpython.returncode != 0
+    assert native.returncode != 0
+    assert native.stdout == cpython.stdout == "10 20\nPoint(x=10, y=20)\n"
+
+
+def test_fallback_island_class_local_decorator(tmp_path: Path) -> None:
+    """A class decorated by a local untyped decorator rides the island (issue #628)."""
+    source_text = """def tagged(cls):
+    cls.kind = "tagged"
+    return cls
+
+
+@tagged
+class Marker:
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+
+def main() -> None:
+    marker = Marker("first")
+    print(marker.name)
+
+
+if __name__ == "__main__":
+    main()
+"""
+    native, cpython = _compile_and_compare(tmp_path, source_text, name="local_deco")
+    assert native.returncode == 0, native.stderr
+    assert cpython.returncode == 0, cpython.stderr
+    assert native.stdout == cpython.stdout == "first\n"
+
+
+def test_fallback_island_class_attrs(tmp_path: Path) -> None:
+    """`@attrs.define` (the issue's repro) runs when attrs is installed (issue #628)."""
+    import pytest
+
+    pytest.importorskip("attrs")
+    source_text = """import attrs
+
+
+@attrs.define
+class Point:
+    x: int
+    y: int
+
+
+def main() -> None:
+    p = Point(10, 20)
+    print(p.x, p.y)
+
+
+if __name__ == "__main__":
+    main()
+"""
+    native, cpython = _compile_and_compare(tmp_path, source_text, name="attrs_class")
+    assert native.returncode == 0, native.stderr
+    assert cpython.returncode == 0, cpython.stderr
+    assert native.stdout == cpython.stdout == "10 20\n"
+
+
+def test_fallback_native_class_uses_island_class_handle(tmp_path: Path) -> None:
+    """A native class method reaches the island class through its handle (issue #628)."""
+    source_text = """import dataclasses
+
+
+@dataclasses.dataclass(frozen=True)
+class Point:
+    x: int
+    y: int
+
+
+class Screen:
+    label: str
+
+    def __init__(self) -> None:
+        p: Point = Point(3, 4)
+        x: int = p.x
+        y: int = p.y
+        self.label = f"{x},{y}"
+
+
+def main() -> None:
+    screen = Screen()
+    print(screen.label)
+
+
+if __name__ == "__main__":
+    main()
+"""
+    native, cpython = _compile_and_compare(tmp_path, source_text, name="class_handle")
+    assert native.returncode == 0, native.stderr
+    assert cpython.returncode == 0, cpython.stderr
+    assert native.stdout == cpython.stdout == "3,4\n"
+
+
 def test_fallback_module_import_fence_ps2001_runs_island(tmp_path: Path) -> None:
     """Module-level unlowered stdlib import (PS2001) runs module top level on island (issue #627)."""
     from pyscriptc import assess

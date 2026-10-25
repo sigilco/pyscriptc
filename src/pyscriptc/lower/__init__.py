@@ -167,6 +167,13 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         self.fallback_definitions = definitions_tier()
         # Names this compile plans for the island, from the fence list.
         self.island_fns: set[str] = set()
+        # Class definitions planned for the island (issue #628): the island
+        # seed defines them in CPython and compiled callers reach the class
+        # object through a handle.
+        self.island_classes: set[str] = set()
+        # Class name -> the hidden local that owns its island handle, reset
+        # per function scope like `island_modules`.
+        self.island_class_handles: dict[str, str] = {}
         # The per-definition probe state: the definition list to probe and
         # the names the probe fenced.
         self._boxed_functions: list[ast.FunctionDef] = []
@@ -932,6 +939,22 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                                 self._boxed_demoted_by[callee] = fn.name
                             changed = True
 
+        # Issue #628: cascade the island class to the compiled functions
+        # that name it. The class object and its instances exist only
+        # island-side, so a function that uses one runs island-side too
+        # (the #620 rule, with the class as the island definition).
+        if self.island_classes:
+            for fn in self._boxed_functions:
+                if fn.name in self.island_fns:
+                    continue
+                used = sorted(
+                    node.id for node in ast.walk(fn) if isinstance(node, ast.Name) and node.id in self.island_classes
+                )
+                if used:
+                    self.island_fns.add(fn.name)
+                    self._boxed_island.add(fn.name)
+                    self._boxed_demoted_by.setdefault(fn.name, f"island class {used[0]}")
+
         self._boxed_sibling_fences: list[Fence] = []
         # Keep the PS2002 diagnostic only where demotion is impossible and say why.
         for fn in self._boxed_functions:
@@ -961,6 +984,56 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                         fences.append(Fence("PS2002", msg, span_of(node, self.filename), fn.name))
                         self._boxed_sibling_fences.append(fences[-1])
 
+    def _boxed_island_class(self, node: ast.ClassDef) -> None:
+        """Plan one class definition for the island (issue #628).
+
+        The class leaves every native table, so a compiled call site resolves
+        it through the island handle path (or demotes, see `_boxed_resolve`),
+        and the class lowering pass skips it: CPython defines it island-side.
+        """
+        self.island_classes.add(node.name)
+        self.classes.pop(node.name, None)
+        self.declared.discard(node.name)
+        self.known_classes.discard(node.name)
+        self.class_aliases.pop(node.name, None)
+
+    def _boxed_replan(self, fences: list[Fence]) -> None:
+        """Re-run the function planner after a class joins the island late.
+
+        A class that only fences while its method bodies lower becomes
+        island after `_boxed_resolve` already ran. `island_fns` recomputes
+        from the accumulated `_boxed_island` set (so a demotion is never
+        undone), and the sibling refusal fences the previous pass appended
+        are dropped before the new pass appends its own.
+        """
+        if not self.fallback_definitions:
+            return
+        stale = set(map(id, self._boxed_sibling_fences))
+        fences[:] = [fence for fence in fences if id(fence) not in stale]
+        self._boxed_resolve(fences)
+        # The entry's probe ran before this class joined the island, so it
+        # may have cleared uses the island class now expresses differently.
+        # A fence there is the whole top level fencing (Decision A): the
+        # module body runs island-side, exactly as if the probe had run after
+        # the class decision.
+        entry_name = self.entry_fn_name
+        if self._boxed_top_island or entry_name is None:
+            return
+        entry = next((fn for fn in self._boxed_functions if fn.name == entry_name), None)
+        if entry is None:
+            return
+        probe: list[Fence] = []
+        saved_function = self.function
+        self.function = entry.name
+        try:
+            self._boxed_probe(entry, probe)
+        finally:
+            self.function = saved_function
+        if probe:
+            self._boxed_top_island = True
+            self._boxed_island.add(entry.name)
+            self.island_fns.add(entry.name)
+
     def _boxed_probe(self, fn: ast.FunctionDef, sink: list[Fence]) -> None:
         """Lower `fn`'s body into `sink`, discarding the IR.
 
@@ -978,6 +1051,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 "prelude": self.prelude,
                 "temp": self.temp_n,
                 "modules": self.island_modules,
+                "class_handles": self.island_class_handles,
                 "globals": self.fn_globals,
                 "nonlocals": self.fn_nonlocals,
                 "captures": self.captures,
@@ -994,6 +1068,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 self.temp_n = 0
                 self.prelude = []
                 self.island_modules = {}
+                self.island_class_handles = {}
                 self.fn_globals = self._globals_for(fn.body)
                 self.fn_nonlocals = set()
                 self.captures = {}
@@ -1028,6 +1103,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 self.prelude = saved["prelude"]
                 self.temp_n = saved["temp"]
                 self.island_modules = saved["modules"]
+                self.island_class_handles = saved["class_handles"]
                 self.fn_globals = saved["globals"]
                 self.fn_nonlocals = saved["nonlocals"]
                 self.captures = saved["captures"]
@@ -1160,10 +1236,37 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                     segments.append(segment)
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef) and node.name in island:
-                segment = ast.get_source_segment(self.source, node)
+                segment = self._boxed_definition_source(node)
+                if segment:
+                    segments.append(segment)
+            # Issue #628: an island class definition joins the seed too, in
+            # source order beside the island functions that instantiate it.
+            elif isinstance(node, ast.ClassDef) and node.name in self.island_classes:
+                segment = self._boxed_definition_source(node)
                 if segment:
                     segments.append(segment)
         return "\n\n\n".join(segment for segment in segments if segment)
+
+    def _boxed_definition_source(self, node: ast.AST) -> str:
+        """One definition's source text, decorators included.
+
+        `ast.get_source_segment` starts a decorated definition at its `def`
+        or `class` line, so the decorator lines come from the decorator
+        expressions themselves. An island class without its decorator would
+        silently lose it (a `@dataclass(frozen=True)` class would lose its
+        generated `__init__`, issue #628).
+        """
+        segment = ast.get_source_segment(self.source, node)
+        if not segment:
+            return ""
+        imprint = []
+        for decorator in getattr(node, "decorator_list", []) or []:
+            text = ast.get_source_segment(self.source, decorator)
+            if text:
+                imprint.append(f"@{text}")
+        if not imprint:
+            return segment
+        return "\n".join([*imprint, segment])
 
     def _boxed_is_literal_module_value(self, stmt: ast.Assign | ast.AnnAssign) -> bool:
         """True when the value is safe to re-execute island-side.
@@ -1304,6 +1407,24 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         for node in class_nodes:
             self.function = node.name
             self.caught = []
+            # boxed:begin
+            # Issue #628: a class whose definition fences (a decorator, class
+            # keywords, a class-body statement) is planned for the island, and
+            # its fences drop with it: the island seed defines the class in
+            # CPython, exactly like an island function.
+            if self.fallback_definitions:
+                class_fences: list[Fence] = []
+                try:
+                    self._collect_class(node)
+                except Fence as exc:
+                    class_fences.append(exc)
+                class_fences.extend(self.caught)
+                if class_fences:
+                    self._boxed_island_class(node)
+                else:
+                    fences.extend(class_fences)
+                continue
+            # boxed:end
             try:
                 self._collect_class(node)
             except Fence as exc:
@@ -1382,13 +1503,36 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 continue
             self.function = node.name
             self.caught = []
+            # boxed:begin
+            # Issue #628: a class that only fences while its method bodies
+            # lower joins the island too. The fence and the class's fences
+            # drop, and the function planes are re-planned so a compiled
+            # caller of the now-island class demotes with it.
+            class_mark = len(fences)
+            nested_mark = len(self.nested_fns)
+            # boxed:end
             try:
                 lowered = self._lower_class(node)
             except Fence as exc:
                 fences.append(exc)
                 fences.extend(self.caught)
+                # boxed:begin
+                if self.fallback_definitions:
+                    self._boxed_island_class(node)
+                    del fences[class_mark:]
+                    self.nested_fns = self.nested_fns[:nested_mark]
+                    self._boxed_replan(fences)
+                # boxed:end
                 continue
             fences.extend(self.caught)
+            # boxed:begin
+            if self.fallback_definitions and self.caught:
+                self._boxed_island_class(node)
+                del fences[class_mark:]
+                self.nested_fns = self.nested_fns[:nested_mark]
+                self._boxed_replan(fences)
+                continue
+            # boxed:end
             if lowered is not None and not self.caught:
                 lowered_classes.append(lowered)
         lowered_classes.extend(self._synthetic_classes({item["name"] for item in lowered_classes}))
@@ -1409,6 +1553,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             self.prelude = []
             # boxed:begin
             self.island_modules = {}
+            self.island_class_handles = {}
             # boxed:end
             self.caught = []
             self.fn_globals = self._globals_for(fn.body)
@@ -1517,14 +1662,21 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 entry_name,
                 top_level_island,
                 demoted_by=self._boxed_demoted_by,
+                # Issue #628: the class planes the collect and lowering passes
+                # decided, so the summary reports what the binary does.
+                classes=[{"name": node.name, "island": node.name in self.island_classes} for node in class_nodes],
             )
             for name in island:
                 if name == entry_name or (name.startswith("__") and name.endswith("__")):
                     continue
                 fallback_map["functions"][name] = _boxed.ISLAND
+            for name in self.island_classes:
+                fallback_map["classes"][name] = _boxed.ISLAND
             island_globals: dict[str, str] = {}
             module_plane = ""
-            if island or top_level_island:
+            # An island class needs the seed even when no function rides it:
+            # a native class method reaches the class through its handle.
+            if island or top_level_island or self.island_classes:
                 module_plane = self._boxed_island_source(tree, island, top_level_island, island_globals)
         # boxed:end
         self.function = None
@@ -1786,6 +1938,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 self.prelude = []
                 # boxed:begin
                 self.island_modules = {}
+                self.island_class_handles = {}
                 # boxed:end
                 self.caught = []
                 self.fn_globals = self._globals_for(fn.body)
@@ -2071,6 +2224,17 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         if obj["type"]["kind"] != "class":
             self.fail(target, "PS2001", f"attribute assignment is not lowered ({_dotted(target)})")
         class_name = obj["type"]["name"]
+        # boxed:begin
+        # An island handle is opaque, and the seam carries values one way:
+        # a compiled attribute write would have to carry the value back into
+        # the island, so it fences instead of reaching a native field table.
+        if obj["type"].get("island"):
+            self.fail(
+                target,
+                "PS2001",
+                f"{class_name} is an island handle: mutate it on the island, or read the result back",
+            )
+        # boxed:end
         info = self.classes[class_name]
         if info.get("namedtuple"):
             self.fail(target, "PS2002", f"{class_name}.{target.attr} is read-only on a namedtuple")

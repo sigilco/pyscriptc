@@ -13,6 +13,7 @@ import copy
 from typing import Any, NoReturn
 
 from pyscriptc import coro
+from pyscriptc.boxed import island_class_type
 from pyscriptc.builtins import EXCEPTIONS, RESERVED_EXCEPTIONS
 from pyscriptc.coro import enabled
 from pyscriptc.errors import span_of
@@ -799,6 +800,7 @@ class ClassesMixin:
         self.prelude = []
         # boxed:begin
         self.island_modules = {}
+        self.island_class_handles = {}
         # boxed:end
         self.fn_globals = self._globals_for(stmt.body)
         params, ret = info["methods"][stmt.name]
@@ -1233,6 +1235,13 @@ class ClassesMixin:
             node.id in EXCEPTIONS or node.id == "BaseException" or self.classes.get(node.id, {}).get("exception")
         ):
             return {"kind": "exc"}
+        # boxed:begin
+        # An island class annotation is its handle type (issue #628): the
+        # class lives in the embedded interpreter, and an instance crossed
+        # into a compiled local is an opaque handle.
+        if isinstance(node, ast.Name) and node.id in self.island_classes:
+            return island_class_type(node.id)
+        # boxed:end
         if isinstance(node, ast.Name) and (node.id in self.declared or node.id in self.known_classes):
             return {"kind": "class", "name": self.class_aliases.get(node.id, node.id)}
         handle = self._handle_annotation(node)

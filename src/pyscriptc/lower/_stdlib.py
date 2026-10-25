@@ -17,7 +17,7 @@ import ast
 from typing import Any, NoReturn
 
 # boxed:begin
-from pyscriptc.boxed import INVOKE_SYMBOL
+from pyscriptc.boxed import DEF_HANDLE_SYMBOL, INVOKE_SYMBOL, island_class_type, island_handle_type
 from pyscriptc.coro import enabled
 
 # boxed:end
@@ -71,7 +71,7 @@ from pyscriptc.stdmore import (
 # boxed:begin
 def _island_handle(name: str) -> dict[str, Any]:
     """The opaque handle type of an island value (issue #553)."""
-    return {"kind": "class", "name": name, "handle": True, "island": True}
+    return island_handle_type(name)
 
 
 # The `%ps.arg` kind codes the trampoline marshals (issue #553); they match
@@ -925,11 +925,14 @@ class StdlibDispatchMixin:
                 f"{name}: the island-to-compiled seam is the `--emit binding` surface",
             )
         marshalled, npos, nkw = self._island_args(node, span)
+        # An island class instantiation returns the class's one handle type,
+        # so the destination annotation proves the same type (issue #628).
+        result_type = island_class_type(name) if name in self.island_classes else _island_handle(f"{name}()")
         call_expr: dict[str, Any] = {
             "kind": "call",
             "callee": {"kind": "module", "module": "island", "name": name},
             "args": marshalled,
-            "type": _island_handle(f"{name}()"),
+            "type": result_type,
             "symbol": INVOKE_SYMBOL,
             "island_fn": {"name": name},
             "island_npos": npos,
@@ -941,6 +944,27 @@ class StdlibDispatchMixin:
             call_expr["type"] = expect
             call_expr["island_fn"]["want"] = expect
         return call_expr
+
+    def _island_class_handle(self, name: str, span: dict[str, Any]) -> dict[str, Any]:
+        """`Version` as a value: a handle to the island's class object (issue #628).
+
+        A class-level attribute read and a class object taken as a value need
+        the object itself, which is what `ps_island_def_handle` returns. The
+        hidden local owns the reference for the scope, exactly like an island
+        module handle, so the scope exit frees it.
+        """
+        local = self.island_class_handles.get(name)
+        if local is None:
+            local = self._temp("icls").replace(".", "_")
+            typ = island_class_type(name)
+            self.locals[local] = typ
+            call = self._abi_call("island", name, [], typ, DEF_HANDLE_SYMBOL, span)
+            call["island"] = {"name": name}
+            call["island_def"] = {"name": name}
+            self.prelude.append(_assign(local, call, span))
+            self._own_handle(local, typ)
+            self.island_class_handles[name] = local
+        return _name(local, self.locals[local], span)
 
     # boxed:end
 

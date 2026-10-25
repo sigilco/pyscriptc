@@ -171,6 +171,14 @@ class CallsMixin:
             if binding.kind == "const" and self._ffi_module(binding.module) is not None:
                 self.fail(node, "PS2002", f"{name} is a constant and is not a function")
             self.fail(node, "PS2002", f"{name} is not a function")
+        # boxed:begin
+        # An island class is instantiated island-side (issue #628): the class
+        # object in the island namespace is callable, so the call site is the
+        # existing `ps_island_fn_invoke` trampoline and the instance is a
+        # handle.
+        if name in self.island_classes:
+            return self._island_fn_call(node, span, name, expect)
+        # boxed:end
         if name in self.class_aliases or name in self.classes:
             return self._construct(node, span, self.class_aliases.get(name, name))
         ftype = self.locals.get(name, self.captures.get(name))
