@@ -1078,3 +1078,138 @@ main()
     assert native.returncode == 0, native.stderr
     assert cpython.returncode == 0, cpython.stderr
     assert native.stdout == cpython.stdout == "[1, 4, 9]\n6\n"
+
+
+def test_fallback_decorated_function_routes_to_island(tmp_path: Path) -> None:
+    """The issue #676 reproduction: a module function with a user decorator.
+
+    `pyscriptc run --fallback=cpython` used to halt with
+    `PS2002: user decorators are not lowered` (and untyped decorator
+    expressions with PS2006, issue #626). The decorated definition, its
+    decorator and the names they share now run on the island together, as
+    for fenced classes (issue #628).
+    """
+    source_text = """COUNT = 0
+REG = {}
+
+
+def reg(name):
+    def deco(fn):
+        REG[name] = fn
+        return fn
+    return deco
+
+
+@reg("a")
+def fa():
+    global COUNT
+    COUNT += 1
+    return COUNT
+
+
+print(REG["a"](), REG["a"](), COUNT)
+"""
+    native, cpython = _compile_and_compare(tmp_path, source_text, "p23_global_state")
+    assert native.returncode == 0, native.stderr
+    assert cpython.returncode == 0, cpython.stderr
+    assert native.stdout == cpython.stdout == "1 2 2\n"
+
+
+def test_fallback_user_decorator_typed_matches_cpython(tmp_path: Path) -> None:
+    """A plain `@deco` over an annotated function: no halt, matching output."""
+    source_text = """def deco(fn: int) -> int:
+    return fn
+
+
+@deco
+def probe() -> int:
+    return 1
+
+
+print(probe())
+"""
+    native, cpython = _compile_and_compare(tmp_path, source_text, "user_deco_typed")
+    assert native.returncode == 0, native.stderr
+    assert cpython.returncode == 0, cpython.stderr
+    assert native.stdout == cpython.stdout == "1\n"
+
+
+def test_fallback_stacked_decorators_run_island(tmp_path: Path) -> None:
+    """Stacked decorators fence native but run island-side under the tier."""
+    source_text = """CALLS = []
+
+
+def tag(label):
+    def deco(fn):
+        CALLS.append(label)
+        return fn
+    return deco
+
+
+@tag("outer")
+@tag("inner")
+def probe():
+    return len(CALLS)
+
+
+print(probe())
+print(",".join(CALLS))
+"""
+    native, cpython = _compile_and_compare(tmp_path, source_text, "stacked_deco")
+    assert native.returncode == 0, native.stderr
+    assert cpython.returncode == 0, cpython.stderr
+    assert native.stdout == cpython.stdout
+
+
+def test_fallback_decorator_expression_routes_to_island(tmp_path: Path) -> None:
+    """`@factory()` whose result is not a lowered callable (issue #626).
+
+    The module-level case used to name PS2006 and halt; under the tier the
+    decorated definition and its decorator expression run on the island.
+    """
+    source_text = """class Command:
+    def __init__(self):
+        self.wrapped = None
+
+    def __call__(self, fn):
+        self.wrapped = fn
+        return fn
+
+
+def command() -> Command:
+    return Command()
+
+
+@command()
+def probe() -> int:
+    return 1
+
+
+print(probe())
+"""
+    native, cpython = _compile_and_compare(tmp_path, source_text, "deco_expr_island")
+    assert native.returncode == 0, native.stderr
+    assert cpython.returncode == 0, cpython.stderr
+    assert native.stdout == cpython.stdout == "1\n"
+
+
+def test_fallback_module_property_decorator_runs_island(tmp_path: Path) -> None:
+    """A `@property` module decorator fences native but runs island-side.
+
+    CPython treats a module-level `@property` as a plain descriptor
+    binding, so reading `probe` prints the property object itself.
+    """
+    source_text = """VALUES = {"a": 7}
+
+
+@property
+def probe() -> int:
+    return VALUES["a"]
+
+
+print(isinstance(probe, property), probe.fget())
+"""
+    native, cpython = _compile_and_compare(tmp_path, source_text, "module_property_deco")
+    assert native.returncode == 0, native.stderr
+    assert cpython.returncode == 0, cpython.stderr
+    assert native.stdout == cpython.stdout == "True 7\n"

@@ -907,8 +907,15 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         saved_caught = self.caught
         try:
             for fn in self._boxed_functions:
-                if fn.name in self.declared or fn.name not in self.sigs or fn.name in self.generic_fns:
+                if fn.name in self.declared or fn.name in self.generic_fns:
                     continue
+                # boxed:begin
+                # Issue #676: the deferred decorator pass already planned a
+                # name the island seed owns; its decorator fences dropped
+                # with the definition, so it never lowers and no probe runs.
+                if fn.name in self._boxed_island:
+                    continue
+                # boxed:end
                 probe_fences: list[Fence] = []
                 saved_function = self.function
                 self.function = fn.name
@@ -1544,7 +1551,10 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             self._bind_deferred_module(fences)
         # boxed:begin
         # The boxed plane decision happens here, before any body lowers, so
-        # every call site sees the same `island_fns` (issue #612).
+        # every call site sees the same `island_fns` (issue #612). Names the
+        # deferred decorator pass planned early (issue #676) join the probe
+        # set, so `_boxed_resolve` sees the same island set the planner
+        # would have produced from a body fence.
         self._boxed_functions = list(functions)
         self._boxed_resolve(fences)
         # The island top level (issue #613, Decision A): the synthesized
@@ -2669,6 +2679,15 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 for dec in reversed(stmt.decorator_list):
                     value = self._apply_decorator(dec, value, span)
             except Fence as exc:
+                # boxed:begin
+                # Issue #676: a decorator fence from the deferred pass used
+                # to carry no function owner, so it surfaced as a top-level
+                # refusal even under the fallback tier. Name the decorated
+                # function: the planner drops the fence with the definition,
+                # which the island seed plans for the decorator.
+                if self.fallback_definitions:
+                    exc.function = stmt.name
+                # boxed:end
                 self.caught.append(exc)
             if self.caught:
                 fences.extend(self.caught)
