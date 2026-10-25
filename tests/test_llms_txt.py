@@ -1,76 +1,78 @@
-"""Tests for agent access: llms.txt and llms-full.txt generation and coverage."""
+"""Tests for agent access: docmd's llms.txt plus the appended public data files."""
 
 from __future__ import annotations
 
-import subprocess
+import shutil
 import sys
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts.gen_llms_txt import (  # noqa: E402
-    DATA_DIR,
-    DOCS_DIR,
-    build_llms_full_txt,
-    build_llms_txt,
-    get_data_files,
-    get_doc_pages,
+from scripts.gen_llms_txt import DATA_DIR, apply  # noqa: E402
+
+DOCS_DIR = ROOT / "docs"
+BUILT = ROOT / "dist" / "docs"
+BASE_URL = "https://pyscriptc.pages.dev/docs"
+
+needs_build = pytest.mark.skipif(
+    not (BUILT / "llms.txt").is_file(), reason="needs the docmd build (mise run docs:build)"
 )
 
 
-def test_all_docs_pages_appear_in_llms_txt() -> None:
-    pages = get_doc_pages()
-    data_files = get_data_files()
-    llms_text = build_llms_txt(pages, data_files)
+def _final_out(tmp_path: Path) -> Path:
+    """A copy of docmd's output with the data section applied."""
+    for name in ("llms.txt", "llms-full.txt"):
+        shutil.copy2(BUILT / name, tmp_path / name)
+    apply(tmp_path)
+    return tmp_path
 
-    # Every .md file under docs/ (excluding .docmd/) must be represented
-    for md_file in sorted(DOCS_DIR.rglob("*.md")):
-        rel = md_file.relative_to(DOCS_DIR)
-        if str(rel).startswith(".docmd"):
+
+def _page_urls() -> list[str]:
+    urls = []
+    for md in sorted(DOCS_DIR.rglob("*.md")):
+        rel = md.relative_to(DOCS_DIR)
+        if rel.parts[0] == ".docmd":
             continue
-
-        # Page url or relative path must appear in llms_text
-        matching = [p for p in pages if p["path"] == str(rel)]
-        assert matching, f"Doc file {rel} not cataloged in pages"
-        assert matching[0]["url"] in llms_text, f"Doc page URL {matching[0]['url']} missing from llms.txt"
+        sub = rel.with_suffix("").as_posix().removesuffix("index").rstrip("/")
+        urls.append(f"{BASE_URL}/{sub}/" if sub else f"{BASE_URL}/")
+    return urls
 
 
-def test_all_public_data_files_appear_in_llms_txt() -> None:
-    pages = get_doc_pages()
-    data_files = get_data_files()
-    llms_text = build_llms_txt(pages, data_files)
-
-    # Every .json file under compat/data/ must appear
-    for json_file in sorted(DATA_DIR.glob("*.json")):
-        name = json_file.name
-        assert f"[{name}]" in llms_text, f"Data file {name} link missing from llms.txt"
-        matching = [df for df in data_files if df["name"] == name]
-        assert matching, f"Data file {name} not in data_files list"
-        # Must carry a description and schema/format
-        assert matching[0]["description"] in llms_text
-        assert matching[0]["schema"] in llms_text
+@needs_build
+def test_every_docs_page_appears_in_llms_txt(tmp_path: Path) -> None:
+    text = (_final_out(tmp_path) / "llms.txt").read_text(encoding="utf-8")
+    for url in _page_urls():
+        assert f"({url})" in text, f"doc page {url} missing from llms.txt"
 
 
-def test_llms_full_txt_contains_page_content_and_data_schemas() -> None:
-    pages = get_doc_pages()
-    data_files = get_data_files()
-    full_text = build_llms_full_txt(pages, data_files)
-
-    for p in pages:
-        assert p["title"] in full_text
-        assert p["url"] in full_text
-
-    for df in data_files:
-        assert df["name"] in full_text
-        assert df["schema"] in full_text
+@needs_build
+def test_every_public_data_file_appears_in_llms_txt(tmp_path: Path) -> None:
+    out = _final_out(tmp_path)
+    short = (out / "llms.txt").read_text(encoding="utf-8")
+    full = (out / "llms-full.txt").read_text(encoding="utf-8")
+    names = sorted(p.name for p in DATA_DIR.glob("*.json"))
+    assert names
+    for name in names:
+        assert f"[{name}](" in short, f"data file {name} missing from llms.txt"
+        assert f"### [{name}](" in full, f"data file {name} missing from llms-full.txt"
 
 
-def test_cli_check_flag() -> None:
-    result = subprocess.run(
-        [sys.executable, str(ROOT / "scripts" / "gen_llms_txt.py"), "--check"],
-        capture_output=True,
-        text=True,
-        cwd=str(ROOT),
-    )
-    assert result.returncode == 0, f"check failed:\n{result.stderr}\n{result.stdout}"
+def test_apply_is_idempotent_and_keeps_docmd_content(tmp_path: Path) -> None:
+    (tmp_path / "llms.txt").write_text("# t\n\n## Documentation Files\n\n- [A](u)\n", encoding="utf-8")
+    (tmp_path / "llms-full.txt").write_text("# t - Full Context\n\n## [A](u)\n\nbody\n", encoding="utf-8")
+    apply(tmp_path)
+    first = {n: (tmp_path / n).read_text(encoding="utf-8") for n in ("llms.txt", "llms-full.txt")}
+    apply(tmp_path)
+    for n, text in first.items():
+        assert (tmp_path / n).read_text(encoding="utf-8") == text
+    assert first["llms.txt"].startswith("# t\n\n## Documentation Files\n\n- [A](u)\n")
+    assert first["llms.txt"].count("## Public Data Files") == 1
+    assert "body" in first["llms-full.txt"]
+
+
+def test_apply_requires_docmd_output(tmp_path: Path) -> None:
+    with pytest.raises(SystemExit):
+        apply(tmp_path)

@@ -12,12 +12,19 @@
 // /docs/ subtree; the site assembly (scripts/build_site.py) copies this
 // build to deploy/docs.
 //
+// docmd's bundled `llms` plugin writes llms.txt and llms-full.txt for every
+// page at build time (title, description and the `llms: false` and `noindex`
+// frontmatter opt-outs are honored). scripts/gen_llms_txt.py then appends the
+// public data files, which are not pages, as a post-build step.
+//
 // The `placeholders` plugin substitutes {{PYSC_COMPAT_URL}} and
 // {{PYSC_DOCS_URL}} in page sources. Each placeholder reads its environment
 // variable and falls back to the default in plugins/placeholders.js (next to
 // this config).
 export default {
   title: "pyscriptc",
+  description:
+    "Developer and agent documentation for pyscriptc: compile annotated Python to native binaries. Island is the floor and native is the ceiling.",
   url: "https://pyscriptc.pages.dev/docs",
   src: "..",
   out: "../../dist/docs",
