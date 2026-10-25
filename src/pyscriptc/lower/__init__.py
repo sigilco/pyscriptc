@@ -922,6 +922,23 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             self.caught = saved_caught
         self.island_fns = set(self._boxed_island)
         self._boxed_demoted_by = {}
+
+        # Issue #677: annotated `int` is i64 (divergence 1), so a definition
+        # that accumulates an unbounded int natively aborts on overflow where
+        # the island would print CPython's big int. A conservative static
+        # check finds the growth shape and routes the whole definition to the
+        # island instead: an unannotated definition rides the island exactly
+        # like a fenced one, so this closes the gap without changing the
+        # typed-subset contract. Runs after the reset above so the demotion
+        # reasons survive the #620 cascade below.
+        for fn in self._boxed_functions:
+            if fn.name in self.island_fns or fn.name not in self.sigs or fn.name in self.generic_fns:
+                continue
+            growth = _bigint_growth(fn)
+            if growth is not None:
+                self._boxed_island.add(fn.name)
+                self._boxed_demoted_by[fn.name] = f"possible i64 overflow at {growth}"
+        self.island_fns = set(self._boxed_island)
         boxed_fns_by_name = {fn.name: fn for fn in self._boxed_functions}
 
         # Issue #620: Cascade island definitions to native siblings.
@@ -3234,6 +3251,52 @@ def render_fences(module: dict[str, Any], source: str) -> str:
 
 def _assign(target: str, value: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
     return {"kind": "assign", "target": target, "value": value, "span": span}
+
+
+# boxed:begin
+def _bigint_growth(fn: ast.FunctionDef) -> str | None:
+    """The growing operation of an unbounded int accumulation in `fn`, or None.
+
+    Issue #677: annotated `int` lowers as i64 (divergence 1), so native
+    arithmetic aborts on overflow where CPython grows a big int. This check
+    is deliberately conservative: any in-place update of the same name by
+    a multiplying operator (`*=`, `<<=`, `**=`) or an assign of
+    `name <op> anything` back to `name` (the loop-carry shape
+    `r = r * i` / `r <<= 1`) flags the definition. A single `name ** k`
+    assign with a literal exponent of at most 62 and no loop in the body
+    can never leave i64, so it is excluded. Add and subtract are not
+    growth: two i64 adds of in-range values stay in range unless the
+    operands were already huge, while `*`/`<<`/`**` double the bit length
+    every step and outgrow i64 from small constants. The false-positive
+    cost is one demotion to the island; the false-negative cost is an
+    abort, so the check leans wide.
+    """
+    has_loop = any(isinstance(node, (ast.For, ast.While, ast.AsyncFor)) for node in ast.walk(fn))
+    for node in ast.walk(fn):
+        if isinstance(node, ast.AugAssign) and isinstance(node.op, (ast.Mult, ast.LShift, ast.Pow)):
+            if isinstance(node.target, ast.Name):
+                return f"'{node.target.id} {type(node.op).__name__}='"
+        if (
+            isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.BinOp)
+            and isinstance(node.value.op, (ast.Mult, ast.LShift, ast.Pow))
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and isinstance(node.value.left, ast.Name)
+            and node.value.left.id == node.targets[0].id
+            and not (isinstance(node.value.op, ast.Pow) and not has_loop and _bounded_pow(node.value.right))
+        ):
+            return f"'{node.targets[0].id} {type(node.value.op).__name__}='"
+    return None
+
+
+def _bounded_pow(node: ast.expr) -> bool:
+    """True for `**` with a literal exponent small enough to stay in i64."""
+
+    return isinstance(node, ast.Constant) and isinstance(node.value, int) and 0 <= node.value <= 62
+
+
+# boxed:end
 
 
 def _const_str_join(parts: list[dict[str, Any]], span: dict[str, Any]) -> dict[str, Any] | None:
