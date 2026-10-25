@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-25",
-  "commit": "67d7deedf275ec9ae1960f0cc8a35cb2dc7927e4",
+  "commit": "341bdaf3d18825ca8dd7ac5f820850eee3f1770c",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 6,
     "packages_none": 10,
     "weighted_pass": 0.0,
-    "fences": 2746
+    "fences": 2721
   },
   "builtins": [
     {
@@ -1461,27 +1461,27 @@
       "import_name": "dotenv",
       "version": "1.2.4",
       "status": "none",
-      "fences": 122,
+      "fences": 115,
       "definitions": 75,
-      "fenced_definitions": 43,
+      "fenced_definitions": 42,
       "top_families": [
         {
           "family": "unlowered-call",
           "count": 25
         },
         {
-          "family": "construct-other",
-          "count": 21
+          "family": "name-resolution",
+          "count": 17
         },
         {
-          "family": "name-resolution",
+          "family": "construct-other",
           "count": 17
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 89
+          "count": 85
         },
         {
           "code": "PS1106",
@@ -1499,9 +1499,9 @@
       "import_name": "filelock",
       "version": "4.1.1",
       "status": "partial",
-      "fences": 690,
+      "fences": 679,
       "definitions": 641,
-      "fenced_definitions": 239,
+      "fenced_definitions": 238,
       "top_families": [
         {
           "family": "name-resolution",
@@ -1509,7 +1509,7 @@
         },
         {
           "family": "construct-other",
-          "count": 96
+          "count": 86
         },
         {
           "family": "generic-alias",
@@ -1519,11 +1519,11 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 421
+          "count": 412
         },
         {
           "code": "PS2001",
-          "count": 73
+          "count": 72
         },
         {
           "code": "PS1103",
@@ -1575,7 +1575,7 @@
       "import_name": "idna",
       "version": "3.20",
       "status": "none",
-      "fences": 98,
+      "fences": 94,
       "definitions": 56,
       "fenced_definitions": 37,
       "top_families": [
@@ -1585,21 +1585,21 @@
         },
         {
           "family": "construct-other",
-          "count": 10
+          "count": 9
         },
         {
-          "family": "call-arity",
+          "family": "unlowered-call",
           "count": 8
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 48
+          "count": 46
         },
         {
           "code": "PS2003",
-          "count": 24
+          "count": 23
         },
         {
           "code": "PS1101",
@@ -1765,9 +1765,9 @@
       "import_name": "packaging",
       "version": "26.3",
       "status": "none",
-      "fences": 566,
+      "fences": 558,
       "definitions": 558,
-      "fenced_definitions": 281,
+      "fenced_definitions": 280,
       "top_families": [
         {
           "family": "unlowered-type-name",
@@ -1775,7 +1775,7 @@
         },
         {
           "family": "name-resolution",
-          "count": 77
+          "count": 76
         },
         {
           "family": "class-body",
@@ -1785,7 +1785,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 219
+          "count": 215
         },
         {
           "code": "PS1106",
@@ -1793,7 +1793,7 @@
         },
         {
           "code": "PS2001",
-          "count": 58
+          "count": 55
         }
       ],
       "pypi": "https://pypi.org/project/packaging/"
@@ -1803,13 +1803,13 @@
       "import_name": "pathspec",
       "version": "1.1.1",
       "status": "none",
-      "fences": 219,
+      "fences": 224,
       "definitions": 132,
       "fenced_definitions": 93,
       "top_families": [
         {
           "family": "name-resolution",
-          "count": 27
+          "count": 30
         },
         {
           "family": "unlowered-type-name",
@@ -1823,7 +1823,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 111
+          "count": 112
         },
         {
           "code": "PS1106",
@@ -2080,19 +2080,19 @@
     {
       "code": "PS2002",
       "title": "construct not lowered",
-      "count": 1331,
+      "count": 1313,
       "packages": 16
     },
     {
       "code": "PS1001",
       "title": "annotation missing or not lowered",
-      "count": 300,
+      "count": 298,
       "packages": 13
     },
     {
       "code": "PS2001",
       "title": "stdlib name not lowered",
-      "count": 205,
+      "count": 206,
       "packages": 15
     },
     {
@@ -2122,7 +2122,7 @@
     {
       "code": "PS2003",
       "title": "call arguments not lowered",
-      "count": 80,
+      "count": 79,
       "packages": 10
     },
     {
@@ -2140,8 +2140,8 @@
     {
       "code": "PS1003",
       "title": "type mismatch",
-      "count": 53,
-      "packages": 9
+      "count": 48,
+      "packages": 8
     },
     {
       "code": "PS1102",
@@ -2183,12 +2183,12 @@
   "history": [
     {
       "date": "2026-10-25",
-      "commit": "67d7deedf275ec9ae1960f0cc8a35cb2dc7927e4",
+      "commit": "341bdaf3d18825ca8dd7ac5f820850eee3f1770c",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 6,
       "packages_none": 10,
-      "fences": 2746
+      "fences": 2721
     }
   ]
 }
