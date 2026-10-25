@@ -991,6 +991,9 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 "borrowed": self.borrowed_handles,
             }
             try:
+                self.temp_n = 0
+                self.prelude = []
+                self.island_modules = {}
                 self.fn_globals = self._globals_for(fn.body)
                 self.fn_nonlocals = set()
                 self.captures = {}
@@ -1341,18 +1344,24 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # A fenced probe means module-level statements fence native - the
         # whole top level runs island-side and the entry's fences drop with
         # it (the entry never lowers native: the body pass skips it).
-        if self.fallback_definitions and entry_fn:
+        # Module-level import fences (PS2001/PS2002, issue #627) route the
+        # module top level to the island floor as well.
+        if self.fallback_definitions:
             probe_fences: list[Fence] = []
-            saved_function = self.function
-            self.function = entry_name
-            try:
-                self._boxed_probe(entry_fn[0], probe_fences)
-            finally:
-                self.function = saved_function
-            self._boxed_top_island = bool(probe_fences)
+            if entry_fn:
+                saved_function = self.function
+                self.function = entry_name
+                try:
+                    self._boxed_probe(entry_fn[0], probe_fences)
+                finally:
+                    self.function = saved_function
+            has_import_fence = any(fence.function is None and fence.code in ("PS2001", "PS2002") for fence in fences)
+            self._boxed_top_island = bool(probe_fences) or has_import_fence
             if self._boxed_top_island:
-                fences.extend(probe_fences)
-                self._boxed_island.add(entry_name)
+                if probe_fences:
+                    fences.extend(probe_fences)
+                if entry_name:
+                    self._boxed_island.add(entry_name)
         # boxed:end
         if self.cataloguing:
             self.function = None
@@ -1481,9 +1490,15 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             # shape: the entry lowers native, an island function is a
             # trampoline call from it.
             if self._boxed_top_island:
-                island.add(entry_name)
-                fences = [fence for fence in fences if fence.function != entry_name]
-                lowered = [record for record in lowered if record["name"] != entry_name]
+                if entry_name:
+                    island.add(entry_name)
+                    lowered = [record for record in lowered if record["name"] != entry_name]
+                fences = [
+                    fence
+                    for fence in fences
+                    if (fence.function != entry_name if entry_name is not None else True)
+                    and not (fence.function is None and fence.code in ("PS2001", "PS2002"))
+                ]
             else:
                 island.discard(entry_name)
             self.island_fns = island
@@ -1504,6 +1519,8 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 demoted_by=self._boxed_demoted_by,
             )
             for name in island:
+                if name == entry_name or (name.startswith("__") and name.endswith("__")):
+                    continue
                 fallback_map["functions"][name] = _boxed.ISLAND
             island_globals: dict[str, str] = {}
             module_plane = ""

@@ -648,3 +648,71 @@ if __name__ == "__main__":
     run_bin = subprocess.run([str(bin_path)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
     assert run_bin.returncode == 0, run_bin.stderr
     assert run_bin.stdout == run_cpython.stdout
+
+
+def test_fallback_module_import_fence_ps2001_runs_island(tmp_path: Path) -> None:
+    """Module-level unlowered stdlib import (PS2001) runs module top level on island (issue #627)."""
+    from pyscriptc import assess
+
+    source_text = """from datetime import datetime, timezone
+
+
+def main() -> None:
+    print(timezone.utc)
+
+
+if __name__ == "__main__":
+    main()
+"""
+    src = tmp_path / "ps2001_top.py"
+    src.write_text(source_text, encoding="utf-8")
+    assess_report = assess.assess(src)
+    assert assess_report["planeMap"]["moduleTopLevel"] == "island"
+
+    native, cpython = _compile_and_compare(tmp_path, source_text, name="ps2001_top")
+    assert native.returncode == 0, native.stderr
+    assert cpython.returncode == 0, cpython.stderr
+    assert native.stdout == cpython.stdout
+    assert native.stdout == "UTC\n"
+
+
+def test_fallback_module_import_fence_ps2002_relative_runs_island(tmp_path: Path) -> None:
+    """Module-level relative import (PS2002) runs module top level on island (issue #627)."""
+    from pyscriptc import assess
+
+    pkg_dir = tmp_path / "mypkg"
+    pkg_dir.mkdir()
+    (pkg_dir / "__init__.py").write_text("", encoding="utf-8")
+    (pkg_dir / "compress.py").write_text("x = 42\n", encoding="utf-8")
+    src = pkg_dir / "runme.py"
+    src.write_text(
+        """import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import mypkg
+
+__package__ = "mypkg"
+from .compress import x
+
+
+def main() -> None:
+    print(x)
+
+
+if __name__ == "__main__":
+    main()
+""",
+        encoding="utf-8",
+    )
+    assess_report = assess.assess(src)
+    assert assess_report["planeMap"]["moduleTopLevel"] == "island"
+
+    binary = tmp_path / "ps2002_bin"
+    comp = _run_cli("compile", str(src), *FALLBACK_FLAGS, "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    assert comp.returncode == 0, comp.stderr
+    native = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    cpython = subprocess.run([sys.executable, str(src)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    assert native.returncode == 0, native.stderr
+    assert cpython.returncode == 0, cpython.stderr
+    assert native.stdout == cpython.stdout == "42\n"
