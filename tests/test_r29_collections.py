@@ -24,7 +24,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from tests.test_gates import compile_run, oracle, write_case
+from tests.test_gates import compile_run, oracle, run_cli, write_case
 
 
 @pytest.mark.linux_container
@@ -230,3 +230,24 @@ def test_r29_namedtuple_kwargs_eq_and_scope(tmp_path: Path) -> None:
     got = compile_run(tmp_path, path, "run")
     assert got.returncode == 0, got.stderr
     assert got.stdout == oracle(path, "run")
+
+
+def test_namedtuple_construct_partial_failure_does_not_crash(tmp_path: Path) -> None:
+    path = write_case(
+        tmp_path,
+        "nt_crash.py",
+        "\n".join(
+            [
+                "from collections import namedtuple",
+                "",
+                "TableFormat = namedtuple('TableFormat', ['lineabove', 'linebelowheader', 'linebetweenrows'])",
+                "",
+                "def make_table() -> None:",
+                "    t1 = TableFormat('a', 'b', None)",
+                "    t2 = TableFormat('x', 'y', 'z')",
+            ]
+        ),
+    )
+    got = run_cli("compile", str(path), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "nt.ir.json"))
+    assert got.returncode == 3
+    assert "TableFormat() field linebetweenrows is none" in got.stderr

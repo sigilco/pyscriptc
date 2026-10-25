@@ -270,6 +270,35 @@ def test_a_cycle_inside_a_package_is_refused(tmp_path: Path) -> None:
     assert "circular import: pkg.a -> pkg.b -> pkg.a" in got.stderr
 
 
+def test_submodule_sibling_relative_import_not_circular(tmp_path: Path) -> None:
+    root = write_tree(
+        tmp_path,
+        "pkgsib",
+        {
+            "__main__.py": "import pkg\n\nprint(pkg.value)\n",
+            "pkg/__init__.py": "from .sub import value\n",
+            "pkg/sub.py": "from .sibling import helper\n\nvalue: int = helper()\n",
+            "pkg/sibling.py": "def helper() -> int:\n    return 42\n",
+        },
+    )
+    got = run_cli("compile", str(root), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "ps.ir.json"))
+    assert got.returncode == 0, got.stderr
+
+
+def test_submodule_parent_relative_import_not_circular(tmp_path: Path) -> None:
+    root = write_tree(
+        tmp_path,
+        "pkgparent",
+        {
+            "__main__.py": "import pkg\n\nprint(pkg.get_val())\n",
+            "pkg/__init__.py": "CONSTANT = 100\nfrom .sub import get_val\n",
+            "pkg/sub.py": "from . import CONSTANT\n\ndef get_val() -> int:\n    return CONSTANT\n",
+        },
+    )
+    got = run_cli("compile", str(root), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "pp.ir.json"))
+    assert got.returncode == 0, got.stderr
+
+
 @pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_program_flag_matches_python_dash_m(tmp_path: Path) -> None:
     # A package directory with --program is the `python -m pkg` shape: the
