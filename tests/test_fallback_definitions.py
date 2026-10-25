@@ -138,12 +138,16 @@ if __name__ == "__main__":
     assert native.stdout == "fib(10)=55\n6765\n"
 
 
-def test_fallback_island_caller_compiled_sibling_fences(tmp_path: Path) -> None:
-    """An island function calling a compiled sibling fences with both names (Decision B)."""
+def test_fallback_island_caller_sibling_cascade(tmp_path: Path) -> None:
+    """An island function calling a native sibling demotes the sibling transitively (issue #620)."""
     src = tmp_path / "sibling.py"
     src.write_text(
-        """def native_helper(x: int) -> int:
-    return x * 2
+        """def leaf(x: int) -> int:
+    return x + 10
+
+
+def native_helper(x: int) -> int:
+    return leaf(x) * 2
 
 
 def island_fn(x):
@@ -160,10 +164,111 @@ if __name__ == "__main__":
 """,
         encoding="utf-8",
     )
+    dbg = tmp_path / "dbg"
+    bin_path = tmp_path / "sib"
+    comp = _run_cli(
+        "compile",
+        str(src),
+        *FALLBACK_FLAGS,
+        "--emit",
+        "bin",
+        "-o",
+        str(bin_path),
+        "--debug-dir",
+        str(dbg),
+        cwd=tmp_path,
+    )
+    assert comp.returncode == 0, comp.stderr
+    summary = json.loads((dbg / "summary.json").read_text(encoding="utf-8"))
+    fb = summary["fallback"]
+    assert fb["functions"]["island_fn"] == "island"
+    assert fb["functions"]["native_helper"] == "island"
+    assert fb["functions"]["leaf"] == "island"
+    assert fb["demotedBy"]["native_helper"] == "island_fn"
+    assert fb["demotedBy"]["leaf"] == "native_helper"
+
+    # Compiled run matches CPython byte-identically
+    run_cpython = subprocess.run([sys.executable, str(src)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    run_bin = subprocess.run([str(bin_path)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    assert run_bin.returncode == 0, run_bin.stderr
+    assert run_bin.stdout == run_cpython.stdout
+    assert run_bin.stdout == "26\n"
+
+
+def test_fallback_island_caller_undemotable_sibling_fences(tmp_path: Path) -> None:
+    """An island function calling an undemotable compiled sibling fences with PS2002 and says why (issue #620)."""
+    src = tmp_path / "undemotable.py"
+    src.write_text(
+        """from typing import TypeVar
+
+T = TypeVar("T")
+
+
+def generic_helper(x: T) -> T:
+    return x
+
+
+def island_fn(x):
+    y = [x, "mixed"]
+    return generic_helper(x)
+
+
+def main() -> None:
+    out: int = island_fn(3)
+    print(out)
+
+
+if __name__ == "__main__":
+    main()
+""",
+        encoding="utf-8",
+    )
     comp = _run_cli("compile", str(src), *FALLBACK_FLAGS, "--emit", "bin", "-o", str(tmp_path / "sib"), cwd=tmp_path)
     assert comp.returncode != 0
-    assert "island_fn runs on the island and cannot call the compiled function native_helper" in comp.stderr
+    assert "PS2002" in comp.stderr
+    assert "island_fn runs on the island and cannot call the compiled function generic_helper" in comp.stderr
+    assert "generic compiled function generic_helper cannot be demoted to the island" in comp.stderr
     assert "--emit binding" in comp.stderr
+
+
+def test_fallback_plane_map_shows_demoted_by(tmp_path: Path) -> None:
+    """Plane map in run --report and assess shows demotedBy (issue #620)."""
+    src = tmp_path / "report_cascade.py"
+    src.write_text(
+        """def helper(x: int) -> int:
+    return x * 2
+
+
+def island_fn(x):
+    y = [x, "mixed"]
+    return helper(x)
+
+
+def main() -> None:
+    out: int = island_fn(5)
+    print(out)
+
+
+if __name__ == "__main__":
+    main()
+""",
+        encoding="utf-8",
+    )
+    from pyscriptc import assess
+
+    assess_rep = assess.assess(src)
+    assert assess_rep["planeMap"]["functions"]["helper"] == "island"
+    assert assess_rep["planeMap"]["demotedBy"]["helper"] == "island_fn"
+
+    text_rep = assess.render_text(assess_rep)
+    assert "helper: island (demoted by island_fn)" in text_rep
+
+    rep_file = tmp_path / "run_rep.json"
+    run_proc = _run_cli("run", "--fallback=cpython", f"--report={rep_file}", str(src), cwd=tmp_path)
+    assert run_proc.returncode == 0, run_proc.stderr
+    assert run_proc.stdout == "10\n"
+    run_data = json.loads(rep_file.read_text(encoding="utf-8"))
+    assert run_data["planeMap"]["demotedBy"]["helper"] == "island_fn"
 
 
 def test_fallback_top_level_fence_runs_island(tmp_path: Path) -> None:

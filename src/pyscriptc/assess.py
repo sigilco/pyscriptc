@@ -448,7 +448,7 @@ def assess(
 
         from pyscriptc import boxed
 
-        file_plane_map = boxed.plane_map(local_fences, local_defs, entry=None)
+        file_plane_map = boxed.plane_map(local_fences, local_defs, entry=None, tree=tree)
 
         file_results.append(
             {
@@ -546,7 +546,17 @@ def assess(
         for name in f_plane.get("functions", {}):
             all_defs.append({"name": name})
     unique_all_defs = [{"name": n} for n in dict.fromkeys(d["name"] for d in all_defs)]
-    overall_plane_map = boxed.plane_map(all_fences, unique_all_defs, entry=None)
+    merged_demoted_by: dict[str, str] = {}
+    for f in file_results:
+        f_plane = f.get("planeMap", {})
+        merged_demoted_by.update(f_plane.get("demotedBy", {}))
+    overall_plane_map = boxed.plane_map(
+        all_fences,
+        unique_all_defs,
+        entry=None,
+        demoted_by=merged_demoted_by,
+        tree=tree if target.is_file() else None,
+    )
 
     policy_lines: list[str] = []
     if untyped_imports_needed:
@@ -859,8 +869,12 @@ def render_text(
     if plane_map and (plane_map.get("functions") or plane_map.get("moduleTopLevel")):
         lines.append("Plane map:")
         lines.append(f"  module top level: {plane_map.get('moduleTopLevel', 'native')}")
+        demoted_by = plane_map.get("demotedBy", {})
         for fn_name, plane in sorted(plane_map.get("functions", {}).items()):
-            lines.append(f"  {fn_name}: {plane}")
+            if fn_name in demoted_by:
+                lines.append(f"  {fn_name}: {plane} (demoted by {demoted_by[fn_name]})")
+            else:
+                lines.append(f"  {fn_name}: {plane}")
         lines.append("")
 
     if report["imports"]:

@@ -171,6 +171,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # the names the probe fenced.
         self._boxed_functions: list[ast.FunctionDef] = []
         self._boxed_island: set[str] = set()
+        self._boxed_demoted_by: dict[str, str] = {}
         # The island top level (issue #613): the entry body is probed like a
         # definition, and a fenced probe plans the whole module top level for
         # the island (Decision A). `entry_fn_name` then names the entry whose
@@ -907,31 +908,57 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         finally:
             self.caught = saved_caught
         self.island_fns = set(self._boxed_island)
+        self._boxed_demoted_by = {}
+        boxed_fns_by_name = {fn.name: fn for fn in self._boxed_functions}
+
+        # Issue #620: Cascade island definitions to native siblings.
+        # If an island definition calls a native sibling, demote that sibling
+        # transitively to a fixpoint.
+        changed = True
+        while changed:
+            changed = False
+            for fn in self._boxed_functions:
+                if fn.name not in self.island_fns:
+                    continue
+                for node in ast.walk(fn):
+                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                        callee = node.func.id
+                        if callee in boxed_fns_by_name and callee not in self.island_fns:
+                            if callee in self.generic_fns:
+                                continue
+                            self.island_fns.add(callee)
+                            self._boxed_island.add(callee)
+                            if callee not in self._boxed_demoted_by:
+                                self._boxed_demoted_by[callee] = fn.name
+                            changed = True
+
         self._boxed_sibling_fences: list[Fence] = []
-        # Decision B (issue #612): an island function calling a definition
-        # that lowers native fences here, naming both functions. The seed
-        # carries island definitions only, so the sibling would be a
-        # NameError at run time; the v0.7.0 answer is the named compile
-        # fence (the island-to-compiled seam is `--emit binding`, v0.8.0).
+        # Keep the PS2002 diagnostic only where demotion is impossible and say why.
         for fn in self._boxed_functions:
             if fn.name not in self.island_fns:
                 continue
             for node in ast.walk(fn):
                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-                    name = node.func.id
-                    if name in self.sigs and name not in self.island_fns and name not in self.generic_fns:
-                        fences.append(
-                            Fence(
-                                "PS2002",
-                                f"{fn.name} runs on the island and cannot call the compiled function "
-                                f"{name}: the island-to-compiled seam is the `--emit binding` surface; "
-                                "annotate "
-                                f"{name} so it lowers native-to-native, or drop its annotations so it "
-                                "joins the island",
-                                span_of(node, self.filename),
-                                fn.name,
+                    callee = node.func.id
+                    if callee in self.sigs and callee not in self.island_fns:
+                        if callee in self.generic_fns:
+                            reason = (
+                                f"generic compiled function {callee} cannot be demoted to the island; "
+                                "the island-to-compiled seam is the `--emit binding` surface"
                             )
-                        )
+                        elif callee not in boxed_fns_by_name:
+                            reason = (
+                                f"{callee} is not a module-level definition and cannot be demoted to the island; "
+                                "the island-to-compiled seam is the `--emit binding` surface"
+                            )
+                        else:
+                            reason = (
+                                "the island-to-compiled seam is the `--emit binding` surface; "
+                                f"annotate {callee} so it lowers native-to-native, "
+                                "or drop its annotations so it joins the island"
+                            )
+                        msg = f"{fn.name} runs on the island and cannot call the compiled function {callee}: {reason}"
+                        fences.append(Fence("PS2002", msg, span_of(node, self.filename), fn.name))
                         self._boxed_sibling_fences.append(fences[-1])
 
     def _boxed_probe(self, fn: ast.FunctionDef, sink: list[Fence]) -> None:
@@ -1474,6 +1501,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 [{"name": n} for n in dict.fromkeys(all_names)],
                 entry_name,
                 top_level_island,
+                demoted_by=self._boxed_demoted_by,
             )
             for name in island:
                 fallback_map["functions"][name] = _boxed.ISLAND
