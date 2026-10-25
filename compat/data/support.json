@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-25",
-  "commit": "67d7deedf275ec9ae1960f0cc8a35cb2dc7927e4",
+  "commit": "341bdaf3d18825ca8dd7ac5f820850eee3f1770c",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -763,16 +763,16 @@
       "name": "python-dotenv",
       "version": "1.2.4",
       "status": "\ud83d\udd34",
-      "ratio": "43/75",
-      "blocking": "unlowered-call (25), construct-other (21), name-resolution (17)",
+      "ratio": "42/75",
+      "blocking": "unlowered-call (25), name-resolution (17), construct-other (17)",
       "codes": "PS2002, PS1106, PS1001"
     },
     {
       "name": "filelock",
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
-      "ratio": "239/641",
-      "blocking": "name-resolution (143), construct-other (96), generic-alias (56)",
+      "ratio": "238/641",
+      "blocking": "name-resolution (143), construct-other (86), generic-alias (56)",
       "codes": "PS2002, PS2001, PS1103"
     },
     {
@@ -788,7 +788,7 @@
       "version": "3.20",
       "status": "\ud83d\udd34",
       "ratio": "37/56",
-      "blocking": "keyword-args (16), construct-other (10), call-arity (8)",
+      "blocking": "keyword-args (16), construct-other (9), unlowered-call (8)",
       "codes": "PS2002, PS2003, PS1101"
     },
     {
@@ -827,8 +827,8 @@
       "name": "packaging",
       "version": "26.3",
       "status": "\ud83d\udd34",
-      "ratio": "281/558",
-      "blocking": "unlowered-type-name (90), name-resolution (77), class-body (52)",
+      "ratio": "280/558",
+      "blocking": "unlowered-type-name (90), name-resolution (76), class-body (52)",
       "codes": "PS2002, PS1106, PS2001"
     },
     {
@@ -836,7 +836,7 @@
       "version": "1.1.1",
       "status": "\ud83d\udd34",
       "ratio": "93/132",
-      "blocking": "name-resolution (27), unlowered-type-name (22), decorators (21)",
+      "blocking": "name-resolution (30), unlowered-type-name (22), decorators (21)",
       "codes": "PS2002, PS1106, PS1201"
     },
     {

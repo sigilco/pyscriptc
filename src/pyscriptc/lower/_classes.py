@@ -246,12 +246,19 @@ class ClassesMixin:
                         saved_prelude = self.prelude
                         self.prelude = []
                         try:
-                            default = self._expr(stmt.value, typ)
+                            # An Optional field takes `None` or a constant of its
+                            # element type, boxed per construction like a def default.
+                            default = self._expr(stmt.value, None if typ.get("optional") else typ)
                         finally:
                             self.prelude = saved_prelude
-                        self._expect(stmt, default["type"], typ, stmt.target.id)
                         if default["kind"] != "const":
                             self.fail(stmt, "PS2002", "a dataclass default must be a constant")
+                        if typ.get("optional"):
+                            if default["type"]["kind"] != "none" and not types_equal(default["type"], typ["elem"]):
+                                self.fail(stmt, "PS1003", f"{stmt.target.id} default is not {_show(typ)}")
+                            field["optdefault"] = True
+                        else:
+                            self._expect(stmt, default["type"], typ, stmt.target.id)
                         field["default"] = default
                         seen_default = True
                     elif seen_default:
@@ -337,6 +344,8 @@ class ClassesMixin:
                 param: dict[str, Any] = {"name": field["name"], "type": field["type"]}
                 if "default" in field:
                     param["default"] = field["default"]
+                    if field.get("optdefault"):
+                        param["optdefault"] = True
                 params.append(param)
             method_sigs["__init__"] = (params, {"kind": "none"})
             kinds["__init__"] = "method"

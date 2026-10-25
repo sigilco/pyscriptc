@@ -94,6 +94,8 @@ class CallsMixin:
             if name != "int":
                 self._reject_keywords(node)
             args = [self._expr(arg) for arg in node.args]
+            if name in {"int", "float"} and len(args) >= 1:
+                args[0] = self._opt_arg_or_type_error(name, args[0], span)
             if name == "int" and node.args and (len(node.args) == 2 or node.keywords):
                 # The `base` row: `int(text, base)` positional and `int(text,
                 # base=N)` keyword are the same call; an unknown keyword name
@@ -183,9 +185,7 @@ class CallsMixin:
             return self._construct(node, span, self.class_aliases.get(name, name))
         ftype = self.locals.get(name, self.captures.get(name))
         if ftype is not None and ftype["kind"] == "func":
-            # Callable annotations carry bare types, no names or defaults.
-            params = [{"name": f"_{index}", "type": typ} for index, typ in enumerate(ftype["params"])]
-            args = self._fill_args(node, params, name)
+            args = self._fill_args(node, self._callable_params(ftype), name)
             return {
                 "kind": "call",
                 "callee": {"kind": "value", "target": _name(name, ftype, span)},
@@ -231,6 +231,49 @@ class CallsMixin:
             }
         self.fail(node, "PS2002", f"call to {name} is not lowered")
         raise AssertionError("unreachable")
+
+    def _callable_params(self, ftype: dict[str, Any]) -> list[dict[str, Any]]:
+        """The call signature of a callable local.
+
+        A nested def keeps its names and defaults; a Callable annotation
+        carries bare types, so its parameters are positional only.
+        """
+        known = self.local_sigs.get(id(ftype))
+        if known is not None and not any(param.get("vararg") or param.get("kwarg") for param in known[1]):
+            return known[1]
+        return [{"name": f"_{index}", "type": typ, "posonly": True} for index, typ in enumerate(ftype["params"])]
+
+    def _opt_arg_or_type_error(self, name: str, arg: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+        """`int(x)` on a tagged `str | None`: CPython raises TypeError for None.
+
+        The tag is tested at the call; the unwrapped `_val` feeds the lowered
+        conversion, so `int(m.group(1))` runs without a narrowing temp.
+        """
+        typ = arg["type"]
+        if not typ.get("optional") or typ["elem"]["kind"] not in {"str", "bytes", "int", "float"}:
+            return arg
+        if arg["kind"] != "name":
+            temp = self._temp("optarg")
+            self.locals[temp] = typ
+            self.prelude.append(_assign(temp, arg, span))
+            arg = _name(temp, typ, span)
+        message = f"{name}() argument must be a string, a bytes-like object or a real number, not 'NoneType'"
+        self.prelude.append(
+            {
+                "kind": "if",
+                "cond": {
+                    "kind": "unary",
+                    "op": "not",
+                    "operand": _attr(arg, "_tag", {"kind": "bool"}, span),
+                    "type": {"kind": "bool"},
+                    "span": span,
+                },
+                "then": [{"kind": "raise", "exc": "TypeError", "message": _const_str(message, span), "span": span}],
+                "else": [],
+                "span": span,
+            }
+        )
+        return _attr(arg, "_val", typ["elem"], span)
 
     def _generic_call(self, node: ast.Call, span: dict[str, Any], name: str) -> dict[str, Any]:
         """A call to a generic function (`def ident(x: T) -> T`): unify the
@@ -1513,6 +1556,7 @@ class CallsMixin:
         pos_names = [param["name"] for param in positional]
         for index, arg_node in enumerate(node.args):
             slots[index] = self._expr(arg_node, params[index]["type"])
+        order = list(range(len(node.args)))
         seen: set[str] = set()
         for kw in node.keywords:
             assert kw.arg is not None
@@ -1524,14 +1568,18 @@ class CallsMixin:
                     self.fail(kw, "PS2003", f"{kw.arg} given more than once")
                 seen.add(kw.arg)
                 slots[index] = self._expr(kw.value, params[index]["type"])
+                order.append(index)
             elif kw.arg in names:
                 index = names.index(kw.arg)
                 if kw.arg in seen:
                     self.fail(kw, "PS2003", f"{kw.arg} given more than once")
                 seen.add(kw.arg)
                 slots[index] = self._expr(kw.value, params[index]["type"])
+                order.append(index)
             else:
                 self.fail(kw, "PS2003", f"unexpected keyword argument {kw.arg}")
+        if order != sorted(order):
+            self._pin_arg_order(slots, order, span_of(node, self.filename))
         args: list[dict[str, Any]] = []
         for index, param in enumerate(params):
             got = slots[index]
@@ -1549,6 +1597,23 @@ class CallsMixin:
                 self.fail(node, "PS1003", f"argument {param['name']} of {what} has the wrong type")
             args.append(got)
         return args
+
+    def _pin_arg_order(self, slots: list[dict[str, Any] | None], order: list[int], span: dict[str, Any]) -> None:
+        """Keyword arguments written out of parameter order still evaluate left to right.
+
+        The call lists its arguments in parameter order, so each written
+        argument that is not a constant or a name goes into a temp, in the
+        order the source wrote them.
+        """
+        for index in order:
+            value = slots[index]
+            assert value is not None
+            if value["kind"] in {"const", "name"}:
+                continue
+            temp = self._temp("arg")
+            self.locals[temp] = value["type"]
+            self.prelude.append(_assign(temp, value, span))
+            slots[index] = _name(temp, value["type"], span)
 
     def _fill_varargs(
         self, node: ast.Call, params: list[dict[str, Any]], var_index: int, what: str

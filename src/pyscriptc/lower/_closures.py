@@ -44,6 +44,7 @@ class ClosuresMixin:
         # Bind the name before building the env so the def can capture itself
         # (self-recursion reads its own stack slot through the env pointer).
         self.locals[fn.name] = ftype
+        self.local_sigs[id(ftype)] = (ftype, params)
         built = self._build_callable(fn.name, params, ret, fn.body, fn)
         if built is None:
             return [{"kind": "pass", "span": span}]

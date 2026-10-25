@@ -45,6 +45,7 @@ from pyscriptc.lower._core import (
     _zero,
 )
 from pyscriptc.reflection import inspect_note, typing_note
+from pyscriptc.restlower._argparse import path_attribute
 from pyscriptc.stdlib_queue import (
     MATH_CONSTANTS,
     MATH_FUNCTIONS,
@@ -1330,7 +1331,7 @@ class ExprMixin:
                     self.fail(node, "PS2001", f"{node.value.id}.{node.attr} is not an enum member")
                 return {"kind": "const", "value": str(member), "type": {"kind": "int"}, "span": span}
         value = self._expr(node.value)
-        return self._lookup_attr(value, node.attr, span, node, expect)
+        return path_attribute(self, value, node.attr, self._lookup_attr(value, node.attr, span, node, expect), span)
 
     def _call(self, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None = None) -> dict[str, Any]:
         if isinstance(node.func, ast.Name):
@@ -1405,10 +1406,13 @@ class ExprMixin:
         temp = self._temp("boolop")
         self.locals[temp] = typ
         self.prelude.append(_assign(temp, first, span))
-        for value_node in node.values[1:]:
+        proven: set[str] = set()
+        for index, value_node in enumerate(node.values[1:], start=1):
+            when_true, when_false = self._narrow_names(node.values[index - 1])
+            proven |= when_true if op_and else when_false
             saved = self.prelude
             self.prelude = []
-            right = self._bool_operand(value_node, as_cond)
+            right = self._narrowed(proven, node, lambda value_node=value_node: self._bool_operand(value_node, as_cond))
             inner = self.prelude
             self.prelude = saved
             if not types_equal(right["type"], typ):
@@ -1441,11 +1445,12 @@ class ExprMixin:
         cond = self._bool_cond(node.test)
         saved = self.prelude
         self.prelude = []
+        when_true, when_false = self._narrow_names(node.test)
         try:
-            body = self._expr(node.body)
+            body = self._narrowed(when_true, node, lambda: self._expr(node.body))
             body_pre = self.prelude
             self.prelude = []
-            orelse = self._expr(node.orelse)
+            orelse = self._narrowed(when_false, node, lambda: self._expr(node.orelse))
             orelse_pre = self.prelude
         finally:
             self.prelude = saved
