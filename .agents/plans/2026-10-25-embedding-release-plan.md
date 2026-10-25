@@ -32,10 +32,10 @@ Resulting bundle sizes (uncompressed, reasoned from the measured parts): macOS a
 
 ### 1.2 Design (what "default" means)
 
-- Mode names: `--embed-python=host|bundle` and the config key `[tool.pyscriptc.island] embed = "host"`. There is no implicit mode: embedding a runtime is always an explicit choice (owner decision 2026-10-25).
+- Mode names: `--embed-python=host|bundle|auto` and the config key `[tool.pyscriptc.island] embed = "auto"`.
   - `host`: today's behaviour (link the compiler's own interpreter). Unchanged, zero download.
   - `bundle`: always link the pinned runtime pack and write a relocatable output directory `name/bin/name` plus `name/lib/...`.
-  - `host` (the v0.7.0 default): link the compiler interpreter's shared libpython. If it has none (the Nuitka release binary, distro Pythons without `libpython3.x-dev`), the compile fails with a named error that suggests `--embed-python=bundle`; it never embeds silently. `bundle` is opt-in: fetch the pinned runtime pack and embed it. Whether `bundle` should become the default is a v0.8.0 decision against the soak data (section 4).
+  - `auto` (the v0.7.0 default): `host` when the compiler's interpreter has a usable shared libpython and headers (`uv tool install`, wheel in a venv, development), `bundle` when it does not (the Nuitka release binary, distro Pythons without `libpython3.x-dev`). Rationale: it fixes the release binary without making every developer download 35 MB or lose the host link's tested path. Flipping `auto` to `bundle` everywhere is a decision for v0.8.0, taken against the soak data (section 4).
 - Where the runtime lives: not in the compiler wheel and not in the Nuitka binary. A runtime pack per platform, `pyscriptc-runtime-cp314-<platform>.tar.zst`, is produced by our release workflow from a pinned python-build-standalone archive, attached to the GitHub release (and mirrored there so we do not depend on a third-party asset staying up), fetched on demand by `pyscriptc embed fetch` (also run implicitly by a `bundle` compile, with a clear message and size), sha256-verified against a lock file `packaging/runtime.lock.toml` in the repo, cached under `~/.cache/pyscriptc/runtime/<pack-id>/`. Offline and air-gapped use: `PYSC_RUNTIME_DIR` points at an unpacked pack. Wheel size is unchanged by design (a PyPI wheel carrying 35 MB per platform is the rejected alternative: PyPI releases are irreversible, `pyscriptc-runtime` as separate wheels stays option C in the POC plan until a user needs `pip`-only installs).
 - Pinning and provenance: the lock records the PBS release tag (`20261021`), asset name, sha256 and the CPython micro (3.14.9). We take the `install_only_stripped` asset for the runtime (libpython, headers, stdlib) and the `licenses/` directory from the matching `full` asset, so the pack carries third-party notices. Source builds (needed only for the static option) are not part of the 0.7.0 slice.
 - Headers and ABI: a `bundle` compile uses the pack's headers and library, never the host's, so the version-specific link (`-lpython3.14`) is decided by the pack. The compiler targets CPython 3.14.x; the pack's micro may differ from the host's and that is allowed within 3.14 (stable ABI between micros, reasoned). A minor change is a pack change and a lock change, nothing else.
@@ -106,7 +106,7 @@ The CPython license (PSF License Agreement for Python, GPL-compatible, permissiv
 | `Path(__file__).parent` data files break after relocation (section 1.3) | high for real scripts | E9 copies the data or records a numbered divergence |
 | Third-party asset removal or retagging at python-build-standalone | low, high impact | mirror in our release assets; sha256-pinned lock |
 | Security patch lag of a bundled interpreter | certain over time | E8 cadence and SLA, version in receipts |
-| Pack size drives users to disable the feature | medium | `host` stays the default, so nobody downloads the pack unless they ask for `bundle` |
+| Pack size drives users to disable the feature | medium | `auto` keeps the host link for developers; fetch is lazy and explicit |
 | macOS notarization and Gatekeeper reject an unsigned `dylib` run from a downloaded directory | medium, user-visible only for distribution | out of scope for 0.7.0; document that signing is the distributor's job |
 | Boxed ledger share rises (churn is accepted by the owner, but the drop flag rules still need to be reported) | certain, small | all new code marked, window reported at the boundary |
 | Free-threaded or JIT builds requested | low | pack pins the default GIL build; those were slower in the POC |
@@ -169,7 +169,7 @@ Schema v1 is the prototype's (`scripts/engine_manifest.py`) with two additions f
 | P5 | Engine conformance corpus and CI: the same island programs on CPython and PyPy, cpyext marshalling micro-benchmark | S | P3 |
 | P6 | Docs: engine contract, descriptor and manifest reference, "not our responsibility" statement | S | P4 |
 | P7 | Stretch: static single-binary CPython from a pinned source build with a curated builtin module list | L | E2, E6 |
-| P8 | Decision: decide whether `bundle` becomes the default, using the soak data | S | E5, E8 |
+| P8 | Decision: flip `embed = auto` to `bundle` by default, using the soak data | S | E5, E8 |
 
 ## 3. Interaction summary
 
@@ -188,7 +188,7 @@ Smallest slice that is still valuable: E1, E2, E3, E5, E7 and the Linux x86_64 a
 Kill criterion (checked at the point where the non-embedding items of milestone 4 have 3 or fewer open issues, so before the minor's last week):
 
 - If the Linux x86_64 empty-environment acceptance test (E5) is not green, or the runtime pack exceeds 60 MB compressed per platform, or the bundle startup exceeds the host-link island by more than 10 ms on a quiet machine, move the open embedding issues to v0.8.0 by changing their milestone (no doc edit), keep the already merged default-off code in `boxed.py` marked, and ship v0.7.0 with the TOOLCHAIN.md statement unchanged ("island programs are not a supported release target").
-- If at the v0.9.0 close there has been no user request for a relocatable island binary and no receipt records `embed = bundle`, delete the seam (the original kill criterion of #651, retained).
+- If at the v0.9.0 close there has been no user request for a relocatable island binary and the `auto` mode never selected `bundle` in a receipt, delete the seam (the original kill criterion of #651, retained).
 - If the boxed drop flag is raised at the v0.7.0 boundary for reasons other than this work, ask the owner before adding more embedding code, per `AGENTS.md`.
 
 What I would cut first if time runs short: E4, then E9 (document the divergence), then the macOS cell of PR CI, then E8.
