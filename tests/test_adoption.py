@@ -13,8 +13,8 @@ def test_scripting_stacks_stay_fenced(tmp_path: Path) -> None:
         (
             "deco.py",
             "def deco(fn):\n    return fn\n\n@deco\ndef main() -> int:\n    return 0\n",
-            "PS2002",
-            "decorators",
+            "PS2006",
+            "decorator deco is not a lowered callable",
         ),
         (
             "kw.py",
