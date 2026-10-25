@@ -159,6 +159,14 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # Island module name -> the hidden local that owns its handle
         # (issue #553). Reset per function scope, like `handle_locals`.
         self.island_modules: dict[str, str] = {}
+        # boxed:begin
+        # Type peeks outside a lowering scope (the boxed top-level probe,
+        # the call-site pin pass, issues #650 and #643) set this while they
+        # infer: an island call peeked there cannot import a module handle,
+        # so `_island_module_handle` returns an isolated handle node instead
+        # of binding one.
+        self.peeking = False
+        # boxed:end
         # The boxed per-definition fallback tier (issue #612): when true, a
         # definition whose body fences is planned for the island instead of
         # refusing the compile. Set by `--fallback=cpython` / `--island`
@@ -352,6 +360,13 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 s.saved_broke = self.broke_flag
                 s.saved_break = self.break_flag
                 s.saved_cont = self.continue_flag
+                # boxed:begin
+                # A peek cannot bind an island module handle local (issues
+                # #650, #643): the island calls it walks return an isolated
+                # handle node instead of touching the scope's prelude.
+                s.saved_peeking = self.peeking
+                self.peeking = True
+                # boxed:end
                 self.prelude = []
                 self.caught = []
                 self.inf_peek = True
@@ -383,6 +398,9 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 self.broke_flag = s.saved_broke
                 self.break_flag = s.saved_break
                 self.continue_flag = s.saved_cont
+                # boxed:begin
+                self.peeking = s.saved_peeking
+                # boxed:end
 
         if any(k in self._PEEK_UNSAFE for k in _ir_kinds_of(node)):
             return None
