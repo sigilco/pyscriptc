@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import json
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -39,6 +40,72 @@ def scale(a: int, factor: int = 2) -> int:
 
 def noop() -> None:
     pass
+"""
+
+EXCEPTION_SOURCE = """
+class AppError(RuntimeError):
+    pass
+
+
+def bad_div(a: int, b: int) -> int:
+    return a // b
+
+
+def raise_value(n: int) -> int:
+    if n < 0:
+        raise ValueError("negative")
+    return n
+
+
+def raise_user(n: int) -> int:
+    if n < 0:
+        raise AppError("app failed")
+    return n
+"""
+
+# Runs in a child interpreter, like the issue #604 repro: the unfixed binding
+# exits that process from inside the ctypes call, which would take the pytest
+# worker with it. A child keeps the failure a normal assertion.
+EXCEPTION_HOST = """
+import sys
+
+sys.path.insert(0, ".")
+import boom_binding as mod
+
+print("ok", mod.bad_div(7, 2), flush=True)
+for call, expected in (
+    (lambda: mod.bad_div(1, 0), ZeroDivisionError),
+    (lambda: mod.raise_value(-1), ValueError),
+    (lambda: mod.raise_user(-1), mod.CompiledError),
+):
+    try:
+        call()
+    except expected as exc:
+        caught = type(exc).__name__
+        print("caught", caught, str(exc), getattr(exc, "compiled_class", "-"), sep="|", flush=True)
+    else:
+        print("missed", expected.__name__, flush=True)
+print("still alive", mod.raise_value(3), flush=True)
+"""
+
+INIT_EXCEPTION_SOURCE = """
+def add(a: int, b: int) -> int:
+    return a + b
+
+
+raise ValueError("module init failed")
+"""
+
+INIT_EXCEPTION_HOST = """
+import sys
+
+sys.path.insert(0, ".")
+try:
+    import initboom_binding  # noqa: F401
+    print("imported", flush=True)
+except ValueError as exc:
+    print("import raised", type(exc).__name__, str(exc), sep="|", flush=True)
+print("still alive", flush=True)
 """
 
 MIXED_SOURCE = """
@@ -215,6 +282,51 @@ def test_binding_explicit_output_path(tmp_path: Path) -> None:
     assert got.stdout.strip() == str(out)
     shlibs = [f for f in out.parent.glob("libmycalc.*") if f.suffix in (".dylib", ".so", ".dll")]
     assert len(shlibs) == 1
+
+
+@needs_clang
+def test_binding_exceptions_reach_the_host(tmp_path: Path) -> None:
+    """A raise inside a compiled function is a Python exception, not an exit (#604)."""
+    path = write_case(tmp_path, "boom.py", EXCEPTION_SOURCE)
+    got = run_cli("compile", str(path), "--emit", "binding", "--skip-check")
+    assert got.returncode == 0, got.stderr
+
+    proc = subprocess.run(
+        [sys.executable, "-c", EXCEPTION_HOST],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert proc.returncode == 0, (proc.stdout, proc.stderr)
+    assert proc.stdout.splitlines() == [
+        "ok 3",
+        "caught|ZeroDivisionError|division by zero|-",
+        "caught|ValueError|negative|-",
+        "caught|CompiledError|app failed|AppError",
+        "still alive 3",
+    ], (proc.stdout, proc.stderr)
+
+
+@needs_clang
+def test_binding_module_init_exception_reaches_the_importer(tmp_path: Path) -> None:
+    """A raise in a module-level statement surfaces at import, not as an exit (#604)."""
+    path = write_case(tmp_path, "initboom.py", INIT_EXCEPTION_SOURCE)
+    got = run_cli("compile", str(path), "--emit", "binding", "--skip-check")
+    assert got.returncode == 0, got.stderr
+
+    proc = subprocess.run(
+        [sys.executable, "-c", INIT_EXCEPTION_HOST],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    assert proc.returncode == 0, (proc.stdout, proc.stderr)
+    assert proc.stdout.splitlines() == [
+        "import raised|ValueError|module init failed",
+        "still alive",
+    ], (proc.stdout, proc.stderr)
 
 
 @needs_clang

@@ -70,6 +70,8 @@ pyscriptc compile FILE --emit binding [-o OUT]
 
 First-cut scope covers top-level functions with `int`, `float`, `bool` parameters and returns (including `None` return). Any unsupported function, parameter type, return type, or class is skipped with a named note in the generated module docstring and a nonzero count in the compile summary (`summary.json`).
 
+The loader is safe to call from a long-lived interpreter: a `raise` inside a compiled function unwinds to a guard at the C ABI edge, which `<name>_binding_shim.c` (a generated C unit linked into the library) places around every exported call. The loader re-raises it in the caller as the Python class of the same name (`ZeroDivisionError`, `ValueError`, `KeyError`, and so on), or as `CompiledError` with `compiled_class` naming the compiled class when it has no builtin counterpart. A `raise` in a module-level statement is reported the same way by the import of the loader module. Without the guard the `longjmp` would leave the library with no handler, report the exception on stderr and exit the host process.
+
 ## `run`
 
 ```sh
