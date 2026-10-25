@@ -199,3 +199,69 @@ def test_data_operation_stays_linear(case, tmp_path: Path) -> None:
     exponent = math.log(times[size * 4] / times[size]) / math.log(4)
     assert times[size] > FLOOR_MS or times[size * 4] > FLOOR_MS, times
     assert exponent < bound, f"{name}: exponent {exponent:.2f} >= {bound} (times {times})"
+
+
+# The set index doubles its probe table (ps_seq_index_add in
+# src/pyscriptc/runtime/ps_rt.c). Before that it re-derived the table size
+# from the length on every grow, which landed the new table at exactly load
+# one half, so the very next push rebuilt it again: a doubling cost two full
+# rehashes, and one more element past a power-of-two length paid for both.
+# That element now costs a push, so the guard times the build at 2**20 and at
+# 2**20 + 1 and bounds the difference as a fraction of the build. Both sides
+# run on the same machine, so the bound is machine speed relative.
+REBUILD_SIZE = 1 << 20
+REBUILD_SLACK = 0.15  # one extra element may cost 15% of the build, not two rehashes
+REBUILD_SOURCE = """def bench(n: int) -> int:
+    s: set[int] = set()
+    i: int = 0
+    while i < n:
+        s.add(i)
+        i = i + 1
+    return len(s)
+"""
+
+
+def _build_binary(tmp_path: Path, name: str, source: str, n: int) -> Path:
+    """Compile `source` into a binary that calls bench(n)."""
+    src = tmp_path / f"{name}.py"
+    src.write_text(source, encoding="utf-8")
+    binary = tmp_path / f"{name}-{n}"
+    compiled = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pyscriptc",
+            "compile",
+            str(src),
+            "--emit",
+            "bin",
+            "--call",
+            "bench",
+            "--args",
+            f"[{n}]",
+            "-o",
+            str(binary),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    assert compiled.returncode == 0, compiled.stderr + compiled.stdout
+    return binary
+
+
+def test_set_push_past_a_power_of_two_does_not_rehash(tmp_path: Path) -> None:
+    base = _build_binary(tmp_path, "set_build", REBUILD_SOURCE, REBUILD_SIZE)
+    plus = _build_binary(tmp_path, "set_build", REBUILD_SOURCE, REBUILD_SIZE + 1)
+    best_base = math.inf
+    best_plus = math.inf
+    for _ in range(5):
+        best_base = min(best_base, _timed(base))
+        best_plus = min(best_plus, _timed(plus))
+    assert best_base > FLOOR_MS, best_base
+    delta = best_plus - best_base
+    assert delta < REBUILD_SLACK * best_base, (
+        f"one push past {REBUILD_SIZE} cost {delta:.0f} ms on a {best_base:.0f} ms build; "
+        "the index table is being rebuilt instead of doubled"
+    )
