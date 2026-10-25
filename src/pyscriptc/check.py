@@ -115,7 +115,7 @@ def run_checker(path: Path, checker: str = "pyrefly", extra_paths: Sequence[Path
     lowered constant, so the lowerer abandons the whole function body and
     the fences inside it never reach the census (issue #66).
     """
-    paths = list(extra_paths or [])
+    paths = list(extra_paths or []) + [Path(p) for p in _active_site_packages()]
     if checker in _DEPRECATED_CHECKERS:
         warnings.warn(_DEPRECATED_CHECKERS[checker], DeprecationWarning, stacklevel=2)
     if checker == "pyright":
@@ -281,10 +281,43 @@ def _format_pyrefly_error(error):
     return f"{path}:{line}: error: {description} [{rule}]" if rule else f"{path}:{line}: error: {description}"
 
 
+def _active_interpreter() -> str:
+    venv = os.environ.get("VIRTUAL_ENV")
+    if venv:
+        for candidate in (
+            Path(venv) / "bin" / "python",
+            Path(venv) / "bin" / "python3",
+            Path(venv) / "Scripts" / "python.exe",
+            Path(venv) / "python.exe",
+        ):
+            if candidate.is_file() and os.access(candidate, os.X_OK):
+                return str(candidate)
+    return sys.executable
+
+
+def _active_site_packages() -> list[str]:
+    roots: list[str] = []
+    pythonpath = os.environ.get("PYTHONPATH")
+    if pythonpath:
+        for p in pythonpath.split(os.pathsep):
+            if p and Path(p).is_dir() and p not in roots:
+                roots.append(p)
+    venv = os.environ.get("VIRTUAL_ENV")
+    if not venv:
+        return roots
+    for sp_candidate in (
+        Path(venv) / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages",
+        Path(venv) / "Lib" / "site-packages",
+    ):
+        if sp_candidate.is_dir() and str(sp_candidate) not in roots:
+            roots.append(str(sp_candidate))
+    return roots
+
+
 def _run_pyrefly(path: Path, extra_paths: Sequence[Path] | None = None) -> None:
     argv = _resolve_pyrefly_binary()
     source = path.resolve()
-    roots = list(extra_paths or [])
+    roots = list(extra_paths or []) + [Path(p) for p in _active_site_packages()]
     with tempfile.TemporaryDirectory(prefix="pyscriptc-pyrefly-") as tmp:
         typeshed = _patched_typeshed(Path(tmp) / "typeshed")
         search = [str(_PYRIGHT_STUBS)]
@@ -316,7 +349,7 @@ def _run_pyrefly(path: Path, extra_paths: Sequence[Path] | None = None) -> None:
                     "-c",
                     str(config),
                     "--python-interpreter-path",
-                    sys.executable,
+                    _active_interpreter(),
                     "--output-format",
                     "json",
                     str(source),
@@ -344,7 +377,7 @@ def _run_pyrefly(path: Path, extra_paths: Sequence[Path] | None = None) -> None:
 def _run_pyright(path: Path, extra_paths: Sequence[Path] | None = None) -> None:
     argv = _resolve_tool_argv("pyright", "PYRIGHT_BIN", ["pyright"])
     source = path.resolve()
-    roots = list(extra_paths or [])
+    roots = list(extra_paths or []) + [Path(p) for p in _active_site_packages()]
     with tempfile.TemporaryDirectory(prefix="pyscriptc-pyright-") as tmp:
         config = Path(tmp) / "pyrightconfig.json"
         config.write_text(

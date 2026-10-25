@@ -135,3 +135,23 @@ def test_run_pyrefly_sees_running_interpreter(tmp_path: Path, clean_env: pytest.
     argv = seen[0]
     assert argv[argv.index("--python-interpreter-path") + 1] == sys.executable
     assert argv[-1] == str(source.resolve())
+
+
+def test_run_pyrefly_respects_virtual_env(tmp_path: Path, clean_env: pytest.MonkeyPatch) -> None:
+    """When VIRTUAL_ENV is active, pyrefly queries the active venv interpreter and site-packages."""
+    _scripts_at(clean_env, tmp_path / "empty-bin")
+    venv = tmp_path / "custom_venv"
+    venv_py = _executable(venv / "bin" / "python")
+    clean_env.setenv("VIRTUAL_ENV", str(venv))
+    seen: list[list[str]] = []
+
+    def fake_run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        seen.append(list(argv))
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    clean_env.setattr(check.subprocess, "run", fake_run)
+    source = tmp_path / "ok.py"
+    source.write_text("x = 1\n", encoding="utf-8")
+    check._run_pyrefly(source)
+    argv = seen[0]
+    assert argv[argv.index("--python-interpreter-path") + 1] == str(venv_py)

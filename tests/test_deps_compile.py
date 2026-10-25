@@ -554,3 +554,85 @@ def test_no_dependencies_compiles_without_a_staged_tree(tmp_path: Path) -> None:
     binary = tmp_path / "plain"
     assert cli.main(["compile", str(script), "--skip-check", "-o", str(binary)]) == 0
     assert not (tmp_path / "plain-data").exists()
+
+
+def test_island_flag_routes_dependencies_to_island(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _data_fake(monkeypatch, tmp_path, {"tinydep": PURE_WHEEL})
+    script = _script(tmp_path)
+    cfg = _deps_config(script)
+    from pyscriptc.cli import _dependency_roots
+
+    roots_compile, checker_compile, lanes_compile = _dependency_roots(script, cfg, island_default=False)
+    assert len(roots_compile) == 1
+    assert len(checker_compile) == 1
+    assert lanes_compile["tinydep"]["lane"] == "pure"
+
+    roots_island, checker_island, lanes_island = _dependency_roots(script, cfg, island_default=True)
+    assert roots_island == []
+    assert len(checker_island) == 1
+    assert lanes_island["tinydep"]["lane"] == "island"
+
+
+def test_hyphenated_dependency_island_policy(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    wheel = make_wheel(
+        "more-itertools",
+        {"more_itertools/__init__.py": b"def chunked(): pass\n"},
+    )
+    _data_fake(monkeypatch, tmp_path, {"more-itertools": wheel})
+    body = """\
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#   "more-itertools",
+# ]
+# [tool.pyscriptc.imports]
+# "more-itertools" = "island"
+# ///
+import more_itertools
+"""
+    script = _script(tmp_path, body)
+    cfg = _deps_config(script)
+    from pyscriptc.cli import _dependency_roots
+
+    roots, checker_roots, lanes = _dependency_roots(script, cfg, island_default=False)
+    assert roots == []
+    assert len(checker_roots) == 1
+    assert lanes["more_itertools"]["lane"] == "island"
+
+
+def test_preflight_checker_sees_unpacked_island_dependency(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    wheel = make_wheel(
+        "more-itertools",
+        {"more_itertools/__init__.py": b"def chunked(iterable, n):\n    return []\n"},
+    )
+    _data_fake(monkeypatch, tmp_path, {"more-itertools": wheel})
+    body = """\
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#   "more-itertools",
+# ]
+# [tool.pyscriptc.imports]
+# "more-itertools" = "island"
+# ///
+import more_itertools
+
+
+def main() -> None:
+    pass
+
+
+if __name__ == "__main__":
+    main()
+"""
+    script = _script(tmp_path, body)
+    cfg = _deps_config(script)
+    from pyscriptc.cli import _dependency_roots
+
+    roots, checker_roots, _lanes = _dependency_roots(script, cfg, island_default=False)
+    assert roots == []
+    assert len(checker_roots) == 1
+    # run_checker with checker_roots passes preflight without missing-import error
+    from pyscriptc.check import run_checker
+
+    run_checker(script, "pyrefly", extra_paths=checker_roots)

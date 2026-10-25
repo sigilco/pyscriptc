@@ -212,6 +212,16 @@ class StdlibDispatchMixin:
             return
         status = module_status(stmt.module)
         if status is None:
+            # boxed:begin
+            if island_lane(stmt.module):
+                for alias in stmt.names:
+                    if alias.name == "*":
+                        fences.append(Fence("PS2002", "star import is not lowered", span_of(stmt, self.filename), None))
+                        continue
+                    local = alias.asname or alias.name
+                    self.bindings[local] = Binding("island_member", stmt.module, alias.name, False)
+                return
+            # boxed:end
             fences.append(
                 Fence(
                     "PS2002",
@@ -897,6 +907,33 @@ class StdlibDispatchMixin:
             if not attrs:
                 return dotted, module, "", "value"
             return dotted, module, attrs[-1], "pkg"
+        # boxed:begin
+        if binding.kind == "island":
+            if not attrs:
+                return dotted, binding.module, "", "value"
+            if binding.rooted:
+                prefix = binding.module.split(".")[1:]
+                if attrs[: len(prefix)] == prefix:
+                    rest = attrs[len(prefix) :]
+                    if not rest:
+                        return dotted, binding.module, "", "value"
+                    member = rest[-1]
+                    extra = rest[:-1]
+                    module = binding.module if not extra else binding.module + "." + ".".join(extra)
+                    return dotted, module, member, "island"
+            member = attrs[-1]
+            extra = attrs[:-1]
+            module = binding.module if not extra else binding.module + "." + ".".join(extra)
+            return dotted, module, member, "island"
+        if binding.kind == "island_member":
+            if not attrs:
+                return dotted, binding.module, binding.attr, "island"
+            member = attrs[-1]
+            extra = attrs[:-1]
+            base = f"{binding.module}.{binding.attr}" if binding.attr else binding.module
+            module = base if not extra else base + "." + ".".join(extra)
+            return dotted, module, member, "island"
+        # boxed:end
         if binding.kind != "module":
             return None
         if binding.rooted:

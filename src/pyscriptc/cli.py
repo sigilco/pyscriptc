@@ -590,13 +590,14 @@ def run_cmd(args: argparse.Namespace) -> int:
     source = Path(args.source)
     if not source.exists():
         raise IRError(f"source not found: {source}")
+    run_env = _run_environment(source)
     use_cache = runcache.enabled() and not args.no_cache
     key = _run_key(args)
     name = (source.resolve().name if source.is_dir() else source.stem) or "app"
     binary = runcache.binary_path(key, name)
     if use_cache and binary.is_file():
         log.info("run.cache_hit", key=key, binary=str(binary))
-        code = _exec_binary(binary, args.run_argv)
+        code = _exec_binary(binary, args.run_argv, env=run_env)
         _track_run(
             args,
             code,
@@ -621,7 +622,7 @@ def run_cmd(args: argparse.Namespace) -> int:
                 if not binary.is_file():
                     raise
             else:
-                code = _exec_binary(binary, args.run_argv)
+                code = _exec_binary(binary, args.run_argv, env=run_env)
                 _track_run(
                     args,
                     code,
@@ -630,7 +631,7 @@ def run_cmd(args: argparse.Namespace) -> int:
                     binary_bytes=_binary_size(binary),
                 )
                 return code
-        code = _exec_binary(build / name, args.run_argv)
+        code = _exec_binary(build / name, args.run_argv, env=run_env)
         _track_run(
             args,
             code,
@@ -743,8 +744,17 @@ def _build_for_run(args: argparse.Namespace, output: Path) -> int:
         sys.stdout = real_stdout
 
 
-def _exec_binary(binary: Path, argv: list[str]) -> int:
-    completed = subprocess.run([str(binary.absolute()), *argv])
+def _run_environment(source_path: Path) -> dict[str, str]:
+    env = dict(os.environ)
+    prog_dir = str((source_path if source_path.is_dir() else source_path.parent).resolve())
+    env.setdefault("PYSC_PROGRAM_DIR", prog_dir)
+    if "VIRTUAL_ENV" not in env and sys.prefix != sys.base_prefix:
+        env["VIRTUAL_ENV"] = sys.prefix
+    return env
+
+
+def _exec_binary(binary: Path, argv: list[str], env: dict[str, str] | None = None) -> int:
+    completed = subprocess.run([str(binary.absolute()), *argv], env=env)
     code = 128 + (-completed.returncode) if completed.returncode < 0 else completed.returncode
     log.info("run.exit", binary=str(binary), code=code)
     return code
@@ -1433,16 +1443,16 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             bridge = CheckerBridge.for_path(source_path, args.bridge)
             dbg.end("bridge")
         dbg.begin("lower")
-        dep_roots, dep_lanes = _dependency_roots(source_path, config)
-        binary = Path(args.output) if args.output else _artifact_base(args, source_path)
-        if ((args.target and "windows" in args.target) or sys.platform == "win32") and not binary.suffix:
-            binary = binary.with_suffix(".exe")
-        data_root = _stage_dependency_data(source_path, config, args, binary)
         # boxed:begin
         island_names = set(config.island_imports())
         island_default = bool(getattr(args, "island", False)) or config.wildcard_island()
         island_ctx = island_policy(island_names, island_default)
         # boxed:end
+        dep_roots, checker_roots, dep_lanes = _dependency_roots(source_path, config, island_default=island_default)
+        binary = Path(args.output) if args.output else _artifact_base(args, source_path)
+        if ((args.target and "windows" in args.target) or sys.platform == "win32") and not binary.suffix:
+            binary = binary.with_suffix(".exe")
+        data_root = _stage_dependency_data(source_path, config, args, binary, island_default=island_default)
         with island_ctx:
             if source_path.is_dir():
                 module, source = lower_directory(
@@ -1479,7 +1489,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         state["stage"] = "check"
         if not args.skip_check:
             dbg.begin("check")
-            run_checker(source_path, args.checker, [*_manifest_stub_roots(manifests), *dep_roots])
+            run_checker(source_path, args.checker, [*_manifest_stub_roots(manifests), *checker_roots])
             dbg.end("check")
         state["stage"] = "validate"
         dbg.begin("validate")
@@ -1684,7 +1694,8 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         state["stage"] = "run"
         log.info("run.start", binary=str(binary))
         dbg.begin("run")
-        completed = subprocess.run([str(binary.absolute()), *args.run_argv])
+        run_env = _run_environment(source_path)
+        completed = subprocess.run([str(binary.absolute()), *args.run_argv], env=run_env)
         dbg.end("run")
         code = 128 + (-completed.returncode) if completed.returncode < 0 else completed.returncode
         log.info("run.exit", binary=str(binary), code=code)
@@ -1700,7 +1711,9 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         dbg.write_dir(module, llvm_text, outputs, status)
 
 
-def _dependency_roots(source_path: Path, config: Any) -> tuple[list[Path], dict[str, dict[str, str]]]:
+def _dependency_roots(
+    source_path: Path, config: Any, island_default: bool = False
+) -> tuple[list[Path], list[Path], dict[str, dict[str, str]]]:
     """The dependency source roots the compile may import (issue #398).
 
     The deps report's `sourceRoots`, one directory per pure-Python
@@ -1710,7 +1723,11 @@ def _dependency_roots(source_path: Path, config: Any) -> tuple[list[Path], dict[
     exactly as they do today (the dependency contributes no root, so the
     import fences or binds on its own lane).
 
-    The second value is the lane report the compiler fences against: every
+    The second value is `checker_roots`: all unpacked source roots from the
+    deps cache (including island packages), so the preflight checker can
+    resolve their modules without requiring host environment installation.
+
+    The third value is the lane report the compiler fences against: every
     locked dependency keyed by its recorded import names (issue #408; the
     distribution-shaped module name when the wheel records none), with its
     lane and the lane hint, so a refused import names the distribution and
@@ -1721,9 +1738,10 @@ def _dependency_roots(source_path: Path, config: Any) -> tuple[list[Path], dict[
     """
 
     if not config.dependencies:
-        return [], {}
+        return [], [], {}
     report = deps.run_deps(source_path)
     roots: list[Path] = []
+    checker_roots: list[Path] = []
     lanes: dict[str, dict[str, str]] = {}
     for package in report["packages"]:
         distribution = package["name"]
@@ -1733,7 +1751,7 @@ def _dependency_roots(source_path: Path, config: Any) -> tuple[list[Path], dict[
         # dependency off the compile lane, not put a native one on it.
         lane = package["lane"]
         hint = package.get("hint", "")
-        policy = _dependency_lane(distribution, config)
+        policy = _dependency_lane(distribution, config, island_default=island_default)
         if policy != "compile":
             lane = policy
             hint = deps.POLICY_HINTS.get(policy, hint)
@@ -1742,11 +1760,13 @@ def _dependency_roots(source_path: Path, config: Any) -> tuple[list[Path], dict[
             "lane": lane,
             "hint": hint,
         }
+        root = package.get("source_root")
+        if root:
+            checker_roots.append(Path(root))
         names = tuple(package.get("import_names") or ())
         if not names:
             entry["importNames"] = deps.UNKNOWN_IMPORT_NAMES
             lanes.setdefault(module, entry)
-            root = package.get("source_root")
             if root and lane == "pure":
                 roots.append(Path(root))
             continue
@@ -1754,13 +1774,14 @@ def _dependency_roots(source_path: Path, config: Any) -> tuple[list[Path], dict[
             entry["provides"] = ", ".join(sorted(names))
         for import_name in names:
             lanes.setdefault(import_name.lower(), entry)
-        root = package.get("source_root")
         if root and lane == "pure":
             roots.append(Path(root))
-    return roots, lanes
+    return roots, checker_roots, lanes
 
 
-def _stage_dependency_data(source_path: Path, config: Any, args: argparse.Namespace, binary: Path) -> Path | None:
+def _stage_dependency_data(
+    source_path: Path, config: Any, args: argparse.Namespace, binary: Path, island_default: bool = False
+) -> Path | None:
     """Stage the pure wheels' data files beside the emitted binary (issue #410).
 
     Only the compile lanes (`bin` and the `--run` that implies it) need the
@@ -1782,7 +1803,7 @@ def _stage_dependency_data(source_path: Path, config: Any, args: argparse.Namesp
     report = deps.run_deps(source_path)
     collected: list[tuple[str, list[tuple[str, bytes]]]] = []
     for package in report["packages"]:
-        policy = _dependency_lane(package["name"], config)
+        policy = _dependency_lane(package["name"], config, island_default=island_default)
         if policy != "compile" or package["lane"] != "pure":
             continue
         root = package.get("source_root")
@@ -1799,15 +1820,24 @@ def _stage_dependency_data(source_path: Path, config: Any, args: argparse.Namesp
     return stage_data_files(collected, binary)
 
 
-def _dependency_lane(distribution: str, config: Any) -> str:
+def _dependency_lane(distribution: str, config: Any, island_default: bool = False) -> str:
     """The `[imports]` policy lane of one distribution, `compile` by default."""
     from pyscriptc.config import requirement_name
 
     name = requirement_name(distribution)
     module = name.lower().replace("-", "_").replace(".", "_")
-    for key in (name, name.lower(), module):
+    for key in (name, name.lower(), module, distribution):
         if key in config.imports:
-            return config.imports[key]
+            policy = config.imports[key]
+            # boxed:begin
+            if policy == "compile" and island_default:
+                return "island"
+            # boxed:end
+            return policy
+    # boxed:begin
+    if island_default:
+        return "island"
+    # boxed:end
     star = config.imports.get("*")
     if star not in (None, "compile"):
         return star

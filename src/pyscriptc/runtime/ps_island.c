@@ -18,6 +18,8 @@ the scalar, str, bytes, and list set the rest of the runtime already uses.
 /* The island tier embeds CPython, so every line of this file is boxed code
    (the ledger counts `src/pyscriptc/runtime/ps_island*` whole). */
 
+PsSeq *ps_argv_get(void);
+
 /* The GIL: Py_InitializeEx leaves the calling thread holding it, so every
    other native thread would block forever. SaveThread releases it after the
    one-time init, and each entry point re-enters through PyGILState_Ensure.
@@ -32,21 +34,101 @@ static void ps_island_init(void) {
         fprintf(stderr, "CPython island failed to initialize\n");
         abort();
     }
+    PyObject *site = PyImport_ImportModule("site");
     const char *venv = getenv("VIRTUAL_ENV");
-    if (venv != NULL) {
-        PyObject *site = PyImport_ImportModule("site");
-        if (site != NULL) {
-            char path[1024];
+    if (venv != NULL && site != NULL) {
+        char path[1024];
 #ifdef _WIN32
-            snprintf(path, sizeof path, "%s\\Lib\\site-packages", venv);
+        snprintf(path, sizeof path, "%s\\Lib\\site-packages", venv);
 #else
-            snprintf(path, sizeof path, "%s/lib/python%d.%d/site-packages", venv, PY_MAJOR_VERSION, PY_MINOR_VERSION);
+        snprintf(path, sizeof path, "%s/lib/python%d.%d/site-packages", venv, PY_MAJOR_VERSION, PY_MINOR_VERSION);
 #endif
-            PyObject *res = PyObject_CallMethod(site, "addsitedir", "s", path);
-            Py_XDECREF(res);
-            Py_DECREF(site);
-            PyErr_Clear();
+        PyObject *res = PyObject_CallMethod(site, "addsitedir", "s", path);
+        Py_XDECREF(res);
+        PyErr_Clear();
+    }
+    const char *pythonpath = getenv("PYTHONPATH");
+    if (pythonpath != NULL && pythonpath[0] != '\0' && site != NULL) {
+        char *copy = strdup(pythonpath);
+        if (copy != NULL) {
+#ifdef _WIN32
+            const char *delim = ";";
+#else
+            const char *delim = ":";
+#endif
+            char *tok = strtok(copy, delim);
+            while (tok != NULL) {
+                if (tok[0] != '\0') {
+                    PyObject *res = PyObject_CallMethod(site, "addsitedir", "s", tok);
+                    Py_XDECREF(res);
+                    PyErr_Clear();
+                }
+                tok = strtok(NULL, delim);
+            }
+            free(copy);
         }
+    }
+    PyObject *sys = PyImport_ImportModule("sys");
+    if (sys != NULL) {
+        PyObject *sys_path = PyObject_GetAttrString(sys, "path");
+        if (sys_path != NULL && PyList_Check(sys_path)) {
+            PyObject *dot = PyUnicode_FromString("");
+            if (dot != NULL) {
+                PyList_Insert(sys_path, 0, dot);
+                Py_DECREF(dot);
+            }
+            const char *prog_dir = getenv("PYSC_PROGRAM_DIR");
+            if (prog_dir != NULL && prog_dir[0] != '\0') {
+                if (site != NULL) {
+                    PyObject *res = PyObject_CallMethod(site, "addsitedir", "s", prog_dir);
+                    Py_XDECREF(res);
+                    PyErr_Clear();
+                }
+                PyObject *pdir = PyUnicode_FromString(prog_dir);
+                if (pdir != NULL) {
+                    PyList_Insert(sys_path, 0, pdir);
+                    Py_DECREF(pdir);
+                }
+            } else {
+                PsSeq *argv_seq = ps_argv_get();
+                if (argv_seq != NULL && argv_seq->len > 0) {
+                    PsBuf *b = (PsBuf *)argv_seq->data;
+                    if (b != NULL && b->data != NULL && b->len > 0) {
+                        char buf[1024];
+                        size_t len = (size_t)b->len < sizeof(buf) - 1 ? (size_t)b->len : sizeof(buf) - 1;
+                        memcpy(buf, b->data, len);
+                        buf[len] = '\0';
+                        char *last_slash = strrchr(buf, '/');
+#ifdef _WIN32
+                        char *last_bslash = strrchr(buf, '\\');
+                        if (last_bslash != NULL && (last_slash == NULL || last_bslash > last_slash)) {
+                            last_slash = last_bslash;
+                        }
+#endif
+                        if (last_slash != NULL) {
+                            *last_slash = '\0';
+                            if (site != NULL) {
+                                PyObject *res = PyObject_CallMethod(site, "addsitedir", "s", buf);
+                                Py_XDECREF(res);
+                                PyErr_Clear();
+                            }
+                            PyObject *pdir = PyUnicode_FromString(buf);
+                            if (pdir != NULL) {
+                                PyList_Insert(sys_path, 0, pdir);
+                                Py_DECREF(pdir);
+                            }
+                        }
+                    }
+                }
+            }
+            Py_DECREF(sys_path);
+        }
+        Py_DECREF(sys);
+        PyErr_Clear();
+    }
+    if (site != NULL) {
+        Py_DECREF(site);
+        PyErr_Clear();
     }
     PyEval_SaveThread();
 }

@@ -180,7 +180,12 @@ class Config:
 
     def island_imports(self) -> tuple[str, ...]:
         """Import names the policy table routes to the island, sorted."""
-        return tuple(sorted(name for name, lane in self.imports.items() if lane == "island" and name != "*"))
+        names: set[str] = set()
+        for name, lane in self.imports.items():
+            if lane == "island" and name != "*":
+                names.add(name)
+                names.add(name.replace("-", "_"))
+        return tuple(sorted(names))
 
     def wildcard_island(self) -> bool:
         """True when `* = "island"` makes every unlisted import island-bound."""
@@ -195,6 +200,12 @@ def lane_for(name: str, imports: dict[str, str]) -> tuple[str, str]:
     """
     if name in imports:
         return imports[name], name
+    norm_under = name.replace("-", "_")
+    if norm_under in imports:
+        return imports[norm_under], norm_under
+    norm_hyphen = name.replace("_", "-")
+    if norm_hyphen in imports:
+        return imports[norm_hyphen], norm_hyphen
     if "*" in imports:
         return imports["*"], "*"
     return DEFAULT_LANE, "default"
@@ -284,7 +295,7 @@ def _validate(table: str, data: dict[str, Any]) -> dict[str, Any]:
     if "imports" in data:
         imports = data["imports"]
         for name, lane in imports.items():
-            if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*|\*", name):
+            if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*|\*", name):
                 raise ConfigError(f"{_where(table, 'imports')}: invalid module name {name!r}")
             if not isinstance(lane, str) or lane not in LANES:
                 raise ConfigError(f"{_where(table, 'imports')}.{name} must be one of {'|'.join(LANES)}, got {lane!r}")
