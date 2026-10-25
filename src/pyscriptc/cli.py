@@ -350,6 +350,16 @@ def main(argv: list[str] | None = None) -> int:
         help="alias of --fallback=cpython",
     )
     # boxed:end
+    # boxed:begin
+    run_parser.add_argument(
+        "--report",
+        nargs="?",
+        const=True,
+        default=None,
+        metavar="FILE.json",
+        help="print or write the executed plane map after the run (default: silent)",
+    )
+    # boxed:end
     run_parser.add_argument("--call", help="function the generated main calls")
     run_parser.add_argument("--args", default="[]", help="Python literal list of arguments for --call")
     run_parser.add_argument("--driver", choices=("clang", "zig"), default=None)
@@ -623,6 +633,10 @@ def run_cmd(args: argparse.Namespace) -> int:
             cache_hit=True,
             binary_bytes=_binary_size(binary),
         )
+        # boxed:begin
+        if getattr(args, "report", None):
+            _handle_run_report(args.report, binary, source)
+        # boxed:end
         return code
     build = runcache.cache_dir() / f".build-{os.getpid()}-{key}"
     shutil.rmtree(build, ignore_errors=True)
@@ -648,6 +662,10 @@ def run_cmd(args: argparse.Namespace) -> int:
                     cache_hit=False,
                     binary_bytes=_binary_size(binary),
                 )
+                # boxed:begin
+                if getattr(args, "report", None):
+                    _handle_run_report(args.report, binary, source)
+                # boxed:end
                 return code
         code = _exec_binary(build / name, args.run_argv, env=run_env)
         _track_run(
@@ -657,9 +675,55 @@ def run_cmd(args: argparse.Namespace) -> int:
             cache_hit=False,
             binary_bytes=_binary_size(build / name),
         )
+        # boxed:begin
+        if getattr(args, "report", None):
+            _handle_run_report(args.report, build / name, source)
+        # boxed:end
         return code
     finally:
         shutil.rmtree(build, ignore_errors=True)
+
+
+# boxed:begin
+def _handle_run_report(report_target: Any, binary: Path, source_path: Path) -> None:
+    report_file = binary.parent / f"{binary.name}.report.json"
+    if report_file.is_file():
+        report_data = json.loads(report_file.read_text(encoding="utf-8"))
+    else:
+        ir_file = binary.parent / f"{binary.name}.ir.json"
+        from pyscriptc import boxed as _boxed
+
+        config = load_config(source_path)
+        if ir_file.is_file():
+            mod = json.loads(ir_file.read_text(encoding="utf-8"))
+            plane_map = mod.get("fallback")
+            if plane_map is None:
+                all_names = [f["name"] for f in mod.get("functions", [])]
+                plane_map = _boxed.plane_map([], [{"name": n} for n in dict.fromkeys(all_names)], mod.get("entry"))
+            requires_lp = bool(
+                mod.get("islandSource")
+                or (plane_map and any(p == _boxed.ISLAND for p in plane_map.get("functions", {}).values()))
+                or config.island_imports()
+            )
+        else:
+            plane_map = _boxed.plane_map([], [], None)
+            requires_lp = bool(config.island_imports())
+        report_data = {
+            "target": str(source_path),
+            "planeMap": plane_map,
+            "fallback": plane_map,
+            "requiresLibpython": requires_lp,
+            "islandImports": list(config.island_imports()),
+        }
+
+    rendered = json.dumps(report_data, indent=2) + "\n"
+    if isinstance(report_target, str):
+        Path(report_target).write_text(rendered, encoding="utf-8")
+    else:
+        sys.stderr.write(rendered)
+
+
+# boxed:end
 
 
 def _run_key(args: argparse.Namespace) -> str:
@@ -690,6 +754,10 @@ def _run_key(args: argparse.Namespace) -> str:
             f"skip_check={args.skip_check}",
             f"checker={args.checker}",
             f"ffi={','.join(ffi_paths)}",
+            # boxed:begin
+            f"fallback={getattr(args, 'fallback', None)}",
+            f"island={getattr(args, 'island', False)}",
+            # boxed:end
         ],
     )
 
@@ -737,6 +805,7 @@ def _build_for_run(args: argparse.Namespace, output: Path) -> int:
         args=args.args,
         run=False,
         # boxed:begin
+        fallback=getattr(args, "fallback", None),
         island=getattr(args, "island", False),
         # boxed:end
         driver=args.driver,
@@ -1463,7 +1532,11 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         dbg.begin("lower")
         # boxed:begin
         island_names = set(config.island_imports())
-        fallback = getattr(args, "fallback", None) == "cpython" or bool(getattr(args, "island", False))
+        fallback = (
+            getattr(args, "fallback", None) == "cpython"
+            or bool(getattr(args, "island", False))
+            or config.fallback_definitions()
+        )
         island_default = fallback or config.wildcard_island()
         island_ctx = island_policy(island_names, island_default)
         # boxed:end
@@ -1542,6 +1615,32 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         if args.emit == "ir":
             print(ir_path)
             return 0
+        # boxed:begin
+        fallback_map = module.get("fallback")
+        from pyscriptc import boxed as _boxed
+
+        if fallback_map is None:
+            all_names = [record["name"] for record in module.get("functions", [])]
+            fallback_map = _boxed.plane_map(
+                [],
+                [{"name": n} for n in dict.fromkeys(all_names)],
+                module.get("entry"),
+            )
+        requires_lp = bool(
+            module.get("islandSource")
+            or (fallback_map and any(p == _boxed.ISLAND for p in fallback_map.get("functions", {}).values()))
+            or config.island_imports()
+        )
+        report_data = {
+            "target": str(source_path),
+            "planeMap": fallback_map,
+            "fallback": fallback_map,
+            "requiresLibpython": requires_lp,
+            "islandImports": list(config.island_imports()),
+        }
+        report_path = _output_path(args, source_path, ".report.json")
+        report_path.write_text(json.dumps(report_data, indent=2) + "\n", encoding="utf-8")
+        # boxed:end
         call_args = _parse_args(args.args) if args.call else None
         if args.run and not args.call and standalone_entry(module) is None:
             print(

@@ -46,6 +46,9 @@ _KEYS: dict[str, tuple[type, ...]] = {
     "stub-path": (str, list),
     "ffi": (str, list),
     "imports": (dict,),
+    # boxed:begin
+    "fallback": (dict, str, bool),
+    # boxed:end
 }
 _CHOICES = {
     "checker": ("pyrefly", "mypy", "pyright"),
@@ -153,8 +156,24 @@ class Config:
     stub_path: tuple[str, ...] = ()
     ffi: tuple[str, ...] = ()
     imports: dict[str, str] = field(default_factory=dict)
+    # boxed:begin
+    fallback: Any = field(default_factory=dict)
+    # boxed:end
     requires_python: str | None = None
     dependencies: tuple[str, ...] = ()
+
+    # boxed:begin
+    def fallback_definitions(self) -> bool:
+        """True when [tool.pyscriptc.fallback] enables per-definition island routing."""
+        if isinstance(self.fallback, dict):
+            return bool(self.fallback.get("definitions", False)) or self.fallback.get("tier") == "cpython"
+        if isinstance(self.fallback, str):
+            return self.fallback in ("definitions", "cpython")
+        if isinstance(self.fallback, bool):
+            return self.fallback
+        return False
+
+    # boxed:end
 
     def lane_for(self, name: str) -> tuple[str, str]:
         """(lane, matched key) for an imported top-level name."""
@@ -325,6 +344,9 @@ def _from_table(table: dict[str, Any], origin: Path, source: str) -> Config:
         stub_path=_paths(table.get("stub-path", ())),
         ffi=_paths(table.get("ffi", ())),
         imports=dict(table.get("imports", {})),
+        # boxed:begin
+        fallback=table.get("fallback", {}),
+        # boxed:end
     )
 
 
