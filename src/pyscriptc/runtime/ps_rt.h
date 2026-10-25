@@ -234,7 +234,8 @@ typedef struct PsGrow {
 /* Raised exception. name and message are borrowed storage: name points at the
 static class-name table, message at a 256-byte owned buffer like the old
 ps_msg channel. cause links `raise ... from`; args is built lazily by
-ps_exc_args from message (E3 stores real ctor args). */
+ps_exc_args from message (E3 stores real ctor args). exit_status carries the
+`raise SystemExit(<int>)` value the uncaught handler exits with. */
 typedef struct PsExc {
     int32_t code;
     int32_t flags;
@@ -242,11 +243,16 @@ typedef struct PsExc {
     PsBuf message;
     struct PsExc *cause;
     PsSeq *args;
+    int64_t exit_status;
 } PsExc;
 
 /* The message is already a repr (a KeyError's missing key, say), so the
 report must not quote it a second time. */
 #define PS_EXC_FLAG_PREQUOTED 1
+/* `raise SystemExit(3)`: exit_status is the process status. */
+#define PS_EXC_FLAG_EXIT_STATUS 2
+/* `raise SystemExit("bye")`: message is printed to stderr, exit 1. */
+#define PS_EXC_FLAG_EXIT_MSG 4
 
 extern char ps_empty_byte;
 
@@ -255,6 +261,7 @@ __attribute__((noreturn)) void ps_raise_code(int32_t code);
 __attribute__((noreturn)) void ps_raise_zdi(int32_t variant);
 __attribute__((noreturn)) void ps_reraise(void);
 __attribute__((noreturn)) void ps_raise_exc(PsExc *e);
+__attribute__((noreturn)) void ps_raise_system_exit(int32_t code, int64_t status);
 void ps_report_current(const char *prefix);
 PsExc *ps_exc_current(void);
 void ps_exc_restore(PsExc *e);

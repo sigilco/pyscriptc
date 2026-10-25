@@ -9,7 +9,7 @@ pyscriptc targets CPython 3.14.x. Parsing, probes and the compatibility oracle f
 
 - stdout: byte-exact for every lowered call. The corpus scorer today compares whitespace-stripped stdout; tightening that to unstripped bytes is planned work.
 - stderr: for a `raises` probe, only the exception name must appear. Full traceback text is not matched.
-- exit code: an uncaught exception prints its name to stderr and exits 1, as CPython does.
+- exit code: an uncaught exception prints its name to stderr and exits 1, as CPython does. An uncaught `SystemExit` follows CPython's own rule instead: an `int` value is the exit status, a `str` value is written to stderr and the process exits 1, and no value exits 0, with no class name or traceback text printed. `raise SystemExit(<int>) from <cause>` does not lower (`PS2003`).
 - Anything that does not lower is a named `PSxxxx` fence, not a divergence. See the generated [supported](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md) table and [refused-features](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/spec/refused-features.md).
 
 ## Numbered divergences

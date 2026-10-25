@@ -221,8 +221,10 @@ def test_self_census_ballpark() -> None:
     # Warm runcache and lazy CLI imports (#385): stat-based cache key and lazy loader add 91 self-host fences.
     # Unpack cache schema versioning (#562): +4 self-host fences in deps.py.
     # Declared CPython target (#532): target.py and target checks add 26 self-host fences.
+    # SystemExit status (#603): one PS2003 fence in lower/_stmt.py for
+    # `raise SystemExit(<int>) from <cause>` (+1 fence).
 
-    assert census["fences"] == 3036
+    assert census["fences"] == 3037
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     # Project mode (#150): project.py adds about 240 lines.
@@ -230,4 +232,4 @@ def test_self_census_ballpark() -> None:
     # adds about 150 lines in coro.py. The asyncio primitives (#180 D3) add
     # about 400 in ps_async.c and restlower/_asyncio_sync.py.
     assert 11_000 <= census["lines"] <= 50_000
-    assert sum(p["fences"] for p in census["packages"]) == 3036
+    assert sum(p["fences"] for p in census["packages"]) == 3037

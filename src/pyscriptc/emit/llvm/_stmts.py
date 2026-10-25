@@ -11,6 +11,18 @@ from pyscriptc.emit._ir import _llvm_field_type
 from pyscriptc.errors import IRError
 
 
+def _is_exit_status(node: dict[str, Any] | None) -> bool:
+    """Whether `node` is an int-valued expression (a bool is an int in CPython).
+
+    Only `raise SystemExit(<int>)` keeps its argument typed; every other
+    exception message is the lowered `str()` of its argument.
+    """
+    if node is None:
+        return False
+    kind = node.get("type", {}).get("kind")
+    return kind in {"int", "bool"}
+
+
 class StmtsMixin:
     def emit_stmt(self, stmt: dict[str, Any]) -> None:
         kind = stmt["kind"]
@@ -384,6 +396,16 @@ class StmtsMixin:
                 raise IRError("raise cause must be a name or excmake")
             self._call_void("ps_exc_set_cause", [f"ptr {made}", f"ptr {cause_value}"])
             self.line(f"call void @ps_raise_exc(ptr {made}) noreturn")
+        elif stmt["exc"] == "SystemExit" and _is_exit_status(stmt.get("message")):
+            # `raise SystemExit(3)` keeps its value typed: ps_raise_system_exit
+            # stores it as the process status for the uncaught handler (#603).
+            value = self.emit_expr(stmt["message"])
+            if stmt["message"]["type"]["kind"] == "bool":
+                wide = self.tmp()
+                self.line(f"{wide} = zext i1 {value} to i64")
+                value = wide
+            self._abi_decl("ps_raise_system_exit", "void", ["i32", "i64"])
+            self.line(f"call void @ps_raise_system_exit(i32 {code}, i64 {value}) noreturn")
         elif stmt.get("message") is None:
             self.line(f"call void @ps_raise_code(i32 {code}) noreturn")
         else:
