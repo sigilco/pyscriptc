@@ -187,7 +187,7 @@ if __name__ == "__main__":
 
 
 def test_island_getattr_unannotated_fences(tmp_path: Path) -> None:
-    """Attribute access on an island handle without annotation fences with PS1001."""
+    """An unannotated handle read fences without the fallback tier; under it, main joins the island (issue #612)."""
     src = tmp_path / "fence_case.py"
     src.write_text(
         """import requests
@@ -198,10 +198,17 @@ def main() -> None:
 """,
         encoding="utf-8",
     )
-    comp = _run_cli("compile", "--island", str(src), "--emit", "ir", cwd=tmp_path)
+    comp = _run_cli("compile", str(src), "--emit", "ir", cwd=tmp_path)
     assert comp.returncode != 0
-    assert "PS1001" in comp.stderr
-    assert "status_code needs an annotation" in comp.stderr
+    assert "PS2002" in comp.stderr
+
+    # The per-definition fallback tier (issue #612): main's body fences, so
+    # the planner routes main to the island, where the read is plain CPython.
+    # `--island` is the alias of `--fallback=cpython`, so it compiles too.
+    comp_fb = _run_cli("compile", "--fallback=cpython", str(src), "--emit", "ir", cwd=tmp_path)
+    assert comp_fb.returncode == 0, comp_fb.stderr
+    comp_island = _run_cli("compile", "--island", str(src), "--emit", "ir", cwd=tmp_path)
+    assert comp_island.returncode == 0, comp_island.stderr
 
 
 def test_island_runtime_resolves_local_module_in_program_dir(tmp_path: Path) -> None:

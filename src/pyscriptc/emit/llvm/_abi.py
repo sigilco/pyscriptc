@@ -210,6 +210,98 @@ class AbiMixin:
         )
         return self._load_island_result(out, want)
 
+    # boxed:begin
+    def _emit_island_fn_call(self, expr: dict[str, Any], values: list[str]) -> str:
+        """One call into the boxed island namespace (issue #612).
+
+        `ps_island_fn_invoke(name, nargs, args)` returns the boxed result as
+        a handle; `ps_island_fn_invoke_value(name, nargs, args, want, pad,
+        &out)` unboxes through the same `want` mechanism as
+        `ps_island_call_value`. The namespace is seeded once with the
+        module's own source before `main` runs.
+        """
+        self._ensure_arg_type()
+        extra = values
+        count = len(extra)
+        if count:
+            slot = self.tmp()
+            self.line(f"{slot} = alloca [{count} x %ps.arg]")
+            for index in range(count):
+                base = self.tmp()
+                self.line(f"{base} = getelementptr [{count} x %ps.arg], ptr {slot}, i64 0, i64 {index}")
+                self._store_island_arg(base, extra[index], expr["args"][index]["type"])
+            arg_ptr = self.tmp()
+            self.line(f"{arg_ptr} = getelementptr [{count} x %ps.arg], ptr {slot}, i64 0, i64 0")
+        else:
+            arg_ptr = "null"
+        fn = expr["island_fn"]
+        name = fn["name"]
+        data = name.encode("utf-8")
+        size = len(data)
+        symbol = self.format_global(f"island.fn.{name}", data)
+        want = fn.get("want")
+        if want is not None:
+            code = self._island_code(want)
+            pad = self._island_pad(want)
+            out = self._alloca("%ps.arg")
+            self._abi_decl("ps_island_fn_invoke_value", "void", ["i64", "ptr", "i64", "ptr", "i32", "i32", "ptr"])
+            self._call_void(
+                "ps_island_fn_invoke_value",
+                [
+                    f"i64 {size}",
+                    f"ptr {symbol}",
+                    f"i64 {count}",
+                    f"ptr {arg_ptr}",
+                    f"i32 {code}",
+                    f"i32 {pad}",
+                    f"ptr {out}",
+                ],
+            )
+            return self._load_island_result(out, want)
+        self._abi_decl("ps_island_fn_invoke", "ptr", ["i64", "ptr", "i64", "ptr"])
+        return self._call_ret(
+            "ptr", "ps_island_fn_invoke", [f"i64 {size}", f"ptr {symbol}", f"i64 {count}", f"ptr {arg_ptr}"]
+        )
+
+    def _emit_island_getitem(self, expr: dict[str, Any], values: list[str]) -> str:
+        """One subscript into an island handle: `island_getitem(handle, key, want, &out)`."""
+        self._ensure_arg_type()
+        want = expr["island"]["want"]
+        code = self._island_code(want)
+        pad = self._island_pad(want)
+        key = expr["island"]["key"]
+        data = key.encode("utf-8")
+        size = len(data)
+        symbol = self.format_global(f"island.key.{data.hex()}", data)
+        out = self._alloca("%ps.arg")
+        self._abi_decl("ps_island_getitem", "void", ["ptr", "i64", "ptr", "i32", "i32", "ptr"])
+        self._call_void(
+            "ps_island_getitem",
+            [f"ptr {values[0]}", f"i64 {size}", f"ptr {symbol}", f"i32 {code}", f"i32 {pad}", f"ptr {out}"],
+        )
+        return self._load_island_result(out, want)
+
+    def _emit_island_seed(self, source: str) -> None:
+        """The once-per-binary namespace seed: the module's own source text.
+
+        Emitted at the top of `main` when the module carries an island
+        plane; the trampoline execs the text with `__name__` closed so the
+        script's main guard does not fire inside the island.
+        """
+        data = source.encode("utf-8")
+        size = len(data)
+        symbol = self.format_global("island.seed", data)
+        self._abi_decl("ps_island_fn_seed", "void", ["i64", "ptr"])
+        self._call_void("ps_island_fn_seed", [f"i64 {size}", f"ptr {symbol}"])
+
+    def _emit_island_seed_global(self) -> None:
+        """The main-prologue seed, when the module plans island definitions."""
+        source = self.module.get("islandSource")
+        if source:
+            self._emit_island_seed(source)
+
+    # boxed:end
+
     def _emit_island_getattr(self, expr: dict[str, Any], values: list[str]) -> str:
         """One attribute read: `island_getattr(handle, name, want, &out)`."""
         self._ensure_arg_type()

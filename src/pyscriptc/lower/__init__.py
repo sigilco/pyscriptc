@@ -158,6 +158,19 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # Island module name -> the hidden local that owns its handle
         # (issue #553). Reset per function scope, like `handle_locals`.
         self.island_modules: dict[str, str] = {}
+        # The boxed per-definition fallback tier (issue #612): when true, a
+        # definition whose body fences is planned for the island instead of
+        # refusing the compile. Set by `--fallback=cpython` / `--island`
+        # through `boxed_definitions`.
+        from pyscriptc.boxed import definitions_tier
+
+        self.fallback_definitions = definitions_tier()
+        # Names this compile plans for the island, from the fence list.
+        self.island_fns: set[str] = set()
+        # The per-definition probe state: the definition list to probe and
+        # the names the probe fenced.
+        self._boxed_functions: list[ast.FunctionDef] = []
+        self._boxed_island: set[str] = set()
         # boxed:end
         self.module_name = ""
         self.is_package = False
@@ -377,6 +390,14 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
 
         if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
             return None
+        # boxed:begin
+        # The boxed tier (issue #612): a call to an island function is an
+        # opaque handle, never a typed return; the peek must not give the
+        # call site the signature's return type, because the body never
+        # lowers and the trampoline marshals by annotation only.
+        if node.func.id in self.island_fns:
+            return None
+        # boxed:end
         sig = self.sigs.get(node.func.id)
         if sig is None or node.func.id in self.generic_fns:
             return None
@@ -851,6 +872,206 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
     def fail(self, node: ast.AST, code: str, message: str) -> NoReturn:
         raise Fence(code, message, span_of(node, self.filename), self.function)
 
+    # boxed:begin
+    def _boxed_resolve(self, fences: list[Fence]) -> None:
+        """The boxed planner, before any body lowers (issue #612).
+
+        Runs the fence-free probe per definition so the plane map is known
+        before call sites lower: a fenced definition's fences carry
+        `_boxed_probe` and leave no trace, and its name lands in
+        `island_fns`, which routes the calls to it through the island
+        trampoline. Definitions the probe clears lower native with their
+        real fences intact (a later fence in the body still refuses).
+        """
+        if not self.fallback_definitions:
+            return
+        saved_caught = self.caught
+        try:
+            for fn in self._boxed_functions:
+                if fn.name in self.declared or fn.name not in self.sigs or fn.name in self.generic_fns:
+                    continue
+                probe_fences: list[Fence] = []
+                saved_function = self.function
+                self.function = fn.name
+                try:
+                    self._boxed_probe(fn, probe_fences)
+                finally:
+                    self.function = saved_function
+                if probe_fences:
+                    self._boxed_island.add(fn.name)
+        finally:
+            self.caught = saved_caught
+        self.island_fns = set(self._boxed_island)
+        self._boxed_sibling_fences: list[Fence] = []
+        # Decision B (issue #612): an island function calling a definition
+        # that lowers native fences here, naming both functions. The seed
+        # carries island definitions only, so the sibling would be a
+        # NameError at run time; the v0.7.0 answer is the named compile
+        # fence (the island-to-compiled seam is `--emit binding`, v0.8.0).
+        for fn in self._boxed_functions:
+            if fn.name not in self.island_fns:
+                continue
+            for node in ast.walk(fn):
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                    name = node.func.id
+                    if name in self.sigs and name not in self.island_fns and name not in self.generic_fns:
+                        fences.append(
+                            Fence(
+                                "PS2002",
+                                f"{fn.name} runs on the island and cannot call the compiled function "
+                                f"{name}: the island-to-compiled seam is the `--emit binding` surface; "
+                                "annotate "
+                                f"{name} so it lowers native-to-native, or drop its annotations so it "
+                                "joins the island",
+                                span_of(node, self.filename),
+                                fn.name,
+                            )
+                        )
+                        self._boxed_sibling_fences.append(fences[-1])
+
+    def _boxed_probe(self, fn: ast.FunctionDef, sink: list[Fence]) -> None:
+        """Lower `fn`'s body into `sink`, discarding the IR.
+
+        The scope setup mirrors the real body pass (issue #612): the
+        signature's parameters become the locals, the per-function state
+        starts fresh, and everything restores after. Without it the probe
+        would fence on the function's own parameters (`url` is not a local)
+        and misplan every function that reads one.
+        """
+
+        self.caught = sink
+        try:
+            saved: dict[str, Any] = {
+                "locals": self.locals,
+                "prelude": self.prelude,
+                "temp": self.temp_n,
+                "modules": self.island_modules,
+                "globals": self.fn_globals,
+                "nonlocals": self.fn_nonlocals,
+                "captures": self.captures,
+                "frozen": self.frozen_names,
+                "unwrap": self.opt_unwrap,
+                "boxed": self.boxed_names,
+                "fn_body": self.fn_body,
+                "handle_locals": self.handle_locals,
+                "consumed": self.consumed_handles,
+                "returned": self.returned_handles,
+                "borrowed": self.borrowed_handles,
+            }
+            try:
+                self.fn_globals = self._globals_for(fn.body)
+                self.fn_nonlocals = set()
+                self.captures = {}
+                params, _ret = self._coro_body_sig(fn.name)
+                self.locals = {param["name"]: param["type"] for param in params}
+                self.frozen_names = set()
+                self.opt_unwrap = {}
+                self.boxed_names = set()
+                self.fn_body = list(fn.body)
+                self.handle_locals = {}
+                self.consumed_handles = set()
+                self.returned_handles = set()
+                self.borrowed_handles = {
+                    name for name, typ in self.locals.items() if isinstance(typ, dict) and is_handle_type(typ)
+                }
+                self._body(list(fn.body))
+            finally:
+                self.locals = saved["locals"]
+                self.prelude = saved["prelude"]
+                self.temp_n = saved["temp"]
+                self.island_modules = saved["modules"]
+                self.fn_globals = saved["globals"]
+                self.fn_nonlocals = saved["nonlocals"]
+                self.captures = saved["captures"]
+                self.frozen_names = saved["frozen"]
+                self.opt_unwrap = saved["unwrap"]
+                self.boxed_names = saved["boxed"]
+                self.fn_body = saved["fn_body"]
+                self.handle_locals = saved["handle_locals"]
+                self.consumed_handles = saved["consumed"]
+                self.returned_handles = saved["returned"]
+                self.borrowed_handles = saved["borrowed"]
+        finally:
+            self.caught = []
+
+    def _boxed_island_source(self, tree: ast.Module, island: set[str]) -> str:
+        """The source text the island seed execs (issue #612).
+
+        Stage 2 keeps the module top level native, so the seed must not
+        re-execute side-effecting top-level statements (the native init
+        already ran them; a second run doubles output). The seed carries
+        the statements an island function needs to resolve its names:
+
+        - every top-level `import` (module bindings, no side effects
+          beyond the import itself, which CPython caches);
+        - module assignments whose value is a literal (a constant or a
+          display of constants) - the names island functions read;
+        - the source segment of every island definition.
+
+        Stage 3 (the island top level) switches the seed to the whole
+        module body, where the guard stays closed and the top level runs
+        once, island-side.
+        """
+        segments: list[str] = []
+        for stmt in tree.body:
+            if isinstance(stmt, (ast.Import, ast.ImportFrom)):
+                segments.append(ast.get_source_segment(self.source, stmt) or "")
+                continue
+            if isinstance(stmt, (ast.Assign, ast.AnnAssign)) and self._boxed_is_literal_module_value(stmt):
+                segment = ast.get_source_segment(self.source, stmt)
+                if segment:
+                    segments.append(segment)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name in island:
+                segment = ast.get_source_segment(self.source, node)
+                if segment:
+                    segments.append(segment)
+        return "\n\n\n".join(segment for segment in segments if segment)
+
+    def _boxed_is_literal_module_value(self, stmt: ast.Assign | ast.AnnAssign) -> bool:
+        """True when the value is safe to re-execute island-side.
+
+        A literal (a constant or a display of constants) is always safe.
+        An initializer built from deterministic calls (`Path.home() / x`)
+        also re-executes to the same value, and the dogfood scripts read
+        such globals (`SESSION_DIR`, `ROOT`) from island functions; the
+        re-execution divergence is documented (plan Decision E: globals
+        are one-directional at this seam, and Stage 3 replaces this rule
+        with an island-owned top level). An import-bound name resolves
+        through the seeded imports, so attribute and call chains over it
+        lower island-side too.
+        """
+        value = getattr(stmt, "value", None)
+        if value is None:
+            return False
+        for node in ast.walk(value):
+            if isinstance(node, (ast.expr_context, ast.operator, ast.boolop, ast.unaryop, ast.cmpop)):
+                continue
+            if isinstance(node, ast.Constant):
+                continue
+            if isinstance(node, (ast.List, ast.Tuple, ast.Set, ast.Dict)):
+                continue
+            if isinstance(node, ast.UnaryOp):
+                continue
+            if isinstance(
+                node,
+                (
+                    ast.Name,
+                    ast.Attribute,
+                    ast.Call,
+                    ast.BinOp,
+                    ast.BoolOp,
+                    ast.JoinedStr,
+                    ast.FormattedValue,
+                    ast.IfExp,
+                ),
+            ):
+                continue
+            return False
+        return True
+
+    # boxed:end
+
     def mobile_guard(self, node: ast.AST, surface: str, key: str) -> None:
         """Fence a surface a mobile target cannot carry.
 
@@ -935,6 +1156,14 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 self.sigs[fn.name] = self._coro_signature(fn) or self._signature(fn, None, kind)
             except Fence as exc:
                 fences.append(exc)
+                # boxed:begin
+                # The signature itself fenced (an unannotated parameter or
+                # return, issue #612): under the fallback tier this plans
+                # the definition for the island, and the planner drops the
+                # fence with the definition.
+                if self.fallback_definitions:
+                    self._boxed_island.add(fn.name)
+                # boxed:end
             else:
                 params, ret = self.sigs[fn.name]
                 if _has_typevar(ret) or any(_has_typevar(param["type"]) for param in params):
@@ -942,6 +1171,12 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         self._pin_call_site_params(functions, fences)
         if self.deferred_module:
             self._bind_deferred_module(fences)
+        # boxed:begin
+        # The boxed plane decision happens here, before any body lowers, so
+        # every call site sees the same `island_fns` (issue #612).
+        self._boxed_functions = list(functions)
+        self._boxed_resolve(fences)
+        # boxed:end
         if self.cataloguing:
             self.function = None
             return {
@@ -1041,6 +1276,34 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # The deferred classes (the argparse namespace) grew their fields
         # while the statements lowered, so they close here.
         lowered_classes.extend(self._synthetic_classes({item["name"] for item in lowered_classes}, deferred_only=True))
+        # boxed:begin
+        # The boxed per-definition planner (issue #612): the fence list of a
+        # definition planned for the island leaves the module fence list and
+        # the definition leaves the lowered list (its body never lowered).
+        # Module-level fences keep refusing (Decision A: top level is
+        # all-or-nothing in this stage), and so does a fence in the
+        # synthesized entry, which *is* the top level.
+        fallback_map: dict[str, Any] | None = None
+        if self.fallback_definitions:
+            from pyscriptc import boxed as _boxed
+
+            island = set(self.island_fns)
+            island.discard(entry_name)
+            self.island_fns = island
+            lowered = [record for record in lowered if record["name"] not in island]
+            siblings = set(map(id, self._boxed_sibling_fences))
+            fences = [fence for fence in fences if fence.function not in island or id(fence) in siblings]
+            all_names = [record["name"] for record in lowered] + [fn.name for fn in functions]
+            fallback_map = _boxed.plane_map(
+                [fence.as_dict() for fence in fences],
+                [{"name": n} for n in dict.fromkeys(all_names)],
+                entry_name,
+            )
+            for name in island:
+                fallback_map["functions"][name] = _boxed.ISLAND
+            if island:
+                module_plane = self._boxed_island_source(tree, island)
+        # boxed:end
         self.function = None
         names = [item["name"] for item in lowered]
         module = {
@@ -1055,6 +1318,12 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             "classes": lowered_classes,
             "fences": [fence.as_dict() for fence in fences],
         }
+        # boxed:begin
+        if fallback_map is not None:
+            module["fallback"] = fallback_map
+            if self.island_fns:
+                module["islandSource"] = module_plane
+        # boxed:end
         if self.global_inits:
             module["globals"] = self.global_inits
         return self._coro_finish(module)

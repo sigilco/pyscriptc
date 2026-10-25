@@ -1,0 +1,257 @@
+"""Tests for the per-definition fallback planner (issue #612).
+
+Under `--fallback=cpython`, definitions whose lowering fences are planned for
+the embedded CPython island and invoked through `ps_island_fn_invoke`; typed
+siblings lower native. Mixed scripts stay byte-identical to CPython.
+"""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+FALLBACK_FLAGS = ("--fallback=cpython",)
+
+
+def _run_cli(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-m", "pyscriptc", *args],
+        cwd=cwd or ROOT,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+
+def _compile_and_compare(
+    tmp_path: Path, source_text: str, name: str = "prog"
+) -> tuple[subprocess.CompletedProcess[str], subprocess.CompletedProcess[str]]:
+    """Compile with the fallback tier, run, and diff against CPython."""
+    src = tmp_path / f"{name}.py"
+    src.write_text(source_text, encoding="utf-8")
+    binary = tmp_path / f"{name}_bin"
+    comp = _run_cli("compile", str(src), *FALLBACK_FLAGS, "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    assert comp.returncode == 0, comp.stderr
+    native = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    cpython = subprocess.run([sys.executable, str(src)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    return native, cpython
+
+
+def test_fallback_mixed_planes_byte_identical(tmp_path: Path) -> None:
+    """Unannotated definitions ride the island; typed siblings lower native."""
+    source_text = """import json
+from collections import defaultdict
+
+
+def tally(rows):
+    stats = defaultdict(int)
+    for row in rows:
+        stats[row["k"]] += row["v"]
+    return dict(stats)
+
+
+def scale(x, factor):
+    return x * factor
+
+
+def render(stats) -> str:
+    parts = []
+    for key in sorted(stats):
+        parts.append(f"{key}={stats[key]}")
+    return ",".join(parts)
+
+
+def main() -> None:
+    rows = json.loads('[{"k": "a", "v": 2}, {"k": "b", "v": 3}, {"k": "a", "v": 1}]')
+    stats = tally(rows)
+    print(render(stats))
+    doubled: int = scale(21, 2)
+    print(doubled)
+
+
+if __name__ == "__main__":
+    main()
+"""
+    native, cpython = _compile_and_compare(tmp_path, source_text)
+    assert native.returncode == 0, native.stderr
+    assert cpython.returncode == 0, cpython.stderr
+    assert native.stdout == cpython.stdout
+    assert native.stdout == "a=3,b=3\n42\n"
+
+
+def test_fallback_island_alias_flag(tmp_path: Path) -> None:
+    """`--island` is an alias for `--fallback=cpython` (Decision C)."""
+    src = tmp_path / "alias.py"
+    src.write_text(
+        """def helper(x):
+    return x + 1
+
+
+def main() -> None:
+    out: int = helper(41)
+    print(out)
+
+
+if __name__ == "__main__":
+    main()
+""",
+        encoding="utf-8",
+    )
+    for flags in (("--fallback=cpython",), ("--island",)):
+        binary = tmp_path / "alias_bin"
+        comp = _run_cli("compile", str(src), *flags, "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+        assert comp.returncode == 0, comp.stderr
+        run = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+        assert run.returncode == 0, run.stderr
+        assert run.stdout == "42\n"
+        binary.unlink()
+
+
+def test_fallback_native_caller_island_callee(tmp_path: Path) -> None:
+    """A native function calls an island function and unmarshals the result."""
+    source_text = """def fib(n):
+    if n < 2:
+        return n
+    return fib(n - 1) + fib(n - 2)
+
+
+def main() -> None:
+    total: int = fib(10)
+    label: str = f"fib(10)={total}"
+    print(label)
+    big: int = fib(20)
+    print(big)
+
+
+if __name__ == "__main__":
+    main()
+"""
+    native, cpython = _compile_and_compare(tmp_path, source_text)
+    assert native.returncode == 0, native.stderr
+    assert cpython.returncode == 0, cpython.stderr
+    assert native.stdout == cpython.stdout
+    assert native.stdout == "fib(10)=55\n6765\n"
+
+
+def test_fallback_island_caller_compiled_sibling_fences(tmp_path: Path) -> None:
+    """An island function calling a compiled sibling fences with both names (Decision B)."""
+    src = tmp_path / "sibling.py"
+    src.write_text(
+        """def native_helper(x: int) -> int:
+    return x * 2
+
+
+def island_fn(x):
+    return native_helper(x)
+
+
+def main() -> None:
+    out: int = island_fn(3)
+    print(out)
+
+
+if __name__ == "__main__":
+    main()
+""",
+        encoding="utf-8",
+    )
+    comp = _run_cli("compile", str(src), *FALLBACK_FLAGS, "--emit", "bin", "-o", str(tmp_path / "sib"), cwd=tmp_path)
+    assert comp.returncode != 0
+    assert "island_fn runs on the island and cannot call the compiled function native_helper" in comp.stderr
+    assert "--emit binding" in comp.stderr
+
+
+def test_fallback_top_level_fence_still_refuses(tmp_path: Path) -> None:
+    """Module top level is all-or-nothing in this stage (Decision A)."""
+    src = tmp_path / "toplevel.py"
+    src.write_text(
+        """import os
+
+
+def helper(x):
+    return x + 1
+
+
+name = os.environ["HOME"]
+
+
+if __name__ == "__main__":
+    print(helper(1))
+""",
+        encoding="utf-8",
+    )
+    comp = _run_cli("compile", str(src), *FALLBACK_FLAGS, "--emit", "bin", "-o", str(tmp_path / "top"), cwd=tmp_path)
+    assert comp.returncode != 0
+    assert "PS" in comp.stderr
+
+
+def test_fallback_without_flag_still_refuses(tmp_path: Path) -> None:
+    """Without the fallback flag, an unlowerable body fences as before."""
+    src = tmp_path / "plain.py"
+    src.write_text(
+        """import json
+
+
+def loader(text):
+    return json.loads(text)
+
+
+def main() -> None:
+    rows: list[dict[str, int]] = loader('[{"a": 1}]')
+    print(rows[0]["a"])
+
+
+if __name__ == "__main__":
+    main()
+""",
+        encoding="utf-8",
+    )
+    comp = _run_cli("compile", str(src), "--emit", "bin", "-o", str(tmp_path / "plain"), cwd=tmp_path)
+    assert comp.returncode != 0
+    assert "PS" in comp.stderr
+
+
+def test_fallback_island_exception_crosses_seam(tmp_path: Path) -> None:
+    """An island exception reaches native `except` through the type table."""
+    source_text = """def risky(n):
+    if n > 5:
+        raise ValueError(f"too big: {n}")
+    return n
+
+
+def main() -> None:
+    try:
+        risky(10)
+    except ValueError as exc:
+        print(f"caught {exc}")
+    else:
+        print("no raise")
+
+
+if __name__ == "__main__":
+    main()
+"""
+    native, cpython = _compile_and_compare(tmp_path, source_text)
+    assert native.returncode == 0, native.stderr
+    assert cpython.returncode == 0, cpython.stderr
+    assert native.stdout == cpython.stdout
+    assert native.stdout == "caught too big: 10\n"
+
+
+def test_fallback_systemexit_status_from_island(tmp_path: Path) -> None:
+    """`raise SystemExit(main())` exits with main's value (Decision E, #603)."""
+    source_text = """def main() -> int:
+    return 7
+
+
+try:
+    raise SystemExit(main())
+except SystemExit:
+    raise
+"""
+    native, cpython = _compile_and_compare(tmp_path, source_text)
+    assert native.returncode == cpython.returncode
+    assert native.returncode == 7

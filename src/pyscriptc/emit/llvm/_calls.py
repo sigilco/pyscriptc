@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+# boxed:begin
+from pyscriptc.boxed import INVOKE_SYMBOL
 from pyscriptc.emit._ir import _elem_size, _memory_type
+
+# boxed:end
 from pyscriptc.errors import IRError
 
 
@@ -240,8 +244,12 @@ class CallsMixin:
         # boxed:begin
         if expr.get("symbol") == "ps_island_call":
             return self._emit_island_call(expr, values)
+        if expr.get("symbol") == INVOKE_SYMBOL:
+            return self._emit_island_fn_call(expr, values)
         if expr.get("symbol") == "ps_island_getattr":
             return self._emit_island_getattr(expr, values)
+        if expr.get("symbol") == "ps_island_getitem":
+            return self._emit_island_getitem(expr, values)
         if expr.get("symbol") == "ps_island_unmarshal":
             return self._emit_island_unmarshal(expr, values)
         # boxed:end

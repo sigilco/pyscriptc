@@ -106,6 +106,9 @@ class FuncsMixin:
             self._abi_decl("pyscriptc_init", "i32", [])
             self._call_void("pyscriptc_init", [])
             self._emit_exc_registrations()
+            # boxed:begin
+            self._emit_island_seed_global()
+            # boxed:end
             for init in self.module.get("globals", []):
                 self.emit_expr(init)
             values = [self.materialize_arg(param["type"], value) for param, value in zip(params, prepared, strict=True)]
@@ -134,6 +137,9 @@ class FuncsMixin:
         self._abi_decl("ps_argv_init", "void", ["i32", "ptr"])
         self._call_void("ps_argv_init", ["i32 %argc", "ptr %argv"])
         self._emit_exc_registrations()
+        # boxed:begin
+        self._emit_island_seed_global()
+        # boxed:end
         for init in self.module.get("globals", []):
             self.emit_expr(init)
         values = [self.materialize_arg(param["type"], value) for param, value in zip(params, prepared, strict=True)]

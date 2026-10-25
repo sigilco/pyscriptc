@@ -178,7 +178,7 @@ class ExprMixin:
         if isinstance(node, ast.Tuple):
             return self._tuple_expr(node, span)
         if isinstance(node, ast.Subscript):
-            return self._subscript(node, span)
+            return self._subscript(node, span, expect)
         if isinstance(node, ast.BoolOp):
             return self._boolop(node, span)
         if isinstance(node, ast.JoinedStr):
@@ -275,6 +275,20 @@ class ExprMixin:
         if node.id in self.sigs:
             if node.id in self.generic_fns:
                 self.fail(node, "PS2002", f"{node.id} is generic and is not a value")
+            # boxed:begin
+            # The boxed tier (issue #612, Decision E): no cross-seam
+            # callables in this stage. A function value that names an
+            # island function (threading.Thread(target=fn), a first-class
+            # alias) would need the callable to cross the seam, so it
+            # fences naming the function and the typed idiom.
+            if node.id in self.island_fns:
+                self.fail(
+                    node,
+                    "PS2002",
+                    f"{node.id} runs on the island and cannot be taken as a value in compiled code: "
+                    "pass a small typed wrapper that calls it instead",
+                )
+            # boxed:end
             # A function referenced as a value: the closure wraps it with an
             # empty environment (the emitter adds a lazy env-first shim).
             params, ret = self.sigs[node.id]
@@ -1132,7 +1146,9 @@ class ExprMixin:
             self._expect(node, typ, expect, "dict")
         return {"kind": "dict", "pairs": pairs, "type": typ, "span": span}
 
-    def _subscript(self, node: ast.Subscript, span: dict[str, Any]) -> dict[str, Any]:
+    def _subscript(
+        self, node: ast.Subscript, span: dict[str, Any], expect: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         if isinstance(node.slice, ast.Slice):
             return self._slice(node, span)
         if self._is_environ(node.value):
@@ -1143,6 +1159,10 @@ class ExprMixin:
         value = self._expr(node.value)
         index = self._expr(node.slice)
         kind = value["type"]["kind"]
+        # boxed:begin
+        if value["type"].get("island"):
+            return self._island_getitem(node, value, index, span, expect)
+        # boxed:end
         if kind == "class" and self.classes.get(value["type"]["name"], {}).get("tuple"):
             return self._tuple_subscript(node, value, span)
         if kind == "list" and value["type"].get("set"):

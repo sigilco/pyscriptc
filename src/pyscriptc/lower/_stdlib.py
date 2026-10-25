@@ -16,7 +16,11 @@ from __future__ import annotations
 import ast
 from typing import Any, NoReturn
 
+# boxed:begin
+from pyscriptc.boxed import INVOKE_SYMBOL
 from pyscriptc.coro import enabled
+
+# boxed:end
 from pyscriptc.errors import span_of
 from pyscriptc.ffi_manifest import handle_type, is_handle_type, type_ir
 from pyscriptc.ir import types_equal
@@ -864,6 +868,39 @@ class StdlibDispatchMixin:
             self.fail(node, "PS1003", f"island cannot unmarshal {_show(expect)}; {idiom_note}")
         self.fail(node, "PS1003", f"island cannot unmarshal {_show(expect)}; {idiom_note}")
 
+    # boxed:begin
+    def _island_fn_call(self, node: ast.Call, span: dict[str, Any], name: str) -> dict[str, Any]:
+        """`helper(x)`: a call to a fenced definition the planner routed to
+        the island (issue #612).
+
+        The fence the body produced dropped out of the module fence list, so
+        the caller needs this call to lower instead. The result is an opaque
+        handle when the call site has no expectation; `_expr`'s unmarshal
+        pass (issue #602) unwraps it into an annotated destination through
+        the `want` mechanism. An island function calling a compiled sibling
+        stays fenced in this stage (Decision B): that call never reaches
+        here because the sibling fence already routed the caller itself.
+        """
+        if self.function is not None and self.function in self.island_fns:
+            self.fail(
+                node,
+                "PS2002",
+                f"{self.function} runs on the island and cannot call the compiled function "
+                f"{name}: the island-to-compiled seam is the `--emit binding` surface",
+            )
+        args = self._island_args(node, span)
+        return {
+            "kind": "call",
+            "callee": {"kind": "module", "module": "island", "name": name},
+            "args": args,
+            "type": _island_handle(f"{name}()"),
+            "symbol": INVOKE_SYMBOL,
+            "island_fn": {"name": name},
+            "span": span,
+        }
+
+    # boxed:end
+
     def _island_call(
         self, node: ast.Call, span: dict[str, Any], module: str, attr: str, expect: dict[str, Any] | None
     ) -> dict[str, Any]:
@@ -952,6 +989,43 @@ class StdlibDispatchMixin:
         expr = self._abi_call(obj["type"].get("name", "island"), name, [obj], expect, "ps_island_getattr", span)
         expr["island"] = {"name": name, "want": expect}
         return expr
+
+    def _island_getitem(
+        self,
+        node: ast.Subscript,
+        obj: dict[str, Any],
+        index: dict[str, Any],
+        span: dict[str, Any],
+        expect: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """`pair["x"]`: one subscript out of an island handle (issue #612).
+
+        The island side has real dict semantics, so the key crosses as a
+        string and the value unboxes through the `want` mechanism, exactly
+        like `_island_getattr`; the want type comes from the destination
+        annotation via `_expr`'s `expect` plumbed into `_subscript`.
+        """
+        if index["type"]["kind"] != "str":
+            self.fail(node, "PS1003", "an island subscript key is str")
+        if expect is None or expect.get("island"):
+            self.fail(
+                node,
+                "PS1001",
+                "an island subscript needs an annotation (int, float, bool, str, bytes or list[...]) before use",
+            )
+        self._island_validate_expect(node, expect)
+        key = index["value"] if index["kind"] == "const" else None
+        if key is None:
+            self.fail(node, "PS2002", "an island subscript key is a string literal")
+        return {
+            "kind": "call",
+            "callee": {"kind": "module", "module": "island", "name": "getitem"},
+            "args": [obj, {"kind": "const", "value": key, "type": {"kind": "str"}, "span": span}],
+            "type": expect,
+            "symbol": "ps_island_getitem",
+            "island": {"key": key, "want": expect},
+            "span": span,
+        }
 
     # boxed:end
 
