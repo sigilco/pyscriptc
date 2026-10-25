@@ -557,6 +557,26 @@ no = [["subparsers, nargs=, choices=", '''ap: argparse.ArgumentParser = argparse
 ap.add_argument("--x", nargs="+")''', "PS2003"]]
 
 [[stdlib]]
+names = ["platform"]
+ok = ['y: str = platform.system()', 'y: str = platform.machine()', 'y: str = platform.python_version()']
+no = [["processor", 'y: str = platform.processor()', "PS2001"]]
+
+[[stdlib]]
+names = ["calendar"]
+ok = ['y: bool = calendar.isleap(n)', 'y: int = calendar.leapdays(n, n)', 'y: int = calendar.weekday(n, n, n)']
+no = [["monthcalendar", 'y: list[list[int]] = calendar.monthcalendar(n, n)', "PS2001"]]
+
+[[stdlib]]
+names = ["zipfile"]
+ok = ['y: bool = zipfile.is_zipfile(s)']
+no = [["ZipFile", 'y: int = zipfile.ZipFile(s)', "PS2001"]]
+
+[[stdlib]]
+names = ["tarfile"]
+ok = ['y: bool = tarfile.is_tarfile(s)']
+no = [["TarFile", 'y: int = tarfile.TarFile(s)', "PS2001"]]
+
+[[stdlib]]
 names = ["typing", "typing_extensions"]
 red = false
 note = "annotation-only: imports are free, values are checked, there is no runtime surface"

@@ -167,6 +167,8 @@ def _module_closed(value: dict[str, Any]) -> bool:
         return False
     if kind == "list":
         return all(_module_closed(elem) for elem in value["elems"])
+    if kind == "tuple-const":
+        return all(_module_closed(elem) for elem in value["elems"])
     if kind == "dict":
         return all(_module_closed(pair["key"]) and _module_closed(pair["value"]) for pair in value["pairs"])
     return True
@@ -478,6 +480,53 @@ def _item(value: dict[str, Any], index: dict[str, Any], typ: dict[str, Any], spa
 
 def _const_str(value: str, span: dict[str, Any]) -> dict[str, Any]:
     return {"kind": "const", "value": value, "type": {"kind": "str"}, "span": span}
+
+
+def _const_float(value: float, span: dict[str, Any]) -> dict[str, Any]:
+    return {"kind": "const", "value": repr(value), "type": {"kind": "float"}, "span": span}
+
+
+def _const_bytes(value: bytes, span: dict[str, Any]) -> dict[str, Any]:
+    return {"kind": "const", "value": value.decode("latin1"), "type": {"kind": "bytes"}, "span": span}
+
+
+_MISSING: Any = object()
+
+
+def _raw_const(value: dict[str, Any] | None) -> Any:
+    if not isinstance(value, dict) or value.get("kind") != "const":
+        return _MISSING
+    typ = value.get("type", {}).get("kind")
+    val = value.get("value")
+    if typ == "int":
+        return int(val)
+    if typ == "float":
+        return float(val)
+    if typ == "bool":
+        return bool(val)
+    if typ == "str":
+        return str(val)
+    if typ == "bytes":
+        return val.encode("latin1") if isinstance(val, str) else bytes(val)
+    if typ == "none":
+        return None
+    return _MISSING
+
+
+def _make_const(val: Any, span: dict[str, Any]) -> dict[str, Any] | None:
+    if isinstance(val, bool):
+        return _const_bool(val, span)
+    if isinstance(val, int):
+        return _const_int(val, span)
+    if isinstance(val, float):
+        return _const_float(val, span)
+    if isinstance(val, str):
+        return _const_str(val, span)
+    if isinstance(val, bytes):
+        return _const_bytes(val, span)
+    if val is None:
+        return _const_none(span)
+    return None
 
 
 def _raise_value(message: dict[str, Any] | None, span: dict[str, Any]) -> dict[str, Any]:
