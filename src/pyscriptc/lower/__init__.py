@@ -927,6 +927,13 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # Issue #620: Cascade island definitions to native siblings.
         # If an island definition calls a native sibling, demote that sibling
         # transitively to a fixpoint.
+        # Issue #674: a native caller passing a mutable container (list,
+        # set, dict) to an island callee loses in-place mutation: the
+        # trampoline marshals a fresh island copy and nothing copies the
+        # cells back. Demote the caller to the island so the call is an
+        # island-to-island call on the same object. One fixpoint: demoting
+        # a caller (#674) can make its own native callees need the #620
+        # demotion and the other way around.
         changed = True
         while changed:
             changed = False
@@ -944,6 +951,27 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                             if callee not in self._boxed_demoted_by:
                                 self._boxed_demoted_by[callee] = fn.name
                             changed = True
+            for fn in self._boxed_functions:
+                if fn.name in self.island_fns:
+                    continue
+                if fn.name in self.generic_fns or fn.name in self.declared:
+                    continue
+                for node in ast.walk(fn):
+                    if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
+                        continue
+                    callee = node.func.id
+                    if callee not in self.island_fns or callee not in boxed_fns_by_name:
+                        continue
+                    if self._island_call_passes_mutable(callee):
+                        self.island_fns.add(fn.name)
+                        self._boxed_island.add(fn.name)
+                        self._boxed_demoted_by.setdefault(
+                            fn.name,
+                            f"island function {callee} takes a mutable container argument "
+                            "(a copy-in copy-out seam would lose in-place mutation, issue #674)",
+                        )
+                        changed = True
+                        break
 
         # Issue #628: cascade the island class to the compiled functions
         # that name it. The class object and its instances exist only
@@ -989,6 +1017,32 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                         msg = f"{fn.name} runs on the island and cannot call the compiled function {callee}: {reason}"
                         fences.append(Fence("PS2002", msg, span_of(node, self.filename), fn.name))
                         self._boxed_sibling_fences.append(fences[-1])
+
+    def _island_call_passes_mutable(self, callee: str) -> bool:
+        """Whether the island callee has a mutable container parameter
+        (issue #674).
+
+        The callee's proven signature is the fact: an unprovable signature
+        fenced the callee itself, so `sigs` answers for every parameter that
+        marshals at all. A list (a set lowers as a list with the set flag),
+        a dict or an optional wrapper of either mutates in place, so the
+        copy-in seam would lose the mutation. Scalars, str and bytes are
+        immutable and stay on the copy-in trampoline. Call-site binding is
+        deliberately ignored: the callee's contract is that the parameter
+        can be mutated, and any caller that binds it has the same hazard.
+        """
+        try:
+            params, _ret = self.sigs[callee]
+        except KeyError:
+            return True
+        for param in params:
+            kind = param["type"]["kind"]
+            elem = param["type"].get("elem") or {}
+            if kind in {"list", "dict"} or param["type"].get("set"):
+                return True
+            if param["type"].get("optional") and elem.get("kind") in {"list", "dict"}:
+                return True
+        return False
 
     def _boxed_island_class(self, node: ast.ClassDef) -> None:
         """Plan one class definition for the island (issue #628).

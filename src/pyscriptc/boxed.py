@@ -40,6 +40,19 @@ INVOKE_SYMBOL = "ps_island_fn_invoke"
 DEF_HANDLE_SYMBOL = "ps_island_def_handle"
 
 
+def _annotation_is_mutable(node: ast.expr | None) -> bool:
+    """Whether one parameter annotation is a mutable container (issue #674):
+    `list[...]`, `dict[...]` (or bare `dict`), `set[...]` or `bytearray`.
+    Scalars, `str` and `bytes` are immutable and stay on the copy-in seam.
+    """
+    if isinstance(node, ast.Name):
+        return node.id in {"list", "dict", "set", "bytearray"}
+    if isinstance(node, ast.Subscript):
+        value = node.value
+        return isinstance(value, ast.Name) and value.id in {"list", "dict", "set", "bytearray"}
+    return False
+
+
 def plane_map(
     fences: list[dict[str, Any]],
     functions: list[dict[str, Any]],
@@ -138,6 +151,32 @@ def plane_map(
                             if callee not in demotions:
                                 demotions[callee] = name
                             changed = True
+
+        # Issue #674: the same demotion as the lowerer's `_boxed_resolve`:
+        # a native caller of an island callee with a mutable container
+        # parameter joins the island, so the mutation is visible to the
+        # caller. The annotation on the parameter is the fact here.
+        if tree is not None and not top_level_island:
+            changed = True
+            while changed:
+                changed = False
+                for name, node in fn_nodes.items():
+                    if planes.get(name) != NATIVE:
+                        continue
+                    for child in ast.walk(node):
+                        if not (isinstance(child, ast.Call) and isinstance(child.func, ast.Name)):
+                            continue
+                        callee_node = fn_nodes.get(child.func.id)
+                        if callee_node is None or planes.get(callee_node.name) != ISLAND:
+                            continue
+                        if any(_annotation_is_mutable(arg.annotation) for arg in callee_node.args.args):
+                            planes[name] = ISLAND
+                            demotions.setdefault(
+                                name,
+                                f"island function {callee_node.name} takes a mutable container argument",
+                            )
+                            changed = True
+                            break
 
     return {
         "moduleTopLevel": ISLAND if top_level_island else NATIVE,

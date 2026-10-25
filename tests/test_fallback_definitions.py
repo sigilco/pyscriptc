@@ -948,3 +948,67 @@ if __name__ == "__main__":
     assert native.returncode == 0, native.stderr
     assert cpython.returncode == 0, cpython.stderr
     assert native.stdout == cpython.stdout == "42\n"
+
+
+def test_fallback_seam_list_mutation_copyback(tmp_path: Path) -> None:
+    """A native caller sees an island callee's in-place list mutation (issue #674).
+
+    `bump` fences (subscript augmented assignment), so `main` lowers native
+    and passes its list through the seam: before the fix the island mutated
+    a marshalled copy and `main` printed the first sum twice.
+    """
+    source_text = """def bump(xs: list[float], k: float) -> None:
+    for i in range(len(xs)):
+        xs[i] -= k
+
+
+def show(xs: list[float]) -> float:
+    return xs[0] + xs[1]
+
+
+def main() -> None:
+    xs = [1.0, 2.0]
+    print(f"{show(xs):.3f}")
+    for _ in range(3):
+        bump(xs, 0.5)
+    print(f"{show(xs):.3f}")
+
+
+main()
+"""
+    native, cpython = _compile_and_compare(tmp_path, source_text, "seam674")
+    assert native.returncode == 0, native.stderr
+    assert cpython.returncode == 0, cpython.stderr
+    assert native.stdout == cpython.stdout == "3.000\n0.000\n"
+
+
+def test_fallback_seam_nbody_energy_matches_cpython(tmp_path: Path) -> None:
+    """An nbody-like native caller whose island callee advances the bodies (issue #674)."""
+    source_text = """def advance(bodies: list[float], dt: float) -> None:
+    for i in range(0, len(bodies), 4):
+        bodies[i] += dt * bodies[i + 2]
+        bodies[i + 1] += dt * bodies[i + 3]
+
+
+def energy(bodies: list[float]) -> float:
+    e = 0.0
+    for i in range(0, len(bodies), 4):
+        e += 0.5 * bodies[i + 2] * bodies[i + 2]
+        e += 0.5 * bodies[i + 3] * bodies[i + 3]
+    return e
+
+
+def main() -> None:
+    bodies = [1.0, 0.0, 0.0, 0.5]
+    print(f"{energy(bodies):.6f}")
+    for _ in range(10):
+        advance(bodies, 0.01)
+    print(f"{energy(bodies):.6f}")
+
+
+main()
+"""
+    native, cpython = _compile_and_compare(tmp_path, source_text, "nbody674")
+    assert native.returncode == 0, native.stderr
+    assert cpython.returncode == 0, cpython.stderr
+    assert native.stdout == cpython.stdout
