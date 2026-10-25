@@ -202,6 +202,23 @@ _ENTRIES = (
         "Use Latin-1 text, or move the literal to bytes.",
     ),
     Diagnostic(
+        "PS2006",
+        "decorator expression is not a lowered callable",
+        (
+            "A user decorator lowers as a direct call of a function value, so the "
+            "decorator expression must be typed as a function that takes the "
+            "decorated function and returns one. An expression such as "
+            "`@click.command()` returns a class instance, an untyped value or an "
+            "island value, which carries no lowered parameter list to check the "
+            "wrapped function against."
+        ),
+        (
+            "Use a decorator typed as a function returning a function, or apply "
+            "the wrapper explicitly in the function body. Under "
+            "`--fallback=cpython` the decorated definition runs island-side."
+        ),
+    ),
+    Diagnostic(
         "PS2101",
         "queued stdlib module",
         "The module is on the roadmap and is not lowered yet.",

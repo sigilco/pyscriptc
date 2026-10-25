@@ -77,3 +77,52 @@ def test_module_decorators_stay_fenced(tmp_path: Path) -> None:
         )
         assert got.returncode == 3, f"{name}\n{got.stderr}"
         assert text in got.stderr, f"{name}\n{got.stderr}"
+
+
+def test_untyped_decorator_expression_fences(tmp_path: Path) -> None:
+    """`@factory()` whose result is not a lowered callable names PS2006 (#626).
+
+    A class-typed decorator expression used to crash the lowering pass with
+    `KeyError: 'params'`; it now refuses at the named fence.
+    """
+    body = [
+        "class Command:",
+        "    def __call__(self, fn: int) -> int:",
+        "        return fn",
+        "",
+        "def command() -> Command:",
+        "    return Command()",
+        "",
+    ]
+    cases = {
+        "module_dec_cls.py": [
+            *body,
+            "@command()",
+            "def probe() -> int:",
+            "    return 1",
+            "",
+        ],
+        "nested_dec_cls.py": [
+            *body,
+            "def probe() -> int:",
+            "    @command()",
+            "    def inner() -> int:",
+            "        return 1",
+            "    return inner()",
+            "",
+        ],
+    }
+    for name, lines in cases.items():
+        path = write_case(tmp_path, name, "\n".join(lines))
+        got = run_cli(
+            "compile",
+            str(path),
+            "--skip-check",
+            "--emit",
+            "llvm",
+            "-o",
+            str(tmp_path / f"{name}.ll"),
+        )
+        assert got.returncode == 3, f"{name}\n{got.stderr}"
+        assert "PS2006: decorator command() is not a lowered callable" in got.stderr, f"{name}\n{got.stderr}"
+        assert "Traceback" not in got.stderr, f"{name}\n{got.stderr}"

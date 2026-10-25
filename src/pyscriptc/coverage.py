@@ -197,6 +197,7 @@ _RULES: tuple[tuple[str | None, str, str], ...] = (
     ("PS2002", r"at module scope is not lowered", "module-statements"),
     ("PS2002", r"module assignment", "module-assign"),
     ("PS2002", r"decorators? ", "decorators"),
+    ("PS2006", r"", "decorators"),
     ("PS2002", r"resumable|generator|\byield\b", "generators"),
     ("PS2002", r"contextmanager", "contextmanager"),
     ("PS2002", r"", "construct-other"),

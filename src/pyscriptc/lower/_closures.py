@@ -72,11 +72,19 @@ class ClosuresMixin:
             dec_expr = self._expr(dec)
         except Fence:
             pass
-        params = dec_expr["type"]["params"] if dec_expr is not None else []
+        if dec_expr is None or dec_expr["type"].get("kind") != "func":
+            # A decorator expression the pass cannot type as a lowered func (a
+            # class instance with `__call__`, an island value, an untyped name)
+            # carries no `params` key: name the fence instead of reading one
+            # the type does not have (issue #626).
+            self.fail(
+                dec,
+                "PS2006",
+                f"decorator {ast.unparse(dec)} is not a lowered callable",
+            )
+        params = dec_expr["type"]["params"]
         if (
-            dec_expr is None
-            or dec_expr["type"]["kind"] != "func"
-            or len(params) != 1
+            len(params) != 1
             or not types_equal(params[0], value["type"])
             or dec_expr["type"]["return"]["kind"] != "func"
         ):
