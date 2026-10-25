@@ -94,6 +94,8 @@ class CallsMixin:
             if name != "int":
                 self._reject_keywords(node)
             args = [self._expr(arg) for arg in node.args]
+            if name in {"int", "float"} and len(args) >= 1:
+                args[0] = self._opt_arg_or_type_error(name, args[0], span)
             if name == "int" and node.args and (len(node.args) == 2 or node.keywords):
                 # The `base` row: `int(text, base)` positional and `int(text,
                 # base=N)` keyword are the same call; an unknown keyword name
@@ -231,6 +233,38 @@ class CallsMixin:
             }
         self.fail(node, "PS2002", f"call to {name} is not lowered")
         raise AssertionError("unreachable")
+
+    def _opt_arg_or_type_error(self, name: str, arg: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+        """`int(x)` on a tagged `str | None`: CPython raises TypeError for None.
+
+        The tag is tested at the call; the unwrapped `_val` feeds the lowered
+        conversion, so `int(m.group(1))` runs without a narrowing temp.
+        """
+        typ = arg["type"]
+        if not typ.get("optional") or typ["elem"]["kind"] not in {"str", "bytes", "int", "float"}:
+            return arg
+        if arg["kind"] != "name":
+            temp = self._temp("optarg")
+            self.locals[temp] = typ
+            self.prelude.append(_assign(temp, arg, span))
+            arg = _name(temp, typ, span)
+        message = f"{name}() argument must be a string, a bytes-like object or a real number, not 'NoneType'"
+        self.prelude.append(
+            {
+                "kind": "if",
+                "cond": {
+                    "kind": "unary",
+                    "op": "not",
+                    "operand": _attr(arg, "_tag", {"kind": "bool"}, span),
+                    "type": {"kind": "bool"},
+                    "span": span,
+                },
+                "then": [{"kind": "raise", "exc": "TypeError", "message": _const_str(message, span), "span": span}],
+                "else": [],
+                "span": span,
+            }
+        )
+        return _attr(arg, "_val", typ["elem"], span)
 
     def _generic_call(self, node: ast.Call, span: dict[str, Any], name: str) -> dict[str, Any]:
         """A call to a generic function (`def ident(x: T) -> T`): unify the

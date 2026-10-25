@@ -1405,10 +1405,13 @@ class ExprMixin:
         temp = self._temp("boolop")
         self.locals[temp] = typ
         self.prelude.append(_assign(temp, first, span))
-        for value_node in node.values[1:]:
+        proven: set[str] = set()
+        for index, value_node in enumerate(node.values[1:], start=1):
+            when_true, when_false = self._narrow_names(node.values[index - 1])
+            proven |= when_true if op_and else when_false
             saved = self.prelude
             self.prelude = []
-            right = self._bool_operand(value_node, as_cond)
+            right = self._narrowed(proven, node, lambda value_node=value_node: self._bool_operand(value_node, as_cond))
             inner = self.prelude
             self.prelude = saved
             if not types_equal(right["type"], typ):
@@ -1441,11 +1444,12 @@ class ExprMixin:
         cond = self._bool_cond(node.test)
         saved = self.prelude
         self.prelude = []
+        when_true, when_false = self._narrow_names(node.test)
         try:
-            body = self._expr(node.body)
+            body = self._narrowed(when_true, node, lambda: self._expr(node.body))
             body_pre = self.prelude
             self.prelude = []
-            orelse = self._expr(node.orelse)
+            orelse = self._narrowed(when_false, node, lambda: self._expr(node.orelse))
             orelse_pre = self.prelude
         finally:
             self.prelude = saved

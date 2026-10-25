@@ -53,6 +53,61 @@ if TYPE_CHECKING:
 
 
 class StmtMixin:
+    def _narrowable(self, name: str) -> bool:
+        typ = self.locals.get(name)
+        return typ is not None and bool(typ.get("optional")) and name not in self.fn_globals
+
+    def _narrow_names(self, test: ast.expr) -> tuple[set[str], set[str]]:
+        """The tagged optionals a test proves set when it is true and when it is false.
+
+        `x is not None` and a bare `x` prove x set when true; `x is None`
+        proves it when false; `not` swaps the two; `a and b` proves the union
+        of both sides when true and what both sides prove when false; `a or b`
+        is the dual. A walrus target inside the test is never narrowed.
+        """
+        none: set[str] = set()
+        if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+            when_true, when_false = self._narrow_names(test.operand)
+            return when_false, when_true
+        if isinstance(test, ast.Name):
+            return ({test.id} if self._narrowable(test.id) else none), none
+        if isinstance(test, ast.Compare) and len(test.ops) == 1 and isinstance(test.ops[0], (ast.Is, ast.IsNot)):
+            left, right = test.left, test.comparators[0]
+            probe = left if _is_none_expr(right) else right if _is_none_expr(left) else None
+            if isinstance(probe, ast.Name) and self._narrowable(probe.id):
+                if isinstance(test.ops[0], ast.IsNot):
+                    return {probe.id}, none
+                return none, {probe.id}
+            return none, none
+        if isinstance(test, ast.BoolOp):
+            parts = [self._narrow_names(value) for value in test.values]
+            trues = [part[0] for part in parts]
+            falses = [part[1] for part in parts]
+            if isinstance(test.op, ast.And):
+                return set().union(*trues), set.intersection(*falses)
+            return set.intersection(*trues), set().union(*falses)
+        return none, none
+
+    def _narrowed(self, names: set[str], scope: list[ast.stmt] | ast.expr, body: Any) -> Any:
+        """Run `body()` with `names` narrowed, minus any name rebound in `scope`."""
+        scopes = scope if isinstance(scope, list) else [scope]
+        usable = {
+            name
+            for name in names
+            if not any(
+                isinstance(inner, ast.Name) and inner.id == name and isinstance(inner.ctx, (ast.Store, ast.Del))
+                for item in scopes
+                for inner in ast.walk(item)
+            )
+        }
+        saved = dict(self.opt_unwrap)
+        for name in usable:
+            self.opt_unwrap[name] = self.locals[name]
+        try:
+            return body()
+        finally:
+            self.opt_unwrap = saved
+
     def _loop_flag(self, body: list[ast.stmt]) -> str | None:
         if not any(_stmt_breaks_this_loop(stmt) for stmt in body):
             return None
@@ -310,44 +365,13 @@ class StmtMixin:
         if isinstance(stmt, ast.AugAssign):
             return self._aug_assign(stmt, span)
         if isinstance(stmt, ast.If):
-            # `if x is (not) None:` narrows a tagged optional for the branch
-            # where the tag is known set: reads of x lower to its `_val`.
-            # A name rebound anywhere inside that branch is not narrowed.
-            narrow: str | None = None
-            narrow_else = False
-            test = stmt.test
-            if isinstance(test, ast.Compare) and len(test.ops) == 1 and isinstance(test.ops[0], (ast.Is, ast.IsNot)):
-                left, right = test.left, test.comparators[0]
-                probe = left if _is_none_expr(right) else right if _is_none_expr(left) else None
-                if isinstance(probe, ast.Name) and probe.id in self.locals:
-                    opt_typ = self.locals[probe.id]
-                    narrow_else = isinstance(test.ops[0], ast.Is)
-                    branch_stmts = stmt.orelse if narrow_else else stmt.body
-                    if (
-                        opt_typ.get("optional")
-                        and probe.id not in self.fn_globals
-                        and not any(
-                            isinstance(inner, ast.Name)
-                            and inner.id == probe.id
-                            and isinstance(inner.ctx, (ast.Store, ast.Del))
-                            for item in branch_stmts
-                            for inner in ast.walk(item)
-                        )
-                    ):
-                        narrow = probe.id
-            if narrow is not None:
-                self.opt_unwrap[narrow] = self.locals[narrow]
-                try:
-                    scoped = self._body(list(stmt.orelse if narrow_else else stmt.body))
-                finally:
-                    self.opt_unwrap.pop(narrow, None)
-                if narrow_else:
-                    then_body, else_body = self._body(list(stmt.body)), scoped
-                else:
-                    then_body, else_body = scoped, self._body(list(stmt.orelse))
-            else:
-                then_body = self._body(list(stmt.body))
-                else_body = self._body(list(stmt.orelse))
+            # The test narrows tagged optionals per branch (`x is not None`,
+            # `x`, `not x`, and `and`/`or` chains of those): reads of a
+            # narrowed name lower to its `_val`. A name rebound anywhere
+            # inside that branch is not narrowed.
+            when_true, when_false = self._narrow_names(stmt.test)
+            then_body = self._narrowed(when_true, stmt.body, lambda: self._body(list(stmt.body)))
+            else_body = self._narrowed(when_false, stmt.orelse, lambda: self._body(list(stmt.orelse)))
             return [
                 {
                     "kind": "if",
@@ -379,7 +403,9 @@ class StmtMixin:
                     cond_pre = self.prelude
                 finally:
                     self.prelude = saved_prelude
-                body = [*self._continue_reset(span), *self._body(list(stmt.body))]
+                when_true, _ = self._narrow_names(stmt.test)
+                inner = self._narrowed(when_true, stmt.body, lambda: self._body(list(stmt.body)))
+                body = [*self._continue_reset(span), *inner]
                 out = self._user_while(cond, body, span, cond_pre=cond_pre)
             finally:
                 broke = self.broke_flag
@@ -2422,6 +2448,23 @@ def _stmt_breaks_this_loop(stmt: ast.stmt) -> bool:
 
 def _stmt_continues_this_loop(stmt: ast.stmt) -> bool:
     return _stmt_jumps_this_loop(stmt, ast.Continue)
+
+
+def _ast_exits(body: list[ast.stmt]) -> bool:
+    """The statement list never falls through: it returns, raises, continues, breaks or exits the process."""
+    for stmt in body:
+        if isinstance(stmt, (ast.Return, ast.Raise, ast.Continue, ast.Break)):
+            return True
+        if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+            func = stmt.value.func
+            if isinstance(func, ast.Attribute) and func.attr == "exit" and isinstance(func.value, ast.Name):
+                if func.value.id == "sys":
+                    return True
+            if isinstance(func, ast.Name) and func.id in {"exit", "quit"}:
+                return True
+        if isinstance(stmt, ast.If) and stmt.orelse and _ast_exits(stmt.body) and _ast_exits(stmt.orelse):
+            return True
+    return False
 
 
 def _always_returns(body: list[dict[str, Any]]) -> bool:

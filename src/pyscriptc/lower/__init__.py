@@ -55,6 +55,7 @@ from pyscriptc.lower._stdlib_shared import (
 from pyscriptc.lower._stmt import (
     StmtMixin,
     _always_returns,
+    _ast_exits,
     _is_docstring,
     _is_main_guard,
     _stmt_breaks_this_loop,
@@ -2125,35 +2126,27 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                     self.caught.append(exc)
                     continue
                 body.extend(lowered)
-                # `if x is None: <arm always exits>` narrows x to its tagged
-                # value for the rest of this body, unless a later statement
-                # rebinds the name.
-                if (
-                    isinstance(stmt, ast.If)
-                    and len(lowered) == 1
-                    and lowered[0]["kind"] == "if"
-                    and isinstance(stmt.test, ast.Compare)
-                    and len(stmt.test.ops) == 1
-                    and isinstance(stmt.test.ops[0], ast.Is)
-                ):
-                    t_left, t_right = stmt.test.left, stmt.test.comparators[0]
-                    probe = t_left if _is_none_expr(t_right) else t_right if _is_none_expr(t_left) else None
+                # `if x is None: <arm always exits>` (or any test that proves
+                # x set when the other arm is the only one left) narrows x to
+                # its tagged value for the rest of this body, unless a later
+                # statement rebinds the name.
+                if isinstance(stmt, ast.If):
+                    when_true, when_false = self._narrow_names(stmt.test)
+                    then_exits = _ast_exits(stmt.body) or (
+                        len(lowered) == 1 and lowered[0]["kind"] == "if" and _always_returns(lowered[0]["then"])
+                    )
+                    else_exits = bool(stmt.orelse) and _ast_exits(stmt.orelse)
+                    proven = when_false if then_exits and not else_exits else when_true if else_exits else set()
                     rest = statements[index + 1 :]
-                    if (
-                        isinstance(probe, ast.Name)
-                        and probe.id in self.locals
-                        and self.locals[probe.id].get("optional")
-                        and probe.id not in self.fn_globals
-                        and _always_returns(lowered[0]["then"])
-                        and not any(
+                    for name in proven:
+                        if not any(
                             isinstance(inner, ast.Name)
-                            and inner.id == probe.id
+                            and inner.id == name
                             and isinstance(inner.ctx, (ast.Store, ast.Del))
                             for item in rest
                             for inner in ast.walk(item)
-                        )
-                    ):
-                        self.opt_unwrap[probe.id] = self.locals[probe.id]
+                        ):
+                            self.opt_unwrap[name] = self.locals[name]
                 skips = (self.break_flag is not None and _stmt_breaks_this_loop(stmt)) or (
                     self.continue_flag is not None and _stmt_continues_this_loop(stmt)
                 )
