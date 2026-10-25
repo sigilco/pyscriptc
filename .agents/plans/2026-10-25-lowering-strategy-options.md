@@ -1,149 +1,211 @@
-# Lowering Strategy Options: Sequencing Native Fence Lowering
+# Lowering strategy options: how to sequence fence work
 
-Date: 2026-10-25. Status: strategy assessment for the owner. Context: post-v0.6.0 release and v0.7.0 weekly-use gate (Refs #592). Positioning anchor: typed subset runs native, island is the floor, native is the ceiling (.agents/plans/2026-10-25-typed-subset-positioning.md). Hardware and budget envelope: 8 GB laptop plus small VPS, constrained premium-model access, majority of development driven by cheap models (Haiku and Flash class).
+Date: 2026-10-25. Status: strategy assessment for the owner, docs only. Question: how should fence-lowering work be sequenced now that the island floor gives weekly use and the typed subset is the scope? Positioning anchor: `.agents/plans/2026-10-25-typed-subset-positioning.md` (decision plan, pending on branch `work/docsplit`, not yet on master): the typed subset runs native, the island is the floor, the native lane is the ceiling, and there is no CPython byte-for-byte parity goal.
 
-## Executive summary and empirical baseline
+Constraints taken as given: an 8 GB laptop plus a small VPS, limited premium-model capacity, most implementation done by cheap models (Haiku and Flash class), weekly use of the compiler by the owner, gains measured against CPython 3.14, low maintenance churn, and the frozen compat2 gates.
 
-The compiler currently contains 3,057 fences across 100 modules in src/pyscriptc (tests/test_census_self.py:258). Out of 1,778 total definitions in the compiler codebase, 395 definitions (22.2%) compile natively, while 1,383 definitions (77.8%) remain fenced. Across the top 100 PyPI dependency corpus, 2,765 fences are recorded (compat/data/compat.json). Standard library coverage is 0 modules fully lowered, 54 modules partially lowered, and 1 module unlowered; builtins stand at 2 fully lowered, 15 partially lowered, and 1 unlowered.
+## What the measurements actually say
 
-Root cause analysis of the 3,057 self-census fences reveals 2,612 root fences and 445 derived fences (442 export-cascade and 3 class-cascade). The top root causes are dynamic annotations at 714 fences (27.3%), name resolution at 622 fences (23.8%), unlowered type names at 390 fences (14.9%), unsupported constructs at 207 fences (7.9%), unlowered calls at 116 fences (4.4%), local variable inference at 104 fences (4.0%), field lookups at 102 fences (3.9%), and closed import table restrictions at 67 fences (2.6%). The long tail comprises union types (41), keyword arguments (40), type mismatches (37), decorators (34), call arity mismatches (28), generic aliases (26), and module assignments (16).
+There is no single fence number, and the three counts that are easy to quote answer different questions. Using one as the target for "reduce fences per month" leads the work somewhere the owner does not need.
 
-The boxed fallback tier (--fallback=cpython, divergences 41 and 42) is operational and provides the necessary floor. In the newest boxed cost window (benchmarks/compat2/boxed_cost.py --window-commits 10, commits 46a65776e968 to e1932b041f80), boxed lines stand at 3,263 out of 75,731 total compiler lines (4.3% code share), with 37.7% churn share during the recent island floor landing, 0.0% bug share, and 10.0% iteration tax. The drop flag remains false. Dogfooding on 8 sibling project scripts from ~/Documents/prjcts/_own (issue #592) demonstrated that 6 of 8 scripts now execute end-to-end with output matching CPython 3.14 via the island floor, while 8 of 8 pure-Python PyPI packages execute at the package level under the fallback. Crucially, across all 8 sibling scripts, the number of definitions lowered natively was zero: real scripts rely entirely on the island floor because unannotated variables, dynamic calls, and partially lowered standard library modules trigger native fences immediately.
+| Measurement | Command or source | Reading today | What it answers |
+| --- | --- | --- | --- |
+| Self-census | `benchmarks/compat2/census_self.py`, asserted in `tests/test_census_self.py` | 3,057 fences in 100 modules, 48,462 lines; 395 of 1,778 definitions native (22.2%), 1,383 fenced (77.8%) | how much of the compiler's own Python the compiler can compile |
+| R0 real scripts | `uv run python -m benchmarks.real_scripts.measure` | 39 scripts, 316 fences, 2 scripts with zero fences | user-facing scripts, the closest proxy for the owner's weekly use |
+| PyPI corpus | `compat/data/compat.json` (generated 2026-10-25 at `b0e8246`) | 18 packages, 2,765 fences: 2 full, 6 partial, 10 none; builtins 2 full, 15 partial, 1 none; stdlib 0 full, 54 partial, 1 none | dependency surface |
+| Boxed ledger | `uv run python benchmarks/compat2/boxed_cost.py --window-commits 10` | newest window `270592ae..d706ecf6`: code 4.3% (3,263 of 75,731 lines), churn 34.2%, bugs 0.0%, tax 10.0%, drop_flag false | what the island floor costs |
 
-## Evaluation of Option A: Current approach (plan ahead, release-grouped lowering)
+The self-census is a moving target and today it moves up, not down: the assertion went from 3,030 to 3,057 in the last ten commits, and it was 1,434 in the Stage U era before the emitter, adapters and CLI grew. New compiler features add fences faster than lowering removes them, so a monthly "fences removed" target on this census mostly measures how much dynamic argparse, subprocess and JSON-RPC plumbing was written that month. It is concentrated, too: `cli` alone holds 511 fences with all 47 of its definitions fenced, and the top 12 modules hold 1,578 fences, 52% of the total. Lowering the compiler's own CLI glue is real work, but it is not work the owner feels.
 
-Option A maintains the established milestone workflow. Each minor release focuses on a bounded cluster of fences: v0.6.0 focused on threading, async, and string codepoints; v0.7.0 targets library consumption, island floor granularity, verification, and assessment; v0.8.0 targets FFI extern lanes and ORT integration. Work is specified in advance via design specs, lowered to LLVM SSA IR via emit/llvm/, and supported by runtime routines in src/pyscriptc/runtime/.
+The R0 corpus is the better scoreboard because it is fixed, vendored, and third party (`benchmarks/real_scripts/scripts`, pinned commits in the manifest). The committed `benchmarks/real_scripts/REPORT.md` records 386 fences and 0 of 39 scripts compiling on 2026-10-24; the same tool today reports 316 fences and 2 of 39 (`check_file`, `snake_case_renamer`). That is 70 fences and 2 scripts in one day, which shows what a burst aimed at measured blockers can do, and it also means the committed report and `docs/reference/what-will-fail.md` are one generation stale.
 
-Expected fence reduction per month: 80 to 160 fences per month. Historically, targeted lowering drops 10 to 40 fences per PR, with occasional larger drops such as local inference (#500, dropping 341 fences). At this rate, reducing the 2,612 root fences to near zero would require 16 to 32 months of continuous effort. Dynamic annotations (714) and unlowered type names (390) would persist for many releases because they require systematic type system expansion.
+The island floor is working and that changes the question. Per the Dogfood3 comment on issue #592, 6 of 8 sibling scripts run with output matching CPython 3.14 under `--fallback=cpython`, and 8 of 8 pure-Python PyPI packages run at package level, with three new blockers filed (#626, #627, #628). Milestone 4 (v0.7.0) already carries those receipts plus "a census delta receipt" as exit criteria, so fence-lowering is not optional in this release, but it is also not the thing that makes weekly use possible.
 
-Performance outcome: Excellent. Lowered code generates optimized LLVM IR compiled with zig cc -O2, achieving 2x to 10x speedups over CPython 3.14 on CPU-bound numeric loops, string processing, and deterministic data structures. Zero runtime boxing overhead is incurred for lowered types.
+## The fence accounting that should drive the sequence
 
-Maintenance churn: Very low. Code is written once to the target LLVM and C specification. There is virtually no throwaway code. Lowered constructs are locked in with regression tests and canonical rules, requiring minimal refactoring in subsequent milestones.
+The R0 corpus groups cleanly by root cause, and the groups are small enough to reason about exactly:
 
-Risk to frozen gates: Very low. Incremental lowering adds new handlers in lower/_calls.py and lower/_stdlib.py without altering existing lowered IR structures. Probes in probes/*.jsonl and hash rules in canonical.py remain stable.
+| Root cause | Families | Fences | Scripts touched | Effort in the blocker model |
+| --- | --- | --- | --- | --- |
+| inference | name-resolution 98, param-inference 23, local-inference 23, unlowered-type-name 10, return-inference 4, generic-alias 2, dynamic-annotation 1, forward-reference 1, annotation-other 1 | 163 | 30 | S per family except name-resolution (L) |
+| call-table | unlowered-call 29, call-arity 27, keyword-args 2 | 58 | 28 | S to L |
+| stdlib-surface | subprocess 7, time 5, os 5, json 3, pathlib 1, itertools 1, dataclasses 1, random 1 | 25 | 13 | M each |
+| classes | field-lookup 21 | 21 | 6 | S |
+| statements | construct-other 18, module-assign 2 | 20 | 10 | S to L |
+| checker | type-mismatch 20 | 20 | 10 | M |
+| imports | import-table 6 | 6 | 6 | M |
+| operators and other | operator 2, reflection 1 | 3 | 3 | M to L |
 
-Cost in cheap-model sessions vs premium: High premium cost per fence. Emitting LLVM IR and implementing complex SSA control flow require strict type correctness, phi node placement, and precise memory layout tracking. Cheap models (Haiku, Flash) frequently hallucinate LLVM types, mishandle pointer indirection, or generate malformed IR, demanding substantial Opus/Sonnet intervention and manual debugging by the developer.
+Fences cascade, so a script compiles only when every family it carries is fixed. Simulating the actual per-script family sets from the measurement JSON gives the compounding table below, and it is the most useful table in this document. Fixing inference alone releases 3 scripts; fixing call-table alone releases 4; fixing both releases 13, and adding classes reaches 14, adding stdlib-surface reaches 18. Two workstreams get a third of the corpus (13 of 39), and no single workstream releases more than 4 scripts on its own.
 
-What would have to be true to win: The owner must accept a multi-year horizon for native breadth; the island floor must satisfactorily service all weekly script execution needs; and zero maintenance churn must take precedence over rapid native expansion.
+| Fix set | Scripts compiling (of 39) | Fences left |
+| --- | --- | --- |
+| inference only | 3 | 153 |
+| call-table only | 4 | 258 |
+| stdlib-surface only | 3 | 291 |
+| inference + call-table | 13 | 95 |
+| inference + call-table + classes | 14 | 74 |
+| inference + call-table + classes + stdlib-surface | 18 | 49 |
+| all families | 39 | 0 |
 
-## Evaluation of Option B: Advance lowering now (build on branches or behind flags)
+The remaining 49 fences after those four workstreams are the genuine long tail: checker 20, imports 6, statements 20, operators 2, reflection 1, spread over 21 scripts. They are not one project, they are twenty small ones, and several (reflection, the checker's type-mismatch) are structural: the checker rejecting a real type mismatch is the compiler working, not starving.
 
-Option B decouples development velocity from the release cadence. Lowering passes for major fence clusters (e.g., standard library modules, advanced container types, class inheritance) are built ahead of time on long-lived branches or merged into master behind feature flags (such as --experimental-lowering=all), releasing user-facing features only when milestone criteria are satisfied.
+The self-census long tail is different and mostly out of scope by decision. `dynamic-annotation` (714 fences, 80 modules) is dominated by `Any` on adapters that talk JSON-RPC and subprocess, which the typed subset refuses by design; `unlowered-type-name` (390) is types with no IR value representation; `name-resolution` (622) is unannotated locals whose fix is inference, not a new lowering. That is why a strategy measured on "fences removed from the self-census" would spend months on the compiler's own plumbing and move the R0 number by very little.
 
-Expected fence reduction per month: 150 to 300 fences per month on development branches. Because implementation is uncoupled from immediate release ceremony, parallel branches can tackle disjoint standard library areas simultaneously.
+## Option A: current approach, release-grouped lowering
 
-Performance outcome: Excellent for lowered code, identical to Option A once flags are enabled.
+Work is planned per milestone and lands in the release that needs it. v0.6.0 shipped the threading primitives and the string-model phases; v0.7.0 (milestone 4) is library consumption, island floor granularity, verification and assessment; v0.8.0 (milestone 5) is the compute two-plane with FFI and ORT.
 
-Maintenance churn: Moderate to high. Long-lived feature branches suffer from constant merge conflicts against master refactors (such as the recent island floor granularity and caller cascade changes). If merged behind feature flags, branching logic proliferates in lower/__init__.py and emit/llvm/_driver.py, leading to dead code paths and matrix testing bloat. Code written on branches often requires rewriting when core type representation decisions shift.
+Expected reduction: the historical unit is a targeted PR dropping 10 to 40 fences (the census comments in `tests/test_census_self.py` record a 20-fence `list.append` flip and a 19-fence dogfood drop), with one outlier (local inference #500, 341 fences). At 2 to 4 targeted PRs a month that is 40 to 90 R0 fences and 3 to 6 scripts a month while the corpus lasts, which reaches the 13-to-18-script rows over two to three release cycles rather than one. Self-census gross reduction of 100 to 200 a month is plausible but net is flat because features add fences.
 
-Risk to frozen gates: Moderate. Flags that change lowering behavior risk leaking into default code paths, causing drift in coverage_map.py, probes/IR_HASHES.json, or CALIBRATION.json. Gate verification must be duplicated across flag configurations.
+Perf: native lowered code runs the `benchmarks/baseline` suite at a geomean 4.5x CPython 3.14 on this host (json-roundtrip 4.0x, struct-pack 4.3x, deque-ring 5.2x, recorded in `.agents/plans/2026-10-24-apps-and-package-strategy.md`). Unlowered code keeps CPython speed on the island.
 
-Cost in cheap-model sessions vs premium: High premium cost. Cheap models are notoriously poor at rebasing stale branches, resolving three-way merge conflicts, and maintaining subtle invariants across feature-flagged code paths.
+Churn: near zero. Code is written once against the LLVM/C target and kept by regression tests.
 
-What would have to be true to win: The project must have multiple independent developers or dedicated subagents with sufficient premium token quota to constantly rebase and maintain branch integrity without stalling master.
+Gates: low. New lowerings add handlers in `src/pyscriptc/lower/` and, when the IR changes for a construct that already has a probe, they touch `probes/*.jsonl` and `probes/IR_HASHES.json`, which needs the recorded A/B discipline and cannot be regenerated on macOS. Fences by definition emit nothing, so most additions do not move existing hashes; inference changes can, because they can change how already-lowered code is typed.
 
-## Evaluation of Option C: Brute-force breadth (naive universal lowering at ~1.2x CPython speed)
+Cost: mixed. Call-table and stdlib additions are mostly "emit a call to a C helper" and are cheap-model work; inference, IR shape and control flow are premium work. A family costs roughly 3 to 8 cheap sessions and 1 to 2 premium ones.
 
-Option C prioritizes native coverage over performance. It lowers all or most fences immediately by adopting a naive, unoptimized execution strategy: all Python values are represented as generic heap-allocated tagged variants or boxed C structs; method dispatch uses dynamic string lookups or flat jump tables; operators call generic fallback runtime helpers; and memory is managed via naive reference counting or leak-on-exit semantics.
+What must be true to win: the owner accepts a multi-release horizon, and the R0 corpus stays the scoreboard so the release themes stay aimed at measured blockers.
 
-Expected fence reduction per month: 500 to 1,000 fences per month in an initial burst. By eliminating static typing prerequisites, almost all 714 dynamic annotation fences, 622 name resolution fences, and 390 unlowered type name fences could be mechanically cleared.
+## Option B: advance lowering now, release later
 
-Performance outcome: Poor to mediocre. Execution speeds would hover between 0.8x and 1.3x of CPython 3.14. Because CPython's specialized tier-1 and tier-2 bytecode interpreter with adaptive inline caches is already highly optimized, a naive C-struct boxed runtime with frequent malloc allocations and unspecialized dynamic dispatch frequently runs slower than CPython itself.
+Same lowering work, decoupled from the release train: long-lived branches or a single flag, merged when the release opens.
 
-Maintenance churn: Catastrophic (near 100% throwaway code). Every naive lowering pass, generic runtime struct, and unoptimized dispatch table must eventually be dismantled and rewritten from scratch to achieve genuine native performance. It creates two massive architectural migrations instead of one.
+Expected reduction: 1.3 to 1.5x option A for the first weeks, then decay. The decay is measurable: the compiler churned 2,445 lines in the newest 10 commits, so a two-week branch rebases against a few thousand changed lines, and the island work lands in `src/pyscriptc/lower/__init__.py` and `_stdlib.py`, which a lowering branch edits as well.
 
-Risk to frozen gates: Extreme. Replacing the existing typed LLVM emitter with a universal boxed model would invalidate probes/IR_HASHES.json across the entire test corpus, scramble CALIBRATION.json cells, and break the compat2 scoring contract in outcomes.py.
+Perf: identical to A once merged.
 
-Cost in cheap-model sessions vs premium: Moderate initial cheap-model cost to generate naive shims, followed by overwhelming premium-model triage cost when subtle memory leaks, use-after-free bugs, and cyclic reference crashes plague the test corpus.
+Churn: moderate to high. The code is not thrown away, but the branch work is. Feature flags also multiply the test matrix: the same program has to be gated in both configurations, and compat2's verdict and calibration files assume one configuration.
 
-What would have to be true to win: The project would need an existential requirement for immediate 100% native compilation where libpython cannot exist under any circumstances (e.g., bare-metal microcontrollers), and the team would need a mandate to scrap the codebase and start over in six months. Under our actual positioning ("island is the floor"), this premise is explicitly false.
+Gates: moderate. Any flag that changes default lowering can drift `coverage_map.py` or the probes, and the gate reruns must be done per configuration.
 
-## Evaluation of Option D: Transpile through another language
+Cost: high premium. Cheap models are weakest exactly here: rebasing stale branches and holding invariants across flag configurations. This is the worst fit for the actual model budget.
 
-Option D investigates transpiling Python AST into an intermediate programming language that compiles through LLVM or zig cc, allowing pyscriptc to inherit broad standard library and runtime semantics before compiling to native binaries. Seven candidate languages were evaluated against seven strict criteria.
+What must be true to win: several parallel developers, or a premium quota large enough to keep branches continuously rebased. Neither is true today.
 
-Candidate 1: Nim. Pipeline: Emits C code, which can be compiled by the existing zig cc driver. Runtime and GC: ARC/ORC deterministic reference counting with cyclic collection, small runtime footprint. CI availability: Nim is not pip-installable; requires choosenim, apt, brew, or scoop, adding an external dependency and setup time. License: MIT. Compile time: Moderate to slow due to a two-hop compilation chain (Python to Nim, Nim to C, C to zig cc). Semantic fit: Excellent for exceptions and iterators; however, mapping CPython 3.14 code-point string indexing (divergence 3) and exact i64 overflow aborts (divergence 1) requires extensive custom Nim wrappers. What we lose: Direct control of LLVM IR; DWARF debug metadata fidelity (dwarf.py); IR_HASHES.json validation; determinism in A/B generation.
+## Option C: brute-force breadth, naive universal lowering
 
-Candidate 2: Zig. Pipeline: Zig is already our driver via pip install ziglang (src/pyscriptc/zigshim.py). Runtime and GC: No garbage collector; manual memory allocation only. No built-in reference counting, dynamic object collection, or closure environments. CI availability: 100% available on macOS, Linux, and Windows. License: MIT. Compile time: Fast. Semantic fit: Very poor for Python runtime semantics. Zig has no classes, no inheritance, no dynamic exceptions (error sets only), and removed async/await in Zig 0.11. To target Zig, pyscriptc would have to implement a complete Python object runtime, garbage collector, and exception unwinding system in Zig. This is identical to writing a C runtime, which we already maintain in src/pyscriptc/runtime/. What we lose: It replaces 26,500 lines of proven C runtime with unwritten Zig code without lowering any fences.
+Lower everything now with boxed values, dynamic dispatch, and generic runtime helpers, accepting about 1.2x CPython, then optimize.
 
-Candidate 3: Swift. Pipeline: Compiles via swiftc, completely incompatible with the zig cc driver. Runtime and GC: Automatic Reference Counting (ARC) with a massive runtime library (libswiftCore.so is over 30 MB). CI availability: Available on macOS, but Linux requires separate toolchains and Windows support is complex and heavy (several gigabytes). License: Apache 2.0 with LLVM exception. Compile time: Slow. Semantic fit: Swift error handling uses typed throws rather than dynamic exceptions; strings are grapheme clusters rather than Unicode code points. What we lose: Lightweight single-binary distribution, fast CI, ability to run on an 8 GB laptop or small VPS.
+Expected reduction: an initial burst that could clear 163 inference fences and 58 call-table fences in one or two months and reach 39 of 39 scripts. But the burst is not free: it needs a second value model (boxed dynamic values) next to the typed one, method dispatch by name, and generic operators, which is the machinery the island already provides through CPython. Effort is 6 to 10 weeks of mostly premium work, not the 1 month the option implies.
 
-Candidate 4: Mojo. Pipeline: Proprietary Modular toolchain; cannot be driven by zig cc. Runtime and GC: Ownership and borrow checking; no dynamic tracing GC. CI availability: Closed ecosystem; difficult or impossible to install headlessly across minimal Linux, macOS, and Windows CI. License: Proprietary backend. Compile time: Moderate to slow. Semantic fit: Systems language syntax; does not map dynamic Python features natively. What we lose: Open-source independence, toolchain portability, gate reproducibility. Disqualified.
+Perf: poor to mediocre, and the honest range is wide: 0.5x to 1.3x CPython on the data path, because CPython 3.14's interpreter has inline caches and a boxed C runtime that mallocs per operation often loses. The typed fast path survives only where both models meet, and mixing them costs a type check at every boundary.
 
-Candidate 5: Crystal. Pipeline: Requires crystal compiler; cannot be driven by zig cc. Runtime and GC: Boehm-Demers-Weiser conservative GC. CI availability: Linux and macOS only; Windows support is experimental. License: Apache 2.0. Compile time: Very slow and memory-intensive. Crystal whole-program type inference routinely exceeds 4 GB of RAM, causing severe memory swapping on an 8 GB laptop. Semantic fit: Ruby-like semantics; differs substantially from Python 3.14 object and string models. What we lose: Windows target support, memory budget, compiler pipeline stability.
+Churn: near total for the emitter. `src/pyscriptc/emit/` is 4,993 lines and the typed runtime is 26,516 lines of C across 42 files; a boxed lane duplicates the value model, and the eventual optimization pass rewrites the code that produced the boxed values. This is the two-migration outcome the positioning decision rejected.
 
-Candidate 6: Rust. Pipeline: Requires rustc and cargo; cannot be driven by zig cc. Runtime and GC: No GC; strict borrow checker requires wrapping all dynamic Python objects in Rc<RefCell<T>> or complex arena allocators. CI availability: Pervasive, but adds a 1 GB toolchain download. License: MIT / Apache 2.0. Compile time: Slow; heavy LLVM codegen and macro expansion consume significant CPU and RAM. Semantic fit: Mismatched error handling (panic is not Python exception flow); cyclic object graphs require manual weak-pointer management; lack of class inheritance requires complex trait composition. What we lose: Build simplicity, rapid compilation, and cheap-model generation capacity (cheap models struggle severely with Rust lifetime and borrow-checker errors).
+Gates: extreme. `probes/IR_HASHES.json` is anchored on emitted LLVM text; a new value model changes every hash. `CALIBRATION.json` and `coverage_map.py` assume one lowering shape. The frozen tag `gates-v2` would need a recorded decision and a full re-baseline before any of this could merge.
 
-Candidate 7: C as a target (C runtime-heavy lowering). Pipeline: Emit standard C99/C11 source code rather than raw LLVM IR text, then compile with zig cc alongside src/pyscriptc/runtime/*.c. Runtime and GC: Reuses our existing 26,500 lines of modular C runtime (ps_rt.c, ps_coll.c, ps_path.c, ps_re.c). Uses explicit reference counting and value semantics. CI availability: 100% available on all platforms through zig cc without any new dependencies. License: MIT. Compile time: Fast; zig cc compiles C quickly and with minimal RAM (< 200 MB). Semantic fit: 100% match to our existing 42 numbered divergences, because runtime C functions define those exact semantics. What we lose: Direct SSA instruction synthesis in emit/llvm/, and byte-level IR_HASHES.json reproducibility (which would need to be re-anchored on C source text hashes or emitted AST hashes).
+Cost: moderate cheap cost up front (boxed helpers are easy to generate) followed by a large premium triage bill for memory, cycles and crash bugs on the corpus.
 
-## Evaluation of Option E: Pragmatic hybrid (widened island floor, C-runtime expansion, local inference)
+What must be true to win: a requirement to compile untyped Python with no libpython anywhere. The positioning decision explicitly removes that requirement, and the island answers it today at CPython speed.
 
-Option E builds directly on the decision plan of 2026-10-25 (.agents/plans/2026-10-25-typed-subset-positioning.md): island is the floor, native is the ceiling. It synthesizes the strengths of C runtime breadth with targeted native lowering, structured across three clear layers:
+## Option D: transpile through another language
 
-Layer 1 (The Operational Floor): Keep the island floor widened for weekly dogfooding. Because the island floor is already functional and executes 6 of 8 real scripts (issue #592), the owner has immediate weekly utility without waiting for native lowering. All unannotated scripts, dynamic reflection, and unlowered standard library modules fall back to the island cleanly.
+The decisive fact first: fences are produced by the lowerer, `src/pyscriptc/lower/` at 14,674 lines, not by the emitter, `src/pyscriptc/emit/` at 4,993 lines. Changing the emit target cannot lower a construct the lowerer refuses, unless the target supplies dynamic values, which is Option C wearing a different name. For a typed target the fence effect is exactly zero; the only thing that changes is how the already-lowered subset is emitted.
 
-Layer 2 (The C-Runtime Native Ceiling): Expand native standard library coverage by implementing missing functions in C runtime modules (src/pyscriptc/runtime/ps_*.c) with uniform, simplified C signatures, rather than writing custom LLVM IR AST lowerers in Python. Emitting a call from LLVM IR to a C runtime function (e.g., call @ps_path_is_file or call @ps_datetime_timezone) is trivial and can be generated by cheap models with 100% reliability, whereas writing LLVM SSA lowering in lower/_calls.py and emit/llvm/ requires premium models.
+| Candidate | Emit path and toolchain | Runtime and GC | CI on macOS, Linux, Windows | License | Compile time | Semantic fit against our 42 divergences | What we lose | Verdict |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Nim | emits C, so the existing `zig cc` step still consumes it, but adds a Nim compiler (choosenim, brew, apt, scoop; not pip installable) | ARC/ORC, deterministic RC with cycle collection, small runtime | Linux and macOS easy, Windows via scoop, all new to CI | MIT | two-hop, moderate | exceptions and iterators map well; i64 overflow abort (divergence 1), codepoint `str` (3), `re`/`json` (4, 5) need wrappers | direct IR control, our DWARF emitter, IR hash anchoring, one more toolchain | reject |
+| Zig | already present as the driver (`src/pyscriptc/zigshim.py`); no new dependency | no GC, no classes, no exceptions, no async; we would write the Python runtime in Zig | good, all three | MIT | fast | poor: errors are sets, not tracebacks; strings are bytes | replaces 26,516 lines of working C with unwritten Zig and lowers no fence | reject |
+| Swift | `swiftc` only, not `zig cc` | ARC plus a large runtime library (order of tens of MB, estimate) | macOS easy, Linux needs a toolchain, Windows heavy | Apache 2.0 with LLVM exception | slow | typed throws, grapheme strings, not code points | single-binary size, CI time, the 8 GB budget | reject |
+| Mojo | proprietary Modular toolchain, cannot be driven by `zig cc` | ownership, no dynamic GC | headless install across three CI OSes is not a supported story | proprietary | unknown | systems semantics, not dynamic Python | reproducibility and openness | disqualified |
+| Crystal | `crystal` compiler, not `zig cc` | Boehm conservative GC | Linux and macOS; Windows experimental | Apache 2.0 | very slow, memory hungry (whole-program inference can exceed the 8 GB budget, estimate) | Ruby-like object model, not Python's | Windows, memory budget, compile feedback loop | reject |
+| Rust | `rustc` and `cargo`, not `zig cc`; about 1 GB toolchain | no GC; `Rc<RefCell<..>>` for dynamic graphs, cycles need weak refs | good, all three | MIT or Apache 2.0 | slow, LLVM codegen and macros | panic is not exception flow; no class inheritance | cheap-model productivity (borrow checker), build time | reject |
+| C as the emit target | plain C11 through the existing `zig cc`, no new dependency | reuses `src/pyscriptc/runtime/*.c`, 26,516 lines, and its semantics define all 42 divergences | good, all three | MIT | fast, low memory | exact: the runtime is the divergence contract | SSA-level control, IR hash anchoring on LLVM text (needs re-anchoring on C text or AST hashes) | keep as an experiment only |
 
-Layer 3 (Targeted Type Inference): Expand local inference (#500) to resolve local variable annotations and type facts automatically. The census reveals that 714 fences are dynamic annotations and 104 are local inference. Enhancing local propagation (inferring types from assignments, loop iterators, and function return values) drops hundreds of fences in typed code without touching runtime semantics.
+Expected reduction: zero fences for Nim, Zig, Swift, Mojo, Crystal and Rust as typed targets; also zero for C. The only version that lowers anything is "C with a boxed value model", which is Option C and carries its gates and churn.
 
-Expected fence reduction per month: 250 to 450 fences per month. C runtime functions are fast to write, self-contained, and easily generated by cheap models. Each new C runtime function resolves multiple fences simultaneously across scripts.
+Perf: within 1.5x to 5x CPython for a good target language on typed code, but nothing beats the current path, because the current path already emits optimized LLVM.
 
-Performance outcome: Optimal. Hot typed loops run at full native LLVM speed; standard library operations run at optimized C speed; untyped code runs at CPython speed on the island.
+Churn: for the C target, the throwaway is a new emitter (order of 5,000 lines) while the lowerer and runtime survive; for the others it is a new runtime plus an emitter, which is a rewrite of the part that works.
 
-Maintenance churn: Very low. C runtime files (ps_rt.c, ps_path.c) are permanent assets of the compiler, not throwaway code.
+Gates: extreme for every variant that changes emitted bytes. The C target needs a recorded decision to re-anchor `probes/IR_HASHES.json` on something other than LLVM text, and `irscore.py` A/B identity would have to be redefined.
 
-Risk to frozen gates: Minimal. The LLVM emitter remains in control; new C symbols are linked normally by zig cc.
+Cost: 3 to 6 months to reach parity on the 42 divergences, mostly premium, and no fence reduction to show for it.
 
-Cost in cheap-model sessions vs premium: Lowest overall cost. Cheap models (Haiku, Flash) write excellent, bug-free C functions for isolated standard library routines when given clear header signatures. Premium models are reserved only for core type inference algorithms and driver orchestration.
+What must be true to win: that cheap models cannot produce correct LLVM SSA but can produce correct C for the same lowering. That is a testable claim, and it is the one thing worth measuring (see the experiment).
 
-What would have to be true to win: The owner embraces the two-tier reality (island floor for broad weekly compatibility, native for measurable speedup); the C runtime library continues to be maintained in clean C99; and the boxed ledger drop flag remains respected.
+## Option E: the hybrid I would choose
 
-## Small experiment for the most promising adversarial option (C-transpilation spike)
+E keeps the positioning decision and sequences the work in four passes, by measured return rather than census count:
 
-The most promising adversarial option to pure LLVM IR emission is Option D's C-transpilation target (emitting high-level C code rather than LLVM SSA text, compiled via zig cc). A targeted experiment costing under one working day can decisively evaluate this path.
+1. Inference breadth first. One workstream (param, return, local inference, then the name-resolution cascade it causes) covers 163 of 316 R0 fences and 30 of 39 scripts, and it is the cheapest per script because name-resolution fences disappear without their own lowering. It is premium work, so it sets the pace.
+2. Call-table breadth second, built as C runtime helpers with a single IR call site rather than elaborate AST lowerers. `unlowered-call`, `call-arity` and `keyword-args` cover 58 fences and 28 scripts, and the same helpers serve the PyPI corpus where stdlib calls dominate (2,765 fences over 18 packages). Cheap models do this well because the pattern is "write a C function with a fixed signature, emit one call".
+3. Island floor protected, not grown. The floor already delivers 6 of 8 scripts; its job is to keep weekly use alive while 1 and 2 land. The boxed ledger stays the brake: two consecutive windows above 20% churn, or a tax window above 15%, raises the flag and stops island feature work.
+4. Classes and stdlib-surface third, to cross 18 of 39. Only then the long tail (checker, imports, statements, operators), ordered by scripts released rather than fences.
+5. Optimize only where measured. `pyscriptc assess --bench` before any perf work; the baseline suite is already 4.5x, so the native lane does not need speculative optimization.
 
-Experiment design: Select 5 representative scripts with known fence profiles: scripts/pytest_workers.py (system and math logic, 16 fences), scripts/gen_support_table.py (table rendering and collections, 24 fences), and three real sibling project scripts from ~/Documents/prjcts/_own (binary_size.py, tool_token_analysis.py, check-deploy-secrets.py).
+Expected reduction: 40 to 90 R0 fences and 3 to 6 scripts a month, with the first two workstreams reaching 13 of 39 and four workstreams reaching 18 of 39. Self-census native definition share should rise a few points a month; the self-census fence total may still rise, and that is not a failure signal under this framing.
 
-Prototype implementation: In a scratch branch, construct a minimal C-emitter visitor (approx. 300 lines of Python) that traverses lowered AST functions and writes plain C functions calling ps_rt.h and runtime helpers directly, bypassing emit/llvm/_stmts.py and emit/llvm/_exprs.py. Compile the emitted C file with zig cc -O2 -I src/pyscriptc/runtime/ and link with the existing runtime objects.
+Perf: no change to the ceiling (the typed subset keeps the 4.5x baseline), and the floor stays at CPython speed.
 
-Target measurements:
-1. Implementation complexity: Compare lines of compiler code required to lower 3 common fence root causes (field lookup, unsupported constructs, and keyword calls) via C emission versus LLVM IR emission.
-2. Toolchain overhead: Measure compile time in milliseconds and peak RAM usage during zig cc compilation on an 8 GB machine.
-3. Model success rate: Prompt a cheap model (Haiku or Flash) to generate lowering code for the 5 scripts under both LLVM IR and C emission targets; record the number of syntax errors, type errors, and manual interventions required.
-4. Execution performance: Benchmark compiled binaries against CPython 3.14 on CPU-bound loops.
+Churn: very low. All three workstreams are additive; nothing here is designed to be deleted, and the island keeps its marked regions (`boxed:begin` and `boxed:end`) so it stays deletable.
 
-Kill criterion: Terminate the C-transpilation path immediately if: (a) compilation time via zig cc of generated C is more than 50% slower than direct LLVM IR compilation; (b) cheap models generate unsafe C pointer manipulations resulting in segmentation faults on 2 or more scripts; or (c) binary size increases by more than 2x over the current LLVM binary size. If killed, the project stays strictly on LLVM IR emission with C runtime function calls.
+Gates: low to moderate. C helpers and new call table entries do not move existing probes; inference can, so it lands behind the A/B hash discipline and is the one workstream that needs the macOS regeneration rule respected (say in the PR that the IR changed, and regenerate on Linux).
 
-## Recommendation and synthesis
+Cost: the cheapest mix available. Roughly 70% of the work (call-table helpers, stdlib functions, tests, corpus runs) fits cheap sessions; the 30% premium goes to inference and any IR shape change.
 
-Adopt Option E (the Pragmatic Hybrid). It strictly aligns with the recorded positioning decision of 2026-10-25: island is the floor, native is the ceiling.
+What must be true to win: the owner accepts scripts-released and native-definition-share as the scoreboard, and accepts that the island is the floor rather than a temporary scaffold.
 
-Do not attempt a whole-compiler rewrite to transpile through Nim, Zig, Swift, Rust, or Crystal (Option D). None of these languages provide a clean match for CPython 3.14's dynamic semantics, exception model, or Unicode codepoint string rules without rebuilding the exact same runtime we already possess in C, while introducing heavy external toolchains that destroy our lightweight 8 GB laptop and VPS workflow.
+## The numbers side by side
 
-Do not pursue brute-force naive lowering (Option C). Lowering untyped code into a slow, boxed, dynamic C runtime would produce a compiler slower than CPython, invalidate all frozen gates-v2 testing assets, and generate 100% throwaway code.
+These projections are estimates. The method: R0 family counts from today's measurement, effort labels from the blocker model in `benchmarks/real_scripts/measure.py`, the historical 10 to 40 fences per targeted PR from the census comments, and the machine and model budget stated at the top. They are not a promise, and the uncertainty section says what would move them.
 
-The correct sequencing path is:
-1. Consolidate the v0.7.0 island floor gate (milestone 4): Ensure the 8 sibling scripts and PyPI package programs execute reliably with zero exit-2 preflight crashes, fulfilling the weekly-use promise today.
-2. Systematically expand standard library lowering via modular C runtime routines (src/pyscriptc/runtime/ps_*.c): Address the top root causes in unlowered-call (116 fences) and construct-other (207 fences) by providing uniform C functions that the LLVM emitter can invoke with a single call instruction.
-3. Enhance local type inference: Address dynamic-annotation (714 fences) and local-inference (104 fences) by propagating types across local assignment boundaries, enabling typed code to compile natively without manual annotation boilerplate.
-4. Measure before optimizing: Run pyscriptc assess --bench on candidate scripts; only prioritize native lowering for modules where native execution measurably beats CPython (>1.5x speedup).
-
-## Decision table
-
-| Dimension | Option A: Current Release-Grouped | Option B: Advance on Branches | Option C: Brute-Force Breadth | Option D: Transpile (Nim/Rust/C) | Option E: Pragmatic Hybrid (Recommended) |
+| Dimension | A: release-grouped (current) | B: advance ahead of release | C: brute-force breadth | D: transpile | E: hybrid |
 | --- | --- | --- | --- | --- | --- |
-| Expected fence drop / month | 80 to 160 | 150 to 300 | 500 to 1,000 | 300 to 600 | 250 to 450 |
-| Perf vs CPython 3.14 | 2x to 10x native | 2x to 10x native | 0.8x to 1.3x (slower/equal) | 1.5x to 5x | 2x to 10x native (island at 1x) |
-| Maintenance churn (throwaway) | Near 0% | Moderate (branch rot) | High (~100% rewrite) | High (toolchain coupling) | Very low (additive C runtime) |
-| Risk to frozen gates-v2 | Very low | Moderate | Extreme (invalidates hashes) | Extreme (destroys IR hashes) | Minimal (LLVM IR preserved) |
-| Cheap model usability | Low (LLVM SSA errors) | Low (merge conflict errors) | Moderate (naive shims) | Low to Medium (Rust/Nim errors) | High (C routines + simple calls) |
-| 8 GB laptop & VPS fit | Excellent | Good | Good | Poor (Rust/Crystal OOM) | Excellent (< 200 MB RAM) |
-| Time to broad weekly use | 12 to 24 months | 9 to 18 months | 1 to 2 months | 6 to 12 months | Immediate (via island floor) |
-| Winning condition | Long time horizon, zero churn | Parallel dev team available | All-or-nothing native mandate | Existing runtime unusable | Two-tier positioning accepted |
+| R0 fences per month | 40 to 90 | 55 to 130, decaying | 220+ once, then stalls | 0 | 40 to 90, front-loaded on inference |
+| R0 scripts compiling per month | 3 to 6 | 4 to 8, decaying | up to 39 in 2 months | 0 | 3 to 6, then 13 of 39 from two workstreams |
+| Self-census effect | native share up 1 to 2 points; total flat or rising | same | total drops sharply, native share collapses | none | same as A |
+| Perf outcome | 4.5x geomean native, island at 1x | same | 0.5x to 1.3x CPython | 1.5x to 5x | 4.5x native, island at 1x |
+| Maintenance churn | near zero | branch work lost, code kept | near-total emitter rewrite | new emitter, 5,000+ lines, for C only | near zero, additive |
+| Risk to gates-v2 | low; inference may move hashes | moderate, per-config reruns | extreme, every hash | extreme, re-anchor required | low to moderate |
+| Cheap model share | 60% | 30% | 50% up front | 20% | 70% |
+| Premium capacity | 1 to 2 sessions per family | 2 to 4 sessions per family, plus rebases | 6 to 10 weeks of premium work | 3 to 6 months of premium work | 1 to 2 sessions per family, inference-heavy |
+| Time to weekly use | already available via the island | same | 1 to 2 months | 6 to 12 months | already available via the island |
+| Fits 8 GB laptop and VPS | yes | yes | yes | C only; Rust and Crystal are memory risks | yes |
+| Winning condition | long horizon, corpus scoreboard | parallel developers or large quota | no-libpython mandate | cheap models cannot write LLVM | island accepted as the floor |
 
-## Key questions the owner must answer
+## The experiment worth running (under one day)
 
-1. Is the weekly-use criterion satisfied if real-world sibling scripts run at CPython speed via the island floor, or does the owner require measurable native speedup on those specific scripts in v0.7.0?
-2. Should we authorize the 1-day C-transpilation spike (Option D/E variant) to test whether emitting C text is more cheap-model friendly than emitting LLVM IR text, or should we strictly keep all code emission in LLVM IR?
-3. When expanding standard library coverage, do we agree that implementing routines in C runtime files (src/pyscriptc/runtime/ps_*.c) is preferred over writing intricate AST lowerers in Python (lower/_calls.py)?
-4. What is the acceptable ceiling for boxed code share? The ledger currently records 4.3% code share and 37.7% churn in window 0 following the island floor landing; do we maintain the existing 15% tax / 20% churn drop flag rules in AGENTS.md?
+The most promising adversarial option is not "transpile to Rust"; it is the narrow C-text emission question inside Option D: can a cheap model land call-table lowerings faster when the new call is emitted as C text than when it is emitted as LLVM SSA? If yes, the C path is a productivity tool for one workstream. If no, the whole D family is closed for good.
+
+Design. Use five vendored R0 scripts as sources of representative call sites: `work_connect` (stdlib:subprocess 4), `json_to_csv` (stdlib:json and one unlowered call), `organise` (2 unlowered calls), `cat` (1) and `batch_file_rename` (1). Implement the three unlowered calls that appear across them as C runtime helpers, each a fixed signature plus one IR call site, which is the normal Option E pattern. Then generate each call site's enclosing function twice from the same lowered form: once through `src/pyscriptc/emit/llvm/` as today, once through a throwaway C text writer of at most 300 lines that calls the same runtime. Compile a small driver per site against both artifacts, run both plus CPython 3.14 on the same input, and compare stdout byte for byte.
+
+Measure, per script and per target: number of cheap-model attempts needed to reach a green build and matching output, wall time per attempt on the 8 GB laptop, peak compiler memory, compile time of the emitted artifact, binary size, and the count of new runtime lines the target forced. Also record whether the C target needed a boxed value type anywhere (that is the tell that it has become Option C).
+
+Kill criteria, all decided before the run: stop if the C target needs a boxed or dynamic value type for any of the five scripts, if any emitted binary exceeds 1.5x the LLVM binary size, if compile time exceeds 2x, or if the C path does not cut cheap-model attempts by at least 40% across the five. A win changes only the per-PR cost of the call-table workstream, whose unlowered-call part is 29 R0 fences across 16 scripts and which releases no script on its own, so it cannot change the sequence in this document, only the speed of step 2.
+
+## Recommendation
+
+Adopt Option E and say so in the milestone. Concretely: v0.7.0 keeps its island-floor gate and adds an inference workstream plus a call-table workstream, both aimed at the R0 blockers rather than the self-census; v0.8.0 keeps compute two-plane and absorbs the classes and stdlib-surface work; the long tail is ordered by scripts released and never by raw fence count.
+
+Do not adopt B as a standing mode. The branch rot is not hypothetical: 2,445 compiler lines changed in the last ten commits, and the island work rewrites the same lowerer files a lowering branch would touch. A B-shaped burst is acceptable only as a branch of a week or less, behind one flag, in a release already planned.
+
+Do not adopt C. It buys 39 of 39 scripts at CPython-ish speed, which is the island's job, and pays for it with the typed emitter, every frozen hash, and two migrations. The positioning decision already refused it.
+
+Do not adopt D as the sequencing strategy. For typed targets it lowers no fence at all, because the lowerer, not the emitter, decides what compiles. Keep exactly one piece of it, the C-text experiment above, because it tests a real claim about cheap models cheaply.
+
+The measurable commitments this implies: report `scripts compiling` and `native definition share`, not fences removed; regenerate `benchmarks/real_scripts/REPORT.md` and `docs/reference/what-will-fail.md` as the v0.7.0 census delta receipt (they are one generation stale: 386 versus 316); and keep the boxed window current in AGENTS.md, which this assessment already updates from the 2026-10-23 reading of 0.5% code and 0% churn to 4.3% and 34.2%, tax 10.0%, flag still false.
+
+## Questions the owner must answer
+
+1. Is the success metric scripts compiling (2 of 39 today) and native definition share (22.2%), or fences removed from the self-census (3,057 and rising)? The two imply different work.
+2. For v0.7.0, is CPython-speed island output acceptable as "weekly use" for the 6 of 8 scripts that work, or must a named subset (which ones) run native in that release?
+3. How many premium sessions per week are actually available? That number decides whether inference (premium, 163 fences) leads or call-table (cheap, 58 fences) leads.
+4. Do we authorize the one-day C-text experiment, or is `emit/` LLVM-only by decision and closed to further targets?
+5. Do we regenerate the R0 report and the what-will-fail page now, as the v0.7.0 census delta receipt, or defer both to the milestone close?
+6. Which three to five scripts define "the owner's weekly use"? Pinning them makes the scoreboard concrete and stops the census from drifting toward compiler plumbing.
+7. If the boxed ledger's churn stays above 20% for a second window, does island work stop in favor of lowering, as the AGENTS.md drop rules say, or does the v0.7.0 gate take precedence?
+
+## Uncertainty
+
+The inference estimates are the softest. The blocker model labels param, return and local inference S, but the R0 families are symptoms of one another, and the 98 name-resolution fences may not all vanish when annotation inference improves; nobody has landed that work at this scale, and the 341-fence local inference drop (#500) was a different corpus.
+
+The cheap-model share per workstream is an assumption, not a measurement. It is testable in a week: have a cheap model write three C runtime helpers and three inference rules, and count revisions.
+
+The perf ranges for C and the other targets are judgments from the shape of the work, not measurements on this codebase. The one measured perf fact here is the baseline suite at a 4.5x geomean.
+
+The boxed window is volatile: 4.3% code and 34.2% churn in the newest window against 2.1% and 18.5% in the one before, because the island work is concentrated. One window is not a trend, and the drop flag needs two consecutive ones.
+
+The committed R0 report is stale relative to the tool, so every number quoted from `REPORT.md` here was re-measured with the tool on 2026-10-25. If the difference is a measurement change rather than real lowering, the 70-fence day is smaller than it looks; the 2-of-39 versus 0-of-39 script count is the part to trust, because it comes from the same tool version.
