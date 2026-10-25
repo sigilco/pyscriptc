@@ -18,7 +18,7 @@ Keywords are resolved at compile time at the call site (`_fill_args` and `_fill_
 - Option 2 and 3 look cheap in the compiler but move cost into every call, including the 99 percent that are positional. Only option 1 and 4 keep positional calls untouched.
 - A struct passed by pointer defeats inlining unless the optimizer proves the pointer does not escape; across the island boundary (ps_island) it would escape, so the island path would need a separate adapter anyway.
 - Option 3 breaks the type system: a dict of heterogeneous values has no type in the subset (divergence 45 lists heterogeneous dict tables as refused), so it would need a new boxed value kind.
-- The measured demand is low. In the two ported scripts the keyword fences were: `open(..., errors=)`, `subprocess.run(capture_output=, text=)`, `sorted(key=)`, and `json.dumps(indent=)`, all stdlib calls whose signatures are fixed in the compiler. None needed a runtime keyword.
+- The measured demand is low. In the two ported scripts the only remaining keyword fences are two `Path.write_text(..., encoding=)` calls in binary_size, a stdlib signature fixed in the compiler, and fixing them unblocks 0 definitions. No script needed a runtime keyword.
 
 ## Prototype
 
