@@ -1,0 +1,409 @@
+{
+  "schema": "1",
+  "generated": "2026-10-24",
+  "commit": "06d3b7709e2a604972e8f160ff3f3b8c2dea39e3",
+  "sources": {
+    "corpus": "benchmarks/real_scripts/scripts",
+    "report": "benchmarks/real_scripts/REPORT.md"
+  },
+  "summary": {
+    "scripts": 39,
+    "total_fences": 53,
+    "unique_codes": [
+      "PS1001",
+      "PS1003",
+      "PS1103",
+      "PS1104",
+      "PS1105",
+      "PS1106",
+      "PS1202",
+      "PS2001",
+      "PS2002",
+      "PS2003",
+      "PS2004"
+    ]
+  },
+  "causes": [
+    {
+      "id": "stdlib-surface",
+      "title": "Standard library surface",
+      "description": "Calls to standard library modules in the closed import table whose specific function or method is not yet lowered to native IR.",
+      "fences": [
+        {
+          "module": "dataclasses",
+          "construct": "`dataclasses.asdict`",
+          "code": "PS2001",
+          "diagnostic": "dataclasses.asdict is not in the lowered subset of dataclasses"
+        },
+        {
+          "module": "itertools",
+          "construct": "`itertools.product`",
+          "code": "PS2001",
+          "diagnostic": "itertools.product is not in the lowered subset of itertools"
+        },
+        {
+          "module": "json",
+          "construct": "`json.load`",
+          "code": "PS2001",
+          "diagnostic": "json.load is not in the lowered subset of json"
+        },
+        {
+          "module": "os",
+          "construct": "`os.system`",
+          "code": "PS2001",
+          "diagnostic": "os.system is not in the lowered subset of os"
+        },
+        {
+          "module": "os",
+          "construct": "`os.walk`",
+          "code": "PS2001",
+          "diagnostic": "os.walk is not in the lowered subset of os"
+        },
+        {
+          "module": "pathlib",
+          "construct": "`p.is_dir`",
+          "code": "PS2001",
+          "diagnostic": "p.is_dir is not in the lowered subset of pathlib"
+        },
+        {
+          "module": "pathlib",
+          "construct": "`p.is_file`",
+          "code": "PS2001",
+          "diagnostic": "p.is_file is not in the lowered subset of pathlib"
+        },
+        {
+          "module": "random",
+          "construct": "`random.sample`",
+          "code": "PS2001",
+          "diagnostic": "random.sample is not in the lowered subset of random"
+        },
+        {
+          "module": "subprocess",
+          "construct": "`subprocess.Popen`",
+          "code": "PS2001",
+          "diagnostic": "subprocess.Popen is not in the lowered subset of subprocess"
+        },
+        {
+          "module": "time",
+          "construct": "`time.perf_counter`",
+          "code": "PS2001",
+          "diagnostic": "time.perf_counter is not in the lowered subset of time"
+        },
+        {
+          "module": "time",
+          "construct": "`time.process_time`",
+          "code": "PS2001",
+          "diagnostic": "time.process_time is not in the lowered subset of time"
+        },
+        {
+          "module": "zipfile",
+          "construct": "`zipfile.ZipFile`",
+          "code": "PS2001",
+          "diagnostic": "zipfile.ZipFile is not in the lowered subset of zipfile"
+        }
+      ]
+    },
+    {
+      "id": "imports",
+      "title": "Closed import table",
+      "description": "Standard library and external modules that are not yet in the closed import table. Importing them halts compilation with a fence.",
+      "fences": [
+        {
+          "module": "pylong",
+          "construct": "import pylong",
+          "code": "PS2002",
+          "diagnostic": "_pylong is not in the closed import table"
+        },
+        {
+          "module": "pyperf",
+          "construct": "import pyperf",
+          "code": "PS2002",
+          "diagnostic": "pyperf is not in the closed import table"
+        },
+        {
+          "module": "sqlite3",
+          "construct": "import sqlite3",
+          "code": "PS2002",
+          "diagnostic": "sqlite3 is not in the closed import table"
+        }
+      ]
+    },
+    {
+      "id": "call-table",
+      "title": "Call signatures and keyword arguments",
+      "description": "Calls that pass keyword arguments, unsupported argument counts, or non-scalar arguments halt at the call table.",
+      "fences": [
+        {
+          "module": "argparse",
+          "construct": "`argparse` option/default",
+          "code": "PS2003",
+          "diagnostic": "argparse.add_argument keyword nargs is not lowered"
+        },
+        {
+          "module": "argparse",
+          "construct": "call arity",
+          "code": "PS2003",
+          "diagnostic": "ArgParser.add_mutually_exclusive_group is not lowered"
+        },
+        {
+          "module": "builtins",
+          "construct": "`abs()` on non-number",
+          "code": "PS2003",
+          "diagnostic": "abs is lowered for int and float"
+        },
+        {
+          "module": "builtins",
+          "construct": "`input()` with prompt",
+          "code": "PS2003",
+          "diagnostic": "input expects 0 argument(s)"
+        },
+        {
+          "module": "builtins",
+          "construct": "`open(newline=...)`",
+          "code": "PS2003",
+          "diagnostic": "open keyword newline is not lowered; open lowers encoding= only"
+        },
+        {
+          "module": "builtins",
+          "construct": "`print(list)`",
+          "code": "PS2003",
+          "diagnostic": "print is lowered for str, int, float, bool, and bytes values, not list; wrap it in str(...)"
+        },
+        {
+          "module": "builtins",
+          "construct": "`zip()` with >2 args",
+          "code": "PS2003",
+          "diagnostic": "zip takes 2 lists"
+        },
+        {
+          "module": "builtins",
+          "construct": "call to unlowered function",
+          "code": "PS2002",
+          "diagnostic": "call to batch_rename is not lowered"
+        },
+        {
+          "module": "builtins",
+          "construct": "keyword arguments",
+          "code": "PS2003",
+          "diagnostic": "keyword arguments are not lowered"
+        },
+        {
+          "module": "hashlib",
+          "construct": "`hashlib.sha256()`",
+          "code": "PS2003",
+          "diagnostic": "hashlib.sha256 expects 1 argument(s)"
+        },
+        {
+          "module": "sys",
+          "construct": "`sys.exit()`",
+          "code": "PS2003",
+          "diagnostic": "sys.exit expects 1 argument(s)"
+        }
+      ]
+    },
+    {
+      "id": "inference",
+      "title": "Type annotations and inference",
+      "description": "pyscriptc requires type annotations on function parameters, return types, and local variable declarations that cannot be inferred from literals or lowered calls.",
+      "fences": [
+        {
+          "module": "builtins",
+          "construct": "forward class reference",
+          "code": "PS1105",
+          "diagnostic": "the forward reference 'Config' is not lowered"
+        },
+        {
+          "module": "builtins",
+          "construct": "function without return annotation",
+          "code": "PS1001",
+          "diagnostic": "read needs a return annotation"
+        },
+        {
+          "module": "builtins",
+          "construct": "local variable without annotation",
+          "code": "PS1001",
+          "diagnostic": "state needs an annotation before use"
+        },
+        {
+          "module": "builtins",
+          "construct": "name read after unannotated assignment",
+          "code": "PS2002",
+          "diagnostic": "had_error is not a local or parameter"
+        },
+        {
+          "module": "builtins",
+          "construct": "parameter without annotation",
+          "code": "PS1001",
+          "diagnostic": "parameter work_dir needs an annotation"
+        },
+        {
+          "module": "collections",
+          "construct": "`collections.defaultdict`",
+          "code": "PS1103",
+          "diagnostic": "DefaultDict is not a value type in the IR"
+        },
+        {
+          "module": "random",
+          "construct": "unlowered type annotation",
+          "code": "PS1106",
+          "diagnostic": "the annotation random.Random names a type that is not lowered"
+        },
+        {
+          "module": "typing",
+          "construct": "`typing.Any`",
+          "code": "PS1104",
+          "diagnostic": "Any is not a value type in the IR"
+        },
+        {
+          "module": "typing",
+          "construct": "unlowered type annotation",
+          "code": "PS1001",
+          "diagnostic": "a lambda needs a Callable[[args], ret] annotation"
+        }
+      ]
+    },
+    {
+      "id": "statements",
+      "title": "Statements and language constructs",
+      "description": "Statement forms, unpack patterns, and language constructs that have not yet been lowered.",
+      "fences": [
+        {
+          "module": "builtins",
+          "construct": "`data.sort()`",
+          "code": "PS2001",
+          "diagnostic": "call of attribute is not lowered (data.sort)"
+        },
+        {
+          "module": "builtins",
+          "construct": "`files.remove()`",
+          "code": "PS2001",
+          "diagnostic": "call of attribute is not lowered (files.remove)"
+        },
+        {
+          "module": "builtins",
+          "construct": "`global` statement",
+          "code": "PS2002",
+          "diagnostic": "global pw is not a module slot"
+        },
+        {
+          "module": "builtins",
+          "construct": "`zip()` of nested list",
+          "code": "PS2002",
+          "diagnostic": "zip() of list[list[str]] is not lowered"
+        },
+        {
+          "module": "builtins",
+          "construct": "dataclass bool field",
+          "code": "PS2002",
+          "diagnostic": "bool fields are not lowered"
+        },
+        {
+          "module": "builtins",
+          "construct": "infinite iterators are not lowered",
+          "code": "PS2001",
+          "diagnostic": "infinite iterators are not lowered"
+        },
+        {
+          "module": "builtins",
+          "construct": "nested tuple unpack in loop",
+          "code": "PS2002",
+          "diagnostic": "for unpacks flat names"
+        },
+        {
+          "module": "builtins",
+          "construct": "non-constant module assignment",
+          "code": "PS2002",
+          "diagnostic": "a module assignment must be a constant"
+        },
+        {
+          "module": "datetime",
+          "construct": "`DateTime.strftime`",
+          "code": "PS2001",
+          "diagnostic": "DateTime.strftime is not a method"
+        },
+        {
+          "module": "pathlib",
+          "construct": "`Path.endswith`",
+          "code": "PS2001",
+          "diagnostic": "Path.endswith is not a method"
+        }
+      ]
+    },
+    {
+      "id": "classes",
+      "title": "Classes and object model",
+      "description": "Class attributes, method declarations, and class decorators outside the lowered object model.",
+      "fences": [
+        {
+          "module": "builtins",
+          "construct": "class attribute access",
+          "code": "PS2001",
+          "diagnostic": "Namespace.files is not a field"
+        }
+      ]
+    },
+    {
+      "id": "operators",
+      "title": "Operators",
+      "description": "Operators applied to unlowered operand type combinations halt with an operator fence.",
+      "fences": [
+        {
+          "module": "builtins",
+          "construct": "operator on unlowered types",
+          "code": "PS2004",
+          "diagnostic": "Add on None and opt_str is not lowered"
+        }
+      ]
+    },
+    {
+      "id": "checker",
+      "title": "Type checking",
+      "description": "The type-checker preflight rejects type mismatches between values and declared annotations before lowering begins.",
+      "fences": [
+        {
+          "module": "builtins",
+          "construct": "type annotation mismatch",
+          "code": "PS1003",
+          "diagnostic": "open path is str"
+        },
+        {
+          "module": "os",
+          "construct": "type annotation mismatch",
+          "code": "PS1003",
+          "diagnostic": "os.listdir argument is Path, expected str"
+        },
+        {
+          "module": "pathlib",
+          "construct": "type annotation mismatch",
+          "code": "PS1003",
+          "diagnostic": "posixpath.join arguments are str"
+        },
+        {
+          "module": "subprocess",
+          "construct": "type annotation mismatch",
+          "code": "PS1003",
+          "diagnostic": "subprocess takes a list of str"
+        },
+        {
+          "module": "sys",
+          "construct": "type annotation mismatch",
+          "code": "PS1003",
+          "diagnostic": "sys.exit argument is an int"
+        }
+      ]
+    },
+    {
+      "id": "reflection",
+      "title": "Dynamic reflection",
+      "description": "Dynamic argument unpacking and keyword forwarding that cannot be lowered natively route to the island runtime.",
+      "fences": [
+        {
+          "module": "builtins",
+          "construct": "`**kwargs` forwarding",
+          "code": "PS1202",
+          "diagnostic": "update declares **kwargs: keyword forwarding (**kwargs) collects keyword arguments into a mapping at run time, and the native lane keeps no keyword mapping for a parameter; this code routes to the island lane (requires libpython); typed idiom: PEP 692 Unpack[TypedDict] declares the accepted keyword keys"
+        }
+      ]
+    }
+  ]
+}

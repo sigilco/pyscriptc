@@ -35,9 +35,13 @@ REQUIRED = (
     "_headers",
     "_redirects",
     "docs/index.html",
+    "docs/llms.txt",
+    "docs/llms-full.txt",
     "compat/index.html",
     "compat/data/compat.json",
     "compat/data/ladder.json",
+    "compat/data/what_will_fail.json",
+    "compat/data/support.json",
 )
 
 
@@ -74,6 +78,7 @@ def build_parts(args: argparse.Namespace) -> None:
     if not args.skip_docs:
         run(["pnpm", "--dir", "docs/.docmd", "run", "docs:build"])
     run([sys.executable, "compat/build.py"])
+    run([sys.executable, "scripts/gen_llms_txt.py"])
 
 
 def part_output(part: str) -> Path:
@@ -137,6 +142,11 @@ def assemble(parts: dict[str, Path], out: Path = DEPLOY) -> Path:
     shutil.copytree(landing, out, dirs_exist_ok=True)
     shutil.copytree(docs, out / "docs")
     shutil.copytree(compat, out / "compat")
+
+    if (out / "docs" / "llms.txt").exists():
+        shutil.copy2(out / "docs" / "llms.txt", out / "llms.txt")
+    if (out / "docs" / "llms-full.txt").exists():
+        shutil.copy2(out / "docs" / "llms-full.txt", out / "llms-full.txt")
 
     shutil.copy2(ROOT / "site" / "_headers", out / "_headers")
     shutil.copy2(ROOT / "site" / "_redirects", out / "_redirects")

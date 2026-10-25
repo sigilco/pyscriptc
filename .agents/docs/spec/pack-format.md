@@ -1,10 +1,8 @@
-# Pack format spec
+# Pack format spec (DROPPED)
 
-Spec for compiled libraries as installable packs (issue #377, epic #430, parent #152, plan row P11 of `.agents/plans/2026-10-21-adoption-compat-ffi-strategy.md`).
+Status: permanently dropped and retired per the 2026-10-25 typed-subset positioning decision (Decision 5). The pack format track (issues #430, #377, #378, #456, #458, #411, #152) is closed. PyPI consumption goes through compile-from-source (typed) or the island floor (untyped), and CPython consumption goes through `--emit binding`. Curated distribution packages (`pyscriptc-orjson`, `pyscriptc-jwt`) remain narrow standalone exceptions under explicit alias imports.
 
-A pack is a distributable artifact that replaces a PyPI distribution's import with natively compiled code: a `.pyi` surface, a manifest, C sources (or prebuilt objects) and a conformance suite, one directory, buildable into a `py3-none-<platform>` wheel that both `pyscriptc` and CPython can consume. The ground truth this spec formalizes: the in-tree orjson pack (`src/pyscriptc/restlower/_orjson.py`, stub `src/pyscriptc/_pyright_stubs/orjson/__init__.pyi`, lowered onto `runtime/ps_json.c`), the jwt pack (`restlower/_jwt.py`, `runtime/ps_jwt.c`), the sqlite FFI pilot (`packaging/adapters/pyscriptc-sqlite/ffi.toml`, sections 1-5 of `.agents/docs/ffi/ffi-manifest.md`), the FFI marshalling vocabulary (`--ffi`, PR #367) and the static-library mode (`--emit lib`, PR #364).
-
-Status: draft, reviewable. Nothing here is implemented; #411 (migrate pyscriptc-orjson) and #378 (conformance runner) are the implementing children. This document is the contract they build against; changes to it after they land need a recorded decision.
+Historical spec below for reference only:
 
 ## 1. On-disk layout
 

@@ -3,7 +3,7 @@ title: Fast JSON with orjson
 description: The orjson subset pyscriptc lowers and the option flags it accepts.
 ---
 
-pyscriptc lowers two names of the `orjson` module (through the `pyscriptc-orjson` pack): `orjson.dumps` and `orjson.loads`.
+pyscriptc lowers two names of the `orjson` module (through the curated `pyscriptc-orjson` distribution package): `orjson.dumps` and `orjson.loads`.
 Both go through the same C JSON writer and reader the `json` module uses.
 
 ```python
@@ -32,5 +32,5 @@ Everything else in orjson stays fenced: the `default=` callable, every other `OP
 
 ## Where it differs from orjson
 
-The pack's C thunk is diffed byte for byte against the real orjson under CPython (the sequences in the pack's `conformance/suite.toml`, run by `tests/test_pack_orjson_conformance.py`). Compact output (`{"a":1}` with no spaces) and the two flags above match orjson; serialization of orjson's extended types (`numpy` arrays, `dataclass`, `UUID`, `datetime`) is not in the subset.
+The curated C thunk is diffed byte for byte against the real orjson under CPython (the sequences in the suite `conformance/suite.toml`, run by `tests/test_pack_orjson_conformance.py`). Compact output (`{"a":1}` with no spaces) and the two flags above match orjson; serialization of orjson's extended types (`numpy` arrays, `dataclass`, `UUID`, `datetime`) is not in the subset.
 Errors surface as `ValueError` rather than `orjson.JSONDecodeError`.

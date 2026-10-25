@@ -1,17 +1,21 @@
-"""Generate .agents/docs/support/supported.md and .agents/docs/support/compat-top100.md from the compiler.
+"""Generate compat/data/support.json from the compiler and probe data.
 
 Status comes from compile probes (`pyscriptc.lower.lower_file`, parse-only, no
 LLVM) listed in `scripts/support_data.toml`, from the closed import table in
 `pyscriptc.stdlib_queue`, and from the live fence census of the pinned
 top-100 sources. Only the "not supported" labels are hand-written.
+Nightly measurements update JSON data files, not in-tree markdown.
 
-Run: python scripts/gen_support_table.py [--check]
+Run: python scripts/gen_support_table.py [--check] [--out PATH] [--date YYYY-MM-DD]
 """
 
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
+import os
+import subprocess
 import sys
 import tempfile
 import tomllib
@@ -31,6 +35,7 @@ from pyscriptc.lower import lower_file  # noqa: E402
 from pyscriptc.stdlib_queue import LOWERED, QUEUE  # noqa: E402
 
 DATA = ROOT / "scripts" / "support_data.toml"
+DEFAULT_DATA = ROOT / "compat" / "data" / "support.json"
 SUPPORTED = ROOT / ".agents" / "docs" / "support" / "supported.md"
 TOP100 = ROOT / ".agents" / "docs" / "support" / "compat-top100.md"
 GREEN, YELLOW, RED = "🟢", "🟡", "🔴"
@@ -46,6 +51,13 @@ SIGNATURE = (
     "def f(s: str, b: bytes, n: int, x: float, t: bool, xs: list[int], ss: list[str],"
     " d: dict[str, int], st: set[int], p: P) -> None:"
 )
+
+
+def _git(*args: str) -> str:
+    try:
+        return subprocess.check_output(["git", *args], cwd=ROOT, text=True, stderr=subprocess.DEVNULL).strip()
+    except subprocess.CalledProcessError, FileNotFoundError:
+        return ""
 
 
 def probe(imports: list[str], snippet: str) -> list[tuple[str, str]]:
@@ -122,17 +134,6 @@ def evaluate(entry: dict[str, Any], kind: str, errors: list[str]) -> dict[str, A
     return {"label": label, "status": status, "count": len(names), "missing": missing, "codes": codes}
 
 
-def table(rows: list[dict[str, Any]], first: str) -> str:
-    order = {RED: 0, YELLOW: 1, GREEN: 2}
-    rows = sorted(rows, key=lambda r: (order[r["status"]], r["label"]))
-    out = [f"| {first} | status | not supported | fences |", "| --- | --- | --- | --- |"]
-    for r in rows:
-        codes = ", ".join(sorted(r["codes"])) if r["status"] != GREEN else ""
-        missing = r["missing"] if r["status"] != GREEN else ""
-        out.append(f"| {r['label']} | {r['status']} | {missing} | {codes} |")
-    return "\n".join(out)
-
-
 def counts(rows: list[dict[str, Any]]) -> dict[str, int]:
     total = {GREEN: 0, YELLOW: 0, RED: 0}
     for r in rows:
@@ -179,85 +180,108 @@ def library_rows(data: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
-def render_top100(data: dict[str, Any]) -> str:
-    rows = library_rows(data)
-    c = Counter(r["status"] for r in rows)
-    order = {RED: 0, YELLOW: 1, GREEN: 2}
-    rows.sort(key=lambda r: (order[r["status"]], r["name"]))
-    out = [
-        "# Top-100 library compatibility",
-        "",
-        f"pinned pure-Python libraries: {c[GREEN]} {GREEN} · {c[YELLOW]} {YELLOW} · {c[RED]} {RED}",
-        "",
-        f"{GREEN} compiles with no fence · {YELLOW} at most half of the definitions fence · {RED} more than half"
-        " fence. Counts are live `pyscriptc coverage` runs over `benchmarks/compat/top100/src` (pins and hashes in"
-        " `pins.json`). A library only counts toward the score when one of its own functions runs and matches CPython."
-        " Fence codes are per construct, see [supported.md](supported.md). Tiers T0 to T3:"
-        " [refused-features.md](../spec/refused-features.md). Deliberate differences:"
-        " [divergences.md](../../../docs/reference/divergences.md).",
-        "",
-        "| library | version | status | fenced defs | top blocking features (fences) | top codes |",
-        "| --- | --- | --- | --- | --- | --- |",
-    ]
-    for r in rows:
-        out.append(
-            f"| `{r['name']}` | {r['version']} | {r['status']} | {r['ratio']} | {r['blocking']} | {r['codes']} |"
-        )
-    out += ["", "Regenerate: `mise run support:table`.", ""]
-    return "\n".join(out)
+def build(date: str | None = None, pin: Path | None = None) -> tuple[dict[str, str], list[str]]:
+    """Build compat/data/support.json.
 
-
-def render_supported(data: dict[str, Any], errors: list[str]) -> str:
+    `pin` is an existing JSON document whose `generated` date and `commit`
+    are reused, so a `--check` run over an unchanged tree sees the same bytes.
+    """
+    data = tomllib.loads(DATA.read_text(encoding="utf-8"))
+    errors: list[str] = []
     builtins = [evaluate(e, "builtin", errors) for e in data["builtin"]]
     stdlib = [evaluate(e, "stdlib", errors) for e in data["stdlib"]]
     listed = {n for e in data["stdlib"] for n in e["names"]}
     for module in QUEUE:
         if module not in listed:
             errors.append(f"{module}: in the import table but missing from support_data.toml")
-    head = data["text"]
-    out = [
-        "# What is supported",
-        "",
-        f"{summary('builtins', builtins)} | {summary('stdlib', stdlib)}",
-        "",
-        head["how_to_read"].strip(),
-        "",
-        "## Builtins",
-        "",
-        table(builtins, "builtin"),
-        "",
-        "## Standard library",
-        "",
-        table(stdlib, "module"),
-        "",
-        head["footer"].strip(),
-        "",
-    ]
-    return "\n".join(out)
 
+    packages = library_rows(data)
 
-def build() -> tuple[dict[str, str], list[str]]:
-    data = tomllib.loads(DATA.read_text(encoding="utf-8"))
-    errors: list[str] = []
-    files = {str(SUPPORTED): render_supported(data, errors), str(TOP100): render_top100(data)}
-    return files, errors
+    # Convert sets to sorted lists for JSON serialization
+    serialized_builtins = []
+    for r in builtins:
+        entry = dict(r)
+        entry["codes"] = sorted(entry["codes"])
+        serialized_builtins.append(entry)
+
+    serialized_stdlib = []
+    for r in stdlib:
+        entry = dict(r)
+        entry["codes"] = sorted(entry["codes"])
+        serialized_stdlib.append(entry)
+
+    c_builtins = counts(builtins)
+    c_stdlib = counts(stdlib)
+    c_packages = Counter(r["status"] for r in packages)
+
+    measured_date = date or os.environ.get("COMPAT_DATE") or datetime.date.today().isoformat()
+    pinned: dict[str, Any] | None = None
+    if pin and pin.exists():
+        try:
+            pinned = json.loads(pin.read_text(encoding="utf-8"))
+        except Exception:
+            pinned = None
+
+    doc = {
+        "schema": "1",
+        "generated": (pinned.get("generated") if pinned else None) or measured_date,
+        "commit": (pinned.get("commit") if pinned else None) or _git("rev-parse", "HEAD"),
+        "sources": {
+            "support_data": "scripts/support_data.toml",
+            "pins": "benchmarks/compat/top100/pins.json",
+            "coverage": "pyscriptc coverage over benchmarks/compat/top100/src",
+        },
+        "summary": {
+            "builtins": {
+                "green": c_builtins[GREEN],
+                "yellow": c_builtins[YELLOW],
+                "red": c_builtins[RED],
+            },
+            "stdlib": {
+                "green": c_stdlib[GREEN],
+                "yellow": c_stdlib[YELLOW],
+                "red": c_stdlib[RED],
+            },
+            "packages": {
+                "green": c_packages[GREEN],
+                "yellow": c_packages[YELLOW],
+                "red": c_packages[RED],
+            },
+        },
+        "builtins": serialized_builtins,
+        "stdlib": serialized_stdlib,
+        "packages": packages,
+    }
+    content = json.dumps(doc, indent=2) + "\n"
+    return {str(DEFAULT_DATA): content}, errors
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--check", action="store_true")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true", help="exit with non-zero status if generated content differs")
+    parser.add_argument("--out", type=Path, default=DEFAULT_DATA, help="output path for support.json")
+    parser.add_argument("--date", type=str, default=None, help="override the measured date (YYYY-MM-DD)")
     args = parser.parse_args()
-    files, errors = build()
+
+    files, errors = build(date=args.date, pin=args.out if args.check else None)
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1
-    stale = [p for p, text in files.items() if not Path(p).exists() or Path(p).read_text(encoding="utf-8") != text]
+
+    content = files[str(DEFAULT_DATA)]
     if args.check:
-        if stale:
-            print("stale (run scripts/gen_support_table.py): " + ", ".join(stale), file=sys.stderr)
-        return 1 if stale else 0
-    for path, text in files.items():
-        Path(path).write_text(text, encoding="utf-8")
+        target = args.out
+        if not target.exists():
+            print(f"{target} does not exist", file=sys.stderr)
+            return 1
+        existing = target.read_text(encoding="utf-8")
+        if existing != content:
+            print(f"{target} is out of date. Run: uv run python scripts/gen_support_table.py", file=sys.stderr)
+            return 1
+        return 0
+
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(content, encoding="utf-8")
     return 0
 
 

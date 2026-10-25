@@ -198,9 +198,9 @@ SPECIAL_FUNCTIONS: dict[str, frozenset[str]] = {
     "re": frozenset({"search", "match", "fullmatch", "subn"}),
 }
 
-# The pack surface: a curated pyscriptc-<pack> name the import classifier
-# already lists in native_packages.json. The calls lower onto the pack's
-# runtime symbols, not onto a stdlib module the host interpreter ships.
+# Curated distribution packages (pyscriptc-jwt, pyscriptc-orjson) kept as narrow
+# exceptions under explicit alias imports (packs track dropped per 2026-10-25 decision).
+# The calls lower onto the curated runtime symbols, not onto a stdlib module.
 PACK_MODULES: frozenset[str] = frozenset({"jwt", "orjson"})
 
 

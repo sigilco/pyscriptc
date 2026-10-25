@@ -193,6 +193,8 @@ def test_assemble_builds_the_tree(tmp_path: Path, built: Path) -> None:
     (docs / "index.html").write_text("<html><body>docs</body></html>", encoding="utf-8")
     (docs / "guide" / "support-model").mkdir()
     (docs / "guide" / "support-model" / "index.html").write_text("<html></html>", encoding="utf-8")
+    (docs / "llms.txt").write_text("# docs\n", encoding="utf-8")
+    (docs / "llms-full.txt").write_text("# docs\n", encoding="utf-8")
 
     deploy = assemble(
         {"landing": ROOT / "site" / "landing" / "dist" / "missing", "docs": docs, "compat": built}, tmp_path / "deploy"

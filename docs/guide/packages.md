@@ -1,55 +1,49 @@
 ---
 title: Packages and apps
-description: Which PyPI packages pyscriptc supports, in which tier, and what the beta testers get.
+description: How PyPI dependencies run in pyscriptc: the compat ladder, island floor, and native ceiling.
 ---
 
-pyscriptc does not chase compatibility with all of PyPI.
-It builds on the CPython builtin and standard-library subset, and it gives a short, blessed list of packages a stated surface with one of four tiers.
-The tier is the promise: it says what you get, what you give up, and how the surface is kept honest.
+pyscriptc compiles the typed subset of Python 3.14.
+It does not chase byte-for-byte CPython parity across arbitrary untyped Python, and the compiler provides no shims or dynamic runtime emulation for untyped code.
+Instead, PyPI dependencies and third-party libraries follow the capability ladder: the island is the floor and native compilation is the ceiling.
 
-## The tiers
+## The compat ladder
 
-| tier | meaning | what you get |
-| ---- | ------- | ------------ |
-| T1 | compile the real package from source | the real library, unmodified, matching CPython |
-| T2 | a blessed native pack | the real import name, a subset surface, natively compiled |
-| T3 | a pyscriptc-native alternative | a different import name with a CPython-compatible API subset; you change one import line |
-| T4 | out of scope | not attempted, said plainly |
+Every PyPI package gets a defined execution mode at every maturity stage:
 
-Two rules bind the tiers.
-A tier is per package, never per feature: a part of a package that is not in its tier's surface is not supported, it is not "partially supported".
-And the compiler never approximates a real package: every name outside a pack's or an alternative's surface stops at a compile-time fence that names the package, so what is supported is exactly what is written down.
+- **Floor (always defined)**: the import runs in the CPython island, an in-process embedded interpreter with value-only marshalling (scalars, strings, bytes, and lists across the boundary) that requires `libpython`. Compatibility never answers "impossible"; it answers "island".
+- **Ceiling (earned per package)**: when a package fits the typed subset, it compiles natively into standalone machine code with no interpreter runtime.
 
-## The blessed list
+`requests.get(url)` from a typed binary is the flagship of the floor: typed user code compiles native, while untyped PyPI dependencies run on the island floor.
+The ladder is made user-visible through `pyscriptc imports FILE`, which classifies dependencies as `native`, `native: fences (PS20xx)`, or `island (requires libpython)`.
 
-| package | tier | you get | you give up |
-| ------- | ---- | ------- | ----------- |
-| `requests` | T1 | the real package, compiled from source | proxies, cookies, multipart, streaming uploads; the transport is the native HTTP client, not urllib3's pool |
-| `orjson` | T2 | `dumps` and `loads` under the real import name | `default=`, `Fragment`, the `OPT_` flags beyond the two shipped |
-| `pydantic` | T3 | `pyscriptc_val`: dataclass-shaped models, `model_validate`, `model_dump` | `Annotated` metadata, validators, `model_config`, generics |
-| `fastapi` | T3 | `pyscriptc_fastapi`: sync handlers, route decorators, path and query params, JSON responses | async handlers, dependency injection, middleware, OpenAPI schema |
-| `numpy` | T3 | `pyscriptc_ndarray`: a flat typed buffer with vectorized arithmetic | broadcasting, strides, dtypes beyond the four, `linalg`, ufuncs |
-| `pandas` | T3 | `pyscriptc_frame`: a columnar frame with one-key `groupby` | `Series` objects, `merge`, `pivot`, `apply`, time series, `NaN` semantics |
-| `langchain` | T4 | nothing, by decision | everything |
+## Two unidirectional seams
 
-`langchain` is T4 because it is three frameworks deep (`langchain` over `langchain-core` over `langgraph`), it pulls 40 distributions with 7 native extensions, and it is I/O bound against a remote API, so native compilation buys nothing over CPython.
-The honest answer to a tester who asks for it is the HTTP client and the dataclass models you would use to call the model directly.
+Contact between compiled code and the island exists only as two one-way seams:
 
-The adjacent packages a tester might expect are T4 as well: `uvicorn` (the compiled binary is the server, there is nothing to install), `httpx` (async-first, `requests` covers the sync need), `sqlalchemy` (an ORM; the data path is `sqlite3` and csv), `click` (`argparse` is the standard-library answer), `rich`, `pytest`.
+1. **Compiled to island**: in-process embedded CPython. The user's typed code is native; an untyped import marshals values across into the island and back with subprocess-shaped semantics and in-process execution speed.
+2. **Island to compiled**: CPython consuming compiled native code via `pyscriptc --emit binding`, which generates a loader `.py` and shared library via `ctypes`.
 
-## The two app archetypes
+There is no compiled to island to compiled call chain.
+Values cross a seam exactly once per direction, ownership transfers at the crossing, and no object identity survives it (island handles are opaque, and native classes never appear as `PyObject*`).
+This one-way discipline keeps the boxed ledger honest and avoids the complexity of tracing garbage collection.
 
-The tiering is measured against two shapes of program.
+## Dropped pack format
 
-**The CPU-bound data pipeline** (read a CSV, aggregate, write JSON) compiles today.
-The gaps that remain are type-system fences (a bare `list` annotation, a `for` loop over a container of user class instances) and missing standard-library surfaces (`statistics`, `heapq`, `csv.DictReader`).
-This is the first beta showcase.
+The pack format track (`pack.toml`, binary wheel pack distribution, and precompiled library archives) was permanently dropped per the 2026-10-25 typed-subset positioning decision.
+Packs recreated the curated-fork burden and required codebase changes per package.
+Both jobs are now handled by cleaner architectures: PyPI consumption goes through compile-from-source (typed) or the island floor (untyped), and CPython consumption goes through `--emit binding`.
 
-**The web server** (`http.server`, a JSON service) does not compile yet.
-There is no server runtime to compile against: `http.server` is not in the closed import table, and the inbound HTTP server is tracked on epic [#219](https://github.com/sigilco/pyscriptc/issues/219).
-This is the second beta showcase, after the server runtime lands.
+As a narrow exception, already-shipped curated distributions (`pyscriptc-orjson`, `pyscriptc-jwt`) continue as standalone packages under explicit alias imports.
+New curated distributions require high ROI plus codebase-level compatibility decided case by case.
 
-## Where the status lives
+## Dynamic reflection and introspection
 
-Per-construct, per-module and per-library status is on the [compat site]({{PYSC_COMPAT_URL}}), which is generated from the compiler and cannot drift from it.
-The strategy behind the tiers, the fence counts per package tree, and the ordered plan are in the repository: `.agents/plans/2026-10-24-apps-and-package-strategy.md` and the epic issues [#428](https://github.com/sigilco/pyscriptc/issues/428) (pure-Python libraries) and [#430](https://github.com/sigilco/pyscriptc/issues/430) (packs).
+Typed-but-reflective frameworks (such as FastAPI or Pydantic that rely on `inspect.signature`, runtime `__annotations__` reads, or import-time schema building) run on the island floor where genuine CPython reflection works.
+The compiler never invents fake schema descriptors or partial runtime shims to pretend to compile reflection natively.
+When a compile fences on reflection, the diagnostic names the culprit and points to the island lane or the nearest static typed idiom (such as PEP 692 `Unpack[TypedDict]`).
+
+## Where status lives
+
+Per-construct, per-module, and per-library status is tracked on the [compat site]({{PYSC_COMPAT_URL}}), which is generated from the compiler and cannot drift from it.
+The positioning decision and architecture plans are in the repository: `.agents/plans/2026-10-25-typed-subset-positioning.md`.

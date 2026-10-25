@@ -5,13 +5,16 @@ description: Compile annotated Python to a native binary.
 
 # pyscriptc
 
-Compile annotated Python to a native binary.
+Compile annotated Python to a native binary. Island is the floor and native is the ceiling.
 
 [Quickstart](/getting-started/) · [GitHub](https://github.com/sigilco/pyscriptc) · [PyPI](https://pypi.org/project/pyscriptc/)
 
 ## What it does
 
+- **Typed subset target**: pyscriptc compiles statically-typed Python 3.14. Native compilation is the ceiling and island fallback is the floor; the compiler provides no shims or dynamic runtime emulation for untyped Python.
 - **Native output**: a Python file lowers to a typed IR, then to LLVM, then to a standalone binary. The result has no interpreter inside.
+- **Island floor**: unlowered standard-library calls and untyped PyPI dependencies route to an in-process embedded CPython island (`libpython`).
+- **Two unidirectional seams**: compiled to island in-process, and island to compiled via `pyscriptc --emit binding`.
 - **Honest fences**: anything the subset does not prove is a fence with a diagnostic code (`PSxxxx`), not a guess.
 - **CPython's own parser**: the front end is the `ast` module, so what parses is what CPython parses.
 - **Cross-compile**: `zig cc` as the driver emits binaries for other targets via `--target`.

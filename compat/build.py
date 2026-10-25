@@ -93,8 +93,9 @@ def build(out: Path, data: Path, base: str) -> Path:
     data_out = out / "data"
     data_out.mkdir()
     shutil.copy2(data, data_out / "compat.json")
-    if LADDER.exists():
-        shutil.copy2(LADDER, data_out / "ladder.json")
+    for json_file in sorted((COMPAT / "data").glob("*.json")):
+        if json_file.resolve() != data.resolve():
+            shutil.copy2(json_file, data_out / json_file.name)
 
     for name, source in ASSETS.items():
         if not source.exists():

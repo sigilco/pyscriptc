@@ -7,7 +7,7 @@ description: Install pyscriptc, compile a Python file, and run the native binary
 
 <p align="center"><img src="/assets/logo-256.png" width="320" alt="pyscriptc"></p>
 
-pyscriptc lowers a typed Python subset to a native binary. Parsing is CPython's own `ast`; [pyrefly](https://pyrefly.org/) is a preflight checker. Anything the subset does not prove stops at a fence (`PSxxxx`), not a guess.
+pyscriptc lowers the typed Python 3.14 subset to a native binary. Island fallback is the floor and native compilation is the ceiling; the compiler provides no shims or dynamic runtime emulation for untyped Python. Parsing is CPython's own `ast`; [pyrefly](https://pyrefly.org/) is a preflight checker. Anything the subset does not prove stops at a fence (`PSxxxx`), not a guess.
 
 ## Install
 
