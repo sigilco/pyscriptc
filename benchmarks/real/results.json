@@ -3,13 +3,13 @@
     {
       "argv": [
         "--base-binary",
-        "/Users/josocjoq/.worktrees/pyscriptc-bench8/benchmarks/real/binary_size/base.bin",
+        "<inputs>/binary_size/base.bin",
         "--head-binary",
-        "/Users/josocjoq/.worktrees/pyscriptc-bench8/benchmarks/real/binary_size/head.bin",
+        "<inputs>/binary_size/head.bin",
         "--base-sections",
-        "/Users/josocjoq/.worktrees/pyscriptc-bench8/benchmarks/real/binary_size/base_sections.txt",
+        "<inputs>/binary_size/base_sections.txt",
         "--head-sections",
-        "/Users/josocjoq/.worktrees/pyscriptc-bench8/benchmarks/real/binary_size/head_sections.txt",
+        "<inputs>/binary_size/head_sections.txt",
         "--base-sha",
         "1111111111111111111111111111111111111111",
         "--head-sha",
@@ -17,22 +17,22 @@
         "--target",
         "aarch64-macos",
         "--output-json",
-        "/Users/josocjoq/.worktrees/pyscriptc-bench8/benchmarks/real/.scratch/binary_size/report.json",
+        "<scratch>/binary_size/report.json",
         "--output-markdown",
-        "/Users/josocjoq/.worktrees/pyscriptc-bench8/benchmarks/real/.scratch/binary_size/report.md"
+        "<scratch>/binary_size/report.md"
       ],
       "binary": {
         "bytes": 645096,
-        "path": "/Users/josocjoq/.worktrees/pyscriptc-bench8/benchmarks/real/.artifacts/binary_size",
+        "path": "<inputs>/.artifacts/binary_size",
         "requiresLibpython": true
       },
       "binaryStdoutBytes": 0,
       "compile": {
-        "command": "uv run --project /Users/josocjoq/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o /Users/josocjoq/.worktrees/pyscriptc-bench8/benchmarks/real/.artifacts/binary_size /Users/josocjoq/Documents/prjcts/_own/fx/scripts/binary_size.py",
+        "command": "uv run --project ~/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/binary_size <corpus>/fx/scripts/binary_size.py",
         "exit": 0,
         "ms": 1911.0525830183178
       },
-      "cwd": "/Users/josocjoq/Documents/prjcts/_own/fx/scripts",
+      "cwd": "<corpus>/fx/scripts",
       "exitCodes": {
         "binary": 0,
         "python": 0
@@ -110,7 +110,7 @@
           38.982
         ]
       },
-      "script": "/Users/josocjoq/Documents/prjcts/_own/fx/scripts/binary_size.py",
+      "script": "<corpus>/fx/scripts/binary_size.py",
       "stats": {
         "binary": {
           "max": 50.05458300001919,
@@ -132,20 +132,20 @@
     },
     {
       "argv": [
-        "/Users/josocjoq/.worktrees/pyscriptc-bench8/benchmarks/real/classify/launch-log.txt"
+        "<inputs>/classify/launch-log.txt"
       ],
       "binary": {
         "bytes": 628680,
-        "path": "/Users/josocjoq/.worktrees/pyscriptc-bench8/benchmarks/real/.artifacts/classify",
+        "path": "<inputs>/.artifacts/classify",
         "requiresLibpython": true
       },
       "binaryStdoutBytes": 1121,
       "compile": {
-        "command": "uv run --project /Users/josocjoq/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o /Users/josocjoq/.worktrees/pyscriptc-bench8/benchmarks/real/.artifacts/classify /Users/josocjoq/Documents/prjcts/_own/wowplay-app/tools/launch-diagnostics/classify.py",
+        "command": "uv run --project ~/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/classify <corpus>/wowplay-app/tools/launch-diagnostics/classify.py",
         "exit": 0,
         "ms": 750.4383749328554
       },
-      "cwd": "/Users/josocjoq/Documents/prjcts/_own/wowplay-app/tools/launch-diagnostics",
+      "cwd": "<corpus>/wowplay-app/tools/launch-diagnostics",
       "exitCodes": {
         "binary": 0,
         "python": 0
@@ -214,7 +214,7 @@
           52.267
         ]
       },
-      "script": "/Users/josocjoq/Documents/prjcts/_own/wowplay-app/tools/launch-diagnostics/classify.py",
+      "script": "<corpus>/wowplay-app/tools/launch-diagnostics/classify.py",
       "stats": {
         "binary": {
           "max": 53.42691601254046,
@@ -238,16 +238,16 @@
       "argv": [],
       "binary": {
         "bytes": 644528,
-        "path": "/Users/josocjoq/.worktrees/pyscriptc-bench8/benchmarks/real/.artifacts/tool_token_analysis",
+        "path": "<inputs>/.artifacts/tool_token_analysis",
         "requiresLibpython": true
       },
       "binaryStdoutBytes": 17882,
       "compile": {
-        "command": "uv run --project /Users/josocjoq/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o /Users/josocjoq/.worktrees/pyscriptc-bench8/benchmarks/real/.artifacts/tool_token_analysis /Users/josocjoq/Documents/prjcts/_own/maki/scripts/tool_token_analysis.py",
+        "command": "uv run --project ~/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/tool_token_analysis <corpus>/maki/scripts/tool_token_analysis.py",
         "exit": 0,
         "ms": 1018.785291002132
       },
-      "cwd": "/Users/josocjoq/Documents/prjcts/_own/maki/scripts",
+      "cwd": "<corpus>/maki/scripts",
       "exitCodes": {
         "binary": 0,
         "python": 0
@@ -330,7 +330,7 @@
           30.617
         ]
       },
-      "script": "/Users/josocjoq/Documents/prjcts/_own/maki/scripts/tool_token_analysis.py",
+      "script": "<corpus>/maki/scripts/tool_token_analysis.py",
       "stats": {
         "binary": {
           "max": 30.912874964997172,
@@ -356,16 +356,16 @@
       ],
       "binary": {
         "bytes": 628696,
-        "path": "/Users/josocjoq/.worktrees/pyscriptc-bench8/benchmarks/real/.artifacts/check_deploy_secrets",
+        "path": "<inputs>/.artifacts/check_deploy_secrets",
         "requiresLibpython": true
       },
       "binaryStdoutBytes": 0,
       "compile": {
-        "command": "uv run --project /Users/josocjoq/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o /Users/josocjoq/.worktrees/pyscriptc-bench8/benchmarks/real/.artifacts/check_deploy_secrets /Users/josocjoq/Documents/prjcts/_own/brioso/scripts/check-deploy-secrets.py",
+        "command": "uv run --project ~/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/check_deploy_secrets <corpus>/brioso/scripts/check-deploy-secrets.py",
         "exit": 0,
         "ms": 786.8864160263911
       },
-      "cwd": "/Users/josocjoq/Documents/prjcts/_own/brioso/scripts",
+      "cwd": "<corpus>/brioso/scripts",
       "exitCodes": {
         "binary": 1,
         "python": 1
@@ -432,7 +432,7 @@
           28.686
         ]
       },
-      "script": "/Users/josocjoq/Documents/prjcts/_own/brioso/scripts/check-deploy-secrets.py",
+      "script": "<corpus>/brioso/scripts/check-deploy-secrets.py",
       "stats": {
         "binary": {
           "max": 30.52758309058845,
@@ -456,16 +456,16 @@
       "argv": [],
       "binary": {
         "bytes": 628728,
-        "path": "/Users/josocjoq/.worktrees/pyscriptc-bench8/benchmarks/real/.artifacts/split",
+        "path": "<inputs>/.artifacts/split",
         "requiresLibpython": true
       },
       "binaryStdoutBytes": 0,
       "compile": {
-        "command": "uv run --project /Users/josocjoq/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o /Users/josocjoq/.worktrees/pyscriptc-bench8/benchmarks/real/.artifacts/split /Users/josocjoq/Documents/prjcts/_own/HTLM/data/pipeline/split.py",
+        "command": "uv run --project ~/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/split <corpus>/HTLM/data/pipeline/split.py",
         "exit": 0,
         "ms": 788.2213749689981
       },
-      "cwd": "/Users/josocjoq/Documents/prjcts/_own/HTLM",
+      "cwd": "<corpus>/HTLM",
       "exitCodes": {
         "binary": 2,
         "python": 2
@@ -536,7 +536,7 @@
           36.988
         ]
       },
-      "script": "/Users/josocjoq/Documents/prjcts/_own/HTLM/data/pipeline/split.py",
+      "script": "<corpus>/HTLM/data/pipeline/split.py",
       "stats": {
         "binary": {
           "max": 36.40250000171363,
@@ -560,16 +560,16 @@
       "argv": [],
       "binary": {
         "bytes": 628688,
-        "path": "/Users/josocjoq/.worktrees/pyscriptc-bench8/benchmarks/real/.artifacts/parse_tickets",
+        "path": "<inputs>/.artifacts/parse_tickets",
         "requiresLibpython": true
       },
       "binaryStdoutBytes": 0,
       "compile": {
-        "command": "uv run --project /Users/josocjoq/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o /Users/josocjoq/.worktrees/pyscriptc-bench8/benchmarks/real/.artifacts/parse_tickets /Users/josocjoq/Documents/prjcts/_own/tinyharness/practice/parse_tickets.py",
+        "command": "uv run --project ~/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/parse_tickets <corpus>/tinyharness/practice/parse_tickets.py",
         "exit": 0,
         "ms": 745.0592080131173
       },
-      "cwd": "/Users/josocjoq/Documents/prjcts/_own/tinyharness/practice",
+      "cwd": "<corpus>/tinyharness/practice",
       "exitCodes": {
         "binary": 1,
         "python": 1
@@ -638,7 +638,7 @@
           34.581
         ]
       },
-      "script": "/Users/josocjoq/Documents/prjcts/_own/tinyharness/practice/parse_tickets.py",
+      "script": "<corpus>/tinyharness/practice/parse_tickets.py",
       "stats": {
         "binary": {
           "max": 23.19224993698299,
@@ -662,16 +662,16 @@
       "argv": [],
       "binary": {
         "bytes": 628680,
-        "path": "/Users/josocjoq/.worktrees/pyscriptc-bench8/benchmarks/real/.artifacts/caveman_cli",
+        "path": "<inputs>/.artifacts/caveman_cli",
         "requiresLibpython": true
       },
       "binaryStdoutBytes": 0,
       "compile": {
-        "command": "uv run --project /Users/josocjoq/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o /Users/josocjoq/.worktrees/pyscriptc-bench8/benchmarks/real/.artifacts/caveman_cli /Users/josocjoq/Documents/prjcts/_own/agentplugins-caveman/skills/caveman-compress/scripts/cli.py",
+        "command": "uv run --project ~/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/caveman_cli <corpus>/agentplugins-caveman/skills/caveman-compress/scripts/cli.py",
         "exit": 0,
         "ms": 815.682000014931
       },
-      "cwd": "/Users/josocjoq/Documents/prjcts/_own/agentplugins-caveman/skills/caveman-compress/scripts",
+      "cwd": "<corpus>/agentplugins-caveman/skills/caveman-compress/scripts",
       "exitCodes": {
         "binary": 1,
         "python": 1
@@ -739,7 +739,7 @@
           30.933
         ]
       },
-      "script": "/Users/josocjoq/Documents/prjcts/_own/agentplugins-caveman/skills/caveman-compress/scripts/cli.py",
+      "script": "<corpus>/agentplugins-caveman/skills/caveman-compress/scripts/cli.py",
       "stats": {
         "binary": {
           "max": 20.689916098490357,
@@ -767,7 +767,7 @@
     }
   ],
   "commit": "ecb4e18d",
-  "corpus": "/Users/josocjoq/Documents/prjcts/_own",
+  "corpus": "~/Documents/prjcts/_own",
   "machine": {
     "cpuCount": 8,
     "loadavgStart": [

@@ -47,6 +47,19 @@ def expand(value: str, ctx: dict[str, str]) -> str:
     return value.format(**ctx)
 
 
+def redact(text: str, corpus: Path, scratch: Path) -> str:
+    """Strip the machine layout from recorded paths and argument lists."""
+    for prefix, token in (
+        (str(scratch), "<scratch>"),
+        (str(corpus), "<corpus>"),
+        (str(HERE), "<inputs>"),
+        (str(REPO_ROOT), "<repo>"),
+        (str(Path.home()), "~"),
+    ):
+        text = text.replace(prefix, token)
+    return text
+
+
 def quantile(values: list[float], q: float) -> float:
     if len(values) == 1:
         return values[0]
@@ -134,15 +147,20 @@ def run_case(case: dict[str, object], ctx: dict[str, str], options: argparse.Nam
     if not os.access(artifact, os.X_OK):
         artifact.chmod(0o755)
 
+    corpus = Path(ctx["corpus"])
+
+    def shown(value: str) -> str:
+        return redact(value, corpus, scratch)
+
     result: dict[str, object] = {
         "name": name,
         "kind": case.get("kind", "workload"),
-        "script": str(script),
-        "cwd": str(cwd),
-        "argv": argv,
+        "script": shown(str(script)),
+        "cwd": shown(str(cwd)),
+        "argv": [shown(item) for item in argv],
         "note": case.get("note"),
-        "compile": {"ms": compile_ms, "exit": compiled.returncode, "command": " ".join(compile_cmd)},
-        "binary": {"path": str(artifact), "bytes": artifact.stat().st_size},
+        "compile": {"ms": compile_ms, "exit": compiled.returncode, "command": shown(" ".join(compile_cmd))},
+        "binary": {"path": shown(str(artifact)), "bytes": artifact.stat().st_size},
     }
     report_path = artifact.with_suffix(".report.json")
     if report_path.is_file():
