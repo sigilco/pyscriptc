@@ -7,6 +7,7 @@ siblings lower native. Mixed scripts stay byte-identical to CPython.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -495,3 +496,50 @@ if __name__ == "__main__":
     run = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=app_dir)
     assert run.returncode == 0, run.stderr
     assert run.stdout == "42\n"
+
+
+def test_fallback_optional_return_fall_off_end_plans_island(tmp_path: Path) -> None:
+    """A function falling off the end of an Optional return probes island (issue #621)."""
+    src = tmp_path / "optional_fall.py"
+    src.write_text(
+        """def parse_row(line: str) -> dict[str, str] | None:
+    if "=" in line:
+        parts = line.split("=")
+        return {parts[0]: parts[1]}
+
+
+def main() -> None:
+    res1 = parse_row("a=1")
+    print(res1)
+    res2 = parse_row("comment")
+    print(res2)
+
+
+if __name__ == "__main__":
+    main()
+""",
+        encoding="utf-8",
+    )
+    dbg = tmp_path / "dbg"
+    bin_path = tmp_path / "opt_bin"
+    comp = _run_cli(
+        "compile",
+        str(src),
+        *FALLBACK_FLAGS,
+        "--emit",
+        "bin",
+        "-o",
+        str(bin_path),
+        "--debug-dir",
+        str(dbg),
+        cwd=tmp_path,
+    )
+    assert comp.returncode == 0, comp.stderr
+    summary = json.loads((dbg / "summary.json").read_text(encoding="utf-8"))
+    assert summary["fallback"]["functions"]["parse_row"] == "island"
+
+    # Compiled run matches CPython
+    run_cpython = subprocess.run([sys.executable, str(src)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    run_bin = subprocess.run([str(bin_path)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    assert run_bin.returncode == 0, run_bin.stderr
+    assert run_bin.stdout == run_cpython.stdout

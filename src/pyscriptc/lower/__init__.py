@@ -967,7 +967,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 self.fn_globals = self._globals_for(fn.body)
                 self.fn_nonlocals = set()
                 self.captures = {}
-                params, _ret = self._coro_body_sig(fn.name)
+                params, ret = self._coro_body_sig(fn.name)
                 self.locals = {param["name"]: param["type"] for param in params}
                 self.frozen_names = set()
                 self.opt_unwrap = {}
@@ -979,7 +979,20 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 self.borrowed_handles = {
                     name for name, typ in self.locals.items() if isinstance(typ, dict) and is_handle_type(typ)
                 }
-                self._body(list(fn.body))
+                body = self._body(list(fn.body))
+                if not self.caught:
+                    body = self._scope_exit_frees(body, span_of(fn, self.filename))
+                    if ret["kind"] != "none" and not _always_returns(body):
+                        sink.append(
+                            Fence(
+                                "PS1004",
+                                f"{fn.name} can fall off the end and return None",
+                                span_of(fn, self.filename),
+                                fn.name,
+                            )
+                        )
+            except Fence as exc:
+                sink.append(exc)
             finally:
                 self.locals = saved["locals"]
                 self.prelude = saved["prelude"]
