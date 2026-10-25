@@ -19,6 +19,7 @@ files carry `# boxed:begin` / `# boxed:end` markers.
 from __future__ import annotations
 
 import ast
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -474,3 +475,46 @@ def unit_needs_island(module: dict[str, Any]) -> bool:
         or ISLAND in plan.get("classes", {}).values()
         or bool(module.get("islandSource"))
     )
+
+
+def embed_link_flags(prefix: str | None, version: str) -> tuple[str, list[str]] | None:
+    """EXPERIMENTAL embedding POC: link flags for a relocatable CPython prefix.
+
+    `prefix` is the `PYSC_EXPERIMENTAL_EMBED_PREFIX` value (None or empty means
+    the default host-interpreter link, and the caller changes nothing). The
+    prefix is a python-build-standalone `install/` tree (or any tree with
+    `include/pythonX.Y` and `lib/libpythonX.Y.dylib|so`). The binary gets an
+    rpath of `@executable_path/../lib` (macOS) or `$ORIGIN/../lib` (ELF), so a
+    `bin/` + `lib/` bundle built by `scripts/embed_poc.py` runs with no system
+    Python. With `PYSC_EXPERIMENTAL_EMBED_LINK=static` the archive links into the
+    binary instead (no libpython file to ship). Returns (include dir, link flags).
+    """
+    if not prefix:
+        return None
+    root = Path(prefix)
+    include = root / "include" / f"python{version}"
+    libdir = root / "lib"
+    if not include.is_dir() or not libdir.is_dir():
+        raise ValueError(f"PYSC_EXPERIMENTAL_EMBED_PREFIX={prefix}: need include/python{version} and lib/")
+    mac = os.uname().sysname == "Darwin"
+    if os.environ.get("PYSC_EXPERIMENTAL_EMBED_LINK") == "static":
+        # Static libpython (a `--disable-shared` build, not the python-build-standalone LTO
+        # archive, whose bitcode only the matching LLVM can link). Extension modules that
+        # stayed shared load from the bundled lib/pythonX.Y/lib-dynload.
+        archive = libdir / f"libpython{version}.a"
+        if not archive.is_file():
+            raise ValueError(f"PYSC_EXPERIMENTAL_EMBED_LINK=static: {archive} not found")
+        return str(include), [
+            str(archive),
+            "-ldl",
+            *(["-framework", "CoreFoundation"] if mac else ["-lpthread", "-lutil"]),
+        ]
+    shared = libdir / f"libpython{version}.dylib" if mac else libdir / f"libpython{version}.so"
+    if not shared.exists():
+        raise ValueError(f"PYSC_EXPERIMENTAL_EMBED_PREFIX={prefix}: {shared.name} not found")
+    # The library goes on the line by path, not as -L/-l: zig cc turns every -L
+    # directory into an absolute rpath, which would let a bundle run only because
+    # the build tree still exists. The relative rpath is the only one left.
+    origin = "@executable_path" if mac else "$ORIGIN"
+    return str(include), [str(shared), f"-Wl,-rpath,{origin}/../lib"]
+

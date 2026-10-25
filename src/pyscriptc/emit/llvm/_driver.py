@@ -8,6 +8,7 @@ emitted text into a binary (`link_binary`, `compile_unit`).
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -16,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from pyscriptc import rtcache, zigshim
+from pyscriptc.boxed import embed_link_flags
 from pyscriptc.dwarf import DwarfEmitter
 from pyscriptc.emit.llvm._abi import AbiMixin
 from pyscriptc.emit.llvm._calls import CallsMixin
@@ -272,8 +274,19 @@ def link_binary(
         include = sysconfig.get_path("include")
         libdir = sysconfig.get_config_var("LIBDIR")
         version = sysconfig.get_config_var("VERSION")
-        target_flags.extend(["-I", include])
-        tail = [f"-L{libdir}", f"-lpython{version}", f"-Wl,-rpath,{libdir}", *tail]
+        # boxed:begin
+        # EXPERIMENTAL (embedding POC, unset by default): link a relocatable
+        # CPython prefix instead of the host interpreter. See
+        # .agents/plans/2026-10-25-embedding-libpython.md and scripts/embed_poc.py.
+        embed = embed_link_flags(os.environ.get("PYSC_EXPERIMENTAL_EMBED_PREFIX"), version)
+        if embed is not None:
+            include, embed_flags = embed
+            target_flags.extend(["-I", include])
+            tail = [*embed_flags, *tail]
+        else:
+            # boxed:end
+            target_flags.extend(["-I", include])
+            tail = [f"-L{libdir}", f"-lpython{version}", f"-Wl,-rpath,{libdir}", *tail]
     else:
         sources = [source for source in sources if not source.endswith("ps_island.c")]
     if is_wasm or is_wasi_p2:
