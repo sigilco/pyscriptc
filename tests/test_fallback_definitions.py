@@ -7,6 +7,7 @@ siblings lower native. Mixed scripts stay byte-identical to CPython.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -164,8 +165,8 @@ if __name__ == "__main__":
     assert "--emit binding" in comp.stderr
 
 
-def test_fallback_top_level_fence_still_refuses(tmp_path: Path) -> None:
-    """Module top level is all-or-nothing in this stage (Decision A)."""
+def test_fallback_top_level_fence_runs_island(tmp_path: Path) -> None:
+    """A fenced module top level runs island-side; the output matches CPython."""
     src = tmp_path / "toplevel.py"
     src.write_text(
         """import os
@@ -183,9 +184,142 @@ if __name__ == "__main__":
 """,
         encoding="utf-8",
     )
-    comp = _run_cli("compile", str(src), *FALLBACK_FLAGS, "--emit", "bin", "-o", str(tmp_path / "top"), cwd=tmp_path)
-    assert comp.returncode != 0
-    assert "PS" in comp.stderr
+    native, cpython = _compile_and_compare(tmp_path, src.read_text(encoding="utf-8"), name="toplevel")
+    assert native.returncode == 0, native.stderr
+    assert cpython.returncode == 0, cpython.stderr
+    assert native.stdout == cpython.stdout
+    assert native.stdout == "2\n"
+
+
+def test_fallback_island_top_level_main_guard_fires_once(tmp_path: Path) -> None:
+    """The guard body runs island-side exactly once; the else branch never does."""
+    source_text = """import json
+
+CFG = json.loads('{"env": "prod"}')
+
+
+def render(cfg) -> str:
+    return "env=" + cfg["env"]
+
+
+def main() -> str:
+    return render(CFG)
+
+
+if __name__ == "__main__":
+    print(main())
+else:
+    print("else-ran")
+"""
+    native, cpython = _compile_and_compare(tmp_path, source_text)
+    assert native.returncode == 0, native.stderr
+    assert native.stdout == cpython.stdout
+    assert native.stdout == "env=prod\n"
+
+
+def test_fallback_island_top_level_systemexit_status(tmp_path: Path) -> None:
+    """`raise SystemExit(3)` out of an island top level sets the process status."""
+    source_text = """STATUS = 3
+
+if __name__ == "__main__":
+    raise SystemExit(STATUS)
+"""
+    src = tmp_path / "exiter.py"
+    src.write_text(source_text, encoding="utf-8")
+    binary = tmp_path / "exiter_bin"
+    comp = _run_cli("compile", str(src), *FALLBACK_FLAGS, "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    assert comp.returncode == 0, comp.stderr
+    native = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    cpython = subprocess.run([sys.executable, str(src)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    assert native.returncode == cpython.returncode == 3
+    assert native.stdout == cpython.stdout == ""
+
+
+def test_fallback_island_top_level_unbox_once_global(tmp_path: Path) -> None:
+    """An annotated scalar global unboxes once; a typed native reader sees it."""
+    source_text = """import os
+
+GREETING: str = os.environ.get("GREETING", "top")
+
+
+def greet(name: str) -> str:
+    return GREETING + " " + name
+
+
+print(greet("world"))
+"""
+    src = tmp_path / "unbox.py"
+    src.write_text(source_text, encoding="utf-8")
+    binary = tmp_path / "unbox_bin"
+    comp = _run_cli("compile", str(src), *FALLBACK_FLAGS, "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    assert comp.returncode == 0, comp.stderr
+    env = {**os.environ, "GREETING": "deep"}
+    native = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path, env=env)
+    cpython = subprocess.run(
+        [sys.executable, str(src)], capture_output=True, text=True, timeout=60, cwd=tmp_path, env=env
+    )
+    assert native.returncode == 0, native.stderr
+    assert native.stdout == cpython.stdout == "deep world\n"
+
+
+def test_fallback_island_top_level_native_write_fences(tmp_path: Path) -> None:
+    """A native write to an island-owned global fences, naming the global."""
+    source_text = """import os
+
+COUNT = int(os.environ.get("COUNT", "1"))
+
+
+def bump() -> int:
+    global COUNT
+    COUNT = COUNT + 1
+    return COUNT
+
+
+print(bump())
+"""
+    src = tmp_path / "writer.py"
+    src.write_text(source_text, encoding="utf-8")
+    binary = tmp_path / "writer_bin"
+    comp = _run_cli("compile", str(src), *FALLBACK_FLAGS, "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    assert comp.returncode == 0, comp.stderr
+    env = {**os.environ, "COUNT": "5"}
+    native = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path, env=env)
+    cpython = subprocess.run(
+        [sys.executable, str(src)], capture_output=True, text=True, timeout=60, cwd=tmp_path, env=env
+    )
+    assert native.returncode == cpython.returncode == 0
+    assert native.stdout == cpython.stdout == "6\n"
+
+
+def test_fallback_island_top_level_argv_and_file(tmp_path: Path) -> None:
+    """`sys.argv` and `__file__` resolve inside an island top level."""
+    source_text = """import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+
+
+def main() -> int:
+    if len(sys.argv) != 2:
+        print("usage")
+        return 2
+    print(sys.argv[1] + ":" + HERE.name)
+    return 0
+
+
+raise SystemExit(main())
+"""
+    src = tmp_path / "argvy.py"
+    src.write_text(source_text, encoding="utf-8")
+    binary = tmp_path / "argvy_bin"
+    comp = _run_cli("compile", str(src), *FALLBACK_FLAGS, "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    assert comp.returncode == 0, comp.stderr
+    native = subprocess.run([str(binary), "beta"], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    assert native.returncode == 0, native.stderr
+    assert native.stdout == f"beta:{tmp_path.name}\n"
+    bare = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    assert bare.returncode == 2
+    assert bare.stdout == "usage\n"
 
 
 def test_fallback_without_flag_still_refuses(tmp_path: Path) -> None:
