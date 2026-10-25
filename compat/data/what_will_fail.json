@@ -1,14 +1,14 @@
 {
   "schema": "1",
   "generated": "2026-10-24",
-  "commit": "a8a3e33e96eddd2126e2dd1f4f39c87d9f85045f",
+  "commit": "06d3b7709e2a604972e8f160ff3f3b8c2dea39e3",
   "sources": {
     "corpus": "benchmarks/real_scripts/scripts",
     "report": "benchmarks/real_scripts/REPORT.md"
   },
   "summary": {
     "scripts": 39,
-    "total_fences": 55,
+    "total_fences": 53,
     "unique_codes": [
       "PS1001",
       "PS1003",
@@ -94,6 +94,12 @@
           "construct": "`time.process_time`",
           "code": "PS2001",
           "diagnostic": "time.process_time is not in the lowered subset of time"
+        },
+        {
+          "module": "zipfile",
+          "construct": "`zipfile.ZipFile`",
+          "code": "PS2001",
+          "diagnostic": "zipfile.ZipFile is not in the lowered subset of zipfile"
         }
       ]
     },
@@ -102,18 +108,6 @@
       "title": "Closed import table",
       "description": "Standard library and external modules that are not yet in the closed import table. Importing them halts compilation with a fence.",
       "fences": [
-        {
-          "module": "calendar",
-          "construct": "import calendar",
-          "code": "PS2002",
-          "diagnostic": "calendar is not in the closed import table"
-        },
-        {
-          "module": "platform",
-          "construct": "import platform",
-          "code": "PS2002",
-          "diagnostic": "platform is not in the closed import table"
-        },
         {
           "module": "pylong",
           "construct": "import pylong",
@@ -131,12 +125,6 @@
           "construct": "import sqlite3",
           "code": "PS2002",
           "diagnostic": "sqlite3 is not in the closed import table"
-        },
-        {
-          "module": "zipfile",
-          "construct": "import zipfile",
-          "code": "PS2002",
-          "diagnostic": "zipfile is not in the closed import table"
         }
       ]
     },

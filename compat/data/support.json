@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-25",
-  "commit": "a8a3e33e96eddd2126e2dd1f4f39c87d9f85045f",
+  "commit": "06d3b7709e2a604972e8f160ff3f3b8c2dea39e3",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -15,7 +15,7 @@
     },
     "stdlib": {
       "green": 0,
-      "yellow": 55,
+      "yellow": 59,
       "red": 2
     },
     "packages": {
@@ -699,6 +699,42 @@
       ]
     },
     {
+      "label": "`platform`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "processor",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`calendar`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "monthcalendar",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`zipfile`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "ZipFile",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`tarfile`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "TarFile",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
       "label": "`typing`, `typing_extensions`",
       "status": "\ud83d\udd34",
       "count": 2,
@@ -736,7 +772,7 @@
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
       "ratio": "239/641",
-      "blocking": "name-resolution (143), construct-other (96), generic-alias (57)",
+      "blocking": "name-resolution (143), construct-other (96), generic-alias (56)",
       "codes": "PS2002, PS2001, PS1103"
     },
     {
@@ -776,15 +812,15 @@
       "version": "2.15.1",
       "status": "\ud83d\udfe1",
       "ratio": "65/171",
-      "blocking": "name-resolution (21), dynamic-annotation (20), union-types (13)",
-      "codes": "PS2002, PS1104, PS1101"
+      "blocking": "dynamic-annotation (20), name-resolution (19), union-types (13)",
+      "codes": "PS2002, PS1104, PS2001"
     },
     {
       "name": "mdurl",
       "version": "0.1.2",
       "status": "\ud83d\udd34",
-      "ratio": "8/12",
-      "blocking": "name-resolution (6), construct-other (3), unlowered-call (3)",
+      "ratio": "7/12",
+      "blocking": "name-resolution (5), construct-other (3), unlowered-call (3)",
       "codes": "PS2002, PS2003, PS2001"
     },
     {
@@ -792,7 +828,7 @@
       "version": "26.3",
       "status": "\ud83d\udd34",
       "ratio": "281/558",
-      "blocking": "unlowered-type-name (90), name-resolution (84), class-body (52)",
+      "blocking": "unlowered-type-name (90), name-resolution (77), class-body (52)",
       "codes": "PS2002, PS1106, PS2001"
     },
     {
