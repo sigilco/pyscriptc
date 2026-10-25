@@ -236,8 +236,10 @@ def test_self_census_ballpark() -> None:
     # the --fallback/--island CLI flags add 4 in cli.py, the island emit
     # helpers add 2 in emit/llvm/_abi.py, 2 in lower/_stdlib.py and 3 in
     # lower/__init__.py (the probe, the seed helpers and their annotations).
+    # Plane map and run --report (#614): per-definition plane map in assess.py,
+    # run --report and fallback split in cli.py and config.py add 8 self-host fences.
 
-    assert census["fences"] == 3054
+    assert census["fences"] == 3062
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     # Project mode (#150): project.py adds about 240 lines.
@@ -245,5 +247,5 @@ def test_self_census_ballpark() -> None:
     # adds about 150 lines in coro.py. The asyncio primitives (#180 D3) add
     # about 400 in ps_async.c and restlower/_asyncio_sync.py.
     assert 11_000 <= census["lines"] <= 50_000
-    assert census["fences"] == 3054
-    assert sum(p["fences"] for p in census["packages"]) == 3054
+    assert census["fences"] == 3062
+    assert sum(p["fences"] for p in census["packages"]) == 3062

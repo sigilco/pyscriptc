@@ -379,9 +379,18 @@ def assess(
             culprit = mechanism_of(fence.get("message", "")) if root_cause == ROOT_REFLECTION else None
             import_name = _extract_import_name(fence) if root_cause == ROOT_UNTYPED_IMPORT else ""
 
-            # Filter out imports whose root is in the assessed package itself
+            # Filter out imports whose root is in the assessed package itself or in stdlib
+            from pyscriptc import stdlib_queue
+
             is_own_pkg = bool(import_name and import_name.split(".")[0] in package_roots)
-            if is_own_pkg or is_not_exported or is_partial_stdlib:
+            is_stdlib = bool(
+                import_name
+                and (
+                    import_name.split(".")[0] in sys.stdlib_module_names
+                    or import_name.split(".")[0] in stdlib_queue.QUEUE
+                )
+            )
+            if is_own_pkg or is_not_exported or is_partial_stdlib or is_stdlib:
                 route_import_name = ""
             else:
                 route_import_name = import_name
@@ -429,6 +438,18 @@ def assess(
                     }
                 )
 
+        local_defs: list[dict[str, Any]] = []
+        try:
+            tree = ast.parse(Path(fpath_resolved).read_text(encoding="utf-8"), filename=fpath_resolved)
+            for d in coverage._definitions(tree):
+                local_defs.append({"name": d.name})
+        except Exception:
+            pass
+
+        from pyscriptc import boxed
+
+        file_plane_map = boxed.plane_map(local_fences, local_defs, entry=None)
+
         file_results.append(
             {
                 "file": rel_path,
@@ -440,6 +461,7 @@ def assess(
                 "island": island_defs,
                 "fences": fence_count,
                 "groupedFences": grouped,
+                "planeMap": file_plane_map,
             }
         )
 
@@ -507,7 +529,7 @@ def assess(
             }
         )
         if not is_own and routing != "native" and imp_name not in untyped_imports_needed:
-            if imp_name not in sys.stdlib_module_names:
+            if imp_name not in sys.stdlib_module_names and imp_name not in stdlib_queue.QUEUE:
                 untyped_imports_needed[imp_name] = {
                     "name": imp_name,
                     "policyLine": f'{imp_name} = "island"',
@@ -516,13 +538,29 @@ def assess(
                     "line": item.get("sites", [{}])[0].get("line", 1),
                 }
 
-    # 6. Island Routing
-    policy_lines = ["[tool.pyscriptc.imports]"]
-    for route in sorted(untyped_imports_needed.values(), key=lambda r: r["name"]):
-        policy_lines.append(f'{route["name"]} = "island"')
+    # 6. Island Routing and per-definition plane map
+    all_fences = cov_report.get("fences", [])
+    all_defs: list[dict[str, Any]] = []
+    for f in file_results:
+        f_plane = f.get("planeMap", {})
+        for name in f_plane.get("functions", {}):
+            all_defs.append({"name": name})
+    unique_all_defs = [{"name": n} for n in dict.fromkeys(d["name"] for d in all_defs)]
+    overall_plane_map = boxed.plane_map(all_fences, unique_all_defs, entry=None)
+
+    policy_lines: list[str] = []
+    if untyped_imports_needed:
+        policy_lines.append("[tool.pyscriptc.imports]")
+        for route in sorted(untyped_imports_needed.values(), key=lambda r: r["name"]):
+            policy_lines.append(f'{route["name"]} = "island"')
+
+    island_fn_names = boxed.island_names(overall_plane_map)
+    if island_fn_names:
+        policy_lines.append("[tool.pyscriptc.fallback]")
+        policy_lines.append("definitions = true")
 
     island_routing = {
-        "policyLines": policy_lines if len(policy_lines) > 1 else [],
+        "policyLines": policy_lines,
         "routes": sorted(untyped_imports_needed.values(), key=lambda r: r["name"]),
         "staysBlocked": stays_blocked,
     }
@@ -689,7 +727,8 @@ def assess(
             "share": share_import_island,
         },
         "requiresLibpython": any(i["requiresLibpython"] or i["routing"] == "island" for i in assessed_imports)
-        or isl_defs > 0,
+        or isl_defs > 0
+        or bool(island_fn_names),
     }
 
     micro_mismatch = (oracle.version != verify.TARGET_CPYTHON) if oracle is not None else False
@@ -700,6 +739,9 @@ def assess(
         "targetVersion": verify.TARGET_CPYTHON,
         "microMismatch": micro_mismatch,
         "summary": summary,
+        "planeMap": overall_plane_map,
+        "fallback": overall_plane_map,
+        "islandImports": [i["name"] for i in assessed_imports if i["routing"] == "island"],
         "files": file_results,
         "imports": assessed_imports,
         "islandRouting": island_routing,
@@ -812,6 +854,14 @@ def render_text(
         lines.append(f"  ... and {files_overflow} more file(s) (use --all for full list)")
 
     lines.append("")
+
+    plane_map = report.get("planeMap")
+    if plane_map and (plane_map.get("functions") or plane_map.get("moduleTopLevel")):
+        lines.append("Plane map:")
+        lines.append(f"  module top level: {plane_map.get('moduleTopLevel', 'native')}")
+        for fn_name, plane in sorted(plane_map.get("functions", {}).items()):
+            lines.append(f"  {fn_name}: {plane}")
+        lines.append("")
 
     if report["imports"]:
         lines.append("Imports:")

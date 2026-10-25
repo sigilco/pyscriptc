@@ -175,6 +175,10 @@ class Debug:
             res["binding"] = self.binding_info
             if self.binding_info.get("skippedCount", 0) > 0:
                 res["bindingSkipped"] = self.binding_info["skippedCount"]
+        # boxed:begin
+        if module is not None and "fallback" in module:
+            res["fallback"] = module["fallback"]
+        # boxed:end
         return res
 
     def write_dir(

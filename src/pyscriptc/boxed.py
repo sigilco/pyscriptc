@@ -51,12 +51,17 @@ def plane_map(
     fenced: set[str] = set()
     top_level: list[dict[str, Any]] = []
     for fence in fences:
-        owner = fence.get("function")
+        owner = fence.get("function") or fence.get("definition")
         if owner is None:
             top_level.append(fence)
         else:
             fenced.add(owner)
-    planes = {record["name"]: (ISLAND if record["name"] in fenced else NATIVE) for record in functions}
+    planes = {}
+    for record in functions:
+        name = record["name"] if isinstance(record, dict) else str(record)
+        if name == entry or (name.startswith("__") and name.endswith("__")):
+            continue
+        planes[name] = ISLAND if name in fenced else NATIVE
     return {
         "moduleTopLevel": "fenced" if top_level else "native",
         "functions": planes,
