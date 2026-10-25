@@ -83,13 +83,11 @@ Statement forms, unpack patterns, and language constructs that have not yet been
 | `builtins` | `global` statement | [`pyscriptc explain PS2002`](cli.md#explain) | `global pw is not a module slot` |
 | `builtins` | `zip()` of nested list | [`pyscriptc explain PS2002`](cli.md#explain) | `zip() of list[list[str]] is not lowered` |
 | `builtins` | dataclass bool field | [`pyscriptc explain PS2002`](cli.md#explain) | `bool fields are not lowered` |
-| `builtins` | f-string format object | [`pyscriptc explain PS2002`](cli.md#explain) | `formatting exc is not lowered` |
 | `builtins` | infinite iterators are not lowered | [`pyscriptc explain PS2001`](cli.md#explain) | `infinite iterators are not lowered` |
 | `builtins` | nested tuple unpack in loop | [`pyscriptc explain PS2002`](cli.md#explain) | `for unpacks flat names` |
 | `builtins` | non-constant module assignment | [`pyscriptc explain PS2002`](cli.md#explain) | `a module assignment must be a constant` |
 | `datetime` | `DateTime.strftime` | [`pyscriptc explain PS2001`](cli.md#explain) | `DateTime.strftime is not a method` |
 | `pathlib` | `Path.endswith` | [`pyscriptc explain PS2001`](cli.md#explain) | `Path.endswith is not a method` |
-| `pathlib` | f-string format object | [`pyscriptc explain PS2002`](cli.md#explain) | `formatting Path is not lowered` |
 
 ## Classes and object model
 

@@ -15,14 +15,16 @@ typedef struct {
     PsGrow field;
     int in_quotes;
     int started; /* the current field has begun (chars or a quote seen) */
+    char delim;
 } PsCsv;
 
-static void csv_init(PsCsv *st) {
+static void csv_init(PsCsv *st, char delim) {
     st->rows = ps_seq_new((int64_t)sizeof(PsSeq *), 0);
     st->row = ps_seq_new((int64_t)sizeof(PsBuf), 0);
     ps_grow_init(&st->field);
     st->in_quotes = 0;
     st->started = 0;
+    st->delim = delim;
 }
 
 static void csv_end_field(PsCsv *st) {
@@ -58,7 +60,7 @@ static void csv_feed(PsCsv *st, const char *p, int64_t n) {
             }
             continue;
         }
-        if (c == ',') {
+        if (c == st->delim) {
             csv_end_field(st);
             continue;
         }
@@ -85,20 +87,32 @@ static void csv_flush(PsCsv *st) {
     }
 }
 
-PsSeq *ps_csv_read_io(PsIO *io) {
+PsSeq *ps_csv_read_io(PsIO *io, int64_t delim_len, const char *delim_data) {
     PsBuf text;
     PsCsv st;
+    char delim = ',';
+    if (delim_len == 1 && delim_data != NULL) {
+        delim = delim_data[0];
+    } else if (delim_len != 0) {
+        ps_raise_cstr(PS_VALUE, "\"delimiter\" must be a 1-character string");
+    }
     ps_io_read(io, &text);
-    csv_init(&st);
+    csv_init(&st, delim);
     csv_feed(&st, text.data == NULL ? "" : text.data, text.len);
     csv_flush(&st);
     return st.rows;
 }
 
-PsSeq *ps_csv_read_lines(PsSeq *lines) {
+PsSeq *ps_csv_read_lines(PsSeq *lines, int64_t delim_len, const char *delim_data) {
     PsCsv st;
     int64_t i;
-    csv_init(&st);
+    char delim = ',';
+    if (delim_len == 1 && delim_data != NULL) {
+        delim = delim_data[0];
+    } else if (delim_len != 0) {
+        ps_raise_cstr(PS_VALUE, "\"delimiter\" must be a 1-character string");
+    }
+    csv_init(&st, delim);
     for (i = 0; i < lines->len; i++) {
         PsBuf line;
         ps_seq_get(lines, i, &line);

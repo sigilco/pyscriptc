@@ -7,6 +7,7 @@ from typing import Any
 
 from pyscriptc.ir import types_equal
 from pyscriptc.lower._core import _const_bool
+from pyscriptc.reflection import kwargs_call_note
 from pyscriptc.restlower._shared import _asg, _cmp, _field, _incr, _int, _len_of, _nm, _pin, _set_field, _span_to, _sub
 
 
@@ -341,7 +342,15 @@ def _enumerate_value(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str,
     """`e = enumerate(xs)` as a value: an iterator record over the
     materialized (index, item) pairs the for-loop form yields."""
 
-    lo._reject_keywords(node)
+    for kw in node.keywords:
+        if kw.arg is None:
+            lo.fail(node, "PS2002", kwargs_call_note())
+        if kw.arg != "start":
+            lo.fail(node, "PS2003", f"enumerate keyword {kw.arg} is not lowered")
+    if len(node.args) not in {1, 2}:
+        lo.fail(node, "PS2003", "enumerate takes 1 or 2 arguments")
+    if len(node.args) == 2 and any(kw.arg == "start" for kw in node.keywords):
+        lo.fail(node, "PS2003", "enumerate start given more than once")
     index = lo._temp("ei")
     var = lo._temp("ev")
     comp = ast.ListComp(

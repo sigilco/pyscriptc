@@ -16,7 +16,7 @@ pinned pure-Python libraries: 2 🟢 · 6 🟡 · 10 🔴
 | `python-dotenv` | 1.2.4 | 🔴 | 43/75 | unlowered-call (25), construct-other (21), name-resolution (17) | PS2002, PS1106, PS1001 |
 | `shellingham` | 1.5.4 | 🔴 | 19/25 | module-value (19), param-inference (12), return-inference (6) | PS2002, PS1001, PS2001 |
 | `zipp` | 4.1.1 | 🔴 | 57/75 | param-inference (32), return-inference (18), module-value (3) | PS1001, PS2002, PS2001 |
-| `filelock` | 4.1.1 | 🟡 | 240/641 | name-resolution (147), construct-other (96), generic-alias (57) | PS2002, PS2001, PS1103 |
+| `filelock` | 4.1.1 | 🟡 | 239/641 | name-resolution (143), construct-other (96), generic-alias (57) | PS2002, PS2001, PS1103 |
 | `iniconfig` | 2.3.1 | 🟡 | 13/34 | type-mismatch (5), generic-alias (4), union-types (4) | PS2002, PS1003, PS1103 |
 | `platformdirs` | 4.13.0 | 🟡 | 154/388 | construct-other (62), name-resolution (51), optional-types (33) | PS2002, PS1102, PS2001 |
 | `pyjwt` | 2.15.1 | 🟡 | 65/171 | name-resolution (21), dynamic-annotation (20), union-types (13) | PS2002, PS1104, PS1101 |
