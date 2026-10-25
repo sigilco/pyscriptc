@@ -1,11 +1,13 @@
-"""The boxed per-definition fallback planner (issue #612, island floor Stage 2).
+"""The boxed per-definition fallback planner (issue #612, island floor Stages 2 and 3).
 
 When a function definition hits a fence, this module decides which execution
 plane the definition runs on: native (lowered to LLVM as today) or island
 (exec'd inside the embedded CPython interpreter, called through
 `ps_island_fn_invoke`). The fallback unit is the definition (plan Decision A):
-module top level stays all-or-nothing in this stage and a definition with zero
-fences lowers native, unchanged.
+a definition with zero fences lowers native, unchanged. The module top level
+is all-or-nothing too (Decision A, Stage 3): when any module-level statement
+fences the whole top level runs island-side as the island seed's body, and
+when none fences it lowers native as today.
 
 The planner reads the fence list the lowering pass already produced
 (`Fence.function` names the enclosing definition, plan Decision A), so it never
@@ -34,38 +36,37 @@ def plane_map(
     fences: list[dict[str, Any]],
     functions: list[dict[str, Any]],
     entry: str | None,
+    top_level_island: bool = False,
 ) -> dict[str, Any]:
     """The per-definition plane map from the lowered fence list.
 
     `fences` are the module's `as_dict()` fences; `functions` the lowered
     records (`name`, `span`). A definition with any fence inside it plans
-    island; a definition with none plans native. Module-level fences
-    (`function` is None) belong to the top level and are reported, not
-    routed: Stage 2 keeps a fenced top level a compile error, the island
-    top level is Stage 3 (plan Decision A, Stage 3).
+    island; a definition with none plans native. With `top_level_island`
+    (issue #613, Decision A) the whole module body runs island-side: the
+    embedded interpreter executes the module body as `__main__` instead of
+    the native entry lowering it, the entry's own fences dropped with the
+    top level, and every definition rides the seed.
 
     Returns the `fallback` summary `debug.py` embeds and the receipt records:
-    `{"moduleTopLevel": "native"|"fenced", "functions": {name: plane, ...}}`.
+    `{"moduleTopLevel": "native"|"island", "functions": {name: plane, ...}}`.
     """
 
     fenced: set[str] = set()
-    top_level: list[dict[str, Any]] = []
     for fence in fences:
         owner = fence.get("function") or fence.get("definition")
-        if owner is None:
-            top_level.append(fence)
-        else:
+        if owner is not None:
             fenced.add(owner)
     planes = {}
     for record in functions:
         name = record["name"] if isinstance(record, dict) else str(record)
         if name == entry or (name.startswith("__") and name.endswith("__")):
             continue
-        planes[name] = ISLAND if name in fenced else NATIVE
+        planes[name] = ISLAND if name in fenced or top_level_island else NATIVE
     return {
-        "moduleTopLevel": "fenced" if top_level else "native",
+        "moduleTopLevel": ISLAND if top_level_island else NATIVE,
         "functions": planes,
-        "topLevelFences": len(top_level),
+        "topLevelFences": 1 if top_level_island else 0,
     }
 
 
