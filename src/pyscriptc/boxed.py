@@ -287,3 +287,103 @@ def is_island_diagnostic(
             return cls[prefix] == ISLAND
 
     return top_level_island
+
+
+# The program-wide island (Refs #641): when the fallback tier is on and any
+# unit of a multi-module program needs the island, the whole program runs
+# island-side. The seed is a bootstrap that registers every unit's source
+# in an in-memory finder (so `import`, relative imports, cycles, `__name__`,
+# `__file__` and import order are CPython's own) and execs the entry module
+# as `__main__`. The per-unit plans stop at the module boundary, so a
+# cross-module call between a native and an island unit has no seam to
+# cross; the coarse unit is the program.
+_PROGRAM_BOOTSTRAP = """\
+import os as _os, sys as _sys, importlib.abc as _abc, importlib.util as _iu
+_PS_MODULES = %(modules)s
+class _PsLoader(_abc.Loader):
+    def create_module(self, spec):
+        return None
+    def exec_module(self, module):
+        path, _is_pkg, source = _PS_MODULES[module.__name__]
+        exec(compile(source, path, "exec"), module.__dict__)
+class _PsFinder(_abc.MetaPathFinder):
+    def find_spec(self, name, path=None, target=None):
+        found = _PS_MODULES.get(name)
+        if found is None:
+            return None
+        spec = _iu.spec_from_loader(name, _PsLoader(), origin=found[0], is_package=found[1])
+        spec.has_location = True
+        if found[1]:
+            spec.submodule_search_locations = [_os.path.dirname(found[0])]
+        return spec
+_sys.meta_path.insert(0, _PsFinder())
+_sys.path.insert(0, %(path0)s)
+__file__ = %(main_path)s
+__package__ = %(package)s
+exec(compile(%(main_source)s, __file__, "exec"), globals())
+"""
+
+
+def program_island_source(
+    units: list[tuple[str, Path, bool]],
+    *,
+    entry: str,
+    main_package: str,
+    root: Path,
+    path0: Path,
+) -> str:
+    """The island seed of a whole program: finder bootstrap plus the entry."""
+
+    modules: dict[str, tuple[str, bool, str]] = {}
+    main_path = ""
+    main_source = ""
+    for name, path, is_package in units:
+        text = path.read_text(encoding="utf-8")
+        if name == entry:
+            main_path, main_source = str(path), text
+            continue
+        modules[name] = (str(path), is_package, text)
+    return _PROGRAM_BOOTSTRAP % {
+        "modules": repr(modules),
+        "path0": repr(str(path0)),
+        "main_path": repr(main_path),
+        "package": repr(main_package),
+        "main_source": repr(main_source),
+    }
+
+
+def program_island_module(source: str, root: Path) -> dict[str, Any]:
+    """The merged IR module of a program-wide island: no native code at all."""
+
+    from pyscriptc.ir import IR_VERSION, SUBSET, cpython_version
+
+    return {
+        "irVersion": IR_VERSION,
+        "subset": SUBSET,
+        "cpython": cpython_version(),
+        "sourceFile": str(root),
+        "entry": None,
+        "functions": [],
+        "classes": [],
+        "fences": [],
+        "fallback": {
+            "moduleTopLevel": ISLAND,
+            "functions": {},
+            "classes": {},
+            "topLevelFences": 1,
+            "demotedBy": {},
+        },
+        "islandSource": source,
+    }
+
+
+def unit_needs_island(module: dict[str, Any]) -> bool:
+    """True when one unit's own plan put anything on the island."""
+
+    plan = module.get("fallback") or {}
+    return (
+        plan.get("moduleTopLevel") == ISLAND
+        or ISLAND in plan.get("functions", {}).values()
+        or ISLAND in plan.get("classes", {}).values()
+        or bool(module.get("islandSource"))
+    )
