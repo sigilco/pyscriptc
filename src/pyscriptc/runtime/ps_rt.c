@@ -311,9 +311,33 @@ void ps_report_current(const char *prefix) {
     ps_report_one(e);
 }
 
+/* The last-resort handler's SystemExit rule (#603), the way CPython's
+   PyErr_PrintEx splits it: an int value is the process status, a str value is
+   written to stderr and the process exits 1, and no value exits 0. No class
+   name and no traceback text are printed. A SystemExit subclass follows the
+   same rule: the parent chain decides, not the code. */
+__attribute__((noinline, noreturn)) static void ps_exit_system_exit(void) {
+    PsExc *e = ps_current;
+    if (e != NULL && (e->flags & PS_EXC_FLAG_EXIT_STATUS) != 0) {
+        exit((int)e->exit_status);
+    }
+    if (e != NULL && (e->flags & PS_EXC_FLAG_EXIT_MSG) != 0) {
+        if (e->message.len > 0) {
+            fwrite(e->message.data, 1, (size_t)e->message.len, stderr);
+        }
+        /* The newline is written whether or not the value ends in one. */
+        fputc('\n', stderr);
+        exit(1);
+    }
+    exit(0);
+}
+
 /* Deliver ps_current: unwind to the innermost handler, or report and exit. */
 __attribute__((noinline, noreturn)) static void ps_deliver(void) {
     if (ps_top == NULL) {
+        if (ps_current != NULL && ps_exc_isa(ps_current->code, PS_SYSTEMEXIT)) {
+            ps_exit_system_exit();
+        }
         ps_report_current(NULL);
         exit(1);
     }
@@ -350,6 +374,13 @@ PsExc *ps_exc_make(int32_t code, int64_t n, const char *data) {
     }
     e->message.data[take] = '\0';
     e->message.len = (int64_t)take;
+    /* `raise SystemExit("bye") from cause` takes this path (a raise-from builds
+       a record instead of calling ps_raise_msg): a value was given, so the
+       uncaught handler prints it and exits 1. A bare `raise SystemExit from
+       cause` passes NULL and still exits 0. */
+    if (data != NULL && ps_exc_isa(e->code, PS_SYSTEMEXIT)) {
+        e->flags |= PS_EXC_FLAG_EXIT_MSG;
+    }
     return e;
 }
 
@@ -628,6 +659,22 @@ void ps_raise_msg(int32_t code, int64_t n, const char *data) {
     memcpy(e->message.data, data, take);
     e->message.data[take] = '\0';
     e->message.len = (int64_t)take;
+    if (ps_exc_isa(e->code, PS_SYSTEMEXIT)) {
+        e->flags |= PS_EXC_FLAG_EXIT_MSG;
+    }
+    ps_current = e;
+    ps_deliver();
+}
+
+/* `raise SystemExit(<int>)` (#603). The record keeps the value as its message,
+   so str(e) and a caught `e.args` read the digits CPython reads, and as the
+   status the uncaught handler exits with. */
+__attribute__((noinline, noreturn)) void ps_raise_system_exit(int32_t code, int64_t status) {
+    PsExc *e = ps_exc_new(code == 0 ? PS_SYSTEMEXIT : code);
+    snprintf(e->message.data, 256, "%lld", (long long)status);
+    e->message.len = (int64_t)strlen(e->message.data);
+    e->flags |= PS_EXC_FLAG_EXIT_STATUS;
+    e->exit_status = status;
     ps_current = e;
     ps_deliver();
 }

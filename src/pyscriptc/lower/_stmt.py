@@ -1436,6 +1436,13 @@ class StmtMixin:
         # `E(arg)` becomes the message (str(arg)); bool goes through str() so
         # True prints "True". The exc and `raise ... from` calls share one
         # pass; multi-arg ctors fence (repr(tuple) is not cheap).
+        #
+        # `raise SystemExit(3)` is the exception: an int (or bool, which is an
+        # int in CPython) stays typed so the emitter can hand the value to
+        # ps_raise_system_exit, and the uncaught program exits with it (#603).
+        exit_value = (
+            isinstance(stmt.exc, ast.Call) and isinstance(stmt.exc.func, ast.Name) and stmt.exc.func.id == "SystemExit"
+        )
         msgs: list[dict[str, Any] | None] = [None, None]
         for which in range(2):
             call = stmt.exc if which == 0 else stmt.cause
@@ -1448,7 +1455,15 @@ class StmtMixin:
                 if len(call.args) != 1:
                     self.fail(call, "PS2003", "exception takes one scalar argument")
                 expr = self._expr(call.args[0])
-                if expr["type"]["kind"] == "bool":
+                if exit_value and which == 0 and expr["type"]["kind"] in {"int", "bool"}:
+                    cause = stmt.cause
+                    if cause is not None and not (isinstance(cause, ast.Constant) and cause.value is None):
+                        # A raise-from record carries a str message only, so
+                        # there is nowhere to put the status: fence instead of
+                        # exiting with the wrong code.
+                        self.fail(call, "PS2003", "raise SystemExit with a status and a cause is not lowered")
+                    built = expr
+                elif expr["type"]["kind"] == "bool":
                     built = {
                         "kind": "call",
                         "callee": {"kind": "builtin", "name": "str"},
