@@ -37,7 +37,6 @@ typedef struct {
 
 static void ps_sub_fail(const char *what) { ps_raise_cstr(PS_RUNTIME, what); }
 
-#ifndef _WIN32
 static char *ps_cstr_dup(int64_t n, const char *s) {
     char *text;
     if (n < 0) {
@@ -53,7 +52,6 @@ static char *ps_cstr_dup(int64_t n, const char *s) {
     text[n] = '\0';
     return text;
 }
-#endif
 
 #ifdef _WIN32
 static char *ps_build_cmdline(PsSeq *args) {
@@ -126,7 +124,7 @@ static void ps_sub_readhandle(HANDLE h, PsBuf *out) {
     ps_grow_finish(&g, out);
 }
 
-static int ps_sub_spawn(PsSeq *args, PsBuf *out_stdout, PsBuf *out_stderr) {
+static int ps_sub_spawn(PsSeq *args, const char *cwd, PsBuf *out_stdout, PsBuf *out_stderr) {
     char *cmdline = ps_build_cmdline(args);
     SECURITY_ATTRIBUTES sa;
     HANDLE out_read = NULL, out_write = NULL;
@@ -135,6 +133,7 @@ static int ps_sub_spawn(PsSeq *args, PsBuf *out_stdout, PsBuf *out_stderr) {
     PROCESS_INFORMATION pi;
     DWORD exit_code = 0;
     BOOL ok;
+    const char *cwd_arg = (cwd != NULL && cwd[0] != '\0') ? cwd : NULL;
 
     sa.nLength = sizeof(sa);
     sa.bInheritHandle = TRUE;
@@ -176,7 +175,7 @@ static int ps_sub_spawn(PsSeq *args, PsBuf *out_stdout, PsBuf *out_stderr) {
     }
 
     ZeroMemory(&pi, sizeof(pi));
-    ok = CreateProcessA(NULL, cmdline, NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi);
+    ok = CreateProcessA(NULL, cmdline, NULL, NULL, TRUE, 0, NULL, cwd_arg, &si, &pi);
     free(cmdline);
 
     if (out_stdout != NULL) {
@@ -246,7 +245,7 @@ static char **ps_sub_argv(PsSeq *args) {
 
 /* Run argv. `out_stdout` and `out_stderr` are NULL when that stream is not
    captured. Returns the waitpid status. */
-static int ps_sub_spawn(PsSeq *args, PsBuf *out_stdout, PsBuf *out_stderr) {
+static int ps_sub_spawn(PsSeq *args, const char *cwd, PsBuf *out_stdout, PsBuf *out_stderr) {
     char **argv = ps_sub_argv(args);
     int out_pipe[2] = {-1, -1};
     int err_pipe[2] = {-1, -1};
@@ -263,6 +262,11 @@ static int ps_sub_spawn(PsSeq *args, PsBuf *out_stdout, PsBuf *out_stderr) {
         ps_sub_fail("subprocess fork failed");
     }
     if (pid == 0) {
+        if (cwd != NULL && cwd[0] != '\0') {
+            if (chdir(cwd) != 0) {
+                _exit(127);
+            }
+        }
         if (out_stdout != NULL) {
             close(out_pipe[0]);
             dup2(out_pipe[1], STDOUT_FILENO);
@@ -308,12 +312,12 @@ static int64_t ps_sub_code(int status) {
 #endif
 
 /* call(cmd): the exit code of the child. */
-int64_t ps_sub_call(PsSeq *args) { return ps_sub_code(ps_sub_spawn(args, NULL, NULL)); }
+int64_t ps_sub_call(PsSeq *args) { return ps_sub_code(ps_sub_spawn(args, NULL, NULL, NULL)); }
 
 /* check_call(cmd): the exit code of the child; a non-zero code raises
    RuntimeError, the subset stand-in for CalledProcessError. */
 int64_t ps_sub_check_call(PsSeq *args) {
-    int64_t code = ps_sub_code(ps_sub_spawn(args, NULL, NULL));
+    int64_t code = ps_sub_code(ps_sub_spawn(args, NULL, NULL, NULL));
     if (code != 0) {
         ps_raise_cstr(PS_RUNTIME, "subprocess returned a non-zero exit code");
     }
@@ -322,16 +326,23 @@ int64_t ps_sub_check_call(PsSeq *args) {
 
 /* run(cmd): the CompletedProcess record. `check` (flag bit 1) raises the
    check_call stand-in when the exit code is non-zero; capture is bit 0. */
-void ps_sub_run(PsSeq *args, int64_t flags, PsCompleted *out) {
+void ps_sub_run(PsSeq *args, int64_t flags, int64_t cwd_len, const char *cwd, PsCompleted *out) {
     int status;
+    char *cwd_cstr = NULL;
+    if (cwd_len > 0 && cwd != NULL) {
+        cwd_cstr = ps_cstr_dup(cwd_len, cwd);
+    }
     out->stdout_buf.len = 0;
     out->stdout_buf.data = NULL;
     out->stderr_buf.len = 0;
     out->stderr_buf.data = NULL;
     if (flags & 1) {
-        status = ps_sub_spawn(args, &out->stdout_buf, &out->stderr_buf);
+        status = ps_sub_spawn(args, cwd_cstr, &out->stdout_buf, &out->stderr_buf);
     } else {
-        status = ps_sub_spawn(args, NULL, NULL);
+        status = ps_sub_spawn(args, cwd_cstr, NULL, NULL);
+    }
+    if (cwd_cstr != NULL) {
+        free(cwd_cstr);
     }
     out->returncode = ps_sub_code(status);
     if ((flags & 2) && out->returncode != 0) {

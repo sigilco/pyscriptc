@@ -119,3 +119,78 @@ def test_open_unknown_forms_fence_with_named_codes() -> None:
         "with open('a', 'r', encoding='utf-16') as h:\n    s: str = h.read()\n", "PS2001", "utf-8, ascii, or latin-1"
     )
     _fence("with open('a', 'r', -1) as h:\n    s: str = h.read()\n", "PS2003", "buffering is not lowered")
+
+
+def test_csv_reader_delimiter_matches_cpython(tmp_path: Path) -> None:
+    try:
+        _oracle(
+            tmp_path,
+            "csv_delim.py",
+            "\n".join(
+                [
+                    "import csv",
+                    "",
+                    "def run() -> int:",
+                    "    lines: list[str] = ['col1\\tcol2\\tcol3', 'a\\tb\\tc', 'x\\ty\\tz']",
+                    "    rows = csv.reader(lines, delimiter='\\t')",
+                    "    for row in rows:",
+                    "        print(row[0], row[1], row[2])",
+                    "    lines2: list[str] = ['1;2;3', '4;5;6']",
+                    "    for r in csv.reader(lines2, delimiter=';'):",
+                    "        print(r[0], r[1], r[2])",
+                    "    with open('data.tsv', 'w') as f:",
+                    "        f.write('h1\\th2\\nval1\\tval2\\n')",
+                    "    with open('data.tsv', 'r') as f:",
+                    "        for r in csv.reader(f, delimiter='\\t'):",
+                    "            print(r[0], r[1])",
+                    "    return 0",
+                    "",
+                ]
+            ),
+        )
+    finally:
+        target = Path("data.tsv")
+        if target.exists():
+            target.unlink()
+
+
+def test_csv_reader_unknown_forms_fence_with_named_codes() -> None:
+    _fence(
+        "import csv\nrows = csv.reader(['a'], quotechar='\"')\n",
+        "PS2003",
+        "csv.reader keyword quotechar is not lowered",
+    )
+    _fence(
+        "import csv\nrows = csv.reader(['a'], delimiter='tab')\n",
+        "PS2003",
+        '"delimiter" must be a 1-character string',
+    )
+    _fence("import csv\nrows = csv.reader(['a'], delimiter=123)\n", "PS2003", "csv.reader delimiter must be a str")
+
+
+def test_enumerate_start_keyword_matches_cpython(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "enum_start.py",
+        "\n".join(
+            [
+                "def run() -> int:",
+                "    items: list[str] = ['alpha', 'bravo', 'charlie']",
+                "    for idx, item in enumerate(items, start=1):",
+                "        print(idx, item)",
+                "    for idx, item in enumerate(items, start=-3):",
+                "        print(idx, item)",
+                "    e = enumerate(items, start=10)",
+                "    pair: tuple[int, str] = next(e)",
+                "    print(pair[0], pair[1])",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_enumerate_unknown_forms_fence_with_named_codes() -> None:
+    _fence("for i, x in enumerate(['a'], 1, start=2):\n    pass\n", "PS2003", "enumerate start given more than once")
+    _fence("for i, x in enumerate(['a'], step=1):\n    pass\n", "PS2003", "enumerate keyword step is not lowered")
+    _fence("for i, x in enumerate(['a'], start='bad'):\n    pass\n", "PS1003", "enumerate start is int")

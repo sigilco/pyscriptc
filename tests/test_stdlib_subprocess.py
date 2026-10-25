@@ -151,6 +151,23 @@ def test_subprocess_run_check_true_accepts_zero_and_raises_nonzero(tmp_path: Pat
         ),
     )
 
+    # cwd= keyword with str or Path runs child in that working directory
+    _oracle(
+        tmp_path,
+        "cwd_run.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                "    r: subprocess.CompletedProcess = subprocess.run(['pwd'], cwd='/tmp', capture_output=True)",
+                "    print(len(r.stdout) > 0)",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
 
 def test_subprocess_run_keyword_values_fence_with_named_codes() -> None:
     mod = lower_source("import subprocess\nr: subprocess.CompletedProcess = subprocess.run(['true'], shell=True)\n")
@@ -159,6 +176,9 @@ def test_subprocess_run_keyword_values_fence_with_named_codes() -> None:
     mod = lower_source("import subprocess\nr: subprocess.CompletedProcess = subprocess.run(['true'], text='yes')\n")
     assert [f["code"] for f in mod["fences"]] == ["PS2003"]
     assert "text takes a True or False literal" in mod["fences"][0]["message"]
-    mod = lower_source("import subprocess\nr: subprocess.CompletedProcess = subprocess.run(['true'], cwd='/tmp')\n")
+    mod = lower_source("import subprocess\nr: subprocess.CompletedProcess = subprocess.run(['true'], timeout=5)\n")
     assert [f["code"] for f in mod["fences"]] == ["PS2003"]
-    assert "subprocess.run keyword cwd is not lowered" in mod["fences"][0]["message"]
+    assert "subprocess.run keyword timeout is not lowered" in mod["fences"][0]["message"]
+    mod = lower_source("import subprocess\nr: subprocess.CompletedProcess = subprocess.run(['true'], cwd=123)\n")
+    assert [f["code"] for f in mod["fences"]] == ["PS2003"]
+    assert "subprocess.run cwd must be a str or Path" in mod["fences"][0]["message"]

@@ -45,6 +45,7 @@ from pyscriptc.lower._core import (
     _tuple_assign,
     _zero,
 )
+from pyscriptc.reflection import kwargs_call_note
 from pyscriptc.restlower import alias_name
 
 if TYPE_CHECKING:
@@ -2110,10 +2111,22 @@ class StmtMixin:
     def _for_enumerate(self, stmt: ast.For, span: dict[str, Any]) -> list[dict[str, Any]]:
         call = stmt.iter
         assert isinstance(call, ast.Call)
-        if call.keywords:
-            self.fail(call, "PS2003", "keyword arguments are not lowered")
+        start_node = None
+        for kw in call.keywords:
+            if kw.arg is None:
+                self.fail(call, "PS2002", kwargs_call_note())
+            if kw.arg == "start":
+                if start_node is not None:
+                    self.fail(call, "PS2003", "enumerate start given more than once")
+                start_node = kw.value
+            else:
+                self.fail(call, "PS2003", f"enumerate keyword {kw.arg} is not lowered")
         if len(call.args) not in {1, 2}:
             self.fail(call, "PS2003", "enumerate takes 1 or 2 arguments")
+        if len(call.args) == 2:
+            if start_node is not None:
+                self.fail(call, "PS2003", "enumerate start given more than once")
+            start_node = call.args[1]
         source = self._expr(call.args[0])
         if source["type"]["kind"] != "list" or source["type"].get("set"):
             self.fail(call, "PS2002", "enumerate() takes a list")
@@ -2121,8 +2134,8 @@ class StmtMixin:
         if elem["kind"] not in _SCALAR | {"bool"}:
             self.fail(call, "PS2002", f"enumerate() of list[{_show(elem)}] is not lowered")
         start = _const_int(0, span)
-        if len(call.args) == 2:
-            start = self._expr(call.args[1], {"kind": "int"})
+        if start_node is not None:
+            start = self._expr(start_node, {"kind": "int"})
             if start["type"]["kind"] != "int":
                 self.fail(call, "PS1003", "enumerate start is int")
         return self._for_pairs(stmt, span, [source], [elem], start, "enumerate")

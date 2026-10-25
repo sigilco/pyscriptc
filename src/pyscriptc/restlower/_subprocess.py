@@ -57,12 +57,34 @@ def _raise_flag(node: ast.Call) -> bool:
     return False
 
 
+def _cwd(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """`cwd=` parameter as a str value or empty str if omitted/None."""
+    for keyword in node.keywords:
+        if keyword.arg == "cwd":
+            val = lo._expr(keyword.value)
+            kind = val["type"]["kind"]
+            if kind == "str":
+                return val
+            if kind == "class" and val["type"].get("name") == "Path":
+                return {
+                    "kind": "call",
+                    "callee": {"kind": "builtin", "name": "str"},
+                    "args": [val],
+                    "type": {"kind": "str"},
+                    "span": span,
+                }
+            if kind == "none":
+                return {"kind": "const", "value": "", "type": {"kind": "str"}, "span": span}
+            lo.fail(keyword.value, "PS2003", "subprocess.run cwd must be a str or Path")
+    return {"kind": "const", "value": "", "type": {"kind": "str"}, "span": span}
+
+
 def _run(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     lo.mobile_guard(node, "subprocess.run", "subprocess")
     for keyword in node.keywords:
         if keyword.arg is None:
             lo.fail(node, "PS2002", kwargs_call_note())
-        if keyword.arg not in {"capture_output", "text", "encoding", "errors", "check"}:
+        if keyword.arg not in {"capture_output", "text", "encoding", "errors", "check", "cwd"}:
             lo.fail(node, "PS2003", f"subprocess.run keyword {keyword.arg} is not lowered")
         if keyword.arg in _RUN_BOOL and not (
             isinstance(keyword.value, ast.Constant) and isinstance(keyword.value.value, bool)
@@ -72,10 +94,11 @@ def _run(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     capture = 1 if _capture_output(node) else 0
     check = 2 if _raise_flag(node) else 0
     flag = {"kind": "const", "value": str(capture | check), "type": {"kind": "int"}, "span": span}
+    cwd = _cwd(lo, node, span)
     return lo._abi_call(
         "subprocess",
         "run",
-        [argv, flag],
+        [argv, flag, cwd],
         {"kind": "class", "name": "CompletedProcess"},
         "ps_sub_run",
         span,
