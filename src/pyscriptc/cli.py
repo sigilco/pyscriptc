@@ -551,6 +551,43 @@ def main(argv: list[str] | None = None) -> int:
         if "--" in raw:
             split = raw.index("--")
             raw, run_argv = raw[:split], raw[split + 1 :]
+        # boxed:begin
+        # Fix #622: `run --report` must not swallow the source positional.
+        # If `--report` is followed by a token that is the only positional
+        # argument on the command line, that token is `source` and `--report` is bare.
+        if "run" in raw and "--report" in raw:
+            run_idx = raw.index("run")
+            rep_idx = raw.index("--report")
+            if rep_idx > run_idx and rep_idx + 1 < len(raw) and not raw[rep_idx + 1].startswith("-"):
+                one_arg_flags = {
+                    opt
+                    for act in run_parser._actions
+                    for opt in act.option_strings
+                    if act.nargs is None and not isinstance(act, (argparse._StoreTrueAction, argparse._HelpAction))
+                }
+                positionals: list[str] = []
+                i = run_idx + 1
+                while i < len(raw):
+                    token = raw[i]
+                    if token == "--report":
+                        i += 1
+                        continue
+                    if token.startswith("-"):
+                        if "=" in token:
+                            i += 1
+                        elif token in one_arg_flags:
+                            i += 2
+                        else:
+                            i += 1
+                    else:
+                        positionals.append(token)
+                        i += 1
+                if len(positionals) == 1:
+                    target_pos = positionals[0]
+                    raw.remove("--report")
+                    target_idx = raw.index(target_pos)
+                    raw.insert(target_idx + 1, "--report")
+        # boxed:end
         args = parser.parse_args(raw)
         args.run_argv = run_argv
         if run_argv and not (args.cmd in ("verify", "run", "assess") or (args.cmd == "compile" and args.run)):
