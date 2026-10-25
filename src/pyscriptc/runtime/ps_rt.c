@@ -647,6 +647,57 @@ __attribute__((noinline)) int32_t ps_exc_catch(ps_try_fn fn, void *env, int32_t 
     return 0;
 }
 
+/* --emit binding: the record a raise left at the C ABI edge, waiting for the
+   host to translate it. Per thread, like ps_current and the jump stack. */
+static _Thread_local PsExc *ps_bind_parked;
+
+/* Drop the parked record. Nothing else in the runtime points at it: the
+   guard clears ps_current when it parks, so the record has exactly one
+   owner. cause and args are left alone, like every other allocation the
+   runtime never frees. */
+static void ps_bind_drop(void) {
+    PsExc *e = ps_bind_parked;
+    if (e == NULL) {
+        return;
+    }
+    ps_bind_parked = NULL;
+    free(e->message.data);
+    free(e);
+}
+
+int32_t ps_bind_guard(ps_try_fn fn, void *env) {
+    int32_t status = 0;
+    PsExc *e = NULL;
+    /* A record the host never picked up belongs to a call that ran outside
+       the generated wrapper; it must not fail this one. */
+    ps_bind_drop();
+    if (ps_exc_catch(fn, env, &status, &e) != 0) {
+        ps_bind_parked = e;
+        /* The frame that handled the raise is gone with the call, so the
+           thread is not inside an exception any more. A later bare `raise`
+           must not reuse the record the host is about to translate. */
+        ps_current = NULL;
+        return 1;
+    }
+    return 0;
+}
+
+int32_t ps_bind_pending(void) {
+    return ps_bind_parked != NULL;
+}
+
+const char *ps_bind_name(void) {
+    return ps_bind_parked != NULL ? ps_bind_parked->name.data : NULL;
+}
+
+const char *ps_bind_message(void) {
+    return ps_bind_parked != NULL ? ps_bind_parked->message.data : NULL;
+}
+
+void ps_bind_clear(void) {
+    ps_bind_drop();
+}
+
 void ps_raise_msg(int32_t code, int64_t n, const char *data) {
     if (n < 0) {
         n = 0;

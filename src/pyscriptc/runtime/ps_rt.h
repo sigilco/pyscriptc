@@ -271,6 +271,25 @@ PsExc *ps_exc_make(int32_t code, int64_t n, const char *data);
    drives a child coroutine through this, so its failure travels to the
    awaiting parent instead of unwinding through the loop's C frame. */
 int32_t ps_exc_catch(int32_t (*fn)(void *), void *env, int32_t *status, PsExc **out);
+
+/* `--emit binding` seam: an exception raised inside an exported function has
+   no handler between the call and the ctypes frame that entered the shared
+   library, so the generated shim runs every exported call under
+   `ps_bind_guard`. The guard catches the raise at the C ABI edge, parks the
+   record on the thread, and the loader module turns it into a Python
+   exception with the getters below.
+
+   The store is per thread, like the rest of the exception state. The host
+   picks a record up right after the call that parked it; `ps_bind_guard`
+   drops any record still unpicked at the start of the next guarded call, so
+   a direct call to the unguarded symbol cannot surface a stale error later.
+   Name and message stay valid until the next guard or `ps_bind_clear`. */
+int32_t ps_bind_guard(int32_t (*fn)(void *), void *env);
+int32_t ps_bind_pending(void);
+const char *ps_bind_name(void);
+const char *ps_bind_message(void);
+void ps_bind_clear(void);
+
 int32_t ps_exc_code_by_name(const char *name);
 void ps_exc_set_cause(PsExc *e, PsExc *cause);
 void ps_exc_str(PsExc *e, PsBuf *out);

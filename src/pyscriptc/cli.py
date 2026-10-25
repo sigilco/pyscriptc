@@ -1593,6 +1593,17 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             shlib_path = base.parent / shlib_name
             binding_path = base.parent / f"{stem}_binding.py"
 
+            # The exported calls need an exception guard at the C ABI edge: a
+            # raise unwinds with longjmp, and a ctypes caller leaves no handler
+            # on the far side, so an unguarded call would report and exit the
+            # host process. The shim is a C unit of the same link, generated
+            # from the same function list the loader module is built from.
+            emitted, skipped = binding.analyze_binding(module)
+            dbg.set_binding(emitted, skipped)
+            shim_path = base.parent / f"{stem}_binding_shim.c"
+            shim_path.parent.mkdir(parents=True, exist_ok=True)
+            shim_path.write_text(binding.render_binding_shim(stem, emitted), encoding="utf-8")
+
             link_binary(
                 ll_path,
                 shlib_path,
@@ -1603,15 +1614,16 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                 sanitize=sanitize,
                 timings=dbg.timings_map,
                 debug_info=debug_info,
-                compile_units=[unit for manifest in manifests for unit in manifest.compile_units()],
+                compile_units=[
+                    *(unit for manifest in manifests for unit in manifest.compile_units()),
+                    shim_path,
+                ],
                 link_units=[unit for manifest in manifests for unit in manifest.link_units()],
                 link_flags=[flag for manifest in manifests for flag in manifest.link_flags()],
                 include_dirs=[manifest.path.parent for manifest in manifests if manifest.sources],
                 shared=True,
             )
 
-            emitted, skipped = binding.analyze_binding(module)
-            dbg.set_binding(emitted, skipped)
             binding_code = binding.render_binding_module(stem, shlib_name, emitted, skipped)
             binding_path.parent.mkdir(parents=True, exist_ok=True)
             binding_path.write_text(binding_code, encoding="utf-8")
