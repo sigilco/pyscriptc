@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-25",
-  "commit": "1895191d19d29487db6f9bbc93e600d609470062",
+  "commit": "8989753738537ba3c0aab33d33e3b8fac60a2d10",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -2114,26 +2114,8 @@
   ],
   "history": [
     {
-      "date": "2026-10-23",
-      "commit": "fc74dc701e8fedbe754a817ea448223342051140",
-      "weighted_pass": 0.0,
-      "packages_full": 3,
-      "packages_partial": 5,
-      "packages_none": 10,
-      "fences": 3028
-    },
-    {
-      "date": "2026-10-24",
-      "commit": "0487ccf5832c37d423995d8183d03e754f427de0",
-      "weighted_pass": 0.0,
-      "packages_full": 2,
-      "packages_partial": 6,
-      "packages_none": 10,
-      "fences": 2776
-    },
-    {
       "date": "2026-10-25",
-      "commit": "1895191d19d29487db6f9bbc93e600d609470062",
+      "commit": "8989753738537ba3c0aab33d33e3b8fac60a2d10",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 6,
