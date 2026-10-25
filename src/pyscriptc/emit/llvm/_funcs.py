@@ -180,6 +180,86 @@ class FuncsMixin:
         if self.dwarf is not None:
             self.dwarf.exit_function()
 
+    # boxed:begin
+    def emit_top_island(self) -> str:
+        """The whole-program main of an island top level (issue #613).
+
+        The binary carries no native user code: `main` initializes the
+        runtime and the exception table, unboxes the annotated scalar
+        globals after the seed, and hands the process to the island. The
+        seed runs the whole module body with `__name__ = "__main__"`, so the
+        script's own main guard fires island-side and `raise SystemExit(...)`
+        delivers the process status through `ps_island_fail`. On `--run` the
+        program directory joins `sys.path` before the seed, which
+        `ps_island_init` already does from `ps_argv_get`.
+        """
+        if self.dwarf is not None:
+            entry_span = {"file": self.module["sourceFile"], "line": 1}
+            self.dwarf.enter_function("main", "main", entry_span, [], {"kind": "none"})
+        self.out.append(f"define i32 @{self.entry_symbol}(i32 %argc, ptr %argv) {{")
+        self._reset_function()
+        self.block("entry")
+        self._abi_decl("ps_argv_init", "void", ["i32", "ptr"])
+        # `pyscriptc_init` seeds an empty argv (the library-mode default);
+        # the process argv overwrites it after, so the island top level sees
+        # the real one (`len(sys.argv) != 2` and friends behave as under
+        # CPython).
+        self._abi_decl("pyscriptc_init", "i32", [])
+        self._call_void("pyscriptc_init", [])
+        self._call_void("ps_argv_init", ["i32 %argc", "ptr %argv"])
+        self._emit_exc_registrations()
+        self._emit_island_top_seed()
+        self._emit_island_top_globals()
+        self.line("ret i32 0")
+        self._flush_allocas()
+        self.out.append("}")
+        self.out.append("")
+        if self.dwarf is not None:
+            self.dwarf.exit_function()
+        return self._render()
+
+    def _emit_island_top_seed(self) -> None:
+        """The once-per-binary top-level seed: the module's own source text."""
+
+        source = self.module.get("islandSource") or ""
+        if not source:
+            raise IRError("an island top level carries no islandSource")
+        data = source.encode("utf-8")
+        size = len(data)
+        symbol = self.format_global("island.seed", data)
+        path = self.module.get("sourceFile") or ""
+        path_data = path.encode("utf-8")
+        path_symbol = self.format_global("island.seed.path", path_data) if path_data else None
+        self._abi_decl("ps_island_top_seed", "void", ["i64", "ptr", "i64", "ptr"])
+        self._call_void(
+            "ps_island_top_seed",
+            [
+                f"i64 {size}",
+                f"ptr {symbol}",
+                f"i64 {len(path_data)}",
+                f"ptr {path_symbol}" if path_symbol else "ptr null",
+            ],
+        )
+
+    def _emit_island_top_globals(self) -> None:
+        """One unbox call per annotated scalar global, in IR order."""
+
+        globals_map = self.module.get("islandGlobals") or {}
+        if not globals_map:
+            return
+        self._ensure_arg_type()
+        for name, spec in globals_map.items():
+            want, _, pad = str(spec).partition(":")
+            data = name.encode("utf-8")
+            symbol = self.format_global(f"island.global.{name}", data)
+            self._abi_decl("ps_island_top_global", "void", ["i64", "ptr", "i32", "i32"])
+            self._call_void(
+                "ps_island_top_global",
+                [f"i64 {len(data)}", f"ptr {symbol}", f"i32 {want}", f"i32 {pad or 0}"],
+            )
+
+    # boxed:end
+
     def _emit_exc_registrations(self) -> None:
         """Register the module's user exception classes with the runtime.
 

@@ -171,6 +171,11 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # the names the probe fenced.
         self._boxed_functions: list[ast.FunctionDef] = []
         self._boxed_island: set[str] = set()
+        # The island top level (issue #613): the entry body is probed like a
+        # definition, and a fenced probe plans the whole module top level for
+        # the island (Decision A). `entry_fn_name` then names the entry whose
+        # fences drop with the top level.
+        self._boxed_top_island = False
         # boxed:end
         self.module_name = ""
         self.is_package = False
@@ -994,24 +999,113 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         finally:
             self.caught = []
 
-    def _boxed_island_source(self, tree: ast.Module, island: set[str]) -> str:
-        """The source text the island seed execs (issue #612).
+    def _boxed_island_source(
+        self,
+        tree: ast.Module,
+        island: set[str],
+        top_level_island: bool,
+        globals_out: dict[str, str],
+    ) -> str:
+        """The source text the island seed execs (issue #612, #613).
 
-        Stage 2 keeps the module top level native, so the seed must not
-        re-execute side-effecting top-level statements (the native init
-        already ran them; a second run doubles output). The seed carries
-        the statements an island function needs to resolve its names:
+        With a native top level (Stage 2) the seed must not re-execute
+        side-effecting top-level statements (the native init already ran
+        them; a second run doubles output). It carries the statements an
+        island function needs to resolve its names: every top-level `import`
+        (module bindings, no side effects beyond the import itself, which
+        CPython caches), module assignments whose value is a literal or a
+        deterministic initializer, and the source segment of every island
+        definition.
 
-        - every top-level `import` (module bindings, no side effects
-          beyond the import itself, which CPython caches);
-        - module assignments whose value is a literal (a constant or a
-          display of constants) - the names island functions read;
-        - the source segment of every island definition.
-
-        Stage 3 (the island top level) switches the seed to the whole
-        module body, where the guard stays closed and the top level runs
-        once, island-side.
+        With the island top level (Stage 3, Decision A) the seed is the
+        module's own source text: the embedded interpreter execs it as the
+        `__main__` body exactly once (`ps_island_top_seed` sets `__name__`),
+        so the script's main guard fires island-side and `raise
+        SystemExit(...)` delivers the process status (Decision E). The
+        annotated scalar globals the top level binds are recorded in
+        `globals_out` so the emitter unboxes them once at init into native
+        readers (Decision E).
         """
+
+        if not top_level_island:
+            return self._boxed_stage2_source(tree, island)
+        # The annotated scalar globals the top level binds join the native
+        # slot table from their module-level AnnAssign, so a typed native
+        # reader unboxes the island value once at init. An annotated global
+        # normally binds as a constant (no slot); here the annotation gives
+        # the slot its type instead. An unannotated top-level global never
+        # got a slot (it fenced): it stays island-only.
+        for stmt in tree.body:
+            if not (isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name)):
+                continue
+            name = stmt.target.id
+            if name in self.constants:
+                # The split bound it as a module constant (annotation plus a
+                # simple value). The island top level owns the binding, so
+                # the constant replay leaves and the slot table takes the
+                # name: a typed native reader unboxes the island value
+                # through the shadow slot instead of folding the literal.
+                del self.constants[name]
+                self.declared.discard(name)
+            if name in self.declared:
+                continue
+            slot = self.global_slots.get(name)
+            if slot is None:
+                try:
+                    typ = self._annotation(stmt.annotation)
+                except Fence:
+                    continue
+                if not self._boxed_unboxable_global(typ):
+                    continue
+                self.global_slots[name] = {"type": typ, "active": False}
+                slot = self.global_slots[name]
+            elif slot.get("island"):
+                continue
+            else:
+                typ = slot.get("type")
+                if slot.get("active") or not self._boxed_unboxable_global(typ):
+                    continue
+            try:
+                self._activate_slot(name, stmt)
+            except Fence:
+                self.global_slots.pop(name, None)
+                self.declared.discard(name)
+                continue
+            slot["island"] = True
+            kind = typ["kind"]
+            if kind == "list":
+                pad = self._boxed_island_pad_code(typ["elem"])
+                globals_out[name] = f"5:{pad}"
+            else:
+                globals_out[name] = str({"int": 1, "str": 3, "bool": 4, "bytes": 6}[kind])
+        for slot_name, slot in self.global_slots.items():
+            if not slot.get("active") or slot.get("island"):
+                continue
+            typ = slot.get("type")
+            if not self._boxed_unboxable_global(typ):
+                continue
+            slot["island"] = True
+            kind = typ["kind"]
+            if kind == "list":
+                pad = self._boxed_island_pad_code(typ["elem"])
+                globals_out[slot_name] = f"5:{pad}"
+            else:
+                globals_out[slot_name] = str({"int": 1, "str": 3, "bool": 4, "bytes": 6}[kind])
+        return self.source
+
+    def _boxed_island_pad_code(self, typ: dict[str, Any]) -> int:
+        """The `pad` element code `_island_pad` emits, mirrored at the lowerer.
+
+        The trampoline stores an unboxed list cell per element; the pad names
+        the element kind the same way the emitter's `_ISLAND_ARG_CODES` does.
+        """
+
+        from pyscriptc.emit.llvm._abi import AbiMixin
+
+        return AbiMixin._ISLAND_ARG_CODES[typ["kind"]]
+
+    def _boxed_stage2_source(self, tree: ast.Module, island: set[str]) -> str:
+        """The Stage 2 seed: imports, literal module values, island defs."""
         segments: list[str] = []
         for stmt in tree.body:
             if isinstance(stmt, (ast.Import, ast.ImportFrom)):
@@ -1069,6 +1163,30 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 continue
             return False
         return True
+
+    def _boxed_unboxable_global(self, typ: Any) -> bool:
+        """True when an island global's annotation is a marshalable scalar.
+
+        Decision E (issue #613): a native reader unboxes the island value
+        once after the seed runs; the accepted shapes are the ones the
+        native global-slot runtime can hold and the native readers can read
+        back - bool, int, str, bytes, and lists of scalars. Float has no
+        native slot getter today, so it stays island-side (a native reader
+        of it fences with the named diagnostic); `Path` and other handles
+        stay island-side the same way.
+        """
+
+        if not isinstance(typ, dict):
+            return False
+        if typ.get("island") or typ.get("optional"):
+            return False
+        kind = typ.get("kind")
+        if kind in {"bool", "int", "str", "bytes"}:
+            return True
+        if kind == "list":
+            elem = typ.get("elem") or {}
+            return not elem.get("optional") and elem.get("kind") in {"bool", "int", "float", "str", "bytes"}
+        return False
 
     # boxed:end
 
@@ -1128,10 +1246,12 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         live = self._live_statements(list(tree.body), fences)
         self.global_slots = self._scan_global_slots(live)
         entry_stmts = self._split_entry(live, functions, class_nodes, fences)
+        # boxed:end
         entry_fn = self._entry_function(entry_stmts, functions)
         entry_name = entry_fn[0].name if entry_fn else None
         self.entry_fn_name = entry_name
         functions.extend(entry_fn)
+        # boxed:end
         self._install_synthetics(class_nodes, fences)
         imported = {name for name, info in self.classes.items() if info.get("imported")}
         imported.update(self.class_aliases)
@@ -1176,6 +1296,23 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # every call site sees the same `island_fns` (issue #612).
         self._boxed_functions = list(functions)
         self._boxed_resolve(fences)
+        # The island top level (issue #613, Decision A): the synthesized
+        # entry is the module body, so it is probed like any definition.
+        # A fenced probe means module-level statements fence native - the
+        # whole top level runs island-side and the entry's fences drop with
+        # it (the entry never lowers native: the body pass skips it).
+        if self.fallback_definitions and entry_fn:
+            probe_fences: list[Fence] = []
+            saved_function = self.function
+            self.function = entry_name
+            try:
+                self._boxed_probe(entry_fn[0], probe_fences)
+            finally:
+                self.function = saved_function
+            self._boxed_top_island = bool(probe_fences)
+            if self._boxed_top_island:
+                fences.extend(probe_fences)
+                self._boxed_island.add(entry_name)
         # boxed:end
         if self.cataloguing:
             self.function = None
@@ -1210,6 +1347,14 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         for fn in functions:
             if fn.name not in self.sigs or fn.name in self.generic_fns:
                 continue
+            # boxed:begin
+            # A definition planned for the island never lowers (issue
+            # #612): its probe already fenced, the fences dropped, and the
+            # island runs its real body. The entry joins this list when the
+            # top level is island (issue #613).
+            if self.fallback_definitions and fn.name in self.island_fns:
+                continue
+            # boxed:end
             self.function = fn.name
             self.temp_n = 0
             self.prelude = []
@@ -1280,29 +1425,49 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # The boxed per-definition planner (issue #612): the fence list of a
         # definition planned for the island leaves the module fence list and
         # the definition leaves the lowered list (its body never lowered).
-        # Module-level fences keep refusing (Decision A: top level is
-        # all-or-nothing in this stage), and so does a fence in the
-        # synthesized entry, which *is* the top level.
+        # Stage 3 (issue #613): a fenced entry probe plans the whole top
+        # level for the island (Decision A is all-or-nothing in both
+        # directions), and the annotated scalar globals the top level binds
+        # unbox once into native readers.
         fallback_map: dict[str, Any] | None = None
         if self.fallback_definitions:
             from pyscriptc import boxed as _boxed
 
             island = set(self.island_fns)
-            island.discard(entry_name)
+            # The island top level (issue #613): the entry name is the
+            # island's own entry (the seed runs the whole module body), so
+            # it stays out of the native lowered list and its fences drop
+            # with the top level. A native top level keeps the Stage 2
+            # shape: the entry lowers native, an island function is a
+            # trampoline call from it.
+            if self._boxed_top_island:
+                island.add(entry_name)
+                fences = [fence for fence in fences if fence.function != entry_name]
+                lowered = [record for record in lowered if record["name"] != entry_name]
+            else:
+                island.discard(entry_name)
             self.island_fns = island
             lowered = [record for record in lowered if record["name"] not in island]
             siblings = set(map(id, self._boxed_sibling_fences))
             fences = [fence for fence in fences if fence.function not in island or id(fence) in siblings]
+            # The island seed is the whole module body island-side (issue
+            # #613, the original source, `__name__ = "__main__"`) or the
+            # Stage 2 shape (only the pieces island functions need resolve
+            # their names).
+            top_level_island = self._boxed_top_island
             all_names = [record["name"] for record in lowered] + [fn.name for fn in functions]
             fallback_map = _boxed.plane_map(
                 [fence.as_dict() for fence in fences],
                 [{"name": n} for n in dict.fromkeys(all_names)],
                 entry_name,
+                top_level_island,
             )
             for name in island:
                 fallback_map["functions"][name] = _boxed.ISLAND
-            if island:
-                module_plane = self._boxed_island_source(tree, island)
+            island_globals: dict[str, str] = {}
+            module_plane = ""
+            if island or top_level_island:
+                module_plane = self._boxed_island_source(tree, island, top_level_island, island_globals)
         # boxed:end
         self.function = None
         names = [item["name"] for item in lowered]
@@ -1321,8 +1486,10 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # boxed:begin
         if fallback_map is not None:
             module["fallback"] = fallback_map
-            if self.island_fns:
+            if module_plane:
                 module["islandSource"] = module_plane
+            if island_globals:
+                module["islandGlobals"] = island_globals
         # boxed:end
         if self.global_inits:
             module["globals"] = self.global_inits
@@ -2076,10 +2243,24 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             return f"{self.module_name}.{name}"
         return name
 
+    # boxed:begin
+    def _slot_island_key(self, name: str) -> str:
+        """The shadow slot key of an island-owned global (issue #613)."""
+
+        return f"__island__{self._slot_key(name)}"
+
+    # boxed:end
+
     def _global_get(self, name: str, span: dict[str, Any]) -> dict[str, Any]:
         slot = self.global_slots[name]
         typ = slot["type"]
         key = _text_ir(self._slot_key(name), "str", span)
+        # boxed:begin
+        # The island top level (issue #613): a global the island bound is a
+        # read of the once-unboxed shadow slot, under the island-prefixed key.
+        if slot.get("island"):
+            key = _text_ir(self._slot_island_key(name), "str", span)
+        # boxed:end
         if typ["kind"] == "str":
             return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_str", span)
         if typ["kind"] == "int":
@@ -2097,6 +2278,20 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
 
     def _global_set(self, name: str, value: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
         typ = value["type"]
+        # boxed:begin
+        # The island top level (issue #613, Decision E): a global the island
+        # owns is unbox-once into the native shadow slot. A native write
+        # would either vanish (the island never re-reads it) or surprise the
+        # island, so it fences with the named diagnostic.
+        slot = self.global_slots.get(name)
+        if slot is not None and slot.get("island"):
+            self.fail(
+                ast.Pass(),
+                "PS2002",
+                f"{name} is owned by the island top level and cannot be written from compiled code: "
+                "write it in a function that runs on the island, or annotate the global so it lowers native",
+            )
+        # boxed:end
         key = _text_ir(self._slot_key(name), "str", span)
         if typ["kind"] == "str":
             symbol = "ps_global_set_str"

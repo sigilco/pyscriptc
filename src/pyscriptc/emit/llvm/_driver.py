@@ -92,6 +92,19 @@ def emit_llvm(
     assert_same_cpython(module)
     if module["fences"]:
         raise IRError("refusing to emit LLVM while fences are present")
+    # boxed:begin
+    # The island top level (issue #613): the module body runs island-side,
+    # so there is nothing native to run. The program is the island seed
+    # alone, emitted as the no-op main with the island prologue. Native
+    # functions that lowered clean may stay in the IR (the emitter skips
+    # them); the seed's namespace holds the real definitions.
+    if module.get("fallback", {}).get("moduleTopLevel") == "island" and call is None and not (library or binding):
+        dwarf = DwarfEmitter(module["sourceFile"]) if debug_info else None
+        emitter = Emitter(module, dwarf, wasm=wasm)
+        emitter.library = library
+        emitter.binding = binding
+        return emitter.emit_top_island()
+    # boxed:end
     if not module["functions"]:
         raise IRError("module has no functions to emit")
     dwarf = DwarfEmitter(module["sourceFile"]) if debug_info else None

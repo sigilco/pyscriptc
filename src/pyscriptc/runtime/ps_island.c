@@ -20,6 +20,12 @@ the scalar, str, bytes, and list set the rest of the runtime already uses.
 
 PsSeq *ps_argv_get(void);
 
+/* Process-wide module slots (ps_osmore.c); the island top level stores the
+   once-unboxed shadow values into them (issue #613). */
+void ps_global_set_str(int64_t nn, const char *name, int64_t vn, const char *val);
+void ps_global_set_i64(int64_t n, const char *name, int64_t value);
+void ps_global_set_ptr(int64_t n, const char *name, void *value);
+
 /* The GIL: Py_InitializeEx leaves the calling thread holding it, so every
    other native thread would block forever. SaveThread releases it after the
    one-time init, and each entry point re-enters through PyGILState_Ensure.
@@ -280,6 +286,31 @@ static void ps_island_fail(void) {
             if (got != NULL) {
                 msg = got;
             }
+        }
+        /* The island top level (issue #613, Decision E): an island
+           `raise SystemExit(status)` or an uncaught `SystemExit` out of the
+           seeded body carries the process status through the closed native
+           table, exactly as CPython's own uncaught handler would. A str
+           value stays a PS_SYSTEMEXIT message; the last-resort handler
+           prints it and exits 1. */
+        if (PyErr_GivenExceptionMatches(val, PyExc_SystemExit)) {
+            PyObject *args = PyException_GetArgs(val);
+            if (args != NULL && PyTuple_Check(args) && PyTuple_GET_SIZE(args) == 1) {
+                PyObject *item = PyTuple_GET_ITEM(args, 0);
+                if (PyLong_CheckExact(item)) {
+                    int overflow = 0;
+                    long status = PyLong_AsLongAndOverflow(item, &overflow);
+                    if (!overflow && PyErr_Occurred() == NULL) {
+                        Py_XDECREF(text);
+                        Py_XDECREF(typ);
+                        Py_XDECREF(val);
+                        Py_XDECREF(tb);
+                        ps_island_done();
+                        ps_raise_system_exit(PS_SYSTEMEXIT, (int64_t)status);
+                    }
+                }
+            }
+            code = PS_SYSTEMEXIT;
         }
     }
     /* The GIL goes back before the raise unwinds the thread. */
@@ -1007,6 +1038,149 @@ void ps_island_fn_seed(int64_t n, const char *source) {
     ps_island_ensure();
     if (ps_island_seed(n, source) < 0) {
         ps_island_fail();
+    }
+    ps_island_done();
+}
+
+/* The island top level (issue #613): the seed is the module's own source,
+   so the exec runs with `__name__` set to `__main__` - the script's own
+   main guard fires island-side, exactly once, and `raise SystemExit(...)`
+   out of the body delivers the process status through ps_island_fail.
+   `path` seeds `__file__` (a Path-global script resolves its data files
+   through it); it may be NULL. The native entry never runs when this seed
+   is present: it IS the program. */
+void ps_island_top_seed(int64_t n, const char *source, int64_t path_n, const char *path) {
+    PyObject *text;
+    PyObject *builtins = NULL;
+    PyObject *main_name = NULL;
+    PyObject *file_name = NULL;
+    PyObject *sys = NULL;
+    PyObject *result = NULL;
+    ps_island_ensure();
+    text = PyUnicode_DecodeUTF8(source, (Py_ssize_t)n, "strict");
+    if (text == NULL) {
+        ps_island_fail();
+    }
+    if (ps_island_ns == NULL) {
+        ps_island_ns = PyDict_New();
+        if (ps_island_ns == NULL) {
+            Py_DECREF(text);
+            ps_island_fail();
+        }
+    }
+    builtins = PyImport_ImportModule("builtins");
+    if (builtins == NULL || PyDict_SetItemString(ps_island_ns, "__builtins__", builtins) < 0) {
+        Py_XDECREF(builtins);
+        Py_DECREF(text);
+        ps_island_fail();
+    }
+    Py_DECREF(builtins);
+    main_name = PyUnicode_FromString("__main__");
+    if (main_name == NULL || PyDict_SetItemString(ps_island_ns, "__name__", main_name) < 0) {
+        Py_XDECREF(main_name);
+        Py_DECREF(text);
+        ps_island_fail();
+    }
+    Py_DECREF(main_name);
+    if (path != NULL) {
+        file_name = PyUnicode_DecodeUTF8(path, (Py_ssize_t)path_n, "strict");
+        if (file_name == NULL || PyDict_SetItemString(ps_island_ns, "__file__", file_name) < 0) {
+            Py_XDECREF(file_name);
+            Py_DECREF(text);
+            ps_island_fail();
+        }
+        Py_DECREF(file_name);
+    }
+    /* sys.argv mirrors the process argv the native runtime already holds
+       (ps_argv_init), so `len(sys.argv) != 2` and friends behave as under
+       CPython. argv[0] becomes the program path the native side recorded
+       first. */
+    sys = PyImport_ImportModule("sys");
+    if (sys != NULL) {
+        PsSeq *argv_seq = ps_argv_get();
+        PyObject *argv_list = PyList_New(0);
+        if (argv_list != NULL) {
+            int64_t i;
+            for (i = 0; argv_seq != NULL && i < argv_seq->len; i++) {
+                PsBuf *b = (PsBuf *)argv_seq->data + i;
+                PyObject *item = PyUnicode_DecodeUTF8(b->data, (Py_ssize_t)b->len, "strict");
+                if (item == NULL || PyList_Append(argv_list, item) < 0) {
+                    Py_XDECREF(item);
+                    Py_DECREF(argv_list);
+                    argv_list = NULL;
+                    break;
+                }
+                Py_DECREF(item);
+            }
+            if (argv_list != NULL) {
+                PyObject_SetAttrString(sys, "argv", argv_list);
+                Py_DECREF(argv_list);
+            }
+        }
+        Py_DECREF(sys);
+        PyErr_Clear();
+    }
+    result = PyRun_String(PyUnicode_AsUTF8(text) != NULL ? PyUnicode_AsUTF8(text) : "",
+                          Py_file_input, ps_island_ns, ps_island_ns);
+    Py_DECREF(text);
+    if (result == NULL) {
+        ps_island_fail();
+    }
+    Py_DECREF(result);
+    ps_island_done();
+}
+
+/* Unbox one annotated scalar global the island top level bound (issue #613,
+   Decision E): the value is read out of the island namespace once, after the
+   seed ran, and stored into the native process-wide slot the native readers
+   of the global use. Later island-side rewrites stay invisible (the
+   documented one-directional seam). `want`/`pad` select the unmarshal shape,
+   the same encoding `ps_island_set_arg` already speaks. */
+void ps_island_top_global(int64_t n, const char *name, int32_t want, int32_t pad) {
+    PyObject *name_obj;
+    PyObject *value;
+    PsArg arg;
+    memset(&arg, 0, sizeof(arg));
+    ps_island_ensure();
+    if (ps_island_ns == NULL) {
+        PyErr_SetString(PyExc_RuntimeError, "island module namespace is not seeded");
+        ps_island_fail();
+    }
+    name_obj = PyUnicode_DecodeUTF8(name, (Py_ssize_t)n, "strict");
+    if (name_obj == NULL) {
+        ps_island_fail();
+    }
+    value = PyDict_GetItemWithError(ps_island_ns, name_obj);
+    Py_DECREF(name_obj);
+    if (value == NULL) {
+        if (!PyErr_Occurred()) {
+            PyErr_Format(PyExc_NameError, "island global %s is not defined", name);
+        }
+        ps_island_fail();
+    }
+    Py_INCREF(value);
+    ps_island_set_arg(value, want, pad, &arg);
+    Py_DECREF(value);
+    /* The native slot names carry the island prefix so a program cannot
+       collide with its own `global` writes (which fence, issue #613). */
+    {
+        char full[512];
+        snprintf(full, sizeof full, "__island__%.*s", (int)(n > 480 ? 480 : n), name);
+        switch (want) {
+        case 1: /* int */
+            ps_global_set_i64((int64_t)strlen(full), full, arg.i);
+            break;
+        case 4: /* bool */
+            ps_global_set_i64((int64_t)strlen(full), full, arg.i ? 1 : 0);
+            break;
+        case 3: /* str */
+        case 6: /* bytes */
+            ps_global_set_str((int64_t)strlen(full), full, arg.b.len, (const char *)arg.b.data);
+            break;
+        default: /* list of scalars: crosses as the seq pointer */
+            ps_global_set_ptr((int64_t)strlen(full), full, (void *)(uintptr_t)arg.i);
+            break;
+        }
     }
     ps_island_done();
 }

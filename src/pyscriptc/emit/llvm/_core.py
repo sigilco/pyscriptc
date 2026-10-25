@@ -133,6 +133,11 @@ class CoreMixin:
         for symbol in sorted(self.threads):
             self._emit_thread_stub(symbol, self.threads[symbol])
         self.out.extend(self.outline_lines)
+        return self._render()
+
+    def _render(self) -> str:
+        """Assemble the module text: types, globals, declarations, helpers, body."""
+
         # %ps.str is { i64, ptr, i64, i32 }: byte length, data pointer,
         # code-point count, flags (bit 0 ASCII). Until the str model lands
         # (epic #472) the count mirrors the byte count and the flag stays 0,
