@@ -139,3 +139,127 @@ def test_run_propagates_the_system_exit_status(tmp_path: Path, capfd: pytest.Cap
     assert captured.out == "hello\n"
     # `run` names the cached binary on stderr; the program itself reports nothing.
     assert "SystemExit" not in captured.err
+
+
+# Island seam cases (issue #642): the `SystemExit` escapes a fenced (island)
+# function, so delivery goes through the island runtime's failure path. Each
+# is compiled with `--fallback=cpython --emit bin` and compared against
+# CPython on exit code and stderr.
+ISLAND_CASES: list[tuple[str, str]] = [
+    (
+        "str_payload_from_island_fn",
+        "import os\n"
+        "import sys\n"
+        "\n"
+        "\n"
+        "def fail(n: int) -> None:\n"
+        '    for root, dirs, files in os.walk("/nonexistent"):\n'
+        "        pass\n"
+        "    if n > 0:\n"
+        '        sys.exit("boom")\n'
+        "\n"
+        "\n"
+        "def main() -> None:\n"
+        "    fail(1)\n"
+        "\n"
+        "\n"
+        'if __name__ == "__main__":\n'
+        "    main()\n",
+    ),
+    (
+        "raise_str_payload_from_island_fn",
+        "import sys\n"
+        "\n"
+        "\n"
+        "def fail() -> None:\n"
+        '    raise SystemExit("boom")\n'
+        "\n"
+        "\n"
+        "def main() -> None:\n"
+        "    fail()\n"
+        "\n"
+        "\n"
+        'if __name__ == "__main__":\n'
+        "    main()\n",
+    ),
+    (
+        "int_payload_from_island_fn",
+        "import sys\n"
+        "\n"
+        "\n"
+        "def fail() -> None:\n"
+        "    sys.exit(3)\n"
+        "\n"
+        "\n"
+        "def main() -> None:\n"
+        "    fail()\n"
+        "\n"
+        "\n"
+        'if __name__ == "__main__":\n'
+        "    main()\n",
+    ),
+    (
+        "none_payload_from_island_fn",
+        "import sys\n"
+        "\n"
+        "\n"
+        "def fail() -> None:\n"
+        "    sys.exit(None)\n"
+        "\n"
+        "\n"
+        "def main() -> None:\n"
+        "    fail()\n"
+        "\n"
+        "\n"
+        'if __name__ == "__main__":\n'
+        "    main()\n",
+    ),
+    (
+        "no_payload_from_island_fn",
+        "import sys\n"
+        "\n"
+        "\n"
+        "def fail() -> None:\n"
+        "    sys.exit()\n"
+        "\n"
+        "\n"
+        "def main() -> None:\n"
+        "    fail()\n"
+        "\n"
+        "\n"
+        'if __name__ == "__main__":\n'
+        "    main()\n",
+    ),
+    (
+        "nonstring_payload_from_island_fn",
+        "import sys\n"
+        "\n"
+        "\n"
+        "def fail() -> None:\n"
+        "    sys.exit((1, 2))\n"
+        "\n"
+        "\n"
+        "def main() -> None:\n"
+        "    fail()\n"
+        "\n"
+        "\n"
+        'if __name__ == "__main__":\n'
+        "    main()\n",
+    ),
+]
+
+
+@needs_clang
+@pytest.mark.parametrize("name,source", ISLAND_CASES, ids=[name for name, _ in ISLAND_CASES])
+def test_island_system_exit_matches_cpython(tmp_path: Path, name: str, source: str) -> None:
+    src = tmp_path / "prog.py"
+    src.write_text(source, encoding="utf-8")
+    binary = tmp_path / "prog_bin"
+    assert (
+        cli.main(["compile", str(src), "--fallback=cpython", "--emit", "bin", "--skip-check", "-o", str(binary)]) == 0
+    )
+    want = subprocess.run([sys.executable, str(src)], capture_output=True)
+    got = subprocess.run([str(binary)], capture_output=True)
+    assert got.returncode == want.returncode, (got.returncode, want.returncode, got.stderr)
+    assert got.stdout == want.stdout
+    assert got.stderr == want.stderr
