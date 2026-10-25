@@ -1,0 +1,22 @@
+lock-version = "1.0"
+created-by = "uv"
+requires-python = ">=3.14"
+
+[[packages]]
+name = "python-dateutil"
+version = "3.0.0"
+wheels = [{ url = "https://files.pythonhosted.org/packages/5a/17/cebee01d1c0c1441174cf0456ddc91b280d79acb65340c05e41d77866ee8/python_dateutil-3.0.0-py2.py3-none-any.whl", upload-time = 2026-10-21T23:41:43Z, size = 94659, hashes = { sha256 = "3c79630202e4152c6add678446984236efe4f57e84d8e892aab0637bab82e9fd" } }]
+
+[[packages]]
+name = "six"
+version = "1.17.0"
+wheels = [{ url = "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl", upload-time = 2024-12-04T17:35:26Z, size = 11050, hashes = { sha256 = "4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274" } }]
+
+[[packages]]
+name = "tzdata"
+version = "2026.5"
+wheels = [{ url = "https://files.pythonhosted.org/packages/94/21/1e5995a1c920cce14e4bffae20c665ec10e7ed03ab25e006cd741092b718/tzdata-2026.5-py2.py3-none-any.whl", upload-time = 2026-10-03T09:23:12Z, size = 347996, hashes = { sha256 = "b683bd1b6659ddcd810ff02ad09ba821d4bf1065072805063eb35c49617905ac" } }]
+
+[tool.pyscriptc]
+input-digest = "137ebbe52924559009c4bdaa3c250c43e8190f591d3a34c00a3cee152da21b0d"
+python = "3.14"

@@ -1,0 +1,12 @@
+lock-version = "1.0"
+created-by = "uv"
+requires-python = ">=3.14"
+
+[[packages]]
+name = "toolz"
+version = "1.2.0"
+wheels = [{ url = "https://files.pythonhosted.org/packages/db/17/4c8beb6c8c4176c6bf143bfd7e1e4dd6719b00ced90738c7ac471b71c1df/toolz-1.2.0-py3-none-any.whl", upload-time = 2026-10-07T04:16:24Z, size = 60789, hashes = { sha256 = "890f820b1cb8152785aaf9386d8707770110809035800985ca65cb24ce1120ef" } }]
+
+[tool.pyscriptc]
+input-digest = "b438d672a28e4cb5c5f24d974bc64d4b41786aa29c5235905a58164619ef97e0"
+python = "3.14"
