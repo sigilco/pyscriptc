@@ -1,15 +1,18 @@
-"""Generate docs/reference/what-will-fail.md from the R0 corpus fences.
+"""Generate compat/data/what_will_fail.json from the R0 corpus fences.
 
 Lists what fails and why (divergences and compiler fences, not what works),
 grouped by root cause, using the public corpus fences only.
+Nightly measurements update JSON data files, not in-tree markdown.
 
-Run: python scripts/gen_what_will_fail.py [--check] [--out PATH]
+Run: python scripts/gen_what_will_fail.py [--check] [--out PATH] [--date YYYY-MM-DD]
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -23,7 +26,7 @@ from pyscriptc.coverage import build_report  # noqa: E402
 
 SCRIPTS_DIR = ROOT / "benchmarks" / "real_scripts" / "scripts"
 REPORT_PATH = ROOT / "benchmarks" / "real_scripts" / "REPORT.md"
-DEFAULT_PAGE = ROOT / "docs" / "reference" / "what-will-fail.md"
+DEFAULT_DATA = ROOT / "compat" / "data" / "what_will_fail.json"
 
 SECTION_TITLES = {
     "stdlib-surface": (
@@ -93,6 +96,13 @@ ROOT_CAUSE_ORDER = [
     "checker",
     "reflection",
 ]
+
+
+def _git(*args: str) -> str:
+    try:
+        return subprocess.check_output(["git", *args], cwd=ROOT, text=True, stderr=subprocess.DEVNULL).strip()
+    except subprocess.CalledProcessError, FileNotFoundError:
+        return ""
 
 
 def _read_corpus_date_and_count() -> tuple[str, int]:
@@ -274,8 +284,12 @@ def _classify_fence(fence: dict[str, Any]) -> tuple[str, str, str, str, str]:
     return cause, mod, construct, code, msg
 
 
-def build(date: str | None = None) -> tuple[dict[str, str], list[str]]:
-    """Build docs/reference/what-will-fail.md from the R0 corpus fences."""
+def build(date: str | None = None, pin: Path | None = None) -> tuple[dict[str, str], list[str]]:
+    """Build compat/data/what_will_fail.json from the R0 corpus fences.
+
+    `pin` is an existing JSON document whose `generated` date and `commit`
+    are reused, so a `--check` run over an unchanged tree sees the same bytes.
+    """
     errors: list[str] = []
     default_date, script_count = _read_corpus_date_and_count()
     measured_date = date or default_date
@@ -312,69 +326,71 @@ def build(date: str | None = None) -> tuple[dict[str, str], list[str]]:
             by_cause[cause] = []
         by_cause[cause].append((mod, construct, code, msg))
 
-    # Assemble markdown document
-    intro_p1 = (
-        "pyscriptc compiles a typed subset of Python 3.14. When a script uses an unlowered "
-        "standard library call, an unsupported language construct, or an unannotated variable, "
-        "compilation halts at a named fence (`PSxxxx`)."
-    )
-    intro_p2 = (
-        f"This page lists every gap measured on the R0 real-world scripts corpus "
-        f"({script_count} third-party scripts, measured on {measured_date}). "
-        f"It documents what fails and why, grouped by root cause. Features that are supported "
-        f"are not listed here: the support state lives on the compat site, which measures it. "
-        f"Each fence code links to its `pyscriptc explain` description."
-    )
-    lines: list[str] = [
-        "---",
-        "title: What will fail",
-        "description: Known gaps and compiler fences measured on real-world scripts.",
-        "---",
-        "",
-        intro_p1,
-        "",
-        intro_p2,
-        "",
-    ]
-
+    causes = []
     for cause in ROOT_CAUSE_ORDER:
         rows = by_cause.get(cause, [])
         if not rows:
             continue
-
         title, desc = SECTION_TITLES.get(cause, (cause.capitalize(), "Known gaps."))
-        lines.append(f"## {title}")
-        lines.append("")
-        lines.append(desc)
-        lines.append("")
-        lines.append("| Module | Call or construct | Code | Diagnostic |")
-        lines.append("| --- | --- | --- | --- |")
-
-        # Sort rows: by module, then construct, then code
+        fences = []
         for mod, construct, code, msg in sorted(rows, key=lambda r: (r[0], r[1], r[2])):
-            link = f"[`pyscriptc explain {code}`](cli.md#explain)"
-            escaped_msg = msg.replace("|", "\\|")
-            lines.append(f"| `{mod}` | {construct} | {link} | `{escaped_msg}` |")
-        lines.append("")
+            fences.append(
+                {
+                    "module": mod,
+                    "construct": construct,
+                    "code": code,
+                    "diagnostic": msg,
+                }
+            )
+        causes.append(
+            {
+                "id": cause,
+                "title": title,
+                "description": desc,
+                "fences": fences,
+            }
+        )
 
-    content = "\n".join(lines).rstrip() + "\n"
-    return {str(DEFAULT_PAGE): content}, errors
+    pinned: dict[str, Any] | None = None
+    if pin and pin.exists():
+        try:
+            pinned = json.loads(pin.read_text(encoding="utf-8"))
+        except Exception:
+            pinned = None
+
+    data_doc = {
+        "schema": "1",
+        "generated": (pinned.get("generated") if pinned else None) or measured_date,
+        "commit": (pinned.get("commit") if pinned else None) or _git("rev-parse", "HEAD"),
+        "sources": {
+            "corpus": "benchmarks/real_scripts/scripts",
+            "report": "benchmarks/real_scripts/REPORT.md",
+        },
+        "summary": {
+            "scripts": script_count,
+            "total_fences": sum(len(c["fences"]) for c in causes),
+            "unique_codes": sorted(codes_seen),
+        },
+        "causes": causes,
+    }
+    content = json.dumps(data_doc, indent=2) + "\n"
+    return {str(DEFAULT_DATA): content}, errors
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="exit with non-zero status if generated content differs")
-    parser.add_argument("--out", type=Path, default=DEFAULT_PAGE, help="output path for what-will-fail.md")
+    parser.add_argument("--out", type=Path, default=DEFAULT_DATA, help="output path for what_will_fail.json")
     parser.add_argument("--date", type=str, default=None, help="override the measured date (YYYY-MM-DD)")
     args = parser.parse_args()
 
-    files, errors = build(date=args.date)
+    files, errors = build(date=args.date, pin=args.out if args.check else None)
     if errors:
         for err in errors:
             print(f"error: {err}", file=sys.stderr)
         return 2
 
-    content = files[str(DEFAULT_PAGE)]
+    content = files[str(DEFAULT_DATA)]
     if args.check:
         target = args.out
         if not target.exists():

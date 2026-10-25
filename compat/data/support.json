@@ -1,0 +1,855 @@
+{
+  "schema": "1",
+  "generated": "2026-10-25",
+  "commit": "a8a3e33e96eddd2126e2dd1f4f39c87d9f85045f",
+  "sources": {
+    "support_data": "scripts/support_data.toml",
+    "pins": "benchmarks/compat/top100/pins.json",
+    "coverage": "pyscriptc coverage over benchmarks/compat/top100/src"
+  },
+  "summary": {
+    "builtins": {
+      "green": 25,
+      "yellow": 22,
+      "red": 23
+    },
+    "stdlib": {
+      "green": 0,
+      "yellow": 55,
+      "red": 2
+    },
+    "packages": {
+      "green": 2,
+      "yellow": 6,
+      "red": 10
+    }
+  },
+  "builtins": [
+    {
+      "label": "`abs`, `all`, `any`, `bin`, `chr`, `divmod`, `enumerate`, `getattr`, `hasattr`, `hex`, `iter`, `len`, `map`, `next`, `oct`, `ord`, `pow`, `range`, `repr`, `reversed`, `round`, `sum`, `bool`, `set`",
+      "status": "\ud83d\udfe2",
+      "count": 24,
+      "missing": "",
+      "codes": []
+    },
+    {
+      "label": "`print`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "file= other than sys.stdout or sys.stderr",
+      "codes": [
+        "PS2002"
+      ]
+    },
+    {
+      "label": "`input`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "prompt argument",
+      "codes": [
+        "PS2003"
+      ]
+    },
+    {
+      "label": "`int`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "unknown keyword, int(bool)",
+      "codes": [
+        "PS2003"
+      ]
+    },
+    {
+      "label": "`float`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "float(bool)",
+      "codes": [
+        "PS2003"
+      ]
+    },
+    {
+      "label": "`str`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "str of a user class",
+      "codes": [
+        "PS2003"
+      ]
+    },
+    {
+      "label": "`list`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "list(str)",
+      "codes": [
+        "PS2002"
+      ]
+    },
+    {
+      "label": "`min`, `max`",
+      "status": "\ud83d\udfe1",
+      "count": 2,
+      "missing": "key= a function name",
+      "codes": [
+        "PS2003"
+      ]
+    },
+    {
+      "label": "`sorted`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "key= a function name, sorted(dict)",
+      "codes": [
+        "PS2003"
+      ]
+    },
+    {
+      "label": "`zip`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "more than 2 lists",
+      "codes": [
+        "PS2003"
+      ]
+    },
+    {
+      "label": "`filter`",
+      "status": "\ud83d\udfe2",
+      "count": 1,
+      "missing": "",
+      "codes": []
+    },
+    {
+      "label": "`isinstance`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "tuple of types",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`open`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "keywords other than encoding=",
+      "codes": [
+        "PS2003"
+      ]
+    },
+    {
+      "label": "`id`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "id of int",
+      "codes": [
+        "PS2003"
+      ]
+    },
+    {
+      "label": "`frozenset`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "non-constant argument",
+      "codes": [
+        "PS2002"
+      ]
+    },
+    {
+      "label": "`eval`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "anything but a constant expression",
+      "codes": [
+        "PS2002"
+      ]
+    },
+    {
+      "label": "`BaseException` and subclasses",
+      "status": "\ud83d\udfe1",
+      "count": 7,
+      "missing": "ExceptionGroup",
+      "codes": [
+        "PS2003"
+      ]
+    },
+    {
+      "label": "`bytes`, `bytearray`, `memoryview`, `callable`, `complex`, `dict`, `format`, `tuple`, `type`, `object`, `super`, `vars`, `dir`, `globals`, `locals`, `exec`, `issubclass`, `ascii`, `setattr`, `delattr`, `slice`, `hash`, `__import__`",
+      "status": "\ud83d\udd34",
+      "count": 23,
+      "missing": "all (`dict` displays and `{}` work; `dict(...)` does not)",
+      "codes": [
+        "PS2002"
+      ]
+    }
+  ],
+  "stdlib": [
+    {
+      "label": "`math`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "asin, sinh, degrees, fsum, factorial, comb, isqrt, copysign, fmod, cbrt, log with a base",
+      "codes": [
+        "PS2001",
+        "PS2003"
+      ]
+    },
+    {
+      "label": "`re`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "finditer, 5+ groups, sub with a function",
+      "codes": [
+        "PS1001",
+        "PS2001",
+        "PS2002"
+      ]
+    },
+    {
+      "label": "`json`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "load, dump (files), ensure_ascii=False, JSONDecodeError",
+      "codes": [
+        "PS1106",
+        "PS2001",
+        "PS2003"
+      ]
+    },
+    {
+      "label": "`tomllib`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "load (file object), keyword arguments",
+      "codes": [
+        "PS2001",
+        "PS2003"
+      ]
+    },
+    {
+      "label": "`dotenv`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "stream, verbose, interpolate, override, encoding arguments, other dotenv members (find_dotenv, set_key, DotEnv), interpolation ($VAR stays literal)",
+      "codes": [
+        "PS2001",
+        "PS2003"
+      ]
+    },
+    {
+      "label": "`yaml`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "load, dump, safe_dump, keyword arguments",
+      "codes": [
+        "PS2001",
+        "PS2003"
+      ]
+    },
+    {
+      "label": "`jwt`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "RS256 and other asymmetric algorithms, non-literal algorithm, other jwt members (get_unverified_header, PyJWTError), claims beyond str values (exp, aud), options dict, headers argument",
+      "codes": [
+        "PS1003",
+        "PS2001",
+        "PS2003"
+      ]
+    },
+    {
+      "label": "`orjson`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "default callable, other OPT_ flags, other orjson members (Fragment, JSONDecodeError)",
+      "codes": [
+        "PS2001",
+        "PS2003"
+      ]
+    },
+    {
+      "label": "`urllib.request`, `urllib.error`",
+      "status": "\ud83d\udfe1",
+      "count": 2,
+      "missing": "urlopen header keyword, other urllib.request members (build_opener, install_opener, urlretrieve), HTTPError attribute reads",
+      "codes": [
+        "PS2001",
+        "PS2003"
+      ]
+    },
+    {
+      "label": "`urllib.parse`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "urlparse, urljoin, urlunsplit, parse_qsl",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`base64`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "b32, b16, a85, encodebytes",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`hashlib`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "blake2, sha3, sha224, new, pbkdf2_hmac, incremental update (no-argument constructor)",
+      "codes": [
+        "PS2001",
+        "PS2003"
+      ]
+    },
+    {
+      "label": "`struct`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "calcsize, unpack_from, non-literal format",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`datetime`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "timezone and tzinfo, utcnow, datetime.strftime",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`time`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "perf_counter, time_ns, ctime, process_time",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`collections`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "ChainMap",
+      "codes": [
+        "PS1106"
+      ]
+    },
+    {
+      "label": "`functools`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "reduce with a lambda, reduce with an initializer, partial, wraps, lru_cache, cmp_to_key, cache, total_ordering",
+      "codes": [
+        "PS2001",
+        "PS2002"
+      ]
+    },
+    {
+      "label": "`itertools`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "count, cycle (infinite), permutations, pairwise, batched, tee, dropwhile, compress",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`operator`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "itemgetter, attrgetter, methodcaller, and_, not_, getitem",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`contextlib`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "closing, redirect_stdout, ExitStack, contextmanager",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`os`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "walk, scandir, system, urandom, cpu_count, kill, symlink, rmdir, getuid, keyword arguments (makedirs exist_ok)",
+      "codes": [
+        "PS2001",
+        "PS2003"
+      ]
+    },
+    {
+      "label": "`posixpath`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "commonpath, ismount, lexists",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`pathlib`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "rglob, absolute, rmdir, with_suffix, relative_to, resolve to str, PurePath",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`stat`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "S_IMODE, S_ISFIFO, S_ISSOCK, filemode",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`fnmatch`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "fnmatchcase, translate",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`warnings`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "warn with a category, simplefilter",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`io`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "TextIOWrapper, BufferedReader, io.open",
+      "codes": [
+        "PS1106"
+      ]
+    },
+    {
+      "label": "`sys`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "stdin, path, modules, getsizeof, getrecursionlimit, stdout.flush",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`importlib`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "import_module, reload",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`inspect`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "getsource, isclass, signature, iscoroutinefunction",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`threading`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "main_thread, Thread target is a callable, Timer, Lock in `with`",
+      "codes": [
+        "PS1003",
+        "PS1106",
+        "PS2001",
+        "PS2002"
+      ]
+    },
+    {
+      "label": "`queue`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "PriorityQueue, a queue without an element annotation, an unknown queue method, a bool element type",
+      "codes": [
+        "PS1001",
+        "PS1106",
+        "PS2001",
+        "PS2002"
+      ]
+    },
+    {
+      "label": "`logging`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "basicConfig(level=...), format args (`logging.info(fmt, a)`), exception, handlers (StreamHandler)",
+      "codes": [
+        "PS2001",
+        "PS2003"
+      ]
+    },
+    {
+      "label": "`asyncio`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "bare Queue annotation (element type needed), get_event_loop, sleep outside a coroutine",
+      "codes": [
+        "PS1001",
+        "PS2001",
+        "PS2002"
+      ]
+    },
+    {
+      "label": "`subprocess`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "Popen, getoutput, text=True",
+      "codes": [
+        "PS1003",
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`socket`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "socket(), gethostbyname",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`ssl`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "contexts (create_default_context)",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`ctypes`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "CDLL, c_int(...), sizeof of other types",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`string`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "capwords, Template",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`bisect`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "insort, bisect, key=, list[str]",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`errno`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "errorcode",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`importlib.resources`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "read_text, is_resource",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`hmac`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "hexdigest, digestmod=",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`unicodedata`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "ucd_3_2_0 (also: Latin-1 only)",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`tempfile`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "mkstemp, TemporaryDirectory",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`atexit`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "register of a function with arguments, unregister",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`shutil`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "make_archive, disk_usage, chown",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`enum`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "Flag, str-valued members, methods on the enum",
+      "codes": [
+        "PS2002"
+      ]
+    },
+    {
+      "label": "`dataclasses`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "field(), asdict, frozen=, order= and other options",
+      "codes": [
+        "PS1201",
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`random`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "sample, gauss, Random, choices(k=)",
+      "codes": [
+        "PS2001",
+        "PS2003"
+      ]
+    },
+    {
+      "label": "`csv`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "DictReader, writer on a non-file",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`textwrap`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "TextWrapper",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`copy`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "copy of a user class",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`argparse`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "subparsers, nargs=, choices=",
+      "codes": [
+        "PS2003"
+      ]
+    },
+    {
+      "label": "`typing`, `typing_extensions`",
+      "status": "\ud83d\udd34",
+      "count": 2,
+      "missing": "annotation-only: imports are free, values are checked, there is no runtime surface",
+      "codes": []
+    }
+  ],
+  "packages": [
+    {
+      "name": "certifi",
+      "version": "2026.7.22",
+      "status": "\ud83d\udfe2",
+      "ratio": "0/5",
+      "blocking": "",
+      "codes": ""
+    },
+    {
+      "name": "colorama",
+      "version": "0.4.6",
+      "status": "\ud83d\udd34",
+      "ratio": "48/77",
+      "blocking": "class-body (51), param-inference (29), construct-other (13)",
+      "codes": "PS1204, PS2002, PS1001"
+    },
+    {
+      "name": "python-dotenv",
+      "version": "1.2.4",
+      "status": "\ud83d\udd34",
+      "ratio": "43/75",
+      "blocking": "unlowered-call (25), construct-other (21), name-resolution (17)",
+      "codes": "PS2002, PS1106, PS1001"
+    },
+    {
+      "name": "filelock",
+      "version": "4.1.1",
+      "status": "\ud83d\udfe1",
+      "ratio": "239/641",
+      "blocking": "name-resolution (143), construct-other (96), generic-alias (57)",
+      "codes": "PS2002, PS2001, PS1103"
+    },
+    {
+      "name": "h11",
+      "version": "0.16.0",
+      "status": "\ud83d\udd34",
+      "ratio": "76/133",
+      "blocking": "generic-alias (17), unlowered-type-name (17), reflection (16)",
+      "codes": "PS2002, PS1103, PS1106"
+    },
+    {
+      "name": "idna",
+      "version": "3.20",
+      "status": "\ud83d\udd34",
+      "ratio": "37/56",
+      "blocking": "keyword-args (16), construct-other (10), call-arity (8)",
+      "codes": "PS2002, PS2003, PS1101"
+    },
+    {
+      "name": "iniconfig",
+      "version": "2.3.1",
+      "status": "\ud83d\udfe1",
+      "ratio": "13/34",
+      "blocking": "type-mismatch (5), generic-alias (4), union-types (4)",
+      "codes": "PS2002, PS1003, PS1103"
+    },
+    {
+      "name": "jmespath",
+      "version": "1.1.0",
+      "status": "\ud83d\udd34",
+      "ratio": "107/200",
+      "blocking": "param-inference (78), return-inference (15), class-body (9)",
+      "codes": "PS1001, PS2002, PS1204"
+    },
+    {
+      "name": "pyjwt",
+      "version": "2.15.1",
+      "status": "\ud83d\udfe1",
+      "ratio": "65/171",
+      "blocking": "name-resolution (21), dynamic-annotation (20), union-types (13)",
+      "codes": "PS2002, PS1104, PS1101"
+    },
+    {
+      "name": "mdurl",
+      "version": "0.1.2",
+      "status": "\ud83d\udd34",
+      "ratio": "8/12",
+      "blocking": "name-resolution (6), construct-other (3), unlowered-call (3)",
+      "codes": "PS2002, PS2003, PS2001"
+    },
+    {
+      "name": "packaging",
+      "version": "26.3",
+      "status": "\ud83d\udd34",
+      "ratio": "281/558",
+      "blocking": "unlowered-type-name (90), name-resolution (84), class-body (52)",
+      "codes": "PS2002, PS1106, PS2001"
+    },
+    {
+      "name": "pathspec",
+      "version": "1.1.1",
+      "status": "\ud83d\udd34",
+      "ratio": "93/132",
+      "blocking": "name-resolution (27), unlowered-type-name (22), decorators (21)",
+      "codes": "PS2002, PS1106, PS1201"
+    },
+    {
+      "name": "platformdirs",
+      "version": "4.13.0",
+      "status": "\ud83d\udfe1",
+      "ratio": "154/388",
+      "blocking": "construct-other (62), name-resolution (51), optional-types (33)",
+      "codes": "PS2002, PS1102, PS2001"
+    },
+    {
+      "name": "pytz",
+      "version": "2026.5",
+      "status": "\ud83d\udfe1",
+      "ratio": "32/102",
+      "blocking": "param-inference (16), return-inference (2), stdlib:datetime (2)",
+      "codes": "PS2002, PS1001, PS2001"
+    },
+    {
+      "name": "shellingham",
+      "version": "1.5.4",
+      "status": "\ud83d\udd34",
+      "ratio": "19/25",
+      "blocking": "module-value (19), param-inference (12), return-inference (6)",
+      "codes": "PS2002, PS1001, PS2001"
+    },
+    {
+      "name": "trove-classifiers",
+      "version": "2026.9.21.13",
+      "status": "\ud83d\udfe1",
+      "ratio": "0/0",
+      "blocking": "module-assign (1)",
+      "codes": "PS2002"
+    },
+    {
+      "name": "tzdata",
+      "version": "2026.5",
+      "status": "\ud83d\udfe2",
+      "ratio": "0/0",
+      "blocking": "",
+      "codes": ""
+    },
+    {
+      "name": "zipp",
+      "version": "4.1.1",
+      "status": "\ud83d\udd34",
+      "ratio": "57/75",
+      "blocking": "param-inference (32), return-inference (18), module-value (3)",
+      "codes": "PS1001, PS2002, PS2001"
+    }
+  ]
+}

@@ -80,29 +80,18 @@ Classifies every imported module into a rung on the capability ladder: `native`,
 ## Corpus measurements
 
 The bar is falsifiable: progress is measured continuously against two corpora of scripts without manual edits to make them pass.
+Live pass rates, fence counts, and execution metrics are published nightly on the [compat site]({{PYSC_COMPAT_URL}}#ladder) and recorded in the structured data files [`compat/data/ladder.json`]({{PYSC_COMPAT_URL}}/data/ladder.json) and [`compat/data/what_will_fail.json`]({{PYSC_COMPAT_URL}}/data/what_will_fail.json).
 
 ### R0 real-scripts corpus (`benchmarks/real_scripts/`)
 
-The R0 corpus consists of 39 real-world third-party CLI scripts vendored byte-identical from open-source repositories (including psf/black, pypa/pipx, jazzband/pip-tools, and CPython `Tools/scripts`) at pinned commits.
+The R0 corpus consists of real-world third-party CLI scripts vendored byte-identical from open-source repositories (including psf/black, pypa/pipx, jazzband/pip-tools, and CPython `Tools/scripts`) at pinned commits.
 Scripts are tested as written, ensuring fences reflect genuine compiler gaps rather than artificial test harnesses.
-
-Baseline measured on commit `5860541e` (2026-10-24):
-- **Pass rate**: 0 of 39 scripts lower with zero fences (0%).
-- **Total fences**: 386 fences across the corpus.
-- **Primary blockers**:
-  - `PS1001` unannotated variable and parameter assignments: 23 scripts.
-  - `PS2003` call shapes, keyword arguments, and arity mismatches: 6 scripts.
-  - `PS2002` imports outside the closed import table (`platform`, `calendar`, `zipfile`, `sqlite3`): 6 scripts.
-  - `PS2001` unlowered standard-library functions (`os.walk`, `json.load`, `time.perf_counter`): 6 scripts.
+The current fence breakdown and root causes are tracked in `compat/data/what_will_fail.json` and summarized in [What will fail](what-will-fail.md).
 
 ### R1 script corpus (`benchmarks/scripts_corpus/`)
 
-The R1 corpus consists of 45 single-file CLI scripts written to the lowered typed shape, exercising common automation tasks.
-
-Baseline measured on commit `b42a7379` (2026-10-22):
-- **Compile pass rate**: 15 of 45 scripts compile with zero fences (33%).
-- **Total fences**: 116 fences across the corpus.
-- **Execution verification**: 12 match CPython byte-for-byte, 3 differ due to `sys.exit(main())` double evaluation (issue #183), 0 fail to build.
+The R1 corpus consists of single-file CLI scripts written to the lowered typed shape, exercising common automation tasks.
+Scores measuring compile pass rates and differential verification against CPython are published in `compat/data/ladder.json`.
 
 ## What fails and diverges
 
@@ -123,8 +112,8 @@ Rather than listing what works, the table below summarizes the primary failure m
 
 Before the beta release opens to general users, the first-class bar requires the following verification checklist:
 
-- [ ] **R0 corpus unlocks**: inference and call-table epics (tickets #500-#502) land, moving R0 pass rate from 0 to at least 23 of 39 scripts.
+- [ ] **R0 corpus unlocks**: inference and call-table epics (tickets #500-#502) land, moving unannotated assignments and keyword argument calls onto the native lowering path.
 - [ ] **R1 execution soundness**: issue #183 resolved so 100% of compiled R1 scripts match CPython without output doubling.
-- [ ] **Gap documentation complete**: every non-derived fence code emitted by the R0 corpus is indexed in [What will fail](what-will-fail.md) and explained via `pyscriptc explain`.
+- [ ] **Gap documentation complete**: every non-derived fence code emitted by the R0 corpus is indexed in `compat/data/what_will_fail.json` and explained via `pyscriptc explain`.
 - [ ] **Automated verification**: `pyscriptc assess` and `pyscriptc verify` run cleanly on CLI scripts without unhandled compiler exceptions.
 - [ ] **Self-contained wheels**: standalone binaries compile and link with `zig cc` / `clang` without requiring an active CPython virtual environment.

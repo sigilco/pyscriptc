@@ -45,7 +45,10 @@ def main() -> int:
         return 2
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
-        shutil.copytree(docs, work / "docs")
+        shutil.copytree(docs, work / "docs", ignore=shutil.ignore_patterns("node_modules"))
+        (work / "docs" / ".docmd" / "node_modules").symlink_to(
+            ROOT / "docs" / ".docmd" / "node_modules", target_is_directory=True
+        )
         for path in sorted((work / "docs").rglob("*.md")):
             text = path.read_text(encoding="utf-8")
             path.write_text(expand(text), encoding="utf-8")

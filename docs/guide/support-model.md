@@ -3,23 +3,24 @@ title: The Python subset
 description: What pyscriptc compiles today, what it refuses, and where the live status lives.
 ---
 
-pyscriptc compiles a deliberately strict subset of Python.
-When a construct is not supported, compilation stops with a `PSxxxx` fence that names the exact line, it never guesses.
+pyscriptc compiles the typed subset of Python 3.14.
+Native compilation is the ceiling and the CPython island is the floor; the compiler provides no shims or dynamic runtime emulation for untyped Python.
+When a construct is outside the typed subset and not routed to the island floor, compilation stops with a `PSxxxx` fence that names the exact line, it never guesses.
 
 ## Support model
 
-- Typed code only: functions and variables carry annotations, and a type-checker preflight ([pyrefly](https://pyrefly.org/)) runs before lowering.
-- The supported surface is builtins, standard-library modules, and language features that the compiler can prove, one construct at a time.
-- Anything the subset does not prove stops at a named fence (`PSxxxx`); the compiler never guesses.
-- Code that does not compile can run in the CPython runtime instead (the fallback tier); that runtime is not bundled and is expected on the host.
+- **Typed code only**: functions and variables carry annotations, and a type-checker preflight ([pyrefly](https://pyrefly.org/)) runs before lowering.
+- **Island is the floor**: when a script touches untyped third-party libraries, dynamic reflection, or unlowered modules, execution routes through the in-process CPython island runtime (`libpython`).
+- **Native is the ceiling**: when a script uses lowered standard-library modules, explicit annotations, and scalar constructs, it compiles to a standalone native binary with no interpreter runtime.
+- **Two unidirectional seams**: compiled to island in-process, and island to compiled via `pyscriptc --emit binding`. No compiled to island to compiled call chain exists.
+- **Honest refusals**: anything the subset does not prove stops at a named fence (`PSxxxx`); the compiler never guesses.
 
 ## Where the live status lives
 
 The exact, per-construct, per-builtin, per-module and per-library status is tracked on the compat site, not in this page, so it cannot go stale: [pyscriptc compat site]({{PYSC_COMPAT_URL}}).
 
-The compat site is fed by the [nightly CI workflow](https://github.com/sigilco/pyscriptc/actions/workflows/nightly.yml), which scores the visible corpus, records the boxed ledger window, and opens a bot PR that refreshes the site data file from the tree.
-The in-repo snapshot of the same data, regenerated from the compiler by `scripts/gen_support_table.py`, lives in the developer notes: [`.agents/docs/support/supported.md`](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/supported.md) (builtins and standard library) and [`.agents/docs/support/compat-top100.md`](https://github.com/sigilco/pyscriptc/blob/master/.agents/docs/support/compat-top100.md) (top-100 libraries).
-Both are generated output, not hand-edited pages.
+The compat site is fed by the [nightly CI workflow](https://github.com/sigilco/pyscriptc/actions/workflows/nightly.yml), which scores the visible corpus, records the boxed ledger window, and refreshes the site data files (`compat/data/compat.json`, `compat/data/ladder.json`, `compat/data/what_will_fail.json`, `compat/data/support.json`).
+Internal developer notes and reference documentation link to these data files rather than embedding volatile counts.
 
 Deliberate differences from CPython are numbered in [Divergences](../reference/divergences.md).
 
@@ -34,14 +35,14 @@ The shape and its divergences are on the [HTTP](../guide/http.md) page; the rema
 The compiler is measured against third-party scripts, not only against code written for it: `benchmarks/real_scripts/` holds real-world CLI and automation scripts vendored from public repositories at pinned commits, and a nightly lane scores them the way the rest of the ladder is scored.
 A script that stops at a fence is a signal about the compiler, so the corpus scripts are never edited to make them compile.
 
-What a script meets today, measured on that corpus (39 scripts, 2026-10-24, 0 compile with zero fences):
+Common failure modes encountered when a script is outside the native ceiling:
 
-- An assignment without an annotation (`files = os.listdir(d)`) fences with `PS1001`, and every later read of the name fences with `PS2002`; the first fence is the cause and the rest follow from it. 23 of the 39 scripts stop here.
-- A keyword argument to a stdlib call (`shutil.copy(src, dst, follow_symlinks=False)`, `subprocess.run(args, capture_output=True)`) fences with `PS2003`. 6 scripts stop here.
-- A module outside the closed import table (`platform`, `calendar`, `zipfile`, `tarfile`, `sqlite3`) fences with `PS2002` on the import. 6 scripts stop here.
+- An assignment without an annotation (`files = os.listdir(d)`) fences with `PS1001`, and every later read of the name fences with `PS2002`; the first fence is the cause and the rest follow from it.
+- A keyword argument to a stdlib call (`shutil.copy(src, dst, follow_symlinks=False)`, `subprocess.run(args, capture_output=True)`) fences with `PS2003`.
+- A module outside the closed import table (`platform`, `calendar`, `zipfile`, `tarfile`, `sqlite3`) fences with `PS2002` on the import.
 
 The first-class script bar and its beta-readiness checklist are documented in [First-class scripts](../reference/first-class-scripts.md).
-The per-module gap list, generated from the same corpus, is documented in [What will fail](../reference/what-will-fail.md); until then the first fence of a run, `pyscriptc compile FILE`, and `pyscriptc coverage FILE` name the exact gap in your script.
+The per-module gap list, generated from the same corpus into `compat/data/what_will_fail.json`, is documented in [What will fail](../reference/what-will-fail.md); until then the first fence of a run, `pyscriptc compile FILE`, and `pyscriptc coverage FILE` name the exact gap in your script.
 The grind plan and its tickets are #500 to #511; the measurement tool is `uv run python -m benchmarks.real_scripts.measure`.
 
 ## Checking your own code
