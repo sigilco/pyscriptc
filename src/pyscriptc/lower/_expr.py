@@ -270,6 +270,14 @@ class ExprMixin:
             if binding.kind in {"module", "pkg", "island", "island_member"}:
                 self.fail(node, "PS2002", f"module {node.id} is not a value in the static subset")
             self.fail(node, "PS2002", f"{node.id} is a function and is not a value")
+        # boxed:begin
+        # An island class taken as a value is a handle to the class object
+        # inside the embedded interpreter (issue #628): its attributes read
+        # through `ps_island_getattr` and the class itself calls through
+        # `ps_island_fn_invoke`, like any other island definition.
+        if node.id in self.island_classes:
+            return self._island_class_handle(node.id, span)
+        # boxed:end
         if node.id in self.classes:
             self.fail(node, "PS2002", f"class {node.id} is not a value")
         if node.id in self.sigs:

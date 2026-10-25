@@ -135,7 +135,8 @@ pyscriptc run --fallback=cpython --report=run_report.json demo.py
 The plane map JSON records:
 - `moduleTopLevel`: `native` if module-level statements lower directly, or `island` if top-level code fences.
 - `functions`: mapping of every function definition to `native` or `island`.
-- `demotedBy`: mapping of functions demoted from native to island by a calling island function.
+- `classes`: mapping of every class definition to `native` or `island`.
+- `demotedBy`: mapping of functions demoted from native to island by a calling island function, or by naming an island class.
 - `requiresLibpython`: boolean indicating whether the binary links the embedded host CPython runtime.
 - `islandImports`: list of imports routed through the island.
 
@@ -146,6 +147,8 @@ Execution moves across two distinct boundaries: compiled native code calling isl
 ### Seam 1: Compiled calling the island
 
 When native code calls an island function or an island import, the call routes through the `ps_island_fn_invoke` trampoline. This routing is automatic for untyped imports and untyped definitions under the fallback tier.
+
+A class definition follows the same rule. A class whose own definition the subset refuses (a decorator such as `@attrs.define` or `@dataclasses.dataclass(frozen=True)`, a metaclass keyword, a class-body statement) or whose method bodies refuse is defined by CPython in the island, and every compiled function that names it joins the island too. A native class method that still uses the island class reaches it through the handle path: `Point(3, 4)` calls the class object through `ps_island_fn_invoke`, `Point.kind` reads a class attribute through `ps_island_def_handle` and `ps_island_getattr`, and an annotated local read of an instance attribute (`x: int = point.x`) unboxes it. Attribute writes from compiled code are fenced: mutate the value island-side and read the result back.
 
 Value marshalling across this seam follows strict rules (see [divergence 41](../reference/divergences.md#numbered-divergences)):
 - Scalars (`int`, `float`, `bool`), `str`, `bytes`, and lists of scalars cross by value. Lists are copied across the seam; island-side mutations of a passed list are never visible to the native caller.

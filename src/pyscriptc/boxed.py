@@ -33,6 +33,12 @@ ISLAND = "island"
 # compile, seeded once at init; `fn` is the plain function name inside it.
 INVOKE_SYMBOL = "ps_island_fn_invoke"
 
+# The class-side handle: a new reference to the object the island namespace
+# holds under one name (issue #628). An island class is callable, so a call
+# site reuses `ps_island_fn_invoke`; a class-level attribute read or a class
+# taken as a value needs the object first, which this trampoline returns.
+DEF_HANDLE_SYMBOL = "ps_island_def_handle"
+
 
 def plane_map(
     fences: list[dict[str, Any]],
@@ -41,19 +47,22 @@ def plane_map(
     top_level_island: bool = False,
     demoted_by: dict[str, str] | None = None,
     tree: ast.AST | None = None,
+    classes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """The per-definition plane map from the lowered fence list.
 
     `fences` are the module's `as_dict()` fences; `functions` the lowered
-    records (`name`, `span`). A definition with any fence inside it plans
-    island; a definition with none plans native. With `top_level_island`
-    (issue #613, Decision A) the whole module body runs island-side: the
-    embedded interpreter executes the module body as `__main__` instead of
-    the native entry lowering it, the entry's own fences dropped with the
-    top level, and every definition rides the seed.
+    records (`name`, `span`); `classes` the class records (`name`, and
+    `island` when the lowerer already decided, issue #628). A definition with
+    any fence inside it plans island; a definition with none plans native.
+    With `top_level_island` (issue #613, Decision A) the whole module body
+    runs island-side: the embedded interpreter executes the module body as
+    `__main__` instead of the native entry lowering it, the entry's own
+    fences dropped with the top level, and every definition rides the seed.
 
     Returns the `fallback` summary `debug.py` embeds and the receipt records:
-    `{"moduleTopLevel": "native"|"island", "functions": {name: plane, ...}}`.
+    `{"moduleTopLevel": "native"|"island", "functions": {name: plane, ...},
+    "classes": {name: plane, ...}}`.
     """
 
     fenced: set[str] = set()
@@ -74,13 +83,47 @@ def plane_map(
             continue
         planes[name] = ISLAND if name in fenced or top_level_island else NATIVE
 
+    # A class is island when its own definition fences (a decorator, class
+    # keywords, a class-body statement, issue #628) or when a fence inside
+    # one of its methods names it (`Class.method`). The lowerer passes the
+    # decision it made for fences the collect pass never sees, so what
+    # `assess` predicts and what the binary does stay one structure.
+    class_planes: dict[str, str] = {}
+    island_classes: set[str] = set()
+    for record in classes or []:
+        name = record["name"] if isinstance(record, dict) else str(record)
+        decided = record.get("island") if isinstance(record, dict) else None
+        if decided is not None:
+            is_island = bool(decided)
+        else:
+            is_island = top_level_island or name in fenced or any(owner.startswith(f"{name}.") for owner in fenced)
+        class_planes[name] = ISLAND if is_island else NATIVE
+        if is_island:
+            island_classes.add(name)
+
     demotions: dict[str, str] = dict(demoted_by or {})
-    if tree is not None and not top_level_island:
+    fn_nodes: dict[str, Any] = {}
+    if tree is not None:
         fn_nodes = {
             node.name: node
             for node in getattr(tree, "body", [])
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         }
+    if island_classes and not top_level_island:
+        # Issue #628: cascade the island class to the functions that use it
+        # (the #620 rule, one step out). The class object and its instances
+        # exist only island-side, so a compiled function that names it joins
+        # the island instead of crossing the seam through opaque handles.
+        for name, node in fn_nodes.items():
+            if planes.get(name) != NATIVE:
+                continue
+            used = sorted(
+                child.id for child in ast.walk(node) if isinstance(child, ast.Name) and child.id in island_classes
+            )
+            if used:
+                planes[name] = ISLAND
+                demotions.setdefault(name, f"island class {used[0]}")
+    if tree is not None and not top_level_island:
         changed = True
         while changed:
             changed = False
@@ -99,9 +142,27 @@ def plane_map(
     return {
         "moduleTopLevel": ISLAND if top_level_island else NATIVE,
         "functions": planes,
+        "classes": class_planes,
         "topLevelFences": 1 if top_level_island else 0,
         "demotedBy": demotions,
     }
+
+
+def island_handle_type(name: str) -> dict[str, Any]:
+    """The opaque handle type of an island value (issues #553, #628)."""
+
+    return {"kind": "class", "name": name, "handle": True, "island": True}
+
+
+def island_class_type(name: str) -> dict[str, Any]:
+    """The handle type of an island class's class object and its instances.
+
+    One type for both sides of the seam (issue #628): the class taken as a
+    value and the instance a call returns are the same opaque handle, so an
+    annotated local, a parameter and a call site agree.
+    """
+
+    return island_handle_type(f"class {name}")
 
 
 def island_names(planes: dict[str, Any]) -> list[str]:
@@ -211,13 +272,18 @@ def is_island_diagnostic(
         return top_level_island
 
     fns = plane_map.get("functions", {})
+    cls = plane_map.get("classes", {})
     if enclosing in fns:
         return fns[enclosing] == ISLAND
+    if enclosing in cls:
+        return cls[enclosing] == ISLAND
 
     parts = enclosing.split(".")
     for i in range(len(parts), 0, -1):
         prefix = ".".join(parts[:i])
         if prefix in fns:
             return fns[prefix] == ISLAND
+        if prefix in cls:
+            return cls[prefix] == ISLAND
 
     return top_level_island

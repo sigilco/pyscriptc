@@ -1272,6 +1272,36 @@ void ps_island_top_global(int64_t n, const char *name, int32_t want, int32_t pad
     ps_island_done();
 }
 
+/* One object out of the island namespace, as a new reference (issue #628).
+   An island class definition is exec'd into this namespace, and compiled
+   code reaches the class object itself (a class-level attribute read, a
+   class passed as a value) through this trampoline beside
+   ps_island_fn_invoke, which handles the call. */
+void *ps_island_def_handle(int64_t n, const char *name) {
+    PyObject *name_obj;
+    PyObject *value;
+    ps_island_ensure();
+    if (ps_island_ns == NULL) {
+        PyErr_SetString(PyExc_RuntimeError, "island module namespace is not seeded");
+        ps_island_fail();
+    }
+    name_obj = PyUnicode_DecodeUTF8(name, (Py_ssize_t)n, "strict");
+    if (name_obj == NULL) {
+        ps_island_fail();
+    }
+    value = PyDict_GetItemWithError(ps_island_ns, name_obj);
+    Py_DECREF(name_obj);
+    if (value == NULL) {
+        if (!PyErr_Occurred()) {
+            PyErr_Format(PyExc_NameError, "island definition %s is not defined", name);
+        }
+        ps_island_fail();
+    }
+    Py_INCREF(value);
+    ps_island_done();
+    return value;
+}
+
 void ps_island_fn_name(int64_t n, const char *name) {
     PyObject *name_obj;
     ps_island_ensure();

@@ -247,6 +247,11 @@ def test_self_census_ballpark() -> None:
     # Island caller sibling cascade and fall-off-end probe (#620, #621, #622):
     # cascade fixpoint loop and undemotable diagnostic in lower/__init__.py,
     # plane map cascade in boxed.py, assess.py and cli.py add 10 self-host fences.
+    # Island class definitions (#628): +9 self-host fences, one in
+    # emit/llvm/_abi.py (the class-handle trampoline), one in
+    # lower/_classes.py (the island class annotation), three in
+    # lower/_stdlib.py (the class-handle helper) and two in boxed.py (the
+    # class planes and the class cascade); the module count is unchanged.
 
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
@@ -255,5 +260,5 @@ def test_self_census_ballpark() -> None:
     # adds about 150 lines in coro.py. The asyncio primitives (#180 D3) add
     # about 400 in ps_async.c and restlower/_asyncio_sync.py.
     assert 11_000 <= census["lines"] <= 50_000
-    assert census["fences"] == 3054
-    assert sum(p["fences"] for p in census["packages"]) == 3054
+    assert census["fences"] == 3063
+    assert sum(p["fences"] for p in census["packages"]) == 3063
