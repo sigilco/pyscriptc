@@ -26,6 +26,7 @@ import copy
 from pathlib import Path
 from typing import Any
 
+from pyscriptc import boxed as _boxed
 from pyscriptc.builtins import USER_EXC_BASE
 from pyscriptc.errors import IRError
 from pyscriptc.ir import IR_VERSION, SUBSET, cpython_version
@@ -98,6 +99,10 @@ def lower_directory(
         catalog_units=catalogued,
         resource_root=resource_root,
         config=config,
+        main_package=(prefix or root.name) if entry is None and program_mode and not _is_program_dir(root) else "",
+        path0=root.resolve().parent
+        if (program_mode or entry is not None) and not _is_program_dir(root)
+        else root.resolve(),
     )
     if skipped:
         notes = [*notes, *[_skip_note(root, rel) for rel in skipped]]
@@ -175,6 +180,8 @@ def _lower_units(
     catalog_units: list[tuple[str, Path, bool]] | None = None,
     resource_root: str = "",
     config: Any = None,
+    main_package: str = "",
+    path0: Path | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Lower a set of module units into one IR module.
 
@@ -215,6 +222,11 @@ def _lower_units(
     if program:
         fences, owners = _program_plan(units, exports, entry=entry)
         if fences:
+            # boxed:begin
+            island = _program_island(units, root, entry, main_package, path0)
+            if island is not None:
+                return island, []
+            # boxed:end
             return _fenced_module(root, fences), []
     else:
         owners = {}
@@ -224,6 +236,7 @@ def _lower_units(
     fences: list[dict[str, Any]] = []
     class_names: dict[str, dict[str, Any]] = {}
     exc_n = USER_EXC_BASE
+    needs_island = False  # boxed
     with ffi_modules(ffi or []), dependency_lanes(dep_lane_report or {}), staged_resources(resource_root):
         for name, path, is_package in units:
             text = path.read_text(encoding="utf-8")
@@ -241,6 +254,9 @@ def _lower_units(
             lowerer.entry_module = entry is not None and name == entry
             lowerer.bridge = bridge_for(path)
             module = lowerer.module(tree)
+            # boxed:begin
+            needs_island = needs_island or _boxed.unit_needs_island(module)
+            # boxed:end
             exc_n = lowerer.exc_n
             for fn in module["functions"]:
                 functions.append(fn)
@@ -261,6 +277,12 @@ def _lower_units(
                 class_names[cls["name"]] = cls
                 classes.append(cls)
             fences.extend(module["fences"])
+    # boxed:begin
+    if program and (needs_island or fences):
+        island = _program_island(units, root, entry, main_package, path0)
+        if island is not None:
+            return island, []
+    # boxed:end
     fences = _promote_definition_fences(fences, failed)
     fences = _mark_dep_fences(fences, units, dep_names, dep_lane_report)
     merged = {
@@ -274,6 +296,36 @@ def _lower_units(
         "fences": fences,
     }
     return merged, []
+
+
+# boxed:begin
+def _program_island(
+    units: list[tuple[str, Path, bool]],
+    root: Path,
+    entry: str | None,
+    main_package: str,
+    path0: Path | None,
+) -> dict[str, Any] | None:
+    """The program-wide island module, or None when the tier is off.
+
+    Under `--fallback=cpython` a multi-module program with any unit on the
+    island runs whole island-side (Refs #641): the per-unit plans stop at
+    the module boundary, so the coarse unit is the program.
+    """
+
+    if not _boxed.definitions_tier():
+        return None
+    main = entry if entry is not None else "__main__"
+    if not any(name == main for name, _path, _is_package in units):
+        return None
+    if entry is not None:
+        is_package = any(name == entry and pkg for name, _path, pkg in units)
+        main_package = entry if is_package else entry.rpartition(".")[0]
+    source = _boxed.program_island_source(units, entry=main, main_package=main_package, root=root, path0=path0 or root)
+    return _boxed.program_island_module(source, root)
+
+
+# boxed:end
 
 
 def _program_entry(functions: list[dict[str, Any]], entry: str | None = None) -> str | None:
