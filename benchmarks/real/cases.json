@@ -25,7 +25,7 @@
       "script": "{corpus}/wowplay-app/tools/launch-diagnostics/classify.py",
       "cwd": "{corpus}/wowplay-app/tools/launch-diagnostics",
       "kind": "workload",
-      "argv": ["{inputs}/classify/launch.log"],
+      "argv": ["{inputs}/classify/launch-log.txt"],
       "note": "Regex scan of a 4500 line Wine launch log; 100 percent island."
     },
     {
@@ -51,6 +51,7 @@
       "cwd": "{corpus}/HTLM",
       "kind": "startup",
       "argv": [],
+      "env": {"PYTHONPATH": "{corpus}/HTLM"},
       "note": "Startup only: the compiled binary loses process argv when the module top level stays native (#635), so both sides run the argparse usage error."
     },
     {
