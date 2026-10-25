@@ -9,6 +9,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
+import pyscriptc.reduce as reduce_module
 from pyscriptc.reduce import CommandPredicate, CrashPredicate, FencePredicate, reduce_file, reduce_source
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,8 +38,10 @@ def main() -> int:
     return helper(2)
 """
 
-# A class instance used as a decorator crashes lowering (KeyError in _calls).
-CRASHING = """import os
+# A class instance used as a decorator refuses at PS2006 (#626). It used to
+# crash lowering with `KeyError: 'params'`, which the crash-mode tests below
+# stood on; they inject the error now instead.
+FENCED_DECORATOR = """import os
 
 
 class A:
@@ -88,9 +93,17 @@ def test_input_file_is_never_modified(tmp_path: Path) -> None:
     assert path.read_text(encoding="utf-8") == before
 
 
-def test_crash_reduction_keeps_the_failing_construct(tmp_path: Path) -> None:
+def test_crash_reduction_keeps_the_failing_construct(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = tmp_path / "crash.py"
-    path.write_text(CRASHING, encoding="utf-8")
+    path.write_text(FENCED_DECORATOR, encoding="utf-8")
+    original = reduce_module.lower_source
+
+    def injected(text: str, *args, **kwargs):
+        if "A()" in text:
+            raise KeyError("params")
+        return original(text, *args, **kwargs)
+
+    monkeypatch.setattr(reduce_module, "lower_source", injected)
     result = reduce_file(path, CrashPredicate())
     assert result.verdict.holds
     assert "KeyError" in result.verdict.reason
@@ -195,16 +208,24 @@ def test_cli_fence_writes_min_file(tmp_path: Path) -> None:
     assert "def helper" not in reduced
 
 
-def test_cli_crash_json(tmp_path: Path) -> None:
-    path = tmp_path / "crash.py"
-    path.write_text(CRASHING, encoding="utf-8")
-    proc = run_cli("reduce", str(path), "--crash", "--json")
+def test_cli_json_reports_the_verdict(tmp_path: Path) -> None:
+    path = tmp_path / "fenced_decorator.py"
+    path.write_text(FENCED_DECORATOR, encoding="utf-8")
+    proc = run_cli("reduce", str(path), "--fence", "PS2006", "--json")
     assert proc.returncode == 0, proc.stderr
     payload = json.loads(proc.stdout)
     assert payload["verdict"] == "holds"
     assert payload["changed"] is True
     assert "def beta" in payload["reduced"]
-    assert not (tmp_path / "crash.min.py").exists()
+    assert not (tmp_path / "fenced_decorator.min.py").exists()
+    # The crash predicate no longer holds: the construct above is a fence, not
+    # a crash, and the CLI reports the failed verdict without writing a file.
+    proc = run_cli("reduce", str(path), "--crash", "--json")
+    assert proc.returncode == 1, proc.stderr
+    payload = json.loads(proc.stdout)
+    assert payload["verdict"] == "fails: no crash"
+    assert "nothing to reduce" in payload["detail"]
+    assert not (tmp_path / "fenced_decorator.min.py").exists()
 
 
 def test_cli_print_mode(tmp_path: Path) -> None:

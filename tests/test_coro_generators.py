@@ -704,7 +704,7 @@ def test_contextmanager_kill_switch_restores_the_old_fence(monkeypatch: pytest.M
     monkeypatch.setenv("PYSC_CORO", "0")
     module = lower_source(CONTEXT_MANAGER, "cm.py")
     messages = [fence["message"] for fence in module["fences"]]
-    assert any("decorators are not lowered" in message for message in messages)
+    assert any("is not a lowered callable" in message for message in messages)
 
 
 def test_contextmanager_decorator_must_resolve_to_the_stdlib() -> None:
@@ -722,7 +722,7 @@ def track(name: str) -> Iterator[str]:
 """
     module = lower_source(source, "cm_local.py")
     messages = [fence["message"] for fence in module["fences"]]
-    assert any("decorators are not lowered" in message for message in messages)
+    assert any("is not a lowered callable" in message for message in messages)
 
 
 # --- try/except/finally (issue #164) ----------------------------------------
