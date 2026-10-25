@@ -121,13 +121,16 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
-    elif args.check:
-        if sys.version_info[:3] != TARGET_VERSION_INFO:
-            print(
-                f"baseline check requires CPython {TARGET_CPYTHON}, running {sys.version.split()[0]}",
-                file=sys.stderr,
-            )
-            return 2
+    elif sys.version_info[:3] != TARGET_VERSION_INFO:
+        import warnings
+
+        warnings.warn(
+            f"baseline running on CPython {sys.version.split()[0]}, declared target is {TARGET_CPYTHON}",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    if args.check:
         reference_path = Path(args.check)
         if not reference_path.exists():
             print(f"reference file not found: {args.check}", file=sys.stderr)
@@ -144,14 +147,6 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 2
-    elif sys.version_info[:3] != TARGET_VERSION_INFO:
-        import warnings
-
-        warnings.warn(
-            f"baseline running on CPython {sys.version.split()[0]}, declared target is {TARGET_CPYTHON}",
-            UserWarning,
-            stacklevel=2,
-        )
 
     suite = json.loads((HERE / "suite.json").read_text(encoding="utf-8"))
     runs = args.runs if args.runs is not None else int(suite["runs"])

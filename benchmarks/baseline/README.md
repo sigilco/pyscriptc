@@ -15,6 +15,8 @@ uv run python -m benchmarks.baseline.run --record
 
 `--check` reads the reference file for this host. `--record` replaces that same file with the run just taken. The report also keeps compile time and the linked binary's size; those are not part of the ratio gate.
 
+Both baselines are recorded on the declared target CPython version (`TARGET_CPYTHON`). `--record` requires the exact target CPython micro, refusing any host micro mismatch so recorded reference files stay on the sanctioned version. `--check` warns on a host micro mismatch but requires the reference file itself to have been recorded on the target CPython version.
+
 ## Host slots
 
 `reference.json` is the Linux reference committed in this tree. A full `--record` on Linux replaces it. A partial run belongs in `--json`, so the committed Linux file stays a complete suite.
