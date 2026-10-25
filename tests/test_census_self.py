@@ -230,6 +230,7 @@ def test_self_census_ballpark() -> None:
     # Island environment alignment (#600, #601, #606): active venv / search path in check.py,
     # island import forms in lower/_stdlib.py and lower/_calls.py add 10 self-host fences.
     # Dogfood blockers (#595, #596): stdlib keyword calls and Path/exc f-strings drop 19 self-host fences.
+    # Island return unmarshalling (#602): +5 self-host fences across _stdlib.py and _abi.py.
 
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
@@ -238,5 +239,5 @@ def test_self_census_ballpark() -> None:
     # adds about 150 lines in coro.py. The asyncio primitives (#180 D3) add
     # about 400 in ps_async.c and restlower/_asyncio_sync.py.
     assert 11_000 <= census["lines"] <= 50_000
-    assert sum(p["fences"] for p in census["packages"]) == 3030
-    assert census["fences"] == 3030
+    assert census["fences"] == 3035
+    assert sum(p["fences"] for p in census["packages"]) == 3035

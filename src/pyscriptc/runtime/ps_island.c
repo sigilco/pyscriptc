@@ -145,16 +145,98 @@ static void ps_island_done(void) {
     PyGILState_Release(PyGILState_UNLOCKED);
 }
 
+static int32_t ps_island_exc_code(PyObject *typ) {
+    if (typ == NULL) {
+        return PS_RUNTIME;
+    }
+    if (PyErr_GivenExceptionMatches(typ, PyExc_TypeError)) {
+        return PS_TYPEERROR;
+    }
+    if (PyErr_GivenExceptionMatches(typ, PyExc_ValueError)) {
+        return PS_VALUEERROR;
+    }
+    if (PyErr_GivenExceptionMatches(typ, PyExc_KeyError)) {
+        return PS_KEYERROR;
+    }
+    if (PyErr_GivenExceptionMatches(typ, PyExc_IndexError)) {
+        return PS_INDEXERROR;
+    }
+    if (PyErr_GivenExceptionMatches(typ, PyExc_FileNotFoundError)) {
+        return PS_FILENOTFOUNDERROR;
+    }
+    if (PyErr_GivenExceptionMatches(typ, PyExc_PermissionError)) {
+        return PS_PERMISSIONERROR;
+    }
+    if (PyErr_GivenExceptionMatches(typ, PyExc_TimeoutError)) {
+        return PS_TIMEOUTERROR;
+    }
+    if (PyErr_GivenExceptionMatches(typ, PyExc_ZeroDivisionError)) {
+        return PS_ZERODIVISIONERROR;
+    }
+    if (PyErr_GivenExceptionMatches(typ, PyExc_OverflowError)) {
+        return PS_OVERFLOWERROR;
+    }
+    if (PyErr_GivenExceptionMatches(typ, PyExc_AttributeError)) {
+        return PS_ATTRIBUTEERROR;
+    }
+    if (PyErr_GivenExceptionMatches(typ, PyExc_NotImplementedError)) {
+        return PS_NOTIMPLEMENTEDERROR;
+    }
+    if (PyErr_GivenExceptionMatches(typ, PyExc_ModuleNotFoundError)) {
+        return PS_MODULENOTFOUNDERROR;
+    }
+    if (PyErr_GivenExceptionMatches(typ, PyExc_ImportError)) {
+        return PS_IMPORTERROR;
+    }
+    if (PyErr_GivenExceptionMatches(typ, PyExc_OSError)) {
+        return PS_OSERROR;
+    }
+    if (PyErr_GivenExceptionMatches(typ, PyExc_StopIteration)) {
+        return PS_STOPITERATION;
+    }
+    if (PyErr_GivenExceptionMatches(typ, PyExc_RecursionError)) {
+        return PS_RECURSIONERROR;
+    }
+    if (PyErr_GivenExceptionMatches(typ, PyExc_AssertionError)) {
+        return PS_ASSERTIONERROR;
+    }
+    if (PyErr_GivenExceptionMatches(typ, PyExc_MemoryError)) {
+        return PS_MEMORYERROR;
+    }
+    if (PyErr_GivenExceptionMatches(typ, PyExc_NameError)) {
+        return PS_NAMEERROR;
+    }
+    if (PyErr_GivenExceptionMatches(typ, PyExc_RuntimeError)) {
+        return PS_RUNTIME;
+    }
+    if (PyErr_GivenExceptionMatches(typ, PyExc_Exception)) {
+        return PS_EXCEPTION;
+    }
+    return PS_RUNTIME;
+}
+
 static void ps_island_fail(void) {
     PyObject *typ = NULL;
     PyObject *val = NULL;
     PyObject *tb = NULL;
     PyObject *text = NULL;
     const char *msg = "island call failed";
+    int32_t code = PS_RUNTIME;
     PyErr_Fetch(&typ, &val, &tb);
     PyErr_NormalizeException(&typ, &val, &tb);
+    if (typ != NULL) {
+        code = ps_island_exc_code(typ);
+    }
     if (val != NULL) {
-        text = PyObject_Str(val);
+        if (PyErr_GivenExceptionMatches(val, PyExc_KeyError)) {
+            PyObject *args = PyException_GetArgs(val);
+            if (args != NULL && PyTuple_Check(args) && PyTuple_GET_SIZE(args) > 0) {
+                text = PyObject_Str(PyTuple_GET_ITEM(args, 0));
+            }
+        }
+        if (text == NULL) {
+            text = PyObject_Str(val);
+        }
         if (text != NULL) {
             const char *got = PyUnicode_AsUTF8(text);
             if (got != NULL) {
@@ -164,7 +246,7 @@ static void ps_island_fail(void) {
     }
     /* The GIL goes back before the raise unwinds the thread. */
     ps_island_done();
-    ps_raise_cstr(PS_RUNTIME, msg);
+    ps_raise_cstr(code, msg);
 }
 
 static PyObject *ps_import(const char *name) {
@@ -493,6 +575,33 @@ static PyObject *ps_island_from_arg(const PsArg *arg) {
         }
         return list;
     }
+    case 8: {
+        PsMap *map = (PsMap *)(uintptr_t)arg->i;
+        PyObject *dict = PyDict_New();
+        int32_t key_pad = (arg->pad >> 16) & 0xffff;
+        int32_t val_pad = arg->pad & 0xffff;
+        int64_t i;
+        if (dict == NULL) {
+            return NULL;
+        }
+        for (i = 0; i < map->len; i++) {
+            char kcell[16];
+            char vcell[16];
+            ps_map_key_at(map, i, kcell);
+            ps_map_val_at(map, i, vcell);
+            PyObject *kobj = ps_island_from_cell(kcell, key_pad);
+            PyObject *vobj = ps_island_from_cell(vcell, val_pad);
+            if (kobj == NULL || vobj == NULL || PyDict_SetItem(dict, kobj, vobj) < 0) {
+                Py_XDECREF(kobj);
+                Py_XDECREF(vobj);
+                Py_DECREF(dict);
+                return NULL;
+            }
+            Py_DECREF(kobj);
+            Py_DECREF(vobj);
+        }
+        return dict;
+    }
     }
     PyErr_Format(PyExc_TypeError, "island cannot marshal argument kind %d", (int)arg->kind);
     return NULL;
@@ -500,6 +609,10 @@ static PyObject *ps_island_from_arg(const PsArg *arg) {
 
 static void ps_island_set_cell(char *cell, PyObject *obj, int32_t pad) {
     if (pad == 1) {
+        if (!PyLong_Check(obj) || PyBool_Check(obj)) {
+            PyErr_Format(PyExc_TypeError, "island element is %s, not int", Py_TYPE(obj)->tp_name);
+            ps_island_fail();
+        }
         int64_t v = PyLong_AsLongLong(obj);
         if (v == -1 && PyErr_Occurred()) {
             ps_island_fail();
@@ -508,6 +621,10 @@ static void ps_island_set_cell(char *cell, PyObject *obj, int32_t pad) {
         return;
     }
     if (pad == 2) {
+        if (!PyFloat_Check(obj) && !PyLong_Check(obj)) {
+            PyErr_Format(PyExc_TypeError, "island element is %s, not float", Py_TYPE(obj)->tp_name);
+            ps_island_fail();
+        }
         double v = PyFloat_AsDouble(obj);
         if (v == -1.0 && PyErr_Occurred()) {
             ps_island_fail();
@@ -516,6 +633,14 @@ static void ps_island_set_cell(char *cell, PyObject *obj, int32_t pad) {
         return;
     }
     if (pad == 3 || pad == 6) {
+        if (pad == 3 && !PyUnicode_Check(obj)) {
+            PyErr_Format(PyExc_TypeError, "island element is %s, not str", Py_TYPE(obj)->tp_name);
+            ps_island_fail();
+        }
+        if (pad == 6 && !PyBytes_Check(obj)) {
+            PyErr_Format(PyExc_TypeError, "island element is %s, not bytes", Py_TYPE(obj)->tp_name);
+            ps_island_fail();
+        }
         PsBuf b;
         if (pad == 3) {
             ps_take_unicode(obj, &b);
@@ -526,14 +651,14 @@ static void ps_island_set_cell(char *cell, PyObject *obj, int32_t pad) {
         return;
     }
     if (pad == 4) {
-        int truth = PyObject_IsTrue(obj);
-        if (truth < 0) {
+        if (!PyBool_Check(obj)) {
+            PyErr_Format(PyExc_TypeError, "island element is %s, not bool", Py_TYPE(obj)->tp_name);
             ps_island_fail();
         }
-        *(unsigned char *)cell = truth != 0;
+        *(unsigned char *)cell = (obj == Py_True);
         return;
     }
-    PyErr_Format(PyExc_TypeError, "island cannot marshal list element kind %d", (int)pad);
+    PyErr_Format(PyExc_TypeError, "island cannot marshal element kind %d", (int)pad);
     ps_island_fail();
 }
 
@@ -542,6 +667,10 @@ static void ps_island_set_arg(PyObject *obj, int32_t want, int32_t pad, PsArg *o
     out->kind = want;
     out->pad = pad;
     if (want == 1) {
+        if (!PyLong_Check(obj) || PyBool_Check(obj)) {
+            PyErr_Format(PyExc_TypeError, "island value is %s, not int", Py_TYPE(obj)->tp_name);
+            ps_island_fail();
+        }
         int64_t v = PyLong_AsLongLong(obj);
         if (v == -1 && PyErr_Occurred()) {
             ps_island_fail();
@@ -550,6 +679,10 @@ static void ps_island_set_arg(PyObject *obj, int32_t want, int32_t pad, PsArg *o
         return;
     }
     if (want == 2) {
+        if (!PyFloat_Check(obj) && !PyLong_Check(obj)) {
+            PyErr_Format(PyExc_TypeError, "island value is %s, not float", Py_TYPE(obj)->tp_name);
+            ps_island_fail();
+        }
         double v = PyFloat_AsDouble(obj);
         if (v == -1.0 && PyErr_Occurred()) {
             ps_island_fail();
@@ -574,11 +707,11 @@ static void ps_island_set_arg(PyObject *obj, int32_t want, int32_t pad, PsArg *o
         return;
     }
     if (want == 4) {
-        int truth = PyObject_IsTrue(obj);
-        if (truth < 0) {
+        if (!PyBool_Check(obj)) {
+            PyErr_Format(PyExc_TypeError, "island value is %s, not bool", Py_TYPE(obj)->tp_name);
             ps_island_fail();
         }
-        out->i = truth != 0;
+        out->i = (obj == Py_True);
         return;
     }
     if (want == 7) {
@@ -586,30 +719,53 @@ static void ps_island_set_arg(PyObject *obj, int32_t want, int32_t pad, PsArg *o
         return;
     }
     if (want == 5) {
-        PyObject *seq_obj = PySequence_Fast(obj, "island value is not a list");
-        Py_ssize_t count;
-        int64_t elem;
-        int64_t i;
-        PsSeq *seq;
-        if (seq_obj == NULL) {
+        if (!PyList_Check(obj)) {
+            PyErr_Format(PyExc_TypeError, "island value is %s, not list", Py_TYPE(obj)->tp_name);
             ps_island_fail();
         }
-        count = PySequence_Fast_GET_SIZE(seq_obj);
-        elem = ps_island_elem_size(pad);
+        Py_ssize_t count = PyList_GET_SIZE(obj);
+        int64_t elem = ps_island_elem_size(pad);
         if (elem == 0) {
-            Py_DECREF(seq_obj);
             PyErr_Format(PyExc_TypeError, "island cannot marshal list element kind %d", (int)pad);
             ps_island_fail();
         }
-        seq = ps_seq_new(elem, (int64_t)count);
-        for (i = 0; i < count; i++) {
+        PsSeq *seq = ps_seq_new(elem, (int64_t)count);
+        for (Py_ssize_t i = 0; i < count; i++) {
             char cell[16];
-            PyObject *item = PySequence_Fast_GET_ITEM(seq_obj, (Py_ssize_t)i);
+            PyObject *item = PyList_GET_ITEM(obj, i);
             ps_island_set_cell(cell, item, pad);
-            ps_seq_push(seq, cell);
+            ps_seq_set(seq, (int64_t)i, cell);
         }
-        Py_DECREF(seq_obj);
         out->i = (int64_t)(uintptr_t)seq;
+        return;
+    }
+    if (want == 8) {
+        if (!PyDict_Check(obj)) {
+            PyErr_Format(PyExc_TypeError, "island value is %s, not dict", Py_TYPE(obj)->tp_name);
+            ps_island_fail();
+        }
+        int32_t key_pad = (pad >> 16) & 0xffff;
+        int32_t val_pad = pad & 0xffff;
+        int64_t key_size = ps_island_elem_size(key_pad);
+        int64_t val_size = ps_island_elem_size(val_pad);
+        if (key_size == 0 || val_size == 0) {
+            PyErr_Format(PyExc_TypeError, "island cannot marshal dict with key kind %d, val kind %d", (int)key_pad, (int)val_pad);
+            ps_island_fail();
+        }
+        int32_t key_kind = (key_pad == 1 ? 1 : 2);
+        Py_ssize_t count = PyDict_Size(obj);
+        PsMap *map = ps_map_new(key_kind, key_size, val_size, (int64_t)count);
+        PyObject *key_obj;
+        PyObject *val_obj;
+        Py_ssize_t pos = 0;
+        while (PyDict_Next(obj, &pos, &key_obj, &val_obj)) {
+            char kcell[16];
+            char vcell[16];
+            ps_island_set_cell(kcell, key_obj, key_pad);
+            ps_island_set_cell(vcell, val_obj, val_pad);
+            ps_map_put(map, kcell, vcell);
+        }
+        out->i = (int64_t)(uintptr_t)map;
         return;
     }
     PyErr_Format(PyExc_TypeError, "island cannot marshal result kind %d", (int)want);
@@ -692,6 +848,60 @@ void ps_island_getattr(void *handle, int64_t n, const char *name, int32_t want, 
     if (want != 7) {
         Py_DECREF(value);
     }
+    ps_island_done();
+}
+
+void ps_island_call_value(void *handle, int64_t n, const char *name, int64_t nargs, const PsArg *args, int32_t want, int32_t pad, PsArg *out) {
+    PyObject *target = (PyObject *)handle;
+    PyObject *name_obj;
+    PyObject *fn;
+    PyObject *tuple;
+    PyObject *result;
+    int64_t i;
+    ps_island_ensure();
+    name_obj = PyUnicode_FromStringAndSize(name, (Py_ssize_t)n);
+    if (name_obj == NULL) {
+        ps_island_fail();
+    }
+    fn = PyObject_GetAttr(target, name_obj);
+    Py_DECREF(name_obj);
+    if (fn == NULL) {
+        ps_island_fail();
+    }
+    tuple = PyTuple_New((Py_ssize_t)nargs);
+    if (tuple == NULL) {
+        Py_DECREF(fn);
+        ps_island_fail();
+    }
+    for (i = 0; i < nargs; i++) {
+        PyObject *item = ps_island_from_arg(&args[i]);
+        if (item == NULL || PyTuple_SetItem(tuple, (Py_ssize_t)i, item) < 0) {
+            Py_XDECREF(item);
+            Py_DECREF(tuple);
+            Py_DECREF(fn);
+            ps_island_fail();
+        }
+    }
+    result = PyObject_Call(fn, tuple, NULL);
+    Py_DECREF(fn);
+    Py_DECREF(tuple);
+    if (result == NULL) {
+        ps_island_fail();
+    }
+    ps_island_set_arg(result, want, pad, out);
+    if (want != 7) {
+        Py_DECREF(result);
+    }
+    ps_island_done();
+}
+
+void ps_island_unmarshal(void *handle, int32_t want, int32_t pad, PsArg *out) {
+    PyObject *target = (PyObject *)handle;
+    ps_island_ensure();
+    if (target == NULL) {
+        ps_island_fail();
+    }
+    ps_island_set_arg(target, want, pad, out);
     ps_island_done();
 }
 

@@ -65,7 +65,7 @@ def _island_handle(name: str) -> dict[str, Any]:
 
 # The `%ps.arg` kind codes the trampoline marshals (issue #553); they match
 # `ps_island.c`.
-_ISLAND_CODES = {"int": 1, "float": 2, "str": 3, "bool": 4, "list": 5, "bytes": 6, "handle": 7}
+_ISLAND_CODES = {"int": 1, "float": 2, "str": 3, "bool": 4, "list": 5, "bytes": 6, "handle": 7, "dict": 8}
 _ISLAND_SCALARS = frozenset({"int", "float", "str", "bool", "bytes"})
 # boxed:end
 
@@ -775,6 +775,12 @@ class StdlibDispatchMixin:
             if elem.get("island") or elem.get("kind") in _ISLAND_SCALARS:
                 return
             self.fail(node, "PS1003", "island list arguments carry int, float, str, bytes or bool elements")
+        if typ["kind"] == "dict":
+            key_t = typ.get("key") or {}
+            val_t = typ.get("value") or {}
+            if key_t.get("kind") in _ISLAND_SCALARS and val_t.get("kind") in _ISLAND_SCALARS:
+                return
+            self.fail(node, "PS1003", "island dict arguments carry scalar key and value elements")
         self.fail(node, "PS1003", f"island cannot marshal {_show(typ)}")
 
     def _island_args(self, node: ast.Call, span: dict[str, Any]) -> list[dict[str, Any]]:
@@ -811,11 +817,69 @@ class StdlibDispatchMixin:
             self.island_modules[module] = name
         return _name(name, self.locals[name], span)
 
+    def _island_validate_expect(self, node: ast.AST, expect: dict[str, Any]) -> None:
+        if expect.get("island"):
+            return
+        opt_note = "island cannot unmarshal Optional; typed idiom: return a default scalar or handle None on the island"
+        idiom_note = "typed idiom: use int, float, bool, str, bytes, list or dict of scalars across the island boundary"
+        if expect.get("optional"):
+            self.fail(node, "PS1003", opt_note)
+        kind = expect.get("kind")
+        is_tuple = (
+            kind == "tuple"
+            or expect.get("label", "").startswith("tuple[")
+            or (kind == "class" and bool(self.classes.get(expect.get("name", ""), {}).get("tuple")))
+        )
+        if is_tuple:
+            self.fail(
+                node,
+                "PS1003",
+                "island cannot unmarshal tuple; typed idiom: use list[T] to cross the island boundary",
+            )
+        if kind in _ISLAND_SCALARS:
+            return
+        if kind == "list":
+            elem = expect.get("elem") or {}
+            elem_tuple = (
+                elem.get("kind") == "tuple"
+                or elem.get("label", "").startswith("tuple[")
+                or (elem.get("kind") == "class" and bool(self.classes.get(elem.get("name", ""), {}).get("tuple")))
+            )
+            if elem_tuple:
+                self.fail(
+                    node,
+                    "PS1003",
+                    "island cannot unmarshal tuple; typed idiom: use list[T] to cross the island boundary",
+                )
+            if elem.get("optional"):
+                self.fail(node, "PS1003", opt_note)
+            if elem.get("kind") in _ISLAND_SCALARS:
+                return
+            self.fail(node, "PS1003", f"island cannot unmarshal {_show(expect)}; {idiom_note}")
+        if kind == "dict":
+            key_t = expect.get("key") or {}
+            val_t = expect.get("value") or {}
+            if key_t.get("kind") in _ISLAND_SCALARS and val_t.get("kind") in _ISLAND_SCALARS:
+                return
+            self.fail(node, "PS1003", f"island cannot unmarshal {_show(expect)}; {idiom_note}")
+        self.fail(node, "PS1003", f"island cannot unmarshal {_show(expect)}; {idiom_note}")
+
     def _island_call(
         self, node: ast.Call, span: dict[str, Any], module: str, attr: str, expect: dict[str, Any] | None
     ) -> dict[str, Any]:
         """`requests.get(...)`: a trampoline call on the imported module handle."""
         args = [self._island_module_handle(module, span), *self._island_args(node, span)]
+        if expect is not None and not expect.get("island"):
+            self._island_validate_expect(node, expect)
+            return {
+                "kind": "call",
+                "callee": {"kind": "module", "module": module, "name": attr},
+                "args": args,
+                "type": expect,
+                "symbol": "ps_island_call",
+                "island": {"name": attr, "want": expect},
+                "span": span,
+            }
         return {
             "kind": "call",
             "callee": {"kind": "module", "module": module, "name": attr},
@@ -826,11 +890,24 @@ class StdlibDispatchMixin:
             "span": span,
         }
 
-    def _island_method_call(self, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
+    def _island_method_call(
+        self, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any], expect: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """`response.raise_for_status(...)`: a trampoline call on one handle."""
         assert isinstance(node.func, ast.Attribute)
         attr = node.func.attr
         args = [receiver, *self._island_args(node, span)]
+        if expect is not None and not expect.get("island"):
+            self._island_validate_expect(node, expect)
+            return {
+                "kind": "call",
+                "callee": {"kind": "module", "module": receiver["type"].get("name", "island"), "name": attr},
+                "args": args,
+                "type": expect,
+                "symbol": "ps_island_call",
+                "island": {"name": attr, "want": expect},
+                "span": span,
+            }
         return {
             "kind": "call",
             "callee": {"kind": "module", "module": receiver["type"].get("name", "island"), "name": attr},
@@ -838,6 +915,21 @@ class StdlibDispatchMixin:
             "type": _island_handle(f"{receiver['type'].get('name', 'island')}.{attr}()"),
             "symbol": "ps_island_call",
             "island": {"name": attr},
+            "span": span,
+        }
+
+    def _island_unmarshal(
+        self, obj: dict[str, Any], expect: dict[str, Any], span: dict[str, Any], node: ast.AST
+    ) -> dict[str, Any]:
+        """Unmarshal an island handle into a typed local value."""
+        self._island_validate_expect(node, expect)
+        return {
+            "kind": "call",
+            "callee": {"kind": "module", "module": "island", "name": "unmarshal"},
+            "args": [obj],
+            "type": expect,
+            "symbol": "ps_island_unmarshal",
+            "island": {"name": "unmarshal", "want": expect},
             "span": span,
         }
 
@@ -856,12 +948,7 @@ class StdlibDispatchMixin:
                 "PS1001",
                 f"{name} needs an annotation (int, float, bool, str, bytes or list[...]) before use",
             )
-        if expect["kind"] not in _ISLAND_SCALARS and expect["kind"] != "list":
-            self.fail(node, "PS1003", f"island cannot box {_show(expect)}")
-        if expect["kind"] == "list":
-            elem = expect.get("elem") or {}
-            if not (elem.get("island") or elem.get("kind") in _ISLAND_SCALARS):
-                self.fail(node, "PS1003", "island lists carry int, float, str, bytes or bool elements")
+        self._island_validate_expect(node, expect)
         expr = self._abi_call(obj["type"].get("name", "island"), name, [obj], expect, "ps_island_getattr", span)
         expr["island"] = {"name": name, "want": expect}
         return expr

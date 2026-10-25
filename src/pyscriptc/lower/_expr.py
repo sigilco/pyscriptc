@@ -72,6 +72,10 @@ _NUMERIC = {"int", "float"}
 class ExprMixin:
     def _expr(self, node: ast.expr, expect: dict[str, Any] | None = None) -> dict[str, Any]:
         value = self._expr_any(node, expect)
+        # boxed:begin
+        if expect is not None and not expect.get("island") and value["type"].get("island"):
+            return self._island_unmarshal(value, expect, span_of(node, self.filename), node)
+        # boxed:end
         if expect is not None and expect.get("optional") and not value["type"].get("optional"):
             # `T | None` takes a bare T or None by boxing it: heap value with a
             # `_tag` flag and a `_val` field, allocated zeroed (tag false).
