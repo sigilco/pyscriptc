@@ -199,6 +199,16 @@ class CallsMixin:
                 "type": ftype["return"],
                 "span": span,
             }
+        # boxed:begin
+        # The boxed tier (issue #612): a call to a definition the planner
+        # routed to the island lowers to the fn trampoline beside
+        # `ps_island_call`. The check sits after the local/global reads (a
+        # shadowing local or slot wins, like CPython's scoping) and before
+        # the signature lookup, because a fenced definition still has a
+        # signature but no lowered body to call.
+        if name in self.island_fns:
+            return self._island_fn_call(node, span, name)
+        # boxed:end
         if name in self.sigs:
             if name in self.generic_fns:
                 return self._generic_call(node, span, name)

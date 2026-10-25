@@ -56,6 +56,7 @@ def _load_compiler() -> None:
     global lower_directory
     # boxed:begin
     global island_policy
+    global boxed_definitions
     # boxed:end
 
     if "lower_file" in globals():
@@ -76,6 +77,9 @@ def _load_compiler() -> None:
     from pyscriptc import (
         zigshim as _zigshim,
     )
+
+    # boxed:begin
+    from pyscriptc.boxed import boxed_definitions as _boxed_definitions
     from pyscriptc.check import run_checker as _run_checker
     from pyscriptc.coverage import (
         build_report as _build_report,
@@ -144,8 +148,6 @@ def _load_compiler() -> None:
         require_mobile_target as _require_mobile_target,
     )
     from pyscriptc.package import lower_directory as _lower_directory
-
-    # boxed:begin
     from pyscriptc.stdlib_queue import island_policy as _island_policy
 
     # boxed:end
@@ -187,6 +189,7 @@ def _load_compiler() -> None:
     lower_directory = _lower_directory
     # boxed:begin
     island_policy = _island_policy
+    boxed_definitions = _boxed_definitions
     # boxed:end
 
 
@@ -233,10 +236,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     # boxed:begin
     compile_parser.add_argument(
+        "--fallback",
+        choices=("cpython",),
+        default=None,
+        metavar="TIER",
+        help="route a fenced function definition to the embedded CPython island; "
+        "the only tier is cpython. Needs libpython and the packages on the host",
+    )
+    compile_parser.add_argument(
         "--island",
         action="store_true",
-        help="route every import outside the closed table to the embedded CPython island "
-        "(an untyped PyPI dependency); needs libpython and the packages on the host",
+        help="alias of --fallback=cpython: route every import outside the closed table and "
+        "every fenced definition to the embedded CPython island",
     )
     # boxed:end
     compile_parser.add_argument("--call", help="function the generated main calls")
@@ -327,9 +338,16 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--program", action="store_true", help="treat the directory as a program (see compile)")
     # boxed:begin
     run_parser.add_argument(
+        "--fallback",
+        choices=("cpython",),
+        default=None,
+        metavar="TIER",
+        help="route a fenced function definition to the embedded CPython island; the only tier is cpython",
+    )
+    run_parser.add_argument(
         "--island",
         action="store_true",
-        help="route every import outside the closed table to the embedded CPython island",
+        help="alias of --fallback=cpython",
     )
     # boxed:end
     run_parser.add_argument("--call", help="function the generated main calls")
@@ -1445,7 +1463,8 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         dbg.begin("lower")
         # boxed:begin
         island_names = set(config.island_imports())
-        island_default = bool(getattr(args, "island", False)) or config.wildcard_island()
+        fallback = getattr(args, "fallback", None) == "cpython" or bool(getattr(args, "island", False))
+        island_default = fallback or config.wildcard_island()
         island_ctx = island_policy(island_names, island_default)
         # boxed:end
         dep_roots, checker_roots, dep_lanes = _dependency_roots(source_path, config, island_default=island_default)
@@ -1453,7 +1472,9 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         if ((args.target and "windows" in args.target) or sys.platform == "win32") and not binary.suffix:
             binary = binary.with_suffix(".exe")
         data_root = _stage_dependency_data(source_path, config, args, binary, island_default=island_default)
-        with island_ctx:
+        # boxed:begin
+        with island_ctx, boxed_definitions(fallback):
+            # boxed:end
             if source_path.is_dir():
                 module, source = lower_directory(
                     source_path,

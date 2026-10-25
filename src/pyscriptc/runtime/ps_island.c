@@ -35,6 +35,45 @@ static void ps_island_init(void) {
         abort();
     }
     PyObject *site = PyImport_ImportModule("site");
+    /* The island never runs Py_Finalize (the process can exit through the
+       native runtime at any point), so CPython's exit-time stdout flush
+       never happens and a piped binary loses every island print. Reconfigure
+       the wrapper to line-buffered, which is what a terminal gets anyway;
+       the native process exit does not flush it either way. */
+    PyObject *sys = PyImport_ImportModule("sys");
+    if (sys != NULL) {
+        PyObject *out = PyObject_GetAttrString(sys, "stdout");
+        if (out != NULL && out != Py_None) {
+            PyObject *detach = PyObject_GetAttrString(out, "detach");
+            if (detach != NULL) {
+                PyObject *raw = PyObject_CallObject(detach, NULL);
+                if (raw != NULL) {
+                    PyObject *io = PyImport_ImportModule("io");
+                    if (io != NULL) {
+                        PyObject *maker = PyObject_GetAttrString(io, "TextIOWrapper");
+                        if (maker != NULL) {
+                            /* buffer, encoding, errors, newline, line_buffering,
+                               write_through: line-buffered, UTF-8. */
+                            PyObject *wrapper =
+                                PyObject_CallFunction(maker, "Osssii", raw, "utf-8", "strict", "\n", 1, 0);
+                            if (wrapper != NULL) {
+                                PyObject_SetAttrString(sys, "stdout", wrapper);
+                                Py_DECREF(wrapper);
+                            }
+                            Py_DECREF(maker);
+                        }
+                        Py_DECREF(io);
+                    }
+                    Py_DECREF(raw);
+                }
+                Py_DECREF(detach);
+            }
+            PyErr_Clear();
+            Py_DECREF(out);
+        }
+        Py_DECREF(sys);
+        PyErr_Clear();
+    }
     const char *venv = getenv("VIRTUAL_ENV");
     if (venv != NULL && site != NULL) {
         char path[1024];
@@ -68,7 +107,6 @@ static void ps_island_init(void) {
             free(copy);
         }
     }
-    PyObject *sys = PyImport_ImportModule("sys");
     if (sys != NULL) {
         PyObject *sys_path = PyObject_GetAttrString(sys, "path");
         if (sys_path != NULL && PyList_Check(sys_path)) {
@@ -913,3 +951,158 @@ void ps_island_free(void *handle) {
     Py_DECREF((PyObject *)handle);
     ps_island_done();
 }
+
+/* The boxed per-definition tier (issue #612): the user's own module text is
+   exec'd once into a namespace owned here, and every fenced definition is
+   called by name through this trampoline beside ps_island_call. The source
+   is a NUL-terminated UTF-8 global the emitter formats; `main_guard` is
+   false while the seeding exec runs so `if __name__ == "__main__":` inside
+   the island text does not fire (the entry shim invokes the entry itself). */
+
+static PyObject *ps_island_ns = NULL;
+
+static int ps_island_seed(int64_t n, const char *source) {
+    PyObject *text = PyUnicode_DecodeUTF8(source, (Py_ssize_t)n, "strict");
+    PyObject *builtins = NULL;
+    PyObject *main_name = NULL;
+    PyObject *result = NULL;
+    if (text == NULL) {
+        return -1;
+    }
+    if (ps_island_ns == NULL) {
+        ps_island_ns = PyDict_New();
+        if (ps_island_ns == NULL) {
+            Py_DECREF(text);
+            return -1;
+        }
+    }
+    builtins = PyImport_ImportModule("builtins");
+    if (builtins == NULL || PyDict_SetItemString(ps_island_ns, "__builtins__", builtins) < 0) {
+        Py_XDECREF(builtins);
+        Py_DECREF(text);
+        return -1;
+    }
+    Py_DECREF(builtins);
+    /* `__name__` is not `"__main__"` while the seeding exec runs, so the
+       script's main guard stays closed; `ps_island_fn_name` rewrites it
+       before the entry shim runs the entry. */
+    main_name = PyUnicode_FromString("__pyscriptc_island__");
+    if (main_name == NULL || PyDict_SetItemString(ps_island_ns, "__name__", main_name) < 0) {
+        Py_XDECREF(main_name);
+        Py_DECREF(text);
+        return -1;
+    }
+    Py_DECREF(main_name);
+    result = PyRun_String(PyUnicode_AsUTF8(text) != NULL ? PyUnicode_AsUTF8(text) : "",
+                          Py_file_input, ps_island_ns, ps_island_ns);
+    Py_DECREF(text);
+    if (result == NULL) {
+        return -1;
+    }
+    Py_DECREF(result);
+    return 0;
+}
+
+void ps_island_fn_seed(int64_t n, const char *source) {
+    ps_island_ensure();
+    if (ps_island_seed(n, source) < 0) {
+        ps_island_fail();
+    }
+    ps_island_done();
+}
+
+void ps_island_fn_name(int64_t n, const char *name) {
+    PyObject *name_obj;
+    ps_island_ensure();
+    if (ps_island_ns == NULL) {
+        PyErr_SetString(PyExc_RuntimeError, "island module namespace is not seeded");
+        ps_island_fail();
+    }
+    name_obj = PyUnicode_DecodeUTF8(name, (Py_ssize_t)n, "strict");
+    if (name_obj == NULL || PyDict_SetItemString(ps_island_ns, "__name__", name_obj) < 0) {
+        Py_XDECREF(name_obj);
+        ps_island_fail();
+    }
+    Py_DECREF(name_obj);
+    ps_island_done();
+}
+
+void *ps_island_fn_invoke(int64_t n, const char *name, int64_t nargs, const PsArg *args) {
+    PyObject *name_obj;
+    PyObject *fn;
+    PyObject *tuple;
+    PyObject *result;
+    int64_t i;
+    ps_island_ensure();
+    if (ps_island_ns == NULL) {
+        PyErr_SetString(PyExc_RuntimeError, "island module namespace is not seeded");
+        ps_island_fail();
+    }
+    name_obj = PyUnicode_DecodeUTF8(name, (Py_ssize_t)n, "strict");
+    if (name_obj == NULL) {
+        ps_island_fail();
+    }
+    fn = PyDict_GetItemWithError(ps_island_ns, name_obj);
+    Py_DECREF(name_obj);
+    if (fn == NULL) {
+        if (!PyErr_Occurred()) {
+            PyErr_Format(PyExc_NameError, "island function %s is not defined", name);
+        }
+        ps_island_fail();
+    }
+    Py_INCREF(fn);
+    tuple = PyTuple_New((Py_ssize_t)nargs);
+    if (tuple == NULL) {
+        Py_DECREF(fn);
+        ps_island_fail();
+    }
+    for (i = 0; i < nargs; i++) {
+        PyObject *item = ps_island_from_arg(&args[i]);
+        if (item == NULL || PyTuple_SetItem(tuple, (Py_ssize_t)i, item) < 0) {
+            Py_XDECREF(item);
+            Py_DECREF(tuple);
+            Py_DECREF(fn);
+            ps_island_fail();
+        }
+    }
+    result = PyObject_Call(fn, tuple, NULL);
+    Py_DECREF(fn);
+    Py_DECREF(tuple);
+    if (result == NULL) {
+        ps_island_fail();
+    }
+    ps_island_done();
+    return result;
+}
+
+void ps_island_fn_invoke_value(int64_t n, const char *name, int64_t nargs, const PsArg *args, int32_t want, int32_t pad, PsArg *out) {
+    PyObject *result = (PyObject *)ps_island_fn_invoke(n, name, nargs, args);
+    ps_island_ensure();
+    ps_island_set_arg(result, want, pad, out);
+    if (want != 7) {
+        Py_DECREF(result);
+    }
+    ps_island_done();
+}
+
+void ps_island_getitem(void *handle, int64_t n, const char *key, int32_t want, int32_t pad, PsArg *out) {
+    PyObject *target = (PyObject *)handle;
+    PyObject *key_obj;
+    PyObject *value;
+    ps_island_ensure();
+    key_obj = PyUnicode_DecodeUTF8(key, (Py_ssize_t)n, "strict");
+    if (key_obj == NULL) {
+        ps_island_fail();
+    }
+    value = PyObject_GetItem(target, key_obj);
+    Py_DECREF(key_obj);
+    if (value == NULL) {
+        ps_island_fail();
+    }
+    ps_island_set_arg(value, want, pad, out);
+    if (want != 7) {
+        Py_DECREF(value);
+    }
+    ps_island_done();
+}
+
