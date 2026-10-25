@@ -242,6 +242,8 @@ class CallsMixin:
             return self._emit_island_call(expr, values)
         if expr.get("symbol") == "ps_island_getattr":
             return self._emit_island_getattr(expr, values)
+        if expr.get("symbol") == "ps_island_unmarshal":
+            return self._emit_island_unmarshal(expr, values)
         # boxed:end
         if expr.get("symbol"):
             return self._emit_abi(expr, values)

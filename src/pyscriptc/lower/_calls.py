@@ -498,7 +498,7 @@ class CallsMixin:
         receiver = self._expr(node.func.value)
         # boxed:begin
         if receiver["type"].get("island"):
-            return self._island_method_call(node, span, receiver)
+            return self._island_method_call(node, span, receiver, expect)
         # boxed:end
         if receiver["type"]["kind"] == "class" and receiver["type"].get("name") == "ArgParser":
             # argparse parser methods need the lowerer state, so they have a

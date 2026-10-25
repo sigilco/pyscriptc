@@ -78,12 +78,20 @@ class AbiMixin:
     # boxed:begin
     # Island trampoline marshalling (issue #553). The kind codes match
     # `ps_island.c`; `pad` carries the element kind for a list.
-    _ISLAND_ARG_CODES = {"int": 1, "float": 2, "str": 3, "bool": 4, "list": 5, "bytes": 6}
+    _ISLAND_ARG_CODES = {"int": 1, "float": 2, "str": 3, "bool": 4, "list": 5, "bytes": 6, "dict": 8}
 
     def _island_code(self, typ: dict[str, Any]) -> int:
         if typ.get("island"):
             return 7
         return self._ISLAND_ARG_CODES[typ["kind"]]
+
+    def _island_pad(self, want: dict[str, Any]) -> int:
+        kind = want.get("kind")
+        if kind == "list":
+            return self._island_code(want["elem"])
+        if kind == "dict":
+            return (self._island_code(want["key"]) << 16) | self._island_code(want["value"])
+        return 0
 
     def _store_island_arg(self, base: str, value: str, typ: dict[str, Any]) -> None:
         code = self._island_code(typ)
@@ -112,6 +120,17 @@ class AbiMixin:
             pad_ptr = self.tmp()
             self.line(f"{pad_ptr} = getelementptr %ps.arg, ptr {base}, i32 0, i32 1")
             self.line(f"store i32 {self._island_code(typ['elem'])}, ptr {pad_ptr}")
+            slot = self.tmp()
+            self.line(f"{slot} = getelementptr %ps.arg, ptr {base}, i32 0, i32 2")
+            raw = self.tmp()
+            self.line(f"{raw} = ptrtoint ptr {value} to i64")
+            self.line(f"store i64 {raw}, ptr {slot}")
+            return
+        if kind == "dict":
+            pad_ptr = self.tmp()
+            self.line(f"{pad_ptr} = getelementptr %ps.arg, ptr {base}, i32 0, i32 1")
+            pad_val = (self._island_code(typ["key"]) << 16) | self._island_code(typ["value"])
+            self.line(f"store i32 {pad_val}, ptr {pad_ptr}")
             slot = self.tmp()
             self.line(f"{slot} = getelementptr %ps.arg, ptr {base}, i32 0, i32 2")
             raw = self.tmp()
@@ -147,7 +166,7 @@ class AbiMixin:
         return len(data), self.format_global(f"island.{name}", data)
 
     def _emit_island_call(self, expr: dict[str, Any], values: list[str]) -> str:
-        """One trampoline call: `island_call(handle, name, args...) -> handle`."""
+        """One trampoline call: `island_call(handle, name, args...) -> handle or value`."""
         self._ensure_arg_type()
         target = values[0]
         extra = values[1:]
@@ -164,19 +183,39 @@ class AbiMixin:
         else:
             arg_ptr = "null"
         size, symbol = self._island_name(expr)
-        self._abi_decl("ps_island_call", "ptr", ["ptr", "i64", "ptr", "i64", "ptr"])
-        return self._call_ret(
-            "ptr",
-            "ps_island_call",
-            [f"ptr {target}", f"i64 {size}", f"ptr {symbol}", f"i64 {count}", f"ptr {arg_ptr}"],
+        if expr["type"].get("island"):
+            self._abi_decl("ps_island_call", "ptr", ["ptr", "i64", "ptr", "i64", "ptr"])
+            return self._call_ret(
+                "ptr",
+                "ps_island_call",
+                [f"ptr {target}", f"i64 {size}", f"ptr {symbol}", f"i64 {count}", f"ptr {arg_ptr}"],
+            )
+        want = expr["island"]["want"]
+        code = self._island_code(want)
+        pad = self._island_pad(want)
+        out = self._alloca("%ps.arg")
+        self._abi_decl("ps_island_call_value", "void", ["ptr", "i64", "ptr", "i64", "ptr", "i32", "i32", "ptr"])
+        self._call_void(
+            "ps_island_call_value",
+            [
+                f"ptr {target}",
+                f"i64 {size}",
+                f"ptr {symbol}",
+                f"i64 {count}",
+                f"ptr {arg_ptr}",
+                f"i32 {code}",
+                f"i32 {pad}",
+                f"ptr {out}",
+            ],
         )
+        return self._load_island_result(out, want)
 
     def _emit_island_getattr(self, expr: dict[str, Any], values: list[str]) -> str:
         """One attribute read: `island_getattr(handle, name, want, &out)`."""
         self._ensure_arg_type()
         want = expr["island"]["want"]
         code = self._island_code(want)
-        pad = self._island_code(want["elem"]) if want["kind"] == "list" else 0
+        pad = self._island_pad(want)
         size, symbol = self._island_name(expr)
         out = self._alloca("%ps.arg")
         self._abi_decl("ps_island_getattr", "void", ["ptr", "i64", "ptr", "i32", "i32", "ptr"])
@@ -184,6 +223,23 @@ class AbiMixin:
             "ps_island_getattr",
             [f"ptr {values[0]}", f"i64 {size}", f"ptr {symbol}", f"i32 {code}", f"i32 {pad}", f"ptr {out}"],
         )
+        return self._load_island_result(out, want)
+
+    def _emit_island_unmarshal(self, expr: dict[str, Any], values: list[str]) -> str:
+        """One unmarshal: `island_unmarshal(handle, want, pad, &out)`."""
+        self._ensure_arg_type()
+        want = expr["island"]["want"]
+        code = self._island_code(want)
+        pad = self._island_pad(want)
+        out = self._alloca("%ps.arg")
+        self._abi_decl("ps_island_unmarshal", "void", ["ptr", "i32", "i32", "ptr"])
+        self._call_void(
+            "ps_island_unmarshal",
+            [f"ptr {values[0]}", f"i32 {code}", f"i32 {pad}", f"ptr {out}"],
+        )
+        return self._load_island_result(out, want)
+
+    def _load_island_result(self, out: str, want: dict[str, Any]) -> str:
         kind = want["kind"]
         if kind == "int":
             slot = self.tmp()
@@ -201,6 +257,12 @@ class AbiMixin:
             self.line(f"{reg} = trunc i64 {wide} to i1")
             return reg
         if kind == "list":
+            self.needed.add("seq")
+            slot = self.tmp()
+            self.line(f"{slot} = getelementptr %ps.arg, ptr {out}, i32 0, i32 2")
+            return self._load("ptr", slot)
+        if kind == "dict":
+            self.needed.add("map")
             slot = self.tmp()
             self.line(f"{slot} = getelementptr %ps.arg, ptr {out}, i32 0, i32 2")
             return self._load("ptr", slot)
@@ -225,7 +287,7 @@ class AbiMixin:
             self._abi_decl("ps_str_counts", "void", ["i64", "ptr", "ptr", "ptr"])
             self.line(f"call void @ps_str_counts(i64 {length}, ptr {data}, ptr {count_ptr}, ptr {flags_ptr})")
             return self._load("%ps.str", str_slot)
-        raise IRError(f"cannot read an island attribute of kind {kind}")
+        raise IRError(f"cannot read an island value of kind {kind}")
 
     # boxed:end
 
