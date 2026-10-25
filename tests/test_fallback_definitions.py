@@ -389,3 +389,109 @@ except SystemExit:
     native, cpython = _compile_and_compare(tmp_path, source_text)
     assert native.returncode == cpython.returncode
     assert native.returncode == 7
+
+
+def test_fallback_checker_island_suppressed_passes_through(tmp_path: Path) -> None:
+    """An island function with a checker error passes through under fallback (Refs #505)."""
+    src = tmp_path / "island_err.py"
+    src.write_text(
+        """def untyped_helper(x):
+    y: int = "suppressed"
+    return x
+
+
+def typed_fn(x: int) -> int:
+    return int("123", base=10)
+
+
+def main() -> None:
+    out: int = untyped_helper(10)
+    print(out + typed_fn(1))
+
+
+if __name__ == "__main__":
+    main()
+""",
+        encoding="utf-8",
+    )
+    # Plain compile without fallback must fail with checker exit code 2
+    plain = _run_cli("compile", str(src), "--emit", "bin", "-o", str(tmp_path / "plain_bin"), cwd=tmp_path)
+    assert plain.returncode == 2
+    assert "bad-assignment" in plain.stderr
+
+    # Under fallback, the diagnostic is suppressed as a note and binary runs successfully
+    binary = tmp_path / "island_bin"
+    comp = _run_cli("compile", str(src), *FALLBACK_FLAGS, "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    assert comp.returncode == 0, comp.stderr
+    assert "note: suppressed 1 checker diagnostic routed to the island" in comp.stderr
+    assert "bad-assignment" in comp.stderr
+
+    run = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    assert run.returncode == 0, run.stderr
+    assert run.stdout == "133\n"
+
+
+def test_fallback_checker_native_error_still_fails(tmp_path: Path) -> None:
+    """A real type error inside a native definition still stops the compile with exit 2 (Refs #505)."""
+    src = tmp_path / "native_err.py"
+    src.write_text(
+        """def untyped_helper(x):
+    y: int = "suppressed"
+    return x
+
+
+def typed_fn(x: int) -> int:
+    return int("123", base="bad")
+
+
+def main() -> None:
+    print(typed_fn(1))
+
+
+if __name__ == "__main__":
+    main()
+""",
+        encoding="utf-8",
+    )
+    comp = _run_cli(
+        "compile", str(src), *FALLBACK_FLAGS, "--emit", "bin", "-o", str(tmp_path / "native_bin"), cwd=tmp_path
+    )
+    assert comp.returncode == 2
+    assert "note: suppressed 1 checker diagnostic routed to the island" in comp.stderr
+    assert "int.__new__" in comp.stderr
+
+
+def test_fallback_checker_sibling_package_import(tmp_path: Path) -> None:
+    """Missing-import diagnostics for local sibling packages resolve via program dir (Refs #505)."""
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+    sib_dir = app_dir / "sibling"
+    sib_dir.mkdir()
+    (sib_dir / "__init__.py").write_text("", encoding="utf-8")
+    (sib_dir / "helper.py").write_text("def answer() -> int:\n    return 42\n", encoding="utf-8")
+
+    src = app_dir / "main.py"
+    src.write_text(
+        """from sibling.helper import answer
+
+
+def helper(x):
+    return answer() + x
+
+
+def main() -> None:
+    val: int = helper(0)
+    print(val)
+
+
+if __name__ == "__main__":
+    main()
+""",
+        encoding="utf-8",
+    )
+    binary = app_dir / "main_bin"
+    comp = _run_cli("compile", str(src), *FALLBACK_FLAGS, "--emit", "bin", "-o", str(binary), cwd=app_dir)
+    assert comp.returncode == 0, comp.stderr
+    run = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=app_dir)
+    assert run.returncode == 0, run.stderr
+    assert run.stdout == "42\n"

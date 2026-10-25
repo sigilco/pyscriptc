@@ -38,6 +38,7 @@ import tempfile
 import warnings
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any
 
 from pyscriptc.errors import CheckFailed
 
@@ -102,7 +103,16 @@ _DEPRECATED_CHECKERS = {
 }
 
 
-def run_checker(path: Path, checker: str = "pyrefly", extra_paths: Sequence[Path] | None = None) -> None:
+def run_checker(
+    path: Path,
+    checker: str = "pyrefly",
+    extra_paths: Sequence[Path] | None = None,
+    # boxed:begin
+    plane_map: dict[str, Any] | None = None,
+    fallback: bool = False,
+    program_dir: Path | None = None,
+    # boxed:end
+) -> None:
     """Run the checker over `path`.
 
     `extra_paths` are roots the checker searches besides the source's own
@@ -119,10 +129,14 @@ def run_checker(path: Path, checker: str = "pyrefly", extra_paths: Sequence[Path
     if checker in _DEPRECATED_CHECKERS:
         warnings.warn(_DEPRECATED_CHECKERS[checker], DeprecationWarning, stacklevel=2)
     if checker == "pyright":
-        _run_pyright(path, paths)
+        # boxed:begin
+        _run_pyright(path, paths, plane_map=plane_map, fallback=fallback, program_dir=program_dir)
+        # boxed:end
         return
     if checker == "pyrefly":
-        _run_pyrefly(path, paths)
+        # boxed:begin
+        _run_pyrefly(path, paths, plane_map=plane_map, fallback=fallback, program_dir=program_dir)
+        # boxed:end
         return
     if checker != "mypy":
         raise CheckFailed(f"checker {checker!r} is not wired; the preflight uses pyrefly")
@@ -314,7 +328,15 @@ def _active_site_packages() -> list[str]:
     return roots
 
 
-def _run_pyrefly(path: Path, extra_paths: Sequence[Path] | None = None) -> None:
+def _run_pyrefly(
+    path: Path,
+    extra_paths: Sequence[Path] | None = None,
+    # boxed:begin
+    plane_map: dict[str, Any] | None = None,
+    fallback: bool = False,
+    program_dir: Path | None = None,
+    # boxed:end
+) -> None:
     argv = _resolve_pyrefly_binary()
     source = path.resolve()
     roots = list(extra_paths or []) + [Path(p) for p in _active_site_packages()]
@@ -327,7 +349,24 @@ def _run_pyrefly(path: Path, extra_paths: Sequence[Path] | None = None) -> None:
             search += [str(source), str(source.parent)]
         else:
             search.append(str(source.parent))
-        search += [str(root) for root in roots]
+        # boxed:begin
+        if fallback:
+            if program_dir is None:
+                p_env = os.environ.get("PYSC_PROGRAM_DIR")
+                prog_path = Path(p_env).resolve() if p_env else (source if source.is_dir() else source.parent)
+            else:
+                prog_path = Path(program_dir).resolve()
+            if str(prog_path) not in search:
+                search.append(str(prog_path))
+            pythonpath = os.environ.get("PYTHONPATH")
+            if pythonpath:
+                for p in pythonpath.split(os.pathsep):
+                    if p:
+                        resolved_p = str(Path(p).resolve())
+                        if Path(resolved_p).is_dir() and resolved_p not in search:
+                            search.append(resolved_p)
+        # boxed:end
+        search += [str(root) for root in roots if str(root) not in search]
         config = Path(tmp) / "pyrefly.toml"
         config.write_text(
             f'typeshed-path = "{typeshed}"\n'
@@ -368,16 +407,62 @@ def _run_pyrefly(path: Path, extra_paths: Sequence[Path] | None = None) -> None:
         kept = [err for err in errors if not _is_pep765(err)]
         if not kept:
             return
+        # boxed:begin
+        if fallback and plane_map is not None:
+            from pyscriptc import boxed as _boxed
+
+            suppressed = []
+            remaining = []
+            for err in kept:
+                if _boxed.is_island_diagnostic(err, source, plane_map, tmp_dir=Path(tmp)):
+                    suppressed.append(err)
+                else:
+                    remaining.append(err)
+            if suppressed:
+                count = len(suppressed)
+                s = "s" if count != 1 else ""
+                print(f"note: suppressed {count} checker diagnostic{s} routed to the island", file=sys.stderr)
+                for err in suppressed[:3]:
+                    print(f"note: {_format_pyrefly_error(err)}", file=sys.stderr)
+            if not remaining:
+                return
+            kept = remaining
+        # boxed:end
         raise CheckFailed("\n".join(_format_pyrefly_error(err) for err in kept))
     # Diagnostics go to stdout; stderr carries WARN/INFO progress lines.
     output = proc.stdout.strip() or proc.stderr.strip() or f"pyrefly exited {proc.returncode}"
     raise CheckFailed(output)
 
 
-def _run_pyright(path: Path, extra_paths: Sequence[Path] | None = None) -> None:
+def _run_pyright(
+    path: Path,
+    extra_paths: Sequence[Path] | None = None,
+    # boxed:begin
+    plane_map: dict[str, Any] | None = None,
+    fallback: bool = False,
+    program_dir: Path | None = None,
+    # boxed:end
+) -> None:
     argv = _resolve_tool_argv("pyright", "PYRIGHT_BIN", ["pyright"])
     source = path.resolve()
     roots = list(extra_paths or []) + [Path(p) for p in _active_site_packages()]
+    # boxed:begin
+    if fallback:
+        if program_dir is None:
+            p_env = os.environ.get("PYSC_PROGRAM_DIR")
+            prog_path = Path(p_env).resolve() if p_env else (source if source.is_dir() else source.parent)
+        else:
+            prog_path = Path(program_dir).resolve()
+        if prog_path not in roots:
+            roots.append(prog_path)
+        pythonpath = os.environ.get("PYTHONPATH")
+        if pythonpath:
+            for p in pythonpath.split(os.pathsep):
+                if p:
+                    resolved_p = Path(p).resolve()
+                    if resolved_p.is_dir() and resolved_p not in roots:
+                        roots.append(resolved_p)
+    # boxed:end
     with tempfile.TemporaryDirectory(prefix="pyscriptc-pyright-") as tmp:
         config = Path(tmp) / "pyrightconfig.json"
         config.write_text(
