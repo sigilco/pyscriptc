@@ -64,20 +64,10 @@ def test_entry_local_del_runs_like_cpython(tmp_path: Path) -> None:
     assert got.stdout == oracle_script(path) == "kept 3\n"
 
 
-def test_module_constant_del_stays_fenced(tmp_path: Path) -> None:
-    # x: int = 5 binds a module constant (reads inline it), so the entry's
-    # del cannot unbind it without module-del machinery. The fence names
-    # the statement and the name; the wording is pinned.
+def test_module_constant_del_runs(tmp_path: Path) -> None:
+    # x: int = 5 binds a folded module constant (#502); the del is a no-op
+    # on the inlined constant and the program matches CPython.
     path = write_case(tmp_path, "const_del.py", "x: int = 5\ndel x\nprint(1)\n")
-    got = run_cli(
-        "compile",
-        str(path),
-        "--skip-check",
-        "--emit",
-        "llvm",
-        "-o",
-        str(tmp_path / "const_del.ll"),
-    )
-    assert got.returncode == 3, got.stderr
-    assert "PS2002" in got.stderr
-    assert "del of an unbound name is not lowered" in got.stderr
+    got = run_cli("compile", str(path), "--skip-check", "--emit", "bin", "-o", str(tmp_path / "const_del"), "--run")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle_script(path) == "1\n"

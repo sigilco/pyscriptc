@@ -68,6 +68,10 @@ QUEUE: tuple[str, ...] = (
     "urllib.request",
     "urllib.error",
     "queue",
+    "platform",
+    "calendar",
+    "zipfile",
+    "tarfile",
 )
 
 LOWERED: frozenset[str] = frozenset(QUEUE)

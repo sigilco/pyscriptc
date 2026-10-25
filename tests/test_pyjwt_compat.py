@@ -54,7 +54,7 @@ def test_real_pyjwt_hmac_tree_still_fences() -> None:
     # Shrinking means a backlog lowering cleared fences here; update the pin
     # when that happens. `compile` prints at most 3 root fences and counts the rest.
     assert proc.stderr.count("PS") == 3
-    assert "(and 88 more fences)" in proc.stderr
+    assert "(and 90 more fences)" in proc.stderr
 
 
 @pytest.mark.linux_container  # HEAVY=1 docker/run.sh

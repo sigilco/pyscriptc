@@ -1632,15 +1632,17 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         return entry_stmts
 
     def _diverted_literals(self, live: list[ast.stmt]) -> set[str]:
-        """Names bound to container literals whose entry mutates them by subscript.
+        """Names bound at module scope whose entry reassigns or mutates them.
 
         Module constants re-emit their literal on every read, so a script's
         `counts[k] = v` would write into a throwaway dict; the binding lowers
         inside the entry instead unless the name hides inside a def/class.
+        Similarly, any module variable reassigned in the script must lower
+        inside the entry so its updates take effect.
         """
         bound: set[str] = set()
         for stmt in live:
-            if isinstance(stmt, (ast.Assign, ast.AnnAssign)) and isinstance(stmt.value, (ast.Dict, ast.List, ast.Set)):
+            if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
                 targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]
                 bound.update(t.id for t in targets if isinstance(t, ast.Name))
         if not bound:
@@ -1653,6 +1655,10 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         for stmt in live:
             if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 continue
+            if self._script_line is not None and stmt.lineno >= self._script_line:
+                for n in ast.walk(stmt):
+                    if isinstance(n, ast.Name) and n.id in bound and isinstance(n.ctx, (ast.Store, ast.Del)):
+                        mutated.add(n.id)
             for n in ast.walk(stmt):
                 if (
                     isinstance(n, ast.Subscript)
@@ -2252,7 +2258,9 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             self.fail(node, "PS2002", "tuples need at least two fields")
         elems: list[dict[str, Any]] = []
         for elt in node.elts:
-            value = self._expr(elt)
+            value = self._module_fold(elt)
+            if value is None:
+                value = self._expr(elt)
             if value["kind"] != "const":
                 self.fail(stmt, "PS2002", "a module assignment must be a constant")
             elems.append(value)

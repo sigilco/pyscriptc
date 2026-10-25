@@ -219,6 +219,20 @@ int64_t ps_date_ord(PsDate *d) { return ps_ymd_ord(d->year, d->month, d->day); }
 
 int64_t ps_date_weekday(PsDate *d) { return (ps_ymd_ord(d->year, d->month, d->day) + 6) % 7; }
 
+int32_t ps_calendar_isleap(int64_t year) {
+    return ((year % 4 == 0) && (year % 100 != 0 || year % 400 == 0)) ? 1 : 0;
+}
+
+int64_t ps_calendar_leapdays(int64_t y1, int64_t y2) {
+    y1--;
+    y2--;
+    return (y2 / 4 - y1 / 4) - (y2 / 100 - y1 / 100) + (y2 / 400 - y1 / 400);
+}
+
+int64_t ps_calendar_weekday(int64_t year, int64_t month, int64_t day) {
+    return (ps_ymd_ord(year, month, day) + 6) % 7;
+}
+
 void ps_date_add(PsDate *d, PsDelta *delta, int32_t sign, PsDate *out) {
     int64_t ord = ps_ymd_ord(d->year, d->month, d->day);
     __int128 days = delta->days;

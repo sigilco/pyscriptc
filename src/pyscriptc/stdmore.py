@@ -79,6 +79,21 @@ _ERRNO = (
 # int that fits in signed 64-bit, on a module the 043 snapshot already marks
 # lowered. Values are read from this interpreter in `_load_constants`.
 _INT_SURFACE: dict[str, tuple[str, ...]] = {
+    "calendar": (
+        "MONDAY",
+        "TUESDAY",
+        "WEDNESDAY",
+        "THURSDAY",
+        "FRIDAY",
+        "SATURDAY",
+        "SUNDAY",
+    ),
+    "zipfile": (
+        "ZIP_STORED",
+        "ZIP_DEFLATED",
+        "ZIP_BZIP2",
+        "ZIP_LZMA",
+    ),
     "base64": (
         "MAXBINSIZE",
         "MAXLINESIZE",
@@ -1324,7 +1339,7 @@ ASYNC_CLASSES: frozenset[str] = frozenset({"AsyncLock", "AsyncEvent", "AsyncSema
 
 # The records that live in a global slot: a runtime pointer whose identity
 # has to hold across reads, the threading records and the queue records.
-PTR_CLASSES: frozenset[str] = THREADING_CLASSES | QUEUE_CLASSES | ASYNC_CLASSES
+PTR_CLASSES: frozenset[str] = THREADING_CLASSES | QUEUE_CLASSES | ASYNC_CLASSES | {"ArgParser"}
 
 TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("datetime", "date"): "Date",
@@ -1580,6 +1595,23 @@ REST_FIXED: dict[str, dict[str, dict[str, Any]]] = {
         "dedent": _sig([_S], _S, "ps_wrap_dedent"),
         "indent": _sig([_S, _S], _S, "ps_wrap_indent"),
     },
+    "platform": {
+        "system": _sig([], _S, "ps_platform_system"),
+        "machine": _sig([], _S, "ps_platform_machine"),
+        "python_version": _sig([], _S, "ps_platform_python_version"),
+        "platform": _sig([], _S, "ps_platform_platform"),
+    },
+    "calendar": {
+        "isleap": _sig([_I], _B, "ps_calendar_isleap"),
+        "leapdays": _sig([_I, _I], _I, "ps_calendar_leapdays"),
+        "weekday": _sig([_I, _I, _I], _I, "ps_calendar_weekday"),
+    },
+    "zipfile": {
+        "is_zipfile": _sig([_S], _B, "ps_zipfile_is_zipfile"),
+    },
+    "tarfile": {
+        "is_tarfile": _sig([_S], _B, "ps_tarfile_is_tarfile"),
+    },
 }
 
 # Callable, but only in a particular statement shape.
@@ -1655,6 +1687,10 @@ REST_MODULES = frozenset(
         "jwt",
         "orjson",
         "queue",
+        "platform",
+        "calendar",
+        "zipfile",
+        "tarfile",
     }
 )
 

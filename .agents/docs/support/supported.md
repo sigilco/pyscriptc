@@ -1,6 +1,6 @@
 # What is supported
 
-builtins: 25 🟢 · 22 🟡 · 23 🔴 | stdlib: 0 🟢 · 55 🟡 · 2 🔴
+builtins: 25 🟢 · 22 🟡 · 23 🔴 | stdlib: 0 🟢 · 59 🟡 · 2 🔴
 
 🟢 fully supported (every probed form compiles) · 🟡 partial · 🔴 not supported.
 
@@ -49,6 +49,7 @@ Targets CPython 3.14. Deliberate differences from CPython: [divergences.md](../.
 | `atexit` | 🟡 | register of a function with arguments, unregister | PS2001 |
 | `base64` | 🟡 | b32, b16, a85, encodebytes | PS2001 |
 | `bisect` | 🟡 | insort, bisect, key=, list[str] | PS2001 |
+| `calendar` | 🟡 | monthcalendar | PS2001 |
 | `collections` | 🟡 | ChainMap | PS1106 |
 | `contextlib` | 🟡 | closing, redirect_stdout, ExitStack, contextmanager | PS2001 |
 | `copy` | 🟡 | copy of a user class | PS2001 |
@@ -76,6 +77,7 @@ Targets CPython 3.14. Deliberate differences from CPython: [divergences.md](../.
 | `orjson` | 🟡 | default callable, other OPT_ flags, other orjson members (Fragment, JSONDecodeError) | PS2001, PS2003 |
 | `os` | 🟡 | walk, scandir, system, urandom, cpu_count, kill, symlink, rmdir, getuid, keyword arguments (makedirs exist_ok) | PS2001, PS2003 |
 | `pathlib` | 🟡 | rglob, absolute, rmdir, with_suffix, relative_to, resolve to str, PurePath | PS2001 |
+| `platform` | 🟡 | processor | PS2001 |
 | `posixpath` | 🟡 | commonpath, ismount, lexists | PS2001 |
 | `queue` | 🟡 | PriorityQueue, a queue without an element annotation, an unknown queue method, a bool element type | PS1001, PS1106, PS2001, PS2002 |
 | `random` | 🟡 | sample, gauss, Random, choices(k=) | PS2001, PS2003 |
@@ -88,6 +90,7 @@ Targets CPython 3.14. Deliberate differences from CPython: [divergences.md](../.
 | `struct` | 🟡 | calcsize, unpack_from, non-literal format | PS2001 |
 | `subprocess` | 🟡 | Popen, getoutput, text=True | PS1003, PS2001 |
 | `sys` | 🟡 | stdin, path, modules, getsizeof, getrecursionlimit, stdout.flush | PS2001 |
+| `tarfile` | 🟡 | TarFile | PS2001 |
 | `tempfile` | 🟡 | mkstemp, TemporaryDirectory | PS2001 |
 | `textwrap` | 🟡 | TextWrapper | PS2001 |
 | `threading` | 🟡 | main_thread, Thread target is a callable, Timer, Lock in `with` | PS1003, PS1106, PS2001, PS2002 |
@@ -98,5 +101,6 @@ Targets CPython 3.14. Deliberate differences from CPython: [divergences.md](../.
 | `urllib.request`, `urllib.error` | 🟡 | urlopen header keyword, other urllib.request members (build_opener, install_opener, urlretrieve), HTTPError attribute reads | PS2001, PS2003 |
 | `warnings` | 🟡 | warn with a category, simplefilter | PS2001 |
 | `yaml` | 🟡 | load, dump, safe_dump, keyword arguments | PS2001, PS2003 |
+| `zipfile` | 🟡 | ZipFile | PS2001 |
 
 Regenerate with `uv run python scripts/gen_support_table.py`; `tests/test_support_docs.py` fails when this file drifts from the compiler. Scripts that stay inside the supported set: [examples](../../../docs/examples/programs.md).

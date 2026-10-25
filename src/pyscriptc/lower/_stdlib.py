@@ -26,15 +26,22 @@ from pyscriptc.ffi_manifest import handle_type, is_handle_type, type_ir
 from pyscriptc.ir import types_equal
 from pyscriptc.lower._core import (
     _FUTURE_OK,
+    _MISSING,
     Binding,
     Fence,
     _assign,
     _const_bool,
+    _const_bytes,
+    _const_float,
+    _const_int,
+    _const_str,
     _const_truthy,
     _is_none_expr,
+    _make_const,
     _module_closed,
     _name,
     _package_base,
+    _raw_const,
     _show,
     module_needs_slot,
 )
@@ -1337,7 +1344,7 @@ class StdlibDispatchMixin:
                 # It is not a const kind and not a runtime global. Flags, extra
                 # arguments, and a non-constant pattern stay fenced here.
                 if (
-                    value["kind"] not in {"const", "list", "dict"} or not _module_closed(value)
+                    value["kind"] not in {"const", "list", "dict", "tuple-const"} or not _module_closed(value)
                 ) and not self._one_str_pattern(stmt.value, value):
                     self.fail(stmt, "PS2002", "a module assignment must be a constant")
                 self._store_constant(target, value, stmt)
@@ -1345,8 +1352,10 @@ class StdlibDispatchMixin:
             if isinstance(stmt, ast.Assign) and len(stmt.targets) > 1:
                 names = [target.id for target in stmt.targets if isinstance(target, ast.Name)]
                 if len(names) == len(stmt.targets):
-                    value = self._expr(stmt.value)
-                    if value["kind"] not in {"const", "list", "dict"}:
+                    value = self._module_fold(stmt.value)
+                    if value is None:
+                        value = self._expr(stmt.value)
+                    if value["kind"] not in {"const", "list", "dict", "tuple-const"}:
                         self.fail(stmt, "PS2002", "a module assignment must be a constant")
                     for name in names:
                         self._store_constant(name, value, stmt)
@@ -1361,7 +1370,9 @@ class StdlibDispatchMixin:
                 names = [elt.id for elt in elts if isinstance(elt, ast.Name)]
                 if len(stmt.value.elts) == len(elts) and len(names) == len(elts):
                     for name, part in zip(names, stmt.value.elts, strict=True):
-                        value = self._expr(part)
+                        value = self._module_fold(part)
+                        if value is None:
+                            value = self._expr(part)
                         if value["kind"] != "const":
                             self.fail(stmt, "PS2002", "a module assignment must be a constant")
                         self._store_constant(name, value, stmt)
@@ -1371,13 +1382,42 @@ class StdlibDispatchMixin:
             self.caught.append(exc)
 
     def _module_fold(self, node: ast.expr) -> dict[str, Any] | None:
-        """Fold a module-scope conditional or boolean operation over constants.
+        """Fold a module-scope expression over constants into a typed constant value.
 
         Inside a function the operands lower through `if` prelude statements;
         module scope has no body to hold them, so the value folds here. A node
         that does not reduce to a closed constant returns None, and the
         ordinary path decides whether the assignment stores or fences.
         """
+        if isinstance(node, ast.Constant):
+            return _make_const(node.value, span_of(node, self.filename))
+        if isinstance(node, ast.Name):
+            if node.id in self.constants:
+                found = self.constants[node.id]
+                span = span_of(node, self.filename)
+                if found.get("kind") == "const":
+                    return {**found, "span": span}
+                if found.get("kind") == "tuple-const":
+                    return found
+            if node.id == "__name__":
+                return _const_str(self.module_name or "__main__", span_of(node, self.filename))
+            binding = self.bindings.get(node.id)
+            if binding is not None and binding.kind == "const":
+                constant = module_constant(binding.module, binding.attr)
+                if constant is not None:
+                    val, _ = constant
+                    span = span_of(node, self.filename)
+                    return _make_const(val, span)
+            return None
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            binding = self.bindings.get(node.value.id)
+            if binding is not None and binding.kind == "module":
+                constant = module_constant(binding.module, node.attr)
+                if constant is not None:
+                    val, _ = constant
+                    span = span_of(node, self.filename)
+                    return _make_const(val, span)
+            return None
         if isinstance(node, ast.IfExp):
             truthy = _const_truthy(self._module_const(node.test))
             if truthy is None:
@@ -1394,6 +1434,128 @@ class StdlibDispatchMixin:
                     result = value
                     break
             return result
+        if isinstance(node, ast.UnaryOp):
+            operand = self._module_fold(node.operand)
+            val = _raw_const(operand)
+            if val is not _MISSING:
+                span = span_of(node, self.filename)
+                if isinstance(node.op, ast.USub) and isinstance(val, (int, float)) and not isinstance(val, bool):
+                    return _make_const(-val, span)
+                if isinstance(node.op, ast.UAdd) and isinstance(val, (int, float)) and not isinstance(val, bool):
+                    return _make_const(+val, span)
+                if isinstance(node.op, ast.Invert) and isinstance(val, int) and not isinstance(val, bool):
+                    return _make_const(~val, span)
+                if isinstance(node.op, ast.Not):
+                    truthy = _const_truthy(operand)
+                    if truthy is not None:
+                        return _const_bool(not truthy, span)
+            return None
+        if isinstance(node, ast.BinOp):
+            left = self._module_fold(node.left)
+            right = self._module_fold(node.right)
+            lv = _raw_const(left)
+            rv = _raw_const(right)
+            if lv is not _MISSING and rv is not _MISSING:
+                span = span_of(node, self.filename)
+                is_lbool = isinstance(lv, bool)
+                is_rbool = isinstance(rv, bool)
+                if isinstance(node.op, (ast.BitAnd, ast.BitOr, ast.BitXor)) and is_lbool and is_rbool:
+                    if isinstance(node.op, ast.BitAnd):
+                        return _const_bool(lv & rv, span)
+                    if isinstance(node.op, ast.BitOr):
+                        return _const_bool(lv | rv, span)
+                    if isinstance(node.op, ast.BitXor):
+                        return _const_bool(lv ^ rv, span)
+                if not is_lbool and not is_rbool:
+                    if isinstance(node.op, ast.Add):
+                        if isinstance(lv, (int, float)) and isinstance(rv, (int, float)):
+                            return _make_const(lv + rv, span)
+                        if isinstance(lv, str) and isinstance(rv, str):
+                            return _const_str(lv + rv, span)
+                        if isinstance(lv, bytes) and isinstance(rv, bytes):
+                            return _const_bytes(lv + rv, span)
+                    elif isinstance(node.op, ast.Sub):
+                        if isinstance(lv, (int, float)) and isinstance(rv, (int, float)):
+                            return _make_const(lv - rv, span)
+                    elif isinstance(node.op, ast.Mult):
+                        if isinstance(lv, (int, float)) and isinstance(rv, (int, float)):
+                            return _make_const(lv * rv, span)
+                        if isinstance(lv, str) and isinstance(rv, int) and rv >= 0:
+                            return _const_str(lv * rv, span)
+                        if isinstance(lv, int) and isinstance(rv, str) and lv >= 0:
+                            return _const_str(rv * lv, span)
+                        if isinstance(lv, bytes) and isinstance(rv, int) and rv >= 0:
+                            return _const_bytes(lv * rv, span)
+                        if isinstance(lv, int) and isinstance(rv, bytes) and lv >= 0:
+                            return _const_bytes(rv * lv, span)
+                    elif isinstance(node.op, ast.Div):
+                        if isinstance(lv, (int, float)) and isinstance(rv, (int, float)) and rv != 0:
+                            return _const_float(float(lv) / float(rv), span)
+                    elif isinstance(node.op, ast.FloorDiv):
+                        if isinstance(lv, (int, float)) and isinstance(rv, (int, float)) and rv != 0:
+                            return _make_const(lv // rv, span)
+                    elif isinstance(node.op, ast.Mod):
+                        if isinstance(lv, (int, float)) and isinstance(rv, (int, float)) and rv != 0:
+                            return _make_const(lv % rv, span)
+                    elif isinstance(node.op, ast.Pow):
+                        if isinstance(lv, (int, float)) and isinstance(rv, (int, float)):
+                            try:
+                                res = lv**rv
+                                if isinstance(lv, int) and isinstance(rv, int) and rv >= 0:
+                                    return _const_int(res, span)
+                                return _const_float(float(res), span)
+                            except OverflowError, ValueError:
+                                pass
+                    elif isinstance(node.op, (ast.BitAnd, ast.BitOr, ast.BitXor, ast.LShift, ast.RShift)):
+                        if isinstance(lv, int) and isinstance(rv, int):
+                            if isinstance(node.op, ast.BitAnd):
+                                return _const_int(lv & rv, span)
+                            if isinstance(node.op, ast.BitOr):
+                                return _const_int(lv | rv, span)
+                            if isinstance(node.op, ast.BitXor):
+                                return _const_int(lv ^ rv, span)
+                            if isinstance(node.op, ast.LShift) and rv >= 0:
+                                return _const_int(lv << rv, span)
+                            if isinstance(node.op, ast.RShift) and rv >= 0:
+                                return _const_int(lv >> rv, span)
+            return None
+        if isinstance(node, ast.Compare) and len(node.ops) == 1 and len(node.comparators) == 1:
+            left = self._module_fold(node.left)
+            right = self._module_fold(node.comparators[0])
+            lv = _raw_const(left)
+            rv = _raw_const(right)
+            if lv is not _MISSING and rv is not _MISSING:
+                span = span_of(node, self.filename)
+                op = node.ops[0]
+                if isinstance(op, ast.Eq):
+                    return _const_bool(lv == rv, span)
+                if isinstance(op, ast.NotEq):
+                    return _const_bool(lv != rv, span)
+                if isinstance(op, ast.Lt) and type(lv) is type(rv):
+                    return _const_bool(lv < rv, span)
+                if isinstance(op, ast.LtE) and type(lv) is type(rv):
+                    return _const_bool(lv <= rv, span)
+                if isinstance(op, ast.Gt) and type(lv) is type(rv):
+                    return _const_bool(lv > rv, span)
+                if isinstance(op, ast.GtE) and type(lv) is type(rv):
+                    return _const_bool(lv >= rv, span)
+            return None
+        if isinstance(node, ast.Tuple) and len(node.elts) >= 2:
+            elems = [self._module_fold(elt) for elt in node.elts]
+            if all(e is not None and e.get("kind") == "const" for e in elems):
+                typ = self._tuple_type([elem["type"] for elem in elems], node)
+                return {"kind": "tuple-const", "elems": elems, "type": typ}
+            return None
+        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name):
+            if node.value.id in self.constants:
+                found = self.constants[node.value.id]
+                if found.get("kind") == "tuple-const":
+                    idx_val = _raw_const(self._module_fold(node.slice))
+                    if isinstance(idx_val, int):
+                        elems = found["elems"]
+                        if -len(elems) <= idx_val < len(elems):
+                            return elems[idx_val]
+            return None
         return None
 
     def _module_const(self, node: ast.expr) -> dict[str, Any] | None:
@@ -1403,14 +1565,9 @@ class StdlibDispatchMixin:
         reach a body at module scope and a partial `locals`/`classes` update
         must not leak into the next statement.
         """
-        if isinstance(node, (ast.IfExp, ast.BoolOp)):
-            return self._module_fold(node)
-        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
-            operand = self._module_const(node.operand)
-            truthy = _const_truthy(operand)
-            if truthy is None:
-                return None
-            return _const_bool(not truthy, span_of(node, self.filename))
+        folded = self._module_fold(node)
+        if folded is not None:
+            return folded
         saved_locals = dict(self.locals)
         saved_classes = dict(self.classes)
         saved_prelude = self.prelude

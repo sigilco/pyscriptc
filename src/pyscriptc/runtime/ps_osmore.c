@@ -21,6 +21,10 @@ are not searched. as_file of one of these paths is the path itself.
 #include <unistd.h>
 #include <utime.h>
 
+#if !defined(_WIN32)
+#include <sys/utsname.h>
+#endif
+
 #ifdef __APPLE__
 #include <copyfile.h>
 #endif
@@ -907,4 +911,88 @@ void ps_shutil_get_terminal_size(PsTerminalSize *out) {
     if (lines != NULL && lines[0] != '\0') {
         out->lines = (int64_t)strtol(lines, NULL, 10);
     }
+}
+
+/* platform helpers */
+void ps_platform_system(PsBuf *out) {
+#if defined(_WIN32)
+    ps_buf_copy(out, "Windows", 7);
+#else
+    struct utsname u;
+    if (uname(&u) == 0) {
+        ps_buf_copy(out, u.sysname, (int64_t)strlen(u.sysname));
+    } else {
+        ps_buf_copy(out, "", 0);
+    }
+#endif
+}
+
+void ps_platform_machine(PsBuf *out) {
+#if defined(_WIN32)
+    ps_buf_copy(out, "AMD64", 5);
+#else
+    struct utsname u;
+    if (uname(&u) == 0) {
+        ps_buf_copy(out, u.machine, (int64_t)strlen(u.machine));
+    } else {
+        ps_buf_copy(out, "", 0);
+    }
+#endif
+}
+
+void ps_platform_python_version(PsBuf *out) {
+    ps_buf_copy(out, "3.14.9", 6);
+}
+
+void ps_platform_platform(PsBuf *out) {
+#if defined(_WIN32)
+    ps_buf_copy(out, "Windows", 7);
+#else
+    struct utsname u;
+    if (uname(&u) == 0) {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "%s-%s-%s", u.sysname, u.release, u.machine);
+        ps_buf_copy(out, buf, (int64_t)strlen(buf));
+    } else {
+        ps_buf_copy(out, "", 0);
+    }
+#endif
+}
+
+/* zipfile helpers */
+int32_t ps_zipfile_is_zipfile(int64_t n, const char *s) {
+    char *path = ps_cstr(n, s);
+    FILE *f = fopen(path, "rb");
+    free(path);
+    if (f == NULL) {
+        return 0;
+    }
+    unsigned char buf[4];
+    size_t read_bytes = fread(buf, 1, 4, f);
+    fclose(f);
+    if (read_bytes < 4) {
+        return 0;
+    }
+    return (buf[0] == 'P' && buf[1] == 'K' && (
+        (buf[2] == 3 && buf[3] == 4) ||
+        (buf[2] == 5 && buf[3] == 6) ||
+        (buf[2] == 7 && buf[3] == 8)
+    )) ? 1 : 0;
+}
+
+/* tarfile helpers */
+int32_t ps_tarfile_is_tarfile(int64_t n, const char *s) {
+    char *path = ps_cstr(n, s);
+    FILE *f = fopen(path, "rb");
+    free(path);
+    if (f == NULL) {
+        return 0;
+    }
+    unsigned char buf[512];
+    size_t read_bytes = fread(buf, 1, 512, f);
+    fclose(f);
+    if (read_bytes < 512) {
+        return 0;
+    }
+    return (memcmp(buf + 257, "ustar", 5) == 0) ? 1 : 0;
 }

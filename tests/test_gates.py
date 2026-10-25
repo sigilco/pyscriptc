@@ -67,6 +67,10 @@ QUEUE = (
     "urllib.request",
     "urllib.error",
     "queue",
+    "platform",
+    "calendar",
+    "zipfile",
+    "tarfile",
 )
 
 
