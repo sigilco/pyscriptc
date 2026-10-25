@@ -213,8 +213,18 @@ class CallsMixin:
         # `ps_island_call`. The check sits after the local/global reads (a
         # shadowing local or slot wins, like CPython's scoping) and before
         # the signature lookup, because a fenced definition still has a
-        # signature but no lowered body to call.
+        # signature but no lowered body to call. A generic sibling the
+        # demotion cannot reach (issue #620) fences here: the island seed
+        # cannot instantiate its monomorphizations.
         if name in self.island_fns:
+            if name in self.generic_fns:
+                self.fail(
+                    node,
+                    "PS2002",
+                    f"{self.function or 'the caller'} runs on the island and cannot call the compiled "
+                    f"function {name}: generic compiled function {name} cannot be demoted to the island; "
+                    "the island-to-compiled seam is the `--emit binding` surface",
+                )
             return self._island_fn_call(node, span, name, expect)
         # boxed:end
         if name in self.sigs:

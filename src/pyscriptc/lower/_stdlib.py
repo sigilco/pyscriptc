@@ -17,7 +17,12 @@ import ast
 from typing import Any, NoReturn
 
 # boxed:begin
-from pyscriptc.boxed import DEF_HANDLE_SYMBOL, INVOKE_SYMBOL, island_class_type, island_handle_type
+from pyscriptc.boxed import (  # boxed:begin
+    DEF_HANDLE_SYMBOL,
+    INVOKE_SYMBOL,
+    island_class_type,
+    island_handle_type,
+)  # boxed:end
 from pyscriptc.coro import enabled
 
 # boxed:end
@@ -484,6 +489,23 @@ class StdlibDispatchMixin:
             # plus the `cm.<name>` wrapper).
             return True
         message = self._module_decorator_fence(fn)
+        # boxed:begin
+        if self.fallback_definitions and fn.decorator_list:
+            # Any user decorator (whether it fences native above or waits
+            # for the deferred pass below) runs island-side: the seed carries
+            # the decorated source and CPython applies it, so the decorator
+            # fences drop with the definition (issue #676). A generic def
+            # stays native: its monomorphizations lower, and the planner's
+            # generic rules must keep applying to it. The early AST check
+            # mirrors the signature pass: a declared TypeVar name in an
+            # annotation is generic before `sigs` exists.
+            generic = any(
+                isinstance(arg.annotation, ast.Name) and arg.annotation.id in self.typevars
+                for arg in fn.args.posonlyargs + fn.args.args + fn.args.kwonlyargs
+            )
+            if not generic:
+                self._boxed_island.add(fn.name)
+        # boxed:end
         if message is None:
             if fn.decorator_list and not self._is_module_staticmethod(fn):
                 # A user decorator wraps the function after the signature
