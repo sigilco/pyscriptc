@@ -3,7 +3,7 @@ title: Signing and verifying JWTs
 description: The PyJWT subset pyscriptc lowers, the closed claim shape, and where it differs from PyJWT.
 ---
 
-pyscriptc lowers two names of the `jwt` module (the PyJWT package, through the `pyscriptc-jwt` pack): `jwt.encode` and `jwt.decode`.
+pyscriptc lowers two names of the `jwt` module (the PyJWT package, through the curated `pyscriptc-jwt` distribution package): `jwt.encode` and `jwt.decode`.
 Both sign and verify with HMAC-SHA2 only: `HS256`, `HS384` and `HS512`.
 
 ```python

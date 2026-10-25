@@ -1,5 +1,5 @@
 # Vendored stub for the lowered orjson surface (the `orjson` package).
-# The pack lowers dumps to bytes and loads (issue #153, the closed subset in
+# The curated pyscriptc-orjson package lowers dumps to bytes and loads (issue #153, the closed subset in
 # restlower/_orjson.py); every other orjson name stays fenced at the call site.
 from typing import Any
 
