@@ -513,6 +513,8 @@ def _program_plan(
                 continue
             if state.get(child) == 1:
                 cycle = stack[stack.index(child) :] + [child]
+                if _is_package_submodule_cycle(cycle, packages):
+                    continue
                 fences.append(
                     {
                         "code": "PS2002",
@@ -550,6 +552,21 @@ def _program_roots(trees: dict[str, ast.Module], entry: str | None = None) -> li
         roots = [entry] + [name for name in roots if name != entry]
     roots.extend(sorted(name for name in trees if name not in roots))
     return roots
+
+
+def _is_package_submodule_cycle(cycle: list[str], packages: dict[str, bool]) -> bool:
+    """True when a package unit imports its own submodule.
+
+    A package unit's `__init__.py` exposing its submodules (or a submodule
+    importing symbols from its containing package) forms an apparent cycle
+    in the file-level import graph, but CPython runs the package body first
+    and the submodule body within it without a cycle error.
+    """
+    for node in cycle:
+        if packages.get(node):
+            if all(m == node or m.startswith(node + ".") for m in cycle):
+                return True
+    return False
 
 
 def _cycle_span(path: Path, stmt: ast.stmt | None) -> dict[str, Any]:
@@ -591,16 +608,19 @@ def _program_imports(
         base = _base_of(module, is_package, relative.level)
         if base is None:
             return []
-        # The containing package is imported first: CPython runs its body
-        # before the module's own import statement completes. A package
-        # importing from itself is not an edge (its body is already running).
-        targets = [] if is_package and ".".join(base) == module else [".".join(base)]
+        base_name = ".".join(base)
+        targets: list[str] = []
         if relative.module:
             dotted = ".".join([*base, *relative.module.split(".")])
             targets.append(dotted)
             targets.extend(f"{dotted}.{alias.name}" for alias in relative.names)
         else:
-            targets.extend(".".join([*base, alias.name]) for alias in relative.names)
+            for alias in relative.names:
+                submodule = f"{base_name}.{alias.name}"
+                if submodule in exports:
+                    targets.append(submodule)
+                elif base_name != module:
+                    targets.append(base_name)
         return targets
 
     for node in ast.walk(tree):

@@ -223,8 +223,9 @@ def test_self_census_ballpark() -> None:
     # Declared CPython target (#532): target.py and target checks add 26 self-host fences.
     # SystemExit status (#603): one PS2003 fence in lower/_stmt.py for
     # `raise SystemExit(<int>) from <cause>` (+1 fence).
+    # Submodule relative import cycle distinction (#598): +1 self-host fence in package.py.
 
-    assert census["fences"] == 3037
+    assert census["fences"] == 3038
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
     # Project mode (#150): project.py adds about 240 lines.
