@@ -57,6 +57,103 @@ def test_compare_flags_time_and_rss_regressions() -> None:
     assert compare_reports(same, reference) == []
 
 
+def test_compare_accepts_zero_rss_when_both_unmeasured() -> None:
+    reference = {
+        "workloads": [
+            {"name": "sum-squares", "status": "ok", "time_ratio": 0.10, "rss_ratio": 0.0},
+        ],
+        "geomean_time_ratio": 0.10,
+        "geomean_rss_ratio": 0.0,
+    }
+    current = {
+        "workloads": [
+            {"name": "sum-squares", "status": "ok", "time_ratio": 0.10, "rss_ratio": 0.0},
+        ],
+        "geomean_time_ratio": 0.10,
+        "geomean_rss_ratio": 0.0,
+    }
+    assert compare_reports(current, reference) == []
+
+
+def test_baseline_check_refuses_reference_cpython_mismatch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from benchmarks.baseline.run import main
+
+    from pyscriptc.target import TARGET_CPYTHON, TARGET_VERSION_INFO
+
+    monkeypatch.setattr(sys, "version_info", TARGET_VERSION_INFO + ("final", 0))
+    monkeypatch.setattr(sys, "version", f"{TARGET_CPYTHON} (main)")
+    ref_file = tmp_path / "reference.json"
+    ref_file.write_text(
+        json.dumps(
+            {
+                "cpython": "3.15.0",
+                "workloads": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    code = main(["--check", str(ref_file)])
+    assert code == 2
+    captured = capsys.readouterr()
+    assert TARGET_CPYTHON in captured.err
+    assert "3.15.0" in captured.err
+    assert "baseline check requires reference CPython" in captured.err
+
+
+def test_baseline_record_refuses_running_cpython_mismatch(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    from benchmarks.baseline.run import main
+
+    from pyscriptc.target import TARGET_CPYTHON
+
+    monkeypatch.setattr(sys, "version_info", (3, 14, 8, "final", 0))
+    monkeypatch.setattr(sys, "version", "3.14.8 (main, Oct 20 2026)")
+    code = main(["--record", str(tmp_path / "reference.json")])
+    assert code == 2
+    captured = capsys.readouterr()
+    assert TARGET_CPYTHON in captured.err
+    assert "3.14.8" in captured.err
+    assert "baseline recording requires CPython" in captured.err
+
+
+def test_baseline_check_warns_running_cpython_mismatch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from benchmarks.baseline.run import main
+
+    from pyscriptc.target import TARGET_CPYTHON
+
+    monkeypatch.setattr(sys, "version_info", (3, 14, 8, "final", 0))
+    monkeypatch.setattr(sys, "version", "3.14.8 (main, Oct 20 2026)")
+    ref_file = tmp_path / "reference.json"
+    ref_file.write_text(
+        json.dumps(
+            {
+                "cpython": TARGET_CPYTHON,
+                "workloads": [],
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.warns(UserWarning, match=rf"baseline running on CPython 3\.14\.8, declared target is {TARGET_CPYTHON}"):
+        code = main(["--check", str(ref_file), "--runs", "0"])
+    assert code == 2
+
+
+def test_baseline_refuses_running_cpython_minor_mismatch(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from benchmarks.baseline.run import main
+
+    monkeypatch.setattr(sys, "version_info", (3, 15, 0, "final", 0))
+    monkeypatch.setattr(sys, "version", "3.15.0 (main, Oct 20 2026)")
+    code = main(["--check"])
+    assert code == 2
+    captured = capsys.readouterr()
+    assert "baseline requires CPython 3.14, running 3.15.0" in captured.err
+
+
 def test_versus_cpython_inverts_the_ratio() -> None:
     assert versus_cpython(0.15393) == "6.5x CPython"
     assert versus_cpython(0.04857) == "20.6x CPython"

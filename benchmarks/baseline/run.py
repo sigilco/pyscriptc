@@ -130,6 +130,24 @@ def main(argv: list[str] | None = None) -> int:
             stacklevel=2,
         )
 
+    if args.check:
+        reference_path = Path(args.check)
+        if not reference_path.exists():
+            print(f"reference file not found: {args.check}", file=sys.stderr)
+            return 2
+        try:
+            check_reference = json.loads(reference_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"failed to read reference {args.check}: {exc}", file=sys.stderr)
+            return 2
+        recorded = check_reference.get("cpython")
+        if recorded != TARGET_CPYTHON:
+            print(
+                f"baseline check requires reference CPython {TARGET_CPYTHON}, recorded {recorded}",
+                file=sys.stderr,
+            )
+            return 2
+
     suite = json.loads((HERE / "suite.json").read_text(encoding="utf-8"))
     runs = args.runs if args.runs is not None else int(suite["runs"])
     if runs < 1:
@@ -159,6 +177,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"recorded {args.record}")
     if args.check:
         reference = json.loads(Path(args.check).read_text(encoding="utf-8"))
+        recorded = reference.get("cpython")
+        if recorded != TARGET_CPYTHON:
+            print(
+                f"baseline check requires reference CPython {TARGET_CPYTHON}, recorded {recorded}",
+                file=sys.stderr,
+            )
+            return 2
         failures = compare_reports(report, reference)
         if failures:
             print("reference check failed:", file=sys.stderr)
