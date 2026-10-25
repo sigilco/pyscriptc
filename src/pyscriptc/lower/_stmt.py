@@ -1235,7 +1235,10 @@ class StmtMixin:
         ]
         prefix = []
         # A record class has no zero instance to pre-bind; the loop step binds it before any read.
-        if fresh and not (elem["kind"] == "class" and not self.classes[elem["name"]].get("tuple")):
+        record = (
+            elem["kind"] == "class" and elem["name"] in self.classes and not self.classes[elem["name"]].get("tuple")
+        )
+        if fresh and not record:
             prefix.append(_assign(target, _zero(elem, span), span))
         prefix.extend(
             [
