@@ -957,17 +957,27 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             for fn in self._boxed_functions:
                 if fn.name not in self.island_fns:
                     continue
+                # Issue #675: a native sibling read as a value (passed as a
+                # callable, reduced over, stored) is no more reachable
+                # native-side than one called directly (issue #620): the
+                # name does not resolve in the island namespace either way.
+                # Demote any bare name load, not only a call.
+                loaded = set()
                 for node in ast.walk(fn):
-                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-                        callee = node.func.id
-                        if callee in boxed_fns_by_name and callee not in self.island_fns:
-                            if callee in self.generic_fns:
-                                continue
-                            self.island_fns.add(callee)
-                            self._boxed_island.add(callee)
-                            if callee not in self._boxed_demoted_by:
-                                self._boxed_demoted_by[callee] = fn.name
-                            changed = True
+                    if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
+                        loaded.add(node.id)
+                    elif isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+                        # `mod.helper` names `mod`, not `helper`.
+                        loaded.add(node.value.id)
+                for callee in loaded:
+                    if callee in boxed_fns_by_name and callee not in self.island_fns:
+                        if callee in self.generic_fns:
+                            continue
+                        self.island_fns.add(callee)
+                        self._boxed_island.add(callee)
+                        if callee not in self._boxed_demoted_by:
+                            self._boxed_demoted_by[callee] = fn.name
+                        changed = True
             for fn in self._boxed_functions:
                 if fn.name in self.island_fns:
                     continue

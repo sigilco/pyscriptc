@@ -1107,6 +1107,42 @@ void ps_island_free(void *handle) {
 
 static PyObject *ps_island_ns = NULL;
 
+/* Mirror the process argv the native runtime already holds (ps_argv_init)
+   into sys.argv, so `sys.argv` reads inside island functions see the real
+   arguments (issue #635). The island top-level seed does the same thing
+   inline; this shared helper exists because the per-definition seed used
+   here runs after the native main's ps_argv_init, and the embedded
+   interpreter otherwise keeps the CPython default `['']`. */
+static void ps_island_seed_argv(void) {
+    PyObject *sys = PyImport_ImportModule("sys");
+    if (sys == NULL) {
+        PyErr_Clear();
+        return;
+    }
+    PsSeq *argv_seq = ps_argv_get();
+    PyObject *argv_list = PyList_New(0);
+    if (argv_list != NULL) {
+        int64_t i;
+        for (i = 0; argv_seq != NULL && i < argv_seq->len; i++) {
+            PsBuf *b = (PsBuf *)argv_seq->data + i;
+            PyObject *item = PyUnicode_DecodeUTF8(b->data, (Py_ssize_t)b->len, "strict");
+            if (item == NULL || PyList_Append(argv_list, item) < 0) {
+                Py_XDECREF(item);
+                Py_DECREF(argv_list);
+                argv_list = NULL;
+                break;
+            }
+            Py_DECREF(item);
+        }
+        if (argv_list != NULL) {
+            PyObject_SetAttrString(sys, "argv", argv_list);
+            Py_DECREF(argv_list);
+        }
+    }
+    Py_DECREF(sys);
+    PyErr_Clear();
+}
+
 static int ps_island_seed(int64_t n, const char *source) {
     PyObject *text = PyUnicode_DecodeUTF8(source, (Py_ssize_t)n, "strict");
     PyObject *builtins = NULL;
@@ -1139,6 +1175,9 @@ static int ps_island_seed(int64_t n, const char *source) {
         return -1;
     }
     Py_DECREF(main_name);
+    /* Mirror the process argv into sys.argv (issue #635) so island
+       functions see the same arguments the native side recorded. */
+    ps_island_seed_argv();
     result = PyRun_String(PyUnicode_AsUTF8(text) != NULL ? PyUnicode_AsUTF8(text) : "",
                           Py_file_input, ps_island_ns, ps_island_ns);
     Py_DECREF(text);
@@ -1169,7 +1208,6 @@ void ps_island_top_seed(int64_t n, const char *source, int64_t path_n, const cha
     PyObject *builtins = NULL;
     PyObject *main_name = NULL;
     PyObject *file_name = NULL;
-    PyObject *sys = NULL;
     PyObject *result = NULL;
     ps_island_ensure();
     text = PyUnicode_DecodeUTF8(source, (Py_ssize_t)n, "strict");
@@ -1210,31 +1248,7 @@ void ps_island_top_seed(int64_t n, const char *source, int64_t path_n, const cha
        (ps_argv_init), so `len(sys.argv) != 2` and friends behave as under
        CPython. argv[0] becomes the program path the native side recorded
        first. */
-    sys = PyImport_ImportModule("sys");
-    if (sys != NULL) {
-        PsSeq *argv_seq = ps_argv_get();
-        PyObject *argv_list = PyList_New(0);
-        if (argv_list != NULL) {
-            int64_t i;
-            for (i = 0; argv_seq != NULL && i < argv_seq->len; i++) {
-                PsBuf *b = (PsBuf *)argv_seq->data + i;
-                PyObject *item = PyUnicode_DecodeUTF8(b->data, (Py_ssize_t)b->len, "strict");
-                if (item == NULL || PyList_Append(argv_list, item) < 0) {
-                    Py_XDECREF(item);
-                    Py_DECREF(argv_list);
-                    argv_list = NULL;
-                    break;
-                }
-                Py_DECREF(item);
-            }
-            if (argv_list != NULL) {
-                PyObject_SetAttrString(sys, "argv", argv_list);
-                Py_DECREF(argv_list);
-            }
-        }
-        Py_DECREF(sys);
-        PyErr_Clear();
-    }
+    ps_island_seed_argv();
     result = PyRun_String(PyUnicode_AsUTF8(text) != NULL ? PyUnicode_AsUTF8(text) : "",
                           Py_file_input, ps_island_ns, ps_island_ns);
     Py_DECREF(text);

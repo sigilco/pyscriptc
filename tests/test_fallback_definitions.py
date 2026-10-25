@@ -1012,3 +1012,69 @@ main()
     assert native.returncode == 0, native.stderr
     assert cpython.returncode == 0, cpython.stderr
     assert native.stdout == cpython.stdout
+
+
+def test_fallback_island_sees_process_argv_issue_635(tmp_path: Path) -> None:
+    """An island function reading sys.argv with a native top level sees the process argv (issue #635).
+
+    The per-definition seed path never mirrored ps_argv_get() into sys.argv,
+    so the embedded interpreter kept the CPython default [''] even though the
+    emitted main already called ps_argv_init.
+    """
+    source_text = """import sys
+
+
+def show() -> None:
+    print("argv", len(sys.argv), sys.argv[1:])
+
+
+def main() -> None:
+    show()
+
+
+if __name__ == "__main__":
+    main()
+"""
+    src = tmp_path / "argv635.py"
+    src.write_text(source_text, encoding="utf-8")
+    binary = tmp_path / "argv635_bin"
+    comp = _run_cli("compile", str(src), *FALLBACK_FLAGS, "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    assert comp.returncode == 0, comp.stderr
+    native = subprocess.run([str(binary), "a", "b"], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    cpython = subprocess.run(
+        [sys.executable, str(src), "a", "b"], capture_output=True, text=True, timeout=60, cwd=tmp_path
+    )
+    assert native.returncode == 0, native.stderr
+    assert cpython.returncode == 0, cpython.stderr
+    assert native.stdout == cpython.stdout == "argv 3 ['a', 'b']\n"
+
+
+def test_fallback_island_native_function_value_issue_675(tmp_path: Path) -> None:
+    """An island function receiving a native function as a value resolves it (issue #675).
+
+    The sibling cascade demoted a native sibling only when an island function
+    called it; a bare name load (passing sq as a callable) left the name
+    undefined island-side and failed at run time with NameError.
+    """
+    source_text = """import functools
+
+
+def apply(fn, xs):
+    return [fn(x) for x in xs]
+
+
+def sq(x: int) -> int:
+    return x * x
+
+
+def main() -> None:
+    print(apply(sq, [1, 2, 3]))
+    print(functools.reduce(lambda a, b: a + b, [1, 2, 3]))
+
+
+main()
+"""
+    native, cpython = _compile_and_compare(tmp_path, source_text, "fnval675")
+    assert native.returncode == 0, native.stderr
+    assert cpython.returncode == 0, cpython.stderr
+    assert native.stdout == cpython.stdout == "[1, 4, 9]\n6\n"
