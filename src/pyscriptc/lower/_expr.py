@@ -1700,14 +1700,52 @@ class ExprMixin:
             conv = chr(value.conversion)
             if conv not in "sra":
                 self.fail(value, "PS2002", "f-string conversion is not lowered")
-            # `{p!r}`/`{p!s}` stringify eagerly: the format engine cannot spell
-            # a class, and `!r` on the spelled str would double-quote it.
-            called = self._dunder_call(value, arg, "__repr__" if conv in "ra" else "__str__", [], arg["span"])
-            if called is None:
+            if arg["type"].get("name") == "Path":
+                if conv == "s":
+                    args.append(
+                        {
+                            "kind": "call",
+                            "callee": {"kind": "builtin", "name": "str"},
+                            "args": [arg],
+                            "type": {"kind": "str"},
+                            "span": arg["span"],
+                        }
+                    )
+                    converted = True
+                else:
+                    self.fail(value, "PS2004", f"f-string formatting of {_show(arg['type'])} is not lowered")
+            else:
+                # `{p!r}`/`{p!s}` stringify eagerly: the format engine cannot spell
+                # a class, and `!r` on the spelled str would double-quote it.
+                called = self._dunder_call(value, arg, "__repr__" if conv in "ra" else "__str__", [], arg["span"])
+                if called is None:
+                    self.fail(value, "PS2004", f"f-string formatting of {_show(arg['type'])} is not lowered")
+                args.append(called)
+                converted = True
+        elif arg["type"]["kind"] == "exc" and value.conversion != -1:
+            conv = chr(value.conversion)
+            if conv not in "sra":
+                self.fail(value, "PS2002", "f-string conversion is not lowered")
+            if conv == "s":
+                args.append(
+                    {
+                        "kind": "call",
+                        "callee": {"kind": "builtin", "name": "str"},
+                        "args": [arg],
+                        "type": {"kind": "str"},
+                        "span": arg["span"],
+                    }
+                )
+                converted = True
+            else:
                 self.fail(value, "PS2004", f"f-string formatting of {_show(arg['type'])} is not lowered")
-            args.append(called)
-            converted = True
         if not converted:
+            if (
+                arg["type"]["kind"] == "exc" or (arg["type"]["kind"] == "class" and arg["type"].get("name") == "Path")
+            ) and value.format_spec is not None:
+                self.fail(
+                    value.format_spec, "PS2004", f"f-string format spec is not supported for {_show(arg['type'])}"
+                )
             args.append(self._fstring_arg(arg, value))
         field = ["{", str(len(args) - 1)]
         if value.conversion != -1 and not converted:
@@ -1747,12 +1785,28 @@ class ExprMixin:
             }:
                 self.fail(node, "PS2002", "f-string formatting needs scalar dict keys and values")
         elif kind == "class":
+            if arg["type"].get("name") == "Path":
+                return {
+                    "kind": "call",
+                    "callee": {"kind": "builtin", "name": "str"},
+                    "args": [arg],
+                    "type": {"kind": "str"},
+                    "span": arg["span"],
+                }
             called = self._dunder_call(node, arg, "__str__", [], arg["span"])
             if called is None:
                 called = self._dunder_call(node, arg, "__repr__", [], arg["span"])
             if called is None:
                 self.fail(node, "PS2004", f"f-string formatting of {_show(arg['type'])} is not lowered")
             return called
+        elif kind == "exc":
+            return {
+                "kind": "call",
+                "callee": {"kind": "builtin", "name": "str"},
+                "args": [arg],
+                "type": {"kind": "str"},
+                "span": arg["span"],
+            }
         elif kind not in {"int", "float", "str", "bool", "bytes"}:
             self.fail(node, "PS2004", f"f-string formatting of {_show(arg['type'])} is not lowered")
         return arg
@@ -1771,11 +1825,27 @@ class ExprMixin:
                 "span": span,
             }
         if kind == "class":
+            if expr["type"].get("name") == "Path":
+                return {
+                    "kind": "call",
+                    "callee": {"kind": "builtin", "name": "str"},
+                    "args": [expr],
+                    "type": {"kind": "str"},
+                    "span": span,
+                }
             called = self._dunder_call(node, expr, "__str__", [], span)
             if called is None:
                 called = self._dunder_call(node, expr, "__repr__", [], span)
             if called is not None:
                 return called
+        if kind == "exc":
+            return {
+                "kind": "call",
+                "callee": {"kind": "builtin", "name": "str"},
+                "args": [expr],
+                "type": {"kind": "str"},
+                "span": span,
+            }
         self.fail(node, "PS2002", f"formatting {_show(expr['type'])} is not lowered")
         raise AssertionError("unreachable")
 

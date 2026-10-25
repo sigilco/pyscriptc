@@ -84,3 +84,73 @@ def test_fstring_deep_nesting_stays_fenced(tmp_path: Path) -> None:
     got = run_cli("compile", str(path), "--skip-check", "--emit", "llvm", "-o", str(tmp_path / "x.ll"))
     assert got.returncode == 3, got.stderr
     assert "PS2002" in got.stderr, got.stderr
+
+
+def test_fstring_path_and_exc_matches_cpython(tmp_path: Path) -> None:
+    source = "\n".join(
+        [
+            "from pathlib import Path",
+            "",
+            "def probe() -> str:",
+            "    p: Path = Path('dir/file.txt')",
+            "    s1: str = f'Path: {p}'",
+            "    s2: str = f'{p}'",
+            "    s3: str = f'{p!s}'",
+            "    out: str = s1 + '|' + s2 + '|' + s3",
+            "    try:",
+            "        raise ValueError('something went wrong')",
+            "    except Exception as exc:",
+            "        e1: str = f'Error: {exc}'",
+            "        e2: str = f'{exc}'",
+            "        e3: str = f'{exc!s}'",
+            "        out = out + '/' + e1 + '|' + e2 + '|' + e3",
+            "    return out",
+            "",
+        ]
+    )
+    path = write_case(tmp_path, "fstring_path_exc.py", source)
+    got = compile_run(tmp_path, path, "probe")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle(path, "probe")
+
+
+def test_fstring_path_and_exc_unsupported_forms_fence(tmp_path: Path) -> None:
+    from pyscriptc.lower import lower_source
+
+    fences1 = lower_source("from pathlib import Path\ndef f(p: Path) -> str:\n    return f'{p:>10}'\n")["fences"]
+    assert fences1 and fences1[0]["code"] == "PS2004"
+    assert "f-string format spec is not supported for Path" in fences1[0]["message"]
+
+    code2 = "\n".join(
+        [
+            "def f() -> str:",
+            "    try:",
+            "        pass",
+            "    except Exception as exc:",
+            "        return f'{exc:>10}'",
+            "    return ''",
+            "",
+        ]
+    )
+    fences2 = lower_source(code2)["fences"]
+    assert fences2 and fences2[0]["code"] == "PS2004"
+    assert "f-string format spec is not supported for exc" in fences2[0]["message"]
+
+    fences3 = lower_source("from pathlib import Path\ndef f(p: Path) -> str:\n    return f'{p!r}'\n")["fences"]
+    assert fences3 and fences3[0]["code"] == "PS2004"
+    assert "f-string formatting of Path is not lowered" in fences3[0]["message"]
+
+    code4 = "\n".join(
+        [
+            "def f() -> str:",
+            "    try:",
+            "        pass",
+            "    except Exception as exc:",
+            "        return f'{exc!r}'",
+            "    return ''",
+            "",
+        ]
+    )
+    fences4 = lower_source(code4)["fences"]
+    assert fences4 and fences4[0]["code"] == "PS2004"
+    assert "f-string formatting of exc is not lowered" in fences4[0]["message"]
