@@ -233,4 +233,4 @@ def test_self_census_ballpark() -> None:
     # adds about 150 lines in coro.py. The asyncio primitives (#180 D3) add
     # about 400 in ps_async.c and restlower/_asyncio_sync.py.
     assert 11_000 <= census["lines"] <= 50_000
-    assert sum(p["fences"] for p in census["packages"]) == 3037
+    assert sum(p["fences"] for p in census["packages"]) == 3038
