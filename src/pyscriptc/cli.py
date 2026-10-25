@@ -1438,7 +1438,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         island_default = bool(getattr(args, "island", False)) or config.wildcard_island()
         island_ctx = island_policy(island_names, island_default)
         # boxed:end
-        dep_roots, dep_lanes = _dependency_roots(source_path, config, island_default=island_default)
+        dep_roots, checker_roots, dep_lanes = _dependency_roots(source_path, config, island_default=island_default)
         binary = Path(args.output) if args.output else _artifact_base(args, source_path)
         if ((args.target and "windows" in args.target) or sys.platform == "win32") and not binary.suffix:
             binary = binary.with_suffix(".exe")
@@ -1479,7 +1479,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         state["stage"] = "check"
         if not args.skip_check:
             dbg.begin("check")
-            run_checker(source_path, args.checker, [*_manifest_stub_roots(manifests), *dep_roots])
+            run_checker(source_path, args.checker, [*_manifest_stub_roots(manifests), *checker_roots])
             dbg.end("check")
         state["stage"] = "validate"
         dbg.begin("validate")
@@ -1702,7 +1702,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
 
 def _dependency_roots(
     source_path: Path, config: Any, island_default: bool = False
-) -> tuple[list[Path], dict[str, dict[str, str]]]:
+) -> tuple[list[Path], list[Path], dict[str, dict[str, str]]]:
     """The dependency source roots the compile may import (issue #398).
 
     The deps report's `sourceRoots`, one directory per pure-Python
@@ -1712,7 +1712,11 @@ def _dependency_roots(
     exactly as they do today (the dependency contributes no root, so the
     import fences or binds on its own lane).
 
-    The second value is the lane report the compiler fences against: every
+    The second value is `checker_roots`: all unpacked source roots from the
+    deps cache (including island packages), so the preflight checker can
+    resolve their modules without requiring host environment installation.
+
+    The third value is the lane report the compiler fences against: every
     locked dependency keyed by its recorded import names (issue #408; the
     distribution-shaped module name when the wheel records none), with its
     lane and the lane hint, so a refused import names the distribution and
@@ -1723,9 +1727,10 @@ def _dependency_roots(
     """
 
     if not config.dependencies:
-        return [], {}
+        return [], [], {}
     report = deps.run_deps(source_path)
     roots: list[Path] = []
+    checker_roots: list[Path] = []
     lanes: dict[str, dict[str, str]] = {}
     for package in report["packages"]:
         distribution = package["name"]
@@ -1744,11 +1749,13 @@ def _dependency_roots(
             "lane": lane,
             "hint": hint,
         }
+        root = package.get("source_root")
+        if root:
+            checker_roots.append(Path(root))
         names = tuple(package.get("import_names") or ())
         if not names:
             entry["importNames"] = deps.UNKNOWN_IMPORT_NAMES
             lanes.setdefault(module, entry)
-            root = package.get("source_root")
             if root and lane == "pure":
                 roots.append(Path(root))
             continue
@@ -1756,10 +1763,9 @@ def _dependency_roots(
             entry["provides"] = ", ".join(sorted(names))
         for import_name in names:
             lanes.setdefault(import_name.lower(), entry)
-        root = package.get("source_root")
         if root and lane == "pure":
             roots.append(Path(root))
-    return roots, lanes
+    return roots, checker_roots, lanes
 
 
 def _stage_dependency_data(

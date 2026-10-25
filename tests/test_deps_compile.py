@@ -562,12 +562,14 @@ def test_island_flag_routes_dependencies_to_island(monkeypatch: pytest.MonkeyPat
     cfg = _deps_config(script)
     from pyscriptc.cli import _dependency_roots
 
-    roots_compile, lanes_compile = _dependency_roots(script, cfg, island_default=False)
+    roots_compile, checker_compile, lanes_compile = _dependency_roots(script, cfg, island_default=False)
     assert len(roots_compile) == 1
+    assert len(checker_compile) == 1
     assert lanes_compile["tinydep"]["lane"] == "pure"
 
-    roots_island, lanes_island = _dependency_roots(script, cfg, island_default=True)
+    roots_island, checker_island, lanes_island = _dependency_roots(script, cfg, island_default=True)
     assert roots_island == []
+    assert len(checker_island) == 1
     assert lanes_island["tinydep"]["lane"] == "island"
 
 
@@ -592,6 +594,45 @@ import more_itertools
     cfg = _deps_config(script)
     from pyscriptc.cli import _dependency_roots
 
-    roots, lanes = _dependency_roots(script, cfg, island_default=False)
+    roots, checker_roots, lanes = _dependency_roots(script, cfg, island_default=False)
     assert roots == []
+    assert len(checker_roots) == 1
     assert lanes["more_itertools"]["lane"] == "island"
+
+
+def test_preflight_checker_sees_unpacked_island_dependency(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    wheel = make_wheel(
+        "more-itertools",
+        {"more_itertools/__init__.py": b"def chunked(iterable, n):\n    return []\n"},
+    )
+    _data_fake(monkeypatch, tmp_path, {"more-itertools": wheel})
+    body = """\
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#   "more-itertools",
+# ]
+# [tool.pyscriptc.imports]
+# "more-itertools" = "island"
+# ///
+import more_itertools
+
+
+def main() -> None:
+    pass
+
+
+if __name__ == "__main__":
+    main()
+"""
+    script = _script(tmp_path, body)
+    cfg = _deps_config(script)
+    from pyscriptc.cli import _dependency_roots
+
+    roots, checker_roots, _lanes = _dependency_roots(script, cfg, island_default=False)
+    assert roots == []
+    assert len(checker_roots) == 1
+    # run_checker with checker_roots passes preflight without missing-import error
+    from pyscriptc.check import run_checker
+
+    run_checker(script, "pyrefly", extra_paths=checker_roots)
