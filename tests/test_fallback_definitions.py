@@ -765,6 +765,33 @@ if __name__ == "__main__":
     assert native.stdout == cpython.stdout == "10 20\nPoint(x=10, y=20)\n"
 
 
+def test_fallback_island_class_method_body_fence(tmp_path: Path) -> None:
+    """A class that only fences while its methods lower joins the island (issue #628)."""
+    source_text = """class Widget:
+    size: int
+
+    def __init__(self) -> None:
+        self.size = 2
+
+    def label(self) -> str:
+        parts = map(str, [1, 2])
+        return ",".join(parts)
+
+
+def main() -> None:
+    w = Widget()
+    print(w.label())
+
+
+if __name__ == "__main__":
+    main()
+"""
+    native, cpython = _compile_and_compare(tmp_path, source_text, name="body_fence")
+    assert native.returncode == 0, native.stderr
+    assert cpython.returncode == 0, cpython.stderr
+    assert native.stdout == cpython.stdout == "1,2\n"
+
+
 def test_fallback_island_class_local_decorator(tmp_path: Path) -> None:
     """A class decorated by a local untyped decorator rides the island (issue #628)."""
     source_text = """def tagged(cls):
