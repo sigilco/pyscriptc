@@ -7,6 +7,11 @@ per-case inputs under `benchmarks/real/`. Every case compiles once with
 artifact's `.report.json`, then times `python3 script` against the compiled
 binary on the same argument list, interleaving the two so drift hits both.
 
+A case with a `port` block also compiles the native port from `benchmarks/ports/`
+without `--fallback` and times the three runners (CPython on the original, the
+fallback binary on the original, the native binary on the port) on one fixed
+argument list, interleaved.
+
     uv run python benchmarks/real/run.py --out benchmarks/real/results.json
 
 Ten or more samples after two warmups, median plus p10/p90, the 1 minute load
@@ -17,6 +22,7 @@ Nothing is parallel: the machine is shared.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import platform
@@ -86,6 +92,131 @@ def timed(
     return (time.perf_counter() - start) * 1000.0, proc
 
 
+def compile_artifact(
+    options: argparse.Namespace,
+    script: Path,
+    artifact: Path,
+    cwd: Path,
+    env: dict[str, str],
+    fallback: bool,
+) -> tuple[float, subprocess.CompletedProcess[bytes], list[str]]:
+    """Compile one script once and return the wall time, the process and the command."""
+    command = [*options.pyscriptc, "compile"]
+    if fallback:
+        command.append("--fallback=cpython")
+    command += ["--emit", "bin", "-o", str(artifact), str(script)]
+    start = time.perf_counter()
+    proc = subprocess.run(command, cwd=str(cwd), env=env, capture_output=True, timeout=options.timeout * 3, check=False)
+    return (time.perf_counter() - start) * 1000.0, proc, command
+
+
+def sample_runners(
+    runners: dict[str, list[str]], cwd: Path, env: dict[str, str], options: argparse.Namespace
+) -> tuple[dict[str, list[float]], list[float], dict[str, subprocess.CompletedProcess[bytes]]]:
+    """Time every runner once per round, after the warmups, so drift hits all of them."""
+    for _ in range(options.warmups):
+        for runner_argv in runners.values():
+            timed(runner_argv, cwd, env, options.timeout)
+    samples: dict[str, list[float]] = {label: [] for label in runners}
+    first: dict[str, subprocess.CompletedProcess[bytes]] = {}
+    loads: list[float] = []
+    for index in range(options.samples):
+        loads.append(os.getloadavg()[0])
+        for label, runner_argv in runners.items():
+            milliseconds, proc = timed(runner_argv, cwd, env, options.timeout)
+            samples[label].append(milliseconds)
+            if index == 0:
+                first[label] = proc
+    return samples, loads, first
+
+
+def measure_port(
+    case: dict[str, object],
+    options: argparse.Namespace,
+    inner: dict[str, str],
+    cwd: Path,
+    env: dict[str, str],
+    scratch: Path,
+    case_argv: list[str],
+    artifact: Path,
+    shown,
+) -> dict[str, object]:
+    """Compile the native port and time it against CPython and the fallback binary."""
+    name = str(case["name"])
+    spec = case.get("port") or {}
+    assert isinstance(spec, dict)
+    target = str(spec.get("script") or "{repo}/benchmarks/ports/{name}/port.py")
+    port_script = Path(expand(target, {**inner, "name": name}))
+    if not port_script.is_file():
+        raise Skipped(f"port script not found: {port_script}")
+    argv = case_argv
+    if spec.get("argv") is not None:
+        argv = [expand(str(item), inner) for item in spec["argv"]]
+
+    port_artifact = HERE / ".artifacts" / f"{name}_port"
+    port_compile_ms, compiled, command = compile_artifact(options, port_script, port_artifact, cwd, env, fallback=False)
+    if compiled.returncode != 0 or not port_artifact.is_file():
+        raise Skipped(f"port compile failed with exit {compiled.returncode}")
+    if not os.access(port_artifact, os.X_OK):
+        port_artifact.chmod(0o755)
+
+    result: dict[str, object] = {
+        "script": shown(str(port_script)),
+        "argv": [shown(item) for item in argv],
+        "note": spec.get("note") or case.get("note"),
+        "compile": {"ms": port_compile_ms, "exit": compiled.returncode, "command": shown(" ".join(command))},
+        "binary": {"path": shown(str(port_artifact)), "bytes": port_artifact.stat().st_size},
+    }
+    report_path = port_artifact.with_suffix(".report.json")
+    if report_path.is_file():
+        plane = plane_summary(report_path)
+        result["plane"] = plane
+        result["binary"]["requiresLibpython"] = plane["requiresLibpython"]
+
+    runners = {
+        "python": [options.python, str(Path(expand(str(case["script"]), inner))), *argv],
+        "fallback": [str(artifact), *argv],
+        "native": [str(port_artifact), *argv],
+    }
+    samples, loads, first = sample_runners(runners, cwd, env, options)
+    stats = {label: summarize(values) for label, values in samples.items()}
+    stats["nativeOverPython"] = stats["native"]["median"] / stats["python"]["median"]
+    stats["fallbackOverPython"] = stats["fallback"]["median"] / stats["python"]["median"]
+    python_exit = first["python"].returncode
+    python_out = first["python"].stdout
+    matches = {
+        "fallback": first["fallback"].returncode == python_exit and first["fallback"].stdout == python_out,
+        "native": first["native"].returncode == python_exit and first["native"].stdout == python_out,
+    }
+    digests: dict[str, dict[str, str]] = {}
+    compare = [Path(expand(str(item), inner)) for item in spec.get("compare", [])]
+    if compare:
+        # A script whose product is a file prints nothing, so compare the files
+        # a verification run of each runner leaves behind as well as stdout.
+        for label, runner_argv in runners.items():
+            timed(runner_argv, cwd, env, options.timeout)
+            digests[label] = {
+                shown(str(path)): hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else "missing"
+                for path in compare
+            }
+        matches = {label: matches[label] and digests[label] == digests["python"] for label in ("fallback", "native")}
+    result.update(
+        {
+            "status": "ok" if all(matches.values()) else "mismatch",
+            "exitCodes": {label: proc.returncode for label, proc in first.items()},
+            "outputMatch": matches,
+            "stdoutBytes": {label: len(proc.stdout) for label, proc in first.items()},
+            "outputFiles": digests or None,
+            "samples": {
+                **{label: [round(value, 3) for value in values] for label, values in samples.items()},
+                "loadavg": loads,
+            },
+            "stats": stats,
+        }
+    )
+    return result
+
+
 def plane_summary(report_path: Path) -> dict[str, object]:
     data = json.loads(report_path.read_text(encoding="utf-8"))
     plane = data.get("planeMap") or {}
@@ -116,7 +247,12 @@ def run_case(case: dict[str, object], ctx: dict[str, str], options: argparse.Nam
     scratch = HERE / ".scratch" / name
     shutil.rmtree(scratch, ignore_errors=True)
     scratch.mkdir(parents=True, exist_ok=True)
-    inner = {"inputs": str(HERE), "scratch": str(scratch), "corpus": str(Path(ctx["corpus"]))}
+    inner = {
+        "inputs": str(HERE),
+        "scratch": str(scratch),
+        "corpus": str(Path(ctx["corpus"])),
+        "repo": str(REPO_ROOT),
+    }
     argv = [expand(str(item), inner) for item in case.get("argv", [])]
     # A case gets the ambient environment minus PYTHONPATH, so an inherited
     # path cannot silently change which modules the run imports; a case that
@@ -127,21 +263,7 @@ def run_case(case: dict[str, object], ctx: dict[str, str], options: argparse.Nam
 
     artifact = HERE / ".artifacts" / name
     artifact.parent.mkdir(parents=True, exist_ok=True)
-    compile_cmd = [
-        *options.pyscriptc,
-        "compile",
-        "--fallback=cpython",
-        "--emit",
-        "bin",
-        "-o",
-        str(artifact),
-        str(script),
-    ]
-    start = time.perf_counter()
-    compiled = subprocess.run(
-        compile_cmd, cwd=str(cwd), env=env, capture_output=True, timeout=options.timeout * 3, check=False
-    )
-    compile_ms = (time.perf_counter() - start) * 1000.0
+    compile_ms, compiled, compile_cmd = compile_artifact(options, script, artifact, cwd, env, fallback=True)
     if compiled.returncode != 0 or not artifact.is_file():
         raise Skipped(f"compile failed with exit {compiled.returncode}")
     if not os.access(artifact, os.X_OK):
@@ -208,6 +330,15 @@ def run_case(case: dict[str, object], ctx: dict[str, str], options: argparse.Nam
             "stats": stats,
         }
     )
+    if case.get("port") is not None:
+        try:
+            port = measure_port(case, options, inner, cwd, env, scratch, argv, artifact, shown)
+        except Skipped as error:
+            port = {"status": "skipped", "skipReason": str(error)}
+        result["port"] = port
+        if port.get("status") == "mismatch":
+            result["status"] = "mismatch"
+            result["skipReason"] = "native port stdout, exit status or output files differ"
     return result
 
 
@@ -240,7 +371,7 @@ def main() -> int:
         parser.error("--samples must be at least 10")
 
     manifest = json.loads(Path(options.cases).read_text(encoding="utf-8"))
-    ctx = {"corpus": options.corpus, "inputs": str(HERE)}
+    ctx = {"corpus": options.corpus, "inputs": str(HERE), "repo": str(REPO_ROOT)}
     results: dict[str, object] = {
         "schemaVersion": 1,
         "recipe": "uv run python benchmarks/real/run.py",
@@ -254,7 +385,7 @@ def main() -> int:
         "python": subprocess.run(
             [options.python, "--version"], capture_output=True, text=True, check=False
         ).stdout.strip(),
-        "corpus": options.corpus,
+        "corpus": options.corpus.replace(str(Path.home()), "~"),
         "samples": options.samples,
         "warmups": options.warmups,
         "cases": [],
@@ -285,6 +416,19 @@ def main() -> int:
             )
         else:
             print(f"{entry['name']:22} {status}: {entry.get('skipReason', 'stdout or exit mismatch')}", file=sys.stderr)
+        port = entry.get("port") or {}
+        if port.get("status") == "ok":
+            port_stats = port["stats"]
+            port_plane = port.get("plane") or {}
+            print(
+                f"{'':22} port native {port_stats['native']['median']:8.2f} ms  "
+                f"fallback {port_stats['fallback']['median']:8.2f} ms  "
+                f"vs python {port_stats['nativeOverPython']:5.2f}  "
+                f"native share {100 * port_plane.get('nativeShare', 0):5.1f}%",
+                file=sys.stderr,
+            )
+        elif port:
+            print(f"{'':22} port {port.get('status')}: {port.get('skipReason', '')}", file=sys.stderr)
         if status != "ok":
             failures += 1
 
