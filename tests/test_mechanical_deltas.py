@@ -204,6 +204,36 @@ d = Cfg(Path("/b"), label="x", n=7)
 lab = d.label
 print(lab if lab is not None else "none", d.n)
 """,
+    "for_class_list": """
+from dataclasses import dataclass
+@dataclass
+class I:
+    n: int
+    s: str = "a"
+class W:
+    k: int
+    def __init__(self, k: int) -> None:
+        self.k = k
+def f(xs: list[I]) -> int:
+    t = 0
+    for it in xs:
+        t += it.n
+        it.n = it.n + 1
+    return t
+def g(ws: list[W]) -> int:
+    t = 0
+    for w in ws:
+        if w.k > 1:
+            continue
+        t += w.k
+    return t
+xs = [I(1), I(2)]
+print(f(xs), xs[0].n, xs[1].n, g([W(1), W(5), W(0)]))
+for q in xs:
+    if q.n > 2:
+        break
+    print(q.s)
+""",
     "argparse_types": """
 import argparse
 import pathlib

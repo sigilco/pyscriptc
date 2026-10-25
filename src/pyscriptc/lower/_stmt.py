@@ -53,6 +53,13 @@ if TYPE_CHECKING:
 
 
 class StmtMixin:
+    def _plain_class_elem(self, elem: dict[str, Any]) -> bool:
+        """A user class iterates like any pointer element; synthetic runtime classes do not."""
+        if elem["kind"] != "class":
+            return False
+        info = self.classes.get(elem["name"], {})
+        return bool(info.get("tuple")) or not info.get("synthetic")
+
     def _narrowable(self, name: str) -> bool:
         typ = self.locals.get(name)
         return typ is not None and bool(typ.get("optional")) and name not in self.fn_globals
@@ -1185,9 +1192,7 @@ class StmtMixin:
             elem = {"kind": "int"}
         elif kind == "list":
             elem = iterable["type"]["elem"]
-            if elem["kind"] not in _SCALAR | {"list", "dict"} and not (
-                elem["kind"] == "class" and self.classes.get(elem["name"], {}).get("tuple")
-            ):
+            if elem["kind"] not in _SCALAR | {"list", "dict"} and not self._plain_class_elem(elem):
                 self.fail(stmt, "PS2002", f"for over list[{_show(elem)}] is not lowered")
         else:
             self.fail(stmt.iter, "PS2002", "for iterates over a list or range")
@@ -1229,7 +1234,8 @@ class StmtMixin:
             ),
         ]
         prefix = []
-        if fresh:
+        # A record class has no zero instance to pre-bind; the loop step binds it before any read.
+        if fresh and not (elem["kind"] == "class" and not self.classes[elem["name"]].get("tuple")):
             prefix.append(_assign(target, _zero(elem, span), span))
         prefix.extend(
             [
