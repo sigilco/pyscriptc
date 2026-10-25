@@ -306,3 +306,17 @@ def test_pep723_refuse_lane(tmp_path: Path) -> None:
     assert len(mod["fences"]) == 1
     assert mod["fences"][0]["code"] == "PS2002"
     assert mod["fences"][0]["message"] == "import `rich` is refused by the `imports` policy"
+
+
+def test_hyphenated_import_distribution_name_accepted(tmp_path: Path) -> None:
+    script = _project(
+        tmp_path,
+        "[tool.pyscriptc.imports]\n'more-itertools' = 'island'\n'typing-extensions' = 'replace'\n",
+    )
+    cfg = load_config(script)
+    assert cfg.imports["more-itertools"] == "island"
+    assert cfg.imports["typing-extensions"] == "replace"
+    assert lane_for("more-itertools", cfg.imports) == ("island", "more-itertools")
+    assert lane_for("more_itertools", cfg.imports) == ("island", "more-itertools")
+    assert "more-itertools" in cfg.island_imports()
+    assert "more_itertools" in cfg.island_imports()

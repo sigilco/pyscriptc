@@ -1433,16 +1433,16 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             bridge = CheckerBridge.for_path(source_path, args.bridge)
             dbg.end("bridge")
         dbg.begin("lower")
-        dep_roots, dep_lanes = _dependency_roots(source_path, config)
-        binary = Path(args.output) if args.output else _artifact_base(args, source_path)
-        if ((args.target and "windows" in args.target) or sys.platform == "win32") and not binary.suffix:
-            binary = binary.with_suffix(".exe")
-        data_root = _stage_dependency_data(source_path, config, args, binary)
         # boxed:begin
         island_names = set(config.island_imports())
         island_default = bool(getattr(args, "island", False)) or config.wildcard_island()
         island_ctx = island_policy(island_names, island_default)
         # boxed:end
+        dep_roots, dep_lanes = _dependency_roots(source_path, config, island_default=island_default)
+        binary = Path(args.output) if args.output else _artifact_base(args, source_path)
+        if ((args.target and "windows" in args.target) or sys.platform == "win32") and not binary.suffix:
+            binary = binary.with_suffix(".exe")
+        data_root = _stage_dependency_data(source_path, config, args, binary, island_default=island_default)
         with island_ctx:
             if source_path.is_dir():
                 module, source = lower_directory(
@@ -1700,7 +1700,9 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         dbg.write_dir(module, llvm_text, outputs, status)
 
 
-def _dependency_roots(source_path: Path, config: Any) -> tuple[list[Path], dict[str, dict[str, str]]]:
+def _dependency_roots(
+    source_path: Path, config: Any, island_default: bool = False
+) -> tuple[list[Path], dict[str, dict[str, str]]]:
     """The dependency source roots the compile may import (issue #398).
 
     The deps report's `sourceRoots`, one directory per pure-Python
@@ -1733,7 +1735,7 @@ def _dependency_roots(source_path: Path, config: Any) -> tuple[list[Path], dict[
         # dependency off the compile lane, not put a native one on it.
         lane = package["lane"]
         hint = package.get("hint", "")
-        policy = _dependency_lane(distribution, config)
+        policy = _dependency_lane(distribution, config, island_default=island_default)
         if policy != "compile":
             lane = policy
             hint = deps.POLICY_HINTS.get(policy, hint)
@@ -1760,7 +1762,9 @@ def _dependency_roots(source_path: Path, config: Any) -> tuple[list[Path], dict[
     return roots, lanes
 
 
-def _stage_dependency_data(source_path: Path, config: Any, args: argparse.Namespace, binary: Path) -> Path | None:
+def _stage_dependency_data(
+    source_path: Path, config: Any, args: argparse.Namespace, binary: Path, island_default: bool = False
+) -> Path | None:
     """Stage the pure wheels' data files beside the emitted binary (issue #410).
 
     Only the compile lanes (`bin` and the `--run` that implies it) need the
@@ -1782,7 +1786,7 @@ def _stage_dependency_data(source_path: Path, config: Any, args: argparse.Namesp
     report = deps.run_deps(source_path)
     collected: list[tuple[str, list[tuple[str, bytes]]]] = []
     for package in report["packages"]:
-        policy = _dependency_lane(package["name"], config)
+        policy = _dependency_lane(package["name"], config, island_default=island_default)
         if policy != "compile" or package["lane"] != "pure":
             continue
         root = package.get("source_root")
@@ -1799,15 +1803,24 @@ def _stage_dependency_data(source_path: Path, config: Any, args: argparse.Namesp
     return stage_data_files(collected, binary)
 
 
-def _dependency_lane(distribution: str, config: Any) -> str:
+def _dependency_lane(distribution: str, config: Any, island_default: bool = False) -> str:
     """The `[imports]` policy lane of one distribution, `compile` by default."""
     from pyscriptc.config import requirement_name
 
     name = requirement_name(distribution)
     module = name.lower().replace("-", "_").replace(".", "_")
-    for key in (name, name.lower(), module):
+    for key in (name, name.lower(), module, distribution):
         if key in config.imports:
-            return config.imports[key]
+            policy = config.imports[key]
+            # boxed:begin
+            if policy == "compile" and island_default:
+                return "island"
+            # boxed:end
+            return policy
+    # boxed:begin
+    if island_default:
+        return "island"
+    # boxed:end
     star = config.imports.get("*")
     if star not in (None, "compile"):
         return star
