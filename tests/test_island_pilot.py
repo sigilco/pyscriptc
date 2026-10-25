@@ -7,6 +7,7 @@ CI); the compiled binary matches CPython output on status code and body length.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -360,8 +361,15 @@ raise SystemExit(pytest.main([r"%s", "-q"]))
     cpython = subprocess.run([sys.executable, str(src)], capture_output=True, text=True, timeout=60, env=env)
     assert native.returncode == cpython.returncode == 1, (native.stderr, cpython.stderr)
     assert "1 failed, 1 passed" in native.stdout
-    native_summary = native.stdout.split("===")[-1].strip()
-    assert native_summary.splitlines()[-1] == cpython.stdout.split("===")[-1].strip().splitlines()[-1]
+    native_summary = native.stdout.split("===")[-1].strip().splitlines()[-1]
+    cpython_summary = cpython.stdout.split("===")[-1].strip().splitlines()[-1]
+    # The wall-clock duration (`in 0.27s`) is runner noise; strip it so the
+    # comparison covers the pass/fail counts only (#693).
+    duration = re.compile(r" in \d+(\.\d+)?s")
+    assert duration.sub("", native_summary) == duration.sub("", cpython_summary), (
+        native_summary,
+        cpython_summary,
+    )
 
 
 def test_island_call_peeked_during_param_pinning_compiles(tmp_path: Path) -> None:
