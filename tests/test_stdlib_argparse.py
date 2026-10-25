@@ -361,8 +361,8 @@ def test_argparse_unknown_option_fails(tmp_path: Path) -> None:
 def test_argparse_keeps_the_closed_surface() -> None:
     from pyscriptc.lower import lower_source
 
-    mod = lower_source("import argparse\nparser = argparse.ArgumentParser()\n")
-    assert mod["fences"], "an unannotated parser binding must fence"
+    mod = lower_source("import argparse\nns = argparse.Namespace()\n")
+    assert mod["fences"], "argparse.Namespace is outside the closed surface and must fence"
     mod = lower_source(
         "import argparse\n"
         "parser: argparse.ArgumentParser = argparse.ArgumentParser()\n"

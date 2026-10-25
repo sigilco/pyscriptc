@@ -24,6 +24,7 @@ Calls to standard library modules in the closed import table whose specific func
 | `subprocess` | `subprocess.Popen` | [`pyscriptc explain PS2001`](cli.md#explain) | `subprocess.Popen is not in the lowered subset of subprocess` |
 | `time` | `time.perf_counter` | [`pyscriptc explain PS2001`](cli.md#explain) | `time.perf_counter is not in the lowered subset of time` |
 | `time` | `time.process_time` | [`pyscriptc explain PS2001`](cli.md#explain) | `time.process_time is not in the lowered subset of time` |
+| `zipfile` | `zipfile.ZipFile` | [`pyscriptc explain PS2001`](cli.md#explain) | `zipfile.ZipFile is not in the lowered subset of zipfile` |
 
 ## Closed import table
 
@@ -31,12 +32,9 @@ Standard library and external modules that are not yet in the closed import tabl
 
 | Module | Call or construct | Code | Diagnostic |
 | --- | --- | --- | --- |
-| `calendar` | import calendar | [`pyscriptc explain PS2002`](cli.md#explain) | `calendar is not in the closed import table` |
-| `platform` | import platform | [`pyscriptc explain PS2002`](cli.md#explain) | `platform is not in the closed import table` |
 | `pylong` | import pylong | [`pyscriptc explain PS2002`](cli.md#explain) | `_pylong is not in the closed import table` |
 | `pyperf` | import pyperf | [`pyscriptc explain PS2002`](cli.md#explain) | `pyperf is not in the closed import table` |
 | `sqlite3` | import sqlite3 | [`pyscriptc explain PS2002`](cli.md#explain) | `sqlite3 is not in the closed import table` |
-| `zipfile` | import zipfile | [`pyscriptc explain PS2002`](cli.md#explain) | `zipfile is not in the closed import table` |
 
 ## Call signatures and keyword arguments
 
