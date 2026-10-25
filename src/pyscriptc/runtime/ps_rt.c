@@ -920,8 +920,12 @@ static int64_t ps_seq_idx_count_for(int64_t len) {
     return n;
 }
 
-static void ps_seq_index_build(PsSeq *s) {
-    int64_t n = ps_seq_idx_count_for(s->len > 0 ? s->len : 1);
+/* Build a fresh probe table of `n` slots (a power of two) from the cells.
+   An indexed push grows the table by doubling it rather than re-deriving its
+   size from the length: deriving it from the length lands the new table at
+   exactly load one half, so the next push overflows it again and rebuilds a
+   second time, which doubles the rehash work of every doubling. */
+static void ps_seq_index_build_n(PsSeq *s, int64_t n) {
     int64_t cells = s->cap > s->len ? s->cap : (s->len > 0 ? s->len : 1);
     int32_t *slots = calloc((size_t)n, sizeof(int32_t));
     int64_t *hashes = malloc((size_t)cells * sizeof(int64_t));
@@ -952,6 +956,10 @@ static void ps_seq_index_build(PsSeq *s) {
     if (s->idx_kind == 0) {
         s->idx_kind = s->elem == 8 ? 1 : 2;
     }
+}
+
+static void ps_seq_index_build(PsSeq *s) {
+    ps_seq_index_build_n(s, ps_seq_idx_count_for(s->len > 0 ? s->len : 1));
 }
 
 /* Build the index when the caller asks for the kind the cells carry and the
@@ -1023,7 +1031,7 @@ static void ps_seq_index_add(PsSeq *s) {
         return;
     }
     if ((s->len + 1) * 2 > s->idx_count) {
-        ps_seq_index_build(s);
+        ps_seq_index_build_n(s, s->idx_count > 0 ? s->idx_count * 2 : 64);
         return;
     }
     void *cell = (char *)s->data + (size_t)(s->len - 1) * (size_t)s->elem;
