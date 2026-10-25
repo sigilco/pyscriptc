@@ -18,8 +18,10 @@ files carry `# boxed:begin` / `# boxed:end` markers.
 
 from __future__ import annotations
 
+import ast
 from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any
 
 # The execution planes of the plane map (plan Decision D).
@@ -99,3 +101,91 @@ def boxed_definitions(on: bool) -> Iterator[None]:
         yield
     finally:
         _DEFINITIONS_TIER = saved
+
+
+def definition_spans(path: Path | str, text: str | None = None) -> list[tuple[str, int, int]]:
+    """Return [(name, start_line, end_line), ...] for all definitions in the file."""
+    if text is None:
+        try:
+            text = Path(path).read_text(encoding="utf-8")
+        except OSError:
+            return []
+    try:
+        tree = ast.parse(text, filename=str(path))
+    except SyntaxError:
+        return []
+    defs: list[tuple[str, int, int]] = []
+
+    def walk(node: ast.AST, prefix: str) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                name = f"{prefix}{child.name}"
+                start = child.lineno
+                end = getattr(child, "end_lineno", child.lineno) or child.lineno
+                defs.append((name, start, end))
+                walk(child, f"{name}.")
+            else:
+                walk(child, prefix)
+
+    walk(tree, "")
+    return defs
+
+
+def find_enclosing_definition(defs: list[tuple[str, int, int]], line: int) -> str | None:
+    """The innermost definition enclosing `line`, or None if at module top level."""
+    best: tuple[str, int, int] | None = None
+    for item in defs:
+        name, start, end = item
+        if start <= line <= end:
+            if best is None or start >= best[1]:
+                best = item
+    return best[0] if best else None
+
+
+def is_island_diagnostic(
+    err: dict[str, Any],
+    source_path: Path,
+    plane_map: dict[str, Any],
+    tmp_dir: Path | None = None,
+) -> bool:
+    """True when `err` is located inside an island definition or island top level."""
+    err_path_str = str(err.get("path", ""))
+    target_file: Path | None = None
+    if source_path.is_file():
+        target_file = source_path
+    elif err_path_str:
+        candidate = Path(err_path_str)
+        if not candidate.is_absolute() and tmp_dir is not None:
+            candidate = (tmp_dir / candidate).resolve()
+        else:
+            candidate = candidate.resolve()
+        if candidate.is_file():
+            target_file = candidate
+
+    if target_file is None and source_path.is_file():
+        target_file = source_path
+    if target_file is None:
+        return False
+
+    line = int(err.get("line", 0) or 0)
+    if line <= 0:
+        return False
+
+    top_level_island = plane_map.get("moduleTopLevel") == ISLAND
+    defs = definition_spans(target_file)
+    enclosing = find_enclosing_definition(defs, line)
+
+    if enclosing is None:
+        return top_level_island
+
+    fns = plane_map.get("functions", {})
+    if enclosing in fns:
+        return fns[enclosing] == ISLAND
+
+    parts = enclosing.split(".")
+    for i in range(len(parts), 0, -1):
+        prefix = ".".join(parts[:i])
+        if prefix in fns:
+            return fns[prefix] == ISLAND
+
+    return top_level_island

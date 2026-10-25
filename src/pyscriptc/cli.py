@@ -1580,10 +1580,30 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             args.emit = "bin"
         for note in module.pop("_notes", []):
             print(note, file=sys.stderr)
+        # boxed:begin
+        fallback_map = module.get("fallback")
+        from pyscriptc import boxed as _boxed
+
+        if fallback_map is None:
+            all_names = [record["name"] for record in module.get("functions", [])]
+            fallback_map = _boxed.plane_map(
+                [],
+                [{"name": n} for n in dict.fromkeys(all_names)],
+                module.get("entry"),
+            )
+        # boxed:end
         state["stage"] = "check"
         if not args.skip_check:
             dbg.begin("check")
-            run_checker(source_path, args.checker, [*_manifest_stub_roots(manifests), *checker_roots])
+            run_checker(
+                source_path,
+                args.checker,
+                [*_manifest_stub_roots(manifests), *checker_roots],
+                # boxed:begin
+                plane_map=fallback_map,
+                fallback=fallback,
+                # boxed:end
+            )
             dbg.end("check")
         state["stage"] = "validate"
         dbg.begin("validate")
@@ -1616,16 +1636,6 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             print(ir_path)
             return 0
         # boxed:begin
-        fallback_map = module.get("fallback")
-        from pyscriptc import boxed as _boxed
-
-        if fallback_map is None:
-            all_names = [record["name"] for record in module.get("functions", [])]
-            fallback_map = _boxed.plane_map(
-                [],
-                [{"name": n} for n in dict.fromkeys(all_names)],
-                module.get("entry"),
-            )
         requires_lp = bool(
             module.get("islandSource")
             or (fallback_map and any(p == _boxed.ISLAND for p in fallback_map.get("functions", {}).values()))
