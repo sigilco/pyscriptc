@@ -16,8 +16,10 @@ under 1.4.
 from __future__ import annotations
 
 import math
+import shutil
 import subprocess
 import sys
+import sysconfig
 import time
 from pathlib import Path
 
@@ -206,62 +208,70 @@ def test_data_operation_stays_linear(case, tmp_path: Path) -> None:
 # from the length on every grow, which landed the new table at exactly load
 # one half, so the very next push rebuilt it again: a doubling cost two full
 # rehashes, and one more element past a power-of-two length paid for both.
-# That element now costs a push, so the guard times the build at 2**20 and at
-# 2**20 + 1 and bounds the difference as a fraction of the build. Both sides
-# run on the same machine, so the bound is machine speed relative.
-REBUILD_SIZE = 1 << 20
-REBUILD_SLACK = 0.15  # one extra element may cost 15% of the build, not two rehashes
-REBUILD_SOURCE = """def bench(n: int) -> int:
-    s: set[int] = set()
-    i: int = 0
-    while i < n:
-        s.add(i)
-        i = i + 1
-    return len(s)
+# That element now costs a push.
+#
+# The guard is deterministic: a tiny C probe declares the PsSeq layout from
+# ps_rt.h, fills an int-indexed set to a length just below a power of two so
+# the probe table sits at exactly load one half, then pushes one element and
+# asserts the table doubled on that single push. The pre-#646 shape re-derived
+# the table size from the length with `count_for`, which rebuilt to the same
+# slot count (a wasted full rehash) at exactly this point and only doubled on
+# the following push. No wall clock, so runner noise cannot flake it (#686).
+REBUILD_SIZE = 1 << 12
+REBUILD_PROBE = """#include <stdint.h>
+#include <stdio.h>
+#include <ps_rt.h>
+
+int main(void) {
+    PsSeq *s = ps_seq_new(8, 0);
+    for (int64_t i = 0; i < REBUILD_SIZE - 1; i++) {
+        int64_t v = i;
+        ps_seq_push(s, &v);
+    }
+    /* The containment test builds the index: at length REBUILD_SIZE - 1 the
+       probe table holds REBUILD_SIZE slots, so it sits at exactly load one
+       half. */
+    if (ps_seq_has_i64(s, 1) != 1) {
+        return 2;
+    }
+    if (s->idx_count != REBUILD_SIZE * 2) {
+        fprintf(stderr, "index built at %lld slots, expected %d\\n", (long long)s->idx_count, REBUILD_SIZE * 2);
+        return 3;
+    }
+    int64_t before = s->idx_count;
+    int64_t one = 1;
+    ps_seq_push(s, &one);
+    int64_t after = s->idx_count;
+    printf("%lld %lld\\n", (long long)before, (long long)after);
+    /* Doubling: that one push grows the table to exactly twice its slot
+       count. A rebuild from the length keeps the same slot count (a wasted
+       full rehash) and doubles only on the next push. */
+    return after == before * 2 ? 0 : 1;
+}
 """
 
 
-def _build_binary(tmp_path: Path, name: str, source: str, n: int) -> Path:
-    """Compile `source` into a binary that calls bench(n)."""
-    src = tmp_path / f"{name}.py"
-    src.write_text(source, encoding="utf-8")
-    binary = tmp_path / f"{name}-{n}"
-    compiled = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "pyscriptc",
-            "compile",
-            str(src),
-            "--emit",
-            "bin",
-            "--call",
-            "bench",
-            "--args",
-            f"[{n}]",
-            "-o",
-            str(binary),
-        ],
-        cwd=ROOT,
+def test_set_push_past_a_power_of_two_does_not_rehash(tmp_path: Path) -> None:
+    probe_c = tmp_path / "rebuild_probe.c"
+    probe_c.write_text(REBUILD_PROBE.replace("REBUILD_SIZE", str(REBUILD_SIZE)), encoding="utf-8")
+    probe = tmp_path / "rebuild_probe"
+    cc = shutil.which("clang") or shutil.which("cc")
+    assert cc is not None, "no C compiler on PATH"
+    runtime = ROOT / "src" / "pyscriptc" / "runtime"
+    includes = [f"-I{runtime}", f"-I{sysconfig.get_path('include')}"]
+    # The island and mix units embed the host CPython and are not part of
+    # this probe; the driver drops them for non-fallback builds too.
+    sources = sorted(p for p in runtime.glob("*.c") if p.name not in ("ps_island.c", "ps_mix.c"))
+    built = subprocess.run(
+        [cc, "-O1", *includes, str(probe_c), *(str(p) for p in sources), "-o", str(probe)],
         capture_output=True,
         text=True,
-        timeout=600,
+        timeout=300,
     )
-    assert compiled.returncode == 0, compiled.stderr + compiled.stdout
-    return binary
-
-
-def test_set_push_past_a_power_of_two_does_not_rehash(tmp_path: Path) -> None:
-    base = _build_binary(tmp_path, "set_build", REBUILD_SOURCE, REBUILD_SIZE)
-    plus = _build_binary(tmp_path, "set_build", REBUILD_SOURCE, REBUILD_SIZE + 1)
-    best_base = math.inf
-    best_plus = math.inf
-    for _ in range(5):
-        best_base = min(best_base, _timed(base))
-        best_plus = min(best_plus, _timed(plus))
-    assert best_base > FLOOR_MS, best_base
-    delta = best_plus - best_base
-    assert delta < REBUILD_SLACK * best_base, (
-        f"one push past {REBUILD_SIZE} cost {delta:.0f} ms on a {best_base:.0f} ms build; "
+    assert built.returncode == 0, built.stderr
+    run = subprocess.run([str(probe)], capture_output=True, text=True, timeout=60)
+    assert run.returncode == 0, (
+        f"push past {REBUILD_SIZE} did not double the probe table "
+        f"(exit {run.returncode}, out {run.stdout!r}, err {run.stderr!r}); "
         "the index table is being rebuilt instead of doubled"
     )
