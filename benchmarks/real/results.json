@@ -1,0 +1,786 @@
+{
+  "cases": [
+    {
+      "argv": [
+        "--base-binary",
+        "<inputs>/binary_size/base.bin",
+        "--head-binary",
+        "<inputs>/binary_size/head.bin",
+        "--base-sections",
+        "<inputs>/binary_size/base_sections.txt",
+        "--head-sections",
+        "<inputs>/binary_size/head_sections.txt",
+        "--base-sha",
+        "1111111111111111111111111111111111111111",
+        "--head-sha",
+        "2222222222222222222222222222222222222222",
+        "--target",
+        "aarch64-macos",
+        "--output-json",
+        "<scratch>/binary_size/report.json",
+        "--output-markdown",
+        "<scratch>/binary_size/report.md"
+      ],
+      "binary": {
+        "bytes": 645096,
+        "path": "<inputs>/.artifacts/binary_size",
+        "requiresLibpython": true
+      },
+      "binaryStdoutBytes": 0,
+      "compile": {
+        "command": "uv run --project ~/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/binary_size <corpus>/fx/scripts/binary_size.py",
+        "exit": 0,
+        "ms": 1911.0525830183178
+      },
+      "cwd": "<corpus>/fx/scripts",
+      "exitCodes": {
+        "binary": 0,
+        "python": 0
+      },
+      "kind": "workload",
+      "name": "binary_size",
+      "note": "Hashes two binaries and parses two Mach-O section reports; 100 percent island.",
+      "outputMatch": true,
+      "plane": {
+        "functionCount": 12,
+        "functions": {
+          "append_delta_table": "island",
+          "artifact_evidence": "island",
+          "build_report": "island",
+          "deltas": "island",
+          "main": "island",
+          "markdown_report": "island",
+          "parse_args": "island",
+          "parse_elf_sections": "island",
+          "parse_macho_sections": "island",
+          "parse_sections": "island",
+          "sha256_file": "island",
+          "signed_bytes": "island"
+        },
+        "islandFunctions": 12,
+        "islandShare": 1.0,
+        "moduleTopLevel": "island",
+        "nativeFunctions": 0,
+        "nativeShare": 0.0,
+        "requiresLibpython": true,
+        "topLevelFences": 1
+      },
+      "pythonStdoutBytes": 0,
+      "samples": {
+        "binary": [
+          36.415,
+          35.262,
+          50.055,
+          35.787,
+          36.242,
+          36.104,
+          36.918,
+          36.152,
+          36.353,
+          35.536,
+          36.251,
+          36.074
+        ],
+        "loadavg": [
+          3.21337890625,
+          3.21337890625,
+          3.21337890625,
+          3.21337890625,
+          3.21337890625,
+          3.21337890625,
+          3.21337890625,
+          3.21337890625,
+          3.21337890625,
+          3.21337890625,
+          3.0361328125,
+          3.0361328125
+        ],
+        "python": [
+          39.079,
+          38.339,
+          38.133,
+          38.095,
+          39.661,
+          39.354,
+          38.851,
+          37.989,
+          37.67,
+          38.436,
+          37.556,
+          38.982
+        ]
+      },
+      "script": "<corpus>/fx/scripts/binary_size.py",
+      "stats": {
+        "binary": {
+          "max": 50.05458300001919,
+          "median": 36.19697905378416,
+          "min": 35.2621249621734,
+          "p10": 35.56136187398806,
+          "p90": 36.86815417604521
+        },
+        "python": {
+          "max": 39.661207934841514,
+          "median": 38.38712500873953,
+          "min": 37.55624999757856,
+          "p10": 37.70194527460262,
+          "p90": 39.32631675852463
+        },
+        "ratio": 0.9429458196086125
+      },
+      "status": "ok"
+    },
+    {
+      "argv": [
+        "<inputs>/classify/launch-log.txt"
+      ],
+      "binary": {
+        "bytes": 628680,
+        "path": "<inputs>/.artifacts/classify",
+        "requiresLibpython": true
+      },
+      "binaryStdoutBytes": 1121,
+      "compile": {
+        "command": "uv run --project ~/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/classify <corpus>/wowplay-app/tools/launch-diagnostics/classify.py",
+        "exit": 0,
+        "ms": 750.4383749328554
+      },
+      "cwd": "<corpus>/wowplay-app/tools/launch-diagnostics",
+      "exitCodes": {
+        "binary": 0,
+        "python": 0
+      },
+      "kind": "workload",
+      "name": "classify",
+      "note": "Regex scan of a 4500 line Wine launch log; 100 percent island.",
+      "outputMatch": true,
+      "plane": {
+        "functionCount": 3,
+        "functions": {
+          "classify": "island",
+          "find_latest_log": "island",
+          "main": "island"
+        },
+        "islandFunctions": 3,
+        "islandShare": 1.0,
+        "moduleTopLevel": "island",
+        "nativeFunctions": 0,
+        "nativeShare": 0.0,
+        "requiresLibpython": true,
+        "topLevelFences": 1
+      },
+      "pythonStdoutBytes": 1121,
+      "samples": {
+        "binary": [
+          52.096,
+          50.656,
+          52.361,
+          51.412,
+          50.098,
+          51.904,
+          51.297,
+          52.28,
+          52.689,
+          50.517,
+          51.712,
+          53.427
+        ],
+        "loadavg": [
+          3.0361328125,
+          3.0361328125,
+          3.0361328125,
+          3.0361328125,
+          3.0361328125,
+          3.0361328125,
+          3.0361328125,
+          3.0361328125,
+          3.0361328125,
+          3.0361328125,
+          3.0361328125,
+          3.0361328125
+        ],
+        "python": [
+          53.058,
+          52.811,
+          55.022,
+          52.103,
+          53.665,
+          51.976,
+          52.732,
+          53.945,
+          54.635,
+          52.728,
+          52.291,
+          52.267
+        ]
+      },
+      "script": "<corpus>/wowplay-app/tools/launch-diagnostics/classify.py",
+      "stats": {
+        "binary": {
+          "max": 53.42691601254046,
+          "median": 51.80824996205047,
+          "min": 50.0975000904873,
+          "p10": 50.53119580261409,
+          "p90": 52.65590773196891
+        },
+        "python": {
+          "max": 55.022249929606915,
+          "median": 52.771499496884644,
+          "min": 51.976125105284154,
+          "p10": 52.11953723337501,
+          "p90": 54.56559965386987
+        },
+        "ratio": 0.9817467848361777
+      },
+      "status": "ok"
+    },
+    {
+      "argv": [],
+      "binary": {
+        "bytes": 644528,
+        "path": "<inputs>/.artifacts/tool_token_analysis",
+        "requiresLibpython": true
+      },
+      "binaryStdoutBytes": 17882,
+      "compile": {
+        "command": "uv run --project ~/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/tool_token_analysis <corpus>/maki/scripts/tool_token_analysis.py",
+        "exit": 0,
+        "ms": 1018.785291002132
+      },
+      "cwd": "<corpus>/maki/scripts",
+      "exitCodes": {
+        "binary": 0,
+        "python": 0
+      },
+      "kind": "workload",
+      "name": "tool_token_analysis",
+      "note": "Reads six synthetic session files from HOME/.maki/sessions and prints the tables; native module top level, all functions island.",
+      "outputMatch": true,
+      "plane": {
+        "functionCount": 17,
+        "functions": {
+          "analyze_tool_distribution": "island",
+          "bar": "island",
+          "estimate_tokens": "island",
+          "extract_batch_subtool_calls": "island",
+          "extract_tool_calls": "island",
+          "fmt_num": "island",
+          "fmt_pct": "island",
+          "load_sessions": "island",
+          "main": "island",
+          "print_batch_subtool_analysis": "island",
+          "print_distribution_table": "island",
+          "print_histogram": "island",
+          "print_input_cost_table": "island",
+          "print_output_cost_table": "island",
+          "print_session_summary": "island",
+          "print_table": "island",
+          "print_top_expensive_calls": "island"
+        },
+        "islandFunctions": 17,
+        "islandShare": 1.0,
+        "moduleTopLevel": "native",
+        "nativeFunctions": 0,
+        "nativeShare": 0.0,
+        "requiresLibpython": true,
+        "topLevelFences": 0
+      },
+      "pythonStdoutBytes": 17882,
+      "samples": {
+        "binary": [
+          28.927,
+          29.295,
+          30.341,
+          29.871,
+          30.651,
+          29.508,
+          29.66,
+          30.913,
+          29.626,
+          30.203,
+          30.502,
+          29.574
+        ],
+        "loadavg": [
+          3.0361328125,
+          3.0361328125,
+          3.0361328125,
+          3.0361328125,
+          3.0361328125,
+          3.0361328125,
+          3.0361328125,
+          3.0361328125,
+          3.0361328125,
+          3.0361328125,
+          3.0361328125,
+          3.0361328125
+        ],
+        "python": [
+          29.986,
+          30.173,
+          30.986,
+          30.026,
+          30.963,
+          32.017,
+          31.434,
+          31.831,
+          31.219,
+          31.124,
+          32.415,
+          30.617
+        ]
+      },
+      "script": "<corpus>/maki/scripts/tool_token_analysis.py",
+      "stats": {
+        "binary": {
+          "max": 30.912874964997172,
+          "median": 29.76543747354299,
+          "min": 28.926749946549535,
+          "p10": 29.316528548952192,
+          "p90": 30.636062484700233
+        },
+        "python": {
+          "max": 32.41520805750042,
+          "median": 31.055187457241118,
+          "min": 29.986208071932197,
+          "p10": 30.041104496922344,
+          "p90": 31.99858746957034
+        },
+        "ratio": 0.9584690968143745
+      },
+      "status": "ok"
+    },
+    {
+      "argv": [
+        "beta"
+      ],
+      "binary": {
+        "bytes": 628696,
+        "path": "<inputs>/.artifacts/check_deploy_secrets",
+        "requiresLibpython": true
+      },
+      "binaryStdoutBytes": 0,
+      "compile": {
+        "command": "uv run --project ~/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/check_deploy_secrets <corpus>/brioso/scripts/check-deploy-secrets.py",
+        "exit": 0,
+        "ms": 786.8864160263911
+      },
+      "cwd": "<corpus>/brioso/scripts",
+      "exitCodes": {
+        "binary": 1,
+        "python": 1
+      },
+      "kind": "workload",
+      "name": "check_deploy_secrets",
+      "note": "Loads the secrets manifest with pyyaml and checks twelve names; needs PYSC_REAL_PYYAML pointing at a site-packages with pyyaml.",
+      "outputMatch": true,
+      "plane": {
+        "functionCount": 1,
+        "functions": {
+          "main": "island"
+        },
+        "islandFunctions": 1,
+        "islandShare": 1.0,
+        "moduleTopLevel": "island",
+        "nativeFunctions": 0,
+        "nativeShare": 0.0,
+        "requiresLibpython": true,
+        "topLevelFences": 1
+      },
+      "pythonStdoutBytes": 0,
+      "samples": {
+        "binary": [
+          30.528,
+          28.024,
+          27.552,
+          28.273,
+          27.952,
+          27.3,
+          27.77,
+          27.948,
+          27.39,
+          28.109,
+          27.924,
+          27.659
+        ],
+        "loadavg": [
+          3.193359375,
+          3.193359375,
+          3.193359375,
+          3.193359375,
+          3.193359375,
+          3.193359375,
+          3.193359375,
+          3.193359375,
+          3.193359375,
+          3.193359375,
+          3.193359375,
+          3.193359375
+        ],
+        "python": [
+          30.52,
+          30.152,
+          29.623,
+          29.413,
+          29.705,
+          29.003,
+          29.008,
+          30.177,
+          28.929,
+          29.475,
+          28.976,
+          28.686
+        ]
+      },
+      "script": "<corpus>/brioso/scripts/check-deploy-secrets.py",
+      "stats": {
+        "binary": {
+          "max": 30.52758309058845,
+          "median": 27.93612447567284,
+          "min": 27.299792040139437,
+          "p10": 27.406183967832476,
+          "p90": 28.256228496320546
+        },
+        "python": {
+          "max": 30.52024997305125,
+          "median": 29.443645500577986,
+          "min": 28.68637500796467,
+          "p10": 28.933454165235162,
+          "p90": 30.1743253483437
+        },
+        "ratio": 0.9487997834753324
+      },
+      "status": "ok"
+    },
+    {
+      "argv": [],
+      "binary": {
+        "bytes": 628728,
+        "path": "<inputs>/.artifacts/split",
+        "requiresLibpython": true
+      },
+      "binaryStdoutBytes": 0,
+      "compile": {
+        "command": "uv run --project ~/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/split <corpus>/HTLM/data/pipeline/split.py",
+        "exit": 0,
+        "ms": 788.2213749689981
+      },
+      "cwd": "<corpus>/HTLM",
+      "exitCodes": {
+        "binary": 2,
+        "python": 2
+      },
+      "kind": "startup",
+      "name": "split",
+      "note": "Startup only: the compiled binary loses process argv when the module top level stays native (#635), so both sides run the argparse usage error.",
+      "outputMatch": true,
+      "plane": {
+        "functionCount": 5,
+        "functions": {
+          "_bucket": "island",
+          "is_eval": "island",
+          "main": "island",
+          "split_jsonl": "island",
+          "split_key": "island"
+        },
+        "islandFunctions": 5,
+        "islandShare": 1.0,
+        "moduleTopLevel": "native",
+        "nativeFunctions": 0,
+        "nativeShare": 0.0,
+        "requiresLibpython": true,
+        "topLevelFences": 0
+      },
+      "pythonStdoutBytes": 0,
+      "samples": {
+        "binary": [
+          34.547,
+          34.738,
+          35.138,
+          34.835,
+          36.074,
+          35.549,
+          35.625,
+          36.403,
+          35.383,
+          35.466,
+          34.195,
+          36.376
+        ],
+        "loadavg": [
+          3.193359375,
+          3.193359375,
+          3.193359375,
+          3.193359375,
+          3.193359375,
+          3.193359375,
+          3.193359375,
+          3.193359375,
+          3.193359375,
+          3.193359375,
+          3.193359375,
+          3.193359375
+        ],
+        "python": [
+          36.856,
+          37.423,
+          36.354,
+          37.859,
+          36.805,
+          38.866,
+          37.63,
+          39.474,
+          37.364,
+          38.401,
+          37.412,
+          36.988
+        ]
+      },
+      "script": "<corpus>/HTLM/data/pipeline/split.py",
+      "stats": {
+        "binary": {
+          "max": 36.40250000171363,
+          "median": 35.424583475105464,
+          "min": 34.19479203876108,
+          "p10": 34.56608809065074,
+          "p90": 36.34587494889274
+        },
+        "python": {
+          "max": 39.47449999395758,
+          "median": 37.41768695181236,
+          "min": 36.35387495160103,
+          "p10": 36.81039171060547,
+          "p90": 38.81966243498027
+        },
+        "ratio": 0.9467336535453496
+      },
+      "status": "ok"
+    },
+    {
+      "argv": [],
+      "binary": {
+        "bytes": 628688,
+        "path": "<inputs>/.artifacts/parse_tickets",
+        "requiresLibpython": true
+      },
+      "binaryStdoutBytes": 0,
+      "compile": {
+        "command": "uv run --project ~/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/parse_tickets <corpus>/tinyharness/practice/parse_tickets.py",
+        "exit": 0,
+        "ms": 745.0592080131173
+      },
+      "cwd": "<corpus>/tinyharness/practice",
+      "exitCodes": {
+        "binary": 1,
+        "python": 1
+      },
+      "kind": "startup",
+      "name": "parse_tickets",
+      "note": "Startup only: the exercise script's main is unfinished (it reads an undefined `lines`), so its only real path is the missing-argument error.",
+      "outputMatch": true,
+      "plane": {
+        "functionCount": 3,
+        "functions": {
+          "is_header": "island",
+          "main": "island",
+          "parse_row": "island"
+        },
+        "islandFunctions": 3,
+        "islandShare": 1.0,
+        "moduleTopLevel": "island",
+        "nativeFunctions": 0,
+        "nativeShare": 0.0,
+        "requiresLibpython": true,
+        "topLevelFences": 1
+      },
+      "pythonStdoutBytes": 0,
+      "samples": {
+        "binary": [
+          19.814,
+          20.019,
+          20.684,
+          21.014,
+          21.342,
+          22.117,
+          21.487,
+          21.498,
+          21.365,
+          22.889,
+          23.192,
+          22.559
+        ],
+        "loadavg": [
+          3.193359375,
+          3.193359375,
+          3.193359375,
+          3.193359375,
+          3.193359375,
+          3.193359375,
+          3.193359375,
+          3.193359375,
+          3.193359375,
+          3.09765625,
+          3.09765625,
+          3.09765625
+        ],
+        "python": [
+          30.223,
+          30.737,
+          32.33,
+          33.476,
+          32.663,
+          33.225,
+          32.544,
+          32.775,
+          32.413,
+          33.968,
+          35.896,
+          34.581
+        ]
+      },
+      "script": "<corpus>/tinyharness/practice/parse_tickets.py",
+      "stats": {
+        "binary": {
+          "max": 23.19224993698299,
+          "median": 21.42610406735912,
+          "min": 19.813708029687405,
+          "p10": 20.085154590196908,
+          "p90": 22.855846083257347
+        },
+        "python": {
+          "max": 35.896459012292325,
+          "median": 32.71931246854365,
+          "min": 30.22270801011473,
+          "p10": 30.896354466676712,
+          "p90": 34.520037146285176
+        },
+        "ratio": 0.6548457913948583
+      },
+      "status": "ok"
+    },
+    {
+      "argv": [],
+      "binary": {
+        "bytes": 628680,
+        "path": "<inputs>/.artifacts/caveman_cli",
+        "requiresLibpython": true
+      },
+      "binaryStdoutBytes": 0,
+      "compile": {
+        "command": "uv run --project ~/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/caveman_cli <corpus>/agentplugins-caveman/skills/caveman-compress/scripts/cli.py",
+        "exit": 0,
+        "ms": 815.682000014931
+      },
+      "cwd": "<corpus>/agentplugins-caveman/skills/caveman-compress/scripts",
+      "exitCodes": {
+        "binary": 1,
+        "python": 1
+      },
+      "kind": "startup",
+      "name": "caveman_cli",
+      "note": "Startup only: relative imports mean both interpreters fail with the same ImportError when it is run as a script.",
+      "outputMatch": true,
+      "plane": {
+        "functionCount": 2,
+        "functions": {
+          "main": "island",
+          "print_usage": "island"
+        },
+        "islandFunctions": 2,
+        "islandShare": 1.0,
+        "moduleTopLevel": "island",
+        "nativeFunctions": 0,
+        "nativeShare": 0.0,
+        "requiresLibpython": true,
+        "topLevelFences": 1
+      },
+      "pythonStdoutBytes": 0,
+      "samples": {
+        "binary": [
+          19.44,
+          19.861,
+          19.395,
+          20.284,
+          20.02,
+          19.366,
+          19.599,
+          20.106,
+          20.243,
+          19.667,
+          20.641,
+          20.69
+        ],
+        "loadavg": [
+          3.09765625,
+          3.09765625,
+          3.09765625,
+          3.09765625,
+          3.09765625,
+          3.09765625,
+          3.09765625,
+          3.09765625,
+          3.09765625,
+          3.09765625,
+          3.09765625,
+          3.09765625
+        ],
+        "python": [
+          29.697,
+          30.373,
+          30.763,
+          32.767,
+          32.005,
+          30.755,
+          30.259,
+          31.015,
+          31.388,
+          30.06,
+          30.592,
+          30.933
+        ]
+      },
+      "script": "<corpus>/agentplugins-caveman/skills/caveman-compress/scripts/cli.py",
+      "stats": {
+        "binary": {
+          "max": 20.689916098490357,
+          "median": 19.940479018259794,
+          "min": 19.365750020369887,
+          "p10": 19.399858661927283,
+          "p90": 20.605191681534052
+        },
+        "python": {
+          "max": 32.76729199569672,
+          "median": 30.759000510443002,
+          "min": 29.696500045247376,
+          "p10": 30.079571169335395,
+          "p90": 31.942962564062327
+        },
+        "ratio": 0.648281110808194
+      },
+      "status": "ok"
+    },
+    {
+      "kind": "excluded",
+      "name": "validate",
+      "skipReason": "orchestrator: main runs git, uv lock and the per-project gates as subprocesses, so timing it would measure the host toolchain and would put several test suites on a shared machine",
+      "status": "skipped"
+    }
+  ],
+  "commit": "ecb4e18d",
+  "corpus": "~/Documents/prjcts/_own",
+  "machine": {
+    "cpuCount": 8,
+    "loadavgStart": [
+      3.21337890625,
+      3.02734375,
+      3.03857421875
+    ],
+    "machine": "arm64",
+    "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O"
+  },
+  "python": "Python 3.14.9",
+  "recipe": "uv run python benchmarks/real/run.py",
+  "samples": 12,
+  "schemaVersion": 1,
+  "warmups": 2
+}

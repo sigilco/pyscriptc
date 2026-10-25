@@ -1,0 +1,80 @@
+{
+  "schemaVersion": 1,
+  "description": "The eight sibling scripts the weekly dogfood runs against, with the fixed inputs in this directory. Paths are relative to the corpus root (env PYSC_REAL_CORPUS, default ~/Documents/prjcts/_own).",
+  "cases": [
+    {
+      "name": "binary_size",
+      "script": "{corpus}/fx/scripts/binary_size.py",
+      "cwd": "{corpus}/fx/scripts",
+      "kind": "workload",
+      "argv": [
+        "--base-binary", "{inputs}/binary_size/base.bin",
+        "--head-binary", "{inputs}/binary_size/head.bin",
+        "--base-sections", "{inputs}/binary_size/base_sections.txt",
+        "--head-sections", "{inputs}/binary_size/head_sections.txt",
+        "--base-sha", "1111111111111111111111111111111111111111",
+        "--head-sha", "2222222222222222222222222222222222222222",
+        "--target", "aarch64-macos",
+        "--output-json", "{scratch}/report.json",
+        "--output-markdown", "{scratch}/report.md"
+      ],
+      "note": "Hashes two binaries and parses two Mach-O section reports; 100 percent island."
+    },
+    {
+      "name": "classify",
+      "script": "{corpus}/wowplay-app/tools/launch-diagnostics/classify.py",
+      "cwd": "{corpus}/wowplay-app/tools/launch-diagnostics",
+      "kind": "workload",
+      "argv": ["{inputs}/classify/launch-log.txt"],
+      "note": "Regex scan of a 4500 line Wine launch log; 100 percent island."
+    },
+    {
+      "name": "tool_token_analysis",
+      "script": "{corpus}/maki/scripts/tool_token_analysis.py",
+      "cwd": "{corpus}/maki/scripts",
+      "kind": "workload",
+      "env": {"HOME": "{inputs}/tool_token_analysis/home"},
+      "note": "Reads six synthetic session files from HOME/.maki/sessions and prints the tables; native module top level, all functions island."
+    },
+    {
+      "name": "check_deploy_secrets",
+      "script": "{corpus}/brioso/scripts/check-deploy-secrets.py",
+      "cwd": "{corpus}/brioso/scripts",
+      "kind": "workload",
+      "argv": ["beta"],
+      "env": {"PYTHONPATH": "{env:PYSC_REAL_PYYAML}"},
+      "note": "Loads the secrets manifest with pyyaml and checks twelve names; needs PYSC_REAL_PYYAML pointing at a site-packages with pyyaml."
+    },
+    {
+      "name": "split",
+      "script": "{corpus}/HTLM/data/pipeline/split.py",
+      "cwd": "{corpus}/HTLM",
+      "kind": "startup",
+      "argv": [],
+      "env": {"PYTHONPATH": "{corpus}/HTLM"},
+      "note": "Startup only: the compiled binary loses process argv when the module top level stays native (#635), so both sides run the argparse usage error."
+    },
+    {
+      "name": "parse_tickets",
+      "script": "{corpus}/tinyharness/practice/parse_tickets.py",
+      "cwd": "{corpus}/tinyharness/practice",
+      "kind": "startup",
+      "argv": [],
+      "note": "Startup only: the exercise script's main is unfinished (it reads an undefined `lines`), so its only real path is the missing-argument error."
+    },
+    {
+      "name": "caveman_cli",
+      "script": "{corpus}/agentplugins-caveman/skills/caveman-compress/scripts/cli.py",
+      "cwd": "{corpus}/agentplugins-caveman/skills/caveman-compress/scripts",
+      "kind": "startup",
+      "argv": [],
+      "note": "Startup only: relative imports mean both interpreters fail with the same ImportError when it is run as a script."
+    },
+    {
+      "name": "validate",
+      "script": "{corpus}/brioso/scripts/validate.py",
+      "kind": "excluded",
+      "exclude": "orchestrator: main runs git, uv lock and the per-project gates as subprocesses, so timing it would measure the host toolchain and would put several test suites on a shared machine"
+    }
+  ]
+}

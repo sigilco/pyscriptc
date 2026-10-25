@@ -22,3 +22,7 @@ benchmarks/factsdiff-report.json
 
 # closed to generator agents; keeps rg and the Grep tool out (moved from .ignore)
 benchmarks/compat2/corpus/holdout/
+
+# real-script benchmark artifacts (fixed inputs are committed)
+benchmarks/real/.artifacts/
+benchmarks/real/.scratch/
