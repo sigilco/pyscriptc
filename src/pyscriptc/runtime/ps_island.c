@@ -294,20 +294,45 @@ static void ps_island_fail(void) {
            value stays a PS_SYSTEMEXIT message; the last-resort handler
            prints it and exits 1. */
         if (PyErr_GivenExceptionMatches(val, PyExc_SystemExit)) {
-            PyObject *args = PyException_GetArgs(val);
-            if (args != NULL && PyTuple_Check(args) && PyTuple_GET_SIZE(args) == 1) {
-                PyObject *item = PyTuple_GET_ITEM(args, 0);
-                if (PyLong_CheckExact(item)) {
-                    int overflow = 0;
-                    long status = PyLong_AsLongAndOverflow(item, &overflow);
-                    if (!overflow && PyErr_Occurred() == NULL) {
-                        Py_XDECREF(text);
-                        Py_XDECREF(typ);
-                        Py_XDECREF(val);
-                        Py_XDECREF(tb);
-                        ps_island_done();
-                        ps_raise_system_exit(PS_SYSTEMEXIT, (int64_t)status);
-                    }
+            /* CPython's rule on `SystemExit.code`: None exits 0, an int
+               (bool included) is the status, anything else prints str(code)
+               to stderr and exits 1. The message path flags the record so
+               the last-resort handler prints it (issue #642). */
+            PyObject *payload = PyObject_GetAttrString(val, "code");
+            if (payload == NULL) {
+                PyErr_Clear();
+            } else if (payload == Py_None) {
+                Py_DECREF(payload);
+                Py_XDECREF(text);
+                Py_XDECREF(typ);
+                Py_XDECREF(val);
+                Py_XDECREF(tb);
+                ps_island_done();
+                ps_raise_system_exit(PS_SYSTEMEXIT, 0);
+            } else if (PyLong_Check(payload)) {
+                int overflow = 0;
+                long status = PyLong_AsLongAndOverflow(payload, &overflow);
+                if (!overflow && PyErr_Occurred() == NULL) {
+                    Py_DECREF(payload);
+                    Py_XDECREF(text);
+                    Py_XDECREF(typ);
+                    Py_XDECREF(val);
+                    Py_XDECREF(tb);
+                    ps_island_done();
+                    ps_raise_system_exit(PS_SYSTEMEXIT, (int64_t)status);
+                }
+                PyErr_Clear();
+                Py_DECREF(payload);
+            } else {
+                PyObject *shown = PyObject_Str(payload);
+                Py_DECREF(payload);
+                if (shown != NULL) {
+                    Py_XDECREF(text);
+                    text = shown;
+                    const char *got = PyUnicode_AsUTF8(text);
+                    msg = got != NULL ? got : msg;
+                } else {
+                    PyErr_Clear();
                 }
             }
             code = PS_SYSTEMEXIT;
@@ -315,6 +340,9 @@ static void ps_island_fail(void) {
     }
     /* The GIL goes back before the raise unwinds the thread. */
     ps_island_done();
+    if (code == PS_SYSTEMEXIT) {
+        ps_raise_msg(code, (int64_t)strnlen(msg, 256), msg);
+    }
     ps_raise_cstr(code, msg);
 }
 
