@@ -39,6 +39,8 @@ def plane_map(
     functions: list[dict[str, Any]],
     entry: str | None,
     top_level_island: bool = False,
+    demoted_by: dict[str, str] | None = None,
+    tree: ast.AST | None = None,
 ) -> dict[str, Any]:
     """The per-definition plane map from the lowered fence list.
 
@@ -65,10 +67,34 @@ def plane_map(
         if name == entry or (name.startswith("__") and name.endswith("__")):
             continue
         planes[name] = ISLAND if name in fenced or top_level_island else NATIVE
+
+    demotions: dict[str, str] = dict(demoted_by or {})
+    if tree is not None and not top_level_island:
+        fn_nodes = {
+            node.name: node
+            for node in getattr(tree, "body", [])
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        changed = True
+        while changed:
+            changed = False
+            for name, node in fn_nodes.items():
+                if planes.get(name) != ISLAND:
+                    continue
+                for child in ast.walk(node):
+                    if isinstance(child, ast.Call) and isinstance(child.func, ast.Name):
+                        callee = child.func.id
+                        if callee in fn_nodes and planes.get(callee) == NATIVE:
+                            planes[callee] = ISLAND
+                            if callee not in demotions:
+                                demotions[callee] = name
+                            changed = True
+
     return {
         "moduleTopLevel": ISLAND if top_level_island else NATIVE,
         "functions": planes,
         "topLevelFences": 1 if top_level_island else 0,
+        "demotedBy": demotions,
     }
 
 

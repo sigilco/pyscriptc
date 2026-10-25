@@ -178,3 +178,42 @@ definitions = true
     proc = _run_cli("run", str(src), cwd=tmp_path)
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout == "1\n"
+
+
+@needs_clang
+def test_run_report_arg_order_issue622(tmp_path: Path) -> None:
+    """`run --report` does not swallow source positional (issue #622)."""
+    src = tmp_path / "order.py"
+    src.write_text(MIXED_SCRIPT, encoding="utf-8")
+
+    # 1. Natural CLI order: --fallback=cpython --report script.py
+    proc_bare = _run_cli("run", "--fallback=cpython", "--report", str(src), cwd=tmp_path)
+    assert proc_bare.returncode == 0, proc_bare.stderr
+    assert proc_bare.stdout == "1\n"
+    assert "planeMap" in proc_bare.stderr
+
+    # 2. Argument order with report file: --fallback=cpython --report rep.json script.py
+    rep_file = tmp_path / "custom_rep.json"
+    proc_file = _run_cli("run", "--fallback=cpython", "--report", str(rep_file), str(src), cwd=tmp_path)
+    assert proc_file.returncode == 0, proc_file.stderr
+    assert proc_file.stdout == "1\n"
+    assert rep_file.is_file()
+    rep_data = json.loads(rep_file.read_text(encoding="utf-8"))
+    assert "planeMap" in rep_data
+
+    # 3. Bare --report script.py without fallback flag
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        """[project]
+name = "demo"
+version = "0.1.0"
+
+[tool.pyscriptc.fallback]
+definitions = true
+""",
+        encoding="utf-8",
+    )
+    proc_bare2 = _run_cli("run", "--report", str(src), cwd=tmp_path)
+    assert proc_bare2.returncode == 0, proc_bare2.stderr
+    assert proc_bare2.stdout == "1\n"
+    assert "planeMap" in proc_bare2.stderr

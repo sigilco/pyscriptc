@@ -244,6 +244,9 @@ def test_self_census_ballpark() -> None:
     # exemption inside _island_fn_call is gone).
     # Island keyword arguments and varargs forwarding (#605): adds 1 fence
     # (PS1003 in _stdlib.py for invalid **kwargs dict key type).
+    # Island caller sibling cascade and fall-off-end probe (#620, #621, #622):
+    # cascade fixpoint loop and undemotable diagnostic in lower/__init__.py,
+    # plane map cascade in boxed.py, assess.py and cli.py add 10 self-host fences.
 
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
@@ -252,5 +255,5 @@ def test_self_census_ballpark() -> None:
     # adds about 150 lines in coro.py. The asyncio primitives (#180 D3) add
     # about 400 in ps_async.c and restlower/_asyncio_sync.py.
     assert 11_000 <= census["lines"] <= 50_000
-    assert census["fences"] == 3047
-    assert sum(p["fences"] for p in census["packages"]) == 3047
+    assert census["fences"] == 3057
+    assert sum(p["fences"] for p in census["packages"]) == 3057
