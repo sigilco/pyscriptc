@@ -1178,11 +1178,15 @@ class ClassesMixin:
             self.fail(node, "PS2003", f"{name}() is missing field {missing[0]}")
         args = [values[field] for field in fields]
         if not info["fields"]:
+            built: list[dict[str, Any]] = []
             for field, arg in zip(fields, args, strict=True):
                 if arg["type"]["kind"] in {"func", "none"}:
                     self.fail(node, "PS2002", f"{name}() field {field} is {_show(arg['type'])}")
-                info["fields"].append({"name": field, "type": arg["type"]})
+                built.append({"name": field, "type": arg["type"]})
+            info["fields"].extend(built)
         else:
+            if len(info["fields"]) != len(args):
+                self.fail(node, "PS2003", f"{name}() expects {len(info['fields'])} argument(s)")
             for field, arg in zip(info["fields"], args, strict=True):
                 self._expect(node, arg["type"], field["type"], f"{name}.{field['name']}")
         typ = {"kind": "class", "name": name}
