@@ -439,6 +439,7 @@ def assess(
                 )
 
         local_defs: list[dict[str, Any]] = []
+        tree: ast.Module | None = None
         try:
             tree = ast.parse(Path(fpath_resolved).read_text(encoding="utf-8"), filename=fpath_resolved)
             for d in coverage._definitions(tree):
