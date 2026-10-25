@@ -45,6 +45,7 @@ from pyscriptc.lower._core import (
     _zero,
 )
 from pyscriptc.reflection import inspect_note, typing_note
+from pyscriptc.restlower._argparse import path_attribute
 from pyscriptc.stdlib_queue import (
     MATH_CONSTANTS,
     MATH_FUNCTIONS,
@@ -1330,7 +1331,7 @@ class ExprMixin:
                     self.fail(node, "PS2001", f"{node.value.id}.{node.attr} is not an enum member")
                 return {"kind": "const", "value": str(member), "type": {"kind": "int"}, "span": span}
         value = self._expr(node.value)
-        return self._lookup_attr(value, node.attr, span, node, expect)
+        return path_attribute(self, value, node.attr, self._lookup_attr(value, node.attr, span, node, expect), span)
 
     def _call(self, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None = None) -> dict[str, Any]:
         if isinstance(node.func, ast.Name):

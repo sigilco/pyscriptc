@@ -204,6 +204,28 @@ d = Cfg(Path("/b"), label="x", n=7)
 lab = d.label
 print(lab if lab is not None else "none", d.n)
 """,
+    "argparse_types": """
+import argparse
+import pathlib
+from pathlib import Path
+from typing import Optional
+
+D = 52429
+
+
+def parse(argv: Optional[list[str]] = None) -> int:
+    p = argparse.ArgumentParser(description="d")
+    p.add_argument("--base", type=pathlib.Path, required=True, help="b")
+    p.add_argument("--out", type=Path, default="out.json")
+    p.add_argument("--warn", type=int, default=D)
+    a = p.parse_args(argv)
+    print(str(a.base), a.out.name, a.warn, str(a.base.parent))
+    return a.warn
+
+
+parse(["--base", "/tmp/x.txt"])
+parse(["--base", "/a/b.txt", "--out", "/c/d.json", "--warn", "7"])
+""",
 }
 
 
@@ -218,3 +240,15 @@ def test_matches_cpython(tmp_path: Path, name: str) -> None:
 
 def test_harness_uses_this_interpreter() -> None:
     assert ROOT.exists() and sys.executable
+
+
+def test_path_option_without_default_stays_fenced(tmp_path: Path) -> None:
+    source = (
+        "import argparse\nfrom pathlib import Path\n\n"
+        "p = argparse.ArgumentParser()\np.add_argument('--o', type=Path)\n"
+        "a = p.parse_args()\nprint(str(a.o))\n"
+    )
+    path = write_case(tmp_path, "pathopt.py", source)
+    got = run_cli("compile", str(path), "--skip-check", "--emit", "llvm", "-o", str(tmp_path / "x.ll"))
+    assert got.returncode == 3, got.stderr
+    assert "type=Path needs required=True or a str default" in got.stderr

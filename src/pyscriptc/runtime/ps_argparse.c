@@ -149,11 +149,11 @@ static void ps_arg_set(void *out, int64_t offset, int64_t kind, const char *valu
 
 /* parse_args: fill the namespace. The namespace holds one slot per
    registered dest, in registration order. */
-void ps_argparse_parse(PsArgParser *parser, PsSeq *kinds, int64_t help_len, const char *help_text, void *out) {
+static void ps_argparse_parse_from(PsArgParser *parser, PsSeq *kinds, int64_t help_len, const char *help_text,
+                                   PsSeq *argv, void *out) {
     PsSeq *specs = parser->specs;
     PsSeq *kind_seq = kinds;
     int64_t nspecs = ps_seq_len(specs);
-    PsSeq *argv = ps_argv_get();
     int64_t nargv = ps_seq_len(argv);
 
     /* Check for help flag in argv. */
@@ -348,4 +348,30 @@ void ps_argparse_parse(PsArgParser *parser, PsSeq *kinds, int64_t help_len, cons
     }
 
     free(seen);
+}
+
+void ps_argparse_parse(PsArgParser *parser, PsSeq *kinds, int64_t help_len, const char *help_text, void *out) {
+    ps_argparse_parse_from(parser, kinds, help_len, help_text, ps_argv_get(), out);
+}
+
+/* parse_args(list): the given strings replace the process arguments; the
+   program name still comes from argv[0]. */
+void ps_argparse_parse_list(PsArgParser *parser, PsSeq *kinds, int64_t help_len, const char *help_text, PsSeq *args,
+                            void *out) {
+    PsSeq *process = ps_argv_get();
+    PsSeq *argv = ps_seq_new((int64_t)sizeof(PsBuf), 0);
+    if (ps_seq_len(process) > 0) {
+        PsBuf prog;
+        ps_seq_get(process, 0, &prog);
+        ps_seq_push(argv, &prog);
+    } else {
+        PsBuf prog = {0, (char *)""};
+        ps_seq_push(argv, &prog);
+    }
+    for (int64_t i = 0; i < ps_seq_len(args); i++) {
+        PsBuf item;
+        ps_seq_get(args, i, &item);
+        ps_seq_push(argv, &item);
+    }
+    ps_argparse_parse_from(parser, kinds, help_len, help_text, argv, out);
 }
