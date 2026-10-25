@@ -20,6 +20,7 @@ Leaving `ref` empty rehearses the dispatched commit, which has the same title. A
 
 Master is PR-only, so a release is two runs of the `cut-release` workflow (Actions tab, run from master) around a merge.
 
+0. Validate doc cadence: run `uv run python scripts/check_doc_cadence.py` to ensure no per-nightly metric or volatile count is hard-coded into markdown files (see `.agents/docs/doc-cadence.md`).
 1. Rehearse the tip of master (above) and wait for it to pass.
 2. Run `cut-release` with `stage=prepare`, `dry_run` on (the default). It prints the new version, the changelog entry and the bar report (one pass or fail line per check). Entries come from conventional commit subjects since the last stable `v*` tag: `feat` goes to Added, `fix` to Fixed, `!` to Breaking, `chore`, `test` and `style` are left out, merge and `chore(release)` commits are skipped. The dry run is red when the real run would be refused.
 3. Re-run with `dry_run` off. It opens a PR from `release/vX.Y.Z` titled `chore(release): vX.Y.Z` that bumps `pyproject.toml`, runs `uv lock` and prepends the changelog entry. Merge it (squash or rebase) while master is still at the rehearsed commit. If master moved, rehearse the new tip first.
