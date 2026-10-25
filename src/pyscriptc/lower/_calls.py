@@ -207,7 +207,7 @@ class CallsMixin:
         # the signature lookup, because a fenced definition still has a
         # signature but no lowered body to call.
         if name in self.island_fns:
-            return self._island_fn_call(node, span, name)
+            return self._island_fn_call(node, span, name, expect)
         # boxed:end
         if name in self.sigs:
             if name in self.generic_fns:
