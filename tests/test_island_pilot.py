@@ -11,6 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from benchmarks.net.server import BODY, Server
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -325,3 +326,78 @@ if __name__ == "__main__":
     run = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60)
     assert run.returncode == 0, run.stderr
     assert run.stdout.strip() == "1 4"
+
+
+def test_island_top_level_pytest_main_matches_cpython(tmp_path: Path) -> None:
+    """A top-level island call (`pytest.main` under SystemExit) compiles and matches CPython (issue #650).
+
+    Before the fix the boxed top-level probe crashed with `KeyError
+    _ps_imod_1` because `_island_module_handle` bound a hidden local the
+    peek scope never keeps.
+    """
+    test_dir = tmp_path / "tests"
+    test_dir.mkdir()
+    (test_dir / "test_ok.py").write_text(
+        "def test_pass():\n    assert 1 == 1\n\n\ndef test_fail():\n    assert 1 == 2\n",
+        encoding="utf-8",
+    )
+    src = tmp_path / "entry.py"
+    src.write_text(
+        """import pytest
+
+raise SystemExit(pytest.main([r"%s", "-q"]))
+"""
+        % (test_dir / "test_ok.py"),
+        encoding="utf-8",
+    )
+    binary = tmp_path / "entry_bin"
+    comp = _run_cli("compile", "--fallback=cpython", str(src), "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    assert comp.returncode == 0, comp.stderr
+
+    site = Path(pytest.__file__).resolve().parent.parent
+    env = {**os.environ, "PYTHONPATH": str(site)}
+    native = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, env=env)
+    cpython = subprocess.run([sys.executable, str(src)], capture_output=True, text=True, timeout=60, env=env)
+    assert native.returncode == cpython.returncode == 1, (native.stderr, cpython.stderr)
+    assert "1 failed, 1 passed" in native.stdout
+    native_summary = native.stdout.split("===")[-1].strip()
+    assert native_summary.splitlines()[-1] == cpython.stdout.split("===")[-1].strip().splitlines()[-1]
+
+
+def test_island_call_peeked_during_param_pinning_compiles(tmp_path: Path) -> None:
+    """A `with`-pinned island call (ThreadPoolExecutor) no longer KeyErrors the pin pass (issue #643).
+
+    Before the fix the call-site pin pass peeked
+    `ThreadPoolExecutor(max_workers=...)` before any scope had bound the
+    module handle local, and `_island_module_handle` raised
+    `KeyError: '_ps_imod_1'`.
+    """
+    (tmp_path / "pyscriptc.toml").write_text('[imports]\nconcurrent = "island"\n', encoding="utf-8")
+    src = tmp_path / "tpe.py"
+    src.write_text(
+        """import concurrent.futures
+
+
+def map_pool(sessions: list[str]) -> list[str]:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(16, max(1, len(sessions)))) as pool:
+        return list(pool.map(str.upper, sessions))
+
+
+def main() -> None:
+    print(map_pool(["a", "b"]))
+
+
+if __name__ == "__main__":
+    main()
+""",
+        encoding="utf-8",
+    )
+    binary = tmp_path / "tpe_bin"
+    comp = _run_cli("compile", "--fallback=cpython", str(src), "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    assert comp.returncode == 0, comp.stderr
+
+    native = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60)
+    cpython = subprocess.run([sys.executable, str(src)], capture_output=True, text=True, timeout=60)
+    assert native.returncode == 0, native.stderr
+    assert cpython.returncode == 0, cpython.stderr
+    assert native.stdout == cpython.stdout == "['A', 'B']\n"

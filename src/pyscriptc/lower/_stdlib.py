@@ -836,8 +836,21 @@ class StdlibDispatchMixin:
         The import runs once per function scope, in the statement prelude;
         the handle joins `handle_locals`, so the scope-exit free releases it
         like any other island value (issue #553).
+
+        A peek outside a lowering scope (the boxed top-level probe, the
+        call-site pin pass, issues #650 and #643) has nowhere to put the
+        import: the peeked type is all the caller needs, so this returns an
+        isolated handle node instead of raising `KeyError` on the missing
+        hidden local.
         """
+        # boxed:begin
         name = self.island_modules.get(module)
+        if name is None and self.peeking:
+            # The peek (issues #650, #643) runs outside a lowering scope: no
+            # prelude to hold the import, no scope exit to free the handle.
+            # The peeked type is all the caller needs, so return an isolated
+            # handle node instead of binding a hidden local.
+            return {"kind": "name", "name": f"<imod:{module}>", "type": _island_handle(f"{module} module")}
         if name is None:
             name = self._temp("imod").replace(".", "_")
             typ = _island_handle(f"{module} module")
@@ -854,6 +867,7 @@ class StdlibDispatchMixin:
             self._own_handle(name, typ)
             self.island_modules[module] = name
         return _name(name, self.locals[name], span)
+        # boxed:end
 
     def _island_validate_expect(self, node: ast.AST, expect: dict[str, Any]) -> None:
         if expect.get("island"):
