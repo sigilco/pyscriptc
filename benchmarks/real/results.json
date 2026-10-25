@@ -17,20 +17,20 @@
         "--target",
         "aarch64-macos",
         "--output-json",
-        "<scratch>/binary_size/report.json",
+        "<scratch>/report.json",
         "--output-markdown",
-        "<scratch>/binary_size/report.md"
+        "<scratch>/report.md"
       ],
       "binary": {
-        "bytes": 645096,
+        "bytes": 646152,
         "path": "<inputs>/.artifacts/binary_size",
         "requiresLibpython": true
       },
       "binaryStdoutBytes": 0,
       "compile": {
-        "command": "uv run --project ~/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/binary_size <corpus>/fx/scripts/binary_size.py",
+        "command": "uv run --project <repo> pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/binary_size <corpus>/fx/scripts/binary_size.py",
         "exit": 0,
-        "ms": 1911.0525830183178
+        "ms": 2257.2695000562817
       },
       "cwd": "<corpus>/fx/scripts",
       "exitCodes": {
@@ -65,68 +65,240 @@
         "requiresLibpython": true,
         "topLevelFences": 1
       },
+      "port": {
+        "argv": [
+          "--base-binary",
+          "<inputs>/binary_size/base-large.bin",
+          "--head-binary",
+          "<inputs>/binary_size/head-large.bin",
+          "--base-sections",
+          "<inputs>/binary_size/base_sections.txt",
+          "--head-sections",
+          "<inputs>/binary_size/head_sections.txt",
+          "--base-sha",
+          "1111111111111111111111111111111111111111",
+          "--head-sha",
+          "2222222222222222222222222222222222222222",
+          "--target",
+          "aarch64-macos",
+          "--output-json",
+          "<scratch>/port-report.json",
+          "--output-markdown",
+          "<scratch>/port-report.md"
+        ],
+        "binary": {
+          "bytes": 634288,
+          "path": "<inputs>/.artifacts/binary_size_port",
+          "requiresLibpython": false
+        },
+        "compile": {
+          "command": "uv run --project <repo> pyscriptc compile --emit bin -o <inputs>/.artifacts/binary_size_port <repo>/benchmarks/ports/binary_size/port.py",
+          "exit": 0,
+          "ms": 1697.8555000387132
+        },
+        "exitCodes": {
+          "fallback": 0,
+          "native": 0,
+          "python": 0
+        },
+        "note": "The port takes the same argument list as the original, and the three runners share a four and five MiB pair rather than the one and 1.25 MiB pair above: on the small pair the comparison is dominated by CPython's interpreter startup and module imports (35.8 ms against the standalone binary's 3.1 ms), so the larger pair makes the hashing work dominate the native side.",
+        "outputFiles": {
+          "fallback": {
+            "<scratch>/port-report.json": "13bd25a6786ec54f9b03a98d681dff2d0d69a5d89a3516d9a5a92df2c02448ed",
+            "<scratch>/port-report.md": "31dd3c87086fa5ae3d0c2d0a2f28f41087b342f4efd98a1ee7ae9672f2d9c549"
+          },
+          "native": {
+            "<scratch>/port-report.json": "13bd25a6786ec54f9b03a98d681dff2d0d69a5d89a3516d9a5a92df2c02448ed",
+            "<scratch>/port-report.md": "31dd3c87086fa5ae3d0c2d0a2f28f41087b342f4efd98a1ee7ae9672f2d9c549"
+          },
+          "python": {
+            "<scratch>/port-report.json": "13bd25a6786ec54f9b03a98d681dff2d0d69a5d89a3516d9a5a92df2c02448ed",
+            "<scratch>/port-report.md": "31dd3c87086fa5ae3d0c2d0a2f28f41087b342f4efd98a1ee7ae9672f2d9c549"
+          }
+        },
+        "outputMatch": {
+          "fallback": true,
+          "native": true
+        },
+        "plane": {
+          "functionCount": 14,
+          "functions": {
+            "append_delta_table": "native",
+            "artifact_evidence": "native",
+            "build_report": "native",
+            "deltas": "native",
+            "main": "native",
+            "markdown_report": "native",
+            "parse_args": "native",
+            "parse_elf_sections": "native",
+            "parse_macho_sections": "native",
+            "parse_sections": "native",
+            "report_to_json": "native",
+            "sha256_file": "native",
+            "signed_bytes": "native",
+            "sort_delta_items": "native"
+          },
+          "islandFunctions": 0,
+          "islandShare": 0.0,
+          "moduleTopLevel": "native",
+          "nativeFunctions": 14,
+          "nativeShare": 1.0,
+          "requiresLibpython": false,
+          "topLevelFences": 0
+        },
+        "samples": {
+          "fallback": [
+            39.632,
+            38.632,
+            39.192,
+            38.433,
+            38.741,
+            38.946,
+            38.918,
+            39.647,
+            38.666,
+            39.193,
+            38.539,
+            38.838
+          ],
+          "loadavg": [
+            3.1328125,
+            3.1328125,
+            3.1328125,
+            3.1328125,
+            3.1328125,
+            3.1328125,
+            3.1328125,
+            3.1328125,
+            3.1328125,
+            3.1328125,
+            3.1328125,
+            3.1328125
+          ],
+          "native": [
+            11.41,
+            11.008,
+            11.142,
+            10.988,
+            11.202,
+            11.133,
+            11.152,
+            11.079,
+            11.136,
+            11.22,
+            11.136,
+            11.002
+          ],
+          "python": [
+            40.56,
+            40.799,
+            43.391,
+            41.288,
+            41.553,
+            41.428,
+            42.053,
+            40.711,
+            40.956,
+            41.074,
+            40.577,
+            42.299
+          ]
+        },
+        "script": "<repo>/benchmarks/ports/binary_size/port.py",
+        "stats": {
+          "fallback": {
+            "max": 39.64741702657193,
+            "median": 38.877916522324085,
+            "min": 38.4326659841463,
+            "p10": 38.54858281556517,
+            "p90": 39.587766432669014
+          },
+          "fallbackOverPython": 0.9440726925329354,
+          "native": {
+            "max": 11.410458013415337,
+            "median": 11.135770473629236,
+            "min": 10.988499969244003,
+            "p10": 11.002871347591281,
+            "p90": 11.2182333949022
+          },
+          "nativeOverPython": 0.2704099847642622,
+          "python": {
+            "max": 43.39079197961837,
+            "median": 41.18106246460229,
+            "min": 40.560333989560604,
+            "p10": 40.590283274650574,
+            "p90": 42.27396697970107
+          }
+        },
+        "status": "ok",
+        "stdoutBytes": {
+          "fallback": 0,
+          "native": 0,
+          "python": 0
+        }
+      },
       "pythonStdoutBytes": 0,
       "samples": {
         "binary": [
-          36.415,
-          35.262,
-          50.055,
-          35.787,
-          36.242,
-          36.104,
-          36.918,
-          36.152,
-          36.353,
-          35.536,
-          36.251,
-          36.074
+          36.305,
+          36.378,
+          35.459,
+          36.536,
+          35.467,
+          35.533,
+          36.297,
+          35.8,
+          37.868,
+          35.552,
+          35.967,
+          35.169
         ],
         "loadavg": [
-          3.21337890625,
-          3.21337890625,
-          3.21337890625,
-          3.21337890625,
-          3.21337890625,
-          3.21337890625,
-          3.21337890625,
-          3.21337890625,
-          3.21337890625,
-          3.21337890625,
-          3.0361328125,
-          3.0361328125
+          3.1328125,
+          3.1328125,
+          3.1328125,
+          3.1328125,
+          3.1328125,
+          3.1328125,
+          3.1328125,
+          3.1328125,
+          3.1328125,
+          3.1328125,
+          3.1328125,
+          3.1328125
         ],
         "python": [
-          39.079,
-          38.339,
-          38.133,
-          38.095,
-          39.661,
-          39.354,
-          38.851,
-          37.989,
-          37.67,
-          38.436,
-          37.556,
-          38.982
+          37.97,
+          37.819,
+          38.742,
+          37.515,
+          38.088,
+          37.877,
+          38.484,
+          38.757,
+          37.613,
+          37.818,
+          37.901,
+          38.325
         ]
       },
       "script": "<corpus>/fx/scripts/binary_size.py",
       "stats": {
         "binary": {
-          "max": 50.05458300001919,
-          "median": 36.19697905378416,
-          "min": 35.2621249621734,
-          "p10": 35.56136187398806,
-          "p90": 36.86815417604521
+          "max": 37.868250044994056,
+          "median": 35.883333534002304,
+          "min": 35.16850003506988,
+          "p10": 35.45949555700645,
+          "p90": 36.52056675637141
         },
         "python": {
-          "max": 39.661207934841514,
-          "median": 38.38712500873953,
-          "min": 37.55624999757856,
-          "p10": 37.70194527460262,
-          "p90": 39.32631675852463
+          "max": 38.75670908018947,
+          "median": 37.93579200282693,
+          "min": 37.51529101282358,
+          "p10": 37.6335708424449,
+          "p90": 38.71607530163601
         },
-        "ratio": 0.9429458196086125
+        "ratio": 0.9458965172343923
       },
       "status": "ok"
     },
@@ -135,15 +307,15 @@
         "<inputs>/classify/launch-log.txt"
       ],
       "binary": {
-        "bytes": 628680,
+        "bytes": 629736,
         "path": "<inputs>/.artifacts/classify",
         "requiresLibpython": true
       },
-      "binaryStdoutBytes": 1121,
+      "binaryStdoutBytes": 1124,
       "compile": {
-        "command": "uv run --project ~/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/classify <corpus>/wowplay-app/tools/launch-diagnostics/classify.py",
+        "command": "uv run --project <repo> pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/classify <corpus>/wowplay-app/tools/launch-diagnostics/classify.py",
         "exit": 0,
-        "ms": 750.4383749328554
+        "ms": 723.5187080223113
       },
       "cwd": "<corpus>/wowplay-app/tools/launch-diagnostics",
       "exitCodes": {
@@ -169,83 +341,216 @@
         "requiresLibpython": true,
         "topLevelFences": 1
       },
-      "pythonStdoutBytes": 1121,
+      "port": {
+        "argv": [
+          "<inputs>/classify/launch-log-3200.txt"
+        ],
+        "binary": {
+          "bytes": 617152,
+          "path": "<inputs>/.artifacts/classify_port",
+          "requiresLibpython": false
+        },
+        "compile": {
+          "command": "uv run --project <repo> pyscriptc compile --emit bin -o <inputs>/.artifacts/classify_port <repo>/benchmarks/ports/classify/port.py",
+          "exit": 0,
+          "ms": 786.0358749749139
+        },
+        "exitCodes": {
+          "fallback": 0,
+          "native": 0,
+          "python": 0
+        },
+        "note": "The native port raises RuntimeError: regular expression fuel exhausted on the full 4512 line log (divergence 4, 2M steps per search), so the three runners share a 3200 line prefix that keeps every signature and its evidence line. The floor measurement above still uses the full log.",
+        "outputFiles": null,
+        "outputMatch": {
+          "fallback": true,
+          "native": true
+        },
+        "plane": {
+          "functionCount": 5,
+          "functions": {
+            "classify": "native",
+            "find_latest_log": "native",
+            "format_verdict": "native",
+            "get_milestones": "native",
+            "main": "native"
+          },
+          "islandFunctions": 0,
+          "islandShare": 0.0,
+          "moduleTopLevel": "native",
+          "nativeFunctions": 5,
+          "nativeShare": 1.0,
+          "requiresLibpython": false,
+          "topLevelFences": 0
+        },
+        "samples": {
+          "fallback": [
+            44.186,
+            43.849,
+            44.622,
+            43.838,
+            44.256,
+            44.534,
+            43.792,
+            43.948,
+            43.774,
+            44.185,
+            44.185,
+            44.562
+          ],
+          "loadavg": [
+            2.9619140625,
+            2.9619140625,
+            2.9619140625,
+            2.9619140625,
+            2.9619140625,
+            2.9619140625,
+            2.9619140625,
+            2.9619140625,
+            2.9619140625,
+            2.9619140625,
+            2.9619140625,
+            2.9619140625
+          ],
+          "native": [
+            67.848,
+            67.797,
+            69.433,
+            68.145,
+            68.558,
+            68.029,
+            68.339,
+            67.939,
+            67.934,
+            68.211,
+            67.97,
+            67.955
+          ],
+          "python": [
+            46.46,
+            44.637,
+            44.516,
+            45.006,
+            45.136,
+            45.009,
+            44.924,
+            45.285,
+            44.773,
+            44.756,
+            44.929,
+            45.47
+          ]
+        },
+        "script": "<repo>/benchmarks/ports/classify/port.py",
+        "stats": {
+          "fallback": {
+            "max": 44.62162498384714,
+            "median": 44.184937491081655,
+            "min": 43.77408407162875,
+            "p10": 43.79672495415434,
+            "p90": 44.55902440240607
+          },
+          "fallbackOverPython": 0.9825912421682171,
+          "native": {
+            "max": 69.43312508519739,
+            "median": 67.99931253772229,
+            "min": 67.79670796822757,
+            "p10": 67.8568874602206,
+            "p90": 68.53620447218418
+          },
+          "nativeOverPython": 1.5121788728684182,
+          "python": {
+            "max": 46.460459008812904,
+            "median": 44.96777051826939,
+            "min": 44.51649996917695,
+            "p10": 44.648828834760934,
+            "p90": 45.45161253772676
+          }
+        },
+        "status": "ok",
+        "stdoutBytes": {
+          "fallback": 1129,
+          "native": 1129,
+          "python": 1129
+        }
+      },
+      "pythonStdoutBytes": 1124,
       "samples": {
         "binary": [
-          52.096,
-          50.656,
-          52.361,
-          51.412,
-          50.098,
-          51.904,
-          51.297,
-          52.28,
-          52.689,
-          50.517,
-          51.712,
-          53.427
+          46.1,
+          46.415,
+          46.552,
+          46.393,
+          45.803,
+          46.163,
+          46.578,
+          46.035,
+          46.768,
+          46.658,
+          47.523,
+          46.921
         ],
         "loadavg": [
-          3.0361328125,
-          3.0361328125,
-          3.0361328125,
-          3.0361328125,
-          3.0361328125,
-          3.0361328125,
-          3.0361328125,
-          3.0361328125,
-          3.0361328125,
-          3.0361328125,
-          3.0361328125,
-          3.0361328125
+          2.9619140625,
+          2.9619140625,
+          2.9619140625,
+          2.9619140625,
+          2.9619140625,
+          2.9619140625,
+          2.9619140625,
+          2.9619140625,
+          2.9619140625,
+          2.9619140625,
+          2.9619140625,
+          2.9619140625
         ],
         "python": [
-          53.058,
-          52.811,
-          55.022,
-          52.103,
-          53.665,
-          51.976,
-          52.732,
-          53.945,
-          54.635,
-          52.728,
-          52.291,
-          52.267
+          47.482,
+          46.9,
+          47.472,
+          47.894,
+          46.702,
+          47.524,
+          47.408,
+          47.734,
+          46.98,
+          47.738,
+          47.458,
+          47.633
         ]
       },
       "script": "<corpus>/wowplay-app/tools/launch-diagnostics/classify.py",
       "stats": {
         "binary": {
-          "max": 53.42691601254046,
-          "median": 51.80824996205047,
-          "min": 50.0975000904873,
-          "p10": 50.53119580261409,
-          "p90": 52.65590773196891
+          "max": 47.52324998844415,
+          "median": 46.48333304794505,
+          "min": 45.802665990777314,
+          "p10": 46.04105830658227,
+          "p90": 46.905667311511934
         },
         "python": {
-          "max": 55.022249929606915,
-          "median": 52.771499496884644,
-          "min": 51.976125105284154,
-          "p10": 52.11953723337501,
-          "p90": 54.56559965386987
+          "max": 47.89404105395079,
+          "median": 47.476874955464154,
+          "min": 46.70183302368969,
+          "p10": 46.90805784193799,
+          "p90": 47.73753364570439
         },
-        "ratio": 0.9817467848361777
+        "ratio": 0.9790731401666369
       },
       "status": "ok"
     },
     {
       "argv": [],
       "binary": {
-        "bytes": 644528,
+        "bytes": 645968,
         "path": "<inputs>/.artifacts/tool_token_analysis",
         "requiresLibpython": true
       },
       "binaryStdoutBytes": 17882,
       "compile": {
-        "command": "uv run --project ~/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/tool_token_analysis <corpus>/maki/scripts/tool_token_analysis.py",
+        "command": "uv run --project <repo> pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/tool_token_analysis <corpus>/maki/scripts/tool_token_analysis.py",
         "exit": 0,
-        "ms": 1018.785291002132
+        "ms": 950.0177499139681
       },
       "cwd": "<corpus>/maki/scripts",
       "exitCodes": {
@@ -288,65 +593,65 @@
       "pythonStdoutBytes": 17882,
       "samples": {
         "binary": [
-          28.927,
-          29.295,
-          30.341,
-          29.871,
-          30.651,
-          29.508,
-          29.66,
-          30.913,
-          29.626,
-          30.203,
-          30.502,
-          29.574
+          27.981,
+          28.587,
+          29.638,
+          28.539,
+          28.656,
+          28.502,
+          32.095,
+          38.445,
+          28.337,
+          29.127,
+          28.384,
+          27.924
         ],
         "loadavg": [
-          3.0361328125,
-          3.0361328125,
-          3.0361328125,
-          3.0361328125,
-          3.0361328125,
-          3.0361328125,
-          3.0361328125,
-          3.0361328125,
-          3.0361328125,
-          3.0361328125,
-          3.0361328125,
-          3.0361328125
+          3.044921875,
+          3.044921875,
+          3.044921875,
+          3.044921875,
+          3.044921875,
+          3.044921875,
+          3.044921875,
+          3.044921875,
+          3.044921875,
+          3.044921875,
+          3.044921875,
+          3.044921875
         ],
         "python": [
-          29.986,
-          30.173,
-          30.986,
-          30.026,
-          30.963,
-          32.017,
-          31.434,
-          31.831,
-          31.219,
-          31.124,
-          32.415,
-          30.617
+          29.373,
+          28.891,
+          30.182,
+          29.486,
+          29.264,
+          29.206,
+          32.36,
+          32.183,
+          30.33,
+          29.459,
+          29.372,
+          29.059
         ]
       },
       "script": "<corpus>/maki/scripts/tool_token_analysis.py",
       "stats": {
         "binary": {
-          "max": 30.912874964997172,
-          "median": 29.76543747354299,
-          "min": 28.926749946549535,
-          "p10": 29.316528548952192,
-          "p90": 30.636062484700233
+          "max": 38.44533406663686,
+          "median": 28.562729014083743,
+          "min": 27.924374910071492,
+          "p10": 28.01639996469021,
+          "p90": 31.849683402106166
         },
         "python": {
-          "max": 32.41520805750042,
-          "median": 31.055187457241118,
-          "min": 29.986208071932197,
-          "p10": 30.041104496922344,
-          "p90": 31.99858746957034
+          "max": 32.359665958210826,
+          "median": 29.415937489829957,
+          "min": 28.891291934996843,
+          "p10": 29.07339222729206,
+          "p90": 31.998029083479196
         },
-        "ratio": 0.9584690968143745
+        "ratio": 0.9709950268951586
       },
       "status": "ok"
     },
@@ -355,15 +660,15 @@
         "beta"
       ],
       "binary": {
-        "bytes": 628696,
+        "bytes": 629752,
         "path": "<inputs>/.artifacts/check_deploy_secrets",
         "requiresLibpython": true
       },
       "binaryStdoutBytes": 0,
       "compile": {
-        "command": "uv run --project ~/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/check_deploy_secrets <corpus>/brioso/scripts/check-deploy-secrets.py",
+        "command": "uv run --project <repo> pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/check_deploy_secrets <corpus>/brioso/scripts/check-deploy-secrets.py",
         "exit": 0,
-        "ms": 786.8864160263911
+        "ms": 880.2740409737453
       },
       "cwd": "<corpus>/brioso/scripts",
       "exitCodes": {
@@ -390,80 +695,80 @@
       "pythonStdoutBytes": 0,
       "samples": {
         "binary": [
-          30.528,
-          28.024,
-          27.552,
-          28.273,
-          27.952,
-          27.3,
-          27.77,
-          27.948,
-          27.39,
-          28.109,
-          27.924,
-          27.659
+          27.582,
+          28.69,
+          27.405,
+          27.381,
+          28.599,
+          28.459,
+          27.598,
+          27.979,
+          27.321,
+          28.011,
+          45.937,
+          31.193
         ],
         "loadavg": [
-          3.193359375,
-          3.193359375,
-          3.193359375,
-          3.193359375,
-          3.193359375,
-          3.193359375,
-          3.193359375,
-          3.193359375,
-          3.193359375,
-          3.193359375,
-          3.193359375,
-          3.193359375
+          3.044921875,
+          3.044921875,
+          3.044921875,
+          3.044921875,
+          3.044921875,
+          3.044921875,
+          3.044921875,
+          3.044921875,
+          3.044921875,
+          3.044921875,
+          3.044921875,
+          3.044921875
         ],
         "python": [
-          30.52,
-          30.152,
-          29.623,
-          29.413,
-          29.705,
-          29.003,
-          29.008,
-          30.177,
-          28.929,
-          29.475,
-          28.976,
-          28.686
+          28.497,
+          31.368,
+          29.895,
+          29.295,
+          29.241,
+          29.266,
+          29.851,
+          29.383,
+          29.211,
+          28.642,
+          29.041,
+          31.442
         ]
       },
       "script": "<corpus>/brioso/scripts/check-deploy-secrets.py",
       "stats": {
         "binary": {
-          "max": 30.52758309058845,
-          "median": 27.93612447567284,
-          "min": 27.299792040139437,
-          "p10": 27.406183967832476,
-          "p90": 28.256228496320546
+          "max": 45.93687504529953,
+          "median": 27.995229000225663,
+          "min": 27.321457979269326,
+          "p10": 27.38302469952032,
+          "p90": 30.942820862401277
         },
         "python": {
-          "max": 30.52024997305125,
-          "median": 29.443645500577986,
-          "min": 28.68637500796467,
-          "p10": 28.933454165235162,
-          "p90": 30.1743253483437
+          "max": 31.441583996638656,
+          "median": 29.280375048983842,
+          "min": 28.497291961684823,
+          "p10": 28.682025289162993,
+          "p90": 31.220670556649566
         },
-        "ratio": 0.9487997834753324
+        "ratio": 0.9561089621766037
       },
       "status": "ok"
     },
     {
       "argv": [],
       "binary": {
-        "bytes": 628728,
+        "bytes": 629784,
         "path": "<inputs>/.artifacts/split",
         "requiresLibpython": true
       },
       "binaryStdoutBytes": 0,
       "compile": {
-        "command": "uv run --project ~/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/split <corpus>/HTLM/data/pipeline/split.py",
+        "command": "uv run --project <repo> pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/split <corpus>/HTLM/data/pipeline/split.py",
         "exit": 0,
-        "ms": 788.2213749689981
+        "ms": 784.5002089161426
       },
       "cwd": "<corpus>/HTLM",
       "exitCodes": {
@@ -494,80 +799,80 @@
       "pythonStdoutBytes": 0,
       "samples": {
         "binary": [
-          34.547,
-          34.738,
-          35.138,
-          34.835,
-          36.074,
-          35.549,
-          35.625,
-          36.403,
-          35.383,
-          35.466,
-          34.195,
-          36.376
+          35.308,
+          34.521,
+          34.542,
+          34.519,
+          35.209,
+          34.596,
+          35.135,
+          34.703,
+          34.384,
+          35.638,
+          34.918,
+          36.537
         ],
         "loadavg": [
-          3.193359375,
-          3.193359375,
-          3.193359375,
-          3.193359375,
-          3.193359375,
-          3.193359375,
-          3.193359375,
-          3.193359375,
-          3.193359375,
-          3.193359375,
-          3.193359375,
-          3.193359375
+          3.044921875,
+          3.044921875,
+          3.044921875,
+          3.044921875,
+          3.28125,
+          3.28125,
+          3.28125,
+          3.28125,
+          3.28125,
+          3.28125,
+          3.28125,
+          3.28125
         ],
         "python": [
-          36.856,
-          37.423,
-          36.354,
-          37.859,
-          36.805,
-          38.866,
-          37.63,
-          39.474,
-          37.364,
-          38.401,
-          37.412,
-          36.988
+          37.831,
+          36.523,
+          36.912,
+          36.77,
+          36.627,
+          36.972,
+          36.453,
+          37.345,
+          36.412,
+          37.453,
+          36.692,
+          38.254
         ]
       },
       "script": "<corpus>/HTLM/data/pipeline/split.py",
       "stats": {
         "binary": {
-          "max": 36.40250000171363,
-          "median": 35.424583475105464,
-          "min": 34.19479203876108,
-          "p10": 34.56608809065074,
-          "p90": 36.34587494889274
+          "max": 36.53658297844231,
+          "median": 34.81056244345382,
+          "min": 34.38374993856996,
+          "p10": 34.518816706258804,
+          "p90": 35.60474164551124
         },
         "python": {
-          "max": 39.47449999395758,
-          "median": 37.41768695181236,
-          "min": 36.35387495160103,
-          "p10": 36.81039171060547,
-          "p90": 38.81966243498027
+          "max": 38.25391596183181,
+          "median": 36.84129152679816,
+          "min": 36.4118330180645,
+          "p10": 36.46022949833423,
+          "p90": 37.79317976441234
         },
-        "ratio": 0.9467336535453496
+        "ratio": 0.9448789931301078
       },
       "status": "ok"
     },
     {
       "argv": [],
       "binary": {
-        "bytes": 628688,
+        "bytes": 629744,
         "path": "<inputs>/.artifacts/parse_tickets",
         "requiresLibpython": true
       },
       "binaryStdoutBytes": 0,
       "compile": {
-        "command": "uv run --project ~/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/parse_tickets <corpus>/tinyharness/practice/parse_tickets.py",
+        "command": "uv run --project <repo> pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/parse_tickets <corpus>/tinyharness/practice/parse_tickets.py",
         "exit": 0,
-        "ms": 745.0592080131173
+        "ms": 732.3788750218228
       },
       "cwd": "<corpus>/tinyharness/practice",
       "exitCodes": {
@@ -596,80 +901,80 @@
       "pythonStdoutBytes": 0,
       "samples": {
         "binary": [
-          19.814,
-          20.019,
-          20.684,
-          21.014,
-          21.342,
-          22.117,
-          21.487,
-          21.498,
-          21.365,
-          22.889,
-          23.192,
-          22.559
+          20.272,
+          20.173,
+          19.856,
+          20.513,
+          19.842,
+          19.803,
+          20.211,
+          19.827,
+          19.478,
+          20.174,
+          19.911,
+          20.058
         ],
         "loadavg": [
-          3.193359375,
-          3.193359375,
-          3.193359375,
-          3.193359375,
-          3.193359375,
-          3.193359375,
-          3.193359375,
-          3.193359375,
-          3.193359375,
-          3.09765625,
-          3.09765625,
-          3.09765625
+          3.28125,
+          3.28125,
+          3.28125,
+          3.28125,
+          3.28125,
+          3.28125,
+          3.28125,
+          3.28125,
+          3.28125,
+          3.28125,
+          3.28125,
+          3.28125
         ],
         "python": [
-          30.223,
-          30.737,
-          32.33,
-          33.476,
-          32.663,
-          33.225,
-          32.544,
-          32.775,
-          32.413,
-          33.968,
-          35.896,
-          34.581
+          30.673,
+          30.971,
+          30.59,
+          31.199,
+          31.28,
+          30.5,
+          30.696,
+          30.938,
+          30.196,
+          30.249,
+          30.348,
+          30.17
         ]
       },
       "script": "<corpus>/tinyharness/practice/parse_tickets.py",
       "stats": {
         "binary": {
-          "max": 23.19224993698299,
-          "median": 21.42610406735912,
-          "min": 19.813708029687405,
-          "p10": 20.085154590196908,
-          "p90": 22.855846083257347
+          "max": 20.513041992671788,
+          "median": 19.984229002147913,
+          "min": 19.477541092783213,
+          "p10": 19.80497115291655,
+          "p90": 20.26606274303049
         },
         "python": {
-          "max": 35.896459012292325,
-          "median": 32.71931246854365,
-          "min": 30.22270801011473,
-          "p10": 30.896354466676712,
-          "p90": 34.520037146285176
+          "max": 31.279625021852553,
+          "median": 30.63116705743596,
+          "min": 30.169792007654905,
+          "p10": 30.200920824427158,
+          "p90": 31.17602859856561
         },
-        "ratio": 0.6548457913948583
+        "ratio": 0.6524148741925451
       },
       "status": "ok"
     },
     {
       "argv": [],
       "binary": {
-        "bytes": 628680,
+        "bytes": 629736,
         "path": "<inputs>/.artifacts/caveman_cli",
         "requiresLibpython": true
       },
       "binaryStdoutBytes": 0,
       "compile": {
-        "command": "uv run --project ~/.worktrees/pyscriptc-bench8 pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/caveman_cli <corpus>/agentplugins-caveman/skills/caveman-compress/scripts/cli.py",
+        "command": "uv run --project <repo> pyscriptc compile --fallback=cpython --emit bin -o <inputs>/.artifacts/caveman_cli <corpus>/agentplugins-caveman/skills/caveman-compress/scripts/cli.py",
         "exit": 0,
-        "ms": 815.682000014931
+        "ms": 734.9354170728475
       },
       "cwd": "<corpus>/agentplugins-caveman/skills/caveman-compress/scripts",
       "exitCodes": {
@@ -697,65 +1002,65 @@
       "pythonStdoutBytes": 0,
       "samples": {
         "binary": [
-          19.44,
-          19.861,
-          19.395,
-          20.284,
-          20.02,
-          19.366,
-          19.599,
-          20.106,
-          20.243,
-          19.667,
-          20.641,
-          20.69
+          19.576,
+          19.629,
+          20.13,
+          20.235,
+          20.245,
+          20.026,
+          19.898,
+          19.837,
+          19.902,
+          19.954,
+          19.556,
+          19.564
         ],
         "loadavg": [
-          3.09765625,
-          3.09765625,
-          3.09765625,
-          3.09765625,
-          3.09765625,
-          3.09765625,
-          3.09765625,
-          3.09765625,
-          3.09765625,
-          3.09765625,
-          3.09765625,
-          3.09765625
+          3.28125,
+          3.28125,
+          3.28125,
+          3.28125,
+          3.28125,
+          3.28125,
+          3.28125,
+          3.28125,
+          3.28125,
+          3.28125,
+          3.28125,
+          3.28125
         ],
         "python": [
-          29.697,
-          30.373,
-          30.763,
-          32.767,
-          32.005,
-          30.755,
-          30.259,
-          31.015,
-          31.388,
-          30.06,
-          30.592,
-          30.933
+          30.341,
+          30.042,
+          31.163,
+          30.417,
+          30.244,
+          30.65,
+          31.092,
+          29.975,
+          30.28,
+          30.291,
+          30.526,
+          30.081
         ]
       },
       "script": "<corpus>/agentplugins-caveman/skills/caveman-compress/scripts/cli.py",
       "stats": {
         "binary": {
-          "max": 20.689916098490357,
-          "median": 19.940479018259794,
-          "min": 19.365750020369887,
-          "p10": 19.399858661927283,
-          "p90": 20.605191681534052
+          "max": 20.24529199115932,
+          "median": 19.899853970855474,
+          "min": 19.55550001002848,
+          "p10": 19.565608887933195,
+          "p90": 20.224537886679173
         },
         "python": {
-          "max": 32.76729199569672,
-          "median": 30.759000510443002,
-          "min": 29.696500045247376,
-          "p10": 30.079571169335395,
-          "p90": 31.942962564062327
+          "max": 31.162708066403866,
+          "median": 30.315978976432234,
+          "min": 29.97529204003513,
+          "p10": 30.045712552964687,
+          "p90": 31.047537515405566
         },
-        "ratio": 0.648281110808194
+        "ratio": 0.6564146909563997
       },
       "status": "ok"
     },
@@ -766,14 +1071,14 @@
       "status": "skipped"
     }
   ],
-  "commit": "ecb4e18d",
+  "commit": "49608e0e",
   "corpus": "~/Documents/prjcts/_own",
   "machine": {
     "cpuCount": 8,
     "loadavgStart": [
-      3.21337890625,
-      3.02734375,
-      3.03857421875
+      3.14453125,
+      3.74169921875,
+      3.68212890625
     ],
     "machine": "arm64",
     "platform": "macOS-26.6.2-arm64-arm-64bit-Mach-O"

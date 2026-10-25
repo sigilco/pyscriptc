@@ -18,7 +18,23 @@
         "--output-json", "{scratch}/report.json",
         "--output-markdown", "{scratch}/report.md"
       ],
-      "note": "Hashes two binaries and parses two Mach-O section reports; 100 percent island."
+      "note": "Hashes two binaries and parses two Mach-O section reports; 100 percent island.",
+      "port": {
+        "script": "{repo}/benchmarks/ports/binary_size/port.py",
+        "argv": [
+          "--base-binary", "{inputs}/binary_size/base-large.bin",
+          "--head-binary", "{inputs}/binary_size/head-large.bin",
+          "--base-sections", "{inputs}/binary_size/base_sections.txt",
+          "--head-sections", "{inputs}/binary_size/head_sections.txt",
+          "--base-sha", "1111111111111111111111111111111111111111",
+          "--head-sha", "2222222222222222222222222222222222222222",
+          "--target", "aarch64-macos",
+          "--output-json", "{scratch}/port-report.json",
+          "--output-markdown", "{scratch}/port-report.md"
+        ],
+        "compare": ["{scratch}/port-report.json", "{scratch}/port-report.md"],
+        "note": "The port takes the same argument list as the original, and the three runners share a four and five MiB pair rather than the one and 1.25 MiB pair above: on the small pair the comparison is dominated by CPython's interpreter startup and module imports (35.8 ms against the standalone binary's 3.1 ms), so the larger pair makes the hashing work dominate the native side."
+      }
     },
     {
       "name": "classify",
@@ -26,7 +42,12 @@
       "cwd": "{corpus}/wowplay-app/tools/launch-diagnostics",
       "kind": "workload",
       "argv": ["{inputs}/classify/launch-log.txt"],
-      "note": "Regex scan of a 4500 line Wine launch log; 100 percent island."
+      "note": "Regex scan of a 4500 line Wine launch log; 100 percent island.",
+      "port": {
+        "script": "{repo}/benchmarks/ports/classify/port.py",
+        "argv": ["{inputs}/classify/launch-log-3200.txt"],
+        "note": "The native port raises RuntimeError: regular expression fuel exhausted on the full 4512 line log (divergence 4, 2M steps per search), so the three runners share a 3200 line prefix that keeps every signature and its evidence line. The floor measurement above still uses the full log."
+      }
     },
     {
       "name": "tool_token_analysis",

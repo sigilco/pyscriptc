@@ -57,13 +57,32 @@ The two 0.65 ratios are startup, not speed. `parse_tickets` is an unfinished dri
 
 An island call does marshal its arguments and return value, but none of these scripts call enough island functions often enough for that cost to surface above the 14 ms floor. That is the honest limit of this data set: it measures the island floor as a way to run unmodified scripts, and it does not measure the island as a hot path.
 
+## Native ports: the first native gain on real code
+
+`benchmarks/ports/` landed as #633, so `cases.json` now carries a `port` block for `binary_size` and `classify`, and `results.json` was regenerated on 2026-10-25 in `~/.worktrees/pyscriptc-portbench` at commit `49608e0e` with the shared machine at a 1 minute load average of 3.0 to 3.3 for every sample. Each block compiles the port with `pyscriptc compile --emit bin` and no `--fallback`, then interleaves three runners on one fixed argument list, 2 warmups and 12 samples: `python3` on the original, the `--fallback=cpython` binary on the original, and the native binary on the port.
+
+| Case | Native share | Input | CPython median [p10, p90] | Fallback median [p10, p90] | Native port median [p10, p90] | Port / CPython | Fallback / CPython | Port compile s | Port binary KiB |
+|---|---|---|---|---|---|---|---|---|---|
+| `binary_size` | 14 / 14 (100%) | 4 MiB + 5 MiB | 41.2 [40.6, 42.3] | 38.9 [38.5, 39.6] | 11.1 [11.0, 11.2] | 0.27 | 0.94 | 1.70 | 619 |
+| `classify` | 5 / 5 (100%) | 3200 line prefix | 45.0 [44.6, 45.5] | 44.2 [43.8, 44.6] | 68.0 [67.9, 68.5] | 1.51 | 0.98 | 0.79 | 603 |
+
+The two ratios say different things, and neither is a compute speedup. `binary_size` is 3.7 times faster end to end on the workload pair, and almost all of that is interpreter boot: with 1 KiB inputs, so no hashing to speak of, the same two commands cost CPython 35.8 ms [35.5, 36.3] and the native binary 3.8 ms [3.7, 4.0] (12 interleaved samples after 2 warmups, load 3.2), which is the fixed cost of `python3` plus the script's `argparse`, `hashlib`, `json`, `re`, `dataclasses` and `pathlib` imports. Subtracting it, hashing 9.4 MiB costs 7.3 ms natively and 5.4 ms under CPython, so the hashing work is about 35 percent slower natively and the win is entirely the 32 ms of boot the standalone binary does not pay, which is also why the artifact reports `requiresLibpython: false`. On the original one and 1.25 MiB pair the same port runs in 5.1 ms against CPython's 37.4 ms (0.14) in a scratch run of 9 samples, a number that measures boot and nothing else, which is why the port block uses the larger pair.
+
+`classify` is 1.51 times slower than CPython and it is workload, not startup: subtracting the same fixed cost, the run spends 64.2 ms natively against 9.2 ms under CPython on the identical 235 KiB log. The ported Python is 5 of 5 native, and a scratch probe that runs only the six whole-text searches and four per-line scans of the port takes 42.6 ms under CPython and 68.5 ms in the native binary on the same log (12 samples, load 5.9), which is the whole native time of the port, so the gap is the runtime's regex engine, the byte-oriented backtracking subset of [divergence 4](../../docs/reference/divergences.md), not the lowering or the string building around it. The same engine caps the input: the port raises `RuntimeError: regular expression fuel exhausted` (2 million steps per search) on the full 4512 line log and survives a 3800 line prefix but not a 4100 line one, a boundary that depends on the content, so the three runners use the committed 3200 line prefix that still contains every signature and its evidence line.
+
+The ports differ from the originals in the typed ways recorded in `.agents/notes/2026-10-25-port-deltas.md`: explicit annotations on module constants, dataclasses in place of dict schemas, positional calls, `type=str` in `argparse`, single-buffer `sha256`, and no `__file__` repository discovery. Those rewrites are what takes the plane map from 0 percent to 100 percent native, and they also mean this measures the port against the original, not one source file compiled two ways. Output agreement was checked: stdout and exit status for both cases, plus the written `report.json` and `report.md` for `binary_size`, which the harness re-runs once per runner and hashes.
+
+The floor rows above were regenerated in the same run at the same load and sit within 10 percent of the earlier table (`classify` falls from 52.8 to 47.5 ms, the rest by 5 percent or less), so read cross-run differences of that size as drift and compare rows within one run.
+
 ## Compile time and artifacts
 
 Compile wall time is 0.75 to 1.02 s per script with a warm runtime cache, and 1.91 s for `binary_size`, which is also the module with the most planner work and the longest checker output; this is the single invocation cost, not a per run cost. Binary size is 614 KiB for the one function scripts and 630 KiB for the twelve function `binary_size`, so the per definition cost is small next to the runtime and libpython linkage.
 
 ## Not measured
 
-`benchmarks/ports/` does not exist on master and PR #633 (`feat(ports): native ports of real sibling scripts and delta receipts`) is still open, so the original against port against CPython comparison is not in this report; it can be added to `cases.json` once that lands.
+Only two of the eight scripts have a native port, so six cases still have no native comparison; porting the remaining six is the work that would extend this table, and `validate` stays out of the timed set for the reason above.
+
+The `classify` comparison cannot use the full log until the regex engine's fuel limit is lifted or its backtracking is made linear, and the 3200 line prefix is the honest stand-in for now.
 
 `validate.py` is out of the timed set for the reason above, and its earlier full run in step 1 is the only evidence for it.
 
