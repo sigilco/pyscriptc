@@ -57,10 +57,16 @@ def plane_map(
     """
 
     fenced: set[str] = set()
+    top_import_fences = 0
     for fence in fences:
         owner = fence.get("function") or fence.get("definition")
         if owner is not None:
             fenced.add(owner)
+        elif fence.get("code") in ("PS2001", "PS2002"):
+            top_import_fences += 1
+
+    if not top_level_island and top_import_fences > 0:
+        top_level_island = True
     planes = {}
     for record in functions:
         name = record["name"] if isinstance(record, dict) else str(record)

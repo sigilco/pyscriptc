@@ -740,6 +740,7 @@ def _handle_run_report(report_target: Any, binary: Path, source_path: Path) -> N
             requires_lp = bool(
                 mod.get("islandSource")
                 or (plane_map and any(p == _boxed.ISLAND for p in plane_map.get("functions", {}).values()))
+                or (plane_map and plane_map.get("moduleTopLevel") == _boxed.ISLAND)
                 or config.island_imports()
             )
         else:
@@ -1676,6 +1677,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         requires_lp = bool(
             module.get("islandSource")
             or (fallback_map and any(p == _boxed.ISLAND for p in fallback_map.get("functions", {}).values()))
+            or (fallback_map and fallback_map.get("moduleTopLevel") == _boxed.ISLAND)
             or config.island_imports()
         )
         report_data = {
