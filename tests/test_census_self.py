@@ -281,7 +281,7 @@ def test_self_census_ballpark() -> None:
     # boxed.py (embed_link_flags and its helpers) plus the boxed-marked call
     # in emit/llvm/_driver.py.
     # embed.py (#657, the pinned CPython runtime pack) adds 1 module, about
-    # 470 lines and 96 self-host fences, taking the source past 50k.
+    # 470 lines and 99 self-host fences, taking the source past 50k.
     assert 11_000 <= census["lines"] <= 51_000
-    assert census["fences"] == 3133
-    assert sum(p["fences"] for p in census["packages"]) == 3133
+    assert census["fences"] == 3136
+    assert sum(p["fences"] for p in census["packages"]) == 3136
