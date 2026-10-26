@@ -182,8 +182,9 @@ class Config:
             if value is not None:
                 from pyscriptc.embed import MODES
 
+                table = "pyscriptc.island" if self.source == "pyscriptc.toml" else "tool.pyscriptc.island"
                 if value not in MODES:
-                    raise ConfigError(f"[tool.pyscriptc.island].embed must be one of {'|'.join(MODES)}, got {value!r}")
+                    raise ConfigError(f"{table}.embed must be one of {'|'.join(MODES)}, got {value!r}")
                 return str(value)
         return None
 

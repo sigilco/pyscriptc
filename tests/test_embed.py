@@ -251,3 +251,45 @@ def test_bundle_runs_without_system_python(tmp_path: Path) -> None:
     )
     assert run.returncode == 0, run.stderr
     assert run.stdout == "11/12\n"
+
+
+def test_run_refuses_bundle_mode(tmp_path: Path) -> None:
+    src = tmp_path / "p.py"
+    src.write_text("print(1)\n", encoding="utf-8")
+    done = subprocess.run(
+        [sys.executable, "-m", "pyscriptc", "run", "--embed-python=bundle", str(src)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert done.returncode == 1
+    assert "run cache" in done.stderr
+
+
+def test_config_island_embed_key(tmp_path: Path) -> None:
+    from pyscriptc.config import ConfigError, load_config
+
+    (tmp_path / "pyscriptc.toml").write_text('[pyscriptc.island]\nembed = "bundle"\n', encoding="utf-8")
+    config = load_config(tmp_path)
+    assert config.island_embed() == "bundle"
+    (tmp_path / "pyscriptc.toml").write_text('[pyscriptc.island]\nembed = "static"\n', encoding="utf-8")
+    with pytest.raises(ConfigError, match="embed"):
+        load_config(tmp_path).island_embed()
+    (tmp_path / "pyscriptc.toml").unlink()
+    (tmp_path / "pyproject.toml").write_text('[tool.pyscriptc.island]\nembed = "host"\n', encoding="utf-8")
+    assert load_config(tmp_path).island_embed() == "host"
+
+
+def test_flag_wins_over_config(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    from pyscriptc.config import apply_to_args, load_config
+
+    (tmp_path / "pyscriptc.toml").write_text('[pyscriptc.island]\nembed = "bundle"\n', encoding="utf-8")
+    args = SimpleNamespace(embed_python="host")
+    apply_to_args(load_config(tmp_path), args)
+    assert args.embed_python == "host"
+    args = SimpleNamespace(embed_python=None)
+    apply_to_args(load_config(tmp_path), args)
+    assert args.embed_python == "bundle"

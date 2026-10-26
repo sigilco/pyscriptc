@@ -362,6 +362,13 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="alias of --fallback=cpython",
     )
+    run_parser.add_argument(
+        "--embed-python",
+        choices=("host", "bundle", "auto"),
+        default=None,
+        metavar="MODE",
+        help="libpython the island links (see compile); the run cache keys on it",
+    )
     # boxed:end
     # boxed:begin
     run_parser.add_argument(
@@ -703,6 +710,16 @@ def run_cmd(args: argparse.Namespace) -> int:
     """`pyscriptc run FILE [-- args]`: compile once per content hash, then run the cached binary."""
     started = time.monotonic()
     _apply_env_defaults(args)
+    # boxed:begin
+    # A bundle link writes a directory (`name/bin/name` plus `name/lib/`), not
+    # a single file, so it does not fit the run cache's one-binary-per-key
+    # shape. The compile command is the way to make a bundle.
+    if getattr(args, "embed_python", None) == "bundle":
+        raise IRError(
+            "--embed-python=bundle writes a relocatable directory and does not fit the run cache; "
+            "use `pyscriptc compile --embed-python=bundle -o OUT/name` and run OUT/name/bin/name"
+        )
+    # boxed:end
     source = Path(args.source)
     if not source.exists():
         raise IRError(f"source not found: {source}")
@@ -847,6 +864,7 @@ def _run_key(args: argparse.Namespace) -> str:
             # boxed:begin
             f"fallback={getattr(args, 'fallback', None)}",
             f"island={getattr(args, 'island', False)}",
+            f"embed_python={getattr(args, 'embed_python', None)}",
             # boxed:end
         ],
     )
@@ -897,6 +915,7 @@ def _build_for_run(args: argparse.Namespace, output: Path) -> int:
         # boxed:begin
         fallback=getattr(args, "fallback", None),
         island=getattr(args, "island", False),
+        embed_python=getattr(args, "embed_python", None),
         # boxed:end
         driver=args.driver,
         target=args.target,
