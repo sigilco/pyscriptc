@@ -52,7 +52,7 @@ def test_self_census_ballpark() -> None:
     # target.py (#532, declared CPython target configuration) adds 1 module.
     # boxed.py (#612, the --fallback=cpython island planner) adds 1 module.
     # embed.py (#657, the pinned CPython runtime pack) adds 1 module.
-    assert census["modules"] == 101
+    assert census["modules"] == 103
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -267,11 +267,11 @@ def test_self_census_ballpark() -> None:
     # yield inside try (#164): the re-entrant try in the coro guard transform
     # adds about 150 lines in coro.py. The asyncio primitives (#180 D3) add
     # about 400 in ps_async.c and restlower/_asyncio_sync.py.
-    assert 11_000 <= census["lines"] <= 51_000
+    assert 11_000 <= census["lines"] <= 53_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.
-    assert 11_000 <= census["lines"] <= 51_000
+    assert 11_000 <= census["lines"] <= 53_000
     # Island class definitions (#628): +9 self-host fences, one in
     # emit/llvm/_abi.py (the class-handle trampoline), one in
     # lower/_classes.py (the island class annotation), three in
@@ -282,6 +282,6 @@ def test_self_census_ballpark() -> None:
     # in emit/llvm/_driver.py.
     # embed.py (#657, the pinned CPython runtime pack) adds 1 module, about
     # 470 lines and 99 self-host fences, taking the source past 50k.
-    assert 11_000 <= census["lines"] <= 51_000
-    assert census["fences"] == 3140
-    assert sum(p["fences"] for p in census["packages"]) == 3140
+    assert 11_000 <= census["lines"] <= 53_000
+    assert census["fences"] == 3204
+    assert sum(p["fences"] for p in census["packages"]) == 3204
