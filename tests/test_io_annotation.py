@@ -87,17 +87,17 @@ def test_io_annotation_fences(tmp_path: Path) -> None:
         (
             "bare.py",
             "from typing import IO\n\ndef read(handle: IO) -> str:\n    return handle.read()\n",
-            "IO is not a value type in the IR",
+            "IO is not a lowered type in the IR",
         ),
         (
             "any.py",
             "from typing import IO, Any\n\ndef read(handle: IO[Any]) -> str:\n    return handle.read()\n",
-            "IO is not a value type in the IR",
+            "IO is not a lowered type in the IR",
         ),
         (
             "other.py",
             "from typing import IO\n\ndef read(handle: IO[int]) -> str:\n    return handle.read()\n",
-            "IO is not a value type in the IR",
+            "IO is not a lowered type in the IR",
         ),
     ]
     for name, source, text in cases:

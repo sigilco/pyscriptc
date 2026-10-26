@@ -108,8 +108,9 @@ _ENTRIES = (
         "PS1104",
         "dynamic or structural annotation",
         (
-            "object, Any, Protocol, TypeVar, Generic, Callable and ABC bases describe "
-            "types the subset cannot represent natively."
+            "object, Any, Protocol, TypeVar, Generic, Callable and ABC bases name "
+            "dynamic shapes the IR has no slot for. Typing names are annotation-only: "
+            "they steer the lowering, they are never runtime values."
         ),
         "Annotate with the concrete type the function really takes.",
     ),

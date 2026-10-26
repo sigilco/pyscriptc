@@ -429,7 +429,7 @@ def _stdlib_verdict(name: str) -> dict[str, Any] | None:
             name,
             KIND_STDLIB,
             LANE_NATIVE,
-            "annotation-only module; the checker keeps it and the lowering erases it",
+            "annotation-only module; its types steer the lowering and the import is erased",
             source=SOURCE_TABLE,
         )
     status = module_status(canonical_module(name))
