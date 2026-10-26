@@ -382,7 +382,14 @@ PROBES: list[Probe] = [
     # platform, sys, socket, threading, subprocess, logging, zipfile, tarfile
     _p("platform", "system", "host", "print(platform.system())"),
     _p("platform", "machine", "host", "print(platform.machine())"),
-    _p("platform", "python_version", "host", "print(platform.python_version())"),
+    # The binary pins the declared target patch (3.14.9) while CI's oracle can
+    # be a different 3.14 patch, so compare the target line, not the patch.
+    _p(
+        "platform",
+        "python_version",
+        "host",
+        "print(platform.python_version().startswith('3.14.'))",
+    ),
     _p("platform", "platform", "host", "print(platform.platform())", divergence=PLATFORM_DIVERGENCE),
     _p("sys", "stdout.write", "host", "print(sys.stdout.write('dt') == 2)"),
     _p("sys", "stderr.write", "host", "print(sys.stderr.write('dt') == 2)"),
