@@ -266,10 +266,10 @@ def test_self_census_ballpark() -> None:
     # yield inside try (#164): the re-entrant try in the coro guard transform
     # adds about 150 lines in coro.py. The asyncio primitives (#180 D3) add
     # about 400 in ps_async.c and restlower/_asyncio_sync.py.
-    assert 11_000 <= census["lines"] <= 50_000
+    assert 11_000 <= census["lines"] <= 51_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.
     assert 11_000 <= census["lines"] <= 51_000
-    assert census["fences"] == 3027
-    assert sum(p["fences"] for p in census["packages"]) == 3027
+    assert census["fences"] == 3029
+    assert sum(p["fences"] for p in census["packages"]) == 3029
