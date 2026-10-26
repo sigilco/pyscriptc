@@ -159,23 +159,36 @@ def _download(url: str, dest: Path) -> None:
         raise EmbedError(f"cannot write {dest}: {exc}") from exc
 
 
-def unpack(archive: Path, dest: Path) -> None:
-    """Unpack a `.tar.zst` (or `.tar.gz`) archive into a directory."""
+def unpack(archive: Path, dest: Path, only: tuple[str, ...] = ()) -> None:
+    """Unpack a `.tar.zst` (or `.tar.gz`) archive into a directory.
+
+    `only` keeps the members under the given path prefixes; the PBS Linux
+    archives carry `share/terminfo` trees whose symlinks differ from their
+    targets only in case, which a case-insensitive filesystem cannot extract,
+    and nothing in a runtime pack needs `share/`.
+    """
     try:
         with tarfile.open(archive, "r:*") as tar:
-            _safe_extract(tar, dest)
+            _safe_extract(tar, dest, only)
     except tarfile.TarError as exc:
         raise EmbedError(f"cannot unpack {archive.name}: {exc}") from exc
 
 
-def _safe_extract(tar: tarfile.TarFile, dest: Path) -> None:
+def _wanted(name: str, only: tuple[str, ...]) -> bool:
+    if not only:
+        return True
+    return any(name == prefix or name.startswith(prefix + "/") for prefix in only)
+
+
+def _safe_extract(tar: tarfile.TarFile, dest: Path, only: tuple[str, ...] = ()) -> None:
     """Extract without letting a member escape the destination directory."""
     root = dest.resolve()
-    for member in tar.getmembers():
+    members = [member for member in tar.getmembers() if _wanted(member.name, only)]
+    for member in members:
         target = (root / member.name).resolve()
         if not str(target).startswith(str(root) + os.sep) and target != root:
             raise EmbedError(f"refusing the archive member {member.name!r}: it escapes the pack directory")
-    tar.extractall(dest)  # noqa: S202 (every member was checked above)
+    tar.extractall(dest, members=members)  # noqa: S202 (every member was checked and filtered above)
 
 
 def pack_root() -> Path:

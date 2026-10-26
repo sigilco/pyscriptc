@@ -17,6 +17,7 @@ The pack for macOS arm64 and Linux x86_64 is at most 60 MB compressed
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 import tarfile
 import tempfile
@@ -29,18 +30,28 @@ from pyscriptc import embed  # noqa: E402
 
 # What travels in the pack, relative to the archive's payload root.
 _LIB_KEEP = ("libpython*",)
+# What is extracted from the PBS archive at all. The archives are rooted at
+# `python/`; `share/` stays out (the terminfo trees hold case-only symlink
+# pairs a case-insensitive filesystem cannot extract, and no pack consumer
+# reads man pages).
+_UNPACK_ONLY = ("python/include", "python/lib", "python/bin")
 
 
-def build(platform: str, out: Path, lock: Path | None = None) -> Path:
+def build(platform: str, out: Path, lock: Path | None = None, asset: Path | None = None) -> Path:
     pack = embed.lock_pack(platform, path=lock)
     with tempfile.TemporaryDirectory(prefix="runtime-pack-") as tmp:
         tmp_path = Path(tmp)
         archive = tmp_path / pack.asset
-        embed._download(pack.asset_url, archive)
+        if asset is not None:
+            # A local copy of the pinned asset (an air-gapped builder, a CI
+            # cache): the sha256 check still runs on it.
+            shutil.copy2(asset, archive)
+        else:
+            embed._download(pack.asset_url, archive)
         embed.verify_sha256(archive, pack.sha256)
         staging = tmp_path / "unpacked"
         staging.mkdir()
-        embed.unpack(archive, staging)
+        embed.unpack(archive, staging, only=_UNPACK_ONLY)
         payload = embed._payload_root(staging)
         version = embed.python_version()
 
@@ -105,9 +116,15 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Build the pinned CPython runtime pack")
     ap.add_argument("--platform", required=True, help="lock-file platform key, e.g. macos-arm64")
     ap.add_argument("--lock", type=Path, default=None, help="runtime lock file (default: packaging/runtime.lock.toml)")
+    ap.add_argument(
+        "--asset",
+        type=Path,
+        default=None,
+        help="a local copy of the pinned PBS asset; it is still sha256-checked against the lock",
+    )
     ap.add_argument("-o", "--out", type=Path, required=True, help="output directory")
     args = ap.parse_args()
-    build(args.platform, args.out, args.lock)
+    build(args.platform, args.out, args.lock, args.asset)
     return 0
 
 
