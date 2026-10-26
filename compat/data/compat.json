@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-26",
-  "commit": "994c3e3affef5b759f32b7c271aea96ca0e13f18",
+  "commit": "bbbdb14cc8b2b9957803acac7b55c254f1eba4d8",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -16,10 +16,10 @@
     "stdlib_partial": 59,
     "stdlib_none": 0,
     "packages_full": 2,
-    "packages_partial": 6,
-    "packages_none": 10,
+    "packages_partial": 7,
+    "packages_none": 9,
     "weighted_pass": 0.0,
-    "fences": 2721
+    "fences": 2719
   },
   "builtins": [
     {
@@ -1508,35 +1508,35 @@
       "import_name": "filelock",
       "version": "4.1.1",
       "status": "partial",
-      "fences": 679,
+      "fences": 684,
       "definitions": 641,
       "fenced_definitions": 238,
       "top_families": [
         {
           "family": "name-resolution",
-          "count": 143
+          "count": 147
         },
         {
           "family": "construct-other",
-          "count": 86
+          "count": 101
         },
         {
           "family": "generic-alias",
-          "count": 56
+          "count": 52
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 412
+          "count": 411
         },
         {
           "code": "PS2001",
-          "count": 72
+          "count": 78
         },
         {
           "code": "PS1103",
-          "count": 56
+          "count": 52
         }
       ],
       "pypi": "https://pypi.org/project/filelock/"
@@ -1546,14 +1546,10 @@
       "import_name": "h11",
       "version": "0.16.0",
       "status": "none",
-      "fences": 193,
+      "fences": 192,
       "definitions": 133,
-      "fenced_definitions": 76,
+      "fenced_definitions": 74,
       "top_families": [
-        {
-          "family": "generic-alias",
-          "count": 17
-        },
         {
           "family": "unlowered-type-name",
           "count": 17
@@ -1561,20 +1557,24 @@
         {
           "family": "reflection",
           "count": 16
+        },
+        {
+          "family": "generic-alias",
+          "count": 14
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 105
-        },
-        {
-          "code": "PS1103",
-          "count": 17
+          "count": 106
         },
         {
           "code": "PS1106",
           "count": 17
+        },
+        {
+          "code": "PS1203",
+          "count": 15
         }
       ],
       "pypi": "https://pypi.org/project/h11/"
@@ -1773,10 +1773,10 @@
       "name": "packaging",
       "import_name": "packaging",
       "version": "26.3",
-      "status": "none",
-      "fences": 558,
+      "status": "partial",
+      "fences": 556,
       "definitions": 558,
-      "fenced_definitions": 280,
+      "fenced_definitions": 279,
       "top_families": [
         {
           "family": "unlowered-type-name",
@@ -1784,7 +1784,7 @@
         },
         {
           "family": "name-resolution",
-          "count": 76
+          "count": 78
         },
         {
           "family": "class-body",
@@ -1794,15 +1794,15 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 212
+          "count": 214
         },
         {
           "code": "PS1106",
           "count": 90
         },
         {
-          "code": "PS2001",
-          "count": 55
+          "code": "PS1204",
+          "count": 52
         }
       ],
       "pypi": "https://pypi.org/project/packaging/"
@@ -1812,9 +1812,9 @@
       "import_name": "pathspec",
       "version": "1.1.1",
       "status": "none",
-      "fences": 224,
+      "fences": 220,
       "definitions": 132,
-      "fenced_definitions": 93,
+      "fenced_definitions": 92,
       "top_families": [
         {
           "family": "name-resolution",
@@ -1822,7 +1822,7 @@
         },
         {
           "family": "unlowered-type-name",
-          "count": 22
+          "count": 21
         },
         {
           "family": "decorators",
@@ -1832,11 +1832,11 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 111
+          "count": 108
         },
         {
           "code": "PS1106",
-          "count": 22
+          "count": 21
         },
         {
           "code": "PS1201",
@@ -2089,38 +2089,38 @@
     {
       "code": "PS2002",
       "title": "construct not lowered",
-      "count": 1307,
+      "count": 1306,
       "packages": 16
     },
     {
       "code": "PS1001",
       "title": "annotation missing or not lowered",
-      "count": 298,
+      "count": 301,
       "packages": 13
     },
     {
       "code": "PS2001",
       "title": "stdlib name not lowered",
-      "count": 206,
+      "count": 209,
       "packages": 15
     },
     {
       "code": "PS1106",
       "title": "annotation names an unlowered type",
-      "count": 198,
+      "count": 197,
       "packages": 9
-    },
-    {
-      "code": "PS1103",
-      "title": "generic alias annotation",
-      "count": 129,
-      "packages": 8
     },
     {
       "code": "PS1204",
       "title": "class body statement",
       "count": 125,
       "packages": 7
+    },
+    {
+      "code": "PS1103",
+      "title": "generic alias annotation",
+      "count": 121,
+      "packages": 8
     },
     {
       "code": "PS1101",
@@ -2149,7 +2149,7 @@
     {
       "code": "PS1003",
       "title": "type mismatch",
-      "count": 48,
+      "count": 50,
       "packages": 8
     },
     {
@@ -2207,12 +2207,12 @@
     },
     {
       "date": "2026-10-26",
-      "commit": "994c3e3affef5b759f32b7c271aea96ca0e13f18",
+      "commit": "bbbdb14cc8b2b9957803acac7b55c254f1eba4d8",
       "weighted_pass": 0.0,
       "packages_full": 2,
-      "packages_partial": 6,
-      "packages_none": 10,
-      "fences": 2721
+      "packages_partial": 7,
+      "packages_none": 9,
+      "fences": 2719
     }
   ]
 }
