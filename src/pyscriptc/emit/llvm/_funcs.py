@@ -219,7 +219,11 @@ class FuncsMixin:
         return self._render()
 
     def _emit_island_top_seed(self) -> None:
-        """The once-per-binary top-level seed: the module's own source text."""
+        """The once-per-binary top-level seed: the module's own source text.
+
+        Issue #665: the bootstrap rebases the origins and the entry
+        `__file__` onto the staged data tree at run time.
+        """
 
         source = self.module.get("islandSource") or ""
         if not source:

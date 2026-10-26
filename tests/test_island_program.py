@@ -199,6 +199,176 @@ def test_program_non_constant_module_assignment(tmp_path: Path) -> None:
     assert got.stdout == want.stdout == "/env641\n"
 
 
+def test_program_data_files_survive_relocation(tmp_path: Path) -> None:
+    """Issue #665: the acceptance shape.
+
+    A program module reads a sibling data file through
+    `Path(__file__).parent`. The output is relocated and the source tree is
+    renamed away (gone, as far as the run can tell), the run happens with an
+    empty environment (`env -i`: no `PYSC_PROGRAM_DIR`, no `VIRTUAL_ENV`),
+    and the binary must still read the data file, byte-identical to CPython.
+    """
+
+    prog = tmp_path / "prog"
+    _write(
+        prog,
+        {
+            "data.json": '{"msg": "hello-data"}\n',
+            "helper.py": (
+                "import json\nfrom pathlib import Path\n\n"
+                "DATA_FILE = Path(__file__).parent / 'data.json'\n\n\n"
+                "def read_data() -> str:\n    return json.loads(DATA_FILE.read_text())['msg']\n"
+            ),
+            "__main__.py": (
+                "from helper import read_data\nimport os\n\n"
+                "print(read_data(), os.path.basename(os.path.dirname(__file__)))\n"
+            ),
+        },
+    )
+    binary = tmp_path / "out" / "bin"
+    comp = _cli(
+        "compile", str(prog), "--program", "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path
+    )
+    assert comp.returncode == 0, comp.stderr
+
+    relocated = tmp_path / "relocated"
+    relocated.mkdir()
+    binary.rename(relocated / "bin")
+    (tmp_path / "out" / "pyscriptc-data").rename(relocated / "pyscriptc-data")
+    hidden = tmp_path / "prog-gone"
+    prog.rename(hidden)
+
+    got = subprocess.run([str(relocated / "bin")], capture_output=True, text=True, timeout=60, env={})
+    hidden.rename(prog)
+    want = subprocess.run([sys.executable, str(prog)], capture_output=True, text=True, timeout=60)
+    assert got.returncode == want.returncode == 0, (got.stderr, want.stderr)
+    assert got.stdout == want.stdout == "hello-data prog\n"
+
+
+def test_program_data_subdirectory_survives_relocation(tmp_path: Path) -> None:
+    """A `data/` subtree rides the staged root with its relative paths."""
+
+    prog = tmp_path / "prog"
+    _write(
+        prog,
+        {
+            "data/sub/words.txt": "alpha beta\n",
+            "reader.py": (
+                "from pathlib import Path\n\n"
+                "WORDS = Path(__file__).parent / 'data' / 'sub' / 'words.txt'\n\n\n"
+                "def count() -> int:\n    return len(WORDS.read_text().split())\n"
+            ),
+            "__main__.py": "from reader import count\nprint(count())\n",
+        },
+    )
+    binary = tmp_path / "out" / "bin"
+    comp = _cli(
+        "compile", str(prog), "--program", "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path
+    )
+    assert comp.returncode == 0, comp.stderr
+
+    relocated = tmp_path / "relocated"
+    relocated.mkdir()
+    binary.rename(relocated / "bin")
+    (tmp_path / "out" / "pyscriptc-data").rename(relocated / "pyscriptc-data")
+    hidden = tmp_path / "prog-gone"
+    prog.rename(hidden)
+
+    got = subprocess.run([str(relocated / "bin")], capture_output=True, text=True, timeout=60, env={})
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == "2\n"
+
+
+def test_relocated_run_puts_no_binary_dir_on_sys_path(tmp_path: Path) -> None:
+    """The `env -i` guard (issue #665): with no `PYSC_PROGRAM_DIR` and no
+    `VIRTUAL_ENV`, the `argv[0]` fallback in `ps_island.c` must not put the
+    binary's own `bin/` directory on `sys.path` - a relocated bundle would
+    otherwise shadow stdlib names with whatever sits beside the binary."""
+
+    prog = tmp_path / "prog"
+    _write(prog, {"__main__.py": "import sys\nprint('|'.join(sys.path))\n"})
+    binary = tmp_path / "out" / "bin"
+    comp = _cli(
+        "compile", str(prog), "--program", "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path
+    )
+    assert comp.returncode == 0, comp.stderr
+
+    relocated = tmp_path / "relocated"
+    relocated.mkdir()
+    binary.rename(relocated / "bin")
+    hidden = tmp_path / "prog-gone"
+    prog.rename(hidden)
+
+    got = subprocess.run([str(relocated / "bin")], capture_output=True, text=True, timeout=60, env={})
+    hidden.rename(prog)
+    assert got.returncode == 0, got.stderr
+    entries = got.stdout.strip().split("|")
+    # The binary's own directory stays off the path: a relocated bundle must
+    # not shadow stdlib names with whatever sits beside the binary. The
+    # bundle root (the binary's parent) is the script-directory entry, the
+    # same slot CPython fills with the directory of the script it ran.
+    assert str(relocated / "bin") not in entries
+
+
+def test_unstaged_data_lookup_is_a_numbered_divergence(tmp_path: Path) -> None:
+    """The divergence 46 pin: a program whose data files were NOT staged
+    (here: the module reads through a path that leaves the program root, so
+    nothing is staged) still resolves the lookup against the compile-time
+    path, and a relocated run fails where CPython succeeds."""
+
+    prog = tmp_path / "prog"
+    data = tmp_path / "outside.json"
+    data.write_text("7\n", encoding="utf-8")
+    _write(
+        prog,
+        {
+            "reader.py": "from pathlib import Path\n\nP = Path(__file__).parent.parent / 'outside.json'\n",
+            "__main__.py": "from reader import P\nprint(P.read_text())\n",
+        },
+    )
+    binary = tmp_path / "out" / "bin"
+    comp = _cli(
+        "compile", str(prog), "--program", "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path
+    )
+    assert comp.returncode == 0, comp.stderr
+
+    want = subprocess.run([sys.executable, str(prog / "__main__.py")], capture_output=True, text=True, timeout=60)
+    want.stdout = want.stdout.rstrip("\n") + "\n"
+    assert want.returncode == 0 and want.stdout == "7\n"
+
+    relocated = tmp_path / "relocated"
+    relocated.mkdir()
+    binary.rename(relocated / "bin")
+    hidden = tmp_path / "prog-gone"
+    prog.rename(hidden)
+    data.unlink()
+
+    got = subprocess.run([str(relocated / "bin")], capture_output=True, text=True, timeout=60, env={})
+    assert got.returncode != 0
+    assert "FileNotFoundError" in got.stderr
+
+
+def test_program_file_reads_sibling_data_unrelocated(tmp_path: Path) -> None:
+    """The un-relocated shape stays byte-identical to CPython: staging never
+    changes where the data lookup lands when the source tree is present."""
+
+    prog = tmp_path / "prog"
+    _write(
+        prog,
+        {
+            "data.json": '{"msg": "here"}\n',
+            "helper.py": (
+                "import json\nfrom pathlib import Path\n\n"
+                "DATA_FILE = Path(__file__).parent / 'data.json'\n\n\n"
+                "def read_data() -> str:\n    return json.loads(DATA_FILE.read_text())['msg']\n"
+            ),
+            "__main__.py": "from helper import read_data\nprint(read_data())\n",
+        },
+    )
+    out = _compare(tmp_path, prog, [sys.executable, str(prog)])
+    assert out == "here\n"
+
+
 def test_library_import_of_island_definition_refuses(tmp_path: Path) -> None:
     """A package (no --program) importing another module's island definition
     refuses with a named PS2002 instead of crashing the emitter (issue #641)."""

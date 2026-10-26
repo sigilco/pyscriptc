@@ -219,7 +219,7 @@ print(add(20, 22))
 The embedded island runtime initializes with an environment aligned to the host Python environment:
 - Virtual environment: if `VIRTUAL_ENV` is set, or if the compiler runs inside a virtual environment where `sys.prefix != sys.base_prefix`, the island runtime calls `site.addsitedir` on `<venv>/lib/python3.14/site-packages` (or `<venv>\Lib\site-packages` on Windows).
 - `PYTHONPATH`: directory entries in `PYTHONPATH` (delimited by `:` on POSIX or `;` on Windows) are added via `site.addsitedir`.
-- Program directory: the directory containing the source file is placed at `sys.path[0]` and registered via `site.addsitedir` (passed via `PYSC_PROGRAM_DIR`).
+- Program directory: the directory containing the source file is placed at `sys.path[0]` and registered via `site.addsitedir` (passed via `PYSC_PROGRAM_DIR`). When the variable is unset the runtime falls back to the directory of `argv[0]`, but only when it is an absolute path to a real directory (a bare single-script binary run by absolute path); a relocated program bundle therefore never puts its own `bin/` directory on the path (issue [#665](https://github.com/sigilco/pyscriptc/issues/665)).
 - Dependency roots: unpacked dependency directories declared in `pyproject.toml` or supplied via `--dependency-root` join both the preflight type-checker search path and the island's `sys.path`.
 - Preflight checker suppression: under `--fallback=cpython`, type-checker errors located inside island-routed functions or an island top level are suppressed as notes rather than halting compilation with exit code 2. Type errors inside native definitions still halt the build.
 
