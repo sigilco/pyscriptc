@@ -111,6 +111,88 @@ def path_attribute(
     return lo._abi_call("pathlib", "Path", [read], {"kind": "class", "name": "Path"}, "ps_path_new", span)
 
 
+def peek_namespace_fields(lo: Any, body: list[ast.stmt]) -> list[dict[str, Any]] | None:
+    """The Namespace fields the `add_argument` calls in `body` register, or None.
+
+    The call-site pin pass runs before any body lowers, so an argument that
+    is a namespace attribute (`batch_rename(args.work_dir, ...)`) needs the
+    field types before the real `add_argument` lowering registers them. This
+    reads the same closed keyword set the real handler accepts, purely from
+    the AST: no lowering runs, no state mutates, and anything the real
+    handler would fence (a non-constant name, an unknown keyword) returns
+    None, so the pin refuses rather than guessing. `nargs="*"` positional
+    lists are the one shape the runtime stores as a list; the pin reads the
+    element type for them, exactly like the runtime fills it.
+    """
+
+    fields: list[dict[str, Any]] = []
+    for node in ast.walk(ast.Module(body=body, type_ignores=[])):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            continue
+        if node.func.attr != "add_argument" or not node.args:
+            continue
+        first = _text(node.args[0])
+        if first is None:
+            return None
+        flags: list[str] = []
+        is_positional = not first.startswith("-")
+        if is_positional:
+            if len(node.args) != 1 or not first.isidentifier():
+                return None
+            dest: str | None = first
+        else:
+            dest = None
+            for arg_node in node.args:
+                text = _text(arg_node)
+                if text is None or not text.startswith("-"):
+                    return None
+                flags.append(text)
+        type_name = "str"
+        action = "store"
+        for keyword in node.keywords:
+            name = keyword.arg
+            if name == "dest" and not is_positional:
+                text = _text(keyword.value)
+                if text is None or not text.isidentifier():
+                    return None
+                dest = text
+            elif name == "action" and not is_positional:
+                text = _text(keyword.value)
+                if text is None or text not in _ACTIONS:
+                    return None
+                action = text
+            elif name == "type":
+                if _is_path_class(lo, keyword.value):
+                    type_name = "Path"
+                elif isinstance(keyword.value, ast.Name) and keyword.value.id in {"str", "int", "float"}:
+                    type_name = keyword.value.id
+                else:
+                    return None
+            elif name == "default":
+                if not isinstance(keyword.value, ast.Constant):
+                    return None
+            elif name in {"const", "required", "help"}:
+                pass
+            else:
+                return None
+        if dest is None:
+            dest = _dest_from_flags(flags)
+        if dest is None:
+            return None
+        if action in {"store_true", "store_false"}:
+            field_type: dict[str, Any] = {"kind": "bool"}
+        elif type_name == "int":
+            field_type = {"kind": "int"}
+        elif type_name == "float":
+            field_type = {"kind": "float"}
+        elif type_name == "Path":
+            field_type = {"kind": "class", "name": "Path"}
+        else:
+            field_type = {"kind": "str"}
+        fields.append({"name": dest, "type": field_type})
+    return fields or None
+
+
 def _dest_from_flags(flags: list[str]) -> str | None:
     """The dest argparse derives from the option spellings.
 

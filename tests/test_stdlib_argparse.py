@@ -17,6 +17,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from tests.test_gates import run_cli, write_case
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -443,6 +444,175 @@ def test_argparse_namespace_fields_follow_the_options() -> None:
         ("count", "int"),
         ("verbose", "bool"),
     ]
+
+
+def _peek_fields(source: str) -> list[dict[str, object]] | None:
+    """The peek's field table for a module source, without lowering it.
+
+    The peek reads only the AST and the lowerer's binding tables; the fake
+    lowerer carries the two tables `_is_path_class` reads (empty here: the
+    `type=Path` case is covered through the full lower in the pin test).
+    """
+    import ast
+
+    import pyscriptc.lower  # noqa: F401  (the import order breaks a cycle)
+    from pyscriptc.restlower._argparse import peek_namespace_fields
+
+    class _FakeLowerer:
+        bindings: dict[str, object] = {}
+        constants: dict[str, object] = {}
+
+        def _resolve_module(self, node: ast.expr) -> tuple[str, str, str] | None:
+            return None
+
+    tree = ast.parse(source)
+    body = [stmt for stmt in tree.body if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    flat: list[ast.stmt] = []
+    for fn in body:
+        flat.extend(fn.body)
+    return peek_namespace_fields(_FakeLowerer(), flat)
+
+
+def test_peek_namespace_fields_happy_path() -> None:
+    fields = _peek_fields(
+        "import argparse\n"
+        "\n"
+        "def main() -> int:\n"
+        "    parser = argparse.ArgumentParser()\n"
+        "    parser.add_argument('work_dir', help='where')\n"
+        "    parser.add_argument('--count', type=int, default=1)\n"
+        "    parser.add_argument('--dry-run', action='store_true')\n"
+        "    parser.add_argument('--ratio', type=float)\n"
+        "    parser.add_argument('-v', '--verbose', action='store_false')\n"
+        "    args = parser.parse_args()\n"
+        "    return 0\n"
+    )
+    assert fields == [
+        {"name": "work_dir", "type": {"kind": "str"}},
+        {"name": "count", "type": {"kind": "int"}},
+        {"name": "dry_run", "type": {"kind": "bool"}},
+        {"name": "ratio", "type": {"kind": "float"}},
+        {"name": "verbose", "type": {"kind": "bool"}},
+    ]
+
+
+def test_peek_namespace_fields_skips_non_add_argument_calls() -> None:
+    fields = _peek_fields(
+        "import argparse\n"
+        "\n"
+        "def main() -> int:\n"
+        "    parser = argparse.ArgumentParser(prog='x')\n"
+        "    parser.add_argument('name')\n"
+        "    args = parser.parse_args()\n"
+        "    return 0\n"
+    )
+    assert fields == [{"name": "name", "type": {"kind": "str"}}]
+
+
+@pytest.mark.parametrize(
+    "kwarg",
+    [
+        "metavar='N'",
+        "type=bool",
+        "type=check",
+        "nargs='*'",
+        "default=open('x')",
+        "choices=['a']",
+    ],
+)
+def test_peek_namespace_fields_fences_unknown_keywords(kwarg: str) -> None:
+    assert (
+        _peek_fields(
+            "import argparse\n"
+            "\n"
+            "def main() -> int:\n"
+            "    parser = argparse.ArgumentParser()\n"
+            f"    parser.add_argument('--count', {kwarg})\n"
+            "    args = parser.parse_args()\n"
+            "    return 0\n"
+        )
+        is None
+    )
+
+
+def test_peek_namespace_fields_fences_non_constant_name() -> None:
+    assert (
+        _peek_fields(
+            "import argparse\n"
+            "\n"
+            "def main() -> int:\n"
+            "    parser = argparse.ArgumentParser()\n"
+            "    parser.add_argument(flag_name)\n"
+            "    return 0\n"
+        )
+        is None
+    )
+
+
+def test_peek_namespace_fields_refuses_when_no_add_argument() -> None:
+    assert _peek_fields("def main() -> int:\n    return 0\n") is None
+
+
+def test_argparse_namespace_attribute_pins_a_parameter(tmp_path: Path) -> None:
+    """An argument that is a namespace attribute pins from the field type.
+
+    The pin pass runs before any body lowers, so `args.count` has no field
+    type yet: the peek reads the same `add_argument` registrations the real
+    lowering would make, purely from the AST, and `helper(args.count)`
+    proves `count: int` without an annotation.
+    """
+    path = _script(
+        tmp_path,
+        "ns_pin.py",
+        [
+            "import argparse",
+            "",
+            "def helper(count):",
+            "    return count * 2",
+            "",
+            "def main() -> int:",
+            "    parser = argparse.ArgumentParser(prog='ns_pin')",
+            "    parser.add_argument('--count', type=int, default=1)",
+            "    args = parser.parse_args()",
+            "    print(helper(args.count))",
+            "    return 0",
+            "",
+            "main()",
+        ],
+    )
+    native, oracle = _run_both(tmp_path, path, ["--count", "21"])
+    assert native == oracle, (native, oracle)
+    assert native.splitlines() == ["42"]
+
+
+def test_argparse_namespace_pin_refuses_an_unregistered_field(tmp_path: Path) -> None:
+    """A field no registration declares keeps the parameter fence.
+
+    The pin never guesses: `args.other` is not a field the parser
+    registers, so the peek cannot type it and `other` stays fenced.
+    """
+    path = _script(
+        tmp_path,
+        "ns_no_field.py",
+        [
+            "import argparse",
+            "",
+            "def helper(other):",
+            "    return 0",
+            "",
+            "def main() -> int:",
+            "    parser = argparse.ArgumentParser(prog='ns')",
+            "    parser.add_argument('--count', type=int)",
+            "    args = parser.parse_args()",
+            "    helper(args.other)",
+            "    return 0",
+            "",
+            "main()",
+        ],
+    )
+    got = run_cli("compile", str(path), "--emit", "bin", "-o", str(tmp_path / "ns_no_field"))
+    assert got.returncode != 0
+    assert "parameter other needs an annotation" in got.stderr
 
 
 def test_argparse_is_importable() -> None:

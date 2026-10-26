@@ -1,14 +1,14 @@
 {
   "schema": "1",
   "generated": "2026-10-24",
-  "commit": "bbbdb14cc8b2b9957803acac7b55c254f1eba4d8",
+  "commit": "2b46ff925beaed0cfc4eeebad949c8cdcfd7ad89",
   "sources": {
     "corpus": "benchmarks/real_scripts/scripts",
     "report": "benchmarks/real_scripts/REPORT.md"
   },
   "summary": {
     "scripts": 39,
-    "total_fences": 52,
+    "total_fences": 53,
     "unique_codes": [
       "PS1001",
       "PS1003",
@@ -179,7 +179,7 @@
           "module": "builtins",
           "construct": "call to unlowered function",
           "code": "PS2002",
-          "diagnostic": "call to batch_rename is not lowered"
+          "diagnostic": "call to findPassword is not lowered"
         },
         {
           "module": "builtins",
@@ -234,7 +234,7 @@
           "module": "builtins",
           "construct": "parameter without annotation",
           "code": "PS1001",
-          "diagnostic": "parameter work_dir needs an annotation"
+          "diagnostic": "parameter chars needs an annotation"
         },
         {
           "module": "collections",
@@ -296,6 +296,12 @@
           "construct": "dataclass bool field",
           "code": "PS2002",
           "diagnostic": "bool fields are not lowered"
+        },
+        {
+          "module": "builtins",
+          "construct": "for over list[Path]",
+          "code": "PS2002",
+          "diagnostic": "for over list[Path] is not lowered"
         },
         {
           "module": "builtins",
