@@ -113,6 +113,20 @@ A fence is the whole file. Fix the named construct, or keep that program on CPyt
 
 A script that never calls the island links the small runtime and does not link libpython. `examples/hostname.py` calls `socket.gethostname`, so that binary links the CPython that compiled it and initializes it on the call.
 
+## The bundled runtime
+
+A program that calls the island needs a CPython to link against. Where the compiler's own interpreter has a usable shared `libpython` and headers (a `uv tool install`, a wheel in a virtualenv, a development checkout), it links that one. Where it does not, which is the case inside the release binary, it links the pinned runtime pack instead and writes a relocatable output directory:
+
+```bash
+pyscriptc compile --embed-python=bundle -o OUT prog.py
+# OUT/bin/prog   the program
+# OUT/lib/...    the bundled libpython, stdlib and licenses
+```
+
+The pack is fetched on demand, sha256-verified against the pinned lock and cached under `~/.cache/pyscriptc/runtime/`. The first download is tens of megabytes (about 27 MB on macOS arm64, 35 MB on Linux x86_64). An already-unpacked pack can be used offline by pointing `PYSC_RUNTIME_DIR` at it.
+
+The output directory carries the CPython license and the third-party notices of everything compiled into the bundled interpreter, under `OUT/share/licenses/`. The [runtime pack page](../reference/runtime-pack.md) has the details, including the pinned versions and the provenance of the pack.
+
 ## Cross-compiling
 
 `--driver zig --target TRIPLE` links through `zig cc` for another platform, zig bundles each target's sysroot, so no extra install is needed:

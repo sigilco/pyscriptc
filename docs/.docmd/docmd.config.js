@@ -111,6 +111,7 @@ export default {
         { title: "Config", path: "/reference/config/" },
         { title: "Divergences from CPython", path: "/reference/divergences/" },
         { title: "First-class scripts", path: "/reference/first-class-scripts/" },
+        { title: "Runtime pack and licenses", path: "/reference/runtime-pack/" },
         { title: "Stability and contracts", path: "/reference/stability/" },
         { title: "What will fail", path: "/reference/what-will-fail/" },
       ],
