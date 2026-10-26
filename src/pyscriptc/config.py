@@ -177,6 +177,7 @@ class Config:
 
     def island_embed(self) -> str | None:
         """The `[tool.pyscriptc.island] embed` mode, or None when unset."""
+
         if isinstance(self.island, dict):
             value = self.island.get("embed")
             if value is not None:
@@ -185,6 +186,20 @@ class Config:
                 table = "pyscriptc.island" if self.source == "pyscriptc.toml" else "tool.pyscriptc.island"
                 if value not in MODES:
                     raise ConfigError(f"{table}.embed must be one of {'|'.join(MODES)}, got {value!r}")
+                return str(value)
+        return None
+
+    def island_stdlib(self) -> str | None:
+        """The `[tool.pyscriptc.island] stdlib` trim, or None when unset."""
+
+        if isinstance(self.island, dict):
+            value = self.island.get("stdlib")
+            if value is not None:
+                from pyscriptc.stdlibzip import STDLIB_MODES
+
+                table = "pyscriptc.island" if self.source == "pyscriptc.toml" else "tool.pyscriptc.island"
+                if value not in STDLIB_MODES:
+                    raise ConfigError(f"{table}.stdlib must be one of {'|'.join(STDLIB_MODES)}, got {value!r}")
                 return str(value)
         return None
 
@@ -494,5 +509,9 @@ def apply_to_args(config: Config, args: Any) -> list[str]:
         island_embed = config.island_embed()
         if island_embed is not None:
             args.embed_python = island_embed
+    if hasattr(args, "embed_stdlib") and getattr(args, "embed_stdlib", None) is None:
+        island_stdlib = config.island_stdlib()
+        if island_stdlib is not None:
+            args.embed_stdlib = island_stdlib
     # boxed:end
     return notes

@@ -38,6 +38,8 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
+from pyscriptc import stdlibzip
+
 MODES = ("host", "bundle", "auto")
 DEFAULT_MODE = "auto"
 
@@ -387,14 +389,23 @@ def link_flags(pack_directory: Path, version: str) -> tuple[str, list[str]]:
     return str(include), flags
 
 
-def stage_bundle(output: Path, pack_directory: Path, version: str, binary: Path) -> Path:
+def stage_bundle(
+    output: Path,
+    pack_directory: Path,
+    version: str,
+    binary: Path,
+    *,
+    stdlib_mode: str = stdlibzip.DEFAULT_MODE,
+) -> Path:
     """Copy the pack runtime next to the binary: `name/bin/name` plus `name/lib/`.
 
-    The binary moves into `bin/`; the shared libpython and the stdlib go into
-    `lib/`, which is what the relative rpath and the getpath landmarks point
-    at (a python-build-standalone `install/` tree is relocatable: it carries
+    The binary moves into `bin/`; the shared libpython goes into `lib/`, which
+    is what the relative rpath and the getpath landmarks point at (a
+    python-build-standalone `install/` tree is relocatable: it carries
     `@executable_path/../lib` already, so no install-name rewrite is needed).
-    Headers stay in the pack: a relocated bundle runs, it does not compile.
+    The stdlib is staged as a zip of `.pyc` bodies plus a real `lib-dynload/`
+    directory (issue #659); the unpacked tree does not travel. Headers stay in
+    the pack: a relocated bundle runs, it does not compile.
     """
     out_dir = output if output.suffix == "" else output.parent / output.stem
     parent = out_dir.parent
@@ -418,9 +429,10 @@ def stage_bundle(output: Path, pack_directory: Path, version: str, binary: Path)
         for extra in sorted(shared.parent.glob(f"libpython{version}.so*")):
             shutil.copy2(extra, lib_dir / extra.name, follow_symlinks=False)
     stdlib_src = pack_directory / "lib" / f"python{version}"
-    stdlib_dest = lib_dir / f"python{version}"
-    if stdlib_src.is_dir() and not stdlib_dest.exists():
-        shutil.copytree(stdlib_src, stdlib_dest, symlinks=True, ignore=shutil.ignore_patterns("__pycache__"))
+    if stdlib_src.is_dir():
+        stdlibzip.stage_stdlib(lib_dir, pack_directory, version, stdlib_mode)
+    else:
+        (lib_dir / f"python{version}" / "lib-dynload").mkdir(parents=True, exist_ok=True)
     out_dir = Path(out_dir)
     if out_dir.exists():
         shutil.rmtree(out_dir)

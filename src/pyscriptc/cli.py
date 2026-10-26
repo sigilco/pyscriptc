@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 # boxed:begin
-from pyscriptc import embed, runcache
+from pyscriptc import embed, runcache, stdlibzip
 
 # boxed:end
 from pyscriptc.config import apply_to_args, entry_points, load_config
@@ -261,6 +261,15 @@ def main(argv: list[str] | None = None) -> int:
         "runtime pack, relocatable output) or auto (host when this interpreter has a shared "
         "libpython, bundle otherwise; the default). Also read from the `embed` key of "
         "[tool.pyscriptc.island]",
+    )
+    compile_parser.add_argument(
+        "--embed-stdlib",
+        choices=stdlibzip.STDLIB_MODES,
+        default=None,
+        metavar="TRIM",
+        help="stdlib trim of a bundle: safe (the default; everything except test, idlelib, "
+        "tkinter, turtledemo, ensurepip, pydoc_data, __phello__) or minimal (an opt-in frozen "
+        "closure plus allowlist). Also read from the `stdlib` key of [tool.pyscriptc.island]",
     )
     # boxed:end
     compile_parser.add_argument("--call", help="function the generated main calls")
@@ -1952,9 +1961,32 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         # boxed:begin
         # A bundle link writes a relocatable directory: the binary under
         # `bin/`, the runtime under `lib/` (the relative rpath points there).
+        # The stdlib travels as a safe-trimmed zip of .pyc bodies (issue #659),
+        # and the compile first manifest-checks every stdlib import of the
+        # program against the zip the trim would produce, so a trimmed module
+        # fails the build (PS4301), never the run.
+        resolved_embed = getattr(args, "embed_python", None)
+        if resolved_embed in (None, "auto") and resolved_embed != "host":
+            if embed.resolve_mode(resolved_embed) == "bundle":
+                resolved_embed = "bundle"
+        if resolved_embed == "bundle":
+            pack = embed.lock_pack()
+            pack_directory = embed.ensure_pack(pack)
+            embed_version = embed.python_version()
+            trim = getattr(args, "embed_stdlib", None) or stdlibzip.DEFAULT_MODE
+            carried = stdlibzip.kept_module_names(
+                stdlibzip.stdlib_sources(pack_directory / "lib" / f"python{embed_version}", trim)
+            )
+            stdlibzip.manifest_check(carried, _stdlib_imports(source_path), trim)
         if getattr(args, "embed_python", None) == "bundle":
             pack = embed.lock_pack()
-            staged = embed.stage_bundle(binary, embed.pack_dir(pack), embed.python_version(), binary)
+            staged = embed.stage_bundle(
+                binary,
+                embed.pack_dir(pack),
+                embed.python_version(),
+                binary,
+                stdlib_mode=getattr(args, "embed_stdlib", None) or stdlibzip.DEFAULT_MODE,
+            )
             outputs["bin"] = str(staged)
         # boxed:end
         state["binary_bytes"] = binary.stat().st_size if binary.is_file() else None
@@ -1980,6 +2012,26 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         if report:
             print(report, file=sys.stderr)
         dbg.write_dir(module, llvm_text, outputs, status)
+
+
+def _stdlib_imports(source_path: Path) -> list[str]:
+    """The absolute stdlib import names of the program, for the bundle manifest check.
+
+    Relative imports stay inside the program tree and third-party imports go
+    through the site-packages bundle (issue #660), so only stdlib roots reach
+    the check. `sys.stdlib_module_names` of the running interpreter answers
+    it: the compiler and the pack share the 3.14 stdlib.
+    """
+
+    from pyscriptc.imports import collect_imports
+
+    names: set[str] = set()
+    for site in collect_imports(source_path):
+        if site["level"] > 0 or not site["name"]:
+            continue
+        if site["name"].split(".")[0] in sys.stdlib_module_names:
+            names.add(site["name"])
+    return sorted(names)
 
 
 def _dependency_roots(

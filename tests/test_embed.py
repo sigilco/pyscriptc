@@ -153,7 +153,11 @@ def test_stage_bundle_writes_bin_and_lib(tmp_path: Path) -> None:
     assert staged.is_file()
     libs = list((tmp_path / "work" / "prog" / "lib").glob(f"libpython{VERSION}*"))
     assert libs
-    assert (tmp_path / "work" / "prog" / "lib" / f"python{VERSION}" / "os.py").is_file()
+    # Issue #659: the stdlib travels as a zip of .pyc bodies plus the
+    # lib-dynload landmark, never as the unpacked tree.
+    assert (tmp_path / "work" / "prog" / "lib" / f"python{VERSION.replace('.', '')}.zip").is_file()
+    assert (tmp_path / "work" / "prog" / "lib" / f"python{VERSION}" / "lib-dynload").is_dir()
+    assert not (tmp_path / "work" / "prog" / "lib" / f"python{VERSION}" / "os.py").exists()
 
 
 def test_default_island_link_is_the_host_libpython(tmp_path: Path) -> None:
