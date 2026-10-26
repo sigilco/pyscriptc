@@ -50,6 +50,7 @@ Preview the internal notes with `mise run docs:internal` (a docmd dev server ove
 - [Release process](release/release-process.md) — the bar, the rehearsal and the tag
 - [Version track](release/version-track.md)
 - [Python version window](release/python-version-window.md) — why the floor is CPython 3.14
+- [Embedded runtime pack](release/embed-runtime.md) — pinning, the bump procedure and the security cadence
 
 ## Generated support data
 
