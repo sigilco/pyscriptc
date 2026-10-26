@@ -371,7 +371,12 @@ def test_program_file_reads_sibling_data_unrelocated(tmp_path: Path) -> None:
 
 def test_library_import_of_island_definition_refuses(tmp_path: Path) -> None:
     """A package (no --program) importing another module's island definition
-    refuses with a named PS2002 instead of crashing the emitter (issue #641)."""
+    refuses with a named PS2002 instead of crashing the emitter (issue #641).
+
+    The fenced call the definition holds was `os.walk` (#509 lowered it);
+    `os.scandir` keeps the same shape: a call that fences inside the helper
+    plans the helper for the island floor, and the cross-module import of it
+    refuses."""
     pkg = tmp_path / "pkg"
     _write(
         pkg,
@@ -379,8 +384,9 @@ def test_library_import_of_island_definition_refuses(tmp_path: Path) -> None:
             "__init__.py": "",
             "helper.py": (
                 "import os\n\n\ndef count(d: str) -> int:\n"
-                "    n = 0\n    for root, dirs, files in os.walk(d):\n"
-                "        n += len(files)\n    return n\n"
+                "    n = 0\n"
+                "    for entry in os.scandir(d):  # type: ignore[attr-defined]\n"
+                "        n += 1\n    return n\n"
             ),
             "cli.py": "from pkg.helper import count\n\n\ndef go(d: str) -> int:\n    return count(d)\n",
         },
