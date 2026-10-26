@@ -1217,6 +1217,46 @@ static void ps_island_seed_argv(void) {
     PyErr_Clear();
 }
 
+/* `sys.argv[0]` is the script path (issue #711).
+
+   CPython's `sys.argv[0]` is the script name as invoked, so the island's
+   argv[0] is the compiled source path instead of the binary path: an
+   `argparse` default `prog` (the source basename) and every `sys.argv[0]`
+   read match the CPython oracle. `path` is the compiled source path the
+   top-level seed already carries for `__file__`; it may be NULL, and then
+   argv[0] keeps the process argv. */
+static void ps_island_set_argv0(const char *path, int64_t path_n) {
+    PyObject *sys = NULL;
+    PyObject *argv = NULL;
+    PyObject *item = NULL;
+    if (path == NULL || path_n <= 0) {
+        return;
+    }
+    sys = PyImport_ImportModule("sys");
+    if (sys == NULL) {
+        PyErr_Clear();
+        return;
+    }
+    argv = PyObject_GetAttrString(sys, "argv");
+    if (argv == NULL || !PyList_Check(argv) || PyList_GET_SIZE(argv) == 0) {
+        Py_XDECREF(argv);
+        Py_DECREF(sys);
+        PyErr_Clear();
+        return;
+    }
+    item = PyUnicode_DecodeUTF8(path, (Py_ssize_t)path_n, "strict");
+    if (item == NULL || PyList_SetItem(argv, 0, item) < 0) {
+        Py_XDECREF(item);
+        Py_DECREF(argv);
+        Py_DECREF(sys);
+        PyErr_Clear();
+        return;
+    }
+    Py_DECREF(argv);
+    Py_DECREF(sys);
+    PyErr_Clear();
+}
+
 /* The seed namespace is a real module object registered in `sys.modules`
    (issue #689): `pickle` and `multiprocessing` resolve island functions
    through `<module>.__dict__`, so an exec'd plain dict leaves every island
@@ -1395,8 +1435,10 @@ void ps_island_top_seed(int64_t n, const char *source, int64_t path_n, const cha
     /* sys.argv mirrors the process argv the native runtime already holds
        (ps_argv_init), so `len(sys.argv) != 2` and friends behave as under
        CPython. argv[0] becomes the program path the native side recorded
-       first. */
+       first, then the compiled source path (issue #711), which is what
+       CPython shows. */
     ps_island_seed_argv();
+    ps_island_set_argv0(path, path_n);
     result = PyRun_String(PyUnicode_AsUTF8(text) != NULL ? PyUnicode_AsUTF8(text) : "",
                           Py_file_input, ps_island_ns, ps_island_ns);
     Py_DECREF(text);

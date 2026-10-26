@@ -19,6 +19,7 @@ The keyword set is the closed one scripts use: `dest`, `action`, `const`,
 from __future__ import annotations
 
 import ast
+import os.path
 from typing import Any
 
 from pyscriptc.ir import types_equal
@@ -303,9 +304,13 @@ def _parser(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     """`argparse.ArgumentParser(prog=..., description=...)`.
 
     The prog name is the program name the usage line prints; the default
-    is the script name, which the runtime takes from argv.
+    is the compiled source's basename (issue #711): CPython prints the
+    script name as invoked, so the help text bakes `tool.py` in instead of
+    leaving it to the binary's argv[0] (`tool`), which the runtime would
+    otherwise substitute. With no source name the sentinel stays and the
+    runtime falls back to argv[0] as before.
     """
-    prog = ""
+    prog = os.path.basename(lo.filename) if getattr(lo, "filename", "") else ""
     description = ""
     for keyword in node.keywords:
         if keyword.arg is None:

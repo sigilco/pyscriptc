@@ -718,6 +718,74 @@ def test_argparse_a_flag_registered_twice_fences(tmp_path: Path) -> None:
     assert "Traceback" not in got.stderr
 
 
+def test_argparse_default_prog_is_the_script_name(tmp_path: Path) -> None:
+    """The default `prog` on the usage line is the script name (issue #711).
+
+    CPython prints the script name as invoked (`tool.py`), not the binary's
+    basename. The native path bakes the compiled source's basename into the
+    help text, so an explicit `-o name` keeps the `.py` spelling CPython
+    shows.
+    """
+    path = _script(
+        tmp_path,
+        "tool.py",
+        [
+            "import argparse",
+            "",
+            "def main() -> int:",
+            "    parser = argparse.ArgumentParser()",
+            "    parser.add_argument('--x', type=int)",
+            "    args = parser.parse_args()",
+            "    print(str(args.x))",
+            "    return 0",
+            "",
+            "main()",
+        ],
+    )
+    binary = tmp_path / "tool_bin"
+    got = run_cli("compile", str(path), "--emit", "bin", "-o", str(binary))
+    assert got.returncode == 0, got.stderr
+    native = subprocess.run([str(binary), "--help"], capture_output=True, text=True, timeout=60)
+    oracle = subprocess.run([sys.executable, str(path), "--help"], capture_output=True, text=True, timeout=60)
+    assert native.stdout == oracle.stdout, (native.stdout, oracle.stdout)
+    assert native.stdout.startswith("usage: tool.py ")
+
+
+def test_argparse_island_default_prog_and_argv0_match_cpython(tmp_path: Path) -> None:
+    """The island top level's argv[0] is the script path (issue #711).
+
+    Under the fallback tier the seed mirrored the process argv, so the
+    usage line and `sys.argv[0]` read the binary path where CPython shows
+    the script path. The seed now points argv[0] at the compiled source.
+    """
+    path = _script(
+        tmp_path,
+        "island_tool.py",
+        [
+            "import argparse",
+            "import sys",
+            "",
+            "parser = argparse.ArgumentParser()",
+            "parser.add_argument('--x', type=int)",
+            "args = parser.parse_args()",
+            "print(sys.argv[0])",
+            "print(str(args.x))",
+        ],
+    )
+    binary = tmp_path / "island_tool_bin"
+    got = run_cli("compile", str(path), "--fallback=cpython", "--emit", "bin", "-o", str(binary))
+    assert got.returncode == 0, got.stderr
+    native = subprocess.run([str(binary), "--x", "3"], capture_output=True, text=True, timeout=60)
+    oracle = subprocess.run([sys.executable, str(path), "--x", "3"], capture_output=True, text=True, timeout=60)
+    assert native.stdout == oracle.stdout, (native.stdout, oracle.stdout)
+    assert native.stdout.splitlines()[0] == str(path)
+
+    native_help = subprocess.run([str(binary), "--help"], capture_output=True, text=True, timeout=60)
+    oracle_help = subprocess.run([sys.executable, str(path), "--help"], capture_output=True, text=True, timeout=60)
+    assert native_help.stdout == oracle_help.stdout, (native_help.stdout, oracle_help.stdout)
+    assert native_help.stdout.startswith("usage: island_tool.py ")
+
+
 def test_argparse_parser_without_options_keeps_its_usage_line(tmp_path: Path) -> None:
     """A parser that registers no option keeps the `usage:` line (issue #710).
 
@@ -747,3 +815,34 @@ def test_argparse_parser_without_options_keeps_its_usage_line(tmp_path: Path) ->
     oracle = subprocess.run([sys.executable, str(path), "--help"], capture_output=True, text=True, timeout=60)
     assert native.stdout == oracle.stdout, (native.stdout, oracle.stdout)
     assert "usage: bare.py " in native.stdout
+
+
+def test_argparse_explicit_prog_wins_over_the_script_name(tmp_path: Path) -> None:
+    """An explicit `prog` still wins over the baked script name (issue #711).
+
+    The default prog is the compiled source's basename; a parser that
+    names its own `prog` keeps that name, exactly as CPython does.
+    """
+    path = _script(
+        tmp_path,
+        "named.py",
+        [
+            "import argparse",
+            "",
+            "def main() -> int:",
+            "    parser = argparse.ArgumentParser(prog='my_cli')",
+            "    parser.add_argument('--x', type=int)",
+            "    args = parser.parse_args()",
+            "    print(str(args.x))",
+            "    return 0",
+            "",
+            "main()",
+        ],
+    )
+    binary = tmp_path / "named_bin"
+    got = run_cli("compile", str(path), "--emit", "bin", "-o", str(binary))
+    assert got.returncode == 0, got.stderr
+    native = subprocess.run([str(binary), "--help"], capture_output=True, text=True, timeout=60)
+    oracle = subprocess.run([sys.executable, str(path), "--help"], capture_output=True, text=True, timeout=60)
+    assert native.stdout == oracle.stdout, (native.stdout, oracle.stdout)
+    assert native.stdout.startswith("usage: my_cli ")

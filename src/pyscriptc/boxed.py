@@ -397,6 +397,9 @@ _sys.meta_path.insert(0, _PsFinder())
 _sys.path.insert(0, _ps_rebase(%(path0)s))
 __file__ = _ps_rebase(%(main_path)s)
 __package__ = %(package)s
+# Issue #711: `sys.argv[0]` is the script path CPython shows, not the
+# binary path the process argv carries.
+_sys.argv[0] = __file__
 exec(compile(%(main_source)s, __file__, "exec"), globals())
 """
 
