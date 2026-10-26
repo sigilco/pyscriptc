@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-24",
-  "commit": "753ca5535df0836ce5996371acd48b40fe6cce8e",
+  "commit": "f111e6b8360bf6d31e911f5a6ff51cbc130605bc",
   "sources": {
     "corpus": "benchmarks/real_scripts/scripts",
     "report": "benchmarks/real_scripts/REPORT.md"
@@ -240,7 +240,7 @@
           "module": "collections",
           "construct": "`collections.defaultdict`",
           "code": "PS1103",
-          "diagnostic": "DefaultDict is not a value type in the IR"
+          "diagnostic": "DefaultDict is not a lowered type in the IR"
         },
         {
           "module": "random",
@@ -252,7 +252,7 @@
           "module": "typing",
           "construct": "`typing.Any`",
           "code": "PS1104",
-          "diagnostic": "Any is not a value type in the IR"
+          "diagnostic": "Any is not a lowered type in the IR"
         },
         {
           "module": "typing",
