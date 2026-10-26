@@ -180,8 +180,9 @@ no = [["finditer", 'for m in re.finditer("a", s): pass', "PS2001"], ["5+ groups"
 
 [[stdlib]]
 names = ["json"]
-ok = ['y: list[int] = json.loads(s)', 'y: str = json.dumps(xs, indent=2)', 'y: str = json.dumps(d, sort_keys=True)']
-no = [["load, dump (files)", 'y: dict[str, int] = json.load(p)', "PS2001"], ["ensure_ascii=False", 'y: str = json.dumps(xs, ensure_ascii=False)', "PS2003"], ["JSONDecodeError", 'y: json.JSONDecodeError', "PS1106"]]
+ok = ['y: list[int] = json.loads(s)', 'y: str = json.dumps(xs, indent=2)', 'y: str = json.dumps(d, sort_keys=True)', '''with open(s) as p:
+    y: dict[str, int] = json.load(p)''']
+no = [["dump (files)", 'json.dump(d, p)', "PS2001"], ["ensure_ascii=False", 'y: str = json.dumps(xs, ensure_ascii=False)', "PS2003"], ["JSONDecodeError", 'y: json.JSONDecodeError', "PS1106"]]
 
 [[stdlib]]
 names = ["tomllib"]
@@ -292,8 +293,8 @@ no = [["timezone and tzinfo", 'y: str = datetime.timezone.utc', "PS2001"], ["utc
 
 [[stdlib]]
 names = ["time"]
-ok = ['y: float = time.time()', 'time.sleep(x)', 'y: str = time.strftime("%Y", time.localtime())', 'y: float = time.mktime(time.localtime())']
-no = [["perf_counter, time_ns, ctime, process_time", 'y: float = time.perf_counter()', "PS2001"]]
+ok = ['y: float = time.time()', 'time.sleep(x)', 'y: str = time.strftime("%Y", time.localtime())', 'y: float = time.mktime(time.localtime())', 'y: float = time.perf_counter()']
+no = [["time_ns, ctime, process_time", 'y: float = time.perf_counter_ns()', "PS2001"]]
 
 [[stdlib]]
 names = ["collections"]
@@ -323,8 +324,8 @@ no = [["closing, redirect_stdout, ExitStack, contextmanager", 'with contextlib.c
 
 [[stdlib]]
 names = ["os"]
-ok = ['y: str = os.getcwd()', 'y: list[str] = os.listdir(s)', 'y: str = os.environ["A"]', 'y: str = os.path.join(s, s)', 'y: int = os.getpid()', 'y: str = os.sep']
-no = [["walk, scandir, system, urandom, cpu_count, kill, symlink, rmdir, getuid", 'for r, ds, fs in os.walk(s): pass', "PS2001"], ["keyword arguments (makedirs exist_ok)", 'os.makedirs(s, exist_ok=True)', "PS2003"]]
+ok = ['y: str = os.getcwd()', 'y: list[str] = os.listdir(s)', 'y: str = os.environ["A"]', 'y: str = os.path.join(s, s)', 'y: int = os.getpid()', 'y: str = os.sep', "for r, ds, fs in os.walk(s): pass"]
+no = [["scandir, system, urandom, cpu_count, kill, symlink, rmdir, getuid", 'os.scandir(s)', "PS2001"], ["keyword arguments (makedirs exist_ok)", 'os.makedirs(s, exist_ok=True)', "PS2003"]]
 
 [[stdlib]]
 names = ["posixpath"]
