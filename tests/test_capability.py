@@ -81,12 +81,11 @@ def test_imports_capability_ladder_is_the_default_view(tmp_path: Path) -> None:
 
 
 def test_an_import_table_fence_is_the_fenced_rung(tmp_path: Path) -> None:
-    # `json.load` lowers now (#509); the fenced rung example is `json.dump`,
-    # which keeps the PS2001 the import-table fence reports.
+    # `json.load` and `json.dump` lower now (#509); the fenced rung example is
+    # `json.JSONDecoder`, which keeps the PS2001 the import-table fence reports.
     path = tmp_path / "a.py"
     path.write_text(
-        "import json\n\n\ndef f(d: dict[str, int], fp: str) -> int:\n    json.dump(d, fp)  # type: ignore[arg-type]\n"
-        "    return 1\n",
+        "import json\n\n\ndef f() -> int:\n    json.JSONDecoder()  # type: ignore[attr-defined]\n    return 1\n",
         encoding="utf-8",
     )
     report = imports_report(path)

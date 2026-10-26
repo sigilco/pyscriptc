@@ -182,6 +182,79 @@ def test_json_load_matches_cpython(tmp_path: Path) -> None:
     )
 
 
+def test_json_dump_matches_cpython(tmp_path: Path) -> None:
+    """`json.dump(obj, fp)` writes the same bytes to the file as CPython."""
+    out = tmp_path / "out.json"
+    _oracle_run(
+        tmp_path,
+        "jdump.py",
+        "\n".join(
+            [
+                "import json",
+                "",
+                "def run() -> int:",
+                "    d: dict[str, int] = {}",
+                "    d['a'] = 1",
+                "    d['b'] = 2",
+                f"    with open({str(out)!r}, 'w') as fp:",
+                "        json.dump(d, fp)",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+    # The written file is the contract, so read it back and diff the bytes.
+    want = tmp_path / "want.json"
+    want.write_text('{"a": 1, "b": 2}', encoding="utf-8")
+    assert out.read_bytes() == want.read_bytes()
+
+
+def test_json_dump_sorted_and_indented_match_cpython(tmp_path: Path) -> None:
+    """The closed dumps options ride the dump path too."""
+    out = tmp_path / "sorted.json"
+    _oracle_run(
+        tmp_path,
+        "jdumpsorted.py",
+        "\n".join(
+            [
+                "import json",
+                "",
+                "def run() -> int:",
+                "    d: dict[str, int] = {}",
+                "    d['b'] = 2",
+                "    d['a'] = 1",
+                f"    with open({str(out)!r}, 'w') as fp:",
+                "        json.dump(d, fp, sort_keys=True)",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+    want = tmp_path / "want.json"
+    want.write_text('{"a": 1, "b": 2}', encoding="utf-8")
+    assert out.read_bytes() == want.read_bytes()
+
+
+def test_time_monotonic_matches_cpython(tmp_path: Path) -> None:
+    _oracle_run(
+        tmp_path,
+        "mono.py",
+        "\n".join(
+            [
+                "import time",
+                "",
+                "def run() -> int:",
+                "    start: float = time.monotonic()",
+                "    elapsed: float = time.monotonic() - start",
+                "    print(elapsed >= 0.0)",
+                "    print(start > 0.0)",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
 def test_collector_fences_stay_closed(tmp_path: Path) -> None:
     cases = [
         (
@@ -204,11 +277,26 @@ def test_collector_fences_stay_closed(tmp_path: Path) -> None:
             "os.walk top is str",
         ),
         (
-            "jsondump.py",
+            "jsondumpstr.py",
+            "import json\n\ndef f(d: dict[str, int], s: str) -> int:\n"
+            "    json.dump(d, s)  # type: ignore[arg-type]\n    return 1\n",
+            "PS1003",
+            "json.dump argument is a file handle",
+        ),
+        (
+            "jsondumpargs.py",
             "import json\n\ndef f(d: dict[str, int], fp: str) -> int:\n"
+            "    json.dump(d)  # type: ignore[arg-type]\n    return 1\n",
+            "PS2003",
+            "json.dump expects 2 argument(s)",
+        ),
+        (
+            "jsondumpbool.py",
+            "import json\n\ndef f(fp: str) -> int:\n"
+            "    d: dict[str, bool] = {}\n"
             "    json.dump(d, fp)  # type: ignore[arg-type]\n    return 1\n",
-            "PS2001",
-            "json.dump is not in the lowered subset of json",
+            "PS2002",
+            "dict values of bool are not lowered",
         ),
         (
             "jloadnoanno.py",

@@ -989,6 +989,30 @@ class CallsMixin:
         text = self._abi_call("io", "read", [handle], kind, "ps_io_read", span)
         return _mod_call("json", "loads", [text], expect, span)
 
+    def _json_dump(self, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+        """`json.dump(obj, fp)` serializes the value and writes the handle.
+
+        The value goes through the same annotation-checked `json.dumps` path
+        (the closed `indent`/`sort_keys`/`ensure_ascii` keyword set), then the
+        text is written through the TextIO/BytesIO row the `f.write()`
+        lowering uses. The handle is the second positional argument, like
+        CPython.
+        """
+        if len(node.args) != 2:
+            self.fail(node, "PS2003", "json.dump expects 2 argument(s)")
+        arg = self._expr(node.args[0])
+        self._json_type(node, arg["type"], "json.dump")
+        handle = self._expr(node.args[1])
+        if handle["type"]["kind"] != "class" or handle["type"].get("name") not in {"TextIO", "BytesIO"}:
+            self.fail(node, "PS1003", "json.dump argument is a file handle (TextIO or BytesIO)")
+        text = _mod_call("json", "dumps", [arg], {"kind": "str"}, span)
+        flags = self._json_dumps_flags(node)
+        if flags:
+            text["json_flags"] = flags
+        write = self._abi_call("io", "write", [handle, text], {"kind": "int"}, "ps_io_write", span)
+        self.prelude.append({"kind": "expr", "expr": write, "span": span})
+        return _const_none(span)
+
     def _json_dumps(self, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         if len(node.args) != 1:
             self.fail(node, "PS2003", "json.dumps expects 1 argument(s)")
