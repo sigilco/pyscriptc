@@ -123,6 +123,8 @@ class CallsMixin:
         if expr.get("fn"):
             return self._emit_reduce(expr)
         if name == "exit":
+            if expr.get("exitMessage"):
+                return self._emit_exit_message(values[0])
             return self._emit_exit(values[0])
         if module == "atexit" and name == "register":
             return self._emit_atexit(expr)

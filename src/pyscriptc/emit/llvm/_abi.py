@@ -684,6 +684,20 @@ class AbiMixin:
         self.terminated = True
         return ""
 
+    def _emit_exit_message(self, message: str) -> str:
+        """`sys.exit(str)`: CPython raises `SystemExit(str)`, so the
+        uncaught handler writes the message to stderr and exits 1, and an
+        `except SystemExit` still catches it (issue #645). The SystemExit
+        raise path carries both rules.
+        """
+        self.needed.add("exc")
+        self._abi_decl("ps_raise_msg", "void", ["i32", "i64", "ptr"])
+        length, ptr = self._buf_parts(message)
+        self.line(f"call void @ps_raise_msg(i32 {EXCEPTIONS['SystemExit']}, i64 {length}, ptr {ptr}) noreturn")
+        self.line("unreachable")
+        self.terminated = True
+        return ""
+
     def _emit_join(self, values: list[str]) -> str:
         count = len(values)
         slot = self.tmp()
