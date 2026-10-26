@@ -201,6 +201,10 @@ def test_os_path_realpath_missing_tail(tmp_path: Path) -> None:
                 "    print(os.path.realpath('/etc/hosts/missing'))",
                 "    print(os.path.realpath('/etc'))",
                 "    print(os.path.realpath('/etc/../etc/hosts'))",
+                "    print(os.path.realpath('/..'))",
+                "    print(os.path.realpath('/a/../../..'))",
+                "    print(os.path.realpath('.'))",
+                "    print(os.path.realpath('..'))",
                 "    return 0",
                 "",
             ]
