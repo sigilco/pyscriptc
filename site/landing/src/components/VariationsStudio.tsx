@@ -214,7 +214,7 @@ export const VariationsStudio: React.FC<VariationsStudioProps> = ({
                 </h1>
                 <p className="text-lg sm:text-xl text-slate-300 max-w-2xl font-light leading-relaxed mb-10">
                   The native ahead-of-time compiler turning Python workloads into pure standalone single binaries.
-                  Zero Python interpreter. Zero virtualenv. Instant sub-millisecond cold start.
+                  Zero Python interpreter. Zero virtualenv. Instant cold start.
                 </p>
                 <div className="flex flex-wrap items-center justify-center gap-4">
                   <a
@@ -240,19 +240,19 @@ export const VariationsStudio: React.FC<VariationsStudioProps> = ({
           <section className="w-full border-y border-white/5 py-12 bg-white/[0.01]">
             <div className="max-w-7xl mx-auto px-6 grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
               <div>
-                <div className="text-3xl sm:text-5xl font-bold tracking-tight text-white mb-1">24x</div>
+                <div className="text-3xl sm:text-5xl font-bold tracking-tight text-white mb-1">22.8x</div>
                 <div className="text-xs sm:text-sm font-mono text-slate-400">Faster Execution</div>
               </div>
               <div>
-                <div className="text-3xl sm:text-5xl font-bold tracking-tight text-white mb-1">6x</div>
+                <div className="text-3xl sm:text-5xl font-bold tracking-tight text-white mb-1">5.3x</div>
                 <div className="text-xs sm:text-sm font-mono text-slate-400">Lower Peak RSS</div>
               </div>
               <div>
-                <div className="text-3xl sm:text-5xl font-bold tracking-tight text-cyan-400 mb-1">0ms</div>
-                <div className="text-xs sm:text-sm font-mono text-slate-400">Cold Start Latency</div>
+                <div className="text-3xl sm:text-5xl font-bold tracking-tight text-cyan-400 mb-1">~0.5 MB</div>
+                <div className="text-xs sm:text-sm font-mono text-slate-400">Binary Size</div>
               </div>
               <div>
-                <div className="text-3xl sm:text-5xl font-bold tracking-tight text-white mb-1">100%</div>
+                <div className="text-3xl sm:text-5xl font-bold tracking-tight text-white mb-1">3.14.9</div>
                 <div className="text-xs sm:text-sm font-mono text-slate-400">CPython Semantics</div>
               </div>
             </div>
@@ -284,7 +284,7 @@ export const VariationsStudio: React.FC<VariationsStudioProps> = ({
             <div className="hidden md:flex items-center gap-8 text-xs font-mono uppercase tracking-wider text-slate-400">
               <a href="/docs" className="hover:text-cyan-400 transition-colors">// Documentation</a>
               <a href="/compat" className="hover:text-cyan-400 transition-colors">// Compatibility</a>
-              <a href="https://github.com/sigilco/pyscriptc" className="hover:text-cyan-400 transition-colors">// GitHub [v0.6.0]</a>
+              <a href="https://github.com/sigilco/pyscriptc" className="hover:text-cyan-400 transition-colors">// GitHub</a>
             </div>
             <div className="flex items-center gap-4">
               <a
@@ -311,7 +311,7 @@ export const VariationsStudio: React.FC<VariationsStudioProps> = ({
                 </h1>
                 <p className="text-lg text-slate-300 font-light leading-relaxed max-w-xl">
                   pyscriptc lowers pure Python AST into typed SSA IR and produces zero-dependency machine binaries.
-                  Zero interpreter startup tax. Zero runtime dependencies. 24x faster execution.
+                  Zero interpreter startup tax. Zero runtime dependencies. 22.8x faster execution.
                 </p>
 
                 {/* Live CLI Install Box */}
@@ -331,7 +331,7 @@ export const VariationsStudio: React.FC<VariationsStudioProps> = ({
                     href="/compat"
                     className="px-7 py-3.5 rounded-lg bg-white/5 text-white border border-white/10 hover:border-cyan-500/40 transition-all text-sm font-mono"
                   >
-                    ORACLE_MATRIX [72 GATES] ↗
+                    ORACLE_MATRIX ↗
                   </a>
                 </div>
               </div>
@@ -341,7 +341,7 @@ export const VariationsStudio: React.FC<VariationsStudioProps> = ({
                 <div className="rounded-2xl border border-cyan-500/30 bg-[#0b0f19] p-5 shadow-[0_20px_50px_rgba(0,0,0,0.8)] font-mono text-xs space-y-4">
                   <div className="flex items-center justify-between pb-3 border-b border-white/10 text-slate-400">
                     <span className="text-cyan-400 font-bold">COMPILER_PIPELINE.LOG</span>
-                    <span>3.14.0 FINAL</span>
+                    <span>3.14.9 FINAL</span>
                   </div>
                   <div className="space-y-2 text-slate-300 text-[11px]">
                     <div className="flex justify-between">
@@ -362,7 +362,7 @@ export const VariationsStudio: React.FC<VariationsStudioProps> = ({
                     </div>
                     <div className="flex justify-between pt-2 border-t border-white/5 font-bold">
                       <span className="text-white">STANDALONE_BINARY</span>
-                      <span className="text-cyan-300">2.1 MB (0 DEPS)</span>
+                      <span className="text-cyan-300">~0.5 MB (0 DEPS)</span>
                     </div>
                   </div>
                   <div className="p-3 rounded bg-black/60 text-slate-400 text-[11px] leading-relaxed">
@@ -432,20 +432,20 @@ export const VariationsStudio: React.FC<VariationsStudioProps> = ({
           <section className="w-full max-w-4xl mx-auto px-6 py-12 border-t border-white/5">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-8">
               <div>
-                <div className="text-2xl font-normal text-white mb-0.5">24x</div>
+                <div className="text-2xl font-normal text-white mb-0.5">22.8x</div>
                 <div className="text-xs text-slate-500 font-mono">execution speed</div>
               </div>
               <div>
-                <div className="text-2xl font-normal text-white mb-0.5">6x</div>
+                <div className="text-2xl font-normal text-white mb-0.5">5.3x</div>
                 <div className="text-xs text-slate-500 font-mono">lower peak memory</div>
               </div>
               <div>
-                <div className="text-2xl font-normal text-white mb-0.5">0 ms</div>
-                <div className="text-xs text-slate-500 font-mono">cold start</div>
+                <div className="text-2xl font-normal text-white mb-0.5">3.14.9</div>
+                <div className="text-xs text-slate-500 font-mono">CPython baseline</div>
               </div>
               <div>
-                <div className="text-2xl font-normal text-white mb-0.5">100%</div>
-                <div className="text-xs text-slate-500 font-mono">CPython 3.14 semantics</div>
+                <div className="text-2xl font-normal text-white mb-0.5">Typed subset</div>
+                <div className="text-xs text-slate-500 font-mono">CPython semantics</div>
               </div>
             </div>
           </section>

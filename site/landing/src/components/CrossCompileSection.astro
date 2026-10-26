@@ -36,7 +36,7 @@
         </h3>
         <p class="text-sm text-slate-400 font-light leading-relaxed mb-6">
           Single-command cross-compilation for any cloud or desktop platform.
-          No per-target sysroot or SDK setup: zig cc links the output for each target.
+          No per-target sysroot or SDK setup.
         </p>
 
         <!-- Platform Targets List -->
@@ -50,7 +50,7 @@
               </svg>
               <span class="text-xs font-semibold text-white">Linux</span>
             </div>
-            <p class="text-[11px] text-slate-400 font-light">x86_64, aarch64, riscv64 · glibc &amp; musl</p>
+            <p class="text-[11px] text-slate-400 font-light">x86_64, aarch64 · glibc &amp; musl</p>
           </div>
 
           <div class="p-3 rounded-xl bg-white/[0.03] border border-white/5">
@@ -95,7 +95,8 @@
         <p class="text-sm text-slate-400 font-light leading-relaxed mb-6">
           Compile pure Python packages directly into machine code. Eliminate virtualenv setup,
           wheel build-matrix hurdles, and runtime dependency bloat in production containers.
-          Today, 3 of 18 pinned top-100 libraries compile fence-free.
+          Top-100 PyPI packages are tracked nightly against the pinned suite; the live
+          breakdown lives on the compatibility site.
         </p>
       </div>
 
@@ -105,9 +106,8 @@
         </div>
         <div class="flex flex-wrap gap-1.5 pt-1">
           <span class="px-2 py-0.5 rounded bg-white/5 text-[11px] text-slate-300">certifi</span>
-          <span class="px-2 py-0.5 rounded bg-white/5 text-[11px] text-slate-300">trove-classifiers</span>
           <span class="px-2 py-0.5 rounded bg-white/5 text-[11px] text-slate-300">tzdata</span>
-          <span class="px-2 py-0.5 rounded bg-white/5 text-[11px] text-slate-400">3 of 18 pinned compile fence-free today</span>
+          <span class="px-2 py-0.5 rounded bg-white/5 text-[11px] text-slate-400">18 pinned top-100 packages, tracked nightly</span>
         </div>
       </div>
     </div>
@@ -132,20 +132,21 @@
         </h3>
         <p class="text-sm text-slate-400 font-light leading-relaxed mb-4">
           Control the compiler from the terminal or automate inside CI scripts.
-          Full access to IR stages, LLVM output, and fence diagnostics.
+          Full access to IR stages, LLVM output, and diagnostic codes.
         </p>
       </div>
 
       <div class="rounded-xl bg-[#08090d] border border-white/5 p-3.5 font-mono text-xs text-slate-300">
-        <div class="text-slate-500 mb-1"># CLI emits ir, llvm, asm, obj, bin</div>
+        <div class="text-slate-500 mb-1"># CLI emits ir, llvm, asm, obj, bin, lib, binding</div>
         <div>pyscriptc compile service.py --emit=<span class="text-slate-200">bin</span> --target=<span class="text-slate-200">aarch64-linux</span> -O3</div>
-        <div><span class="text-slate-500"># a Python API (</span><span class="text-cyan-400">import pyscriptc</span><span class="text-slate-500">) is planned, not shipped</span></div>
+        <div><span class="text-slate-500"># explain any diagnostic code:</span> <span class="text-cyan-400">pyscriptc explain</span> <span class="text-slate-200">PS2002</span></div>
       </div>
 
       <div class="rounded-xl bg-[#06080d] border border-white/5 p-3.5 font-mono text-xs text-slate-300">
-        <div class="text-slate-500 mb-1"># Programmatic Python API</div>
-        <div><span class="text-cyan-400">import</span> pyscriptc</div>
-        <div>pyscriptc.<span class="text-cyan-300">build</span>(<span class="text-slate-200">"service.py"</span>, target=<span class="text-slate-200">"native"</span>, opt_level=<span class="text-slate-300">3</span>)</div>
+        <div class="text-slate-500 mb-1"># check a program against the CPython oracle</div>
+        <div><span class="text-cyan-400">pyscriptc verify</span> <span class="text-slate-200">service.py</span></div>
+        <div><span class="text-slate-500"># list every import and the lane it takes</span></div>
+        <div><span class="text-cyan-400">pyscriptc imports</span> <span class="text-slate-200">service.py</span></div>
       </div>
     </div>
 
@@ -165,22 +166,24 @@
         </div>
 
         <h3 class="text-xl sm:text-2xl font-normal text-white tracking-tight mb-2">
-          C-ABI Shared Libraries <span class="text-slate-500 text-sm">(planned)</span>
+          Shared Libraries &amp; Headers
         </h3>
         <p class="text-sm text-slate-400 font-light leading-relaxed mb-6">
-          A planned export surface: shared native libraries (<code class="font-mono text-slate-300">.so</code>, <code class="font-mono text-slate-300">.dylib</code>, <code class="font-mono text-slate-300">.dll</code>)
-          callable from C, C++, Rust, or Go. The CLI today emits ir, llvm, asm, obj and bin only.
+          <code class="font-mono text-slate-300">--emit binding</code> compiles a typed module into a
+          shared library (<code class="font-mono text-slate-300">.so</code>, <code class="font-mono text-slate-300">.dylib</code>, <code class="font-mono text-slate-300">.dll</code>)
+          plus a ctypes loader, so CPython calls your typed functions without
+          <code class="font-mono text-slate-300">Python.h</code> or an extension build.
         </p>
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 font-mono text-xs">
         <div class="p-3 rounded-xl bg-white/[0.03] border border-white/5">
-          <span class="text-white font-semibold block mb-0.5">Planned: Shared Library Output</span>
-          <span class="text-slate-400 text-[11px]">C calling convention, zero marshaling overhead (not yet implemented).</span>
+          <span class="text-white font-semibold block mb-0.5">ctypes Loader</span>
+          <span class="text-slate-400 text-[11px]">A <code class="text-slate-300">.py</code> loader that opens the library with <code class="text-slate-300">ctypes.CDLL</code>.</span>
         </div>
         <div class="p-3 rounded-xl bg-white/[0.03] border border-white/5">
-          <span class="text-white font-semibold block mb-0.5">Planned: Native Header Exports</span>
-          <span class="text-slate-400 text-[11px]">Auto-generated <code class="text-slate-300">.h</code> signatures for typed Python functions.</span>
+          <span class="text-white font-semibold block mb-0.5">Static Library &amp; Headers</span>
+          <span class="text-slate-400 text-[11px]"><code class="text-slate-300">--emit lib</code> emits <code class="text-slate-300">libpyscriptc.a</code>, <code class="text-slate-300">pyscriptc.h</code> and a module map.</span>
         </div>
       </div>
     </div>
@@ -204,9 +207,9 @@
           CPython 3.14 Parity
         </h3>
         <p class="text-sm text-slate-400 font-light leading-relaxed mb-4">
-          CPython 3.14 parity for the supported subset. Write idiomatic standard Python: pattern matching
-          and standard exception handling compile into native machine instructions; generator expressions
-          materialize eagerly today.
+          CPython 3.14.9 semantics for the supported subset. Write idiomatic standard Python:
+          pattern matching, standard exception handling and generator expressions compile into
+          native machine instructions.
         </p>
       </div>
 

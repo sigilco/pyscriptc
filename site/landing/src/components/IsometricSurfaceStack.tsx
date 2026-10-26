@@ -20,7 +20,7 @@ export const SURFACE_TIERS: SurfaceTier[] = [
     subtitle: "The Flagship Bedrock",
     headline: "Zero dependencies. Machine code. One self-contained file.",
     description:
-      "Your Python source is compiled down to optimized native assembly. No bundled interpreter, no container bloat, no virtualenv. A single self-contained binary of roughly 139 KB for programs inside the supported subset.",
+      "Your Python source is compiled down to optimized native assembly. No bundled interpreter, no container bloat, no virtualenv. A single self-contained binary (about half a megabyte) for programs inside the supported subset.",
     highlights: [
       {
         title: "Standalone Single Binary",
@@ -28,11 +28,11 @@ export const SURFACE_TIERS: SurfaceTier[] = [
       },
       {
         title: "Measured Kernel Speedup",
-        desc: "23.9x geometric-mean speedup on compute kernels and 5.8x lower peak RSS than CPython 3.15 on Linux x86_64.",
+        desc: "22.8x geometric-mean speedup on compute kernels and 5.3x lower peak RSS than CPython 3.14.9 on Linux x86_64.",
       },
       {
         title: "Target Every Real Architecture",
-        desc: "One command compiles for Linux x86_64, aarch64 and riscv64 (glibc and musl), plus aarch64 and x86_64 macOS.",
+        desc: "One command compiles for Linux x86_64 and aarch64 (glibc and musl), plus aarch64 and x86_64 macOS.",
       },
     ],
     accentColor: "#00c2ff",
@@ -41,27 +41,27 @@ export const SURFACE_TIERS: SurfaceTier[] = [
   {
     id: "shared",
     number: "02",
-    name: "C-ABI Shared Library",
-    subtitle: "Planned, Not Shipped",
-    headline: "Planned: export typed Python as a C ABI shared library.",
+    name: "Python Callable from C",
+    subtitle: "Shared Libraries & Headers",
+    headline: "Export typed Python as a shared library with a C surface.",
     description:
-      "A C-ABI export surface with generated headers is on the roadmap. The compiler today emits ir, llvm, asm, obj and bin only: no shared library, no .h generation.",
+      "--emit binding compiles a module into a shared library and ships a ctypes loader, so CPython imports your typed functions without Python.h or an extension build. --emit lib produces a static library with pyscriptc.h for embedding.",
     highlights: [
       {
-        title: "Planned: C Calling Convention",
-        desc: "Clean C ABI entry points for Rust, C++, Go and other foreign language runtimes are a planned interface, not a released one.",
+        title: "ctypes Loader, No Build Matrix",
+        desc: "The generated binding module loads the shared library with ctypes.CDLL and exposes typed functions directly to CPython, with no per-version ABI matrix.",
       },
       {
-        title: "Planned: Native Header Exports",
-        desc: "Auto-generated .h signatures for typed Python functions are planned alongside the shared library target.",
+        title: "Static Library & Headers",
+        desc: "--emit lib emits libpyscriptc.a, pyscriptc.h and a module.modulemap for mobile and embedded targets.",
       },
       {
-        title: "Today: Binaries Only",
-        desc: "The current CLI emits ir, llvm, asm, obj and bin. Nothing else is claimed as available.",
+        title: "Foreign Runners on the Roadmap",
+        desc: "Calling compiled Python from Rust, Go or C++ binaries is a planned next step, not shipped today.",
       },
     ],
     accentColor: "#38bdf8",
-    badge: "Planned / Upcoming",
+    badge: "Shipped",
   },
   {
     id: "island",
@@ -74,11 +74,11 @@ export const SURFACE_TIERS: SurfaceTier[] = [
     highlights: [
       {
         title: "Opt-In, Not Automatic",
-        desc: "The island is opt-in via the fallback tier. Compatibility and overhead of that tier are not separately measured yet.",
+        desc: "The island is opt-in via the fallback tier: --fallback=cpython routes the definitions that cannot compile to an embedded host CPython.",
       },
       {
-        title: "Fallback Cost Is Not Zero",
-        desc: "Branching into the island costs what the host interpreter costs. We do not claim a measured 0% CPU or memory overhead.",
+        title: "Measured Island Floor",
+        desc: "The island floor is measured in the same benchmark suite as native: island-routed programs currently run about 2x faster than CPython.",
       },
       {
         title: "Audit & Drop Path",
@@ -140,7 +140,7 @@ export const IsometricSurfaceStack: React.FC<IsometricSurfaceStackProps> = ({
         </h2>
         <p className="text-base sm:text-lg text-slate-400 font-light leading-relaxed">
           Target the execution surface your infrastructure requires without rewriting a single line
-          of Python. Today that means zero-dependency native binaries and an opt-in island fallback.
+          of Python. Today that means zero-dependency native binaries, shared libraries with a C surface, and an opt-in island fallback.
         </p>
       </div>
 
