@@ -120,6 +120,38 @@ def test_unicodedata_numbers_and_flags_match(tmp_path: Path) -> None:
 
 
 @pytest.mark.linux_container  # HEAVY=1 docker/run.sh
+def test_unicodedata_mirrored_is_an_int(tmp_path: Path) -> None:
+    """#712: unicodedata.mirrored returns an int, not a bool.
+
+    CPython's unicodedata.mirrored returns 0 or 1 as an int, so a program
+    that binds it to an int annotation lowers and the printed value is the
+    digit, not "True" or "False".
+    """
+    path = write_case(
+        tmp_path,
+        "udata_mirrored.py",
+        "\n".join(
+            [
+                "import unicodedata",
+                "def probe() -> int:",
+                "    opened: int = unicodedata.mirrored('(')",
+                "    plain: int = unicodedata.mirrored('a')",
+                "    total: int = opened + plain",
+                "    print(opened)",
+                "    print(plain)",
+                "    print(total)",
+                "    print(opened * 10)",
+                "    return total",
+                "",
+            ]
+        ),
+    )
+    got = compile_run(tmp_path, path, "probe")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle(path, "probe")
+
+
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_normalization_outside_latin1_raises(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,

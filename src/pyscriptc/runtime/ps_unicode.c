@@ -1796,7 +1796,7 @@ void ps_unicode_east_asian_width(int64_t n, const char *s, PsBuf *out) {
     ps_put_code(ps_eaw_blob, ps_eaw_off[c], ps_eaw_len[c], out);
 }
 
-int32_t ps_unicode_mirrored(int64_t n, const char *s) {
+int64_t ps_unicode_mirrored(int64_t n, const char *s) {
     unsigned char c = ps_one(n, s, "unicodedata.mirrored() argument is one character");
     return ps_mirrored[c] ? 1 : 0;
 }

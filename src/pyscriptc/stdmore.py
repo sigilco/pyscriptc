@@ -1569,7 +1569,7 @@ REST_FIXED: dict[str, dict[str, dict[str, Any]]] = {
         "is_normalized": _sig([_S, _S], _B, "ps_unicode_is_normalized"),
         "bidirectional": _sig([_S], _S, "ps_unicode_bidirectional"),
         "east_asian_width": _sig([_S], _S, "ps_unicode_east_asian_width"),
-        "mirrored": _sig([_S], _B, "ps_unicode_mirrored"),
+        "mirrored": _sig([_S], _I, "ps_unicode_mirrored"),
         "decimal": _sig([_S], _I, "ps_unicode_decimal"),
         "digit": _sig([_S], _I, "ps_unicode_digit"),
         "numeric": _sig([_S], _F, "ps_unicode_numeric"),
