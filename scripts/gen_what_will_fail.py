@@ -139,7 +139,8 @@ def _classify_fence(fence: dict[str, Any]) -> tuple[str, str, str, str, str]:
         if "defaultdict" in msg_lower:
             mod = "collections"
         elif (
-            "any is not a value" in msg_lower
+            "any is not a lowered type" in msg_lower
+            or "any is not a value" in msg_lower
             or "callable[" in msg_lower
             or "dict is not lowered; use dict[" in msg_lower
         ):

@@ -579,4 +579,110 @@ no = [["TarFile", 'y: int = tarfile.TarFile(s)', "PS2001"]]
 [[stdlib]]
 names = ["typing", "typing_extensions"]
 red = false
-note = "annotation-only: imports are free, values are checked, there is no runtime surface"
+note = "annotation-only: imports are free, annotations are the lowering input, erased before emission; typing names used as values fence"
+ok = [
+  'y: int | None = None',
+  'y: typing.Optional[int] = None',
+  'y: typing.Optional[int] = n if t else None',
+  'v: typing.Final[int] = 3',
+  'z: typing.Annotated[int, "mm"] = n',
+  'q: typing.Iterator[int] = iter(xs)',
+  'q: typing.Sequence[int] = xs',
+  'q: typing.Generator[int, None, None] = iter(xs)',
+  '''from typing import TypeVar
+T = TypeVar("T")
+def pick(flag: bool, a: T, b: T) -> T:
+    return a
+@@
+y: int = pick(t, n, n)''',
+  '''from typing import Callable
+c: Callable[[int], int] = lambda v: v + 1
+@@
+y: int = c(n)''',
+  '''from typing import overload
+@overload
+def h(n: int) -> int: ...
+@overload
+def h(n: int, k: int) -> int: ...
+def h(n: int, k: int = 0) -> int:
+    return n + k
+@@
+y: int = h(1)''',
+  '''from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    HINT: int = 1
+@@
+y: int = 0''',
+  '''from typing import Protocol
+class P2(Protocol):
+    def a(self) -> int: ...
+@@
+y: int = 0''',
+  '''from typing import Protocol
+class Named(Protocol):
+    def name(self) -> str: ...
+class User(Named):
+    n: str
+    def __init__(self, n: str) -> None:
+        self.n = n
+    def name(self) -> str:
+        return self.n
+def greet(v: Named) -> int:
+    return 1
+@@
+y: int = greet(User("q"))''',
+  '''from __future__ import annotations
+def g(xs: list[int]) -> int:
+    return xs[0]
+@@
+y: int = g([1])''',
+  '''y: int = 0
+if n is not None:
+    y = n + 1''',
+]
+no = [
+  ["Any annotation", 'y: typing.Any = n', "PS1104"],
+  ["bare Callable", 'y: typing.Callable = None', "PS1104"],
+  ["multi-arm union", 'y: typing.Union[int, str] = n', "PS1101"],
+  ["optional of a multi-arm union", 'y: typing.Union[int, str, None] = n', "PS1102"],
+  ["Literal annotation", 'v: typing.Literal["a"] = "a"', "PS1103"],
+  ["Self return", '''from typing import Self
+class B:
+    def add(self) -> Self:
+        return self
+@@
+y: int = 0''', "PS1103"],
+  ["TypeAlias declaration", '''from typing import TypeAlias
+Ids: TypeAlias = list[int]
+@@
+y: list[int] = []''', "PS1103"],
+  ["PEP 695 type alias", '''type Ids = list[int]
+@@
+y: list[int] = []''', "PS2002"],
+  ["PEP 695 TypeVar parameter", '''def g[T](xs: list[T]) -> T:
+    return xs[0]
+@@
+y: int = g(xs)''', "PS1106"],
+  ["forward reference string", '''class N2:
+    nxt: "N2"
+@@
+y: int = 0''', "PS1105"],
+  ["TypedDict class base", '''from typing import TypedDict
+class M(TypedDict):
+    a: int
+@@
+y: int = 1''', "PS2002"],
+  ["NamedTuple class base", '''from typing import NamedTuple
+class Pt(NamedTuple):
+    x: int
+@@
+y: int = 1''', "PS2002"],
+  ["NewType value", 'UserId = typing.NewType("UserId", int)', "PS2002"],
+  ["ParamSpec value", 'P = typing.ParamSpec("P")', "PS2002"],
+  ["cast value", 'y: int = typing.cast(int, n)', "PS2002"],
+  ["get_type_hints reflection", '''from typing import get_type_hints
+@@
+y: int = len(get_type_hints(f))''', "PS2002"],
+  ["isinstance with a generic", 'y: bool = isinstance(n, list[int])', "PS2001"],
+  ["__annotations__ read", 'y: int = len(f.__annotations__)', "PS2001"],
+]
