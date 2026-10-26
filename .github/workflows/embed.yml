@@ -9,18 +9,25 @@
 # (workflow_dispatch with always_run=true) run them unconditionally. Merging
 # a runtime bump PR (runtime-bump.yml) requires these jobs green.
 #
-# Runner minutes budget: 4 minutes per cell target, 6 per cell hard timeout,
-# 2 cells per full run, so a full run costs at most about 12 runner minutes
-# (measure and record in issue #662; macOS minutes cost 10x Linux on free
-# plans, so the macOS cell drops to nightly and rehearsal only if the PR
-# cost is high - flip the `pr_skip_macos` variable to do that without a
-# code change).
+# Runner minutes budget (issue #662): target 4 minutes per cell, hard
+# timeout 6, 2 cells per full run, so a full run costs at most about 12
+# runner minutes (about 8 Linux + about 10 macOS rate-equivalent, macOS
+# minutes cost 10x Linux on free plans). Measured: recorded in issue #662 at
+# close. The macOS PR cell drops to nightly and rehearsal only by setting the
+# repo variable EMBED_PR_SKIP_MACOS=true - no code change needed.
 #
-# Until the runtime pack slice (#657) lands the lock file and the pack, the
-# jobs are a clean skip: a missing pack is the documented no-op, not a red
-# run. The real steps below are written against the slice's contract and
-# activate when `packaging/runtime.lock.toml` and `pyscriptc embed fetch`
-# exist.
+# Nightly versus per-PR split: pull requests run path-filtered on the
+# embedding surface (the gate step below); the nightly schedule, pushes to
+# master and the release rehearsal (workflow_dispatch always_run=true) run
+# both cells unconditionally.
+#
+# The acceptance matrix is the real headline test (issue #661): three
+# programs (stdlib-only island fractions, a bundled pure-Python dependency,
+# a program reading a staged data file) are compiled into bundles, the
+# bundles are relocated, the pack cache is moved away and the repository
+# checkout is renamed away, and each bundle runs under `env -i` (no PATH, no
+# HOME, no PYTHONHOME) compared against CPython's stdout, stderr and exit
+# code. The loader assertions pin the relative rpath only.
 name: embed
 
 on:
@@ -127,24 +134,102 @@ jobs:
           uv run pyscriptc embed fetch --platform ${{ matrix.platform }}
           echo "skip=false" >> "$GITHUB_OUTPUT"
 
-      # The acceptance program of the slice (#661): compile an island program
-      # into a bundle, relocate the output, hide the source tree, run it in an
-      # empty environment, and diff against CPython.
-      - name: Compile, relocate and run the acceptance program
+      # The acceptance matrix of issue #661: compile three programs into
+      # bundles, relocate the bundles, hide the build tree and the pack
+      # cache, run each under `env -i` (no PATH, no HOME, no PYTHONHOME)
+      # and compare stdout, stderr and exit code with CPython's.
+      - name: Compile, relocate and run the acceptance programs
         if: steps.gate.outputs.run == 'true' && steps.fetch.outputs.skip != 'true'
         env:
           WORK: ${{ runner.temp }}/embed-acceptance
         run: |
           set -euo pipefail
-          mkdir -p "$WORK"
+          mkdir -p "$WORK/fresh" "$WORK/home"
+
+          # The three acceptance programs (fixtures, so no heredocs):
+          # 1. the stdlib-only island fractions program,
+          # 2. a program importing a pure-Python dependency (issue #660),
+          # 3. a program reading a staged data file (issue #665).
           uv run pyscriptc compile --island tests/fixtures/embed/island_fractions.py --emit bin \
-            --embed-python=bundle -o "$WORK/OUT/prog"
-          cp -R "$WORK/OUT" "$WORK/OUT-moved"
-          rm -rf "$WORK/OUT"
-          got="$(env -i HOME="$RUNNER_TEMP" "$WORK/OUT-moved/prog/bin/prog")"
-          want="$(python3 tests/fixtures/embed/island_fractions.py)"
-          [ "$got" = "$want" ] || { echo "bundle output '$got' != cpython '$want'"; exit 1; }
-          # share/licenses is not staged yet; tracked in #709.
+            --embed-python=bundle -o "$WORK/out/stdlib/prog"
+          uv run pyscriptc compile --island tests/fixtures/embed/island_dependency.py --emit bin \
+            --embed-python=bundle -o "$WORK/out/sitedep/depprog"
+          uv run pyscriptc compile --program tests/fixtures/embed/datafile --island --fallback=cpython \
+            --emit bin --embed-python=bundle -o "$WORK/out/datafile/prog"
+
+          # CPython references first (stdout, stderr, exit code per program),
+          # then relocate: the bundles move to a fresh directory, the build
+          # outputs are deleted, the pack cache is moved away and the source
+          # fixtures are renamed away, so nothing resolves back into them.
+          python3 tests/fixtures/embed/island_fractions.py >"$WORK/ref-stdlib.out" 2>"$WORK/ref-stdlib.err"; echo $? >"$WORK/ref-stdlib.rc"
+          uv run python3 tests/fixtures/embed/island_dependency.py >"$WORK/ref-sitedep.out" 2>"$WORK/ref-sitedep.err"; echo $? >"$WORK/ref-sitedep.rc"
+          (cd tests/fixtures/embed/datafile && python3 __main__.py) >"$WORK/ref-datafile.out" 2>"$WORK/ref-datafile.err"; echo $? >"$WORK/ref-datafile.rc"
+
+          mv "$WORK/out/stdlib/prog" "$WORK/fresh/stdlib"
+          mv "$WORK/out/sitedep/depprog" "$WORK/fresh/sitedep"
+          mv "$WORK/out/datafile/prog" "$WORK/fresh/datafile"
+          rm -rf "$WORK/out"
+          mv "$HOME/.cache/pyscriptc/runtime" "$HOME/.cache/pyscriptc/runtime-moved"
+          for tree in island_fractions.py island_dependency.py datafile; do
+            mv "tests/fixtures/embed/$tree" "tests/fixtures/embed/$tree-hidden"
+          done
+
+          status=0
+          compare() {  # compare <label> <bundle binary> <reference name>
+            label="$1"; bin="$2"; name="$3"
+            set +e
+            got_out="$(env -i HOME="$WORK/home" "$bin" 2>"$WORK/got.err")"; got_rc=$?
+            got_err="$(cat "$WORK/got.err")"
+            want_out="$(cat "$WORK/ref-$name.out")"
+            want_err="$(cat "$WORK/ref-$name.err")"
+            want_rc="$(cat "$WORK/ref-$name.rc")"
+            set -e
+            if [ "$got_out" != "$want_out" ] || [ "$got_err" != "$want_err" ] || [ "$got_rc" != "$want_rc" ]; then
+              echo "::error::$label differs from CPython" >&2
+              echo "  bundle: rc=$got_rc stdout=[$got_out] stderr=[$got_err]" >&2
+              echo "  cpython: rc=$want_rc stdout=[$want_out] stderr=[$want_err]" >&2
+              status=1
+              return
+            fi
+            echo "$label: rc=$got_rc stdout=[$got_out] (matches CPython)"
+          }
+
+          compare "stdlib island fractions" "$WORK/fresh/stdlib/bin/prog" stdlib
+          compare "bundled pure dependency" "$WORK/fresh/sitedep/bin/depprog" sitedep
+          compare "program data file" "$WORK/fresh/datafile/bin/prog" datafile
+
+          # Loader assertions: the relative rpath is present and no absolute
+          # path into the build tree or the pack survives in the image.
+          if [ "${{ matrix.os }}" = "macos-14" ]; then
+            otool -L "$WORK/fresh/stdlib/bin/prog" | tail -n +2 > "$WORK/otool.txt"
+            otool -l "$WORK/fresh/stdlib/bin/prog" | tail -n +2 > "$WORK/otool-l.txt"
+            grep -q '@executable_path/../lib' "$WORK/otool-l.txt" \
+              || { echo "::error::no @executable_path/../lib rpath" >&2; status=1; }
+            if grep -Eq "$WORK" "$WORK/otool.txt" "$WORK/otool-l.txt"; then
+              echo "::error::an absolute build path survives in the binary" >&2; status=1
+            fi
+          else
+            readelf -d "$WORK/fresh/stdlib/bin/prog" > "$WORK/readelf.txt"
+            grep -q '$ORIGIN/../lib' "$WORK/readelf.txt" \
+              || { echo "::error::no $ORIGIN/../lib rpath" >&2; cat "$WORK/readelf.txt" >&2; status=1; }
+            if grep -Eq "$WORK" "$WORK/readelf.txt"; then
+              echo "::error::an absolute build path survives in the binary" >&2; status=1
+            fi
+          fi
+
+          # Size gates: macOS at most 40 MB, Linux at most 60 MB uncompressed,
+          # measured on the largest of the three bundles.
+          kb="$(du -sk "$WORK/fresh"/* | awk '{print $1}' | sort -n | tail -1)"
+          limit_mb=$([ "${{ matrix.os }}" = "macos-14" ] && echo 40 || echo 60)
+          echo "bundle size: $kb KB (limit ${limit_mb} MB)"
+          [ "$kb" -le $((limit_mb * 1024)) ] || { echo "::error::the bundle exceeds its size gate" >&2; status=1; }
+
+          # Put the world back before reporting, so the step is re-runnable.
+          for tree in island_fractions.py island_dependency.py datafile; do
+            mv "tests/fixtures/embed/$tree-hidden" "tests/fixtures/embed/$tree"
+          done
+          mv "$HOME/.cache/pyscriptc/runtime-moved" "$HOME/.cache/pyscriptc/runtime"
+          exit "$status"
 
       - name: Summary
         if: steps.gate.outputs.run == 'true'
