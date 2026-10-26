@@ -48,6 +48,7 @@ _KEYS: dict[str, tuple[type, ...]] = {
     "imports": (dict,),
     # boxed:begin
     "fallback": (dict, str, bool),
+    "island": (dict,),
     # boxed:end
 }
 _CHOICES = {
@@ -158,6 +159,7 @@ class Config:
     imports: dict[str, str] = field(default_factory=dict)
     # boxed:begin
     fallback: Any = field(default_factory=dict)
+    island: Any = field(default_factory=dict)
     # boxed:end
     requires_python: str | None = None
     dependencies: tuple[str, ...] = ()
@@ -172,6 +174,19 @@ class Config:
         if isinstance(self.fallback, bool):
             return self.fallback
         return False
+
+    def island_embed(self) -> str | None:
+        """The `[tool.pyscriptc.island] embed` mode, or None when unset."""
+        if isinstance(self.island, dict):
+            value = self.island.get("embed")
+            if value is not None:
+                from pyscriptc.embed import MODES
+
+                table = "pyscriptc.island" if self.source == "pyscriptc.toml" else "tool.pyscriptc.island"
+                if value not in MODES:
+                    raise ConfigError(f"{table}.embed must be one of {'|'.join(MODES)}, got {value!r}")
+                return str(value)
+        return None
 
     # boxed:end
 
@@ -346,6 +361,7 @@ def _from_table(table: dict[str, Any], origin: Path, source: str) -> Config:
         imports=dict(table.get("imports", {})),
         # boxed:begin
         fallback=table.get("fallback", {}),
+        island=table.get("island", {}),
         # boxed:end
     )
 
@@ -473,4 +489,10 @@ def apply_to_args(config: Config, args: Any) -> list[str]:
         notes.append(f"note: config from {config.origin} ({config.source})")
     if config.requires_python is not None:
         notes.append(f"note: requires-python {config.requires_python}")
+    # boxed:begin
+    if hasattr(args, "embed_python") and getattr(args, "embed_python", None) is None:
+        island_embed = config.island_embed()
+        if island_embed is not None:
+            args.embed_python = island_embed
+    # boxed:end
     return notes

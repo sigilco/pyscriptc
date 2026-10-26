@@ -16,7 +16,10 @@ import time
 from pathlib import Path
 from typing import Any
 
-from pyscriptc import runcache
+# boxed:begin
+from pyscriptc import embed, runcache
+
+# boxed:end
 from pyscriptc.config import apply_to_args, entry_points, load_config
 from pyscriptc.errors import CheckFailed, FitError, IRError, SpikeError, VersionError
 from pyscriptc.log import enable_debug, get_logger, tail
@@ -249,6 +252,16 @@ def main(argv: list[str] | None = None) -> int:
         help="alias of --fallback=cpython: route every import outside the closed table and "
         "every fenced definition to the embedded CPython island",
     )
+    compile_parser.add_argument(
+        "--embed-python",
+        choices=("host", "bundle", "auto"),
+        default=None,
+        metavar="MODE",
+        help="libpython the island links: host (the compiler interpreter), bundle (the pinned "
+        "runtime pack, relocatable output) or auto (host when this interpreter has a shared "
+        "libpython, bundle otherwise; the default). Also read from the `embed` key of "
+        "[tool.pyscriptc.island]",
+    )
     # boxed:end
     compile_parser.add_argument("--call", help="function the generated main calls")
     compile_parser.add_argument(
@@ -348,6 +361,13 @@ def main(argv: list[str] | None = None) -> int:
         "--island",
         action="store_true",
         help="alias of --fallback=cpython",
+    )
+    run_parser.add_argument(
+        "--embed-python",
+        choices=("host", "bundle", "auto"),
+        default=None,
+        metavar="MODE",
+        help="libpython the island links (see compile); the run cache keys on it",
     )
     # boxed:end
     # boxed:begin
@@ -545,6 +565,19 @@ def main(argv: list[str] | None = None) -> int:
     deps_parser.add_argument(
         "--cache-dir", metavar="DIR", help="cache root (env PYSC_CACHE_DIR, default ~/.cache/pyscriptc)"
     )
+    # boxed:begin
+    embed_parser = sub.add_parser(
+        "embed",
+        help="manage the pinned CPython runtime pack for --embed-python=bundle",
+        parents=[common],
+    )
+    embed_sub = embed_parser.add_subparsers(dest="embed_cmd", required=True)
+    fetch_parser = embed_sub.add_parser("fetch", help="download, verify and unpack the runtime pack")
+    fetch_parser.add_argument(
+        "--platform", metavar="PLATFORM", default=None, help="pack platform (default: this machine)"
+    )
+    fetch_parser.add_argument("--force", action="store_true", help="re-download even when the pack is cached")
+    # boxed:end
     try:
         raw = list(sys.argv[1:] if argv is None else argv)
         run_argv: list[str] = []
@@ -636,6 +669,10 @@ def main(argv: list[str] | None = None) -> int:
             return deps.deps_cmd(args)
         if args.cmd == "telemetry":
             return telemetry.telemetry_cmd(args.action)
+        # boxed:begin
+        if args.cmd == "embed":
+            return embed_cmd(args)
+        # boxed:end
     except CheckFailed as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -648,10 +685,41 @@ def main(argv: list[str] | None = None) -> int:
     return 2
 
 
+def embed_cmd(args: argparse.Namespace) -> int:
+    """`pyscriptc embed fetch`: download, verify and unpack the pinned runtime pack."""
+    if args.embed_cmd != "fetch":
+        raise IRError(f"unknown embed command {args.embed_cmd!r} (known: fetch)")
+    pack = embed.lock_pack(getattr(args, "platform", None))
+    directory = embed.pack_dir(pack)
+    if embed.pack_is_ready(pack) and not args.force:
+        print(f"runtime pack already present: {directory}")
+        return 0
+    if embed.pack_is_ready(pack) and args.force:
+        print(f"re-fetching runtime pack {pack.pack_id}", file=sys.stderr)
+    else:
+        print(
+            f"fetching runtime pack {pack.pack_id} ({pack.cpython}, {pack.release})",
+            file=sys.stderr,
+        )
+    embed.fetch(pack, force=args.force)
+    print(f"runtime pack ready: {directory}")
+    return 0
+
+
 def run_cmd(args: argparse.Namespace) -> int:
     """`pyscriptc run FILE [-- args]`: compile once per content hash, then run the cached binary."""
     started = time.monotonic()
     _apply_env_defaults(args)
+    # boxed:begin
+    # A bundle link writes a directory (`name/bin/name` plus `name/lib/`), not
+    # a single file, so it does not fit the run cache's one-binary-per-key
+    # shape. The compile command is the way to make a bundle.
+    if getattr(args, "embed_python", None) == "bundle":
+        raise IRError(
+            "--embed-python=bundle writes a relocatable directory and does not fit the run cache; "
+            "use `pyscriptc compile --embed-python=bundle -o OUT/name` and run OUT/name/bin/name"
+        )
+    # boxed:end
     source = Path(args.source)
     if not source.exists():
         raise IRError(f"source not found: {source}")
@@ -796,6 +864,7 @@ def _run_key(args: argparse.Namespace) -> str:
             # boxed:begin
             f"fallback={getattr(args, 'fallback', None)}",
             f"island={getattr(args, 'island', False)}",
+            f"embed_python={getattr(args, 'embed_python', None)}",
             # boxed:end
         ],
     )
@@ -846,6 +915,7 @@ def _build_for_run(args: argparse.Namespace, output: Path) -> int:
         # boxed:begin
         fallback=getattr(args, "fallback", None),
         island=getattr(args, "island", False),
+        embed_python=getattr(args, "embed_python", None),
         # boxed:end
         driver=args.driver,
         target=args.target,
@@ -1875,9 +1945,18 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             link_units=[unit for manifest in manifests for unit in manifest.link_units()],
             link_flags=[flag for manifest in manifests for flag in manifest.link_flags()],
             include_dirs=[manifest.path.parent for manifest in manifests if manifest.sources],
+            embed_mode=getattr(args, "embed_python", None),
         )
         dbg.end("link")
         outputs["bin"] = str(binary)
+        # boxed:begin
+        # A bundle link writes a relocatable directory: the binary under
+        # `bin/`, the runtime under `lib/` (the relative rpath points there).
+        if getattr(args, "embed_python", None) == "bundle":
+            pack = embed.lock_pack()
+            staged = embed.stage_bundle(binary, embed.pack_dir(pack), embed.python_version(), binary)
+            outputs["bin"] = str(staged)
+        # boxed:end
         state["binary_bytes"] = binary.stat().st_size if binary.is_file() else None
         log.info("link.binary", output=str(binary), driver=args.driver, target=args.target)
         if not args.run:

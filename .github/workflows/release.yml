@@ -148,11 +148,58 @@ jobs:
           path: packaging/dist/${{ matrix.artifact }}
           if-no-files-found: error
 
+  # The pinned CPython runtime packs for --embed-python=bundle (issue #657).
+  # One job per locked platform, from packaging/runtime.lock.toml. The pack
+  # attaches to the GitHub release (draft, same as the binaries); a rehearsal
+  # builds and uploads the artifact without attaching anything.
+  runtime-pack:
+    name: runtime pack (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    needs: [build]
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-arm64
+            runner: macos-14
+          - platform: linux-x86_64
+            runner: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Build the runtime pack
+        run: python3 scripts/build_runtime_pack.py --platform ${{ matrix.platform }} -o dist/
+
+      - name: Pack size gate (60 MB, plan kill criterion)
+        run: |
+          set -euo pipefail
+          pack="dist/pyscriptc-runtime-"*.tar.zst
+          for f in $pack; do
+            bytes="$(stat -c %s "$f" 2>/dev/null || stat -f %z "$f")"
+            echo "$f: $bytes bytes"
+            [ "$bytes" -le $((60 * 1024 * 1024)) ] || { echo "$f exceeds 60 MB" >&2; exit 1; }
+          done
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: runtime-pack-${{ matrix.platform }}
+          path: dist/pyscriptc-runtime-*.tar.zst
+          if-no-files-found: error
+
   release:
     name: checksums and draft release
-    needs: [build, verify]
+    needs: [build, verify, runtime-pack]
     runs-on: ubuntu-24.04
-    if: ${{ !cancelled() && needs.build.result == 'success' }}
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.verify.result == 'success' }}
     permissions:
       contents: write
       actions: write
@@ -179,8 +226,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p bundle
-          find dist -type f -name 'pyscriptc-*' ! -name '*.whl' ! -name '*.tar.gz' -exec cp -t bundle {} +
-          mapfile -t bins < <(find bundle -maxdepth 1 -type f -name 'pyscriptc-*' | sort)
+          # The runtime packs ride in the same bundle but are not "binaries":
+          # the count below pins the 5 compiler binaries only.
+          find dist -type f -name 'pyscriptc-runtime-*' -exec cp -t bundle {} +
+          find dist -type f -name 'pyscriptc-*' ! -name '*.whl' ! -name '*.tar.gz' ! -name 'pyscriptc-runtime-*' -exec cp -t bundle {} +
+          mapfile -t bins < <(find bundle -maxdepth 1 -type f -name 'pyscriptc-*' ! -name 'pyscriptc-runtime-*' | sort)
           if [ "${#bins[@]}" -ne 5 ]; then
             echo "expected 5 release binaries, found ${#bins[@]}" >&2
             find dist -type f -print >&2
@@ -188,7 +238,7 @@ jobs:
           fi
           (
             cd bundle
-            sha256sum pyscriptc-* | LC_ALL=C sort -k2 > sha256sums.txt
+            sha256sum pyscriptc-* pyscriptc-runtime-* | LC_ALL=C sort -k2 > sha256sums.txt
             cat sha256sums.txt
           )
 

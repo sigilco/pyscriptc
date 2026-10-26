@@ -51,7 +51,8 @@ def test_self_census_ballpark() -> None:
     # assess.py (#558, assess PATH for native gains and island routes) adds 1 module.
     # target.py (#532, declared CPython target configuration) adds 1 module.
     # boxed.py (#612, the --fallback=cpython island planner) adds 1 module.
-    assert census["modules"] == 100
+    # embed.py (#657, the pinned CPython runtime pack) adds 1 module.
+    assert census["modules"] == 101
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -271,5 +272,16 @@ def test_self_census_ballpark() -> None:
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.
     assert 11_000 <= census["lines"] <= 51_000
-    assert census["fences"] == 3029
-    assert sum(p["fences"] for p in census["packages"]) == 3029
+    # Island class definitions (#628): +9 self-host fences, one in
+    # emit/llvm/_abi.py (the class-handle trampoline), one in
+    # lower/_classes.py (the island class annotation), three in
+    # lower/_stdlib.py (the class-handle helper) and two in boxed.py (the
+    # class planes and the class cascade); the module count is unchanged.
+    # Embedding POC seam (#651, work/embedpoc): +12 self-host fences in
+    # boxed.py (embed_link_flags and its helpers) plus the boxed-marked call
+    # in emit/llvm/_driver.py.
+    # embed.py (#657, the pinned CPython runtime pack) adds 1 module, about
+    # 470 lines and 99 self-host fences, taking the source past 50k.
+    assert 11_000 <= census["lines"] <= 51_000
+    assert census["fences"] == 3140
+    assert sum(p["fences"] for p in census["packages"]) == 3140
