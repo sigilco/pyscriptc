@@ -539,21 +539,158 @@ void ps_path_expandvars(int64_t n, const char *s, PsBuf *out) {
     ps_grow_finish(&g, out);
 }
 
-/* realpath: resolve symlinks step by step (no strict mode in this subset). */
+/* realpath per posixpath (non-strict): the path is walked component by
+   component, symlinks are resolved as they are met, and a component that
+   does not exist is appended verbatim instead of raising. This mirrors
+   posixpath.realpath with strict=False, which ignores every OSError.
+
+   The walk keeps its own resolved prefix: the path is not normalized
+   before the walk, because a `..` after a symlink resolves against the
+   link's target and not against the written path. */
+#define PS_REALPATH_SEEN 64
+
 void ps_path_realpath(int64_t n, const char *s, PsBuf *out) {
-    PsBuf abs;
+    PsGrow g;
     char *text;
-    char *resolved;
-    ps_path_abs(n, s, &abs);
-    text = ps_cstr(abs.len, abs.data);
-    resolved = ps_realpath(text, NULL);
-    free(text);
-    free(abs.data);
-    if (resolved == NULL) {
-        ps_os_fail("realpath failed");
+    PsBuf cwd;
+    int64_t i;
+    int64_t start;
+    int64_t len;
+    char *seen[PS_REALPATH_SEEN];
+    int64_t seen_n = 0;
+    if (ps_abs(n, s)) {
+        text = ps_cstr(n, s);
+    } else {
+        /* A relative path starts at the working directory. */
+        ps_os_getcwd(&cwd);
+        text = malloc((size_t)(cwd.len + n + 2));
+        if (text == NULL) {
+            abort();
+        }
+        memcpy(text, cwd.data, (size_t)cwd.len);
+        text[cwd.len] = '/';
+        memcpy(text + cwd.len + 1, s, (size_t)n);
+        text[cwd.len + 1 + n] = '\0';
+        free(cwd.data);
     }
-    ps_buf_copy(out, resolved, (int64_t)strlen(resolved));
-    free(resolved);
+    len = (int64_t)strlen(text);
+    ps_grow_init(&g);
+    ps_grow_byte(&g, '/');
+    i = 0;
+    while (i < len) {
+        struct stat st;
+        while (i < len && IS_DIR_SEP(text[i])) {
+            i += 1;
+        }
+        start = i;
+        while (i < len && !IS_DIR_SEP(text[i])) {
+            i += 1;
+        }
+        if (start == i) {
+            break;
+        }
+        if (i - start == 1 && text[start] == '.') {
+            continue;
+        }
+        if (i - start == 2 && text[start] == '.' && text[start + 1] == '.') {
+            /* The parent of the root is the root. */
+            if (g.len > 1) {
+                g.len -= 1;
+                while (g.len > 1 && g.data[g.len - 1] != '/') {
+                    g.len -= 1;
+                }
+                if (g.len > 1 && g.data[g.len - 1] == '/') {
+                    g.len -= 1;
+                }
+                g.data[g.len] = '\0';
+            }
+            continue;
+        }
+        /* The candidate is the resolved path plus this component. */
+        if (g.len > 1 && g.data[g.len - 1] != '/') {
+            ps_grow_byte(&g, '/');
+        }
+        ps_grow_add(&g, text + start, i - start);
+        if (ps_lstat(g.data, &st) != 0) {
+            /* Missing (or unreadable): the component stays in the path. */
+            continue;
+        }
+        if (!S_ISLNK(st.st_mode)) {
+            continue;
+        }
+        /* A symlink. The link path is remembered so that a loop is detected
+           the way posixpath detects it: the second visit to the same link
+           keeps the component and stops the resolution. */
+        {
+            char *target = malloc(4096);
+            ssize_t got;
+            int64_t rest;
+            int64_t tlen;
+            char *joined;
+            int64_t k;
+            int loop = 0;
+            if (target == NULL) {
+                abort();
+            }
+            for (k = 0; k < seen_n; k++) {
+                if (strcmp(seen[k], g.data) == 0) {
+                    loop = 1;
+                    break;
+                }
+            }
+            if (loop) {
+                /* A symlink loop: the link stays unresolved and the rest of
+                   the path is appended to it, as posixpath does. */
+                free(target);
+                continue;
+            }
+            got = ps_readlink(g.data, target, 4095);
+            if (got < 0) {
+                /* Unreadable link: the component stays as it is. */
+                free(target);
+                continue;
+            }
+            target[got] = '\0';
+            if (seen_n < PS_REALPATH_SEEN) {
+                seen[seen_n] = ps_cstr(g.len, g.data);
+                seen_n += 1;
+            }
+            if (target[0] == '/') {
+                /* An absolute target resets the resolved path. */
+                g.len = 1;
+            } else {
+                /* A relative target is resolved against the parent of the
+                   link, so the link's own component is dropped. */
+                g.len -= (i - start);
+                if (g.len > 1 && g.data[g.len - 1] != '/') {
+                    g.len -= 1;
+                }
+            }
+            g.data[g.len] = '\0';
+            /* The target replaces the pending text from the component on. */
+            rest = len - i;
+            tlen = (int64_t)got;
+            joined = malloc((size_t)(tlen + rest + 1));
+            if (joined == NULL) {
+                abort();
+            }
+            memcpy(joined, target, (size_t)tlen);
+            if (rest > 0) {
+                memcpy(joined + tlen, text + i, (size_t)rest);
+            }
+            joined[tlen + rest] = '\0';
+            free(text);
+            text = joined;
+            len = tlen + rest;
+            i = 0;
+            free(target);
+        }
+    }
+    for (int64_t k = 0; k < seen_n; k++) {
+        free(seen[k]);
+    }
+    ps_grow_finish(&g, out);
+    free(text);
 }
 
 /* getmtime/getsize/getatime over stat; each fails like os.stat does. */

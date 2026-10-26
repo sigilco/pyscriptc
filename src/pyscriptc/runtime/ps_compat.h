@@ -41,6 +41,10 @@
    buffer when one is given, and allocates with malloc when it is NULL. */
 #define ps_realpath(path, resolved) _fullpath((resolved), (path), _MAX_PATH)
 
+/* Windows has no readlink. There are no symlinks there in the POSIX sense,
+   so the shim always fails and the caller keeps the path component. */
+#define ps_readlink(path, buf, size) (-1)
+
 /* Windows has no setenv. PutEnvironmentVariableA is the Win32 spelling of
    the same thing, and it takes UTF-16, so the value is converted here. The
    runtime only ever sets ASCII names and values (a dotenv binding), so the
@@ -69,6 +73,7 @@ int ps_mkstemp(char *template_path);
 #define ps_gmtime_r(t, tm) gmtime_r((t), (tm))
 #define ps_localtime_r(t, tm) localtime_r((t), (tm))
 #define ps_lstat(path, st) lstat((path), (st))
+#define ps_readlink(path, buf, size) readlink((path), (buf), (size))
 #define ps_realpath(path, resolved) realpath((path), (resolved))
 #define ps_setenv(name, value, overwrite) setenv((name), (value), (overwrite))
 #if defined(__wasi__)

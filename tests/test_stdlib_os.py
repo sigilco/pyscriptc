@@ -10,6 +10,7 @@ normalized by printing a boolean instead of the text.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from tests.test_gates import compile_run, oracle, write_case
@@ -178,3 +179,64 @@ def test_os_chdir_returns_to_the_start(tmp_path: Path) -> None:
             ]
         ),
     )
+
+
+def test_os_path_realpath_missing_tail(tmp_path: Path) -> None:
+    """#714: realpath on a missing target returns the path, not an error.
+
+    posixpath.realpath is non-strict by default: a missing component is
+    appended to the resolved prefix instead of raising. The compiled
+    program must print the same string the CPython oracle prints.
+    """
+    _oracle(
+        tmp_path,
+        "realpath_missing.py",
+        "\n".join(
+            [
+                "import os.path",
+                "",
+                "def run() -> int:",
+                "    print(os.path.realpath('/no/such/file/xyz'))",
+                "    print(os.path.realpath('/no/such/file/xyz/../tail'))",
+                "    print(os.path.realpath('/etc/hosts/missing'))",
+                "    print(os.path.realpath('/etc'))",
+                "    print(os.path.realpath('/etc/../etc/hosts'))",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_os_path_realpath_symlinks(tmp_path: Path) -> None:
+    """#714: realpath resolves symlinks and keeps a missing tail.
+
+    The fixture tree is built by the test (the lowered os surface has no
+    symlink call), so both the compiled program and the oracle walk the
+    same tree.
+    """
+    root = tmp_path / "tree"
+    (root / "real" / "sub").mkdir(parents=True)
+    (root / "real" / "f.txt").write_text("x", encoding="utf-8")
+    os.symlink(root / "real", root / "abs")
+    os.symlink("real", root / "rel")
+    os.symlink("..", root / "real" / "up")
+    source = "\n".join(
+        [
+            "import os.path",
+            "",
+            "def run() -> int:",
+            f"    root: str = {str(root)!r}",
+            "    print(os.path.realpath(root + '/abs/f.txt'))",
+            "    print(os.path.realpath(root + '/rel/f.txt'))",
+            "    print(os.path.realpath(root + '/abs/missing/tail'))",
+            "    print(os.path.realpath(root + '/nope'))",
+            "    print(os.path.realpath(root + '/real/../real/sub'))",
+            "    return 0",
+            "",
+        ]
+    )
+    path = write_case(tmp_path, "realpath_links.py", source)
+    got = compile_run(tmp_path, path, "run")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle(path, "run")
