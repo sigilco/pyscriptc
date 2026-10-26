@@ -137,7 +137,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$WORK"
-          uv run pyscriptc compile tests/fixtures/embed/island_fractions.py \
+          uv run pyscriptc compile --island tests/fixtures/embed/island_fractions.py --emit bin \
             --embed-python=bundle -o "$WORK/OUT/prog"
           cp -R "$WORK/OUT" "$WORK/OUT-moved"
           rm -rf "$WORK/OUT"

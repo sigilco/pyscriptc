@@ -74,8 +74,10 @@ def _load(path: Path) -> dict:
 
 def cpython_line(lock: dict) -> str:
     """One line naming the pinned runtime from the lock file."""
-    version = lock.get("cpython", {}).get("version", "unknown")
-    release = lock.get("release", {}).get("tag") or lock.get("release", {}).get("pbs", "unknown")
+    cpython = lock.get("cpython", "unknown")
+    version = cpython.get("version", "unknown") if isinstance(cpython, dict) else cpython
+    rel = lock.get("release", "unknown")
+    release = (rel.get("tag") or rel.get("pbs", "unknown")) if isinstance(rel, dict) else rel
     return f"CPython {version} (python-build-standalone release {release})"
 
 

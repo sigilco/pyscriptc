@@ -11,7 +11,7 @@ binary's own license directory).
 Bundled CPython runtime
 -----------------------
 
-No runtime pack is pinned yet (packaging/runtime.lock.toml is absent).
+This build bundles CPython 3.14.9 (python-build-standalone release 20261021).
 
 Third-party components compiled into the bundled libpython:
 
