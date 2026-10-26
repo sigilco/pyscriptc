@@ -38,7 +38,7 @@ Cut timing: on the owner's signal only. The tooling work below lands ahead of ti
 
 1. Land items 1 to 3 (one PR, tooling only). Rehearse `release.yml` against a `0.6.0b0`-style dry run via `cut-release` `dry_run`.
 2. Triage the 21 open issues on the `v0.6.0 public` milestone: in the beta, in the stable only, or moved to `Future`. Owner decision for #304, #297 and the Windows and WASM PRs (#249, #283, #313).
-3. Freeze merges (the `/tmp/maki/MERGE_HOLD` mechanism), rehearse the exact tip commit, run `cut-release` with `bump=prerelease`, kind `beta`, merge the release PR with `--admin`, tag by hand (`RELEASE_TOKEN` is still unset), publish the draft as a pre-release.
+3. Freeze merges (the `<maki-scratch>/MERGE_HOLD` mechanism), rehearse the exact tip commit, run `cut-release` with `bump=prerelease`, kind `beta`, merge the release PR with `--admin`, tag by hand (`RELEASE_TOKEN` is still unset), publish the draft as a pre-release.
 4. Approve the PyPI publish (owner) so `pip install --pre` works. If you want a TestPyPI dry run first, add it as an optional job; not needed for the first beta.
 5. Soak: at least 5 days or until the tester checklist is clean. Fixes land on master as normal; cut `b2` if more than 5 user-visible fixes land, or if a tester-blocking bug is fixed.
 6. Promote: `cut-release` with a stable minor bump from `0.6.0bN` produces `0.6.0` (the same promotion rule rc uses today), then the normal minor bar applies: 0 open issues, measured receipt (census delta, boxed ledger window or perf number), at least 5 days after the previous minor.

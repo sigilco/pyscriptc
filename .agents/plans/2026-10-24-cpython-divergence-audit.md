@@ -5,13 +5,13 @@ description: A seam-by-seam audit of where pyscriptc output diverges from CPytho
 
 # CPython divergence audit (2026-10-24)
 
-Assessment, not a code change. The compiler is untouched. The str code-point model is out of scope: a separate session owns the Latin-1 byte model fix (see the note at `/Users/josocjoq/.local/state/maki/projects/pyscriptc-4db3966c744d6379/memories/utf8-contract-question.md`). Where a finding below is caused by the Latin-1 model it is marked **str-model** and left to that session.
+Assessment, not a code change. The compiler is untouched. The str code-point model is out of scope: a separate session owns the Latin-1 byte model fix (see the note at `~/<maki-project>/memories/utf8-contract-question.md`). Where a finding below is caused by the Latin-1 model it is marked **str-model** and left to that session.
 
 ## Method
 
 Every seam was probed by compiling a single-construct program with the worktree's own `pyscriptc` (`uv run pyscriptc compile FILE --emit bin`), running the native binary and CPython 3.14.9 (`~/.local/share/uv/python/cpython-3.14.9-macos-aarch64-none/bin/python3`) on the same source, and byte-comparing stdout, stderr and the exit code. A program that does not compile is recorded as a **fence** (a refusal), which is not a divergence by the repo's own contract. A program that compiles and produces different bytes is a **silent divergence** unless it is listed in `docs/reference/divergences.md`.
 
-Probe sources live in `/tmp/maki/audit/p*` (not committed). The visible compat2 corpus (`benchmarks/compat2/corpus/src`, `benchmarks/compat2/probes/*.jsonl`) and `CALIBRATION.json` were read for context. The scorer evaluation set was never read.
+Probe sources live in `<maki-scratch>/audit/p*` (not committed). The visible compat2 corpus (`benchmarks/compat2/corpus/src`, `benchmarks/compat2/probes/*.jsonl`) and `CALIBRATION.json` were read for context. The scorer evaluation set was never read.
 
 Roughly 330 probe programs were compiled and run. About 190 lowered cleanly, about 130 fenced, and the rest are the findings below.
 

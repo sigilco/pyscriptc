@@ -2,7 +2,7 @@
 
 The eight scripts in the weekly dogfood (`/tmp` notes, issue #592) fit the v0.7.0 gate in support terms: they run with matching output under `pyscriptc run --fallback=cpython`. This directory measures what that costs, on the scripts' own inputs, against `python3`.
 
-`cases.json` lists each script, its argument list and the fixed inputs under `benchmarks/real/<name>/`. The scripts themselves are not copied here: they live in the sibling projects under the corpus root, which defaults to `~/Documents/prjcts/_own` and can be overridden with `PYSC_REAL_CORPUS`.
+`cases.json` lists each script, its argument list and the fixed inputs under `benchmarks/real/<name>/`. The scripts themselves are not copied here: they live in the sibling projects under the corpus root, which defaults to `<project-root>` and can be overridden with `PYSC_REAL_CORPUS`.
 
 ```
 uv run python benchmarks/real/run.py

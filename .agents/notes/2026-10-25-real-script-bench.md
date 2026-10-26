@@ -4,7 +4,7 @@ Measurement on 2026-10-25 in `~/.worktrees/pyscriptc-bench8` on master `e1932b04
 
 ## Step 1: all eight scripts run with matching output
 
-The eight dogfood scripts from `/tmp/oc/dogfood3.out.md` now run under `pyscriptc run --fallback=cpython --report PATH` with the same stdout and exit status as `python3`, up from 6 of 8 in dogfood3 and 4 of 8 in run 1. Both runs used the script's own directory as the working directory, `PYTHONPATH` set only for `split.py` (the dogfood did the same), a 60 second timeout, and no `--skip-check`.
+The eight dogfood scripts from `<session-notes>/dogfood3.out.md` now run under `pyscriptc run --fallback=cpython --report PATH` with the same stdout and exit status as `python3`, up from 6 of 8 in dogfood3 and 4 of 8 in run 1. Both runs used the script's own directory as the working directory, `PYTHONPATH` set only for `split.py` (the dogfood did the same), a 60 second timeout, and no `--skip-check`.
 
 | Script | Plane map (native / island) | Top level | CPython exit | Compiled exit | Stdout match |
 |---|---|---|---|---|---|

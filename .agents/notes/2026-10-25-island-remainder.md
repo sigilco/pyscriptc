@@ -19,8 +19,8 @@ Not measured or inconclusive, so treat as unverified: `q09` (multiprocessing) fa
 | Population | Items | Native only, matches | Island involved, matches | Blocked or wrong | Match share |
 |---|---|---|---|---|---|
 | Visible corpus scripts (`benchmarks/compat2/corpus/scripts`) | 20 | 8 | 8 | 4 wrong, 0 blocked | 80 percent |
-| 8 dogfood scripts (run as in `/tmp/oc/dogfood3.out.md`, no arguments) | 8 | 0 | 7 | 1 (`split.py` without `PYTHONPATH`) | 87.5 percent, 100 percent with `PYTHONPATH` |
-| 8 libraries via `/tmp/oc/lib3` call programs | 8 | 0 | 8 | 0 | 100 percent |
+| 8 dogfood scripts (run as in `<session-notes>/dogfood3.out.md`, no arguments) | 8 | 0 | 7 | 1 (`split.py` without `PYTHONPATH`) | 87.5 percent, 100 percent with `PYTHONPATH` |
+| 8 libraries via `<session-notes>/lib3` call programs | 8 | 0 | 8 | 0 | 100 percent |
 | Idiom probes | 44 | n/a | 35 | 9 | 79.5 percent |
 
 Reading it: across the 28 scripts (corpus plus dogfood) 8 run native only (28.6 percent), 15 need the island and match (53.6 percent), 5 are wrong or fail (17.9 percent), so native plus island is 82.1 percent. None of the 28 is refused outright. The 4 corpus failures are all silent wrong results: three annotated `int` scripts (`bigint_factorial`, `gcd_lcm`, `pi_digits`) abort with `OverflowError` because native `int` is i64 (divergence 1), and `nbody` prints the same energy twice because the island call lost the list mutation (#674). The dogfood scripts only exercise their usage or error path (no arguments), so 7 of 8 is a floor on harness behavior, not on real runs. The `split.py` failure as run is the missing `PYTHONPATH` (preflight exit 2 against CPython exit 1); with `PYTHONPATH` set both exit 2 with empty stdout, and stderr differs only in the program name (`split.py` against the cache path of the binary, which is #635 territory).

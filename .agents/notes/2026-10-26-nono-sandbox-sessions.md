@@ -1,6 +1,6 @@
 # Bounding pyscriptc agent sessions with nono (assessment, 2026-10-26)
 
-Assessed nono 0.80.0 (/opt/homebrew/bin/nono) on macOS 26.6.2 arm64 for bounding the long-running autonomous sessions that work in ~/.worktrees/pyscriptc-* worktrees (maki bifrost/codex-plan and codex-execute, codex, opencode, crush, freebuff). All commands below were actually run in worktree work/nonoassess (~/.worktrees/pyscriptc-nonoassess) under profile /tmp/oc/nono/pyscriptc-agent.json unless marked otherwise.
+Assessed nono 0.80.0 (/opt/homebrew/bin/nono) on macOS 26.6.2 arm64 for bounding the long-running autonomous sessions that work in ~/.worktrees/pyscriptc-* worktrees (maki bifrost/codex-plan and codex-execute, codex, opencode, crush, freebuff). All commands below were actually run in worktree work/nonoassess (~/.worktrees/pyscriptc-nonoassess) under profile <session-notes>/nono/pyscriptc-agent.json unless marked otherwise.
 
 ## What nono enforces on macOS
 
@@ -36,7 +36,7 @@ Read of the repo root is required (removing it breaks git with "gitfile does not
 
 ## The working profile and the full test matrix
 
-Profile at /tmp/oc/nono/pyscriptc-agent.json (inline at the bottom); hardened variant /tmp/oc/nono/pyscriptc-agent-hardened.json adds `deny` on `benchmarks/compat2/corpus/holdout` so generator sessions get FS-level holdout protection, which the base profile does not provide because the repo-root read covers that subtree (`nono why` confirms; the base profile relies on harness hooks and AGENTS.md only, and only Claude Code loads .claude/hooks/holdout_guard.py).
+Profile at <session-notes>/nono/pyscriptc-agent.json (inline at the bottom); hardened variant <session-notes>/nono/pyscriptc-agent-hardened.json adds `deny` on `benchmarks/compat2/corpus/holdout` so generator sessions get FS-level holdout protection, which the base profile does not provide because the repo-root read covers that subtree (`nono why` confirms; the base profile relies on harness hooks and AGENTS.md only, and only Claude Code loads .claude/hooks/holdout_guard.py).
 
 Matrix results, all with the final profile: `git status/commit/reset` exit 0, `git push --dry-run origin HEAD` exit 0, `uv run pytest -n 1 tests/test_census_self.py -q` 1 passed, `uv run ruff check` all passed, `pyscriptc compile --emit bin` produced a working arm64 Mach-O that printed 55 in and out of the sandbox, `pyscriptc run` worked (runtime cache in ~/.cache), `gh pr list -R sigilco/pyscriptc --limit 1` returned PR 681, curl localhost:8317/health 200 and pypi.org 200, /tmp writes fine.
 
@@ -64,7 +64,7 @@ Bound second, with the hardened profile: any session whose task touches the scor
 
 Do not bound (as things stand): release and cut-release workflows (gh pr merge, tags, PyPI publish need broad gh scopes and the keychain), sessions that drive Dory docker (delete the .dory deny in a docker-specific profile variant after confirming nono's socket story), the evaluator session itself (it must read the holdout), and sessions doing Keychain-heavy setup (freebuff login, gh auth login) because the keychain grant is all-or-nothing and better done on the host.
 
-VPS sessions (ovhcloud) gain nothing from this: that host runs Linux where nono uses Landlock, and the isolation there is already the user boundary plus the sparse clone; Dory containers are a heavier but stronger boundary (VM edge, full filesystem isolation) at the cost of losing the mise toolchain and bifrost localhost access without plumbing; nono's niche is cheap, same-toolchain bounding of local macOS sessions, not replacement of the VPS.
+VPS sessions (the Linux VPS) gain nothing from this: that host runs Linux where nono uses Landlock, and the isolation there is already the user boundary plus the sparse clone; Dory containers are a heavier but stronger boundary (VM edge, full filesystem isolation) at the cost of losing the mise toolchain and bifrost localhost access without plumbing; nono's niche is cheap, same-toolchain bounding of local macOS sessions, not replacement of the VPS.
 
 ## Failure modes
 
@@ -84,7 +84,7 @@ One-shot (fast chores):
 
 ```sh
 wt=~/.worktrees/pyscriptc-<name>
-cd "$wt" && nono run -s --profile /tmp/oc/nono/pyscriptc-agent.json -- \
+cd "$wt" && nono run -s --profile <session-notes>/nono/pyscriptc-agent.json -- \
   env XDG_CONFIG_HOME="$wt/.xdg-config" XDG_DATA_HOME="$wt/.xdg-data" XDG_STATE_HOME="$wt/.xdg-state" \
   BIFROST_API_KEY="$(security find-generic-password -s bifrost -w)" \
   maki -m bifrost/codex-execute --yolo -p "$(cat /tmp/<task>.prompt)"
@@ -94,13 +94,13 @@ Interactive in tmux (wrap the pane command; tmux stays on the host so liveness t
 
 ```sh
 tmux new-session -d -s <session> -c "$wt" \
-  "nono run --profile /tmp/oc/nono/pyscriptc-agent.json -- \
+  "nono run --profile <session-notes>/nono/pyscriptc-agent.json -- \
    env XDG_CONFIG_HOME=\"$wt/.xdg-config\" XDG_DATA_HOME=\"$wt/.xdg-data\" XDG_STATE_HOME=\"$wt/.xdg-state\" \
    BIFROST_API_KEY=\"\$(security find-generic-password -s bifrost -w)\" \
    maki -m bifrost/codex-execute --yolo \"\$(cat /tmp/<task>.prompt)\" 2>&1 | tee /tmp/<task>.log; touch /tmp/<task>.done"
 ```
 
-To add to ~/HARNESSES.md (not edited in this task): a `nono` variant line under "Rules for every subprocess" saying local unattended sessions should run `nono run --profile /tmp/oc/nono/pyscriptc-agent.json -- <harness ...>` with the XDG and BIFROST_API_KEY env wrapper, plus a pointer to this note for the per-harness path list and the "denials look like EPERM" debugging tip. The quoting rules of the existing tmux section apply unchanged (escape the inner dollar).
+To add to ~/HARNESSES.md (not edited in this task): a `nono` variant line under "Rules for every subprocess" saying local unattended sessions should run `nono run --profile <session-notes>/nono/pyscriptc-agent.json -- <harness ...>` with the XDG and BIFROST_API_KEY env wrapper, plus a pointer to this note for the per-harness path list and the "denials look like EPERM" debugging tip. The quoting rules of the existing tmux section apply unchanged (escape the inner dollar).
 
 ## Rollout plan
 
@@ -108,13 +108,13 @@ Week 1: run the two low-risk housekeeping session types under nono (doc sync, ce
 
 Week 2: move ordinary codex-execute chores over; keep a `docker-allowed` profile variant ready (drop the .dory deny) for sessions that must build containers, and keep releases, evaluator, and Keychain-setup sessions unsandboxed.
 
-Ongoing: after any nono upgrade, re-run the 12-line matrix in this note (it is fully scripted in /tmp/oc/nono/) before rolling the new version out to sessions; widen by adding the narrowest rule (`read`, `read_file`, then `allow`) and re-running the three negative probes (main repo write, other worktree write, ssh read) so the boundary never silently rots.
+Ongoing: after any nono upgrade, re-run the 12-line matrix in this note (it is fully scripted in <session-notes>/nono/) before rolling the new version out to sessions; widen by adding the narrowest rule (`read`, `read_file`, then `allow`) and re-running the three negative probes (main repo write, other worktree write, ssh read) so the boundary never silently rots.
 
 If a session type keeps needing bypasses (more than two widening iterations), accept it as unsandboxed instead of accreting grants; the profile stays small only if unwidenable sessions stay out of it.
 
 ## Follow-up issues to file (not filed)
 
-1. Ship the profile: vendor pyscriptc-agent.json and pyscriptc-agent-hardened.json into .agents/nono/ (committed) and reference them from AGENTS.md; today they live in /tmp/oc/nono/ and die on reboot.
+1. Ship the profile: vendor pyscriptc-agent.json and pyscriptc-agent-hardened.json into .agents/nono/ (committed) and reference them from AGENTS.md; today they live in <session-notes>/nono/ and die on reboot.
 2. Holdout FS deny for harness sessions: the hardened profile's deny rule covers a gap that .claude/hooks/holdout_guard.py only closes for Claude Code; consider making the hardened profile the default for any session whose prompt mentions compat2.
 3. Freebuff and crush inside nono: extend the path list (crush: ~/.config/crush, ~/.local/share/crush; freebuff: keychain service freebuff-cli) and verify both end to end before nono becomes the default for them.
 4. Socket audit: confirm on a nono upgrade whether ungranted AF_UNIX connect() is mediated; if the one observed leak reproduces, file it upstream with the curl-to-dory.sock repro and keep explicit socket denies in every profile meanwhile.
@@ -152,32 +152,32 @@ If a session type keeps needing bypasses (more than two widening iterations), ac
       "$HOME/.local/state/opencode"
     ],
     "read": [
-      "$HOME/Documents/prjcts/_own/pyscriptc",
+      "$REPO",
       "$HOME/Library/Keychains",
       "$HOME/.config/maki",
       "$HOME/.codex",
       "$HOME/.config/opencode"
     ],
     "write": [
-      "$HOME/Documents/prjcts/_own/pyscriptc/.git/objects",
-      "$HOME/Documents/prjcts/_own/pyscriptc/.git/refs",
-      "$HOME/Documents/prjcts/_own/pyscriptc/.git/logs",
-      "$HOME/Documents/prjcts/_own/pyscriptc/.git/worktrees",
+      "$REPO/.git/objects",
+      "$REPO/.git/refs",
+      "$REPO/.git/logs",
+      "$REPO/.git/worktrees",
       "$HOME/.local/share/maki",
       "$HOME/.local/state/maki",
       "$HOME/.codex"
     ],
     "read_file": [
-      "$HOME/Documents/prjcts/_own/pyscriptc/.git/config",
-      "$HOME/Documents/prjcts/_own/pyscriptc/.git/index",
-      "$HOME/Documents/prjcts/_own/pyscriptc/.git/packed-refs",
-      "$HOME/Documents/prjcts/_own/pyscriptc/.git/HEAD",
+      "$REPO/.git/config",
+      "$REPO/.git/index",
+      "$REPO/.git/packed-refs",
+      "$REPO/.git/HEAD",
       "$HOME/.gitignore-global",
       "$HOME/.config/gh/config.yml",
       "$HOME/.config/gh/hosts.yml"
     ],
     "write_file": [
-      "$HOME/Documents/prjcts/_own/pyscriptc/.git/COMMIT_EDITMSG"
+      "$REPO/.git/COMMIT_EDITMSG"
     ],
     "deny": [
       "$HOME/.ssh",
@@ -211,7 +211,7 @@ pyscriptc compile tiny.py --emit bin      exit 0, Mach-O arm64; runs in and out 
 gh pr list -R sigilco/pyscriptc --limit 1 exit 0 (PR 681)
 curl localhost:8317/health                200
 curl https://pypi.org/simple/             200
-echo hi > /tmp/oc/nono/write_test         exit 0
+echo hi > <session-notes>/nono/write_test         exit 0
 cat ~/.ssh/config                         exit 1 EPERM
 echo x >> main repo README.md             exit 1 EPERM
 echo z >> main repo .git/config           exit 1 EPERM
