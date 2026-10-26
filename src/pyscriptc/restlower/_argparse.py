@@ -247,6 +247,23 @@ def _state(lo: Any) -> ArgparseState:
     return state
 
 
+def _parser_key(lo: Any, node: ast.Call) -> str:
+    """The parser a registration belongs to, for the help probe (issue #710).
+
+    The receiver of `parser.add_argument(...)` names the parser: a bare
+    name qualified by the enclosing function is its identity (two
+    functions may each build their own `parser`), and an anonymous
+    receiver (a call result) gets a key of its own, so its registrations
+    never merge with another's.
+    """
+    value = node.func.value
+    function = getattr(lo, "function", None)
+    scope = f"{function}." if function else ""
+    if isinstance(value, ast.Name):
+        return f"{scope}{value.id}"
+    return f"<anonymous {id(node)}>"
+
+
 def _install_classes(lo: Any) -> None:
     """Declare the parser and namespace classes once the module imports argparse.
 
@@ -468,6 +485,13 @@ def _add_argument(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[
         "type_name": type_name,
         "required": required,
         "help": help_text,
+        # The parser the registration belongs to (issue #710): the help
+        # probe replays each parser's options on a parser of its own, so
+        # two parsers reusing a flag never collide. The receiver's source
+        # name qualified by the enclosing function is the parser's
+        # identity; an anonymous receiver (a call result) registers under
+        # a name of its own.
+        "parser": _parser_key(lo, node),
     }
     state.add(dest, kind, field_type, arg_meta)
     if type_name == "Path":
@@ -514,46 +538,65 @@ def _parse_args(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[st
 
     import argparse as _c_argparse
 
+    # The replay runs on a fresh parser per source parser (issue #710): the
+    # registration list holds every option the module's parsers declare,
+    # and replaying them merged onto one parser crashed the compile with
+    # `ArgumentError: conflicting option string` the moment two parsers
+    # reused a flag. Grouping the replay by the receiver name keeps each
+    # parser's options on a parser of its own. A duplicate inside one
+    # parser stays a fence: a real `tool.py` run errors the same way.
+
     prog_sentinel = "\x1fPROG\x1f"
-    hp = _c_argparse.ArgumentParser(
-        prog=state.prog or prog_sentinel,
-        description=state.description or None,
-    )
-    for arg in state.registered_args:
-        kwargs: dict[str, Any] = {}
-        if arg["help"] is not None:
-            kwargs["help"] = arg["help"]
-        if arg["is_positional"]:
-            if arg["type_name"] == "int":
-                kwargs["type"] = int
-            elif arg["type_name"] == "float":
-                kwargs["type"] = float
-            elif arg["type_name"] == "str":
-                kwargs["type"] = str
-            if arg["raw_default"] is not None:
-                kwargs["default"] = arg["raw_default"]
-            hp.add_argument(arg["dest"], **kwargs)
-        else:
-            if arg["action"] in {"store_true", "store_false"}:
-                kwargs["action"] = arg["action"]
-            elif arg["action"] == "store_const":
-                kwargs["action"] = "store_const"
-                kwargs["const"] = arg["const"]
-            else:
+
+    def _replay(args: list[dict[str, Any]]) -> str:
+        hp = _c_argparse.ArgumentParser(
+            prog=state.prog or prog_sentinel,
+            description=state.description or None,
+        )
+        for arg in args:
+            kwargs: dict[str, Any] = {}
+            if arg["help"] is not None:
+                kwargs["help"] = arg["help"]
+            if arg["is_positional"]:
                 if arg["type_name"] == "int":
                     kwargs["type"] = int
                 elif arg["type_name"] == "float":
                     kwargs["type"] = float
                 elif arg["type_name"] == "str":
                     kwargs["type"] = str
-            if arg["dest"] != _dest_from_flags(arg["flags"]):
-                kwargs["dest"] = arg["dest"]
-            if arg["required"]:
-                kwargs["required"] = True
-            if arg["raw_default"] is not None:
-                kwargs["default"] = arg["raw_default"]
-            hp.add_argument(*arg["flags"], **kwargs)
-    help_text = hp.format_help()
+                if arg["raw_default"] is not None:
+                    kwargs["default"] = arg["raw_default"]
+                hp.add_argument(arg["dest"], **kwargs)
+            else:
+                if arg["action"] in {"store_true", "store_false"}:
+                    kwargs["action"] = arg["action"]
+                elif arg["action"] == "store_const":
+                    kwargs["action"] = "store_const"
+                    kwargs["const"] = arg["const"]
+                else:
+                    if arg["type_name"] == "int":
+                        kwargs["type"] = int
+                    elif arg["type_name"] == "float":
+                        kwargs["type"] = float
+                    elif arg["type_name"] == "str":
+                        kwargs["type"] = str
+                if arg["dest"] != _dest_from_flags(arg["flags"]):
+                    kwargs["dest"] = arg["dest"]
+                if arg["required"]:
+                    kwargs["required"] = True
+                if arg["raw_default"] is not None:
+                    kwargs["default"] = arg["raw_default"]
+                hp.add_argument(*arg["flags"], **kwargs)
+        return hp.format_help()
+
+    try:
+        by_parser: dict[str, list[dict[str, Any]]] = {}
+        for arg in state.registered_args:
+            by_parser.setdefault(arg["parser"], []).append(arg)
+        help_text = "\n".join(_replay(args) for args in by_parser.values())
+    except _c_argparse.ArgumentError:
+        lo.fail(node, "PS2003", "argparse re-registers a conflicting option string")
+    help_expr = _const_str(help_text, span)
     help_expr = _const_str(help_text, span)
 
     namespace = {"kind": "class", "name": "Namespace"}

@@ -621,3 +621,98 @@ def test_argparse_is_importable() -> None:
     assert "argparse" in QUEUE
     assert module_status("argparse") == "lowered"
     assert (Path(ROOT) / "src" / "pyscriptc" / "runtime" / "ps_argparse.c").is_file()
+
+
+def test_argparse_two_parsers_sharing_a_flag_compile(tmp_path: Path) -> None:
+    """Two parsers reusing one flag compile (issue #710).
+
+    The help probe replays the module's registrations on a CPython parser
+    to bake the usage text. Replaying both parsers' options on one parser
+    made CPython raise `ArgumentError: conflicting option string`, which
+    crashed the compile; the probe now replays each parser's options on a
+    parser of its own.
+
+    The differential is the compiled binary against the CPython oracle with
+    the same argv.
+    """
+    path = _script(
+        tmp_path,
+        "shared_flag.py",
+        [
+            "import argparse",
+            "",
+            "def build() -> argparse.ArgumentParser:",
+            "    parser = argparse.ArgumentParser()",
+            "    parser.add_argument('--x', type=int)",
+            "    return parser",
+            "",
+            "def main() -> int:",
+            "    args = build().parse_args()",
+            "    print(str(args.x))",
+            "    return 0",
+            "",
+            "main()",
+        ],
+    )
+    native, oracle = _run_both(tmp_path, path, ["--x", "5"])
+    assert native == oracle, (native, oracle)
+    assert native.strip() == "5"
+
+
+def test_argparse_two_parsers_in_one_scope_sharing_a_flag_compile(tmp_path: Path) -> None:
+    """Two parsers in one scope reusing one flag compile (issue #710).
+
+    The same crash, reached without a function boundary: the probe replayed
+    both parsers' options on one CPython parser.
+    """
+    path = _script(
+        tmp_path,
+        "two_parsers.py",
+        [
+            "import argparse",
+            "",
+            "def main() -> int:",
+            "    first = argparse.ArgumentParser()",
+            "    first.add_argument('--x', type=int)",
+            "    second = argparse.ArgumentParser()",
+            "    second.add_argument('--x', type=int)",
+            "    args = first.parse_args()",
+            "    print(str(args.x))",
+            "    return 0",
+            "",
+            "main()",
+        ],
+    )
+    native, oracle = _run_both(tmp_path, path, ["--x", "7"])
+    assert native == oracle, (native, oracle)
+    assert native.strip() == "7"
+
+
+def test_argparse_a_flag_registered_twice_fences(tmp_path: Path) -> None:
+    """A flag one parser registers twice fences, as CPython errors (issue #710).
+
+    CPython raises `ArgumentError: conflicting option string` at run time.
+    The compiler refuses the program with a diagnostic instead of letting
+    the probe's replay crash the compile with a Python traceback.
+    """
+    path = _script(
+        tmp_path,
+        "twice.py",
+        [
+            "import argparse",
+            "",
+            "def main() -> int:",
+            "    parser = argparse.ArgumentParser()",
+            "    parser.add_argument('--x', type=int)",
+            "    parser.add_argument('--x', type=int)",
+            "    args = parser.parse_args()",
+            "    print(str(args.x))",
+            "    return 0",
+            "",
+            "main()",
+        ],
+    )
+    got = run_cli("compile", str(path), "--emit", "bin", "-o", str(tmp_path / "twice"))
+    assert got.returncode != 0
+    assert "conflicting option string" in got.stderr
+    assert "Traceback" not in got.stderr
