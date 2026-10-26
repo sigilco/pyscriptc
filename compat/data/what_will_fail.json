@@ -1,14 +1,14 @@
 {
   "schema": "1",
   "generated": "2026-10-24",
-  "commit": "994c3e3affef5b759f32b7c271aea96ca0e13f18",
+  "commit": "bbbdb14cc8b2b9957803acac7b55c254f1eba4d8",
   "sources": {
     "corpus": "benchmarks/real_scripts/scripts",
     "report": "benchmarks/real_scripts/REPORT.md"
   },
   "summary": {
     "scripts": 39,
-    "total_fences": 53,
+    "total_fences": 52,
     "unique_codes": [
       "PS1001",
       "PS1003",
@@ -383,12 +383,6 @@
           "construct": "type annotation mismatch",
           "code": "PS1003",
           "diagnostic": "subprocess takes a list of str"
-        },
-        {
-          "module": "sys",
-          "construct": "type annotation mismatch",
-          "code": "PS1003",
-          "diagnostic": "sys.exit argument is an int"
         }
       ]
     },

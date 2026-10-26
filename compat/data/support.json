@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-26",
-  "commit": "994c3e3affef5b759f32b7c271aea96ca0e13f18",
+  "commit": "bbbdb14cc8b2b9957803acac7b55c254f1eba4d8",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -20,8 +20,8 @@
     },
     "packages": {
       "green": 2,
-      "yellow": 6,
-      "red": 10
+      "yellow": 7,
+      "red": 9
     }
   },
   "builtins": [
@@ -781,16 +781,16 @@
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
       "ratio": "238/641",
-      "blocking": "name-resolution (143), construct-other (86), generic-alias (56)",
+      "blocking": "name-resolution (147), construct-other (101), generic-alias (52)",
       "codes": "PS2002, PS2001, PS1103"
     },
     {
       "name": "h11",
       "version": "0.16.0",
       "status": "\ud83d\udd34",
-      "ratio": "76/133",
-      "blocking": "generic-alias (17), unlowered-type-name (17), reflection (16)",
-      "codes": "PS2002, PS1103, PS1106"
+      "ratio": "74/133",
+      "blocking": "unlowered-type-name (17), reflection (16), generic-alias (14)",
+      "codes": "PS2002, PS1106, PS1203"
     },
     {
       "name": "idna",
@@ -835,17 +835,17 @@
     {
       "name": "packaging",
       "version": "26.3",
-      "status": "\ud83d\udd34",
-      "ratio": "280/558",
-      "blocking": "unlowered-type-name (90), name-resolution (76), class-body (52)",
-      "codes": "PS2002, PS1106, PS2001"
+      "status": "\ud83d\udfe1",
+      "ratio": "279/558",
+      "blocking": "unlowered-type-name (90), name-resolution (78), class-body (52)",
+      "codes": "PS2002, PS1106, PS1204"
     },
     {
       "name": "pathspec",
       "version": "1.1.1",
       "status": "\ud83d\udd34",
-      "ratio": "93/132",
-      "blocking": "name-resolution (30), unlowered-type-name (22), decorators (21)",
+      "ratio": "92/132",
+      "blocking": "name-resolution (30), unlowered-type-name (21), decorators (21)",
       "codes": "PS2002, PS1106, PS1201"
     },
     {

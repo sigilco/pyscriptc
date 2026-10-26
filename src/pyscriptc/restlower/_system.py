@@ -23,12 +23,25 @@ def _getenv(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
 
 
 def _exit(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """`sys.exit(status)`.
+
+    An int is the process status. A str is CPython's `SystemExit(str)`: the
+    uncaught handler writes the message to stderr and exits 1 (issue #645),
+    and an `except SystemExit` still catches it. The str form rides the
+    SystemExit raise path so both rules hold.
+    """
     if len(node.args) != 1:
         lo.fail(node, "PS2003", "sys.exit expects 1 argument(s)")
     arg = lo._expr(node.args[0])
-    if arg["type"]["kind"] != "int":
-        lo.fail(node, "PS1003", "sys.exit argument is an int")
-    return lo._abi_call("sys", "exit", [arg], {"kind": "none"}, "exit", span)
+    kind = arg["type"]["kind"]
+    if kind == "int":
+        return lo._abi_call("sys", "exit", [arg], {"kind": "none"}, "exit", span)
+    if kind == "str":
+        expr = lo._abi_call("sys", "exit", [arg], {"kind": "none"}, "", span)
+        expr["exitMessage"] = True
+        return expr
+    lo.fail(node, "PS1003", "sys.exit argument is an int or a str")
+    raise AssertionError("unreachable")
 
 
 def _unicode_name(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
