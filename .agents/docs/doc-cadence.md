@@ -42,6 +42,7 @@ Documentation is partitioned into three distinct cadence classes:
 | `docs/guide/island-floor.md` | Island floor guide for running real scripts | Fallback runtime `ps_island.c` |
 | `docs/guide/packages.md` | PyPI dependency strategy and seams | Compat ladder |
 | `docs/guide/support-model.md` | Typed subset and refusal rules | Preflight and lowerer |
+| `docs/guide/typing.md` | Typing construct table and native idioms | Probe row `typing` in `scripts/support_data.toml` |
 | `docs/guide/mobile.md` | Static library archive for iOS/Android | Driver `--emit lib` |
 | `docs/reference/cli.md` | CLI flags and exit codes | Tier 1 CLI contract |
 | `docs/reference/config.md` | `pyproject.toml` tool configuration | Config loader |

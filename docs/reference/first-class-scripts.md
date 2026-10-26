@@ -41,7 +41,7 @@ The first-class bar targets single-file and small multi-file CLI scripts, automa
 - **Builtin operations**: core arithmetic, comparisons, string operations over Unicode code points, collection literals (`dict`, `list`, `set`, `tuple`), exception handling, and standard file I/O.
 - **Standard library CLI modules**: `argparse`, `sys`, `os`, `pathlib`, `shutil`, `subprocess`.
 - **Data formats and serialization**: `json`, `csv`.
-- **Utilities and algorithms**: `re`, `datetime`, `logging`, `urllib.request`, `dataclasses`, `typing`, `itertools`, `functools`, `collections`.
+- **Utilities and algorithms**: `re`, `datetime`, `logging`, `urllib.request`, `dataclasses`, `itertools`, `functools`, `collections`, plus the annotation-only `typing` module (its types steer the lowering; see [Typing and idioms](../guide/typing.md)).
 
 External graphical frameworks, database drivers (such as `sqlite3`), numerical arrays (`numpy`), and heavy ORMs/frameworks are outside the script bar.
 

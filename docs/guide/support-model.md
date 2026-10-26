@@ -10,6 +10,9 @@ When a construct is outside the typed subset and not routed to the island floor,
 ## Support model
 
 - **Typed code only**: functions and variables carry annotations, and a type-checker preflight ([pyrefly](https://pyrefly.org/)) runs before lowering.
+Annotations are the lowering input: types are erased before emission, but they decide the emitted code.
+`typing` and `typing_extensions` are annotation-only modules; a typing name used as a value (`cast`, `get_type_hints`) is a runtime-reflection fence, not a missing module.
+The construct-by-construct contract is in [Typing and idioms](typing.md).
 - **Island is the floor**: when a script touches untyped third-party libraries, dynamic reflection, or unlowered modules, execution routes through the in-process CPython island runtime (`libpython`).
 - **Native is the ceiling**: when a script uses lowered standard-library modules, explicit annotations, and scalar constructs, it compiles to a standalone native binary with no interpreter runtime.
 - **Two unidirectional seams**: compiled to island in-process, and island to compiled via `pyscriptc --emit binding`. No compiled to island to compiled call chain exists.

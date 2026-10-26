@@ -495,6 +495,12 @@ class StmtMixin:
                 first = inner[0]
                 raise Fence(first.code, first.message, first.span, self.function)
             return [{"kind": "pass", "span": span}]
+        if isinstance(stmt, ast.TypeAlias) and isinstance(stmt.name, ast.Name):
+            self.fail(
+                stmt,
+                "PS2002",
+                f"PEP 695 type alias {stmt.name.id} is not lowered; annotate with the concrete type",
+            )
         self.fail(stmt, "PS2002", f"{type(stmt).__name__} is not lowered")
         raise AssertionError("unreachable")
 

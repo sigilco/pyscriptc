@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-26",
-  "commit": "753ca5535df0836ce5996371acd48b40fe6cce8e",
+  "commit": "f111e6b8360bf6d31e911f5a6ff51cbc130605bc",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -15,8 +15,8 @@
     },
     "stdlib": {
       "green": 0,
-      "yellow": 59,
-      "red": 2
+      "yellow": 61,
+      "red": 0
     },
     "packages": {
       "green": 2,
@@ -736,10 +736,19 @@
     },
     {
       "label": "`typing`, `typing_extensions`",
-      "status": "\ud83d\udd34",
+      "status": "\ud83d\udfe1",
       "count": 2,
-      "missing": "annotation-only: imports are free, values are checked, there is no runtime surface",
-      "codes": []
+      "missing": "Any annotation, bare Callable, multi-arm union, optional of a multi-arm union, Literal annotation, Self return, TypeAlias declaration, PEP 695 type alias, PEP 695 TypeVar parameter, forward reference string, TypedDict class base, NamedTuple class base, NewType value, ParamSpec value, cast value, get_type_hints reflection, isinstance with a generic, __annotations__ read",
+      "codes": [
+        "PS1101",
+        "PS1102",
+        "PS1103",
+        "PS1104",
+        "PS1105",
+        "PS1106",
+        "PS2001",
+        "PS2002"
+      ]
     }
   ],
   "packages": [

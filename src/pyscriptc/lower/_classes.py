@@ -1895,7 +1895,7 @@ class ClassesMixin:
             if handle is not None:
                 return {"kind": "class", "name": handle}
             code = "PS1104" if alias in _DYNAMIC_ANNOTATIONS else "PS1103"
-            self.fail(node, code, f"{alias} is not a value type in the IR")
+            self.fail(node, code, f"{alias} is not a lowered type in the IR")
         if not isinstance(node, ast.Subscript):
             return None
         alias = self._typing_alias(node.value)
@@ -1904,7 +1904,7 @@ class ClassesMixin:
         if alias == "IO":
             handle = _io_parameter(node.slice)
             if handle is None:
-                self.fail(node, "PS1001", "IO is not a value type in the IR")
+                self.fail(node, "PS1001", "IO is not a lowered type in the IR")
             return {"kind": "class", "name": handle}
         if alias in _LIST_FORMS:
             typ = {"kind": "list", "elem": self._annotation(node.slice)}
@@ -1964,7 +1964,7 @@ class ClassesMixin:
             if any(isinstance(part, ast.Constant) and part.value is None for part in parts):
                 self.fail(node, "PS1102", "an optional of a multi-arm union is not in the IR")
             self.fail(node, "PS1101", "union types are not in the IR")
-        self.fail(node, "PS1103", f"{alias} is not a value type in the IR")
+        self.fail(node, "PS1103", f"{alias} is not a lowered type in the IR")
 
     # Spellings of `collections.abc` / `typing` iterator forms that appear in
     # annotations even when the import sat under `if TYPE_CHECKING:` and was
