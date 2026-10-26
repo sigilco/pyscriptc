@@ -968,6 +968,27 @@ class CallsMixin:
             self.fail(node, "PS1003", "json.loads argument is " + _show(arg["type"]) + ", expected str")
         return _mod_call("json", "loads", [arg], expect, span)
 
+    def _json_load(self, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
+        """`json.load(fp)` reads the whole handle and reuses the loads path.
+
+        The lowering reads the file through the TextIO/BytesIO row the same
+        way `f.read()` lowers, then feeds the text to `ps_json_loads` with
+        the result annotation. A CPython `JSONDecodeError` stays the runtime
+        ValueError the loads path raises (divergence 10).
+        """
+        self._reject_keywords(node)
+        if len(node.args) != 1:
+            self.fail(node, "PS2003", "json.load expects 1 argument(s)")
+        if expect is None:
+            self.fail(node, "PS1001", "json.load needs the result annotation")
+        self._json_type(node, expect, "json.load")
+        handle = self._expr(node.args[0])
+        if handle["type"]["kind"] != "class" or handle["type"].get("name") not in {"TextIO", "BytesIO"}:
+            self.fail(node, "PS1003", "json.load argument is a file handle (TextIO or BytesIO)")
+        kind = {"kind": "bytes"} if handle["type"]["name"] == "BytesIO" else {"kind": "str"}
+        text = self._abi_call("io", "read", [handle], kind, "ps_io_read", span)
+        return _mod_call("json", "loads", [text], expect, span)
+
     def _json_dumps(self, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         if len(node.args) != 1:
             self.fail(node, "PS2003", "json.dumps expects 1 argument(s)")
