@@ -32,6 +32,18 @@ _FN_STATE = (
     "type_aliases",
     "declared",
     "boxed_names",
+    # boxed:begin
+    # The island handle bookkeeping is per function scope (issue #702): the
+    # module and class handle caches must not answer for the parent frame,
+    # and a nested scope owns and frees its own handles instead of joining
+    # the parent's scope-exit free list.
+    "island_modules",
+    "island_class_handles",
+    "handle_locals",
+    "consumed_handles",
+    "returned_handles",
+    "borrowed_handles",
+    # boxed:end
 )
 
 
@@ -232,10 +244,28 @@ class ClosuresMixin:
         self.bindings = dict(self.bindings)
         self.type_aliases = dict(self.type_aliases)
         self.declared = set(self.declared)
+        # boxed:begin
+        # A nested scope owns nothing (issue #224, the same rule the
+        # top-level passes apply): its handles start owned-by-nobody and
+        # its borrowed set is empty because no parameter is a handle yet.
+        self.island_modules = {}
+        self.island_class_handles = {}
+        self.handle_locals = {}
+        self.consumed_handles = set()
+        self.returned_handles = set()
+        self.borrowed_handles = set()
+        # boxed:end
         self.sigs[qname] = (params, ret)
         mark = len(self.caught)
         try:
             lowered = self._body(list(body))
+            # boxed:begin
+            # The nested scope owns the island handles it bound (issue #702):
+            # they free at its own scope exit, like any other function scope
+            # (issue #553). The parent's scope-exit free list never sees them.
+            if len(self.caught) == mark:
+                lowered = self._scope_exit_frees(lowered, span_of(fn, self.filename))
+            # boxed:end
             if len(self.caught) == mark and ret["kind"] != "none" and not _always_returns(lowered):
                 self.fail(fn, "PS1004", f"{name} can fall off the end and return None")
             if len(self.caught) == mark:

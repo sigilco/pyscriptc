@@ -864,9 +864,22 @@ class StdlibDispatchMixin:
         import: the peeked type is all the caller needs, so this returns an
         isolated handle node instead of raising `KeyError` on the missing
         hidden local.
+
+        A mapping entry whose hidden local is not in the active `locals`
+        belongs to a scope that already ended (the closure scope of
+        `_build_callable` swaps `locals` without swapping `island_modules`,
+        so a nested def re-enters the outer scope's module handle). The
+        stale entry is dropped and the handle is bound again in the active
+        scope, so the nested scope owns its own import (issue #702).
         """
         # boxed:begin
         name = self.island_modules.get(module)
+        if name is not None and name not in self.locals:
+            # The scope that owned this handle is gone: the hidden local is
+            # not a local here, so the entry is stale re-entry across
+            # scopes (issue #702). Bind a fresh handle in this scope.
+            del self.island_modules[module]
+            name = None
         if name is None and self.peeking:
             # The peek (issues #650, #643) runs outside a lowering scope: no
             # prelude to hold the import, no scope exit to free the handle.
@@ -990,6 +1003,11 @@ class StdlibDispatchMixin:
         module handle, so the scope exit frees it.
         """
         local = self.island_class_handles.get(name)
+        if local is not None and local not in self.locals:
+            # Stale cross-scope re-entry (issue #702, same shape as the
+            # module handle): the owning scope ended, so bind fresh here.
+            del self.island_class_handles[name]
+            local = None
         if local is None:
             local = self._temp("icls").replace(".", "_")
             typ = island_class_type(name)
