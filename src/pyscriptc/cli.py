@@ -252,6 +252,16 @@ def main(argv: list[str] | None = None) -> int:
         help="alias of --fallback=cpython: route every import outside the closed table and "
         "every fenced definition to the embedded CPython island",
     )
+    compile_parser.add_argument(
+        "--embed-python",
+        choices=("host", "bundle", "auto"),
+        default=None,
+        metavar="MODE",
+        help="libpython the island links: host (the compiler interpreter), bundle (the pinned "
+        "runtime pack, relocatable output) or auto (host when this interpreter has a shared "
+        "libpython, bundle otherwise; the default). Also read from the `embed` key of "
+        "[tool.pyscriptc.island]",
+    )
     # boxed:end
     compile_parser.add_argument("--call", help="function the generated main calls")
     compile_parser.add_argument(
@@ -1916,9 +1926,18 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             link_units=[unit for manifest in manifests for unit in manifest.link_units()],
             link_flags=[flag for manifest in manifests for flag in manifest.link_flags()],
             include_dirs=[manifest.path.parent for manifest in manifests if manifest.sources],
+            embed_mode=getattr(args, "embed_python", None),
         )
         dbg.end("link")
         outputs["bin"] = str(binary)
+        # boxed:begin
+        # A bundle link writes a relocatable directory: the binary under
+        # `bin/`, the runtime under `lib/` (the relative rpath points there).
+        if getattr(args, "embed_python", None) == "bundle":
+            pack = embed.lock_pack()
+            staged = embed.stage_bundle(binary, embed.pack_dir(pack), embed.python_version(), binary)
+            outputs["bin"] = str(staged)
+        # boxed:end
         state["binary_bytes"] = binary.stat().st_size if binary.is_file() else None
         log.info("link.binary", output=str(binary), driver=args.driver, target=args.target)
         if not args.run:

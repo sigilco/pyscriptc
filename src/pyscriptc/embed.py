@@ -317,6 +317,105 @@ def libpython(pack_directory: Path, version: str) -> Path:
     return candidate
 
 
+def host_has_shared_libpython() -> bool:
+    """True when the running interpreter has a usable shared libpython and headers.
+
+    A Nuitka onefile release binary has neither: `sysconfig` describes the
+    build machine, so the island link would carry paths the user does not
+    have. That is the case `auto` answers with `bundle`.
+    """
+    try:
+        import sysconfig
+    except ImportError:
+        return False
+    include = sysconfig.get_path("include")
+    libdir = sysconfig.get_config_var("LIBDIR")
+    version = sysconfig.get_config_var("VERSION")
+    if not include or not libdir or not version:
+        return False
+    if not Path(include).is_dir():
+        return False
+    libdir_path = Path(libdir)
+    mac = os.uname().sysname == "Darwin"
+    name = f"libpython{version}.dylib" if mac else f"libpython{version}.so"
+    return (libdir_path / name).exists()
+
+
+def resolve_mode(mode: str | None) -> str:
+    """Resolve the requested mode to `host` or `bundle`."""
+    if mode is None or mode == "":
+        mode = DEFAULT_MODE
+    if mode not in MODES:
+        raise EmbedError(f"--embed-python must be one of {'|'.join(MODES)}, got {mode!r}")
+    if mode == "auto":
+        return "host" if host_has_shared_libpython() else "bundle"
+    return mode
+
+
+def link_flags(pack_directory: Path, version: str) -> tuple[str, list[str]]:
+    """The (include dir, link flags) of a bundle link.
+
+    The library goes on the line by path, not as `-L`/`-l`: `zig cc` turns every
+    `-L` directory into an absolute rpath, which would let a bundle run only
+    because the build tree still exists. The relative rpath is the only one
+    left, so the output directory is relocatable.
+    """
+    include = pack_directory / "include" / f"python{version}"
+    if not include.is_dir():
+        raise EmbedError(f"the runtime pack has no {include}")
+    shared = libpython(pack_directory, version)
+    mac = os.uname().sysname == "Darwin"
+    origin = "@executable_path" if mac else "$ORIGIN"
+    flags = [str(shared), f"-Wl,-rpath,{origin}/../lib"]
+    if not mac:
+        # The ELF link needs the pthread, dl, math and util objects that the
+        # macOS link gets from the system libraries.
+        flags += ["-ldl", "-lm", "-lpthread", "-lutil"]
+    return str(include), flags
+
+
+def stage_bundle(output: Path, pack_directory: Path, version: str, binary: Path) -> Path:
+    """Copy the pack runtime next to the binary: `name/bin/name` plus `name/lib/`.
+
+    The binary moves into `bin/`; the shared libpython and the stdlib go into
+    `lib/`, which is what the relative rpath and the getpath landmarks point
+    at (a python-build-standalone `install/` tree is relocatable: it carries
+    `@executable_path/../lib` already, so no install-name rewrite is needed).
+    Headers stay in the pack: a relocated bundle runs, it does not compile.
+    """
+    out_dir = output if output.suffix == "" else output.parent / output.stem
+    parent = out_dir.parent
+    parent.mkdir(parents=True, exist_ok=True)
+    staging = parent / f".{out_dir.name}.bundle"
+    shutil.rmtree(staging, ignore_errors=True)
+    bin_dir = staging / "bin"
+    lib_dir = staging / "lib"
+    bin_dir.mkdir(parents=True)
+    lib_dir.mkdir(parents=True)
+    target = bin_dir / binary.name
+    if binary.resolve() != target.resolve():
+        shutil.move(str(binary), target)
+    mac = os.uname().sysname == "Darwin"
+    suffix = ".dylib" if mac else ".so"
+    shared = libpython(pack_directory, version)
+    if shared.suffix == suffix:
+        shutil.copy2(shared, lib_dir / shared.name)
+    else:
+        # Linux ships libpython3.14.so as a symlink to libpython3.14.so.1.0; the
+        # real file must travel with it or the loader finds nothing.
+        for extra in sorted(shared.parent.glob(f"libpython{version}.so*")):
+            shutil.copy2(extra, lib_dir / extra.name, follow_symlinks=False)
+    stdlib_src = pack_directory / "lib" / f"python{version}"
+    stdlib_dest = lib_dir / f"python{version}"
+    if stdlib_src.is_dir() and not stdlib_dest.exists():
+        shutil.copytree(stdlib_src, stdlib_dest, symlinks=True, ignore=shutil.ignore_patterns("__pycache__"))
+    out_dir = Path(out_dir)
+    if out_dir.exists():
+        shutil.rmtree(out_dir)
+    shutil.move(str(staging), str(out_dir))
+    return out_dir / "bin" / binary.name
+
+
 def python_version() -> str:
     """The CPython version the compiler targets ('3.14')."""
     try:

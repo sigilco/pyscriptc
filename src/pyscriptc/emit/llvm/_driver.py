@@ -8,7 +8,6 @@ emitted text into a binary (`link_binary`, `compile_unit`).
 
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 import sys
@@ -16,8 +15,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from pyscriptc import rtcache, zigshim
-from pyscriptc.boxed import embed_link_flags
+from pyscriptc import embed, rtcache, zigshim
 from pyscriptc.dwarf import DwarfEmitter
 from pyscriptc.emit.llvm._abi import AbiMixin
 from pyscriptc.emit.llvm._calls import CallsMixin
@@ -181,6 +179,7 @@ def link_binary(
     link_flags: list[str] | None = None,
     include_dirs: list[Path] | None = None,
     shared: bool = False,
+    embed_mode: str | None = None,
 ) -> None:
     """Link `.ll` text plus the C runtime into `output`.
 
@@ -275,12 +274,22 @@ def link_binary(
         libdir = sysconfig.get_config_var("LIBDIR")
         version = sysconfig.get_config_var("VERSION")
         # boxed:begin
-        # EXPERIMENTAL (embedding POC, unset by default): link a relocatable
-        # CPython prefix instead of the host interpreter. See
-        # .agents/plans/2026-10-25-embedding-libpython.md and scripts/embed_poc.py.
-        embed = embed_link_flags(os.environ.get("PYSC_EXPERIMENTAL_EMBED_PREFIX"), version)
-        if embed is not None:
-            include, embed_flags = embed
+        # --embed-python: host links the compiler interpreter (the line below is
+        # unchanged), bundle links the pinned runtime pack, auto picks host when
+        # this interpreter has a shared libpython (the wheel or venv case) and
+        # bundle otherwise (the release binary, where sysconfig describes the
+        # build machine). See src/pyscriptc/embed.py and issue #657.
+        embed_mode = embed.resolve_mode(embed_mode)
+        if embed_mode == "bundle":
+            if target is not None:
+                raise IRError(
+                    "--embed-python=bundle links the pinned runtime pack for this host; "
+                    "cross-compiling it is explain-only"
+                )
+            pack = embed.lock_pack()
+            pack_directory = embed.ensure_pack(pack)
+            embed_version = embed.python_version()
+            include, embed_flags = embed.link_flags(pack_directory, embed_version)
             target_flags.extend(["-I", include])
             tail = [*embed_flags, *tail]
         else:

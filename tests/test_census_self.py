@@ -51,7 +51,8 @@ def test_self_census_ballpark() -> None:
     # assess.py (#558, assess PATH for native gains and island routes) adds 1 module.
     # target.py (#532, declared CPython target configuration) adds 1 module.
     # boxed.py (#612, the --fallback=cpython island planner) adds 1 module.
-    assert census["modules"] == 100
+    # embed.py (#657, the pinned CPython runtime pack) adds 1 module.
+    assert census["modules"] == 101
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -279,6 +280,8 @@ def test_self_census_ballpark() -> None:
     # Embedding POC seam (#651, work/embedpoc): +12 self-host fences in
     # boxed.py (embed_link_flags and its helpers) plus the boxed-marked call
     # in emit/llvm/_driver.py.
-    assert 11_000 <= census["lines"] <= 50_000
-    assert census["fences"] == 3037
-    assert sum(p["fences"] for p in census["packages"]) == 3037
+    # embed.py (#657, the pinned CPython runtime pack) adds 1 module, about
+    # 470 lines and 96 self-host fences, taking the source past 50k.
+    assert 11_000 <= census["lines"] <= 51_000
+    assert census["fences"] == 3133
+    assert sum(p["fences"] for p in census["packages"]) == 3133
