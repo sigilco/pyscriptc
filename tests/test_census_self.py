@@ -259,6 +259,9 @@ def test_self_census_ballpark() -> None:
     # The argparse namespace peek (#500): peek_namespace_fields in
     # restlower/_argparse.py adds 1 self-host fence (PS1104, `Any` like the
     # module's other helpers).
+    # Class-container loop pairs (#481): enumerate/zip over list[Row] and the
+    # unpack pre-bind skip in lower/_stmt.py add 1 self-host fence (PS1104, the
+    # `_record_class` helper's `Any` annotation like the module's other helpers).
 
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.
@@ -271,5 +274,5 @@ def test_self_census_ballpark() -> None:
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.
     assert 11_000 <= census["lines"] <= 51_000
-    assert census["fences"] == 3029
-    assert sum(p["fences"] for p in census["packages"]) == 3029
+    assert census["fences"] == 3030
+    assert sum(p["fences"] for p in census["packages"]) == 3030

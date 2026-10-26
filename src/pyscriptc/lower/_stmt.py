@@ -60,6 +60,18 @@ class StmtMixin:
         info = self.classes.get(elem["name"], {})
         return bool(info.get("tuple")) or not info.get("synthetic")
 
+    def _record_class(self, typ: dict[str, Any]) -> bool:
+        """A user class has no zero instance: it needs its `__init__` arguments.
+
+        A fresh loop target of such a type is not pre-bound to zero; the loop
+        step binds it before any read, like CPython binds the name on the
+        first iteration.
+        """
+        if typ["kind"] != "class":
+            return False
+        info = self.classes.get(typ["name"], {})
+        return bool(info) and not info.get("tuple") and not info.get("synthetic")
+
     def _narrowable(self, name: str) -> bool:
         typ = self.locals.get(name)
         return typ is not None and bool(typ.get("optional")) and name not in self.fn_globals
@@ -1241,9 +1253,7 @@ class StmtMixin:
         ]
         prefix = []
         # A record class has no zero instance to pre-bind; the loop step binds it before any read.
-        record = (
-            elem["kind"] == "class" and elem["name"] in self.classes and not self.classes[elem["name"]].get("tuple")
-        )
+        record = self._record_class(elem)
         if fresh and not record:
             prefix.append(_assign(target, _zero(elem, span), span))
         prefix.extend(
@@ -2172,7 +2182,7 @@ class StmtMixin:
         if source["type"]["kind"] != "list" or source["type"].get("set"):
             self.fail(call, "PS2002", "enumerate() takes a list")
         elem = source["type"]["elem"]
-        if elem["kind"] not in _SCALAR | {"bool"}:
+        if elem["kind"] not in _SCALAR | {"bool"} and not self._plain_class_elem(elem):
             self.fail(call, "PS2002", f"enumerate() of list[{_show(elem)}] is not lowered")
         start = _const_int(0, span)
         if start_node is not None:
@@ -2192,7 +2202,7 @@ class StmtMixin:
             if source["type"]["kind"] != "list" or source["type"].get("set"):
                 self.fail(call, "PS2002", "zip() takes lists")
             elem = source["type"]["elem"]
-            if elem["kind"] not in _SCALAR | {"bool"}:
+            if elem["kind"] not in _SCALAR | {"bool"} and not self._plain_class_elem(elem):
                 self.fail(call, "PS2002", f"zip() of list[{_show(elem)}] is not lowered")
             elems.append(elem)
         return self._for_pairs(stmt, span, sources, elems, None, "zip")
@@ -2307,7 +2317,7 @@ class StmtMixin:
         names = [elt.id for elt in stmt.target.elts]
         for index, name in enumerate(names):
             typ = fields[index] if index < len(fields) else {"kind": "int"}
-            if self._bind_loop_target(name, typ, stmt.target):
+            if self._bind_loop_target(name, typ, stmt.target) and not self._record_class(typ):
                 self.prelude.append(_assign(name, _zero(typ, span), span))
         if len(names) != len(fields):
             if len(fields) > len(names):
