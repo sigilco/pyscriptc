@@ -336,9 +336,46 @@ def is_island_diagnostic(
 # as `__main__`. The per-unit plans stop at the module boundary, so a
 # cross-module call between a native and an island unit has no seam to
 # cross; the coarse unit is the program.
+# Issue #665: the finder hands out the compile-time paths as module
+# origins, so `Path(__file__).parent / "data.json"` in a relocated bundle
+# reads a tree that is gone. The compiler stages the program directory's
+# non-Python files beside the binary (`<binary dir>/pyscriptc-data/<program
+# name>/`) and passes the pieces here, so every origin, the entry `__file__`
+# and `sys.path[0]` are rebased onto the staged tree, resolved at run time
+# from the running image (`sys.executable`), so a relocated output
+# directory keeps working.
 _PROGRAM_BOOTSTRAP = """\
 import os as _os, sys as _sys, importlib.abc as _abc, importlib.util as _iu
 _PS_MODULES = %(modules)s
+_PS_DATA_DIR = %(data_dir)s
+_PS_PROG_NAME = %(prog_name)s
+_PS_BASE = %(base)s
+
+
+def _ps_staged():
+    if _PS_DATA_DIR is None:
+        return None
+    exe = getattr(_sys, "executable", "") or ""
+    if not exe:
+        return None
+    root = _os.path.dirname(_os.path.abspath(exe))
+    return _os.path.join(root, _PS_DATA_DIR, _PS_PROG_NAME)
+
+
+def _ps_rebase(path):
+    staged = _ps_staged()
+    if staged is None:
+        return path
+    if path == _PS_BASE:
+        return staged
+    if path.startswith(_PS_BASE + _os.sep):
+        return _os.path.join(staged, path[len(_PS_BASE) + 1 :])
+    parent = _os.path.dirname(_PS_BASE)
+    if path == parent:
+        return _os.path.dirname(staged)
+    return path
+
+
 class _PsLoader(_abc.Loader):
     def create_module(self, spec):
         return None
@@ -350,14 +387,15 @@ class _PsFinder(_abc.MetaPathFinder):
         found = _PS_MODULES.get(name)
         if found is None:
             return None
-        spec = _iu.spec_from_loader(name, _PsLoader(), origin=found[0], is_package=found[1])
+        origin = _ps_rebase(found[0])
+        spec = _iu.spec_from_loader(name, _PsLoader(), origin=origin, is_package=found[1])
         spec.has_location = True
         if found[1]:
-            spec.submodule_search_locations = [_os.path.dirname(found[0])]
+            spec.submodule_search_locations = [_os.path.dirname(origin)]
         return spec
 _sys.meta_path.insert(0, _PsFinder())
-_sys.path.insert(0, %(path0)s)
-__file__ = %(main_path)s
+_sys.path.insert(0, _ps_rebase(%(path0)s))
+__file__ = _ps_rebase(%(main_path)s)
 __package__ = %(package)s
 exec(compile(%(main_source)s, __file__, "exec"), globals())
 """
@@ -370,8 +408,15 @@ def program_island_source(
     main_package: str,
     root: Path,
     path0: Path,
+    staged_data: tuple[str, str] | None = None,
 ) -> str:
-    """The island seed of a whole program: finder bootstrap plus the entry."""
+    """The island seed of a whole program: finder bootstrap plus the entry.
+
+    `staged_data` is the `(data directory name, program name)` pair of the
+    staged data tree (issue #665), or None when the program staged nothing.
+    The bootstrap resolves it against the running image, so a relocated
+    output directory still finds its data files.
+    """
 
     modules: dict[str, tuple[str, bool, str]] = {}
     main_path = ""
@@ -384,6 +429,9 @@ def program_island_source(
         modules[name] = (str(path), is_package, text)
     return _PROGRAM_BOOTSTRAP % {
         "modules": repr(modules),
+        "data_dir": repr(staged_data[0] if staged_data is not None else None),
+        "prog_name": repr(staged_data[1] if staged_data is not None else None),
+        "base": repr(str(root.resolve())),
         "path0": repr(str(path0)),
         "main_path": repr(main_path),
         "package": repr(main_package),

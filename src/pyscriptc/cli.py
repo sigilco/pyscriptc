@@ -1585,34 +1585,55 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             binary = binary.with_suffix(".exe")
         data_root = _stage_dependency_data(source_path, config, args, binary, island_default=island_default)
         # boxed:begin
-        with island_ctx, boxed_definitions(fallback):
-            # boxed:end
-            if source_path.is_dir():
-                module, source = lower_directory(
-                    source_path,
-                    program_mode=args.program,
-                    bridge=bridge,
-                    ffi=manifests,
-                    target=args.target,
-                    dep_roots=dep_roots,
-                    dep_lane_report=dep_lanes,
-                    resource_root=str(data_root) if data_root else "",
-                    config=config,
-                )
-            elif source_path.is_file():
-                module, source = lower_file(
-                    str(source_path),
-                    bridge=bridge,
-                    timings=dbg.timings_map,
-                    ffi=manifests,
-                    target=args.target,
-                    dep_roots=dep_roots,
-                    dep_lane_report=dep_lanes,
-                    resource_root=str(data_root) if data_root else "",
-                    config=config,
-                )
-            else:
-                raise IRError(f"source not found: {source_path}")
+        from pyscriptc import package as _package
+
+        staged_data: list[tuple[Path, bytes]] = []
+        if source_path.is_dir() and (fallback or args.program):
+            # Issue #665: a program-island compile stages the program
+            # directory's non-Python files beside the binary (under the same
+            # relative paths), so a relocated run resolves sibling data files
+            # against the copy instead of the compile-time tree. Non-directory
+            # sources keep today's behavior (divergence 46).
+            staged_data = _collect_program_data(source_path)
+        _package._STAGED_DATA_TARGET = (
+            binary.parent / "pyscriptc-data" / source_path.resolve().name if staged_data and fallback else None
+        )
+        # boxed:end
+        try:
+            # boxed:begin
+            with island_ctx, boxed_definitions(fallback):
+                # boxed:end
+                if source_path.is_dir():
+                    module, source = lower_directory(
+                        source_path,
+                        program_mode=args.program,
+                        bridge=bridge,
+                        ffi=manifests,
+                        target=args.target,
+                        dep_roots=dep_roots,
+                        dep_lane_report=dep_lanes,
+                        resource_root=str(data_root) if data_root else "",
+                        config=config,
+                        staged_data=staged_data,
+                    )
+                elif source_path.is_file():
+                    module, source = lower_file(
+                        str(source_path),
+                        bridge=bridge,
+                        timings=dbg.timings_map,
+                        ffi=manifests,
+                        target=args.target,
+                        dep_roots=dep_roots,
+                        dep_lane_report=dep_lanes,
+                        resource_root=str(data_root) if data_root else "",
+                        config=config,
+                    )
+                else:
+                    raise IRError(f"source not found: {source_path}")
+        # boxed:begin
+        finally:
+            _package._STAGED_DATA_TARGET = None
+        # boxed:end
         dbg.end("lower")
         dbg.exclude("lower", "parse")
         if args.run:
@@ -1948,6 +1969,36 @@ def _dependency_roots(
         if root and lane == "pure":
             roots.append(Path(root))
     return roots, checker_roots, lanes
+
+
+# boxed:begin
+def _collect_program_data(source_path: Path) -> list[tuple[Path, bytes]]:
+    """The program directory's non-Python files, program-relative (issue #665).
+
+    A program-island compile carries the code in the binary, so a relocated
+    run has no source tree: only the sibling data files the program opens
+    (`Path(__file__).parent / "data.json"` and friends) need a home beside
+    the binary. Everything is read at compile time, so the staged copy is
+    the exact bytes the compile saw. `__pycache__` and dot directories are
+    skipped, as the module discovery skips them.
+    """
+
+    root = source_path.resolve()
+    files: list[tuple[Path, bytes]] = []
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root)
+        if any(part.startswith(".") or part == "__pycache__" for part in relative.parts):
+            continue
+        if path.is_dir() or path.suffix == ".py":
+            continue
+        try:
+            files.append((relative, path.read_bytes()))
+        except OSError:
+            continue
+    return files
+
+
+# boxed:end
 
 
 def _stage_dependency_data(

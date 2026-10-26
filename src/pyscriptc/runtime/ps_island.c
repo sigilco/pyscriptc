@@ -14,6 +14,8 @@ the scalar, str, bytes, and list set the rest of the runtime already uses.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #if defined(_WIN32)
 #include <windows.h>
 #elif defined(__APPLE__)
@@ -183,6 +185,15 @@ static void ps_island_init(void) {
                     Py_DECREF(pdir);
                 }
             } else {
+                /* Issue #665: the argv[0] fallback exists for the bare
+                   single-script binary, where CPython's sys.path[0] is the
+                   script's directory. In a relocated program bundle argv[0]
+                   is the binary inside bin/, and putting bin/ on the path
+                   would shadow stdlib names with whatever sits beside the
+                   binary. A directory is also what `python SCRIPT` records,
+                   so anything else (a directory-shaped argv[0] would be
+                   `python dir`, and that puts nothing on sys.path) falls
+                   back to the '' cwd entry, CPython's own. */
                 PsSeq *argv_seq = ps_argv_get();
                 if (argv_seq != NULL && argv_seq->len > 0) {
                     PsBuf *b = (PsBuf *)argv_seq->data;
@@ -200,15 +211,29 @@ static void ps_island_init(void) {
 #endif
                         if (last_slash != NULL) {
                             *last_slash = '\0';
-                            if (site != NULL) {
-                                PyObject *res = PyObject_CallMethod(site, "addsitedir", "s", buf);
-                                Py_XDECREF(res);
-                                PyErr_Clear();
+                            /* Only an absolute directory joins the path: a
+                               relative argv[0] (`./name`) would pin a path
+                               that breaks on the first working-directory
+                               change, and CPython records the script's
+                               directory absolute. */
+                            int absolute = buf[0] == '/';
+#ifdef _WIN32
+                            if (!absolute && buf[0] != '\0' && buf[1] == ':') {
+                                absolute = 1;
                             }
-                            PyObject *pdir = PyUnicode_FromString(buf);
-                            if (pdir != NULL) {
-                                PyList_Insert(sys_path, 0, pdir);
-                                Py_DECREF(pdir);
+#endif
+                            struct stat st;
+                            if (absolute && stat(buf, &st) == 0 && S_ISDIR(st.st_mode)) {
+                                if (site != NULL) {
+                                    PyObject *res = PyObject_CallMethod(site, "addsitedir", "s", buf);
+                                    Py_XDECREF(res);
+                                    PyErr_Clear();
+                                }
+                                PyObject *pdir = PyUnicode_FromString(buf);
+                                if (pdir != NULL) {
+                                    PyList_Insert(sys_path, 0, pdir);
+                                    Py_DECREF(pdir);
+                                }
                             }
                         }
                     }

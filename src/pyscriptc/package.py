@@ -33,6 +33,19 @@ from pyscriptc.ir import IR_VERSION, SUBSET, cpython_version
 from pyscriptc.lower import Lowerer
 from pyscriptc.stdlib_queue import dependency_lanes, ffi_modules, staged_resources
 
+# Issue #665: the staged data root of the running program-island compile.
+# `_program_island` writes the program directory's non-Python files here
+# (relative to the compile-time directory) and the bootstrap rebases every
+# module origin onto it, so `Path(__file__).parent` data lookups survive a
+# relocation. Set by `stage_program_data_target`, cleared after the compile.
+_STAGED_DATA_TARGET: Path | None = None
+
+
+def stage_program_data_target() -> Path | None:
+    """The staged data root of the running compile, None when none."""
+
+    return _STAGED_DATA_TARGET
+
 
 def lower_directory(
     root: Path,
@@ -46,6 +59,7 @@ def lower_directory(
     dep_lane_report: dict[str, dict[str, str]] | None = None,
     resource_root: str = "",
     config: Any = None,
+    staged_data: list[tuple[Path, bytes]] | None = None,
 ) -> tuple[dict[str, Any], str]:
     """Lower a directory tree into one IR module.
 
@@ -103,6 +117,7 @@ def lower_directory(
         path0=root.resolve().parent
         if (program_mode or entry is not None) and not _is_program_dir(root)
         else root.resolve(),
+        staged_data=staged_data or [],
     )
     if skipped:
         notes = [*notes, *[_skip_note(root, rel) for rel in skipped]]
@@ -182,6 +197,7 @@ def _lower_units(
     config: Any = None,
     main_package: str = "",
     path0: Path | None = None,
+    staged_data: list[tuple[Path, bytes]] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Lower a set of module units into one IR module.
 
@@ -223,7 +239,7 @@ def _lower_units(
         fences, owners = _program_plan(units, exports, entry=entry)
         if fences:
             # boxed:begin
-            island = _program_island(units, root, entry, main_package, path0)
+            island = _program_island(units, root, entry, main_package, path0, staged_data=staged_data or [])
             if island is not None:
                 return island, []
             # boxed:end
@@ -285,7 +301,7 @@ def _lower_units(
             fences.extend(module["fences"])
     # boxed:begin
     if program and (needs_island or fences):
-        island = _program_island(units, root, entry, main_package, path0)
+        island = _program_island(units, root, entry, main_package, path0, staged_data=staged_data or [])
         if island is not None:
             return island, []
     # boxed:end
@@ -311,12 +327,20 @@ def _program_island(
     entry: str | None,
     main_package: str,
     path0: Path | None,
+    staged_data: list[tuple[Path, bytes]] | None = None,
 ) -> dict[str, Any] | None:
     """The program-wide island module, or None when the tier is off.
 
     Under `--fallback=cpython` a multi-module program with any unit on the
     island runs whole island-side (Refs #641): the per-unit plans stop at
     the module boundary, so the coarse unit is the program.
+
+    `staged_data` are the program directory's non-Python files (issue
+    #665): they ride the output under the same relative paths, and the
+    bootstrap rebases every module origin from the compile-time directory
+    onto the staged root, so `Path(__file__).parent` data lookups survive
+    a relocation. When nothing is staged the origins stay compile-time
+    (divergence 46 pins the unstaged lookup paths).
     """
 
     if not _boxed.definitions_tier():
@@ -327,8 +351,46 @@ def _program_island(
     if entry is not None:
         is_package = any(name == entry and pkg for name, _path, pkg in units)
         main_package = entry if is_package else entry.rpartition(".")[0]
-    source = _boxed.program_island_source(units, entry=main, main_package=main_package, root=root, path0=path0 or root)
+    staged = stage_program_data(root, staged_data or [])
+    source = _boxed.program_island_source(
+        units,
+        entry=main,
+        main_package=main_package,
+        root=root,
+        path0=path0 or root,
+        staged_data=staged,
+    )
     return _boxed.program_island_module(source, root)
+
+
+def stage_program_data(
+    root: Path,
+    staged_data: list[tuple[Path, bytes]],
+) -> tuple[str, str] | None:
+    """Stage the program directory's non-Python files; returns the staged names.
+
+    Issue #665: under the program-wide island the binary carries the code,
+    but a `Path(__file__).parent / "data.json"` lookup resolves against the
+    compile-time directory, which is gone on another machine. The staged
+    files keep their program-relative paths under
+    `<binary dir>/pyscriptc-data/<program name>/`, and the bootstrap rebases
+    every module origin onto that tree, so the lookups land on the copy.
+    The tree is resolved at run time from the running image, so a relocated
+    output directory keeps working. The Python sources are not copied (the
+    finder serves the embedded text). Empty input stages nothing, so a
+    program with no sibling files keeps today's behavior exactly.
+    """
+
+    if not staged_data:
+        return None
+    root_dir = stage_program_data_target()
+    if root_dir is None:
+        return None
+    for rel, body in sorted(staged_data):
+        target = root_dir / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(body)
+    return (root_dir.parent.name, root_dir.name)
 
 
 # boxed:end
