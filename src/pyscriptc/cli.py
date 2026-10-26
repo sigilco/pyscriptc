@@ -16,7 +16,10 @@ import time
 from pathlib import Path
 from typing import Any
 
-from pyscriptc import runcache
+# boxed:begin
+from pyscriptc import embed, runcache
+
+# boxed:end
 from pyscriptc.config import apply_to_args, entry_points, load_config
 from pyscriptc.errors import CheckFailed, FitError, IRError, SpikeError, VersionError
 from pyscriptc.log import enable_debug, get_logger, tail
@@ -545,6 +548,19 @@ def main(argv: list[str] | None = None) -> int:
     deps_parser.add_argument(
         "--cache-dir", metavar="DIR", help="cache root (env PYSC_CACHE_DIR, default ~/.cache/pyscriptc)"
     )
+    # boxed:begin
+    embed_parser = sub.add_parser(
+        "embed",
+        help="manage the pinned CPython runtime pack for --embed-python=bundle",
+        parents=[common],
+    )
+    embed_sub = embed_parser.add_subparsers(dest="embed_cmd", required=True)
+    fetch_parser = embed_sub.add_parser("fetch", help="download, verify and unpack the runtime pack")
+    fetch_parser.add_argument(
+        "--platform", metavar="PLATFORM", default=None, help="pack platform (default: this machine)"
+    )
+    fetch_parser.add_argument("--force", action="store_true", help="re-download even when the pack is cached")
+    # boxed:end
     try:
         raw = list(sys.argv[1:] if argv is None else argv)
         run_argv: list[str] = []
@@ -636,6 +652,10 @@ def main(argv: list[str] | None = None) -> int:
             return deps.deps_cmd(args)
         if args.cmd == "telemetry":
             return telemetry.telemetry_cmd(args.action)
+        # boxed:begin
+        if args.cmd == "embed":
+            return embed_cmd(args)
+        # boxed:end
     except CheckFailed as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -646,6 +666,27 @@ def main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 1
     return 2
+
+
+def embed_cmd(args: argparse.Namespace) -> int:
+    """`pyscriptc embed fetch`: download, verify and unpack the pinned runtime pack."""
+    if args.embed_cmd != "fetch":
+        raise IRError(f"unknown embed command {args.embed_cmd!r} (known: fetch)")
+    pack = embed.lock_pack(getattr(args, "platform", None))
+    directory = embed.pack_dir(pack)
+    if embed.pack_is_ready(pack) and not args.force:
+        print(f"runtime pack already present: {directory}")
+        return 0
+    if embed.pack_is_ready(pack) and args.force:
+        print(f"re-fetching runtime pack {pack.pack_id}", file=sys.stderr)
+    else:
+        print(
+            f"fetching runtime pack {pack.pack_id} ({pack.cpython}, {pack.release})",
+            file=sys.stderr,
+        )
+    embed.fetch(pack, force=args.force)
+    print(f"runtime pack ready: {directory}")
+    return 0
 
 
 def run_cmd(args: argparse.Namespace) -> int:
