@@ -1,0 +1,114 @@
+# Scheduled runtime bump (#664): weekly check of python-build-standalone for a
+# newer CPython 3.14 micro. When one exists, a PR bumps the lock file
+# (packaging/runtime.lock.toml); merging that PR runs the embed jobs, so a
+# bumped runtime has passed the acceptance programs before it lands.
+#
+# workflow_dispatch lets the security SLA (.agents/docs/release/
+# embed-runtime.md) trigger the same check by hand in hours, not days.
+#
+# This workflow never publishes anything and never pushes a tag. Until the
+# runtime pack slice (#657) lands the lock file it manages, the check exits
+# cleanly with "no lock file" so the schedule stays inert instead of red.
+# The sha256 lines of the lock are updated by the release producer job, not
+# guessed here: the bump PR carries BUMP_NOTES.md and fails the embed jobs
+# until they are filled.
+name: runtime-bump
+
+on:
+  schedule:
+    - cron: "23 7 * * 1" # Mondays 07:23 UTC, after the nightly
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runtime-bump
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: check for a newer 3.14 micro
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"  # emSign CA incident: uv 0.13.4 dropped the compromised root
+          enable-cache: true
+          python-version: "3.14"
+
+      - name: Check the pinned micro against the python-build-standalone releases
+        id: check
+        run: |
+          set -euo pipefail
+          uv run python scripts/check_runtime_bump.py --json > bump.json || true
+          cat bump.json
+          status="$(python3 -c "import json; print(json.load(open('bump.json'))['status'])")"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          if [ "$status" = "bump" ]; then
+            python3 - <<'PY' >> "$GITHUB_OUTPUT"
+            import json
+            data = json.load(open("bump.json"))
+            print(f"newest={data['newest']}")
+            print(f"tag={data['tag']}")
+            PY
+          fi
+
+      - name: Open the bump PR
+        if: steps.check.outputs.status == 'bump'
+        env:
+          NEWEST: ${{ steps.check.outputs.newest }}
+          TAG: ${{ steps.check.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          branch="runtime-bump/${NEWEST}"
+          base="${GITHUB_REF_NAME:-master}"
+          count="$(gh pr list --head "$branch" --state open --json number -q 'length')"
+          if [ "$count" != "0" ]; then
+            echo "a $branch PR is already open"
+            exit 0
+          fi
+          git config user.name "pyscriptc bot"
+          git config user.email "actions@users.noreply.github.com"
+          git checkout -b "$branch"
+          python3 - "$NEWEST" "$TAG" <<'PY'
+          import re, sys
+          newest, tag = sys.argv[1], sys.argv[2]
+          path = "packaging/runtime.lock.toml"
+          text = open(path).read()
+          text = re.sub(r'tag\s*=\s*"[^"]*"', f'tag = "{tag}"', text, count=1)
+          text = re.sub(r'(\bcpython\b[^\n]*\n)?version\s*=\s*"3\.14\.\d+"', f'version = "{newest}"', text, count=1)
+          open(path, "w").write(text)
+          PY
+          {
+            echo "The asset sha256 values still have to be filled from the PBS"
+            echo "SHA256SUMS of $TAG before merge (the embed jobs verify against them)."
+          } > BUMP_NOTES.md
+          git add packaging/runtime.lock.toml BUMP_NOTES.md
+          git commit -m "chore(packaging): bump the bundled runtime to CPython ${NEWEST} (${TAG})"
+          git push origin "$branch"
+          {
+            echo "Bumps packaging/runtime.lock.toml to python-build-standalone ${TAG}"
+            echo "(CPython ${NEWEST}). The asset sha256 lines must be filled from the"
+            echo "PBS SHA256SUMS before merge, and the embed jobs"
+            echo "(.github/workflows/embed.yml) must be green: they are the"
+            echo "acceptance test for the new pack."
+            echo
+            echo "Security SLA: a python.org security release ships as a patch"
+            echo "release within 7 days (.agents/docs/release/embed-runtime.md)."
+          } > pr-body.md
+          gh pr create --head "$branch" --base "$base" \
+            --title "chore(packaging): bump the bundled runtime to CPython ${NEWEST}" \
+            --body-file pr-body.md
+          rm -f pr-body.md BUMP_NOTES.md

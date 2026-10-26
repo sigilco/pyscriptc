@@ -1,0 +1,154 @@
+# Embed CI jobs (#662): the empty-environment acceptance slice for the
+# bundled CPython runtime (plan: .agents/plans/2026-10-25-embedding-release-
+# plan.md, issues #657 to #665, epic #428). Matrix: Linux x86_64 on
+# ubuntu-24.04 (glibc 2.39) and macOS arm64 on macos-14. A Linux aarch64 cell
+# is a stretch, not in this matrix yet.
+#
+# Pull requests run the jobs path-filtered on the files the embedding work
+# touches; pushes to master, the nightly schedule and the release rehearsal
+# (workflow_dispatch with always_run=true) run them unconditionally. Merging
+# a runtime bump PR (runtime-bump.yml) requires these jobs green.
+#
+# Runner minutes budget: 4 minutes per cell target, 6 per cell hard timeout,
+# 2 cells per full run, so a full run costs at most about 12 runner minutes
+# (measure and record in issue #662; macOS minutes cost 10x Linux on free
+# plans, so the macOS cell drops to nightly and rehearsal only if the PR
+# cost is high - flip the `pr_skip_macos` variable to do that without a
+# code change).
+#
+# Until the runtime pack slice (#657) lands the lock file and the pack, the
+# jobs are a clean skip: a missing pack is the documented no-op, not a red
+# run. The real steps below are written against the slice's contract and
+# activate when `packaging/runtime.lock.toml` and `pyscriptc embed fetch`
+# exist.
+name: embed
+
+on:
+  push:
+    branches: [master]
+  schedule:
+    - cron: "43 6 * * *" # nightly, after the score run
+  workflow_dispatch:
+    inputs:
+      always_run:
+        description: "Run unconditionally (release rehearsal)"
+        type: boolean
+        default: false
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: embed-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  acceptance:
+    name: embed acceptance (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: x86_64-unknown-linux-gnu
+          - os: macos-14
+            platform: aarch64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Decide whether to run
+        id: gate
+        env:
+          EVENT: ${{ github.event_name }}
+          ALWAYS: ${{ inputs.always_run }}
+          PR_SKIP_MACOS: ${{ vars.EMBED_PR_SKIP_MACOS }}
+        run: |
+          set -euo pipefail
+          if [ "$ALWAYS" = "true" ]; then echo "run=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          case "$EVENT" in
+            push|schedule) echo "run=true" >> "$GITHUB_OUTPUT"; exit 0 ;;
+          esac
+          # pull_request: path filter on the embedding surface
+          changed="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "$GITHUB_SHA")"
+          if grep -Eq '(^src/pyscriptc/(boxed|embed)\.py$|^src/pyscriptc/emit/llvm/_driver\.py$|^src/pyscriptc/runtime/ps_island\.c$|^packaging/(runtime\.lock\.toml|third-party\.toml)$|^scripts/(embed|gen_third_party_notices|check_runtime_bump)|^\.github/workflows/(embed|runtime-bump)\.yml$)' <<<"$changed"; then
+            if [ "$PR_SKIP_MACOS" = "true" ] && [ "${{ matrix.os }}" = "macos-14" ]; then
+              echo "macOS PR cell disabled by EMBED_PR_SKIP_MACOS" >&2
+              echo "run=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-python@v6
+        if: steps.gate.outputs.run == 'true'
+        with:
+          python-version: "3.14"
+
+      - uses: astral-sh/setup-uv@v6
+        if: steps.gate.outputs.run == 'true'
+        with:
+          version: ">=0.13.4"  # emSign CA incident: uv 0.13.4 dropped the compromised root
+          enable-cache: true
+          python-version: "3.14"
+
+      - run: uv sync --frozen
+        if: steps.gate.outputs.run == 'true'
+
+      # The pack is cached on the lock file hash: one download per lock
+      # change, restored otherwise. The lock does not exist before #657
+      # lands; the pre-step turns the whole job into a clean skip then.
+      - name: Cache the runtime pack
+        if: steps.gate.outputs.run == 'true'
+        id: pack
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/pyscriptc/runtime
+          key: pyscriptc-runtime-${{ matrix.platform }}-${{ hashFiles('packaging/runtime.lock.toml') }}
+          restore-keys: |
+            pyscriptc-runtime-${{ matrix.platform }}-
+
+      - name: Fetch the pinned pack
+        if: steps.gate.outputs.run == 'true'
+        id: fetch
+        run: |
+          set -euo pipefail
+          if [ ! -f packaging/runtime.lock.toml ]; then
+            echo "packaging/runtime.lock.toml is absent: the runtime pack slice (#657) has not landed"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          uv run pyscriptc embed fetch --platform ${{ matrix.platform }}
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      # The acceptance program of the slice (#661): compile an island program
+      # into a bundle, relocate the output, hide the source tree, run it in an
+      # empty environment, and diff against CPython.
+      - name: Compile, relocate and run the acceptance program
+        if: steps.gate.outputs.run == 'true' && steps.fetch.outputs.skip != 'true'
+        env:
+          WORK: ${{ runner.temp }}/embed-acceptance
+        run: |
+          set -euo pipefail
+          mkdir -p "$WORK"
+          uv run pyscriptc compile tests/fixtures/embed/island_fractions.py \
+            --embed-python=bundle -o "$WORK/OUT/prog"
+          cp -R "$WORK/OUT" "$WORK/OUT-moved"
+          rm -rf "$WORK/OUT"
+          got="$(env -i HOME="$RUNNER_TEMP" "$WORK/OUT-moved/bin/prog")"
+          want="$(python3 tests/fixtures/embed/island_fractions.py)"
+          [ "$got" = "$want" ] || { echo "bundle output '$got' != cpython '$want'"; exit 1; }
+          test -d "$WORK/OUT-moved/share/licenses" || {
+            echo "the output tree does not carry share/licenses"; exit 1; }
+
+      - name: Summary
+        if: steps.gate.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          echo "embed acceptance (${{ matrix.os }}): skipped=${{ steps.fetch.outputs.skip }}" >> "$GITHUB_STEP_SUMMARY"

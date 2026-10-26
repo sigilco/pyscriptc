@@ -32,7 +32,18 @@ sqlite3 = "extern"    # C ABI lane via an ffi.toml manifest
 numpy = "island"      # opt-in embedded CPython, marks the binary as libpython-linked
 rich = "refuse"       # always a compile error naming the lane
 "*" = "compile"       # default: compile from source or fence
+
+[tool.pyscriptc.island]
+embed = "auto"        # host | bundle | auto: where the island's libpython comes from
 ```
+
+`[tool.pyscriptc.island] embed` selects the CPython the island links:
+
+- `host` (today's behaviour): link the compiler interpreter's own `libpython`. No download; the binary needs the same interpreter family at runtime only through the linked library.
+- `bundle`: link the pinned runtime pack and write a relocatable output directory `OUT/bin` plus `OUT/lib` (see [the runtime pack page](runtime-pack.md)).
+- `auto` (the default): `host` when the compiler's interpreter has a usable shared `libpython` and headers, `bundle` when it does not, which is what happens inside the release binary.
+
+`--embed-python=host|bundle|auto` is the flag form and wins over the config key.
 
 Unknown keys, wrong value types and unknown lanes are `PS3102` errors naming the offending key (`pyscriptc explain PS3102`).
 
