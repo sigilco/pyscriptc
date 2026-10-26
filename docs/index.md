@@ -34,6 +34,7 @@ That prints `285`, the same value CPython returns, from a native binary.
 - [Quickstart](/getting-started/): install, compile, run.
 - [Install and toolchain](getting-started/install/): clang, zig, doctor.
 - [The Python subset](/guide/support-model/): what lowers, what fences.
+- [Typing and idioms](/guide/typing/): how annotations drive lowering, construct by construct.
 - [The island floor](/guide/island-floor/): CPython fallback tier and plane maps for real scripts.
 - [Mobile apps](/guide/mobile/): a static library for iOS and Android.
 - [CLI](/reference/cli/): every subcommand and flag.

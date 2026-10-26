@@ -90,6 +90,7 @@ export default {
       collapsible: true,
       children: [
         { title: "The Python subset", path: "/guide/support-model/" },
+        { title: "Typing and idioms", path: "/guide/typing/" },
         { title: "The island floor", path: "/guide/island-floor/" },
         { title: "Packages and apps", path: "/guide/packages/" },
         { title: "Reading .env files", path: "/guide/dotenv/" },
