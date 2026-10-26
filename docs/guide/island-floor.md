@@ -191,7 +191,7 @@ handled ValueError: negative value
 Within a single script or module, an island function cannot directly call a compiled native sibling without bridging. To make real scripts run without manual rewrites, the compiler applies the cascade rule (issue #620): when an island function calls a native sibling function, the fallback planner automatically demotes the callee sibling to run on the island as well. This demotion cascades recursively to all siblings called by the demoted function.
 
 Demotion is refused if the callee cannot run on the island:
-- Generic functions using `typing.TypeVar` cannot be demoted.
+- Generic functions (a `typing.TypeVar` parameter) cannot be demoted, because the island would have to instantiate the type variable at run time.
 - Nested or non-module-level functions cannot be demoted.
 
 When demotion is impossible, compilation halts with diagnostic `PS2002` explaining why and pointing to the binding seam:
