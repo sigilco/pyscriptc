@@ -1213,3 +1213,37 @@ print(isinstance(probe, property), probe.fget())
     assert native.returncode == 0, native.stderr
     assert cpython.returncode == 0, cpython.stderr
     assert native.stdout == cpython.stdout == "True 7\n"
+
+
+def test_fallback_module_assignment_island_routes_to_island(tmp_path: Path) -> None:
+    """A module-level `Path(os.environ.get(...))` fences native (PS2002, "a
+    module assignment must be a constant") and runs island-side under the
+    fallback tier (issue #641 comment). The native tier keeps refusing."""
+    header = """import os
+from pathlib import Path
+
+CONFIG_PATH = Path(os.environ.get("PYSC_FB641", ".")).expanduser()
+
+
+def where() -> str:
+    return str(CONFIG_PATH)
+"""
+    # The native tier refuses: the assignment is not a constant.
+    native_src = tmp_path / "mod_assign_native.py"
+    native_src.write_text(header, encoding="utf-8")
+    native = _run_cli("compile", str(native_src), "--emit", "ir", "-o", str(tmp_path / "native.ir.json"))
+    assert native.returncode == 3, native.stderr
+    assert "PS2002: a module assignment must be a constant" in native.stderr
+
+    # The fallback tier routes the assignment to the island: the seed execs
+    # the real statement, so the value is CPython's own.
+    src = tmp_path / "mod_assign.py"
+    src.write_text(header + "\n\nprint(where())\n", encoding="utf-8")
+    binary = tmp_path / "mod_assign_bin"
+    comp = _run_cli("compile", str(src), *FALLBACK_FLAGS, "--emit", "bin", "-o", str(binary))
+    assert comp.returncode == 0, comp.stderr
+    env = {**os.environ, "PYSC_FB641": "/env641"}
+    got = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path, env=env)
+    want = subprocess.run([sys.executable, str(src)], capture_output=True, text=True, timeout=60, cwd=tmp_path, env=env)
+    assert got.returncode == want.returncode == 0, (got.stderr, want.stderr)
+    assert got.stdout == want.stdout == "/env641\n"

@@ -256,6 +256,12 @@ def _lower_units(
             module = lowerer.module(tree)
             # boxed:begin
             needs_island = needs_island or _boxed.unit_needs_island(module)
+            # Refs #641: the module-level island refusals (a cross-package
+            # import of a definition the other module planned for the island)
+            # belong to no definition, so the unit's own island planning
+            # drops them with the module-level fences. The merge keeps them.
+            if lowerer._boxed_module_fences:
+                module["fences"] = [*module["fences"], *(f.as_dict() for f in lowerer._boxed_module_fences)]
             # boxed:end
             exc_n = lowerer.exc_n
             for fn in module["functions"]:
@@ -900,6 +906,15 @@ def _exports_of(module_name: str, lowerer: Lowerer) -> dict[str, dict[str, Any]]
             "params": copy.deepcopy(params),
             "return": copy.deepcopy(ret),
         }
+    # boxed:begin
+    # Refs #641: the export table carries the defining module's island plan.
+    # A definition the module planned for the island has no lowered body in
+    # the merged module, so a cross-module call site has to know that before
+    # it lowers a call to a name that is not there.
+    for fn in lowerer.island_fns:
+        if fn in bucket:
+            bucket[fn]["island"] = True
+    # boxed:end
     for const_name, value in lowerer.constants.items():
         bucket[const_name] = {"kind": "const", "value": copy.deepcopy(value)}
     for class_name, info in lowerer.classes.items():
