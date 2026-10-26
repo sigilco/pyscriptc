@@ -283,5 +283,5 @@ def test_self_census_ballpark() -> None:
     # embed.py (#657, the pinned CPython runtime pack) adds 1 module, about
     # 470 lines and 99 self-host fences, taking the source past 50k.
     assert 11_000 <= census["lines"] <= 51_000
-    assert census["fences"] == 3138
-    assert sum(p["fences"] for p in census["packages"]) == 3138
+    assert census["fences"] == 3140
+    assert sum(p["fences"] for p in census["packages"]) == 3140
