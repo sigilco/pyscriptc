@@ -1,7 +1,7 @@
 # Island floor granularity: what falls to CPython, and how
 
 Date: 2026-10-25. Status: design plan for issue #597, milestone v0.7.0.
-Grounding: `.agents/plans/2026-10-25-typed-subset-positioning.md` (Decisions 2, 3, 5, 7), issue #597, the dogfood evidence in `/tmp/oc/dogfoodapp.out.md` (8 real scripts, 0 ran) and `/tmp/oc/dogfoodisland.out.md` section "Failure clusters" (C1 to C6).
+Grounding: `.agents/plans/2026-10-25-typed-subset-positioning.md` (Decisions 2, 3, 5, 7), issue #597, the dogfood evidence in `<session-notes>/dogfoodapp.out.md` (8 real scripts, 0 ran) and `<session-notes>/dogfoodisland.out.md` section "Failure clusters" (C1 to C6).
 
 Problem today: island routing covers only imports (`[tool.pyscriptc.imports]` plus `--island`, `src/pyscriptc/cli.py:236` and `cli.py:330`). The first unlowered construct inside the user's own script raises `Fence` (`src/pyscriptc/lower/__init__.py:851`), `compile` prints the fences and returns 3 (`src/pyscriptc/cli.py:1509`), so no binary exists at all. Even on the island route, an unannotated island call result hits `PS1001` at `src/pyscriptc/lower/_stdlib.py:846`, because `_island_call` (`_stdlib.py:804`) returns an opaque handle and only `_island_getattr` (`_stdlib.py:834`) unboxes. Result: 0 of 8 dogfood scripts ran, and the "floor" is not a floor for the user's own code.
 
