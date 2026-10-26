@@ -14,9 +14,16 @@ the scalar, str, bytes, and list set the rest of the runtime already uses.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-/* The island tier embeds CPython, so every line of this file is boxed code
-   (the ledger counts `src/pyscriptc/runtime/ps_island*` whole). */
+#if defined(_WIN32)
+#include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#else
+#include <unistd.h>
+#endif
+#if !defined(_WIN32)
+#include <limits.h>
+#endif
 
 PsSeq *ps_argv_get(void);
 
@@ -41,13 +48,55 @@ static void ps_island_init(void) {
         abort();
     }
     PyObject *site = PyImport_ImportModule("site");
-    /* The island never runs Py_Finalize (the process can exit through the
-       native runtime at any point), so CPython's exit-time stdout flush
-       never happens and a piped binary loses every island print. Reconfigure
-       the wrapper to line-buffered, which is what a terminal gets anyway;
-       the native process exit does not flush it either way. */
     PyObject *sys = PyImport_ImportModule("sys");
     if (sys != NULL) {
+        /* Issue #688: `Py_InitializeEx(0)` leaves `sys.executable` empty, and
+           every `multiprocessing` helper spawn (the resource tracker, the
+           forkserver) execs it, fails ENOENT, and the parent dies of SIGPIPE
+           (exit 141) on the first Pool/Queue/Process use. Set it from the
+           running image, then argv[0] - the first that yields a real file. */
+        PyObject *executable = NULL;
+        char argv0[PATH_MAX];
+#if defined(_WIN32)
+        char image[MAX_PATH];
+        DWORD image_n = GetModuleFileNameA(NULL, image, sizeof image);
+        if (image_n > 0 && image_n < sizeof image) {
+            image[image_n] = '\0';
+            executable = PyUnicode_DecodeFSDefault(image);
+        }
+#elif defined(__APPLE__)
+        char image[PATH_MAX];
+        uint32_t image_size = sizeof image;
+        if (_NSGetExecutablePath(image, &image_size) == 0) {
+            image[sizeof image - 1] = '\0';
+            executable = PyUnicode_DecodeFSDefault(image);
+        }
+#else
+        char image[PATH_MAX];
+        ssize_t image_n = readlink("/proc/self/exe", image, sizeof image - 1);
+        if (image_n > 0) {
+            image[image_n] = '\0';
+            executable = PyUnicode_DecodeFSDefaultAndSize(image, (Py_ssize_t)image_n);
+        }
+#endif
+        if (executable == NULL) {
+            PyErr_Clear();
+            PsSeq *argv_seq = ps_argv_get();
+            if (argv_seq != NULL && argv_seq->len > 0) {
+                PsBuf *b = (PsBuf *)argv_seq->data;
+                size_t n0 = b->len < sizeof argv0 - 1 ? b->len : sizeof argv0 - 1;
+                if (n0 > 0) {
+                    memcpy(argv0, b->data, n0);
+                    argv0[n0] = '\0';
+                    executable = PyUnicode_DecodeFSDefault(argv0);
+                }
+            }
+        }
+        if (executable != NULL) {
+            PyObject_SetAttrString(sys, "executable", executable);
+            Py_DECREF(executable);
+            PyErr_Clear();
+        }
         PyObject *out = PyObject_GetAttrString(sys, "stdout");
         if (out != NULL && out != Py_None) {
             PyObject *detach = PyObject_GetAttrString(out, "detach");
@@ -1143,25 +1192,57 @@ static void ps_island_seed_argv(void) {
     PyErr_Clear();
 }
 
+/* The seed namespace is a real module object registered in `sys.modules`
+   (issue #689): `pickle` and `multiprocessing` resolve island functions
+   through `<module>.__dict__`, so an exec'd plain dict leaves every island
+   function unpicklable ("it's not found as __main__.worker"). The module
+   carries the seed's `__name__` (`__pyscriptc_island__`), so a failed
+   re-import names the island instead of a phantom file. */
+static PyObject *ps_island_seed_module(const char *name) {
+    PyObject *module = NULL;
+    PyObject *sys = NULL;
+    PyObject *modules;
+    module = PyImport_AddModule(name);
+    if (module == NULL) {
+        return NULL;
+    }
+    Py_INCREF(module);
+    sys = PyImport_ImportModule("sys");
+    modules = sys != NULL ? PyObject_GetAttrString(sys, "modules") : NULL;
+    if (modules == NULL || PyDict_SetItemString(modules, name, module) < 0) {
+        Py_XDECREF(modules);
+        Py_XDECREF(sys);
+        Py_DECREF(module);
+        return NULL;
+    }
+    Py_XDECREF(modules);
+    Py_XDECREF(sys);
+    return module;
+}
+
 static int ps_island_seed(int64_t n, const char *source) {
     PyObject *text = PyUnicode_DecodeUTF8(source, (Py_ssize_t)n, "strict");
     PyObject *builtins = NULL;
     PyObject *main_name = NULL;
+    PyObject *module = NULL;
     PyObject *result = NULL;
     if (text == NULL) {
         return -1;
     }
-    if (ps_island_ns == NULL) {
-        ps_island_ns = PyDict_New();
-        if (ps_island_ns == NULL) {
-            Py_DECREF(text);
-            return -1;
-        }
+    module = ps_island_seed_module("__pyscriptc_island__");
+    if (module == NULL) {
+        Py_DECREF(text);
+        return -1;
     }
+    /* Fresh module each seed: a stale `__dict__` from an earlier unit would
+       satisfy lookups that should fail. */
+    PyDict_Clear(PyModule_GetDict(module));
+    ps_island_ns = PyModule_GetDict(module);
     builtins = PyImport_ImportModule("builtins");
     if (builtins == NULL || PyDict_SetItemString(ps_island_ns, "__builtins__", builtins) < 0) {
         Py_XDECREF(builtins);
         Py_DECREF(text);
+        Py_DECREF(module);
         return -1;
     }
     Py_DECREF(builtins);
@@ -1172,6 +1253,7 @@ static int ps_island_seed(int64_t n, const char *source) {
     if (main_name == NULL || PyDict_SetItemString(ps_island_ns, "__name__", main_name) < 0) {
         Py_XDECREF(main_name);
         Py_DECREF(text);
+        Py_DECREF(module);
         return -1;
     }
     Py_DECREF(main_name);
@@ -1181,6 +1263,7 @@ static int ps_island_seed(int64_t n, const char *source) {
     result = PyRun_String(PyUnicode_AsUTF8(text) != NULL ? PyUnicode_AsUTF8(text) : "",
                           Py_file_input, ps_island_ns, ps_island_ns);
     Py_DECREF(text);
+    Py_DECREF(module);
     if (result == NULL) {
         return -1;
     }
@@ -1207,20 +1290,52 @@ void ps_island_top_seed(int64_t n, const char *source, int64_t path_n, const cha
     PyObject *text;
     PyObject *builtins = NULL;
     PyObject *main_name = NULL;
+    PyObject *island_name = NULL;
     PyObject *file_name = NULL;
+    PyObject *module = NULL;
+    PyObject *main_module = NULL;
     PyObject *result = NULL;
     ps_island_ensure();
     text = PyUnicode_DecodeUTF8(source, (Py_ssize_t)n, "strict");
     if (text == NULL) {
         ps_island_fail();
     }
-    if (ps_island_ns == NULL) {
-        ps_island_ns = PyDict_New();
-        if (ps_island_ns == NULL) {
+    /* Issue #689: exec into the real `__main__` module registered in
+       `sys.modules`, the way `runpy` seeds a script: the whole program runs
+       in this one seed, so pickle must resolve functions out of
+       `sys.modules["__main__"]` while it runs. `__pyscriptc_island__`
+       aliases the same module object, so a failed re-import names the
+       island instead of a phantom `__main__` file. */
+    main_module = ps_island_seed_module("__main__");
+    if (main_module == NULL) {
+        Py_DECREF(text);
+        ps_island_fail();
+    }
+    module = main_module;
+    Py_INCREF(module);
+    {
+        PyObject *sys_mods = NULL;
+        PyObject *sysm = PyImport_ImportModule("sys");
+        island_name = PyUnicode_FromString("__pyscriptc_island__");
+        if (sysm != NULL) {
+            sys_mods = PyObject_GetAttrString(sysm, "modules");
+        }
+        if (island_name == NULL || sys_mods == NULL ||
+            PyDict_SetItem(sys_mods, island_name, main_module) < 0) {
+            Py_XDECREF(sys_mods);
+            Py_XDECREF(sysm);
+            Py_XDECREF(island_name);
+            Py_DECREF(module);
+            Py_DECREF(main_module);
             Py_DECREF(text);
             ps_island_fail();
         }
+        Py_DECREF(sys_mods);
+        Py_XDECREF(sysm);
+        Py_DECREF(island_name);
     }
+    PyDict_Clear(PyModule_GetDict(module));
+    ps_island_ns = PyModule_GetDict(module);
     builtins = PyImport_ImportModule("builtins");
     if (builtins == NULL || PyDict_SetItemString(ps_island_ns, "__builtins__", builtins) < 0) {
         Py_XDECREF(builtins);
@@ -1231,14 +1346,22 @@ void ps_island_top_seed(int64_t n, const char *source, int64_t path_n, const cha
     main_name = PyUnicode_FromString("__main__");
     if (main_name == NULL || PyDict_SetItemString(ps_island_ns, "__name__", main_name) < 0) {
         Py_XDECREF(main_name);
+        Py_DECREF(main_module);
+        Py_DECREF(module);
         Py_DECREF(text);
         ps_island_fail();
     }
     Py_DECREF(main_name);
+    /* multiprocessing's spawn/forkserver bootstrapping reads
+       `__main__.__spec__`; a plain script has `None` there, and a missing
+       attribute breaks the bootstrap differently. */
+    PyDict_SetItemString(ps_island_ns, "__spec__", Py_None);
     if (path != NULL) {
         file_name = PyUnicode_DecodeUTF8(path, (Py_ssize_t)path_n, "strict");
         if (file_name == NULL || PyDict_SetItemString(ps_island_ns, "__file__", file_name) < 0) {
             Py_XDECREF(file_name);
+            Py_DECREF(main_module);
+            Py_DECREF(module);
             Py_DECREF(text);
             ps_island_fail();
         }
@@ -1253,9 +1376,13 @@ void ps_island_top_seed(int64_t n, const char *source, int64_t path_n, const cha
                           Py_file_input, ps_island_ns, ps_island_ns);
     Py_DECREF(text);
     if (result == NULL) {
+        Py_DECREF(main_module);
+        Py_DECREF(module);
         ps_island_fail();
     }
     Py_DECREF(result);
+    Py_DECREF(main_module);
+    Py_DECREF(module);
     ps_island_done();
 }
 
