@@ -27,6 +27,7 @@ are not searched. as_file of one of these paths is the path itself.
 
 #ifdef __APPLE__
 #include <copyfile.h>
+#include <sys/sysctl.h>
 #endif
 
 #ifdef __linux__
@@ -1062,6 +1063,17 @@ static void ps_platform_libc(char *name, size_t name_len, char *version, size_t 
 static void ps_platform_macos_release(char *out, size_t len) {
     struct utsname u;
     out[0] = '\0';
+#if defined(__APPLE__)
+    /* The product version, which is what CPython's platform.mac_ver()
+       reports: the Darwin kernel version is a different number. */
+    {
+        size_t size = len;
+        if (sysctlbyname("kern.osproductversion", out, &size, NULL, 0) == 0 && size > 0) {
+            out[len - 1] = '\0';
+            return;
+        }
+    }
+#endif
     if (uname(&u) == 0 && strncmp(u.release, "Darwin ", 7) == 0) {
         const char *rest = u.release + 7;
         size_t i = 0;
