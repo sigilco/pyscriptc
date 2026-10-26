@@ -26,7 +26,13 @@ class CallsMixin:
             return self.emit_constructor(callee["name"], values)
         if callee["kind"] == "value":
             return self.emit_value_call(expr, values)
-        return self.call_function(self.functions[callee["name"]], values)
+        fn = self.functions.get(callee["name"])
+        if fn is None:
+            # Refs #641: the defining module planned the callee for the
+            # island and the merged module emits no body for it. A crash
+            # here is a planning hole; name the callee instead.
+            raise IRError(f"call to {callee['name']} has no lowered body (its module planned it for the island floor)")
+        return self.call_function(fn, values)
 
     def emit_builtin(self, name: str, values: list[str], arg_types: list[dict[str, Any]], expr: dict[str, Any]) -> str:
         if name == "print":

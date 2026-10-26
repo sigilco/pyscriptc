@@ -188,6 +188,14 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         self._boxed_functions: list[ast.FunctionDef] = []
         self._boxed_island: set[str] = set()
         self._boxed_demoted_by: dict[str, str] = {}
+        # Refs #641: the cross-module island-refusal fences, parked so the
+        # module's own island planning never drops them.
+        self._boxed_sibling_fences: list[Fence] = []
+        # Refs #641: the module-level island refusals (a cross-package import
+        # of a definition the other module planned for the island). They
+        # belong to no definition and survive the island planning, so the
+        # package merge adds them to the unit's fence list.
+        self._boxed_module_fences: list[Fence] = []
         # The island top level (issue #613): the entry body is probed like a
         # definition, and a fenced probe plans the whole module top level for
         # the island (Decision A). `entry_fn_name` then names the entry whose
@@ -1581,7 +1589,11 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # whole top level runs island-side and the entry's fences drop with
         # it (the entry never lowers native: the body pass skips it).
         # Module-level import fences (PS2001/PS2002, issue #627) route the
-        # module top level to the island floor as well.
+        # module top level to the island floor as well. A deferred module
+        # assignment fence ("a module assignment must be a constant", Refs
+        # #641) carries the `__module__` sentinel instead of None, and
+        # routes the top level the same way: the seed execs the real
+        # statement, so the value is CPython's own.
         if self.fallback_definitions:
             probe_fences: list[Fence] = []
             if entry_fn:
@@ -1591,7 +1603,9 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                     self._boxed_probe(entry_fn[0], probe_fences)
                 finally:
                     self.function = saved_function
-            has_import_fence = any(fence.function is None and fence.code in ("PS2001", "PS2002") for fence in fences)
+            has_import_fence = any(
+                fence.function in (None, "__module__") and fence.code in ("PS2001", "PS2002") for fence in fences
+            )
             self._boxed_top_island = bool(probe_fences) or has_import_fence
             if self._boxed_top_island:
                 if probe_fences:
@@ -1757,7 +1771,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                     fence
                     for fence in fences
                     if (fence.function != entry_name if entry_name is not None else True)
-                    and not (fence.function is None and fence.code in ("PS2001", "PS2002"))
+                    and not (fence.function in (None, "__module__") and fence.code in ("PS2001", "PS2002"))
                 ]
             else:
                 island.discard(entry_name)
@@ -2135,6 +2149,27 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             self.declared.add(local)
             return
         if item["kind"] == "func":
+            # boxed:begin
+            # Refs #641: the defining module planned the function for the
+            # island, so the merged module emits no body for it. The runtime
+            # keeps one island namespace per binary, so a call across a
+            # package boundary into another module's island floor has no
+            # seam to cross: the import refuses here, at module level, where
+            # the fence survives the module's own island planning.
+            if item.get("island"):
+                fence = Fence(
+                    "PS2002",
+                    f"{module}.{name} runs on the island floor of its own module, and importing it "
+                    "crosses a package boundary into it. Compile the tree as a program "
+                    "(--program --fallback=cpython) so the whole program runs island-side, "
+                    "or make the definition lower natively.",
+                    span_of(stmt, self.filename),
+                    None,
+                )
+                fences.append(fence)
+                self._boxed_module_fences.append(fence)
+                return
+            # boxed:end
             self.pkg_funcs[local] = item
             self.bindings[local] = Binding("pyfunc", module, name, False, item["return"])
             self.declared.add(local)
@@ -2218,6 +2253,28 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
     def _linked_call(self, node: ast.Call, span: dict[str, Any], item: dict[str, Any], what: str) -> dict[str, Any]:
         if item["kind"] != "func":
             self.fail(node, "PS2002", f"{what} is not a function")
+        # boxed:begin
+        # Refs #641: the defining module planned the callee for the island,
+        # so the merged module emits no body for it. The runtime keeps one
+        # island namespace per binary, so a call across a package boundary
+        # into another module's island floor has no seam to cross: a named
+        # refusal instead of a crash in the emitter.
+        #
+        # The refusal is a module-level fence (it belongs to no
+        # definition), so it survives the module's own island planning.
+        if item.get("island"):
+            fence = Fence(
+                "PS2002",
+                f"{what} runs on the island floor of its own module, and this call crosses a "
+                "package boundary into it. Compile the tree as a program "
+                "(--program --fallback=cpython) so the whole program runs island-side, "
+                "or make the definition lower natively.",
+                span,
+                None,
+            )
+            self._boxed_module_fences.append(fence)
+            raise fence
+        # boxed:end
         args = self._fill_args(node, item["params"], what)
         return {
             "kind": "call",
