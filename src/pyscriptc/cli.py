@@ -691,6 +691,14 @@ def main(argv: list[str] | None = None) -> int:
     except SpikeError as exc:
         print(str(exc), file=sys.stderr)
         return 1
+    # boxed:begin
+    except (embed.EmbedError, sitedeps.SiteError) as exc:
+        # Issues #661 and #662: a bundle compile that cannot get its pack (or
+        # that carries a native dependency) is a user-facing refusal, not a
+        # crash: one line naming `pyscriptc embed fetch`, no traceback.
+        print(str(exc), file=sys.stderr)
+        return 1
+    # boxed:end
     return 2
 
 
