@@ -409,9 +409,8 @@ def stage_bundle(output: Path, pack_directory: Path, version: str, binary: Path)
     if binary.resolve() != target.resolve():
         shutil.move(str(binary), target)
     mac = os.uname().sysname == "Darwin"
-    suffix = ".dylib" if mac else ".so"
     shared = libpython(pack_directory, version)
-    if shared.suffix == suffix:
+    if mac:
         shutil.copy2(shared, lib_dir / shared.name)
     else:
         # Linux ships libpython3.14.so as a symlink to libpython3.14.so.1.0; the
