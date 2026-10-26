@@ -324,6 +324,195 @@ int64_t ps_sub_check_call(PsSeq *args) {
     return code;
 }
 
+/* Text-mode decode for the captured streams: CPython's
+   TextIOWrapper.decode + _translate_newlines over one buffer. enc is 0
+   utf-8, 1 ascii, 2 latin-1; err is 0 strict, 1 replace, 2 ignore,
+   3 backslashreplace. The text result is the buffer's UTF-8 spelling, so
+   every producer re-encodes into a grow buffer and translates newlines
+   on the way. */
+
+/* One code point emitted as UTF-8 into the grow buffer. */
+static void ps_sub_emit_utf8(PsGrow *g, unsigned int cp) {
+    if (cp < 0x80) {
+        ps_grow_byte(g, (unsigned char)cp);
+    } else if (cp < 0x800) {
+        ps_grow_byte(g, (unsigned char)(0xC0 | (cp >> 6)));
+        ps_grow_byte(g, (unsigned char)(0x80 | (cp & 0x3F)));
+    } else if (cp < 0x10000) {
+        ps_grow_byte(g, (unsigned char)(0xE0 | (cp >> 12)));
+        ps_grow_byte(g, (unsigned char)(0x80 | ((cp >> 6) & 0x3F)));
+        ps_grow_byte(g, (unsigned char)(0x80 | (cp & 0x3F)));
+    } else {
+        ps_grow_byte(g, (unsigned char)(0xF0 | (cp >> 18)));
+        ps_grow_byte(g, (unsigned char)(0x80 | ((cp >> 12) & 0x3F)));
+        ps_grow_byte(g, (unsigned char)(0x80 | ((cp >> 6) & 0x3F)));
+        ps_grow_byte(g, (unsigned char)(0x80 | (cp & 0x3F)));
+    }
+}
+
+/* CPython's replacement character, U+FFFD. */
+static void ps_sub_emit_replacement(PsGrow *g) {
+    ps_sub_emit_utf8(g, 0xFFFD);
+}
+
+/* CPython's backslash escape for one byte: \xHH lowercase hex. */
+static void ps_sub_emit_backslash(PsGrow *g, unsigned char c) {
+    static const char hex[] = "0123456789abcdef";
+    ps_grow_byte(g, '\\');
+    ps_grow_byte(g, 'x');
+    ps_grow_byte(g, (unsigned char)hex[c >> 4]);
+    ps_grow_byte(g, (unsigned char)hex[c & 0xF]);
+}
+
+static void ps_sub_newlines(PsGrow *g) {
+    /* _translate_newlines: \r\n to \n, then a lone \r to \n. The walk
+       rewrites in place over the grow buffer's tail. */
+    int64_t r = 0;
+    int64_t w = 0;
+    while (r < g->len) {
+        unsigned char c = (unsigned char)g->data[r];
+        if (c == '\r') {
+            g->data[w++] = '\n';
+            r++;
+            if (r < g->len && g->data[r] == '\n') {
+                r++;
+            }
+            continue;
+        }
+        g->data[w++] = (char)c;
+        r++;
+    }
+    g->len = w;
+}
+
+static void ps_sub_decode(int64_t n, const char *p, int enc, int err, PsBuf *out) {
+    PsGrow g;
+    int64_t i = 0;
+    ps_grow_init(&g);
+    if (enc == 2) {
+        /* latin-1: every byte is its code point; no error path exists. */
+        for (i = 0; i < n; i++) {
+            ps_sub_emit_utf8(&g, (unsigned char)p[i]);
+        }
+    } else {
+        while (i < n) {
+            unsigned char c = (unsigned char)p[i];
+            unsigned int cp;
+            int w;
+            int bad = 0;
+            const char *why = "invalid start byte";
+            if (c < 0x80) {
+                ps_grow_byte(&g, c);
+                i++;
+                continue;
+            }
+            if (enc == 1) {
+                /* ascii: a byte above 0x7f is not a code point here. */
+                w = 0;
+                cp = 0;
+                bad = 1;
+                why = "ordinal not in range(128)";
+            } else if ((c & 0xE0) == 0xC0) {
+                w = 2;
+                cp = (unsigned int)(c & 0x1F);
+            } else if ((c & 0xF0) == 0xE0) {
+                w = 3;
+                cp = (unsigned int)(c & 0x0F);
+            } else if ((c & 0xF8) == 0xF0) {
+                w = 4;
+                cp = (unsigned int)(c & 0x07);
+            } else {
+                w = 0;
+                cp = 0;
+                bad = 1;
+                why = "invalid start byte";
+            }
+            if (!bad && i + w > n) {
+                bad = 1;
+                why = "unexpected end of data";
+            }
+            for (int k = 1; !bad && k < w; k++) {
+                unsigned char cc = (unsigned char)p[i + k];
+                if ((cc & 0xC0) != 0x80) {
+                    bad = 1;
+                    why = "invalid continuation byte";
+                } else {
+                    cp = (cp << 6) | (unsigned int)(cc & 0x3F);
+                }
+            }
+            if (!bad && w == 2 && cp < 0x80) {
+                bad = 1;
+                why = "invalid start byte";
+            }
+            if (!bad && w == 3 && cp < 0x800) {
+                bad = 1;
+                why = "invalid start byte";
+            }
+            if (!bad && w == 4 && cp < 0x10000) {
+                bad = 1;
+                why = "invalid start byte";
+            }
+            if (!bad && (cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF))) {
+                bad = 1;
+                why = "invalid continuation byte";
+            }
+            if (!bad) {
+                ps_sub_emit_utf8(&g, cp);
+                i += w;
+                continue;
+            }
+            if (err == 1) {
+                /* replace: one U+FFFD for the broken byte. */
+                ps_sub_emit_replacement(&g);
+                i++;
+                continue;
+            }
+            if (err == 2) {
+                /* ignore: the broken byte drops out. */
+                i++;
+                continue;
+            }
+            if (err == 3) {
+                /* backslashreplace: the byte escapes as \xHH. */
+                ps_sub_emit_backslash(&g, c);
+                i++;
+                continue;
+            }
+            {
+                char msg[160];
+                if (why[0] == 'u') {
+                    /* "unexpected end of data" names the whole partial
+                       sequence, like CPython's decoder. */
+                    snprintf(
+                        msg,
+                        sizeof msg,
+                        "'%s' codec can't decode bytes in position %lld-%lld: %s",
+                        enc == 1 ? "ascii" : "utf-8",
+                        (long long)i,
+                        (long long)(n - 1),
+                        why
+                    );
+                } else {
+                    snprintf(
+                        msg,
+                        sizeof msg,
+                        "'%s' codec can't decode byte 0x%02x in position %lld: %s",
+                        enc == 1 ? "ascii" : "utf-8",
+                        c,
+                        (long long)i,
+                        why
+                    );
+                }
+                free(g.data);
+                ps_raise_cstr(PS_UNICODEDECODE, msg);
+            }
+        }
+    }
+    ps_sub_newlines(&g);
+    out->len = g.len;
+    out->data = g.data;
+}
+
 /* run(cmd): the CompletedProcess record. `check` (flag bit 1) raises the
    check_call stand-in when the exit code is non-zero; capture is bit 0. */
 void ps_sub_run(PsSeq *args, int64_t flags, int64_t cwd_len, const char *cwd, PsCompleted *out) {
