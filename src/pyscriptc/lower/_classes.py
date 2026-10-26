@@ -45,6 +45,10 @@ from pyscriptc.stdmore import (
 )
 
 _UNWRAP_FORMS = frozenset({"Final", "ClassVar", "Annotated", "Required", "NotRequired"})
+# Spellings of the bottom type: a function annotated with one never returns a
+# value to its caller (issue #645). Accepted bare or as `typing.` /
+# `typing_extensions.` attributes.
+_NEVER_ALIASES = frozenset({"NoReturn", "Never"})
 _DYNAMIC_ANNOTATIONS = frozenset({"object", "Any", "Protocol", "TypeVar", "Generic", "Callable", "ABC"})
 # Tier-2 erasure (`.agents/plans/2026-10-18-tiered-lowering-and-typefacts.md`):
 # static-typing constructs that vanish before emission. `abc` is an erased
@@ -1236,6 +1240,12 @@ class ClassesMixin:
         formed = self._typing_annotation(node)
         if formed is not None:
             return formed
+        if isinstance(node, ast.Attribute):
+            # `typing.NoReturn` / `typing.Never` (issue #645): the qualified
+            # spelling of the bottom type.
+            resolved = self._resolve_module(node)
+            if resolved is not None and resolved[3] == "erased" and resolved[2] in _NEVER_ALIASES:
+                return {"kind": "none"}
         if isinstance(node, ast.Name) and node.id in {"int", "float", "bool", "str", "bytes"}:
             return {"kind": node.id}
         if isinstance(node, ast.Constant) and node.value is None:
@@ -1889,8 +1899,16 @@ class ClassesMixin:
         return None
 
     def _typing_annotation(self, node: ast.AST) -> dict[str, Any] | None:
+        # `-> NoReturn` / `-> Never` (issue #645): the function never returns
+        # a value to its caller. The IR has no bottom type, so the signature
+        # carries `none`: callers read no result, and the body's exit (a
+        # raise or an exit call) is what actually ends the process.
+        if isinstance(node, ast.Name) and node.id in _NEVER_ALIASES:
+            return {"kind": "none"}
         if isinstance(node, ast.Name) and node.id in self.type_aliases:
             alias = self.type_aliases[node.id]
+            if alias in _NEVER_ALIASES:
+                return {"kind": "none"}
             handle = _IO_HANDLES.get(alias)
             if handle is not None:
                 return {"kind": "class", "name": handle}
