@@ -58,6 +58,28 @@ and cut a patch through the normal rehearsal and bar process
 (`release-process.md`). The 7-day ceiling matches the release policy's "no
 unreleased user-visible change older than 7 days".
 
+## CI: the embed jobs and the minutes budget
+
+`.github/workflows/embed.yml` runs the acceptance slice on Linux x86_64
+(`ubuntu-24.04`, glibc 2.39) and macOS arm64 (`macos-14`). Pull requests run
+it path-filtered on the embedding surface (`boxed.py`, `embed.py`,
+`_driver.py`, `ps_island.c`, the lock and inventory, the embed scripts and
+the two workflows); pushes to master, the nightly schedule and the release
+rehearsal (`workflow_dispatch` with `always_run=true`) always run it.
+
+- Budget: 4 minutes per cell target, 6 minutes hard timeout, 2 cells, so a
+  full run costs at most about 12 runner minutes. Measured minutes are
+  recorded in issue #662 at close (estimate until then: compile plus link
+  dominates).
+- The pack is cached with `actions/cache` keyed on the lock file hash
+  (`pyscriptc-runtime-<platform>-<lockhash>`), so one pack download per lock
+  change.
+- macOS minutes cost 10x Linux on free plans. If the macOS PR cost proves
+  high, set the repository variable `EMBED_PR_SKIP_MACOS=true`; the macOS
+  cell then runs on nightly and rehearsal only, without a code change.
+- Before the runtime pack lands (#657), the jobs are a documented clean skip
+  (no lock file), not red runs.
+
 ## Version in receipts
 
 The runtime micro the pack pins is printed by `pyscriptc --version --verbose`
