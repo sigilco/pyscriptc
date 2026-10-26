@@ -16,28 +16,22 @@ export const PILLARS: CarouselPillar[] = [
   {
     id: "semantics",
     title: "Full Python Semantics",
-    subtitle: "CPython 3.14.x semantics for the supported subset",
+    subtitle: "CPython 3.14.9 semantics for the supported subset",
     description:
-      "Write idiomatic, expressive Python for the supported subset. pyscriptc compiles pattern matching and generator expressions (materialized eagerly today) directly into native machine code.",
-    filename: "pipeline.py",
-    codeSnippet: `class EventStream:
-    def __init__(self, name: str):
-        self.name = name
-
-    def dispatch(self, packet: dict) -> str:
-        match packet:
-            case {"type": "stream", "payload": bytes(data)}:
-                return f"{self.name}: processed {len(data)} bytes"
-            case {"type": "ping", "ts": float(t)}:
-                return f"{self.name}: pong at {t:.2f}s"
-            case _:
-                return f"{self.name}: unknown packet"`,
-    command: "pyscriptc compile pipeline.py --target=native -O3",
+      "Write idiomatic, expressive Python for the supported subset. pyscriptc compiles pattern matching and generator expressions directly into native machine code, and the standard library is part of the target.",
+    filename: "classify.py",
+    codeSnippet: `def classify(tag: str) -> str:
+    match tag:
+        case "stream":
+            return "streaming"
+        case "ping" | "pong":
+            return "keepalive"
+    return "unknown"`,
+    command: "pyscriptc compile classify.py --emit bin",
     output: [
-      "[1/3] Parsing CPython 3.14 AST ............... OK (1.2ms)",
-      "[2/3] Lowering to typed SSA IR ............. OK (3.8ms)",
-      "[3/3] Emitting standalone native binary .... OK (4.1ms)",
-      "✓ Output: ./pipeline (~139 KB standalone binary, 0 dependencies)",
+      "$ ./classify",
+      "keepalive",
+      "✓ Output: ./classify (standalone binary, 0 dependencies)",
     ],
   },
   {
@@ -54,13 +48,22 @@ export const PILLARS: CarouselPillar[] = [
         total += (idx * 1.414213) * weight
     return total
 
-records = [(i, i * 0.001) for i in range(1_000_000)]
-res = transform_dataset(records)`,
-    command: "hyperfine './transform_native' 'python3 transform.py'",
+
+def main() -> int:
+    records: list[tuple[int, float]] = []
+    i = 0
+    while i < 1_000_000:
+        records.append((i, i * 0.001))
+        i += 1
+    print(transform_dataset(records))
+    return 0`,
+    command: "pyscriptc verify transform.py",
     output: [
-      "Benchmark: ./transform_native vs python3 transform.py on 1,000,000 records",
-      "✓ Geometric-mean speedup on compute kernels: 23.9x vs CPython",
-      "✓ Peak RSS: 5.8x lower than CPython (kernel group geomean)",
+      "verify transform.py: match",
+      "  oracle: CPython 3.14.9",
+      "  stdout: 0 bytes, match",
+      "  stderr: 0 bytes, match",
+      "  exit: 0, match",
     ],
   },
   {
@@ -68,23 +71,21 @@ res = transform_dataset(records)`,
     title: "Compile-Time Diagnostics",
     subtitle: "Catch type mismatches and fence violations before shipping",
     description:
-      "Rich compiler diagnostics identify type errors, unsupported dynamic mutation, and unboxed fallback boundaries before your binary ever reaches production servers.",
-    filename: "verify.py",
-    codeSnippet: `from pyscriptc import fence
+      "The compiler refuses what it cannot prove and names the reason with a diagnostic code, before your binary ever reaches production servers.",
+    filename: "fetch.py",
+    codeSnippet: `import http.client
 
-@fence.native
-def compute_hash(seed: int, key: str) -> int:
-    # Compiler verifies type stability and unboxing boundaries
-    h = seed ^ len(key)
-    for ch in key:
-        h = ((h << 5) + h) ^ ord(ch)
-    return h & 0xFFFFFFFF`,
-    command: "pyscriptc check verify.py --strict",
+
+def fetch(host: str, path: str) -> int:
+    conn = http.client.HTTPConnection(host)
+    conn.request("GET", path)
+    return conn.getresponse().status`,
+    command: "pyscriptc compile fetch.py --emit bin",
     output: [
-      "verify.py:4:1: info: native boundary @fence.native verified",
-      "verify.py:7:9: info: unboxed 64-bit integer registers applied",
-      "verify.py:9:5: info: tail-call optimization applied",
-      "✓ All 14 functions verified for pure native code emission",
+      "fetch.py:1:1: PS2002: http.client is not in the closed import table",
+      "(and 2 more fences that follows from it)",
+      "$ pyscriptc imports fetch.py",
+      "  http.client: native: fences (PS2002) [stdlib, lane extern]",
     ],
   },
 ];
