@@ -53,6 +53,27 @@ def _os_open(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     return lo._abi_call("os", "open", args, {"kind": "int"}, "ps_os_open", span)
 
 
+def _walk(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """`os.walk(top)` as a materialized list of the (dirpath, dirnames,
+    filenames) triples (issue #509).
+
+    The runtime pre-computes every row in CPython's topdown pre-order, so a
+    loop body that edits `dirnames` does not prune the walk (divergence 47)
+    and `topdown`, `onerror` and `followlinks` stay fenced. The result is a
+    `list` of the synthetic 3-tuple class, so `for root, dirs, files in
+    os.walk(top)` lowers through the same unpack the dict.items loop uses.
+    """
+    lo._reject_keywords(node)
+    if len(node.args) != 1:
+        lo.fail(node, "PS2003", "os.walk expects 1 argument(s)")
+    top = lo._expr(node.args[0])
+    if top["type"]["kind"] != "str":
+        lo.fail(node, "PS1003", "os.walk top is str")
+    ls = {"kind": "list", "elem": {"kind": "str"}}
+    elem = lo._tuple_type([{"kind": "str"}, ls, ls], node)
+    return lo._abi_call("os", "walk", [top], {"kind": "list", "elem": elem}, "ps_os_walk", span)
+
+
 def _os_read(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     """`os.read(fd, n)`: n bytes into a fresh buffer."""
     lo.mobile_guard(node, "os.read", "osfd")

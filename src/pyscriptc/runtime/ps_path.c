@@ -393,6 +393,125 @@ PsSeq *ps_os_listdir(int64_t n, const char *s) {
     return seq;
 }
 
+/* os.walk: one row per directory, in CPython's topdown order. Each row is a
+   heap record of the (dirpath, dirnames, filenames) triple: the path as a
+   PsBuf, the two name lists as seqs of PsBuf. The record layout matches the
+   synthetic tuple class the lowering builds, so the loop reads the fields
+   off the record directly.
+
+   The visit order is the pre-order DFS CPython's walk does: the directory
+   itself, then each subdirectory in the order its names were read. The
+   names come from readdir, the same source CPython's scandir reads, so
+   both see the same order for the same tree.
+
+   The walk is materialized: every row is computed before the loop body
+   runs, so a body that edits `dirnames` does not prune the walk (the
+   CPython pruning rule; divergence 47). */
+
+/* The record the walk row becomes: the (dirpath, dirnames, filenames)
+   triple at the synthetic tuple class layout. The path is a str cell (the
+   16-byte PsBuf prefix) and the two name lists are pointers. */
+typedef struct PsWalkRow {
+    PsBuf path;
+    void *dirs;
+    void *files;
+} PsWalkRow;
+
+static void ps_walk_dir(const char *path, PsSeq *rows, int64_t size);
+
+PsSeq *ps_os_walk(int64_t n, const char *s, int64_t size) {
+    char *text = ps_cstr(n, s);
+    PsSeq *rows = ps_seq_new((int64_t)sizeof(void *), 0);
+    ps_walk_dir(text, rows, size);
+    free(text);
+    return rows;
+}
+
+/* The join CPython's os.path.join does for a relative top: an empty top
+   gives the bare name, a top that already ends in a separator keeps it. */
+static char *ps_walk_join(const char *path, size_t n, const char *name, size_t m) {
+    char *child;
+    size_t total;
+    if (n == 0) {
+        child = malloc(m + 1);
+        if (child == NULL) {
+            abort();
+        }
+        memcpy(child, name, m + 1);
+        return child;
+    }
+    total = n + 1 + m + 1;
+    child = malloc(total);
+    if (child == NULL) {
+        abort();
+    }
+    memcpy(child, path, n);
+    if (child[n - 1] != '/') {
+        child[n] = '/';
+        n++;
+    }
+    memcpy(child + n, name, m + 1);
+    return child;
+}
+
+static void ps_walk_dir(const char *path, PsSeq *rows, int64_t size) {
+    DIR *dir = opendir(path);
+    struct dirent *ent;
+    char *rec;
+    PsWalkRow row;
+    size_t n = strlen(path);
+    if (dir == NULL) {
+        /* CPython's scandir failure is swallowed when onerror is None:
+           the subtree silently drops out of the walk. */
+        return;
+    }
+    rec = malloc((size_t)size);
+    if (rec == NULL) {
+        abort();
+    }
+    row.path.len = (int64_t)n;
+    row.path.data = malloc(n + 1);
+    if (row.path.data == NULL) {
+        abort();
+    }
+    memcpy(row.path.data, path, n + 1);
+    row.dirs = ps_seq_new((int64_t)sizeof(PsBuf), 0);
+    row.files = ps_seq_new((int64_t)sizeof(PsBuf), 0);
+    /* The row goes in before the subdirectories: CPython's topdown walk
+       yields (top, dirs, files) first, then descends. The recursion appends
+       into the same seq, so the pre-order falls out of the push order. */
+    memcpy(rec, &row, sizeof(PsWalkRow));
+    ps_seq_push(rows, &rec);
+    while ((ent = readdir(dir)) != NULL) {
+        const char *name = ent->d_name;
+        size_t m = strlen(name);
+        char *child;
+        struct stat st;
+        struct stat lst;
+        PsBuf name_buf;
+        int is_dir;
+        if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) {
+            continue;
+        }
+        child = ps_walk_join(path, n, name, m);
+        /* stat follows the link, like CPython's entry.is_dir(): a symlink
+           to a directory lists in dirs. lstat decides the descent: walk
+           does not follow a symlinked directory (no followlinks here). */
+        is_dir = stat(child, &st) == 0 && S_ISDIR(st.st_mode);
+        ps_buf_copy(&name_buf, name, (int64_t)m);
+        if (is_dir) {
+            ps_seq_push(row.dirs, &name_buf);
+        } else {
+            ps_seq_push(row.files, &name_buf);
+        }
+        if (is_dir && !(ps_lstat(child, &lst) == 0 && S_ISLNK(lst.st_mode))) {
+            ps_walk_dir(child, rows, size);
+        }
+        free(child);
+    }
+    closedir(dir);
+}
+
 void ps_os_stat(int64_t n, const char *s, PsStat *out) {
     struct stat st;
     if (ps_stat_into(n, s, &st) != 0) {
