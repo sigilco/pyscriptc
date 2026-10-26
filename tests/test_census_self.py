@@ -52,6 +52,10 @@ def test_self_census_ballpark() -> None:
     # target.py (#532, declared CPython target configuration) adds 1 module.
     # boxed.py (#612, the --fallback=cpython island planner) adds 1 module.
     # embed.py (#657, the pinned CPython runtime pack) adds 1 module.
+    # The #661 acceptance work keeps 103 modules (embed.py grows, sitedeps.py
+    # and stdlibzip.py were already counted) and moves the fence count: the
+    # fetch notice became conditional (-1 fence) and the cli.py embed/site
+    # refusal handlers replace an implicit crash path.
     assert census["modules"] == 103
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
@@ -283,5 +287,5 @@ def test_self_census_ballpark() -> None:
     # embed.py (#657, the pinned CPython runtime pack) adds 1 module, about
     # 470 lines and 99 self-host fences, taking the source past 50k.
     assert 11_000 <= census["lines"] <= 53_000
-    assert census["fences"] == 3204
-    assert sum(p["fences"] for p in census["packages"]) == 3204
+    assert census["fences"] == 3177
+    assert sum(p["fences"] for p in census["packages"]) == 3177
