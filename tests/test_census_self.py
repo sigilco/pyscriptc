@@ -271,5 +271,14 @@ def test_self_census_ballpark() -> None:
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.
     assert 11_000 <= census["lines"] <= 51_000
-    assert census["fences"] == 3029
-    assert sum(p["fences"] for p in census["packages"]) == 3029
+    # Island class definitions (#628): +9 self-host fences, one in
+    # emit/llvm/_abi.py (the class-handle trampoline), one in
+    # lower/_classes.py (the island class annotation), three in
+    # lower/_stdlib.py (the class-handle helper) and two in boxed.py (the
+    # class planes and the class cascade); the module count is unchanged.
+    # Embedding POC seam (#651, work/embedpoc): +12 self-host fences in
+    # boxed.py (embed_link_flags and its helpers) plus the boxed-marked call
+    # in emit/llvm/_driver.py.
+    assert 11_000 <= census["lines"] <= 50_000
+    assert census["fences"] == 3037
+    assert sum(p["fences"] for p in census["packages"]) == 3037
