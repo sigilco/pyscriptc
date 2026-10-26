@@ -89,6 +89,8 @@ double ps_time_time(void) { return ps_clock(CLOCK_REALTIME); }
 
 double ps_time_monotonic(void) { return ps_clock(CLOCK_MONOTONIC); }
 
+double ps_time_perf_counter(void) { return ps_clock(CLOCK_MONOTONIC); }
+
 void ps_time_sleep(double seconds) {
     struct timespec req;
     if (!isfinite(seconds) || seconds < 0) {
