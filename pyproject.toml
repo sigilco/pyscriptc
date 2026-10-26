@@ -68,6 +68,8 @@ pyscriptc = [
     "_typeshed/LICENSE",
     "_typeshed/stdlib/VERSIONS",
     "_typeshed/stdlib/**/*.pyi",
+    "pbs_licenses/LICENSE.*",
+    "pbs_licenses/NOTICE",
 ]
 
 [tool.pytest.ini_options]

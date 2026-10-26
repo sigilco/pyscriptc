@@ -125,7 +125,7 @@ pyscriptc compile --embed-python=bundle -o OUT prog.py
 
 The pack is fetched on demand, sha256-verified against the pinned lock and cached under `~/.cache/pyscriptc/runtime/`. The first download is tens of megabytes (about 27 MB on macOS arm64, 35 MB on Linux x86_64). An already-unpacked pack can be used offline by pointing `PYSC_RUNTIME_DIR` at it.
 
-The output directory carries the CPython license and the third-party notices of everything compiled into the bundled interpreter, under `OUT/share/licenses/`. The [runtime pack page](../reference/runtime-pack.md) has the details, including the pinned versions and the provenance of the pack.
+The output directory carries the CPython license, the third-party notices of everything compiled into the bundled interpreter, and the licenses of any bundled third-party distribution, under `OUT/share/licenses/`. The [runtime pack page](../reference/runtime-pack.md) has the details, including the pinned versions and the provenance of the pack.
 
 ## Cross-compiling
 

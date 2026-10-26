@@ -18,6 +18,13 @@ Operational doc for the `--embed-python=bundle` slice (plan:
   archive and attached to our GitHub release, mirrored so we do not depend on
   a third-party asset staying up. The `licenses/` directory of the `full`
   archive travels inside the pack.
+- The third-party license texts are also vendored in the wheel as package
+  data (`src/pyscriptc/pbs_licenses/`, sha256-pinned in
+  `packaging/pbs_licenses.toml`): the pinned `install_only` asset ships no
+  `licenses/` directory, but a bundle output must carry the texts without a
+  repository checkout. A bump refreshes the vendored texts
+  (`uv run python scripts/sync_pbs_licenses.py --fetch`), the inventory
+  (`packaging/third-party.toml`) and `NOTICE` together.
 
 ## Manual runtime bump (works before the scheduled workflow lands)
 
@@ -27,7 +34,8 @@ Operational doc for the `--embed-python=bundle` slice (plan:
 2. Update `packaging/runtime.lock.toml`: new release tag, asset names,
    sha256 (from the PBS release's `SHA256SUMS`), new CPython micro.
 3. Update `packaging/third-party.toml` from the new `full` archive's
-   `licenses/` directory and re-run
+   `licenses/` directory, refresh the vendored texts with
+   `uv run python scripts/sync_pbs_licenses.py --fetch` and re-run
    `uv run python scripts/gen_third_party_notices.py`.
 4. Open the PR. The embed CI jobs (`.github/workflows/embed.yml`) must be
    green; they run the empty-environment acceptance programs against the new

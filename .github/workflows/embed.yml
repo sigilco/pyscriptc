@@ -198,6 +198,12 @@ jobs:
           compare "bundled pure dependency" "$WORK/fresh/sitedep/bin/depprog" sitedep
           compare "program data file" "$WORK/fresh/datafile/bin/prog" datafile
 
+          # Issue #709: the output carries the license texts.
+          for f in LICENSE.cpython.txt LICENSE.expat.txt NOTICE; do
+            [ -f "$WORK/fresh/stdlib/share/licenses/$f" ] \
+              || { echo "::error::share/licenses/$f missing from the bundle" >&2; status=1; }
+          done
+
           # Loader assertions: the relative rpath is present and no absolute
           # path into the build tree or the pack survives in the image.
           if [ "${{ matrix.os }}" = "macos-14" ]; then
