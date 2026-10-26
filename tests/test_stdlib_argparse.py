@@ -716,3 +716,34 @@ def test_argparse_a_flag_registered_twice_fences(tmp_path: Path) -> None:
     assert got.returncode != 0
     assert "conflicting option string" in got.stderr
     assert "Traceback" not in got.stderr
+
+
+def test_argparse_parser_without_options_keeps_its_usage_line(tmp_path: Path) -> None:
+    """A parser that registers no option keeps the `usage:` line (issue #710).
+
+    The help probe replays the registrations per parser; a parser with no
+    registration at all still needs its own usage line, or the help text
+    would come out empty.
+    """
+    path = _script(
+        tmp_path,
+        "bare.py",
+        [
+            "import argparse",
+            "",
+            "def main() -> int:",
+            "    parser = argparse.ArgumentParser()",
+            "    args = parser.parse_args()",
+            "    print('ok')",
+            "    return 0",
+            "",
+            "main()",
+        ],
+    )
+    binary = tmp_path / "bare_bin"
+    got = run_cli("compile", str(path), "--emit", "bin", "-o", str(binary))
+    assert got.returncode == 0, got.stderr
+    native = subprocess.run([str(binary), "--help"], capture_output=True, text=True, timeout=60)
+    oracle = subprocess.run([sys.executable, str(path), "--help"], capture_output=True, text=True, timeout=60)
+    assert native.stdout == oracle.stdout, (native.stdout, oracle.stdout)
+    assert "usage: bare.py " in native.stdout

@@ -490,8 +490,13 @@ def _add_argument(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[
         # two parsers reusing a flag never collide. The receiver's source
         # name qualified by the enclosing function is the parser's
         # identity; an anonymous receiver (a call result) registers under
-        # a name of its own.
+        # a name of its own. `prog` and `description` ride along: they
+        # belong to the `ArgumentParser()` call that declared them, and
+        # replaying per parser means the last constructor no longer wins
+        # for every parser in the module.
         "parser": _parser_key(lo, node),
+        "prog": state.prog,
+        "description": state.description,
     }
     state.add(dest, kind, field_type, arg_meta)
     if type_name == "Path":
@@ -549,9 +554,10 @@ def _parse_args(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[st
     prog_sentinel = "\x1fPROG\x1f"
 
     def _replay(args: list[dict[str, Any]]) -> str:
+        first = args[0] if args else {"prog": state.prog, "description": state.description}
         hp = _c_argparse.ArgumentParser(
-            prog=state.prog or prog_sentinel,
-            description=state.description or None,
+            prog=first["prog"] or prog_sentinel,
+            description=first["description"] or None,
         )
         for arg in args:
             kwargs: dict[str, Any] = {}
@@ -593,10 +599,15 @@ def _parse_args(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[st
         by_parser: dict[str, list[dict[str, Any]]] = {}
         for arg in state.registered_args:
             by_parser.setdefault(arg["parser"], []).append(arg)
-        help_text = "\n".join(_replay(args) for args in by_parser.values())
+        if by_parser:
+            help_text = "\n".join(_replay(args) for args in by_parser.values())
+        else:
+            # No registrations reached the state (a bare `parse_args`, or a
+            # parser whose calls lowered in a different module): replay one
+            # empty parser so the usage line still carries prog and -h.
+            help_text = _replay([])
     except _c_argparse.ArgumentError:
         lo.fail(node, "PS2003", "argparse re-registers a conflicting option string")
-    help_expr = _const_str(help_text, span)
     help_expr = _const_str(help_text, span)
 
     namespace = {"kind": "class", "name": "Namespace"}
