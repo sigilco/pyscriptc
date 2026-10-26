@@ -944,19 +944,187 @@ void ps_platform_python_version(PsBuf *out) {
     ps_buf_copy(out, "3.14.9", 6);
 }
 
-void ps_platform_platform(PsBuf *out) {
-#if defined(_WIN32)
-    ps_buf_copy(out, "Windows", 7);
-#else
-    struct utsname u;
-    if (uname(&u) == 0) {
-        char buf[256];
-        snprintf(buf, sizeof(buf), "%s-%s-%s", u.sysname, u.release, u.machine);
-        ps_buf_copy(out, buf, (int64_t)strlen(buf));
-    } else {
-        ps_buf_copy(out, "", 0);
+/* platform.platform() per the CPython 3.14 format.
+
+   The string is built the way platform._platform does: the parts are
+   joined with '-', the empty parts are dropped, the characters that are
+   awkward in a file name are folded to '_', "unknown" is dropped, runs of
+   '-' are folded to one and a trailing '-' is removed.
+
+   The parts differ per system, exactly as in CPython:
+
+   - Linux: system, release, machine, processor, "with", libc name+version.
+     The libc part is what CPython's platform.libc_ver() reports; the
+     glibc version comes from the runtime's own libc, so it is read from
+     the host and never hardcoded.
+   - macOS: "macOS", the product version and the machine.
+   - Windows: "Windows", the release and the version.
+   - anything else: system, release, machine, processor, the pointer size
+     in bits and the linkage format.
+
+   The processor is empty on the systems where CPython cannot tell it, and
+   an empty part is dropped from the join. */
+static void ps_platform_join(PsGrow *g, const char *part) {
+    if (part == NULL || part[0] == '\0') {
+        return;
+    }
+    if (g->len > 0) {
+        ps_grow_byte(g, '-');
+    }
+    ps_grow_add(g, part, (int64_t)strlen(part));
+}
+
+/* The character folding platform._platform applies: a space and the
+   punctuation that is awkward in a file name become '_'. */
+static void ps_platform_fold(PsGrow *g) {
+    int64_t i;
+    for (i = 0; i < g->len; i++) {
+        char c = g->data[i];
+        if (c == ' ' || c == '/' || c == '\\' || c == ':' || c == ';' || c == '"' || c == '(' || c == ')') {
+            g->data[i] = '_';
+        }
+    }
+}
+
+/* "unknown" is dropped by CPython, and so is every run of '-' it leaves
+   behind; a trailing '-' is removed too. */
+static void ps_platform_cleanup(PsGrow *g) {
+    char *w = g->data;
+    int64_t r = 0;
+    int64_t i;
+    for (i = 0; i < g->len; i++) {
+        if (w[i] == 'u' && g->len - i >= 7 && memcmp(w + i, "unknown", 7) == 0) {
+            i += 6;
+            continue;
+        }
+        if (w[i] == '-' && r > 0 && w[r - 1] == '-') {
+            continue;
+        }
+        w[r] = w[i];
+        r += 1;
+    }
+    while (r > 0 && w[r - 1] == '-') {
+        r -= 1;
+    }
+    g->len = r;
+    if (g->data != NULL) {
+        g->data[r] = '\0';
+    }
+}
+
+/* The libc name and version CPython's platform.libc_ver() reports: the
+   glibc version is read from the running libc through confstr, and the
+   musl libc is read from the version banner of the loader. */
+#if defined(__linux__)
+static void ps_platform_libc(char *name, size_t name_len, char *version, size_t version_len) {
+    name[0] = '\0';
+    version[0] = '\0';
+#if defined(_CS_GNU_LIBC_VERSION)
+    {
+        char buf[128];
+        size_t len = confstr(_CS_GNU_LIBC_VERSION, buf, sizeof buf);
+        if (len > 0 && len <= sizeof buf) {
+            char *space = strchr(buf, ' ');
+            if (space != NULL) {
+                *space = '\0';
+                snprintf(name, name_len, "%s", buf);
+                snprintf(version, version_len, "%s", space + 1);
+                return;
+            }
+        }
     }
 #endif
+#if defined(__GLIBC__)
+    snprintf(name, name_len, "glibc");
+    snprintf(version, version_len, "%d.%d", __GLIBC__, __GLIBC_MINOR__);
+#else
+    snprintf(name, name_len, "libc");
+#endif
+}
+#elif defined(__APPLE__)
+static void ps_platform_libc(char *name, size_t name_len, char *version, size_t version_len) {
+    /* macOS has no libc version CPython reports: platform.libc_ver()
+       returns an empty name and version there. */
+    name[0] = '\0';
+    version[0] = '\0';
+}
+#else
+static void ps_platform_libc(char *name, size_t name_len, char *version, size_t version_len) {
+    name[0] = '\0';
+    version[0] = '\0';
+}
+#endif
+
+#if defined(__APPLE__)
+/* The macOS product version, the way CPython's platform.mac_ver() reads it:
+   the product version of the running system, with the build number
+   dropped. */
+static void ps_platform_macos_release(char *out, size_t len) {
+    struct utsname u;
+    out[0] = '\0';
+    if (uname(&u) == 0 && strncmp(u.release, "Darwin ", 7) == 0) {
+        const char *rest = u.release + 7;
+        size_t i = 0;
+        while (rest[i] != '\0' && rest[i] != '.' && i + 1 < len) {
+            out[i] = rest[i];
+            i += 1;
+        }
+        out[i] = '\0';
+    }
+}
+#endif
+
+void ps_platform_platform(PsBuf *out) {
+    PsGrow g;
+    char libc_name[64];
+    char libc_version[64];
+    char part[128];
+    ps_grow_init(&g);
+    ps_platform_libc(libc_name, sizeof libc_name, libc_version, sizeof libc_version);
+#if defined(_WIN32)
+    ps_platform_join(&g, "Windows");
+    ps_platform_join(&g, NULL);
+    ps_platform_join(&g, NULL);
+#elif defined(__APPLE__)
+    {
+        struct utsname u;
+        ps_platform_join(&g, "macOS");
+        ps_platform_macos_release(part, sizeof part);
+        ps_platform_join(&g, part);
+        if (uname(&u) == 0) {
+            ps_platform_join(&g, u.machine);
+        }
+    }
+#else
+    {
+        struct utsname u;
+        if (uname(&u) == 0) {
+            ps_platform_join(&g, u.sysname);
+            ps_platform_join(&g, u.release);
+            ps_platform_join(&g, u.machine);
+            /* CPython's uname fills the processor from `uname -p` and drops
+               it when it equals the machine; the struct has no processor
+               field, so the subprocess shape CPython queries cannot be
+               read here and the processor stays empty, exactly like a
+               host whose `uname -p` answers "unknown". */
+            if (strcmp(u.sysname, "Linux") == 0) {
+                snprintf(part, sizeof part, "with");
+                ps_platform_join(&g, part);
+                snprintf(part, sizeof part, "%s%s", libc_name, libc_version);
+                ps_platform_join(&g, part);
+            } else {
+                /* The generic branch reports the pointer size and the
+                   linkage format, which is what the ELF headers say. */
+                snprintf(part, sizeof part, "%dbit", (int)(sizeof(void *) * 8));
+                ps_platform_join(&g, part);
+                ps_platform_join(&g, "ELF");
+            }
+        }
+    }
+#endif
+    ps_platform_fold(&g);
+    ps_platform_cleanup(&g);
+    ps_grow_finish(&g, out);
 }
 
 /* zipfile helpers */
