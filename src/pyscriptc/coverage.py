@@ -285,7 +285,7 @@ def _read(path: str, cache: dict[str, str | None]) -> str | None:
     if path not in cache:
         try:
             cache[path] = Path(path).read_text(encoding="utf-8")
-        except OSError:
+        except OSError, UnicodeDecodeError:
             cache[path] = None
     return cache[path]
 
@@ -297,7 +297,9 @@ def capabilities(module: dict[str, Any], files: list[str]) -> dict[str, Any]:
     (the message names the mechanism), fenced when any other fence sits inside
     it, and native otherwise. Module-level fences belong to no definition and
     are counted on their own. This reads the sources and the lowered fences
-    only; it never lowers anything itself.
+    only; it never lowers anything itself. A file that cannot be read or
+    parsed is reported per file (`unparsable`) instead of crashing (issue
+    #484), and counted in the totals.
     """
 
     sources: dict[str, str | None] = {}
@@ -314,12 +316,21 @@ def capabilities(module: dict[str, Any], files: list[str]) -> dict[str, Any]:
         "island": 0,
         "moduleFences": 0,
         "fences": 0,
+        "unparsable": 0,
     }
     all_codes: set[str] = set()
     all_mechanisms: set[str] = set()
     for path in paths:
         text = _read(path, sources)
-        defs = _definitions(ast.parse(text, filename=path)) if text is not None else []
+        reason = "unreadable or not UTF-8" if text is None else ""
+        if text is not None:
+            try:
+                defs = _definitions(ast.parse(text, filename=path))
+            except SyntaxError, ValueError, RecursionError:
+                defs = []
+                reason = "unparsable source"
+        else:
+            defs = []
         local = fences_by_file.get(path, [])
         owned: dict[str, list[dict[str, Any]]] = {item.name: [] for item in defs}
         module_fences = 0
@@ -352,9 +363,11 @@ def capabilities(module: dict[str, Any], files: list[str]) -> dict[str, Any]:
             "fences": len(local),
             "codes": sorted(codes),
             "mechanisms": sorted(mechanisms),
+            "unparsable": reason,
         }
         by_file.append(entry)
         totals["files"] += 1
+        totals["unparsable"] += 1 if reason else 0
         for key in ("definitions", "native", "fenced", "island", "moduleFences", "fences"):
             totals[key] += entry[key]
     return {
@@ -461,8 +474,57 @@ def _wheel_map(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return mapping
 
 
+def _tree_files(target: Path) -> list[str]:
+    """Every Python source under the target, independent of lowering.
+
+    The coverage report walks trees it does not own (an unpacked
+    dependency, a `site-packages` directory), so its file list must come
+    from the tree itself: hidden directories, `__pycache__` and symlinked
+    directories are skipped the way `_discover` skips them.
+    """
+
+    if target.is_file():
+        return [str(target)]
+    if not target.is_dir():
+        return []
+    found: list[str] = []
+    for path in sorted(target.rglob("*.py")):
+        relative = path.relative_to(target)
+        if any(part.startswith(".") or part == "__pycache__" for part in relative.parts):
+            continue
+        found.append(str(path))
+    return found
+
+
+def _parse_failure(path: Path) -> dict[str, Any] | None:
+    """Why one file cannot be read or parsed, or None when it can."""
+
+    try:
+        text = path.read_text(encoding="utf-8")
+        ast.parse(text, filename=str(path))
+    except UnicodeDecodeError as exc:
+        return {"file": str(path), "line": None, "reason": f"not UTF-8 text: {exc}"}
+    except SyntaxError as exc:
+        return {"file": str(path), "line": exc.lineno, "reason": f"syntax error: {exc.msg}"}
+    except (OSError, ValueError, RecursionError) as exc:
+        return {"file": str(path), "line": None, "reason": f"{type(exc).__name__}: {exc}"}
+    return None
+
+
 def build_report(target: Path, bridge: Any = None) -> dict[str, Any]:
-    module, files = _lower(target, bridge)
+    if not (target.is_dir() or target.is_file()):
+        raise IRError(f"source not found: {target}")
+    try:
+        module, files = _lower(target, bridge)
+        failures: list[dict[str, Any]] = []
+    except Exception:
+        # The tree would not lower (issue #484): a dependency tree can hold
+        # files no program of ours would ship, from non-UTF-8 sources to a
+        # directory symlink. The report still covers it, per file, and says
+        # which files it could not parse instead of crashing.
+        module = {"fences": []}
+        files = _tree_files(target)
+        failures = [found for path in files if (found := _parse_failure(Path(path))) is not None]
     known = _dependency_map(target)
     sources: dict[str, str | None] = {}
     trees: dict[str, list[_Def]] = {}
@@ -471,7 +533,10 @@ def build_report(target: Path, bridge: Any = None) -> dict[str, Any]:
         text = _read(path, sources)
         if text is None:
             continue
-        defs = _definitions(ast.parse(text, filename=path))
+        try:
+            defs = _definitions(ast.parse(text, filename=path))
+        except SyntaxError, ValueError, RecursionError:
+            continue
         trees[path] = defs
         total_defs[path] = len(defs)
 
@@ -541,12 +606,13 @@ def build_report(target: Path, bridge: Any = None) -> dict[str, Any]:
     return {
         "schemaVersion": SCHEMA_VERSION,
         "target": str(target),
-        "summary": _summary(entries, definitions, files, total_defs, _island_imports(target, known)),
+        "summary": _summary(entries, definitions, files, total_defs, _island_imports(target, known), failures),
         "fences": entries,
         "definitions": definitions,
         "moduleFences": module_fences,
         "capabilities": capabilities(module, files),
         "chain": _chain(entries, definitions),
+        "failures": failures,
     }
 
 
@@ -619,12 +685,14 @@ def _summary(
     files: list[str],
     total_defs: dict[str, int],
     island_imports: list[str],
+    failures: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     fences_by_family = Counter(e["family"] for e in entries)
     total_definitions = sum(total_defs.values())
     fenced_definitions = len(definitions)
     return {
         "files": len(files),
+        "unparsableFiles": len(failures or []),
         "definitions": total_definitions,
         "nativeDefinitions": max(0, total_definitions - fenced_definitions),
         "fencedDefinitions": fenced_definitions,
@@ -674,8 +742,13 @@ def render_text(report: dict[str, Any]) -> str:
         f"capability: {cap['native']} native, {cap['fenced']} fenced, {cap['island']} island "
         f"definitions of {cap['definitions']} ({cap['files']} files)"
     )
+    if summary.get("unparsableFiles"):
+        parts.append(f"unparsable files: {summary['unparsableFiles']}")
+    for found in report.get("failures", []):
+        where = f":{found['line']}" if found.get("line") is not None else ""
+        parts.append(f"  {found['file']}{where}: {found['reason']}")
     for item in report["capabilities"]["byFile"]:
-        if not (item["fences"] or item["definitions"]):
+        if item.get("unparsable") or not (item["fences"] or item["definitions"]):
             continue
         mechanisms = f", reflection: {', '.join(item['mechanisms'])}" if item["mechanisms"] else ""
         parts.append(

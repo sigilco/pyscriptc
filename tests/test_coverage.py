@@ -300,3 +300,86 @@ def test_island_call_emits_requires_libpython_metadata() -> None:
     assert "@llvm.compiler.used" in ll_island
 
     assert family_of("PS2002", "super is not lowered") == "construct-other"
+
+
+def _write_dependency_tree(root: Path) -> tuple[Path, Path, Path]:
+    """A small synthetic dependency tree: nested subpackages, a namespace
+    package, a non-UTF-8 file, a syntax error file, a symlink loop, a .pth
+    file and an extension-only package (issue #484)."""
+
+    pkg = root / "mypkg"
+    (pkg / "sub").mkdir(parents=True)
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "mod.py").write_text("def f(x: int) -> int:\n    return x\n", encoding="utf-8")
+    (pkg / "sub" / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "sub" / "deep.py").write_text("def g() -> int:\n    return 1\n", encoding="utf-8")
+    ns = root / "nspace"
+    ns.mkdir()
+    (ns / "a.py").write_text("Y = 2\n", encoding="utf-8")
+    bad = pkg / "bad_utf8.py"
+    bad.write_bytes(b'x = "\xff\xfe"\n')
+    broken = pkg / "syntax_err.py"
+    broken.write_text("def broken(:\n", encoding="utf-8")
+    (pkg / "loop").symlink_to(pkg, target_is_directory=True)
+    (root / "sitecustomize.pth").write_text("import sys\n", encoding="utf-8")
+    ext = root / "extonly"
+    ext.mkdir()
+    (ext / "_speedups.cpython-314-x86_64-linux-gnu.so").write_bytes(b"")
+    return bad, broken
+
+
+def test_coverage_does_not_crash_on_a_dependency_tree(tmp_path: Path) -> None:
+    tree = tmp_path / "deps"
+    tree.mkdir()
+    bad, broken = _write_dependency_tree(tree)
+    got = run_cli("coverage", str(tree), "--json")
+    assert got.returncode == 0, got.stderr
+    report = json.loads(got.stdout)
+    assert report["summary"]["files"] > 0
+    assert report["summary"]["unparsableFiles"] == 2
+    failed = {item["file"]: item for item in report["failures"]}
+    assert failed[str(bad)]["reason"].startswith("not UTF-8 text")
+    assert failed[str(broken)]["line"] == 1
+    assert failed[str(broken)]["reason"].startswith("syntax error")
+
+
+def test_coverage_text_reports_unparsable_files(tmp_path: Path) -> None:
+    tree = tmp_path / "deps"
+    tree.mkdir()
+    _write_dependency_tree(tree)
+    got = run_cli("coverage", str(tree))
+    assert got.returncode == 0, got.stderr
+    assert "unparsable files: 2" in got.stdout
+    assert "syntax error" in got.stdout
+    assert "not UTF-8 text" in got.stdout
+
+
+def test_coverage_reports_a_single_unparsable_file(tmp_path: Path) -> None:
+    bad = tmp_path / "case.py"
+    bad.write_bytes(b'x = "\xff"\n')
+    got = run_cli("coverage", str(bad), "--json")
+    assert got.returncode == 0, got.stderr
+    report = json.loads(got.stdout)
+    assert report["summary"]["unparsableFiles"] == 1
+    assert report["failures"][0]["file"].endswith("case.py")
+
+    broken = tmp_path / "broken.py"
+    broken.write_text("def broken(:\n", encoding="utf-8")
+    got = run_cli("coverage", str(broken))
+    assert got.returncode == 0, got.stderr
+    assert "syntax error" in got.stdout
+
+
+def test_coverage_counts_unparsable_files_in_capability_totals(tmp_path: Path) -> None:
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "bad.py").write_bytes(b"\xff\xfe")
+    got = run_cli("coverage", str(pkg), "--json")
+    assert got.returncode == 0, got.stderr
+    report = json.loads(got.stdout)
+    totals = report["capabilities"]["totals"]
+    assert totals["files"] == 2
+    assert totals["unparsable"] == 1
+    by_file = {item["file"]: item for item in report["capabilities"]["byFile"]}
+    assert by_file[str(pkg / "bad.py")]["unparsable"] == "unreadable or not UTF-8"

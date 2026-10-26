@@ -377,7 +377,8 @@ def _deps_of(meta: dict[str, Any]) -> tuple[str | None, tuple[str, ...]]:
 def _read_script_meta(script: Path) -> dict[str, Any]:
     try:
         return read_pep723(script.read_text(encoding="utf-8")) or {}
-    except OSError:
+    except OSError, UnicodeDecodeError:
+        # A script that is not UTF-8 text carries no PEP 723 block.
         return {}
 
 
