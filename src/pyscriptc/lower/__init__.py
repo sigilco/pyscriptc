@@ -598,6 +598,42 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 out[name] = {"kind": "module", "name": binding.module}
         return out
 
+    def _pin_namespace_locals(
+        self, functions: list[ast.FunctionDef | ast.AsyncFunctionDef]
+    ) -> list[dict[str, Any]] | None:
+        """The Namespace fields the module's `add_argument` calls register.
+
+        The pin pass runs before any body lowers, so a namespace attribute
+        argument (`batch_rename(args.work_dir, ...)`) has no field types yet:
+        the real `add_argument` lowering registers them later. This reads the
+        same closed keyword set from the AST, without lowering anything, so
+        the peek can type the attribute. Anything the real handler would
+        fence (an unknown keyword, a non-constant name) returns None and the
+        pin refuses the parameter, exactly as today.
+
+        The scan covers every function in the module, not one caller: an
+        argparse parser is module state, and a script may build it in one
+        function (`get_parser`) and read the namespace in another (`main`).
+        """
+
+        from pyscriptc.restlower._argparse import peek_namespace_fields
+
+        body: list[ast.stmt] = []
+        for fn in functions:
+            body.extend(fn.body)
+        fields = peek_namespace_fields(self, body)
+        if fields is None:
+            return None
+        info = self.classes.get("Namespace")
+        if info is None:
+            return None
+        # The peek's Namespace layout is the registered one. The real
+        # `add_argument` lowering overwrites it with the same records, so
+        # the two agree; the peek never runs the real handler.
+        info["fields"] = fields
+        info["own_fields"] = fields
+        return fields
+
     def _pin_call_site_params(
         self, functions: list[ast.FunctionDef | ast.AsyncFunctionDef], fences: list[Fence]
     ) -> None:
@@ -735,12 +771,34 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                     return
                 self.locals[name] = typ
 
+            def _ns_type() -> dict[str, Any] | None:
+                """The Namespace type, when the caller registered arguments.
+
+                `args = parser.parse_args()` lowers late; the pin walk binds
+                the local so an attribute argument (`args.work_dir`) peeks
+                through the field table the add_argument scan built.
+                """
+
+                if self.classes.get("Namespace", {}).get("fields"):
+                    return {"kind": "class", "name": "Namespace"}
+                return None
+
+            def _assign_type(value: ast.expr) -> dict[str, Any] | None:
+                if (
+                    isinstance(value, ast.Call)
+                    and isinstance(value.func, ast.Attribute)
+                    and value.func.attr == "parse_args"
+                    and (typ := _ns_type()) is not None
+                ):
+                    return typ
+                return self._infer_type_of(value)
+
             def _visit(body: list[ast.stmt]) -> None:
                 for item in body:
                     if isinstance(item, ast.Assign) and isinstance(item.targets[0], ast.Name):
                         if item.targets[0].id in self.bindings:
                             continue
-                        _bind(item.targets[0].id, self._infer_type_of(item.value))
+                        _bind(item.targets[0].id, _assign_type(item.value))
                     elif (
                         isinstance(item, ast.Assign)
                         and len(item.targets) == 1
@@ -824,6 +882,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             _visit(caller.body)
 
         saved_pin_locals = self.locals
+        self._pin_namespace_locals(list(by_name.values()))
         for caller in by_name.values():
             _call_site_locals(caller)
             for node in ast.walk(caller):
