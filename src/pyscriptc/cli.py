@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 # boxed:begin
-from pyscriptc import embed, runcache, stdlibzip
+from pyscriptc import embed, runcache, sitedeps, stdlibzip
 
 # boxed:end
 from pyscriptc.config import apply_to_args, entry_points, load_config
@@ -1966,10 +1966,14 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         # program against the zip the trim would produce, so a trimmed module
         # fails the build (PS4301), never the run.
         resolved_embed = getattr(args, "embed_python", None)
-        if resolved_embed in (None, "auto") and resolved_embed != "host":
-            if embed.resolve_mode(resolved_embed) == "bundle":
-                resolved_embed = "bundle"
+        if resolved_embed != "host" and embed.resolve_mode(resolved_embed) == "bundle":
+            resolved_embed = "bundle"
+        # The direct third-party import roots of the program, for the bundle's
+        # site-packages tree (issue #660). A native-backed distribution among
+        # them refuses the compile (PS4302) before anything is staged.
+        dep_roots = sitedeps.third_party_roots(source_path) if resolved_embed == "bundle" else []
         if resolved_embed == "bundle":
+            sitedeps.check_pure(dep_roots)
             pack = embed.lock_pack()
             pack_directory = embed.ensure_pack(pack)
             embed_version = embed.python_version()
@@ -1978,7 +1982,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                 stdlibzip.stdlib_sources(pack_directory / "lib" / f"python{embed_version}", trim)
             )
             stdlibzip.manifest_check(carried, _stdlib_imports(source_path), trim)
-        if getattr(args, "embed_python", None) == "bundle":
+        if resolved_embed == "bundle":
             pack = embed.lock_pack()
             staged = embed.stage_bundle(
                 binary,
@@ -1986,6 +1990,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                 embed.python_version(),
                 binary,
                 stdlib_mode=getattr(args, "embed_stdlib", None) or stdlibzip.DEFAULT_MODE,
+                dependency_roots=dep_roots,
             )
             outputs["bin"] = str(staged)
         # boxed:end

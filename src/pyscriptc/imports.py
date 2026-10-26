@@ -265,8 +265,29 @@ def _package_root(target: Path) -> str:
 
 
 def _read_wheel_record(path: Path) -> list[str] | None:
-    """The file list of a wheel, or None when it is not a readable wheel."""
+    """The file list of a wheel RECORD, or None when it is not readable.
 
+    A RECORD inside an unpacked `*.dist-info/` directory is read as a text
+    file; a RECORD still inside a wheel archive (the cached-wheel case) is
+    read from the zip.
+    """
+
+    if not path.is_file():
+        return None
+    if not zipfile.is_zipfile(path):
+        # An unpacked `*.dist-info/RECORD` is a csv text file. Refuse a plain
+        # text file whose lines carry no RECORD separators, so a misnamed
+        # non-record is not read as a one-file wheel.
+        try:
+            body = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+        files: list[str] = []
+        for line in body.splitlines():
+            if not line.strip():
+                continue
+            files.append(line.split(",", 1)[0])
+        return files if any("," in line for line in body.splitlines()) else None
     if not zipfile.is_zipfile(path):
         return None
     try:
@@ -369,16 +390,20 @@ def _installed_distributions() -> dict[str, dict[str, Any]]:
         for entry in sorted(root.iterdir()):
             metadata = _metadata_of_tree(entry)
             if metadata["dist"]:
-                key = metadata["dist"].lower().replace("_", "-")
+                key = metadata["dist"].lower().replace("_", "-").replace(" ", "-")
                 if key not in found:
                     found[key] = metadata
         for dist_info in sorted(root.glob("*.dist-info")):
             name = dist_info.name[: -len(".dist-info")]
-            key = name.lower().replace("_", "-")
-            metadata = found.get(key)
+            key = name.lower().replace("_", "-").replace(" ", "-")
+            # A versioned directory name (`markupsafe-3.0.4.dist-info`) does
+            # not match the distribution key the metadata loop built, so strip
+            # a trailing version before looking the entry up.
+            stripped = key.split("-")[0] if key.rsplit("-", 1)[-1][0].isdigit() else key
+            metadata = found.get(stripped) or found.get(key)
             if metadata is None:
                 metadata = {"dist": name, "root": dist_info, "native": False}
-                found[key] = metadata
+                found[stripped] = metadata
             wheel = dist_info / "RECORD"
             if wheel.is_file():
                 files = _read_wheel_record(wheel)
@@ -395,8 +420,13 @@ def distribution_is_native(name: str) -> tuple[bool | None, str]:
     its metadata cannot be read. The caller must not read `None` as pure.
     """
 
-    key = name.lower().replace("_", "-")
-    metadata = _installed_distributions().get(key)
+    key = name.lower().replace("_", "-").replace(" ", "-")
+    found = _installed_distributions()
+    metadata = found.get(key)
+    if metadata is None and "-" in key and key.rsplit("-", 1)[-1][0].isdigit():
+        # A versioned lookup (`nativelib-1.0`) matches the distribution key
+        # the site metadata built (`nativelib`).
+        metadata = found.get(key.rsplit("-", 1)[0])
     if metadata is None:
         return None, "not installed in this interpreter"
     if metadata["native"]:

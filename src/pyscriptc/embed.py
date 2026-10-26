@@ -38,7 +38,7 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-from pyscriptc import stdlibzip
+from pyscriptc import sitedeps, stdlibzip
 
 MODES = ("host", "bundle", "auto")
 DEFAULT_MODE = "auto"
@@ -396,6 +396,7 @@ def stage_bundle(
     binary: Path,
     *,
     stdlib_mode: str = stdlibzip.DEFAULT_MODE,
+    dependency_roots: list[str] | None = None,
 ) -> Path:
     """Copy the pack runtime next to the binary: `name/bin/name` plus `name/lib/`.
 
@@ -404,8 +405,11 @@ def stage_bundle(
     python-build-standalone `install/` tree is relocatable: it carries
     `@executable_path/../lib` already, so no install-name rewrite is needed).
     The stdlib is staged as a zip of `.pyc` bodies plus a real `lib-dynload/`
-    directory (issue #659); the unpacked tree does not travel. Headers stay in
-    the pack: a relocated bundle runs, it does not compile.
+    directory (issue #659); the unpacked tree does not travel, and the pure-
+    Python distributions behind `dependency_roots` are copied into its
+    `site-packages/` (issue #660; a native dependency is refused by
+    `sitedeps.check_pure` before staging begins). Headers stay in the pack: a
+    relocated bundle runs, it does not compile.
     """
     out_dir = output if output.suffix == "" else output.parent / output.stem
     parent = out_dir.parent
@@ -433,6 +437,8 @@ def stage_bundle(
         stdlibzip.stage_stdlib(lib_dir, pack_directory, version, stdlib_mode)
     else:
         (lib_dir / f"python{version}" / "lib-dynload").mkdir(parents=True, exist_ok=True)
+    if dependency_roots:
+        sitedeps.stage_site_packages(lib_dir, version, dependency_roots)
     out_dir = Path(out_dir)
     if out_dir.exists():
         shutil.rmtree(out_dir)
