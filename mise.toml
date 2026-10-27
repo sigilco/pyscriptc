@@ -45,7 +45,7 @@ pnpm = "12"
 
 [tasks.setup]
 description = "First-time install of the python and node toolchains"
-run = ["uv sync", "pnpm --dir docs/.docmd install"]
+run = ["uv sync", "pnpm --dir docs/.docmd install", "pnpm --dir apps/web install"]
 
 [tasks."web:dev"]
 description = "Site app dev server (apps/web: landing + compat)"
