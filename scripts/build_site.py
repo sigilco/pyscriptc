@@ -143,6 +143,16 @@ def assemble(parts: dict[str, Path], out: Path = DEPLOY) -> Path:
     shutil.copytree(docs, out / "docs")
     shutil.copytree(compat, out / "compat")
 
+    # docmd emits `<link href="<assetBaseUrl>theme.css?v=...">` for every
+    # entry in theme.customCss but does not copy the file into its output,
+    # so every docs page would carry a broken stylesheet link. Ship it
+    # next to the docs index, which is where the relative URL resolves.
+    for css in (docs / "theme.css",):
+        if not css.exists():
+            source = ROOT / "docs" / ".docmd" / "theme.css"
+            if source.exists():
+                shutil.copy2(source, out / "docs" / "theme.css")
+
     if (out / "docs" / "llms.txt").exists():
         shutil.copy2(out / "docs" / "llms.txt", out / "llms.txt")
     if (out / "docs" / "llms-full.txt").exists():
