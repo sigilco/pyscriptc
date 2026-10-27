@@ -2,6 +2,12 @@
 
 ## [0.7.0] - 2026-10-27
 
+### Receipt
+- Boxed ledger (window of 10 commits, `benchmarks/compat2/boxed_cost.py`): code share 5.0%, churn 7.7%, bug share 20% (1 of 5), iteration tax 10%, drop flag false. Earlier windows had bug shares of 75% and 100% on tiny samples, so the trend is watched, not yet a trigger.
+- Dogfood: 8 of 8 corpus scripts and 8 of 8 libraries run at least on the island floor.
+- Django assessment: 84.4% of definitions run on the island, 55.2% natively.
+- Release rehearsal: build matrix, smoke and wheel verify passed on the base commit `954d6943`.
+
 ### Added
 - os.walk, json.load, json.dump and the time clocks (#509) (#724)
 - stage license texts into share/licenses of bundle outputs (#718)
