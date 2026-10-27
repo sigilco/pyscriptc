@@ -36,7 +36,6 @@ ENV = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
 # a real difference from CPython 3.14 tracked as an issue; the entry is what
 # makes the batch an xfail instead of a failure, and it must be removed when
 # the row is fixed (the batch then passes on its own).
-MIRRORED_DIVERGENCE = "issue #712 (unicodedata.mirrored return kind)"
 PLATFORM_DIVERGENCE = "issue #713 (platform.platform output)"
 REALPATH_DIVERGENCE = "issue #714 (os.path.realpath on a missing target)"
 
@@ -372,7 +371,7 @@ PROBES: list[Probe] = [
     _p("unicodedata", "is_normalized", "text", "print(unicodedata.is_normalized('NFC', 'caf\\u00e9'))"),
     _p("unicodedata", "bidirectional", "text", "print(unicodedata.bidirectional('a'))"),
     _p("unicodedata", "east_asian_width", "text", "print(unicodedata.east_asian_width('a'))"),
-    _p("unicodedata", "mirrored", "text", "print(unicodedata.mirrored('('))", divergence=MIRRORED_DIVERGENCE),
+    _p("unicodedata", "mirrored", "text", "print(unicodedata.mirrored('('))"),
     _p("unicodedata", "decimal", "text", "print(unicodedata.decimal('7'))"),
     _p("unicodedata", "digit", "text", "print(unicodedata.digit('7'))"),
     _p("unicodedata", "numeric", "text", "print(unicodedata.numeric('7'))"),
