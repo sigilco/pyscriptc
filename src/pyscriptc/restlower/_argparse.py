@@ -519,7 +519,20 @@ def _parse_args(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[st
         prog=state.prog or prog_sentinel,
         description=state.description or None,
     )
+    # The help probe replays `registered_args` into a fresh CPython parser
+    # to synthesize the help text the runtime prints. Registration can run
+    # more than once for the same call (a call site is pinned before it
+    # lowers for real), so `registered_args` may list one option several
+    # times; replaying it verbatim makes argparse raise
+    # `ArgumentError: conflicting option string` and crash the compile
+    # (#710). The probe is best-effort metadata: each option string and
+    # positional dest is replayed at most once, and a residual conflict
+    # skips the argument instead of failing the build.
+    seen_strings: set[str] = set()
     for arg in state.registered_args:
+        names = arg["flags"] if not arg["is_positional"] else [arg["dest"]]
+        if any(name in seen_strings for name in names):
+            continue
         kwargs: dict[str, Any] = {}
         if arg["help"] is not None:
             kwargs["help"] = arg["help"]
@@ -532,7 +545,10 @@ def _parse_args(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[st
                 kwargs["type"] = str
             if arg["raw_default"] is not None:
                 kwargs["default"] = arg["raw_default"]
-            hp.add_argument(arg["dest"], **kwargs)
+            try:
+                hp.add_argument(arg["dest"], **kwargs)
+            except _c_argparse.ArgumentError:
+                continue
         else:
             if arg["action"] in {"store_true", "store_false"}:
                 kwargs["action"] = arg["action"]
@@ -552,7 +568,11 @@ def _parse_args(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[st
                 kwargs["required"] = True
             if arg["raw_default"] is not None:
                 kwargs["default"] = arg["raw_default"]
-            hp.add_argument(*arg["flags"], **kwargs)
+            try:
+                hp.add_argument(*arg["flags"], **kwargs)
+            except _c_argparse.ArgumentError:
+                continue
+        seen_strings.update(names)
     help_text = hp.format_help()
     help_expr = _const_str(help_text, span)
 
