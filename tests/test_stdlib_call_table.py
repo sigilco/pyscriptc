@@ -36,7 +36,6 @@ ENV = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
 # a real difference from CPython 3.14 tracked as an issue; the entry is what
 # makes the batch an xfail instead of a failure, and it must be removed when
 # the row is fixed (the batch then passes on its own).
-PLATFORM_DIVERGENCE = "issue #713 (platform.platform output)"
 REALPATH_DIVERGENCE = "issue #714 (os.path.realpath on a missing target)"
 
 
@@ -390,7 +389,7 @@ PROBES: list[Probe] = [
         "host",
         "print(platform.python_version().startswith('3.14.'))",
     ),
-    _p("platform", "platform", "host", "print(platform.platform())", divergence=PLATFORM_DIVERGENCE),
+    _p("platform", "platform", "host", "print(platform.platform())"),
     _p("sys", "stdout.write", "host", "print(sys.stdout.write('dt') == 2)"),
     _p("sys", "stderr.write", "host", "print(sys.stderr.write('dt') == 2)"),
     _p("socket", "gethostname", "host", "print(len(socket.gethostname()) > 0)"),
