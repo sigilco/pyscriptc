@@ -9,6 +9,7 @@
     "prebuild": "pnpm run sync-data",
     "build": "paraglide-js compile --project ./project.inlang --outdir ./src/paraglide && astro build",
     "site:build": "pnpm run build && pnpm --dir ../../docs/.docmd run docs:build && node scripts/assemble.mts",
+    "cf:build": "pnpm install --frozen-lockfile --dir ../../docs/.docmd && pnpm install --frozen-lockfile && pnpm run site:build",
     "validate": "node scripts/validate.mts",
     "docs:validate": "node scripts/validate-docs.mts",
     "test": "node --test --experimental-strip-types \"test/**/*.test.mts\"",
