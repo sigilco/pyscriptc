@@ -303,11 +303,12 @@ def ensure_pack(pack: Pack, root: Path | None = None, *, allow_download: bool = 
             f"the runtime pack {pack.pack_id} is not fetched yet; "
             f"run `pyscriptc embed fetch` or point PYSC_RUNTIME_DIR at an unpacked pack"
         )
-    print(
-        f"fetching the runtime pack {pack.pack_id} (CPython {pack.cpython}, about 30 MB); "
-        "run `pyscriptc embed fetch` to do it ahead of time",
-        file=sys.stderr,
-    )
+    if runtime_dir() is None:
+        print(
+            f"fetching the runtime pack {pack.pack_id} (CPython {pack.cpython}, about 30 MB); "
+            "run `pyscriptc embed fetch` to do it ahead of time",
+            file=sys.stderr,
+        )
     try:
         return fetch(pack, root)
     except EmbedError as exc:
@@ -439,6 +440,14 @@ def stage_bundle(
         (lib_dir / f"python{version}" / "lib-dynload").mkdir(parents=True, exist_ok=True)
     if dependency_roots:
         sitedeps.stage_site_packages(lib_dir, version, dependency_roots)
+    # Issue #661: the staged program data tree (issue #665) sits beside the
+    # binary the compile produced, and the binary moves into `bin/`. The
+    # island bootstrap resolves the tree from the running image (the binary's
+    # own directory), so the tree has to travel into `bin/` with it or a
+    # relocated bundle reads a directory that is gone.
+    staged_data = binary.parent / "pyscriptc-data"
+    if staged_data.is_dir():
+        shutil.move(str(staged_data), str(bin_dir / "pyscriptc-data"))
     out_dir = Path(out_dir)
     if out_dir.exists():
         shutil.rmtree(out_dir)
