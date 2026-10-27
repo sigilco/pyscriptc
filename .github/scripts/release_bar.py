@@ -50,7 +50,7 @@ class Thresholds:
     patch_min_prs: int = 3
     patch_min_user_changes: int = 1
     minor_min_features: int = 2
-    minor_min_days: float = 5
+    minor_min_days: float = 0
     max_pre: int = 2
 
     @classmethod
