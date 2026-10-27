@@ -160,6 +160,48 @@ def test_stage_bundle_writes_bin_and_lib(tmp_path: Path) -> None:
     assert not (tmp_path / "work" / "prog" / "lib" / f"python{VERSION}" / "os.py").exists()
 
 
+def test_stage_bundle_writes_share_licenses(tmp_path: Path) -> None:
+    """Issue #709: a bundle output carries the license texts in share/licenses/."""
+    pack = _fake_pack(tmp_path / "pack")
+    cpython_text = pack / "lib" / f"python{VERSION}" / "LICENSE.txt"
+    cpython_text.write_text("PSF license text", encoding="utf-8")
+    (tmp_path / "work").mkdir()
+    binary = tmp_path / "work" / "prog"
+    binary.write_bytes(b"\xcf\xfa\xed\xfe")
+    embed.stage_bundle(binary, pack, VERSION, binary)
+    out = tmp_path / "work" / "prog"
+    licenses_dir = out / "share" / "licenses"
+    assert licenses_dir.is_dir()
+    # The bundled runtime's own text, copied from the pack.
+    staged_cpython = licenses_dir / "LICENSE.cpython.txt"
+    assert staged_cpython.read_text(encoding="utf-8") == "PSF license text"
+    # The vendored third-party texts and the notice rollup.
+    assert (licenses_dir / "LICENSE.expat.txt").is_file()
+    assert (licenses_dir / "LICENSE.openssl-3.txt").is_file()
+    notice = licenses_dir / "NOTICE"
+    assert notice.is_file()
+    assert "Third-party components compiled into the bundled libpython" in notice.read_text(encoding="utf-8")
+
+
+def test_stage_bundle_licenses_follow_site_packages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A bundled distribution's dist-info licenses land under share/licenses/."""
+    pack = _fake_pack(tmp_path / "pack")
+    (tmp_path / "work").mkdir()
+    binary = tmp_path / "work" / "prog"
+    binary.write_bytes(b"\xcf\xfa\xed\xfe")
+
+    def fake_stage(lib_dir: Path, version: str, roots: list[str]) -> list[str]:
+        dist_info = lib_dir / f"python{version}" / "site-packages" / "example_dist-1.0.dist-info"
+        (dist_info / "licenses").mkdir(parents=True)
+        (dist_info / "licenses" / "LICENSE.txt").write_text("example license", encoding="utf-8")
+        return ["example-dist"]
+
+    monkeypatch.setattr(embed.sitedeps, "stage_site_packages", fake_stage)
+    embed.stage_bundle(binary, pack, VERSION, binary, dependency_roots=["example"])
+    staged = tmp_path / "work" / "prog" / "share" / "licenses" / "example_dist-1.0" / "LICENSE.txt"
+    assert staged.read_text(encoding="utf-8") == "example license"
+
+
 def test_default_island_link_is_the_host_libpython(tmp_path: Path) -> None:
     src = tmp_path / "prog.py"
     src.write_text(ISLAND_SRC, encoding="utf-8")

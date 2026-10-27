@@ -38,7 +38,7 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
-from pyscriptc import sitedeps, stdlibzip
+from pyscriptc import licenses, sitedeps, stdlibzip
 
 MODES = ("host", "bundle", "auto")
 DEFAULT_MODE = "auto"
@@ -448,6 +448,17 @@ def stage_bundle(
     staged_data = binary.parent / "pyscriptc-data"
     if staged_data.is_dir():
         shutil.move(str(staged_data), str(bin_dir / "pyscriptc-data"))
+    # Issue #709: the output redistributes a compiled CPython, so the license
+    # texts travel with it - the runtime's own text from the pack, the
+    # third-party texts vendored in the wheel, the NOTICE rollup, and the
+    # licenses of whatever landed in site-packages.
+    site_packages = lib_dir / f"python{version}" / "site-packages"
+    licenses.stage_share_licenses(
+        staging,
+        pack_directory=pack_directory,
+        version=version,
+        site_packages=site_packages,
+    )
     out_dir = Path(out_dir)
     if out_dir.exists():
         shutil.rmtree(out_dir)

@@ -100,6 +100,8 @@ args=(
   "--include-data-files=$pyrefly_exe=$pyrefly_dest"
   "--include-data-files=$nroot/src/pyscriptc/runtime/*.c=pyscriptc/runtime/"
   "--include-data-files=$nroot/src/pyscriptc/runtime/*.h=pyscriptc/runtime/"
+  # The third-party license texts a bundle output stages (issue #709).
+  "--include-data-files=$nroot/src/pyscriptc/pbs_licenses=pyscriptc/pbs_licenses/"
   --nofollow-import-to=pytest
   --nofollow-import-to=mypy
   --nofollow-import-to=tkinter
