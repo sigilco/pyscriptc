@@ -1812,6 +1812,17 @@ class ExprMixin:
 
     def _fstring_arg(self, arg: dict[str, Any], node: ast.AST) -> dict[str, Any]:
         kind = arg["type"]["kind"]
+        # boxed:begin
+        # An island call in a placeholder (issue #733): the trampoline can
+        # return the str the island produced directly, so the `want` rides
+        # on the same call instead of the opaque handle.
+        if arg["type"].get("island") and isinstance(arg.get("island_fn"), dict):
+            want = {"kind": "str"}
+            self._island_validate_expect(node, want)
+            arg["type"] = want
+            arg["island_fn"]["want"] = want
+            return arg
+        # boxed:end
         if kind == "dict":
             typ = arg["type"]
             if typ["key"]["kind"] not in {"int", "str"} or typ["value"]["kind"] not in {
@@ -1883,6 +1894,17 @@ class ExprMixin:
                 "type": {"kind": "str"},
                 "span": span,
             }
+        # boxed:begin
+        # An island call as the whole placeholder, `{digest(p)}` with no
+        # conversion or spec (issue #733): same want-on-the-call rewrite as
+        # `_fstring_arg`.
+        if expr["type"].get("island") and isinstance(expr.get("island_fn"), dict):
+            want = {"kind": "str"}
+            self._island_validate_expect(node, want)
+            expr["type"] = want
+            expr["island_fn"]["want"] = want
+            return expr
+        # boxed:end
         self.fail(node, "PS2002", f"formatting {_show(expr['type'])} is not lowered")
         raise AssertionError("unreachable")
 
