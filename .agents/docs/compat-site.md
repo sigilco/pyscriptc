@@ -12,14 +12,14 @@ The compat site is the public, always-current answer to "what does pyscriptc sup
 | measure | `benchmarks/compat2.census` | `benchmarks/compat2/census-snapshot.json` | on demand |
 | measure | `benchmarks.compat2.score` | `nightly/visible-score.json` (run artifact) | nightly cron, 06:17 UTC |
 | measure | `benchmarks.compat2.census_self` | `benchmarks/compat2/census-self.json` | on demand, pinned by `tests/test_census_self.py` |
-| aggregate | `scripts/build_compat_json.py` (new) | `compat/data/compat.json` | on demand and in the nightly job |
+| aggregate | `scripts/build_compat_json.py` (new) | `data/compat/compat.json` | on demand and in the nightly job |
 | publish | Cloudflare Pages project `pyscriptc` | `https://pyscriptc.pages.dev/compat` | on push that changes site, compat or docs paths |
 
 One JSON file is the contract between measurement and presentation. The site never reads the compiler, the corpus or the scorer; it reads one file.
 
 ## Data model
 
-`compat/data/compat.json` is the single file. It is deterministic: same inputs, same bytes. No timestamp that changes on every run unless it comes from a recorded measurement date.
+`data/compat/compat.json` is the single file. It is deterministic: same inputs, same bytes. No timestamp that changes on every run unless it comes from a recorded measurement date.
 
 ### Top level
 
@@ -130,8 +130,8 @@ One point per measurement date. The site renders it as a line chart per metric. 
 
 | path | role | committed |
 | --- | --- | --- |
-| `compat/data/compat.json` | the contract the site reads | yes |
-| `compat/site/index.html` | the page, fetches `{{BASE}}data/compat.json` at runtime | yes |
+| `data/compat/compat.json` | the contract the site reads | yes |
+| `apps/web/src/pages/compat/index.astro` | the page, static build over `data/compat/compat.json` | yes |
 | `nightly/visible-score.json` | raw scorer output, nightly run artifact | no, artifact only |
 | `benchmarks/compat2/census-snapshot.json` | raw census, pinned in the tree | yes, already |
 
@@ -146,7 +146,7 @@ The JSON is committed because Cloudflare Pages builds from the repository, and b
 | `language` | `benchmarks.compat2.score` over the visible probes | `uv run python -m benchmarks.compat2.score benchmarks/compat2/probes --corpus --out ...` |
 | `fences` | the same package measurement, aggregated per code | same builder command |
 | `history` | the previous `compat.json` plus the current measurement | append in the builder |
-| `ladder` | `benchmarks.scripts_corpus.ladder`, written to `compat/data/ladder.json` | `mise run compat:ladder` (wraps `uv run python -m benchmarks.scripts_corpus.ladder --json compat/data/ladder.json`) |
+| `ladder` | `benchmarks.scripts_corpus.ladder`, written to `data/compat/ladder.json` | `mise run compat:ladder` (wraps `uv run python -m benchmarks.scripts_corpus.ladder --json data/compat/ladder.json`) |
 
 The builder reuses `scripts/gen_support_table.py` internals (`evaluate`, `library_rows`) rather than re-implementing them, so there is one definition of "supported".
 
@@ -156,7 +156,7 @@ The builder reuses `scripts/gen_support_table.py` internals (`evaluate`, `librar
 
 | step | what it does |
 | --- | --- |
-| build | `uv run python -m benchmarks.scripts_corpus.ladder --json compat/data/ladder.json` then `uv run python scripts/build_compat_json.py --out compat/data/compat.json --score nightly/visible-score.json --ladder compat/data/ladder.json` |
+| build | `uv run python -m benchmarks.scripts_corpus.ladder --json data/compat/ladder.json` then `uv run python scripts/build_compat_json.py --out data/compat/compat.json --score nightly/visible-score.json --ladder data/compat/ladder.json` |
 | commit | if the file changed, open (or update) a bot PR with just that change via `gh`, and auto-merge if the ruleset allows |
 | deploy | the merge to master triggers the site workflow build and deploy |
 
@@ -172,7 +172,7 @@ Two paths reach Cloudflare Pages.
 
 | path | trigger | what happens |
 | --- | --- | --- |
-| nightly | the nightly job opens a bot PR with `compat/data/compat.json` | the merge to master triggers the site workflow build and deploy |
+| nightly | the nightly job opens a bot PR with `data/compat/compat.json` | the merge to master triggers the site workflow build and deploy |
 | pull request | a PR changes `compat/**`, `site/**` or `docs/**` | the site workflow builds and validates, the owner reviews it before merge |
 
 The deploy is a GitHub Actions job in `.github/workflows/site.yml` using `wrangler pages deploy` against the existing Pages project switched to direct upload. The project is `pyscriptc`, already serving `https://pyscriptc.pages.dev`; the workflow assembles the three parts (landing, docs, compat) into one `deploy/` tree and publishes it.
@@ -184,7 +184,7 @@ The deploy is a GitHub Actions job in `.github/workflows/site.yml` using `wrangl
 | secrets | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
 | assembly | `mise run site:build` produces `deploy/` (landing at root, docs at `/docs`, compat at `/compat`) |
 
-`mise run compat:build` runs `compat/build.py`, which renders `compat/site/` into `dist/compat/` and copies `compat/data/compat.json` to `dist/compat/data/`. The page then fetches `{{BASE}}data/compat.json` with `{{BASE}}` baked at build time.
+The compat page is part of the `apps/web` Astro app (`apps/web/src/pages/compat/`). The build bakes `data/compat/compat.json` into the page as static HTML (no runtime fetch); `apps/web/scripts/sync-data.mts` copies the JSON into `apps/web/public/compat/data/` so the raw files ship next to the page.
 
 Two things are the owner's to do, because they need the Cloudflare account: add the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets, and switch the existing `pyscriptc` Pages project from git connection to direct upload. The docs site links to the compat page through the `PYSC_COMPAT_URL` placeholder, default `https://pyscriptc.pages.dev/compat`, so the URL can change without a docs edit.
 
@@ -213,7 +213,7 @@ The plain page is not a toy. It needs:
 | no build step | `pnpm install` is not even needed, the page is plain files |
 | a link check | `tests/test_compat_json.py` validates the JSON against the schema, and a separate test asserts the page references every section key |
 
-The page lives in `compat/site/` (`index.html`, `compat.css`, `compat.js`) and the data lives in `compat/data/compat.json`. Neither directory is a docmd source: the docs site builds from `docs/` and the compat page is a plain static page, so the two never share a build root. The site workflow assembles all three parts into `deploy/` and publishes the whole tree as one deployment.
+The page lives in `apps/web/src/pages/compat/` (one Astro app with the landing page, sharing the landing navbar) and the data lives in `data/compat/compat.json`. The docs site builds from `docs/` with docmd; the site workflow assembles all three parts into `apps/web/deploy/` and publishes the whole tree as one deployment.
 
 ## CI validation link from the docs
 
@@ -243,8 +243,8 @@ CI validation, in this order.
 | builder | `scripts/build_compat_json.py`, deterministic, schema-validated, `--check` mode, `--out` path | shipped |
 | schema | `scripts/compat_schema.py`, the schema and the validator, no third-party dependency | shipped |
 | tests | `tests/test_compat_json.py`, unit tests over the builder and the schema | shipped |
-| page | `compat/site/` plus `compat/build.py`, one page with search, filters and the history chart | shipped |
-| assembly | `scripts/build_site.py`, `mise run site:build`, `deploy/` with `_headers` and `_redirects` | shipped |
+| page | `apps/web/src/pages/compat/` in the Astro app, static build over data/compat/compat.json | shipped |
+| assembly | `apps/web/scripts/assemble.mts`, `mise run site:build`, `apps/web/deploy/` with `_headers` and `_redirects` | shipped |
 | nightly | bot PR via `gh` instead of direct master push | shipped |
 | deploy | `.github/workflows/site.yml`, wrangler direct upload | in review |
 

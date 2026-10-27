@@ -9,12 +9,12 @@
 // The docs are the /docs/ part of the single site at pyscriptc.pages.dev
 // (the root is the landing page, /compat/ is the compat page). The base is
 // /docs/ so every asset, link, canonical URL and the sitemap point into the
-// /docs/ subtree; the site assembly (scripts/build_site.py) copies this
+// /docs/ subtree; the site assembly (apps/web/scripts/assemble.mts) copies this
 // build to deploy/docs.
 //
 // docmd's bundled `llms` plugin writes llms.txt and llms-full.txt for every
 // page at build time (title, description and the `llms: false` and `noindex`
-// frontmatter opt-outs are honored). scripts/gen_llms_txt.py then appends the
+// frontmatter opt-outs are honored). apps/web/scripts/assemble.mts then appends the
 // public data files, which are not pages, as a post-build step.
 //
 // The `placeholders` plugin substitutes {{PYSC_COMPAT_URL}} and
