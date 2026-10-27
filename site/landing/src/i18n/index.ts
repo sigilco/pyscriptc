@@ -109,12 +109,6 @@ export function useI18n() {
       badge: m.cross_badge(),
       title: m.cross_title(),
       subtitle: m.cross_subtitle(),
-      targets: [
-        { arch: m.cross_target_1_arch(), note: m.cross_target_1_note() },
-        { arch: m.cross_target_2_arch(), note: m.cross_target_2_note() },
-        { arch: m.cross_target_3_arch(), note: m.cross_target_3_note() },
-        { arch: m.cross_target_4_arch(), note: m.cross_target_4_note(), highlight: true },
-      ],
     },
     cta: {
       title: m.cta_title(),

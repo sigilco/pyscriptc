@@ -32,7 +32,7 @@ export const SURFACE_TIERS: SurfaceTier[] = [
       },
       {
         title: "Target Every Real Architecture",
-        desc: "One command compiles for Linux x86_64 and aarch64 (glibc and musl), plus aarch64 and x86_64 macOS.",
+        desc: "One command compiles for Linux x86_64 and aarch64, plus aarch64 and x86_64 macOS.",
       },
     ],
     accentColor: "#00c2ff",
@@ -318,61 +318,83 @@ export const IsometricSurfaceStack: React.FC<IsometricSurfaceStackProps> = ({
           </div>
         </div>
 
-        {/* Right Column: Bold Narrative */}
-        <div
-          key={selectedTier.id}
-          className="lg:col-span-7 flex flex-col justify-center text-left transition-all duration-500 animate-fadeIn"
-        >
-          {/* Surface Tier Name & Badge */}
-          <div className="flex items-center gap-3 mb-4">
-            <span className="font-mono text-xs text-slate-400 font-semibold">
-              {selectedTier.number}
-            </span>
-            <span className="text-white/20">/</span>
-            <span
-              className="text-xs font-mono font-medium"
-              style={{ color: selectedTier.accentColor }}
-            >
-              {selectedTier.name}
-            </span>
-          </div>
-
-          {/* Prominent Headline */}
-          <h3 className="text-2xl sm:text-3xl lg:text-4xl font-normal text-white tracking-tight leading-[1.2] mb-4">
-            {selectedTier.headline}
-          </h3>
-
-          {/* Narrative Summary */}
-          <p className="text-slate-300 text-base sm:text-lg leading-relaxed font-light mb-8">
-            {selectedTier.description}
-          </p>
-
-          {/* Value Differentiator Points */}
-          <div className="space-y-4 border-t border-white/10 pt-6">
-            {selectedTier.highlights.map((item, idx) => (
-              <div key={idx} className="flex items-start gap-3">
-                <div
-                  className="w-5 h-5 rounded-md flex items-center justify-center shrink-0 mt-0.5"
-                  style={{
-                    backgroundColor: `${selectedTier.accentColor}15`,
-                    color: selectedTier.accentColor,
-                  }}
-                >
-                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
+        {/* Right Column: Bold Narrative
+            All tiers are stacked in the same grid cell so the column (and the
+            whole section) keeps a constant height: the row is sized by the
+            tallest tier and switches only cross-fade opacity/visibility.
+            No layout property is animated. */}
+        <div className="lg:col-span-7 grid text-left">
+          {SURFACE_TIERS.map((tier, idx) => {
+            const isActive = idx === activeIndex;
+            return (
+              <div
+                key={tier.id}
+                aria-hidden={!isActive}
+                className="flex flex-col justify-center animate-fadeIn"
+                style={{
+                  gridArea: "1 / 1",
+                  opacity: isActive ? 1 : 0,
+                  visibility: isActive ? "visible" : "hidden",
+                  zIndex: isActive ? 1 : 0,
+                  // Fade in immediately, fade out only after the delay so the
+                  // swap reads as a cross-fade. Visibility flips discretely;
+                  // only opacity interpolates.
+                  transition: `opacity 500ms ease, visibility 0s linear ${isActive ? "0s" : "500ms"}`,
+                }}
+              >
+                {/* Surface Tier Name & Badge */}
+                <div className="flex items-center gap-3 mb-4">
+                  <span className="font-mono text-xs text-slate-400 font-semibold">
+                    {tier.number}
+                  </span>
+                  <span className="text-white/20">/</span>
+                  <span
+                    className="text-xs font-mono font-medium"
+                    style={{ color: tier.accentColor }}
+                  >
+                    {tier.name}
+                  </span>
                 </div>
-                <div>
-                  <h4 className="text-sm font-semibold text-white mb-0.5">
-                    {item.title}
-                  </h4>
-                  <p className="text-xs sm:text-sm text-slate-400 font-light leading-relaxed">
-                    {item.desc}
-                  </p>
+
+                {/* Prominent Headline */}
+                <h3 className="text-2xl sm:text-3xl lg:text-4xl font-normal text-white tracking-tight leading-[1.2] mb-4">
+                  {tier.headline}
+                </h3>
+
+                {/* Narrative Summary */}
+                <p className="text-slate-300 text-base sm:text-lg leading-relaxed font-light mb-8">
+                  {tier.description}
+                </p>
+
+                {/* Value Differentiator Points */}
+                <div className="space-y-4 border-t border-white/10 pt-6">
+                  {tier.highlights.map((item, hIdx) => (
+                    <div key={hIdx} className="flex items-start gap-3">
+                      <div
+                        className="w-5 h-5 rounded-md flex items-center justify-center shrink-0 mt-0.5"
+                        style={{
+                          backgroundColor: `${tier.accentColor}15`,
+                          color: tier.accentColor,
+                        }}
+                      >
+                        <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                          <polyline points="20 6 9 17 4 12" />
+                        </svg>
+                      </div>
+                      <div>
+                        <h4 className="text-sm font-semibold text-white mb-0.5">
+                          {item.title}
+                        </h4>
+                        <p className="text-xs sm:text-sm text-slate-400 font-light leading-relaxed">
+                          {item.desc}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
-            ))}
-          </div>
+            );
+          })}
         </div>
       </div>
     </section>
