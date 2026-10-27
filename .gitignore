@@ -28,3 +28,6 @@ benchmarks/compat2/corpus/holdout/
 benchmarks/real/.artifacts/
 benchmarks/real/.scratch/
 .playwright-cli/
+
+# wrangler local state (account cache)
+.wrangler/

@@ -75,6 +75,9 @@ jobs:
       - name: Validate the assembled tree
         run: pnpm --dir apps/web run validate
 
+      - name: Typecheck the web app
+        run: pnpm --dir apps/web run typecheck
+
       - name: Test the web seams
         run: pnpm --dir apps/web test
 

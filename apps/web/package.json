@@ -8,6 +8,7 @@
     "sync-data": "node scripts/sync-data.mts",
     "prebuild": "pnpm run sync-data",
     "build": "paraglide-js compile --project ./project.inlang --outdir ./src/paraglide && astro build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "site:build": "pnpm run build && pnpm --dir ../../docs/.docmd run docs:build && node scripts/assemble.mts",
     "cf:build": "pnpm install --frozen-lockfile --dir ../../docs/.docmd && pnpm install --frozen-lockfile && pnpm run site:build",
     "validate": "node scripts/validate.mts",
@@ -29,6 +30,7 @@
     "@astrojs/react": "^7.1.1",
     "@inlang/paraglide-js": "^2.29.1",
     "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
@@ -38,11 +40,11 @@
     "react-dom": "^19.3.1",
     "shiki": "^4.5.0",
     "tailwindcss": "^4.3.3",
-    "vite": "^8.3.5",
     "typescript": "^7.0.2",
-    "@types/node": "^24"
+    "vite": "^8.3.5"
   },
   "engines": {
     "node": ">=24.0.0"
-  }
+  },
+  "packageManager": "pnpm@12.16.1"
 }

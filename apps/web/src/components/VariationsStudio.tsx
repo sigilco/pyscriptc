@@ -259,7 +259,7 @@ export const VariationsStudio: React.FC<VariationsStudioProps> = ({
           </section>
 
           {/* Section 1: Lumio Carousel */}
-          <LumioCarousel theme={theme} variant="warm-editorial" />
+          <LumioCarousel theme={theme} />
 
           {/* Section 2: Isometric Surface Stack */}
           <section className="w-full border-t border-white/5">
@@ -375,7 +375,7 @@ export const VariationsStudio: React.FC<VariationsStudioProps> = ({
           </section>
 
           {/* Section 1: Lumio Carousel (Cyber Precision Variant) */}
-          <LumioCarousel theme={theme} variant="cyber-precision" />
+          <LumioCarousel theme={theme} />
 
           {/* Section 2: Isometric Surface Stack */}
           <section className="w-full border-t border-cyan-500/10">
@@ -452,7 +452,7 @@ export const VariationsStudio: React.FC<VariationsStudioProps> = ({
 
           {/* Section 1: Lumio Carousel (Quiet Variant) */}
           <section className="w-full border-t border-white/5">
-            <LumioCarousel theme={theme} variant="warm-editorial" />
+            <LumioCarousel theme={theme} />
           </section>
 
           {/* Section 2: Isometric Surface Stack */}

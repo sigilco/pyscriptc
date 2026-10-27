@@ -14,6 +14,7 @@
 #   site:build      build web + docs and assemble apps/web/deploy/
 #   site:ci         frozen installs for apps/web and docs/.docmd, then site:build (Cloudflare Pages)
 #   site:check      validate the assembled tree (links, placeholders, docs)
+#   web:typecheck   type-check the web app (tsc, TypeScript 7 strict)
 #   test            python test suite (no linux_container)
 #   lint            ruff check
 #   format-check    ruff format --check
@@ -87,6 +88,10 @@ run = "pnpm --dir apps/web run cf:build"
 [tasks."site:check"]
 description = "Validate the assembled tree: links, placeholders, docs links"
 run = "pnpm --dir apps/web run validate"
+
+[tasks."web:typecheck"]
+description = "Type-check the web app (tsc --noEmit, TypeScript 7 strict)"
+run = "pnpm --dir apps/web run typecheck"
 
 [tasks.test]
 description = "Python test suite, linux_container excluded"

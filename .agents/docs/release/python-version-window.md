@@ -57,7 +57,7 @@ The version axis touches the repo in these places:
   `ast` and bakes island constants (`sys.version`, `sys.platform`, …) from it
   (`README.md:92`). `lower/__init__.py:1047` folds
   `if sys.version_info` against the running interpreter.
-- CI: `.github/workflows/ci.yml` pins `python-version: "3.14"` everywhere —
+- CI: `.github/workflows/ci.yml` pins `python-version: "3.14"` everywhere, and `mise.toml` pins `python = "3.14"` for local dev (there is no `.python-version` file; it forced a python install into the python-free Cloudflare Pages site build) —
   there is no host-version matrix today, so the declared window is only
   enforced by `requires-python`, not tested.
 
