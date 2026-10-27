@@ -17,6 +17,7 @@ import {
   readdirSync,
   statSync,
 } from "node:fs";
+import type { Dirent } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -240,16 +241,13 @@ function isDir(path: string): boolean {
 function listHtml(root: string): string[] {
   const out: string[] = [];
   const walk = (dir: string): void => {
-    let entries: ReturnType<typeof readdirSync>;
+    let entries: Dirent[];
     try {
       entries = readdirSync(dir, { withFileTypes: true });
     } catch {
       return;
     }
-    for (const entry of entries as unknown as Array<{
-      name: string;
-      isDirectory(): boolean;
-    }>) {
+    for (const entry of entries) {
       const full = join(dir, entry.name);
       if (entry.isDirectory()) walk(full);
       else if (entry.name.endsWith(".html")) out.push(full);
