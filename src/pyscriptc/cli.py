@@ -2001,6 +2001,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                 dependency_roots=dep_roots,
             )
             outputs["bin"] = str(staged)
+            binary = staged
         # boxed:end
         state["binary_bytes"] = binary.stat().st_size if binary.is_file() else None
         log.info("link.binary", output=str(binary), driver=args.driver, target=args.target)
