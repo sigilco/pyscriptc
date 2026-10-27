@@ -36,7 +36,6 @@ ENV = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
 # a real difference from CPython 3.14 tracked as an issue; the entry is what
 # makes the batch an xfail instead of a failure, and it must be removed when
 # the row is fixed (the batch then passes on its own).
-REALPATH_DIVERGENCE = "issue #714 (os.path.realpath on a missing target)"
 
 
 @dataclass(frozen=True)
@@ -194,7 +193,6 @@ PROBES: list[Probe] = [
         "realpath",
         "paths_divergent",
         "print(os.path.basename(os.path.realpath('a/../b')) == 'b')",
-        divergence=REALPATH_DIVERGENCE,
     ),
     _p("posixpath", "getmtime", "paths", "print(os.path.getmtime(path_file) > 0.0)"),
     _p("posixpath", "getsize", "paths", "print(os.path.getsize(path_file))"),
