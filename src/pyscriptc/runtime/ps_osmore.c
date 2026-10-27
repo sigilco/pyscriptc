@@ -25,8 +25,13 @@ are not searched. as_file of one of these paths is the path itself.
 #include <sys/utsname.h>
 #endif
 
+#if defined(__linux__) && defined(__GLIBC__)
+#include <gnu/libc-version.h>
+#endif
+
 #ifdef __APPLE__
 #include <copyfile.h>
+#include <sys/sysctl.h>
 #endif
 
 #ifdef __linux__
@@ -103,10 +108,10 @@ static int ps_temp_ready = 0;
 static pthread_mutex_t ps_temp_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /* CPython runs every tempdir candidate through os.path.abspath before it
-tests it, and abspath normalizes: a trailing slash goes away and a relative
-path is joined to the cwd. macOS launchd sets TMPDIR with a trailing slash
-(".../T/"), so returning the raw value would not match CPython's gettempdir.
-ps_path_abs is the same normalization the posixpath surface uses. */
+   tests it, and abspath normalizes: a trailing slash goes away and a relative
+   path is joined to the cwd. macOS launchd sets TMPDIR with a trailing slash
+   (".../T/"), so returning the raw value would not match CPython's gettempdir.
+   ps_path_abs is the same normalization the posixpath surface uses. */
 static void ps_temp_abspath(const char *dir, char *out, size_t cap) {
     PsBuf abs;
     ps_path_abs((int64_t)strlen(dir), dir, &abs);
@@ -944,9 +949,37 @@ void ps_platform_python_version(PsBuf *out) {
     ps_buf_copy(out, "3.14.9", 6);
 }
 
+/* CPython 3.14 shapes: macOS is "macOS-<release>-<machine>-<processor>-
+   <bits>-Mach-O"; glibc Linux appends "-with-glibc<version>". Other targets
+   keep the plain uname triple. */
 void ps_platform_platform(PsBuf *out) {
 #if defined(_WIN32)
     ps_buf_copy(out, "Windows", 7);
+#elif defined(__APPLE__)
+    struct utsname u;
+    if (uname(&u) == 0) {
+        char buf[256];
+        char product[64];
+        size_t plen = sizeof(product);
+        /* CPython reports the product version (mac_ver), not the Darwin
+           release, and "arm" or "i386" for the processor. */
+        const char *release = sysctlbyname("kern.osproductversion", product, &plen, NULL, 0) == 0 ? product : u.release;
+        const char *processor = strcmp(u.machine, "arm64") == 0 ? "arm" : (strcmp(u.machine, "x86_64") == 0 ? "i386" : u.machine);
+        const char *bits = sizeof(void *) == 8 ? "64bit" : "32bit";
+        snprintf(buf, sizeof(buf), "macOS-%s-%s-%s-%s-Mach-O", release, u.machine, processor, bits);
+        ps_buf_copy(out, buf, (int64_t)strlen(buf));
+    } else {
+        ps_buf_copy(out, "", 0);
+    }
+#elif defined(__linux__) && defined(__GLIBC__)
+    struct utsname u;
+    if (uname(&u) == 0) {
+        char buf[256];
+        snprintf(buf, sizeof(buf), "%s-%s-%s-with-glibc%s", u.sysname, u.release, u.machine, gnu_get_libc_version());
+        ps_buf_copy(out, buf, (int64_t)strlen(buf));
+    } else {
+        ps_buf_copy(out, "", 0);
+    }
 #else
     struct utsname u;
     if (uname(&u) == 0) {
