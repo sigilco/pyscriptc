@@ -100,7 +100,7 @@ A pydantic-style or FastAPI-style framework never becomes native under this ceil
 Write the guide, in two places, with one source of truth for the facts.
 
 - Human page: `docs/guide/typing.md`, titled "Typing and idioms", in the Guide section of the docs site (it is a how-to, not a divergence list, so it belongs under `docs/guide/`, not `docs/reference/`).
-- Agent page: `AGENTS-python-style.md` at the repo root, the rule set an agent reads before writing Python for the native tier, linked from `AGENTS.md` (one line, so the file does not grow).
+- Agent page: `.agents/docs/python-style.md` under `.agents/docs/`, the rule set an agent reads before writing Python for the native tier, linked from `AGENTS.md` (one line, so the file does not grow).
 - Machine source of truth: the `typing` row of `scripts/support_data.toml`, with one `ok` probe per construct that lowers and one `no` probe per construct that fences, each with the expected code. `scripts/gen_support_table.py` and `scripts/build_compat_json.py` consume it, and `tests/test_support_docs.py` fails when the compiler moves under it, so the table cannot rot.
 - `llms.txt` picks the guide up for free: docmd's bundled `llms` plugin writes `llms.txt` and `llms-full.txt` for every page under `docs/`, and `scripts/gen_llms_txt.py` only appends the public data files on top. A new page under `docs/guide/` is listed without touching that script. `tests/test_llms_txt.py` checks that every page appears (it skips when the site is not built).
 
@@ -115,7 +115,7 @@ Repo doc policy respected: the page states what the compiler does with each cons
 ### What changed in this work
 
 - `docs/guide/typing.md` (new): the construct table, the idioms that lower, the constructs that stay off the native tier, and the freshness rules.
-- `AGENTS-python-style.md` (new) and one line in `AGENTS.md`.
+- `.agents/docs/python-style.md` (new) and one line in `AGENTS.md`.
 - `scripts/support_data.toml`: the `typing` row now carries the measured probes (16 `ok`, 18 `no`) and the note "annotation-only: imports are free, annotations are the lowering input, erased before emission; typing names used as values fence".
 - `compat/data/support.json` and `compat/data/compat.json`: regenerated from the source above, never hand-edited. The `typing` row moves from `none` to `partial` with its measured fence codes.
 - `src/pyscriptc/diagnostics.py` (`PS1104`), `src/pyscriptc/lower/_classes.py` (the alias fences), `src/pyscriptc/lower/_stmt.py` (the PEP 695 `type` statement fence), `src/pyscriptc/imports.py` (the `typing` verdict reason) and `src/pyscriptc/coverage.py` (the `typing-value` family): wording now says "not a lowered type in the IR" and "typing names steer the lowering", instead of implying the module is unsupported.
