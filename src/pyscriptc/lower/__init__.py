@@ -1564,6 +1564,29 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         return tree
 
     def module(self, tree: ast.Module) -> dict[str, Any]:
+        # Issue #587: a deeply nested AST overflows the lowerer's recursive
+        # descent with an uncaught RecursionError. CPython's parser still
+        # accepts these programs (its own nesting guard only counts
+        # parentheses), so the guard lives here: past the depth the
+        # recursive passes can handle, the module fences with the fit
+        # diagnostic instead of crashing the compiler.
+        if (depth := _ast_depth(tree)) > MAX_LOWER_DEPTH:
+            fence = Fence(
+                "PS3002",
+                f"nesting is deeper than the lowerer handles: {depth} AST levels (over {MAX_LOWER_DEPTH})",
+                span_of(_deepest_node(tree), self.filename),
+                None,
+            )
+            return {
+                "irVersion": IR_VERSION,
+                "subset": SUBSET,
+                "cpython": cpython_version(),
+                "sourceFile": self.filename,
+                "entry": None,
+                "functions": [],
+                "classes": [],
+                "fences": [fence.as_dict()],
+            }
         tree = self._desugar(tree)
         fences: list[Fence] = []
         functions: list[ast.FunctionDef] = []
@@ -3414,6 +3437,44 @@ def render_fences(module: dict[str, Any], source: str) -> str:
 
 def _assign(target: str, value: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
     return {"kind": "assign", "target": target, "value": value, "span": span}
+
+
+# Issue #587: the deepest AST nesting the recursive lowering passes handle.
+# Measured against the interpreter's own recursion limit: a chain around 250
+# levels already grazes it, so the fence fires well before the crash while
+# leaving every realistic program native. CPython 3.14's parser only bounds
+# parenthesis nesting, not attribute or operator chains, so a source that
+# parses can still be too deep to lower.
+MAX_LOWER_DEPTH = 200
+
+
+def _ast_depth(tree: ast.AST) -> int:
+    """The maximum AST depth (edges from the root), iteratively.
+
+    Iterative on purpose: `ast.walk`-style recursion on a pathological tree
+    is exactly what this guard exists to fence.
+    """
+    deepest = 0
+    stack: list[tuple[ast.AST, int]] = [(tree, 0)]
+    while stack:
+        node, depth = stack.pop()
+        if depth > deepest:
+            deepest = depth
+        stack.extend((child, depth + 1) for child in ast.iter_child_nodes(node))
+    return deepest
+
+
+def _deepest_node(tree: ast.AST) -> ast.AST:
+    """The first node at the maximum depth: the fence span points there."""
+    best: ast.AST = tree
+    best_depth = 0
+    stack: list[tuple[ast.AST, int]] = [(tree, 0)]
+    while stack:
+        node, depth = stack.pop()
+        if depth > best_depth:
+            best, best_depth = node, depth
+        stack.extend((child, depth + 1) for child in ast.iter_child_nodes(node))
+    return best
 
 
 # boxed:begin
