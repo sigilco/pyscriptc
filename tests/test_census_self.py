@@ -56,7 +56,7 @@ def test_self_census_ballpark() -> None:
     # and stdlibzip.py were already counted) and moves the fence count: the
     # fetch notice became conditional (-1 fence) and the cli.py embed/site
     # refusal handlers replace an implicit crash path.
-    assert census["modules"] == 103
+    assert census["modules"] == 104
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -287,5 +287,5 @@ def test_self_census_ballpark() -> None:
     # embed.py (#657, the pinned CPython runtime pack) adds 1 module, about
     # 470 lines and 99 self-host fences, taking the source past 50k.
     assert 11_000 <= census["lines"] <= 53_000
-    assert census["fences"] == 3177
-    assert sum(p["fences"] for p in census["packages"]) == 3177
+    assert census["fences"] == 3181
+    assert sum(p["fences"] for p in census["packages"]) == 3181
