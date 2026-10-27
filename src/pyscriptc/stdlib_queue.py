@@ -193,7 +193,7 @@ WAVE_FUNCTIONS: dict[str, dict[str, dict[str, Any]]] = {
 
 # Names that lower, but whose type is not a fixed signature.
 SPECIAL_FUNCTIONS: dict[str, frozenset[str]] = {
-    "json": frozenset({"loads", "dumps"}),
+    "json": frozenset({"loads", "dumps", "load", "dump"}),
     "struct": frozenset({"pack", "unpack"}),
     "re": frozenset({"search", "match", "fullmatch", "subn"}),
 }

@@ -1,14 +1,14 @@
 {
   "schema": "1",
   "generated": "2026-10-24",
-  "commit": "8188045c4bff110578c0e3c884e277c1573902ca",
+  "commit": "c7be3aafe528591074991042e447d2a979e3de5c",
   "sources": {
     "corpus": "benchmarks/real_scripts/scripts",
     "report": "benchmarks/real_scripts/REPORT.md"
   },
   "summary": {
     "scripts": 39,
-    "total_fences": 53,
+    "total_fences": 51,
     "unique_codes": [
       "PS1001",
       "PS1003",
@@ -42,22 +42,10 @@
           "diagnostic": "itertools.product is not in the lowered subset of itertools"
         },
         {
-          "module": "json",
-          "construct": "`json.load`",
-          "code": "PS2001",
-          "diagnostic": "json.load is not in the lowered subset of json"
-        },
-        {
           "module": "os",
           "construct": "`os.system`",
           "code": "PS2001",
           "diagnostic": "os.system is not in the lowered subset of os"
-        },
-        {
-          "module": "os",
-          "construct": "`os.walk`",
-          "code": "PS2001",
-          "diagnostic": "os.walk is not in the lowered subset of os"
         },
         {
           "module": "pathlib",
@@ -82,12 +70,6 @@
           "construct": "`subprocess.Popen`",
           "code": "PS2001",
           "diagnostic": "subprocess.Popen is not in the lowered subset of subprocess"
-        },
-        {
-          "module": "time",
-          "construct": "`time.perf_counter`",
-          "code": "PS2001",
-          "diagnostic": "time.perf_counter is not in the lowered subset of time"
         },
         {
           "module": "time",
@@ -243,6 +225,12 @@
           "diagnostic": "DefaultDict is not a lowered type in the IR"
         },
         {
+          "module": "json",
+          "construct": "unlowered type annotation",
+          "code": "PS1001",
+          "diagnostic": "json.load needs the result annotation"
+        },
+        {
           "module": "random",
           "construct": "unlowered type annotation",
           "code": "PS1106",
@@ -376,7 +364,7 @@
           "module": "os",
           "construct": "type annotation mismatch",
           "code": "PS1003",
-          "diagnostic": "os.listdir argument is Path, expected str"
+          "diagnostic": "os.walk top is str"
         },
         {
           "module": "pathlib",

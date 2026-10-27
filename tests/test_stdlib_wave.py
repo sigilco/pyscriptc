@@ -45,10 +45,11 @@ def test_codec_fences_stay_closed(tmp_path: Path) -> None:
             "re.finditer",
         ),
         (
-            "load.py",
-            "import json\n\ndef f(s: str) -> int:\n    json.load(s)  # type: ignore[arg-type]\n    return 1\n",
-            "PS2001",
-            "json.load",
+            "dump.py",
+            "import json\n\ndef f(d: dict[str, int], s: str) -> int:\n"
+            "    json.dump(d, s)  # type: ignore[arg-type]\n    return 1\n",
+            "PS1003",
+            "json.dump argument is a file handle",
         ),
         (
             "request.py",

@@ -775,6 +775,10 @@ class StdlibDispatchMixin:
         if module == "json" and attr == "loads":
             self._reject_keywords(node)
             return self._json_loads(node, span, expect)
+        if module == "json" and attr == "load":
+            return self._json_load(node, span, expect)
+        if module == "json" and attr == "dump":
+            return self._json_dump(node, span)
         if module == "json" and attr == "dumps":
             return self._json_dumps(node, span)
         if module == "struct" and attr in {"pack", "unpack"}:

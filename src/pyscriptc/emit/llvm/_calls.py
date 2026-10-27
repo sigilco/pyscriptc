@@ -209,6 +209,19 @@ class CallsMixin:
             self.line(f"{voff} = ptrtoint ptr {voff_ptr} to i64")
             self._abi_decl("ps_dict_items", "ptr", ["ptr", "i64", "i64"])
             return self._call_ret("ptr", "ps_dict_items", [f"ptr {values[0]}", f"i64 {voff}", f"i64 {size}"])
+        if expr.get("symbol") == "ps_os_walk":
+            # The element is the synthetic (str, list[str], list[str]) tuple
+            # class; the C side builds one heap record per walk row at the
+            # class layout (path cell, dirs cell, files cell).
+            self.needed.add("seq")
+            tname = expr["type"]["elem"]["name"]
+            size_ptr = self.tmp()
+            size = self.tmp()
+            self.line(f"{size_ptr} = getelementptr %cls.{tname}, ptr null, i64 1")
+            self.line(f"{size} = ptrtoint ptr {size_ptr} to i64")
+            self._abi_decl("ps_os_walk", "ptr", ["i64", "ptr", "i64"])
+            length, ptr = self._buf_parts(values[0])
+            return self._call_ret("ptr", "ps_os_walk", [f"i64 {length}", f"ptr {ptr}", f"i64 {size}"])
         if expr.get("symbol") == "ps_str_format":
             # args[0] is the format string; the rest marshal into %ps.arg.
             count = len(values) - 1

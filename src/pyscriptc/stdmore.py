@@ -1488,6 +1488,7 @@ REST_FIXED: dict[str, dict[str, dict[str, Any]]] = {
     "time": {
         "time": _sig([], _F, "ps_time_time"),
         "monotonic": _sig([], _F, "ps_time_monotonic"),
+        "perf_counter": _sig([], _F, "ps_time_perf_counter"),
         "strftime": _sig([_S, _STM], _S, "ps_time_strftime"),
         "mktime": _sig([_STM], _F, "ps_time_mktime"),
     },

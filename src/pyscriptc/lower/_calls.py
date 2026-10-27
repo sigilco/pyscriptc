@@ -968,6 +968,51 @@ class CallsMixin:
             self.fail(node, "PS1003", "json.loads argument is " + _show(arg["type"]) + ", expected str")
         return _mod_call("json", "loads", [arg], expect, span)
 
+    def _json_load(self, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
+        """`json.load(fp)` reads the whole handle and reuses the loads path.
+
+        The lowering reads the file through the TextIO/BytesIO row the same
+        way `f.read()` lowers, then feeds the text to `ps_json_loads` with
+        the result annotation. A CPython `JSONDecodeError` stays the runtime
+        ValueError the loads path raises (divergence 10).
+        """
+        self._reject_keywords(node)
+        if len(node.args) != 1:
+            self.fail(node, "PS2003", "json.load expects 1 argument(s)")
+        if expect is None:
+            self.fail(node, "PS1001", "json.load needs the result annotation")
+        self._json_type(node, expect, "json.load")
+        handle = self._expr(node.args[0])
+        if handle["type"]["kind"] != "class" or handle["type"].get("name") not in {"TextIO", "BytesIO"}:
+            self.fail(node, "PS1003", "json.load argument is a file handle (TextIO or BytesIO)")
+        kind = {"kind": "bytes"} if handle["type"]["name"] == "BytesIO" else {"kind": "str"}
+        text = self._abi_call("io", "read", [handle], kind, "ps_io_read", span)
+        return _mod_call("json", "loads", [text], expect, span)
+
+    def _json_dump(self, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+        """`json.dump(obj, fp)` serializes the value and writes the handle.
+
+        The value goes through the same annotation-checked `json.dumps` path
+        (the closed `indent`/`sort_keys`/`ensure_ascii` keyword set), then the
+        text is written through the TextIO/BytesIO row the `f.write()`
+        lowering uses. The handle is the second positional argument, like
+        CPython.
+        """
+        if len(node.args) != 2:
+            self.fail(node, "PS2003", "json.dump expects 2 argument(s)")
+        arg = self._expr(node.args[0])
+        self._json_type(node, arg["type"], "json.dump")
+        handle = self._expr(node.args[1])
+        if handle["type"]["kind"] != "class" or handle["type"].get("name") not in {"TextIO", "BytesIO"}:
+            self.fail(node, "PS1003", "json.dump argument is a file handle (TextIO or BytesIO)")
+        text = _mod_call("json", "dumps", [arg], {"kind": "str"}, span)
+        flags = self._json_dumps_flags(node)
+        if flags:
+            text["json_flags"] = flags
+        write = self._abi_call("io", "write", [handle, text], {"kind": "int"}, "ps_io_write", span)
+        self.prelude.append({"kind": "expr", "expr": write, "span": span})
+        return _const_none(span)
+
     def _json_dumps(self, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         if len(node.args) != 1:
             self.fail(node, "PS2003", "json.dumps expects 1 argument(s)")
