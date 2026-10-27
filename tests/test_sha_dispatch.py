@@ -7,7 +7,6 @@ portable fallback (PYSC_SHA_PORTABLE=1).
 
 from __future__ import annotations
 
-import os
 import shutil
 from pathlib import Path
 
@@ -78,7 +77,7 @@ def test_sha_portable_fallback_differential(tmp_path: Path, monkeypatch: pytest.
     assert code == 0, "Portable fallback diverged from oracle"
 
 
-def test_target_compile_guards() -> None:
+def test_target_compile_guards(tmp_path: Path) -> None:
     """Verify compile-time guards allow ps_hash.c to build cleanly on all target arches."""
     import subprocess
 
@@ -111,7 +110,7 @@ def test_target_compile_guards() -> None:
             "-c",
             str(hash_c),
             "-o",
-            os.devnull,
+            str(tmp_path / f"ps_hash-{target}.o"),
         ]
-        proc = subprocess.run(cmd, capture_output=True, text=True)
+        proc = subprocess.run(cmd, capture_output=True, text=True, cwd=tmp_path)
         assert proc.returncode == 0, f"Compile for target {target} failed:\n{proc.stderr}"
