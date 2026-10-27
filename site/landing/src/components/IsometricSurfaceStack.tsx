@@ -78,7 +78,7 @@ export const SURFACE_TIERS: SurfaceTier[] = [
       },
       {
         title: "Measured Island Floor",
-        desc: "The island floor is measured in the same benchmark suite as native: island-routed programs currently run about 2x faster than CPython.",
+        desc: "Island-routed calls run in the same benchmark suite as native: they hold host-CPython speed today (measured 1.0-1.2x) while the natively lowered rest of the program runs at native speed.",
       },
       {
         title: "Audit & Drop Path",
