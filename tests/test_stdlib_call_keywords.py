@@ -92,18 +92,19 @@ def test_int_unknown_forms_fence_with_named_codes() -> None:
 
 
 def test_open_encoding_read_write_match_cpython(tmp_path: Path) -> None:
+    data = repr(str(tmp_path / "data.txt"))
     _oracle(
         tmp_path,
         "enc.py",
         "\n".join(
             [
                 "def run() -> int:",
-                "    with open('data.txt', 'w', encoding='utf-8') as handle:",
+                f"    with open({data}, 'w', encoding='utf-8') as handle:",
                 "        handle.write('alpha bravo\\ncharlie')",
-                "    with open('data.txt', 'r', encoding='utf-8') as handle:",
+                f"    with open({data}, 'r', encoding='utf-8') as handle:",
                 "        s: str = handle.read()",
                 "    print(s)",
-                "    with open('data.txt', encoding='ascii') as handle:",
+                f"    with open({data}, encoding='ascii') as handle:",
                 "        print(len(handle.read()) > 0)",
                 "    return 0",
                 "",

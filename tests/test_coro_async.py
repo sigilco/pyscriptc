@@ -297,7 +297,7 @@ def _run_both(tmp_path: Path, name: str, source: str) -> tuple[str, str]:
             str(tmp_path / name),
             "--run",
         ],
-        cwd=ROOT,
+        cwd=tmp_path,
         env=ENV,
         capture_output=True,
         text=True,
