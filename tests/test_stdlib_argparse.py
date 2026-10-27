@@ -37,6 +37,33 @@ def _run_both(tmp_path: Path, path: Path, argv: list[str]) -> tuple[str, str]:
     return native.stdout, oracle.stdout
 
 
+def test_argparse_help_probe_survives_repeated_registration(tmp_path: Path) -> None:
+    """A module-level parser with typed or required options compiles.
+
+    Regression for #710: when a call site is pinned before it lowers for
+    real, `add_argument` registers its option more than once, and the
+    help-probe in `_parse_args` used to replay the duplicates into a fresh
+    CPython ArgumentParser, which raised
+    `ArgumentError: conflicting option string` and crashed the compile.
+    """
+    path = _script(
+        tmp_path,
+        "repeated.py",
+        [
+            "import argparse",
+            "p = argparse.ArgumentParser()",
+            "p.add_argument('--foo', type=int)",
+            "p.add_argument('--bar', required=True)",
+            "a = p.parse_args()",
+            "print(a.foo)",
+            "print(a.bar)",
+        ],
+    )
+    native, oracle = _run_both(tmp_path, path, ["--foo", "3", "--bar", "x"])
+    assert native == oracle, (native, oracle)
+    assert native.splitlines() == ["3", "x"]
+
+
 def test_argparse_flags_and_values(tmp_path: Path) -> None:
     path = _script(
         tmp_path,
