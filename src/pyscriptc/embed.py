@@ -364,7 +364,15 @@ def resolve_mode(mode: str | None) -> str:
     if mode not in MODES:
         raise EmbedError(f"--embed-python must be one of {'|'.join(MODES)}, got {mode!r}")
     if mode == "auto":
-        return "host" if host_has_shared_libpython() else "bundle"
+        if host_has_shared_libpython():
+            return "host"
+        # A platform with no locked pack (linux-aarch64, macos-x86_64) cannot bundle:
+        # fall back to the host link, which native programs do not need libpython for.
+        try:
+            lock_pack()
+        except EmbedError:
+            return "host"
+        return "bundle"
     return mode
 
 
