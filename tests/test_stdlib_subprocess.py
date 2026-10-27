@@ -169,6 +169,87 @@ def test_subprocess_run_check_true_accepts_zero_and_raises_nonzero(tmp_path: Pat
     )
 
 
+def test_subprocess_run_text_mode_matches_cpython(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "text.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "import sys",
+                "",
+                "def run() -> int:",
+                "    r = subprocess.run(",
+                "        [sys.executable, '-c', 'print(1+1)'], capture_output=True, text=True",
+                "    )",
+                "    print(r.stdout.strip())",
+                "    print(r.stderr == '')",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_subprocess_run_text_mode_nonzero_exit(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "textfail.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "import sys",
+                "",
+                "def run() -> int:",
+                "    r = subprocess.run(",
+                "        [sys.executable, '-c', 'import sys; sys.exit(3)'], capture_output=True, text=True",
+                "    )",
+                "    print(r.returncode)",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_subprocess_run_text_mode_encoding_latin1(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "enc.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "import sys",
+                "",
+                "def run() -> int:",
+                "    r = subprocess.run(",
+                "        [sys.executable, '-c', \"print(bytes([200]).decode('latin-1'))\"],",
+                "        capture_output=True, text=True, encoding='latin-1', errors='replace'",
+                "    )",
+                "    print(r.stdout.strip())",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_subprocess_run_text_mode_keyword_values_fence_with_named_codes() -> None:
+    mod = lower_source("import subprocess\nr: subprocess.CompletedProcess = subprocess.run(['true'], encoding=5)\n")
+    assert [f["code"] for f in mod["fences"]] == ["PS2003"]
+    assert "encoding takes a string literal" in mod["fences"][0]["message"]
+    mod = lower_source(
+        "import subprocess\nr: subprocess.CompletedProcess = subprocess.run(['true'], encoding='cp1252')\n"
+    )
+    assert [f["code"] for f in mod["fences"]] == ["PS2003"]
+    assert "encoding 'cp1252' is not lowered" in mod["fences"][0]["message"]
+    mod = lower_source(
+        "import subprocess\nr: subprocess.CompletedProcess = subprocess.run(['true'], errors='xmlcharrefreplace')\n"
+    )
+    assert [f["code"] for f in mod["fences"]] == ["PS2003"]
+    assert "errors 'xmlcharrefreplace' is not lowered" in mod["fences"][0]["message"]
+
+
 def test_subprocess_run_keyword_values_fence_with_named_codes() -> None:
     mod = lower_source("import subprocess\nr: subprocess.CompletedProcess = subprocess.run(['true'], shell=True)\n")
     assert [f["code"] for f in mod["fences"]] == ["PS2003"]

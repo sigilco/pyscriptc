@@ -3,7 +3,9 @@
 Each call forks and execs; `capture_output` feeds one pipe back as bytes.
 The child's exit status maps to returncode like CPython's
 waitstatus_to_exitcode. `run` returns the CompletedProcess record: the
-return code, the captured stdout bytes, and the captured stderr bytes.
+return code, the captured stdout, and the captured stderr. With
+`text=True` (or an `encoding=` name) the captured streams decode through
+the runtime's CPython-exact decoder and the record fields are str.
 */
 
 #include "ps_rt.h"
@@ -514,7 +516,10 @@ static void ps_sub_decode(int64_t n, const char *p, int enc, int err, PsBuf *out
 }
 
 /* run(cmd): the CompletedProcess record. `check` (flag bit 1) raises the
-   check_call stand-in when the exit code is non-zero; capture is bit 0. */
+   check_call stand-in when the exit code is non-zero; capture is bit 0.
+   Text mode is bit 2: the captured streams decode through the runtime's
+   text decoder, the record fields are str. Bits 3-4 carry the encoding
+   code, bits 5-6 the errors code, the same numbers ps_sub_decode takes. */
 void ps_sub_run(PsSeq *args, int64_t flags, int64_t cwd_len, const char *cwd, PsCompleted *out) {
     int status;
     char *cwd_cstr = NULL;
@@ -532,6 +537,15 @@ void ps_sub_run(PsSeq *args, int64_t flags, int64_t cwd_len, const char *cwd, Ps
     }
     if (cwd_cstr != NULL) {
         free(cwd_cstr);
+    }
+    if (flags & 4) {
+        int enc = (int)((flags >> 3) & 3);
+        int err = (int)((flags >> 5) & 3);
+        PsBuf text;
+        ps_sub_decode(out->stdout_buf.len, out->stdout_buf.data, enc, err, &text);
+        ps_sub_decode(out->stderr_buf.len, out->stderr_buf.data, enc, err, &out->stderr_buf);
+        free(out->stdout_buf.data);
+        out->stdout_buf = text;
     }
     out->returncode = ps_sub_code(status);
     if ((flags & 2) && out->returncode != 0) {

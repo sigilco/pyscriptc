@@ -619,6 +619,10 @@ class ClassesMixin:
                 return False
             next_ret = frame["methods"].get("__next__", (None, None))[1]
             return next_ret is not None and types_equal(next_ret, want["elem"])
+        if want_name == "CompletedProcess" and got_name == "CompletedProcessText":
+            # The text-mode run record: the annotation names the stdlib
+            # class, the value is the str-field variant (issue #680).
+            return True
         if not self.classes.get(want_name, {}).get("protocol"):
             return False
         return self._is_subclass_name(got_name, want_name)
