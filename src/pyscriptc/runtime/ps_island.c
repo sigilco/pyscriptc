@@ -668,8 +668,8 @@ int64_t ps_island_mix_crc32_n(int64_t n, const char *data, int64_t times) {
      1 int, 2 float, 3 str, 4 bool, 5 list, 6 bytes, 7 handle (a PyObject*).
 
    `pad` carries the element kind for a list. Handles are opaque and
-   unidirectional: the island owns the object, the native side only holds a
-   pointer and ends the ownership through `ps_island_free`. */
+   unidirectional: the island owns the object, the side only holds a pointer
+   and ends the ownership through `ps_island_free`. */
 
 static int64_t ps_island_elem_size(int32_t pad) {
     switch (pad) {
@@ -1186,8 +1186,16 @@ static PyObject *ps_island_ns = NULL;
    arguments (issue #635). The island top-level seed does the same thing
    inline; this shared helper exists because the per-definition seed used
    here runs after the native main's ps_argv_init, and the embedded
-   interpreter otherwise keeps the CPython default `['']`. */
-static void ps_island_seed_argv(void) {
+   interpreter otherwise keeps the CPython default `['']`.
+
+   `argv0_override`, when not NULL and not empty, replaces the mirrored
+   argv[0] (and becomes argv[0] outright when the process argv is empty):
+   the island top level seeds it with the source path (issue #711), so a
+   script that reads `sys.argv[0]` or lets argparse derive its default
+   `prog` sees the source name (`binary_size.py`) — the value CPython
+   records for `python binary_size.py` — instead of the emitted binary's
+   basename, which loses the `.py` suffix. */
+static void ps_island_seed_argv(const char *argv0_override) {
     PyObject *sys = PyImport_ImportModule("sys");
     if (sys == NULL) {
         PyErr_Clear();
@@ -1197,9 +1205,18 @@ static void ps_island_seed_argv(void) {
     PyObject *argv_list = PyList_New(0);
     if (argv_list != NULL) {
         int64_t i;
-        for (i = 0; argv_seq != NULL && i < argv_seq->len; i++) {
-            PsBuf *b = (PsBuf *)argv_seq->data + i;
-            PyObject *item = PyUnicode_DecodeUTF8(b->data, (Py_ssize_t)b->len, "strict");
+        int64_t n = argv_seq != NULL ? argv_seq->len : 0;
+        if (n == 0 && argv0_override != NULL && argv0_override[0] != '\0') {
+            n = 1; /* the override alone becomes argv[0] */
+        }
+        for (i = 0; i < n; i++) {
+            PyObject *item = NULL;
+            if (i == 0 && argv0_override != NULL && argv0_override[0] != '\0') {
+                item = PyUnicode_DecodeUTF8(argv0_override, (Py_ssize_t)strlen(argv0_override), "strict");
+            } else {
+                PsBuf *b = (PsBuf *)argv_seq->data + i;
+                item = PyUnicode_DecodeUTF8(b->data, (Py_ssize_t)b->len, "strict");
+            }
             if (item == NULL || PyList_Append(argv_list, item) < 0) {
                 Py_XDECREF(item);
                 Py_DECREF(argv_list);
@@ -1284,7 +1301,7 @@ static int ps_island_seed(int64_t n, const char *source) {
     Py_DECREF(main_name);
     /* Mirror the process argv into sys.argv (issue #635) so island
        functions see the same arguments the native side recorded. */
-    ps_island_seed_argv();
+    ps_island_seed_argv(NULL);
     result = PyRun_String(PyUnicode_AsUTF8(text) != NULL ? PyUnicode_AsUTF8(text) : "",
                           Py_file_input, ps_island_ns, ps_island_ns);
     Py_DECREF(text);
@@ -1394,9 +1411,11 @@ void ps_island_top_seed(int64_t n, const char *source, int64_t path_n, const cha
     }
     /* sys.argv mirrors the process argv the native runtime already holds
        (ps_argv_init), so `len(sys.argv) != 2` and friends behave as under
-       CPython. argv[0] becomes the program path the native side recorded
-       first. */
-    ps_island_seed_argv();
+       CPython. argv[0] is the source path when the compiler recorded one
+       (issue #711): CPython records the script path for `python SCRIPT`,
+       and argparse's default `prog` is its basename — the emitted binary's
+       basename would lose the `.py` suffix. */
+    ps_island_seed_argv(path);
     result = PyRun_String(PyUnicode_AsUTF8(text) != NULL ? PyUnicode_AsUTF8(text) : "",
                           Py_file_input, ps_island_ns, ps_island_ns);
     Py_DECREF(text);
@@ -1588,4 +1607,3 @@ void ps_island_getitem(void *handle, int64_t n, const char *key, int32_t want, i
     }
     ps_island_done();
 }
-
