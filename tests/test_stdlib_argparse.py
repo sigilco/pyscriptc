@@ -64,6 +64,38 @@ def test_argparse_help_probe_survives_repeated_registration(tmp_path: Path) -> N
     assert native.splitlines() == ["3", "x"]
 
 
+def test_argparse_default_prog_is_the_source_basename(tmp_path: Path) -> None:
+    """The default argparse prog keeps the source `.py` name on the island floor.
+
+    Regression for #711: the island seeded ``sys.argv[0]`` from the process
+    argv, whose first element is the emitted binary path. argparse derives
+    its default ``prog`` from ``os.path.basename(sys.argv[0])``, so a
+    required-option error named the binary (``binary_size: error: ...``)
+    instead of the source script (``binary_size.py: error: ...``), diverging
+    from CPython's stderr for ``python binary_size.py``.
+    """
+    path = _script(
+        tmp_path,
+        "binary_size.py",
+        [
+            "import argparse",
+            "",
+            "parser: argparse.ArgumentParser = argparse.ArgumentParser()",
+            "parser.add_argument('--foo', required=True, choices=['a', 'b'])",
+            "a = parser.parse_args()",
+            "print(a.foo)",
+        ],
+    )
+    binary = tmp_path / "binary_size"
+    got = run_cli("compile", "--fallback=cpython", str(path), "--emit", "bin", "-o", str(binary))
+    assert got.returncode == 0, got.stderr
+    native = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60)
+    oracle = subprocess.run([sys.executable, str(path)], capture_output=True, text=True, timeout=60)
+    assert native.returncode == oracle.returncode == 2
+    assert native.stderr == oracle.stderr
+    assert "binary_size.py: error:" in native.stderr
+
+
 def test_argparse_flags_and_values(tmp_path: Path) -> None:
     path = _script(
         tmp_path,
