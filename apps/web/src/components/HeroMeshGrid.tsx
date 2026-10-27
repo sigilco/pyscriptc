@@ -16,6 +16,8 @@ export interface HeroMeshGridProps {
   showGridLines?: boolean;
   /** Whether mouse hover dynamically illuminates nearby cells */
   interactiveHover?: boolean;
+  /** Dim kinetic words behind the hero copy zone (feathered mask vignette) */
+  copyVignette?: boolean;
   /** Class name for root container */
   className?: string;
   /** Children to overlay on top of the mesh (e.g. Hero content) */
@@ -57,6 +59,7 @@ export const HeroMeshGrid: React.FC<HeroMeshGridProps> = ({
   activeCount = 0,
   showGridLines = false,
   interactiveHover = true,
+  copyVignette = false,
   className = "",
   children,
 }) => {
@@ -147,6 +150,20 @@ export const HeroMeshGrid: React.FC<HeroMeshGridProps> = ({
 
   const isDark = theme === "dark";
 
+  // Deterministic per-cell accent so a word always breathes in the same Python
+  // color, on hover and on pulse alike (roughly half blue, half yellow).
+  const cellColor = useCallback(
+    (index: number) => {
+      const name = packages[index];
+      let hash = 0;
+      for (let i = 0; i < name.length; i++) {
+        hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+      }
+      return hash % 5 < 2 ? PYTHON_YELLOW : PYTHON_BLUE;
+    },
+    [packages]
+  );
+
   return (
     <div
       className={`relative w-full overflow-hidden select-none transition-colors duration-700 ${
@@ -192,7 +209,7 @@ export const HeroMeshGrid: React.FC<HeroMeshGridProps> = ({
 
       {/* Mesh Grid Matrix */}
       <div
-        className="absolute inset-0 z-0 grid w-full h-full p-4 md:p-8"
+        className={`absolute inset-0 z-0 grid w-full h-full p-4 md:p-8 ${copyVignette ? "mesh-vignette" : ""}`}
         style={{
           gridTemplateColumns: "repeat(auto-fill, minmax(115px, 1fr))",
           gridAutoRows: "minmax(42px, 1fr)",
@@ -211,8 +228,8 @@ export const HeroMeshGrid: React.FC<HeroMeshGridProps> = ({
           const isPulsing = Boolean(pulse) && state !== "disabled";
 
           const currentColor = isHovered
-            ? PYTHON_BLUE
-            : pulse?.color ?? PYTHON_BLUE;
+            ? cellColor(index)
+            : pulse?.color ?? cellColor(index);
 
           return (
             <div

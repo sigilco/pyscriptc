@@ -1213,7 +1213,7 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "pathlib": ("Path", "Stat"),
     "os": ("Stat", "TerminalSize"),
     "shutil": ("TerminalSize",),
-    "subprocess": ("CompletedProcess",),
+    "subprocess": ("CompletedProcess", "CompletedProcessText"),
     "collections": ("Deque",),
     "hmac": ("Hmac",),
     "importlib.resources": ("Path",),
@@ -1258,6 +1258,13 @@ CLASS_FIELDS: dict[str, list[dict[str, Any]]] = {
         {"name": "returncode", "type": _I},
         {"name": "stdout", "type": _BY},
         {"name": "stderr", "type": _BY},
+    ],
+    # The text-mode record: the same three fields, with the captured
+    # streams decoded to str (issue #680).
+    "CompletedProcessText": [
+        {"name": "returncode", "type": _I},
+        {"name": "stdout", "type": _S},
+        {"name": "stderr", "type": _S},
     ],
     "Hmac": [
         {"name": "_key", "type": _BY},
