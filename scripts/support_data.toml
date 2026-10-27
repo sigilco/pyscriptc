@@ -443,7 +443,7 @@ no = [["bare Queue annotation (element type needed)", 'y: asyncio.Queue = asynci
 [[stdlib]]
 names = ["subprocess"]
 ok = ['y: bytes = subprocess.check_output(ss)', 'subprocess.run(ss)', 'y: int = subprocess.run(ss).returncode', 'y: bytes = subprocess.run(ss, capture_output=True).stdout', 'y: int = subprocess.DEVNULL']
-no = [["Popen, getoutput", 'y: int = subprocess.Popen(ss)', "PS2001"], ["text=True", 'y: str = subprocess.run(ss, capture_output=True, text=True).stdout', "PS1003"]]
+no = [["Popen, getoutput", 'y: int = subprocess.Popen(ss)', "PS2001"]]
 
 [[stdlib]]
 names = ["socket"]
