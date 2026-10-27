@@ -1330,6 +1330,15 @@ class ExprMixin:
                 if member is None:
                     self.fail(node, "PS2001", f"{node.value.id}.{node.attr} is not an enum member")
                 return {"kind": "const", "value": str(member), "type": {"kind": "int"}, "span": span}
+            # A class attribute read (`C.CONST`): the first definition in the
+            # MRO wins, and the constant folds at the read site.
+            for ancestor in info.get("mro", [class_name]):
+                ancestor_info = self.classes.get(ancestor)
+                if ancestor_info is None:
+                    continue
+                attr = next((item for item in ancestor_info.get("classattrs", []) if item["name"] == node.attr), None)
+                if attr is not None:
+                    return {"kind": "const", "value": attr["value"], "type": attr["type"], "span": span}
         value = self._expr(node.value)
         return path_attribute(self, value, node.attr, self._lookup_attr(value, node.attr, span, node, expect), span)
 

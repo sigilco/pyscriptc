@@ -290,5 +290,8 @@ def test_self_census_ballpark() -> None:
     # subprocess text mode (#680): the text-mode decode lowering nets -1
     # self-host fence (restlower/_subprocess.py +1, emit/llvm/_driver.py
     # and emitlib.py -1 each through the lowered-compiler re-run).
-    assert census["fences"] == 3182
-    assert sum(p["fences"] for p in census["packages"]) == 3182
+    # Class-body constant attributes (#732): three compiler self-host class
+    # bodies carry a `name = constant` assignment that used to fence as
+    # PS1204; the constant now folds at its read sites, net -3 fences.
+    assert census["fences"] == 3179
+    assert sum(p["fences"] for p in census["packages"]) == 3179
