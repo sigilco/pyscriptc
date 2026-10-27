@@ -148,7 +148,10 @@ def test_minor_bar():
     assert rb.passed(checks)
     assert any(c.name == "receipt" and c.status == "manual" for c in checks)
     bad = rb.Stats(commits=feats[:1], days_since_minor=2, milestone_found=True, milestone_open_issues=3, rehearsed=True)
-    assert failing(rb.evaluate("minor", "0.5.0", bad, TH)) == {"features", "minor gap", "milestone"}
+    # No calendar gap by default: the objectives are the bar. The knob still works when set.
+    assert failing(rb.evaluate("minor", "0.5.0", bad, TH)) == {"features", "milestone"}
+    gapped = rb.Thresholds.from_env({"MINOR_MIN_DAYS": "5"})
+    assert failing(rb.evaluate("minor", "0.5.0", bad, gapped)) == {"features", "minor gap", "milestone"}
     nomile = rb.Stats(commits=feats, days_since_minor=6, rehearsed=True)
     assert failing(rb.evaluate("minor", "0.5.0", nomile, TH)) == {"milestone"}
 
