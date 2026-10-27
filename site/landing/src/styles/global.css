@@ -56,6 +56,69 @@ body {
   animation: pulse-anim 3s ease-in-out infinite;
 }
 
+/* Hero copy lens: feathered backdrop blur behind the hero copy. The mask removes
+   the hard rectangular boundary a bare backdrop-filter clips to, and the tinted
+   gradient keeps copy legible where the blur feathers out. Colors map to
+   --color-bg-base.
+
+   The layer is full-bleed and the mask ellipse is sized so its falloff reaches
+   zero before the element edges. A mask that is still opaque where the element
+   box ends gets clipped by that box and reintroduces a hard seam, which is
+   exactly what the oversized 115%/110% radii used to cause. */
+.hero-copy-lens {
+  background: radial-gradient(
+    60% 42% at 30% 50%,
+    color-mix(in srgb, var(--color-bg-base) 55%, transparent) 0%,
+    color-mix(in srgb, var(--color-bg-base) 32%, transparent) 45%,
+    transparent 100%
+  );
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  -webkit-mask-image: radial-gradient(
+    78% 50% at 28% 50%,
+    #000 0%,
+    #000 30%,
+    rgba(0, 0, 0, 0.62) 56%,
+    rgba(0, 0, 0, 0.2) 78%,
+    transparent 100%
+  );
+  mask-image: radial-gradient(
+    78% 50% at 28% 50%,
+    #000 0%,
+    #000 30%,
+    rgba(0, 0, 0, 0.62) 56%,
+    rgba(0, 0, 0, 0.2) 78%,
+    transparent 100%
+  );
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .hero-copy-lens {
+    background: color-mix(in srgb, var(--color-bg-base) 85%, transparent);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/* Mesh vignette: dims the kinetic package words behind the hero copy zone so
+   the backdrop lens is reinforcement, not the only separation layer. */
+.mesh-vignette {
+  -webkit-mask-image: radial-gradient(
+    58% 52% at 30% 42%,
+    transparent 0%,
+    rgba(0, 0, 0, 0.35) 38%,
+    rgba(0, 0, 0, 0.85) 66%,
+    #000 100%
+  );
+  mask-image: radial-gradient(
+    58% 52% at 30% 42%,
+    transparent 0%,
+    rgba(0, 0, 0, 0.35) 38%,
+    rgba(0, 0, 0, 0.85) 66%,
+    #000 100%
+  );
+}
+
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.01ms !important;
