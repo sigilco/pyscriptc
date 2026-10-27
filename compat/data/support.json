@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-27",
-  "commit": "c7be3aafe528591074991042e447d2a979e3de5c",
+  "commit": "95debbd232c8b3caebcd34907f4cfe161f914ec5",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -518,9 +518,8 @@
       "label": "`subprocess`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "Popen, getoutput, text=True",
+      "missing": "Popen, getoutput",
       "codes": [
-        "PS1003",
         "PS2001"
       ]
     },
