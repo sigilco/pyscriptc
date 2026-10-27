@@ -81,7 +81,7 @@ def test_argparse_default_prog_is_the_source_basename(tmp_path: Path) -> None:
             "import argparse",
             "",
             "parser: argparse.ArgumentParser = argparse.ArgumentParser()",
-            "parser.add_argument('--foo', required=True)",
+            "parser.add_argument('--foo', required=True, choices=['a', 'b'])",
             "a = parser.parse_args()",
             "print(a.foo)",
         ],
