@@ -407,6 +407,24 @@ def test_wheel_record_reader_rejects_a_file_that_is_not_a_zip(tmp_path: Path) ->
     assert _read_wheel_record(path) is None
 
 
+def test_wheel_record_reader_reads_an_unpacked_record(tmp_path: Path) -> None:
+    """An unpacked ``*.dist-info/RECORD`` is a text file, not a zip (issue #660)."""
+
+    from pyscriptc.imports import _read_wheel_record
+
+    record = tmp_path / "RECORD"
+    record.write_text("pkg/__init__.py,,\npkg/_speedups.cpython-314-x86_64-linux-gnu.so,,\n", encoding="utf-8")
+    files = _read_wheel_record(record)
+    assert files is not None
+    assert "pkg/_speedups.cpython-314-x86_64-linux-gnu.so" in files
+
+
+def test_wheel_record_reader_rejects_a_missing_file(tmp_path: Path) -> None:
+    from pyscriptc.imports import _read_wheel_record
+
+    assert _read_wheel_record(tmp_path / "absent") is None
+
+
 def test_distribution_is_native_is_unknown_when_not_installed() -> None:
     from pyscriptc.imports import distribution_is_native
 
