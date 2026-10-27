@@ -11,7 +11,7 @@
     "site:build": "pnpm run build && pnpm --dir ../../docs/.docmd run docs:build && node scripts/assemble.mts",
     "validate": "node scripts/validate.mts",
     "docs:validate": "node scripts/validate-docs.mts",
-    "test": "node --test --experimental-strip-types test/",
+    "test": "node --test --experimental-strip-types \"test/**/*.test.mts\"",
     "dev": "astro dev",
     "preview": "astro preview",
     "cosmos": "cosmos",
