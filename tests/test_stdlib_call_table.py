@@ -170,6 +170,7 @@ PROBES: list[Probe] = [
     # time and calendar (calendar rows ride along for a current-interpreter read)
     _p("time", "time", "datetime", "print(time.time() > 0.0)"),
     _p("time", "monotonic", "datetime", "print(time.monotonic() > 0.0)"),
+    _p("time", "perf_counter", "datetime", "print(time.perf_counter() > 0.0)"),
     _p("time", "strftime", "datetime", "print(time.strftime('%Y-%m-%d', time.gmtime(0)))"),
     _p("time", "mktime", "datetime", "print(time.mktime(time.gmtime(0)) > 0.0)"),
     _p("calendar", "isleap", "datetime", "print(calendar.isleap(2024))"),
@@ -414,6 +415,23 @@ PROBES: list[Probe] = [
     # json and struct
     _p("json", "dumps", "data", "print(json.dumps({'a': 1, 'b': 2}))"),
     _p("json", "loads", "data", "v_json: dict[str, int] = json.loads('{\"a\": 7}')", "print(v_json['a'])"),
+    _p(
+        "json",
+        "dump",
+        "data",
+        "with open(data_file, 'w') as h_dump:",
+        "    json.dump({'a': 1, 'b': 2}, h_dump)",
+        "with open(data_file) as h_dumped:",
+        "    print(h_dumped.read())",
+    ),
+    _p(
+        "json",
+        "load",
+        "data",
+        "with open(data_file) as h_load:",
+        "    v_load: dict[str, int] = json.load(h_load)",
+        "print(v_load['a'] + v_load['b'])",
+    ),
     _p("struct", "pack", "data", "print(struct.pack('>i', 42))"),
     _p("struct", "unpack", "data", "print(struct.unpack('>i', b'\\x00\\x00\\x00*')[0])"),
 ]
@@ -447,10 +465,14 @@ GROUP_IMPORTS: dict[str, tuple[str, ...]] = {
         "import threading",
         "import zipfile",
     ),
-    "data": ("import json", "import struct"),
+    "data": ("import json", "import os", "import struct", "import tempfile"),
 }
 
 GROUP_SETUP: dict[str, tuple[str, ...]] = {
+    "data": (
+        "data_dir: str = tempfile.mkdtemp()",
+        "data_file: str = os.path.join(data_dir, 'a.json')",
+    ),
     "paths": (
         "path_dir: str = tempfile.mkdtemp()",
         "path_file: str = os.path.join(path_dir, 'a.txt')",
@@ -509,8 +531,8 @@ def test_every_table_row_has_a_probe() -> None:
     extra = sorted(probed - inventory)
     assert not missing, f"call-table rows without a differential probe: {missing}"
     assert not extra, f"probes without a call-table row: {extra}"
-    assert len(inventory) == 153
-    assert len(PROBES) == 153
+    assert len(inventory) == 156
+    assert len(PROBES) == 156
 
 
 def _group_source(group: str) -> str:
