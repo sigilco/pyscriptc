@@ -9,8 +9,8 @@ interface BenchmarkSeries {
   name: string;
   shortName: string;
   value: string;
-  numericVal: number;
-  heightPct: number; // 0 - 100 percentage of max bar height (100px)
+  // Bar length on this card's own linear scale: value / max(values) * 100.
+  heightPct: number;
   color: string;
   isFlagship?: boolean;
 }
@@ -25,6 +25,7 @@ interface BenchmarkCardData {
 
 // Measured on Linux x86_64 against the pinned CPython 3.14.9 oracle
 // (benchmarks/baseline). Ratios are geometric means over the workload group.
+// heightPct is value / max(values) * 100 so every card is a linear scale.
 const BENCHMARKS: BenchmarkCardData[] = [
   {
     title: "Throughput",
@@ -32,9 +33,8 @@ const BENCHMARKS: BenchmarkCardData[] = [
     unit: "Speedup vs CPython 3.14.9 (Linux x86_64)",
     better: "Higher is better",
     series: [
-      { name: "CPython 3.14.9", shortName: "CPython", value: "1.0x", numericVal: 1.0, heightPct: 4, color: "#334155" },
-      { name: "Island Fallback", shortName: "Island", value: "2.0x", numericVal: 2.0, heightPct: 8, color: "#fbbf24" },
-      { name: "Pure Native", shortName: "Native", value: "22.8x", numericVal: 22.8, heightPct: 100, color: "#00c2ff", isFlagship: true },
+      { name: "CPython 3.14.9", shortName: "CPython", value: "1.0x", heightPct: pct(1.0, 22.8), color: "#334155" },
+      { name: "Pure Native", shortName: "Native", value: "22.8x", heightPct: pct(22.8, 22.8), color: "#00c2ff", isFlagship: true },
     ],
   },
   {
@@ -43,9 +43,8 @@ const BENCHMARKS: BenchmarkCardData[] = [
     unit: "Megabytes (MB) vs CPython 3.14.9",
     better: "Lower is better",
     series: [
-      { name: "CPython 3.14.9", shortName: "CPython", value: "~11.5 MB", numericVal: 11.5, heightPct: 100, color: "#334155" },
-      { name: "Island Fallback", shortName: "Island", value: "~11.3 MB", numericVal: 11.3, heightPct: 98, color: "#fbbf24" },
-      { name: "Pure Native", shortName: "Native", value: "~2.2 MB", numericVal: 2.2, heightPct: 19, color: "#00c2ff", isFlagship: true },
+      { name: "CPython 3.14.9", shortName: "CPython", value: "~11.5 MB", heightPct: pct(11.5, 11.5), color: "#334155" },
+      { name: "Pure Native", shortName: "Native", value: "~2.2 MB", heightPct: pct(2.2, 11.5), color: "#00c2ff", isFlagship: true },
     ],
   },
   {
@@ -54,12 +53,15 @@ const BENCHMARKS: BenchmarkCardData[] = [
     unit: "Speedup vs CPython 3.14.9 (Linux x86_64)",
     better: "Higher is better",
     series: [
-      { name: "CPython 3.14.9", shortName: "CPython", value: "1.0x", numericVal: 1.0, heightPct: 7, color: "#334155" },
-      { name: "Island Fallback", shortName: "Island", value: "2.0x", numericVal: 2.0, heightPct: 14, color: "#fbbf24" },
-      { name: "Pure Native", shortName: "Native", value: "14.9x", numericVal: 14.9, heightPct: 65, color: "#00c2ff", isFlagship: true },
+      { name: "CPython 3.14.9", shortName: "CPython", value: "1.0x", heightPct: pct(1.0, 14.9), color: "#334155" },
+      { name: "Pure Native", shortName: "Native", value: "14.9x", heightPct: pct(14.9, 14.9), color: "#00c2ff", isFlagship: true },
     ],
   },
 ];
+
+function pct(value: number, max: number): number {
+  return Math.round((value / max) * 100);
+}
 
 // Exact SVG dimensions & coordinate scale constants
 const SVG_WIDTH = 300;
@@ -67,7 +69,15 @@ const SVG_HEIGHT = 180;
 const BASELINE_Y = 142; // Shared horizontal baseline for all bars
 const MAX_BAR_HEIGHT = 100; // Max bar height in pixels (from baseline upwards)
 const BAR_WIDTH = 58;
-const BAR_CENTERS = [60, 150, 240];
+const PLOT_LEFT = 16;
+const PLOT_RIGHT = SVG_WIDTH - 16;
+
+// Distribute the bars evenly across the plot area, so any number of series
+// shares the same baseline and margins.
+function barCenters(count: number): number[] {
+  const span = PLOT_RIGHT - PLOT_LEFT;
+  return Array.from({ length: count }, (_, i) => PLOT_LEFT + (i + 0.5) * (span / count));
+}
 
 export const BenchmarkRow: React.FC<BenchmarkRowProps> = ({
   theme = "dark",
@@ -169,7 +179,7 @@ export const BenchmarkRow: React.FC<BenchmarkRowProps> = ({
 
                 {/* Render Bars and Labels on Shared Coordinate Grid */}
                 {b.series.map((item, idx) => {
-                  const centerX = BAR_CENTERS[idx];
+                  const centerX = barCenters(b.series.length)[idx];
                   const barX = centerX - BAR_WIDTH / 2;
                   const targetHeight = (item.heightPct / 100) * MAX_BAR_HEIGHT;
                   const currentHeight = Math.max(targetHeight * animProgress, 2);
@@ -221,7 +231,7 @@ export const BenchmarkRow: React.FC<BenchmarkRowProps> = ({
       {/* Reproducible Benchmark Link */}
       <div className="mt-10 pt-6 border-t border-white/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs text-slate-400">
         <span>
-          Baseline: CPython 3.14.9, Linux x86_64. Island fallback: opt-in to host CPython.
+          Baseline: CPython 3.14.9, Linux x86_64. Geometric means over the workload group.
         </span>
         <a
           href={benchmarkUrl}
