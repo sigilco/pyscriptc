@@ -1498,7 +1498,7 @@ REST_FIXED: dict[str, dict[str, dict[str, Any]]] = {
         "access": _sig([_S, _I], _B, "ps_os_access"),
         "getpid": _sig([], _I, "ps_os_getpid"),
         "chdir": _sig([_S], _N, "ps_os_chdir"),
-        "chmod": _sig([_S], _N, "ps_os_chmod"),
+        "chmod": _sig([_S, _I], _N, "ps_os_chmod"),
         "mkdir": _sig([_S], _N, "ps_os_mkdir"),
         "replace": _sig([_S, _S], _N, "ps_os_replace"),
         "unlink": _sig([_S], _N, "ps_os_remove"),
@@ -1585,7 +1585,7 @@ REST_FIXED: dict[str, dict[str, dict[str, Any]]] = {
     },
     "textwrap": {
         "dedent": _sig([_S], _S, "ps_wrap_dedent"),
-        "indent": _sig([_S], _S, "ps_wrap_indent"),
+        "indent": _sig([_S, _S], _S, "ps_wrap_indent"),
     },
     "platform": {
         "system": _sig([], _S, "ps_platform_system"),
