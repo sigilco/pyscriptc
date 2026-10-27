@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-26",
-  "commit": "8188045c4bff110578c0e3c884e277c1573902ca",
+  "commit": "9b915eea78b946eb946f8914b14e495d21cc5803",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -421,11 +421,10 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "load, dump (files), ensure_ascii=False, JSONDecodeError"
+        "ensure_ascii=False, JSONDecodeError"
       ],
       "fences": [
         "PS1106",
-        "PS2001",
         "PS2003"
       ],
       "note": ""
@@ -636,7 +635,7 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "perf_counter, time_ns, ctime, process_time"
+        "time_ns, ctime, process_time"
       ],
       "fences": [
         "PS2001"
@@ -739,7 +738,7 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "walk, scandir, system, urandom, cpu_count, kill, symlink, rmdir, getuid, keyword arguments (makedirs exist_ok)"
+        "scandir, system, urandom, cpu_count, kill, symlink, rmdir, getuid, keyword arguments (makedirs exist_ok)"
       ],
       "fences": [
         "PS2001",
@@ -2207,7 +2206,7 @@
     },
     {
       "date": "2026-10-26",
-      "commit": "8188045c4bff110578c0e3c884e277c1573902ca",
+      "commit": "9b915eea78b946eb946f8914b14e495d21cc5803",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 7,
