@@ -1,5 +1,116 @@
 # Changelog
 
+## [0.7.0] - 2026-10-27
+
+### Receipt
+- Boxed ledger (window of 10 commits, `benchmarks/compat2/boxed_cost.py`): code share 5.0%, churn 7.7%, bug share 20% (1 of 5), iteration tax 10%, drop flag false. Earlier windows had bug shares of 75% and 100% on tiny samples, so the trend is watched, not yet a trigger.
+- Dogfood: 8 of 8 corpus scripts and 8 of 8 libraries run at least on the island floor.
+- Django assessment: 84.4% of definitions run on the island, 55.2% natively.
+- Release rehearsal: build matrix, smoke and wheel verify passed on the base commit `954d6943`.
+
+### Added
+- os.walk, json.load, json.dump and the time clocks (#509) (#724)
+- stage license texts into share/licenses of bundle outputs (#718)
+- trimmed stdlib zip and bundled pure-Python dependencies (#659, #660) (#716)
+- the pinned CPython runtime pack and the --embed-python seam (#657, #658) (#707)
+- relocate program data files and __file__ under the program island (#665) (#708)
+- pin unannotated parameters from argparse namespace fields (#703)
+- mechanical deltas for real-script ports (narrowing, kwargs order, argparse, class loops) (#654)
+- run multi-module programs whole on the island (#656)
+- route fenced class definitions to the island floor (#628) (#637)
+- native ports of real sibling scripts and delta receipts (#633)
+- foldable unannotated module constants and stdlib import rows (#631)
+- route module-level import fences to island top level (#627) (#630)
+- cascade island caller definitions to native siblings (#620, #621, #622) (#625)
+- support keyword arguments and varargs forwarding at island call sites (#605) (#624)
+- suppress checker diagnostics in island definitions (#623)
+- island module top level (#619)
+- per-definition plane map and run --report (#618)
+- per-definition fallback planner routes fenced definitions to the island (#612) (#617)
+- unmarshal function return values into typed locals (#602) (#607)
+- lower stdlib keywords and format Path/exc in f-strings (#595, #596) (#616)
+- closed surface for script CLIs (#510) (#565)
+- fast shutil.copyfile using platform ladder (#581)
+- enforce refuse lane from imports policy table (#406) (#577)
+- nativeDefinitions positive count in summary, report, and telemetry (#470) (#576)
+- compile with --emit binding to produce ctypes loader module (#457) (#573)
+- filter self routes, report import share, and cap output in assess (#570) (#572)
+- assess PATH for native gains and island routes (#558) (#569)
+- call-table rows for int base, open encoding and subprocess check (#563)
+- requests.get pilot, generic trampoline and call wiring (#553) (#567)
+- name runtime reflection and add the capability ladder (#564)
+- differential receipt against the pinned CPython oracle (#555) (#559)
+- island as per-import policy only, requires libpython label and reach export (#157) (#566)
+- must-fence adversarial corpus and soundness ratchet gate (#560)
+- stage a package's data files at the compile-time path (importlib.resources) (#550)
+- S3, format, the is* predicates and repr over code points (#552)
+- S2, the code-point runtime for constructors and the case family (#547)
+
+### Fixed
+- pass pbs_licenses to Nuitka as a file glob, not a directory (#718) (#726)
+- realpath(strict=False) joins a missing tail lexically (#714) (#723)
+- match CPython 3.14 platform.platform() output (#713) (#722)
+- mirrored returns int where CPython expects (#712) (#721)
+- default argparse prog keeps the source .py name (#711) (#720)
+- help-probe no longer crashes on repeated add_argument registration (#710) (#719)
+- refuse cross-package island imports with a named PS2002; route module assignments to the island top level (issue #641) (#705)
+- island module handles re-entered from a nested def scope (#702) (#704)
+- lower -> NoReturn and sys.exit(str) instead of fencing (#645) (#701)
+- set island sys.executable and register the seed module (#698)
+- route user-decorated module functions to the island (#676) (#694)
+- island module handle peeked outside a lowering scope (#650, #643) (#691)
+- island function calls see process argv; native function values demote (#635, #675) (#692)
+- route unbounded annotated int growth to the island (issue #677) (#685)
+- demote native callers that pass mutable containers to island callees (#674) (#684)
+- carry SystemExit str payloads across the island seam (#683)
+- fence untyped decorator expressions with PS2006 (#644)
+- environment alignment, dependency search path and CLI routing (#615)
+- report a compiled raise to the ctypes caller (#604) (#610)
+- distinguish submodule relative imports from cycles (#598, #599) (#608)
+- exit with the SystemExit value, not 1, when uncaught (#603) (#609)
+- backfill .imports for older unpack cache entries (#562) (#584)
+
+### Performance
+- double the set index table instead of re-deriving it (#646)
+- add ARMv8 and SHA-NI hardware dispatch for SHA-256 (#583)
+- stat-based cache key and lazy compiler imports on warm run path (#580)
+
+### Changed
+- use docmd's llms plugin and append only the data files section (#640)
+
+### Docs
+- runtime pack licensing, security cadence and the embed CI jobs (#706)
+- remove owner machine and identity leaks from notes and plans (#699)
+- the native Python typing guide, and the typing framing fix (#697)
+- assess nono sandbox for bounding agent sessions (#696)
+- analyze mixed-plane modules, the 58.4 vs 18.4 gap and multiprocessing (#678, #641) (#687)
+- measure the island remainder across scripts, libraries and packages (#682)
+- record the accepted boxed churn and the lowered drop flag (#655)
+- assess compiler and user-code profiling and idiom preferences (#647)
+- evaluate fence lowering sequencing options (#634)
+- assess compiling the harness session CLI (#649)
+- add pytest native-compile assessment note (#648)
+- split documentation by update cadence and align with typed subset scope (#632)
+- island floor user guide for weekly use (#629)
+- island floor granularity, per-definition fallback design (#597) (#611)
+- document stability tiers, contracts, and packaging hygiene (#465) (#582)
+- the first-class script bar and beta-readiness checklist (#507) (#579)
+- renumber divergences 35-41 down to 34-40 after 34 was dropped (#578)
+- generate what-will-fail page from R0 corpus fences (#508) (#574)
+
+### CI
+- drop the 5-day minimum between minors (#725)
+- nightly compat snapshot 2026-10-24 (#549)
+
+### Other
+- bench(real): time the native ports and keep one island floor page (#639)
+- bench(real): island floor performance on the eight dogfood scripts (#636)
+- bench(scaling): add data-shaped scaling cases and complexity guards (#387) (#589)
+- docs+fix(divergences): floordiv-by-zero doc, os.mkdir FileExistsError, and chr fences (#529) (#575)
+- dx(compile): print the root fence and count the cascade (#511) (#571)
+- bench: the library receipt, certifi compiles and matches CPython (#409) (#561)
+- lower: local, parameter and return inference from the bound value (#500) (#551)
+
 ## [0.6.1] - 2026-10-24
 
 ### Added
