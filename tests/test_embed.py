@@ -339,3 +339,14 @@ def test_flag_wins_over_config(tmp_path: Path) -> None:
     args = SimpleNamespace(embed_python=None)
     apply_to_args(load_config(tmp_path), args)
     assert args.embed_python == "bundle"
+
+
+def test_resolve_mode_auto_falls_back_to_host_without_a_locked_pack(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(embed, "host_has_shared_libpython", lambda: False)
+
+    def no_pack(*_args: object, **_kwargs: object) -> None:
+        raise embed.EmbedError("no runtime pack for linux-arm64")
+
+    monkeypatch.setattr(embed, "lock_pack", no_pack)
+    assert embed.resolve_mode("auto") == "host"
+    assert embed.resolve_mode("bundle") == "bundle"

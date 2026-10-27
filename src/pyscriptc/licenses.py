@@ -31,18 +31,17 @@ from __future__ import annotations
 import shutil
 from collections.abc import Iterator
 from contextlib import contextmanager
-from importlib import resources
 from pathlib import Path
 
-PACKAGE = "pyscriptc.pbs_licenses"
 NOTICE_NAME = "NOTICE"
 
 
 @contextmanager
 def _data_dir() -> Iterator[Path]:
     """The packaged license data directory, as a real filesystem path."""
-    with resources.as_file(resources.files(PACKAGE)) as path:
-        yield path
+    # The directory has no __init__, so a frozen (Nuitka onefile) build cannot import it
+    # as a package; the data files sit next to this module in every layout.
+    yield Path(__file__).resolve().parent / "pbs_licenses"
 
 
 def stage_pack_licenses(dest: Path) -> list[str]:
