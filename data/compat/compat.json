@@ -1,0 +1,2226 @@
+{
+  "schema": "1",
+  "generated": "2026-10-27",
+  "commit": "c7be3aafe528591074991042e447d2a979e3de5c",
+  "sources": {
+    "support_data": "scripts/support_data.toml",
+    "pins": "benchmarks/compat/top100/pins.json",
+    "coverage": "pyscriptc coverage over benchmarks/compat/top100/src",
+    "score": ""
+  },
+  "summary": {
+    "builtins_full": 2,
+    "builtins_partial": 15,
+    "builtins_none": 1,
+    "stdlib_full": 0,
+    "stdlib_partial": 59,
+    "stdlib_none": 0,
+    "packages_full": 2,
+    "packages_partial": 7,
+    "packages_none": 9,
+    "weighted_pass": 0.0,
+    "fences": 2719
+  },
+  "builtins": [
+    {
+      "id": "builtin.abs",
+      "kind": "builtin",
+      "label": "`abs`, `all`, `any`, `bin`, `chr`, `divmod`, `enumerate`, `getattr`, `hasattr`, `hex`, `iter`, `len`, `map`, `next`, `oct`, `ord`, `pow`, `range`, `repr`, `reversed`, `round`, `sum`, `bool`, `set`",
+      "names": [
+        "abs",
+        "all",
+        "any",
+        "bin",
+        "chr",
+        "divmod",
+        "enumerate",
+        "getattr",
+        "hasattr",
+        "hex",
+        "iter",
+        "len",
+        "map",
+        "next",
+        "oct",
+        "ord",
+        "pow",
+        "range",
+        "repr",
+        "reversed",
+        "round",
+        "sum",
+        "bool",
+        "set"
+      ],
+      "status": "full",
+      "count": 24,
+      "unsupported": [],
+      "fences": [],
+      "note": ""
+    },
+    {
+      "id": "builtin.print",
+      "kind": "builtin",
+      "label": "`print`",
+      "names": [
+        "print"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "file= other than sys.stdout or sys.stderr"
+      ],
+      "fences": [
+        "PS2002"
+      ],
+      "note": ""
+    },
+    {
+      "id": "builtin.input",
+      "kind": "builtin",
+      "label": "`input`",
+      "names": [
+        "input"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "prompt argument"
+      ],
+      "fences": [
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "builtin.int",
+      "kind": "builtin",
+      "label": "`int`",
+      "names": [
+        "int"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "unknown keyword, int(bool)"
+      ],
+      "fences": [
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "builtin.float",
+      "kind": "builtin",
+      "label": "`float`",
+      "names": [
+        "float"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "float(bool)"
+      ],
+      "fences": [
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "builtin.str",
+      "kind": "builtin",
+      "label": "`str`",
+      "names": [
+        "str"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "str of a user class"
+      ],
+      "fences": [
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "builtin.list",
+      "kind": "builtin",
+      "label": "`list`",
+      "names": [
+        "list"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "list(str)"
+      ],
+      "fences": [
+        "PS2002"
+      ],
+      "note": ""
+    },
+    {
+      "id": "builtin.min",
+      "kind": "builtin",
+      "label": "`min`, `max`",
+      "names": [
+        "min",
+        "max"
+      ],
+      "status": "partial",
+      "count": 2,
+      "unsupported": [
+        "key= a function name"
+      ],
+      "fences": [
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "builtin.sorted",
+      "kind": "builtin",
+      "label": "`sorted`",
+      "names": [
+        "sorted"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "key= a function name, sorted(dict)"
+      ],
+      "fences": [
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "builtin.zip",
+      "kind": "builtin",
+      "label": "`zip`",
+      "names": [
+        "zip"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "more than 2 lists"
+      ],
+      "fences": [
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "builtin.filter",
+      "kind": "builtin",
+      "label": "`filter`",
+      "names": [
+        "filter"
+      ],
+      "status": "full",
+      "count": 1,
+      "unsupported": [],
+      "fences": [],
+      "note": ""
+    },
+    {
+      "id": "builtin.isinstance",
+      "kind": "builtin",
+      "label": "`isinstance`",
+      "names": [
+        "isinstance"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "tuple of types"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "builtin.open",
+      "kind": "builtin",
+      "label": "`open`",
+      "names": [
+        "open"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "keywords other than encoding="
+      ],
+      "fences": [
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "builtin.id",
+      "kind": "builtin",
+      "label": "`id`",
+      "names": [
+        "id"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "id of int"
+      ],
+      "fences": [
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "builtin.frozenset",
+      "kind": "builtin",
+      "label": "`frozenset`",
+      "names": [
+        "frozenset"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "non-constant argument"
+      ],
+      "fences": [
+        "PS2002"
+      ],
+      "note": ""
+    },
+    {
+      "id": "builtin.eval",
+      "kind": "builtin",
+      "label": "`eval`",
+      "names": [
+        "eval"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "anything but a constant expression"
+      ],
+      "fences": [
+        "PS2002"
+      ],
+      "note": ""
+    },
+    {
+      "id": "builtin.baseexception",
+      "kind": "builtin",
+      "label": "`BaseException` and subclasses",
+      "names": [
+        "BaseException",
+        "Exception",
+        "ValueError",
+        "KeyError",
+        "RuntimeError",
+        "TypeError",
+        "StopIteration"
+      ],
+      "status": "partial",
+      "count": 7,
+      "unsupported": [
+        "ExceptionGroup"
+      ],
+      "fences": [
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "builtin.bytes",
+      "kind": "builtin",
+      "label": "`bytes`, `bytearray`, `memoryview`, `callable`, `complex`, `dict`, `format`, `tuple`, `type`, `object`, `super`, `vars`, `dir`, `globals`, `locals`, `exec`, `issubclass`, `ascii`, `setattr`, `delattr`, `slice`, `hash`, `__import__`",
+      "names": [
+        "bytes",
+        "bytearray",
+        "memoryview",
+        "callable",
+        "complex",
+        "dict",
+        "format",
+        "tuple",
+        "type",
+        "object",
+        "super",
+        "vars",
+        "dir",
+        "globals",
+        "locals",
+        "exec",
+        "issubclass",
+        "ascii",
+        "setattr",
+        "delattr",
+        "slice",
+        "hash",
+        "__import__"
+      ],
+      "status": "none",
+      "count": 23,
+      "unsupported": [
+        "all (`dict` displays and `{}` work; `dict(...)` does not)"
+      ],
+      "fences": [
+        "PS2002"
+      ],
+      "note": "all (`dict` displays and `{}` work; `dict(...)` does not)"
+    }
+  ],
+  "stdlib": [
+    {
+      "id": "stdlib.math",
+      "kind": "stdlib",
+      "label": "`math`",
+      "names": [
+        "math"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "asin, sinh, degrees, fsum, factorial, comb, isqrt, copysign, fmod, cbrt, log with a base"
+      ],
+      "fences": [
+        "PS2001",
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.re",
+      "kind": "stdlib",
+      "label": "`re`",
+      "names": [
+        "re"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "finditer, 5+ groups, sub with a function"
+      ],
+      "fences": [
+        "PS1001",
+        "PS2001",
+        "PS2002"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.json",
+      "kind": "stdlib",
+      "label": "`json`",
+      "names": [
+        "json"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "ensure_ascii=False, JSONDecodeError"
+      ],
+      "fences": [
+        "PS1106",
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.tomllib",
+      "kind": "stdlib",
+      "label": "`tomllib`",
+      "names": [
+        "tomllib"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "load (file object), keyword arguments"
+      ],
+      "fences": [
+        "PS2001",
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.dotenv",
+      "kind": "stdlib",
+      "label": "`dotenv`",
+      "names": [
+        "dotenv"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "stream, verbose, interpolate, override, encoding arguments, other dotenv members (find_dotenv, set_key, DotEnv), interpolation ($VAR stays literal)"
+      ],
+      "fences": [
+        "PS2001",
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.yaml",
+      "kind": "stdlib",
+      "label": "`yaml`",
+      "names": [
+        "yaml"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "load, dump, safe_dump, keyword arguments"
+      ],
+      "fences": [
+        "PS2001",
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.jwt",
+      "kind": "stdlib",
+      "label": "`jwt`",
+      "names": [
+        "jwt"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "RS256 and other asymmetric algorithms, non-literal algorithm, other jwt members (get_unverified_header, PyJWTError), claims beyond str values (exp, aud), options dict, headers argument"
+      ],
+      "fences": [
+        "PS1003",
+        "PS2001",
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.orjson",
+      "kind": "stdlib",
+      "label": "`orjson`",
+      "names": [
+        "orjson"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "default callable, other OPT_ flags, other orjson members (Fragment, JSONDecodeError)"
+      ],
+      "fences": [
+        "PS2001",
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.urllib-request",
+      "kind": "stdlib",
+      "label": "`urllib.request`, `urllib.error`",
+      "names": [
+        "urllib.request",
+        "urllib.error"
+      ],
+      "status": "partial",
+      "count": 2,
+      "unsupported": [
+        "urlopen header keyword, other urllib.request members (build_opener, install_opener, urlretrieve), HTTPError attribute reads"
+      ],
+      "fences": [
+        "PS2001",
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.urllib-parse",
+      "kind": "stdlib",
+      "label": "`urllib.parse`",
+      "names": [
+        "urllib.parse"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "urlparse, urljoin, urlunsplit, parse_qsl"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.base64",
+      "kind": "stdlib",
+      "label": "`base64`",
+      "names": [
+        "base64"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "b32, b16, a85, encodebytes"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.hashlib",
+      "kind": "stdlib",
+      "label": "`hashlib`",
+      "names": [
+        "hashlib"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "blake2, sha3, sha224, new, pbkdf2_hmac, incremental update (no-argument constructor)"
+      ],
+      "fences": [
+        "PS2001",
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.struct",
+      "kind": "stdlib",
+      "label": "`struct`",
+      "names": [
+        "struct"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "calcsize, unpack_from, non-literal format"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.datetime",
+      "kind": "stdlib",
+      "label": "`datetime`",
+      "names": [
+        "datetime"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "timezone and tzinfo, utcnow, datetime.strftime"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.time",
+      "kind": "stdlib",
+      "label": "`time`",
+      "names": [
+        "time"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "time_ns, ctime, process_time"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.collections",
+      "kind": "stdlib",
+      "label": "`collections`",
+      "names": [
+        "collections"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "ChainMap"
+      ],
+      "fences": [
+        "PS1106"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.functools",
+      "kind": "stdlib",
+      "label": "`functools`",
+      "names": [
+        "functools"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "reduce with a lambda, reduce with an initializer, partial, wraps, lru_cache, cmp_to_key, cache, total_ordering"
+      ],
+      "fences": [
+        "PS2001",
+        "PS2002"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.itertools",
+      "kind": "stdlib",
+      "label": "`itertools`",
+      "names": [
+        "itertools"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "count, cycle (infinite), permutations, pairwise, batched, tee, dropwhile, compress"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.operator",
+      "kind": "stdlib",
+      "label": "`operator`",
+      "names": [
+        "operator"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "itemgetter, attrgetter, methodcaller, and_, not_, getitem"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.contextlib",
+      "kind": "stdlib",
+      "label": "`contextlib`",
+      "names": [
+        "contextlib"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "closing, redirect_stdout, ExitStack, contextmanager"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.os",
+      "kind": "stdlib",
+      "label": "`os`",
+      "names": [
+        "os"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "scandir, system, urandom, cpu_count, kill, symlink, rmdir, getuid, keyword arguments (makedirs exist_ok)"
+      ],
+      "fences": [
+        "PS2001",
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.posixpath",
+      "kind": "stdlib",
+      "label": "`posixpath`",
+      "names": [
+        "posixpath"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "commonpath, ismount, lexists"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.pathlib",
+      "kind": "stdlib",
+      "label": "`pathlib`",
+      "names": [
+        "pathlib"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "rglob, absolute, rmdir, with_suffix, relative_to, resolve to str, PurePath"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.stat",
+      "kind": "stdlib",
+      "label": "`stat`",
+      "names": [
+        "stat"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "S_IMODE, S_ISFIFO, S_ISSOCK, filemode"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.fnmatch",
+      "kind": "stdlib",
+      "label": "`fnmatch`",
+      "names": [
+        "fnmatch"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "fnmatchcase, translate"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.warnings",
+      "kind": "stdlib",
+      "label": "`warnings`",
+      "names": [
+        "warnings"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "warn with a category, simplefilter"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.io",
+      "kind": "stdlib",
+      "label": "`io`",
+      "names": [
+        "io"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "TextIOWrapper, BufferedReader, io.open"
+      ],
+      "fences": [
+        "PS1106"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.sys",
+      "kind": "stdlib",
+      "label": "`sys`",
+      "names": [
+        "sys"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "stdin, path, modules, getsizeof, getrecursionlimit, stdout.flush"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.importlib",
+      "kind": "stdlib",
+      "label": "`importlib`",
+      "names": [
+        "importlib"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "import_module, reload"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.inspect",
+      "kind": "stdlib",
+      "label": "`inspect`",
+      "names": [
+        "inspect"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "getsource, isclass, signature, iscoroutinefunction"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.threading",
+      "kind": "stdlib",
+      "label": "`threading`",
+      "names": [
+        "threading"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "main_thread, Thread target is a callable, Timer, Lock in `with`"
+      ],
+      "fences": [
+        "PS1003",
+        "PS1106",
+        "PS2001",
+        "PS2002"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.queue",
+      "kind": "stdlib",
+      "label": "`queue`",
+      "names": [
+        "queue"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "PriorityQueue, a queue without an element annotation, an unknown queue method, a bool element type"
+      ],
+      "fences": [
+        "PS1001",
+        "PS1106",
+        "PS2001",
+        "PS2002"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.logging",
+      "kind": "stdlib",
+      "label": "`logging`",
+      "names": [
+        "logging"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "basicConfig(level=...), format args (`logging.info(fmt, a)`), exception, handlers (StreamHandler)"
+      ],
+      "fences": [
+        "PS2001",
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.asyncio",
+      "kind": "stdlib",
+      "label": "`asyncio`",
+      "names": [
+        "asyncio"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "bare Queue annotation (element type needed), get_event_loop, sleep outside a coroutine"
+      ],
+      "fences": [
+        "PS1001",
+        "PS2001",
+        "PS2002"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.subprocess",
+      "kind": "stdlib",
+      "label": "`subprocess`",
+      "names": [
+        "subprocess"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "Popen, getoutput, text=True"
+      ],
+      "fences": [
+        "PS1003",
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.socket",
+      "kind": "stdlib",
+      "label": "`socket`",
+      "names": [
+        "socket"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "socket(), gethostbyname"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.ssl",
+      "kind": "stdlib",
+      "label": "`ssl`",
+      "names": [
+        "ssl"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "contexts (create_default_context)"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.ctypes",
+      "kind": "stdlib",
+      "label": "`ctypes`",
+      "names": [
+        "ctypes"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "CDLL, c_int(...), sizeof of other types"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.string",
+      "kind": "stdlib",
+      "label": "`string`",
+      "names": [
+        "string"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "capwords, Template"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.bisect",
+      "kind": "stdlib",
+      "label": "`bisect`",
+      "names": [
+        "bisect"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "insort, bisect, key=, list[str]"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.errno",
+      "kind": "stdlib",
+      "label": "`errno`",
+      "names": [
+        "errno"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "errorcode"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.importlib-resources",
+      "kind": "stdlib",
+      "label": "`importlib.resources`",
+      "names": [
+        "importlib.resources"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "read_text, is_resource"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.hmac",
+      "kind": "stdlib",
+      "label": "`hmac`",
+      "names": [
+        "hmac"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "hexdigest, digestmod="
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.unicodedata",
+      "kind": "stdlib",
+      "label": "`unicodedata`",
+      "names": [
+        "unicodedata"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "ucd_3_2_0 (also: Latin-1 only)"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.tempfile",
+      "kind": "stdlib",
+      "label": "`tempfile`",
+      "names": [
+        "tempfile"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "mkstemp, TemporaryDirectory"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.atexit",
+      "kind": "stdlib",
+      "label": "`atexit`",
+      "names": [
+        "atexit"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "register of a function with arguments, unregister"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.shutil",
+      "kind": "stdlib",
+      "label": "`shutil`",
+      "names": [
+        "shutil"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "make_archive, disk_usage, chown"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.enum",
+      "kind": "stdlib",
+      "label": "`enum`",
+      "names": [
+        "enum"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "Flag, str-valued members, methods on the enum"
+      ],
+      "fences": [
+        "PS2002"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.dataclasses",
+      "kind": "stdlib",
+      "label": "`dataclasses`",
+      "names": [
+        "dataclasses"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "field(), asdict, frozen=, order= and other options"
+      ],
+      "fences": [
+        "PS1201",
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.random",
+      "kind": "stdlib",
+      "label": "`random`",
+      "names": [
+        "random"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "sample, gauss, Random, choices(k=)"
+      ],
+      "fences": [
+        "PS2001",
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.csv",
+      "kind": "stdlib",
+      "label": "`csv`",
+      "names": [
+        "csv"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "DictReader, writer on a non-file"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.textwrap",
+      "kind": "stdlib",
+      "label": "`textwrap`",
+      "names": [
+        "textwrap"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "TextWrapper"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.copy",
+      "kind": "stdlib",
+      "label": "`copy`",
+      "names": [
+        "copy"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "copy of a user class"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.argparse",
+      "kind": "stdlib",
+      "label": "`argparse`",
+      "names": [
+        "argparse"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "subparsers, nargs=, choices="
+      ],
+      "fences": [
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.platform",
+      "kind": "stdlib",
+      "label": "`platform`",
+      "names": [
+        "platform"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "processor"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.calendar",
+      "kind": "stdlib",
+      "label": "`calendar`",
+      "names": [
+        "calendar"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "monthcalendar"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.zipfile",
+      "kind": "stdlib",
+      "label": "`zipfile`",
+      "names": [
+        "zipfile"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "ZipFile"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.tarfile",
+      "kind": "stdlib",
+      "label": "`tarfile`",
+      "names": [
+        "tarfile"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "TarFile"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.typing",
+      "kind": "stdlib",
+      "label": "`typing`, `typing_extensions`",
+      "names": [
+        "typing",
+        "typing_extensions"
+      ],
+      "status": "partial",
+      "count": 2,
+      "unsupported": [
+        "Any annotation, bare Callable, multi-arm union, optional of a multi-arm union, Literal annotation, Self return, TypeAlias declaration, PEP 695 type alias, PEP 695 TypeVar parameter, forward reference string, TypedDict class base, NamedTuple class base, NewType value, ParamSpec value, cast value, get_type_hints reflection, isinstance with a generic, __annotations__ read"
+      ],
+      "fences": [
+        "PS1101",
+        "PS1102",
+        "PS1103",
+        "PS1104",
+        "PS1105",
+        "PS1106",
+        "PS2001",
+        "PS2002"
+      ],
+      "note": "annotation-only: imports are free, annotations are the lowering input, erased before emission; typing names used as values fence"
+    }
+  ],
+  "packages": [
+    {
+      "name": "certifi",
+      "import_name": "certifi",
+      "version": "2026.7.22",
+      "status": "full",
+      "fences": 0,
+      "definitions": 5,
+      "fenced_definitions": 0,
+      "top_families": [],
+      "codes": [],
+      "pypi": "https://pypi.org/project/certifi/"
+    },
+    {
+      "name": "colorama",
+      "import_name": "colorama",
+      "version": "0.4.6",
+      "status": "none",
+      "fences": 133,
+      "definitions": 77,
+      "fenced_definitions": 48,
+      "top_families": [
+        {
+          "family": "class-body",
+          "count": 51
+        },
+        {
+          "family": "param-inference",
+          "count": 29
+        },
+        {
+          "family": "construct-other",
+          "count": 13
+        }
+      ],
+      "codes": [
+        {
+          "code": "PS1204",
+          "count": 51
+        },
+        {
+          "code": "PS2002",
+          "count": 42
+        },
+        {
+          "code": "PS1001",
+          "count": 36
+        }
+      ],
+      "pypi": "https://pypi.org/project/colorama/"
+    },
+    {
+      "name": "python-dotenv",
+      "import_name": "dotenv",
+      "version": "1.2.4",
+      "status": "none",
+      "fences": 115,
+      "definitions": 75,
+      "fenced_definitions": 42,
+      "top_families": [
+        {
+          "family": "unlowered-call",
+          "count": 25
+        },
+        {
+          "family": "name-resolution",
+          "count": 17
+        },
+        {
+          "family": "construct-other",
+          "count": 17
+        }
+      ],
+      "codes": [
+        {
+          "code": "PS2002",
+          "count": 85
+        },
+        {
+          "code": "PS1106",
+          "count": 10
+        },
+        {
+          "code": "PS1001",
+          "count": 7
+        }
+      ],
+      "pypi": "https://pypi.org/project/python-dotenv/"
+    },
+    {
+      "name": "filelock",
+      "import_name": "filelock",
+      "version": "4.1.1",
+      "status": "partial",
+      "fences": 684,
+      "definitions": 641,
+      "fenced_definitions": 238,
+      "top_families": [
+        {
+          "family": "name-resolution",
+          "count": 147
+        },
+        {
+          "family": "construct-other",
+          "count": 101
+        },
+        {
+          "family": "generic-alias",
+          "count": 52
+        }
+      ],
+      "codes": [
+        {
+          "code": "PS2002",
+          "count": 411
+        },
+        {
+          "code": "PS2001",
+          "count": 78
+        },
+        {
+          "code": "PS1103",
+          "count": 52
+        }
+      ],
+      "pypi": "https://pypi.org/project/filelock/"
+    },
+    {
+      "name": "h11",
+      "import_name": "h11",
+      "version": "0.16.0",
+      "status": "none",
+      "fences": 192,
+      "definitions": 133,
+      "fenced_definitions": 74,
+      "top_families": [
+        {
+          "family": "unlowered-type-name",
+          "count": 17
+        },
+        {
+          "family": "reflection",
+          "count": 16
+        },
+        {
+          "family": "generic-alias",
+          "count": 14
+        }
+      ],
+      "codes": [
+        {
+          "code": "PS2002",
+          "count": 106
+        },
+        {
+          "code": "PS1106",
+          "count": 17
+        },
+        {
+          "code": "PS1203",
+          "count": 15
+        }
+      ],
+      "pypi": "https://pypi.org/project/h11/"
+    },
+    {
+      "name": "idna",
+      "import_name": "idna",
+      "version": "3.20",
+      "status": "none",
+      "fences": 94,
+      "definitions": 56,
+      "fenced_definitions": 37,
+      "top_families": [
+        {
+          "family": "keyword-args",
+          "count": 16
+        },
+        {
+          "family": "construct-other",
+          "count": 9
+        },
+        {
+          "family": "unlowered-call",
+          "count": 8
+        }
+      ],
+      "codes": [
+        {
+          "code": "PS2002",
+          "count": 46
+        },
+        {
+          "code": "PS2003",
+          "count": 23
+        },
+        {
+          "code": "PS1101",
+          "count": 7
+        }
+      ],
+      "pypi": "https://pypi.org/project/idna/"
+    },
+    {
+      "name": "iniconfig",
+      "import_name": "iniconfig",
+      "version": "2.3.1",
+      "status": "partial",
+      "fences": 29,
+      "definitions": 34,
+      "fenced_definitions": 13,
+      "top_families": [
+        {
+          "family": "type-mismatch",
+          "count": 5
+        },
+        {
+          "family": "generic-alias",
+          "count": 4
+        },
+        {
+          "family": "union-types",
+          "count": 4
+        }
+      ],
+      "codes": [
+        {
+          "code": "PS2002",
+          "count": 6
+        },
+        {
+          "code": "PS1003",
+          "count": 5
+        },
+        {
+          "code": "PS1103",
+          "count": 4
+        }
+      ],
+      "pypi": "https://pypi.org/project/iniconfig/"
+    },
+    {
+      "name": "jmespath",
+      "import_name": "jmespath",
+      "version": "1.1.0",
+      "status": "none",
+      "fences": 125,
+      "definitions": 200,
+      "fenced_definitions": 107,
+      "top_families": [
+        {
+          "family": "param-inference",
+          "count": 78
+        },
+        {
+          "family": "return-inference",
+          "count": 15
+        },
+        {
+          "family": "class-body",
+          "count": 9
+        }
+      ],
+      "codes": [
+        {
+          "code": "PS1001",
+          "count": 93
+        },
+        {
+          "code": "PS2002",
+          "count": 14
+        },
+        {
+          "code": "PS1204",
+          "count": 9
+        }
+      ],
+      "pypi": "https://pypi.org/project/jmespath/"
+    },
+    {
+      "name": "pyjwt",
+      "import_name": "jwt",
+      "version": "2.15.1",
+      "status": "partial",
+      "fences": 122,
+      "definitions": 171,
+      "fenced_definitions": 65,
+      "top_families": [
+        {
+          "family": "dynamic-annotation",
+          "count": 20
+        },
+        {
+          "family": "name-resolution",
+          "count": 19
+        },
+        {
+          "family": "union-types",
+          "count": 13
+        }
+      ],
+      "codes": [
+        {
+          "code": "PS2002",
+          "count": 55
+        },
+        {
+          "code": "PS1104",
+          "count": 20
+        },
+        {
+          "code": "PS2001",
+          "count": 15
+        }
+      ],
+      "pypi": "https://pypi.org/project/pyjwt/"
+    },
+    {
+      "name": "mdurl",
+      "import_name": "mdurl",
+      "version": "0.1.2",
+      "status": "none",
+      "fences": 22,
+      "definitions": 12,
+      "fenced_definitions": 7,
+      "top_families": [
+        {
+          "family": "name-resolution",
+          "count": 5
+        },
+        {
+          "family": "construct-other",
+          "count": 3
+        },
+        {
+          "family": "unlowered-call",
+          "count": 3
+        }
+      ],
+      "codes": [
+        {
+          "code": "PS2002",
+          "count": 15
+        },
+        {
+          "code": "PS2003",
+          "count": 2
+        },
+        {
+          "code": "PS2001",
+          "count": 1
+        }
+      ],
+      "pypi": "https://pypi.org/project/mdurl/"
+    },
+    {
+      "name": "packaging",
+      "import_name": "packaging",
+      "version": "26.3",
+      "status": "partial",
+      "fences": 556,
+      "definitions": 558,
+      "fenced_definitions": 279,
+      "top_families": [
+        {
+          "family": "unlowered-type-name",
+          "count": 90
+        },
+        {
+          "family": "name-resolution",
+          "count": 78
+        },
+        {
+          "family": "class-body",
+          "count": 52
+        }
+      ],
+      "codes": [
+        {
+          "code": "PS2002",
+          "count": 214
+        },
+        {
+          "code": "PS1106",
+          "count": 90
+        },
+        {
+          "code": "PS1204",
+          "count": 52
+        }
+      ],
+      "pypi": "https://pypi.org/project/packaging/"
+    },
+    {
+      "name": "pathspec",
+      "import_name": "pathspec",
+      "version": "1.1.1",
+      "status": "none",
+      "fences": 220,
+      "definitions": 132,
+      "fenced_definitions": 92,
+      "top_families": [
+        {
+          "family": "name-resolution",
+          "count": 30
+        },
+        {
+          "family": "unlowered-type-name",
+          "count": 21
+        },
+        {
+          "family": "decorators",
+          "count": 21
+        }
+      ],
+      "codes": [
+        {
+          "code": "PS2002",
+          "count": 108
+        },
+        {
+          "code": "PS1106",
+          "count": 21
+        },
+        {
+          "code": "PS1201",
+          "count": 20
+        }
+      ],
+      "pypi": "https://pypi.org/project/pathspec/"
+    },
+    {
+      "name": "platformdirs",
+      "import_name": "platformdirs",
+      "version": "4.13.0",
+      "status": "partial",
+      "fences": 257,
+      "definitions": 388,
+      "fenced_definitions": 154,
+      "top_families": [
+        {
+          "family": "construct-other",
+          "count": 62
+        },
+        {
+          "family": "name-resolution",
+          "count": 51
+        },
+        {
+          "family": "optional-types",
+          "count": 33
+        }
+      ],
+      "codes": [
+        {
+          "code": "PS2002",
+          "count": 131
+        },
+        {
+          "code": "PS1102",
+          "count": 33
+        },
+        {
+          "code": "PS2001",
+          "count": 22
+        }
+      ],
+      "pypi": "https://pypi.org/project/platformdirs/"
+    },
+    {
+      "name": "pytz",
+      "import_name": "pytz",
+      "version": "2026.5",
+      "status": "partial",
+      "fences": 51,
+      "definitions": 102,
+      "fenced_definitions": 32,
+      "top_families": [
+        {
+          "family": "param-inference",
+          "count": 16
+        },
+        {
+          "family": "return-inference",
+          "count": 2
+        },
+        {
+          "family": "stdlib:datetime",
+          "count": 2
+        }
+      ],
+      "codes": [
+        {
+          "code": "PS2002",
+          "count": 30
+        },
+        {
+          "code": "PS1001",
+          "count": 18
+        },
+        {
+          "code": "PS2001",
+          "count": 3
+        }
+      ],
+      "pypi": "https://pypi.org/project/pytz/"
+    },
+    {
+      "name": "shellingham",
+      "import_name": "shellingham",
+      "version": "1.5.4",
+      "status": "none",
+      "fences": 46,
+      "definitions": 25,
+      "fenced_definitions": 19,
+      "top_families": [
+        {
+          "family": "module-value",
+          "count": 19
+        },
+        {
+          "family": "param-inference",
+          "count": 12
+        },
+        {
+          "family": "return-inference",
+          "count": 6
+        }
+      ],
+      "codes": [
+        {
+          "code": "PS2002",
+          "count": 27
+        },
+        {
+          "code": "PS1001",
+          "count": 18
+        },
+        {
+          "code": "PS2001",
+          "count": 1
+        }
+      ],
+      "pypi": "https://pypi.org/project/shellingham/"
+    },
+    {
+      "name": "trove-classifiers",
+      "import_name": "trove_classifiers",
+      "version": "2026.9.21.13",
+      "status": "partial",
+      "fences": 1,
+      "definitions": 0,
+      "fenced_definitions": 0,
+      "top_families": [
+        {
+          "family": "module-assign",
+          "count": 1
+        }
+      ],
+      "codes": [
+        {
+          "code": "PS2002",
+          "count": 1
+        }
+      ],
+      "pypi": "https://pypi.org/project/trove-classifiers/"
+    },
+    {
+      "name": "tzdata",
+      "import_name": "tzdata",
+      "version": "2026.5",
+      "status": "full",
+      "fences": 0,
+      "definitions": 0,
+      "fenced_definitions": 0,
+      "top_families": [],
+      "codes": [],
+      "pypi": "https://pypi.org/project/tzdata/"
+    },
+    {
+      "name": "zipp",
+      "import_name": "zipp",
+      "version": "4.1.1",
+      "status": "none",
+      "fences": 72,
+      "definitions": 75,
+      "fenced_definitions": 57,
+      "top_families": [
+        {
+          "family": "param-inference",
+          "count": 32
+        },
+        {
+          "family": "return-inference",
+          "count": 18
+        },
+        {
+          "family": "module-value",
+          "count": 3
+        }
+      ],
+      "codes": [
+        {
+          "code": "PS1001",
+          "count": 50
+        },
+        {
+          "code": "PS2002",
+          "count": 15
+        },
+        {
+          "code": "PS2001",
+          "count": 3
+        }
+      ],
+      "pypi": "https://pypi.org/project/zipp/"
+    }
+  ],
+  "language": [],
+  "ladder": {
+    "corpus": "benchmarks/scripts_corpus",
+    "rungs": [
+      {
+        "rung": "R1",
+        "label": "Single-file script",
+        "corpus": "benchmarks/scripts_corpus/scripts",
+        "total": 45,
+        "compiled": 16,
+        "passed": 13,
+        "measured": true
+      },
+      {
+        "rung": "R2",
+        "label": "Multi-module tree",
+        "corpus": "benchmarks/scripts_corpus/trees",
+        "total": 5,
+        "compiled": 4,
+        "passed": 4,
+        "measured": true
+      }
+    ],
+    "lanes": [
+      {
+        "lane": "native",
+        "imports": 273,
+        "share": 0.8273
+      },
+      {
+        "lane": "pack",
+        "imports": 1,
+        "share": 0.003
+      },
+      {
+        "lane": "extern",
+        "imports": 56,
+        "share": 0.1697
+      },
+      {
+        "lane": "island",
+        "imports": 0,
+        "share": 0.0
+      },
+      {
+        "lane": "absent",
+        "imports": 0,
+        "share": 0.0
+      }
+    ],
+    "selfContainedShare": 0.2222,
+    "trees": 18
+  },
+  "fences": [
+    {
+      "code": "PS2002",
+      "title": "construct not lowered",
+      "count": 1306,
+      "packages": 16
+    },
+    {
+      "code": "PS1001",
+      "title": "annotation missing or not lowered",
+      "count": 301,
+      "packages": 13
+    },
+    {
+      "code": "PS2001",
+      "title": "stdlib name not lowered",
+      "count": 209,
+      "packages": 15
+    },
+    {
+      "code": "PS1106",
+      "title": "annotation names an unlowered type",
+      "count": 197,
+      "packages": 9
+    },
+    {
+      "code": "PS1204",
+      "title": "class body statement",
+      "count": 125,
+      "packages": 7
+    },
+    {
+      "code": "PS1103",
+      "title": "generic alias annotation",
+      "count": 121,
+      "packages": 8
+    },
+    {
+      "code": "PS1101",
+      "title": "union annotation",
+      "count": 92,
+      "packages": 9
+    },
+    {
+      "code": "PS2003",
+      "title": "call arguments not lowered",
+      "count": 79,
+      "packages": 10
+    },
+    {
+      "code": "PS1201",
+      "title": "decorator",
+      "count": 72,
+      "packages": 8
+    },
+    {
+      "code": "PS1104",
+      "title": "dynamic or structural annotation",
+      "count": 67,
+      "packages": 6
+    },
+    {
+      "code": "PS1003",
+      "title": "type mismatch",
+      "count": 50,
+      "packages": 8
+    },
+    {
+      "code": "PS1102",
+      "title": "Optional annotation",
+      "count": 42,
+      "packages": 5
+    },
+    {
+      "code": "PS1203",
+      "title": "class header form",
+      "count": 25,
+      "packages": 5
+    },
+    {
+      "code": "PS1105",
+      "title": "forward reference annotation",
+      "count": 14,
+      "packages": 6
+    },
+    {
+      "code": "PS2004",
+      "title": "operator or operand not lowered",
+      "count": 11,
+      "packages": 5
+    },
+    {
+      "code": "PS2006",
+      "title": "decorator expression is not a lowered callable",
+      "count": 6,
+      "packages": 3
+    },
+    {
+      "code": "PS4203",
+      "title": "finalizer refused",
+      "count": 1,
+      "packages": 1
+    },
+    {
+      "code": "PS4201",
+      "title": "dynamic attribute protocol refused",
+      "count": 1,
+      "packages": 1
+    }
+  ],
+  "history": [
+    {
+      "date": "2026-10-25",
+      "commit": "d4987c81acf466617b50738efce044cf4becab2c",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 6,
+      "packages_none": 10,
+      "fences": 2721
+    },
+    {
+      "date": "2026-10-26",
+      "commit": "9b915eea78b946eb946f8914b14e495d21cc5803",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 7,
+      "packages_none": 9,
+      "fences": 2719
+    },
+    {
+      "date": "2026-10-27",
+      "commit": "c7be3aafe528591074991042e447d2a979e3de5c",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 7,
+      "packages_none": 9,
+      "fences": 2719
+    }
+  ]
+}

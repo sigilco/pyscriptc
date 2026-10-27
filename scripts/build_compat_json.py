@@ -1,4 +1,4 @@
-"""Build `compat/data/compat.json`, the data file behind the compat site.
+"""Build `data/compat/compat.json`, the data file behind the compat site.
 
 The builder reads the data the compiler already produces and writes one JSON
 document. It never reads the holdout corpus and never writes outside the
@@ -43,10 +43,10 @@ from pyscriptc.diagnostics import DIAGNOSTICS  # noqa: E402
 
 DATA = ROOT / "scripts" / "support_data.toml"
 PINS = ROOT / "benchmarks" / "compat" / "top100" / "pins.json"
-DEFAULT_OUT = ROOT / "compat" / "data" / "compat.json"
+DEFAULT_OUT = ROOT / "data" / "compat" / "compat.json"
 
 # The ladder document: the R1, R2 and R4 numbers the site publishes.
-DEFAULT_LADDER = ROOT / "compat" / "data" / "ladder.json"
+DEFAULT_LADDER = ROOT / "data" / "compat" / "ladder.json"
 
 GREEN, YELLOW, RED = "🟢", "🟡", "🔴"
 STATUS_FULL, STATUS_PARTIAL, STATUS_NONE = "full", "partial", "none"

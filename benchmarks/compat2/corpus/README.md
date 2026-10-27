@@ -20,10 +20,10 @@ uv run python -m benchmarks.compat2.corpus.load
 
 Pin dates are the `fetched` fields already stored in the pin files. The 18 v1 packages are `fetched` 2026-10-13 in `../../compat/top100/pins.json`. This directory's `pins.json` is `fetched` 2026-10-14 and lists those 18 plus 21 v2 packages. The v1 pin date stays on the v1 pin file.
 
-Fence counts per package are in `../census-snapshot.json`, generated 2026-10-14 by:
+Fence counts per package are in `data/benchmarks/census-snapshot.json`, generated 2026-10-14 by:
 
 ```
-uv run python -m benchmarks.compat2.census --json benchmarks/compat2/census-snapshot.json
+uv run python -m benchmarks.compat2.census --json data/benchmarks/census-snapshot.json
 ```
 
 The file's `generated` field is that UTC date and changes when the command is rerun on a later UTC day. `src` is the top100 source path relative to the repo root. Fence counts, `fencedDefinitions`, `definitions`, `rootFamilies`, and `ranking` are the census tool's output.
