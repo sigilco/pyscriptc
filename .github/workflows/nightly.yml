@@ -33,7 +33,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     # contents: write and pull-requests: write are for the compat snapshot
-    # bot PR only. The PR carries compat/data/compat.json and nothing else.
+    # bot PR only. The PR carries data/compat/compat.json and nothing else.
     permissions:
       contents: write
       pull-requests: write
@@ -94,12 +94,12 @@ jobs:
         if: steps.score.outcome == 'success'
         run: |
           set -euo pipefail
-          uv run python -m benchmarks.scripts_corpus.ladder --json compat/data/ladder.json
+          uv run python -m benchmarks.scripts_corpus.ladder --json data/compat/ladder.json
           uv run python scripts/build_compat_json.py \
-            --out compat/data/compat.json \
+            --out data/compat/compat.json \
             --score nightly/visible-score.json \
-            --ladder compat/data/ladder.json
-          if git diff --quiet -- compat/data/compat.json; then
+            --ladder data/compat/ladder.json
+          if git diff --quiet -- data/compat/compat.json; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "compat data unchanged"
           else
@@ -108,8 +108,8 @@ jobs:
           # The artifact carries the raw JSON too, so the owner can refresh the
           # data by hand when the bot PR cannot be opened.
           mkdir -p nightly
-          cp compat/data/compat.json nightly/compat.json
-          cp compat/data/ladder.json nightly/ladder.json
+          cp data/compat/compat.json nightly/compat.json
+          cp data/compat/ladder.json nightly/ladder.json
 
       - name: Open the compat snapshot PR
         id: pr
@@ -123,11 +123,11 @@ jobs:
           branch="bot/compat-snapshot"
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git add compat/data/compat.json compat/data/ladder.json
+          git add data/compat/compat.json data/compat/ladder.json
           git commit -m "ci: nightly compat snapshot ${DATE}"
           git push --force origin "HEAD:${branch}"
           body="$(mktemp)"
-          printf 'Nightly compat snapshot for %s.\n\nThis PR carries only `compat/data/compat.json`, rebuilt from the tree by `scripts/build_compat_json.py`.\nThe commit is the bot identity, so it merges without review; a bad change is reverted with one revert commit.\n' "${DATE}" > "$body"
+          printf 'Nightly compat snapshot for %s.\n\nThis PR carries only `data/compat/compat.json`, rebuilt from the tree by `scripts/build_compat_json.py`.\nThe commit is the bot identity, so it merges without review; a bad change is reverted with one revert commit.\n' "${DATE}" > "$body"
           number="$(gh pr list --repo "$REPO" --head "$branch" --state open \
             --json number --jq '.[0].number // empty')"
           if [ -n "$number" ]; then

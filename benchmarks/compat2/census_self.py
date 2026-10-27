@@ -21,7 +21,7 @@ from pyscriptc.package import _discover
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SRC = ROOT / "src" / "pyscriptc"
-DEFAULT_JSON = ROOT / "benchmarks" / "compat2" / "census-self.json"
+DEFAULT_JSON = ROOT / "data" / "benchmarks" / "census-self.json"
 
 
 def _families(fences: list[dict[str, Any]]) -> tuple[dict[str, int], dict[str, int]]:

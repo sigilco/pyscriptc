@@ -1,0 +1,59 @@
+// The PyPI top-100 table: one row per pinned package, with the fence codes
+// that block it and the families that dominate the failures.
+---
+export interface Props {
+  rows: {
+    name: string;
+    version: string;
+    status: string;
+    fences: number;
+    definitions: number;
+    fenced_definitions: number;
+    top_families: { family: string; count: number }[];
+    codes: { code: string; count: number }[];
+    pypi: string;
+  }[];
+}
+
+const { rows } = Astro.props;
+---
+
+<section id="pypi" class="table-section">
+  <h2>PyPI top 100</h2>
+  <p class="section-note">
+    The pinned packages of the PyPI top-100 corpus, with the fences that
+    block them.
+  </p>
+  <div class="table-scroll">
+    <table class="compat-table">
+      <thead>
+        <tr>
+          <th scope="col">Package</th>
+          <th scope="col">Version</th>
+          <th scope="col">Status</th>
+          <th scope="col">Definitions</th>
+          <th scope="col">Fenced</th>
+          <th scope="col">Top fences</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr id={`package.${row.name}`}>
+            <th scope="row">
+              <a href={row.pypi} rel="noopener">{row.name}</a>
+            </th>
+            <td>{row.version}</td>
+            <td><span class={`badge status-${row.status}`}>{row.status}</span></td>
+            <td>{row.definitions}</td>
+            <td>{row.fenced_definitions}</td>
+            <td>
+              {row.codes.length > 0
+                ? row.codes.map((c) => `${c.code} (${c.count})`).join(", ")
+                : "—"}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+</section>

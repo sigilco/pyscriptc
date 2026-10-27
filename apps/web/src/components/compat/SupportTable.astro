@@ -1,0 +1,47 @@
+// Table of support rows (builtins or stdlib), rendered statically from the
+// data file. Status vocabulary matches the page-wide legend.
+---
+export interface Props {
+  heading: string;
+  anchor: string;
+  rows: {
+    id: string;
+    label: string;
+    status: string;
+    count: number;
+    unsupported: string[];
+    fences: string[];
+    note: string;
+  }[];
+}
+
+const { heading, anchor, rows } = Astro.props;
+---
+
+<section id={anchor} class="table-section">
+  <h2>{heading}</h2>
+  <div class="table-scroll">
+    <table class="compat-table">
+      <thead>
+        <tr>
+          <th scope="col">Item</th>
+          <th scope="col">Status</th>
+          <th scope="col">Count</th>
+          <th scope="col">Unsupported</th>
+          <th scope="col">Fences</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr id={row.id}>
+            <th scope="row" set:html={row.label.replace(/`([^`]+)`/g, "<code>$1</code>")} />
+            <td><span class={`badge status-${row.status}`}>{row.status}</span></td>
+            <td>{row.count}</td>
+            <td class="unsupported">{row.unsupported.join(", ") || "—"}</td>
+            <td>{row.fences.length > 0 ? row.fences.join(", ") : "—"}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+</section>

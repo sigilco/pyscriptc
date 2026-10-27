@@ -1,11 +1,17 @@
 {
-  "name": "pyscriptc-site-landing",
+  "name": "pyscriptc-web",
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "Landing page of the pyscriptc site",
+  "description": "The pyscriptc site: landing page and compat page (one Astro app)",
   "scripts": {
+    "sync-data": "node scripts/sync-data.mts",
+    "prebuild": "pnpm run sync-data",
     "build": "paraglide-js compile --project ./project.inlang --outdir ./src/paraglide && astro build",
+    "site:build": "pnpm run build && pnpm --dir ../../docs/.docmd run docs:build && node scripts/assemble.mts",
+    "validate": "node scripts/validate.mts",
+    "docs:validate": "node scripts/validate-docs.mts",
+    "test": "node --test --experimental-strip-types \"test/**/*.test.mts\"",
     "dev": "astro dev",
     "preview": "astro preview",
     "cosmos": "cosmos",
@@ -31,9 +37,11 @@
     "react-dom": "^19.3.1",
     "shiki": "^4.5.0",
     "tailwindcss": "^4.3.3",
-    "vite": "^8.3.5"
+    "vite": "^8.3.5",
+    "typescript": "^7.0.2",
+    "@types/node": "^24"
   },
   "engines": {
-    "node": ">=22.23.4"
+    "node": ">=24.0.0"
   }
 }

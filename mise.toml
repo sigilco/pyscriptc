@@ -4,23 +4,22 @@
 # system packages, not mise tools (apt install clang).
 #
 # Tasks (mise run <name>):
-#   landing:dev     landing page dev server (site/landing, Astro)
-#   landing:build   build the landing page to site/landing/dist
+#   web:dev         site app dev server (apps/web, Astro: landing + compat)
+#   web:cosmos      React Cosmos sandbox for site components
+#   web:build       build the site app to apps/web/dist
 #   docs:dev        public docs dev server (docs/, docs/.docmd/docmd.config.js)
 #   docs:build      build the public docs site to dist/docs
 #   docs:validate   check every internal link in docs/
 #   docs:internal   dev server for the internal notes (.agents/docs), dev-only
-#   compat:build    build the compat page to dist/compat
-#   site:build      build the three site parts and assemble deploy/
-#   site:check      link check over deploy/
-#   site:dev        run one part dev server (landing, docs or compat)
+#   site:build      build web + docs and assemble apps/web/deploy/
+#   site:check      validate the assembled tree (links, placeholders, docs)
 #   test            python test suite (no linux_container)
 #   lint            ruff check
 #   format-check    ruff format --check
 #   check           lint + format-check + the unit (compat2) test selection
 #   bench:baseline  perf regression gate against benchmarks/baseline/reference*.json
-#   compat:json     rebuild compat/data/compat.json (add --check to compare)
-#   compat:ladder   rebuild compat/data/ladder.json
+#   compat:json     rebuild data/compat/compat.json (add --check to compare)
+#   compat:ladder   rebuild data/compat/ladder.json
 #   compat:census   compat2 census over the visible corpus (--top N)
 #   support:table   regenerate the supported-API tables under .agents/docs/support
 #   boxed:cost      boxed ledger window (add --reach/--probe-times when you have them)
@@ -41,24 +40,24 @@
 # the newest release in the line.
 python = "3.14"
 uv = "latest"
-node = "22"
+node = "24"
 pnpm = "12"
 
 [tasks.setup]
 description = "First-time install of the python and node toolchains"
-run = ["uv sync", "pnpm --dir docs/.docmd install"]
+run = ["uv sync", "pnpm --dir docs/.docmd install", "pnpm --dir apps/web install"]
 
-[tasks."landing:dev"]
-description = "Landing page dev server (site/landing)"
-run = "pnpm --dir docs/.docmd --filter pyscriptc-site-landing dev"
+[tasks."web:dev"]
+description = "Site app dev server (apps/web: landing + compat)"
+run = "pnpm --dir apps/web run dev"
 
-[tasks."landing:cosmos"]
-description = "React Cosmos sandbox for landing components"
-run = "pnpm --dir docs/.docmd --filter pyscriptc-site-landing cosmos"
+[tasks."web:cosmos"]
+description = "React Cosmos sandbox for site components"
+run = "pnpm --dir apps/web run cosmos"
 
-[tasks."landing:build"]
-description = "Build the landing page to site/landing/dist"
-run = "pnpm --dir docs/.docmd --filter pyscriptc-site-landing build"
+[tasks."web:build"]
+description = "Build the site app to apps/web/dist (syncs data/ first)"
+run = "pnpm --dir apps/web run build"
 
 [tasks."docs:dev"]
 description = "Public docs dev server (docs/)"
@@ -69,28 +68,20 @@ description = "Build the public docs site to dist/docs"
 run = "pnpm --dir docs/.docmd exec docmd build --config docmd.config.js"
 
 [tasks."docs:validate"]
-description = "Validate docs/ pages and internal links"
-run = "uv run python scripts/check_doc_links.py"
+description = "Validate docs/ pages and internal links (expand placeholders, docmd validate)"
+run = "pnpm --dir apps/web run docs:validate"
 
 [tasks."docs:internal"]
 description = "Dev server for .agents/docs internal notes (no build step)"
 run = "pnpm --dir docs/.docmd exec docmd dev --config docmd.internal.config.js"
 
-[tasks."compat:build"]
-description = "Build the compat page to dist/compat"
-run = "uv run python compat/build.py"
-
 [tasks."site:build"]
-description = "Build landing, docs and compat, assemble deploy/"
-run = "uv run python scripts/build_site.py"
+description = "Build the site app + docs, assemble apps/web/deploy/"
+run = "pnpm --dir apps/web run site:build"
 
 [tasks."site:check"]
-description = "Link check over the assembled deploy/ tree"
-run = "uv run python scripts/check_site_links.py --external"
-
-[tasks."site:dev"]
-description = "Dev server for one site part: mise run site:dev landing|docs|compat"
-run = "uv run python scripts/site_dev.py"
+description = "Validate the assembled tree: links, placeholders, docs links"
+run = "pnpm --dir apps/web run validate"
 
 [tasks.test]
 description = "Python test suite, linux_container excluded"
@@ -129,19 +120,19 @@ description = "Perf regression gate against benchmarks/baseline/reference*.json"
 run = "uv run python -m benchmarks.baseline.run --check"
 
 [tasks."compat:json"]
-description = "Rebuild compat/data/compat.json (append --check to compare against the committed file)"
+description = "Rebuild data/compat/compat.json (append --check to compare against the committed file)"
 run = "uv run python scripts/build_compat_json.py"
 
 [tasks."compat:ladder"]
-description = "Rebuild compat/data/ladder.json"
-run = "uv run python -m benchmarks.scripts_corpus.ladder --json compat/data/ladder.json"
+description = "Rebuild data/compat/ladder.json"
+run = "uv run python -m benchmarks.scripts_corpus.ladder --json data/compat/ladder.json"
 
 [tasks."support:table"]
-description = "Regenerate compat/data/support.json from compiler and probe data (add --check to compare)"
+description = "Regenerate data/compat/support.json from compiler and probe data (add --check to compare)"
 run = "uv run python scripts/gen_support_table.py"
 
 [tasks."docs:what-will-fail"]
-description = "Regenerate compat/data/what_will_fail.json from the R0 corpus (add --check to compare)"
+description = "Regenerate data/compat/what_will_fail.json from the R0 corpus (add --check to compare)"
 run = "uv run python scripts/gen_what_will_fail.py"
 
 [tasks."compat:census"]

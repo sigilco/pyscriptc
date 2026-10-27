@@ -1,4 +1,4 @@
-"""Generate compat/data/what_will_fail.json from the R0 corpus fences.
+"""Generate data/compat/what_will_fail.json from the R0 corpus fences.
 
 Lists what fails and why (divergences and compiler fences, not what works),
 grouped by root cause, using the public corpus fences only.
@@ -26,7 +26,7 @@ from pyscriptc.coverage import build_report  # noqa: E402
 
 SCRIPTS_DIR = ROOT / "benchmarks" / "real_scripts" / "scripts"
 REPORT_PATH = ROOT / "benchmarks" / "real_scripts" / "REPORT.md"
-DEFAULT_DATA = ROOT / "compat" / "data" / "what_will_fail.json"
+DEFAULT_DATA = ROOT / "data" / "compat" / "what_will_fail.json"
 
 SECTION_TITLES = {
     "stdlib-surface": (
@@ -286,7 +286,7 @@ def _classify_fence(fence: dict[str, Any]) -> tuple[str, str, str, str, str]:
 
 
 def build(date: str | None = None, pin: Path | None = None) -> tuple[dict[str, str], list[str]]:
-    """Build compat/data/what_will_fail.json from the R0 corpus fences.
+    """Build data/compat/what_will_fail.json from the R0 corpus fences.
 
     `pin` is an existing JSON document whose `generated` date and `commit`
     are reused, so a `--check` run over an unchanged tree sees the same bytes.

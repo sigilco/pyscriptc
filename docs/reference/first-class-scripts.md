@@ -80,18 +80,18 @@ Classifies every imported module into a rung on the capability ladder: `native`,
 ## Corpus measurements
 
 The bar is falsifiable: progress is measured continuously against two corpora of scripts without manual edits to make them pass.
-Live pass rates, fence counts, and execution metrics are published nightly on the [compat site]({{PYSC_COMPAT_URL}}#ladder) and recorded in the structured data files [`compat/data/ladder.json`]({{PYSC_COMPAT_URL}}/data/ladder.json) and [`compat/data/what_will_fail.json`]({{PYSC_COMPAT_URL}}/data/what_will_fail.json).
+Live pass rates, fence counts, and execution metrics are published nightly on the [compat site]({{PYSC_COMPAT_URL}}#ladder) and recorded in the structured data files [`data/compat/ladder.json`]({{PYSC_COMPAT_URL}}/data/ladder.json) and [`data/compat/what_will_fail.json`]({{PYSC_COMPAT_URL}}/data/what_will_fail.json).
 
 ### R0 real-scripts corpus (`benchmarks/real_scripts/`)
 
 The R0 corpus consists of real-world third-party CLI scripts vendored byte-identical from open-source repositories (including psf/black, pypa/pipx, jazzband/pip-tools, and CPython `Tools/scripts`) at pinned commits.
 Scripts are tested as written, ensuring fences reflect genuine compiler gaps rather than artificial test harnesses.
-The current fence breakdown and root causes are tracked in `compat/data/what_will_fail.json` and summarized in [What will fail](what-will-fail.md).
+The current fence breakdown and root causes are tracked in `data/compat/what_will_fail.json` and summarized in [What will fail](what-will-fail.md).
 
 ### R1 script corpus (`benchmarks/scripts_corpus/`)
 
 The R1 corpus consists of single-file CLI scripts written to the lowered typed shape, exercising common automation tasks.
-Scores measuring compile pass rates and differential verification against CPython are published in `compat/data/ladder.json`.
+Scores measuring compile pass rates and differential verification against CPython are published in `data/compat/ladder.json`.
 
 ## What fails and diverges
 
@@ -114,6 +114,6 @@ Before the beta release opens to general users, the first-class bar requires the
 
 - [ ] **R0 corpus unlocks**: inference and call-table epics (tickets #500-#502) land, moving unannotated assignments and keyword argument calls onto the native lowering path.
 - [ ] **R1 execution soundness**: issue #183 resolved so 100% of compiled R1 scripts match CPython without output doubling.
-- [ ] **Gap documentation complete**: every non-derived fence code emitted by the R0 corpus is indexed in `compat/data/what_will_fail.json` and explained via `pyscriptc explain`.
+- [ ] **Gap documentation complete**: every non-derived fence code emitted by the R0 corpus is indexed in `data/compat/what_will_fail.json` and explained via `pyscriptc explain`.
 - [ ] **Automated verification**: `pyscriptc assess` and `pyscriptc verify` run cleanly on CLI scripts without unhandled compiler exceptions.
 - [ ] **Self-contained wheels**: standalone binaries compile and link with `zig cc` / `clang` without requiring an active CPython virtual environment.

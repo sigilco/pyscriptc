@@ -1,0 +1,190 @@
+---
+import CompatLayout from "../../layouts/CompatLayout.astro";
+import HeatGrid from "../../components/compat/HeatGrid.astro";
+import SupportTable from "../../components/compat/SupportTable.astro";
+import PackageTable from "../../components/compat/PackageTable.astro";
+import data from "../../../../../data/compat/compat.json";
+import { getHeadlineStat, getCategorySummaries } from "../../lib/stats";
+import type { SupportRow } from "../../lib/compat";
+
+// The compat page is static: every number is baked in at build time from
+// data/compat/compat.json. The page cannot claim more than the data says.
+
+const headline = getHeadlineStat(data);
+const categories = getCategorySummaries(data);
+const generated = data.generated;
+const commit = data.commit.slice(0, 12);
+
+const heatRows = (rows: SupportRow[], anchor: string) =>
+  rows.map((row) => ({
+    id: row.id,
+    label: row.label,
+    status: row.status,
+    detail:
+      `${row.label.replace(/`/g, "")} — ${row.status}` +
+      (row.unsupported.length > 0 ? ` — unsupported: ${row.unsupported.join(", ")}` : ""),
+    anchor,
+  }));
+
+const builtins = data.builtins.map((row) => ({ ...row }));
+const stdlib = data.stdlib.map((row) => ({ ...row }));
+const packages = data.packages.map((row) => ({ ...row }));
+const rungs = data.ladder.rungs;
+const lanes = data.ladder.lanes;
+const fenceRows = data.fences;
+const history = data.history;
+const supportRows = [...data.builtins, ...data.stdlib];
+---
+
+<CompatLayout>
+  <header class="compat-hero bento">
+    <div class="bento-cell bento-cell--headline">
+      <h1>ARE WE NATIVE YET?</h1>
+      <p class="lead">
+        Live compatibility status of <a href="https://github.com/sigilco/pyscriptc">pyscriptc</a>:
+        which builtins, standard-library modules and PyPI packages compile to
+        native code today.
+      </p>
+      <p class="meta">
+        generated {generated} at commit <code>{commit}</code>
+      </p>
+    </div>
+    <div class="bento-cell bento-cell--stat">
+      <span class="stat-value">{headline.percent}%</span>
+      <span class="stat-label">
+        {headline.supported} of {headline.total} probed builtins and stdlib
+        modules compile (full or partial)
+      </span>
+    </div>
+  </header>
+
+  <section class="summary-strip" aria-label="Category summaries">
+    {categories.map((cat) => (
+      <div class="summary-card">
+        <h3>{cat.label}</h3>
+        <p class="summary-counts">
+          <span class="status-full-text">{cat.full} full</span> ·
+          <span class="status-partial-text">{cat.partial} partial</span> ·
+          <span class="status-none-text">{cat.none} none</span>
+        </p>
+        <p class="summary-total">{cat.total} probed</p>
+      </div>
+    ))}
+  </section>
+
+  <HeatGrid heading="Support at a glance" rows={heatRows(supportRows, "builtins")} />
+
+  <nav class="toc" aria-label="Sections">
+    <a href="#ladder">Adoption ladder</a>
+    <a href="#builtins">Builtins</a>
+    <a href="#stdlib">Standard library</a>
+    <a href="#pypi">PyPI top 100</a>
+    <a href="#fences">Fence census</a>
+    <a href="#history">History</a>
+  </nav>
+
+  <section id="ladder" class="table-section">
+    <h2>Adoption ladder</h2>
+    <p class="section-note">
+      How far a script gets: compiles, and compiles plus passes its output
+      checks. Lanes say where each import lands in the compiled tree.
+    </p>
+    <div class="table-scroll">
+      <table class="compat-table">
+        <thead>
+          <tr>
+            <th scope="col">Rung</th>
+            <th scope="col">Corpus</th>
+            <th scope="col">Scripts</th>
+            <th scope="col">Compiled</th>
+            <th scope="col">Passed</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rungs.map((rung) => (
+            <tr>
+              <th scope="row">{rung.rung} — {rung.label}</th>
+              <td><code>{rung.corpus}</code></td>
+              <td>{rung.total}</td>
+              <td>{rung.compiled}</td>
+              <td>{rung.passed}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+    <div class="lane-strip">
+      {lanes.map((lane) => (
+        <div class="lane-card">
+          <span class="lane-name">{lane.lane}</span>
+          <span class="lane-share">{Math.round(lane.share * 100)}%</span>
+          <span class="lane-count">{lane.imports} imports</span>
+        </div>
+      ))}
+    </div>
+  </section>
+
+  <SupportTable heading="Builtins" anchor="builtins" rows={builtins} />
+  <SupportTable heading="Standard library" anchor="stdlib" rows={stdlib} />
+  <PackageTable rows={packages} />
+
+  <section id="fences" class="table-section">
+    <h2>Fence census</h2>
+    <p class="section-note">
+      Fence diagnostics across the pinned PyPI corpus, by code. A fence is a
+      reported, numbered divergence — never a silent miscompile.
+    </p>
+    <div class="table-scroll">
+      <table class="compat-table">
+        <thead>
+          <tr>
+            <th scope="col">Code</th>
+            <th scope="col">Title</th>
+            <th scope="col">Count</th>
+            <th scope="col">Packages</th>
+          </tr>
+        </thead>
+        <tbody>
+          {fenceRows.map((fence) => (
+            <tr>
+              <th scope="row"><code>{fence.code}</code></th>
+              <td>{fence.title}</td>
+              <td>{fence.count}</td>
+              <td>{fence.packages}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="history" class="table-section">
+    <h2>History</h2>
+    <div class="table-scroll">
+      <table class="compat-table">
+        <thead>
+          <tr>
+            <th scope="col">Date</th>
+            <th scope="col">Commit</th>
+            <th scope="col">Packages full</th>
+            <th scope="col">Partial</th>
+            <th scope="col">None</th>
+            <th scope="col">Fences</th>
+          </tr>
+        </thead>
+        <tbody>
+          {history.map((point) => (
+            <tr>
+              <th scope="row">{point.date}</th>
+              <td><code>{point.commit.slice(0, 12)}</code></td>
+              <td>{point.packages_full}</td>
+              <td>{point.packages_partial}</td>
+              <td>{point.packages_none}</td>
+              <td>{point.fences}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</CompatLayout>

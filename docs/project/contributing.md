@@ -20,7 +20,7 @@ Tools already on your PATH that satisfy the `mise.toml` pins are reused, not rei
 
 | Task | What it does |
 | --- | --- |
-| `mise run setup` | First-time install: `uv sync` and `pnpm install` in `docs/.docmd/` (the node workspace root) |
+| `mise run setup` | First-time install: `uv sync` and the pnpm installs (`docs/.docmd/`, `apps/web/`) |
 | `mise run docs:dev` | Public docs dev server over `docs/` |
 | `mise run docs:build` | Build the public site to `dist/docs` |
 | `mise run docs:validate` | Check every internal link in `docs/` |
@@ -30,8 +30,8 @@ Tools already on your PATH that satisfy the `mise.toml` pins are reused, not rei
 | `mise run format-check` | `ruff format --check`, with the same excludes as CI |
 | `mise run check` | `lint` + `format-check` + the `tests/compat2` unit selection |
 | `mise run bench:baseline` | The perf regression gate against `benchmarks/baseline/reference*.json` |
-| `mise run compat:json` | Rebuild `compat/data/compat.json` (append `--check` to compare) |
-| `mise run compat:ladder` | Rebuild `compat/data/ladder.json` |
+| `mise run compat:json` | Rebuild `data/compat/compat.json` (append `--check` to compare) |
+| `mise run compat:ladder` | Rebuild `data/compat/ladder.json` |
 | `mise run compat:census` | Compat2 census over the visible corpus (append `--top N` to limit) |
 | `mise run support:table` | Regenerate the supported-API tables under `.agents/docs/support` (append `--check` to compare) |
 | `mise run boxed:cost` | The boxed ledger window, per `AGENTS.md` |
@@ -43,13 +43,19 @@ Tools already on your PATH that satisfy the `mise.toml` pins are reused, not rei
 
 Extra args after the task name are appended to the wrapped command, so `mise run compat:json --check` is `uv run python scripts/build_compat_json.py --check`.
 
-The same raw commands are available without mise (`uv run pytest`, `pnpm --dir docs/.docmd exec docmd build --config docmd.config.js`, `uv run python scripts/check_doc_links.py`), but mise pins the toolchain versions and is what a local checkout is set up for.
+The same raw commands are available without mise (`uv run pytest`, `pnpm --dir docs/.docmd exec docmd build --config docmd.config.js`, `pnpm --dir apps/web run docs:validate`), but mise pins the toolchain versions and is what a local checkout is set up for.
 
 CI runs the raw commands, not `mise run`. `mise.toml` pins `uv = "latest"`, and the workflows hold a `>= 0.13.4` uv floor from the emSign CA incident, so routing CI through mise would change which uv the checks run under. The job names and the required check names are the same either way, since the commands are identical.
 
 ## The documentation site
 
-The public site is built from `docs/` with [docmd](https://docmd.io). The docmd configuration lives at `docs/.docmd/` (with the placeholders plugin), and the internal developer notes in `.agents/docs/` are served by a second config, `docs/.docmd/docmd.internal.config.js`.
+The public site has two parts: the docs, built from `docs/` with [docmd](https://docmd.io) (configuration in `docs/.docmd/`, with the placeholders plugin; the internal notes in `.agents/docs/` are served by the second config `docs/.docmd/docmd.internal.config.js`), and the web app in `apps/web/` (pnpm, one Astro app: the landing page at `/` and the compat page at `/compat`). The canonical site data lives in `data/` at the repo root and is synced into the app at build time; web tooling is pnpm-only.
+
+```bash
+mise run web:dev         # site app dev server (landing + compat)
+mise run site:build      # build web + docs, assemble apps/web/deploy/
+mise run site:check      # validate the assembled tree
+```
 
 ```bash
 mise run docs:dev        # preview the public site

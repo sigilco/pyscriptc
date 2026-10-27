@@ -1,0 +1,48 @@
+---
+// The compat part of the single pyscriptc site. Built with base "/compat" so
+// the deploy tree serves it at /compat/ next to the landing page and /docs.
+// The top navbar is the same floating pill bar the landing page uses
+// (HeaderPillNav), so both pages stay one site visually.
+import React from "react";
+import { HeaderPillNav } from "../components/HeaderPillNav";
+import "../styles/global.css";
+import "../styles/compat.css";
+
+interface Props {
+  title?: string;
+}
+
+const { title = "Are We Native Yet? · pyscriptc" } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta
+      name="description"
+      content="Live compatibility status of pyscriptc: which builtins, standard-library modules, language features and PyPI packages compile to native code today."
+    />
+    <link rel="icon" type="image/png" sizes="64x64" href="/icon-64.png" />
+    <link rel="icon" type="image/png" sizes="256x256" href="/logo-256.png" />
+    <slot name="head" />
+  </head>
+  <body class="compat-body">
+    <HeaderPillNav client:load theme="dark" docsUrl="/docs/" compatUrl="/compat/" />
+    <div class="compat-nav-spacer" aria-hidden="true"></div>
+    <main class="container compat-page">
+      <slot />
+    </main>
+    <footer class="site-footer">
+      <p>
+        Data regenerated nightly from the compiler tree —
+        <a href="/compat/data/compat.json">compat.json</a> ·
+        <a href="/compat/data/ladder.json">ladder.json</a> ·
+        <a href="/compat/data/what_will_fail.json">what_will_fail.json</a> ·
+        <a href="/compat/data/support.json">support.json</a>
+      </p>
+    </footer>
+  </body>
+</html>

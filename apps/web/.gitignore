@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.astro/
+
+# Synced at build time from the canonical data/ tree (repo root) by
+# scripts/sync-data.mts; never committed.
+public/compat/data/
+public/benchmarks/data/

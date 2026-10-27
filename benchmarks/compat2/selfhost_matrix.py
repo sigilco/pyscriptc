@@ -21,7 +21,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SRC = ROOT / "src" / "pyscriptc"
-DEFAULT_JSON = ROOT / "benchmarks" / "compat2" / "selfhost-matrix.json"
+DEFAULT_JSON = ROOT / "data" / "benchmarks" / "selfhost-matrix.json"
 PS_CODE = re.compile(r"PS\d+")
 STAGES = ("ir", "llvm", "bin")
 MAIN_DEF = re.compile(r"^def main\s*\(", re.MULTILINE)

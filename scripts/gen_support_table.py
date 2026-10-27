@@ -1,4 +1,4 @@
-"""Generate compat/data/support.json from the compiler and probe data.
+"""Generate data/compat/support.json from the compiler and probe data.
 
 Status comes from compile probes (`pyscriptc.lower.lower_file`, parse-only, no
 LLVM) listed in `scripts/support_data.toml`, from the closed import table in
@@ -35,7 +35,7 @@ from pyscriptc.lower import lower_file  # noqa: E402
 from pyscriptc.stdlib_queue import LOWERED, QUEUE  # noqa: E402
 
 DATA = ROOT / "scripts" / "support_data.toml"
-DEFAULT_DATA = ROOT / "compat" / "data" / "support.json"
+DEFAULT_DATA = ROOT / "data" / "compat" / "support.json"
 SUPPORTED = ROOT / ".agents" / "docs" / "support" / "supported.md"
 TOP100 = ROOT / ".agents" / "docs" / "support" / "compat-top100.md"
 GREEN, YELLOW, RED = "🟢", "🟡", "🔴"
@@ -181,7 +181,7 @@ def library_rows(data: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def build(date: str | None = None, pin: Path | None = None) -> tuple[dict[str, str], list[str]]:
-    """Build compat/data/support.json.
+    """Build data/compat/support.json.
 
     `pin` is an existing JSON document whose `generated` date and `commit`
     are reused, so a `--check` run over an unchanged tree sees the same bytes.

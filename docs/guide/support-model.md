@@ -22,7 +22,7 @@ The construct-by-construct contract is in [Typing and idioms](typing.md).
 
 The exact, per-construct, per-builtin, per-module and per-library status is tracked on the compat site, not in this page, so it cannot go stale: [pyscriptc compat site]({{PYSC_COMPAT_URL}}).
 
-The compat site is fed by the [nightly CI workflow](https://github.com/sigilco/pyscriptc/actions/workflows/nightly.yml), which scores the visible corpus, records the boxed ledger window, and refreshes the site data files (`compat/data/compat.json`, `compat/data/ladder.json`, `compat/data/what_will_fail.json`, `compat/data/support.json`).
+The compat site is fed by the [nightly CI workflow](https://github.com/sigilco/pyscriptc/actions/workflows/nightly.yml), which scores the visible corpus, records the boxed ledger window, and refreshes the site data files (`data/compat/compat.json`, `data/compat/ladder.json`, `data/compat/what_will_fail.json`, `data/compat/support.json`).
 Internal developer notes and reference documentation link to these data files rather than embedding volatile counts.
 
 Deliberate differences from CPython are numbered in [Divergences](../reference/divergences.md).
@@ -45,7 +45,7 @@ Common failure modes encountered when a script is outside the native ceiling:
 - A module outside the closed import table (`platform`, `calendar`, `zipfile`, `tarfile`, `sqlite3`) fences with `PS2002` on the import.
 
 The first-class script bar and its beta-readiness checklist are documented in [First-class scripts](../reference/first-class-scripts.md).
-The per-module gap list, generated from the same corpus into `compat/data/what_will_fail.json`, is documented in [What will fail](../reference/what-will-fail.md); until then the first fence of a run, `pyscriptc compile FILE`, and `pyscriptc coverage FILE` name the exact gap in your script.
+The per-module gap list, generated from the same corpus into `data/compat/what_will_fail.json`, is documented in [What will fail](../reference/what-will-fail.md); until then the first fence of a run, `pyscriptc compile FILE`, and `pyscriptc coverage FILE` name the exact gap in your script.
 The grind plan and its tickets are #500 to #511; the measurement tool is `uv run python -m benchmarks.real_scripts.measure`.
 
 ## Checking your own code

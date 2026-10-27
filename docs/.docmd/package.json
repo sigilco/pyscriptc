@@ -8,7 +8,7 @@
   "scripts": {
     "docs:dev": "docmd dev --config docmd.config.js",
     "docs:build": "docmd build --config docmd.config.js",
-    "docs:validate": "uv run python ../../scripts/check_doc_links.py",
+    "docs:validate": "pnpm --dir ../../apps/web run docs:validate",
     "docs:internal": "docmd dev --config docmd.internal.config.js"
   },
   "devDependencies": {
