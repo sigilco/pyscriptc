@@ -1,10 +1,13 @@
 # Site: build, validate and deploy the assembled pyscriptc.pages.dev site.
 #
-# Three parts assembled into one tree by scripts/build_site.py:
-#   landing (Astro, site/landing) at /, docs (docmd, docs/) at /docs,
-#   compat page (compat/) at /compat.
+# One Astro app (apps/web): landing at /, compat page at /compat; docs
+# (docmd, docs/) at /docs. apps/web/scripts/assemble.mts assembles all three
+# into apps/web/deploy/, which is the tree wrangler publishes. Web output is
+# pnpm-only: no python, no uv.
 #
-# Pull requests that touch site paths build and validate only.
+# The paths filter keeps this workflow scoped to web/doc/data work, so a
+# compiler PR never runs it and this never runs the ci.yml matrix.
+#
 # Pushes to master deploy with wrangler. The Pages project must be in
 # direct-upload mode with CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID
 # secrets set; the owner does that in the Cloudflare dashboard.
@@ -12,11 +15,6 @@
 # The nightly workflow calls this workflow's `site` job through
 # workflow_call after a compat snapshot PR opens, so the PR check runs
 # before the owner looks at it. Design: .agents/docs/compat-site.md.
-#
-# The build and validate steps run the raw commands, not `mise run <task>`,
-# for the same reason as ci.yml: the mise uv pin (`latest`) would drop the
-# `>= 0.13.4` uv floor this workflow holds, and the setup steps here are
-# already the cached ones. The commands are the ones the tasks wrap.
 
 name: site
 
@@ -24,31 +22,17 @@ on:
   push:
     branches: [master]
     paths:
-      - "site/**"
-      - "compat/**"
+      - "apps/web/**"
       - "docs/**"
-      - "scripts/build_site.py"
-      - "scripts/check_site_links.py"
-      - "scripts/site_dev.py"
-      - "compat/data/compat.json"
-      - "docs/.docmd/package.json"
+      - "data/**"
       - "docs/.docmd/pnpm-lock.yaml"
-      - "docs/.docmd/pnpm-workspace.yaml"
-      - "mise.toml"
       - ".github/workflows/site.yml"
   pull_request:
     paths:
-      - "site/**"
-      - "compat/**"
+      - "apps/web/**"
       - "docs/**"
-      - "scripts/build_site.py"
-      - "scripts/check_site_links.py"
-      - "scripts/site_dev.py"
-      - "compat/data/compat.json"
-      - "docs/.docmd/package.json"
+      - "data/**"
       - "docs/.docmd/pnpm-lock.yaml"
-      - "docs/.docmd/pnpm-workspace.yaml"
-      - "mise.toml"
       - ".github/workflows/site.yml"
   workflow_dispatch:
   workflow_call:
@@ -68,19 +52,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.14"
-
-      - uses: astral-sh/setup-uv@v6
-        with:
-          version: ">=0.13.4"  # emSign CA incident: uv 0.13.4 dropped the compromised root
-          enable-cache: true
-          python-version: "3.14"
-
       - uses: pnpm/action-setup@v4
         with:
-          # The pnpm workspace root is docs/.docmd/, not the repo root.
           package_json_file: docs/.docmd/package.json
 
       - uses: actions/setup-node@v5
@@ -89,36 +62,29 @@ jobs:
           # and the landing build failed. Keep the floor explicit.
           node-version: ">=22.23.4"
           cache: pnpm
-          cache-dependency-path: docs/.docmd/pnpm-lock.yaml
+          cache-dependency-path: |
+            docs/.docmd/pnpm-lock.yaml
+            apps/web/pnpm-lock.yaml
 
       - name: Install dependencies
         run: |
-          uv sync --frozen
           pnpm --dir docs/.docmd install --frozen-lockfile
+          pnpm --dir apps/web install --frozen-lockfile
 
-      - name: Build the site
-        run: uv run python scripts/build_site.py
+      - name: Build the site (landing + compat + docs, assemble)
+        run: pnpm --dir apps/web run site:build
 
-      - name: Validate links
-        run: uv run python scripts/check_site_links.py
+      - name: Validate the assembled tree
+        run: pnpm --dir apps/web run validate
 
-      - name: No unexpanded placeholders
-        run: |
-          set -euo pipefail
-          # Only our own placeholders, and only in HTML. The bundled
-          # JavaScript (KaTeX, mermaid) carries `{{` as literal syntax, and
-          # the llms-full.txt export carries the raw markdown of every page.
-          hits="$(grep -RlE '\{\{(BASE|PYSC_[A-Z_]+)\}\}' deploy --include='*.html' || true)"
-          if [ -n "$hits" ]; then
-            printf 'unexpanded placeholder in:\n%s\n' "$hits" >&2
-            exit 1
-          fi
+      - name: Test the web seams
+        run: pnpm --dir apps/web test
 
       - name: Assemble summary
         if: always()
         run: |
-          pages="$(find deploy -name '*.html' | wc -l | tr -d ' ')"
-          files="$(find deploy -type f | wc -l | tr -d ' ')"
+          pages="$(find apps/web/deploy -name '*.html' | wc -l | tr -d ' ')"
+          files="$(find apps/web/deploy -type f | wc -l | tr -d ' ')"
           {
             echo "### Site assembly"
             echo ""
@@ -142,4 +108,4 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: wrangler pages deploy ./deploy --project-name=pyscriptc --commit-dirty=true
+        run: wrangler pages deploy ./apps/web/deploy --project-name=pyscriptc --commit-dirty=true
