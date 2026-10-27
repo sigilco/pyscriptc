@@ -31,6 +31,7 @@ are not searched. as_file of one of these paths is the path itself.
 
 #ifdef __APPLE__
 #include <copyfile.h>
+#include <sys/sysctl.h>
 #endif
 
 #ifdef __linux__
@@ -958,9 +959,14 @@ void ps_platform_platform(PsBuf *out) {
     struct utsname u;
     if (uname(&u) == 0) {
         char buf[256];
-        const char *processor = u.processor[0] != '\0' ? u.processor : u.machine;
+        char product[64];
+        size_t plen = sizeof(product);
+        /* CPython reports the product version (mac_ver), not the Darwin
+           release, and "arm" or "i386" for the processor. */
+        const char *release = sysctlbyname("kern.osproductversion", product, &plen, NULL, 0) == 0 ? product : u.release;
+        const char *processor = strcmp(u.machine, "arm64") == 0 ? "arm" : (strcmp(u.machine, "x86_64") == 0 ? "i386" : u.machine);
         const char *bits = sizeof(void *) == 8 ? "64bit" : "32bit";
-        snprintf(buf, sizeof(buf), "macOS-%s-%s-%s-%s-Mach-O", u.release, u.machine, processor, bits);
+        snprintf(buf, sizeof(buf), "macOS-%s-%s-%s-%s-Mach-O", release, u.machine, processor, bits);
         ps_buf_copy(out, buf, (int64_t)strlen(buf));
     } else {
         ps_buf_copy(out, "", 0);
