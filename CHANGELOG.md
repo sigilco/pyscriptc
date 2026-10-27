@@ -231,7 +231,7 @@
 
 ### Changed
 - coverage `SHARED_CORE` prefix helper (#375)
-- `.python-version` pins 3.14 (#393)
+- `.python-version` pinned 3.14 for tooling (#393); removed 2026-10-27 when the site build went python-free (mise.toml pins the version)
 - `mise.toml` is the default task runner (#360)
 
 ### Performance
