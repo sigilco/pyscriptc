@@ -99,6 +99,8 @@ args=(
   "--include-data-files=$nroot/src/pyscriptc/_typeshed/LICENSE=pyscriptc/_typeshed/LICENSE"
   "--include-data-files=$pyrefly_exe=$pyrefly_dest"
   "--include-data-files=$nroot/src/pyscriptc/_pyright_stubs=pyscriptc/_pyright_stubs/=**/*.pyi"
+  # embed.lock_path() looks for packaging/runtime.lock.toml next to the package dir.
+  "--include-data-files=$nroot/packaging/runtime.lock.toml=packaging/runtime.lock.toml"
   "--include-data-files=$nroot/src/pyscriptc/target.json=pyscriptc/target.json"
   "--include-data-files=$nroot/src/pyscriptc/native_packages.json=pyscriptc/native_packages.json"
   "--include-data-files=$nroot/src/pyscriptc/runtime/*.c=pyscriptc/runtime/"
