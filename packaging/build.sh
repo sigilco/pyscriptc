@@ -98,6 +98,9 @@ args=(
   "--include-data-files=$nroot/src/pyscriptc/_typeshed=pyscriptc/_typeshed/=**/*.pyi"
   "--include-data-files=$nroot/src/pyscriptc/_typeshed/LICENSE=pyscriptc/_typeshed/LICENSE"
   "--include-data-files=$pyrefly_exe=$pyrefly_dest"
+  "--include-data-files=$nroot/src/pyscriptc/_pyright_stubs=pyscriptc/_pyright_stubs/=**/*.pyi"
+  "--include-data-files=$nroot/src/pyscriptc/target.json=pyscriptc/target.json"
+  "--include-data-files=$nroot/src/pyscriptc/native_packages.json=pyscriptc/native_packages.json"
   "--include-data-files=$nroot/src/pyscriptc/runtime/*.c=pyscriptc/runtime/"
   "--include-data-files=$nroot/src/pyscriptc/runtime/*.h=pyscriptc/runtime/"
   # The third-party license texts a bundle output stages (issue #709).
