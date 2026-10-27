@@ -1,0 +1,45 @@
+// One square per probed item, bolo HeatGrid style. Static Astro component:
+// the data is baked at build time, no client JS. The title attribute carries
+// the tooltip detail (name, status, unsupported list).
+---
+export interface Props {
+  heading: string;
+  rows: {
+    id: string;
+    label: string;
+    status: string;
+    detail: string;
+    anchor: string;
+  }[];
+}
+
+const { heading, rows } = Astro.props;
+---
+
+<section class="heat-section">
+  <h2>{heading}</h2>
+  <p class="section-note">
+    One square per probed item. Green is full, amber partial, red none. Hover
+    for details; click a square to jump to its table row.
+  </p>
+  <div class="bezel-outer">
+    <div class="heat-grid">
+      {rows.map((row) => (
+        <a
+          class="heat-cell-wrap"
+          href={`#${row.anchor}`}
+          title={row.detail}
+          aria-label={row.detail}
+          data-status={row.status}
+        >
+          <span class={`heat-cell status-${row.status}`} />
+        </a>
+      ))}
+    </div>
+  </div>
+  <p class="heat-legend" aria-hidden="true">
+    <span class="dot status-full" /> full
+    <span class="dot status-partial" /> partial
+    <span class="dot status-none" /> none
+  </p>
+</section>

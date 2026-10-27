@@ -1,0 +1,164 @@
+---
+// Bento Grid showcasing pyscriptc platform features
+---
+
+<section class="w-full max-w-6xl mx-auto px-6 py-20 lg:py-28 text-left" id="features">
+  <!-- Section Header (Option 4) -->
+  <div class="max-w-3xl mb-12">
+    <h2 class="text-3xl sm:text-4xl lg:text-5xl font-normal tracking-tight text-white leading-[1.12] mb-4">
+      Built for production systems.
+    </h2>
+    <p class="text-base sm:text-lg text-slate-400 font-light leading-relaxed">
+      Single-command compilation across architectures with no per-target sysroot or SDK setup, pure package support, and documented, numbered divergences.
+    </p>
+  </div>
+
+  <!-- Bento Grid Container -->
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-5 sm:gap-6">
+    <!-- Card 1: Deploy Anywhere (Large Hero Bento Card - 7 Cols) -->
+    <div
+      class="lg:col-span-7 rounded-2xl bg-[#0b0f19]/80 hover:bg-[#0b0f19] border border-white/10 hover:border-white/20 p-6 sm:p-8 flex flex-col transition-all duration-300 relative overflow-hidden group"
+    >
+      <div class="mb-5">
+        <div class="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+          <!-- Package / Works Anywhere Box Icon -->
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+            <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+            <line x1="12" y1="22.08" x2="12" y2="12" />
+          </svg>
+        </div>
+      </div>
+
+      <h3 class="text-xl sm:text-2xl font-normal text-white tracking-tight mb-2">
+        Deploy Anywhere
+      </h3>
+      <p class="text-sm text-slate-400 font-light leading-relaxed">
+        <strong class="font-medium text-slate-200">Single-command cross-compilation</strong> for any cloud or desktop platform.
+        No per-target sysroot or SDK setup.
+      </p>
+    </div>
+
+    <!-- Card 2: PyPI Package Support (5 Cols) -->
+    <div
+      class="lg:col-span-5 rounded-2xl bg-[#0b0f19]/80 hover:bg-[#0b0f19] border border-white/10 hover:border-white/20 p-6 sm:p-8 flex flex-col transition-all duration-300 group"
+    >
+      <div class="mb-5">
+        <div class="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+          <!-- Layers / PyPI Box Icon -->
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polygon points="12 2 2 7 12 12 22 7 12 2" />
+            <polyline points="2 17 12 22 22 17" />
+            <polyline points="2 12 12 17 22 12" />
+          </svg>
+        </div>
+      </div>
+
+      <h3 class="text-xl sm:text-2xl font-normal text-white tracking-tight mb-2">
+        PyPI Package Support
+      </h3>
+      <p class="text-sm text-slate-400 font-light leading-relaxed">
+        <strong class="font-medium text-slate-200">Compile pure Python packages directly into machine code.</strong> Eliminate virtualenv setup,
+        wheel build-matrix hurdles, and runtime dependency bloat in production containers.
+        Top-100 PyPI packages are tracked nightly against the pinned suite; the live
+        breakdown lives on the compatibility site.
+      </p>
+    </div>
+
+    <!-- Card 3: Programmatic & CLI API (5 Cols) -->
+    <div
+      class="lg:col-span-5 rounded-2xl bg-[#0b0f19]/80 hover:bg-[#0b0f19] border border-white/10 hover:border-white/20 p-6 sm:p-8 flex flex-col transition-all duration-300 group"
+    >
+      <div class="mb-5">
+        <div class="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+          <!-- Code / Terminal API Icon -->
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="16 18 22 12 16 6" />
+            <polyline points="8 6 2 12 8 18" />
+          </svg>
+        </div>
+      </div>
+
+      <h3 class="text-xl sm:text-2xl font-normal text-white tracking-tight mb-2">
+        CLI-First Compiler
+      </h3>
+      <p class="text-sm text-slate-400 font-light leading-relaxed">
+        <strong class="font-medium text-slate-200">Control the compiler from the terminal</strong> or automate inside CI scripts.
+        Full access to IR stages, LLVM output, and diagnostic codes.
+      </p>
+    </div>
+
+    <!-- Card 4: Shared Libraries & Headers (7 Cols) -->
+    <div
+      class="lg:col-span-7 rounded-2xl bg-[#0b0f19]/80 hover:bg-[#0b0f19] border border-white/10 hover:border-white/20 p-6 sm:p-8 flex flex-col transition-all duration-300 group"
+    >
+      <div class="mb-5">
+        <div class="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+          <!-- Plug / Link / C ABI Icon -->
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+          </svg>
+        </div>
+      </div>
+
+      <h3 class="text-xl sm:text-2xl font-normal text-white tracking-tight mb-2">
+        Shared Libraries &amp; Headers
+      </h3>
+      <p class="text-sm text-slate-400 font-light leading-relaxed">
+        <strong class="font-medium text-slate-200"><code class="font-mono">--emit binding</code> compiles a typed module into a
+        shared library</strong> (<code class="font-mono text-slate-300">.so</code>, <code class="font-mono text-slate-300">.dylib</code>, <code class="font-mono text-slate-300">.dll</code>)
+        plus a ctypes loader, so CPython calls your typed functions without
+        <code class="font-mono text-slate-300"> Python.h</code> or an extension build.
+      </p>
+    </div>
+
+    <!-- Card 5: CPython 3.14 Parity (6 Cols) -->
+    <div
+      class="lg:col-span-6 rounded-2xl bg-[#0b0f19]/80 hover:bg-[#0b0f19] border border-white/10 hover:border-white/20 p-6 sm:p-8 flex flex-col transition-all duration-300 group"
+    >
+      <div class="mb-5">
+        <div class="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+          <!-- Shield / Parity Checkmark Icon -->
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            <polyline points="9 12 11 14 15 10" />
+          </svg>
+        </div>
+      </div>
+
+      <h3 class="text-xl sm:text-2xl font-normal text-white tracking-tight mb-2">
+        CPython 3.14 Parity
+      </h3>
+      <p class="text-sm text-slate-400 font-light leading-relaxed">
+        <strong class="font-medium text-slate-200">CPython 3.14.9 semantics for the supported subset.</strong> Write idiomatic standard Python:
+        pattern matching, standard exception handling and generator expressions compile into
+        native machine instructions.
+      </p>
+    </div>
+
+    <!-- Card 6: Compile-Time Diagnostics (6 Cols) -->
+    <div
+      class="lg:col-span-6 rounded-2xl bg-[#0b0f19]/80 hover:bg-[#0b0f19] border border-white/10 hover:border-white/20 p-6 sm:p-8 flex flex-col transition-all duration-300 group"
+    >
+      <div class="mb-5">
+        <div class="w-10 h-10 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
+          <!-- Diagnostic Radar / Target Icon -->
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10" />
+            <circle cx="12" cy="12" r="6" />
+            <circle cx="12" cy="12" r="2" />
+          </svg>
+        </div>
+      </div>
+
+      <h3 class="text-xl sm:text-2xl font-normal text-white tracking-tight mb-2">
+        Compile-Time Diagnostics
+      </h3>
+      <p class="text-sm text-slate-400 font-light leading-relaxed">
+        <strong class="font-medium text-slate-200">Deep static type verification and fence boundary checks.</strong> Identifies type instability, unboxed scalar leaks,
+        and dynamic fallback barriers before your binary reaches production servers.
+      </p>
+    </div>
+  </div>
+</section>

@@ -1,0 +1,47 @@
+{
+  "name": "pyscriptc-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "The pyscriptc site: landing page and compat page (one Astro app)",
+  "scripts": {
+    "sync-data": "node scripts/sync-data.mts",
+    "prebuild": "pnpm run sync-data",
+    "build": "paraglide-js compile --project ./project.inlang --outdir ./src/paraglide && astro build",
+    "site:build": "pnpm run build && pnpm --dir ../../docs/.docmd run docs:build && node scripts/assemble.mts",
+    "validate": "node scripts/validate.mts",
+    "docs:validate": "node scripts/validate-docs.mts",
+    "test": "node --test --experimental-strip-types test/",
+    "dev": "astro dev",
+    "preview": "astro preview",
+    "cosmos": "cosmos",
+    "cosmos:export": "cosmos-export"
+  },
+  "dependencies": {
+    "@visx/group": "^4.0.0",
+    "@visx/scale": "^4.0.0",
+    "@visx/shape": "^4.0.0",
+    "astro": "^7.4.2",
+    "daisyui": "^5.7.50"
+  },
+  "devDependencies": {
+    "@astrojs/react": "^7.1.1",
+    "@inlang/paraglide-js": "^2.29.1",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "react": "^19.3.1",
+    "react-cosmos": "^7.4.1",
+    "react-cosmos-plugin-vite": "^7.4.0",
+    "react-dom": "^19.3.1",
+    "shiki": "^4.5.0",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.3.5",
+    "typescript": "^7.0.2",
+    "@types/node": "^24"
+  },
+  "engines": {
+    "node": ">=22.23.4"
+  }
+}
