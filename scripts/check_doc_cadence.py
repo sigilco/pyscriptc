@@ -3,7 +3,7 @@
 
 Per the documentation cadence policy (.agents/docs/doc-cadence.md), volatile
 metrics (census counts, fence totals, scorer numbers, boxed ledger values,
-support tables) must live in data files under compat/data/*.json, never in .md.
+support tables) must live in data files under data/compat/*.json, never in .md.
 
 Run:
     uv run python scripts/check_doc_cadence.py
@@ -87,7 +87,7 @@ def main() -> int:
         print("Doc cadence check failed: volatile metrics found in markdown docs:\n", file=sys.stderr)
         for v in violations:
             print(f"  {v}", file=sys.stderr)
-        print("\nMove metrics to compat/data/*.json and link to the data file or compat site.", file=sys.stderr)
+        print("\nMove metrics to data/compat/*.json and link to the data file or compat site.", file=sys.stderr)
         return 1
 
     print("Doc cadence check passed: no hardcoded volatile metrics found in markdown docs.")

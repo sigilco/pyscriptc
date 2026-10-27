@@ -61,8 +61,8 @@ def test_verification_commands_present() -> None:
 def test_corpus_metrics_and_commits_present() -> None:
     content = PAGE.read_text(encoding="utf-8")
     # Reference to data files and compat site rather than volatile in-tree metrics
-    assert "compat/data/ladder.json" in content
-    assert "compat/data/what_will_fail.json" in content
+    assert "data/compat/ladder.json" in content
+    assert "data/compat/what_will_fail.json" in content
     assert "compat site" in content.lower()
 
 

@@ -100,4 +100,4 @@ They are island material, not typing failures.
 
 - Every fenced row above is or will be probed in `scripts/support_data.toml` (the `typing` row), so the drift tests (`tests/test_support_docs.py`) fail when the compiler changes and the table goes stale.
 - The PR template rule "docs updated if API/ABI/behavior changed" covers this page: a diagnostic change, a new erasure or a new fence on a typing construct is a behavior change and must update the construct table in the same PR.
-- Deliberate runtime differences stay in [Divergences from CPython](../reference/divergences.md) (for typing specifically: 14), and the gap ledger stays in [`compat/data/what_will_fail.json`]({{PYSC_COMPAT_URL}}/data/what_will_fail.json).
+- Deliberate runtime differences stay in [Divergences from CPython](../reference/divergences.md) (for typing specifically: 14), and the gap ledger stays in [`data/compat/what_will_fail.json`]({{PYSC_COMPAT_URL}}/data/what_will_fail.json).

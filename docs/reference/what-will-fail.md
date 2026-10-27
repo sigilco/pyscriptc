@@ -8,7 +8,7 @@ When a script uses an unlowered standard library call, an unsupported language c
 
 This page documents the gap categories measured on real-world CLI scripts.
 Features that are supported are not listed here: the support state lives on the [compat site]({{PYSC_COMPAT_URL}}), which measures it.
-The raw, nightly-measured gap breakdown is published in the public data file [`compat/data/what_will_fail.json`]({{PYSC_COMPAT_URL}}/data/what_will_fail.json).
+The raw, nightly-measured gap breakdown is published in the public data file [`data/compat/what_will_fail.json`]({{PYSC_COMPAT_URL}}/data/what_will_fail.json).
 Each fence code links to its `pyscriptc explain` description.
 
 ## Gap categories
@@ -59,4 +59,4 @@ These route to the in-process CPython island floor (`libpython`).
 
 ## Live measurements
 
-Per-fence diagnostics and counts are updated nightly by the measurement runner (`uv run python scripts/gen_what_will_fail.py`) into the public data file [`compat/data/what_will_fail.json`]({{PYSC_COMPAT_URL}}/data/what_will_fail.json) and rendered on the [compat site]({{PYSC_COMPAT_URL}}#fences).
+Per-fence diagnostics and counts are updated nightly by the measurement runner (`uv run python scripts/gen_what_will_fail.py`) into the public data file [`data/compat/what_will_fail.json`]({{PYSC_COMPAT_URL}}/data/what_will_fail.json) and rendered on the [compat site]({{PYSC_COMPAT_URL}}#fences).
