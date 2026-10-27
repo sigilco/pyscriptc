@@ -12,6 +12,7 @@
 #   docs:validate   check every internal link in docs/
 #   docs:internal   dev server for the internal notes (.agents/docs), dev-only
 #   site:build      build web + docs and assemble apps/web/deploy/
+#   site:ci         frozen installs for apps/web and docs/.docmd, then site:build (Cloudflare Pages)
 #   site:check      validate the assembled tree (links, placeholders, docs)
 #   test            python test suite (no linux_container)
 #   lint            ruff check
@@ -78,6 +79,10 @@ run = "pnpm --dir docs/.docmd exec docmd dev --config docmd.internal.config.js"
 [tasks."site:build"]
 description = "Build the site app + docs, assemble apps/web/deploy/"
 run = "pnpm --dir apps/web run site:build"
+
+[tasks."site:ci"]
+description = "Install both pnpm projects from their lockfiles, then build the site (what Cloudflare Pages runs)"
+run = "pnpm --dir apps/web run cf:build"
 
 [tasks."site:check"]
 description = "Validate the assembled tree: links, placeholders, docs links"
