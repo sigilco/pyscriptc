@@ -96,7 +96,7 @@ Patch release (the frequent one), all of these must hold:
 Minor release (a theme, not a calendar slot), all of these must hold:
 
 - At least 2 user-visible features. Why: a minor is a story you can tell in a sentence; one small change is a patch.
-- At least 5 days since the previous minor. Why: it caps the minor pace at about one a week and forces the theme to be finished, not sliced.
+- No calendar gap. A minor ships as soon as its milestone objectives and the bar above are met; `MINOR_MIN_DAYS` stays as a knob and is `0`. Why: the theme and its exit criteria define the release, and a waiting period only delays a finished one.
 - 0 open issues in the matching GitHub milestone. Why: the milestone holds the exit criteria; open issues mean the theme is not done.
 - A measured receipt (census delta, boxed ledger window, or a perf number with its baseline). Why: a claim in the release notes needs a number behind it, which the changelog plan already requires.
 
