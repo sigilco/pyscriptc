@@ -658,7 +658,9 @@ void ps_path_expandvars(int64_t n, const char *s, PsBuf *out) {
     ps_grow_finish(&g, out);
 }
 
-/* realpath: resolve symlinks step by step (no strict mode in this subset). */
+/* realpath: CPython resolves symlinks on the existing leading components
+   and, with the default strict=False, joins a missing tail lexically
+   instead of raising. */
 void ps_path_realpath(int64_t n, const char *s, PsBuf *out) {
     PsBuf abs;
     char *text;
@@ -666,13 +668,53 @@ void ps_path_realpath(int64_t n, const char *s, PsBuf *out) {
     ps_path_abs(n, s, &abs);
     text = ps_cstr(abs.len, abs.data);
     resolved = ps_realpath(text, NULL);
-    free(text);
-    free(abs.data);
-    if (resolved == NULL) {
-        ps_os_fail("realpath failed");
+    if (resolved != NULL) {
+        ps_buf_copy(out, resolved, (int64_t)strlen(resolved));
+        free(resolved);
+        free(abs.data);
+        free(text);
+        return;
     }
-    ps_buf_copy(out, resolved, (int64_t)strlen(resolved));
-    free(resolved);
+    /* The target is missing (or a prefix is not a directory): shrink to the
+       longest prefix realpath() can resolve, then join the rest verbatim,
+       which keeps `a/../b`-style tails for CPython to fold the same way. */
+    {
+        int64_t cut = abs.len;
+        while (cut > 1) {
+            char *prefix;
+            while (cut > 1 && abs.data[cut - 1] != '/') {
+                cut -= 1;
+            }
+            if (cut <= 1) {
+                break;
+            }
+            cut -= 1;
+            prefix = ps_cstr(cut, abs.data);
+            resolved = ps_realpath(prefix, NULL);
+            free(prefix);
+            if (resolved != NULL) {
+                break;
+            }
+        }
+        if (resolved == NULL) {
+            /* Not even the root resolved: hand back the lexical form. */
+            ps_buf_copy(out, abs.data, abs.len);
+            free(abs.data);
+            free(text);
+            return;
+        }
+        {
+            PsBuf parts[2];
+            parts[0].len = (int64_t)strlen(resolved);
+            parts[0].data = resolved;
+            parts[1].len = abs.len - cut;
+            parts[1].data = abs.data + cut;
+            ps_path_join(parts, 2, out);
+            free(resolved);
+        }
+    }
+    free(abs.data);
+    free(text);
 }
 
 /* getmtime/getsize/getatime over stat; each fails like os.stat does. */
