@@ -31,3 +31,9 @@ benchmarks/real/.scratch/
 
 # wrangler local state (account cache)
 .wrangler/
+
+# stray artifacts tests once dropped in the repo root
+/data.txt
+/with.txt
+/nums.json
+*.obj
