@@ -85,9 +85,7 @@ export default {
       icon: "rocket",
       collapsible: true,
       children: [
-        { title: "Quickstart", path: "/getting-started/" },
-        { title: "Install and toolchain", path: "/getting-started/install/" },
-        { title: "Trying the beta", path: "/getting-started/beta/" },
+        { title: "Getting started", path: "/getting-started/" },
       ],
     },
     {
@@ -95,16 +93,11 @@ export default {
       icon: "book-open",
       collapsible: true,
       children: [
-        { title: "The Python subset", path: "/guide/support-model/" },
-        { title: "Typing and idioms", path: "/guide/typing/" },
-        { title: "The island floor", path: "/guide/island-floor/" },
-        { title: "Packages and apps", path: "/guide/packages/" },
-        { title: "Reading .env files", path: "/guide/dotenv/" },
-        { title: "Signing and verifying JWTs", path: "/guide/jwt/" },
-        { title: "Fast JSON with orjson", path: "/guide/orjson/" },
-
-        { title: "HTTP today", path: "/guide/http/" },
+        { title: "The Python subset", path: "/guide/python-subset/" },
+        { title: "Using libraries", path: "/guide/libraries/" },
+        { title: "HTTP", path: "/guide/http/" },
         { title: "Debugging and logs", path: "/guide/debugging/" },
+        { title: "Mobile apps", path: "/guide/mobile/" },
         { title: "Examples", path: "/examples/" },
       ],
     },
@@ -115,11 +108,10 @@ export default {
       children: [
         { title: "CLI", path: "/reference/cli/" },
         { title: "Config", path: "/reference/config/" },
+        { title: "Diagnostics", path: "/reference/diagnostics/" },
         { title: "Divergences from CPython", path: "/reference/divergences/" },
-        { title: "First-class scripts", path: "/reference/first-class-scripts/" },
         { title: "Runtime pack and licenses", path: "/reference/runtime-pack/" },
         { title: "Stability and contracts", path: "/reference/stability/" },
-        { title: "What will fail", path: "/reference/what-will-fail/" },
       ],
     },
     {
@@ -129,6 +121,7 @@ export default {
       children: [
         { title: "Supported CPython versions", path: "/project/versions/" },
         { title: "Telemetry", path: "/project/telemetry/" },
+        { title: "Trying the beta", path: "/project/beta/" },
         { title: "Contributing", path: "/project/contributing/" },
       ],
     },

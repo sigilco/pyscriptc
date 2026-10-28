@@ -5,9 +5,10 @@ description: The bundled CPython runtime pack for `--embed-python=bundle` compil
 
 # Runtime pack and licenses
 
-A `bundle` compile (`--embed-python=bundle`, or the default `auto` mode when the compiler's interpreter has no usable shared `libpython`, as inside the release binary) links and runs a pinned CPython runtime pack instead of the host interpreter. The pack is fetched once, sha256-verified, cached, and carries its licenses with it.
+A `bundle` compile (`--embed-python=bundle`, or the default `auto` mode when the compiler's interpreter has no usable shared `libpython`, as inside the release binary) links and runs a pinned CPython runtime pack instead of the host interpreter.
+The pack is fetched once, sha256-verified, cached, and carries its licenses with it.
 
-The pack is delivered by the embedding slices tracked under issue #651; this page is the licensing and provenance contract that the pack and every output built from it follow.
+This page is the licensing and provenance contract that the pack and every output built from it follow.
 
 ## What the pack contains
 
@@ -19,7 +20,12 @@ The pack for each supported platform (macOS arm64 and Linux x86_64 in the first 
 
 The lock file pins the release tag, the asset name, the sha256 and the CPython micro version. A pack that does not match the lock is refused before anything is linked.
 
-## Download size and cache
+## Fetching and caching
+
+```sh
+pyscriptc embed fetch              # this machine
+pyscriptc embed fetch --platform linux-x86_64
+```
 
 The compressed pack is tens of megabytes (roughly 27 MB on macOS arm64, 35 MB on Linux x86_64). It is fetched on demand, not at install time: a `bundle` compile without a cached pack says so and names the fetch command before downloading. The unpacked pack is cached under `~/.cache/pyscriptc/runtime/<pack-id>/`.
 

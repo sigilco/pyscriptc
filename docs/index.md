@@ -3,22 +3,20 @@ title: pyscriptc
 description: Compile annotated Python to a native binary.
 ---
 
+<p align="center"><img src="/assets/logo-256.png" width="320" alt="pyscriptc"></p>
+
 # pyscriptc
 
-Compile annotated Python to a native binary. Island is the floor and native is the ceiling.
+Compile annotated Python to a native binary.
 
-[Quickstart](/getting-started/) · [GitHub](https://github.com/sigilco/pyscriptc) · [PyPI](https://pypi.org/project/pyscriptc/)
+[Get started](/getting-started/) · [GitHub](https://github.com/sigilco/pyscriptc) · [PyPI](https://pypi.org/project/pyscriptc/)
 
 ## What it does
 
-- **Typed subset target**: pyscriptc compiles statically-typed Python 3.14. Native compilation is the ceiling and island fallback is the floor; the compiler provides no shims or dynamic runtime emulation for untyped Python.
-- **Native output**: a Python file lowers to a typed IR, then to LLVM, then to a standalone binary. The result has no interpreter inside.
-- **Island floor**: unlowered standard-library calls and untyped PyPI dependencies route to an in-process embedded CPython island (`libpython`).
-- **Two unidirectional seams**: compiled to island in-process, and island to compiled via `pyscriptc --emit binding`.
-- **Honest fences**: anything the subset does not prove is a fence with a diagnostic code (`PSxxxx`), not a guess.
-- **CPython's own parser**: the front end is the `ast` module, so what parses is what CPython parses.
-- **Cross-compile**: `zig cc` as the driver emits binaries for other targets via `--target`.
-- **Zero runtime dependencies**: the CLI itself is stdlib-only and ships the C runtime it links.
+- **Type-first**: pyscriptc compiles a Python subset that follows strict rules: typed, with no shims or dynamic runtime emulation for untyped Python.
+- **Native output**: Python code is compiled to machine code via LLVM. The result has no interpreter inside. Ship a single file and cross-compile to your target platform.
+- **Gradual adoption**: code that doesn't fit in the subset can be wrapped in an in-process embedded CPython island (`libpython`). You can also integrate compiled code via bindings.
+- **Clear debugging**: anything the subset does not prove is a fence with a diagnostic code (`PSxxxx`).
 
 ## Try it now
 
@@ -31,12 +29,11 @@ That prints `285`, the same value CPython returns, from a native binary.
 
 ## Read next
 
-- [Quickstart](/getting-started/): install, compile, run.
-- [Install and toolchain](getting-started/install/): clang, zig, doctor.
-- [The Python subset](/guide/support-model/): what lowers, what fences.
-- [Typing and idioms](/guide/typing/): how annotations drive lowering, construct by construct.
-- [The island floor](/guide/island-floor/): CPython fallback tier and plane maps for real scripts.
-- [Mobile apps](/guide/mobile/): a static library for iOS and Android.
-- [CLI](/reference/cli/): every subcommand and flag.
-- [Stability and contracts](/reference/stability/): frozen tiers, driver API, and internal surfaces.
-- [Examples](/examples/): programs that compile today.
+- [Getting started](/getting-started/)
+- [Examples](/examples/)
+- [The Python subset](/guide/python-subset/)
+  - [Using libraries](/guide/libraries/)
+- [CLI reference](/reference/cli/)
+  - [Diagnostic codes](/reference/diagnostics/)
+  - [Mobile apps](/guide/mobile/)
+  - [Stability and contracts](/reference/stability/)

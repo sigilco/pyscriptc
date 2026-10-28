@@ -3,9 +3,9 @@ title: Example programs
 description: Programs in the repository that compile today, with the value each one prints.
 ---
 
-# Example scripts
+# Example programs
 
-The files in [`examples/`](https://github.com/sigilco/pyscriptc/tree/master/examples) that start with `gates_`, `wave_probe`, `rest_probe`, and `fence_` lock compiler behavior. The programs below are an invoice, an access-log gate, a log token, a release note, a record digest, a URL allow-list, a route label, and a hostname lookup. Each one compiles, and the printed value matches CPython.
+The programs below, from [`examples/`](https://github.com/sigilco/pyscriptc/tree/master/examples), are an invoice, an access-log gate, a log token, a release note, a record digest, a URL allow-list, a route label, and a hostname lookup. Each one compiles, and the printed value matches CPython.
 
 `--args` passes `int`, `float`, `bool`, and `str`. Lists and bytes are built inside the function.
 
@@ -92,7 +92,7 @@ That prints `health 201`. Omitting the status prints `health 200`.
 
 ## Hostname
 
-`examples/hostname.py` is the island. The binary links libpython.
+`examples/hostname.py` runs through embedded CPython (fallback mode). The binary links libpython.
 
 ```bash
 uv run pyscriptc compile examples/hostname.py --run --call hostname -o /tmp/hostname
