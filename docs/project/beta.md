@@ -20,7 +20,7 @@ pyscriptc compile your_script.py --emit bin -o ./your_script --island
 ./your_script
 ```
 
-`coverage` tells you which parts lower natively and which stop at a fence. The binary should print what `python your_script.py` prints.
+`coverage` tells you which parts compile to native code and which are unsupported. The binary should print what `python your_script.py` prints.
 
 ## What to report
 
@@ -28,6 +28,6 @@ Open an issue at https://github.com/sigilco/pyscriptc/issues with the script (or
 
 - the binary output differs from CPython (the most useful report)
 - `--island` fails to compile (a `PSxxxx` code and its message)
-- a fence you expected to lower natively
+- an unsupported construct you expected to compile
 
 Native-only reports are welcome too, but a wrong answer under `--island` is the bug that matters most.
