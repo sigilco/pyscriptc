@@ -24,6 +24,9 @@
 #   compat:ladder   rebuild data/compat/ladder.json
 #   compat:census   compat2 census over the visible corpus (--top N)
 #   support:table   regenerate the supported-API tables under .agents/docs/support
+#   docs:cli        regenerate docs/reference/cli.md from the argparse parser
+#   docs:config     regenerate the config key tables in docs/reference/config.md
+#   docs:diagnostics  regenerate docs/reference/diagnostics.md from the registry
 #   boxed:cost      boxed ledger window (add --reach/--probe-times when you have them)
 #   ir:hashes       canonical IR hash compare against the committed baseline (linux only, see below)
 #   compile         pyscriptc compile, args pass through (mise run compile FILE --emit bin)
@@ -144,6 +147,18 @@ run = "uv run python scripts/gen_support_table.py"
 [tasks."docs:what-will-fail"]
 description = "Regenerate data/compat/what_will_fail.json from the R0 corpus (add --check to compare)"
 run = "uv run python scripts/gen_what_will_fail.py"
+
+[tasks."docs:cli"]
+description = "Regenerate docs/reference/cli.md from the argparse parser (add --check to compare)"
+run = "uv run python scripts/gen_cli_docs.py"
+
+[tasks."docs:config"]
+description = "Regenerate docs/reference/config.md key tables from config.py (add --check to compare)"
+run = "uv run python scripts/gen_config_docs.py"
+
+[tasks."docs:diagnostics"]
+description = "Regenerate docs/reference/diagnostics.md from the diagnostic registry (add --check to compare)"
+run = "uv run python scripts/gen_diagnostics_docs.py"
 
 [tasks."compat:census"]
 description = "Compat2 census over the visible corpus (append --top N to limit)"

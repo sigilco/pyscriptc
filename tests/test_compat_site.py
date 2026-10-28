@@ -74,9 +74,15 @@ def test_nightly_never_pushes_to_master() -> None:
 
 def test_docs_link_to_the_compat_placeholder() -> None:
     """The docs must link through the placeholder, never a hard-coded host."""
-    page = (ROOT / "docs" / "guide" / "support-model.md").read_text(encoding="utf-8")
-    assert "{{PYSC_COMPAT_URL}}" in page
-    assert "pyscriptc-compat.pages.dev" not in page
+    hits = 0
+    for path in (ROOT / "docs").rglob("*.md"):
+        if ".docmd" in path.parts:
+            continue
+        page = path.read_text(encoding="utf-8")
+        if "{{PYSC_COMPAT_URL}}" in page:
+            hits += 1
+        assert "pyscriptc-compat.pages.dev" not in page, path
+    assert hits >= 1, "no docs page links to the compat site through the placeholder"
 
 
 def test_placeholder_default_is_the_single_site() -> None:

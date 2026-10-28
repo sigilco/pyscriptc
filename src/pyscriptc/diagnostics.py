@@ -17,14 +17,14 @@ _ENTRIES = (
     Diagnostic(
         "PS0001",
         "invalid input or IR",
-        "The source or the generated IR failed a structural check before lowering could finish.",
+        "The source or the generated IR failed a structural check before the backend could run.",
         "Fix the input path or syntax error named in the message.",
     ),
     Diagnostic(
         "PS0101",
         "IR type inconsistency",
         (
-            "The lowered IR mixes types the emitter cannot pair: operands of one "
+            "The IR mixes types the emitter cannot pair: operands of one "
             "operator disagree, a compare does not yield bool, a condition is not "
             "bool, or a returned value has another type than the function returns. "
             "Debug-mode verification reports this before the backend runs."
@@ -63,17 +63,20 @@ _ENTRIES = (
     ),
     Diagnostic(
         "PS1001",
-        "annotation missing or not lowered",
+        "annotation missing or not supported",
         (
             "A parameter, return, or variable needs an annotation the subset can read, "
             "or an annotation form has no more specific code."
         ),
-        "Annotate the name with int, float, bool, str, bytes, list[T], dict[K, V], tuple[...], or a lowered class.",
+        (
+            "Annotate the name with int, float, bool, str, bytes, list[T], dict[K, V], "
+            "tuple[...], or a class the compiler takes."
+        ),
     ),
     Diagnostic(
         "PS1003",
         "type mismatch",
-        "An operation received a type the lowered subset does not accept for it.",
+        "An operation received a type the compiler does not accept for it.",
         "Convert the operand explicitly, for example int(flag) before math calls.",
     ),
     Diagnostic(
@@ -91,7 +94,7 @@ _ENTRIES = (
     Diagnostic(
         "PS1102",
         "Optional annotation",
-        "An optional of one type (`T | None`, `Optional[T]`) is lowered. "
+        "An optional of one type (`T | None`, `Optional[T]`) compiles. "
         "`A | B | None` and `Union[A, B, None]` need a multi-arm union, which the IR does not have yet.",
         "Narrow to `T | None` with one arm, or split the function per arm.",
     ),
@@ -100,7 +103,7 @@ _ENTRIES = (
         "generic alias annotation",
         (
             "A subscripted annotation such as Mapping[K, V], Sequence[T], Iterator[T], "
-            "Callable[...], or type[T] is not a lowered container."
+            "Callable[...], or type[T] is not a container the compiler takes."
         ),
         "Use list[T], dict[K, V], or tuple[...] in the signature.",
     ),
@@ -110,42 +113,42 @@ _ENTRIES = (
         (
             "object, Any, Protocol, TypeVar, Generic, Callable and ABC bases name "
             "dynamic shapes the IR has no slot for. Typing names are annotation-only: "
-            "they steer the lowering, they are never runtime values."
+            "they steer compilation, they are never runtime values."
         ),
         "Annotate with the concrete type the function really takes.",
     ),
     Diagnostic(
         "PS1105",
         "forward reference annotation",
-        "A quoted annotation such as 'Node' is not resolved by the lowering.",
+        "A quoted annotation such as 'Node' is not resolved at compile time.",
         "Define the class before use and write the name unquoted.",
     ),
     Diagnostic(
         "PS1106",
-        "annotation names an unlowered type",
-        "The annotation is a plain name that is not a builtin scalar, a lowered class, or a known alias.",
-        "Import a lowered class, or replace the alias with the concrete type.",
+        "annotation names a type the compiler does not take",
+        "The annotation is a plain name that is not a builtin scalar, a compiled class, or a known alias.",
+        "Import the concrete class, or replace the alias with the concrete type.",
     ),
     Diagnostic(
         "PS1201",
         "decorator",
-        "Only a closed set of decorators lowers. Other decorators change behavior the compiler cannot see.",
+        "Only a closed set of decorators compiles. Other decorators change behavior the compiler cannot see.",
         "Remove the decorator, or inline what it does.",
     ),
     Diagnostic(
         "PS1202",
         "parameter form",
-        "Positional-only, keyword-only, *args and **kwargs parameters are not lowered. "
+        "Positional-only, keyword-only, *args and **kwargs parameters are not supported. "
         "An unannotated **kwargs parameter needs a runtime keyword mapping.",
-        "Use plain positional parameters, with defaults where needed. A **kwargs parameter "
-        "routes to the island lane; declare its keys with PEP 692 Unpack[TypedDict].",
+        "Use plain positional parameters, with defaults where needed. An **kwargs parameter "
+        "runs through embedded CPython (fallback mode); declare its keys with PEP 692 Unpack[TypedDict].",
     ),
     Diagnostic(
         "PS1203",
         "class header form",
-        "Class keywords (metaclass=...) and multiple inheritance are not lowered. "
+        "Class keywords (metaclass=...) and multiple inheritance are not supported. "
         "A metaclass builds the class at run time and native code fixes the layout at compile time.",
-        "Use a single lowered base class and no class keywords. Write the class explicitly, "
+        "Use a single base class the compiler takes and no class keywords. Write the class explicitly, "
         "or use PEP 695 generics instead of metaclass synthesis.",
     ),
     Diagnostic(
@@ -157,72 +160,72 @@ _ENTRIES = (
     Diagnostic(
         "PS1205",
         "except form",
-        "`except E as name` and bare `except:` are not lowered.",
-        "Name a lowered exception class and drop the `as` binding.",
+        "`except E as name` and bare `except:` are not supported.",
+        "Use a compiled exception class and drop the `as` binding.",
     ),
     Diagnostic(
         "PS1206",
         "with-as binding",
-        "`with ... as name` is lowered only for a closed set of context managers.",
-        "Use a lowered context manager without the binding, or open and close explicitly.",
+        "`with ... as name` compiles only for a closed set of context managers.",
+        "Use a supported context manager without the binding, or open and close explicitly.",
     ),
     Diagnostic(
         "PS2001",
-        "stdlib name not lowered",
-        "The module imports, but this attribute is outside its lowered surface. "
+        "stdlib name not supported",
+        "The module imports, but this attribute is outside the surface the compiler takes. "
         "An attribute that reads runtime metadata (inspect.signature, __annotations__) is "
-        "runtime reflection and the fence names the island lane.",
-        "Use a lowered attribute of the module. For reflection, use the typed idiom the fence "
-        "names, or route the definition to the island lane.",
+        "runtime reflection and routes the definition to embedded CPython.",
+        "Use an attribute of the module the compiler takes. For reflection, use the typed idiom "
+        "the message names, or compile with --fallback=cpython.",
     ),
     Diagnostic(
         "PS2002",
-        "construct not lowered",
-        "A statement, expression, import, or definition has no lowering. Dynamic forms such "
+        "construct not supported",
+        "A statement, expression, import, or definition has no compiled form. Dynamic forms such "
         "as **kwargs keyword forwarding or an annotation read at run time are runtime "
         "reflection and cannot be compiled natively.",
-        "Rewrite it with the typed idiom the fence names (PEP 692 Unpack[TypedDict] for "
-        "**kwargs), or route the definition to the island lane.",
+        "Rewrite it with the typed idiom the message names (PEP 692 Unpack[TypedDict] for "
+        "**kwargs), or compile with --fallback=cpython.",
     ),
     Diagnostic(
         "PS2003",
-        "call arguments not lowered",
-        "A call has keyword arguments, or the wrong number of arguments, for its lowered form.",
-        "Pass positional arguments in the lowered arity.",
+        "call arguments not supported",
+        "A call has keyword arguments, or the wrong number of arguments, for the form the compiler takes.",
+        "Pass positional arguments in the arity the compiler takes.",
     ),
     Diagnostic(
         "PS2004",
-        "operator or operand not lowered",
-        "The operator is not lowered for these operand types.",
+        "operator or operand not supported",
+        "The operator is not supported for these operand types.",
         "Convert the operands to a supported pair of types.",
     ),
     Diagnostic(
         "PS2005",
         "string literal outside Latin-1",
-        "Strings are byte sequences in the runtime, so only Latin-1 text lowers.",
+        "Strings are byte sequences in the runtime, so only Latin-1 text compiles.",
         "Use Latin-1 text, or move the literal to bytes.",
     ),
     Diagnostic(
         "PS2006",
-        "decorator expression is not a lowered callable",
+        "decorator expression is not a typed callable",
         (
-            "A user decorator lowers as a direct call of a function value, so the "
+            "A user decorator compiles as a direct call of a function value, so the "
             "decorator expression must be typed as a function that takes the "
             "decorated function and returns one. An expression such as "
             "`@click.command()` returns a class instance, an untyped value or an "
-            "island value, which carries no lowered parameter list to check the "
+            "embedded-CPython value, which carries no parameter list to check the "
             "wrapped function against."
         ),
         (
             "Use a decorator typed as a function returning a function, or apply "
             "the wrapper explicitly in the function body. Under "
-            "`--fallback=cpython` the decorated definition runs island-side."
+            "`--fallback=cpython` the decorated definition runs through embedded CPython."
         ),
     ),
     Diagnostic(
         "PS2101",
         "queued stdlib module",
-        "The module is on the roadmap and is not lowered yet.",
+        "The module is planned but not compiled yet.",
         "Avoid the module, or wait for the queue entry to land.",
     ),
     Diagnostic(
@@ -357,8 +360,8 @@ _ENTRIES = (
             "dropped or silently bypassed."
         ),
         (
-            "Use plain annotated fields and methods. `@property` getters lower; "
-            "`__getattr__` lowers for unknown-name reads (issue #434); "
+            "Use plain annotated fields and methods. `@property` getters compile; "
+            "`__getattr__` compiles for unknown-name reads (issue #434); "
             "unknown-name delegation otherwise becomes an explicit method call."
         ),
     ),
@@ -366,14 +369,14 @@ _ENTRIES = (
         "PS4204",
         "__getattr__ return type does not cover the read site",
         (
-            "An unknown-name read on a class with `__getattr__` lowers as a direct "
+            "An unknown-name read on a class with `__getattr__` compiles as a direct "
             "call of the hook with the attribute name as a compile-time constant. "
             "The hook's declared return type is what the read gets, so it must "
             "cover the read site's expected type exactly; a hook that returns "
             "`None`, `bool` or an optional cannot feed an arbitrary read."
         ),
         (
-            "Narrow the hook's return annotation to one lowered value type that "
+            "Narrow the hook's return annotation to one value type that "
             "every read site expects, or split the class: one `__getattr__` per "
             "return shape, or explicit methods instead of the hook."
         ),
@@ -382,8 +385,8 @@ _ENTRIES = (
         "PS4202",
         "attribute deletion protocol refused",
         (
-            "`__delattr__` intercepts `del obj.name`, which the lowered subset does "
-            "not model: fields are fixed at lowering and never removed, so the hook "
+            "`__delattr__` intercepts `del obj.name`, which the compiled subset does "
+            "not model: fields are fixed at compile time and never removed, so the hook "
             "would never run."
         ),
         "Use plain annotated fields. Model 'removed' with a sentinel value or a flag field.",

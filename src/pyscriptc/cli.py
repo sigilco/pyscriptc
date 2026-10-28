@@ -205,16 +205,16 @@ def __getattr__(name: str) -> Any:
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pyscriptc",
-        description="Lower a typed Python subset to IR and LLVM.",
+        description="Compile a typed Python subset to native code through LLVM.",
     )
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("-v", "--verbose", action="store_true", help="enable DEBUG audit records")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    compile_parser = sub.add_parser("compile", help="lower a source file", parents=[common])
-    compile_parser.add_argument("source")
+    compile_parser = sub.add_parser("compile", help="compile a source file", parents=[common])
+    compile_parser.add_argument("source", help="Python file or package directory to compile")
     compile_parser.add_argument(
         "--program",
         action="store_true",
@@ -222,13 +222,18 @@ def main(argv: list[str] | None = None) -> int:
         "entry point even when the directory has an `__init__.py`, and its modules are "
         "namespaced under the directory name",
     )
-    compile_parser.add_argument("--emit", choices=("ir", "llvm", "asm", "obj", "bin", "lib", "binding"), default="llvm")
+    compile_parser.add_argument(
+        "--emit",
+        choices=("ir", "llvm", "asm", "obj", "bin", "lib", "binding"),
+        default="llvm",
+        help="output artifact: ir (JSON IR), llvm (textual LLVM), asm, obj, bin, lib or binding; default llvm",
+    )
     compile_parser.add_argument(
         "--out-dir",
         metavar="DIR",
         help="write artifacts to DIR/<source name> instead of beside the source (useful for directory compiles)",
     )
-    compile_parser.add_argument("-o", dest="output")
+    compile_parser.add_argument("-o", dest="output", metavar="PATH", help="output path; defaults to the source stem")
     compile_parser.add_argument(
         "--ffi",
         action="append",
@@ -243,21 +248,21 @@ def main(argv: list[str] | None = None) -> int:
         choices=("cpython",),
         default=None,
         metavar="TIER",
-        help="route a fenced function definition to the embedded CPython island; "
+        help="route a function pyscriptc cannot compile to embedded CPython (fallback mode); "
         "the only tier is cpython. Needs libpython and the packages on the host",
     )
     compile_parser.add_argument(
         "--island",
         action="store_true",
         help="alias of --fallback=cpython: route every import outside the closed table and "
-        "every fenced definition to the embedded CPython island",
+        "every function pyscriptc cannot compile to embedded CPython (fallback mode)",
     )
     compile_parser.add_argument(
         "--embed-python",
         choices=("host", "bundle", "auto"),
         default=None,
         metavar="MODE",
-        help="libpython the island links: host (the compiler interpreter), bundle (the pinned "
+        help="libpython embedded CPython links: host (the compiler interpreter), bundle (the pinned "
         "runtime pack, relocatable output) or auto (host when this interpreter has a shared "
         "libpython, bundle otherwise; the default). Also read from the `embed` key of "
         "[tool.pyscriptc.island]",
@@ -272,9 +277,10 @@ def main(argv: list[str] | None = None) -> int:
         "closure plus allowlist). Also read from the `stdlib` key of [tool.pyscriptc.island]",
     )
     # boxed:end
-    compile_parser.add_argument("--call", help="function the generated main calls")
+    compile_parser.add_argument("--call", metavar="FUNC", help="function the generated main calls")
     compile_parser.add_argument(
         "--args",
+        metavar="ARGS",
         default="[]",
         help="Python literal list of arguments for --call, parsed with ast.literal_eval",
     )
@@ -292,6 +298,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     compile_parser.add_argument(
         "--target",
+        metavar="TRIPLE",
         help="cross-compilation triple for `zig cc`, e.g. aarch64-linux-gnu.2.39 (env PYSC_TARGET)",
     )
     compile_parser.add_argument(
@@ -317,7 +324,7 @@ def main(argv: list[str] | None = None) -> int:
         "--print",
         dest="print_what",
         choices=("diagnostics",),
-        help="print JSON instead of compiling: diagnostics is the coverage report; exit 3 when fenced",
+        help="print JSON instead of compiling: diagnostics is the coverage report; exit 3 on a refusal",
     )
     compile_parser.add_argument("--skip-check", action="store_true")
     compile_parser.add_argument(
@@ -330,9 +337,8 @@ def main(argv: list[str] | None = None) -> int:
         "--bridge",
         choices=("mypy", "pyrefly"),
         default=None,
-        help="checker bridge: feed the checker's inferred-type map into lowering so "
-        "unannotated locals, parameters and returns stop fencing. Off by default; "
-        "needs mypy installed, or pyrefly for --bridge pyrefly",
+        help="feed the checker's inferred-type map to the compiler so unannotated "
+        "code compiles; needs mypy installed, or pyrefly for --bridge pyrefly",
     )
     compile_parser.add_argument(
         "--debug",
@@ -356,7 +362,7 @@ def main(argv: list[str] | None = None) -> int:
     run_parser = sub.add_parser(
         "run", help="compile (cached by content hash) and run; arguments after `--` go to the program", parents=[common]
     )
-    run_parser.add_argument("source")
+    run_parser.add_argument("source", help="Python file or package directory to compile and run")
     run_parser.add_argument("--program", action="store_true", help="treat the directory as a program (see compile)")
     # boxed:begin
     run_parser.add_argument(
@@ -364,7 +370,7 @@ def main(argv: list[str] | None = None) -> int:
         choices=("cpython",),
         default=None,
         metavar="TIER",
-        help="route a fenced function definition to the embedded CPython island; the only tier is cpython",
+        help="route a function pyscriptc cannot compile to embedded CPython (fallback mode); the only tier is cpython",
     )
     run_parser.add_argument(
         "--island",
@@ -376,7 +382,7 @@ def main(argv: list[str] | None = None) -> int:
         choices=("host", "bundle", "auto"),
         default=None,
         metavar="MODE",
-        help="libpython the island links (see compile); the run cache keys on it",
+        help="libpython embedded CPython links (see compile); the run cache keys on it",
     )
     # boxed:end
     # boxed:begin
@@ -389,19 +395,29 @@ def main(argv: list[str] | None = None) -> int:
         help="print or write the executed plane map after the run (default: silent)",
     )
     # boxed:end
-    run_parser.add_argument("--call", help="function the generated main calls")
-    run_parser.add_argument("--args", default="[]", help="Python literal list of arguments for --call")
-    run_parser.add_argument("--driver", choices=("clang", "zig"), default=None)
-    run_parser.add_argument("--target", help="cross-compilation triple for `zig cc`")
-    run_parser.add_argument("--linker", choices=("clang", "zig"), default=None)
+    run_parser.add_argument("--call", metavar="FUNC", help="function the generated main calls")
+    run_parser.add_argument("--args", metavar="ARGS", default="[]", help="Python literal list of arguments for --call")
+    run_parser.add_argument(
+        "--driver", choices=("clang", "zig"), default=None, metavar="DRIVER", help="C toolchain driver (see compile)"
+    )
+    run_parser.add_argument("--target", metavar="TRIPLE", help="cross-compilation triple for `zig cc` (see compile)")
+    run_parser.add_argument(
+        "--linker", choices=("clang", "zig"), default=None, metavar="DRIVER", help="link driver (see compile)"
+    )
     run_parser.add_argument(
         "--sanitize",
         metavar="LIST",
         default=None,
         help="comma list of sanitizers for the C runtime and the emitted code (env PYSC_SANITIZE)",
     )
-    run_parser.add_argument("--skip-check", action="store_true")
-    run_parser.add_argument("--checker", choices=("pyrefly", "mypy", "pyright"), default="pyrefly")
+    run_parser.add_argument("--skip-check", action="store_true", help="skip the type-checker preflight")
+    run_parser.add_argument(
+        "--checker",
+        choices=("pyrefly", "mypy", "pyright"),
+        default="pyrefly",
+        metavar="CHECKER",
+        help="type-checker preflight",
+    )
     run_parser.add_argument("--no-cache", action="store_true", help="always recompile (env PYSC_NO_RUN_CACHE=1)")
     run_parser.add_argument(
         "--ffi",
@@ -415,9 +431,9 @@ def main(argv: list[str] | None = None) -> int:
         help="compile, run under CPython 3.14 and natively, and diff stdout, stderr and the exit code",
         parents=[common],
     )
-    verify_parser.add_argument("source")
-    verify_parser.add_argument("--call", help="function to call on both sides instead of the program entry")
-    verify_parser.add_argument("--args", default="[]", help="Python literal list of arguments for --call")
+    verify_parser.add_argument("source", help="Python file or package directory to compile")
+    verify_parser.add_argument("--call", metavar="FUNC", help="function to call on both sides, not the program entry")
+    verify_parser.add_argument("--args", metavar="ARGS", default="[]", help="Python literal args list for --call")
     verify_parser.add_argument(
         "--input",
         metavar="FILE",
@@ -432,11 +448,21 @@ def main(argv: list[str] | None = None) -> int:
         help=f"seconds each run may take before it is a divergence (default {_VERIFY_DEFAULT_TIMEOUT:g})",
     )
     verify_parser.add_argument("--program", action="store_true", help="treat the directory as a program (see compile)")
-    verify_parser.add_argument("--driver", choices=("clang", "zig"), default=None)
-    verify_parser.add_argument("--target", help="cross-compilation triple for `zig cc`")
-    verify_parser.add_argument("--linker", choices=("clang", "zig"), default=None)
-    verify_parser.add_argument("--skip-check", action="store_true")
-    verify_parser.add_argument("--checker", choices=("pyrefly", "mypy", "pyright"), default="pyrefly")
+    verify_parser.add_argument(
+        "--driver", choices=("clang", "zig"), default=None, metavar="DRIVER", help="C toolchain driver (see compile)"
+    )
+    verify_parser.add_argument("--target", metavar="TRIPLE", help="cross-compilation triple for `zig cc` (see compile)")
+    verify_parser.add_argument(
+        "--linker", choices=("clang", "zig"), default=None, metavar="DRIVER", help="link driver (see compile)"
+    )
+    verify_parser.add_argument("--skip-check", action="store_true", help="skip the type-checker preflight")
+    verify_parser.add_argument(
+        "--checker",
+        choices=("pyrefly", "mypy", "pyright"),
+        default="pyrefly",
+        metavar="CHECKER",
+        help="type-checker preflight",
+    )
     verify_parser.add_argument("--no-cache", action="store_true", help="always recompile (env PYSC_NO_RUN_CACHE=1)")
     verify_parser.add_argument(
         "--ffi",
@@ -448,7 +474,7 @@ def main(argv: list[str] | None = None) -> int:
     verify_parser.set_defaults(sanitize=None, debug_info=False)
     assess_parser = sub.add_parser(
         "assess",
-        help="assess any script, library or app for native gains and island routes",
+        help="assess any script, library or app for native gains and fallback routes",
         parents=[common],
     )
     assess_parser.add_argument("source", help="script, package directory or app")
@@ -456,7 +482,7 @@ def main(argv: list[str] | None = None) -> int:
     assess_parser.add_argument(
         "--all",
         action="store_true",
-        help="print full assessment report without capping fences (default top-3 per root cause)",
+        help="print the full report without capping refusals (default top-3 per root cause)",
     )
     assess_parser.add_argument(
         "--bench",
@@ -468,8 +494,8 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="run differential verify on compilable entry points and show receipt inline",
     )
-    assess_parser.add_argument("--call", help="function to call on entry points instead of the program entry")
-    assess_parser.add_argument("--args", default="[]", help="Python literal list of arguments for --call")
+    assess_parser.add_argument("--call", metavar="FUNC", help="function to call on entry points, not the program entry")
+    assess_parser.add_argument("--args", metavar="ARGS", default="[]", help="Python literal args list for --call")
     assess_parser.add_argument("--input", metavar="FILE", help="feed FILE's bytes on stdin to verify and bench")
     assess_parser.add_argument(
         "--timeout",
@@ -479,11 +505,21 @@ def main(argv: list[str] | None = None) -> int:
         help=f"seconds each run may take (default {_VERIFY_DEFAULT_TIMEOUT:g})",
     )
     assess_parser.add_argument("--program", action="store_true", help="treat the directory as a program")
-    assess_parser.add_argument("--driver", choices=("clang", "zig"), default=None)
-    assess_parser.add_argument("--target", help="cross-compilation triple for `zig cc`")
-    assess_parser.add_argument("--linker", choices=("clang", "zig"), default=None)
-    assess_parser.add_argument("--skip-check", action="store_true")
-    assess_parser.add_argument("--checker", choices=("pyrefly", "mypy", "pyright"), default="pyrefly")
+    assess_parser.add_argument(
+        "--driver", choices=("clang", "zig"), default=None, metavar="DRIVER", help="C toolchain driver (see compile)"
+    )
+    assess_parser.add_argument("--target", metavar="TRIPLE", help="cross-compilation triple for `zig cc` (see compile)")
+    assess_parser.add_argument(
+        "--linker", choices=("clang", "zig"), default=None, metavar="DRIVER", help="link driver (see compile)"
+    )
+    assess_parser.add_argument("--skip-check", action="store_true", help="skip the type-checker preflight")
+    assess_parser.add_argument(
+        "--checker",
+        choices=("pyrefly", "mypy", "pyright"),
+        default="pyrefly",
+        metavar="CHECKER",
+        help="type-checker preflight",
+    )
     assess_parser.add_argument("--no-cache", action="store_true", help="always recompile (env PYSC_NO_RUN_CACHE=1)")
     assess_parser.add_argument(
         "--ffi",
@@ -493,31 +529,33 @@ def main(argv: list[str] | None = None) -> int:
         help="bind a typed extern manifest (TOML) and link its C sources; repeatable",
     )
     assess_parser.set_defaults(sanitize=None, debug_info=False)
-    coverage_parser = sub.add_parser("coverage", help="report every fence in a file or package tree", parents=[common])
-    coverage_parser.add_argument("source")
+    coverage_parser = sub.add_parser(
+        "coverage", help="report everything a file or package tree cannot compile", parents=[common]
+    )
+    coverage_parser.add_argument("source", help="Python file or package directory to report on")
     coverage_parser.add_argument("--json", action="store_true", help="print the report as JSON")
     coverage_parser.add_argument(
         "--fail-on",
         choices=("blockers", "any"),
-        help="exit 1 when root fences (blockers) or any fence exist; default always exits 0",
+        help="exit 1 when root refusals (blockers) or any refusal (any) exist; default always exits 0",
     )
     config_parser = sub.add_parser("config", help="show the resolved config for a source", parents=[common])
-    config_parser.add_argument("source")
+    config_parser.add_argument("source", help="Python file, pyproject.toml or directory")
     config_parser.add_argument("--json", action="store_true", help="print the resolved config as JSON")
     explain_parser = sub.add_parser("explain", help="describe a diagnostic code", parents=[common])
-    explain_parser.add_argument("code")
+    explain_parser.add_argument("code", help="a PSxxxx diagnostic code, for example PS2001")
     imports_parser = sub.add_parser(
         "imports", help="classify every import of a file or package tree into a compat lane", parents=[common]
     )
-    imports_parser.add_argument("source")
+    imports_parser.add_argument("source", help="Python file or package directory to classify")
     imports_parser.add_argument("--json", action="store_true", help="print the report as JSON")
     imports_parser.add_argument(
         "--reach",
         metavar="FILE",
-        help="append the island reach share to a JSON file boxed_cost.py --reach reads",
+        help="append the embedded-CPython reach share to a JSON file (the compat ledger reads it)",
     )
     reduce_parser = sub.add_parser(
-        "reduce", help="delta-debug a source to a minimal reproducer of a fence or crash", parents=[common]
+        "reduce", help="delta-debug a source to a minimal reproducer of a refusal or crash", parents=[common]
     )
     reduce_parser.add_argument("source", help="the Python file to shrink")
     group = reduce_parser.add_mutually_exclusive_group(required=True)
@@ -527,12 +565,15 @@ def main(argv: list[str] | None = None) -> int:
         help="shell command run on each candidate file; it exits 0 when the candidate still "
         "reproduces (the candidate path arrives in $PSC_SOURCE)",
     )
-    group.add_argument("--fence", metavar="CODE", help="shorthand: lowering still reports a fence with this code")
-    group.add_argument("--crash", action="store_true", help="shorthand: lowering still raises a non-fence error")
+    group.add_argument("--fence", metavar="CODE", help="shorthand: compiling still reports a refusal with this code")
+    group.add_argument("--crash", action="store_true", help="shorthand: compiling still raises a non-refusal error")
     reduce_parser.add_argument(
-        "--timeout", type=float, default=_REDUCE_DEFAULT_TIMEOUT, help="seconds per --predicate command"
+        "--timeout",
+        type=float,
+        default=_REDUCE_DEFAULT_TIMEOUT,
+        help=f"seconds per --predicate command (default {_REDUCE_DEFAULT_TIMEOUT:g})",
     )
-    reduce_parser.add_argument("--steps", type=int, default=10_000, help="cap on removal attempts")
+    reduce_parser.add_argument("--steps", type=int, default=10_000, help="cap on removal attempts (default 10000)")
     reduce_parser.add_argument(
         "--print", action="store_true", help="print the reduced source instead of writing FILE.min.py"
     )
@@ -548,14 +589,24 @@ def main(argv: list[str] | None = None) -> int:
     )
     build_parser.add_argument("--script", help="build only this console script; default every script")
     build_parser.add_argument("--out-dir", metavar="DIR", help="write the binaries to DIR instead of <project>/build")
-    build_parser.add_argument("--driver", choices=("clang", "zig"), default=None)
-    build_parser.add_argument("--target", help="cross-compilation triple for `zig cc`")
-    build_parser.add_argument("--linker", choices=("clang", "zig"), default=None)
-    build_parser.add_argument("--skip-check", action="store_true")
-    build_parser.add_argument("--checker", choices=("pyrefly", "mypy", "pyright"), default="pyrefly")
+    build_parser.add_argument(
+        "--driver", choices=("clang", "zig"), default=None, metavar="DRIVER", help="C toolchain driver (see compile)"
+    )
+    build_parser.add_argument("--target", metavar="TRIPLE", help="cross-compilation triple for `zig cc` (see compile)")
+    build_parser.add_argument(
+        "--linker", choices=("clang", "zig"), default=None, metavar="DRIVER", help="link driver (see compile)"
+    )
+    build_parser.add_argument("--skip-check", action="store_true", help="skip the type-checker preflight")
+    build_parser.add_argument(
+        "--checker",
+        choices=("pyrefly", "mypy", "pyright"),
+        default="pyrefly",
+        metavar="CHECKER",
+        help="type-checker preflight",
+    )
     sub.add_parser("logs", help="print the audit-log path and its last lines", parents=[common])
     telemetry_parser = sub.add_parser("telemetry", help="usage metrics opt-out")
-    telemetry_parser.add_argument("action", choices=("disable", "enable", "status", "reset-id"))
+    telemetry_parser.add_argument("action", choices=("disable", "enable", "status", "reset-id"), help="what to do")
     doctor_parser = sub.add_parser("doctor", help="report toolchain, cache and install shape", parents=[common])
     doctor_parser.add_argument("--json", action="store_true", help="print the report as JSON")
     deps_parser = sub.add_parser(
@@ -587,6 +638,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     fetch_parser.add_argument("--force", action="store_true", help="re-download even when the pack is cached")
     # boxed:end
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
     try:
         raw = list(sys.argv[1:] if argv is None else argv)
         run_argv: list[str] = []
@@ -603,7 +659,7 @@ def main(argv: list[str] | None = None) -> int:
             if rep_idx > run_idx and rep_idx + 1 < len(raw) and not raw[rep_idx + 1].startswith("-"):
                 one_arg_flags = {
                     opt
-                    for act in run_parser._actions
+                    for act in parser._subparsers._group_actions[0].choices["run"]._actions
                     for opt in act.option_strings
                     if act.nargs is None and not isinstance(act, (argparse._StoreTrueAction, argparse._HelpAction))
                 }
