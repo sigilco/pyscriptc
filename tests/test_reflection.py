@@ -81,7 +81,7 @@ def test_reflection_fences_have_their_own_family_and_hint() -> None:
     assert "island lane" in message
 
 
-def test_explain_names_the_island_lane() -> None:
+def test_explain_names_the_fallback_route() -> None:
     got = run_cli("explain", "PS2001")
     assert got.returncode == 0
-    assert "island lane" in got.stdout
+    assert "embedded CPython" in got.stdout
