@@ -78,9 +78,22 @@ test("no placeholder survives in a built page", { skip: !hasDeploy }, () => {
 });
 
 test("docs pages link the compat page through the placeholder", () => {
-  const page = readFileSync(join(repoRoot, "docs", "guide", "python-subset.md"), "utf8");
-  assert.ok(page.includes("{{PYSC_COMPAT_URL}}"));
-  assert.ok(!page.includes("pyscriptc-compat.pages.dev"));
+  const docsDir = join(repoRoot, "docs");
+  const pages: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, entry.name);
+      if (entry.isDirectory()) walk(p);
+      else if (entry.name.endsWith(".md")) pages.push(p);
+    }
+  };
+  walk(docsDir);
+  const withPlaceholder = pages.filter((p) => readFileSync(p, "utf8").includes("{{PYSC_COMPAT_URL}}"));
+  assert.ok(withPlaceholder.length > 0, "no docs page carries {{PYSC_COMPAT_URL}}");
+  for (const p of pages) {
+    const text = readFileSync(p, "utf8");
+    assert.ok(!text.includes("pyscriptc-compat.pages.dev"), `hardcoded compat host in ${p}`);
+  }
 });
 
 test("placeholder default is the single site", () => {
