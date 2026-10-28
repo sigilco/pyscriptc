@@ -1,0 +1,40 @@
+name: exp3
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.c.outputs.run }}
+    steps:
+      - run: echo "run=false" >> "$GITHUB_OUTPUT"
+        id: c
+  base:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        v: [ok1, fail2]
+    runs-on: ubuntu-latest
+    steps:
+      - run: if [ "${{ matrix.v }}" = "fail2" ]; then exit 1; fi; echo "leg ok"
+  agg:
+    name: exp agg (shard ${{ matrix.group }}/3)
+    needs: base
+    if: always()
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          R: ${{ needs.base.result }}
+        run: |
+          case "$R" in
+            success|skipped) echo "shard ${{ matrix.group }}/3 $R";;
+            *) echo "shard ${{ matrix.group }}/3 $R"; exit 1;;
+          esac
