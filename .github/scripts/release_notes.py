@@ -112,7 +112,7 @@ def _run(cmd: list[str]) -> str:
 def gh_available() -> bool:
     try:
         subprocess.run(("gh", "--version"), check=True, capture_output=True)
-    except (OSError, subprocess.CalledProcessError):
+    except OSError, subprocess.CalledProcessError:
         return False
     return True
 
@@ -125,7 +125,7 @@ def has_breaking_commits(prev: str | None) -> bool:
     rng = f"v{prev}..HEAD" if prev else "HEAD"
     try:
         out = _run(["git", "log", "--no-merges", "--format=%s%n%b", rng])
-    except (OSError, subprocess.CalledProcessError):
+    except OSError, subprocess.CalledProcessError:
         return False
     for line in out.splitlines():
         if re.match(r"^\w+(\([^)]*\))?!:", line) or line.startswith("BREAKING CHANGE:"):
@@ -185,7 +185,7 @@ def _has_commit_before(prev: str | None, email: str) -> bool:
         return False
     try:
         out = _run(["git", "log", f"v{prev}", f"--author={email}", "--format=%H", "-1"])
-    except (OSError, subprocess.CalledProcessError):
+    except OSError, subprocess.CalledProcessError:
         return True
     return bool(out.strip())
 
