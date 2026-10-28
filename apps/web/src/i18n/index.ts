@@ -121,7 +121,6 @@ export function useI18n() {
       tagline: m.footer_tagline(),
       copyright: m.footer_copyright(),
       status: m.footer_status(),
-      sponsor: m.footer_sponsor(),
     },
     playgroundModal: {
       title: m.modal_title(),

@@ -98,7 +98,6 @@
   "footer_tagline": "Compile standard typed Python to standalone native binaries. No separate runtime to bundle.",
   "footer_copyright": "© 2026 pyscriptc contributors. Released under the Apache-2.0 License.",
   "footer_status": "All systems operational",
-  "footer_sponsor": "Sponsor",
 
   "modal_title": "Web Playground in Progress",
   "modal_desc": "An in-browser playground with pyscriptc pre-installed is currently being prepared. In the meantime, install locally in seconds using uv.",
