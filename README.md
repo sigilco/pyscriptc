@@ -9,7 +9,7 @@
 <a href="https://pypi.org/project/pyscriptc/"><img alt="PyPI downloads per month" src="https://img.shields.io/pypi/dm/pyscriptc"></a>
 <a href="https://github.com/sigilco/pyscriptc/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/sigilco/pyscriptc/actions/workflows/ci.yml/badge.svg"></a>
 <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
-<a href="https://buy.polar.sh/polar_cl_Mv1gdlG7bw3I70EC9IHtfeSHJj4PEKvA7JAUz23CFhj"><img alt="Sponsor" src="https://img.shields.io/badge/Sponsor-polar-crimson"></a>
+<a href="https://buy.polar.sh/polar_cl_Mv1gdlG7bw3I70EC9IHtfeSHJj4PEKvA7JAUz23CFhj"><img alt="Sponsor" src="https://img.shields.io/badge/sponsor-%2330363D.svg?style=for-the-badge&logo=GitHub-Sponsors&logoColor=%23EA4AAA"></a>
 </p>
 
 pyscriptc compiles typed Python to native executables. It uses Python's inferred types and type hints to generate machine code from supported code.
