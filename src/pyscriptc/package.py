@@ -255,7 +255,15 @@ def _lower_units(
     needs_island = False  # boxed
     with ffi_modules(ffi or []), dependency_lanes(dep_lane_report or {}), staged_resources(resource_root):
         for name, path, is_package in units:
-            text = path.read_text(encoding="utf-8")
+            # Issue #730: one unit that cannot be read or parsed (a syntax
+            # error, a null byte, a non-UTF-8 encoding, a file that
+            # vanished) used to end the whole tree walk. It becomes one
+            # refusal fence naming the file instead, and the other units
+            # still lower.
+            text, parse_fail = _unit_source(path)
+            if parse_fail is not None:
+                fences.append(_unit_fence(path, parse_fail))
+                continue
             tree = ast.parse(text, filename=str(path))
             if program:
                 tree = _inject_inits(tree, owners.get(name, []), exports, name, is_package)
@@ -902,6 +910,43 @@ def _init_call(local: str, anchor: ast.stmt) -> ast.stmt:
     return expr
 
 
+def _unit_source(path: Path) -> tuple[str | None, str | None]:
+    """Read one unit's source, or say why it cannot be read or parsed.
+
+    Issue #730: a unit with a syntax error, a null byte or a non-UTF-8
+    encoding used to raise out of the whole tree walk. Here the reason
+    travels with the unit, so the caller turns it into one refusal fence
+    naming the file.
+    """
+
+    from pyscriptc.analyze import parse_source, read_source
+
+    text, reason = read_source(path)
+    if text is None:
+        return None, reason or "cannot read file"
+    _tree, reason = parse_source(text, str(path))
+    if reason is not None:
+        return None, reason
+    return text, None
+
+
+def _unit_fence(path: Path, reason: str) -> dict[str, Any]:
+    """One refusal fence for a unit the lowering could not read or parse."""
+
+    return {
+        "code": "PS0001",
+        "message": f"{path}: {reason}",
+        "span": {
+            "file": str(path),
+            "line": 1,
+            "col": 1,
+            "endLine": 1,
+            "endCol": 1,
+        },
+        "function": None,
+    }
+
+
 def _catalog(
     units: list[tuple[str, Path, bool]],
     program: bool = False,
@@ -933,7 +978,12 @@ def _catalog_once(
     failed: dict[str, dict[str, dict[str, Any]]] = {}
     exc_n = USER_EXC_BASE
     for name, path, is_package in units:
-        text = path.read_text(encoding="utf-8")
+        # Issue #730: a unit that cannot be read or parsed contributes no
+        # exports and no refusal here; the lowering reports the file-level
+        # fence, and the catalog of the healthy units still completes.
+        text, parse_fail = _unit_source(path)
+        if parse_fail is not None:
+            continue
         tree = ast.parse(text, filename=str(path))
         lowerer = Lowerer(str(path), text, target=target, config=config)
         lowerer.module_name = name
@@ -1264,7 +1314,12 @@ def _discover(
             continue
         stem = relative.with_suffix("")
         if not all(part.isidentifier() for part in stem.parts):
-            raise IRError(f"{relative} is not a module name")
+            # Issue #730: one file under a name that is not a module name
+            # (dashes, spaces) used to end the whole walk. The coverage and
+            # assess per-file analysis reads the file regardless, so it is
+            # kept as a skipped note instead of a run-ending refusal.
+            skipped.append(relative.as_posix())
+            continue
         if program and not namespaced:
             # A program sibling is imported by its plain name.
             found.append((".".join(stem.parts), path, False))
@@ -1276,6 +1331,11 @@ def _discover(
 
 
 def _skip_note(root: Path, relative: str) -> str:
+    if not relative.rsplit("/", 1)[-1].isidentifier() and relative.endswith(".py"):
+        return (
+            f"note: skipped {root.name}/{relative};"
+            " the file name is not a module name (a dash or a space), analyze it directly"
+        )
     return f"note: skipped {root.name}/{relative}; __main__.py is the python -m script, not an importable module"
 
 
