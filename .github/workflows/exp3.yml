@@ -9,7 +9,7 @@ jobs:
     outputs:
       run: ${{ steps.c.outputs.run }}
     steps:
-      - run: echo "run=false" >> "$GITHUB_OUTPUT"
+      - run: echo "run=true" >> "$GITHUB_OUTPUT"
         id: c
   base:
     needs: gate
