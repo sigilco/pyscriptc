@@ -87,6 +87,7 @@ export default {
       collapsible: true,
       children: [
         { title: "The Python subset", path: "/guide/python-subset/" },
+        { title: "Comparison with other tools", path: "/guide/comparison/" },
         { title: "Using libraries", path: "/guide/libraries/" },
         { title: "HTTP", path: "/guide/http/" },
         { title: "Debugging and logs", path: "/guide/debugging/" },
