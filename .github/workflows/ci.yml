@@ -443,6 +443,7 @@ jobs:
       - run: uv sync --frozen
       # pytest-split shards by recorded durations (tests/.test_durations), xdist parallelises inside a shard.
       # Refresh with: uv run pytest -n 6 -m "not linux_container" --store-durations --durations-path tests/.test_durations
+      - run: uv run pytest -q tests --ignore=tests/compat2 -m "not linux_container" -n auto --splits 3 --group ${{ matrix.group }} --durations-path tests/.test_durations
   zig-smoke:
     # The real zig lane. The name carries the zig version, so it never
     # matches the required context `zig cc emitted-IR smoke` on its own:
