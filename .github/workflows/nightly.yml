@@ -105,12 +105,40 @@ jobs:
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
-          # The artifact carries the raw JSON too, so the owner can refresh the
-          # data by hand when the bot PR cannot be opened.
-          mkdir -p nightly
           cp data/compat/compat.json nightly/compat.json
           cp data/compat/ladder.json nightly/ladder.json
 
+      # The bot PR carries only data/compat/*.json, so the pull_request runs
+      # of ci.yml, embed.yml and site.yml on it are excluded (see the
+      # branches-ignore in those workflows). Those runs were held at
+      # action_required until an owner approved them, because the PR author
+      # github-actions[bot] trips the bot-PR approval gate, and the nightly
+      # then sat waiting for an approval nobody was watching for. The
+      # nightly therefore validates what the PR carries, on the tree that
+      # is about to be pushed, before opening it: schema, contract tests
+      # and the same data seams the `docs seams` lane runs in ci.yml. The
+      # artifact still carries the raw JSON for a manual recovery.
+      - name: The compat data the PR will carry validates
+        if: steps.compat.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          uv run python -c "
+          import json, sys
+          sys.path.insert(0, '.')
+          from scripts.compat_schema import validate
+          problems = validate(json.load(open('data/compat/compat.json')))
+          if problems:
+              print('\n'.join(problems), file=sys.stderr)
+              sys.exit(1)
+          print('compat.json validates')
+          "
+          uv run pytest -q \
+            tests/test_compat_json.py \
+            tests/test_compat_site.py \
+            tests/test_doc_cadence.py \
+            tests/test_first_class_scripts.py \
+            tests/test_support_docs.py \
+            -m "not linux_container"
       - name: Open the compat snapshot PR
         id: pr
         if: steps.compat.outputs.changed == 'true'
@@ -127,7 +155,7 @@ jobs:
           git commit -m "ci: nightly compat snapshot ${DATE}"
           git push --force origin "HEAD:${branch}"
           body="$(mktemp)"
-          printf 'Nightly compat snapshot for %s.\n\nThis PR carries only `data/compat/compat.json`, rebuilt from the tree by `scripts/build_compat_json.py`.\nThe commit is the bot identity, so it merges without review; a bad change is reverted with one revert commit.\n' "${DATE}" > "$body"
+          printf 'Nightly compat snapshot for %s.\n\nThis PR carries only `data/compat/compat.json`, rebuilt from the tree by `scripts/build_compat_json.py`.\nThe nightly already validated it through the site build and the compat seams before opening this PR. The commit is the bot identity, so the owner merges it without review; a bad change is reverted with one revert commit.\n' "${DATE}" > "$body"
           number="$(gh pr list --repo "$REPO" --head "$branch" --state open \
             --json number --jq '.[0].number // empty')"
           if [ -n "$number" ]; then
@@ -140,19 +168,25 @@ jobs:
           echo "number=${number}" >> "$GITHUB_OUTPUT"
           echo "url=$(gh pr view "$number" --repo "$REPO" --json url --jq '.url')" >> "$GITHUB_OUTPUT"
 
-      - name: Auto-merge the compat snapshot PR
+      # Auto-merge cannot work and is not wanted here. The compat snapshot
+      # PR is authored by github-actions[bot], and a pull_request workflow
+      # run from that bot waits at action_required until an owner approves
+      # it (runs 40189670771, 40328475181). The repo also has
+      # `allow_auto_merge` off, so `--auto` cannot queue a merge. And a bot
+      # PR with `can_approve_pull_request_reviews=true` cannot be approved
+      # by its own GITHUB_TOKEN, so the earlier auto-approve attempts
+      # always failed. This step therefore does nothing but print that the
+      # PR waits for the owner, which is now the designed flow: the nightly
+      # validated the data itself before opening the PR, and the owner
+      # merges it. Kept, rather than deleted, so the run log still says so.
+      - name: The snapshot PR waits for the owner
         if: steps.pr.outputs.number != ''
-        continue-on-error: true
         env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
           NUMBER: ${{ steps.pr.outputs.number }}
         run: |
           set -euo pipefail
-          gh pr merge "$NUMBER" --repo "$REPO" --squash --auto \
-            --delete-branch 2>&1 || \
-            echo "auto-merge is blocked by the ruleset; the PR stays open for the owner"
-
+          echo "compat snapshot PR $NUMBER opened; the nightly validated the data above" >&2
+          echo "and the repo disables auto-merge for bot PRs, so the owner merges it by hand." >&2
       - name: Record outcome
         id: result
         if: always()
@@ -177,6 +211,24 @@ jobs:
           path: nightly/
           retention-days: 90
           if-no-files-found: warn
+
+  # The site build over the data the snapshot PR carries. The site workflow
+  # has a workflow_call trigger precisely so the nightly can validate the
+  # compat data through the real site build: the page assembles
+  # data/compat/compat.json, so a broken data file fails here, on the
+  # nightly, instead of in a pull_request run held at action_required.
+  #
+  # It runs against the nightly's own tree (the commit that produced the
+  # data), not the bot branch, because the tree already holds the exact
+  # bytes the PR carries. The site job only deploys on a push to master,
+  # so a workflow_call never deploys.
+  site-check:
+    name: build the site over the compat snapshot
+    needs: visible-score
+    if: always()
+    uses: ./.github/workflows/site.yml
+    permissions:
+      contents: read
 
   boxed-ledger:
     name: boxed ledger window
