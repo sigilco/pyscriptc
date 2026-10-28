@@ -103,15 +103,25 @@ tests without linux_container (shard 2/3)
 tests without linux_container (shard 3/3)
 ```
 
-Every one of them is a job name that this change keeps exactly as it is. No job is renamed, no check name changes, so the ruleset needs no edit to keep working. `betterleaks` in particular is never gated: it always runs, because a secret can be in any file.
+**Update 2026-10-28, later the same day.** The original design kept all seven names as job names and needed no ruleset edit. That was wrong on two of them, and the wrongness is what PR #746 v2 fixes. Three measured facts, from throwaway probe PRs #750, #751 and #752 (all closed after use):
+
+1. A job-level `if:` skip on a **matrix** job reports a single `skipped` check run whose name keeps the literal `${{ matrix.* }}` text unrendered: the only check run was `exp gated (${{ matrix.v }})`. A **non-matrix** job with the same skip reports its own rendered name as `skipped`, which does satisfy a required check.
+2. An aggregator job named with a matrix value (`shard ${{ matrix.group }}/3`) renders its legs normally (`shard 1/3`, `shard 2/3`, `shard 3/3`), and all legs pass under `if: always()` when the gated matrix is skipped.
+3. An aggregator under a failed matrix lane reports a failed check on every leg, so a failed lane keeps its required contexts reported and red.
+
+Consequence: the original design worked for the four non-matrix required names (`betterleaks`, `ruff and compat2`, `wheel install smoke`, all of which report their own name on a skip) but not for the three shard names or the zig name. The shard job is a matrix over `group`, and when the compiler lane skips, the only reported name is the unrendered `tests without linux_container (shard ${{ matrix.group }}/3)`, so none of the three required shard contexts reports and the PR waits forever. The zig job always renders (`(0.16.0)`, `(0.17.0)`), but the bare `zig cc emitted-IR smoke` the ruleset requires never arrives at all, on any PR.
+
+The fix: the real matrix lanes are renamed (`unit shard ${{ matrix.group }}/3`, `zig smoke (${{ matrix.zig }})`), and two always-run aggregators (`shard-ok`, `zig-ok`) carry the exact required names, fanning out over the same groups as the real lanes. Each leg passes on `success` or `skipped` of the lane underneath and fails otherwise, so a cancelled lane fails the leg, which is the safe direction for a required check. `ci-ok` now needs the aggregators and demands they are strictly green. Aggregator cost when the full matrix runs: three tiny ubuntu legs and one, each a `case` statement, under 30 seconds each.
 
 ### A finding about the ruleset that is not mine to fix
+
+*(The mismatch below is fixed by the aggregator change: the literal `zig cc emitted-IR smoke` context now reports from the `zig-ok` aggregator, so no ruleset edit is needed. The paragraphs stand as history.)*
 
 The ruleset requires `zig cc emitted-IR smoke`, but the job reports two checks: `zig cc emitted-IR smoke (0.16.0)` and `zig cc emitted-IR smoke (0.17.0)`. Required status checks match on the literal reported name, so the literal string `zig cc emitted-IR smoke` never arrives.
 
 This is masked today because the ruleset has a bypass actor: `RepositoryRole` id 5 with `bypass_mode: always`, which is the repository admin. Every recent merge (`#737`, `#739`, `#742`, `#745`) was merged by that admin, so the bypass carries the merge and the missing context never blocks anything.
 
-It is not a regression from this change, and this change does not make it worse, but it is worth writing down: as long as the admin merges every pull request, the required-check list is decorative for the matrix jobs. An admin who wants the ruleset to actually gate would change the required context to the two rendered names, or add a single `ci-ok` context and require that.
+It is not a regression from the path gating, and the path gating does not make it worse, but it is worth writing down: as long as the admin merges every pull request, the required-check list is decorative for the matrix jobs. An admin who wants the ruleset to actually gate would add a single `ci-ok` context and require that.
 
 ### Is an aggregate `ci-ok` job needed?
 
@@ -134,8 +144,9 @@ This change does not make that ruleset edit. It is listed here for the admin.
 
 Nothing is required for this change to work. The following is optional and is listed for the record:
 
+
 1. Ruleset 25570891, required status checks: add `ci-ok` (safe, additive). Optionally then remove the seven per-lane contexts, accepting that the skipped-lane rule means `ci-ok` becomes the only real gate.
-2. Ruleset 25570891, required status checks: replace `zig cc emitted-IR smoke` with `zig cc emitted-IR smoke (0.16.0)` and `zig cc emitted-IR smoke (0.17.0)`, so the required list matches the names the workflow actually reports. This is a separate fix from the path gating and should be its own change, because it changes what blocks a merge.
+2. ~~Ruleset 25570891, required status checks: replace `zig cc emitted-IR smoke` with the two rendered names.~~ **Obsolete.** The `zig-ok` aggregator now reports the literal `zig cc emitted-IR smoke` context the ruleset already asks for, so the required list matches what the workflow reports without a ruleset edit. This was the one item on the list that would have changed what blocks a merge, and it is now unnecessary.
 3. The always-bypass on the admin role could be narrowed to `pull_request` bypasses once the required contexts are known to be satisfiable without it. That is a policy decision, not a CI one.
 
 ## 4. What was implemented
