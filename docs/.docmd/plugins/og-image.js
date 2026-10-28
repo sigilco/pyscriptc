@@ -10,7 +10,7 @@
 const SITE_URL = "https://pyscriptc.pages.dev";
 const OG_IMAGE_PATH = "/og-image.png";
 const OG_IMAGE_ALT =
-  "pyscriptc: Compile annotated Python to a native binary. Terminal output of a pyscriptc compile run on an obsidian card.";
+  "pyscriptc: Compile annotated Python to a native binary. Logo and tagline on an obsidian card.";
 
 export const plugin = {
   name: "og-image",
