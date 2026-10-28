@@ -14,7 +14,7 @@
   "hero_badge": "Python to Standalone Native Binary",
   "hero_title_line1": "Write typed Python.",
   "hero_title_line2": "Get native speed.",
-  "hero_subtitle": "Compile standard annotated Python into ultra-fast, zero-dependency native executables. No CPython runtime to bundle, zero container bloat.",
+  "hero_subtitle": "Compile standard annotated Python into ultra-fast, zero-dependency native executables. No separate runtime to bundle, zero container bloat.",
   "hero_docs_cta": "Read the Docs",
   "hero_compat_cta": "Are We Native Yet?",
   "hero_install_label": "Install via uv:",
@@ -31,7 +31,7 @@
   "metric_3_val": "0.5",
   "metric_3_unit": "MB",
   "metric_3_label": "Binary Size",
-  "metric_3_desc": "Typical standalone native binary. No runtime to ship with it.",
+  "metric_3_desc": "Typical standalone native binary. No separate runtime to ship with it.",
   "metric_4_val": "100",
   "metric_4_unit": "%",
   "metric_4_label": "Standalone Binary",
@@ -63,7 +63,7 @@
   "surface_1_title": "Pure Native Binary",
   "surface_1_desc": "Single-file executable with zero runtime dependencies. 22.8x faster execution and lower peak memory for microservices and CLI tools.",
   "surface_1_runtime_k": "Runtime:",
-  "surface_1_runtime_v": "None (Zero CPython)",
+  "surface_1_runtime_v": "None bundled (native)",
   "surface_1_format_k": "Format:",
   "surface_1_format_v": "ELF / Mach-O",
 
@@ -94,7 +94,7 @@
   "cta_primary": "Get Started with pyscriptc",
   "cta_secondary": "Star on GitHub",
 
-  "footer_tagline": "Compile standard typed Python to standalone native binaries. Zero CPython at runtime.",
+  "footer_tagline": "Compile standard typed Python to standalone native binaries. No separate runtime to bundle.",
   "footer_copyright": "© 2026 pyscriptc contributors. Released under the Apache-2.0 License.",
   "footer_status": "All systems operational",
 
