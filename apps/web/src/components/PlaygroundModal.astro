@@ -144,9 +144,9 @@ const { title, desc, cmd, close } = i18n.playgroundModal;
     gap: 0.4rem;
     padding: 0.2rem 0.55rem;
     border-radius: 9999px;
-    background: rgba(0, 194, 255, 0.08);
-    border: 1px solid rgba(0, 194, 255, 0.25);
-    color: var(--color-accent-cyan);
+    background: var(--color-accent-soft);
+    border: 1px solid var(--color-accent-border);
+    color: var(--color-accent);
     font-size: 0.7rem;
     font-family: var(--font-mono);
     text-transform: uppercase;
@@ -157,8 +157,7 @@ const { title, desc, cmd, close } = i18n.playgroundModal;
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--color-accent-cyan);
-    box-shadow: 0 0 8px var(--color-accent-cyan);
+    background: var(--color-accent);
   }
 
   .modal-close-icon {
@@ -218,7 +217,7 @@ const { title, desc, cmd, close } = i18n.playgroundModal;
   }
 
   .prompt {
-    color: var(--color-accent-cyan);
+    color: var(--color-accent);
     user-select: none;
   }
 
@@ -249,9 +248,9 @@ const { title, desc, cmd, close } = i18n.playgroundModal;
   }
 
   .copy-btn.copied {
-    border-color: rgba(0, 194, 255, 0.4);
-    background: rgba(0, 194, 255, 0.1);
-    color: var(--color-accent-cyan);
+    border-color: var(--color-accent-border);
+    background: var(--color-accent-soft);
+    color: var(--color-accent);
   }
 
   .modal-footer {
@@ -271,7 +270,7 @@ const { title, desc, cmd, close } = i18n.playgroundModal;
   }
 
   .modal-docs-link:hover {
-    color: var(--color-accent-cyan);
+    color: var(--color-accent);
   }
 
   .modal-action-btn {

@@ -203,7 +203,7 @@ export const LumioCarousel: React.FC<LumioCarouselProps> = ({
                   key={pillar.id}
                   onClick={() => handleSelect(idx)}
                   className={`cursor-pointer transition-all duration-300 select-none ${
-                    isActive ? "opacity-100" : "opacity-40 hover:opacity-75"
+                    isActive ? "opacity-100" : "opacity-60 hover:opacity-85"
                   }`}
                 >
                   <div className="flex items-center gap-2 mb-1.5">
@@ -269,13 +269,13 @@ export const LumioCarousel: React.FC<LumioCarouselProps> = ({
           {/* Keyed container so both editor and shell fade in/out together */}
           <div
             key={activeIndex}
-            className="w-full rounded-xl overflow-hidden border border-white/10 bg-[#0b0f19] transition-opacity duration-500 animate-fadeIn"
+            className="w-full rounded-xl overflow-hidden border border-white/10 bg-[#0e1013] transition-opacity duration-500 animate-fadeIn"
           >
             {/* Minimal KISS Tab Bar matching Screenshot 2026-10-23 at 19.34.52 */}
-            <div className="flex items-center justify-between px-3 pt-2.5 bg-[#06080d] border-b border-white/5 select-none">
+            <div className="flex items-center justify-between px-3 pt-2.5 bg-[#07080a] border-b border-white/5 select-none">
               <div className="flex items-center">
                 {/* Active Tab */}
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-t-lg bg-[#0b0f19] border-t border-l border-r border-white/10 text-xs font-mono text-slate-200">
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-t-lg bg-[#0e1013] border-t border-l border-r border-white/10 text-xs font-mono text-slate-200">
                   <span className="text-slate-400">&gt;_</span>
                   <span>{activePillar.filename}</span>
                 </div>
@@ -290,7 +290,7 @@ export const LumioCarousel: React.FC<LumioCarouselProps> = ({
             </div>
 
             {/* Code Editor Body with Shiki Syntax Highlighting */}
-            <div className="p-5 font-mono text-xs sm:text-[13px] leading-relaxed bg-[#0b0f19] min-h-[190px] overflow-x-auto text-left">
+            <div className="p-5 font-mono text-xs sm:text-[13px] leading-relaxed bg-[#0e1013] min-h-[190px] overflow-x-auto text-left">
               <div
                 className="shiki-container [&>pre]:!bg-transparent [&>pre]:!p-0 [&>pre]:!m-0 [&_code]:font-mono"
                 dangerouslySetInnerHTML={{ __html: currentHighlightedHtml }}
@@ -298,7 +298,7 @@ export const LumioCarousel: React.FC<LumioCarouselProps> = ({
             </div>
 
             {/* Shell Body (Starts empty, types command and streams output) */}
-            <div className="border-t border-white/10 p-5 bg-[#06080d] font-mono text-xs text-slate-300 min-h-[130px] text-left">
+            <div className="border-t border-white/10 p-5 bg-[#07080a] font-mono text-xs text-slate-300 min-h-[130px] text-left">
               <div className="flex items-center gap-2 text-slate-300 font-semibold mb-2">
                 <span className="text-slate-500 font-bold">$</span>
                 <span>{displayedCommand}</span>

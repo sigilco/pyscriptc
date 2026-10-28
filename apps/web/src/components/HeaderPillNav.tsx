@@ -22,8 +22,8 @@ export const HeaderPillNav: React.FC<HeaderPillNavProps> = ({
       <nav
         className={`pointer-events-auto inline-flex items-center gap-2 sm:gap-4 px-4 py-2 sm:px-5 sm:py-2.5 rounded-full border transition-all duration-300 shadow-[0_12px_36px_rgba(0,0,0,0.55)] ${
           isDark
-            ? "bg-[#0b0f19]/90 border-white/10 text-slate-200 backdrop-blur-xl"
-            : "bg-[#f8fafc]/90 border-black/10 text-slate-800 backdrop-blur-xl shadow-lg"
+            ? "bg-[#0e1013]/90 border-white/10 text-slate-200 backdrop-blur-xl"
+            : "bg-[#fafafa]/90 border-black/10 text-slate-800 backdrop-blur-xl shadow-lg"
         }`}
         aria-label="Main Navigation"
       >
@@ -76,6 +76,7 @@ export const HeaderPillNav: React.FC<HeaderPillNavProps> = ({
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             className="flex items-center justify-center w-7 h-7 rounded-full bg-white/10 hover:bg-white/15 text-slate-200 transition-colors"
             aria-label="Toggle Navigation Menu"
+            aria-expanded={mobileMenuOpen}
           >
             <svg
               className="w-3.5 h-3.5"
@@ -99,8 +100,8 @@ export const HeaderPillNav: React.FC<HeaderPillNavProps> = ({
         <div
           className={`pointer-events-auto absolute top-16 left-4 right-4 max-w-xs mx-auto p-3 rounded-2xl border transition-all duration-300 shadow-2xl backdrop-blur-2xl md:hidden ${
             isDark
-              ? "bg-[#0b0f19]/95 border-white/15 text-slate-200"
-              : "bg-[#f8fafc]/95 border-black/15 text-slate-800"
+              ? "bg-[#0e1013]/95 border-white/15 text-slate-200"
+              : "bg-[#fafafa]/95 border-black/15 text-slate-800"
           }`}
         >
           <div className="flex flex-col space-y-1 text-xs font-medium">

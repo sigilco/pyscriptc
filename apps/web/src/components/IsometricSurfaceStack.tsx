@@ -35,7 +35,7 @@ export const SURFACE_TIERS: SurfaceTier[] = [
         desc: "One command compiles for Linux x86_64 and aarch64, plus aarch64 and x86_64 macOS.",
       },
     ],
-    accentColor: "#00c2ff",
+    accentColor: "#4d80c4",
     badge: "Bedrock Flagship",
   },
   {
@@ -60,7 +60,7 @@ export const SURFACE_TIERS: SurfaceTier[] = [
         desc: "Calling compiled Python from Rust, Go or C++ binaries is a planned next step, not shipped today.",
       },
     ],
-    accentColor: "#38bdf8",
+    accentColor: "#7a8ca0",
     badge: "Shipped",
   },
   {
@@ -85,7 +85,7 @@ export const SURFACE_TIERS: SurfaceTier[] = [
         desc: "Clear compiler diagnostics show exactly which calls trigger the island, giving your team a checklist to reach a fully native build.",
       },
     ],
-    accentColor: "#fbbf24",
+    accentColor: "#9aa3b2",
     badge: "Conditional Safety Net",
   },
 ];
@@ -177,7 +177,7 @@ export const IsometricSurfaceStack: React.FC<IsometricSurfaceStackProps> = ({
                 <path
                   d="M130 115 L200 155 L200 195 L130 155 Z"
                   fill="#0c101d"
-                  stroke={activeIndex === 2 ? "#fbbf24" : "rgba(255,255,255,0.2)"}
+                  stroke={activeIndex === 2 ? "#9aa3b2" : "rgba(255,255,255,0.2)"}
                   strokeDasharray="4 4"
                   strokeWidth="2"
                 />
@@ -185,7 +185,7 @@ export const IsometricSurfaceStack: React.FC<IsometricSurfaceStackProps> = ({
                 <path
                   d="M200 155 L270 115 L270 155 L200 195 Z"
                   fill="#151a2d"
-                  stroke={activeIndex === 2 ? "#fbbf24" : "rgba(255,255,255,0.2)"}
+                  stroke={activeIndex === 2 ? "#9aa3b2" : "rgba(255,255,255,0.2)"}
                   strokeDasharray="4 4"
                   strokeWidth="2"
                 />
@@ -193,14 +193,14 @@ export const IsometricSurfaceStack: React.FC<IsometricSurfaceStackProps> = ({
                 <path
                   d="M200 75 L270 115 L200 155 L130 115 Z"
                   fill={activeIndex === 2 ? "#1f2214" : "#121624"}
-                  stroke={activeIndex === 2 ? "#fbbf24" : "rgba(255,255,255,0.3)"}
+                  stroke={activeIndex === 2 ? "#9aa3b2" : "rgba(255,255,255,0.3)"}
                   strokeDasharray="4 4"
                   strokeWidth="2.5"
                 />
-                <circle cx="170" cy="115" r="2" fill="#fbbf24" opacity={activeIndex === 2 ? 0.95 : 0.35} />
-                <circle cx="200" cy="98" r="2" fill="#fbbf24" opacity={activeIndex === 2 ? 0.95 : 0.35} />
-                <circle cx="200" cy="132" r="2" fill="#fbbf24" opacity={activeIndex === 2 ? 0.95 : 0.35} />
-                <circle cx="230" cy="115" r="2" fill="#fbbf24" opacity={activeIndex === 2 ? 0.95 : 0.35} />
+                <circle cx="170" cy="115" r="2" fill="#9aa3b2" opacity={activeIndex === 2 ? 0.95 : 0.35} />
+                <circle cx="200" cy="98" r="2" fill="#9aa3b2" opacity={activeIndex === 2 ? 0.95 : 0.35} />
+                <circle cx="200" cy="132" r="2" fill="#9aa3b2" opacity={activeIndex === 2 ? 0.95 : 0.35} />
+                <circle cx="230" cy="115" r="2" fill="#9aa3b2" opacity={activeIndex === 2 ? 0.95 : 0.35} />
               </g>
 
               {/* TIER 2: Middle Slab (C-ABI Shared Library - Planned / Dotted) */}
@@ -215,7 +215,7 @@ export const IsometricSurfaceStack: React.FC<IsometricSurfaceStackProps> = ({
                 <path
                   d="M130 205 L200 245 L200 285 L130 245 Z"
                   fill="#0c101d"
-                  stroke={activeIndex === 1 ? "#38bdf8" : "rgba(255,255,255,0.2)"}
+                  stroke={activeIndex === 1 ? "#7a8ca0" : "rgba(255,255,255,0.2)"}
                   strokeDasharray="4 4"
                   strokeWidth="2"
                 />
@@ -223,22 +223,22 @@ export const IsometricSurfaceStack: React.FC<IsometricSurfaceStackProps> = ({
                 <path
                   d="M200 245 L270 205 L270 245 L200 285 Z"
                   fill="#151a2d"
-                  stroke={activeIndex === 1 ? "#38bdf8" : "rgba(255,255,255,0.2)"}
+                  stroke={activeIndex === 1 ? "#7a8ca0" : "rgba(255,255,255,0.2)"}
                   strokeDasharray="4 4"
                   strokeWidth="2"
                 />
                 {/* Top Face */}
                 <path
                   d="M200 165 L270 205 L200 245 L130 205 Z"
-                  fill={activeIndex === 1 ? "#102336" : "#121624"}
-                  stroke={activeIndex === 1 ? "#38bdf8" : "rgba(255,255,255,0.3)"}
+                  fill={activeIndex === 1 ? "#161a20" : "#13161b"}
+                  stroke={activeIndex === 1 ? "#7a8ca0" : "rgba(255,255,255,0.3)"}
                   strokeDasharray="4 4"
                   strokeWidth="2.5"
                 />
-                <circle cx="170" cy="205" r="2" fill="#38bdf8" opacity={activeIndex === 1 ? 0.95 : 0.35} />
-                <circle cx="200" cy="188" r="2" fill="#38bdf8" opacity={activeIndex === 1 ? 0.95 : 0.35} />
-                <circle cx="200" cy="222" r="2" fill="#38bdf8" opacity={activeIndex === 1 ? 0.95 : 0.35} />
-                <circle cx="230" cy="205" r="2" fill="#38bdf8" opacity={activeIndex === 1 ? 0.95 : 0.35} />
+                <circle cx="170" cy="205" r="2" fill="#7a8ca0" opacity={activeIndex === 1 ? 0.95 : 0.35} />
+                <circle cx="200" cy="188" r="2" fill="#7a8ca0" opacity={activeIndex === 1 ? 0.95 : 0.35} />
+                <circle cx="200" cy="222" r="2" fill="#7a8ca0" opacity={activeIndex === 1 ? 0.95 : 0.35} />
+                <circle cx="230" cy="205" r="2" fill="#7a8ca0" opacity={activeIndex === 1 ? 0.95 : 0.35} />
               </g>
 
               {/* TIER 1: Bottom Slab (Pure Native Binary - Solid Bedrock) */}
@@ -253,27 +253,27 @@ export const IsometricSurfaceStack: React.FC<IsometricSurfaceStackProps> = ({
                 <path
                   d="M130 295 L200 335 L200 375 L130 335 Z"
                   fill="#0a0d18"
-                  stroke={activeIndex === 0 ? "#00c2ff" : "rgba(255,255,255,0.35)"}
+                  stroke={activeIndex === 0 ? "#4d80c4" : "rgba(255,255,255,0.35)"}
                   strokeWidth={activeIndex === 0 ? "2.5" : "2"}
                 />
                 {/* Right Face */}
                 <path
                   d="M200 335 L270 295 L270 335 L200 375 Z"
                   fill="#121829"
-                  stroke={activeIndex === 0 ? "#00c2ff" : "rgba(255,255,255,0.35)"}
+                  stroke={activeIndex === 0 ? "#4d80c4" : "rgba(255,255,255,0.35)"}
                   strokeWidth={activeIndex === 0 ? "2.5" : "2"}
                 />
                 {/* Top Face */}
                 <path
                   d="M200 255 L270 295 L200 335 L130 295 Z"
-                  fill={activeIndex === 0 ? "#122a44" : "#151b2e"}
-                  stroke={activeIndex === 0 ? "#00c2ff" : "rgba(255,255,255,0.4)"}
+                  fill={activeIndex === 0 ? "#141d2b" : "#161a20"}
+                  stroke={activeIndex === 0 ? "#4d80c4" : "rgba(255,255,255,0.4)"}
                   strokeWidth={activeIndex === 0 ? "3" : "2"}
                 />
-                <circle cx="170" cy="295" r="2.5" fill="#00c2ff" opacity={activeIndex === 0 ? 1 : 0.6} />
-                <circle cx="200" cy="278" r="2.5" fill="#00c2ff" opacity={activeIndex === 0 ? 1 : 0.6} />
-                <circle cx="200" cy="312" r="2.5" fill="#00c2ff" opacity={activeIndex === 0 ? 1 : 0.6} />
-                <circle cx="230" cy="295" r="2.5" fill="#00c2ff" opacity={activeIndex === 0 ? 1 : 0.6} />
+                <circle cx="170" cy="295" r="2.5" fill="#4d80c4" opacity={activeIndex === 0 ? 1 : 0.6} />
+                <circle cx="200" cy="278" r="2.5" fill="#4d80c4" opacity={activeIndex === 0 ? 1 : 0.6} />
+                <circle cx="200" cy="312" r="2.5" fill="#4d80c4" opacity={activeIndex === 0 ? 1 : 0.6} />
+                <circle cx="230" cy="295" r="2.5" fill="#4d80c4" opacity={activeIndex === 0 ? 1 : 0.6} />
               </g>
             </svg>
           </div>

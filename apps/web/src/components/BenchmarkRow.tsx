@@ -34,7 +34,7 @@ const BENCHMARKS: BenchmarkCardData[] = [
     better: "Higher is better",
     series: [
       { name: "CPython 3.14.9", shortName: "CPython", value: "1.0x", heightPct: pct(1.0, 22.8), color: "#334155" },
-      { name: "Pure Native", shortName: "Native", value: "22.8x", heightPct: pct(22.8, 22.8), color: "#00c2ff", isFlagship: true },
+      { name: "Pure Native", shortName: "Native", value: "22.8x", heightPct: pct(22.8, 22.8), color: "#4d80c4", isFlagship: true },
     ],
   },
   {
@@ -44,7 +44,7 @@ const BENCHMARKS: BenchmarkCardData[] = [
     better: "Lower is better",
     series: [
       { name: "CPython 3.14.9", shortName: "CPython", value: "~11.5 MB", heightPct: pct(11.5, 11.5), color: "#334155" },
-      { name: "Pure Native", shortName: "Native", value: "~2.2 MB", heightPct: pct(2.2, 11.5), color: "#00c2ff", isFlagship: true },
+      { name: "Pure Native", shortName: "Native", value: "~2.2 MB", heightPct: pct(2.2, 11.5), color: "#4d80c4", isFlagship: true },
     ],
   },
   {
@@ -54,7 +54,7 @@ const BENCHMARKS: BenchmarkCardData[] = [
     better: "Higher is better",
     series: [
       { name: "CPython 3.14.9", shortName: "CPython", value: "1.0x", heightPct: pct(1.0, 14.9), color: "#334155" },
-      { name: "Pure Native", shortName: "Native", value: "14.9x", heightPct: pct(14.9, 14.9), color: "#00c2ff", isFlagship: true },
+      { name: "Pure Native", shortName: "Native", value: "14.9x", heightPct: pct(14.9, 14.9), color: "#4d80c4", isFlagship: true },
     ],
   },
 ];
@@ -153,7 +153,7 @@ export const BenchmarkRow: React.FC<BenchmarkRowProps> = ({
             <div className="mb-6">
               <div className="flex items-baseline justify-between mb-1">
                 <h3 className="text-lg font-bold text-white tracking-tight">{b.title}</h3>
-                <span className="text-[11px] font-mono text-slate-500 uppercase tracking-wider">
+                <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wider">
                   {b.better}
                 </span>
               </div>
@@ -192,7 +192,7 @@ export const BenchmarkRow: React.FC<BenchmarkRowProps> = ({
                         x={centerX}
                         y={currentY - 7}
                         textAnchor="middle"
-                        fill={item.isFlagship ? "#00c2ff" : "#cbd5e1"}
+                        fill={item.isFlagship ? "#4d80c4" : "#cbd5e1"}
                         className={`font-mono text-xs ${item.isFlagship ? "font-bold" : "font-normal"}`}
                         style={{ opacity: animProgress > 0.1 ? 1 : 0 }}
                       >
