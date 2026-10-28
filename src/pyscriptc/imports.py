@@ -37,6 +37,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from pyscriptc import analyze
 from pyscriptc.config import POLICY_TO_LANE, lane_for
 from pyscriptc.reflection import mechanism_of, routes_to_island
 from pyscriptc.stdlib_queue import PACK_MODULES, canonical_module, module_status
@@ -210,7 +211,14 @@ def collect_imports(target: Path) -> list[dict[str, Any]]:
                 for alias in node.names:
                     sites.append(_site(path, node, lines, alias.name, 0))
             elif isinstance(node, ast.ImportFrom):
-                name = _relative_name(node, package)
+                # Issue #730: one dot of a relative import is resolved by
+                # the package of the file it sits in. The package drops
+                # the module's own last part before the dots apply, so
+                # `from .util import x` in `pkg/core.py` names
+                # `pkg.util`, the module CPython imports, and not
+                # `pkg.core.util`.
+                scope = package.rpartition(".")[0] if node.level > 0 else package
+                name = _relative_name(node, scope)
                 sites.append(_site(path, node, lines, name, node.level))
     sites.sort(key=lambda site: (site["file"], site["line"], site["name"]))
     return sites
@@ -223,17 +231,19 @@ def _site(path: Path, node: ast.AST, lines: list[str], name: str, level: int) ->
 
 
 def _source_files(target: Path) -> list[Path]:
+    """The tree's ``*.py`` files that read and parse; failures are skipped.
+
+    Issue #730: a file with a syntax error, a null byte, a non-UTF-8
+    encoding, a name that is not a module name, or a FIFO used to end the
+    import collection. The per-file scanner names those files in the
+    coverage report; the import collection just walks past them.
+    """
+
     if target.is_file():
         return [target]
     if not target.is_dir():
         return []
-    found: list[Path] = []
-    for path in sorted(target.rglob("*.py")):
-        relative = path.relative_to(target)
-        if any(part.startswith(".") or part == "__pycache__" for part in relative.parts):
-            continue
-        found.append(path)
-    return found
+    return analyze.scan(target)[0]
 
 
 def _package_of(path: Path, target: Path) -> str:
@@ -244,6 +254,10 @@ def _package_of(path: Path, target: Path) -> str:
     relative = path.relative_to(target)
     parts = list(relative.with_suffix("").parts)
     if parts and parts[-1] == "__init__":
+        # Issue #730: the `__init__` part is not a package level. The file
+        # carries the package of its directory, exactly the module CPython
+        # executes for `import pkg`, so one dot of every relative import
+        # inside the package resolved against the wrong level otherwise.
         parts.pop()
     return ".".join(parts)
 
