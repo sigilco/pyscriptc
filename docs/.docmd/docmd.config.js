@@ -32,6 +32,7 @@ export default {
   engine: "js",
   plugins: {
     "./plugins/placeholders.js": {},
+    "./plugins/og-image.js": {},
     // The ai plugin is a core plugin and loads on every build; `assistant:
     // false` makes generateScripts()/getAssets() emit nothing
     // (plugin-ai/dist/index.js checks `pluginOptions.assistant === false`).

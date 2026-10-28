@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>pyscriptc social card</title>
+    <!--
+      The pyscriptc Open Graph card. 1200x630, rendered to
+      apps/web/public/og-image.png.
+
+      Regenerate:
+
+        pnpm --dir apps/web run og:image
+
+      The script serves this file, screenshots the element at 1200x630 with
+      the system browser through playwright-cli, and writes the PNG. Nothing
+      here is random: same template, same bytes. The script also fails if the
+      card overflows 630px, so a copy edit cannot silently clip the snippet.
+
+      Every color is a token from src/styles/theme.css, so the card follows the
+      site palette. The logo mark comes from public/logo-512.png.
+    -->
+    <style>
+      :root {
+        --bg: #07080a;
+        --surface: #0e1013;
+        --hairline: rgba(255, 255, 255, 0.09);
+        --hairline-strong: rgba(255, 255, 255, 0.16);
+        --ink: #f2f4f7;
+        --ink-secondary: #9aa3b2;
+        --ink-muted: #667085;
+        --accent: #4d80c4;
+        --motion-teal: #31e8f5;
+        --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+        --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      html,
+      body {
+        width: 1200px;
+        height: 630px;
+        background: var(--bg);
+      }
+
+      .card {
+        position: relative;
+        width: 1200px;
+        height: 630px;
+        padding: 50px 76px 48px;
+        display: flex;
+        flex-direction: column;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--font-sans);
+        overflow: hidden;
+      }
+
+      /* A single hairline frame. No gradient, no glow, no aurora. */
+      .frame {
+        position: absolute;
+        inset: 26px;
+        border: 1px solid var(--hairline);
+        pointer-events: none;
+      }
+
+      .masthead {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-bottom: 22px;
+        border-bottom: 1px solid var(--hairline);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+      }
+
+      .brand img {
+        width: 64px;
+        height: 64px;
+        object-fit: contain;
+      }
+
+      .wordmark {
+        font-family: var(--font-mono);
+        font-size: 38px;
+        font-weight: 700;
+        letter-spacing: -0.035em;
+        color: var(--ink);
+      }
+
+      .rule {
+        width: 1px;
+        height: 34px;
+        background: var(--hairline-strong);
+      }
+
+      .kind {
+        font-family: var(--font-mono);
+        font-size: 17px;
+        font-weight: 500;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--ink-muted);
+      }
+
+      .url {
+        font-family: var(--font-mono);
+        font-size: 17px;
+        letter-spacing: 0.02em;
+        color: var(--ink-secondary);
+      }
+
+      .pitch {
+        margin-top: 42px;
+        font-size: 52px;
+        line-height: 1.14;
+        letter-spacing: -0.028em;
+        font-weight: 500;
+        color: var(--ink);
+        max-width: 30ch;
+      }
+
+      .pitch em {
+        font-style: normal;
+        color: var(--accent);
+      }
+
+      .terminal {
+        margin-top: auto;
+        border: 1px solid var(--hairline);
+        border-radius: 8px;
+        background: var(--surface);
+        overflow: hidden;
+      }
+
+      .terminal-bar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 18px;
+        border-bottom: 1px solid var(--hairline);
+      }
+
+      .terminal-tab {
+        font-family: var(--font-mono);
+        font-size: 14px;
+        letter-spacing: 0.01em;
+        color: var(--ink-secondary);
+      }
+
+      .terminal-target {
+        font-family: var(--font-mono);
+        font-size: 14px;
+        color: var(--ink-muted);
+      }
+
+      .terminal-body {
+        padding: 16px 22px 18px;
+        font-family: var(--font-mono);
+        font-size: 18px;
+        line-height: 1.68;
+      }
+
+      .line {
+        display: block;
+        white-space: pre;
+        color: var(--ink-secondary);
+      }
+
+      .line .prompt {
+        color: var(--ink-muted);
+      }
+
+      .line .cmd {
+        color: var(--ink);
+      }
+
+      .line .flag {
+        color: var(--accent);
+      }
+
+      .line .ok {
+        color: var(--accent);
+      }
+
+      .footer {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 32px;
+        margin-top: 24px;
+        padding-top: 20px;
+        border-top: 1px solid var(--hairline);
+      }
+
+      .note {
+        font-family: var(--font-mono);
+        font-size: 16px;
+        letter-spacing: 0.01em;
+        color: var(--ink-muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card" id="og-card">
+      <div class="frame"></div>
+
+      <div class="masthead">
+        <div class="brand">
+          <img src="/public/logo-512.png" alt="pyscriptc" />
+          <div class="wordmark">pyscriptc</div>
+          <div class="rule"></div>
+          <div class="kind">Python to native</div>
+        </div>
+        <div class="url">pyscriptc.pages.dev</div>
+      </div>
+
+      <h1 class="pitch">Compile annotated Python to a <em>native</em> binary.</h1>
+
+      <div class="terminal">
+        <div class="terminal-bar">
+          <span class="terminal-tab">&gt;_ build.sh</span>
+          <span class="terminal-target">CPython 3.14 typed subset</span>
+        </div>
+        <div class="terminal-body">
+          <span class="line"><span class="prompt">$ </span><span class="cmd">pyscriptc compile</span> sum_squares.py <span class="flag">-o</span> sum_squares</span>
+          <span class="line">  checking types ......... <span class="ok">ok</span></span>
+          <span class="line">  emitted <span class="cmd">sum_squares</span> (584 KB, no runtime)</span>
+        </div>
+      </div>
+
+      <div class="footer">
+        <span class="note">zero CPython at runtime</span>
+        <span class="note">typed subset · native output</span>
+      </div>
+    </div>
+  </body>
+</html>
