@@ -225,7 +225,7 @@ def build_body(
     out = [f"## {tag}" + (f" ({date})" if date else ""), "", body, ""]
     if credits:
         out += [credits, ""]
-    out += [f"**Full changelog**: {compare_link(repo, previous_tag(changelog, version), tag)}", ""]
+    out += [f"**Full changelog**: {compare_link(repo, previous_tag(changelog, version), version)}", ""]
     if m:
         out += [HOW_TO_TEST.format(base=m.group(1), version=version, repo=repo or "sigilco/pyscriptc"), ""]
     out += [footer.rstrip(), ""]
