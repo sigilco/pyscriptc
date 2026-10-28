@@ -288,6 +288,8 @@ A branch filter is safe here and only here because none of these workflows carri
 
 **The site build over the snapshot.** A new `site-check` job calls `site.yml` through `workflow_call`. `site.yml` already had the `workflow_call` trigger for exactly this purpose; the nightly was never wired to it. The site page assembles `data/compat/compat.json`, so a broken data file now fails the nightly, on the nightly, instead of in a `pull_request` run parked at an approval nobody was watching for. `workflow_call` never deploys: the `site` job's deploy step is gated on `github.ref == 'refs/heads/master' && github.event_name == 'push'`, and a called workflow inherits the caller's ref and event.
 
+A called workflow checks out the caller's commit, which would have assembled master's data rather than the snapshot. So `site.yml`'s `workflow_call` gained an optional `ref` input, the checkout uses `${{ inputs.ref || github.sha }}`, and the nightly passes the snapshot commit (the `Open the compat snapshot PR` step emits it as `snapshot_sha`). `site-check` is gated on that output being non-empty, so it only runs when the nightly actually opened a snapshot PR.
+
 **The dead auto-merge step.** Replaced by a step that says what actually happens: the PR waits for the owner. The old step's `|| echo "auto-merge is blocked by the ruleset"` was misleading in both directions: auto-merge is off at the repo level, and the ruleset was never the blocker.
 
 ### Repo settings the owner must change
