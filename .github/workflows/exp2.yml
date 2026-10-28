@@ -1,0 +1,52 @@
+name: exp2
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.c.outputs.run }}
+    steps:
+      - run: echo "run=false" >> "$GITHUB_OUTPUT"
+        id: c
+  nm:
+    name: exp nm gated
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hi
+  mtx:
+    name: exp mtx (${{ matrix.v }})
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        v: [1, 2]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hi
+  agg:
+    name: exp agg
+    needs: mtx
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "mtx result is ${{ needs.mtx.result }}"
+  aggm:
+    name: exp aggm (shard ${{ matrix.group }}/3)
+    needs: mtx
+    if: always()
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "mtx result is ${{ needs.mtx.result }}"
