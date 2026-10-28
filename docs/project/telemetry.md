@@ -9,6 +9,8 @@ See the [privacy notice](https://github.com/sigilco/pyscriptc/blob/master/PRIVAC
 
 ## What is sent
 
+The CLI sends the fields below. The website sends page paths, referrers and campaign parameters, click events on declared links and buttons, and scroll depth; see the [website analytics](#website-analytics) section above.
+
 Every field of every event, in full:
 
 | Event               | Field                                                                    | Example                           | Why                                                                                               |
@@ -73,3 +75,27 @@ Three saved insights cover the roadmap question:
 - Compile outcomes: trend of `compile.finished` broken down by `outcome`.
 
 Keep the raw event retention at 90 days (matches the privacy notice); the saved insights read the same events and need no extra retention.
+
+## Website analytics
+
+The public website (landing page, compat page, docs) sends events to the same PostHog EU project, loaded lazily so it never blocks rendering.
+The loader is baked in at build time from `PUBLIC_POSTHOG_TOKEN`; without that variable no analytics code ships at all.
+It carries a `site` super property from `PUBLIC_SITE_URL`, so the deployment host is never hardcoded and a domain move is one variable change.
+
+The website posture matches the CLI: cookieless (`persistence: "memory"`, no cookies and no local storage, so every page view starts from a fresh anonymous id), `person_profiles: "never"`, session recording, surveys, heatmaps, dead-click, rage-click and exception capture all off, `respect_dnt: true` plus an explicit Global Privacy Control check, and `$ip` deleted from every event (backed by the project setting "Discard client IP data").
+Autocapture is limited to elements explicitly tagged `data-ph-event`, so no element text, form input or untagged link is ever captured.
+
+Website events, in full:
+
+| Event              | Trigger                                    | Properties                                   |
+| ------------------ | ------------------------------------------ | -------------------------------------------- |
+| `$pageview`        | every page load (all three site parts)      | path, referrer, `utm_*` (PostHog defaults)   |
+| `$pageleave`       | leaving a page                              | PostHog defaults                             |
+| `cta_click`        | a call-to-action link (hero, final CTA, modal) | `label` (which button)                    |
+| `install_copy`     | copying the install command                 | `source` (`playground_modal`) or docs variant |
+| `outbound_click`   | outbound link (GitHub, PyPI, X)             | `label`                                      |
+| `scroll_depth`     | landing page scroll quarters                | `percent` (25, 50, 75, 100)                  |
+| docs `*_click` variants | docs links, tab switches, copy buttons, search open | `label`, `tab`, `source`           |
+
+`llms.txt`, `llms-full.txt` and the og-image are plain files fetched without the loader running, so they are not visible to PostHog; Cloudflare's own Web Analytics (server side) is the way to count those if needed.
+Keep the 90-day retention for website events too; they are the same project and the same bill.

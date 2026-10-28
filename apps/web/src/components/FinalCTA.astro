@@ -13,6 +13,8 @@ import { siteLinks } from "../config/links";
   <div class="flex flex-wrap items-center justify-center gap-4">
     <a
       href={siteLinks.docs}
+      data-ph-event="cta_click"
+      data-ph-label="final_docs"
       class="px-6 py-3 rounded-full bg-white text-black font-medium text-xs hover:bg-slate-200 transition-all shadow-sm"
     >
       Read the documentation ↗
@@ -21,6 +23,8 @@ import { siteLinks } from "../config/links";
       href={siteLinks.github}
       target="_blank"
       rel="noopener noreferrer"
+      data-ph-event="outbound_click"
+      data-ph-label="github"
       class="px-6 py-3 rounded-full bg-white/5 border border-white/10 text-white font-medium text-xs hover:bg-white/10 transition-all flex items-center gap-2"
     >
       <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">

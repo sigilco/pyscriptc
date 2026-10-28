@@ -14,6 +14,20 @@ When telemetry is enabled (it is on by default in release builds, off in CI and 
 
 The full field-by-field list is in the [telemetry guide](https://pyscriptc.pages.dev/guide/telemetry/).
 
+## Website analytics
+
+The public website (the landing page, the compatibility page and the docs) also sends anonymous usage events to the same PostHog EU project, so the maintainer can see which pages and links are actually used.
+
+What the website sends:
+
+- The page path, the referrer and the standard `utm_*` campaign parameters when a link carries them
+- Which links and buttons were clicked (for example a call to action, a copy of the install command, an install tab, an outbound link to GitHub or PyPI)
+- How far down the landing page a visitor scrolled
+
+The website analytics is cookieless: no cookies and no local storage, so there is no identifier that survives a page view. Browsers that send Do Not Track or Global Privacy Control are not tracked at all. Text typed into any form, page content and session recordings are never captured. The client IP address is discarded, the same as for the CLI telemetry, and no person profile is built.
+
+The website events are kept for the same 90 days as the CLI events. The website has no separate opt-out switch: Do Not Track and Global Privacy Control are honoured, and a browser extension that blocks the PostHog host blocks the events too.
+
 ## What is never collected
 
 - Personal identity, emails, or usernames

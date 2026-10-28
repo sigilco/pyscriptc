@@ -89,6 +89,14 @@ jobs:
           pnpm --dir apps/web install --frozen-lockfile
 
       - name: Build the site (landing + compat + docs, assemble)
+        env:
+          # PostHog project API key for the site analytics. Without it the
+          # build emits no analytics code at all (the site works unchanged).
+          # Set it as a repository variable named PUBLIC_POSTHOG_TOKEN.
+          PUBLIC_POSTHOG_TOKEN: ${{ vars.PUBLIC_POSTHOG_TOKEN }}
+          # The deployment origin, sent as the `site` super property. Not
+          # hardcoded anywhere, so a domain move is one variable change.
+          PUBLIC_SITE_URL: ${{ vars.PUBLIC_SITE_URL }}
         run: pnpm --dir apps/web run site:build
 
       - name: Validate the assembled tree

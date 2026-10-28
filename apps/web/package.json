@@ -13,7 +13,8 @@
     "cf:build": "pnpm install --frozen-lockfile --dir ../../docs/.docmd && pnpm install --frozen-lockfile && pnpm run site:build",
     "validate": "node scripts/validate.mts",
     "docs:validate": "node scripts/validate-docs.mts",
-    "test": "node --test --experimental-strip-types \"test/**/*.test.mts\"",
+    "test": "node --test --experimental-strip-types \"test/site.test.mts\" \"test/analytics-privacy.test.mts\"",
+    "test:analytics": "node --test --experimental-strip-types \"test/analytics.test.mts\"",
     "dev": "astro dev",
     "preview": "astro preview",
     "cosmos": "cosmos",
@@ -24,7 +25,8 @@
     "@visx/scale": "^4.0.0",
     "@visx/shape": "^4.0.0",
     "astro": "^7.4.2",
-    "daisyui": "^5.7.50"
+    "daisyui": "^5.7.50",
+    "posthog-js": "^1.440.0"
   },
   "devDependencies": {
     "@astrojs/react": "^7.1.1",

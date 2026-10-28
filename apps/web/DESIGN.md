@@ -109,3 +109,15 @@ The accent is the deep blue family, desaturated into ink. The bright teal is the
 The Open Graph card is `public/og-image.png`, 1200x630, rendered from `og/og-image.html` by `og/render.mjs` (`node og/render.mjs`). The template inlines the site tokens, so the card follows the palette; the render script fails if the card is not exactly 1200x630 or if any block overflows. `og/README.md` has the regeneration steps.
 
 The card carries the logo mark, the wordmark, the pitch "Compile annotated Python to a native binary.", a terminal snippet with the compile command and its output, and the site URL. Every page of the site (`/`, `/compat/`, `/docs/`) points at the same image with `og:image`, `og:image:width`, `og:image:height`, `og:image:alt` and `twitter:card=summary_large_image`.
+
+---
+
+## 5. Analytics
+
+The site carries privacy-respecting PostHog analytics (EU host), loaded lazily from `src/lib/analytics.ts` through `src/components/Analytics.astro`. The loader renders nothing and only runs when the build had a `PUBLIC_POSTHOG_TOKEN`; without it no analytics code ships at all.
+
+The design rules for anything that is tracked:
+
+- Tracking is declarative: an element opts in with `data-ph-event="<name>"` and carries `data-ph-label="<which one>"` when the same event fires from several places. The PostHog autocapture allowlist is limited to those elements, so nothing else on the page is captured.
+- Tracked elements are ordinary links and buttons; no tracked element is visually distinct from its neighbours. Analytics must not change the design.
+- The privacy posture (cookieless, no person profiles, no session recording, DNT and GPC respected, no IP stored) lives in `src/lib/analytics-config.ts` and is asserted by the unit tests.
