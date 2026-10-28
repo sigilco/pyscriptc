@@ -26,6 +26,17 @@ deployed site reads.
 
 Every color is a token mirrored from `src/styles/theme.css` (the obsidian
 canvas, the ink ladder, the logo blue). Keep it that way: the card must follow
-the site palette. The compile snippet in the terminal is illustrative but its
-shape is real: `pyscriptc compile sum_squares.py -o sum_squares` is the
-documented quickstart command and prints the binary path on stdout.
+the site palette.
+
+The card is read as a small preview in messaging and social apps, so it is
+deliberately sparse: a large logo mark, the wordmark, one short tagline and a
+single footer line. Nothing on it is under 28px, there is no terminal block
+and no small mono text, because none of that survives a 300px-wide preview.
+Keep the key content inside the centre 1000x500 safe area.
+
+## Copy
+
+The tagline must stay true to what the compiler does. Do not claim "zero
+CPython at runtime" or "no runtime": the opt-in island fallback tier embeds
+CPython, so a standalone binary carries no runtime for the compiled subset,
+but the product as a whole is not runtime-free.

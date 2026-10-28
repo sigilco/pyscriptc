@@ -90,7 +90,7 @@ try {
       const card = document.getElementById("og-card");
       const box = card.getBoundingClientRect();
       let overflow = 0;
-      for (const el of card.querySelectorAll(".masthead, .pitch, .terminal, .footer")) {
+      for (const el of card.querySelectorAll(".masthead, .pitch, .footer")) {
         const r = el.getBoundingClientRect();
         overflow = Math.max(overflow, Math.round(r.bottom - box.bottom));
       }
