@@ -38,6 +38,11 @@
 # floor, >= 0.13.4) and node/pnpm independently, and switching would re-resolve
 # tool versions on every run for no gain. mise is the local entrypoint only.
 
+[env]
+# Link venv packages from the shared uv cache with clones instead of copies,
+# so every agent worktree stops duplicating ~140M of site-packages.
+UV_LINK_MODE = "clone"
+
 [tools]
 # Pin tools by major version (major.minor where the major line moves fast,
 # like python). Exact versions make the toolchain drift from CI and break
@@ -186,6 +191,10 @@ run = "uv run pyscriptc compile"
 [tasks.run]
 description = "pyscriptc run (content-cached compile + execute), args pass through"
 run = "uv run pyscriptc run"
+
+[tasks."wt:prune"]
+description = "List removable agent worktrees under ~/.worktrees (add --yes to remove them)"
+run = "bash scripts/wt_prune.sh"
 
 # Same shape as the wheel-smoke job in ci.yml and the verify job in release.yml.
 [tasks."wheel:smoke"]
