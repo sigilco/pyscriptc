@@ -17,7 +17,6 @@
 # before the owner looks at it. Design: .agents/docs/compat-site.md.
 # workflow_call never deploys: the `site` job only deploys on a push to
 # master.
-# before the owner looks at it. Design: .agents/docs/compat-site.md.
 
 name: site
 
@@ -46,6 +45,14 @@ on:
       - ".github/workflows/site.yml"
   workflow_dispatch:
   workflow_call:
+    # Optional ref to check out, so the nightly can build the site over the
+    # compat data the snapshot PR will carry (its own tree) instead of the
+    # caller's commit. Empty (or a bare SHA) keeps the default checkout.
+    inputs:
+      ref:
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -61,6 +68,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.sha }}
 
       - uses: pnpm/action-setup@v4
         with:

@@ -39,6 +39,7 @@ jobs:
       pull-requests: write
     outputs:
       failed: ${{ steps.result.outputs.failed }}
+      snapshot_sha: ${{ steps.pr.outputs.snapshot_sha }}
     steps:
       - uses: actions/checkout@v5
 
@@ -104,7 +105,7 @@ jobs:
             echo "compat data unchanged"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
+          mkdir -p nightly
           cp data/compat/compat.json nightly/compat.json
           cp data/compat/ladder.json nightly/ladder.json
 
@@ -167,6 +168,9 @@ jobs:
           fi
           echo "number=${number}" >> "$GITHUB_OUTPUT"
           echo "url=$(gh pr view "$number" --repo "$REPO" --json url --jq '.url')" >> "$GITHUB_OUTPUT"
+          # The sha of the snapshot commit, so the site build can check it
+          # out and assemble exactly the data this PR carries.
+          echo "snapshot_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       # Auto-merge cannot work and is not wanted here. The compat snapshot
       # PR is authored by github-actions[bot], and a pull_request workflow
@@ -218,15 +222,20 @@ jobs:
   # data/compat/compat.json, so a broken data file fails here, on the
   # nightly, instead of in a pull_request run held at action_required.
   #
-  # It runs against the nightly's own tree (the commit that produced the
-  # data), not the bot branch, because the tree already holds the exact
-  # bytes the PR carries. The site job only deploys on a push to master,
-  # so a workflow_call never deploys.
+  # The `ref` input makes the checkout the snapshot commit, so the site
+  # assembles exactly the bytes the PR carries. The site job only deploys
+  # on a push to master, so a workflow_call never deploys.
   site-check:
     name: build the site over the compat snapshot
     needs: visible-score
-    if: always()
+    # Only when the nightly actually opened a snapshot PR, so there is a
+    # snapshot commit to build the site over.
+    if: needs.visible-score.outputs.snapshot_sha != ''
     uses: ./.github/workflows/site.yml
+    with:
+      # The snapshot commit, so the site assembles exactly the compat data
+      # the PR carries.
+      ref: ${{ needs.visible-score.outputs.snapshot_sha }}
     permissions:
       contents: read
 
