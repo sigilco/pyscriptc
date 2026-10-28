@@ -13,6 +13,25 @@
 
 pyscriptc compiles typed Python to native executables. It uses Python's inferred types and type hints to generate machine code from supported code.
 
+### Quick start
+
+```python
+# hello.py
+def main() -> None:
+    print("hello from a native binary")
+
+
+if __name__ == "__main__":
+    main()
+```
+
+```bash
+pyscriptc run hello.py
+```
+
+Live per-module and per-library support status: the [compat site](https://pyscriptc.pages.dev/compat/).
+
+
 pyscriptc is experimental, aims for CPython compatibility, and supports a subset of Python, its builtins and standard library, and selected PyPI packages. Code outside the subset stops the build with a diagnostic code (`PSxxxx`) that names the exact line, or runs through embedded CPython (fallback mode) when you opt in with `--island` or `--fallback=cpython`. Fallback mode links against the host CPython: it is not bundled, and a Python installation is expected on the machine.
 
 ## Installation
@@ -51,19 +70,18 @@ Building a binary needs a clang (or `zig`) on your PATH; `pyscriptc doctor` chec
 
 </details>
 
-Windows: the `pyscriptc` binary runs there (experimental) and `coverage` works. Emitted programs are experimental cross-compilation only: `pyscriptc compile FILE --target x86_64-windows-gnu --driver zig` builds a Windows binary from Linux or macOS, but no CI job runs the output and Windows semantics are unverified. Native Windows compiles are not supported yet.
+The examples above need no C toolchain; building a binary needs clang or `zig` on your PATH (`pyscriptc doctor` checks). Windows: the `pyscriptc` binary runs there (experimental) and `coverage` works. Emitted programs are experimental cross-compilation only: `pyscriptc compile FILE --target x86_64-windows-gnu --driver zig` builds a Windows binary from Linux or macOS, but no CI job runs the output and Windows semantics are unverified. Native Windows compiles are not supported yet.
 
 ## Documentation
 
-[Documentation site](https://pyscriptc.pages.dev/), including the [CLI reference](https://pyscriptc.pages.dev/reference/cli/) and the [Python subset](https://pyscriptc.pages.dev/guide/python-subset/).
+[Documentation site](https://pyscriptc.pages.dev/), including the [CLI reference](https://pyscriptc.pages.dev/reference/cli/), the [Python subset](https://pyscriptc.pages.dev/guide/python-subset/) and how pyscriptc [compares with other tools](https://pyscriptc.pages.dev/guide/comparison/).
 
 For agents: [llms.txt](https://pyscriptc.pages.dev/llms.txt) and [llms-full.txt](https://pyscriptc.pages.dev/llms-full.txt).
 
 ## Hello world
 
-Create `hello.py`:
-
 ```python
+# hello.py
 def main() -> None:
     print("hello from a native binary")
 
@@ -71,6 +89,8 @@ def main() -> None:
 if __name__ == "__main__":
     main()
 ```
+
+Run it directly, or build a binary:
 
 ```bash
 pyscriptc run hello.py
@@ -85,13 +105,13 @@ pyscriptc compile hello.py --emit bin -o hello && ./hello
 | Scripting | 22.2x faster | 6.0x smaller |
 | Stdlib calls | 14.4x faster | 5.2x smaller |
 
-Compiled binary versus the same call under CPython 3.15.0, geometric mean per workload group, higher is better. Reference recorded 2026-10-15 on one Linux x86_64 host (8 CPUs, 5 runs per sample).
+Compiled binary versus the same call under CPython 3.14.9, geometric mean per workload group, higher is better. Reference recorded 2026-10-15 on one Linux x86_64 host (8 CPUs, 5 runs per sample).
 
 Source: [benchmarks/baseline/reference.json](https://github.com/sigilco/pyscriptc/blob/master/benchmarks/baseline/reference.json). Fresh numbers are in the job summary of the latest [nightly run](https://github.com/sigilco/pyscriptc/actions/workflows/nightly.yml). Reproduce with `uv run python -m benchmarks.baseline.run --check`.
 
-## Using the stdlib
+## What it does not do yet
 
-The practical summary and the fenced constructs: [The Python subset](https://pyscriptc.pages.dev/guide/python-subset/).
+Code outside the supported subset stops the build with a `PSxxxx` diagnostic that names the exact line, and a native binary has no interpreter inside it, so dynamic patterns that need one do not run. The concrete fences and their causes are in [Diagnostics](https://pyscriptc.pages.dev/reference/diagnostics/), the behavior differences from CPython are in [Divergences from CPython](https://pyscriptc.pages.dev/reference/divergences/), and the live per-module and per-library status is on the [compat site](https://pyscriptc.pages.dev/compat/).
 
 ## Using PyPI packages
 
@@ -99,7 +119,7 @@ We keep track of the share of the top 100 PyPI libraries that compiles. Mind tha
 
 ## Contributing
 
-See [Contributing](https://pyscriptc.pages.dev/project/contributing/) for setup and conventions.
+See [Contributing](https://pyscriptc.pages.dev/project/contributing/) for setup and conventions. Reported behavior is covered by the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
