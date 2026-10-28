@@ -5,6 +5,7 @@
 // (HeaderPillNav), so both pages stay one site visually.
 import React from "react";
 import { HeaderPillNav } from "../components/HeaderPillNav";
+import Footer from "../components/Footer.astro";
 import "../styles/global.css";
 import "../styles/compat.css";
 
@@ -13,6 +14,9 @@ interface Props {
 }
 
 const { title = "Are We Native Yet? · pyscriptc" } = Astro.props;
+const description =
+  "Live compatibility status of pyscriptc: which builtins, standard-library modules, language features and PyPI packages compile to native code today.";
+const url = "https://pyscriptc.pages.dev/compat/";
 ---
 
 <!doctype html>
@@ -21,12 +25,25 @@ const { title = "Are We Native Yet? · pyscriptc" } = Astro.props;
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
-    <meta
-      name="description"
-      content="Live compatibility status of pyscriptc: which builtins, standard-library modules, language features and PyPI packages compile to native code today."
-    />
+    <meta name="description" content={description} />
     <link rel="icon" type="image/png" sizes="64x64" href="/icon-64.png" />
     <link rel="icon" type="image/png" sizes="256x256" href="/logo-256.png" />
+    <link rel="canonical" href={url} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={url} />
+    <meta property="og:image" content="https://pyscriptc.pages.dev/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="pyscriptc: Compile annotated Python to a native binary. Terminal output of a pyscriptc compile run on an obsidian card."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content="https://pyscriptc.pages.dev/og-image.png" />
     <slot name="head" />
   </head>
   <body class="compat-body">
@@ -35,7 +52,8 @@ const { title = "Are We Native Yet? · pyscriptc" } = Astro.props;
     <main class="container compat-page">
       <slot />
     </main>
-    <footer class="site-footer">
+    <Footer />
+    <footer class="compat-data-footer">
       <p>
         Data regenerated nightly from the compiler tree —
         <a href="/compat/data/compat.json">compat.json</a> ·
