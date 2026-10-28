@@ -228,3 +228,65 @@ Per pull request, the runner time drops from 27.5 minutes of runner time to:
 | compiler change | 27.5m | 27.5m, plus about 0.2m for the classifier and about 0.2m for `ci-ok` |
 
 The two macOS cells (three test shards plus the android leg) are the expensive part of the bill, so a docs-only or web-only pull request saves about 12 macOS-minutes, which is the number that matters for the free-plan quota.
+
+## 8. The bot PR approval gate (the nightly wedge)
+
+### What was stuck
+
+The nightly opens a data-only PR on `bot/compat-snapshot` with `GITHUB_TOKEN`, so the PR author is `github-actions[bot]`. GitHub holds `pull_request` workflow runs from a bot-authored PR at `action_required` until a maintainer approves them. The repo has `fork-pr-contributor-approval: first_time_contributors`, but the gate here is not the fork policy: the PR is same-repo (`head.repo == base.repo`), and the bot is a contributor of this repo (`contributors` lists `github-actions[bot]` with 6 contributions). The gate is the bot-PR rule, which has no repo-level opt-out.
+
+The runs that are still waiting (listed, not deleted):
+
+| run | workflow | branch | created | conclusion |
+| --- | --- | --- | --- | --- |
+| 40328475241 | site | bot/compat-snapshot | 2026-10-26T13:11:41Z | action_required |
+| 40328475181 | embed | bot/compat-snapshot | 2026-10-26T13:11:41Z | action_required |
+| 40189670715 | site | bot/compat-snapshot | 2026-10-25T11:37:54Z | action_required |
+| 40189670771 | ci | bot/compat-snapshot | 2026-10-25T11:37:54Z | action_required |
+
+`gh run list --status waiting` is empty: nothing is queued behind them, they are parked at the approval step. Two older runs on the same branch (`40328475202`, `40502822975`, `40502822992`) finished as `failure` instead, because the Cloudflare Pages check failed on the data-only change, not because of the gate.
+
+The runs that did go through show the gate is not fatal once a human approves: run 40094989004 (`ci`, 2026-10-24) was triggered by `espetro`, not by the bot, and went green end to end on exactly this data-only diff.
+
+### Why the PR never merged on its own
+
+The nightly's `gh pr merge --auto` step cannot work, for two independent reasons:
+
+- The repo has `allow_auto_merge: false` (`GET /repos/sigilco/pyscriptc`), so `--auto` has nothing to queue. `gh pr merge --auto` fails and the step's `|| echo` swallows it.
+- Even with auto-merge on, a PR authored by `github-actions[bot]` cannot have its pending runs approved by its own `GITHUB_TOKEN`. The repo has `can_approve_pull_request_reviews: true`, but that is the repository token setting for a workflow to approve PRs, and the approval needed here is the *workflow run* approval (`POST /repos/{owner}/{repo}/actions/runs/{run_id}/approve`), which the actor of the run cannot perform on its own run.
+
+Every bot PR so far was merged by hand: #546, #549 and #727 were all merged by `espetro`. The nightly's own comment claimed "the commit is the bot identity, so it merges without review", which is not what happens.
+
+### The options, and the one taken
+
+1. **Nightly pushes straight to master.** Not allowed: the ruleset `master: PR only` requires a pull request on the default branch and blocks direct pushes. Rejected, and `tests/test_compat_site.py::test_nightly_never_pushes_to_master` holds the line.
+2. **Trigger required CI via `workflow_dispatch` / `gh workflow run` on the branch.** This works around the *approval* gate (a `workflow_dispatch` triggered by the bot is not held), but it does not produce the required contexts on the PR head: a dispatched run reports its checks on the branch commit, and the ruleset evaluates the pull request's head. It also re-runs the heavy matrix for a data-only change. Rejected as the primary fix; it would be needed if the PR had to carry required contexts, which it does not have to.
+3. **Exclude the bot branch from the `pull_request` triggers and let the nightly validate the data itself.** Taken.
+4. **Repo setting change.** Reported below, not applied.
+
+### What was implemented
+
+**The exclusion.** `ci.yml`, `embed.yml` and `site.yml` now carry `branches-ignore: [bot/compat-snapshot]` on their `pull_request` trigger. The three workflows that were parking at `action_required` (the `ci`, `embed` and `site` runs on the bot branch) no longer fire for that branch at all, so no run is ever created for it and nothing waits for an approval. The rule is keyed on the branch name, which the nightly owns and rewrites daily.
+
+A branch filter is safe here and only here because none of these workflows carries a required context that the bot PR has to satisfy: the required contexts all live in `ci.yml`, and the bot PR is a data-only change that the nightly validates itself. A PR from any other branch is unaffected.
+
+**The nightly validates what the PR carries.** Two new steps in the `visible-score` job, both gated on `steps.compat.outputs.changed == 'true'`, so they run only when there is actually a snapshot to validate:
+
+- The schema check: `scripts/compat_schema.py`'s `validate()` over the `data/compat/compat.json` the nightly just built. It is the same validator `tests/test_compat_json.py` uses, so the file cannot reach the PR without passing it.
+- The compat seams: `tests/test_compat_json.py`, `tests/test_compat_site.py`, `tests/test_doc_cadence.py`, `tests/test_first_class_scripts.py` and `tests/test_support_docs.py`, the same five the `docs seams` lane runs in `ci.yml`. They run against the nightly's working tree, which holds the exact bytes the PR carries, because the nightly commits and pushes those same files.
+
+**The site build over the snapshot.** A new `site-check` job calls `site.yml` through `workflow_call`. `site.yml` already had the `workflow_call` trigger for exactly this purpose; the nightly was never wired to it. The site page assembles `data/compat/compat.json`, so a broken data file now fails the nightly, on the nightly, instead of in a `pull_request` run parked at an approval nobody was watching for. `workflow_call` never deploys: the `site` job's deploy step is gated on `github.ref == 'refs/heads/master' && github.event_name == 'push'`, and a called workflow inherits the caller's ref and event.
+
+**The dead auto-merge step.** Replaced by a step that says what actually happens: the PR waits for the owner. The old step's `|| echo "auto-merge is blocked by the ruleset"` was misleading in both directions: auto-merge is off at the repo level, and the ruleset was never the blocker.
+
+### Repo settings the owner must change
+
+None is required for the fix above to work. These are listed for the record, all optional:
+
+1. **`allow_auto_merge`** (`Settings > General > Pull Requests > Allow auto-merge`): currently off. Turning it on would let the nightly queue a merge for the bot PR. It still would not merge unattended, because the bot PR's runs need a human approval, and because the required contexts are not reported on the bot branch. With the exclusion in place the bot PR has no required contexts to satisfy, so auto-merge plus the admin bypass would merge it unattended. Not required.
+2. **`fork-pr-contributor-approval`** (`Settings > Actions > General > Approve and run workflows from contributors`): currently `first_time_contributors`. This is not what parks these runs (the bot is a known contributor and the PR is same-repo), so changing it would not fix the wedge on its own. Leave it as it is: it is the right setting for a public repo.
+3. **The admin bypass on the ruleset** (actor id 5, `RepositoryRole`, `bypass_mode: always`) is what lets the owner merge a bot PR whose required contexts were never reported. It is a deliberate escape hatch and should stay.
+
+### The stale runs
+
+The four runs in the table at the top of this section are still parked at `action_required`. They are reported here and left in place, per the instruction not to delete runs. They are harmless now: the branch they belong to no longer triggers any workflow, so a new nightly push creates no new parked runs. Approving them by hand (or letting them sit) changes nothing about the flow.
