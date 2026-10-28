@@ -228,6 +228,7 @@ class ClassesMixin:
                 inherited_types[field["name"]] = field["type"]
         mro, chain = self._mro_chain(node, bases)
         fields: list[dict[str, Any]] = []
+        classattrs: list[dict[str, Any]] = []
         methods: list[tuple[ast.FunctionDef, str]] = []
         seen: set[str] = set()
         seen_default = False
@@ -290,6 +291,14 @@ class ClassesMixin:
                         self.fail(stmt, "PS1201", "decorators are not lowered")
                     methods.append((stmt, kind))  # type: ignore[arg-type]
                     continue
+                if isinstance(stmt, ast.Assign):
+                    # A class attribute: one name target, a constant value.
+                    # It folds at every read site (like an enum member), so
+                    # nothing is emitted into the class layout.
+                    attr = self._class_attribute(stmt, seen, inherited_types)
+                    if attr is not None:
+                        classattrs.append(attr)
+                        continue
                 self.fail(stmt, "PS1204", f"{type(stmt).__name__} in a class body is not lowered")
             except Fence as exc:
                 self.caught.append(exc)
@@ -311,6 +320,11 @@ class ClassesMixin:
                 kinds[mname] = ancestor_info["method_kind"].get(mname, "method")
                 owners[mname] = ancestor
         wrote_init = False
+        # A class attribute cannot shadow a method: the folded constant would
+        # answer a call site that expects the method.
+        attr_names = {attr["name"] for attr in classattrs}
+        for mname in attr_names & set(m for m, _ in methods):
+            self.fail(node, "PS2002", f"{mname} is both a class attribute and a method")
         # A field fence leaves the field set unknown; a method signature fence
         # only drops that one method. Count each kind so the catalog pass can
         # tell them apart.
@@ -389,6 +403,7 @@ class ClassesMixin:
         info: dict[str, Any] = {
             "fields": [*inherited, *fields],
             "own_fields": fields,
+            "classattrs": classattrs,
             "methods": method_sigs,
             "method_kind": kinds,
             "method_owner": owners,
@@ -413,6 +428,38 @@ class ClassesMixin:
         if protocol:
             info["protocol"] = True
         self.classes[node.name] = info
+
+    def _class_attribute(
+        self, stmt: ast.Assign, seen: set[str], inherited_types: dict[str, dict[str, Any]]
+    ) -> dict[str, Any] | None:
+        """A class-body `name = constant` folds into a compile-time attribute.
+
+        One plain-name target whose value lowers as a constant: the read
+        sites inline the value, so the class layout never grows a slot and
+        nothing is emitted for the statement itself. Anything else (several
+        targets, a non-name target, a name that is already a field, a
+        non-constant value) keeps its fence: the non-constant shapes fail
+        with their own named message, and the caller's generic PS1204 fence
+        covers the rest.
+        """
+        if len(stmt.targets) != 1 or not isinstance(stmt.targets[0], ast.Name):
+            return None
+        name = stmt.targets[0].id
+        if name in seen or name in inherited_types:
+            self.fail(stmt, "PS2002", f"duplicate field {name}")
+        saved_prelude = self.prelude
+        self.prelude = []
+        try:
+            value = self._expr(stmt.value)
+        except Fence:
+            # The value names something the compiler cannot fold (an unknown
+            # name, a call): the class attribute stays a named fence.
+            self.fail(stmt, "PS2002", f"a class attribute must be a constant ({name})")
+        finally:
+            self.prelude = saved_prelude
+        if value.get("kind") != "const":
+            self.fail(stmt, "PS2002", f"a class attribute must be a constant ({name})")
+        return {"name": name, "type": value["type"], "value": value["value"]}
 
     def _mro_chain(self, node: ast.ClassDef, bases: list[dict[str, str]]) -> tuple[list[str], set[str]]:
         """C3 linearization of the bases, plus the primary-base spine.
@@ -1550,6 +1597,15 @@ class ClassesMixin:
                 "span": span,
             }
         hook = self._getattr_hook(class_name)
+        # A class attribute read on an instance: normal lookup beats the
+        # `__getattr__` hook, and the first definition in the MRO wins.
+        for ancestor in info.get("mro", [class_name]):
+            ancestor_info = self.classes.get(ancestor)
+            if ancestor_info is None:
+                continue
+            cattr = next((item for item in ancestor_info.get("classattrs", []) if item["name"] == name), None)
+            if cattr is not None:
+                return {"kind": "const", "value": cattr["value"], "type": cattr["type"], "span": span}
         if hook is not None:
             return self._getattr_hook_call(hook, obj, name, span, node, expect)
         attr = path_attr(name) if class_name == "Path" else None
