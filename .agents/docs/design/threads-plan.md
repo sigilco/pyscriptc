@@ -1,6 +1,6 @@
 # Threads plan: the P2b exit for #172 on real pthreads
 
-Date: 2026-10-23. Status: exploration, written for issue #172. Source of truth for the wider async and threads design: `.agents/docs/design/async-lowering-plan.md` (the P3 async lane) plus the milestone's staging table row P2b.
+Date: 2026-10-23. Status: written for issue #172; `queue.Queue` has since landed (`src/pyscriptc/restlower/_queue.py`, runtime queues in `ps_coll.c`) and the TSan lane is in CI. Verify current state against the code. Source of truth for the wider async and threads design: `.agents/docs/design/async-lowering-plan.md` (the P3 async lane) plus the milestone's staging table row P2b.
 
 This document records what the runtime already does, what is still missing for the P2b exit criteria, the staged PRs that get there, the thread-safety story the runtime has to keep, and the WASM/WASI position. It is a design record, not a promise of scope: every stage below is separately shippable and separately revertable.
 

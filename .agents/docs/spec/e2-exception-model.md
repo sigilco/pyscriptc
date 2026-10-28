@@ -1,6 +1,6 @@
 # E2 exception model design
 
-How exceptions become values in the subset: their C representation, the unwinding strategy, the lowering rules for `try`/`except`/`else`/`finally`, and the milestone ladder for E2. Spec only: nothing here is implemented. The E2 exit is 70 builtin and 172 stdlib exception rows, valid `raises` probes, PS1205.
+How exceptions become values in the subset: their C representation, the unwinding strategy, the lowering rules for `try`/`except`/`else`/`finally`, and the milestone ladder for E2. Status: much of this has landed (try-else, finally, except-as, user exception registration through `ps_exc_register`); the 'Current state' section is the 2026-10 design-time snapshot and is stale where it says something fences. The E2 exit is 70 builtin and 172 stdlib exception rows, valid `raises` probes, PS1205.
 
 One correction to the brief up front, because it changes the design: the brief says the runtime has no unwinding. It does. `ps_try_call` (`src/pyscriptc/runtime/ps_rt.c:82`) installs a `setjmp` handler on a `PsJmp` stack (`ps_rt.c:17-22`), `ps_raise` `longjmp`s into it (`ps_rt.c:61`), and `emit_try` (`src/pyscriptc/llvm.py:304`) already outlines every try body into a `ps.try.N` callback invoked through `ps_try_call`. E2 extends that machinery; it does not introduce unwinding.
 

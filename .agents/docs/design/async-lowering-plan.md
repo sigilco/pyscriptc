@@ -1,6 +1,6 @@
 # Async lowering plan: `async def` and `await` on the coroutine frame
 
-Status: exploration, written 2026-10-23 for issue #178. Owner: the v0.6.0 async lane. Decision record for the lowering mechanism itself is [`coroutine-lowering.md`](coroutine-lowering.md); the wider async and threads design is the P3 lane of the v0.6.0 milestone (this file and `threads-plan.md`).
+Status: written 2026-10-23 for issue #178; stages B to D have since landed (`src/pyscriptc/coro.py`, `src/pyscriptc/runtime/ps_async.c`, `ps_loop.c`, `src/pyscriptc/restlower/_asyncio*.py`). Sections below are the design record; verify current state against the code. Owner: the v0.6.0 async lane. Decision record for the lowering mechanism itself is [`coroutine-lowering.md`](coroutine-lowering.md); the wider async and threads design is the P3 lane of the v0.6.0 milestone (this file and `threads-plan.md`).
 
 ## Where the work stands on origin/master
 
