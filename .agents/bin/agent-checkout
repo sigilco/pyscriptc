@@ -1,13 +1,45 @@
 #!/usr/bin/env bash
-# usage: .agents/bin/agent-checkout <name> [base-branch]
+# usage: .agents/bin/agent-checkout <name> [base-branch] [--deps] [--full]
 # Creates ~/.worktrees/pyscriptc-<name> on branch work/<name> with the holdout left out of the checkout
 # (sparse checkout), so a generator agent has no holdout files on disk. Use this for every agent worktree.
+#
+# Defaults keep worktrees small: apps/ and docs/ stay out of the checkout and
+# dependencies are not installed. Pass --full when the task touches the site or
+# the docs, --deps to also run uv sync + pnpm install. Installs use the shared
+# pnpm store and the shared uv cache, so repeated worktrees stop duplicating
+# gigabytes.
 set -euo pipefail
 name="${1:?name}"
 base="${2:-master}"
+want_deps=0
+want_full=0
+for arg in "$@"; do
+  case "$arg" in
+    --deps) want_deps=1 ;;
+    --full) want_full=1 ;;
+  esac
+done
 top="$(git rev-parse --show-toplevel)"
 dest="$HOME/.worktrees/pyscriptc-$name"
 git -C "$top" worktree add --no-checkout -b "work/$name" "$dest" "$base"
-git -C "$dest" sparse-checkout set --no-cone '/*' '!/benchmarks/compat2/corpus/holdout/'
+if [ "$want_full" -eq 1 ]; then
+  git -C "$dest" sparse-checkout set --no-cone '/*' '!/benchmarks/compat2/corpus/holdout/'
+else
+  git -C "$dest" sparse-checkout set --no-cone '/*' '!/benchmarks/compat2/corpus/holdout/' '!/apps/' '!/docs/'
+fi
 git -C "$dest" checkout -q
 echo "$dest"
+
+if [ "$want_deps" -eq 1 ]; then
+  (cd "$dest" && mise exec -- uv sync && pnpm --dir docs/.docmd install && pnpm --dir apps/web install)
+fi
+
+# Nudge cleanup when worktrees pile up. Installs dominate the size, so the
+# threshold is on the count and on the total footprint of ~/.worktrees.
+count=$(find "$HOME/.worktrees" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
+size_kb=$(du -sk "$HOME/.worktrees" 2>/dev/null | cut -f1)
+if [ "$count" -gt 15 ] || [ "${size_kb:-0}" -gt $((10 * 1024 * 1024)) ]; then
+  echo "NOTE: $count worktrees / $((size_kb / 1024))M under ~/.worktrees." >&2
+  echo "Dry-run prune (scripts/wt_prune.sh --yes removes the eligible ones):" >&2
+  bash "$top/scripts/wt_prune.sh" >&2 || true
+fi
