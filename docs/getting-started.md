@@ -7,6 +7,35 @@ description: Install pyscriptc, check the toolchain, and compile your first Pyth
 
 pyscriptc compiles typed Python to a native binary. This page gets you from nothing to a running binary in a few minutes.
 
+## Install
+
+Run the install script for your platform. It checks the prerequisites, installs `uv` and, with the flag, `zig` where it can, then installs pyscriptc and runs `pyscriptc doctor`. It never uses `sudo` or an admin shell: for anything it will not install itself it prints the exact command to run as your normal user.
+
+::: tabs
+::: tab "macOS / Linux"
+```sh
+curl -LsSf https://raw.githubusercontent.com/sigilco/pyscriptc/master/docs/install.sh | sh
+```
+::: /tab
+
+::: tab "Windows"
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://raw.githubusercontent.com/sigilco/pyscriptc/master/docs/install.ps1 | iex"
+```
+::: /tab
+::: /tabs
+
+The script is a convenience: it does the two commands below and nothing more. To install by hand, use `uv tool install pyscriptc`.
+
+From a checkout of the repository, run the script from the file instead of the URL:
+
+```sh
+sh docs/install.sh           # macOS and Linux
+.\docs\install.ps1           # Windows
+```
+
+Pass `--yes` (or `-Yes` on Windows) to let the script install `uv` and `zig` too.
+
 ## Prerequisites
 
 You need two things:
@@ -29,7 +58,7 @@ The type checker ships inside the package, so there is nothing extra to install 
 
 You only need one of `clang` or `zig`. Run `pyscriptc doctor` after installing to see what was found.
 
-## Install
+## Install pyscriptc
 
 Install pyscriptc as a tool:
 
@@ -46,24 +75,6 @@ pyscriptc doctor
 ```
 
 `doctor` prints the pyscriptc version, the checker it found, the C compiler or zig it will link with, and the cache locations. If something is missing, fix it with the table above and run `doctor` again.
-
-### Install script
-
-The docs folder ships a POSIX `sh` script that checks the prerequisites, installs `uv` (and, with `--yes`, `zig`) if they are missing, then installs pyscriptc and runs `pyscriptc doctor`. It never uses `sudo`: it prints the exact command for anything it will not install itself.
-
-From a checkout of the repository:
-
-```sh
-sh docs/install.sh
-```
-
-It can also be run straight from a URL once the site serves it:
-
-```sh
-sh -c "$(curl -fsSL {{PYSC_DOCS_URL}}/install.sh)"
-```
-
-The script is a convenience. The two commands in the previous section are all it does.
 
 ## First run
 
@@ -111,7 +122,3 @@ If a file cannot be compiled, pyscriptc prints a table naming each construct and
 | 4 | A version or target mismatch |
 
 Run `pyscriptc explain PS2003` to see what a code means and how to change your code. The full list of diagnostic codes is in [Diagnostics](reference/diagnostics.md), and the general reference for unsupported behavior is [Divergences from CPython](reference/divergences.md).
-
-## Pre-releases
-
-Beta builds are cut from master before each release. How to install a beta and what to report is on [Beta testing](project/beta.md).
