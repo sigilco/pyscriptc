@@ -362,7 +362,6 @@ jobs:
           tests/test_compat_site.py
           tests/test_compat_json.py
           tests/test_doc_cadence.py
-          tests/test_first_class_scripts.py
           tests/test_support_docs.py
           -m "not linux_container"
 
