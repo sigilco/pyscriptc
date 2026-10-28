@@ -4,6 +4,15 @@ on:
   push:
     branches: [master]
   pull_request:
+    # The nightly compat snapshot PR (branch bot/compat-snapshot) is
+    # data-only and authored by github-actions[bot]; a pull_request run of
+    # this workflow from that branch is held at action_required until an
+    # owner approves it, which wedges the nightly. The nightly validates
+    # the snapshot itself (the site workflow is called through
+    # workflow_call, and the compat seams run as a test step), and this
+    # workflow has no required context on the bot PR, so nothing is lost.
+    branches-ignore:
+      - bot/compat-snapshot
 
 # A PR branch push used to run twice (push and pull_request) and every new
 # commit queued behind the previous one. PRs run once and a newer commit
@@ -188,6 +197,65 @@ jobs:
             echo "python=$python"
           } >> "$GITHUB_OUTPUT"
 
+
+  # Aggregators for the required check names. The ruleset (`master: PR
+  # only`) requires the literal contexts `tests without linux_container
+  # (shard N/3)` for N in 1..3 and `zig cc emitted-IR smoke`, and required
+  # status checks match the reported name exactly. Two problems with the
+  # real lanes, both verified on throwaway PRs #750 and #751:
+  #
+  # 1. The shard and zig jobs are matrix cells, so their reported names end
+  #    in the matrix value (`(shard 1/3)`, `(0.16.0)`) and the bare names
+  #    the ruleset expects never arrive.
+  # 2. A job-level `if:` skip on a matrix job reports a single `skipped`
+  #    check run whose name keeps the literal `${{ matrix.* }}` text
+  #    unrendered (`tests without linux_container (shard ${{ matrix.group
+  #    }}/3)`). A non-matrix job, by contrast, reports its own rendered
+  #    name. So on a docs-only pull request no shard name is reported at
+  #    all and the merge sits waiting forever.
+  #
+  # These two jobs always run and fan out over the same groups as the real
+  # lanes, so their rendered names are exactly the required contexts. Each
+  # leg passes when the corresponding lane was green or correctly skipped,
+  # and fails when it failed. A cancelled lane fails the leg and the
+  # workflow, which is the safe direction for a required check.
+  shard-ok:
+    name: tests without linux_container (shard ${{ matrix.group }}/3)
+    runs-on: ubuntu-latest
+    needs: macos-safe
+    if: always()
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3]
+    steps:
+      - name: The shard is green or correctly skipped
+        env:
+          RESULT: ${{ needs.macos-safe.result }}
+          GROUP: ${{ matrix.group }}
+        run: |
+          set -euo pipefail
+          case "$RESULT" in
+            success|skipped) echo "shard $GROUP/3: $RESULT" ;;
+            *) echo "shard $GROUP/3: $RESULT" >&2; exit 1 ;;
+          esac
+
+  zig-ok:
+    name: zig cc emitted-IR smoke
+    runs-on: ubuntu-latest
+    needs: zig-smoke
+    if: always()
+    steps:
+      - name: The zig smoke is green or correctly skipped
+        env:
+          RESULT: ${{ needs.zig-smoke.result }}
+        run: |
+          set -euo pipefail
+          case "$RESULT" in
+            success|skipped) echo "zig smoke: $RESULT" ;;
+            *) echo "zig smoke: $RESULT" >&2; exit 1 ;;
+          esac
+
   # Fail-closed aggregate. Green only when the classifier succeeded and no
   # lane that ran failed. It is the one check an admin would make required
   # (see .agents/notes/2026-10-28-ci-path-gating.md): a single stable
@@ -208,6 +276,8 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - changes
+      - shard-ok
+      - zig-ok
       - docs-seams
       - secrets
       - unit
@@ -242,8 +312,15 @@ jobs:
           problems = []
           if needs["changes"]["result"] != "success":
               problems.append(f"changes: {needs['changes']['result']}")
+          # The two aggregators are the required contexts and are never
+          # skipped (if: always()), so they must be strictly green. Their
+          # legs already failed if the lane underneath failed, so this adds
+          # no new failure mode, it just refuses to paper over one.
+          for job in ("shard-ok", "zig-ok"):
+              if needs[job]["result"] != "success":
+                  problems.append(f"{job}: {needs[job]['result']}")
           for job, info in needs.items():
-              if job == "changes":
+              if job in ("changes", "shard-ok", "zig-ok"):
                   continue
               result = info["result"]
               # "skipped" means the classifier ruled the lane irrelevant.
@@ -290,6 +367,8 @@ jobs:
           -m "not linux_container"
 
   secrets:
+    # Required context `betterleaks`. This job never has an `if:`, so the
+    # name always reports from a real run. No aggregator needed.
     name: betterleaks
     runs-on: ubuntu-latest
     steps:
@@ -306,6 +385,9 @@ jobs:
       - run: betterleaks git .
 
   unit:
+    # Required context `ruff and compat2`. Not a matrix job, so a
+    # classifier skip reports this exact name as `skipped`, which
+    # satisfies a required check (verified on #750/#751). No aggregator.
     name: ruff and compat2
     runs-on: ubuntu-latest
     needs: changes
@@ -337,9 +419,11 @@ jobs:
       - name: oracle is CPython 3.14
         run: uv run python -c "import sys; assert sys.version_info[:2] == (3, 14), sys.version"
       - run: uv run pytest -q tests/compat2 -m "not linux_container"
-
   macos-safe:
-    name: tests without linux_container (shard ${{ matrix.group }}/3)
+    # The real shard lane. The name carries the matrix value, so it never
+    # matches the required context `tests without linux_container (shard
+    # N/3)` on its own: the `shard-ok` aggregator above reports that name.
+    name: unit shard ${{ matrix.group }}/3
     runs-on: macos-14
     needs: changes
     if: needs.changes.outputs.compiler == 'true'
@@ -360,10 +444,11 @@ jobs:
       - run: uv sync --frozen
       # pytest-split shards by recorded durations (tests/.test_durations), xdist parallelises inside a shard.
       # Refresh with: uv run pytest -n 6 -m "not linux_container" --store-durations --durations-path tests/.test_durations
-      - run: uv run pytest -q tests --ignore=tests/compat2 -m "not linux_container" -n auto --splits 3 --group ${{ matrix.group }} --durations-path tests/.test_durations
-
   zig-smoke:
-    name: zig cc emitted-IR smoke (${{ matrix.zig }})
+    # The real zig lane. The name carries the zig version, so it never
+    # matches the required context `zig cc emitted-IR smoke` on its own:
+    # the `zig-ok` aggregator above reports that name.
+    name: zig smoke (${{ matrix.zig }})
     runs-on: ubuntu-24.04
     needs: changes
     if: needs.changes.outputs.compiler == 'true'
