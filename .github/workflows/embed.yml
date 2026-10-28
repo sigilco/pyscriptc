@@ -51,8 +51,66 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Classify the PR diff before touching the paid matrix. The gate step
+  # inside `acceptance` used to do this, which still bought a runner cell
+  # (macOS minutes bill at 10x) per PR just to print "run=false". The
+  # matrix cells now gate on this job's output through `if:` and report
+  # "skipped" (which passes a required check) instead of burning a cell to
+  # say no.
+  changes:
+    name: classify paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.classify.outputs.run }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Classify the changed paths
+        id: classify
+        env:
+          EVENT: ${{ github.event_name }}
+          ALWAYS: ${{ inputs.always_run }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$ALWAYS" = "true" ]; then echo "run=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          case "$EVENT" in
+            push|schedule|workflow_dispatch) echo "run=true" >> "$GITHUB_OUTPUT"; exit 0 ;;
+          esac
+          # pull_request: path filter on the embedding surface. The head
+          # sha of a cross-fork PR is not always in the checkout, so it is
+          # fetched when needed. If that also fails, the cell runs: this
+          # workflow has no required contexts, but skipping the embed jobs
+          # on a real embed change would be the bad direction.
+          head_sha=""
+          for candidate in "$HEAD" "FETCH_HEAD"; do
+            if [ -n "$candidate" ] && git cat-file -e "$candidate" 2>/dev/null; then
+              head_sha="$candidate"
+              break
+            fi
+          done
+          if [ -z "$head_sha" ]; then
+            git fetch --no-tags --depth=1 origin "$HEAD" 2>/dev/null || true
+            if git cat-file -e "$HEAD" 2>/dev/null; then head_sha="$HEAD"; fi
+          fi
+          if [ -z "$head_sha" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed="$(git diff --name-only "$BASE" "$head_sha")"
+          if grep -Eq '(^src/pyscriptc/(boxed|embed)\.py$|^src/pyscriptc/emit/llvm/_driver\.py$|^src/pyscriptc/runtime/ps_island\.c$|^packaging/(runtime\.lock\.toml|third-party\.toml)$|^scripts/(embed|gen_third_party_notices|check_runtime_bump)|^\.github/workflows/(embed|runtime-bump)\.yml$)' <<<"$changed"; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
   acceptance:
     name: embed acceptance (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -68,6 +126,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      # The classifier has already ruled that the diff touches the embed
+      # surface. The only remaining per-cell decision is the macOS PR skip
+      # (EMBED_PR_SKIP_MACOS), which stays a step-level gate because
+      # `matrix` is not available in a job-level `if`.
       - name: Decide whether to run
         id: gate
         env:
@@ -80,18 +142,12 @@ jobs:
           case "$EVENT" in
             push|schedule) echo "run=true" >> "$GITHUB_OUTPUT"; exit 0 ;;
           esac
-          # pull_request: path filter on the embedding surface
-          changed="$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "$GITHUB_SHA")"
-          if grep -Eq '(^src/pyscriptc/(boxed|embed)\.py$|^src/pyscriptc/emit/llvm/_driver\.py$|^src/pyscriptc/runtime/ps_island\.c$|^packaging/(runtime\.lock\.toml|third-party\.toml)$|^scripts/(embed|gen_third_party_notices|check_runtime_bump)|^\.github/workflows/(embed|runtime-bump)\.yml$)' <<<"$changed"; then
-            if [ "$PR_SKIP_MACOS" = "true" ] && [ "${{ matrix.os }}" = "macos-14" ]; then
-              echo "macOS PR cell disabled by EMBED_PR_SKIP_MACOS" >&2
-              echo "run=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
+          if [ "$PR_SKIP_MACOS" = "true" ] && [ "${{ matrix.os }}" = "macos-14" ]; then
+            echo "macOS PR cell disabled by EMBED_PR_SKIP_MACOS" >&2
             echo "run=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          echo "run=true" >> "$GITHUB_OUTPUT"
 
       - uses: actions/setup-python@v6
         if: steps.gate.outputs.run == 'true'
