@@ -1,6 +1,6 @@
 """Stub discovery and loading: where a module's declared signatures come from.
 
-Partial slice of `.agents/plans/2026-10-21-stubs-typeshed-design.md`. Nothing in
+Partial slice of the stubs/typeshed design. Nothing in
 lowering or the checker reads this module yet; `pyscriptc.sigregistry` exposes
 it for the lowering integration that lands after the serialized `lower/` PRs.
 

@@ -40,9 +40,9 @@ own: `exceptions.py` fences on `MissingRequiredClaimError`'s unannotated
 | local-inference / typing-value | 3 | `Optional` + `cast` usages | R26, R38 |
 | stdlib:datetime | 1 | `datetime.timezone` not in lowered subset | — |
 
-The three that dominate are epics already mapped in
-`.agents/plans/2026-10-17-real-python-backlog.md`: union/Optional values
-(R26), parameter forms incl. `**kwargs`, and module-level mutable globals.
+The three that dominate are epics already tracked on the board:
+union/Optional values (R26), parameter forms incl. `**kwargs`, and
+module-level mutable globals.
 Unchanged compilation of even the minimal tree is therefore not a
 one-iteration task — that is the finding.
 

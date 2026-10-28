@@ -1,7 +1,6 @@
 # Version track V: `--target-version` design
 
-Wave-plan reference: `.agents/plans/2026-10-14-waves-after-scorer-v2.md`,
-"Version track V". Goal: `--target-version {3.10..3.14}` (default 3.12) gates
+Historical name: "Version track V". Goal: `--target-version {3.10..3.14}` (default 3.12) gates
 syntax per version and the stdlib table by typeshed `VERSIONS`, and the
 scorer gains one column per version weighted by the market snapshot.
 

@@ -1,6 +1,6 @@
 # Threads plan: the P2b exit for #172 on real pthreads
 
-Date: 2026-10-23. Status: exploration, written for issue #172 (milestone `v0.6.0 public`). Source of truth for the design: `.agents/plans/2026-10-21-async-threads-design.md`, sections 4 (threads and the memory model), 5 (island tier, exceptions and cancellation) and the staging table row P2b.
+Date: 2026-10-23. Status: exploration, written for issue #172. Source of truth for the wider async and threads design: `.agents/docs/design/async-lowering-plan.md` (the P3 async lane) plus the milestone's staging table row P2b.
 
 This document records what the runtime already does, what is still missing for the P2b exit criteria, the staged PRs that get there, the thread-safety story the runtime has to keep, and the WASM/WASI position. It is a design record, not a promise of scope: every stage below is separately shippable and separately revertable.
 
@@ -131,7 +131,7 @@ Two problems when a second native thread calls in:
 
 ## The WASM/WASI position
 
-The wasm target is in flight on `work/wasm-target` (PR #313, stacked on #249), and it is not on `master`. The plan `.agents/plans/2026-10-22-wasm-target.md` says the runtime calls `pthread_create` unconditionally and that "there is no wasm gating anywhere in `src/pyscriptc/runtime/`, so no compiler-side thread gate is needed: the sysroot decides whether threads exist".
+The wasm target is in flight (PRs #249 and #313, not on `master`). The wasm design says the runtime calls `pthread_create` unconditionally and that "there is no wasm gating anywhere in `src/pyscriptc/runtime/`, so no compiler-side thread gate is needed: the sysroot decides whether threads exist".
 
 That is true for the 0.2 lane and it is not good enough for us:
 

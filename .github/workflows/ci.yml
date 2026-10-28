@@ -37,8 +37,8 @@ concurrency:
 # src/, tests/, benchmarks/, examples/, scripts/, packaging/, docker/, the
 # runtime C, pyproject.toml, uv.lock, mise.toml, .github/, .claude/ and
 # .agents/docs/ (each because a test reads it). Only the documentation
-# bubble can skip the expensive lanes: docs/, apps/web/, .agents/notes/,
-# .agents/plans/ and the pnpm lockfile.
+# bubble can skip the expensive lanes: docs/, apps/web/, .agents/notes/ and
+# the pnpm lockfile.
 #
 # Three groups, one always-on check:
 #

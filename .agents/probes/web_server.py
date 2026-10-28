@@ -3,7 +3,7 @@
 The shape a beta tester writes for a JSON service, before the
 `pyscriptc-fastapi` port lands: a `BaseHTTPRequestHandler` subclass and an
 `HTTPServer`. This is the probe the apps strategy measures the web archetype
-with; see `.agents/plans/2026-10-24-apps-and-package-strategy.md` section 2.3.
+with; see `.agents/decisions.md` (the package tiering policy).
 
 Expected today: 4 fences.
   PS2002 import-table    http.server is not in the closed import table

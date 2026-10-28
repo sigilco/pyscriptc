@@ -11,7 +11,7 @@
 
 Lowering does not consume this yet. The integration points (where
 `lower/_stdlib.py` would ask the registry before fencing PS2002 or PS2101)
-are listed in `.agents/plans/2026-10-21-stubs-typeshed-design.md`. Hand-written
+are listed in the stubs/typeshed design notes. Hand-written
 closed-table rows stay authoritative; the registry fills names they do not
 cover and cross-checks the ones they do.
 """

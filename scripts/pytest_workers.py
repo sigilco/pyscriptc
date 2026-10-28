@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 # Named thresholds. Measured on the CI selection (see
-# .agents/plans/2026-10-21-xdist-workers-and-split.md): a worker plus its
+# the xdist worker-bound note in `scripts/pytest_workers.py` history): a worker plus its
 # clang/zig children peaks near 0.1 GB of tree RSS each (largest single process 0.2 GB); 0.15 GB leaves headroom
 # for the heaviest compiles and for page cache.
 PER_WORKER_GB = 0.15

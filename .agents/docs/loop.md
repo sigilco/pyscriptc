@@ -1,6 +1,6 @@
 # Iteration loop
 
-This file is the procedure for one compiler iteration after `gates-v2`. An agent with this file and the repo can name the target, run the checks, and keep or revert the commit. Epic order lives in `.agents/plans/2026-10-14-waves-after-scorer-v2.md`. File ownership lives in [map.md](map.md). Rules a change has to keep live in [invariants.md](invariants.md).
+This file is the procedure for one compiler iteration after `gates-v2`. An agent with this file and the repo can name the target, run the checks, and keep or revert the commit. Epic order lives in the GitHub milestones and the project board. File ownership lives in [map.md](map.md). Rules a change has to keep live in [invariants.md](invariants.md).
 
 The v1 loop and its KPI floors are retired. Those floors were language 45/56, builtins 120/150, stdlib modules 156/194, stdlib surface 1983/2478, and top 100 10/100. A pytest increase, a packaging fence-count change, a progress-log line, a first-fence string edit, and a flat percent are not the metric.
 
@@ -48,7 +48,7 @@ Leading indicator, recorded on every iteration and in the epic boundary report:
 
 ## Epics and budgets
 
-The epic file is `.agents/plans/<date>-epic-<name>.md` (date like `2026-10-14`). Create it before the first edit of the epic. It declares:
+The epic file is a local `.agents/plans/<date>-epic-<name>.md` (untracked session file). Create it before the first edit of the epic. It declares:
 
 - the coverage family key (a key from `pyscriptc.coverage`, for example `module-statements`)
 - the budget N

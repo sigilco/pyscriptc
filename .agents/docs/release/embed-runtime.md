@@ -1,8 +1,7 @@
 # The embedded runtime pack: pinning, bumping and the security cadence
 
-Operational doc for the `--embed-python=bundle` slice (plan:
-`.agents/plans/2026-10-25-embedding-release-plan.md`, issues #657, #663, #664,
-#662 under epic #428). The user-facing page is
+Operational doc for the `--embed-python=bundle` slice (issues #657, #663,
+#664, #662 under epic #428). The user-facing page is
 `docs/reference/runtime-pack.md`; this one is how we maintain the pack.
 
 ## What is pinned where

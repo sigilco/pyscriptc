@@ -1,6 +1,6 @@
 # Roadmap (HISTORICAL)
 
-> Note: This document is historical and retired per decision 2026-10-21. Active planning lives in GitHub milestones and the project board, governed by `.agents/plans/2026-10-25-typed-subset-positioning.md` (scope is the typed subset: island is the floor and native is the ceiling).
+> Note: This document is historical and retired per decision 2026-10-21. Active planning lives in GitHub milestones and the project board; the scope is the typed subset (island is the floor, native is the ceiling, decision 2026-10-25).
 
 The stdlib queue is finished. Higher compatibility with the top 100 is a language problem, and then a packaging problem. It is not another wave of `math` and `json`.
 

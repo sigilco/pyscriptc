@@ -353,7 +353,7 @@ def render_report(checks: list[Check], version: str, cls: str, bypass_reason: st
 def changelog_entry(subjects: list[str], version: str, today: str, cls: str = "patch") -> str | None:
     """Changelog section from conventional commit subjects, or None when nothing is releasable.
 
-    Section map (see .agents/plans/2026-10-21-changelog-structure.md): Breaking changes,
+    Section map (see .agents/docs/release/release-process.md): Breaking changes,
     Features, Performance, Fixes, then a collapsed Internal section. Every section is
     omitted when empty. Highlights and the theme paragraph are placeholders the
     maintainer (or an agent) writes before the release is published.
