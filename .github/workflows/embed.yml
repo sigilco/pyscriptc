@@ -42,7 +42,12 @@ on:
         type: boolean
         default: false
   pull_request:
-
+    # The nightly compat snapshot PR (bot/compat-snapshot) is data-only;
+    # its pull_request runs would sit at action_required waiting for an
+    # owner (see ci.yml). The nightly covers it: the schedule run executes
+    # these jobs on master before the PR is even opened.
+    branches-ignore:
+      - bot/compat-snapshot
 permissions:
   contents: read
 

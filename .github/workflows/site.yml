@@ -15,6 +15,9 @@
 # The nightly workflow calls this workflow's `site` job through
 # workflow_call after a compat snapshot PR opens, so the PR check runs
 # before the owner looks at it. Design: .agents/docs/compat-site.md.
+# workflow_call never deploys: the `site` job only deploys on a push to
+# master.
+# before the owner looks at it. Design: .agents/docs/compat-site.md.
 
 name: site
 
@@ -28,6 +31,13 @@ on:
       - "docs/.docmd/pnpm-lock.yaml"
       - ".github/workflows/site.yml"
   pull_request:
+    # bot/compat-snapshot carries only data/compat/*.json and changes data/,
+    # so this workflow would otherwise fire on the nightly bot PR and its
+    # pull_request run would sit at action_required (see ci.yml). The
+    # nightly calls the `site` job below through workflow_call to validate
+    # the data the bot PR carries, so nothing is lost here.
+    branches-ignore:
+      - bot/compat-snapshot
     paths:
       - "apps/web/**"
       - "docs/**"
