@@ -80,14 +80,7 @@ export default {
   pageNavigation: true,
   navigation: [
     { title: "Home", path: "/", icon: "house" },
-    {
-      title: "Getting started",
-      icon: "rocket",
-      collapsible: true,
-      children: [
-        { title: "Getting started", path: "/getting-started/" },
-      ],
-    },
+    { title: "Getting started", path: "/getting-started/", icon: "rocket" },
     {
       title: "Guide",
       icon: "book-open",
@@ -121,7 +114,6 @@ export default {
       children: [
         { title: "Supported CPython versions", path: "/project/versions/" },
         { title: "Telemetry", path: "/project/telemetry/" },
-        { title: "Trying the beta", path: "/project/beta/" },
         { title: "Contributing", path: "/project/contributing/" },
       ],
     },
