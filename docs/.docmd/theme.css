@@ -3,59 +3,60 @@
  * docmd.config.js (docmd emits each entry as a stylesheet link after the
  * theme CSS, via layout.ejs customCssFiles). Overrides the variable blocks
  * from @docmd/live's docmd-main.css (`:root` light, `:root[data-theme=dark]`)
- * so the docs match the landing palette (site/landing/src/styles/global.css):
- * obsidian canvas #06080d/#0b0f19, slate text, cyan #00c2ff accent.
+ * so the docs match the site tokens in
+ * apps/web/src/styles/theme.css: obsidian canvas, ink ladder, hairlines and
+ * the logo blue as the only chromatic accent. Keep the two in sync.
  */
 
 :root {
-  --bg-color: #ffffff;
-  --text-color: #334155;
-  --text-muted: #64748b;
-  --text-heading: #0b0f19;
-  --link-color: #0084b3;
-  --link-color-hover: #00c2ff;
-  --border-color: #e2e8f0;
-  --border-color-codeblock: #0b0f1922;
-  --header-bg: rgba(255, 255, 255, 0.82);
-  --header-border: #e2e8f0;
-  --sidebar-bg: #f8fafc;
-  --sidebar-text: #475569;
-  --sidebar-link-active-bg: rgba(0, 194, 255, 0.12);
-  --sidebar-link-active-text: #0b0f19;
-  --code-bg: #f1f5f9;
-  --code-text: #334155;
-  --scrollbar-thumb: #cbd5e1;
-  --scrollbar-thumb-hover: #94a3b8;
-  --sidebar-group-bg: rgba(0, 194, 255, 0.05);
-  --glow-color: rgba(0, 194, 255, 0.1);
-  --glow-color-strong: rgba(0, 194, 255, 0.18);
-  --halo-soft: 0 0 0 4px rgba(0, 194, 255, 0.12);
+  --bg-color: #fafafa;
+  --text-color: #344054;
+  --text-muted: #667085;
+  --text-heading: #101828;
+  --link-color: #1e5aa8;
+  --link-color-hover: #174b9a;
+  --border-color: #e4e7ec;
+  --border-color-codeblock: #10182822;
+  --header-bg: rgba(250, 250, 250, 0.85);
+  --header-border: #e4e7ec;
+  --sidebar-bg: #f4f5f7;
+  --sidebar-text: #475467;
+  --sidebar-link-active-bg: rgba(30, 90, 168, 0.08);
+  --sidebar-link-active-text: #174b9a;
+  --code-bg: #f2f4f7;
+  --code-text: #344054;
+  --scrollbar-thumb: #d0d5dd;
+  --scrollbar-thumb-hover: #98a2b3;
+  --sidebar-group-bg: rgba(30, 90, 168, 0.04);
+  --glow-color: rgba(23, 75, 154, 0.08);
+  --glow-color-strong: rgba(23, 75, 154, 0.14);
+  --halo-soft: 0 0 0 3px rgba(30, 90, 168, 0.14);
 }
 
 :root[data-theme="dark"] {
-  --bg-color: #06080d;
-  --text-color: #cbd5e1;
-  --text-muted: #94a3b8;
-  --text-heading: #f1f5f9;
-  --link-color: #00c2ff;
-  --link-color-hover: #4dd6ff;
-  --border-color: #1a2233;
+  --bg-color: #07080a;
+  --text-color: #9aa3b2;
+  --text-muted: #7c8798;
+  --text-heading: #f2f4f7;
+  --link-color: #6c9bd8;
+  --link-color-hover: #8fb3e4;
+  --border-color: #1c2027;
   --border-color-codeblock: #f8fafc17;
-  --header-bg: rgba(11, 15, 25, 0.72);
-  --header-border: #1a2233;
-  --sidebar-bg: #0b0f19;
-  --sidebar-text: #cbd5e1;
-  --sidebar-link-active-bg: rgba(0, 194, 255, 0.14);
-  --sidebar-link-active-text: #ffffff;
-  --code-bg: #0b0f19;
-  --code-text: #e2e8f0;
-  --scrollbar-thumb: #1a2233;
-  --scrollbar-thumb-hover: #334155;
-  --sidebar-group-bg: rgba(0, 194, 255, 0.06);
-  --glow-color: rgba(0, 194, 255, 0.18);
-  --glow-color-strong: rgba(0, 194, 255, 0.28);
-  --halo-soft: 0 0 0 4px rgba(0, 194, 255, 0.18);
-  --docmd-tooltip-bg: #0b0f19;
-  --docmd-tooltip-color: #f1f5f9;
-  --docmd-tooltip-border: #1a2233;
+  --header-bg: rgba(14, 16, 19, 0.78);
+  --header-border: #1c2027;
+  --sidebar-bg: #0e1013;
+  --sidebar-text: #9aa3b2;
+  --sidebar-link-active-bg: rgba(77, 128, 196, 0.12);
+  --sidebar-link-active-text: #cfe0f5;
+  --code-bg: #0e1013;
+  --code-text: #e3e8ef;
+  --scrollbar-thumb: #1c2027;
+  --scrollbar-thumb-hover: #33384a;
+  --sidebar-group-bg: rgba(77, 128, 196, 0.07);
+  --glow-color: rgba(77, 128, 196, 0.14);
+  --glow-color-strong: rgba(77, 128, 196, 0.22);
+  --halo-soft: 0 0 0 3px rgba(77, 128, 196, 0.16);
+  --docmd-tooltip-bg: #0e1013;
+  --docmd-tooltip-color: #f2f4f7;
+  --docmd-tooltip-border: #1c2027;
 }

@@ -44,8 +44,11 @@ export const TOP_100_PYPI_PACKAGES: readonly string[] = [
 ];
 
 // Python official logo accent colors
-const PYTHON_BLUE = "#38bdf8";    // vibrant python cyan/blue (#38bdf8 / #306998)
-const PYTHON_YELLOW = "#fbbf24";  // warm python gold/yellow (#fbbf24 / #ffd43b)
+// Hero motion-layer colors: the logo's head teal and the Python yellow. These
+// are exempt from the no-cyan rule because they belong to the hero animation
+// only (DESIGN.md, "motion layer"), never to links, buttons or chrome.
+const PYTHON_TEAL = "#31e8f5";
+const PYTHON_YELLOW = "#fbbf24";
 
 interface ActiveCellPulse {
   key: number;
@@ -87,7 +90,7 @@ export const HeroMeshGrid: React.FC<HeroMeshGridProps> = ({
       if (!isMounted || stateRef.current === "disabled") return;
 
       const targetIndex = Math.floor(Math.random() * packages.length);
-      const color = Math.random() > 0.45 ? PYTHON_BLUE : PYTHON_YELLOW;
+      const color = Math.random() > 0.45 ? PYTHON_TEAL : PYTHON_YELLOW;
       // Elegant, slower breathing cycle (3.5s - 5.0s)
       const durationMs = 3500 + Math.random() * 1500;
       pulseKeyRef.current += 1;
@@ -159,7 +162,7 @@ export const HeroMeshGrid: React.FC<HeroMeshGridProps> = ({
       for (let i = 0; i < name.length; i++) {
         hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
       }
-      return hash % 5 < 2 ? PYTHON_YELLOW : PYTHON_BLUE;
+      return hash % 5 < 2 ? PYTHON_YELLOW : PYTHON_TEAL;
     },
     [packages]
   );
@@ -201,8 +204,8 @@ export const HeroMeshGrid: React.FC<HeroMeshGridProps> = ({
         className="pointer-events-none absolute inset-0 z-0 transition-opacity duration-1000"
         style={{
           background: isDark
-            ? "radial-gradient(ellipse 70% 45% at 50% 0%, rgba(56, 189, 248, 0.12), transparent 70%), radial-gradient(ellipse 60% 40% at 50% 100%, rgba(251, 191, 36, 0.06), transparent 60%)"
-            : "radial-gradient(ellipse 70% 45% at 50% 0%, rgba(56, 189, 248, 0.14), transparent 70%), radial-gradient(ellipse 60% 40% at 50% 100%, rgba(251, 191, 36, 0.08), transparent 60%)",
+            ? "radial-gradient(ellipse 70% 45% at 50% 0%, rgba(49, 232, 245, 0.1), transparent 70%), radial-gradient(ellipse 60% 40% at 50% 100%, rgba(251, 191, 36, 0.06), transparent 60%)"
+            : "radial-gradient(ellipse 70% 45% at 50% 0%, rgba(49, 232, 245, 0.12), transparent 70%), radial-gradient(ellipse 60% 40% at 50% 100%, rgba(251, 191, 36, 0.08), transparent 60%)",
           opacity: state === "disabled" ? 0.25 : 1,
         }}
       />

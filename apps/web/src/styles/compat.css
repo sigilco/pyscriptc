@@ -1,12 +1,13 @@
-/* The compat page (served at /compat/). Dark tech palette shared with the
-   landing page (#0b0c10 base), bento hero and heat grid after the bolo
-   compat site. No client JS: static HTML baked from data/compat/*.json. */
+/* The compat page (served at /compat/). It reads the shared site tokens in
+   theme.css: the same obsidian canvas, ink ladder, hairlines and logo blue as
+   the landing page, so both pages are one site. No literal hex here: every
+   color is a token, and every value has a light-mode counterpart through
+   [data-theme="light"]. No client JS: static HTML baked from data/compat/*.json. */
 
 .compat-body {
-  background: #0b0c10;
-  color: #cbd5e1;
-  font-family:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--color-bg-base);
+  color: var(--color-text-secondary);
+  font-family: var(--font-sans);
   margin: 0;
   min-height: 100vh;
 }
@@ -16,58 +17,33 @@
   height: 5.5rem;
 }
 
-.compat-body a {
-  color: #22d3ee;
+/* Only the page content gets the accent link color. The shared header and
+   footer carry their own ink colors and must not be repainted here. */
+.compat-page a {
+  color: var(--color-accent);
   text-decoration: none;
+  text-underline-offset: 0.2em;
 }
-.compat-body a:hover {
+.compat-page a:hover {
   text-decoration: underline;
 }
 
 .compat-body code {
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.85em;
-  background: rgba(148, 163, 184, 0.12);
+  background: var(--color-accent-soft);
   border-radius: 4px;
   padding: 0.1em 0.35em;
-  color: #a5f3fc;
+  color: var(--color-text-primary);
 }
 
-/* Header / footer */
-
-.site-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1rem 2rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-.site-header .brand {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-weight: 700;
-  color: #e2e8f0;
-}
-.site-header nav {
-  display: flex;
-  gap: 1.25rem;
-}
-.site-header nav a {
-  color: #94a3b8;
-  font-size: 0.9rem;
-}
-.site-header nav a[aria-current="page"] {
-  color: #22d3ee;
+.compat-body :focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
-.site-footer {
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  padding: 1.5rem 2rem;
-  font-size: 0.85rem;
-  color: #64748b;
-}
-
+/* The landing page's content column is max-w-6xl (72rem) with 1.5rem gutters.
+   The compat page uses the same measure so both read as one site. */
 .container {
   max-width: 72rem;
   margin: 0 auto;
@@ -83,8 +59,8 @@
   padding: 3rem 0 2rem;
 }
 .bento-cell {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
   border-radius: 12px;
   padding: 1.75rem;
 }
@@ -92,18 +68,18 @@
   margin: 0 0 0.75rem;
   font-size: clamp(1.8rem, 4vw, 2.8rem);
   letter-spacing: 0.02em;
-  color: #f1f5f9;
+  color: var(--color-text-primary);
 }
 .bento-cell--headline .lead {
   margin: 0 0 0.75rem;
   font-size: 1.05rem;
-  color: #94a3b8;
+  color: var(--color-text-secondary);
   max-width: 42rem;
 }
 .bento-cell--headline .meta {
   margin: 0;
   font-size: 0.8rem;
-  color: #64748b;
+  color: var(--color-text-muted);
 }
 .bento-cell--stat {
   display: flex;
@@ -113,13 +89,13 @@
 .stat-value {
   font-size: 3rem;
   font-weight: 800;
-  color: #22d3ee;
+  color: var(--color-accent);
   line-height: 1;
 }
 .stat-label {
   margin-top: 0.5rem;
   font-size: 0.85rem;
-  color: #94a3b8;
+  color: var(--color-text-secondary);
 }
 
 /* Summary strip */
@@ -131,15 +107,15 @@
   margin-bottom: 2rem;
 }
 .summary-card {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
   border-radius: 12px;
   padding: 1rem 1.25rem;
 }
 .summary-card h3 {
   margin: 0 0 0.35rem;
   font-size: 0.95rem;
-  color: #e2e8f0;
+  color: var(--color-text-primary);
 }
 .summary-counts {
   margin: 0 0 0.25rem;
@@ -148,11 +124,11 @@
 .summary-total {
   margin: 0;
   font-size: 0.75rem;
-  color: #64748b;
+  color: var(--color-text-muted);
 }
-.status-full-text { color: #10b981; }
-.status-partial-text { color: #f59e0b; }
-.status-none-text { color: #ef4444; }
+.status-full-text { color: var(--color-status-full); }
+.status-partial-text { color: var(--color-status-partial); }
+.status-none-text { color: var(--color-status-none); }
 
 /* Heat grid */
 
@@ -161,17 +137,17 @@
 }
 .heat-section h2 {
   font-size: 1.25rem;
-  color: #f1f5f9;
+  color: var(--color-text-primary);
   margin: 0 0 0.35rem;
 }
 .section-note {
   margin: 0 0 1rem;
   font-size: 0.85rem;
-  color: #64748b;
+  color: var(--color-text-muted);
 }
 .bezel-outer {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
   border-radius: 12px;
   padding: 1rem;
 }
@@ -189,17 +165,17 @@
   aspect-ratio: 1;
   border-radius: 4px;
 }
-.heat-cell.status-full { background: #10b981; }
-.heat-cell.status-partial { background: #f59e0b; }
-.heat-cell.status-none { background: #ef4444; }
+.heat-cell.status-full { background: var(--color-status-full); }
+.heat-cell.status-partial { background: var(--color-status-partial); }
+.heat-cell.status-none { background: var(--color-status-none); }
 .heat-cell-wrap:hover .heat-cell {
-  outline: 2px solid #e2e8f0;
+  outline: 2px solid var(--color-text-primary);
   outline-offset: 1px;
 }
 .heat-legend {
   margin: 0.75rem 0 0;
   font-size: 0.8rem;
-  color: #64748b;
+  color: var(--color-text-muted);
 }
 .dot {
   display: inline-block;
@@ -208,9 +184,9 @@
   border-radius: 3px;
   margin: 0 0.3rem 0 0.75rem;
 }
-.dot.status-full { background: #10b981; }
-.dot.status-partial { background: #f59e0b; }
-.dot.status-none { background: #ef4444; }
+.dot.status-full { background: var(--color-status-full); }
+.dot.status-partial { background: var(--color-status-partial); }
+.dot.status-none { background: var(--color-status-none); }
 
 /* TOC */
 
@@ -229,12 +205,12 @@
 }
 .table-section h2 {
   font-size: 1.25rem;
-  color: #f1f5f9;
+  color: var(--color-text-primary);
   margin: 0 0 0.35rem;
 }
 .table-scroll {
   overflow-x: auto;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--color-border);
   border-radius: 12px;
 }
 .compat-table {
@@ -246,19 +222,19 @@
 .compat-table td {
   text-align: left;
   padding: 0.55rem 0.9rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--color-border);
   vertical-align: top;
 }
 .compat-table thead th {
-  color: #94a3b8;
+  color: var(--color-text-muted);
   font-weight: 600;
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--color-bg-surface);
 }
 .compat-table tbody th {
-  color: #e2e8f0;
+  color: var(--color-text-primary);
   font-weight: 500;
 }
 .compat-table tbody tr:last-child th,
@@ -266,7 +242,7 @@
   border-bottom: none;
 }
 .compat-table td.unsupported {
-  color: #94a3b8;
+  color: var(--color-text-secondary);
   max-width: 26rem;
 }
 
@@ -277,9 +253,18 @@
   font-size: 0.75rem;
   font-weight: 600;
 }
-.badge.status-full { background: rgba(16, 185, 129, 0.15); color: #34d399; }
-.badge.status-partial { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
-.badge.status-none { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+.badge.status-full {
+  background: color-mix(in srgb, var(--color-status-full) 16%, transparent);
+  color: var(--color-status-full);
+}
+.badge.status-partial {
+  background: color-mix(in srgb, var(--color-status-partial) 16%, transparent);
+  color: var(--color-status-partial);
+}
+.badge.status-none {
+  background: color-mix(in srgb, var(--color-status-none) 16%, transparent);
+  color: var(--color-status-none);
+}
 
 /* Ladder lanes */
 
@@ -290,8 +275,8 @@
   margin-top: 1rem;
 }
 .lane-card {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
   border-radius: 12px;
   padding: 0.85rem 1.1rem;
   display: flex;
@@ -301,16 +286,29 @@
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: #94a3b8;
+  color: var(--color-text-muted);
 }
 .lane-share {
   font-size: 1.5rem;
   font-weight: 700;
-  color: #22d3ee;
+  color: var(--color-text-primary);
 }
 .lane-count {
   font-size: 0.75rem;
-  color: #64748b;
+  color: var(--color-text-muted);
+}
+
+/* The data-files footer, under the shared site footer. */
+
+.compat-data-footer {
+  border-top: 1px solid var(--color-border);
+  padding: 1.5rem 1.5rem 3rem;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+.compat-data-footer p {
+  max-width: 72rem;
+  margin: 0 auto;
 }
 
 @media (max-width: 48rem) {

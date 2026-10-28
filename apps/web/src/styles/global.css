@@ -29,13 +29,18 @@ body {
   line-height: 1.5;
 }
 
-/* Custom classes */
-.glow-cyan {
-  box-shadow: 0 0 40px -10px rgba(0, 194, 255, 0.35);
+/* Focus is a plain 2px outline with a 2px offset. No glow, no color shift. */
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
-.glow-yellow {
-  box-shadow: 0 0 40px -10px rgba(251, 191, 36, 0.35);
+/* Custom classes */
+
+/* A quiet halo for the landing hero only. Neutral, not a colored glow: the
+   accent hue and the neon teal stay out of every box-shadow in the chrome. */
+.glow-quiet {
+  box-shadow: 0 0 40px -18px rgba(127, 145, 168, 0.28);
 }
 
 .faint-word {
