@@ -35,6 +35,8 @@ for d in "$root"/*/; do
     pr_state=$(gh pr list -R sigilco/pyscriptc --head "$branch" --state all --json state --jq '.[0].state // ""' 2>/dev/null || echo "")
   fi
   if [ "$merged_in_master" = "yes" ] || [ "$pr_state" = "MERGED" ] || [ "$pr_state" = "CLOSED" ]; then
+    # Never touch the main repo.
+    [ "$d" = "$top" ] && continue
     kb=$(du -sk "$d" 2>/dev/null | cut -f1)
     total_kb=$((total_kb + kb))
     removable=$((removable + 1))
