@@ -1,5 +1,8 @@
 ---
 import { siteLinks } from "../config/links";
+import { useI18n } from "../i18n";
+
+const i18n = useI18n();
 ---
 
 <section class="w-full max-w-4xl mx-auto px-6 py-24 sm:py-32 text-center" aria-labelledby="cta-heading">
@@ -16,6 +19,14 @@ import { siteLinks } from "../config/links";
       class="px-6 py-3 rounded-full bg-white text-black font-medium text-xs hover:bg-slate-200 transition-all shadow-sm"
     >
       Read the documentation ↗
+    </a>
+    <a
+      href={siteLinks.sponsor}
+      target="_blank"
+      rel="noopener noreferrer"
+      class="px-6 py-3 rounded-full bg-white/5 border border-white/10 text-white font-medium text-xs hover:bg-white/10 transition-all"
+    >
+      {i18n.cta.sponsorBtn}
     </a>
     <a
       href={siteLinks.github}

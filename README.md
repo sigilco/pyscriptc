@@ -9,6 +9,7 @@
 <a href="https://pypi.org/project/pyscriptc/"><img alt="PyPI downloads per month" src="https://img.shields.io/pypi/dm/pyscriptc"></a>
 <a href="https://github.com/sigilco/pyscriptc/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/sigilco/pyscriptc/actions/workflows/ci.yml/badge.svg"></a>
 <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
+<a href="https://buy.polar.sh/polar_cl_Mv1gdlG7bw3I70EC9IHtfeSHJj4PEKvA7JAUz23CFhj"><img alt="Sponsor" src="https://img.shields.io/badge/Sponsor-polar-crimson"></a>
 </p>
 
 pyscriptc compiles typed Python to native executables. It uses Python's inferred types and type hints to generate machine code from supported code.
@@ -69,6 +70,8 @@ uv tool install pyscriptc
 Building a binary needs a clang (or `zig`) on your PATH; `pyscriptc doctor` checks. See [Getting started](https://pyscriptc.pages.dev/getting-started/) for the full toolchain setup.
 
 </details>
+
+Release builds send pseudonymous usage events (PostHog EU) so we learn which unsupported constructs block users. Opt out with `PYSC_NO_TELEMETRY=1`, `DO_NOT_TRACK=1` or `pyscriptc telemetry disable`; details in the [telemetry guide](https://pyscriptc.pages.dev/guide/telemetry/) and the [privacy notice](PRIVACY.md).
 
 The examples above need no C toolchain; building a binary needs clang or `zig` on your PATH (`pyscriptc doctor` checks). Windows: the `pyscriptc` binary runs there (experimental) and `coverage` works. Emitted programs are experimental cross-compilation only: `pyscriptc compile FILE --target x86_64-windows-gnu --driver zig` builds a Windows binary from Linux or macOS, but no CI job runs the output and Windows semantics are unverified. Native Windows compiles are not supported yet.
 

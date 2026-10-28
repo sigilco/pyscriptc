@@ -115,11 +115,13 @@ export function useI18n() {
       subtitle: m.cta_subtitle(),
       primaryBtn: m.cta_primary(),
       secondaryBtn: m.cta_secondary(),
+      sponsorBtn: m.cta_sponsor(),
     },
     footer: {
       tagline: m.footer_tagline(),
       copyright: m.footer_copyright(),
       status: m.footer_status(),
+      sponsor: m.footer_sponsor(),
     },
     playgroundModal: {
       title: m.modal_title(),
