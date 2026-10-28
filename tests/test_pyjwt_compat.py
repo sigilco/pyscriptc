@@ -48,13 +48,15 @@ def test_real_pyjwt_hmac_tree_still_fences() -> None:
     # 95 after the str model S1 (#473): the AnnAssign fence branch binds the
     # name on a fenced annotation, clearing the `byte_length` PS1001
     # follow-on fence in jwt/utils.py.
-    # 93 after the local, parameter and return inference (#500): the vendored
+    # 92 after local, parameter and return inference (#500): the vendored
     # tree's own unannotated locals and defaulted parameters now bind from
     # their values, clearing two fences in jwt/math_.py.
+    # 91 after the class-body constant folding: one fence clears in the
+    # vendored tree.
     # Shrinking means a backlog lowering cleared fences here; update the pin
     # when that happens. `compile` prints at most 3 root fences and counts the rest.
     assert proc.stderr.count("PS") == 3
-    assert "(and 90 more fences)" in proc.stderr
+    assert "(and 89 more fences)" in proc.stderr
 
 
 @pytest.mark.linux_container  # HEAVY=1 docker/run.sh

@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-28",
-  "commit": "7f67db8da943c78d0e124b579b83740723326a1f",
+  "commit": "6977382e14986184bb1231bacdd49d6849653576",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 7,
     "packages_none": 9,
     "weighted_pass": 0.0,
-    "fences": 2719
+    "fences": 2665
   },
   "builtins": [
     {
@@ -1430,35 +1430,35 @@
       "import_name": "colorama",
       "version": "0.4.6",
       "status": "none",
-      "fences": 133,
+      "fences": 84,
       "definitions": 77,
-      "fenced_definitions": 48,
+      "fenced_definitions": 43,
       "top_families": [
-        {
-          "family": "class-body",
-          "count": 51
-        },
         {
           "family": "param-inference",
           "count": 29
         },
         {
           "family": "construct-other",
-          "count": 13
+          "count": 15
+        },
+        {
+          "family": "name-resolution",
+          "count": 8
         }
       ],
       "codes": [
         {
-          "code": "PS1204",
-          "count": 51
-        },
-        {
           "code": "PS2002",
-          "count": 42
+          "count": 44
         },
         {
           "code": "PS1001",
           "count": 36
+        },
+        {
+          "code": "PS2003",
+          "count": 3
         }
       ],
       "pypi": "https://pypi.org/project/colorama/"
@@ -1564,7 +1564,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 106
+          "count": 107
         },
         {
           "code": "PS1106",
@@ -1658,7 +1658,7 @@
       "import_name": "jmespath",
       "version": "1.1.0",
       "status": "none",
-      "fences": 125,
+      "fences": 123,
       "definitions": 200,
       "fenced_definitions": 107,
       "top_families": [
@@ -1671,7 +1671,7 @@
           "count": 15
         },
         {
-          "family": "class-body",
+          "family": "construct-other",
           "count": 9
         }
       ],
@@ -1682,11 +1682,11 @@
         },
         {
           "code": "PS2002",
-          "count": 14
+          "count": 21
         },
         {
-          "code": "PS1204",
-          "count": 9
+          "code": "PS1201",
+          "count": 7
         }
       ],
       "pypi": "https://pypi.org/project/jmespath/"
@@ -1696,7 +1696,7 @@
       "import_name": "jwt",
       "version": "2.15.1",
       "status": "partial",
-      "fences": 122,
+      "fences": 121,
       "definitions": 171,
       "fenced_definitions": 65,
       "top_families": [
@@ -1772,7 +1772,7 @@
       "import_name": "packaging",
       "version": "26.3",
       "status": "partial",
-      "fences": 556,
+      "fences": 555,
       "definitions": 558,
       "fenced_definitions": 279,
       "top_families": [
@@ -1785,22 +1785,22 @@
           "count": 78
         },
         {
-          "family": "class-body",
-          "count": 52
+          "family": "construct-other",
+          "count": 43
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 214
+          "count": 229
         },
         {
           "code": "PS1106",
           "count": 90
         },
         {
-          "code": "PS1204",
-          "count": 52
+          "code": "PS2001",
+          "count": 51
         }
       ],
       "pypi": "https://pypi.org/project/packaging/"
@@ -1830,7 +1830,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 108
+          "count": 115
         },
         {
           "code": "PS1106",
@@ -1996,7 +1996,7 @@
       "import_name": "zipp",
       "version": "4.1.1",
       "status": "none",
-      "fences": 72,
+      "fences": 71,
       "definitions": 75,
       "fenced_definitions": 57,
       "top_families": [
@@ -2020,7 +2020,7 @@
         },
         {
           "code": "PS2002",
-          "count": 15
+          "count": 16
         },
         {
           "code": "PS2001",
@@ -2087,7 +2087,7 @@
     {
       "code": "PS2002",
       "title": "construct not supported",
-      "count": 1306,
+      "count": 1339,
       "packages": 16
     },
     {
@@ -2107,12 +2107,6 @@
       "title": "annotation names a type the compiler does not take",
       "count": 197,
       "packages": 9
-    },
-    {
-      "code": "PS1204",
-      "title": "class body statement",
-      "count": 125,
-      "packages": 7
     },
     {
       "code": "PS1103",
@@ -2155,6 +2149,12 @@
       "title": "Optional annotation",
       "count": 42,
       "packages": 5
+    },
+    {
+      "code": "PS1204",
+      "title": "class body statement",
+      "count": 38,
+      "packages": 2
     },
     {
       "code": "PS1203",
@@ -2223,12 +2223,12 @@
     },
     {
       "date": "2026-10-28",
-      "commit": "7f67db8da943c78d0e124b579b83740723326a1f",
+      "commit": "6977382e14986184bb1231bacdd49d6849653576",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 7,
       "packages_none": 9,
-      "fences": 2719
+      "fences": 2665
     }
   ]
 }
