@@ -5,231 +5,275 @@ description: Every pyscriptc subcommand and flag.
 
 # CLI
 
-```sh
-pyscriptc <command> [options]
-```
+Install once (`uv tool install pyscriptc`) and every subcommand is `pyscriptc COMMAND [options]`.
+`-v` / `--verbose` turns on DEBUG audit records for any subcommand; the log is what `pyscriptc logs` prints.
+Exit codes and the stability contract are in [Stability and contracts](stability.md), the diagnostic codes in [Diagnostics](diagnostics.md).
 
-Global flag: `-v` / `--verbose` enables DEBUG audit records on any subcommand (see [debugging and logs](../guide/debugging/)). Exit codes, diagnostic codes, and artifact schemas follow the contractual tiers in [Stability and contracts](stability.md).
-
-## `compile`
-
-Lower a source file or package directory.
+<!-- gen:flags -->
+### `compile`
 
 ```sh
-pyscriptc compile FILE [options]
+pyscriptc compile SOURCE [options]
 ```
+| Flag | Value | Effect |
+| ---- | ----- | ------ |
+| `--program` |  | treat the directory as a program (`python -m pkg` parity): `__main__.py` is the entry point even when the directory has an `__init__.py`, and its modules are namespaced under the directory name |
+| `--emit EMIT` | `ir\|llvm\|asm\|obj\|bin\|lib\|binding` | output artifact: ir (JSON IR), llvm (textual LLVM), asm, obj, bin, lib or binding; default llvm (default `llvm`) |
+| `--out-dir DIR` | `DIR` | write artifacts to DIR/<source name> instead of beside the source (useful for directory compiles) |
+| `-o PATH` | `PATH` | output path; defaults to the source stem |
+| `--ffi MANIFEST` | `MANIFEST` | bind a typed extern manifest (TOML) and link its C sources; repeatable. Also read from the `ffi` key of pyscriptc.toml / PEP 723 metadata |
+| `--fallback TIER` | `cpython` | route a function pyscriptc cannot compile to embedded CPython (fallback mode); the only tier is cpython. Needs libpython and the packages on the host |
+| `--island` |  | alias of --fallback=cpython: route every import outside the closed table and every function pyscriptc cannot compile to embedded CPython (fallback mode) |
+| `--embed-python MODE` | `host\|bundle\|auto` | libpython embedded CPython links: host (the compiler interpreter), bundle (the pinned runtime pack, relocatable output) or auto (host when this interpreter has a shared libpython, bundle otherwise; the default). Also read from the `embed` key of [tool.pyscriptc.island] |
+| `--embed-stdlib TRIM` | `safe\|minimal` | stdlib trim of a bundle: safe (the default; everything except test, idlelib, tkinter, turtledemo, ensurepip, pydoc_data, __phello__) or minimal (an opt-in frozen closure plus allowlist). Also read from the `stdlib` key of [tool.pyscriptc.island] |
+| `--call FUNC` | `FUNC` | function the generated main calls |
+| `--args ARGS` | `ARGS` | Python literal list of arguments for --call, parsed with ast.literal_eval (default `[]`) |
+| `--run` |  | compile a binary and run it; arguments after `--` go to the binary |
+| `--driver DRIVER` | `clang\|zig` | C toolchain driver; zig means `zig cc` (preferred, required for --target); env PYSC_CC, defaults to zig if found, else clang |
+| `--target TRIPLE` | `TRIPLE` | cross-compilation triple for `zig cc`, e.g. aarch64-linux-gnu.2.39 (env PYSC_TARGET) |
+| `--linker LINKER` | `clang\|zig` | driver for the final link step only; env PYSC_LINKER, defaults to --driver |
+| `--sanitize LIST` | `LIST` | comma list of sanitizers for the C runtime and the emitted code, e.g. address,undefined (env PYSC_SANITIZE); needs a binary, so --emit bin only |
+| `--debug-info` |  | emit DWARF debug metadata (source file and line per function and statement) so lldb/gdb can step in the Python source (env PYSC_DEBUG_INFO) |
+| `--print PRINT_WHAT` | `diagnostics` | print JSON instead of compiling: diagnostics is the coverage report; exit 3 on a refusal |
+| `--skip-check` |  | skip the type-checker preflight |
+| `--checker CHECKER` | `pyrefly\|mypy\|pyright` | type-checker preflight; mypy and pyright are deprecated (default `pyrefly`) |
+| `--bridge BRIDGE` | `mypy\|pyrefly` | feed the checker's inferred-type map to the compiler so unannotated code compiles; needs mypy installed, or pyrefly for --bridge pyrefly |
+| `--debug[=WHAT]` | `WHAT` | print a compact stage table to stderr; WHAT is a comma list of stages,fences,cc,paths,all (also via PYSC_DEBUG) |
+| `--debug-dir DIR` | `DIR` | write debug artifacts (ir.json, out.ll, cc.sh, summary.json) to DIR |
+| `--timings` |  | print per-stage wall times (parse, check, lower, emit, cc/link) to stderr |
 
-| Flag | Effect |
-| ---- | ------ |
-| `--emit ir\|llvm\|asm\|obj\|bin\|lib\|binding` | Stop after JSON IR, textual LLVM, assembly (`.s`), an object (`.o`), a linked binary, a static library, or a ctypes binding (default `llvm`) |
-| `--out-dir DIR` | Write artifacts to `DIR/<source name>` instead of beside the source; use for directory compiles |
-| `-o PATH` | Output path; defaults to the source stem |
-| `--call FUNC` | Emit a `main` that calls `FUNC` and prints its return |
-| `--args '[...]'` | Arguments for `--call`, a Python list literal |
-| `--run` | Emit a binary and run it immediately |
-| `--program` | Treat a directory as a program (`python -m pkg` parity) even when it has an `__init__.py` |
-| `--driver clang\|zig` | C toolchain driver; `zig` enables `--target` (default `clang`, env `PYSC_CC`) |
-| `--linker clang\|zig` | Driver for the final link step only (env `PYSC_LINKER`, defaults to `--driver`) |
-| `--target TRIPLE` | Cross-compile triple for `zig cc`, e.g. `aarch64-linux-gnu.2.39` (env `PYSC_TARGET`) |
-| `--emit lib` | Build a static library instead of a binary; needs a mobile `--target` (`aarch64-apple-ios`, `aarch64-apple-ios-simulator`, `aarch64-linux-android`); see below |
-| `--emit binding` | Compile a shared library and emit a ctypes loader module next to it; see below |
-| `--sanitize LIST` | Comma list of sanitizers for the C runtime and emitted code, e.g. `address,undefined` (env `PYSC_SANITIZE`); needs `--emit bin` or `--emit binding` |
-| `--skip-check` | Skip the type-checker preflight |
-| `--ffi MANIFEST` | Bind a typed extern manifest (TOML) and link its C sources; repeatable. Also read from the `ffi` key of the config or PEP 723 metadata |
-| `--checker pyrefly\|mypy\|pyright` | Preflight checker (default `pyrefly`; mypy and pyright are deprecated) |
-| `--bridge mypy` | Feed the checker's inferred-type map into lowering so unannotated code stops fencing; needs mypy installed |
-| `--timings` | Print the per-stage wall-time table on its own |
-| `--debug[=WHAT]` | Print a stage table plus the per-file capability split; `WHAT` is a comma list of `stages,fences,cc,paths,all` |
-| `--debug-dir DIR` | Write `ir.json`, `out.ll`, `cc.sh`, `summary.json` to `DIR` |
-
-Environment defaults: `PYSC_CC`, `PYSC_LINKER` and `PYSC_TARGET` fill `--driver`, `--linker` and `--target` when the flag is absent. An explicit flag always wins.
-
-Diagnostic divergence: when compilation halts on fences, `pyscriptc compile` prints the root fence (the first in definition order) and counts the cascade (`(and N more fences that follow from it)`) rather than printing every downstream consequence. It prints at most 3 root fences when one root cause explains all or clusters of them. Use `pyscriptc coverage FILE` to inspect every individual fence and its refactor hint.
-
-### Static libraries for mobile (`--emit lib`)
+### `run`
 
 ```sh
-pyscriptc compile FILE --emit lib --target aarch64-apple-ios-simulator -o LIBDIR
+pyscriptc run SOURCE [options]
+```
+| Flag | Value | Effect |
+| ---- | ----- | ------ |
+| `--program` |  | treat the directory as a program (see compile) |
+| `--fallback TIER` | `cpython` | route a function pyscriptc cannot compile to embedded CPython (fallback mode); the only tier is cpython |
+| `--island` |  | alias of --fallback=cpython |
+| `--embed-python MODE` | `host\|bundle\|auto` | libpython embedded CPython links (see compile); the run cache keys on it |
+| `--report[=FILE.json]` | `FILE.json` | print or write the executed plane map after the run (default: silent) |
+| `--call FUNC` | `FUNC` | function the generated main calls |
+| `--args ARGS` | `ARGS` | Python literal list of arguments for --call (default `[]`) |
+| `--driver DRIVER` | `clang\|zig` | C toolchain driver (see compile) |
+| `--target TRIPLE` | `TRIPLE` | cross-compilation triple for `zig cc` (see compile) |
+| `--linker DRIVER` | `clang\|zig` | link driver (see compile) |
+| `--sanitize LIST` | `LIST` | comma list of sanitizers for the C runtime and the emitted code (env PYSC_SANITIZE) |
+| `--skip-check` |  | skip the type-checker preflight |
+| `--checker CHECKER` | `pyrefly\|mypy\|pyright` | type-checker preflight (default `pyrefly`) |
+| `--no-cache` |  | always recompile (env PYSC_NO_RUN_CACHE=1) |
+| `--ffi MANIFEST` | `MANIFEST` | bind a typed extern manifest (TOML) and link its C sources; repeatable |
+
+### `verify`
+
+```sh
+pyscriptc verify SOURCE [options]
+```
+| Flag | Value | Effect |
+| ---- | ----- | ------ |
+| `--call FUNC` | `FUNC` | function to call on both sides, not the program entry |
+| `--args ARGS` | `ARGS` | Python literal args list for --call (default `[]`) |
+| `--input FILE` | `FILE` | feed FILE's bytes on stdin to both runs (default: an empty stdin, so input() sees EOF) |
+| `--json` |  | print the receipt as JSON instead of text |
+| `--timeout S` | `S` | seconds each run may take before it is a divergence (default 60) |
+| `--program` |  | treat the directory as a program (see compile) |
+| `--driver DRIVER` | `clang\|zig` | C toolchain driver (see compile) |
+| `--target TRIPLE` | `TRIPLE` | cross-compilation triple for `zig cc` (see compile) |
+| `--linker DRIVER` | `clang\|zig` | link driver (see compile) |
+| `--skip-check` |  | skip the type-checker preflight |
+| `--checker CHECKER` | `pyrefly\|mypy\|pyright` | type-checker preflight (default `pyrefly`) |
+| `--no-cache` |  | always recompile (env PYSC_NO_RUN_CACHE=1) |
+| `--ffi MANIFEST` | `MANIFEST` | bind a typed extern manifest (TOML) and link its C sources; repeatable |
+
+### `assess`
+
+```sh
+pyscriptc assess SOURCE [options]
+```
+| Flag | Value | Effect |
+| ---- | ----- | ------ |
+| `--json` |  | print the assessment report as JSON |
+| `--all` |  | print the full report without capping refusals (default top-3 per root cause) |
+| `--bench` |  | time CPython against native binary on compilable entry points and print ratio |
+| `--verify` |  | run differential verify on compilable entry points and show receipt inline |
+| `--call FUNC` | `FUNC` | function to call on entry points, not the program entry |
+| `--args ARGS` | `ARGS` | Python literal args list for --call (default `[]`) |
+| `--input FILE` | `FILE` | feed FILE's bytes on stdin to verify and bench |
+| `--timeout S` | `S` | seconds each run may take (default 60) |
+| `--program` |  | treat the directory as a program |
+| `--driver DRIVER` | `clang\|zig` | C toolchain driver (see compile) |
+| `--target TRIPLE` | `TRIPLE` | cross-compilation triple for `zig cc` (see compile) |
+| `--linker DRIVER` | `clang\|zig` | link driver (see compile) |
+| `--skip-check` |  | skip the type-checker preflight |
+| `--checker CHECKER` | `pyrefly\|mypy\|pyright` | type-checker preflight (default `pyrefly`) |
+| `--no-cache` |  | always recompile (env PYSC_NO_RUN_CACHE=1) |
+| `--ffi MANIFEST` | `MANIFEST` | bind a typed extern manifest (TOML) and link its C sources; repeatable |
+
+### `coverage`
+
+```sh
+pyscriptc coverage SOURCE [options]
+```
+| Flag | Value | Effect |
+| ---- | ----- | ------ |
+| `--json` |  | print the report as JSON |
+| `--fail-on FAIL_ON` | `blockers\|any` | exit 1 when root refusals (blockers) or any refusal (any) exist; default always exits 0 |
+
+### `config`
+
+```sh
+pyscriptc config SOURCE [options]
+```
+| Flag | Value | Effect |
+| ---- | ----- | ------ |
+| `--json` |  | print the resolved config as JSON |
+
+### `explain`
+
+```sh
+pyscriptc explain CODE [options]
 ```
 
-`-o` names a directory receiving `libpyscriptc.a`, `pyscriptc.h` and `module.modulemap`. The build compiles through clang with the SDK sysroot (`xcrun --show-sdk-path` on Apple, the NDK at `PYSC_ANDROID_NDK` on Android, API level `PYSC_ANDROID_API`, default 24). `--driver zig` is refused: zig bundles neither bionic nor the Apple SDKs.
+### `imports`
 
-The exported surface is exactly `pyscriptc_init` plus `pyscriptc_main`; everything else is hidden. Link the archive, call `pyscriptc_init()` once, then `pyscriptc_main()` per run.
+```sh
+pyscriptc imports SOURCE [options]
+```
+| Flag | Value | Effect |
+| ---- | ----- | ------ |
+| `--json` |  | print the report as JSON |
+| `--reach FILE` | `FILE` | append the embedded-CPython reach share to a JSON file (the compat ledger reads it) |
 
-Android consumers must link the archive into a shared object carrying `-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384` (the Google Play 16 KB rule for Android 15+). The archive itself has no program headers, so the flags belong to the shared-object link.
+### `reduce`
+
+```sh
+pyscriptc reduce SOURCE [options]
+```
+| Flag | Value | Effect |
+| ---- | ----- | ------ |
+| `--predicate CMD` | `CMD` | shell command run on each candidate file; it exits 0 when the candidate still reproduces (the candidate path arrives in $PSC_SOURCE) |
+| `--fence CODE` | `CODE` | shorthand: compiling still reports a refusal with this code |
+| `--crash` |  | shorthand: compiling still raises a non-refusal error |
+| `--timeout TIMEOUT` |  | seconds per --predicate command (default 120) |
+| `--steps STEPS` |  | cap on removal attempts (default 10000) |
+| `--print` |  | print the reduced source instead of writing FILE.min.py |
+| `--json` |  | print the removal log as JSON |
+
+### `build`
+
+```sh
+pyscriptc build DIRECTORY [options]
+```
+| Flag | Value | Effect |
+| ---- | ----- | ------ |
+| `--script SCRIPT` |  | build only this console script; default every script |
+| `--out-dir DIR` | `DIR` | write the binaries to DIR instead of <project>/build |
+| `--driver DRIVER` | `clang\|zig` | C toolchain driver (see compile) |
+| `--target TRIPLE` | `TRIPLE` | cross-compilation triple for `zig cc` (see compile) |
+| `--linker DRIVER` | `clang\|zig` | link driver (see compile) |
+| `--skip-check` |  | skip the type-checker preflight |
+| `--checker CHECKER` | `pyrefly\|mypy\|pyright` | type-checker preflight (default `pyrefly`) |
+
+### `logs`
+
+```sh
+pyscriptc logs [options]
+```
+
+### `telemetry`
+
+```sh
+pyscriptc telemetry ACTION [options]
+```
+
+### `doctor`
+
+```sh
+pyscriptc doctor [options]
+```
+| Flag | Value | Effect |
+| ---- | ----- | ------ |
+| `--json` |  | print the report as JSON |
+
+### `deps`
+
+```sh
+pyscriptc deps SOURCE [options]
+```
+| Flag | Value | Effect |
+| ---- | ----- | ------ |
+| `--json` |  | print the report as JSON |
+| `--frozen` |  | use the existing lock, never resolve |
+| `--upgrade` |  | re-resolve to the newest allowed versions |
+| `--offline` |  | no network: uv offline, cached wheels only |
+| `--no-download` |  | classify from wheel tags only |
+| `--cache-dir DIR` | `DIR` | cache root (env PYSC_CACHE_DIR, default ~/.cache/pyscriptc) |
+
+### `embed`
+
+```sh
+pyscriptc embed fetch [options]
+```
+
+#### `embed fetch`
+
+```sh
+pyscriptc embed fetch [options]
+```
+| Flag | Value | Effect |
+| ---- | ----- | ------ |
+| `--platform PLATFORM` | `PLATFORM` | pack platform (default: this machine) |
+| `--force` |  | re-download even when the pack is cached |
+<!-- /gen:flags -->
+
+## Notes on `compile`
 
 `--emit bin` and `--run` refuse mobile targets with `PS4101` (see `pyscriptc explain PS4101`).
+When compilation stops on unsupported constructs, pyscriptc prints the root cause and counts the cascade (`and N more`) rather than printing every consequence.
+Use `pyscriptc coverage FILE` to see every individual code.
 
-### CPython ctypes bindings (`--emit binding`)
+`PYSC_CC`, `PYSC_LINKER` and `PYSC_TARGET` fill `--driver`, `--linker` and `--target` when the flag is absent; an explicit flag always wins.
 
-```sh
-pyscriptc compile FILE --emit binding [-o OUT]
-```
+## Notes on `verify`
 
-`--emit binding` compiles the typed module and the C runtime into a shared library (`.so`, `.dylib`, or `.dll`) and writes `<name>_binding.py` next to it. The loader module uses `ctypes.CDLL` to expose top-level typed functions directly to CPython without requiring `Python.h` or extension modules.
+Exit codes: 0 when every check matches, 1 on a divergence, 3 when the compiler refuses the program, 4 when no CPython 3.14 oracle is available.
 
-First-cut scope covers top-level functions with `int`, `float`, `bool` parameters and returns (including `None` return). Any unsupported function, parameter type, return type, or class is skipped with a named note in the generated module docstring and a nonzero count in the compile summary (`summary.json`).
+The oracle is resolved from `PYSC_ORACLE` (an explicit path, refused if it is not 3.14), `PYSC_ORACLE_DIR`, `python3.14` on PATH, `uv python find 3.14`, then the interpreter running pyscriptc.
+It is probed before use: verify never compares a binary against the wrong interpreter.
 
-The loader is safe to call from a long-lived interpreter: a `raise` inside a compiled function unwinds to a guard at the C ABI edge, which `<name>_binding_shim.c` (a generated C unit linked into the library) places around every exported call. The loader re-raises it in the caller as the Python class of the same name (`ZeroDivisionError`, `ValueError`, `KeyError`, and so on), or as `CompiledError` with `compiled_class` naming the compiled class when it has no builtin counterpart. A `raise` in a module-level statement is reported the same way by the import of the loader module. Without the guard the `longjmp` would leave the library with no handler, report the exception on stderr and exit the host process.
+Verify is a differential smoke test, not a proof.
+It covers the paths the argv and stdin exercised in that run.
+Code either compiles to native code or runs through embedded CPython (fallback mode), so a divergence is evidence to inspect, not automatically a compiler bug.
 
-## `run`
+`--call` compares the call, not the module body: the compiled main runs the global initializers and then the function, so the oracle side hides the output of the module's top-level statements.
 
-```sh
-pyscriptc run FILE [-- args]
-```
+## Notes on `assess`
 
-Compile (cached by content hash under `~/.cache/pyscriptc/bin`) and run in one step. Arguments after `--` go to the program as `sys.argv`. Flags mirror `compile` (`--call`, `--args`, `--program`, `--driver`, `--target`, `--linker`, `--sanitize`, `--skip-check`, `--checker`), plus `--no-cache` to always recompile (env `PYSC_NO_RUN_CACHE=1`) and `--ffi MANIFEST` (repeatable) for extern manifests.
+On a single script, assess reports whether it compiles fully, partly, or is refused, and `--bench` prints the measured speedup against CPython when an entry point exists.
+On a library directory it inspects every module without needing an entry point.
+On an application directory (one with `__main__.py` or `main.py`) it evaluates the whole package tree and prints the `[tool.pyscriptc.imports]` lines that route the unsupported imports to embedded CPython.
+See [Config](config.md) for what those lines go into.
 
-## `verify`
+## Notes on `coverage`
 
-```sh
-pyscriptc verify FILE [--call FN] [--args '[...]'] [--input FILE] [--json] [-- args]
-```
+Needs no C toolchain.
+The text view carries a capability line per definition: `native` (compiles), `fenced` (a rewrite clears it) or `island` (routes to embedded CPython).
+The JSON has the same split under `capabilities.byFile` and `capabilities.totals`.
 
-Compile `FILE`, run it under the pinned CPython 3.14 oracle and as the linked binary with the same argv and stdin, and report the first observable difference. The receipt covers stdout bytes, stderr bytes and the exit code, plus the printed return value when `--call` is used.
+## Notes on `reduce`
 
-| Flag | Effect |
-| ---- | ------ |
-| `--call FUNC` | Call `FUNC` instead of the program entry; the return value is printed by both sides and compared as stdout |
-| `--args '[...]'` | Arguments for `--call`, a Python list literal |
-| `--input FILE` | Feed `FILE`'s bytes on stdin to both runs; without it stdin is empty, so `input()` sees EOF |
-| `--json` | Print the receipt as JSON (`schemaVersion` 1) instead of text |
-| `--timeout S` | Seconds each run may take before it counts as a divergence (default 60) |
-| `--no-cache` | Always recompile instead of reusing the `run` binary cache (env `PYSC_NO_RUN_CACHE=1`) |
-| `--skip-check`, `--checker`, `--driver`, `--linker`, `--target`, `--ffi` | As in `compile` |
+The result is written to `FILE.min.py` beside the input; the input is never modified.
+Exit code is 0 when the final variant still satisfies the predicate.
 
-Exit codes: 0 when every check matches, 1 on a divergence, 3 when the compiler fences the program, 4 when no CPython 3.14 oracle is available.
+## Notes on `doctor`
 
-The oracle is resolved from `PYSC_ORACLE` (an explicit path, refused if it is not 3.14), `PYSC_ORACLE_DIR`, `python3.14` on PATH, `uv python find 3.14`, then the interpreter running pyscriptc. It is probed before use: verify never compares a binary against the wrong interpreter.
+`doctor` reports the type checker it found (argv, version, how it was resolved), clang and zig paths and versions, the cache and log directories, the default target, and the install shape (`wheel`, `tool`, `binary`, `source`).
+Paste this when filing an issue.
 
-Verify is a differential smoke test, not a proof. It covers the paths the argv and stdin exercised in that run, and the corpus and the must-fence corpus remain the broad coverage. There is no byte-for-byte parity goal: the island is the floor and native is the ceiling (see the typed-subset positioning decision), so a divergence is evidence to inspect, not automatically a compiler bug.
+## Notes on `embed`
 
-`--call` compares the call, not the module body: the compiled main runs the global initializers and then the function, so the oracle side hides the output of the module's top-level statements. The function's own output and its printed return value are compared.
-
-## `assess`
-
-```sh
-pyscriptc assess PATH [--json] [--all] [--bench] [--verify] [--input FILE] [--call FN] [--args '[...]'] [--timeout S]
-```
-
-Evaluate any Python script, library or app directory without crashing, whatever the fence count. Reports lowering status per file, fences grouped by root cause (reflection culprit, untyped import, unsupported construct) with the nearest typed idiom, per-import ladder status, overall native vs island vs blocked shares with import-level island share, and concrete `[tool.pyscriptc.imports]` policy lines for the island floor. By default, output is capped to a one-screen summary with top-3 fences per root cause; pass `--all` for the full list.
-
-| Flag | Effect |
-| ---- | ------ |
-| `--json` | Print the report as JSON (`schemaVersion` 1) instead of text |
-| `--all` | Print the full assessment report without capping fences (default top-3 per root cause for a one-screen summary) |
-| `--bench` | For compilable entry points, time CPython against the native binary on user inputs and print the measured ratio with sample count (default 5 samples; without this flag, no speed numbers are printed) |
-| `--verify` | Run the differential verification on compilable entry points and show the receipt inline |
-| `--input FILE` | Feed `FILE` bytes on stdin to both runs |
-| `--call FUNC` | Function to call on entry points instead of the program entry |
-| `--args '[...]'` | Arguments for `--call`, a Python list literal |
-| `--timeout S` | Seconds each run may take (default 60) |
-| `--program` | Treat directory as a program |
-
-### Example 1: Single script
-
-```sh
-pyscriptc assess script.py --bench --verify
-```
-
-On a single script, assess reports whether it lowers fully, partly, or is refused. If the script compiles natively and has a runnable entry point, `--bench` prints the measured speedup against CPython 3.14 and `--verify` displays the differential receipt inline. Untyped dependencies such as `requests` report the exact `requests = "island"` policy line.
-
-### Example 2: Pure-Python library directory
-
-```sh
-pyscriptc assess mylib/
-```
-
-On a library directory, assess inspects every module and definition without requiring an entry point. Internal submodules of the assessed package are not proposed as third-party island routes, and missing submodule exports report that the name is missing instead of suggesting an import policy. Partially lowered standard-library modules stay native and keep their fence with the named typed idiom rather than routing whole to the island. Modules that do not lower report their root-cause fences and mark what stays blocked (such as dynamic attributes or union types) alongside the nearest typed idiom.
-
-### Example 3: Application directory
-
-```sh
-pyscriptc assess myapp/ --bench
-```
-
-On an application directory containing `__main__.py` or `main.py`, assess evaluates the whole package tree. Compilable entry points are benchmarked against CPython, while unlowered imports and reflection culprits report the island routing configuration needed to run on the hybrid floor.
-
-## `coverage`
-
-```sh
-pyscriptc coverage SOURCE [--json] [--fail-on blockers|any]
-```
-
-Report every fence in a file or a package tree, per-module counts and codes, useful for scoping a port. Needs no C toolchain. The text view carries a capability line: each definition is `native` (no fence), `fenced` (a fence that a rewrite clears) or `island` (the fence traces to runtime reflection and the definition routes to the island lane). The JSON has the same split under `capabilities.byFile` and `capabilities.totals`, with the fence codes and the reflection mechanisms per file. `--fail-on` exits 1 when root fences (`blockers`) or any fence (`any`) exist; the default always exits 0 unless the resolved config sets `fail-on`.
-
-## `config`
-
-```sh
-pyscriptc config SOURCE [--json]
-```
-
-Show the resolved config for a source: the `[tool.pyscriptc]` or `pyscriptc.toml` table merged with the script's PEP 723 block, plus the resolved import lanes. See [Config](config.md).
-
-## `explain`
-
-```sh
-pyscriptc explain PSxxxx
-```
-
-Print the description of a diagnostic code.
-
-## `imports`
-
-```sh
-pyscriptc imports SOURCE [--json]
-```
-
-Classify every import of a file or package tree into a compat lane (standard library, native-backed, curated-replacement, pure Python). The default view is the capability ladder: `native`, `native: fences (PS20xx)` or `island (requires libpython)`. A reflection fence (`inspect.signature`, `get_type_hints`, `__annotations__`, metaclass synthesis, dynamic `getattr`) puts the import on the island rung, and the JSON `imports[].capability` records the routing, codes, mechanisms, files and the `libpython` requirement. Nothing reaches the network.
-
-## `deps`
-
-```sh
-pyscriptc deps SOURCE [--json] [--frozen] [--upgrade] [--offline] [--no-download]
-```
-
-Resolve PyPI dependencies from a PEP 723 `# /// script` block or `pyproject.toml`, and cache pure-Python wheels. `SOURCE` is a `.py` script, a `pyproject.toml`, or a directory.
-
-## `logs`
-
-```sh
-pyscriptc logs
-```
-
-Print the audit-log path and its last lines. This is the output to paste into an issue.
-
-## `reduce`
-
-Delta-debug a source down to a minimal reproducer of a fence or a crash.
-
-```sh
-pyscriptc reduce FILE (--predicate CMD | --fence PSxxxx | --crash) [--print] [--json]
-```
-
-| Flag | Effect |
-| ---- | ------ |
-| `--predicate CMD` | Shell command run on each candidate; exit 0 keeps the removal. The candidate path arrives in `$PSC_SOURCE` |
-| `--fence PSxxxx` | Shorthand: lowering the candidate still reports a fence with that code |
-| `--crash` | Shorthand: lowering the candidate still raises a non-fence error |
-| `--timeout S` | Seconds per `--predicate` command (default 120) |
-| `--steps N` | Cap on removal attempts (default 10000) |
-| `--print` | Print the reduced source instead of writing `FILE.min.py` |
-| `--json` | Print the removal log as JSON and write nothing |
-
-The result is written to `FILE.min.py` beside the input; the input is never modified. Exit code is 0 when the final variant still satisfies the predicate.
-
-## `doctor`
-
-```sh
-pyscriptc doctor [--json]
-```
-
-Report what the compiler would use: the type checker (argv, version, and how it was resolved), clang and zig paths and versions, the cache and log directories, the default target, and the install shape (`wheel`, `tool`, `binary`, `source`). Paste this when filing an issue.
-
-## `telemetry`
-
-```sh
-pyscriptc telemetry status|enable|disable|reset-id
-```
-
-Manage anonymous usage metrics. See [telemetry](../project/telemetry.md).
+`embed fetch` downloads the runtime pack recorded in the runtime lock, verifies its sha256, and unpacks it under `~/.cache/pyscriptc/runtime/`.
+A `--embed-python=bundle` compile without a cached pack names this command before downloading.
+`--force` re-downloads a cached pack; `--platform` fetches for another machine.
+The pack itself, its pinned versions and the licenses that travel with it are on [Runtime pack](runtime-pack.md).

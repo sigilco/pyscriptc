@@ -1,6 +1,6 @@
 ---
 title: Debugging and logs
-description: Stage timings, fence tables, IR dumps, and audit logs.
+description: Stage timings, refusal tables, IR dumps, and audit logs.
 ---
 
 ## Compiler debug mode
@@ -10,7 +10,7 @@ Narrow it with `--debug=stages,fences,cc,paths` or set `PYSC_DEBUG=1`.
 `--timings` prints the same table on its own.
 
 ```bash
-pyscriptc compile app.py --debug=fences   # every fence with its span
+pyscriptc compile app.py --debug=fences   # every unsupported construct with its span
 pyscriptc compile app.py --debug-dir out/ # dumps ir.json, out.ll, cc.sh, summary.json
 ```
 
@@ -20,11 +20,11 @@ The full reference for the debug switches, the stderr topics and the `--debug-di
 
 ## Reducer
 
-`pyscriptc reduce FILE --fence PS1104` shrinks a failing source to the smallest variant that still reproduces, and writes it to `FILE.min.py`. Use it when a fence or a crash shows up in a file far bigger than the bug.
+`pyscriptc reduce FILE --fence PS1104` shrinks a failing source to the smallest variant that still reproduces, and writes it to `FILE.min.py`. Use it when a `PSxxxx` code or a crash shows up in a file far bigger than the bug.
 
 ```bash
 pyscriptc reduce big.py --fence PS1104 --json   # the removal log
-pyscriptc reduce big.py --crash                 # still raises a non-fence error
+pyscriptc reduce big.py --crash                 # still raises an error that is not a PSxxxx code
 pyscriptc reduce big.py --predicate 'pytest -x "$PSC_SOURCE"'  # your own check
 ```
 
