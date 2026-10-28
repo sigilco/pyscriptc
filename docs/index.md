@@ -11,6 +11,10 @@ Compile annotated Python to a native binary.
 
 [Get started](/getting-started/) · [GitHub](https://github.com/sigilco/pyscriptc) · [PyPI](https://pypi.org/project/pyscriptc/)
 
+<p align="center">
+<a href="https://buy.polar.sh/polar_cl_Mv1gdlG7bw3I70EC9IHtfeSHJj4PEKvA7JAUz23CFhj"><img alt="Sponsor" src="https://img.shields.io/badge/Sponsor-polar-crimson"></a>
+</p>
+
 For agents: [llms.txt]({{PYSC_DOCS_URL}}/llms.txt), [llms-full.txt]({{PYSC_DOCS_URL}}/llms-full.txt)
 
 ## What it does

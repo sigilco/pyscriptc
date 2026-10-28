@@ -53,6 +53,9 @@ const f = i18n.footer;
         <span>from Spain</span>
       </div>
       <p class="copyright">{f.copyright}</p>
+      <p class="footer-sponsor">
+        <a href={siteLinks.sponsor} target="_blank" rel="noopener noreferrer" class="footer-sponsor-link">{f.sponsor} ↗</a>
+      </p>
     </div>
   </div>
 </footer>
@@ -210,6 +213,20 @@ const f = i18n.footer;
 
   .copyright {
     margin: 0;
+  }
+
+  .footer-sponsor {
+    margin: 0;
+  }
+
+  .footer-sponsor-link {
+    color: var(--color-text-secondary, #94a3b8);
+    text-decoration: none;
+    transition: color 0.15s ease;
+  }
+
+  .footer-sponsor-link:hover {
+    color: var(--color-accent, #4d80c4);
   }
 
 </style>
