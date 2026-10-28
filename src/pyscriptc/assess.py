@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from pyscriptc import coverage, imports, verify
+from pyscriptc import analyze, coverage, imports, verify
 from pyscriptc.errors import IRError
 from pyscriptc.reflection import mechanism_of, routes_to_island
 
@@ -299,11 +299,16 @@ def assess(
     }
     if target.is_file():
         target_files = [str(target.resolve())]
+        analysis_failures: list[dict[str, str]] = []
     else:
+        # Issue #730: the discovery is the defensive scanner, so a FIFO, a
+        # dangling symlink or a file that cannot be read never ends the
+        # walk; those files are reported in `analysisIssues` instead.
         discovered_set = {str(Path(p).resolve()) for p in capabilities_by_file.keys()}
-        for py_path in target.rglob("*.py"):
-            discovered_set.add(str(py_path.resolve()))
+        scanned, scan_failures = analyze.scan(target)
+        discovered_set.update(str(path.resolve()) for path in scanned)
         target_files = sorted(discovered_set)
+        analysis_failures = [issue.as_dict() for issue in scan_failures]
 
     fences_by_file: dict[str, list[dict[str, Any]]] = {}
     for fence in cov_report.get("fences", []):
@@ -311,8 +316,9 @@ def assess(
         fences_by_file.setdefault(fpath, []).append(fence)
 
     file_results: list[dict[str, Any]] = []
-    untyped_imports_needed: dict[str, dict[str, Any]] = {}
+    untyped_imports_needed: dict[str, Any] = {}
     stays_blocked: list[dict[str, Any]] = []
+    analysis_failures: list[dict[str, str]] = [*analysis_failures]
     package_roots = _target_package_roots(target, target_files)
 
     for fpath in target_files:
@@ -327,16 +333,28 @@ def assess(
         fence_count = len(local_fences)
 
         if not cap and fence_count == 0:
-            try:
-                tree = ast.parse(Path(fpath_resolved).read_text(encoding="utf-8"), filename=fpath_resolved)
-                defs = coverage._definitions(tree)
-                total_defs = len(defs)
-                native_defs = total_defs
-            except Exception:
-                pass
+            # Issue #730: the fallback definition count goes through the
+            # shared reader and parser, so an unreadable or unparseable
+            # file lands in `analysisIssues` instead of raising here; the
+            # fence-free status it would have produced is wrong anyway.
+            text, reason = analyze.read_source(Path(fpath_resolved))
+            if text is None:
+                analysis_failures.append({"file": fpath_resolved, "reason": reason or "cannot read file"})
+            else:
+                _tree, reason = analyze.parse_source(text, fpath_resolved)
+                if reason is not None:
+                    analysis_failures.append({"file": fpath_resolved, "reason": reason})
+                else:
+                    defs = coverage._definitions(ast.parse(text, filename=fpath_resolved))
+                    total_defs = len(defs)
+                    native_defs = total_defs
 
         has_error = bool(cov_report.get("error"))
         if has_error:
+            # Issue #730: a tree-wide analysis failure used to mark every
+            # file refused with the same message. The failure is now
+            # reported per file (analysisIssues); the tree-wide error only
+            # marks the files that carry no analysis of their own.
             status = STATUS_REFUSED
             local_fences = [
                 {
@@ -440,12 +458,15 @@ def assess(
 
         local_defs: list[dict[str, Any]] = []
         tree: ast.Module | None = None
-        try:
-            tree = ast.parse(Path(fpath_resolved).read_text(encoding="utf-8"), filename=fpath_resolved)
-            for d in coverage._definitions(tree):
-                local_defs.append({"name": d.name})
-        except Exception:
-            pass
+        # Issue #730: the read goes through the shared reader, so a FIFO or
+        # an undecodable file cannot block or raise here.
+        source_text, _reason = analyze.read_source(Path(fpath_resolved))
+        if source_text is not None:
+            parsed, parse_reason = analyze.parse_source(source_text, fpath_resolved)
+            if parse_reason is None and parsed is not None:
+                tree = parsed
+                for d in coverage._definitions(tree):
+                    local_defs.append({"name": d.name})
 
         from pyscriptc import boxed
 
@@ -711,6 +732,13 @@ def assess(
                     )
                     bench_results.append(b_res)
 
+    # Analysis failures are per-file data, deduped by path: the scanner and
+    # the fence rendering can both hit the same file.
+    deduped_failures: dict[str, dict[str, str]] = {}
+    for issue in analysis_failures:
+        deduped_failures.setdefault(issue["file"], issue)
+    analysis_failures = [deduped_failures[key] for key in sorted(deduped_failures)]
+
     summary = {
         "files": {
             "total": len(file_results),
@@ -754,6 +782,7 @@ def assess(
         "fallback": overall_plane_map,
         "islandImports": [i["name"] for i in assessed_imports if i["routing"] == "island"],
         "files": file_results,
+        "analysisIssues": analysis_failures,
         "imports": assessed_imports,
         "islandRouting": island_routing,
         "compilableEntries": [str(e) for e in compilable_entries],
@@ -864,6 +893,16 @@ def render_text(
     if files_overflow > 0:
         lines.append(f"  ... and {files_overflow} more file(s) (use --all for full list)")
 
+    issues = report.get("analysisIssues") or []
+    if issues:
+        lines.append("")
+        lines.append(f"Files that could not be analyzed ({len(issues)}):")
+        display_issues = issues if show_all else issues[:top_n]
+        for issue in display_issues:
+            lines.append(f"  {issue['file']}: {issue['reason']}")
+        if len(issues) > len(display_issues):
+            lines.append(f"  ... and {len(issues) - len(display_issues)} more (use --all for full list)")
+
     lines.append("")
 
     plane_map = report.get("planeMap")
@@ -871,11 +910,22 @@ def render_text(
         lines.append("Plane map:")
         lines.append(f"  module top level: {plane_map.get('moduleTopLevel', 'native')}")
         demoted_by = plane_map.get("demotedBy", {})
-        for fn_name, plane in sorted(plane_map.get("functions", {}).items()):
+        # Issue #730: a tree with a huge generated file has tens of
+        # thousands of definitions; the map is bounded like the rest.
+        functions = sorted(plane_map.get("functions", {}).items())
+        if not show_all and len(functions) > top_n:
+            shown = functions[:top_n]
+            overflow = len(functions) - top_n
+        else:
+            shown = functions
+            overflow = 0
+        for fn_name, plane in shown:
             if fn_name in demoted_by:
                 lines.append(f"  {fn_name}: {plane} (demoted by {demoted_by[fn_name]})")
             else:
                 lines.append(f"  {fn_name}: {plane}")
+        if overflow > 0:
+            lines.append(f"  ... and {overflow} more definition(s) (use --all for full list)")
         lines.append("")
 
     if report["imports"]:
