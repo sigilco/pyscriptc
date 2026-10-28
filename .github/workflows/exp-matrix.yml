@@ -1,0 +1,36 @@
+name: exp-matrix
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.c.outputs.run }}
+    steps:
+      - run: echo "run=false" >> "$GITHUB_OUTPUT"
+        id: c
+  gated:
+    name: exp gated (${{ matrix.v }})
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        v: [1, 2]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hi
+  ungated:
+    name: exp ungated (${{ matrix.v }})
+    strategy:
+      fail-fast: false
+      matrix:
+        v: [1, 2]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hi

@@ -1,0 +1,15 @@
+name: exp-ignore
+
+on:
+  pull_request:
+    branches-ignore:
+      - 'exp/ci-probe'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hi
