@@ -20,7 +20,7 @@ Do this in a worktree from `.agents/bin/agent-checkout <name>`.
 
 ## Primary metric
 
-Weighted pass under the CPython 3.12 oracle. The 3.12 oracle is the target. This branch's scorer still uses `sys.executable` in `benchmarks/compat2/score.py` until A1's `--oracle` switch exists. The score and verdict commands in this file run with the interpreter this branch runs (`uv run python`).
+Weighted pass under the pinned CPython 3.14 oracle (`PIN_NAME` in `benchmarks/compat2/score.py`; the project target is CPython 3.14.x). The score and verdict commands in this file run with the interpreter this branch runs (`uv run python`).
 
 `weighted_pass` is the sum of the score JSON `weights[id]` over rows whose `outcome` is `pass`. The verdict's `primary_delta` is the candidate sum minus the baseline sum.
 
@@ -35,7 +35,7 @@ Weighted pass under the CPython 3.12 oracle. The 3.12 oracle is the target. This
 | Top 100 corpus function (`top100.<project>.<qual>`) | 2.0 |
 | Top 100 whole package (`top100.<project>`) | 5.0 |
 
-`raises` probes that name a specific exception stay at weight 0 until E2, then 1.0. Weight 0 rows do not move the primary metric. These weights are frozen with `gates-v2` (probe `weight`, and `WEIGHTS` in `benchmarks/compat2/outcomes.py`). An iteration does not edit them.
+`raises` and `mention` probes stay at weight 0 (`RAISES_WEIGHT`, `MENTION_WEIGHT` in `benchmarks/compat2/outcomes.py`; frozen with `gates-v2`). Weight 0 rows do not move the primary metric. An iteration does not edit them.
 
 Before the first keep of an epic, spot-check the baseline score JSON. One id of each class in the table must carry that weight. A mismatch means the freeze is wrong: stop the iteration and report it.
 
