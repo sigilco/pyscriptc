@@ -64,6 +64,8 @@ export const HeaderPillNav: React.FC<HeaderPillNavProps> = ({
             href={githubUrl}
             target="_blank"
             rel="noopener noreferrer"
+            data-ph-event="outbound_click"
+            data-ph-label="nav_github"
             className="px-2.5 py-1 rounded-full hover:text-white transition-colors"
           >
             GitHub ↗
