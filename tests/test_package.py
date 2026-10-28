@@ -238,6 +238,23 @@ def test_dunder_main_is_skipped_and_a_library_import_still_fences(tmp_path: Path
     assert "sqlite3" in refused.stderr
 
 
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
+def test_a_non_identifier_module_file_is_skipped_not_refused(tmp_path: Path) -> None:
+    root = tmp_path / "pkg"
+    root.mkdir()
+    (root / "__init__.py").write_text("", encoding="utf-8")
+    (root / "util.py").write_text(
+        "def add(left: int, right: int) -> int:\n    return left + right\n",
+        encoding="utf-8",
+    )
+    (root / "__pyinstaller").mkdir()
+    (root / "__pyinstaller" / "hook-yt_dlp.py").write_text("raise RuntimeError\n", encoding="utf-8")
+    got = compile_run(tmp_path, root, "pkg.util.add", "[2, 2]")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == "4\n"
+    assert "skipped pkg/__pyinstaller/hook-yt_dlp.py" in got.stderr
+
+
 def test_a_single_file_still_refuses_a_relative_import(tmp_path: Path) -> None:
     path = tmp_path / "alone.py"
     path.write_text("from .util import add\n\ndef show() -> int:\n    return add(1, 1)\n", encoding="utf-8")
