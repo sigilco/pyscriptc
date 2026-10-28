@@ -11,6 +11,8 @@ Compile annotated Python to a native binary.
 
 [Get started](/getting-started/) · [GitHub](https://github.com/sigilco/pyscriptc) · [PyPI](https://pypi.org/project/pyscriptc/)
 
+For agents: [llms.txt]({{PYSC_DOCS_URL}}/llms.txt), [llms-full.txt]({{PYSC_DOCS_URL}}/llms-full.txt)
+
 ## What it does
 
 - **Type-first**: pyscriptc compiles a Python subset that follows strict rules: typed, with no shims or dynamic runtime emulation for untyped Python.
