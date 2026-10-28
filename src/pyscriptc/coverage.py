@@ -10,12 +10,15 @@ and groups the fences by the definition that holds them. It never changes how
 from __future__ import annotations
 
 import ast
+import os
 import re
+import stat
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from pyscriptc import analyze
 from pyscriptc.errors import IRError, format_diagnostic
 from pyscriptc.imports import REQUIRES_LIBPYTHON
 from pyscriptc.lower import lower_file
@@ -284,8 +287,15 @@ def _innermost(defs: list[_Def], line: int) -> _Def | None:
 def _read(path: str, cache: dict[str, str | None]) -> str | None:
     if path not in cache:
         try:
+            # Issue #730: a FIFO or a device under a `.py` name blocks
+            # forever on a read; only a regular file is source.
+            if not stat.S_ISREG(os.lstat(path).st_mode):
+                cache[path] = None
+                return None
             cache[path] = Path(path).read_text(encoding="utf-8")
-        except OSError:
+        except OSError, UnicodeDecodeError:
+            # Issue #730: an undecodable file is reported by the scanner,
+            # not raised from the fence rendering.
             cache[path] = None
     return cache[path]
 
@@ -319,7 +329,10 @@ def capabilities(module: dict[str, Any], files: list[str]) -> dict[str, Any]:
     all_mechanisms: set[str] = set()
     for path in paths:
         text = _read(path, sources)
-        defs = _definitions(ast.parse(text, filename=path)) if text is not None else []
+        try:
+            defs = _definitions(ast.parse(text, filename=path)) if text is not None else []
+        except SyntaxError, ValueError, UnicodeDecodeError:
+            defs = []
         local = fences_by_file.get(path, [])
         owned: dict[str, list[dict[str, Any]]] = {item.name: [] for item in defs}
         module_fences = 0
@@ -378,7 +391,13 @@ def _lower(target: Path, bridge: Any = None) -> tuple[dict[str, Any], list[str]]
     config = load_config(target)
     if target.is_dir():
         module, _ = lower_directory(target, bridge=bridge, config=config)
-        files = [str(path) for _, path, _ in _discover(target)[0]]
+        # Issue #730: discovery can refuse a unit (a name that is not a
+        # module name, a missing file behind a symlink) without ending the
+        # analysis; whatever it did find is still lowered and reported.
+        try:
+            files = [str(path) for _, path, _ in _discover(target)[0]]
+        except IRError:
+            files = [str(path) for path in analyze.scan(target)[0]]
         return module, files
     if target.is_file():
         if bridge is not None and not hasattr(bridge, "inferred_type"):
@@ -467,11 +486,20 @@ def build_report(target: Path, bridge: Any = None) -> dict[str, Any]:
     sources: dict[str, str | None] = {}
     trees: dict[str, list[_Def]] = {}
     total_defs: dict[str, int] = {}
+    # Issue #730: the files the lowering cannot read or parse are reported
+    # per file (issue_report) instead of ending the run; the scanner's
+    # list is the whole tree, so files the lowering skipped are covered too.
+    issue_report = []
+    for issue in analyze.scan(target)[1]:
+        issue_report.append(issue.as_dict())
     for path in files:
         text = _read(path, sources)
         if text is None:
             continue
-        defs = _definitions(ast.parse(text, filename=path))
+        try:
+            defs = _definitions(ast.parse(text, filename=path))
+        except SyntaxError, ValueError, UnicodeDecodeError:
+            continue
         trees[path] = defs
         total_defs[path] = len(defs)
 
@@ -547,6 +575,7 @@ def build_report(target: Path, bridge: Any = None) -> dict[str, Any]:
         "moduleFences": module_fences,
         "capabilities": capabilities(module, files),
         "chain": _chain(entries, definitions),
+        "issues": issue_report,
     }
 
 
@@ -662,7 +691,17 @@ def _chain(entries: list[dict[str, Any]], definitions: list[dict[str, Any]]) -> 
     return chain
 
 
-def render_text(report: dict[str, Any]) -> str:
+DEFAULT_TOP_N = 3
+
+
+def render_text(report: dict[str, Any], *, show_all: bool = False, top_n: int = DEFAULT_TOP_N) -> str:
+    """Format the coverage report.
+
+    Issue #730: a real package tree has thousands of fences and files, so
+    the per-file and per-fence lists are bounded (``top_n`` per cause)
+    and ``show_all`` prints the full list.
+    """
+
     summary = report["summary"]
     parts = [
         f"{report['target']}: {summary['fences']} fences "
@@ -674,20 +713,35 @@ def render_text(report: dict[str, Any]) -> str:
         f"capability: {cap['native']} native, {cap['fenced']} fenced, {cap['island']} island "
         f"definitions of {cap['definitions']} ({cap['files']} files)"
     )
-    for item in report["capabilities"]["byFile"]:
-        if not (item["fences"] or item["definitions"]):
-            continue
+    by_file = [item for item in report["capabilities"]["byFile"] if item["fences"] or item["definitions"]]
+    if not show_all and len(by_file) > top_n:
+        shown_files = by_file[:top_n]
+        file_overflow = len(by_file) - top_n
+    else:
+        shown_files = by_file
+        file_overflow = 0
+    for item in shown_files:
         mechanisms = f", reflection: {', '.join(item['mechanisms'])}" if item["mechanisms"] else ""
         parts.append(
             f"  {item['file']}: {item['native']} native, {item['fenced']} fenced, {item['island']} island "
             f"of {item['definitions']} definitions, {item['fences']} fences{mechanisms}"
         )
+    if file_overflow > 0:
+        parts.append(f"  ... and {file_overflow} more file(s) (use --all for full list)")
     entries = report["fences"]
-    for entry in entries:
+    if not show_all and len(entries) > top_n:
+        shown_entries = entries[:top_n]
+        entry_overflow = len(entries) - top_n
+    else:
+        shown_entries = entries
+        entry_overflow = 0
+    for entry in shown_entries:
         parts.append(entry["frame"])
         owner = entry["definition"] or "<module>"
         parts.append(f"  family: {entry['family']}{' (derived)' if entry['derived'] else ''}  in: {owner}")
         parts.append(f"  hint: {entry['hint']}")
+    if entry_overflow > 0:
+        parts.append(f"  ... and {entry_overflow} more fence(s) (use --all for full list)")
     if report["chain"]:
         parts.append("blockers, most definitions first:")
         for item in report["chain"][:10]:
@@ -696,4 +750,17 @@ def render_text(report: dict[str, Any]) -> str:
                 f"fixing it unblocks {item['definitionsUnblocked']} definitions "
                 f"and leaves {item['rootFencesLeft']} more root fences"
             )
+    issues = report.get("issues") or []
+    if issues:
+        parts.append(f"files that could not be analyzed ({len(issues)}):")
+        if not show_all and len(issues) > top_n:
+            shown_issues = issues[:top_n]
+            issue_overflow = len(issues) - top_n
+        else:
+            shown_issues = issues
+            issue_overflow = 0
+        for issue in shown_issues:
+            parts.append(f"  {issue['file']}: {issue['reason']}")
+        if issue_overflow > 0:
+            parts.append(f"  ... and {issue_overflow} more (use --all for full list)")
     return "\n".join(parts)

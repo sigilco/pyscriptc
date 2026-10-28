@@ -497,6 +497,11 @@ def main(argv: list[str] | None = None) -> int:
     coverage_parser.add_argument("source")
     coverage_parser.add_argument("--json", action="store_true", help="print the report as JSON")
     coverage_parser.add_argument(
+        "--all",
+        action="store_true",
+        help="print the full report without capping the per-file and per-fence lists",
+    )
+    coverage_parser.add_argument(
         "--fail-on",
         choices=("blockers", "any"),
         help="exit 1 when root fences (blockers) or any fence exist; default always exits 0",
@@ -1114,7 +1119,7 @@ def coverage_cmd(args: argparse.Namespace) -> int:
     _load_compiler()
     report = build_report(Path(args.source))
     log.info("coverage.report", source=args.source)
-    print(json.dumps(report, indent=2) if args.json else render_text(report))
+    print(json.dumps(report, indent=2) if args.json else render_text(report, show_all=args.all))
     summary = report["summary"]
     telemetry.track("coverage.reported", telemetry.coverage_properties(summary))
     mode = args.fail_on
