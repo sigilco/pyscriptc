@@ -22,9 +22,11 @@ from __future__ import annotations
 
 import http.server
 import os
+import re
 import shutil
 import ssl
 import subprocess
+import sys
 import threading
 from pathlib import Path
 
@@ -208,6 +210,55 @@ def _compile_with_adapter(tmp_path: Path, source: Path, name: str) -> Path:
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     return binary
+
+
+def test_the_client_config_is_client_only() -> None:
+    """The committed trim is a client config: no server, no DTLS, 1.2 and 1.3."""
+    text = (ADAPTER / "mbedtls_config_client.h").read_text(encoding="utf-8")
+    enabled = set(re.findall(r"^#define\s+(MBEDTLS_[A-Z0-9_]+)", text, re.M))
+    # The client side is on, the server side is off.
+    assert "MBEDTLS_SSL_CLI_C" in enabled
+    assert "MBEDTLS_SSL_SRV_C" not in enabled
+    # DTLS is off.
+    assert "MBEDTLS_SSL_PROTO_DTLS" not in enabled
+    # TLS 1.2 and TLS 1.3 are on.
+    assert "MBEDTLS_SSL_PROTO_TLS1_2" in enabled
+    assert "MBEDTLS_SSL_PROTO_TLS1_3" in enabled
+    # The ciphers a public HTTPS endpoint negotiates are on, the rest is off.
+    assert "MBEDTLS_AES_C" in enabled
+    assert "MBEDTLS_GCM_C" in enabled
+    assert "MBEDTLS_CHACHA20_C" in enabled
+    assert "MBEDTLS_CAMELLIA_C" not in enabled
+    assert "MBEDTLS_DES_C" not in enabled
+    assert "MBEDTLS_ARIA_C" not in enabled
+
+
+def test_the_client_config_matches_the_fetched_tree() -> None:
+    """The fetched tree carries the committed trim, byte for byte."""
+    fetched = ADAPTER / "vendor" / "mbedtls" / "include" / "mbedtls" / "mbedtls_config.h"
+    if not fetched.is_file():
+        pytest.skip("the vendored mbedTLS tree is not fetched")
+    committed = (ADAPTER / "mbedtls_config_client.h").read_bytes()
+    assert fetched.read_bytes() == committed
+
+
+def test_the_trim_is_reproducible_from_the_fetch() -> None:
+    """The unset list the fetch applies is the trim the adapter ships.
+
+    `fetch_vendor.py` reads the committed trim and switches every option it
+    lists off, so the fetched tree byte-matches the trim on every host. The
+    list is the options the trim comments out, so the two cannot drift.
+    """
+    sys.path.insert(0, str(ADAPTER))
+    try:
+        import fetch_vendor
+    finally:
+        sys.path.pop(0)
+    unset = fetch_vendor.client_unset()
+    assert unset, "the trim lists no options"
+    text = (ADAPTER / "mbedtls_config_client.h").read_text(encoding="utf-8")
+    for name in unset:
+        assert f"//#define {name}" in text, name
 
 
 @needs_openssl
