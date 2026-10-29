@@ -1738,6 +1738,18 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             # against the copy instead of the compile-time tree. Non-directory
             # sources keep today's behavior (divergence 46).
             staged_data = _collect_program_data(source_path)
+            # The selfpack (issue #678 follow-up): when the program IS the
+            # pyscriptc package under the island tier, its data files ride the
+            # embedded payload and the binary stays one file. Staging them a
+            # second time beside the binary would leave a 6 MB tree the run
+            # never reads (the extracted copy wins the rebase), so a
+            # self-packaged compile stages nothing.
+            if staged_data and fallback and source_path.resolve().name == "pyscriptc":
+                from pyscriptc.selfpack import DATA_FILES as _sp_files
+
+                staged_names = {rel.as_posix() for rel, _body in staged_data}
+                if all(name in staged_names for name in _sp_files):
+                    staged_data = []
         _package._STAGED_DATA_TARGET = (
             binary.parent / "pyscriptc-data" / source_path.resolve().name if staged_data and fallback else None
         )

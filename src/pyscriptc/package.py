@@ -352,6 +352,18 @@ def _program_island(
         is_package = any(name == entry and pkg for name, _path, pkg in units)
         main_package = entry if is_package else entry.rpartition(".")[0]
     staged = stage_program_data(root, staged_data or [])
+    # The selfpack (issue #678 follow-up): a program compile of the pyscriptc
+    # package itself embeds the package's data files (runtime C sources,
+    # target.json, native_packages.json, the vendored typeshed) so the
+    # emitted binary is self-contained. Any other program compiles without
+    # one: the payload would be dead weight in the binary.
+    selfpack_payload, selfpack_dir = "", ""
+    if root.name == "pyscriptc" and (root / "target.json").is_file():
+        from pyscriptc import selfpack as _selfpack
+
+        encoded = _selfpack.build_payload(_selfpack.collect_package_data(root))
+        selfpack_payload = encoded
+        selfpack_dir = _selfpack.digest_of(encoded)
     source = _boxed.program_island_source(
         units,
         entry=main,
@@ -359,6 +371,8 @@ def _program_island(
         root=root,
         path0=path0 or root,
         staged_data=staged,
+        selfpack=selfpack_payload,
+        selfpack_dir=selfpack_dir,
     )
     return _boxed.program_island_module(source, root)
 
