@@ -2,7 +2,7 @@
 
 The R1 rung of the adoption ladder: single-file CLI scripts, the smallest unit a user adopts.
 
-The plan that asks for this lives in `.agents/plans/2026-10-21-adoption-compat-ffi-strategy.md`, section B. R1 is the whole-file pass rate: the share of scripts that compile and match CPython on stdout, stderr and exit code for a recorded invocation. This directory holds the scripts, the CPython recordings and the runner that produces `REPORT.md`.
+R1 is the whole-file pass rate: the share of scripts that compile and match CPython on stdout, stderr and exit code for a recorded invocation. This directory holds the scripts, the CPython recordings and the runner that produces `REPORT.md`.
 
 This directory sits outside the frozen v2 gates. It never writes to `benchmarks/compat2/`, it does not import `outcomes.py` for anything but the outcome names, and it reuses the frozen `coverage_map` only through the public `pyscriptc.coverage` API. The v2 scorer and its corpus are untouched.
 

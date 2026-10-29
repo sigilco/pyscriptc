@@ -50,7 +50,7 @@ _UNWRAP_FORMS = frozenset({"Final", "ClassVar", "Annotated", "Required", "NotReq
 # `typing_extensions.` attributes.
 _NEVER_ALIASES = frozenset({"NoReturn", "Never"})
 _DYNAMIC_ANNOTATIONS = frozenset({"object", "Any", "Protocol", "TypeVar", "Generic", "Callable", "ABC"})
-# Tier-2 erasure (`.agents/plans/2026-10-18-tiered-lowering-and-typefacts.md`):
+# Tier-2 erasure (the tiered-lowering decision, `.agents/decisions.md`):
 # static-typing constructs that vanish before emission. `abc` is an erased
 # module, so these names arrive through `type_aliases` or an erased
 # `_resolve_module` triple.

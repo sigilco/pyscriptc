@@ -23,7 +23,7 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# Path gating (see .agents/notes/2026-10-28-ci-path-gating.md).
+# Path gating (see .agents/notes/ci-path-gating.md).
 #
 # The `changes` job classifies the diff and every other job reads its
 # outputs through `needs.changes.outputs.<group>`. A job that is skipped by
@@ -37,8 +37,8 @@ concurrency:
 # src/, tests/, benchmarks/, examples/, scripts/, packaging/, docker/, the
 # runtime C, pyproject.toml, uv.lock, mise.toml, .github/, .claude/ and
 # .agents/docs/ (each because a test reads it). Only the documentation
-# bubble can skip the expensive lanes: docs/, apps/web/, .agents/notes/,
-# .agents/plans/ and the pnpm lockfile.
+# bubble can skip the expensive lanes: docs/, apps/web/, .agents/notes/ and
+# the pnpm lockfile.
 #
 # Three groups, one always-on check:
 #
@@ -258,7 +258,7 @@ jobs:
 
   # Fail-closed aggregate. Green only when the classifier succeeded and no
   # lane that ran failed. It is the one check an admin would make required
-  # (see .agents/notes/2026-10-28-ci-path-gating.md): a single stable
+  # (see .agents/notes/ci-path-gating.md): a single stable
   # context that is green only when the lanes that mattered were green.
   #
   # It does not replace the per-lane required contexts today: those stay

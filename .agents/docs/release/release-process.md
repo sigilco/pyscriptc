@@ -74,7 +74,7 @@ The bolo `repository_dispatch` step is a stub. It is not wired until a token dec
 
 ## Release notes
 
-`CHANGELOG.md` is the source of truth. Every version has a `## [X.Y.Z] - date` heading and sections in this order, each omitted when empty (see `.agents/plans/2026-10-21-changelog-structure.md` for the reasoning):
+`CHANGELOG.md` is the source of truth. Every version has a `## [X.Y.Z] - date` heading and sections in this order, each omitted when empty (decision 2026-10-21: conventional-commit sections only, theme paragraph on top, Internal collapsed last):
 
 1. One theme paragraph under the heading, only when the release has a theme.
 2. `### Breaking changes`, first when present. One line per entry: what changed, who is affected, the migration.
@@ -100,7 +100,7 @@ Every release body opens with this standard line:
 
 ## Release classes and bar
 
-See the Release policy section in `AGENTS.md` for the thresholds (patch, hotfix, minor, rc) and `.agents/plans/2026-10-21-release-cadence-strategy.md` for the data behind them. The rehearsal and the automated bar are described above in "Rehearse before tagging" and "The bar".
+See the Release policy section in `AGENTS.md` for the thresholds (patch, hotfix, minor, beta, rc) and the beta gates (decision 2026-10-23: `pre_kind=beta` cuts `vX.Y.Z-beta.N` tags with `X.Y.ZbN` in `pyproject.toml`, one mapping helper in `release_bar.py`; the beta bar is a green rehearsal on the exact commit, at least 2 user-visible features since the last stable, beta number at most `MAX_PRE`, and the open-issue list triaged; beta and rc GitHub releases are drafts flagged prerelease, never Latest; testers follow `docs/getting-started/beta.md` and file the `beta-feedback` template). The go-public gate (typed demo program compiles and runs from the README, the compat site current, install and first-run verified on all three platforms) is a milestone exit criterion. The rehearsal and the automated bar are described above in "Rehearse before tagging" and "The bar".
 
 ## Starting thresholds in plain language
 

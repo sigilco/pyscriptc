@@ -4,7 +4,7 @@ Assessment for the CPython versions pyscriptc declares, oracles against, and
 plans to target with `--target-version`. Sources: [endoflife.date
 python](https://endoflife.date/python) (queried 2026-10-17), the release PEPs,
 and the repo's own files (`pyproject.toml`, `docker/Dockerfile`,
-`benchmarks/compat2/probes/`, `docs/version-track.md`, `README.md`).
+`benchmarks/compat2/probes/`, `benchmarks/compat2/version_surface.py`, `README.md`).
 
 ## CPython lifecycle (verified)
 
@@ -50,7 +50,7 @@ The version axis touches the repo in these places:
   stdlib changes are real surface. `parse_qs` splits on `&` only "which is
   what CPython 3.14 does" (`README.md:121`) — the 3.13-and-earlier behavior
   differed. The typeshed `VERSIONS` gate (design in
-  `docs/version-track.md`) must cover every name whose presence or semantics
+  the version surface survey) must cover every name whose presence or semantics
   spans the window; a narrower window shrinks that table's edge cases
   (`tomllib` 3.11+, `annotationlib`/`templatelib` 3.14+).
 - Host interpreter: the compiler parses with the *running* interpreter's
@@ -124,7 +124,7 @@ hard floor for the host.**
    `probes/versions.py` docstring floor 3.10 → 3.11;
    `version_surface.py::TARGET_VERSIONS` range 10→11; regenerate `MANIFEST.json`
    (byte-identical discipline: regenerate twice, `cmp`).
-4. `docs/version-track.md`: retarget `--target-version {3.11..3.14}`, update
+4. The version surface survey: retarget `--target-version {3.11..3.14}`, update
    the node-gate table's 3.10 row (match gating moves to "below floor" notes).
 5. `README.md` / `.agents/docs/support/supported.md`: state the 3.12 host floor and the
    3.11–3.14 target axis.

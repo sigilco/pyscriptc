@@ -1,6 +1,6 @@
 # The str model: UTF-8 storage with CPython code-point semantics
 
-Status: decided 2026-10-24 (owner decision, `.agents/decisions.md`, entry "The `str` model is the CPython code-point model"). This is the S1 design record for epic #472. S1 (#473) lands the payload shape and the scaffolding; the semantics land phase by phase (S2 to S7).
+Status: decided 2026-10-24 (owner decision 2026-10-24, `.agents/decisions.md`). This is the S1 design record for epic #472. S1 (#473) lands the payload shape and the scaffolding; the semantics land phase by phase (S2 to S7).
 
 `str` is a sequence of Unicode code points, stored as UTF-8 bytes. Every operation CPython defines over code points is defined over code points here. Text I/O reads and writes UTF-8 by default (PEP 540, PEP 686). `bytes` stays a byte sequence.
 
@@ -93,7 +93,7 @@ The IR needs no new node kind: `const` already carries the source text of a stri
 - The `subset` stamp stays `gates-v1`. The gate set does not change: the same programs lower before and after. The invariants rule about the subset string is about the language surface, and S1 does not touch it.
 - The five `"irVersion": 1` literal sites (`lower/__init__.py`, `package.py`) move to the shared constant in the same commit, so the stamp has one definition.
 
-Frozen gates: the payload change moves `benchmarks/compat2/probes/IR_HASHES.json` (every module's canonical form changes). The gate-change decision is recorded in `.agents/decisions.md` (entry "S1 moves the frozen v2 gates for the str payload"). The regeneration runs on Linux only, through the `ir-hashes` workflow's A/B byte-identical discipline, never by hand on macOS. `outcomes.py`, the `score.py` weights, `coverage_map.py` and `cache.py` do not change.
+Frozen gates: the payload change moves `benchmarks/compat2/probes/IR_HASHES.json` (every module's canonical form changes). The gate-change decision is recorded in `.agents/decisions.md` (the 2026-10-24 S1 gate-change row). The regeneration runs on Linux only, through the `ir-hashes` workflow's A/B byte-identical discipline, never by hand on macOS. `outcomes.py`, the `score.py` weights, `coverage_map.py` and `cache.py` do not change.
 
 TODO (this PR, before merge): regenerate `IR_HASHES.json` through the `ir-hashes` workflow (`workflow_dispatch` on this branch), verify the A/B run is byte-identical (`cmp`), and copy the artifact into `benchmarks/compat2/probes/`. The baseline header also stamps the compiler ABI through the lowered modules, so it must land in the same PR as the `IR_VERSION` bump, and CI's irscore check stays red until it does.
 

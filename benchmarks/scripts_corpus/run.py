@@ -1,6 +1,6 @@
 """Script corpus runner: compile every script and report the blocking features.
 
-This is the R1 rung of the adoption ladder (see `.agents/plans/2026-10-21-adoption-compat-ffi-strategy.md`).
+This is the R1 rung of the adoption ladder.
 R1 is the whole-file pass rate: the share of single-file CLI scripts that compile
 and match CPython on stdout, stderr and exit code.
 

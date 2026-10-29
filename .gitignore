@@ -37,3 +37,6 @@ benchmarks/real/.scratch/
 /with.txt
 /nums.json
 *.obj
+
+# session plans stay on the owner disk; planning lives in GitHub milestones
+.agents/plans/

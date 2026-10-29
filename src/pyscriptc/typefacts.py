@@ -1,7 +1,7 @@
 """Checker-facts seam.
 
 Lowering never consumes a checker's internal type objects, so pyscriptc owns
-a narrow facts IR (`.agents/plans/2026-10-18-tiered-lowering-and-typefacts.md`).
+a narrow facts IR (the tiered-lowering decision; see `.agents/docs/design/checker-bridge.md`).
 A `FactsProvider` reports what the checker decided (optional/union members,
 callable signatures, overload choices, generic arguments) and tier-2
 lowering queries it. `PyreflyTspFactsAdapter` is the default oracle since

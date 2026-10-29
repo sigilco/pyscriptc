@@ -2,7 +2,7 @@
 
 Epic F design doc. `--ffi <manifest>` binds `.pyi`-style signature
 declarations to C ABI symbols and links the C library into the single
-binary. The plan line is `.agents/plans/2026-10-14-waves-after-scorer-v2.md:79`;
+binary. Epic F of the wave plan;
 the seam and ownership model are `docs/http-seam-design.md`; the ABI rules it
 must respect are `docs/abi-strategy.md`. The F0 gate (manifest parser and
 validator, `src/pyscriptc/ffi_manifest.py`) ships as a draft PR ahead of the
@@ -459,8 +459,7 @@ Configuration (`pyscriptc.toml`, P3/v0.5.0):
 - The planned config surface carries `ffi = ["packaging/adapters/pyscriptc-sqlite/ffi.toml"]`:
   a list of manifest paths resolved relative to the config file and passed
   to `load_manifests`. The per-import policy table maps a module to the
-  `"extern"` lane (`.agents/plans/2026-10-21-adoption-compat-ffi-strategy.md`,
-  section B); the manifest's `module` claim is what binds them.
+  `"extern"` lane of the adoption ladder); the manifest's `module` claim is what binds them.
 
 Tooling:
 

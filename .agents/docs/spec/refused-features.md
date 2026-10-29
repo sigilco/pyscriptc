@@ -2,7 +2,7 @@
 
 The features pyscriptc rejects by design: constructs that are legal CPython but make compiled programs less reliable, less predictable, or unverifiable statically. Spec only - nothing here is implemented. This is the same posture vercel-labs/scriptc takes against TypeScript reflection and experimental decorators: a closed subset is only trustworthy when it also refuses the host language's footguns, not only its unimplemented surface.
 
-A fence today answers "not lowered yet" (PS2xxx, the epics in `.agents/plans/`). A refusal answers "never, and here is what to write instead". The distinction matters to users: a PS2101 row is a queue position, a refusal is a decision. Refusals live in a dedicated diagnostic range, **PS42xx - refused by design**, registered in `src/pyscriptc/diagnostics.py` with the same `title` / `why` / `fix` shape as existing entries. Existing fence codes and messages are untouched; a PS42xx code is a later rollout gated on this census.
+A fence today answers "not lowered yet" (PS2xxx, the epic queue on the board). A refusal answers "never, and here is what to write instead". The distinction matters to users: a PS2101 row is a queue position, a refusal is a decision. Refusals live in a dedicated diagnostic range, **PS42xx - refused by design**, registered in `src/pyscriptc/diagnostics.py` with the same `title` / `why` / `fix` shape as existing entries. Existing fence codes and messages are untouched; a PS42xx code is a later rollout gated on this census.
 
 The `PS4xxx` numbers this document first proposed are taken: `PS4001`-`PS4016` are the FFI manifest range (`src/pyscriptc/ffi_manifest.py`) and `PS4101` is the mobile-target refusal. The refusal range therefore starts at `PS4201`.
 

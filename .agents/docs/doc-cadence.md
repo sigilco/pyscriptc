@@ -74,7 +74,6 @@ Documentation is partitioned into three distinct cadence classes:
 | `CHANGELOG.md` | User-visible change log | On release cut |
 | `.agents/docs/release/release-process.md` | Release execution checklist | When release flow changes |
 | `.agents/docs/release/python-version-window.md` | Host and target version windows | On Python version shifts |
-| `.agents/docs/release/version-track.md` | Version mapping and SemVer rules | On version scheme shifts |
 
 ### 3. Per-nightly data (strictly JSON in compat/data/)
 

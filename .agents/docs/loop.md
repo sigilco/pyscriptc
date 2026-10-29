@@ -1,6 +1,6 @@
 # Iteration loop
 
-This file is the procedure for one compiler iteration after `gates-v2`. An agent with this file and the repo can name the target, run the checks, and keep or revert the commit. Epic order lives in `.agents/plans/2026-10-14-waves-after-scorer-v2.md`. File ownership lives in [map.md](map.md). Rules a change has to keep live in [invariants.md](invariants.md).
+This file is the procedure for one compiler iteration after `gates-v2`. An agent with this file and the repo can name the target, run the checks, and keep or revert the commit. Epic order lives in the GitHub milestones and the project board. File ownership lives in [map.md](map.md). Rules a change has to keep live in [invariants.md](invariants.md).
 
 The v1 loop and its KPI floors are retired. Those floors were language 45/56, builtins 120/150, stdlib modules 156/194, stdlib surface 1983/2478, and top 100 10/100. A pytest increase, a packaging fence-count change, a progress-log line, a first-fence string edit, and a flat percent are not the metric.
 
@@ -20,7 +20,7 @@ Do this in a worktree from `.agents/bin/agent-checkout <name>`.
 
 ## Primary metric
 
-Weighted pass under the CPython 3.12 oracle. The 3.12 oracle is the target. This branch's scorer still uses `sys.executable` in `benchmarks/compat2/score.py` until A1's `--oracle` switch exists. The score and verdict commands in this file run with the interpreter this branch runs (`uv run python`).
+Weighted pass under the pinned CPython 3.14 oracle (`PIN_NAME` in `benchmarks/compat2/score.py`; the project target is CPython 3.14.x). The score and verdict commands in this file run with the interpreter this branch runs (`uv run python`).
 
 `weighted_pass` is the sum of the score JSON `weights[id]` over rows whose `outcome` is `pass`. The verdict's `primary_delta` is the candidate sum minus the baseline sum.
 
@@ -35,7 +35,7 @@ Weighted pass under the CPython 3.12 oracle. The 3.12 oracle is the target. This
 | Top 100 corpus function (`top100.<project>.<qual>`) | 2.0 |
 | Top 100 whole package (`top100.<project>`) | 5.0 |
 
-`raises` probes that name a specific exception stay at weight 0 until E2, then 1.0. Weight 0 rows do not move the primary metric. These weights are frozen with `gates-v2` (probe `weight`, and `WEIGHTS` in `benchmarks/compat2/outcomes.py`). An iteration does not edit them.
+`raises` and `mention` probes stay at weight 0 (`RAISES_WEIGHT`, `MENTION_WEIGHT` in `benchmarks/compat2/outcomes.py`; frozen with `gates-v2`). Weight 0 rows do not move the primary metric. An iteration does not edit them.
 
 Before the first keep of an epic, spot-check the baseline score JSON. One id of each class in the table must carry that weight. A mismatch means the freeze is wrong: stop the iteration and report it.
 
@@ -48,7 +48,7 @@ Leading indicator, recorded on every iteration and in the epic boundary report:
 
 ## Epics and budgets
 
-The epic file is `.agents/plans/<date>-epic-<name>.md` (date like `2026-10-14`). Create it before the first edit of the epic. It declares:
+The epic file is a local `.agents/plans/<date>-epic-<name>.md` (untracked session file). Create it before the first edit of the epic. It declares:
 
 - the coverage family key (a key from `pyscriptc.coverage`, for example `module-statements`)
 - the budget N

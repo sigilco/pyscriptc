@@ -3,7 +3,7 @@
 Run: python -m benchmarks.compat2.census_defs [--src DIR] [--json OUT]
 
 The v0.6.0 generator receipts are stated per definition (issue #165 and the
-P1 exit criteria in `.agents/plans/2026-10-21-async-threads-design.md`):
+v0.6.0 milestone's P1 exit criteria):
 how many of the corpus's generator functions and `@contextmanager`
 definitions still carry a generator fence, and how many lower clean. The
 package census (`benchmarks.compat2.census`) counts fences by family and

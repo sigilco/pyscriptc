@@ -11,14 +11,12 @@ Preview the internal notes with `mise run docs:internal` (a docmd dev server ove
 - [Audit logging](pyscriptc-debug.md) — the JSONL audit log and its directives
 - [Map](map.md) — which file owns a fence, a runtime call, or a test
 - [Toolchain](toolchain.md) — C compiler driver resolution, Zig preference, and `ziglang`
-- [Roadmap](roadmap.md) — language order after the stdlib queue, and where native `.so` files sit
 - [Benchmark audit](benchmarks-audit.md) — what the benchmark suite measures and what it does not
 - [Compat site](compat-site.md) — the data file, the builder and the deploy
 
 ## Specs
 
-- [E1 boundary](spec/e1-boundary.md) — the E1 lowering boundary
-- [E1 entrypoint detector spec](spec/e1-entrypoint-detector-spec.md) and [results](spec/e1-entrypoint-detector-results.md)
+- [E1 entrypoint detector spec](spec/e1-entrypoint-detector-spec.md) (the permanent detector is `benchmarks/compat2/entrypoints.py`)
 - [E2 exception model](spec/e2-exception-model.md) — the exception surface
 - [IR canonicity](spec/ir-canonicity.md) — the canonical IR rules
 - [Fence repro probes](spec/fence-repro-probes.md)
@@ -26,7 +24,6 @@ Preview the internal notes with `mise run docs:internal` (a docmd dev server ove
 - [Refused features (PS4xxx)](spec/refused-features.md) — what is refused by design
 - [External oracles](spec/external-oracles.md) — mypy and pyright as second opinions
 - [HTTP seam design](spec/http-seam-design.md)
-- [Wave C backlog](spec/wave-c-backlog.md)
 
 ## Design notes
 
@@ -42,13 +39,10 @@ Preview the internal notes with `mise run docs:internal` (a docmd dev server ove
 
 - [Compile-rate essence method](benchmarks/compile-rate-essence-method.md)
 - [Self-host baseline](benchmarks/self-host-baseline.md)
-- [Cross-compile assessment](benchmarks/cross-compile-assessment.md)
-- [E0 cost baseline](benchmarks/e0-cost-baseline.md)
 
 ## Release
 
 - [Release process](release/release-process.md) — the bar, the rehearsal and the tag
-- [Version track](release/version-track.md)
 - [Python version window](release/python-version-window.md) — why the floor is CPython 3.14
 - [Embedded runtime pack](release/embed-runtime.md) — pinning, the bump procedure and the security cadence
 
