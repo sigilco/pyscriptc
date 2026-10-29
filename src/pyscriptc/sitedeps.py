@@ -64,8 +64,12 @@ def distributions_of(root: str) -> list[str]:
     answers: a `*.dist-info` whose RECORD lists the root, or else a package
     directory of that name on a site path as its own distribution (how source
     trees and RECORD-only installs answer).
-    """
 
+    A root that names a distribution rather than an import module
+    (`annotated-types`, from a `Requires-Dist`) is answered by the
+    distribution metadata under both spellings, because a requirement
+    writes the distribution name and an import writes the module name.
+    """
     from importlib import metadata
 
     try:
@@ -84,6 +88,9 @@ def distributions_of(root: str) -> list[str]:
                 return [dist_info.name[: -len(".dist-info")]]
         if (site_dir / root).is_dir() or (site_dir / f"{root}.py").is_file():
             return [root]
+    spelled = root.replace("-", "_")
+    if spelled != root:
+        return distributions_of(spelled)
     return []
 
 
@@ -188,17 +195,22 @@ def _closure(roots: list[str]) -> dict[str, list[str]]:
             for requirement in requires:
                 if ";" in requirement:
                     marker = requirement.split(";", 1)[1]
-                    # extra markers (`extra == "..."`) are optional unless the
-                    # program opts in by importing the extra's modules, and a
-                    # failing marker means the requirement does not apply here.
-                    if "extra" not in marker:
-                        try:
-                            import packaging.markers
+                    # An extra marker (`extra == "..."`) gates an optional
+                    # requirement: the program opts in by importing the
+                    # extra's modules, and nothing here knows which extras
+                    # the program wants, so an extra-gated requirement does
+                    # not travel. A marker without an extra is an
+                    # environment condition, and a failing one means the
+                    # requirement does not apply here.
+                    if "extra" in marker:
+                        continue
+                    try:
+                        import packaging.markers
 
-                            if not packaging.markers.Marker(marker).evaluate():
-                                continue
-                        except Exception:
-                            pass
+                        if not packaging.markers.Marker(marker).evaluate():
+                            continue
+                    except Exception:
+                        pass
                 name = requirement.split(";", 1)[0].strip()
                 for separator in " <>=!~[":
                     name = name.split(separator, 1)[0]

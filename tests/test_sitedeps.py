@@ -156,6 +156,51 @@ def test_closure_walks_transitive_when_root_names_its_own_distribution(
     assert resolved == {"toplevel": ["toplevel"], "helper": ["helper"]}
 
 
+def test_closure_skips_an_extra_gated_requirement(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An `extra == "..."` requirement does not travel.
+
+    The program opts into an extra by importing the extra's modules, and
+    the walk cannot know which extras the program wants. Pulling every
+    extra in dragged Markupsafe (a compiled extension) into the Flask
+    bundle through `jinja2`, and the bundle compile refused with PS4302
+    for a dependency the app never imports.
+    """
+    site = _fake_site(tmp_path / "site")
+    monkeypatch.setattr("pyscriptc.imports._site_packages", lambda: [site])
+    monkeypatch.setattr(
+        "pyscriptc.sitedeps.distributions_of",
+        lambda root: {"toplevel": ["toplevel"], "optional": ["optional"], "needed": ["needed"]}.get(root, []),
+    )
+    from importlib import metadata
+
+    def _requires(dist):
+        if dist == "toplevel":
+            return ["needed>=1", 'optional>=1; extra == "full"', "envdep>=1; python_version < '3.0'"]
+        return []
+
+    monkeypatch.setattr(metadata, "requires", _requires, raising=False)
+    resolved = sitedeps._closure(["toplevel"])
+    assert "needed" in resolved, "a plain requirement travels"
+    assert "optional" not in resolved, "an extra-gated requirement does not travel"
+    assert "envdep" not in resolved, "a failing environment marker does not travel"
+
+
+def test_distributions_of_answers_a_distribution_spelling(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A requirement names a distribution (`annotated-types`), an import names a module.
+
+    The closure reads `Requires-Dist`, whose names are distribution names,
+    while `distributions_of` answers for import roots. The two spellings
+    differ (`annotated-types` against `annotated_types`), so the lookup
+    tries the module spelling too.
+    """
+    site = tmp_path / "site-packages"
+    site.mkdir()
+    (site / "annotated_types.py").write_text("value = 1\n", encoding="utf-8")
+    monkeypatch.setattr("pyscriptc.imports._site_packages", lambda: [site])
+    assert sitedeps.distributions_of("annotated_types") == ["annotated_types"]
+    assert sitedeps.distributions_of("annotated-types") == ["annotated_types"]
+
+
 def test_record_roots_reads_a_dist_info_record(tmp_path: Path) -> None:
     record = tmp_path / "RECORD"
     record.write_text(
