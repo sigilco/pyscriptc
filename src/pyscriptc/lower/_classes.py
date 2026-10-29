@@ -1016,6 +1016,11 @@ class ClassesMixin:
             # no fence from the peek: the caller keeps its own diagnostic.
             bridged = self._infer_signature(fn)
             if bridged is None:
+                # The checker's proof is the fallback for the body's own
+                # proof (it types the whole body, so it sees returns the
+                # subset's peek cannot lower).
+                bridged = self._bridged_signature(fn)
+            if bridged is None:
                 self.fail(fn, "PS1001", f"{fn.name} needs a return annotation")
             ret = bridged
         else:
@@ -2170,6 +2175,12 @@ def _param(
         # peek the refusal becomes a caught fence, so the peek returns None.
         if fn is not None:
             inferred = lowerer._bridge_param_type(fn, arg)
+            if inferred is not None:
+                return {"name": arg.arg, "type": inferred}
+            # Cross-module pin (`pyscriptc infer`): the whole-package call
+            # sites proved the parameter's type. Applied only after the
+            # bridge (the per-module map wins when both answer).
+            inferred = lowerer._checker_pin_type(fn, arg)
             if inferred is not None:
                 return {"name": arg.arg, "type": inferred}
         # Issue #500: an unannotated parameter with a default of a proven

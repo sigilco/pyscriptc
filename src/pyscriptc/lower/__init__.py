@@ -297,6 +297,31 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # inferred-type map. None means no bridge: lowering keeps every
         # inference fence exactly as before.
         self.bridge: Any = None
+        # Cross-module parameter pinning (issue #87, `pyscriptc infer`):
+        # the checker's call-site facts, keyed by module stem and qualified
+        # name, with the source line/col of each call. Set by `pyscriptc
+        # infer`; None means the compiler's own same-module pin stands.
+        self.call_site_facts: Any = None
+        # Every fact the checker proved and the lowerer accepted this run,
+        # for `compile --debug` and `pyscriptc infer`. A record carries the
+        # module, qualified name, the accepted IR type and a render of the
+        # checker's proof. The bridge owns the list when one is wired, so
+        # a package compile gathers every file's records in one place.
+        self.infer_records: list[dict[str, Any]] = []
+
+    def _record_inference(self, record: dict[str, Any]) -> None:
+        """Record one accepted inference fact.
+
+        The list lives on the bridge when one is wired (a package compile
+        gathers every file's records in one place) and on the lowerer
+        otherwise (a single-file compile with no bridge).
+        """
+        target = self.bridge
+        sink = getattr(target, "infer_records", None)
+        if sink is None:
+            self.infer_records.append(record)
+        else:
+            sink.append(record)
 
     def _bridge_type(self, node: ast.expr) -> dict[str, Any] | None:
         """The IR type the checker inferred for an expression, or None.
@@ -322,6 +347,43 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         if self.bridge is None:
             return None
         return self.bridge.param_type(fn, arg.arg, self.classes)
+
+    def _checker_pin_type(self, fn: ast.FunctionDef | ast.AsyncFunctionDef, arg: ast.arg) -> dict[str, Any] | None:
+        """The IR type the package's call sites proved for this parameter, or None.
+
+        The pin is a whole-package fact (`pyscriptc infer` ran the checker
+        over every module and reduced the call sites to the parameters
+        every caller agreed on). It applies only to a module-level def the
+        pin names by its qualified name; a method or a def the pin does not
+        name keeps its fence.
+        """
+        if self.call_site_facts is None:
+            return None
+        from pyscriptc.inferfacts import parse_pin_type
+
+        pins = self.call_site_facts.pins_for(f"{self.module_name}.{fn.name}" if self.module_name else fn.name)
+        pin = pins.get(arg.arg)
+        if pin is None:
+            return None
+        from pyscriptc.factsbridge import facts_to_ir
+
+        parsed = parse_pin_type(pin.kind)
+        if parsed is None:
+            return None
+        ir = facts_to_ir(parsed, self.classes)
+        if ir is not None:
+            self._record_inference(
+                {
+                    "kind": "param",
+                    "module": self.module_name,
+                    "name": f"{fn.name}.{arg.arg}",
+                    "type": pin.kind,
+                    "proof": (
+                        f"pyrefly proved the type of every argument passed to {arg.arg} across {pin.sites} call site(s)"
+                    ),
+                }
+            )
+        return ir
 
     def _bridge_return_type(self, fn: ast.FunctionDef | ast.AsyncFunctionDef) -> dict[str, Any] | None:
         """The IR type the checker inferred for a missing return annotation."""
@@ -484,6 +546,12 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         type, so it does not flow into the inferred return. The PS1004
         fall-off-the-end fence is replayed by the real pass, which signs
         and lowers the body for real.
+
+        When the body's own proof fails, the checker's proof is the
+        fallback (`--bridge pyrefly`, `pyscriptc infer`): the checker
+        types the whole body, so it sees returns the subset's peek cannot
+        lower. The checker's answer is used only when the subset can
+        express it, and it is recorded so `compile --debug` shows it.
         """
         if fn.returns is not None or self.function is None:
             return None
@@ -582,6 +650,35 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         if _has_typevar(inferred):
             return None
         return inferred
+
+    def _bridged_signature(self, fn: ast.FunctionDef | ast.AsyncFunctionDef) -> dict[str, Any] | None:
+        """The return type the checker proved for this def, or None.
+
+        The checker's answer is the fallback for the body's own proof: it
+        types the whole body, so it proves a return the subset's peek
+        cannot lower (a call the subset refuses, a builtin it does not
+        know). Only a type the subset can express is used, and only when
+        the checker proved a concrete one (never `Any`).
+        """
+        if self.bridge is None:
+            return None
+        proven = self._bridge_return_type(fn)
+        if proven is None:
+            return None
+        facts = self._bridge_def(fn)
+        rendered = None
+        if facts is not None and facts.return_type is not None:
+            rendered = facts.return_type.runtime_repr
+        self._record_inference(
+            {
+                "kind": "return",
+                "module": self.module_name,
+                "name": fn.name,
+                "type": rendered or str(proven),
+                "proof": "the checker proved this return type from the function body",
+            }
+        )
+        return proven
 
     def _bindings_types(self) -> dict[str, dict[str, Any]]:
         """The import-bound modules as peekable types.

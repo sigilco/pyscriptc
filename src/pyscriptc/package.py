@@ -217,8 +217,6 @@ def _lower_units(
     entry never imports them, so CPython never runs their bodies.
     """
 
-    exports, failed = _catalog([*units, *(catalog_units or [])], program, entry=entry, target=target, config=config)
-
     # A bridge is built per file: mypy's TypeMap covers one module, so a
     # package tree runs the checker once per unit and lowering consults the
     # map of the file it is in (issue #258). A plain `CheckerBridge` is a
@@ -234,6 +232,19 @@ def _lower_units(
             found = per_file(path)
             file_bridges[str(path)] = found
         return found
+
+    # The catalog pass runs the same lowering over each unit to learn the
+    # exports, so it needs the same bridges and the same pin map: a def
+    # the checker proved keeps its export instead of being reported as
+    # unexported.
+    exports, failed = _catalog(
+        [*units, *(catalog_units or [])],
+        program,
+        entry=entry,
+        target=target,
+        config=config,
+        bridge=bridge_for,
+    )
 
     if program:
         fences, owners = _program_plan(units, exports, entry=entry)
@@ -268,7 +279,11 @@ def _lower_units(
             lowerer.program_roots = dep_names
             lowerer.module_init = program and name != "__main__" and name != entry
             lowerer.entry_module = entry is not None and name == entry
-            lowerer.bridge = bridge_for(path)
+            per_file_bridge = bridge_for(path)
+            lowerer.bridge = per_file_bridge
+            # The package-wide pin map rides the per-file bridge: the
+            # lowerer reads it through the same handle (`pyscriptc infer`).
+            lowerer.call_site_facts = getattr(per_file_bridge, "call_site_facts", None)
             module = lowerer.module(tree)
             # boxed:begin
             needs_island = needs_island or _boxed.unit_needs_island(module)
@@ -908,13 +923,16 @@ def _catalog(
     entry: str | None = None,
     target: str | None = None,
     config: Any = None,
+    bridge: Any = None,
 ) -> tuple[dict[str, dict[str, dict[str, Any]]], dict[str, dict[str, dict[str, Any]]]]:
     """Repeat until a subclass can see a base exported by an earlier pass."""
 
     exports: dict[str, dict[str, dict[str, Any]]] = {}
     failed: dict[str, dict[str, dict[str, Any]]] = {}
     for _ in range(len(units) + 1):
-        nxt, nxt_failed = _catalog_once(units, exports, program, entry=entry, target=target, config=config)
+        nxt, nxt_failed = _catalog_once(
+            units, exports, program, entry=entry, target=target, config=config, bridge=bridge
+        )
         if nxt == exports:
             return nxt, nxt_failed
         exports, failed = nxt, nxt_failed
@@ -928,6 +946,7 @@ def _catalog_once(
     entry: str | None = None,
     target: str | None = None,
     config: Any = None,
+    bridge: Any = None,
 ) -> tuple[dict[str, dict[str, dict[str, Any]]], dict[str, dict[str, dict[str, Any]]]]:
     found: dict[str, dict[str, dict[str, Any]]] = {}
     failed: dict[str, dict[str, dict[str, Any]]] = {}
@@ -944,6 +963,10 @@ def _catalog_once(
         lowerer.program = program
         lowerer.module_init = program and name != "__main__" and name != entry
         lowerer.entry_module = entry is not None and name == entry
+        if bridge is not None:
+            unit_bridge = bridge(path) if callable(bridge) else bridge
+            lowerer.bridge = unit_bridge
+            lowerer.call_site_facts = getattr(unit_bridge, "call_site_facts", None)
         module = lowerer.module(tree)
         exc_n = lowerer.exc_n
         found[name] = _exports_of(name, lowerer)

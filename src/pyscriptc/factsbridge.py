@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import ast
 import tempfile
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -369,6 +370,15 @@ class PyreflyBridge:
     `pyrefly tsp` (the `pyrefly/typeFacts` bulk request plus the per-def
     `typeServer/getComputedType` signature), not from mypy's TypeMap.
 
+    `facts(path)` runs TSP with `check-unannotated-defs` and
+    `infer-return-types = "checked"` pinned on the command line (the
+    tsp server has no config file on its argv, so pyrefly.toml defaults
+    would otherwise apply): an unannotated `def` then reports its
+    inferred return type instead of `Any`, even for a fully unannotated
+    def. Parameter types are unchanged: pyrefly resolves an unannotated
+    parameter to `Any` regardless (checked on 1.4.x, the same limit the
+    mypy lane has).
+
     What pyrefly proves and what it does not, measured on pyrefly 1.4.x
     (issue #258):
 
@@ -377,11 +387,15 @@ class PyreflyBridge:
       `dict[str, int]`, `Literal[...]`).
     - Parameters: pyrefly resolves an annotated parameter to its type, and
       resolves an unannotated one to `Any` exactly like mypy does. It does
-      not infer an unannotated parameter from its uses or its callers.
-    - Returns: an unannotated `def` gets `Any` as its computed return type
-      even when every `return` statement agrees on a type. The bridge
-      recovers it the same way the mypy lane does, from the return
-      expressions' own facts, and only when they all agree.
+      not infer an unannotated parameter from its uses or its callers
+      (`pyrefly infer` pins the same `a: int` only from literal same-file
+      call sites; cross-module or non-literal callers do not pin).
+    - Returns: with the two flags pinned here, an unannotated `def`
+      carries its inferred return type (literal widened: `Literal['x']`
+      reads as `str`, `LiteralString` as `str`). Without them (the raw
+      tsp default) an unannotated `def` gets `Any`, and the bridge
+      recovers it from the return expressions' own facts, only when they
+      all agree.
 
     So the two lanes answer the same questions with the same limits: the
     bridge is a second opinion on the checker, not a second inference
@@ -389,6 +403,36 @@ class PyreflyBridge:
     """
 
     name = "pyrefly"
+
+    def _config_args(self) -> list[str]:
+        """`tsp` spawn flags that pin the inference configuration.
+
+        `pyrefly tsp` takes none of the check-mode inference flags on its
+        command line, so the bridge writes a synthetic `pyrefly.toml`
+        (`check-unannotated-defs = true`, `infer-return-types = "checked"`)
+        into a scratch directory and points the server at it with
+        `--config`. An unannotated `def` then reports its inferred return
+        type instead of `Any` (checked on 1.4.x). The directory outlives
+        the adapter's lifetime: the caller passes it back with
+        `_config_dir_done` after `facts()` returns.
+        """
+        directory = tempfile.TemporaryDirectory(prefix="pyscriptc-pyrefly-tsp-")
+        self._config_dir = directory
+        Path(directory.name, "pyrefly.toml").write_text(
+            'check-unannotated-defs = true\ninfer-return-types = "checked"\n',
+            encoding="utf-8",
+        )
+        return ["--config", str(Path(directory.name, "pyrefly.toml"))]
+
+    def _config_dir_done(self) -> None:
+        """Release the scratch config directory after `facts()` returned."""
+        if self._config_dir is not None:
+            self._config_dir.cleanup()
+            self._config_dir = None
+
+    def __init__(self, command: str | Sequence[str] | None = None) -> None:
+        self._command = command
+        self._config_dir: tempfile.TemporaryDirectory[str] | None = None
 
     def facts(self, path: Path) -> BridgeFacts:
         from pyscriptc.typefacts import PyreflyTspFactsAdapter
@@ -403,8 +447,10 @@ class PyreflyBridge:
         except SyntaxError as exc:
             raise CheckFailed(f"cannot parse {path}: {exc}") from exc
         lines = source.splitlines()
-        with PyreflyTspFactsAdapter() as adapter:
+        with PyreflyTspFactsAdapter(self._command) as adapter:
+            adapter.with_config_args(self._config_args())
             module_facts = adapter.facts(path)
+            self._config_dir_done()
             expressions = dict(module_facts.expressions)
             defs = self._def_facts(adapter, path, tree, lines, expressions)
         return BridgeFacts(
@@ -692,9 +738,13 @@ class BridgeProvider:
     def __init__(self, provider: str, strict: bool = True) -> None:
         self.provider = provider
         self.strict = strict
+        # The inference records the lowerer accepted across every file the
+        # provider served, gathered by `pyscriptc infer` and `compile
+        # --debug`. Each per-file `CheckerBridge` points here.
+        self.records: list[dict[str, Any]] = []
 
     def for_file(self, path: Path) -> CheckerBridge:
-        return CheckerBridge.for_path(path, self.provider, strict=self.strict)
+        return CheckerBridge.for_path(path, self.provider, strict=self.strict, records=self.records)
 
 
 class CheckerBridge:
@@ -706,19 +756,32 @@ class CheckerBridge:
     invents a type: `None` means lowering keeps its existing fence.
     """
 
-    def __init__(self, facts: BridgeFacts) -> None:
+    def __init__(self, facts: BridgeFacts, records: list[dict[str, Any]] | None = None) -> None:
         self._facts = facts
+        # The accepted-inference records this file's lowering appended
+        # (`pyscriptc infer`, `compile --debug`). None means the caller
+        # does not collect records.
+        self.infer_records = records if records is not None else []
+        # The package-wide pin map (`pyscriptc infer`): the lowerer reads
+        # it through the same handle as the per-module facts.
+        self.call_site_facts: Any = None
 
     @property
     def provider(self) -> str:
         return self._facts.provider
 
     @classmethod
-    def for_path(cls, path: Path, provider: str = "mypy", strict: bool = True) -> CheckerBridge:
+    def for_path(
+        cls,
+        path: Path,
+        provider: str = "mypy",
+        strict: bool = True,
+        records: list[dict[str, Any]] | None = None,
+    ) -> CheckerBridge:
         if provider == "mypy":
-            return cls(MypyBridge(strict=strict).facts(path))
+            return cls(MypyBridge(strict=strict).facts(path), records)
         if provider == "pyrefly":
-            return cls(PyreflyBridge().facts(path))
+            return cls(PyreflyBridge().facts(path), records)
         raise CheckFailed(f"checker bridge {provider!r} is not wired; use 'mypy' or 'pyrefly'")
 
     def for_file(self, path: Path) -> CheckerBridge:
