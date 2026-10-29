@@ -461,6 +461,16 @@ _sys.meta_path.insert(0, _PsFinder())
 _sys.path.insert(0, _ps_rebase(%(path0)s))
 __file__ = _ps_rebase(%(main_path)s)
 __package__ = %(package)s
+if %(package_mode)s:
+    # The `python -m pkg` shape (issue #765): CPython records the entry
+    # module's own path as argv[0], so argparse's default `prog` is
+    # `__main__.py` and the usage line names the script, not the binary.
+    # `__file__` is that path, rebased onto the staged tree when the
+    # program staged data.
+    if _sys.argv:
+        _sys.argv[0] = __file__
+    else:
+        _sys.argv = [__file__]
 exec(compile(%(main_source)s, __file__, "exec"), globals())
 """
 
@@ -475,6 +485,7 @@ def program_island_source(
     staged_data: tuple[str, str] | None = None,
     selfpack: str = "",
     selfpack_dir: str = "",
+    package_mode: bool = False,
 ) -> str:
     """The island seed of a whole program: finder bootstrap plus the entry.
 
@@ -507,6 +518,7 @@ def program_island_source(
         "path0": repr(str(path0)),
         "main_path": repr(main_path),
         "package": repr(main_package),
+        "package_mode": repr(package_mode),
         "main_source": repr(main_source),
         "selfpack": repr(selfpack),
         "selfpack_dir": repr(selfpack_dir),
