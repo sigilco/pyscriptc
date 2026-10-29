@@ -25,6 +25,7 @@ from pyscriptc.lower._core import (
     _SET_FORMS,
     Fence,
     _assign,
+    _const_str,
     _has_typevar,
     _name,
     _plain_const_kind,
@@ -99,20 +100,21 @@ class ClassesMixin:
         self.known_classes.add(name)
         self.declared.add(local)
         self.declared.add(name)
-        self._install_class_consts(local, info)
+        self._install_class_consts(name, info)
 
-    def _install_class_consts(self, local: str, info: dict[str, Any]) -> None:
+    def _install_class_consts(self, name: str, info: dict[str, Any]) -> None:
         """Carry an imported class's immutable constants into this module.
 
         The exported class info carries `class_consts` when the defining
         module lowered them; a consumer reads `Base.NAME` by inlining the
-        same value. A list or dict constant does not export (its slot lives
-        in the defining module's process image), so a consumer read fences.
+        same value. A list or dict constant carries the defining module's
+        global slot key, so the consumer reads the same object the class
+        shares with its instances.
         """
         consts = info.get("class_consts")
         if not consts:
             return
-        self.classes[local]["class_consts"] = {name: copy.deepcopy(const) for name, const in consts.items()}
+        self.classes[name]["class_consts"] = {const_name: copy.deepcopy(const) for const_name, const in consts.items()}
 
     def _install_synthetics(self, class_nodes: list[ast.ClassDef], fences: list[Fence]) -> None:
         self.synthetics.update(ALWAYS_CLASSES)
@@ -256,17 +258,21 @@ class ClassesMixin:
                     isinstance(stmt, ast.Assign)
                     and len(stmt.targets) == 1
                     and isinstance(stmt.targets[0], ast.Name)
-                    and _is_const_expr(stmt.value)
+                    and (_is_const_expr(stmt.value) or _is_container_literal(stmt.value))
                 ):
                     # An immutable constant class body assignment: the value is
                     # inlined at every read site (`Class.NAME`, `self.NAME`,
                     # `cls.NAME`), resolved through the MRO so a subclass that
                     # reassigns the name overrides for its own receivers. No
-                    # field slot is allocated and the name is read-only.
+                    # field slot is allocated and the name is read-only. A
+                    # list or dict literal binds once to a module-level global
+                    # slot (#512): CPython shares one object across the class
+                    # and its instances, so a per-read copy would diverge the
+                    # moment either side mutates it.
                     ctarget = stmt.targets[0]
                     if ctarget.id in seen or ctarget.id in inherited_types:
                         self.fail(stmt, "PS2002", f"duplicate field {ctarget.id}")
-                    consts[ctarget.id] = self._class_const(stmt.value)
+                    consts[ctarget.id] = self._class_const(stmt.value, node.name, ctarget.id)
                     seen.add(ctarget.id)
                     continue
                 if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
@@ -783,30 +789,73 @@ class ClassesMixin:
         self.fail(stmt, "PS2002", "an enum body is integer constants")
         raise AssertionError("unreachable")
 
-    def _class_const(self, node: ast.expr) -> dict[str, Any]:
+    def _class_const(self, node: ast.expr, class_name: str, const_name: str) -> dict[str, Any]:
         """The lowered constant of a class body assignment.
 
         A scalar literal is the ordinary const value. A tuple literal of
         scalar literals materializes the synthetic tuple record at the read
-        site, exactly like a module-level `tuple-const` constant does.
+        site, exactly like a module-level `tuple-const` constant does. A
+        list or dict literal binds once to a module-level global slot, so
+        every read is the same object (CPython shares one object across
+        the class and its instances).
         """
         span = span_of(node, self.filename)
         if isinstance(node, ast.Constant):
             return self._const(node, span)
-        elts = [self._const(elt, span_of(elt, self.filename)) for elt in node.elts]
-        typ = self._tuple_type([elem["type"] for elem in elts], node)
-        return {"kind": "tuple-const", "elems": elts, "type": typ, "span": span}
+        if isinstance(node, (ast.List, ast.Dict)):
+            saved_prelude = self.prelude
+            self.prelude = []
+            try:
+                value = self._expr(node)
+            finally:
+                self.prelude = saved_prelude
+            if self.prelude:
+                # A literal that needed statements to build (a comprehension
+                # shape) has no home at module scope: keep the PS1204 fence.
+                self.fail(node, "PS1204", "Assign in a class body is not lowered")
+            self._reject_banned_type(node, value["type"])
+            slot_name = f"__cc_{class_name}_{const_name}"
+            self._bind_callable_slot(slot_name, value, span, node)
+            # The slot key is the global's qualified name. It crosses the
+            # module boundary so a consumer reads the very object the
+            # defining module built (CPython: one class attribute, one
+            # object, whoever reads it).
+            key = self._slot_key(slot_name)
+            return {"kind": "slot-const", "slot": slot_name, "key": key, "type": value["type"], "span": span}
+        elems = [self._const(elt, span_of(elt, self.filename)) for elt in node.elts]
+        typ = self._tuple_type([elem["type"] for elem in elems], node)
+        return {"kind": "tuple-const", "elems": elems, "type": typ, "span": span}
 
     def _class_const_read(self, const: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
         """A read of an immutable class constant: the value itself.
 
         A scalar re-emits as a literal. A tuple materializes the record at
         the read site; the elements are immutable, so a fresh copy at each
-        read matches CPython's observable behavior for reads.
+        read matches CPython's observable behavior for reads. A slot-bound
+        container reads the global slot back: every read is the same
+        object, exactly what CPython's single class-object share gives.
         """
         if const.get("kind") == "tuple-const":
             return self._materialize_tuple(list(const["elems"]), span)
+        if const.get("kind") == "slot-const":
+            return self._slot_const_read(const, span)
         return {**const, "span": span}
+
+    def _slot_const_read(self, const: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+        """A read of a slot-bound class constant: the global slot's value.
+
+        The slot holds one pointer for the life of the process, so the read
+        is the same object every time, and a mutation through any alias is
+        visible to every other read. The slot's key is the qualified global
+        name, so a consumer module reads the defining module's object.
+        """
+        slot = str(const["slot"])
+        key = str(const.get("key") or self._slot_key(slot))
+        typ = const["type"]
+        if typ["kind"] not in {"list", "dict"}:
+            self.fail(ast.Pass(), "PS2002", f"class constant {slot} is not a container")
+            raise AssertionError("unreachable")
+        return self._abi_call("builtins", "global_get", [_const_str(key, span)], typ, "ps_global_get_ptr", span)
 
     def _resolve_class_const(self, class_name: str, name: str) -> dict[str, Any] | None:
         """The immutable class constant `name` visible on `class_name`, or None.
@@ -2351,6 +2400,19 @@ def _is_scalar_const(node: ast.expr) -> bool:
     return isinstance(node, ast.Constant) and (
         node.value is None or isinstance(node.value, (str, int, float, bool, bytes))
     )
+
+
+def _is_container_literal(node: ast.expr) -> bool:
+    """True for a list or dict display, the slice-2 class constant shapes.
+
+    An empty display is still ambiguous to the inference peek (no element
+    type), so it stays fenced here and the ordinary PS1204 message holds.
+    """
+    if isinstance(node, ast.List):
+        return bool(node.elts)
+    if isinstance(node, ast.Dict):
+        return bool(node.keys)
+    return False
 
 
 def _assigned_fields(body: list[ast.stmt]) -> set[str]:

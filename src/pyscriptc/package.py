@@ -251,6 +251,7 @@ def _lower_units(
     classes: list[dict[str, Any]] = []
     fences: list[dict[str, Any]] = []
     class_names: dict[str, dict[str, Any]] = {}
+    global_inits: list[dict[str, Any]] = []
     exc_n = USER_EXC_BASE
     needs_island = False  # boxed
     with ffi_modules(ffi or []), dependency_lanes(dep_lane_report or {}), staged_resources(resource_root):
@@ -280,6 +281,10 @@ def _lower_units(
                 module["fences"] = [*module["fences"], *(f.as_dict() for f in lowerer._boxed_module_fences)]
             # boxed:end
             exc_n = lowerer.exc_n
+            # The module's global slot initializers join the merged IR. Each
+            # key is module qualified, so two modules never collide, and the
+            # emitter runs them at the top of main, before any read.
+            global_inits.extend(module.get("globals") or [])
             for fn in module["functions"]:
                 functions.append(fn)
             for cls in module["classes"]:
@@ -317,6 +322,8 @@ def _lower_units(
         "classes": classes,
         "fences": fences,
     }
+    if global_inits:
+        merged["globals"] = global_inits
     return merged, []
 
 
@@ -1081,12 +1088,13 @@ def _class_export(info: dict[str, Any]) -> dict[str, Any]:
     consts = info.get("class_consts")
     if consts:
         # Immutable scalar constants re-inline in the consumer. A slot-bound
-        # container constant does not (the slot lives in the defining
-        # module), so only kinds that re-emit safely cross the boundary.
+        # container constant crosses as the slot's qualified global name: the
+        # consumer reads the defining module's object, the same one the
+        # defining module and every instance of the class share.
         exported["class_consts"] = {
             name: copy.deepcopy(const)
             for name, const in consts.items()
-            if const.get("kind") in {"const", "tuple-const"}
+            if const.get("kind") in {"const", "tuple-const", "slot-const"}
         }
     if info.get("coro"):
         # A coroutine frame class (issue #178, stage B). The consumer needs
