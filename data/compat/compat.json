@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-10-27",
-  "commit": "3bf40de6fe2fc661a956e88723d23776e9a5e0e4",
+  "generated": "2026-10-29",
+  "commit": "d09bcb4238aff1605cd4dfb57459722e704378ac",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 7,
     "packages_none": 9,
     "weighted_pass": 0.0,
-    "fences": 2657
+    "fences": 2654
   },
   "builtins": [
     {
@@ -1658,7 +1658,7 @@
       "import_name": "jmespath",
       "version": "1.1.0",
       "status": "none",
-      "fences": 123,
+      "fences": 121,
       "definitions": 200,
       "fenced_definitions": 107,
       "top_families": [
@@ -1772,9 +1772,9 @@
       "import_name": "packaging",
       "version": "26.3",
       "status": "partial",
-      "fences": 549,
+      "fences": 548,
       "definitions": 558,
-      "fenced_definitions": 275,
+      "fenced_definitions": 274,
       "top_families": [
         {
           "family": "unlowered-type-name",
@@ -1786,7 +1786,7 @@
         },
         {
           "family": "class-body",
-          "count": 45
+          "count": 44
         }
       ],
       "codes": [
@@ -2141,7 +2141,7 @@
     {
       "code": "PS1204",
       "title": "class body statement",
-      "count": 64,
+      "count": 61,
       "packages": 7
     },
     {
@@ -2220,6 +2220,15 @@
       "packages_partial": 7,
       "packages_none": 9,
       "fences": 2657
+    },
+    {
+      "date": "2026-10-29",
+      "commit": "d09bcb4238aff1605cd4dfb57459722e704378ac",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 7,
+      "packages_none": 9,
+      "fences": 2654
     }
   ]
 }

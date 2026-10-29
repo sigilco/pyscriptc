@@ -290,5 +290,11 @@ def test_self_census_ballpark() -> None:
     # subprocess text mode (#680): the text-mode decode lowering nets -1
     # self-host fence (restlower/_subprocess.py +1, emit/llvm/_driver.py
     # and emitlib.py -1 each through the lowered-compiler re-run).
-    assert census["fences"] == 3182
-    assert sum(p["fences"] for p in census["packages"]) == 3182
+    # The class-body constant lowering (slices 1 and 2) nets +3: five
+    # PS1204 fences in the compiler's own source go away (one in
+    # emit/llvm/_abi.py, two in factsbridge.py, two in typefacts.py) and
+    # the new lowering helpers add eight annotation fences in
+    # lower/_classes.py (the `Any` and `ast.expr` annotations the subset
+    # does not lower).
+    assert census["fences"] == 3185
+    assert sum(p["fences"] for p in census["packages"]) == 3185
