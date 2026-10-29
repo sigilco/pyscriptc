@@ -350,3 +350,56 @@ def test_resolve_mode_auto_falls_back_to_host_without_a_locked_pack(monkeypatch:
     monkeypatch.setattr(embed, "lock_pack", no_pack)
     assert embed.resolve_mode("auto") == "host"
     assert embed.resolve_mode("bundle") == "bundle"
+
+
+def test_the_stdlib_import_check_skips_builtin_modules(tmp_path: Path) -> None:
+    """A module the pack builds into libpython is not the zip's business.
+
+    `zlib`, `errno` and `atexit` are builtins: the pinned pack carries them
+    in libpython, so no zip entry exists and none is needed. The manifest
+    check must not ask the trim for them (PS4301 named a module that was
+    never in the zip).
+    """
+    from pyscriptc.cli import _stdlib_imports
+
+    prog = tmp_path / "prog"
+    prog.mkdir()
+    (prog / "__main__.py").write_text(
+        "import zlib\nimport errno\nimport atexit\nprint(zlib.crc32(b'x'), errno.ENOENT)\n",
+        encoding="utf-8",
+    )
+    names = _stdlib_imports(prog)
+    assert "zlib" not in names
+    assert "errno" not in names
+    assert "atexit" not in names
+
+
+def test_the_stdlib_import_check_skips_platform_absent_modules(tmp_path: Path) -> None:
+    """A stdlib module this platform never ships is not the zip's business.
+
+    `msvcrt` is Windows-only: the pinned pack is the compiler's platform,
+    so the module cannot resolve there and CPython on the same platform
+    fails the import the same way.
+    """
+    import sys
+
+    from pyscriptc.cli import _stdlib_imports
+
+    prog = tmp_path / "prog"
+    prog.mkdir()
+    (prog / "__main__.py").write_text("import msvcrt\n", encoding="utf-8")
+    names = _stdlib_imports(prog)
+    if sys.platform != "win32":
+        assert "msvcrt" not in names
+
+
+def test_the_stdlib_import_check_still_names_real_stdlib(tmp_path: Path) -> None:
+    """A pure-Python stdlib module still reaches the manifest check."""
+    from pyscriptc.cli import _stdlib_imports
+
+    prog = tmp_path / "prog"
+    prog.mkdir()
+    (prog / "__main__.py").write_text("import json\nimport fractions\n", encoding="utf-8")
+    names = _stdlib_imports(prog)
+    assert "json" in names
+    assert "fractions" in names
