@@ -3,11 +3,17 @@
 Usage: python -I fetch_vendor.py [--force]
 
 The pin is the upstream release tarball (URL plus every hash) plus the SHA-256
-of the five config lines the adapter unsets (the DTLS and server-side options
-the client transport does not need); the trim is deterministic `scripts/config.py
-unset` runs, so the fetched tree byte-matches the trimmed tree every host builds.
-Only the pin is committed; the fetched tree is gitignored (the sqlite adapter's
-pattern).
+of the five files the adapter pins after the trim; the trim itself is the
+client-only `mbedtls_config_client.h` next to this script, applied as a
+deterministic `scripts/config.py unset` run per option, so the fetched tree
+byte-matches the trimmed tree every host builds. Only the pin and the trim
+are committed; the fetched tree is gitignored (the sqlite adapter's pattern).
+
+The trim is the client-only config (issue #235): no server, no DTLS, TLS 1.2
+and TLS 1.3 only, and the cipher and curve set a public HTTPS endpoint
+negotiates. The commit that introduced it records the measured effect on the
+linked binary (section GC plus this trim take the TLS hello binary from
+1.46 MB to 373 KB).
 """
 
 from __future__ import annotations
@@ -23,6 +29,8 @@ from pathlib import Path
 
 VENDOR = Path(__file__).resolve().parent / "vendor"
 ROOT = VENDOR / "mbedtls"
+# The trimmed config the adapter builds against: the client-only one.
+CLIENT_CONFIG = Path(__file__).resolve().parent / "mbedtls_config_client.h"
 # Files that must byte-match after the fetch and the trim.
 PIN_FILES = (
     "include/mbedtls/mbedtls_config.h",
@@ -52,6 +60,22 @@ def is_fetched(pin: dict[str, str]) -> bool:
     return all(_sha256(ROOT / name) == pin[f"{name}_sha256"] for name in PIN_FILES)
 
 
+def client_unset() -> list[str]:
+    """The options the client-only trim switches off, read from the trim.
+
+    The trim is a committed `mbedtls_config.h`: the upstream tree with the
+    options the client transport never reaches commented out. The list is
+    read from that file (the difference against the pinned upstream tree),
+    so the committed trim is the single source of truth and the fetch
+    reproduces it exactly.
+    """
+    import re
+
+    text = CLIENT_CONFIG.read_text(encoding="utf-8")
+    off = set(re.findall(r"^//#define\s+(MBEDTLS_[A-Z0-9_]+)", text, re.M))
+    return sorted(off)
+
+
 def fetch(force: bool = False) -> Path:
     pin = tomllib.loads((VENDOR / "VENDOR.toml").read_text(encoding="utf-8"))
     if not force and is_fetched(pin):
@@ -75,8 +99,9 @@ def fetch(force: bool = False) -> Path:
                     if member.isdir():
                         target.mkdir(parents=True, exist_ok=True)
     tarball.unlink()
-    # The config trim, deterministically.
-    for name in UNSET:
+    # The config trim, deterministically: the client-only options go off, in
+    # the order the trim file lists them, one `config.py unset` per option.
+    for name in (*UNSET, *client_unset()):
         proc = subprocess.run(
             [sys.executable, "scripts/config.py", "unset", name], cwd=ROOT, capture_output=True, text=True
         )
