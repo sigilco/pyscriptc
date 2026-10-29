@@ -1414,6 +1414,17 @@ class StdlibDispatchMixin:
                 value = self._module_fold(stmt.value)
                 if value is None:
                     value = self._expr(stmt.value)
+                # boxed:begin
+                if value["type"].get("island") and self.fallback_definitions:
+                    # An island value at module scope (issue #webfw): the seed
+                    # already built the object (an app, a client, a parser);
+                    # re-running the call native would create a second
+                    # instance and the two halves of the program would see
+                    # different objects. The slot reads the island's own
+                    # object through the def-handle trampoline.
+                    self._bind_island_global(target, value, stmt)
+                    return
+                # boxed:end
                 if module_needs_slot(value) and self._script_line is None:
                     # A definition-only module binds a container or parser the
                     # threading way: the slot keeps one pointer for the

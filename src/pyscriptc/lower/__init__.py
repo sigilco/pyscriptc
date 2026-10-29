@@ -16,6 +16,8 @@ import time
 from pathlib import Path
 from typing import Any, NoReturn
 
+# boxed:begin
+from pyscriptc.boxed import DEF_HANDLE_SYMBOL  # boxed:end
 from pyscriptc.builtins import USER_EXC_BASE
 from pyscriptc.coro import CoroMixin
 from pyscriptc.errors import format_diagnostic, span_of
@@ -2747,6 +2749,12 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_ptr", span)
         if typ["kind"] == "class" and typ.get("name") in PTR_CLASSES:
             return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_ptr", span)
+        # boxed:begin
+        if typ.get("handle"):
+            # An island handle in a module slot (issue #webfw): the slot holds
+            # the opaque pointer to the island object.
+            return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_ptr", span)
+        # boxed:end
         if typ["kind"] in {"list", "dict"}:
             return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_ptr", span)
         self.fail(ast.Pass(), "PS2002", f"global {name} of {_show(typ)} is not lowered")
@@ -2779,6 +2787,11 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             symbol = "ps_global_set_ptr"
         elif typ["kind"] == "class" and typ.get("name") in PTR_CLASSES:
             symbol = "ps_global_set_ptr"
+        # boxed:begin
+        elif typ.get("handle"):
+            # An island handle in a module slot (issue #webfw).
+            symbol = "ps_global_set_ptr"
+        # boxed:end
         elif typ["kind"] in {"list", "dict"}:
             symbol = "ps_global_set_ptr"
         else:
@@ -2881,6 +2894,42 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 self.caught = []
                 return
         self._bind_callable_slot(target, value, span, stmt)
+
+    def _bind_island_global(self, name: str, value: dict[str, Any], node: ast.AST) -> None:
+        """A module-level name bound to an island value adopts the island's object.
+
+        The seed already ran the statement island-side (Stage 2 carries the
+        literal and deterministic-initializer module values), so the object
+        exists exactly once, in the island namespace. A native re-run of the
+        call would create a second object and the two halves of the program
+        would disagree (a Flask app with no routes served the second app).
+        The global slot's initializer is the def-handle trampoline: one read
+        of the island object at init, then every read is that pointer.
+        """
+        typ = value["type"]
+        slot = self.global_slots.get(name)
+        if slot is None:
+            slot = {"type": typ, "active": False}
+            self.global_slots[name] = slot
+        else:
+            existing = slot.get("type")
+            if existing is not None and not types_equal(existing, typ):
+                self.fail(node, "PS2002", f"global {name} is already bound")
+            slot["type"] = typ
+        if not slot.get("active"):
+            self._activate_slot(name, node)
+        call = self._abi_call(
+            "island",
+            name,
+            [],
+            typ,
+            DEF_HANDLE_SYMBOL,
+            span_of(node, self.filename),
+        )
+        call["island"] = {"name": name}
+        call["island_def"] = {"name": name}
+        init = self._global_set(name, call, span_of(node, self.filename))
+        self.global_inits.append(init["expr"])
 
     def _bind_callable_slot(self, name: str, value: dict[str, Any], span: dict[str, Any], node: ast.AST) -> None:
         slot = self.global_slots.get(name)

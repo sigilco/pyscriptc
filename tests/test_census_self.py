@@ -290,5 +290,7 @@ def test_self_census_ballpark() -> None:
     # subprocess text mode (#680): the text-mode decode lowering nets -1
     # self-host fence (restlower/_subprocess.py +1, emit/llvm/_driver.py
     # and emitlib.py -1 each through the lowered-compiler re-run).
-    assert census["fences"] == 3182
-    assert sum(p["fences"] for p in census["packages"]) == 3182
+    # The module island-value binding (+1, the island def-handle global
+    # slot read in lower/__init__.py).
+    assert census["fences"] == 3183
+    assert sum(p["fences"] for p in census["packages"]) == 3183
