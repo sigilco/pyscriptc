@@ -429,3 +429,37 @@ def test_package_program_argv0_is_the_entry_path(tmp_path: Path) -> None:
     assert got.returncode == want.returncode == 0, (got.stderr, want.stderr)
     assert got.stdout == want.stdout
     assert got.stdout.endswith("__main__.py\n")
+
+
+def test_program_checker_suppression_from_another_cwd(tmp_path: Path) -> None:
+    """The checker prints paths relative to the compiler's CWD, not the
+    temp config dir it writes. A `--program` compile of a package whose
+    tree sits outside the compiler's CWD kept every island-routed
+    diagnostic unsuppressed (found on yt_dlp: 8,379 diagnostics failed the
+    preflight with `--skip-check` as the only way through)."""
+
+    def build(root: Path) -> None:
+        _write(
+            root,
+            {
+                "__init__.py": "",
+                "__main__.py": "from mp.helper import fence\nprint(fence(1))\n",
+                "helper.py": "def fence(x):\n    y: int = 'not an int'\n    return y\n",
+            },
+        )
+
+    # The package lives outside the compile CWD; the run happens from tmp_path.
+    tree = tmp_path / "elsewhere" / "mp"
+    build(tree)
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    binary = tmp_path / "bin"
+    comp = _cli("compile", str(tree), "--program", "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=cwd)
+    assert comp.returncode == 0, comp.stderr
+    assert "suppressed" in comp.stderr
+    got = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    want = subprocess.run(
+        [sys.executable, "-m", "mp"], capture_output=True, text=True, timeout=60, cwd=tmp_path / "elsewhere"
+    )
+    assert got.returncode == want.returncode == 0, (got.stderr, want.stderr)
+    assert got.stdout == want.stdout == "not an int\n"

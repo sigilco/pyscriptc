@@ -287,8 +287,24 @@ def is_island_diagnostic(
         target_file = source_path
     elif err_path_str:
         candidate = Path(err_path_str)
-        if not candidate.is_absolute() and tmp_dir is not None:
-            candidate = (tmp_dir / candidate).resolve()
+        if not candidate.is_absolute():
+            # The checker prints paths relative to the compiler's working
+            # directory (it runs with that CWD); the temp dir anchor is the
+            # fallback for a path it relativized against its own scratch
+            # config. A `..` chain past the root resolves against the CWD
+            # and lands on the real file (found on yt_dlp: every one of
+            # 8,379 diagnostics in a `--program` compile of a package kept
+            # the whole preflight failing because the anchor was wrong).
+            anchors = [Path.cwd(), *([tmp_dir] if tmp_dir is not None else [])]
+            resolved = None
+            for anchor in anchors:
+                found = (anchor / candidate).resolve()
+                if found.is_file():
+                    resolved = found
+                    break
+            if resolved is None:
+                resolved = candidate.resolve()
+            candidate = resolved
         else:
             candidate = candidate.resolve()
         if candidate.is_file():
