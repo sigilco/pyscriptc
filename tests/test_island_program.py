@@ -397,3 +397,35 @@ def test_library_import_of_island_definition_refuses(tmp_path: Path) -> None:
     assert "pkg.helper.count" in comp.stderr
     assert "runs on the island floor of its own module" in comp.stderr
     assert "KeyError" not in comp.stderr and "Traceback" not in comp.stderr
+
+
+def test_package_program_argv0_is_the_entry_path(tmp_path: Path) -> None:
+    """`python -m pkg` records the entry `__main__.py` path as argv[0], so
+    argparse's default `prog` is `__main__.py` (issue #765). The binary
+    must not report its own path: a real CLI derives its usage line from
+    argv[0], and yt-dlp's usage line names the script under CPython."""
+
+    def build(root: Path) -> None:
+        _write(
+            root,
+            {
+                "__init__.py": "",
+                "__main__.py": "import sys\nprint(sys.argv[0])\n",
+                "helper.py": (
+                    "import argparse\n\n\ndef fence() -> None:\n    p = argparse.ArgumentParser()\n    p.print_help()\n"
+                ),
+            },
+        )
+
+    pkg = tmp_path / "mp"
+    build(pkg)
+    binary = tmp_path / "bin"
+    comp = _cli(
+        "compile", str(pkg), "--program", "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path
+    )
+    assert comp.returncode == 0, comp.stderr
+    got = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    want = subprocess.run([sys.executable, "-m", "mp"], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    assert got.returncode == want.returncode == 0, (got.stderr, want.stderr)
+    assert got.stdout == want.stdout
+    assert got.stdout.endswith("__main__.py\n")

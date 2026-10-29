@@ -105,6 +105,7 @@ def lower_directory(
         root,
         program=program,
         entry=entry,
+        package_mode=program_mode and entry is None,
         bridge=bridge,
         ffi=ffi,
         target=target,
@@ -187,6 +188,7 @@ def _lower_units(
     *,
     program: bool,
     entry: str | None,
+    package_mode: bool,
     bridge: Any,
     ffi: list[Any] | None,
     target: str | None,
@@ -239,7 +241,9 @@ def _lower_units(
         fences, owners = _program_plan(units, exports, entry=entry)
         if fences:
             # boxed:begin
-            island = _program_island(units, root, entry, main_package, path0, staged_data=staged_data or [])
+            island = _program_island(
+                units, root, entry, main_package, path0, staged_data=staged_data or [], package_mode=package_mode
+            )
             if island is not None:
                 return island, []
             # boxed:end
@@ -301,7 +305,9 @@ def _lower_units(
             fences.extend(module["fences"])
     # boxed:begin
     if program and (needs_island or fences):
-        island = _program_island(units, root, entry, main_package, path0, staged_data=staged_data or [])
+        island = _program_island(
+            units, root, entry, main_package, path0, staged_data=staged_data or [], package_mode=package_mode
+        )
         if island is not None:
             return island, []
     # boxed:end
@@ -328,6 +334,7 @@ def _program_island(
     main_package: str,
     path0: Path | None,
     staged_data: list[tuple[Path, bytes]] | None = None,
+    package_mode: bool = False,
 ) -> dict[str, Any] | None:
     """The program-wide island module, or None when the tier is off.
 
@@ -359,8 +366,18 @@ def _program_island(
         root=root,
         path0=path0 or root,
         staged_data=staged,
+        package_mode=package_mode,
     )
-    return _boxed.program_island_module(source, root)
+    module = _boxed.program_island_module(source, root)
+    # The `python -m pkg` shape (issue #765): the bootstrap's `__file__` is
+    # the entry file path, the value CPython records for `-m`, so the
+    # runtime keeps the mirrored argv[0] (the emitted binary's path)
+    # instead of overriding it with the source path. A program directory
+    # (`python DIR`) has no package namespace, so its argv[0] is the
+    # directory as CPython records it.
+    if package_mode:
+        module["islandProgram"] = True
+    return module
 
 
 def stage_program_data(
