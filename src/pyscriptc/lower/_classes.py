@@ -91,12 +91,29 @@ class ClassesMixin:
             return
         info = copy.deepcopy(item["info"])
         info["imported"] = True
+        if info.get("mro") and info["mro"][0] != name:
+            info["mro"] = [name, *info["mro"]]
         self.classes[name] = info
         self.class_aliases[local] = name
         self.known_classes.add(local)
         self.known_classes.add(name)
         self.declared.add(local)
         self.declared.add(name)
+        self._install_class_consts(name, info)
+
+    def _install_class_consts(self, name: str, info: dict[str, Any]) -> None:
+        """Carry an imported class's immutable constants into this module.
+
+        The exported class info carries `class_consts` when the defining
+        module lowered them; a consumer reads `Base.NAME` by inlining the
+        same value. A list or dict constant carries the defining module's
+        global slot key, so the consumer reads the same object the class
+        shares with its instances.
+        """
+        consts = info.get("class_consts")
+        if not consts:
+            return
+        self.classes[name]["class_consts"] = {const_name: copy.deepcopy(const) for const_name, const in consts.items()}
 
     def _install_synthetics(self, class_nodes: list[ast.ClassDef], fences: list[Fence]) -> None:
         self.synthetics.update(ALWAYS_CLASSES)
@@ -229,12 +246,34 @@ class ClassesMixin:
         mro, chain = self._mro_chain(node, bases)
         fields: list[dict[str, Any]] = []
         methods: list[tuple[ast.FunctionDef, str]] = []
+        consts: dict[str, dict[str, Any]] = {}
         seen: set[str] = set()
         seen_default = False
         for stmt in node.body:
             if _is_docstring(stmt) or isinstance(stmt, ast.Pass):
                 continue
             try:
+                if (
+                    isinstance(stmt, ast.Assign)
+                    and len(stmt.targets) == 1
+                    and isinstance(stmt.targets[0], ast.Name)
+                    and (_is_const_expr(stmt.value) or _is_container_literal(stmt.value))
+                ):
+                    # An immutable constant class body assignment: the value is
+                    # inlined at every read site (`Class.NAME`, `self.NAME`,
+                    # `cls.NAME`), resolved through the MRO so a subclass that
+                    # reassigns the name overrides for its own receivers. No
+                    # field slot is allocated and the name is read-only. A
+                    # list or dict literal binds once to a module-level global
+                    # slot (#512): CPython shares one object across the class
+                    # and its instances, so a per-read copy would diverge the
+                    # moment either side mutates it.
+                    ctarget = stmt.targets[0]
+                    if ctarget.id in seen or ctarget.id in inherited_types:
+                        self.fail(stmt, "PS2002", f"duplicate field {ctarget.id}")
+                    consts[ctarget.id] = self._class_const(stmt.value, node.name, ctarget.id)
+                    seen.add(ctarget.id)
+                    continue
                 if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
                     if stmt.value is not None and deco != "dataclass":
                         self.fail(stmt, "PS1204", "class fields are declared with an annotation and no value")
@@ -397,6 +436,8 @@ class ClassesMixin:
             "chain": chain,
             "node": node,
         }
+        if consts:
+            info["class_consts"] = consts
         if generated is not None:
             info["generated_init"] = generated
             info["init_target"] = init_target
@@ -747,6 +788,126 @@ class ClassesMixin:
         self.fail(stmt, "PS2002", "an enum body is integer constants")
         raise AssertionError("unreachable")
 
+    def _class_const(self, node: ast.expr, class_name: str, const_name: str) -> dict[str, Any]:
+        """The lowered constant of a class body assignment.
+
+        A scalar literal is the ordinary const value. A tuple literal of
+        scalar literals materializes the synthetic tuple record at the read
+        site, exactly like a module-level `tuple-const` constant does. A
+        list or dict literal binds once to a module-level global slot, so
+        every read is the same object (CPython shares one object across
+        the class and its instances).
+        """
+        span = span_of(node, self.filename)
+        if isinstance(node, ast.Constant):
+            return self._const(node, span)
+        if isinstance(node, (ast.List, ast.Dict)):
+            saved_prelude = self.prelude
+            self.prelude = []
+            try:
+                value = self._expr(node)
+            finally:
+                self.prelude = saved_prelude
+            if self.prelude:
+                # A literal that needed statements to build (a comprehension
+                # shape) has no home at module scope: keep the PS1204 fence.
+                self.fail(node, "PS1204", "Assign in a class body is not lowered")
+            self._reject_banned_type(node, value["type"])
+            slot_name = f"__cc_{class_name}_{const_name}"
+            self._bind_callable_slot(slot_name, value, span, node)
+            # The slot key is the global's qualified name. It crosses the
+            # module boundary so a consumer reads the very object the
+            # defining module built (CPython: one class attribute, one
+            # object, whoever reads it).
+            key = self._slot_key(slot_name)
+            return {"kind": "slot-const", "slot": slot_name, "key": key, "type": value["type"], "span": span}
+        elems = [self._const(elt, span_of(elt, self.filename)) for elt in node.elts]
+        typ = self._tuple_type([elem["type"] for elem in elems], node)
+        return {"kind": "tuple-const", "elems": elems, "type": typ, "span": span}
+
+    def _class_const_read(self, const: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+        """A read of an immutable class constant: the value itself.
+
+        A scalar re-emits as a literal. A tuple materializes the record at
+        the read site; the elements are immutable, so a fresh copy at each
+        read matches CPython's observable behavior for reads. A slot-bound
+        container reads the global slot back: every read is the same
+        object, exactly what CPython's single class-object share gives.
+        """
+        if const.get("kind") == "tuple-const":
+            return self._materialize_tuple(list(const["elems"]), span)
+        if const.get("kind") == "slot-const":
+            return self._slot_const_read(const, span)
+        return {**const, "span": span}
+
+    def _slot_const_read(self, const: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+        """A read of a slot-bound class constant: the global slot's value.
+
+        The slot holds one pointer for the life of the process, so the read
+        is the same object every time, and a mutation through any alias is
+        visible to every other read. The slot's key is the qualified global
+        name, so a consumer module reads the defining module's object.
+        """
+        slot = str(const["slot"])
+        key = str(const.get("key") or self._slot_key(slot))
+        typ = const["type"]
+        if typ["kind"] not in {"list", "dict"}:
+            self.fail(ast.Pass(), "PS2002", f"class constant {slot} is not a container")
+            raise AssertionError("unreachable")
+        return self._abi_call(
+            "builtins",
+            "global_get",
+            [{"kind": "const", "value": key, "type": {"kind": "str"}, "span": span}],
+            typ,
+            "ps_global_get_ptr",
+            span,
+        )
+
+    def _resolve_class_const(self, class_name: str, name: str) -> dict[str, Any] | None:
+        """The immutable class constant `name` visible on `class_name`, or None.
+
+        MRO order, first definer wins: a subclass that reassigns the name
+        overrides for its own receivers, CPython's rule for immutable
+        constants. The returned value is shared IR; callers copy it.
+        """
+        info = self.classes.get(class_name)
+        if info is None:
+            return None
+        for ancestor in info.get("mro") or [class_name]:
+            ainfo = self.classes.get(ancestor)
+            consts = ainfo.get("class_consts") if ainfo is not None else None
+            if consts and name in consts:
+                return consts[name]
+        return None
+
+    def _const_override_blocks(self, class_name: str, name: str, method: str | None) -> bool:
+        """True when a static read of `class_name.name` would miss an override.
+
+        A method is shared down its primary chain and dispatches statically
+        through the receiver's declared type. CPython resolves `self.NAME`
+        through the receiver's runtime MRO, and there is no runtime class
+        tag on an instance to resolve it with, so the two disagree exactly
+        when a subclass S overrides the constant `name`:
+
+        - `S().read()` runs the shared body of a method S inherits, which
+          would read the base's value instead of S's.
+        - `c: Base = S(); c.NAME` in any function would read the base's
+          value too, because the receiver's static type is Base.
+
+        Both combinations fence. A subclass that overrides the constant
+        and defines its own copy of the reading method keeps every read
+        correct statically, as does any subclass that does not touch the
+        name.
+        """
+        for other_name, other in self.classes.items():
+            if other_name == class_name or class_name not in (other.get("mro") or []):
+                continue
+            if name not in (other.get("class_consts") or {}):
+                continue
+            if method is None or other.get("method_owner", {}).get(method) in (None, class_name):
+                return True
+        return False
+
     def _lower_class(self, node: ast.ClassDef, emit_name: str | None = None) -> dict[str, Any] | None:
         own = emit_name or node.name
         info = self.classes[own]
@@ -832,6 +993,10 @@ class ClassesMixin:
         self.fn_body = list(stmt.body)
         if kind in {"method", "property"}:
             self.locals["self"] = {"kind": "class", "name": class_name}
+        elif kind == "class":
+            # `cls` is the class object: `cls.NAME` reads a class constant
+            # through the same MRO resolution the class-attribute read uses.
+            self.locals["cls"] = {"kind": "class", "name": class_name}
         # Function-local imports rebind module names: snapshot the
         # compile-time binding tables so they restore when the body ends.
         saved_bindings = dict(self.bindings)
@@ -849,6 +1014,9 @@ class ClassesMixin:
             return None
         if stmt.name == "__init__":
             assigned = _assigned_fields(stmt.body)
+            for attr in sorted(assigned):
+                if self._resolve_class_const(class_name, attr) is not None:
+                    self.fail(stmt, "PS2002", f"{class_name}.{attr} is a class constant and is read-only")
             missing = sorted(own_names - assigned)
             if missing:
                 self.fail(stmt, "PS1001", f"__init__ does not assign {', '.join(missing)}")
@@ -1539,6 +1707,18 @@ class ClassesMixin:
         for field in info["fields"]:
             if field["name"] == name:
                 return {"kind": "attr", "value": obj, "name": name, "type": field["type"], "span": span}
+        const = self._resolve_class_const(class_name, name)
+        if const is not None:
+            method = self.function.split(".", 1)[1] if "." in str(self.function) else None
+            if self._const_override_blocks(class_name, name, method):
+                self.fail(
+                    node,
+                    "PS2001",
+                    f"{name} is a class constant a subclass of {class_name} redefines; the receiver's "
+                    "static type decides the read, so move the read into the subclass or read the "
+                    "class attribute directly",
+                )
+            return self._class_const_read(const, span)
         if info.get("method_kind", {}).get(name) == "property":
             sig = info["methods"][name]
             owner = self._emit_owner(class_name, name)
@@ -2204,6 +2384,41 @@ def _io_parameter(node: ast.AST) -> str | None:
     if isinstance(node, ast.Name) and node.id == "str":
         return "TextIO"
     return None
+
+
+def _is_const_expr(node: ast.expr) -> bool:
+    """True for an immutable constant expression: a scalar literal or a tuple of them.
+
+    The scalar set is the one the IR can hold as a value: `str`, `int`,
+    `float`, `bool`, `bytes` and `None`. A tuple of those scalars is
+    immutable too, so it lowers the same way; nested tuples do not (the
+    synthetic tuple record is flat).
+    """
+    if isinstance(node, ast.Constant):
+        value = node.value
+        return value is None or isinstance(value, (str, int, float, bool, bytes))
+    if isinstance(node, ast.Tuple):
+        return len(node.elts) >= 2 and all(_is_scalar_const(elt) for elt in node.elts)
+    return False
+
+
+def _is_scalar_const(node: ast.expr) -> bool:
+    return isinstance(node, ast.Constant) and (
+        node.value is None or isinstance(node.value, (str, int, float, bool, bytes))
+    )
+
+
+def _is_container_literal(node: ast.expr) -> bool:
+    """True for a list or dict display, the slice-2 class constant shapes.
+
+    An empty display is still ambiguous to the inference peek (no element
+    type), so it stays fenced here and the ordinary PS1204 message holds.
+    """
+    if isinstance(node, ast.List):
+        return bool(node.elts)
+    if isinstance(node, ast.Dict):
+        return bool(node.keys)
+    return False
 
 
 def _assigned_fields(body: list[ast.stmt]) -> set[str]:

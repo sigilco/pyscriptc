@@ -1330,6 +1330,9 @@ class ExprMixin:
                 if member is None:
                     self.fail(node, "PS2001", f"{node.value.id}.{node.attr} is not an enum member")
                 return {"kind": "const", "value": str(member), "type": {"kind": "int"}, "span": span}
+            const = self._resolve_class_const(class_name, node.attr)
+            if const is not None:
+                return self._class_const_read(const, span)
         value = self._expr(node.value)
         return path_attribute(self, value, node.attr, self._lookup_attr(value, node.attr, span, node, expect), span)
 

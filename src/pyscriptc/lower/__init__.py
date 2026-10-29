@@ -2484,6 +2484,8 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         info = self.classes[class_name]
         if info.get("namedtuple"):
             self.fail(target, "PS2002", f"{class_name}.{target.attr} is read-only on a namedtuple")
+        if self._resolve_class_const(class_name, target.attr) is not None:
+            self.fail(target, "PS2002", f"{class_name}.{target.attr} is a class constant and is read-only")
         field = next((item for item in info["fields"] if item["name"] == target.attr), None)
         if field is None:
             self.fail(target, "PS2001", f"{class_name}.{target.attr} is not a field")
