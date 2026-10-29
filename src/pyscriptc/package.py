@@ -1264,7 +1264,14 @@ def _discover(
             continue
         stem = relative.with_suffix("")
         if not all(part.isidentifier() for part in stem.parts):
-            raise IRError(f"{relative} is not a module name")
+            # CPython never imports it: a module whose dotted name is not a
+            # chain of identifiers cannot appear in `sys.modules` (PEP 8
+            # module names). Real packages ship such files as data-driven
+            # hooks for other tools (a `__pyinstaller` hook, a plugin
+            # script). Skip them the way `__main__.py` in a package is
+            # skipped, with a note, instead of refusing the whole tree.
+            skipped.append(relative.as_posix())
+            continue
         if program and not namespaced:
             # A program sibling is imported by its plain name.
             found.append((".".join(stem.parts), path, False))
