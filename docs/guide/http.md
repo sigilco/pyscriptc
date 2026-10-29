@@ -37,6 +37,7 @@ Chunked transfer-encoding is decoded.
 
 - TLS rides the pyscriptc-http adapter: an `https://` URL needs the adapter's FFI manifest on the compile (`--ffi <pyscriptc-http>/ffi.toml`). Certificate verification is always on (hostname through SNI, roots from the platform trust store); a failed verification raises `OSError` and there is no insecure fallback. Without the adapter the https URL still raises `OSError` with an actionable message.
   TLS via mbedTLS is [#235](https://github.com/sigilco/pyscriptc/issues/235).
+- The adapter's mbedTLS build is client-only: no server side, no DTLS, TLS 1.2 and TLS 1.3 only, and the cipher and curve set a public HTTPS endpoint negotiates. The compile also drops the sections the program never calls, so an HTTPS binary carries the client transport and nothing else.
 - `urlopen` takes `url`, `data` and `timeout`; other keywords are unsupported.
   Headers go on the `Request`, as a dict display with constant string keys and values; a header dict built at run time stops the compile.
 - 4xx and 5xx raise `HTTPError` carrying `status`, `headers` and a readable body; malformed URLs and connection failures raise `URLError`.
