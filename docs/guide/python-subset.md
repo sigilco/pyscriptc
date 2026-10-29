@@ -84,7 +84,7 @@ There is no `typing` module object in the binary.
 | `async def` and `await` | compiles |
 | `dataclasses.dataclass` with no options | compiles as a native record; `frozen=True` and other decorators are unsupported (`PS1201`) |
 | `cast(t, v)`, `get_type_hints`, `__annotations__` reads | unsupported (`PS2002`); write the type on an annotated local instead |
-| `isinstance(v, list[int])` | unsupported (`PS2001`); runtime checks take scalar and class names only |
+| `isinstance(v, list[int])` | unsupported (`PS2001`); runtime checks take scalar and class names only; a bare `list`/`dict`/`set`/`tuple` second argument fences the same way |
 | quoted forward references (`"Node"`) | unsupported (`PS1105`); define the class first and write the name unquoted |
 
 Constructs with runtime meaning beyond their annotation (pydantic models, `attrs` validators, anything that reads annotations at run time) are not typing failures: run them through embedded CPython (fallback mode), see [Libraries and fallback mode](libraries.md).

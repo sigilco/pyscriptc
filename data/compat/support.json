@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-10-27",
-  "commit": "95debbd232c8b3caebcd34907f4cfe161f914ec5",
+  "generated": "2026-10-28",
+  "commit": "3bf40de6fe2fc661a956e88723d23776e9a5e0e4",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -124,7 +124,7 @@
       "label": "`isinstance`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "tuple of types",
+      "missing": "tuple of types, bare container",
       "codes": [
         "PS2001"
       ]
@@ -736,7 +736,7 @@
       "label": "`typing`, `typing_extensions`",
       "status": "\ud83d\udfe1",
       "count": 2,
-      "missing": "Any annotation, bare Callable, multi-arm union, optional of a multi-arm union, Literal annotation, Self return, TypeAlias declaration, PEP 695 type alias, PEP 695 TypeVar parameter, forward reference string, TypedDict class base, NamedTuple class base, NewType value, ParamSpec value, cast value, get_type_hints reflection, isinstance with a generic, __annotations__ read",
+      "missing": "Any annotation, bare Callable, multi-arm union, optional of a multi-arm union, Literal annotation, Self return, TypeAlias declaration, PEP 695 type alias, PEP 695 TypeVar parameter, forward reference string, TypedDict class base, NamedTuple class base, NewType value, ParamSpec value, cast value, get_type_hints reflection, isinstance with a generic, isinstance with a bare container, __annotations__ read",
       "codes": [
         "PS1101",
         "PS1102",

@@ -1659,8 +1659,10 @@ class ClassesMixin:
     def _isinstance_type(self, node: ast.expr) -> dict[str, Any]:
         if isinstance(node, ast.Name) and node.id in {"int", "float", "bool", "str", "bytes"}:
             return {"kind": node.id}
-        if isinstance(node, ast.Name) and node.id in {"list", "dict"}:
-            return {"kind": node.id, "bare": True}
+        if isinstance(node, ast.Name) and node.id in {"list", "dict", "set", "tuple"}:
+            # A bare container has no element parts, so narrowing against one
+            # cannot produce a complete type dict: fence it.
+            self.fail(node, "PS2001", "isinstance type is not in the lowered subset")
         if isinstance(node, ast.Name) and (
             node.id in self.classes or node.id in self.class_aliases or node.id in EXCEPTIONS
         ):
@@ -1684,8 +1686,10 @@ class ClassesMixin:
         raise AssertionError("unreachable")
 
     def _isinstance_holds(self, got: dict[str, Any], want: dict[str, Any]) -> bool:
-        if want.get("bare") and got["kind"] == want["kind"]:
-            return True
+        if want.get("bare") or got.get("bare"):
+            # A bare container is not a complete type: only the same bare
+            # container matches, anything else is a constant false.
+            return bool(want.get("bare") and got.get("bare") and got["kind"] == want["kind"])
         if want["kind"] == "int" and got["kind"] == "bool":
             return True
         if want["kind"] == "class" and got["kind"] == "class":
