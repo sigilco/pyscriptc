@@ -21,7 +21,7 @@ from pyscriptc.errors import IRError, VersionError
 IR_VERSION = 2
 SUBSET = "gates-v1"
 
-TYPE_KINDS = {"int", "float", "bool", "none", "str", "bytes", "list", "dict", "class", "exc", "unknown", "func"}
+TYPE_KINDS = {"int", "float", "bool", "none", "str", "bytes", "list", "dict", "class", "exc", "unknown", "func", "any"}
 EXPR_KINDS = {
     "name",
     "const",
@@ -104,8 +104,15 @@ def zdi_variants() -> dict[str, int]:
 def type_key(typ: dict[str, Any]) -> str:
     if typ["kind"] == "list":
         head = "set" if typ.get("set") else "list"
+        if "elem" not in typ:
+            # The bare `isinstance(x, list)` check form carries no element
+            # type; the key names the container kind alone so the
+            # comparison stays total.
+            return f"{head}[?]"
         return f"{head}[{type_key(typ['elem'])}]"
     if typ["kind"] == "dict":
+        if "key" not in typ or "value" not in typ:
+            return "dict[?]"
         return f"dict[{type_key(typ['key'])}, {type_key(typ['value'])}]"
     if typ["kind"] == "class":
         if "elem" in typ:

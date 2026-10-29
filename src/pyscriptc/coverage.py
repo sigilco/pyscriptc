@@ -68,6 +68,11 @@ _FAMILIES = {
             "dynamic-annotation",
             "Annotate with the concrete type. object, Any, Protocol, TypeVar and Callable do not lower.",
         ),
+        Family(
+            "unresolved-container-read",
+            "The dict[K, Any] or list[Any] container compiles, but this read needs a proven value type. "
+            "Annotate the container with the concrete value type, or initialize it with one type of value.",
+        ),
         Family("forward-reference", "Define the class before use and write the annotation unquoted."),
         Family(
             "unlowered-type-name",
@@ -166,6 +171,7 @@ _RULES: tuple[tuple[str | None, str, str], ...] = (
     ("PS1102", r"", "optional-types"),
     ("PS1103", r"", "generic-alias"),
     ("PS1104", r"", "dynamic-annotation"),
+    ("PS1107", r"", "unresolved-container-read"),
     ("PS1105", r"", "forward-reference"),
     ("PS1106", r"", "unlowered-type-name"),
     ("PS1201", r"", "decorators"),
