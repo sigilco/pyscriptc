@@ -19,6 +19,7 @@ document open per module, not one server per module.
 from __future__ import annotations
 
 import ast
+import shutil
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -267,26 +268,34 @@ def pinned_facts(root: Path, facts: InferFacts, provider: str = "pyrefly") -> di
         pins_by_file[path] = file_pins
     out: dict[Path, Any] = {}
     bridge = PyreflyBridge()
-    for path, file_pins in pins_by_file.items():
-        if not file_pins:
+    mirror = tempfile.mkdtemp(prefix="pyscriptc-pinned-")
+    try:
+        # The mirror holds the whole tree, so an import of a sibling
+        # module resolves the way it does in the original.
+        shutil.copytree(root, Path(mirror, "tree"), dirs_exist_ok=True)
+        for path, file_pins in pins_by_file.items():
+            if not file_pins:
+                try:
+                    out[path] = bridge.facts(path)
+                except CheckFailed:
+                    continue
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            pinned = apply_pins(tree, file_pins)
+            # The pinned copy keeps the module's place in the package: a
+            # relative import must resolve the same way it does in the
+            # original, or the checker types the whole module `Any` and
+            # the re-check proves nothing.
+            module = _module_name(path, root)
+            target = Path(mirror, "tree", *module.split(".")).with_suffix(".py")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(ast.unparse(pinned), encoding="utf-8")
             try:
-                out[path] = bridge.facts(path)
+                out[path] = bridge.facts(target)
             except CheckFailed:
                 continue
-            continue
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        pinned = apply_pins(tree, file_pins)
-        import tempfile
-
-        with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as handle:
-            handle.write(ast.unparse(pinned))
-            temp_path = Path(handle.name)
-        try:
-            out[path] = bridge.facts(temp_path)
-        except CheckFailed:
-            continue
-        finally:
-            temp_path.unlink(missing_ok=True)
+    finally:
+        shutil.rmtree(mirror, ignore_errors=True)
     return out
 
 
