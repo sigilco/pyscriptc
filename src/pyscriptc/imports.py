@@ -398,8 +398,12 @@ def _installed_distributions() -> dict[str, dict[str, Any]]:
             key = name.lower().replace("_", "-").replace(" ", "-")
             # A versioned directory name (`markupsafe-3.0.4.dist-info`) does
             # not match the distribution key the metadata loop built, so strip
-            # a trailing version before looking the entry up.
-            stripped = key.split("-")[0] if key.rsplit("-", 1)[-1][0].isdigit() else key
+            # a trailing version before looking the entry up. The version is
+            # the last hyphen-separated segment, so `pydantic_core-2.50.1`
+            # strips to `pydantic-core` and not to `pydantic`: splitting on
+            # the first hyphen made one distribution's wheel mark another
+            # distribution native.
+            stripped = key.rsplit("-", 1)[0] if key.rsplit("-", 1)[-1][0].isdigit() else key
             metadata = found.get(stripped) or found.get(key)
             if metadata is None:
                 metadata = {"dist": name, "root": dist_info, "native": False}
