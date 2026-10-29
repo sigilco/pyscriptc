@@ -33,6 +33,19 @@ live setjmp outside the frame's own try).
 #include <string.h>
 #include <time.h>
 
+/* The fd poller (#177): kqueue, epoll or poll() behind one call. This file
+   owns the wait; the poller owns the kernel interface. */
+typedef struct {
+    int fd;
+    int32_t events;
+    int32_t ready;
+} PsPollFd;
+
+extern int ps_poller_poll(PsPollFd *fds, int count, int timeout_ms);
+extern void ps_poller_wake(void);
+extern int ps_poller_pipe_fd(void);
+extern void ps_poller_reset(void);
+
 /* Offsets into every coroutine frame (coro.py guarantees this layout). */
 #define PS_TASK_OFF 8
 
@@ -117,6 +130,21 @@ static PsFail *ps_fails;
 static int64_t ps_fail_len;
 static int64_t ps_fail_cap;
 
+/* An fd the loop waits on: a coroutine parks its task on a descriptor and
+   the loop wakes it when the descriptor is readable. The rows live between
+   drives; a wake drops the row. */
+typedef struct PsFdWait {
+    int fd;
+    PsTask *task;
+    /* Set when the poll reported the fd ready: the task re-queues on the
+       next drive, before the timers (readiness first, timers after). */
+    int32_t ready;
+} PsFdWait;
+
+static PsFdWait *ps_fd_waits;
+static int64_t ps_fd_wait_len;
+static int64_t ps_fd_wait_cap;
+
 static PsTask *ps_ready_head;
 static PsTask *ps_ready_tail;
 static PsTimer *ps_timers;
@@ -149,6 +177,8 @@ void ps_loop_reset(void) {
     ps_deadline_len = 0;
     ps_deadline_seq = 0;
     ps_fail_len = 0;
+    ps_fd_wait_len = 0;
+    ps_poller_reset();
     for (int64_t i = 0; i < ps_task_len; i++) {
         free(ps_tasks[i]->waiters);
         free(ps_tasks[i]->result);
@@ -167,6 +197,61 @@ static void ps_ready_push(PsTask *task) {
     }
     ps_ready_tail->next = task;
     ps_ready_tail = task;
+}
+
+/* --- fd readiness (the poller's rows) ---------------------------------- */
+
+/* Park the running task on a file descriptor: the loop wakes it when the
+   descriptor becomes readable (or the drive times out, whichever comes
+   first). The rows are the loop's own; the poller only sees the fds. */
+void ps_loop_wait_fd(int fd) {
+    PsTask *task = ps_current_task;
+    if (task == NULL) {
+        return;
+    }
+    for (int64_t i = 0; i < ps_fd_wait_len; i++) {
+        if (ps_fd_waits[i].fd == fd) {
+            ps_fd_waits[i].task = task;
+            return;
+        }
+    }
+    if (ps_fd_wait_len == ps_fd_wait_cap) {
+        int64_t cap = ps_fd_wait_cap == 0 ? 8 : ps_fd_wait_cap * 2;
+        PsFdWait *grown = realloc(ps_fd_waits, (size_t)cap * sizeof(PsFdWait));
+        if (grown == NULL) {
+            abort();
+        }
+        ps_fd_waits = grown;
+        ps_fd_wait_cap = cap;
+    }
+    ps_fd_waits[ps_fd_wait_len].fd = fd;
+    ps_fd_waits[ps_fd_wait_len].task = task;
+    ps_fd_waits[ps_fd_wait_len].ready = 0;
+    ps_fd_wait_len++;
+}
+
+/* True while a task is parked on an fd: the poller is part of the wait. */
+static int32_t ps_fd_waits_pending(void) {
+    return ps_fd_wait_len > 0 ? 1 : 0;
+}
+
+/* The poll said these fds are ready: mark the rows and re-queue the tasks.
+   Readiness wins over timers on the same drive, so a socket that has data
+   is read before the next timer fires. */
+static void ps_fd_waits_fire(PsPollFd *polls, int count) {
+    for (int i = 0; i < count; i++) {
+        if (!polls[i].ready) {
+            continue;
+        }
+        for (int64_t j = 0; j < ps_fd_wait_len; j++) {
+            if (ps_fd_waits[j].fd == polls[i].fd && ps_fd_waits[j].task != NULL && !ps_fd_waits[j].ready) {
+                ps_fd_waits[j].ready = 1;
+                PsTask *task = ps_fd_waits[j].task;
+                ps_fd_waits[j].task = NULL;
+                ps_ready_push(task);
+            }
+        }
+    }
 }
 
 /* Re-queue a task that a primitive woke up. The task is not on the ready
@@ -601,6 +686,16 @@ static void ps_loop_drive(int32_t blocking) {
            the task that parked on it, so the wakeup lands before the next
            drain. */
         ps_to_thread_pump();
+        /* Readiness first: rows the last poll marked fire before the queue
+           drains, so a socket with data is read before any timer. */
+        for (int64_t i = 0; i < ps_fd_wait_len; i++) {
+            if (ps_fd_waits[i].ready && ps_fd_waits[i].task != NULL) {
+                PsTask *task = ps_fd_waits[i].task;
+                ps_fd_waits[i].task = NULL;
+                ps_fd_waits[i].ready = 0;
+                ps_ready_push(task);
+            }
+        }
         while (ps_ready_head != NULL) {
             PsTask *task = ps_ready_head;
             ps_ready_head = task->next;
@@ -613,7 +708,7 @@ static void ps_loop_drive(int32_t blocking) {
             ps_task_step(task);
             ps_current_task = saved;
         }
-        if (ps_timer_len == 0 && !ps_deadlines_pending() && !ps_threads_pending()) {
+        if (ps_timer_len == 0 && !ps_deadlines_pending() && !ps_threads_pending() && !ps_fd_waits_pending()) {
             return;
         }
         if (!blocking) {
@@ -633,23 +728,57 @@ static void ps_loop_drive(int32_t blocking) {
                 earliest = ps_deadlines[i].deadline;
             }
         }
-        if (earliest < 0.0) {
-            /* No timer to wait on, but a thread call may still be running.
-               The loop spins until the worker finishes: the loop does not
-               poll the thread, so this is the honest boundary of the
-               `to_thread` stage (the stage D3 breakdown records it). */
-            if (!ps_threads_pending()) {
-                return;
+        /* The wait: the poller blocks until an fd is ready, the self-pipe
+           wakes it, or the timeout (the earliest timer) expires. A loop
+           with only timers waits in the kernel instead of sleeping in a
+           spin, so an idle loop costs one syscall, not a core. */
+        int timeout_ms = -1;
+        double now = ps_now();
+        if (earliest >= 0.0 && earliest > now) {
+            double wait = earliest - now;
+            timeout_ms = (int)(wait * 1000.0);
+            if (timeout_ms < 0) {
+                timeout_ms = 0;
             }
+        } else if (earliest >= 0.0) {
+            timeout_ms = 0;
+        }
+        if (ps_fd_wait_len == 0 && ps_threads_pending() && !ps_deadlines_pending() && ps_timer_len == 0) {
+            /* No timer, no fd, but a thread call is running: the loop spins
+               until the worker finishes (the D3 boundary, unchanged). */
             struct timespec pause = {0, 1000000};
             nanosleep(&pause, NULL);
             ps_fire_deadlines();
             continue;
         }
-        double now = ps_now();
-        if (earliest > now) {
-            struct timespec req;
+        if (ps_fd_wait_len > 0) {
+            PsPollFd polls[64];
+            int count = 0;
+            for (int64_t i = 0; i < ps_fd_wait_len && count < 64; i++) {
+                if (ps_fd_waits[i].task == NULL) {
+                    continue;
+                }
+                polls[count].fd = ps_fd_waits[i].fd;
+                polls[count].events = 1; /* POLLIN */
+                polls[count].ready = 0;
+                count++;
+            }
+            if (count > 0) {
+                int ready = ps_poller_poll(polls, count, timeout_ms);
+                if (ready > 0) {
+                    ps_fd_waits_fire(polls, count);
+                }
+            } else if (timeout_ms != 0) {
+                /* Every row lost its task between the park and the drive:
+                   nothing to wait on. */
+                struct timespec pause = {0, 1000000};
+                nanosleep(&pause, NULL);
+            }
+        } else if (timeout_ms != 0) {
+            /* Timers only: sleep the gap, as before. The poller is not
+               involved because there is no fd to wait for. */
             double wait = earliest - now;
+            struct timespec req;
             req.tv_sec = (time_t)wait;
             req.tv_nsec = (long)((wait - (double)req.tv_sec) * 1e9);
             nanosleep(&req, NULL);

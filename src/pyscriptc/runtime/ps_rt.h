@@ -472,6 +472,7 @@ void ps_loop_run(void);
 void ps_loop_run_root(void *frame);
 void ps_loop_sleep(void *frame, double delay);
 void ps_loop_wait(void *child, void *parent);
+void ps_loop_wait_fd(int fd);
 /* `await child`: drive the child once under the loop's catch. 0 pending,
    1 done, 2 failed (the child raised; ps_await_raise re-raises it in the
    awaiting parent, whose own try sees it). */
