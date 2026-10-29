@@ -15,8 +15,7 @@ def _span_to(node: ast.AST, sub: ast.AST) -> ast.AST:
     """Copy a call's source span onto a synthesized expression, like the sorted block does."""
 
     for item in ast.walk(sub):
-        item.lineno, item.col_offset = node.lineno, node.col_offset
-        item.end_lineno, item.end_col_offset = node.end_lineno, node.end_col_offset
+        _stamp_span(item, node)
     return sub
 
 
@@ -101,8 +100,7 @@ def _emit(lo: Any, node: ast.AST, lines: list[str], span: dict[str, Any]) -> Non
     block: statements re-parse and run through `_body`."""
     for stmt in ast.parse("\n".join(lines)).body:
         for sub in ast.walk(stmt):
-            sub.lineno, sub.col_offset = node.lineno, node.col_offset
-            sub.end_lineno, sub.end_col_offset = node.end_lineno, node.end_col_offset
+            _stamp_span(sub, node)
         lo.prelude.extend(lo._body([stmt]))
 
 

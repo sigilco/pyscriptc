@@ -40,6 +40,7 @@ from pyscriptc.lower._core import (
     _name,
     _show,
     _sig_typevars,
+    _stamp_span,
     _subst_type,
 )
 from pyscriptc.lower._stdlib_shared import _mod_call, _synth_module
@@ -626,8 +627,7 @@ class CallsMixin:
                     values=[ast.Call(func=node.func, args=[elt], keywords=[]) for elt in elts],
                 )
                 for sub in ast.walk(rewritten):
-                    sub.lineno, sub.col_offset = node.lineno, node.col_offset
-                    sub.end_lineno, sub.end_col_offset = node.end_lineno, node.end_col_offset
+                    _stamp_span(sub, node)
                 return self._expr(rewritten, expect)
             if attr in {"partition", "rpartition"}:
                 # The result is a 3-tuple of the receiver's kind; it materializes
@@ -740,8 +740,7 @@ class CallsMixin:
                 orelse=node.args[1] if len(node.args) == 2 else ast.Constant(value=None),
             )
             for sub in ast.walk(ifexp):
-                sub.lineno, sub.col_offset = node.lineno, node.col_offset
-                sub.end_lineno, sub.end_col_offset = node.end_lineno, node.end_col_offset
+                _stamp_span(sub, node)
             if len(node.args) == 2:
                 value = self._expr(ifexp, receiver["type"]["value"])
                 self._expect(node, value["type"], receiver["type"]["value"], "dict.get default")

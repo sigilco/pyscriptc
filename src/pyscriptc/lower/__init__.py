@@ -3471,13 +3471,19 @@ def _ast_depth(tree: ast.AST) -> int:
 
 
 def _deepest_node(tree: ast.AST) -> ast.AST:
-    """The first node at the maximum depth: the fence span points there."""
+    """The first node at the maximum depth: the fence span points there.
+
+    Context nodes are skipped: CPython's parser shares one instance per
+    context kind across the process and never sets positions on them, so
+    their `lineno` is either missing or stale from another module's
+    lowering.
+    """
     best: ast.AST = tree
     best_depth = 0
     stack: list[tuple[ast.AST, int]] = [(tree, 0)]
     while stack:
         node, depth = stack.pop()
-        if depth > best_depth:
+        if not isinstance(node, ast.expr_context) and depth > best_depth:
             best, best_depth = node, depth
         stack.extend((child, depth + 1) for child in ast.iter_child_nodes(node))
     return best
