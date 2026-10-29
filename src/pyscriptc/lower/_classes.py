@@ -1228,6 +1228,54 @@ class ClassesMixin:
             if typ["value"]["kind"] == "bool":
                 self.fail(node, "PS2002", "dict values of bool are not lowered")
 
+    def _any_container_annotation(self, node: ast.AST) -> dict[str, Any] | None:
+        """The IR type of a `dict[K, Any]` or `list[Any]` annotation, or None.
+
+        A container whose element type is `Any` is not a homogeneous
+        container the runtime can hold: the value type is only known where
+        the values are written or read. The annotation itself is accepted
+        (the container's *shape* is known: the key type, and that the
+        elements are values, not a fixed layout), and the element type
+        stays unresolved in the IR as the `any` kind. Every read site then
+        has to prove the concrete element type from a sound local source
+        (the values written into the container, or the value it was
+        initialized with); a read that cannot prove it fences with
+        PS1107, which names the unresolved read rather than the
+        annotation (issue #814).
+
+        A bare `Any` (a parameter, a return, a local) is a different
+        thing: there is no container whose shape is known, so it stays
+        PS1104, the code the frozen must-fence probe pins.
+        """
+        if not isinstance(node, ast.Subscript):
+            return None
+        base = node.value
+        name = base.id if isinstance(base, ast.Name) else self._typing_alias(base)
+        if name == "list":
+            if not (isinstance(node.slice, ast.Name) and node.slice.id == "Any"):
+                return None
+            return {"kind": "list", "elem": {"kind": "any"}}
+        if name not in {"dict", "Dict"}:
+            return None
+        if not isinstance(node.slice, ast.Tuple) or len(node.slice.elts) != 2:
+            return None
+        value_node = node.slice.elts[1]
+        if not (isinstance(value_node, ast.Name) and value_node.id == "Any"):
+            return None
+        key = self._annotation(node.slice.elts[0])
+        if key["kind"] not in {"int", "str"}:
+            self.fail(node, "PS2002", "dict keys are int or str")
+        return {"kind": "dict", "key": key, "value": {"kind": "any"}}
+
+    def _container_annotation(self, node: ast.AST) -> dict[str, Any] | None:
+        """The IR type of a container annotation, resolving `Any` elements.
+
+        `dict[K, Any]` and `list[Any]` lower to a container with an
+        unresolved element type; every other container annotation lowers
+        to its concrete element type as before.
+        """
+        return self._any_container_annotation(node)
+
     def _annotation(self, node: ast.AST) -> dict[str, Any]:
         if isinstance(node, ast.Name) and node.id in self.tv_subst:
             return self.tv_subst[node.id]
@@ -1270,6 +1318,9 @@ class ClassesMixin:
         handle = self._handle_annotation(node)
         if handle is not None:
             return handle
+        any_container = self._container_annotation(node)
+        if any_container is not None:
+            return any_container
         if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "list":
             typ = {"kind": "list", "elem": self._annotation(node.slice)}
             self._reject_banned_type(node, typ)
@@ -1929,6 +1980,9 @@ class ClassesMixin:
                 self.fail(node, "PS1001", "IO is not a lowered type in the IR")
             return {"kind": "class", "name": handle}
         if alias in _LIST_FORMS:
+            any_form = self._any_container_annotation(node)
+            if any_form is not None:
+                return any_form
             typ = {"kind": "list", "elem": self._annotation(node.slice)}
             self._reject_banned_type(node, typ)
             return typ
@@ -1940,6 +1994,9 @@ class ClassesMixin:
         if alias in _DICT_FORMS:
             if not isinstance(node.slice, ast.Tuple) or len(node.slice.elts) != 2:
                 self.fail(node, "PS1001", "Dict annotations are Dict[key, value]")
+            any_form = self._any_container_annotation(node)
+            if any_form is not None:
+                return any_form
             typ = {
                 "kind": "dict",
                 "key": self._annotation(node.slice.elts[0]),
