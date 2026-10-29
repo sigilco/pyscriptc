@@ -228,6 +228,16 @@ class FuncsMixin:
         source = self.module.get("islandSource") or ""
         if not source:
             raise IRError("an island top level carries no islandSource")
+        # Issue #782: the precompiled code cache registers before the seed,
+        # so the bootstrap's loader unmarshals instead of compiling. A blob
+        # the running interpreter refuses (a different magic) is dropped by
+        # the loader and the seed compiles source - slower, never wrong.
+        cache_hex = self.module.get("islandCodeCache")
+        if cache_hex:
+            cache_data = bytes.fromhex(cache_hex)
+            cache_symbol = self.format_global("island.codecache", cache_data)
+            self._abi_decl("ps_island_codecache", "void", ["i64", "ptr"])
+            self._call_void("ps_island_codecache", [f"i64 {len(cache_data)}", f"ptr {cache_symbol}"])
         data = source.encode("utf-8")
         size = len(data)
         symbol = self.format_global("island.seed", data)

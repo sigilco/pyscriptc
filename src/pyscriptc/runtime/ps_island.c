@@ -1321,6 +1321,30 @@ void ps_island_fn_seed(int64_t n, const char *source) {
     ps_island_done();
 }
 
+/* The program island's precompiled code cache (issue #782): one blob of
+   zlib-compressed marshalled code objects the compiler built at compile
+   time, registered under `__pyscriptc_seedcache__.codes` before the seed
+   execs. The bootstrap validates the header (CPython magic, checksum) and
+   unmarshals lazily per module; a missing or invalid blob leaves the
+   bootstrap compiling source exactly as before. Runs once, at main, before
+   the seed. */
+void ps_island_codecache(int64_t n, const char *blob) {
+    PyObject *bytes;
+    PyObject *module;
+    ps_island_ensure();
+    bytes = PyBytes_FromStringAndSize(blob, (Py_ssize_t)n);
+    if (bytes == NULL) {
+        ps_island_fail();
+    }
+    module = PyImport_AddModule("__pyscriptc_seedcache__");
+    if (module == NULL || PyModule_AddObjectRef(module, "codes", bytes) < 0) {
+        Py_XDECREF(bytes);
+        ps_island_fail();
+    }
+    Py_DECREF(bytes);
+    ps_island_done();
+}
+
 /* The island top level (issue #613): the seed is the module's own source,
    so the exec runs with `__name__` set to `__main__` - the script's own
    main guard fires island-side, exactly once, and `raise SystemExit(...)`
