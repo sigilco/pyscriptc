@@ -9,6 +9,17 @@ from pyscriptc.restlower._shared import _BIN, _CMP
 
 
 def _bisect(lo: Any, node: ast.Call, span: dict[str, Any], attr: str) -> dict[str, Any]:
+    """The bisect family over a `list[int]`.
+
+    `bisect_left` and `bisect_right` return the index where the key would
+    go. `insort_left` and `insort_right` mutate the list in place, at the
+    position their bisect form returns; CPython's `insort` is the alias
+    of `insort_right`.
+
+    The `lo`/`hi` bounds and the `key=` keyword stay fenced: the runtime
+    searches the whole list and compares the raw cells, so a key function
+    would change the order the comparison sees.
+    """
     lo._reject_keywords(node)
     if len(node.args) != 2:
         lo.fail(node, "PS2003", f"bisect.{attr} expects 2 argument(s)")
@@ -18,6 +29,9 @@ def _bisect(lo: Any, node: ast.Call, span: dict[str, Any], attr: str) -> dict[st
         lo.fail(node, "PS1003", f"bisect.{attr} takes a list[int]")
     if key["type"]["kind"] != "int":
         lo.fail(node, "PS1003", f"bisect.{attr} key is int")
+    if attr in {"insort", "insort_left", "insort_right"}:
+        symbol = "ps_bisect_insort_left" if attr == "insort_left" else "ps_bisect_insort_right"
+        return lo._abi_call("bisect", attr, [seq, key], {"kind": "none"}, symbol, span)
     symbol = "ps_bisect_left" if attr == "bisect_left" else "ps_bisect_right"
     return lo._abi_call("bisect", attr, [seq, key], {"kind": "int"}, symbol, span)
 

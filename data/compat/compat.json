@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-28",
-  "commit": "7f67db8da943c78d0e124b579b83740723326a1f",
+  "commit": "9d6c831bfe945302547c3474dc9def6bc0507c4f",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -1071,10 +1071,11 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "insort, bisect, key=, list[str]"
+        "bisect, key=, list[str], lo/hi bounds"
       ],
       "fences": [
-        "PS2001"
+        "PS1003",
+        "PS2003"
       ],
       "note": ""
     },
@@ -2223,7 +2224,7 @@
     },
     {
       "date": "2026-10-28",
-      "commit": "7f67db8da943c78d0e124b579b83740723326a1f",
+      "commit": "9d6c831bfe945302547c3474dc9def6bc0507c4f",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 7,

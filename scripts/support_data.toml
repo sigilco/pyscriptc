@@ -467,8 +467,8 @@ no = [["capwords, Template", 'y: str = string.capwords(s)', "PS2001"]]
 
 [[stdlib]]
 names = ["bisect"]
-ok = ['y: int = bisect.bisect_left(xs, n)', 'y: int = bisect.bisect_right(xs, n)']
-no = [["insort, bisect, key=, list[str]", 'bisect.insort(xs, n)', "PS2001"]]
+ok = ['y: int = bisect.bisect_left(xs, n)', 'y: int = bisect.bisect_right(xs, n)', 'bisect.insort(xs, n)', 'bisect.insort_left(xs, n)', 'bisect.insort_right(xs, n)']
+no = [["bisect, key=, list[str]", 'bisect.insort(ss, s)', "PS1003"], ["lo/hi bounds", 'bisect.insort(xs, n, 0, 1)', "PS2003"]]
 
 [[stdlib]]
 names = ["errno"]
