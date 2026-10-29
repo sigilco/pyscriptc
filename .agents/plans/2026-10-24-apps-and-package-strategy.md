@@ -354,6 +354,16 @@ Receipt: the `http.server` probe compiles with 0 fences; a fixture program serve
 
 Interleaves with #453: this phase is the long pole and is entirely independent of the language track. It should start now, in parallel, because it is the only path to the web archetype. #235 (TLS) and #237 (`http.client`) are the follow-ups and are also independent of the language track, but they land after the plaintext milestone.
 
+### The #485 scope decision (recorded 2026-10-28)
+
+Issue #485 asks for the decision to be recorded here: the closed `selectors` subset is a **runtime-level API, not a Python module, until the typed `socket` surface exists**.
+
+The reason is the shape of CPython's `selectors`, not effort. `selectors.DefaultSelector.register(fileobj, events)` takes anything with a `fileno()`: a socket, a pipe, a file. The closed subset has no `socket.socket` object (#229 covers sockets at the C level; a Python-level `socket` surface is not planned), so a Python `selectors` module today could only accept bare ints. A module whose `register()` takes an int where CPython's takes an object looks like `selectors` and behaves differently on the first line a tester writes, and the fence would name a module whose surface is not CPython's.
+
+What ships instead: `src/pyscriptc/runtime/ps_select.c`, the `DefaultSelector` record set (`register`, `unregister`, `modify`, `select`, `get_key`, `close`, the `EVENT_READ`/`EVENT_WRITE` bits) over the one event loop from #177 (`ps_poller.c`, kqueue/epoll/poll). The substrate is reused, not a second event loop: the selector's interest and the loop's parked-task interest live in the same counted watch table.
+
+When #229 lands the typed socket handle, the Python module is a thin lowering onto these records: `register(sock, events)` reads the fd off the handle and calls `ps_select_register`. The records do not change, so the runtime work here is not throwaway.
+
 ### Phase 3: the compat ports (M to L, v0.9.0)
 
 #231, #232, #233 (M each), #234 (L), #156 (`pyscriptc-val`, L), #496 (`pyscriptc-ndarray`, L), #497 (`pyscriptc-frame`, XL).

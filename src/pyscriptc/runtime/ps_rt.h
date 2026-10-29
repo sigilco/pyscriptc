@@ -472,6 +472,10 @@ void ps_loop_run(void);
 void ps_loop_run_root(void *frame);
 void ps_loop_sleep(void *frame, double delay);
 void ps_loop_wait(void *child, void *parent);
+void ps_loop_wait_fd(int fd);
+/* `ps_loop_wait_fd(fd)`: park the running task on a descriptor. The loop
+   wakes the task when the descriptor is readable, ahead of the timers on
+   the same drive. */
 /* `await child`: drive the child once under the loop's catch. 0 pending,
    1 done, 2 failed (the child raised; ps_await_raise re-raises it in the
    awaiting parent, whose own try sees it). */
@@ -539,5 +543,19 @@ void ps_to_thread_result(void *box, int64_t size, void *out);
 void ps_to_thread_pump(void);
 void ps_to_thread_park(void *box);
 int32_t ps_threads_pending(void);
+
+/* ps_select.c: the selectors substrate (#485), the `DefaultSelector` record
+   set over the #177 poller. The scope decision (runtime-level until the
+   typed socket handle lands) is in
+   `.agents/plans/2026-10-24-apps-and-package-strategy.md`. */
+void *ps_select_new(void);
+void *ps_select_register(void *sel, int64_t fd, int64_t events);
+void *ps_select_unregister(void *sel, int64_t fd);
+void *ps_select_modify(void *sel, int64_t fd, int64_t events);
+void *ps_select_get_key(void *sel, int64_t fd);
+int64_t ps_select_key_fd(void *key);
+int64_t ps_select_key_events(void *key);
+PsSeq *ps_select_select(void *sel, double timeout);
+void ps_select_close(void *sel);
 
 #endif

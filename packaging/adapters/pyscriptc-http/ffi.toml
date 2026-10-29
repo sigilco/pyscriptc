@@ -1,0 +1,248 @@
+# pyscriptc-http: the TLS transport for the native HTTP client (issue #235).
+#
+# The manifest declares the link inputs of the adapter. The https half of
+# `urllib.request` is reached through the runtime's transport seam
+# (`src/pyscriptc/runtime/ps_http_tls.h`), so the script's own surface does
+# not change: the adapter's module claim (`pyscriptc_http`) exists so the
+# manifest binds one seam, and nothing from it is imported by a script.
+# The vendored mbedTLS is fetched by `fetch_vendor.py`; only the pin is
+# committed (vendor/VENDOR.toml, the sqlite adapter's pattern).
+
+[manifest]
+module = "pyscriptc_http"
+ps_abi = 1
+format = 1
+
+# The adapter thunk: the transport seam (connect, verified handshake,
+# write, read, close) the runtime's ps_http.c calls for an https:// URL.
+[[source]]
+path = "ps_ffi_http_tls.c"
+
+[[source]]
+path = "vendor/mbedtls/library/aes.c"
+
+[[source]]
+path = "vendor/mbedtls/library/aesce.c"
+
+[[source]]
+path = "vendor/mbedtls/library/aesni.c"
+
+[[source]]
+path = "vendor/mbedtls/library/asn1parse.c"
+
+[[source]]
+path = "vendor/mbedtls/library/asn1write.c"
+
+[[source]]
+path = "vendor/mbedtls/library/base64.c"
+
+[[source]]
+path = "vendor/mbedtls/library/bignum.c"
+
+[[source]]
+path = "vendor/mbedtls/library/bignum_core.c"
+
+[[source]]
+path = "vendor/mbedtls/library/bignum_mod.c"
+
+[[source]]
+path = "vendor/mbedtls/library/bignum_mod_raw.c"
+
+[[source]]
+path = "vendor/mbedtls/library/block_cipher.c"
+
+[[source]]
+path = "vendor/mbedtls/library/chacha20.c"
+
+[[source]]
+path = "vendor/mbedtls/library/chachapoly.c"
+
+[[source]]
+path = "vendor/mbedtls/library/cipher.c"
+
+[[source]]
+path = "vendor/mbedtls/library/cipher_wrap.c"
+
+[[source]]
+path = "vendor/mbedtls/library/constant_time.c"
+
+[[source]]
+path = "vendor/mbedtls/library/ctr_drbg.c"
+
+[[source]]
+path = "vendor/mbedtls/library/ecdh.c"
+
+[[source]]
+path = "vendor/mbedtls/library/ecdsa.c"
+
+[[source]]
+path = "vendor/mbedtls/library/ecp.c"
+
+[[source]]
+path = "vendor/mbedtls/library/ecp_curves.c"
+
+[[source]]
+path = "vendor/mbedtls/library/ecp_curves_new.c"
+
+[[source]]
+path = "vendor/mbedtls/library/entropy.c"
+
+[[source]]
+path = "vendor/mbedtls/library/entropy_poll.c"
+
+[[source]]
+path = "vendor/mbedtls/library/error.c"
+
+[[source]]
+path = "vendor/mbedtls/library/gcm.c"
+
+[[source]]
+path = "vendor/mbedtls/library/hkdf.c"
+
+[[source]]
+path = "vendor/mbedtls/library/hmac_drbg.c"
+
+[[source]]
+path = "vendor/mbedtls/library/md.c"
+
+[[source]]
+path = "vendor/mbedtls/library/oid.c"
+
+[[source]]
+path = "vendor/mbedtls/library/pk_ecc.c"
+
+[[source]]
+path = "vendor/mbedtls/library/pem.c"
+
+[[source]]
+path = "vendor/mbedtls/library/pk.c"
+
+[[source]]
+path = "vendor/mbedtls/library/pk_wrap.c"
+
+[[source]]
+path = "vendor/mbedtls/library/pkparse.c"
+
+[[source]]
+path = "vendor/mbedtls/library/platform.c"
+
+[[source]]
+path = "vendor/mbedtls/library/platform_util.c"
+
+[[source]]
+path = "vendor/mbedtls/library/poly1305.c"
+
+[[source]]
+path = "vendor/mbedtls/library/psa_crypto_storage.c"
+
+[[source]]
+path = "vendor/mbedtls/library/psa_its_file.c"
+
+[[source]]
+path = "vendor/mbedtls/library/psa_crypto_client.c"
+
+[[source]]
+path = "vendor/mbedtls/library/psa_crypto.c"
+
+[[source]]
+path = "vendor/mbedtls/library/psa_crypto_aead.c"
+
+[[source]]
+path = "vendor/mbedtls/library/psa_crypto_cipher.c"
+
+[[source]]
+path = "vendor/mbedtls/library/psa_crypto_driver_wrappers_no_static.c"
+
+[[source]]
+path = "vendor/mbedtls/library/psa_crypto_ecp.c"
+
+[[source]]
+path = "vendor/mbedtls/library/psa_crypto_ffdh.c"
+
+[[source]]
+path = "vendor/mbedtls/library/psa_crypto_hash.c"
+
+[[source]]
+path = "vendor/mbedtls/library/psa_crypto_mac.c"
+
+[[source]]
+path = "vendor/mbedtls/library/psa_crypto_pake.c"
+
+[[source]]
+path = "vendor/mbedtls/library/psa_crypto_random.c"
+
+[[source]]
+path = "vendor/mbedtls/library/psa_crypto_rsa.c"
+
+[[source]]
+path = "vendor/mbedtls/library/psa_crypto_slot_management.c"
+
+[[source]]
+path = "vendor/mbedtls/library/psa_util.c"
+
+[[source]]
+path = "vendor/mbedtls/library/rsa.c"
+
+[[source]]
+path = "vendor/mbedtls/library/rsa_alt_helpers.c"
+
+[[source]]
+path = "vendor/mbedtls/library/sha1.c"
+
+[[source]]
+path = "vendor/mbedtls/library/sha256.c"
+
+[[source]]
+path = "vendor/mbedtls/library/sha512.c"
+
+[[source]]
+path = "vendor/mbedtls/library/ssl_ciphersuites.c"
+
+[[source]]
+path = "vendor/mbedtls/library/ssl_client.c"
+
+[[source]]
+path = "vendor/mbedtls/library/ssl_debug_helpers_generated.c"
+
+[[source]]
+path = "vendor/mbedtls/library/ssl_msg.c"
+
+[[source]]
+path = "vendor/mbedtls/library/ssl_tls.c"
+
+[[source]]
+path = "vendor/mbedtls/library/ssl_tls12_client.c"
+
+[[source]]
+path = "vendor/mbedtls/library/ssl_tls13_client.c"
+
+[[source]]
+path = "vendor/mbedtls/library/ssl_tls13_generic.c"
+
+[[source]]
+path = "vendor/mbedtls/library/ssl_tls13_keys.c"
+
+[[source]]
+path = "vendor/mbedtls/library/version.c"
+
+[[source]]
+path = "vendor/mbedtls/library/version_features.c"
+
+[[source]]
+path = "vendor/mbedtls/library/x509.c"
+
+[[source]]
+path = "vendor/mbedtls/library/x509_crt.c"
+
+[[source]]
+path = "vendor/mbedtls/3rdparty/p256-m/p256-m/p256-m.c"
+
+[[source]]
+path = "vendor/mbedtls/3rdparty/p256-m/p256-m_driver_entrypoints.c"
+
+[[source]]
+path = "vendor/mbedtls/3rdparty/everest/library/everest.c"
+
+[[source]]
+path = "vendor/mbedtls/3rdparty/everest/library/Hacl_Curve25519_joined.c"
+

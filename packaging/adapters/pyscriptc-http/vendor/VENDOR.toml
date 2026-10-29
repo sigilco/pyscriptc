@@ -1,0 +1,22 @@
+# Pinned mbedTLS release for the pyscriptc-http TLS transport (issue #235).
+#
+# The tarball is not committed: fetch_vendor.py downloads it, checks the
+# sha256, unpacks it, applies the config trim (the four DTLS and server-side
+# options the client transport never reaches) and then checks the sha256 of
+# five files against the values below, so the fetched tree is byte-identical
+# on every host.
+#
+# License: Apache-2.0 OR GPL-2.0-or-later (the upstream dual license). The
+# adapter ships the Apache-2.0 option; the license text is in
+# ../LICENSE-APACHE.md.
+name = "mbedtls"
+version = "3.6.7"
+license = "Apache-2.0 OR GPL-2.0-or-later"
+url = "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/mbedtls-3.6.7.tar.bz2"
+strip = "mbedtls-3.6.7"
+tarball_sha256 = "a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6"
+"include/mbedtls/mbedtls_config.h_sha256" = "9e31102d91b9be23b157154c908e84de7ea10b2cd61527aca3359cc573e58174"
+"library/ssl_tls.c_sha256" = "15a7c17f7ce02f116f502b1616ba02f9432c069fe5175d1709e95b33d4ff636c"
+"library/ssl_tls12_client.c_sha256" = "eb169eb2c8fbacdd13833a69fb87cb150fd5b548079b50fd86d5e79245768341"
+"library/ssl_tls13_client.c_sha256" = "5a4afbfc69df5638496e98a3b345dc71eded33d227606615f23de24d5b7c8316"
+"library/x509_crt.c_sha256" = "3b484debf0811babaa87450f689e38d7ed60257193c67bbe78f2c89d4226b027"
