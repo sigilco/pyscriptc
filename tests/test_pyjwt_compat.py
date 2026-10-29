@@ -51,10 +51,13 @@ def test_real_pyjwt_hmac_tree_still_fences() -> None:
     # 93 after the local, parameter and return inference (#500): the vendored
     # tree's own unannotated locals and defaulted parameters now bind from
     # their values, clearing two fences in jwt/math_.py.
+    # 80 after the dict[K, Any] / list[Any] slice (#814): the annotation is
+    # accepted and reads whose element type the local sources prove lower,
+    # clearing ten dynamic-annotation fences in jwt/apis/jwt.py and jwt/api_jws.py.
     # Shrinking means a backlog lowering cleared fences here; update the pin
     # when that happens. `compile` prints at most 3 root fences and counts the rest.
     assert proc.stderr.count("PS") == 3
-    assert "(and 90 more fences)" in proc.stderr
+    assert "(and 80 more fences)" in proc.stderr
 
 
 @pytest.mark.linux_container  # HEAVY=1 docker/run.sh
