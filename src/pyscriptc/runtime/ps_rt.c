@@ -390,26 +390,6 @@ void ps_exc_set_cause(PsExc *e, PsExc *cause) {
     }
 }
 
-/* `super().__init__(msg)` in a user exception class's __init__ (issue #814):
-   the builtin base has no lowered body, so the call stores the message on
-   the raised record directly, the same cell ps_raise_msg fills. The record
-   is the pending one (ps_current), exactly the object a following
-   `raise C(...)` delivers. */
-void ps_exc_set_msg(PsExc *e, int64_t n, const char *data) {
-    if (e == NULL || n < 0) {
-        return;
-    }
-    size_t take = (size_t)n;
-    if (take > 255) {
-        take = 255;
-    }
-    if (data != NULL) {
-        memcpy(e->message.data, data, take);
-    }
-    e->message.data[take] = '\0';
-    e->message.len = (int64_t)take;
-}
-
 __attribute__((noinline, noreturn)) void ps_raise_exc(PsExc *e) {
     if (e == NULL) {
         e = ps_exc_new(PS_RUNTIME);

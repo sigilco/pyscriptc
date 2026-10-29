@@ -293,9 +293,6 @@ void ps_bind_clear(void);
 
 int32_t ps_exc_code_by_name(const char *name);
 void ps_exc_set_cause(PsExc *e, PsExc *cause);
-/* `super().__init__(msg)` in a user exception class: store the message on
-   the raised record (the builtin base has no lowered body). */
-void ps_exc_set_msg(PsExc *e, int64_t n, const char *data);
 void ps_exc_str(PsExc *e, PsBuf *out);
 void ps_exc_repr(PsExc *e, PsBuf *out);
 void ps_exc_class(PsExc *e, PsBuf *out);

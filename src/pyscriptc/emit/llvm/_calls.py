@@ -193,14 +193,6 @@ class CallsMixin:
             self._abi_decl("ps_map_del", "void", ["ptr", "ptr"])
             self._call_void("ps_map_del", [f"ptr {values[0]}", f"ptr {key}"])
             return ""
-        if expr.get("symbol") == "ps_exc_set_msg":
-            # `super().__init__(msg)` in a user exception class (issue #814):
-            # store the message on the raised record.
-            self.needed.add("exc")
-            length, ptr = self._buf_parts(values[1])
-            self._abi_decl("ps_exc_set_msg", "void", ["ptr", "i64", "ptr"])
-            self._call_void("ps_exc_set_msg", [f"ptr {values[0]}", f"i64 {length}", f"ptr {ptr}"])
-            return ""
         if expr.get("symbol") == "ps_copy_deep":
             return self._emit_copy_deep(expr, values)
         if expr.get("symbol") == "ps_dict_items":
