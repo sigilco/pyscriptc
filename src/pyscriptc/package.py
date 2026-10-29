@@ -188,7 +188,6 @@ def _lower_units(
     *,
     program: bool,
     entry: str | None,
-    package_mode: bool,
     bridge: Any,
     ffi: list[Any] | None,
     target: str | None,
@@ -200,6 +199,7 @@ def _lower_units(
     main_package: str = "",
     path0: Path | None = None,
     staged_data: list[tuple[Path, bytes]] | None = None,
+    package_mode: bool = False,
 ) -> tuple[dict[str, Any], list[str]]:
     """Lower a set of module units into one IR module.
 
