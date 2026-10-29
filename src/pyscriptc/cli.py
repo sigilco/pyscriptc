@@ -2091,7 +2091,23 @@ def _stdlib_imports(source_path: Path) -> list[str]:
     through the site-packages bundle (issue #660), so only stdlib roots reach
     the check. `sys.stdlib_module_names` of the running interpreter answers
     it: the compiler and the pack share the 3.14 stdlib.
+
+    A stdlib root the pack builds into libpython itself is not the zip's
+    business: `sys.builtin_module_names` of the running interpreter names
+    them (`atexit`, `zlib`, `errno`, ...), the pack and the compiler share
+    the same pinned build shape, and a built-in module imports fine with no
+    zip entry. Without this filter a program that imports `zlib` refuses a
+    bundle build naming a module that was never in the zip.
+
+    A stdlib module the running platform never ships (`msvcrt` on POSIX)
+    rides the same rule from the other side: the pinned pack is the
+    compiler's platform, so a platform-guarded import cannot resolve here
+    and CPython on the same platform fails it identically. The check asks
+    the running interpreter what exists (`importlib.util.find_spec`) and
+    drops what has no loader on this platform.
     """
+
+    from importlib.util import find_spec
 
     from pyscriptc.imports import collect_imports
 
@@ -2099,8 +2115,20 @@ def _stdlib_imports(source_path: Path) -> list[str]:
     for site in collect_imports(source_path):
         if site["level"] > 0 or not site["name"]:
             continue
-        if site["name"].split(".")[0] in sys.stdlib_module_names:
-            names.add(site["name"])
+        root = site["name"].split(".")[0]
+        if root not in sys.stdlib_module_names or site["name"] in sys.builtin_module_names:
+            continue
+        # A root with no loader on this platform (`msvcrt` on POSIX) is not
+        # the zip's business; CPython here fails the import the same way.
+        if root not in names:
+            try:
+                if find_spec(root) is None:
+                    continue
+            except ValueError:
+                continue
+            except ImportError:
+                continue
+        names.add(site["name"])
     return sorted(names)
 
 

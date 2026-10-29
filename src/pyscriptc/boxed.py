@@ -344,8 +344,15 @@ def is_island_diagnostic(
 # and `sys.path[0]` are rebased onto the staged tree, resolved at run time
 # from the running image (`sys.executable`), so a relocated output
 # directory keeps working.
+# Issue #782: the compiler may also embed every unit's compiled code object
+# (`__pyscriptc_seedcache__.codes`, a zlib-compressed marshalled `{name:
+# code}` mapping built for the exact interpreter the binary links). The
+# loader validates the header (the running interpreter's magic number and
+# a matching source hash) and unmarshals one module on its first import; a
+# missing, stale or invalid entry falls back to compiling the embedded
+# source, so a foreign-magic binary never breaks - it starts slower.
 _PROGRAM_BOOTSTRAP = """\
-import os as _os, sys as _sys, importlib.abc as _abc, importlib.util as _iu
+import os as _os, sys as _sys, importlib.abc as _abc, importlib.util as _iu, marshal as _ma, zlib as _zl, hashlib as _ha
 _PS_MODULES = %(modules)s
 _PS_DATA_DIR = %(data_dir)s
 _PS_PROG_NAME = %(prog_name)s
@@ -376,12 +383,42 @@ def _ps_rebase(path):
     return path
 
 
+# Issue #782: the precompiled code cache the runtime registered before the
+# seed ran (or None when this binary carries none). One decompress, then
+# one unmarshal per module, on the module's first import.
+_PS_CODES = None
+try:
+    import __pyscriptc_seedcache__ as _sc
+
+    _raw = getattr(_sc, "codes", None)
+    if _raw is not None:
+        _PS_CODES = _ma.loads(_zl.decompress(_raw))
+except Exception:
+    _PS_CODES = None
+
+
+def _ps_code(name, path, source):
+    # The module's code object: from the embedded cache when the entry is
+    # present, was built for this interpreter (the `.pyc` magic number) and
+    # was built from this exact source (sha256); the source compile is the
+    # fallback, never trusted blindly from a stale cache.
+    entry = _PS_CODES.get(name) if _PS_CODES else None
+    if entry is not None:
+        try:
+            magic, digest, body = entry
+            if magic == _iu.MAGIC_NUMBER and digest == _ha.sha256(source.encode("utf-8")).digest():
+                return _ma.loads(body)
+        except Exception:
+            pass
+    return compile(source, path, "exec")
+
+
 class _PsLoader(_abc.Loader):
     def create_module(self, spec):
         return None
     def exec_module(self, module):
         path, _is_pkg, source = _PS_MODULES[module.__name__]
-        exec(compile(source, path, "exec"), module.__dict__)
+        exec(_ps_code(module.__name__, path, source), module.__dict__)
 class _PsFinder(_abc.MetaPathFinder):
     def find_spec(self, name, path=None, target=None):
         found = _PS_MODULES.get(name)
@@ -397,8 +434,50 @@ _sys.meta_path.insert(0, _PsFinder())
 _sys.path.insert(0, _ps_rebase(%(path0)s))
 __file__ = _ps_rebase(%(main_path)s)
 __package__ = %(package)s
-exec(compile(%(main_source)s, __file__, "exec"), globals())
+exec(_ps_code(%(main_name)s, __file__, %(main_source)s), globals())
 """
+
+
+def _module_code_entry(source: str, path: str) -> tuple[bytes, bytes] | None:
+    """One cache body for a module: `(source digest, marshalled code)`.
+
+    The marshalled code object is pinned to the compiling interpreter's
+    `.pyc` magic number; the entry carries the source's sha256 so a stale
+    cache (source changed after the cache was built) is refused, and the
+    loader re-checks the magic at run time against the interpreter that
+    actually runs the binary. None when the module does not compile.
+    """
+    import hashlib
+    import marshal
+    from importlib.util import MAGIC_NUMBER
+
+    try:
+        code = compile(source, path, "exec", dont_inherit=True)
+    except ValueError:
+        return None
+    except SyntaxError:
+        return None
+    return (
+        MAGIC_NUMBER,
+        hashlib.sha256(source.encode("utf-8")).digest(),
+        marshal.dumps(code),
+    )
+
+
+def code_cache_blob(entries: dict[str, tuple[bytes, bytes]]) -> bytes:
+    """The zlib-compressed marshalled code cache of a program's units.
+
+    `entries` maps each module name to its `_module_code_entry` pair (the
+    magic number of the compiling interpreter and the marshalled code
+    object, with the source digest inside). The outer marshal keeps the
+    insertion order, so the same inputs give the same bytes; the caller
+    sorts before calling when it wants a canonical order. Empty input
+    returns an empty blob, which the run-time loader treats as no cache.
+    """
+    import marshal
+    import zlib
+
+    return zlib.compress(marshal.dumps(entries), 9)
 
 
 def program_island_source(
@@ -409,13 +488,18 @@ def program_island_source(
     root: Path,
     path0: Path,
     staged_data: tuple[str, str] | None = None,
-) -> str:
+) -> tuple[str, bytes | None]:
     """The island seed of a whole program: finder bootstrap plus the entry.
 
     `staged_data` is the `(data directory name, program name)` pair of the
     staged data tree (issue #665), or None when the program staged nothing.
     The bootstrap resolves it against the running image, so a relocated
     output directory still finds its data files.
+
+    Returns `(bootstrap_source, code_cache)`: the seed text the emitter
+    embeds and, issue #782, the zlib-compressed marshalled code cache of
+    every unit (None when nothing compiled, in which case the bootstrap
+    compiles source at start exactly as before the cache existed).
     """
 
     modules: dict[str, tuple[str, bool, str]] = {}
@@ -427,7 +511,7 @@ def program_island_source(
             main_path, main_source = str(path), text
             continue
         modules[name] = (str(path), is_package, text)
-    return _PROGRAM_BOOTSTRAP % {
+    source = _PROGRAM_BOOTSTRAP % {
         "modules": repr(modules),
         "data_dir": repr(staged_data[0] if staged_data is not None else None),
         "prog_name": repr(staged_data[1] if staged_data is not None else None),
@@ -436,15 +520,31 @@ def program_island_source(
         "main_path": repr(main_path),
         "package": repr(main_package),
         "main_source": repr(main_source),
+        "main_name": repr(entry),
     }
+    entries: dict[str, tuple[bytes, bytes, bytes]] = {}
+    for name, (path_str, _is_package, text) in modules.items():
+        built = _module_code_entry(text, path_str)
+        if built is not None:
+            entries[name] = built
+    main_built = _module_code_entry(main_source, main_path)
+    if main_built is not None:
+        entries[entry] = main_built
+    return source, code_cache_blob(entries) if entries else None
 
 
-def program_island_module(source: str, root: Path) -> dict[str, Any]:
-    """The merged IR module of a program-wide island: no native code at all."""
+def program_island_module(source: str, root: Path, code_cache: bytes | None = None) -> dict[str, Any]:
+    """The merged IR module of a program-wide island: no native code at all.
+
+    `code_cache` (issue #782) is the zlib-compressed marshalled code cache
+    of the program's units, or None when the running interpreter produced
+    none; the emitter embeds it and registers it before the seed execs,
+    and the bootstrap falls back to compiling source without it.
+    """
 
     from pyscriptc.ir import IR_VERSION, SUBSET, cpython_version
 
-    return {
+    module: dict[str, Any] = {
         "irVersion": IR_VERSION,
         "subset": SUBSET,
         "cpython": cpython_version(),
@@ -462,6 +562,9 @@ def program_island_module(source: str, root: Path) -> dict[str, Any]:
         },
         "islandSource": source,
     }
+    if code_cache is not None:
+        module["islandCodeCache"] = code_cache.hex()
+    return module
 
 
 def unit_needs_island(module: dict[str, Any]) -> bool:
