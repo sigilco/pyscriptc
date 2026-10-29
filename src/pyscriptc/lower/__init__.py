@@ -29,6 +29,7 @@ from pyscriptc.lower._core import (
     _TRUTHY,
     Binding,
     Fence,
+    _accepts_any_elem,
     _attr,
     _compare,
     _const_none,
@@ -2519,6 +2520,11 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
 
     def _expect(self, node: ast.AST, got: dict[str, Any], want: dict[str, Any], what: str) -> None:
         if not types_equal(got, want) and not self._accepts_protocol(want, got):
+            if _accepts_any_elem(want, got):
+                # A concrete container satisfies a dict[K, Any] / list[Any]
+                # annotation (issue #814): the annotation does not pin the
+                # element type, and the value carries one.
+                return
             self.fail(node, "PS1003", f"{what} is {_show(got)}, annotation says {_show(want)}")
 
     def _use_status(self, module: str) -> str:
@@ -3465,13 +3471,19 @@ def _ast_depth(tree: ast.AST) -> int:
 
 
 def _deepest_node(tree: ast.AST) -> ast.AST:
-    """The first node at the maximum depth: the fence span points there."""
+    """The first node at the maximum depth: the fence span points there.
+
+    Context nodes are skipped: CPython's parser shares one instance per
+    context kind across the process and never sets positions on them, so
+    their `lineno` is either missing or stale from another module's
+    lowering.
+    """
     best: ast.AST = tree
     best_depth = 0
     stack: list[tuple[ast.AST, int]] = [(tree, 0)]
     while stack:
         node, depth = stack.pop()
-        if depth > best_depth:
+        if not isinstance(node, ast.expr_context) and depth > best_depth:
             best, best_depth = node, depth
         stack.extend((child, depth + 1) for child in ast.iter_child_nodes(node))
     return best

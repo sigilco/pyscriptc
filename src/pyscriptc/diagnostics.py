@@ -130,6 +130,20 @@ _ENTRIES = (
         "Import the concrete class, or replace the alias with the concrete type.",
     ),
     Diagnostic(
+        "PS1107",
+        "value read from an unresolved container",
+        (
+            "A dict[K, Any] or list[Any] annotation is accepted (the container's shape "
+            "compiles), but the value read from it has no proven type: the runtime has "
+            "no slot for a value of unknown type, so every read site must prove one."
+        ),
+        (
+            "Annotate the container with the concrete value type "
+            "(dict[str, int] instead of dict[str, Any]), or initialize it with a "
+            "value of one type so the reads can prove it."
+        ),
+    ),
+    Diagnostic(
         "PS1201",
         "decorator",
         "Only a closed set of decorators compiles. Other decorators change behavior the compiler cannot see.",

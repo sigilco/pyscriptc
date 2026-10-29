@@ -469,9 +469,25 @@ def assess(
     # 4. Summary calculation
     cap_totals = cov_report.get("capabilities", {}).get("totals", {})
     tot_defs = max(cap_totals.get("definitions", 0), sum(f["definitions"] for f in file_results))
-    nat_defs = max(cap_totals.get("native", 0), sum(f["native"] for f in file_results))
-    isl_defs = max(cap_totals.get("island", 0), sum(f["island"] for f in file_results))
-    blk_defs = max(cap_totals.get("fenced", 0), sum(f["fenced"] for f in file_results))
+    # The summary counts and the per-file plane maps must agree (issue #814):
+    # the plane map is what the fallback tier actually plans (a fenced
+    # definition rides the island, and the call cascade demotes its native
+    # callers), so the summary reads the same maps instead of the coverage
+    # classifier, which only knows the reflection route. `blocked` is the
+    # residual: definitions with fences the maps never counted (parse
+    # failures, dunder-named definitions the planner skips), not a
+    # self-compilation forecast: with `--fallback=cpython` a fenced
+    # definition rides the island and still runs.
+    isl_defs = 0
+    nat_defs = 0
+    for f in file_results:
+        f_plane = f.get("planeMap", {})
+        for plane in {**f_plane.get("functions", {}), **f_plane.get("classes", {})}.values():
+            if plane == boxed.ISLAND:
+                isl_defs += 1
+            elif plane == boxed.NATIVE:
+                nat_defs += 1
+    blk_defs = max(tot_defs - isl_defs - nat_defs, 0)
 
     files_fully = sum(1 for f in file_results if f["status"] == STATUS_FULLY)
     files_partly = sum(1 for f in file_results if f["status"] == STATUS_PARTLY)

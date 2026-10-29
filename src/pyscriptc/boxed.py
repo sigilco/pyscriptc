@@ -350,6 +350,8 @@ _PS_MODULES = %(modules)s
 _PS_DATA_DIR = %(data_dir)s
 _PS_PROG_NAME = %(prog_name)s
 _PS_BASE = %(base)s
+_PS_SELFPACK = %(selfpack)s
+_PS_SELFPACK_DIR = %(selfpack_dir)s
 
 
 def _ps_staged():
@@ -362,17 +364,74 @@ def _ps_staged():
     return _os.path.join(root, _PS_DATA_DIR, _PS_PROG_NAME)
 
 
+# The selfpack (issue #678 follow-up): the compiled compiler carries its own
+# package data (the runtime C sources, target.json, native_packages.json,
+# the vendored typeshed) as one compressed payload. The first compiler
+# command materializes it under one cache directory and rewrites the module
+# origins of the embedded finder onto the copy, so every
+# `Path(__file__).with_name(...)` and `runtime_dir()` lookup resolves there.
+def _ps_selfpack():
+    if not _PS_SELFPACK:
+        return None
+    from io import BytesIO as _io_BytesIO
+    import zipfile as _zipfile
+    import base64 as _base64
+    import shutil as _shutil
+    import hashlib as _hashlib
+    override = _os.environ.get("PYSC_SELFPACK_DIR")
+
+    raw = _base64.b64decode(_PS_SELFPACK)
+    digest = _hashlib.sha256(raw).hexdigest()[:16]
+    if override:
+        base = _os.path.join(override, "pyscriptc-selfpack")
+    else:
+        cache = _os.environ.get("PYSC_CACHE_DIR")
+        if not cache:
+            cache = _os.path.join(_os.path.expanduser("~"), ".cache", "pyscriptc")
+        base = _os.path.join(cache, "selfpack")
+    target = _os.path.join(base, digest)
+    marker = _os.path.join(target, ".selfpack-complete")
+    if not _os.path.isfile(marker):
+        scratch = _os.path.join(base, "." + digest + ".extracting")
+        _shutil.rmtree(scratch, ignore_errors=True)
+        _os.makedirs(scratch, exist_ok=True)
+        with _zipfile.ZipFile(_io_BytesIO(raw)) as _archive:
+            _archive.extractall(scratch)
+        with open(_os.path.join(scratch, ".selfpack-complete"), "w"):
+            pass
+        _shutil.rmtree(target, ignore_errors=True)
+        _os.makedirs(base, exist_ok=True)
+        _os.rename(scratch, target)
+    return target
+
+
+_PS_SELFPACK_ROOT = None
+try:
+    _PS_SELFPACK_ROOT = _ps_selfpack()
+except Exception:
+    _PS_SELFPACK_ROOT = None
+
+
 def _ps_rebase(path):
     staged = _ps_staged()
-    if staged is None:
-        return path
-    if path == _PS_BASE:
-        return staged
-    if path.startswith(_PS_BASE + _os.sep):
-        return _os.path.join(staged, path[len(_PS_BASE) + 1 :])
-    parent = _os.path.dirname(_PS_BASE)
-    if path == parent:
-        return _os.path.dirname(staged)
+    if staged is not None:
+        if path == _PS_BASE:
+            return staged
+        if path.startswith(_PS_BASE + _os.sep):
+            return _os.path.join(staged, path[len(_PS_BASE) + 1 :])
+        parent = _os.path.dirname(_PS_BASE)
+        if path == parent:
+            return _os.path.dirname(staged)
+    if _PS_SELFPACK_ROOT:
+        # The selfpack active: every package origin resolves into the
+        # extracted tree. The module text still comes from _PS_MODULES (the
+        # loader serves it from memory); only the Path(__file__) the
+        # compiled code reads back resolves there, so runtime_dir(),
+        # target.json and the typeshed lookups land on the extracted copy.
+        if path.startswith(_PS_BASE + _os.sep):
+            return _os.path.join(_PS_SELFPACK_ROOT, path[len(_PS_BASE) + 1 :])
+        if path == _PS_BASE:
+            return _PS_SELFPACK_ROOT
     return path
 
 
@@ -409,6 +468,8 @@ def program_island_source(
     root: Path,
     path0: Path,
     staged_data: tuple[str, str] | None = None,
+    selfpack: str = "",
+    selfpack_dir: str = "",
 ) -> str:
     """The island seed of a whole program: finder bootstrap plus the entry.
 
@@ -416,6 +477,12 @@ def program_island_source(
     staged data tree (issue #665), or None when the program staged nothing.
     The bootstrap resolves it against the running image, so a relocated
     output directory still finds its data files.
+
+    `selfpack` is the base64 payload of the compiled package's own data
+    files (issue #678 follow-up): the compiler embedding itself carries
+    its runtime sources and tables so the binary is self-contained. The
+    bootstrap extracts it once under the digest directory and rebases the
+    data-file origins onto the copy.
     """
 
     modules: dict[str, tuple[str, bool, str]] = {}
@@ -436,6 +503,8 @@ def program_island_source(
         "main_path": repr(main_path),
         "package": repr(main_package),
         "main_source": repr(main_source),
+        "selfpack": repr(selfpack),
+        "selfpack_dir": repr(selfpack_dir),
     }
 
 

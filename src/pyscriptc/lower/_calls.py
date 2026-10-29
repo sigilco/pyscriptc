@@ -25,6 +25,7 @@ from pyscriptc.errors import span_of
 from pyscriptc.ir import type_key, types_equal
 from pyscriptc.lower._classes import _type_slug
 from pyscriptc.lower._core import (
+    _accepts_any_elem,
     _assign,
     _attr,
     _binary_int,
@@ -39,6 +40,7 @@ from pyscriptc.lower._core import (
     _name,
     _show,
     _sig_typevars,
+    _stamp_span,
     _subst_type,
 )
 from pyscriptc.lower._stdlib_shared import _mod_call, _synth_module
@@ -460,6 +462,10 @@ class CallsMixin:
         class the enclosing method text lives in (CPython's __class__ cell).
         The receiver is still self, so the emitted symbol is the one valid for
         self's static layout — the same `_emit_owner` rule every call uses.
+
+        `super().__init__` on an exception class lowers to the runtime's
+        own `__init__` (the record's message), not a class method: the
+        builtin base has no lowered body to dispatch to.
         """
         assert isinstance(node.func, ast.Attribute)
         super_call = node.func.value
@@ -477,6 +483,23 @@ class CallsMixin:
             self.fail(node, "PS2002", "super is not lowered")
         method = node.func.attr
         ancestors = mro[mro.index(owner) + 1 :]
+        # The exception path: an ancestor off the class table that is a
+        # builtin exception (`Exception`, `ValueError`, ...). The builtin
+        # base has no lowered body, so `super().__init__(msg)` is the
+        # class's message: the raise site computes it (a raise does not
+        # call `__init__`, divergence 9), and the call itself is a no-op
+        # here. The message expression is only checked for shape here; the
+        # raise site evaluates it.
+        builtin_ancestor = next((name for name in ancestors if name in EXCEPTIONS), None)
+        if method == "__init__" and builtin_ancestor is not None and builtin_ancestor not in self.classes:
+            if self.classes[self_t].get("exception") is None:
+                self.fail(node, "PS2001", f"{self_t}.__init__ is not a method")
+            # The builtin base takes the message and nothing else. A super
+            # call that lands on a user exception base keeps its own
+            # arity: that base's `__init__` takes it.
+            if len(ancestors) == 1 and len(node.args) > 1:
+                self.fail(node, "PS2003", "exception takes one scalar argument")
+            return {"kind": "const", "value": None, "type": {"kind": "none"}, "span": span}
         ancestor = next((name for name in ancestors if method in self.classes.get(name, {}).get("methods", {})), None)
         if ancestor is None:
             self.fail(node, "PS2001", f"{self_t}.{method} is not a method")
@@ -604,8 +627,7 @@ class CallsMixin:
                     values=[ast.Call(func=node.func, args=[elt], keywords=[]) for elt in elts],
                 )
                 for sub in ast.walk(rewritten):
-                    sub.lineno, sub.col_offset = node.lineno, node.col_offset
-                    sub.end_lineno, sub.end_col_offset = node.end_lineno, node.end_col_offset
+                    _stamp_span(sub, node)
                 return self._expr(rewritten, expect)
             if attr in {"partition", "rpartition"}:
                 # The result is a 3-tuple of the receiver's kind; it materializes
@@ -718,8 +740,7 @@ class CallsMixin:
                 orelse=node.args[1] if len(node.args) == 2 else ast.Constant(value=None),
             )
             for sub in ast.walk(ifexp):
-                sub.lineno, sub.col_offset = node.lineno, node.col_offset
-                sub.end_lineno, sub.end_col_offset = node.end_lineno, node.end_col_offset
+                _stamp_span(sub, node)
             if len(node.args) == 2:
                 value = self._expr(ifexp, receiver["type"]["value"])
                 self._expect(node, value["type"], receiver["type"]["value"], "dict.get default")
@@ -732,6 +753,13 @@ class CallsMixin:
             self._reject_keywords(node)
             dtyp = receiver["type"]
             key_t, val_t = dtyp["key"], dtyp["value"]
+            if val_t["kind"] == "any":
+                # A dict[K, Any] method read (issue #814): the element type
+                # is unresolved, so the values read out of it have no
+                # proven type. The subscript resolution answers for the
+                # receiver's reads; the method's own read of the element
+                # proves it the same way or fences.
+                val_t = self._resolve_any_read(node, receiver, val_t)
             if attr in {"values", "items"}:
                 if node.args:
                     self.fail(node, "PS2003", f"dict.{attr} expects 0 argument(s)")
@@ -1649,7 +1677,8 @@ class CallsMixin:
                         got.get("span", span_of(node, self.filename)),
                     )
             if not types_equal(got["type"], param["type"]) and not self._accepts_protocol(param["type"], got["type"]):
-                self.fail(node, "PS1003", f"argument {param['name']} of {what} has the wrong type")
+                if not _accepts_any_elem(param["type"], got["type"]):
+                    self.fail(node, "PS1003", f"argument {param['name']} of {what} has the wrong type")
             args.append(got)
         return args
 

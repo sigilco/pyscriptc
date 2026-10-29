@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 from typing import Any
 
+from pyscriptc.errors import _stamp_span
 from pyscriptc.reflection import kwargs_call_note
 from pyscriptc.restlower._shared import _pin, _span_to
 
@@ -277,8 +278,7 @@ def _sorted(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         ]
         for stmt in ast.parse("\n".join(lines)).body:
             for sub in ast.walk(stmt):
-                sub.lineno, sub.col_offset = node.lineno, node.col_offset
-                sub.end_lineno, sub.end_col_offset = node.end_lineno, node.end_col_offset
+                _stamp_span(sub, node)
             lo.prelude.extend(lo._body([stmt]))
         return {"kind": "name", "id": out, "type": {"kind": "list", "elem": elem}, "span": span}
     arg = lo._expr(node.args[0])

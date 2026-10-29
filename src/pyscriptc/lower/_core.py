@@ -53,6 +53,11 @@ def _assign(target: str, value: dict[str, Any], span: dict[str, Any]) -> dict[st
     return {"kind": "assign", "target": target, "value": value, "span": span}
 
 
+# The span helper lives in `errors` (see its docstring for the cycle it
+# avoids); the lower modules reach it through here.
+from pyscriptc.errors import _stamp_span as _stamp_span  # noqa: E402
+
+
 def _const_str_join(parts: list[dict[str, Any]], span: dict[str, Any]) -> dict[str, Any] | None:
     """Module-level f-string pieces that are already str constants are one str constant."""
 
@@ -555,6 +560,66 @@ def _has_typevar(typ: dict[str, Any]) -> bool:
         if isinstance(inner, dict) and _has_typevar(inner):
             return True
     return any(isinstance(param, dict) and _has_typevar(param) for param in typ.get("params", []))
+
+
+def _has_any(typ: dict[str, Any]) -> bool:
+    """True when a type carries an unresolved `{"kind": "any"}` element.
+
+    A `dict[K, Any]` or `list[Any]` annotation lowers to a container whose
+    element type is still unresolved (issue #814). The container's shape
+    is known, its element type is not, and every read site has to prove
+    it before the value can be loaded.
+    """
+    if typ["kind"] == "any":
+        return True
+    for key in ("elem", "key", "value", "return"):
+        inner = typ.get(key)
+        if isinstance(inner, dict) and _has_any(inner):
+            return True
+    return any(isinstance(param, dict) and _has_any(param) for param in typ.get("params", []))
+
+
+def _resolve_any_elem(typ: dict[str, Any], elem: dict[str, Any]) -> dict[str, Any]:
+    """A container type with its unresolved element type replaced by `elem`.
+
+    The container keeps its shape (the key type, the list flag); only the
+    element type changes. A type with no unresolved element is returned
+    unchanged.
+    """
+    if typ["kind"] == "list":
+        if not _has_any(typ["elem"]):
+            return typ
+        return {**typ, "elem": elem}
+    if typ["kind"] == "dict":
+        if not _has_any(typ["value"]):
+            return typ
+        return {**typ, "value": elem}
+    return typ
+
+
+def _accepts_any_elem(want: dict[str, Any], got: dict[str, Any]) -> bool:
+    """Whether a concrete value satisfies an `any`-element container type.
+
+    A `dict[K, Any]` parameter accepts a `dict[K, V]` value for any V:
+    the annotation says the value type is not pinned, and the value
+    carries one. The key type still has to match, because the key type
+    is part of the container's shape (the runtime's map is keyed by it).
+    """
+    if not _has_any(want):
+        return False
+    if want["kind"] == "dict":
+        if got["kind"] != "dict":
+            return False
+        if not types_equal(want["key"], got["key"]):
+            return False
+        return not _has_any(got["value"])
+    if want["kind"] == "list":
+        if got["kind"] != "list":
+            return False
+        if bool(want.get("set")) != bool(got.get("set")):
+            return False
+        return not _has_any(got["elem"])
+    return False
 
 
 def _sig_typevars(types: list[dict[str, Any]]) -> list[str]:

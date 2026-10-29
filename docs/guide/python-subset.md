@@ -81,6 +81,7 @@ There is no `typing` module object in the binary.
 | `Protocol`, `ABC`, `@abstractmethod`, `@overload` | the annotation is checked, then dropped; no runtime enforcement (divergence 14) |
 | `NamedTuple`, `TypedDict`, `NewType`, `Literal[...]`, `Self` | unsupported; use a `@dataclass`, a plain `dict[K, V]`, an alias, a plain `str`, or the class name |
 | `Any`, `object` as an annotation | unsupported (`PS1104`) |
+| `dict[K, Any]`, `list[Any]` | the container's shape compiles; every read must prove the value type from the value the container was initialized with or the values written into it, or it stops with `PS1107` |
 | `async def` and `await` | compiles |
 | `dataclasses.dataclass` with no options | compiles as a native record; `frozen=True` and other decorators are unsupported (`PS1201`) |
 | `cast(t, v)`, `get_type_hints`, `__annotations__` reads | unsupported (`PS2002`); write the type on an annotated local instead |

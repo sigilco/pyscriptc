@@ -17,6 +17,7 @@ directions stay `self._method()` so the move is behavior-identical.
 from __future__ import annotations
 
 import ast
+import copy
 from typing import TYPE_CHECKING, Any
 
 from pyscriptc.builtins import EXCEPTIONS, RESERVED_EXCEPTIONS
@@ -35,12 +36,14 @@ from pyscriptc.lower._core import (
     _const_int,
     _const_none,
     _const_str,
+    _has_any,
     _has_typevar,
     _is_none_expr,
     _item,
     _len_call,
     _name,
     _raise_value,
+    _resolve_any_elem,
     _show,
     _tuple_assign,
     _zero,
@@ -236,6 +239,26 @@ class StmtMixin:
             if stmt.value is None:
                 self.locals[stmt.target.id] = typ
                 return [_assign(stmt.target.id, _zero(typ, span), span)]
+            # A dict[K, Any] / list[Any] annotation (issue #814): the value
+            # bound here is the fact about the element type. A display
+            # already carries its own element type; any other value's
+            # lowered type resolves the annotation's unresolved element
+            # when they agree, and a value that proves a different one is
+            # the annotation lying, which is PS1003. The name binds the
+            # resolved type, so every later read sees the fact.
+            if _has_any(typ):
+                # The accumulated-type scan (the same body write-scan the
+                # unannotated empty display uses) is the second value
+                # source: `d: dict[str, Any] = {}` plus agreeing writes
+                # proves the element type the same way an unannotated `d
+                # = {}` would.
+                peek = self._infer_type_of(stmt.value)
+                if peek is not None and not _has_any(peek):
+                    typ = _resolve_any_elem(typ, self._any_elem_of(typ, peek))
+                else:
+                    accumulated = self._infer_accumulated_type(stmt)
+                    if accumulated is not None and not _has_any(accumulated):
+                        typ = _resolve_any_elem(typ, self._any_elem_of(typ, accumulated))
             try:
                 value = self._expr(stmt.value, typ)
             except Fence:
@@ -474,6 +497,8 @@ class StmtMixin:
             return [{"kind": "expr", "expr": self._expr(stmt.value), "span": span}]
         if isinstance(stmt, ast.Raise):
             return [self._raise(stmt, span)]
+        if isinstance(stmt, ast.Pass):
+            return [{"kind": "pass", "span": span}]
         if isinstance(stmt, ast.Try):
             return [self._try(stmt, span)]
         if isinstance(stmt, ast.With):
@@ -667,7 +692,7 @@ class StmtMixin:
             visit(stmt)
         return (not state["seen"]) or state["hit"]
 
-    def _infer_accumulated_type(self, stmt: ast.Assign) -> dict[str, Any] | None:
+    def _infer_accumulated_type(self, stmt: ast.Assign | ast.AnnAssign) -> dict[str, Any] | None:
         """The container type an empty display accumulates in this body.
 
         An empty `[]` or `{}` says nothing about its element type: the uses
@@ -692,7 +717,10 @@ class StmtMixin:
             return None
         if self.function is None or self.inf_peek:
             return None
-        target = stmt.targets[0].id
+        if isinstance(stmt, ast.AnnAssign):
+            target = stmt.target.id
+        else:
+            target = stmt.targets[0].id
 
         def _locals_upto(node: ast.AST) -> None:
             """Bind the names assigned before `node` in source order.
@@ -848,6 +876,20 @@ class StmtMixin:
         if value is not None:
             return {"kind": "dict", "key": {"kind": "str"}, "value": value}
         return None
+
+    def _any_elem_of(self, annotation: dict[str, Any], value: dict[str, Any]) -> dict[str, Any]:
+        """The element type the bound value proves for an `any`-element container.
+
+        The value's own container type is the fact: a dict value proves
+        the dict's value type, a list value its element type. A mismatch
+        in the container's key or element type is the annotation lying and
+        is the caller's PS1003, not a resolution.
+        """
+        if annotation["kind"] == "dict" and value["kind"] == "dict":
+            return value["value"]
+        if annotation["kind"] == "list" and value["kind"] == "list":
+            return value["elem"]
+        return annotation["value"] if annotation["kind"] == "dict" else annotation["elem"]
 
     def _aug_assign(self, stmt: ast.AugAssign, span: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(stmt.target, ast.Name):
@@ -1485,6 +1527,10 @@ class StmtMixin:
         exit_value = (
             isinstance(stmt.exc, ast.Call) and isinstance(stmt.exc.func, ast.Name) and stmt.exc.func.id == "SystemExit"
         )
+        # A user exception class whose __init__ chains the builtin base
+        # builds its own message (issue #814): the raw-argument message
+        # below would be CPython's message for a class that overrides it.
+        chained = self._chained_exc_message(stmt)
         msgs: list[dict[str, Any] | None] = [None, None]
         for which in range(2):
             call = stmt.exc if which == 0 else stmt.cause
@@ -1494,8 +1540,11 @@ class StmtMixin:
                 self.fail(call, "PS2003", "keyword arguments are not lowered")
             built: dict[str, Any] | None = None
             if call.args:
-                if len(call.args) != 1:
+                if len(call.args) != 1 and not (which == 0 and chained is not None):
                     self.fail(call, "PS2003", "exception takes one scalar argument")
+                if which == 0 and chained is not None:
+                    msgs[which] = None
+                    continue
                 expr = self._expr(call.args[0])
                 if exit_value and which == 0 and expr["type"]["kind"] in {"int", "bool"}:
                     cause = stmt.cause
@@ -1550,7 +1599,14 @@ class StmtMixin:
                 info = self.classes.get(resolved)
                 if info is None or not info.get("exception"):
                     self.fail(stmt, "PS2002", "raise names a lowered exception")
-                # raise makes a code plus optional str; it does not call __init__.
+                # raise makes a code plus optional str; it does not call
+                # __init__ (divergence 9). When the class's __init__ chains
+                # the builtin base with `super().__init__(msg)`, CPython's
+                # message is that expression evaluated over the ctor args:
+                # the raise site computes it, so str(e) and the uncaught
+                # report read what CPython reads (issue #814).
+                if chained is not None:
+                    message = chained
                 node = {"kind": "raise", "exc": resolved, "code": info["exc_code"], "message": message, "span": span}
         if stmt.cause is not None:
             cause_node = stmt.cause
@@ -1577,6 +1633,107 @@ class StmtMixin:
                         "span": span,
                     }
         return node
+
+    def _chained_exc_message(self, stmt: ast.Raise) -> dict[str, Any] | None:
+        """The message a user exception class builds by chaining the builtin
+        base, or None when the class does not chain.
+
+        `raise C(args)` on a class whose `__init__` calls
+        `super().__init__(msg)` produces CPython's `msg`, not the raw
+        argument (issue #814). The chain is walked at the AST level: each
+        level substitutes its own parameters with the arguments it was
+        called with, so the builtin base's message expression arrives with
+        every parameter already bound.
+        """
+
+        exc = stmt.exc
+        if not isinstance(exc, ast.Call) or not isinstance(exc.func, ast.Name):
+            return None
+        resolved = self.class_aliases.get(exc.func.id, exc.func.id)
+        info = self.classes.get(resolved)
+        if info is None or not info.get("exception"):
+            return None
+        message_node = self._exc_chain_message(resolved, info, list(exc.args))
+        if message_node is None:
+            return None
+        message = self._expr(message_node, {"kind": "str"})
+        if message["type"]["kind"] != "str":
+            return None
+        return message
+
+    def _exc_chain_message(self, resolved: str, info: dict[str, Any], args: list[ast.expr]) -> ast.expr | None:
+        """The message expression of an exception class's base chain.
+
+        `args` are the arguments this level was called with, already
+        substituted. The level's `__init__` must be one `super().__init__(...)`
+        call: the arguments of that call are substituted with this level's
+        parameters and handed to the base class, which repeats until the
+        builtin base (`Exception` and friends) takes the message.
+        """
+
+        class_node = info.get("node")
+        if class_node is None:
+            return None
+        init_node = next(
+            (
+                stmt
+                for stmt in class_node.body
+                if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)) and stmt.name == "__init__"
+            ),
+            None,
+        )
+        if init_node is None:
+            return None
+        super_calls: list[ast.Call] = []
+
+        def visit(node: ast.AST) -> None:
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "__init__"
+                and isinstance(node.func.value, ast.Call)
+                and isinstance(node.func.value.func, ast.Name)
+                and node.func.value.func.id == "super"
+            ):
+                super_calls.append(node)
+                return
+            for child in ast.iter_child_nodes(node):
+                visit(child)
+
+        for stmt in init_node.body:
+            if _is_docstring(stmt):
+                continue
+            visit(stmt.value if isinstance(stmt, ast.Expr) else stmt)
+        if len(super_calls) != 1:
+            return None
+        super_call = super_calls[0]
+        params = [param["name"] for param in info["methods"].get("__init__", ([], None))[0] if param["name"] != "self"]
+        if len(params) != len(args):
+            return None
+        # This level's parameters bind to the arguments it was called with;
+        # the super call's own arguments are the next level's arguments.
+        binding = dict(zip(params, args, strict=True))
+        substituted = [_substitute_names(copy.deepcopy(arg), binding) for arg in super_call.args]
+        target = self._super_init_target(resolved, info)
+        if target is not None:
+            base_name, base = target
+            return self._exc_chain_message(base_name, base, substituted)
+        # The builtin base: `Exception.__init__(message)` takes the message.
+        if len(substituted) != 1:
+            return None
+        return substituted[0]
+
+    def _super_init_target(self, resolved: str, info: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
+        """The user exception class one MRO step up, or None when the chain
+        lands on the builtin base (`Exception` and friends)."""
+
+        for name in info.get("mro", [resolved])[1:]:
+            if name in EXCEPTIONS:
+                return None
+            candidate = self.classes.get(name)
+            if candidate is not None and candidate.get("exception") and "__init__" in candidate.get("methods", {}):
+                return name, candidate
+        return None
 
     def _try(self, stmt: ast.Try, span: dict[str, Any]) -> dict[str, Any]:
         # brk/cont flags tell the else path whether the try body jumped out.
@@ -2495,3 +2652,23 @@ def _always_returns(body: list[dict[str, Any]]) -> bool:
         ):
             return True
     return False
+
+
+def _substitute_names(node: ast.AST, binding: dict[str, ast.expr]) -> ast.AST:
+    """Copy `node` with each `Name` read in `binding` replaced by its expression.
+
+    The raise site evaluates an `__init__`'s super-message with the ctor
+    parameters bound to the call arguments; a pure name-for-expression
+    copy keeps the spans of the original message (the eval order inside
+    the expression is the expression's own).
+    """
+
+    if isinstance(node, ast.Name) and node.id in binding and isinstance(node.ctx, ast.Load):
+        return copy.deepcopy(binding[node.id])
+    for field, value in ast.iter_fields(node):
+        if isinstance(value, list):
+            replaced = [_substitute_names(item, binding) if isinstance(item, ast.AST) else item for item in value]
+            setattr(node, field, replaced)
+        elif isinstance(value, ast.AST):
+            setattr(node, field, _substitute_names(value, binding))
+    return node

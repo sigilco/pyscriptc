@@ -35,6 +35,7 @@ from pyscriptc.lower._core import (
     _const_list_concat,
     _const_none,
     _const_str_join,
+    _has_any,
     _len_call,
     _name,
     _node_text,
@@ -1201,7 +1202,43 @@ class ExprMixin:
             result = value["type"]["elem"]
         else:
             self.fail(node, "PS2002", "subscript is lowered for list, dict, str, and bytes")
+        if result.get("kind") == "any":
+            # A dict[K, Any] / list[Any] read (issue #814): the element type
+            # is unresolved, and the runtime has no slot for an unresolved
+            # value. The read site has to prove it, or the read fences.
+            result = self._resolve_any_read(node, value, result)
         return {"kind": "subscript", "value": value, "index": index, "type": result, "span": span}
+
+    def _resolve_any_read(
+        self, node: ast.Subscript, value: dict[str, Any], unresolved: dict[str, Any]
+    ) -> dict[str, Any]:
+        """The concrete element type of a read from an `any`-element container.
+
+        The sound sources are, in order:
+
+        1. the checker bridge's answer for the read expression itself
+           (the bridge resolves `d["k"]` when the checker proved the value
+           type at that site);
+        2. the container's own resolved element type, when the binding
+           site already proved it (the value the container was initialized
+           with, or the values written into it).
+
+        A read that neither source answers fences with PS1107: the
+        annotation was accepted, and the *read* is what cannot be typed.
+        """
+        bridged = self._bridge_type(node)
+        if bridged is not None and not _has_any(bridged):
+            return bridged
+        container = value["type"]
+        elem = container["elem"] if container["kind"] == "list" else container["value"]
+        if not _has_any(elem):
+            return elem
+        self.fail(
+            node,
+            "PS1107",
+            "the value read from this dict[str, Any] or list[Any] has no proven type",
+        )
+        raise AssertionError("unreachable")
 
     def _defaulted_subscript(
         self, node: ast.Subscript, value: dict[str, Any], index: dict[str, Any], span: dict[str, Any]

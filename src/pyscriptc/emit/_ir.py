@@ -98,7 +98,7 @@ def _llvm_type(typ: dict[str, Any]) -> str:
         return "double"
     if kind in {"str", "bytes"}:
         return "%ps.str"
-    if kind in {"list", "dict", "class", "exc", "func"}:
+    if kind in {"list", "dict", "class", "exc", "func", "any"}:
         return "ptr"
     if kind == "none":
         return "void"
@@ -137,7 +137,7 @@ def _elem_size(typ: dict[str, Any]) -> int:
         return 8
     if kind in {"str", "bytes"}:
         return 16
-    if kind in {"list", "dict", "class", "func", "exc"}:
+    if kind in {"list", "dict", "class", "func", "exc", "any"}:
         return 8
     if kind == "bool":
         return 1
