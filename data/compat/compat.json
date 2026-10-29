@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-29",
-  "commit": "d09bcb4238aff1605cd4dfb57459722e704378ac",
+  "commit": "59d85e487f0286040f352ef9eda9987bb40567b4",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -2086,25 +2086,25 @@
   "fences": [
     {
       "code": "PS2002",
-      "title": "construct not lowered",
+      "title": "construct not supported",
       "count": 1305,
       "packages": 16
     },
     {
       "code": "PS1001",
-      "title": "annotation missing or not lowered",
+      "title": "annotation missing or not supported",
       "count": 301,
       "packages": 13
     },
     {
       "code": "PS2001",
-      "title": "stdlib name not lowered",
+      "title": "stdlib name not supported",
       "count": 209,
       "packages": 15
     },
     {
       "code": "PS1106",
-      "title": "annotation names an unlowered type",
+      "title": "annotation names a type the compiler does not take",
       "count": 197,
       "packages": 9
     },
@@ -2122,7 +2122,7 @@
     },
     {
       "code": "PS2003",
-      "title": "call arguments not lowered",
+      "title": "call arguments not supported",
       "count": 79,
       "packages": 10
     },
@@ -2170,13 +2170,13 @@
     },
     {
       "code": "PS2004",
-      "title": "operator or operand not lowered",
+      "title": "operator or operand not supported",
       "count": 11,
       "packages": 5
     },
     {
       "code": "PS2006",
-      "title": "decorator expression is not a lowered callable",
+      "title": "decorator expression is not a typed callable",
       "count": 6,
       "packages": 3
     },
@@ -2223,7 +2223,7 @@
     },
     {
       "date": "2026-10-29",
-      "commit": "d09bcb4238aff1605cd4dfb57459722e704378ac",
+      "commit": "59d85e487f0286040f352ef9eda9987bb40567b4",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 7,
