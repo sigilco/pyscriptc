@@ -364,6 +364,16 @@ What ships instead: `src/pyscriptc/runtime/ps_select.c`, the `DefaultSelector` r
 
 When #229 lands the typed socket handle, the Python module is a thin lowering onto these records: `register(sock, events)` reads the fd off the handle and calls `ps_select_register`. The records do not change, so the runtime work here is not throwaway.
 
+### The #485 scope decision, amended (2026-10-29)
+
+The scope decision above is **amended**: the closed `selectors` subset now ships as a Python module, not only as a runtime API.
+
+What changed: the int-fd form lowers. `register(fd, events)` takes the descriptor number, `select()` returns `list[SelectorKey]`, and the `SelectorKey` class record carries `fd` and `events`; the key records are the runtime records, so `ps_select.c` needed no shape change beyond leading the key with the two i64 fields the class layout wants. The `list[SelectorKey]` return is the same shape `Path.iterdir()` uses for `list[Path]`, so the compiler already knew it.
+
+What did not change: the reason the decision was recorded. CPython's `register` takes a `fileobj`, and the closed subset still has no `socket.socket` object to hand it (#229 covers sockets at the C level; a Python-level `socket` surface is not planned). So the int-fd form is the surface that lands, the `fileobj` spelling fences with `PS1003` naming #229, and the fence names the issue rather than leaving the reader to guess. Divergence 29 records the three shape differences (the int fd, the `list[SelectorKey]` return where CPython returns pairs, and the `None` from `get_key` where CPython raises `KeyError`).
+
+When #229 lands, `register(sock, events)` reads the fd off the handle and calls `ps_select_register`; the runtime records do not change, so the runtime work here is not throwaway.
+
 ### Phase 3: the compat ports (M to L, v0.9.0)
 
 #231, #232, #233 (M each), #234 (L), #156 (`pyscriptc-val`, L), #496 (`pyscriptc-ndarray`, L), #497 (`pyscriptc-frame`, XL).
