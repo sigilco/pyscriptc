@@ -29,6 +29,7 @@ from pyscriptc.lower._core import (
     _TRUTHY,
     Binding,
     Fence,
+    _accepts_any_elem,
     _attr,
     _compare,
     _const_none,
@@ -2519,6 +2520,11 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
 
     def _expect(self, node: ast.AST, got: dict[str, Any], want: dict[str, Any], what: str) -> None:
         if not types_equal(got, want) and not self._accepts_protocol(want, got):
+            if _accepts_any_elem(want, got):
+                # A concrete container satisfies a dict[K, Any] / list[Any]
+                # annotation (issue #814): the annotation does not pin the
+                # element type, and the value carries one.
+                return
             self.fail(node, "PS1003", f"{what} is {_show(got)}, annotation says {_show(want)}")
 
     def _use_status(self, module: str) -> str:

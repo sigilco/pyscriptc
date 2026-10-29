@@ -36,12 +36,14 @@ from pyscriptc.lower._core import (
     _const_int,
     _const_none,
     _const_str,
+    _has_any,
     _has_typevar,
     _is_none_expr,
     _item,
     _len_call,
     _name,
     _raise_value,
+    _resolve_any_elem,
     _show,
     _tuple_assign,
     _zero,
@@ -237,6 +239,26 @@ class StmtMixin:
             if stmt.value is None:
                 self.locals[stmt.target.id] = typ
                 return [_assign(stmt.target.id, _zero(typ, span), span)]
+            # A dict[K, Any] / list[Any] annotation (issue #814): the value
+            # bound here is the fact about the element type. A display
+            # already carries its own element type; any other value's
+            # lowered type resolves the annotation's unresolved element
+            # when they agree, and a value that proves a different one is
+            # the annotation lying, which is PS1003. The name binds the
+            # resolved type, so every later read sees the fact.
+            if _has_any(typ):
+                # The accumulated-type scan (the same body write-scan the
+                # unannotated empty display uses) is the second value
+                # source: `d: dict[str, Any] = {}` plus agreeing writes
+                # proves the element type the same way an unannotated `d
+                # = {}` would.
+                peek = self._infer_type_of(stmt.value)
+                if peek is not None and not _has_any(peek):
+                    typ = _resolve_any_elem(typ, self._any_elem_of(typ, peek))
+                else:
+                    accumulated = self._infer_accumulated_type(stmt)
+                    if accumulated is not None and not _has_any(accumulated):
+                        typ = _resolve_any_elem(typ, self._any_elem_of(typ, accumulated))
             try:
                 value = self._expr(stmt.value, typ)
             except Fence:
@@ -670,7 +692,7 @@ class StmtMixin:
             visit(stmt)
         return (not state["seen"]) or state["hit"]
 
-    def _infer_accumulated_type(self, stmt: ast.Assign) -> dict[str, Any] | None:
+    def _infer_accumulated_type(self, stmt: ast.Assign | ast.AnnAssign) -> dict[str, Any] | None:
         """The container type an empty display accumulates in this body.
 
         An empty `[]` or `{}` says nothing about its element type: the uses
@@ -695,7 +717,10 @@ class StmtMixin:
             return None
         if self.function is None or self.inf_peek:
             return None
-        target = stmt.targets[0].id
+        if isinstance(stmt, ast.AnnAssign):
+            target = stmt.target.id
+        else:
+            target = stmt.targets[0].id
 
         def _locals_upto(node: ast.AST) -> None:
             """Bind the names assigned before `node` in source order.
@@ -851,6 +876,20 @@ class StmtMixin:
         if value is not None:
             return {"kind": "dict", "key": {"kind": "str"}, "value": value}
         return None
+
+    def _any_elem_of(self, annotation: dict[str, Any], value: dict[str, Any]) -> dict[str, Any]:
+        """The element type the bound value proves for an `any`-element container.
+
+        The value's own container type is the fact: a dict value proves
+        the dict's value type, a list value its element type. A mismatch
+        in the container's key or element type is the annotation lying and
+        is the caller's PS1003, not a resolution.
+        """
+        if annotation["kind"] == "dict" and value["kind"] == "dict":
+            return value["value"]
+        if annotation["kind"] == "list" and value["kind"] == "list":
+            return value["elem"]
+        return annotation["value"] if annotation["kind"] == "dict" else annotation["elem"]
 
     def _aug_assign(self, stmt: ast.AugAssign, span: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(stmt.target, ast.Name):

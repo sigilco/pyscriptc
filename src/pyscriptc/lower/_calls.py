@@ -25,6 +25,7 @@ from pyscriptc.errors import span_of
 from pyscriptc.ir import type_key, types_equal
 from pyscriptc.lower._classes import _type_slug
 from pyscriptc.lower._core import (
+    _accepts_any_elem,
     _assign,
     _attr,
     _binary_int,
@@ -753,6 +754,13 @@ class CallsMixin:
             self._reject_keywords(node)
             dtyp = receiver["type"]
             key_t, val_t = dtyp["key"], dtyp["value"]
+            if val_t["kind"] == "any":
+                # A dict[K, Any] method read (issue #814): the element type
+                # is unresolved, so the values read out of it have no
+                # proven type. The subscript resolution answers for the
+                # receiver's reads; the method's own read of the element
+                # proves it the same way or fences.
+                val_t = self._resolve_any_read(node, receiver, val_t)
             if attr in {"values", "items"}:
                 if node.args:
                     self.fail(node, "PS2003", f"dict.{attr} expects 0 argument(s)")
@@ -1670,7 +1678,8 @@ class CallsMixin:
                         got.get("span", span_of(node, self.filename)),
                     )
             if not types_equal(got["type"], param["type"]) and not self._accepts_protocol(param["type"], got["type"]):
-                self.fail(node, "PS1003", f"argument {param['name']} of {what} has the wrong type")
+                if not _accepts_any_elem(param["type"], got["type"]):
+                    self.fail(node, "PS1003", f"argument {param['name']} of {what} has the wrong type")
             args.append(got)
         return args
 
