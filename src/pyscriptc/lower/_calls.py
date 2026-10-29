@@ -460,6 +460,10 @@ class CallsMixin:
         class the enclosing method text lives in (CPython's __class__ cell).
         The receiver is still self, so the emitted symbol is the one valid for
         self's static layout — the same `_emit_owner` rule every call uses.
+
+        `super().__init__` on an exception class lowers to the runtime's
+        own `__init__` (the record's message), not a class method: the
+        builtin base has no lowered body to dispatch to.
         """
         assert isinstance(node.func, ast.Attribute)
         super_call = node.func.value
@@ -477,6 +481,23 @@ class CallsMixin:
             self.fail(node, "PS2002", "super is not lowered")
         method = node.func.attr
         ancestors = mro[mro.index(owner) + 1 :]
+        # The exception path: an ancestor off the class table that is a
+        # builtin exception (`Exception`, `ValueError`, ...). The builtin
+        # base has no lowered body, so `super().__init__(msg)` is the
+        # class's message: the raise site computes it (a raise does not
+        # call `__init__`, divergence 9), and the call itself is a no-op
+        # here. The message expression is only checked for shape here; the
+        # raise site evaluates it.
+        builtin_ancestor = next((name for name in ancestors if name in EXCEPTIONS), None)
+        if method == "__init__" and builtin_ancestor is not None and builtin_ancestor not in self.classes:
+            if self.classes[self_t].get("exception") is None:
+                self.fail(node, "PS2001", f"{self_t}.__init__ is not a method")
+            # The builtin base takes the message and nothing else. A super
+            # call that lands on a user exception base keeps its own
+            # arity: that base's `__init__` takes it.
+            if len(ancestors) == 1 and len(node.args) > 1:
+                self.fail(node, "PS2003", "exception takes one scalar argument")
+            return {"kind": "const", "value": None, "type": {"kind": "none"}, "span": span}
         ancestor = next((name for name in ancestors if method in self.classes.get(name, {}).get("methods", {})), None)
         if ancestor is None:
             self.fail(node, "PS2001", f"{self_t}.{method} is not a method")
