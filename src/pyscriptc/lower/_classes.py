@@ -2169,32 +2169,34 @@ def _param(
     lowerer: Any, arg: ast.arg, fn: ast.FunctionDef | None = None, default: ast.expr | None = None
 ) -> dict[str, Any]:
     if arg.annotation is None:
-        # Checker bridge: the checker inferred the parameter's type (from the
-        # default, the callers, or the body). Without a bridged answer the
-        # fence stands (PS1001, param-inference family). Inside the return
-        # peek the refusal becomes a caught fence, so the peek returns None.
-        if fn is not None:
-            inferred = lowerer._bridge_param_type(fn, arg)
-            if inferred is not None:
-                return {"name": arg.arg, "type": inferred}
-            # Cross-module pin (`pyscriptc infer`): the whole-package call
-            # sites proved the parameter's type. Applied only after the
-            # bridge (the per-module map wins when both answer).
-            inferred = lowerer._checker_pin_type(fn, arg)
-            if inferred is not None:
-                return {"name": arg.arg, "type": inferred}
         # Issue #500: an unannotated parameter with a default of a proven
         # type binds to that type. The default is a value the call site may
         # rely on, so its own lowered type is the fact, not a guess: this is
         # CPython's `def f(x=0)` reading as `x: int`. A default the peek
         # cannot type (None, an empty display, a call that does not lower)
-        # keeps the fence.
+        # keeps the fence. The compiler's own proof runs first so the
+        # bridge and the pin only ever rescue what it refused.
         if default is not None:
             inferred = lowerer._infer_type_of(default)
             if inferred is not None and inferred["kind"] not in {"none", "func"}:
                 return {"name": arg.arg, "type": inferred}
-        # Both paths raise PS1001; the return peek catches it and returns
-        # None. An unannotated parameter is named by its own fence.
+        # Checker bridge: the checker inferred the parameter's type (from
+        # the default, the callers, or the body). Without a bridged answer
+        # the fence stands (PS1001, param-inference family). Inside the
+        # return peek the refusal becomes a caught fence, so the peek
+        # returns None.
+        if fn is not None:
+            inferred = lowerer._bridge_param_type(fn, arg)
+            if inferred is not None:
+                return {"name": arg.arg, "type": inferred}
+            # Cross-module pin (`pyscriptc infer`): the whole-package call
+            # sites proved the parameter's type. Applied after the bridge
+            # (the per-module map wins when both answer).
+            inferred = lowerer._checker_pin_type(fn, arg)
+            if inferred is not None:
+                return {"name": arg.arg, "type": inferred}
+        # Every proof refused: the fence stands. The return peek catches it
+        # and returns None. An unannotated parameter is named by its own fence.
         lowerer.fail(arg, "PS1001", f"parameter {arg.arg} needs an annotation")
     return {"name": arg.arg, "type": lowerer._annotation(arg.annotation)}
 
