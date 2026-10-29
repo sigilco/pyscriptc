@@ -25,7 +25,6 @@ from pyscriptc.lower._core import (
     _SET_FORMS,
     Fence,
     _assign,
-    _const_str,
     _has_typevar,
     _name,
     _plain_const_kind,
@@ -855,7 +854,14 @@ class ClassesMixin:
         if typ["kind"] not in {"list", "dict"}:
             self.fail(ast.Pass(), "PS2002", f"class constant {slot} is not a container")
             raise AssertionError("unreachable")
-        return self._abi_call("builtins", "global_get", [_const_str(key, span)], typ, "ps_global_get_ptr", span)
+        return self._abi_call(
+            "builtins",
+            "global_get",
+            [{"kind": "const", "value": key, "type": {"kind": "str"}, "span": span}],
+            typ,
+            "ps_global_get_ptr",
+            span,
+        )
 
     def _resolve_class_const(self, class_name: str, name: str) -> dict[str, Any] | None:
         """The immutable class constant `name` visible on `class_name`, or None.
