@@ -71,12 +71,12 @@ Both were measured with the compiler on the same machine, 200,000 crossings per 
 
 | Direction | Measured cost per crossing | Wins when |
 | --- | --- | --- |
-| Native calls island (in-binary trampoline) | 0.44 to 0.53 us | the island body costs more than the crossing |
-| Island calls native (`--emit binding`, ctypes) | 0.75 us (0.54 us raw ctypes) | the CPython body costs more than the crossing |
+| Native calls island (in-binary trampoline) | 0.44 to 0.59 us | the island body costs more than the crossing |
+| Island calls native (`--emit binding`, ctypes) | 0.675 us (0.36 us raw ctypes) | the CPython body costs more than the crossing |
 
 The ctypes direction has a sharp cliff, and it is worth writing down because it is the direction most people try first.
-A helper whose CPython body is `return x + 1` costs 0.124 us in CPython and 0.786 us through the generated binding loader: **6x slower than the code it replaced**.
-A helper whose body is a ten-iteration loop costs 0.695 us in CPython and 0.540 us through the binding, which is where the direction starts to pay.
+A helper whose CPython body is `return x + 1` costs 0.064 us in CPython and 0.675 us through the generated binding loader: **10x slower than the code it replaced**.
+A helper whose body is a ten-iteration loop costs 0.475 us in CPython and 0.681 us through the binding, which is where the direction starts to pay.
 
 The rule that falls out of it: a binding only pays when the CPython body is worth more than the crossing.
 At the measured 12 ns per bytecode, that is a body of roughly 60 to 100 bytecodes, not a three-line helper.
@@ -114,9 +114,9 @@ The full per-construct table is in [Typing and idioms](typing.md); the rewrite c
 
 Two directions were measured and did not earn their place, and both are recorded so nobody repeats them.
 
-**Compiling a hot helper and calling it from island code.** A binding call costs 0.75 us before any work happens.
+**Compiling a hot helper and calling it from island code.** A binding call costs 0.675 us before any work happens.
 The yt-dlp hot leaf it would replace, `FormatSorter._calculate_field_preference_from_value`, is about thirty lines of straight-line Python and costs well under the crossing, so the port is a measured regression.
-The profitable direction is native calls island, and only for bodies heavy enough to pay the 0.5 us.
+The profitable direction is native calls island, and only for bodies heavy enough to pay the crossing of 0.44 to 0.59 us.
 
 **Inferring types into untyped code.** The compiler infers what it can prove and refuses the rest: a missing annotation is a `PS1001` fence, never a guessed `Any`.
 An annotation overlay applied to yt-dlp's untyped parameters moved 66 of 7,646 fenced definitions to native on the `url`-shaped parameters alone, and 223 when every remaining parameter was annotated `str`, because the wrong annotations create type-mismatch and name-resolution fences of their own.
