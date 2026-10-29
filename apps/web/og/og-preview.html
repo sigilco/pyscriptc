@@ -32,19 +32,19 @@
         grid-template-rows: 618px 1fr;
       }
       .tile { border-right: 1px solid var(--border-strong); border-bottom: 1px solid var(--border-strong); }
-      #tile-brand { grid-column: 1; grid-row: 1; background: var(--bg-base); padding: 64px 72px 0; display: flex; flex-direction: column; }
-      .kicker { font-size: 29px; letter-spacing: 0.32em; color: var(--text-secondary); font-weight: 600; margin-bottom: 30px; }
-      .wordmark { font-size: 150px; font-weight: 800; letter-spacing: -0.02em; color: var(--text-primary); }
+      #tile-brand { grid-column: 1; grid-row: 1; background: var(--bg-base); padding: 64px 72px; display: flex; flex-direction: column; }
+      .kicker { font-size: 29px; letter-spacing: 0.32em; color: var(--text-secondary); font-weight: 600; }
+      .brand-stack { margin-top: 84px; }
+      .wordmark { font-size: 176px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.05; color: var(--text-primary); }
       .wordmark .py { color: var(--accent-cyan); }
-      .brand-flex { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: 44px; }
-      .descriptor { font-size: 40px; font-weight: 500; color: var(--text-secondary); line-height: 1.35; white-space: nowrap; }
+      .descriptor { margin-top: 52px; font-size: 40px; font-weight: 500; color: var(--text-secondary); line-height: 1.35; max-width: 900px; }
       .descriptor strong { color: var(--text-primary); font-weight: 700; }
       #tile-cli { grid-column: 1; grid-row: 2; background: var(--bg-surface); display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 1fr); }
-      #tile-cli > div { border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 22px; padding: 0 36px; }
+      #tile-cli > div { border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 22px; padding: 0 40px; }
       #tile-cli > div:nth-child(3n) { border-right: none; }
       #tile-cli > div:nth-child(n+4) { border-bottom: none; }
-      .cmd .glyph { width: 78px; height: 78px; flex: 0 0 auto; color: var(--accent-cyan); }
-      .cmd .name { font-size: 40px; font-weight: 700; color: var(--text-primary); }
+      .cmd .glyph { width: 52px; height: 52px; flex: 0 0 auto; color: var(--accent-cyan); }
+      .cmd .name { font-size: 34px; font-weight: 700; color: var(--text-primary); }
       /* the bento alternates four treatments: solid brand, white, light tint, dark navy */
       .cmd-solid { background: var(--accent-azure-dark); }
       .cmd-solid .name { color: #ffffff; }
@@ -55,14 +55,14 @@
       .cmd-tint { background: #e2e8f0; }
       .cmd-tint .name { color: #0f172a; }
       .cmd-tint .glyph { color: var(--accent-azure-dark); }
-      #col-right { grid-column: 2; grid-row: 1 / span 2; display: grid; grid-template-rows: repeat(3, 1fr); }
-      #col-right > div { border-bottom: 1px solid var(--border-strong); padding: 0 56px; display: flex; flex-direction: column; justify-content: center; gap: 12px; }
+      #col-right { grid-column: 2; grid-row: 1 / span 2; display: grid; grid-template-rows: repeat(3, minmax(0, 1fr)); }
+      #col-right > div { border-bottom: 1px solid var(--border-strong); padding: 40px 56px; display: flex; flex-direction: column; justify-content: center; gap: 8px; }
       #col-right > div:last-child { border-bottom: none; }
-      .win .icon { width: 62px; height: 62px; margin-bottom: 8px; }
-      .win .figure { font-size: 116px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; color: var(--text-primary); }
-      .win .figure .unit { font-size: 54px; font-weight: 700; color: var(--accent-cyan); margin-left: 8px; }
-      .win .caption { font-size: 36px; font-weight: 600; color: var(--text-primary); }
-      .win .subject { font-size: 30px; color: #a9b6c8; }
+      .win .icon { width: 40px; height: 40px; }
+      .win .figure { font-size: 80px; font-weight: 800; letter-spacing: -0.03em; line-height: 1; color: var(--text-primary); }
+      .win .figure .unit { font-size: 38px; font-weight: 700; color: var(--accent-cyan); margin-left: 8px; }
+      .win .caption { font-size: 32px; font-weight: 600; color: var(--text-primary); }
+      .win .subject { font-size: 24px; color: #a9b6c8; }
       .win-cyan { background: linear-gradient(180deg, #07222f 0%, #061620 100%); }
       .win-navy { background: var(--bg-card); }
       .win-azure { background: var(--accent-azure-dark); }
@@ -75,8 +75,8 @@
     <div id="board">
       <div id="tile-brand" class="tile">
         <div class="kicker mono">PYTHON &rarr; NATIVE COMPILER</div>
-        <div class="wordmark"><span class="py">PY</span>SCRIPTC</div>
-        <div class="brand-flex">
+        <div class="brand-stack">
+          <div class="wordmark"><span class="py">PY</span>SCRIPTC</div>
           <div class="descriptor">
             Compile standard <strong>annotated Python</strong> to standalone native binaries.
           </div>
@@ -123,7 +123,7 @@
         </div>
         <div class="win">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="#00c2ff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="m8 10 3 3-3 3M13 16h4"/></svg>
-          <div class="figure"><span class="unit" style="font-size:96px;">0</span></div>
+          <div class="figure">0</div>
           <div class="caption">CPython at runtime, native path</div>
           <div class="subject mono">native vs CPython 3.14.9</div>
         </div>
