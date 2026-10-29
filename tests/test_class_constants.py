@@ -5,6 +5,10 @@ immutable class constant: the value inlines at every read site, resolved
 through the receiver's static MRO. A subclass override wins for its own
 receivers; a shared method reading through a base receiver fences
 instead of silently reading the base's value.
+
+A list or dict display binds once to a module-level global slot, so every
+read is the same object and a mutation through any alias is visible to
+every other read, which is what CPython's single class attribute gives.
 """
 
 from __future__ import annotations
@@ -14,7 +18,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from tests.test_gates import run_cli, write_case
+from tests.test_gates import compile_run, run_cli, write_case
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -169,6 +173,174 @@ def tests_pair() -> str:
     a, b = Extractor._TESTS
     return a + str(b) + str(len(_TABLE))
 """,
+    # a list or dict constant binds once: every read is the same object,
+    # and a mutation through any alias is visible to every other read
+    "container_shared": """
+class Base:
+    L = [1, 2]
+    D = {"a": 1}
+
+
+def read_len() -> int:
+    return len(Base.L)
+
+
+def read_dict() -> int:
+    return Base.D["a"]
+
+
+def mutate_alias() -> int:
+    alias: list[int] = Base.L
+    alias.append(3)
+    return len(Base.L)
+
+
+def mutate_then_read() -> int:
+    alias: list[int] = Base.L
+    alias.append(4)
+    return len(Base.L)
+
+
+def dict_mutate() -> int:
+    d: dict[str, int] = Base.D
+    d["b"] = 2
+    return len(Base.D)
+
+
+def read_dict_after() -> int:
+    d: dict[str, int] = Base.D
+    d["c"] = 3
+    return len(Base.D)
+""",
+    # a container constant read through the class, an instance and a
+    # classmethod is the same object
+    "container_read_shapes": """
+class Base:
+    L = [1, 2]
+
+    def via_self(self) -> int:
+        return len(self.L)
+
+    @classmethod
+    def via_cls(cls) -> int:
+        return len(cls.L)
+
+
+def by_class() -> int:
+    return len(Base.L)
+
+
+def by_instance() -> int:
+    b: Base = Base()
+    return len(b.L)
+
+
+def by_self() -> int:
+    b: Base = Base()
+    return b.via_self()
+
+
+def by_cls() -> int:
+    return Base.via_cls()
+
+
+def instance_sees_class_mutation() -> int:
+    alias: list[int] = Base.L
+    alias.append(3)
+    b: Base = Base()
+    return len(b.L)
+""",
+    # a subclass that reassigns the container constant wins for its own
+    # receivers, and the base keeps its own object
+    "container_subclass_override": """
+class Base:
+    L = [1, 2]
+
+    def via_self(self) -> int:
+        return self.L[0]
+
+    @classmethod
+    def via_cls(cls) -> int:
+        return cls.L[0]
+
+
+class Sub(Base):
+    L = [3, 4]
+
+    def via_self(self) -> int:
+        return self.L[0]
+
+    @classmethod
+    def via_cls(cls) -> int:
+        return cls.L[0]
+
+
+class Plain(Base):
+    pass
+
+
+def base_class() -> int:
+    return Base.L[0]
+
+
+def sub_class() -> int:
+    return Sub.L[0]
+
+
+def base_instance() -> int:
+    b: Base = Base()
+    return b.via_self()
+
+
+def sub_instance() -> int:
+    s: Sub = Sub()
+    return s.via_self()
+
+
+def plain_instance() -> int:
+    p: Plain = Plain()
+    return p.via_self()
+
+
+def base_cls_method() -> int:
+    return Base.via_cls()
+
+
+def sub_cls_method() -> int:
+    return Sub.via_cls()
+""",
+    # the base and the subclass hold separate objects: mutating one leaves
+    # the other alone
+    "container_override_isolated": """
+class Base:
+    L = [1, 2]
+
+
+class Sub(Base):
+    L = [3, 4]
+
+
+def mutate_base() -> int:
+    alias: list[int] = Base.L
+    alias.append(9)
+    return len(Base.L)
+
+
+def base_after() -> int:
+    alias: list[int] = Base.L
+    alias.append(9)
+    return len(Sub.L)
+
+
+def sub_after() -> int:
+    alias: list[int] = Sub.L
+    alias.append(9)
+    return len(Sub.L)
+
+
+def base_len() -> int:
+    return len(Base.L)
+""",
 }
 
 OVERRIDE_FENCE = """
@@ -294,3 +466,93 @@ def test_annotated_field_with_value_still_fences_ps1204(tmp_path: Path) -> None:
     result = run_cli("coverage", str(path))
     assert result.returncode == 0
     assert "PS1204" in result.stdout
+
+
+@pytest.mark.linux_container
+def test_empty_container_display_still_fences_ps1204(tmp_path: Path) -> None:
+    for source in ("class C:\n    x = []\n", "class C:\n    x = {}\n"):
+        path = write_case(tmp_path, "empty.py", source)
+        result = run_cli("coverage", str(path))
+        assert result.returncode == 0
+        assert "PS1204" in result.stdout, source
+
+
+@pytest.mark.linux_container
+def test_comprehension_constant_still_fences_ps1204(tmp_path: Path) -> None:
+    path = write_case(tmp_path, "comp.py", "class C:\n    x = [i for i in [1, 2]]\n")
+    result = run_cli("coverage", str(path))
+    assert result.returncode == 0
+    assert "PS1204" in result.stdout
+
+
+@pytest.mark.linux_container
+def test_container_constant_write_fences(tmp_path: Path) -> None:
+    path = write_case(tmp_path, "write.py", "class C:\n    L = [1, 2]\n\n\ndef w(c: C) -> None:\n    c.L = [3]\n")
+    result = run_cli("coverage", str(path))
+    assert result.returncode == 0
+    assert "read-only" in result.stdout
+
+
+@pytest.mark.linux_container
+def test_shared_method_reading_overridden_container_constant_fences(tmp_path: Path) -> None:
+    path = write_case(
+        tmp_path,
+        "fence.py",
+        "class Base:\n"
+        "    L = [1, 2]\n"
+        "\n"
+        "    def first(self) -> int:\n"
+        "        return self.L[0]\n"
+        "\n"
+        "\n"
+        "class Sub(Base):\n"
+        "    L = [3, 4]\n"
+        "\n"
+        "\n"
+        "def main() -> int:\n"
+        "    s: Sub = Sub()\n"
+        "    return s.first()\n",
+    )
+    result = run_cli("coverage", str(path))
+    assert result.returncode == 0
+    assert "PS2001" in result.stdout
+    assert "a subclass of Base redefines" in result.stdout
+
+
+@pytest.mark.linux_container
+def test_container_constant_crosses_modules_as_one_object(tmp_path: Path) -> None:
+    """A consumer module reads the defining module's object, not a copy."""
+    root = tmp_path / "labeler"
+    root.mkdir()
+    (root / "__init__.py").write_text("", encoding="utf-8")
+    (root / "base.py").write_text(
+        "class Base:\n"
+        "    L = [1, 2]\n"
+        "\n"
+        "\n"
+        "def grow() -> int:\n"
+        "    alias: list[int] = Base.L\n"
+        "    alias.append(3)\n"
+        "    return len(Base.L)\n",
+        encoding="utf-8",
+    )
+    (root / "app.py").write_text(
+        "from .base import Base, grow\n"
+        "\n"
+        "\n"
+        "def read() -> int:\n"
+        "    return len(Base.L)\n"
+        "\n"
+        "\n"
+        "def after_growth() -> int:\n"
+        "    g: int = grow()\n"
+        "    r: int = len(Base.L)\n"
+        "    return g * 100 + r\n",
+        encoding="utf-8",
+    )
+    read = compile_run(tmp_path, root, "labeler.app.read")
+    assert read.returncode == 0, read.stderr
+    assert read.stdout == "2\n"
+    after = compile_run(tmp_path, root, "labeler.app.after_growth")
+    assert after.returncode == 0, after.stderr
+    assert after.stdout == "303\n"
