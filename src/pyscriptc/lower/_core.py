@@ -55,7 +55,7 @@ def _assign(target: str, value: dict[str, Any], span: dict[str, Any]) -> dict[st
 
 # The span helper lives in `errors` (see its docstring for the cycle it
 # avoids); the lower modules reach it through here.
-from pyscriptc.errors import _stamp_span  # noqa: E402
+from pyscriptc.errors import _stamp_span as _stamp_span  # noqa: E402
 
 
 def _const_str_join(parts: list[dict[str, Any]], span: dict[str, Any]) -> dict[str, Any] | None:
