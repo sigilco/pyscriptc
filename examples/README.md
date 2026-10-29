@@ -13,5 +13,7 @@ Programs a person can compile are documented in [Example programs](https://pyscr
 | `route_label.py` | `--call label --args '["/api/health", 201]'` prints `health 201` |
 | `hostname.py` | `--call hostname` prints the machine name and links libpython |
 | `wordcount/` | a program directory: `pyscriptc compile examples/wordcount --run` prints `three 3` |
+| `web/flask_app.py` | a Flask app: `--island` serves `/` and `/health` on one binary |
+| `web/fastapi_app.py` | a FastAPI app: `--island` serves `/` and `/health` on one binary |
 
 The other files here are the compiler corpus: `gates_*.py`, `wave_probe.py`, `rest_probe.py`, `sum_squares.py`, and the `fence_*.py` programs that are supposed to be refused.
