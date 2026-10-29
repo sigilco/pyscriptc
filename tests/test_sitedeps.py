@@ -128,6 +128,34 @@ def test_closure_walks_requirements(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert resolved  # the requirement walk reached puremod's import root too
 
 
+def test_closure_walks_transitive_when_root_names_its_own_distribution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A root whose distribution has the same name still expands.
+
+    The walk keeps two seen-sets, one for import roots and one for
+    distributions, because a root like `fastapi` shares its name with the
+    `fastapi` distribution: one seen-set made the shared name mark the
+    distribution visited before its requirements were read, and the bundle
+    staged the top-level distribution without any of its dependencies
+    (`starlette`, `pydantic` for the FastAPI example).
+    """
+    site = _fake_site(tmp_path / "site")
+    monkeypatch.setattr("pyscriptc.imports._site_packages", lambda: [site])
+    monkeypatch.setattr(
+        "pyscriptc.sitedeps.distributions_of",
+        lambda root: {"toplevel": ["toplevel"], "helper": ["helper"]}.get(root, []),
+    )
+    from importlib import metadata
+
+    def _requires(dist):
+        return ["helper>=1"] if dist == "toplevel" else []
+
+    monkeypatch.setattr(metadata, "requires", _requires, raising=False)
+    resolved = sitedeps._closure(["toplevel"])
+    assert resolved == {"toplevel": ["toplevel"], "helper": ["helper"]}
+
+
 def test_record_roots_reads_a_dist_info_record(tmp_path: Path) -> None:
     record = tmp_path / "RECORD"
     record.write_text(

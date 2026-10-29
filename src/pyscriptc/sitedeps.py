@@ -165,21 +165,22 @@ def _closure(roots: list[str]) -> dict[str, list[str]]:
 
     resolved: dict[str, list[str]] = {}
     queue: list[str] = list(roots)
-    seen: set[str] = set()
+    seen_roots: set[str] = set()
+    seen_dists: set[str] = set()
     while queue:
         root = queue.pop(0)
-        if root in seen:
+        if root in seen_roots:
             continue
-        seen.add(root)
+        seen_roots.add(root)
         for dist in distributions_of(root):
             # A distribution is copied for the import roots that reach it, so
             # `six` stages `six.py` even though only `dateutil` names it.
             roots_of = resolved.setdefault(dist, [])
             if root not in roots_of:
                 roots_of.append(root)
-            if dist in seen:
+            if dist in seen_dists:
                 continue
-            seen.add(dist)
+            seen_dists.add(dist)
             try:
                 requires = metadata.requires(dist) or []
             except Exception:
@@ -202,7 +203,7 @@ def _closure(roots: list[str]) -> dict[str, list[str]]:
                 for separator in " <>=!~[":
                     name = name.split(separator, 1)[0]
                 name = name.strip()
-                if name and name not in seen:
+                if name and name not in seen_dists:
                     queue.append(name)
     return resolved
 
