@@ -287,8 +287,24 @@ def is_island_diagnostic(
         target_file = source_path
     elif err_path_str:
         candidate = Path(err_path_str)
-        if not candidate.is_absolute() and tmp_dir is not None:
-            candidate = (tmp_dir / candidate).resolve()
+        if not candidate.is_absolute():
+            # The checker prints paths relative to the compiler's working
+            # directory (it runs with that CWD); the temp dir anchor is the
+            # fallback for a path it relativized against its own scratch
+            # config. A `..` chain past the root resolves against the CWD
+            # and lands on the real file (found on yt_dlp: every one of
+            # 8,379 diagnostics in a `--program` compile of a package kept
+            # the whole preflight failing because the anchor was wrong).
+            anchors = [Path.cwd(), *([tmp_dir] if tmp_dir is not None else [])]
+            resolved = None
+            for anchor in anchors:
+                found = (anchor / candidate).resolve()
+                if found.is_file():
+                    resolved = found
+                    break
+            if resolved is None:
+                resolved = candidate.resolve()
+            candidate = resolved
         else:
             candidate = candidate.resolve()
         if candidate.is_file():
@@ -397,6 +413,16 @@ _sys.meta_path.insert(0, _PsFinder())
 _sys.path.insert(0, _ps_rebase(%(path0)s))
 __file__ = _ps_rebase(%(main_path)s)
 __package__ = %(package)s
+if %(package_mode)s:
+    # The `python -m pkg` shape (issue #765): CPython records the entry
+    # module's own path as argv[0], so argparse's default `prog` is
+    # `__main__.py` and the usage line names the script, not the binary.
+    # `__file__` is that path, rebased onto the staged tree when the
+    # program staged data.
+    if _sys.argv:
+        _sys.argv[0] = __file__
+    else:
+        _sys.argv = [__file__]
 exec(compile(%(main_source)s, __file__, "exec"), globals())
 """
 
@@ -409,6 +435,7 @@ def program_island_source(
     root: Path,
     path0: Path,
     staged_data: tuple[str, str] | None = None,
+    package_mode: bool = False,
 ) -> str:
     """The island seed of a whole program: finder bootstrap plus the entry.
 
@@ -435,6 +462,7 @@ def program_island_source(
         "path0": repr(str(path0)),
         "main_path": repr(main_path),
         "package": repr(main_package),
+        "package_mode": repr(package_mode),
         "main_source": repr(main_source),
     }
 

@@ -1328,7 +1328,7 @@ void ps_island_fn_seed(int64_t n, const char *source) {
    `path` seeds `__file__` (a Path-global script resolves its data files
    through it); it may be NULL. The native entry never runs when this seed
    is present: it IS the program. */
-void ps_island_top_seed(int64_t n, const char *source, int64_t path_n, const char *path) {
+void ps_island_top_seed(int64_t n, const char *source, int64_t path_n, const char *path, int32_t package_mode) {
     PyObject *text;
     PyObject *builtins = NULL;
     PyObject *main_name = NULL;
@@ -1414,8 +1414,13 @@ void ps_island_top_seed(int64_t n, const char *source, int64_t path_n, const cha
        CPython. argv[0] is the source path when the compiler recorded one
        (issue #711): CPython records the script path for `python SCRIPT`,
        and argparse's default `prog` is its basename — the emitted binary's
-       basename would lose the `.py` suffix. */
-    ps_island_seed_argv(path);
+       basename would lose the `.py` suffix. A `python -m pkg` program
+       (package_mode, issue #765) skips the override: CPython records the
+       entry file path for `-m`, and the bootstrap's exec'd `__main__`
+       already set `__file__` to that path, so the mirrored argv[0] — the
+       emitted binary's path — differs and the override would hide the
+       real `-m` value from argparse's default `prog` derivation. */
+    ps_island_seed_argv(package_mode ? NULL : path);
     result = PyRun_String(PyUnicode_AsUTF8(text) != NULL ? PyUnicode_AsUTF8(text) : "",
                           Py_file_input, ps_island_ns, ps_island_ns);
     Py_DECREF(text);
