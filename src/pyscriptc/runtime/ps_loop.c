@@ -35,16 +35,7 @@ live setjmp outside the frame's own try).
 
 /* The fd poller (#177): kqueue, epoll or poll() behind one call. This file
    owns the wait; the poller owns the kernel interface. */
-typedef struct {
-    int fd;
-    int32_t events;
-    int32_t ready;
-} PsPollFd;
-
-extern int ps_poller_poll(PsPollFd *fds, int count, int timeout_ms);
-extern void ps_poller_wake(void);
-extern int ps_poller_pipe_fd(void);
-extern void ps_poller_reset(void);
+#include "ps_poller.h"
 
 /* Offsets into every coroutine frame (coro.py guarantees this layout). */
 #define PS_TASK_OFF 8
@@ -228,6 +219,10 @@ void ps_loop_wait_fd(int fd) {
     ps_fd_waits[ps_fd_wait_len].task = task;
     ps_fd_waits[ps_fd_wait_len].ready = 0;
     ps_fd_wait_len++;
+    /* The shared poller learns the fd the first time a task parks on it
+       (and the selector's registrations add their own interest beside
+       this). */
+    ps_poller_watch(fd, 1 /* POLLIN */);
 }
 
 /* True while a task is parked on an fd: the poller is part of the wait. */
@@ -252,6 +247,19 @@ static void ps_fd_waits_fire(PsPollFd *polls, int count) {
             }
         }
     }
+    /* A fired row is done: its task resumes and will re-park with a fresh
+       watch if it waits again. The level-triggered poller would report the
+       row ready forever (a pipe still holding its byte), so the interest is
+       dropped for every row that has no task left. */
+    int64_t out = 0;
+    for (int64_t j = 0; j < ps_fd_wait_len; j++) {
+        if (ps_fd_waits[j].task == NULL) {
+            ps_poller_unwatch(ps_fd_waits[j].fd, 1 /* POLLIN */);
+            continue;
+        }
+        ps_fd_waits[out++] = ps_fd_waits[j];
+    }
+    ps_fd_wait_len = out;
 }
 
 /* Re-queue a task that a primitive woke up. The task is not on the ready
@@ -764,7 +772,7 @@ static void ps_loop_drive(int32_t blocking) {
                 count++;
             }
             if (count > 0) {
-                int ready = ps_poller_poll(polls, count, timeout_ms);
+                int ready = ps_poller_wait(polls, count, timeout_ms);
                 if (ready > 0) {
                     ps_fd_waits_fire(polls, count);
                 }
