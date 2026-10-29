@@ -12,6 +12,7 @@
     "validate": "node scripts/validate.mts",
     "docs:validate": "node scripts/validate-docs.mts",
     "test": "node --test --experimental-strip-types \"test/**/*.test.mts\"",
+    "og:render": "node --experimental-strip-types scripts/render-og.mts",
     "dev": "astro dev",
     "preview": "astro preview",
     "cosmos": "cosmos",
