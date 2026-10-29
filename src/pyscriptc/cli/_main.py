@@ -26,6 +26,7 @@ from pyscriptc.cli._report import (
     coverage_cmd,
     explain_cmd,
     imports_cmd,
+    infer_cmd,
     logs_cmd,
     reduce_cmd,
 )
@@ -550,6 +551,21 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("blockers", "any"),
         help="exit 1 when root refusals (blockers) or any refusal (any) exist; default always exits 0",
     )
+    infer_parser = sub.add_parser(
+        "infer",
+        help="prove types for a package with the checker and show what lowering gained",
+        parents=[common],
+    )
+    infer_parser.add_argument("source", help="a package directory (or a file's tree) to infer over")
+    infer_parser.add_argument("--json", action="store_true", help="print the report as JSON")
+    infer_parser.add_argument(
+        "--overlay",
+        metavar="FILE",
+        help="write the inferred annotations to FILE as a sidecar the user can apply",
+    )
+    infer_parser.add_argument(
+        "--bridge", choices=("pyrefly",), default="pyrefly", help="checker to run (default: pyrefly)"
+    )
     config_parser = sub.add_parser("config", help="show the resolved config for a source", parents=[common])
     config_parser.add_argument("source", help="Python file, pyproject.toml or directory")
     config_parser.add_argument("--json", action="store_true", help="print the resolved config as JSON")
@@ -723,6 +739,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd == "coverage":
             _load_compiler()
             return coverage_cmd(args)
+        if args.cmd == "infer":
+            _load_compiler()
+            return infer_cmd(args)
         if args.cmd == "imports":
             _load_compiler()
             return imports_cmd(args)

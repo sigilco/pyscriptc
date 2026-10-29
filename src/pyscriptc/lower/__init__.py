@@ -413,6 +413,17 @@ class Lowerer(
         # inferred-type map. None means no bridge: lowering keeps every
         # inference fence exactly as before.
         self.bridge: Any = None
+        # Cross-module parameter pinning (issue #87, `pyscriptc infer`):
+        # the checker's call-site facts, keyed by module stem and qualified
+        # name, with the source line/col of each call. Set by `pyscriptc
+        # infer`; None means the compiler's own same-module pin stands.
+        self.call_site_facts: Any = None
+        # Every fact the checker proved and the lowerer accepted this run,
+        # for `compile --debug` and `pyscriptc infer`. A record carries the
+        # module, qualified name, the accepted IR type and a render of the
+        # checker's proof. The bridge owns the list when one is wired, so
+        # a package compile gathers every file's records in one place.
+        self.infer_records: list[dict[str, Any]] = []
 
     def fail(self, node: ast.AST, code: str, message: str) -> NoReturn:
         raise Fence(code, message, span_of(node, self.filename), self.function)
