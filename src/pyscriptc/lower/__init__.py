@@ -659,11 +659,20 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         cannot lower (a call the subset refuses, a builtin it does not
         know). Only a type the subset can express is used, and only when
         the checker proved a concrete one (never `Any`).
+
+        The soundness rule is the compiler's: the compiled function must
+        return what the body returns. So the checker's answer is accepted
+        only when every `return` expression in the body carries a fact
+        that agrees with it. A return the checker could not type, or one
+        that disagrees, refuses the inference and the fence stands: a
+        wrong inference is a miscompile, not a warning.
         """
         if self.bridge is None:
             return None
         proven = self._bridge_return_type(fn)
         if proven is None:
+            return None
+        if not self._returns_agree(fn, proven):
             return None
         facts = self._bridge_def(fn)
         rendered = None
@@ -675,10 +684,38 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 "module": self.module_name,
                 "name": fn.name,
                 "type": rendered or str(proven),
-                "proof": "the checker proved this return type from the function body",
+                "proof": "the checker proved this return type from the function body, and every return agrees",
             }
         )
         return proven
+
+    def _returns_agree(self, fn: ast.FunctionDef | ast.AsyncFunctionDef, proven: dict[str, Any]) -> bool:
+        """Whether every return expression in the body carries the proven type.
+
+        The checker's per-expression facts are the evidence: a return the
+        checker typed `str` under a proven `int` means the two disagree
+        and the inference is refused. A return with no fact (the checker
+        could not type it) refuses the inference too, because the
+        compiler cannot prove the body returns what the signature says.
+        """
+        if self.bridge is None:
+            return False
+        returns = [
+            stmt.value
+            for stmt in ast.walk(fn)
+            if isinstance(stmt, ast.Return) and stmt.value is not None
+        ]
+        if not returns:
+            # A def with no value return returns None; the checker must
+            # have proved None too.
+            return proven["kind"] == "none"
+        for value in returns:
+            fact = self.bridge.inferred_type(value, self.classes)
+            if fact is None:
+                return False
+            if not types_equal(fact, proven):
+                return False
+        return True
 
     def _bindings_types(self) -> dict[str, dict[str, Any]]:
         """The import-bound modules as peekable types.
