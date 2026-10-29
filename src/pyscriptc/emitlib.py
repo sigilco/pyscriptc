@@ -36,6 +36,8 @@ from pyscriptc import rtcache
 from pyscriptc.emit.llvm._driver import runtime_dir, sanitize_flags
 from pyscriptc.errors import IRError
 from pyscriptc.mobile import ANDROID_API_DEFAULT, MobileTarget, excluded_sources
+from pyscriptc.sectiongc import compile_flags as gc_compile_flags
+from pyscriptc.sectiongc import link_flags as gc_link_flags
 
 # The archive name and the header name are the surface an app links against.
 LIB_NAME = "libpyscriptc.a"
@@ -151,15 +153,21 @@ def toolchain_for(target: MobileTarget) -> MobileToolchain:
     )
 
 
-def library_flags(sanitize: list[str] | None = None) -> list[str]:
+def library_flags(target: MobileTarget, sanitize: list[str] | None = None) -> list[str]:
     """The cc flags every mobile object carries: optimization and visibility.
 
     `-fvisibility=hidden` keeps every symbol out of the export table unless
     its definition marks it visible, which is what makes the archive linkable
     into an app without leaking the whole runtime namespace. It has to happen
     at compile time: a consumer cannot hide symbols in a finished archive.
+
+    The section flags are the other compile-time half of section GC
+    (`sectiongc.py`): every function and datum in its own section, so the
+    app's link (`gc_link_flags`) can drop the ones nothing references. The
+    PE lane (a future Windows mobile target) gets none, because its link
+    does not consume them.
     """
-    return ["-O2", "-fvisibility=hidden", *sanitize_flags(sanitize)]
+    return ["-O2", "-fvisibility=hidden", *gc_compile_flags(target.cc_target), *sanitize_flags(sanitize)]
 
 
 def runtime_sources(target: MobileTarget) -> list[Path]:
@@ -204,7 +212,7 @@ def build_library(
     header = output / HEADER_NAME
     modulemap = output / MODULEMAP_NAME
     chain = toolchain if toolchain is not None else toolchain_for(target)
-    flags = [*chain.target_flags, *library_flags(sanitize)]
+    flags = [*chain.target_flags, *library_flags(target, sanitize)]
     dbg_flags = ["-g"] if debug_info else []
     cc_argv = [*chain.cc, *flags, *dbg_flags]
 
@@ -260,7 +268,12 @@ def build_library(
 
     header.write_text(render_header(), encoding="utf-8")
     modulemap.write_text(render_modulemap(), encoding="utf-8")
-    return {"archive": archive, "header": header, "modulemap": modulemap}
+    return {
+        "archive": archive,
+        "header": header,
+        "modulemap": modulemap,
+        "link_flags": gc_link_flags(target.cc_target),
+    }
 
 
 def render_header() -> str:

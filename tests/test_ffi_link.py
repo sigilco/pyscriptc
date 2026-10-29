@@ -58,11 +58,11 @@ def test_a_build_with_no_manifest_has_the_master_link_line(tmp_path: Path) -> No
     link = record[-1]
     assert link[0] == "clang"
     # every argument is a runtime object, then the fixed tail
-    objects = link[1:-3]
+    objects = link[1:-4]
     assert objects, "no objects on the link line"
     for obj in objects:
         assert obj.endswith(".o"), obj
-    assert link[-3:] == ["-lm", "-o", str(tmp_path / "a")]
+    assert link[-4:] == ["-Wl,--gc-sections", "-lm", "-o", str(tmp_path / "a")]
     # no manifest flags leak into a manifest-free build
     assert not any(arg.startswith("-l") and arg != "-lm" for arg in link)
     assert not any(arg.startswith("-L") for arg in link)

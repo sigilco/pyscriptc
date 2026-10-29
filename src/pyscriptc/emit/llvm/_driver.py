@@ -27,6 +27,8 @@ from pyscriptc.emit.llvm._stdlib import StdlibMixin
 from pyscriptc.emit.llvm._stmts import StmtsMixin
 from pyscriptc.errors import IRError
 from pyscriptc.ir import assert_same_cpython
+from pyscriptc.sectiongc import compile_flags as gc_compile_flags
+from pyscriptc.sectiongc import link_flags as gc_link_flags
 
 
 def _cc_argv(cc: str) -> list[str]:
@@ -285,7 +287,13 @@ def link_binary(
     san_flags = sanitize_flags(sanitize)
     dbg_flags = ["-g"] if debug_info else []
     pic_flags = ["-fPIC"] if shared else []
-    tail = [*san_flags, "-lm", "-o", str(output)]
+    # Section GC: the compile half gives every function and datum its own
+    # section, the link half lets the linker drop the ones nothing
+    # references (`sectiongc.py`). The two halves only make sense together,
+    # so they are decided once, here, from the same target.
+    gc_compile = gc_compile_flags(target)
+    gc_link = gc_link_flags(target)
+    tail = [*san_flags, *gc_link, "-lm", "-o", str(output)]
     if "ps_island_" in text:
         if target is not None:
             raise IRError(
@@ -359,6 +367,7 @@ def link_binary(
         *wasm_flags,
         *dbg_flags,
         *san_flags,
+        *gc_compile,
         *ll_kind,
         "-c",
         str(llvm_path),
@@ -389,7 +398,7 @@ def link_binary(
     manifest_sources = frozenset(ffi_sources)
     for source in sources:
         src = Path(source)
-        flags = ["-O2", *pic_flags, *wasm_flags, *san_flags, *target_flags]
+        flags = ["-O2", *pic_flags, *wasm_flags, *san_flags, *gc_compile, *target_flags]
         extra_dirs: tuple[Path, ...] = ()
         if source in manifest_sources:
             flags.extend(ffi_include_flags)
