@@ -21,6 +21,7 @@ QUEUE: tuple[str, ...] = (
     "urllib.parse",
     "base64",
     "hashlib",
+    "heapq",
     "struct",
     "datetime",
     "time",
