@@ -91,12 +91,28 @@ class ClassesMixin:
             return
         info = copy.deepcopy(item["info"])
         info["imported"] = True
+        if info.get("mro") and info["mro"][0] != name:
+            info["mro"] = [name, *info["mro"]]
         self.classes[name] = info
         self.class_aliases[local] = name
         self.known_classes.add(local)
         self.known_classes.add(name)
         self.declared.add(local)
         self.declared.add(name)
+        self._install_class_consts(local, info)
+
+    def _install_class_consts(self, local: str, info: dict[str, Any]) -> None:
+        """Carry an imported class's immutable constants into this module.
+
+        The exported class info carries `class_consts` when the defining
+        module lowered them; a consumer reads `Base.NAME` by inlining the
+        same value. A list or dict constant does not export (its slot lives
+        in the defining module's process image), so a consumer read fences.
+        """
+        consts = info.get("class_consts")
+        if not consts:
+            return
+        self.classes[local]["class_consts"] = {name: copy.deepcopy(const) for name, const in consts.items()}
 
     def _install_synthetics(self, class_nodes: list[ast.ClassDef], fences: list[Fence]) -> None:
         self.synthetics.update(ALWAYS_CLASSES)

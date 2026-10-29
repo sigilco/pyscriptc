@@ -1066,6 +1066,7 @@ def _class_export(info: dict[str, Any]) -> dict[str, Any]:
         "methods": copy.deepcopy(info.get("methods", {})),
         "method_kind": dict(info.get("method_kind", {})),
         "method_owner": dict(info.get("method_owner", {})),
+        "mro": list(info.get("mro") or []),
         "base": info.get("base"),
         "imported": True,
     }
@@ -1077,6 +1078,16 @@ def _class_export(info: dict[str, Any]) -> dict[str, Any]:
     if info.get("enum"):
         exported["enum"] = True
         exported["members"] = dict(info.get("members") or {})
+    consts = info.get("class_consts")
+    if consts:
+        # Immutable scalar constants re-inline in the consumer. A slot-bound
+        # container constant does not (the slot lives in the defining
+        # module), so only kinds that re-emit safely cross the boundary.
+        exported["class_consts"] = {
+            name: copy.deepcopy(const)
+            for name, const in consts.items()
+            if const.get("kind") in {"const", "tuple-const"}
+        }
     if info.get("coro"):
         # A coroutine frame class (issue #178, stage B). The consumer needs
         # the kind to tell a frame from a user class, and `coro_elem` (the
