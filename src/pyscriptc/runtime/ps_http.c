@@ -1,16 +1,23 @@
 /* urllib.request native subset: urlopen over blocking BSD sockets.
 
-The closed surface (issues #60, #225, #226): http:// GET, HEAD and the other
-methods through `Request`, bytes bodies, request headers, chunked
-transfer-encoding decoding, error statuses (4xx/5xx raise HTTPError with a
-readable body), timeouts (TimeoutError), and redirects (301, 302, 303, 307,
-308, bounded at 10 hops like CPython's HTTPRedirectHandler).
+The closed surface (issues #60, #225, #226): http:// and https:// GET, HEAD
+and the other methods through `Request`, bytes bodies, request headers,
+chunked transfer-encoding decoding, error statuses (4xx/5xx raise HTTPError
+with a readable body), timeouts (TimeoutError), and redirects (301, 302,
+303, 307, 308, bounded at 10 hops like CPython's HTTPRedirectHandler).
 
-Plaintext http:// only: an https:// target raises URLError (OSError) until
-TLS lands (#235). The response is the HttpResponse record: status, the
-header block as one "Name: value\n" buffer, and the decoded body. Blocking
-sockets only; `Connection: close` and read to EOF, except a chunked body
-ends at the 0-chunk. No keep-alive, no proxies, no cookies.
+https:// rides the TLS transport seam (`ps_http_tls.h`): when the
+pyscriptc-http FFI adapter is linked into the binary, its strong symbols
+implement the seam and https works with certificate verification REQUIRED
+(hostname through SNI, roots from the platform trust store); when the
+adapter is not linked, the weak declarations resolve to null and an
+https:// target raises URLError (OSError) with the message that says so.
+There is no insecure fallback in either shape.
+
+The response is the HttpResponse record: status, the header block as one
+"Name: value\n" buffer, and the decoded body. Blocking sockets only;
+`Connection: close` and read to EOF, except a chunked body ends at the
+0-chunk. No keep-alive, no proxies, no cookies.
 
 The redirect Location is resolved against the request URL with
 urllib.parse.urljoin semantics (absolute, scheme-relative, absolute path,
@@ -18,6 +25,7 @@ and relative path with . and .. segments).
 */
 
 #include "ps_rt.h"
+#include "ps_http_tls.h"
 
 #if !defined(__wasi__) && !defined(_WIN32)
 
@@ -72,7 +80,10 @@ static char *ps_http_dup(int64_t n, const char *s) {
 }
 
 /* Parsed http URL: host, port, and the path-plus-query to send. The host
-   and path borrow from the (mutable) working copy of the URL text. */
+   and path borrow from the (mutable) working copy of the URL text.
+   An https:// URL parses like an http:// one; the scheme itself decides
+   the transport (ps_http_request checks it against the TLS seam). The
+   default port follows the scheme. */
 typedef struct {
     const char *host;
     int port;
@@ -88,10 +99,10 @@ static void ps_http_split(const char *url, PsHttpUrl *out) {
     if (n >= 7 && strncmp(cursor, "http://", 7) == 0) {
         cursor += 7;
     } else if (n >= 8 && strncmp(cursor, "https://", 8) == 0) {
-        /* Clear message until TLS lands (#235). */
-        ps_http_fail("https is not supported yet (TLS is planned, issue 235)");
+        cursor += 8;
+        out->port = 443;
     } else {
-        ps_http_fail("urlopen supports http:// URLs");
+        ps_http_fail("urlopen supports http:// and https:// URLs");
     }
     const char *host_end = cursor;
     while (*host_end != '\0' && *host_end != '/' && *host_end != ':' && *host_end != '?') {
@@ -183,49 +194,183 @@ static void ps_http_wait_read(int fd, const PsHttpDeadline *dl) {
     }
 }
 
+/* The transport the round trip rides: one open/read/write/close set for
+   the plaintext socket and the TLS session. The https path fills it from
+   the adapter's seam symbols; the http path fills it from the BSD socket
+   calls below. A transport read returns the bytes read, 0 at end of
+   stream, and -1 on failure (the failure message goes through
+   ps_http_fail inside the transport). */
+typedef struct {
+    void *session;                       /* the TLS handle; NULL for plaintext */
+    int fd;
+    const PsHttpDeadline *dl;
+} PsHttpTransport;
+
+static int64_t ps_http_transport_read(PsHttpTransport *t, char *buf, int64_t len) {
+    if (t->session != NULL) {
+        int64_t got = ps_http_tls_read(t->session, buf, len);
+        if (got < 0) {
+            char message[512];
+            snprintf(message, sizeof message, "https: %s", ps_http_tls_last_error());
+            ps_http_fail(message);
+        }
+        return got;
+    }
+    ps_http_wait_read(t->fd, t->dl);
+    ssize_t n = read(t->fd, buf, (size_t)len);
+    if (n == 0) {
+        return 0;
+    }
+    if (n < 0) {
+        if (errno == EINTR) {
+            return -2; /* retry */
+        }
+        ps_http_fail("socket read failed");
+    }
+    return (int64_t)n;
+}
+
+static int64_t ps_http_transport_write(PsHttpTransport *t, const char *buf, int64_t len) {
+    if (t->session != NULL) {
+        int64_t wrote = ps_http_tls_write(t->session, buf, len);
+        if (wrote < 0) {
+            char message[512];
+            snprintf(message, sizeof message, "https: %s", ps_http_tls_last_error());
+            ps_http_fail(message);
+        }
+        return wrote;
+    }
+    fd_set wf;
+    struct timeval left;
+    ps_http_left(t->dl, &left);
+    FD_ZERO(&wf);
+    FD_SET(t->fd, &wf);
+    int n = select(t->fd + 1, NULL, &wf, NULL, &left);
+    if (n < 0 && errno == EINTR) {
+        return -2; /* retry */
+    }
+    if (n <= 0) {
+        ps_http_fail("timed out");
+    }
+    ssize_t wrote = write(t->fd, buf, (size_t)len);
+    if (wrote <= 0) {
+        if (wrote < 0 && errno == EINTR) {
+            return -2; /* retry */
+        }
+        ps_http_fail("socket write failed");
+    }
+    return (int64_t)wrote;
+}
+
+static void ps_http_transport_close(PsHttpTransport *t) {
+    if (t->session != NULL) {
+        ps_http_tls_close(t->session);
+        return;
+    }
+    close(t->fd);
+}
+
+/* The platform CA bundle candidates, in priority order. The first file
+   that exists is the bundle the https handshake verifies against; none of
+   them existing is a failure of the open, never a silent empty trust
+   store. The list is the same one CPython's ssl module probes on each
+   platform (macOS ships the bundle at /etc/ssl/cert.pem; Debian, Ubuntu,
+   Fedora, Alpine and openSUSE each have their own path). */
+static const char *const ps_http_ca_bundles[] = {
+    "/etc/ssl/cert.pem",                  /* macOS */
+    "/etc/ssl/certs/ca-certificates.crt", /* Debian, Ubuntu, Alpine, Arch */
+    "/etc/pki/tls/certs/ca-bundle.crt",   /* Fedora, RHEL */
+    "/etc/ssl/ca-bundle.pem",             /* openSUSE */
+    "/etc/ssl/cert.pem",                  /* fallback, the macOS path again */
+};
+
+#define PS_HTTP_CA_COUNT (int)(sizeof ps_http_ca_bundles / sizeof ps_http_ca_bundles[0])
+
+/* The weak "no adapter" definitions of the TLS seam (ps_http_tls.h): a
+   binary without the adapter keeps these, and PS_HTTP_TLS_AVAILABLE() is
+   false, so an https:// URL fails closed with the actionable message. The
+   adapter's strong definitions override them when the manifest is on the
+   compile. */
+PS_HTTP_TLS_WEAK int ps_http_tls_provider(void) { return 0; }
+PS_HTTP_TLS_WEAK int ps_http_tls_open(
+    const char *host,
+    int port,
+    const char *sni,
+    const char *const *ca_paths,
+    int ca_count,
+    double timeout,
+    void **out_session
+) {
+    (void)host;
+    (void)port;
+    (void)sni;
+    (void)ca_paths;
+    (void)ca_count;
+    (void)timeout;
+    (void)out_session;
+    return -1;
+}
+PS_HTTP_TLS_WEAK int64_t ps_http_tls_write(void *session, const char *buf, int64_t len) {
+    (void)session;
+    (void)buf;
+    (void)len;
+    return -1;
+}
+PS_HTTP_TLS_WEAK int64_t ps_http_tls_read(void *session, char *buf, int64_t len) {
+    (void)session;
+    (void)buf;
+    (void)len;
+    return -1;
+}
+PS_HTTP_TLS_WEAK void ps_http_tls_close(void *session) { (void)session; }
+PS_HTTP_TLS_WEAK const char *ps_http_tls_last_error(void) { return "no TLS adapter"; }
+
+/* True when the pyscriptc-http adapter is linked into this binary. */
+#define PS_HTTP_TLS_AVAILABLE() (ps_http_tls_provider() != 0)
+
 /* Read up to `want` bytes into the grow buffer, at most `limit` in total.
    `limit` of -1 reads until EOF. Returns the bytes read. */
-static int64_t ps_http_read_into(int fd, PsGrow *g, int64_t limit, const PsHttpDeadline *dl) {
+static int64_t ps_http_read_into(PsHttpTransport *t, PsGrow *g, int64_t limit, const PsHttpDeadline *dl) {
+    (void)dl;
     char chunk[8192];
     int64_t got = 0;
     for (;;) {
         if (limit >= 0 && got >= limit) {
             return got;
         }
-        ps_http_wait_read(fd, dl);
-        size_t want = sizeof chunk;
-        if (limit >= 0 && limit - got < (int64_t)want) {
-            want = (size_t)(limit - got);
+        int64_t want = (int64_t)sizeof chunk;
+        if (limit >= 0 && limit - got < want) {
+            want = limit - got;
         }
-        ssize_t n = read(fd, chunk, want);
+        int64_t n = ps_http_transport_read(t, chunk, want);
+        if (n == -2) {
+            continue;
+        }
         if (n == 0) {
             return got;
         }
         if (n < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            ps_http_fail("socket read failed");
+            ps_http_fail("TLS read failed");
         }
-        ps_grow_add(g, chunk, (int64_t)n);
+        ps_grow_add(g, chunk, n);
         got += n;
     }
 }
 
 /* Read one CRLF-terminated line (without the CRLF). */
-static void ps_http_read_line(int fd, PsGrow *g, const PsHttpDeadline *dl) {
+static void ps_http_read_line(PsHttpTransport *t, PsGrow *g, const PsHttpDeadline *dl) {
+    (void)dl;
     char ch;
     for (;;) {
-        ps_http_wait_read(fd, dl);
-        ssize_t n = read(fd, &ch, 1);
+        int64_t n = ps_http_transport_read(t, &ch, 1);
+        if (n == -2) {
+            continue;
+        }
         if (n == 0) {
             ps_http_fail("connection closed mid-response");
         }
         if (n < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            ps_http_fail("socket read failed");
+            ps_http_fail("TLS read failed");
         }
         if (ch == '\n') {
             return;
@@ -308,33 +453,6 @@ static int ps_http_connect(const char *host, int port, double timeout) {
     return fd;
 }
 
-/* Write the whole request buffer. */
-static void ps_http_write_all(int fd, const char *data, int64_t len, const PsHttpDeadline *dl) {
-    int64_t done = 0;
-    while (done < len) {
-        fd_set wf;
-        struct timeval left;
-        ps_http_left(dl, &left);
-        FD_ZERO(&wf);
-        FD_SET(fd, &wf);
-        int n = select(fd + 1, NULL, &wf, NULL, &left);
-        if (n < 0 && errno == EINTR) {
-            continue;
-        }
-        if (n <= 0) {
-            ps_http_fail("timed out");
-        }
-        ssize_t wrote = write(fd, data + done, (size_t)(len - done));
-        if (wrote <= 0) {
-            if (wrote < 0 && errno == EINTR) {
-                continue;
-            }
-            ps_http_fail("socket write failed");
-        }
-        done += wrote;
-    }
-}
-
 /* One request and response round trip. `headers` is the caller's extra
    header block (already CRLF-terminated lines). Fills the record and, when
    the status is a redirect, hands back the Location value (owned). */
@@ -345,10 +463,37 @@ static void ps_http_roundtrip(
     const char *body,
     int64_t body_len,
     const PsHttpDeadline *dl,
+    int is_https,
     PsHttpResp *out,
     char **location
 ) {
-    int fd = ps_http_connect(url->host, url->port, dl->on ? (double)dl->at.tv_sec : 0.0);
+    PsHttpTransport transport;
+    transport.session = NULL;
+    transport.dl = dl;
+    if (is_https) {
+        /* The seam is checked at the caller, so the symbols are non-null
+           here; the open reports a handshake or verification failure
+           through ps_raise inside the adapter (the runtime's raise). */
+        double timeout = dl->on ? (double)dl->at.tv_sec : 0.0;
+        int rc = ps_http_tls_open(
+            url->host,
+            url->port,
+            url->host,
+            ps_http_ca_bundles,
+            PS_HTTP_CA_COUNT,
+            timeout,
+            &transport.session
+        );
+        if (rc != 0) {
+            char message[512];
+            snprintf(message, sizeof message, "https: %s", ps_http_tls_last_error());
+            ps_http_fail(message);
+        }
+        transport.fd = -1;
+    } else {
+        transport.fd = ps_http_connect(url->host, url->port, dl->on ? (double)dl->at.tv_sec : 0.0);
+    }
+    PsHttpTransport *t = &transport;
     PsGrow req;
     ps_grow_init(&req);
     char head[512];
@@ -371,13 +516,22 @@ static void ps_http_roundtrip(
     }
     PsBuf wire;
     ps_grow_finish(&req, &wire);
-    ps_http_write_all(fd, wire.data, wire.len, dl);
+    {
+        int64_t done = 0;
+        while (done < wire.len) {
+            int64_t wrote = ps_http_transport_write(t, wire.data + done, wire.len - done);
+            if (wrote == -2) {
+                continue;
+            }
+            done += wrote;
+        }
+    }
     free(wire.data);
 
     /* Status line. */
     PsGrow line;
     ps_grow_init(&line);
-    ps_http_read_line(fd, &line, dl);
+    ps_http_read_line(t, &line, dl);
     PsBuf status_line;
     ps_grow_finish(&line, &status_line);
     int64_t status = ps_http_status_of(status_line.data);
@@ -392,7 +546,7 @@ static void ps_http_roundtrip(
     for (;;) {
         PsGrow hl;
         ps_grow_init(&hl);
-        ps_http_read_line(fd, &hl, dl);
+        ps_http_read_line(t, &hl, dl);
         int64_t row_len = hl.len;
         PsBuf row_buf;
         ps_grow_finish(&hl, &row_buf);
@@ -440,7 +594,7 @@ static void ps_http_roundtrip(
         for (;;) {
             PsGrow szl;
             ps_grow_init(&szl);
-            ps_http_read_line(fd, &szl, dl);
+            ps_http_read_line(t, &szl, dl);
             PsBuf size_buf;
             ps_grow_finish(&szl, &size_buf);
             int64_t size = strtoll(size_buf.data, NULL, 16);
@@ -450,7 +604,7 @@ static void ps_http_roundtrip(
                 for (;;) {
                     PsGrow tl;
                     ps_grow_init(&tl);
-                    ps_http_read_line(fd, &tl, dl);
+                    ps_http_read_line(t, &tl, dl);
                     int64_t tl_len = tl.len;
                     ps_grow_finish(&tl, &size_buf);
                     free(size_buf.data);
@@ -460,21 +614,21 @@ static void ps_http_roundtrip(
                 }
                 break;
             }
-            ps_http_read_into(fd, &bodyg, size, dl);
+            ps_http_read_into(t, &bodyg, size, dl);
             /* The CRLF that ends the chunk. */
             PsGrow crlf;
             ps_grow_init(&crlf);
-            ps_http_read_line(fd, &crlf, dl);
+            ps_http_read_line(t, &crlf, dl);
             ps_grow_finish(&crlf, &size_buf);
             free(size_buf.data);
         }
     } else if (clen >= 0) {
-        ps_http_read_into(fd, &bodyg, clen, dl);
+        ps_http_read_into(t, &bodyg, clen, dl);
     } else {
-        ps_http_read_into(fd, &bodyg, -1, dl);
+        ps_http_read_into(t, &bodyg, -1, dl);
     }
     ps_grow_finish(&bodyg, &out->body);
-    close(fd);
+    ps_http_transport_close(t);
     *location = loc;
     out->status = status;
 }
@@ -612,7 +766,16 @@ PsHttpResp *ps_http_request(
         ps_http_split(url, &parsed);
         free(loc);
         loc = NULL;
-        ps_http_roundtrip(&parsed, method, headers, body, body_len, &dl, out, &loc);
+        /* The scheme decides, not the port: an https URL on a custom
+           port is still TLS. */
+        int is_https = strncmp(url, "https://", 8) == 0;
+        if (is_https && !PS_HTTP_TLS_AVAILABLE()) {
+            ps_http_fail(
+                "https needs the pyscriptc-http adapter (compile with --ffi <pyscriptc-http>/ffi.toml); "
+                "http:// works without it"
+            );
+        }
+        ps_http_roundtrip(&parsed, method, headers, body, body_len, &dl, is_https, out, &loc);
         status = (int)out->status;
         if (status != 301 && status != 302 && status != 303 && status != 307 && status != 308) {
             break;

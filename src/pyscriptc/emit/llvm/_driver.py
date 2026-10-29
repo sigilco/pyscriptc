@@ -164,6 +164,30 @@ def refuse_unsupported_target(text: str, target: str | None) -> None:
     )
 
 
+def _vendored_include_roots(include_dirs: list[Path]) -> list[Path]:
+    """The include roots a vendored library needs, found by convention.
+
+    A manifest names its C sources, not its include paths (the format stays
+    declarative). The convention: every directory named `include` or
+    `library` under the manifest's directory is an include root. That covers
+    the shapes the vendored C trees use: `include` (the public headers), the
+    library's own source directory (the private headers a library's `.c`
+    files include by bare name, which is how mbedTLS and SQLite are laid
+    out), and the `3rdparty/<lib>/include` trees a vendored tree carries
+    below them. The list is sorted so the compile line is the same on every
+    host.
+    """
+    roots: set[Path] = set()
+    for directory in include_dirs:
+        if not directory.is_dir():
+            continue
+        for pattern in ("include", "library"):
+            for candidate in sorted(directory.rglob(pattern)):
+                if candidate.is_dir() and candidate != directory:
+                    roots.add(candidate)
+    return sorted(roots)
+
+
 def link_binary(
     llvm_path: Path,
     output: Path,
@@ -350,6 +374,14 @@ def link_binary(
     # thunk is written against). The runtime units gain nothing.
     ffi_include_flags = ["-I", str(runtime)]
     for directory in include_dirs or []:
+        ffi_include_flags.extend(["-I", str(directory)])
+    # A vendored library often ships its headers one level down from the
+    # manifest (mbedtls: vendor/mbedtls/include, and its 3rdparty trees
+    # under vendor/mbedtls/3rdparty). The manifest declares those roots in
+    # its own directory by convention: every `include` directory under the
+    # manifest's directory is added as an include root, so a vendored header
+    # resolves without the manifest format growing a flag channel.
+    for directory in _vendored_include_roots(include_dirs or []):
         ffi_include_flags.extend(["-I", str(directory)])
     # The manifest units carry the manifest's own include dirs; the runtime
     # units keep the flags they always had, so a manifest-free build compiles
