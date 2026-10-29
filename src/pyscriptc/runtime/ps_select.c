@@ -47,6 +47,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stddef.h>
 
 #include "ps_poller.h"
 
@@ -57,11 +58,23 @@
 /* POLLIN / POLLOUT on every backend this file compiles for. */
 #define PS_POLLIN 1
 #define PS_POLLOUT 4
+
+/* The public key record: the `SelectorKey` class layout the compiler emits
+   ({ i64 fd, i64 events }). The Python surface reads `.fd` and `.events` off
+   this record, so the first two fields are the class fields and nothing
+   else. The compiler hands out these records; the selector keeps its own
+   list of them, so the identity CPython's SelectorKey has (one key per
+   registration) holds here too. */
 typedef struct PsSelKey {
-    int fd;
-    int events; /* PS_EVENT_* bits */
+    int64_t fd;
+    int64_t events; /* PS_EVENT_* bits */
     struct PsSelKey *next;
 } PsSelKey;
+
+/* The class record the compiler emits: two i64 fields and nothing else.
+   The key record above starts with the same two fields, so a key pointer
+   is a SelectorKey. */
+_Static_assert(offsetof(PsSelKey, events) == sizeof(int64_t), "SelectorKey layout");
 
 typedef struct PsSel {
     PsSelKey *keys;
@@ -78,7 +91,7 @@ static int ps_events_to_poll(int events) {
     return out;
 }
 
-static PsSelKey *ps_sel_find(PsSel *sel, int fd) {
+static PsSelKey *ps_sel_find(PsSel *sel, int64_t fd) {
     for (PsSelKey *key = sel->keys; key != NULL; key = key->next) {
         if (key->fd == fd) {
             return key;
@@ -103,7 +116,7 @@ void *ps_select_register(void *box, int64_t fd, int64_t events) {
     if (fd < 0) {
         ps_raise_cstr(PS_RUNTIME, "register fd is a non-negative int");
     }
-    if (ps_sel_find(sel, (int)fd) != NULL) {
+    if (ps_sel_find(sel, fd) != NULL) {
         /* CPython: KeyError on a double register. */
         ps_raise_cstr(PS_RUNTIME, "fd is already registered");
     }
@@ -111,8 +124,8 @@ void *ps_select_register(void *box, int64_t fd, int64_t events) {
     if (key == NULL) {
         ps_raise_cstr(PS_RUNTIME, "out of memory");
     }
-    key->fd = (int)fd;
-    key->events = (int)events;
+    key->fd = fd;
+    key->events = events;
     key->next = sel->keys;
     sel->keys = key;
     ps_poller_watch((int)fd, ps_events_to_poll(key->events));
@@ -126,7 +139,7 @@ void *ps_select_unregister(void *box, int64_t fd) {
     }
     PsSelKey **link = &sel->keys;
     while (*link != NULL) {
-        if ((*link)->fd == (int)fd) {
+        if ((*link)->fd == fd) {
             PsSelKey *key = *link;
             *link = key->next;
             ps_poller_unwatch((int)fd, ps_events_to_poll(key->events));
@@ -143,12 +156,12 @@ void *ps_select_modify(void *box, int64_t fd, int64_t events) {
     if (sel == NULL) {
         ps_raise_cstr(PS_RUNTIME, "selector is not initialized");
     }
-    PsSelKey *key = ps_sel_find(sel, (int)fd);
+    PsSelKey *key = ps_sel_find(sel, fd);
     if (key == NULL) {
         ps_raise_cstr(PS_RUNTIME, "fd is not registered");
     }
     ps_poller_unwatch((int)fd, ps_events_to_poll(key->events));
-    key->events = (int)events;
+    key->events = events;
     ps_poller_watch((int)fd, ps_events_to_poll(key->events));
     return key;
 }
@@ -158,7 +171,17 @@ void *ps_select_get_key(void *box, int64_t fd) {
     if (sel == NULL) {
         ps_raise_cstr(PS_RUNTIME, "selector is not initialized");
     }
-    return ps_sel_find(sel, (int)fd);
+    return ps_sel_find(sel, fd);
+}
+
+int32_t ps_select_get_key_hit(void *box, int64_t fd) {
+    /* The probe half of `get_key`: 1 when the fd has a key, 0 when the
+       Python side boxes None. The make call below never raises. */
+    PsSel *sel = (PsSel *)box;
+    if (sel == NULL) {
+        ps_raise_cstr(PS_RUNTIME, "selector is not initialized");
+    }
+    return ps_sel_find(sel, fd) != NULL;
 }
 
 int64_t ps_select_key_fd(void *key) {

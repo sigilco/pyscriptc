@@ -56,7 +56,10 @@ def test_self_census_ballpark() -> None:
     # and stdlibzip.py were already counted) and moves the fence count: the
     # fetch notice became conditional (-1 fence) and the cli.py embed/site
     # refusal handlers replace an implicit crash path.
-    assert census["modules"] == 104
+    # The base branch (work/netnative-tls) already carried one module the
+    # total did not count (105 against 104); the selectors subset
+    # (restlower/_selectors.py, #485) adds the next one.
+    assert census["modules"] == 106
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -290,5 +293,7 @@ def test_self_census_ballpark() -> None:
     # subprocess text mode (#680): the text-mode decode lowering nets -1
     # self-host fence (restlower/_subprocess.py +1, emit/llvm/_driver.py
     # and emitlib.py -1 each through the lowered-compiler re-run).
-    assert census["fences"] == 3182
-    assert sum(p["fences"] for p in census["packages"]) == 3182
+    # The selectors subset (#485) adds 11 self-host fences: the handler
+    # module, its two call rows and the class-record rows.
+    assert census["fences"] == 3198
+    assert sum(p["fences"] for p in census["packages"]) == 3198

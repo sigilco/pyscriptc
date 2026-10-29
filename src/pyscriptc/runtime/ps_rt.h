@@ -544,15 +544,16 @@ void ps_to_thread_pump(void);
 void ps_to_thread_park(void *box);
 int32_t ps_threads_pending(void);
 
-/* ps_select.c: the selectors substrate (#485), the `DefaultSelector` record
-   set over the #177 poller. The scope decision (runtime-level until the
-   typed socket handle lands) is in
-   `.agents/plans/2026-10-24-apps-and-package-strategy.md`. */
+/* ps_select.c: the closed `selectors` subset (#485), the `DefaultSelector`
+   record set over the #177 poller. `register` takes a bare int fd, not a
+   `fileobj`: the typed `socket` handle is #229, and until it lands the
+   fd-carrying surface is this int form (divergence 29 names it). */
 void *ps_select_new(void);
 void *ps_select_register(void *sel, int64_t fd, int64_t events);
 void *ps_select_unregister(void *sel, int64_t fd);
 void *ps_select_modify(void *sel, int64_t fd, int64_t events);
 void *ps_select_get_key(void *sel, int64_t fd);
+int32_t ps_select_get_key_hit(void *sel, int64_t fd);
 int64_t ps_select_key_fd(void *key);
 int64_t ps_select_key_events(void *key);
 PsSeq *ps_select_select(void *sel, double timeout);

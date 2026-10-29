@@ -71,6 +71,7 @@ QUEUE = (
     "calendar",
     "zipfile",
     "tarfile",
+    "selectors",
 )
 
 

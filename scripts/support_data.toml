@@ -579,6 +579,30 @@ ok = ['y: bool = tarfile.is_tarfile(s)']
 no = [["TarFile", 'y: int = tarfile.TarFile(s)', "PS2001"]]
 
 [[stdlib]]
+names = ["selectors"]
+ok = [
+  '''sel: selectors.DefaultSelector = selectors.DefaultSelector()
+key: selectors.SelectorKey = sel.register(n, selectors.EVENT_READ)
+changed: selectors.SelectorKey = sel.modify(n, selectors.EVENT_READ | selectors.EVENT_WRITE)
+out: selectors.SelectorKey = sel.unregister(n)
+y: list[selectors.SelectorKey] = sel.select(0.0)
+found: selectors.SelectorKey | None = sel.get_key(n)
+sel.close()''',
+  'y: int = selectors.EVENT_READ',
+  'y: int = selectors.EVENT_WRITE',
+]
+no = [
+  ["a fileobj argument (the typed socket handle is #229)", '''sel: selectors.DefaultSelector = selectors.DefaultSelector()
+sel.register(p, selectors.EVENT_READ)''', "PS1003"],
+  ["other selector classes (EpollSelector, PollSelector, KqueueSelector, DevpollSelector, BaseSelector)", 'q: selectors.EpollSelector = selectors.EpollSelector()', "PS1106"],
+  ["get_map", '''sel: selectors.DefaultSelector = selectors.DefaultSelector()
+y: dict[str, selectors.SelectorKey] = sel.get_map()''', "PS2001"],
+  ["the key's fileobj and data (they ride the #229 handle)", '''sel: selectors.DefaultSelector = selectors.DefaultSelector()
+key: selectors.SelectorKey = sel.register(n, selectors.EVENT_READ)
+y: str = key.fileobj''', "PS2001"],
+]
+
+[[stdlib]]
 names = ["typing", "typing_extensions"]
 red = false
 note = "annotation-only: imports are free, annotations are the lowering input, erased before emission; typing names used as values fence"
