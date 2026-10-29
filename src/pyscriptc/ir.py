@@ -103,9 +103,13 @@ def zdi_variants() -> dict[str, int]:
 
 def type_key(typ: dict[str, Any]) -> str:
     if typ["kind"] == "list":
+        if typ.get("bare"):
+            return "set" if typ.get("set") else "list"
         head = "set" if typ.get("set") else "list"
         return f"{head}[{type_key(typ['elem'])}]"
     if typ["kind"] == "dict":
+        if typ.get("bare"):
+            return "dict"
         return f"dict[{type_key(typ['key'])}, {type_key(typ['value'])}]"
     if typ["kind"] == "class":
         if "elem" in typ:

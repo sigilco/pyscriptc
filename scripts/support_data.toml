@@ -107,7 +107,7 @@ ok = ['y: list[int] = list(filter(lambda v: v > 0, xs))', 'y: list[int] = list(f
 [[builtin]]
 names = ["isinstance"]
 ok = ['y: bool = isinstance(p, P)', 'y: bool = isinstance(n, int)']
-no = [["tuple of types", 'y: bool = isinstance(n, (int, str))', "PS2001"]]
+no = [["tuple of types", 'y: bool = isinstance(n, (int, str))', "PS2001"], ["bare container", 'y: bool = isinstance(n, dict)', "PS2001"]]
 
 [[builtin]]
 names = ["open"]
@@ -686,5 +686,6 @@ y: int = 1''', "PS2002"],
 @@
 y: int = len(get_type_hints(f))''', "PS2002"],
   ["isinstance with a generic", 'y: bool = isinstance(n, list[int])', "PS2001"],
+  ["isinstance with a bare container", 'y: bool = isinstance(n, list)', "PS2001"],
   ["__annotations__ read", 'y: int = len(f.__annotations__)', "PS2001"],
 ]
