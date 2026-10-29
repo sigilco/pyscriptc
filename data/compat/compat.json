@@ -1,7 +1,17 @@
 {
+<<<<<<< HEAD
   "schema": "2",
   "generated": "2026-11-11",
   "commit": "3002e29a1066f30e122593c2152789eb7bf70914",
+||||||| parent of ecffc498 (feat(stdlib): the closed selectors subset over the #177 loop (#485))
+  "schema": "1",
+  "generated": "2026-10-28",
+  "commit": "7f67db8da943c78d0e124b579b83740723326a1f",
+=======
+  "schema": "1",
+  "generated": "2026-10-29",
+  "commit": "c9ea83ad618cc3eebb95ef99ed523ecfab4d04a9",
+>>>>>>> ecffc498 (feat(stdlib): the closed selectors subset over the #177 loop (#485))
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -26,7 +36,13 @@
     "builtins_partial": 14,
     "builtins_none": 1,
     "stdlib_full": 0,
+<<<<<<< HEAD
     "stdlib_partial": 63,
+||||||| parent of ecffc498 (feat(stdlib): the closed selectors subset over the #177 loop (#485))
+    "stdlib_partial": 59,
+=======
+    "stdlib_partial": 60,
+>>>>>>> ecffc498 (feat(stdlib): the closed selectors subset over the #177 loop (#485))
     "stdlib_none": 0,
     "packages_full": 2,
     "packages_partial": 8,
@@ -1469,6 +1485,25 @@
       "note": ""
     },
     {
+      "id": "stdlib.selectors",
+      "kind": "stdlib",
+      "label": "`selectors`",
+      "names": [
+        "selectors"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "a fileobj argument (the typed socket handle is #229), other selector classes (EpollSelector, PollSelector, KqueueSelector, DevpollSelector, BaseSelector), get_map, the key's fileobj and data (they ride the #229 handle)"
+      ],
+      "fences": [
+        "PS1003",
+        "PS1106",
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
       "id": "stdlib.typing",
       "kind": "stdlib",
       "label": "`typing`, `typing_extensions`",
@@ -2538,9 +2573,64 @@
       "commit": "3002e29a1066f30e122593c2152789eb7bf70914",
       "weighted_pass": 0.0,
       "packages_full": 2,
+<<<<<<< HEAD
       "packages_partial": 8,
       "packages_none": 8,
       "fences": 2585
+||||||| parent of ecffc498 (feat(stdlib): the closed selectors subset over the #177 loop (#485))
+      "packages_partial": 7,
+      "packages_none": 9,
+      "fences": 2719
+    },
+    {
+      "date": "2026-10-27",
+      "commit": "95debbd232c8b3caebcd34907f4cfe161f914ec5",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 7,
+      "packages_none": 9,
+      "fences": 2719
+    },
+    {
+      "date": "2026-10-28",
+      "commit": "7f67db8da943c78d0e124b579b83740723326a1f",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 7,
+      "packages_none": 9,
+      "fences": 2719
+=======
+      "packages_partial": 7,
+      "packages_none": 9,
+      "fences": 2719
+    },
+    {
+      "date": "2026-10-27",
+      "commit": "95debbd232c8b3caebcd34907f4cfe161f914ec5",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 7,
+      "packages_none": 9,
+      "fences": 2719
+    },
+    {
+      "date": "2026-10-28",
+      "commit": "7f67db8da943c78d0e124b579b83740723326a1f",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 7,
+      "packages_none": 9,
+      "fences": 2719
+    },
+    {
+      "date": "2026-10-29",
+      "commit": "c9ea83ad618cc3eebb95ef99ed523ecfab4d04a9",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 7,
+      "packages_none": 9,
+      "fences": 2719
+>>>>>>> ecffc498 (feat(stdlib): the closed selectors subset over the #177 loop (#485))
     }
   ]
 }
