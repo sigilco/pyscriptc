@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-10-28",
-  "commit": "0b108e1a50baec9381cf1b32152467178d934348",
+  "generated": "2026-10-29",
+  "commit": "cd2b7aa5f1c40f67e7b1c1b3e1560c4fc8287add",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -818,9 +818,9 @@
       "name": "pyjwt",
       "version": "2.15.1",
       "status": "\ud83d\udfe1",
-      "ratio": "65/171",
-      "blocking": "dynamic-annotation (20), name-resolution (19), union-types (13)",
-      "codes": "PS2002, PS1104, PS2001"
+      "ratio": "55/171",
+      "blocking": "name-resolution (19), union-types (14), unlowered-type-name (11)",
+      "codes": "PS2002, PS2001, PS1101"
     },
     {
       "name": "mdurl",

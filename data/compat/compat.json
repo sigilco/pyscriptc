@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-10-28",
-  "commit": "0b108e1a50baec9381cf1b32152467178d934348",
+  "generated": "2026-10-29",
+  "commit": "cd2b7aa5f1c40f67e7b1c1b3e1560c4fc8287add",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 7,
     "packages_none": 9,
     "weighted_pass": 0.0,
-    "fences": 2718
+    "fences": 2708
   },
   "builtins": [
     {
@@ -1696,21 +1696,21 @@
       "import_name": "jwt",
       "version": "2.15.1",
       "status": "partial",
-      "fences": 122,
+      "fences": 112,
       "definitions": 171,
-      "fenced_definitions": 65,
+      "fenced_definitions": 55,
       "top_families": [
-        {
-          "family": "dynamic-annotation",
-          "count": 20
-        },
         {
           "family": "name-resolution",
           "count": 19
         },
         {
           "family": "union-types",
-          "count": 13
+          "count": 14
+        },
+        {
+          "family": "unlowered-type-name",
+          "count": 11
         }
       ],
       "codes": [
@@ -1719,12 +1719,12 @@
           "count": 55
         },
         {
-          "code": "PS1104",
-          "count": 20
-        },
-        {
           "code": "PS2001",
           "count": 15
+        },
+        {
+          "code": "PS1101",
+          "count": 14
         }
       ],
       "pypi": "https://pypi.org/project/pyjwt/"
@@ -2105,7 +2105,7 @@
     {
       "code": "PS1106",
       "title": "annotation names a type the compiler does not take",
-      "count": 197,
+      "count": 199,
       "packages": 9
     },
     {
@@ -2117,13 +2117,13 @@
     {
       "code": "PS1103",
       "title": "generic alias annotation",
-      "count": 121,
-      "packages": 8
+      "count": 122,
+      "packages": 9
     },
     {
       "code": "PS1101",
       "title": "union annotation",
-      "count": 92,
+      "count": 93,
       "packages": 9
     },
     {
@@ -2141,7 +2141,7 @@
     {
       "code": "PS1104",
       "title": "dynamic or structural annotation",
-      "count": 67,
+      "count": 51,
       "packages": 6
     },
     {
@@ -2153,8 +2153,8 @@
     {
       "code": "PS1102",
       "title": "Optional annotation",
-      "count": 42,
-      "packages": 5
+      "count": 44,
+      "packages": 6
     },
     {
       "code": "PS1203",
@@ -2229,6 +2229,15 @@
       "packages_partial": 7,
       "packages_none": 9,
       "fences": 2718
+    },
+    {
+      "date": "2026-10-29",
+      "commit": "cd2b7aa5f1c40f67e7b1c1b3e1560c4fc8287add",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 7,
+      "packages_none": 9,
+      "fences": 2708
     }
   ]
 }
