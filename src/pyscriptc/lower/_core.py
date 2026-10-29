@@ -53,24 +53,9 @@ def _assign(target: str, value: dict[str, Any], span: dict[str, Any]) -> dict[st
     return {"kind": "assign", "target": target, "value": value, "span": span}
 
 
-def _stamp_span(node: ast.AST, origin: ast.AST) -> None:
-    """Copy `origin`'s source position onto `node`.
-
-    Context nodes (`ast.Load`, `ast.Store`, `ast.Del`) are skipped on
-    purpose. CPython's parser hands out one shared instance per context
-    kind for the whole process, and the parser never sets positions on
-    them (their `_attributes` is empty). Stamping one therefore writes to
-    a process-global: every later parse of any file sees the stale
-    position, and the diagnostics that point at it land in the wrong
-    source. Only the nodes that carry a position of their own are
-    stamped.
-    """
-    if isinstance(node, ast.expr_context):
-        return
-    node.lineno = origin.lineno
-    node.col_offset = origin.col_offset
-    node.end_lineno = origin.end_lineno
-    node.end_col_offset = origin.end_col_offset
+# The span helper lives in `errors` (see its docstring for the cycle it
+# avoids); the lower modules reach it through here.
+from pyscriptc.errors import _stamp_span  # noqa: E402
 
 
 def _const_str_join(parts: list[dict[str, Any]], span: dict[str, Any]) -> dict[str, Any] | None:

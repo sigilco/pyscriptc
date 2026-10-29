@@ -5,6 +5,8 @@ from __future__ import annotations
 import ast
 from typing import Any
 
+from pyscriptc.errors import _stamp_span
+
 _CMP = {"eq": ast.Eq, "ne": ast.NotEq, "lt": ast.Lt, "le": ast.LtE, "gt": ast.Gt, "ge": ast.GtE}
 
 

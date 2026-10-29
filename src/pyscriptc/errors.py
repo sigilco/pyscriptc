@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from typing import Any
 
 
@@ -33,6 +34,29 @@ class CheckFailed(Exception):
     def __init__(self, output: str) -> None:
         super().__init__(output)
         self.output = output
+
+
+def _stamp_span(node: ast.AST, origin: ast.AST) -> None:
+    """Copy `origin`'s source position onto `node`.
+
+    Context nodes (`ast.Load`, `ast.Store`, `ast.Del`) are skipped on
+    purpose. CPython's parser hands out one shared instance per context
+    kind for the whole process, and the parser never sets positions on
+    them (their `_attributes` is empty). Stamping one therefore writes to
+    a process-global: every later parse of any file sees the stale
+    position, and the diagnostics that point at it land in the wrong
+    source. Only the nodes that carry a position of their own are
+    stamped.
+
+    This lives in `errors` (not `lower._core`) because the restlower
+    handlers need it and importing `lower` from `restlower` is a cycle.
+    """
+    if isinstance(node, ast.expr_context):
+        return
+    node.lineno = origin.lineno
+    node.col_offset = origin.col_offset
+    node.end_lineno = origin.end_lineno
+    node.end_col_offset = origin.end_col_offset
 
 
 def span_of(node: Any, filename: str) -> dict[str, Any]:

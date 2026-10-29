@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 from typing import Any
 
-from pyscriptc.lower._core import _stamp_span
+from pyscriptc.errors import _stamp_span
 from pyscriptc.reflection import kwargs_call_note
 from pyscriptc.restlower._shared import _pin, _span_to
 
