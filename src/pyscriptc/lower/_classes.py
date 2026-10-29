@@ -229,12 +229,30 @@ class ClassesMixin:
         mro, chain = self._mro_chain(node, bases)
         fields: list[dict[str, Any]] = []
         methods: list[tuple[ast.FunctionDef, str]] = []
+        consts: dict[str, dict[str, Any]] = {}
         seen: set[str] = set()
         seen_default = False
         for stmt in node.body:
             if _is_docstring(stmt) or isinstance(stmt, ast.Pass):
                 continue
             try:
+                if (
+                    isinstance(stmt, ast.Assign)
+                    and len(stmt.targets) == 1
+                    and isinstance(stmt.targets[0], ast.Name)
+                    and _is_const_expr(stmt.value)
+                ):
+                    # An immutable constant class body assignment: the value is
+                    # inlined at every read site (`Class.NAME`, `self.NAME`,
+                    # `cls.NAME`), resolved through the MRO so a subclass that
+                    # reassigns the name overrides for its own receivers. No
+                    # field slot is allocated and the name is read-only.
+                    ctarget = stmt.targets[0]
+                    if ctarget.id in seen or ctarget.id in inherited_types:
+                        self.fail(stmt, "PS2002", f"duplicate field {ctarget.id}")
+                    consts[ctarget.id] = self._class_const(stmt.value)
+                    seen.add(ctarget.id)
+                    continue
                 if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
                     if stmt.value is not None and deco != "dataclass":
                         self.fail(stmt, "PS1204", "class fields are declared with an annotation and no value")
@@ -397,6 +415,8 @@ class ClassesMixin:
             "chain": chain,
             "node": node,
         }
+        if consts:
+            info["class_consts"] = consts
         if generated is not None:
             info["generated_init"] = generated
             info["init_target"] = init_target
@@ -747,6 +767,76 @@ class ClassesMixin:
         self.fail(stmt, "PS2002", "an enum body is integer constants")
         raise AssertionError("unreachable")
 
+    def _class_const(self, node: ast.expr) -> dict[str, Any]:
+        """The lowered constant of a class body assignment.
+
+        A scalar literal is the ordinary const value. A tuple literal of
+        scalar literals materializes the synthetic tuple record at the read
+        site, exactly like a module-level `tuple-const` constant does.
+        """
+        span = span_of(node, self.filename)
+        if isinstance(node, ast.Constant):
+            return self._const(node, span)
+        elts = [self._const(elt, span_of(elt, self.filename)) for elt in node.elts]
+        typ = self._tuple_type([elem["type"] for elem in elts], node)
+        return {"kind": "tuple-const", "elems": elts, "type": typ, "span": span}
+
+    def _class_const_read(self, const: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+        """A read of an immutable class constant: the value itself.
+
+        A scalar re-emits as a literal. A tuple materializes the record at
+        the read site; the elements are immutable, so a fresh copy at each
+        read matches CPython's observable behavior for reads.
+        """
+        if const.get("kind") == "tuple-const":
+            return self._materialize_tuple(list(const["elems"]), span)
+        return {**const, "span": span}
+
+    def _resolve_class_const(self, class_name: str, name: str) -> dict[str, Any] | None:
+        """The immutable class constant `name` visible on `class_name`, or None.
+
+        MRO order, first definer wins: a subclass that reassigns the name
+        overrides for its own receivers, CPython's rule for immutable
+        constants. The returned value is shared IR; callers copy it.
+        """
+        info = self.classes.get(class_name)
+        if info is None:
+            return None
+        for ancestor in info.get("mro") or [class_name]:
+            ainfo = self.classes.get(ancestor)
+            consts = ainfo.get("class_consts") if ainfo is not None else None
+            if consts and name in consts:
+                return consts[name]
+        return None
+
+    def _const_override_blocks(self, class_name: str, name: str, method: str | None) -> bool:
+        """True when a static read of `class_name.name` would miss an override.
+
+        A method is shared down its primary chain and dispatches statically
+        through the receiver's declared type. CPython resolves `self.NAME`
+        through the receiver's runtime MRO, and there is no runtime class
+        tag on an instance to resolve it with, so the two disagree exactly
+        when a subclass S overrides the constant `name`:
+
+        - `S().read()` runs the shared body of a method S inherits, which
+          would read the base's value instead of S's.
+        - `c: Base = S(); c.NAME` in any function would read the base's
+          value too, because the receiver's static type is Base.
+
+        Both combinations fence. A subclass that overrides the constant
+        and defines its own copy of the reading method keeps every read
+        correct statically, as does any subclass that does not touch the
+        name.
+        """
+        for other_name, other in self.classes.items():
+            if other_name == class_name or class_name not in (other.get("mro") or []):
+                continue
+            if name not in (other.get("class_consts") or {}):
+                continue
+            if method is None or other.get("method_owner", {}).get(method) in (None, class_name):
+                return True
+        return False
+
     def _lower_class(self, node: ast.ClassDef, emit_name: str | None = None) -> dict[str, Any] | None:
         own = emit_name or node.name
         info = self.classes[own]
@@ -832,6 +922,10 @@ class ClassesMixin:
         self.fn_body = list(stmt.body)
         if kind in {"method", "property"}:
             self.locals["self"] = {"kind": "class", "name": class_name}
+        elif kind == "class":
+            # `cls` is the class object: `cls.NAME` reads a class constant
+            # through the same MRO resolution the class-attribute read uses.
+            self.locals["cls"] = {"kind": "class", "name": class_name}
         # Function-local imports rebind module names: snapshot the
         # compile-time binding tables so they restore when the body ends.
         saved_bindings = dict(self.bindings)
@@ -849,6 +943,9 @@ class ClassesMixin:
             return None
         if stmt.name == "__init__":
             assigned = _assigned_fields(stmt.body)
+            for attr in sorted(assigned):
+                if self._resolve_class_const(class_name, attr) is not None:
+                    self.fail(stmt, "PS2002", f"{class_name}.{attr} is a class constant and is read-only")
             missing = sorted(own_names - assigned)
             if missing:
                 self.fail(stmt, "PS1001", f"__init__ does not assign {', '.join(missing)}")
@@ -1539,6 +1636,18 @@ class ClassesMixin:
         for field in info["fields"]:
             if field["name"] == name:
                 return {"kind": "attr", "value": obj, "name": name, "type": field["type"], "span": span}
+        const = self._resolve_class_const(class_name, name)
+        if const is not None:
+            method = self.function.split(".", 1)[1] if "." in str(self.function) else None
+            if self._const_override_blocks(class_name, name, method):
+                self.fail(
+                    node,
+                    "PS2001",
+                    f"{name} is a class constant a subclass of {class_name} redefines; the receiver's "
+                    "static type decides the read, so move the read into the subclass or read the "
+                    "class attribute directly",
+                )
+            return self._class_const_read(const, span)
         if info.get("method_kind", {}).get(name) == "property":
             sig = info["methods"][name]
             owner = self._emit_owner(class_name, name)
@@ -2204,6 +2313,28 @@ def _io_parameter(node: ast.AST) -> str | None:
     if isinstance(node, ast.Name) and node.id == "str":
         return "TextIO"
     return None
+
+
+def _is_const_expr(node: ast.expr) -> bool:
+    """True for an immutable constant expression: a scalar literal or a tuple of them.
+
+    The scalar set is the one the IR can hold as a value: `str`, `int`,
+    `float`, `bool`, `bytes` and `None`. A tuple of those scalars is
+    immutable too, so it lowers the same way; nested tuples do not (the
+    synthetic tuple record is flat).
+    """
+    if isinstance(node, ast.Constant):
+        value = node.value
+        return value is None or isinstance(value, (str, int, float, bool, bytes))
+    if isinstance(node, ast.Tuple):
+        return len(node.elts) >= 2 and all(_is_scalar_const(elt) for elt in node.elts)
+    return False
+
+
+def _is_scalar_const(node: ast.expr) -> bool:
+    return isinstance(node, ast.Constant) and (
+        node.value is None or isinstance(node.value, (str, int, float, bool, bytes))
+    )
 
 
 def _assigned_fields(body: list[ast.stmt]) -> set[str]:

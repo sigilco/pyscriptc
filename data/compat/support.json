@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-10-27",
-  "commit": "95debbd232c8b3caebcd34907f4cfe161f914ec5",
+  "generated": "2026-10-29",
+  "commit": "3bf40de6fe2fc661a956e88723d23776e9a5e0e4",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -762,9 +762,9 @@
       "name": "colorama",
       "version": "0.4.6",
       "status": "\ud83d\udd34",
-      "ratio": "48/77",
-      "blocking": "class-body (51), param-inference (29), construct-other (13)",
-      "codes": "PS1204, PS2002, PS1001"
+      "ratio": "43/77",
+      "blocking": "param-inference (29), construct-other (13), name-resolution (8)",
+      "codes": "PS2002, PS1001, PS2003"
     },
     {
       "name": "python-dotenv",
@@ -779,7 +779,7 @@
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
       "ratio": "238/641",
-      "blocking": "name-resolution (147), construct-other (101), generic-alias (52)",
+      "blocking": "name-resolution (146), construct-other (101), generic-alias (52)",
       "codes": "PS2002, PS2001, PS1103"
     },
     {
@@ -811,8 +811,8 @@
       "version": "1.1.0",
       "status": "\ud83d\udd34",
       "ratio": "107/200",
-      "blocking": "param-inference (78), return-inference (15), class-body (9)",
-      "codes": "PS1001, PS2002, PS1204"
+      "blocking": "param-inference (78), return-inference (15), decorators (7)",
+      "codes": "PS1001, PS2002, PS1201"
     },
     {
       "name": "pyjwt",
@@ -834,15 +834,15 @@
       "name": "packaging",
       "version": "26.3",
       "status": "\ud83d\udfe1",
-      "ratio": "279/558",
-      "blocking": "unlowered-type-name (90), name-resolution (78), class-body (52)",
-      "codes": "PS2002, PS1106, PS1204"
+      "ratio": "275/558",
+      "blocking": "unlowered-type-name (90), name-resolution (78), class-body (45)",
+      "codes": "PS2002, PS1106, PS2001"
     },
     {
       "name": "pathspec",
       "version": "1.1.1",
       "status": "\ud83d\udd34",
-      "ratio": "92/132",
+      "ratio": "91/132",
       "blocking": "name-resolution (30), unlowered-type-name (21), decorators (21)",
       "codes": "PS2002, PS1106, PS1201"
     },
