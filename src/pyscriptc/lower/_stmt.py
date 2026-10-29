@@ -1632,10 +1632,13 @@ class StmtMixin:
         builtin base (`Exception` and friends) takes the message.
         """
 
+        class_node = info.get("node")
+        if class_node is None:
+            return None
         init_node = next(
             (
                 stmt
-                for stmt in info["node"].body
+                for stmt in class_node.body
                 if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)) and stmt.name == "__init__"
             ),
             None,
