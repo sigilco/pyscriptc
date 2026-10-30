@@ -104,3 +104,38 @@ module:
   island-to-compiled seam stays the `--emit binding` surface).
 - yt-dlp reaching 100%: the fenced modules route whole; lifting their
   fences is the other walls' work.
+
+## What the yt-dlp measurement shows
+
+The split is measured on the yt-dlp tree (`2026.10.26`, 1042 units). The
+executed native fraction stays 0%: the split does not engage for yt-dlp, and
+the three reasons are ordered by how much work each one is.
+
+1. The module top levels fence on unlowered stdlib imports. Every yt-dlp
+   module imports stdlib modules outside the compiler's closed import table
+   (`binascii`, `codecs`, `collections.abc`, `email.header`, `html.parser`,
+   `locale`, `mimetypes`, `netrc`, `secrets`, `shlex`, ...). A module-level
+   fence routes the whole top level island-side (Decision A), and the #620
+   cascade then pulls the module's definitions onto the island with it. The
+   measured per-module plan over all 1042 units is 1031 modules with an
+   island top level and 11 with a native one, and 472 planned definitions of
+   which 3 are native. This is the wall that matters: it is a stdlib-coverage
+   wall, not a plane-split wall, and the split cannot lift it.
+2. The program is package-shaped. `yt_dlp` has 16 package units (the
+   `__init__.py` files), and the per-module seed cannot reproduce the
+   package semantics. The experiment (relaxing the rule) shows the island
+   seed re-executing the package `__init__` (its prints double) and an
+   island function reading `__file__` finding no value: the per-module seed
+   has no finder bootstrap that serves the program's own modules. The
+   whole-program bootstrap has one, which is why the whole-program island
+   works.
+3. The program has three circular imports (`yt_dlp.utils.traversal`,
+   `yt_dlp.networking.common`, `yt_dlp.extractor.common`). The island lane
+   runs CPython, which resolves a cycle; the native lane's init order
+   cannot, and `_program_plan` refuses the cycle before the per-module plans
+   are computed at all.
+
+So the split's own design goal is met on the shape it covers (plain-sibling
+programs), and the yt-dlp number does not move because the program never
+reaches the split. The next wall for a native fraction on yt-dlp is the
+stdlib import table, not the boundary seam.
