@@ -266,6 +266,11 @@ def _lower_units(
     class_names: dict[str, dict[str, Any]] = {}
     exc_n = USER_EXC_BASE
     needs_island = False  # boxed
+    island_modules: dict[str, str] = {}  # boxed
+    plane_functions: dict[str, str] = {}  # boxed
+    plane_classes: dict[str, str] = {}  # boxed
+    plane_demoted: dict[str, str] = {}  # boxed
+    plane_top_island = False  # boxed
     with ffi_modules(ffi or []), dependency_lanes(dep_lane_report or {}), staged_resources(resource_root):
         for name, path, is_package in units:
             text = path.read_text(encoding="utf-8")
@@ -281,6 +286,10 @@ def _lower_units(
             lowerer.program_roots = dep_names
             lowerer.module_init = program and name != "__main__" and name != entry
             lowerer.entry_module = entry is not None and name == entry
+            # The per-module plane split: a program compile keeps the native
+            # lane and the island lane side by side, so a call into another
+            # module's island floor crosses the boundary instead of refusing.
+            lowerer._boxed_plane_split = program and _boxed.definitions_tier()
             per_file_bridge = bridge_for(path)
             lowerer.bridge = per_file_bridge
             # The package-wide pin map rides the per-file bridge: the
@@ -289,6 +298,20 @@ def _lower_units(
             module = lowerer.module(tree)
             # boxed:begin
             needs_island = needs_island or _boxed.unit_needs_island(module)
+            # The per-module island seeds: one fenced unit keeps its own
+            # seed, so the program does not run whole island-side.
+            seed = module.get("islandSource")
+            if seed:
+                island_modules[name] = seed
+            plan = module.get("fallback") or {}
+            for fn_name, plane in (plan.get("functions") or {}).items():
+                plane_functions[_qualified_plane_name(name, fn_name)] = plane
+            for cls_name, plane in (plan.get("classes") or {}).items():
+                plane_classes[_qualified_plane_name(name, cls_name)] = plane
+            for demoted, reason in (plan.get("demotedBy") or {}).items():
+                plane_demoted.setdefault(_qualified_plane_name(name, demoted), reason)
+            if name == (entry or "__main__") and plan.get("moduleTopLevel") == _boxed.ISLAND:
+                plane_top_island = True
             # Refs #641: the module-level island refusals (a cross-package
             # import of a definition the other module planned for the island)
             # belong to no definition, so the unit's own island planning
@@ -318,9 +341,28 @@ def _lower_units(
             fences.extend(module["fences"])
     # boxed:begin
     if program and (needs_island or fences):
-        island = _program_island(units, root, entry, main_package, path0, staged_data=staged_data or [])
-        if island is not None:
-            return island, []
+        # The per-module plane split: the entry's own top level decides
+        # whether the program can keep both lanes. An entry whose top level
+        # runs island-side has no native entry to call, so the program runs
+        # whole island-side as before.
+        #
+        # The split also needs the program's modules to be plain siblings:
+        # a package-shaped program (`python -m pkg`) imports its modules
+        # under the package name and resolves relative imports against the
+        # package, which the per-module seed (one namespace per module, no
+        # finder bootstrap) cannot reproduce: the experiment shows the
+        # island seed re-executing the package `__init__` (its prints
+        # double) and an island function reading `__file__` unresolved.
+        # Such a program runs whole island-side, as before.
+        split_ready = (
+            not plane_top_island
+            and island_modules
+            and not any(is_package for _name, _path, is_package in units)
+        )
+        if not split_ready:
+            island = _program_island(units, root, entry, main_package, path0, staged_data=staged_data or [])
+            if island is not None:
+                return island, []
     # boxed:end
     fences = _promote_definition_fences(fences, failed)
     fences = _mark_dep_fences(fences, units, dep_names, dep_lane_report)
@@ -334,6 +376,17 @@ def _lower_units(
         "classes": classes,
         "fences": fences,
     }
+    # boxed:begin
+    if island_modules:
+        merged["islandModules"] = island_modules
+        merged["fallback"] = {
+            "moduleTopLevel": _boxed.ISLAND if plane_top_island else _boxed.NATIVE,
+            "functions": plane_functions,
+            "classes": plane_classes,
+            "topLevelFences": 1 if plane_top_island else 0,
+            "demotedBy": plane_demoted,
+        }
+    # boxed:end
     if program:
         # The entry carries the injected init calls at its import sites, so
         # the list only matters for a `--call` entry: drop the entry
@@ -343,6 +396,20 @@ def _lower_units(
         if inits:
             merged["moduleInits"] = inits
     return merged, []
+
+
+def _qualified_plane_name(module: str, name: str) -> str:
+    """The plane map's name for a definition of `module`.
+
+    The per-unit plan names its own definitions bare (`add`, `broken`);
+    the merged plan is program-wide, so the names carry their module
+    (`clean.add`, `dirty.broken`). A name the unit already qualified
+    (the merged IR's own function names) keeps its spelling.
+    """
+
+    if not module or "." in name and name.startswith(module + "."):
+        return name
+    return f"{module}.{name}"
 
 
 def _module_init_order(
@@ -1121,6 +1188,10 @@ def _catalog_once(
         lowerer.program = program
         lowerer.module_init = program and name != "__main__" and name != entry
         lowerer.entry_module = entry is not None and name == entry
+        # The per-module plane split: the catalog pass resolves the same
+        # cross-module island bindings the real pass does, so the export
+        # table agrees on which definitions ride the island.
+        lowerer._boxed_plane_split = program and _boxed.definitions_tier()
         if bridge is not None:
             unit_bridge = bridge(path) if callable(bridge) else bridge
             lowerer.bridge = unit_bridge
@@ -1213,10 +1284,22 @@ def _exports_of(module_name: str, lowerer: Lowerer) -> dict[str, dict[str, Any]]
     # Refs #641: the export table carries the defining module's island plan.
     # A definition the module planned for the island has no lowered body in
     # the merged module, so a cross-module call site has to know that before
-    # it lowers a call to a name that is not there.
+    # it lowers a call to a name that is not there. A definition whose
+    # signature itself fenced (an unannotated parameter) has no `sigs` entry:
+    # the plane split still needs it in the table, with the island flag and
+    # no parameter types (the caller marshals its own argument values; the
+    # island side receives them untyped).
     for fn in lowerer.island_fns:
         if fn in bucket:
             bucket[fn]["island"] = True
+        else:
+            bucket[fn] = {
+                "kind": "func",
+                "ir_name": f"{module_name}.{fn}",
+                "params": [],
+                "return": {"kind": "any"},
+                "island": True,
+            }
     # boxed:end
     for const_name, value in lowerer.constants.items():
         bucket[const_name] = {"kind": "const", "value": copy.deepcopy(value)}

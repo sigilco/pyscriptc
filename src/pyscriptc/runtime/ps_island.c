@@ -1321,6 +1321,182 @@ void ps_island_fn_seed(int64_t n, const char *source) {
     ps_island_done();
 }
 
+/* The per-module plane split: one island namespace per program module.
+   The seed of a fenced module execs into its own module object (registered
+   in `sys.modules` under the program module's real name, so `__name__`,
+   pickle and re-import failures behave), and a native caller reaches its
+   definitions through ps_island_mod_fn_invoke beside the single-namespace
+   ps_island_fn_invoke. The registry is a plain dict keyed by module name;
+   a re-seed clears the namespace like the single-namespace seed does. */
+
+static PyObject *ps_island_mod_ns(int64_t n, const char *name, int create) {
+    PyObject *name_obj;
+    PyObject *modules = NULL;
+    PyObject *sys = NULL;
+    PyObject *module = NULL;
+    PyObject *dict = NULL;
+    PyObject *builtins = NULL;
+    name_obj = PyUnicode_DecodeUTF8(name, (Py_ssize_t)n, "strict");
+    if (name_obj == NULL) {
+        return NULL;
+    }
+    sys = PyImport_ImportModule("sys");
+    if (sys != NULL) {
+        modules = PyObject_GetAttrString(sys, "modules");
+    }
+    if (modules != NULL) {
+        module = PyDict_GetItemWithError(modules, name_obj);
+        Py_XINCREF(module);
+    }
+    if (module == NULL && PyErr_Occurred()) {
+        goto fail;
+    }
+    PyErr_Clear();
+    if (module == NULL) {
+        if (!create) {
+            PyErr_Format(PyExc_NameError, "island module %s is not seeded", name);
+            goto fail;
+        }
+        module = PyImport_AddModuleObject(name_obj);
+        if (module == NULL) {
+            goto fail;
+        }
+        Py_INCREF(module);
+        if (modules != NULL && PyDict_SetItem(modules, name_obj, module) < 0) {
+            goto fail;
+        }
+    }
+    dict = PyModule_GetDict(module);
+    Py_INCREF(dict);
+    if (create) {
+        PyDict_Clear(dict);
+        builtins = PyImport_ImportModule("builtins");
+        if (builtins == NULL || PyDict_SetItemString(dict, "__builtins__", builtins) < 0) {
+            Py_CLEAR(dict);
+        }
+        Py_XDECREF(builtins);
+    }
+fail:
+    Py_XDECREF(module);
+    Py_XDECREF(modules);
+    Py_XDECREF(sys);
+    Py_DECREF(name_obj);
+    return dict;
+}
+
+void ps_island_mod_seed(int64_t mod_n, const char *mod, int64_t src_n, const char *source) {
+    PyObject *text = NULL;
+    PyObject *dict = NULL;
+    PyObject *name_obj = NULL;
+    PyObject *result = NULL;
+    ps_island_ensure();
+    dict = ps_island_mod_ns(mod_n, mod, 1);
+    if (dict == NULL) {
+        ps_island_fail();
+    }
+    text = PyUnicode_DecodeUTF8(source, (Py_ssize_t)src_n, "strict");
+    if (text == NULL) {
+        Py_DECREF(dict);
+        ps_island_fail();
+    }
+    /* `__name__` is the program module's real name while the seed execs: a
+       script's main guard stays closed and the definitions resolve their
+       globals here. */
+    name_obj = PyUnicode_DecodeUTF8(mod, (Py_ssize_t)mod_n, "strict");
+    if (name_obj == NULL || PyDict_SetItemString(dict, "__name__", name_obj) < 0) {
+        Py_XDECREF(name_obj);
+        Py_DECREF(text);
+        Py_DECREF(dict);
+        ps_island_fail();
+    }
+    Py_DECREF(name_obj);
+    ps_island_seed_argv(NULL);
+    result = PyRun_String(PyUnicode_AsUTF8(text) != NULL ? PyUnicode_AsUTF8(text) : "",
+                          Py_file_input, dict, dict);
+    Py_DECREF(text);
+    if (result == NULL) {
+        Py_DECREF(dict);
+        ps_island_fail();
+    }
+    Py_DECREF(result);
+    Py_DECREF(dict);
+    ps_island_done();
+}
+
+static PyObject *ps_island_mod_fn(int64_t mod_n, const char *mod, int64_t n, const char *name) {
+    PyObject *dict;
+    PyObject *name_obj;
+    PyObject *fn;
+    dict = ps_island_mod_ns(mod_n, mod, 0);
+    if (dict == NULL) {
+        ps_island_fail();
+    }
+    name_obj = PyUnicode_DecodeUTF8(name, (Py_ssize_t)n, "strict");
+    if (name_obj == NULL) {
+        Py_DECREF(dict);
+        ps_island_fail();
+    }
+    fn = PyDict_GetItemWithError(dict, name_obj);
+    Py_DECREF(name_obj);
+    if (fn == NULL) {
+        if (!PyErr_Occurred()) {
+            PyErr_Format(PyExc_NameError, "island function %s.%s is not defined", mod, name);
+        }
+        Py_DECREF(dict);
+        ps_island_fail();
+    }
+    Py_INCREF(fn);
+    Py_DECREF(dict);
+    return fn;
+}
+
+void *ps_island_mod_fn_invoke(int64_t mod_n, const char *mod, int64_t n, const char *name, int64_t nargs, const PsArg *args, int64_t nkw, const PsArg *kws) {
+    PyObject *fn;
+    PyObject *tuple;
+    PyObject *kwdict;
+    PyObject *result;
+    ps_island_ensure();
+    fn = ps_island_mod_fn(mod_n, mod, n, name);
+    tuple = ps_island_build_args(nargs, args);
+    if (tuple == NULL) {
+        Py_DECREF(fn);
+        ps_island_fail();
+    }
+    kwdict = ps_island_build_kwargs(nkw, kws);
+    if (kwdict == NULL && PyErr_Occurred()) {
+        Py_DECREF(fn);
+        Py_DECREF(tuple);
+        ps_island_fail();
+    }
+    result = PyObject_Call(fn, tuple, kwdict);
+    Py_DECREF(fn);
+    Py_DECREF(tuple);
+    Py_XDECREF(kwdict);
+    if (result == NULL) {
+        ps_island_fail();
+    }
+    ps_island_done();
+    return result;
+}
+
+void ps_island_mod_fn_invoke_value(int64_t mod_n, const char *mod, int64_t n, const char *name, int64_t nargs, const PsArg *args, int64_t nkw, const PsArg *kws, int32_t want, int32_t pad, PsArg *out) {
+    PyObject *result = (PyObject *)ps_island_mod_fn_invoke(mod_n, mod, n, name, nargs, args, nkw, kws);
+    ps_island_ensure();
+    ps_island_set_arg(result, want, pad, out);
+    if (want != 7) {
+        Py_DECREF(result);
+    }
+    ps_island_done();
+}
+
+void *ps_island_mod_def_handle(int64_t mod_n, const char *mod, int64_t n, const char *name) {
+    PyObject *fn;
+    ps_island_ensure();
+    fn = ps_island_mod_fn(mod_n, mod, n, name);
+    ps_island_done();
+    return fn;
+}
+
 /* The island top level (issue #613): the seed is the module's own source,
    so the exec runs with `__name__` set to `__main__` - the script's own
    main guard fires island-side, exactly once, and `raise SystemExit(...)`
