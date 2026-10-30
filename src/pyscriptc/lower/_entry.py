@@ -227,12 +227,12 @@ class EntryMixin:
             return False
         if module == "__main__":
             return True
-        if module in self.package:
+        if self._export_lookup(module, None) is not None:
             return True
         head = module.split(".", 1)[0]
         if head in self.program_roots:
             return True
-        return head in self.package and self.package[head] is not None
+        return self._export_lookup(head, None) is not None
 
     def _live_statements(
         self,

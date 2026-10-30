@@ -73,6 +73,8 @@ from pyscriptc.stdmore import PTR_CLASSES, member_callable, module_constant
 from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
 from pyscriptc.tirserde import dict_to_span as dict_to_span_local
 
+WHOLE_TABLE = "*"
+
 
 def _mk_span(span: dict[str, Any]) -> Any:
     """The Span record the dict-IR span spells."""
@@ -435,6 +437,12 @@ class Lowerer(
         self._pin_epoch: int = 0
         self._pin_caller_calls: dict[int, list[ast.Call]] = {}
         self._pin_caller_locals: dict[tuple[int, int], dict[str, dict[str, Any]]] = {}
+        # The export-table reads this run made (issue #424, the catalog
+        # fixpoint): (module, member) pairs, or (module, None) for a
+        # module-presence check. The catalog memo compares exactly these
+        # entries between rounds, so a unit whose imports did not change
+        # reuses its previous round's result instead of re-lowering.
+        self._export_reads: set[tuple[str, str | None]] = set()
 
     def fail(self, node: ast.AST, code: str, message: str) -> NoReturn:
         raise Fence(code, message, span_of(node, self.filename), self.function)
@@ -600,8 +608,7 @@ class Lowerer(
         brings in what the module exports.
         """
 
-        package = self.package or {}
-        exported = package.get(module)
+        exported = self._export_lookup(module, None)
         if exported is None:
             fences.append(
                 Fence(
@@ -624,9 +631,34 @@ class Lowerer(
                 continue
             self._bind_one_export(module, name, name, stmt, fences)
 
-    def _bind_one_export(self, module: str, name: str, local: str, stmt: ast.AST, fences: list[Fence]) -> None:
+    def _export_lookup(self, module: str, member: str | None) -> Any:
+        """One export-table read, recorded for the catalog memo.
+
+        Every read the lowerer makes goes through here (or through the
+        helpers that call it), so the catalog memo can compare exactly the
+        entries a unit consumed: when they are unchanged, the unit's
+        lowering is unchanged and the previous round's result stands.
+        """
+
         package = self.package or {}
-        item = package.get(module, {}).get(name)
+        self._export_reads.add((module, member))
+        bucket = package.get(module)
+        if bucket is None:
+            return None
+        return bucket if member is None else bucket.get(member)
+
+    def _export_table(self) -> dict[str, dict[str, dict[str, Any]]]:
+        """The whole export table, recorded as one table-wide read.
+
+        A scan over every bucket sees everything, so the catalog memo
+        invalidates the unit when any part of the table changes.
+        """
+
+        self._export_reads.add((WHOLE_TABLE, None))
+        return self.package or {}
+
+    def _bind_one_export(self, module: str, name: str, local: str, stmt: ast.AST, fences: list[Fence]) -> None:
+        item = self._export_lookup(module, name)
         if item is None:
             fences.append(
                 Fence(
@@ -694,7 +726,7 @@ class Lowerer(
         """
         if _maybe_type_kind(typ) != "class" or typ["name"] in self.classes:
             return
-        item = (self.package or {}).get(module, {}).get(typ["name"])
+        item = self._export_lookup(module, typ["name"])
         if item is None or _record_kind(item) != "class":
             return
         self._install_class_export(typ["name"], item, stmt, fences)
@@ -711,7 +743,7 @@ class Lowerer(
         return module == root or module.startswith(root + ".")
 
     def _pkg_item(self, node: ast.AST, module: str, member: str) -> dict[str, Any]:
-        item = (self.package or {}).get(module, {}).get(member)
+        item = self._export_lookup(module, member)
         if item is None:
             self.fail(node, "PS2001", f"{module}.{member} is not exported by this package")
         return item
