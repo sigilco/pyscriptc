@@ -341,7 +341,7 @@ class StdlibDispatchMixin:
             module = ".".join([*base, *stmt.module.split(".")]) if base else stmt.module
             for alias in stmt.names:
                 if alias.name == "*":
-                    fences.append(Fence("PS2002", "star import is not lowered", span_of(stmt, self.filename), None))
+                    self._bind_star(module, stmt, fences)
                     continue
                 self._bind_one_export(module, alias.name, alias.asname or alias.name, stmt, fences)
             return

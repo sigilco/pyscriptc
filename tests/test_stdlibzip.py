@@ -77,6 +77,12 @@ def test_manifest_check_fails_closed_with_ps4301(tmp_path: Path) -> None:
         stdlibzip.manifest_check({"json"}, ["json", "idlelib"], "safe")
 
 
+def test_manifest_check_counts_a_builtin_as_carried(tmp_path: Path) -> None:
+    # A builtin has no `.py` source in the trim, but the bundle still imports
+    # it from the interpreter itself, so the check must not refuse it.
+    stdlibzip.manifest_check({"json"}, ["json", "math", "binascii", "zlib", "time"])
+
+
 def test_stdlib_sources_refuses_an_unknown_mode(tmp_path: Path) -> None:
     with pytest.raises(stdlibzip.StdlibError, match="embed-stdlib"):
         stdlibzip.stdlib_sources(_stdlib(tmp_path), "profile")

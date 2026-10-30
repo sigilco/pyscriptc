@@ -294,3 +294,39 @@ def test_vendored_certifi_reexport_compiles_clean(tmp_path: Path) -> None:
     summary = json.loads(report.stdout)["summary"]
     assert summary["rootFences"] == 0, summary
     assert summary["byFamily"].get("export-cascade", 0) == 0, summary
+
+
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
+def test_a_star_reexport_binds_from_the_package(tmp_path: Path) -> None:
+    """`from .core import *` in an `__init__.py` re-exports the names, like CPython."""
+
+    root = _write_tree(
+        tmp_path / "pkg",
+        {
+            "__init__.py": "from .core import *\n",
+            "core.py": "def where() -> str:\n    return 'star'\n\ndef _hidden() -> str:\n    return 'no'\n",
+            "app.py": "from pkg import where\n\ndef show() -> str:\n    return where()\n",
+        },
+    )
+    got = compile_run(tmp_path, root, "pkg.app.show")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == _oracle(tmp_path, root / "app.py", "show", "[]")
+    assert got.stdout == "star\n"
+
+
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
+def test_a_star_reexport_honors_all(tmp_path: Path) -> None:
+    """`__all__` in the source module picks the star names, like CPython."""
+
+    root = _write_tree(
+        tmp_path / "pkg",
+        {
+            "__init__.py": "from .core import *\n",
+            "core.py": "__all__ = ['picked']\n\ndef picked() -> str:\n    return 'all'\n\ndef dropped() -> str:\n    return 'no'\n",
+            "app.py": "from pkg import picked\n\ndef show() -> str:\n    return picked()\n",
+        },
+    )
+    got = compile_run(tmp_path, root, "pkg.app.show")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == _oracle(tmp_path, root / "app.py", "show", "[]")
+    assert got.stdout == "all\n"
