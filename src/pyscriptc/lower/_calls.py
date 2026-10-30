@@ -964,8 +964,8 @@ class CallsMixin:
             self.fail(node, "PS1001", "json.loads needs the result annotation")
         self._json_type(node, expect, "json.loads")
         arg = self._expr(node.args[0])
-        if arg["type"]["kind"] != "str":
-            self.fail(node, "PS1003", "json.loads argument is " + _show(arg["type"]) + ", expected str")
+        if arg["type"]["kind"] not in {"str", "bytes"}:
+            self.fail(node, "PS1003", "json.loads argument is " + _show(arg["type"]) + ", expected str or bytes")
         return _mod_call("json", "loads", [arg], expect, span)
 
     def _json_load(self, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:

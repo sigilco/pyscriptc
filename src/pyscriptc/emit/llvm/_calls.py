@@ -289,7 +289,11 @@ class CallsMixin:
             # (len, ptr) ABI.
             self.needed.add("json")
             if name == "loads":
-                return self._emit_json_loads(values[0], expr["type"])
+                # A bytes input scans through ps_json_loads_bytes: the reader
+                # validates the UTF-8 the way CPython's decode does before the
+                # parse; a str input is already a UTF-8 buffer.
+                symbol = "ps_json_loads_bytes" if args[0]["type"]["kind"] == "bytes" else "ps_json_loads"
+                return self._emit_json_loads(values[0], expr["type"], symbol)
             return self._emit_json_dumps(values[0], args[0]["type"], expr.get("json_flags", 0))
         if module == "urllib.parse":
             self.needed.add("url")

@@ -182,6 +182,35 @@ def test_json_load_matches_cpython(tmp_path: Path) -> None:
     )
 
 
+def test_json_loads_bytes_matches_cpython(tmp_path: Path) -> None:
+    """`json.loads` takes bytes the way CPython does: a UTF-8 decode feeds the
+    same annotation-driven parse, and malformed sequences raise the ValueError
+    family both runtimes catch."""
+    _oracle_run(
+        tmp_path,
+        "jloadsbytes.py",
+        "\n".join(
+            [
+                "import json",
+                "",
+                "def run() -> int:",
+                "    d: dict[str, int] = json.loads(b'{\"a\": 7}')",
+                "    xs: list[int] = json.loads(b'[1, 2]')",
+                "    print(d['a'])",
+                "    print(xs[0] + xs[1])",
+                "    caught = False",
+                "    try:",
+                "        y: dict[str, int] = json.loads(b'{\"a\": ')",
+                "    except ValueError:",
+                "        caught = True",
+                "    print(caught)",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
 def test_json_dump_matches_cpython(tmp_path: Path) -> None:
     """`json.dump(obj, fp)` writes the same bytes to the file as CPython."""
     out = tmp_path / "out.json"
