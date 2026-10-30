@@ -72,6 +72,8 @@ from pyscriptc.stdlib_queue import (
 )
 from pyscriptc.stdmore import PTR_CLASSES, member_callable, module_constant
 
+WHOLE_TABLE = "*"
+
 
 class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixin, ClosuresMixin):
     def __init__(self, filename: str, source: str, target: str | None = None, config: Any = None) -> None:
@@ -319,6 +321,12 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         self._pin_epoch: int = 0
         self._pin_caller_calls: dict[int, list[ast.Call]] = {}
         self._pin_caller_locals: dict[tuple[int, int], dict[str, dict[str, Any]]] = {}
+        # The export-table reads this run made (issue #424, the catalog
+        # fixpoint): (module, member) pairs, or (module, None) for a
+        # module-presence check. The catalog memo compares exactly these
+        # entries between rounds, so a unit whose imports did not change
+        # reuses its previous round's result instead of re-lowering.
+        self._export_reads: set[tuple[str, str | None]] = set()
 
     def _record_inference(self, record: dict[str, Any]) -> None:
         """Record one accepted inference fact.
@@ -2402,9 +2410,34 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                         else:
                             self.constants[name] = prev
 
-    def _bind_one_export(self, module: str, name: str, local: str, stmt: ast.AST, fences: list[Fence]) -> None:
+    def _export_lookup(self, module: str, member: str | None) -> Any:
+        """One export-table read, recorded for the catalog memo.
+
+        Every read the lowerer makes goes through here (or through the
+        helpers that call it), so the catalog memo can compare exactly the
+        entries a unit consumed: when they are unchanged, the unit's
+        lowering is unchanged and the previous round's result stands.
+        """
+
         package = self.package or {}
-        item = package.get(module, {}).get(name)
+        self._export_reads.add((module, member))
+        bucket = package.get(module)
+        if bucket is None:
+            return None
+        return bucket if member is None else bucket.get(member)
+
+    def _export_table(self) -> dict[str, dict[str, dict[str, Any]]]:
+        """The whole export table, recorded as one table-wide read.
+
+        A scan over every bucket sees everything, so the catalog memo
+        invalidates the unit when any part of the table changes.
+        """
+
+        self._export_reads.add((WHOLE_TABLE, None))
+        return self.package or {}
+
+    def _bind_one_export(self, module: str, name: str, local: str, stmt: ast.AST, fences: list[Fence]) -> None:
+        item = self._export_lookup(module, name)
         if item is None:
             fences.append(
                 Fence(
@@ -2472,7 +2505,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         """
         if typ.get("kind") != "class" or typ["name"] in self.classes:
             return
-        item = (self.package or {}).get(module, {}).get(typ["name"])
+        item = self._export_lookup(module, typ["name"])
         if item is None or item["kind"] != "class":
             return
         self._install_class_export(typ["name"], item, stmt, fences)
@@ -2505,15 +2538,15 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             return False
         if module == "__main__":
             return True
-        if module in self.package:
+        if self._export_lookup(module, None) is not None:
             return True
         head = module.split(".", 1)[0]
         if head in self.program_roots:
             return True
-        return head in self.package and self.package[head] is not None
+        return self._export_lookup(head, None) is not None
 
     def _pkg_item(self, node: ast.AST, module: str, member: str) -> dict[str, Any]:
-        item = (self.package or {}).get(module, {}).get(member)
+        item = self._export_lookup(module, member)
         if item is None:
             self.fail(node, "PS2001", f"{module}.{member} is not exported by this package")
         return item
