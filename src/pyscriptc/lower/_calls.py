@@ -47,6 +47,7 @@ from pyscriptc.restlower import (
     _lock_method,
     _mk_iter,
     _queue_method,
+    _selector_method,
     _static_builtin_fold,
     _thread_method,
     builtin_call,
@@ -689,6 +690,8 @@ class CallsMixin:
             return _prim_method(self, node, span, receiver)
         if kind == "class" and receiver["type"]["name"] == "Queue":
             return _queue_method(self, node, span, receiver)
+        if kind == "class" and receiver["type"]["name"] == "DefaultSelector":
+            return _selector_method(self, node, span, receiver)
         if kind == "class" and synth_method(receiver["type"]["name"], node.func.attr) is not None:
             return self._synth_call(node, span, receiver)
         if kind == "dict" and node.func.attr == "keys":

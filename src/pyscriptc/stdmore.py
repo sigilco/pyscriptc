@@ -79,6 +79,7 @@ _ERRNO = (
 # int that fits in signed 64-bit, on a module the 043 snapshot already marks
 # lowered. Values are read from this interpreter in `_load_constants`.
 _INT_SURFACE: dict[str, tuple[str, ...]] = {
+    "selectors": ("EVENT_READ", "EVENT_WRITE"),
     "calendar": (
         "MONDAY",
         "TUESDAY",
@@ -1224,6 +1225,7 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "urllib.error": ("HTTPError", "URLError"),
     "queue": ("Queue", "Empty", "Full"),
     "asyncio": ("CancelledError",),
+    "selectors": ("DefaultSelector", "SelectorKey"),
 }
 
 CLASS_FIELDS: dict[str, list[dict[str, Any]]] = {
@@ -1274,6 +1276,12 @@ CLASS_FIELDS: dict[str, list[dict[str, Any]]] = {
     # The parser holds the encoded spec rows; the namespace fields are
     # declared as the options are registered, so they start empty here.
     "ArgParser": [{"name": "_specs", "type": {"kind": "list", "elem": _S}}],
+    # The selector record is an opaque runtime pointer; the key record carries
+    # the fd and the event bits, the two fields the int-fd surface exposes.
+    # CPython's SelectorKey also carries `fileobj` and `data`: the typed
+    # socket handle is #229, so those two stay fenced (divergence 29).
+    "DefaultSelector": [],
+    "SelectorKey": [{"name": "fd", "type": _I}, {"name": "events", "type": _I}],
     "Namespace": [],
     # The logger carries the name getLogger recorded.
     "Logger": [{"name": "_name", "type": _S}],
@@ -1346,7 +1354,7 @@ ASYNC_CLASSES: frozenset[str] = frozenset({"AsyncLock", "AsyncEvent", "AsyncSema
 
 # The records that live in a global slot: a runtime pointer whose identity
 # has to hold across reads, the threading records and the queue records.
-PTR_CLASSES: frozenset[str] = THREADING_CLASSES | QUEUE_CLASSES | ASYNC_CLASSES | {"ArgParser"}
+PTR_CLASSES: frozenset[str] = THREADING_CLASSES | QUEUE_CLASSES | ASYNC_CLASSES | {"ArgParser", "DefaultSelector"}
 
 TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("datetime", "date"): "Date",
@@ -1391,6 +1399,8 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("asyncio", "Event"): "AsyncEvent",
     ("asyncio", "Semaphore"): "AsyncSemaphore",
     ("asyncio", "Queue"): "AsyncQueue",
+    ("selectors", "DefaultSelector"): "DefaultSelector",
+    ("selectors", "SelectorKey"): "SelectorKey",
 }
 
 # Instance methods. `elem` means the deque's element type.
@@ -1699,6 +1709,7 @@ REST_MODULES = frozenset(
         "calendar",
         "zipfile",
         "tarfile",
+        "selectors",
     }
 )
 
@@ -1936,5 +1947,7 @@ def member_callable(module: str, member: str) -> bool:
     if module == "queue" and member in {"Queue", "LifoQueue", "SimpleQueue", "Empty", "Full"}:
         return True
     if module == "urllib.request" and member in {"urlopen", "Request"}:
+        return True
+    if module == "selectors" and member in {"DefaultSelector", "SelectorKey"}:
         return True
     return False

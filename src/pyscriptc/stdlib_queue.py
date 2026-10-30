@@ -72,6 +72,7 @@ QUEUE: tuple[str, ...] = (
     "calendar",
     "zipfile",
     "tarfile",
+    "selectors",
 )
 
 LOWERED: frozenset[str] = frozenset(QUEUE)
