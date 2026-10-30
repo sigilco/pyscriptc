@@ -1,0 +1,228 @@
+{
+ "samples": 7,
+ "loadavg_end": 1.02783203125,
+ "results": {
+  "V-bundle": {
+   "kind": "bundle",
+   "version_s": {
+    "min_s": 1.0791334826499224,
+    "median_s": 1.1299425158649683,
+    "samples": 7,
+    "loadavg1": 0.22265625
+   },
+   "extractors_s": {
+    "min_s": 1.512959336861968,
+    "median_s": 1.6590545549988747,
+    "samples": 7,
+    "loadavg1": 0.3955078125
+   },
+   "extract_s": {
+    "min_s": 2.3247698713093996,
+    "median_s": 2.484329603612423,
+    "samples": 7,
+    "loadavg1": 0.60302734375
+   },
+   "download_s": {
+    "min_s": 2.39943815395236,
+    "median_s": 2.6784917172044516,
+    "samples": 5,
+    "loadavg1": 0.69189453125
+   },
+   "rss_mb": {
+    "min_mb": 163.046875,
+    "median_mb": 163.19140625,
+    "samples": 7,
+    "loadavg1": 0.79833984375
+   },
+   "artifact_bytes": 87230329,
+   "files_n": 153,
+   "install_bytes": 87230329,
+   "needs_python": false,
+   "relocatable": true,
+   "clean_container": null
+  },
+  "V-minimal": {
+   "kind": "bundle",
+   "version_s": {
+    "min_s": 1.0438290406018496,
+    "median_s": 1.095066362991929,
+    "samples": 7,
+    "loadavg1": 0.830078125
+   },
+   "extractors_s": {
+    "min_s": 1.5035079680383205,
+    "median_s": 1.5417399555444717,
+    "samples": 7,
+    "loadavg1": 0.8681640625
+   },
+   "extract_s": {
+    "min_s": 2.2851287499070168,
+    "median_s": 2.3937259558588266,
+    "samples": 7,
+    "loadavg1": 0.90625
+   },
+   "download_s": {
+    "min_s": 2.3531965110450983,
+    "median_s": 2.434067977592349,
+    "samples": 5,
+    "loadavg1": 0.927734375
+   },
+   "rss_mb": {
+    "min_mb": 162.22265625,
+    "median_mb": 162.7578125,
+    "samples": 7,
+    "loadavg1": 1.0087890625
+   },
+   "artifact_bytes": 84185290,
+   "files_n": 153,
+   "install_bytes": 84185290,
+   "needs_python": false,
+   "relocatable": true,
+   "clean_container": null
+  },
+  "B1": {
+   "kind": "venv",
+   "version_s": {
+    "min_s": 0.2812398076057434,
+    "median_s": 0.29638101533055305,
+    "samples": 7,
+    "loadavg1": 0.09228515625
+   },
+   "extractors_s": {
+    "min_s": 0.3971699271351099,
+    "median_s": 0.4085010811686516,
+    "samples": 7,
+    "loadavg1": 0.1650390625
+   },
+   "extract_s": {
+    "min_s": 1.1797480843961239,
+    "median_s": 1.2188880518078804,
+    "samples": 7,
+    "loadavg1": 0.29345703125
+   },
+   "download_s": {
+    "min_s": 1.2206313833594322,
+    "median_s": 1.2340605333447456,
+    "samples": 5,
+    "loadavg1": 0.40234375
+   },
+   "rss_mb": {
+    "min_mb": 49.46875,
+    "median_mb": 49.6953125,
+    "samples": 7,
+    "loadavg1": 0.53564453125
+   },
+   "artifact_bytes": 163721989,
+   "files_n": 3003,
+   "install_bytes": 163721989,
+   "needs_python": true,
+   "relocatable": false,
+   "clean_container": false
+  },
+  "B2": {
+   "kind": "onefile",
+   "version_s": {
+    "min_s": 1.2774178758263588,
+    "median_s": 1.335394423455,
+    "samples": 7,
+    "loadavg1": 1.00244140625
+   },
+   "extractors_s": {
+    "min_s": 1.4924588296562433,
+    "median_s": 1.523002676665783,
+    "samples": 7,
+    "loadavg1": 1.08154296875
+   },
+   "extract_s": {
+    "min_s": 2.288046482950449,
+    "median_s": 2.39676227606833,
+    "samples": 7,
+    "loadavg1": 1.05712890625
+   },
+   "download_s": {
+    "min_s": 2.207739695906639,
+    "median_s": 2.298725187778473,
+    "samples": 5,
+    "loadavg1": 1.0439453125
+   },
+   "rss_mb": {
+    "min_mb": 74.05859375,
+    "median_mb": 74.1484375,
+    "samples": 7,
+    "loadavg1": 1.02783203125
+   },
+   "artifact_bytes": 41166968,
+   "files_n": 1,
+   "install_bytes": 41166968,
+   "needs_python": false,
+   "relocatable": true,
+   "clean_container": null
+  }
+ },
+ "composite": {
+  "V-bundle/B1": {
+   "geo": 4.877900476550025,
+   "ratios": {
+    "version_s": 3.9963633810141355,
+    "extractors_s": 3.9540851579406993,
+    "extract_s": 2.05489351033985,
+    "download_s": 2.0447989592049045,
+    "rss_mb": 3.2773241206030153,
+    "needs_python": 0.5,
+    "relocatable": 2.0,
+    "clean_container": 1.0,
+    "files_n": 0.6290136486518477,
+    "install_bytes": 0.5327954389804047,
+    "artifact_bytes": 510118.8830409357
+   }
+  },
+  "V-bundle/B2": {
+   "geo": 1.467408265962622,
+   "ratios": {
+    "version_s": 0.8447771892591007,
+    "extractors_s": 1.0137360621267164,
+    "extract_s": 1.0160501059015181,
+    "download_s": 1.0868301903531237,
+    "rss_mb": 2.2015929110185137,
+    "needs_python": 1.0,
+    "relocatable": 1.0,
+    "clean_container": 1.0,
+    "files_n": 7.266786540694901,
+    "install_bytes": 2.1189398500273326,
+    "artifact_bytes": 2.1189398500273326
+   }
+  },
+  "V-minimal/B1": {
+   "geo": 4.810820564736185,
+   "ratios": {
+    "version_s": 3.8656201674483825,
+    "extractors_s": 3.92938421834683,
+    "extract_s": 2.0198542214546795,
+    "download_s": 2.0053918742033834,
+    "rss_mb": 3.2607569095477387,
+    "needs_python": 0.5,
+    "relocatable": 2.0,
+    "clean_container": 1.0,
+    "files_n": 0.6290136486518477,
+    "install_bytes": 0.5141965994561671,
+    "artifact_bytes": 492311.63742690056
+   }
+  },
+  "V-minimal/B2": {
+   "geo": 1.4472287609585979,
+   "ratios": {
+    "version_s": 0.8171398415155251,
+    "extractors_s": 1.0074033120127155,
+    "extract_s": 0.9987247929335467,
+    "download_s": 1.0658849480344763,
+    "rss_mb": 2.190463632048104,
+    "needs_python": 1.0,
+    "relocatable": 1.0,
+    "clean_container": 1.0,
+    "files_n": 7.266786540694901,
+    "install_bytes": 2.044971832756787,
+    "artifact_bytes": 2.044971832756787
+   }
+  }
+ }
+}

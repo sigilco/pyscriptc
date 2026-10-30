@@ -196,11 +196,17 @@ def measure(name: str, samples: int, dl_samples: int, workdir: Path) -> dict:
     path = Path(v["path"])
     out["artifact_bytes"] = path.stat().st_size
     if v["kind"] == "venv":
+        # The note defines B1's shipped artifact as the install size: a venv
+        # is shipped as its tree, not as the 171-byte console script.
+        out["artifact_bytes"] = path.stat().st_size
         root = Path(v["install_root"])
         out["files_n"] = sum(1 for p in root.rglob("*") if p.is_file())
         out["install_bytes"] = sum(
             p.stat().st_size for p in root.rglob("*") if p.is_file()
         )
+        # The venv ships as its tree: the console script alone is not the
+        # artifact, so the shipped bytes are the install bytes.
+        out["artifact_bytes"] = out["install_bytes"]
         out["needs_python"] = True
         out["relocatable"] = False
         out["clean_container"] = False
@@ -210,6 +216,8 @@ def measure(name: str, samples: int, dl_samples: int, workdir: Path) -> dict:
         out["install_bytes"] = sum(
             p.stat().st_size for p in root.rglob("*") if p.is_file()
         )
+        # The bundle ships as a tree, so the shipped artifact is the tree.
+        out["artifact_bytes"] = out["install_bytes"]
         out["needs_python"] = False
         out["relocatable"] = True
         out["clean_container"] = None  # filled by the container check
