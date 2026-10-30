@@ -90,7 +90,13 @@ class ModuleDriverMixin:
         functions: list[ast.FunctionDef] = []
         class_nodes: list[ast.ClassDef] = []
         live = self._live_statements(list(tree.body), fences)
+        # The import pass may have installed slots imported from other
+        # modules (a cross-module global read). The scan of the module's own
+        # `global` declarations does not know them, so they are kept: the
+        # scan replaces the table, and the imported entries survive it.
+        imported_slots = {k: v for k, v in self.global_slots.items() if v.get("foreign_key")}
         self.global_slots = self._scan_global_slots(live)
+        self.global_slots.update(imported_slots)
         entry_stmts = self._split_entry(live, functions, class_nodes, fences)
         # boxed:end
         entry_fn = self._entry_function(entry_stmts, functions)
@@ -321,6 +327,19 @@ class ModuleDriverMixin:
                 self.typevars = saved_typevars
         self._drain_instances(lowered, lowered_classes, fences)
         lowered.extend(self.nested_fns)
+        # A program module's global slot initializers belong to its module
+        # body: in CPython the assignment runs when the module is imported,
+        # so the synthesized `__init__` carries them. The single-file shape
+        # keeps them in `module["globals"]`, which the binary main emits
+        # before it calls the entry.
+        if self.module_init and self.global_inits:
+            for record in lowered:
+                if record["name"] == self._ir_name("__init__"):
+                    record["body"] = [
+                        {"kind": "expr", "expr": init, "span": init.get("span", {})} for init in self.global_inits
+                    ] + record["body"]
+                    self.global_inits = []
+                    break
         lowered_classes.extend(self._synthetic_classes({item["name"] for item in lowered_classes}))
         # The deferred classes (the argparse namespace) grew their fields
         # while the statements lowered, so they close here.

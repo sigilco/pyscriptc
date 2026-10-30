@@ -167,6 +167,7 @@ class FuncsMixin(EmitterBase):
             # boxed:end
             for init in _items(module, "globals"):
                 self.emit_expr(init)
+            self._emit_module_inits()
             values: list[str] = []
             for index in range(len(params)):
                 param = params[index]
@@ -203,6 +204,7 @@ class FuncsMixin(EmitterBase):
         # boxed:end
         for init in _items(module, "globals"):
             self.emit_expr(init)
+        self._emit_module_inits()
         values = []
         for index in range(len(params)):
             param = params[index]
@@ -219,6 +221,21 @@ class FuncsMixin(EmitterBase):
         self.span = None
         if dwarf is not None:
             dwarf.exit_function()
+
+    def _emit_module_inits(self) -> None:
+        """The module init calls a `--call` entry skips.
+
+        The program entry carries its own injected init calls at the import
+        sites. A called function bypasses the entry, so the module bodies
+        that bind global slots run here first, in the import order the
+        merge recorded.
+        """
+
+        for name in self.module.get("moduleInits", []):
+            fn = self.functions.get(name)
+            if fn is None:
+                continue
+            self.call_function(fn, [])
 
     def emit_noop_library_main(self) -> None:
         """The `pyscriptc_main` of a definition-only module.
