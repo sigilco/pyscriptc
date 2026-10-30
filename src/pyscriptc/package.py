@@ -1316,7 +1316,10 @@ def _discover(
             continue
         stem = relative.with_suffix("")
         if not all(part.isidentifier() for part in stem.parts):
-            raise IRError(f"{relative} is not a module name")
+            # CPython cannot import it either (a dash in a name, a data file
+            # mislabeled .py): skip with a note instead of refusing the tree.
+            skipped.append(relative.as_posix())
+            continue
         if program and not namespaced:
             # A program sibling is imported by its plain name.
             found.append((".".join(stem.parts), path, False))
@@ -1328,7 +1331,9 @@ def _discover(
 
 
 def _skip_note(root: Path, relative: str) -> str:
-    return f"note: skipped {root.name}/{relative}; __main__.py is the python -m script, not an importable module"
+    if relative == "__main__.py" or relative.endswith("/__main__.py"):
+        return f"note: skipped {root.name}/{relative}; __main__.py is the python -m script, not an importable module"
+    return f"note: skipped {root.name}/{relative}; not an importable module name"
 
 
 _NOT_EXPORTED = " is not exported by this package"
