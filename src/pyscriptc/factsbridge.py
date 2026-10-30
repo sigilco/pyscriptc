@@ -433,6 +433,40 @@ class PyreflyBridge:
     def __init__(self, command: str | Sequence[str] | None = None) -> None:
         self._command = command
         self._config_dir: tempfile.TemporaryDirectory[str] | None = None
+        self._adapter: Any = None
+
+    def open(self) -> None:
+        """Start the shared `pyrefly tsp` server this bridge serves files with.
+
+        One server answers every file of a tree: the `tsp` server keeps a
+        snapshot per open document, so a package costs one server start
+        instead of one per file. `facts` uses the shared server when one
+        is open, and spawns its own otherwise.
+        """
+
+        from pyscriptc.typefacts import PyreflyTspFactsAdapter
+
+        if self._adapter is not None:
+            return
+        adapter = PyreflyTspFactsAdapter(self._command)
+        adapter.with_config_args(self._config_args())
+        adapter._connect()
+        self._adapter = adapter
+
+    def close(self) -> None:
+        """Stop the shared server, if one is open."""
+
+        if self._adapter is not None:
+            self._adapter.close()
+            self._adapter = None
+        self._config_dir_done()
+
+    def __enter__(self) -> PyreflyBridge:
+        self.open()
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
 
     def facts(self, path: Path) -> BridgeFacts:
         from pyscriptc.typefacts import PyreflyTspFactsAdapter
@@ -447,12 +481,18 @@ class PyreflyBridge:
         except SyntaxError as exc:
             raise CheckFailed(f"cannot parse {path}: {exc}") from exc
         lines = source.splitlines()
-        with PyreflyTspFactsAdapter(self._command) as adapter:
-            adapter.with_config_args(self._config_args())
+        if self._adapter is not None:
+            adapter = self._adapter
             module_facts = adapter.facts(path)
-            self._config_dir_done()
             expressions = dict(module_facts.expressions)
             defs = self._def_facts(adapter, path, tree, lines, expressions)
+        else:
+            with PyreflyTspFactsAdapter(self._command) as adapter:
+                adapter.with_config_args(self._config_args())
+                module_facts = adapter.facts(path)
+                self._config_dir_done()
+                expressions = dict(module_facts.expressions)
+                defs = self._def_facts(adapter, path, tree, lines, expressions)
         return BridgeFacts(
             path=path,
             provider=self.name,
@@ -742,8 +782,38 @@ class BridgeProvider:
         # provider served, gathered by `pyscriptc infer` and `compile
         # --debug`. Each per-file `CheckerBridge` points here.
         self.records: list[dict[str, Any]] = []
+        self._pyrefly_bridge: PyreflyBridge | None = None
+
+    def open(self) -> None:
+        """Start the shared `pyrefly tsp` server the per-file bridges serve from.
+
+        One server answers every file of a tree: the `tsp` server keeps a
+        snapshot per open document, so a package costs one server start
+        instead of one per file. A no-op for lanes without a shared server.
+        """
+
+        if self.provider == "pyrefly" and self._pyrefly_bridge is None:
+            bridge = PyreflyBridge()
+            bridge.open()
+            self._pyrefly_bridge = bridge
+
+    def close(self) -> None:
+        """Stop the shared server, if one is open."""
+
+        if self._pyrefly_bridge is not None:
+            self._pyrefly_bridge.close()
+            self._pyrefly_bridge = None
+
+    def __enter__(self) -> BridgeProvider:
+        self.open()
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
 
     def for_file(self, path: Path) -> CheckerBridge:
+        if self._pyrefly_bridge is not None:
+            return CheckerBridge(self._pyrefly_bridge.facts(path), self.records)
         return CheckerBridge.for_path(path, self.provider, strict=self.strict, records=self.records)
 
 
@@ -791,6 +861,7 @@ class CheckerBridge:
         bridge per file. The provider is remembered so the per-file bridge
         is the same lane as the one the compile asked for.
         """
+
         return BridgeProvider(self.provider).for_file(path)
 
     def inferred_local(self, line: int, col: int) -> TypeFacts | None:

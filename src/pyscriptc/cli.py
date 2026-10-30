@@ -1179,7 +1179,9 @@ def infer_cmd(args: argparse.Namespace) -> int:
     from pyscriptc.inferrunner import facts_as_pins, pinned_facts
 
     pin_map = facts_as_pins(facts)
+    started = time.perf_counter()
     facts_by_file = pinned_facts(source, facts)
+    pinned_seconds = time.perf_counter() - started
 
     class _ProviderWithPins(BridgeProvider):
         def for_file(self, path: Path):  # noqa: ANN202 - matches the base shape
@@ -1192,9 +1194,15 @@ def infer_cmd(args: argparse.Namespace) -> int:
             return bridge
 
     provider = _ProviderWithPins(args.bridge, strict=False)
-    started = time.perf_counter()
-    inferred_report = build_report(source, bridge=provider)
-    infer_seconds = time.perf_counter() - started
+    # One `pyrefly tsp` server serves the whole tree: the per-file bridge
+    # builds reuse it instead of spawning a server per file.
+    provider.open()
+    try:
+        started = time.perf_counter()
+        inferred_report = build_report(source, bridge=provider)
+        infer_seconds = time.perf_counter() - started
+    finally:
+        provider.close()
     inferred_summary = inferred_report["summary"]
 
     # The records the lowerer accepted, gathered through the provider.
@@ -1213,6 +1221,7 @@ def infer_cmd(args: argparse.Namespace) -> int:
         "source": str(source),
         "provider": facts.provider,
         "checker_seconds": round(fact_seconds, 2),
+        "pinned_facts_seconds": round(pinned_seconds, 2),
         "baseline_seconds": round(base_seconds, 2),
         "inferred_seconds": round(infer_seconds, 2),
         "pins": facts.pin_summary(),

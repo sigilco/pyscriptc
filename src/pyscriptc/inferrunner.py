@@ -250,9 +250,10 @@ def pinned_facts(root: Path, facts: InferFacts, provider: str = "pyrefly") -> di
     The checker's first answer types an unannotated parameter `Any`, so
     its return inference stops there even when the call sites proved the
     parameter's type. This runs the checker a second time over a pinned
-    copy of each module: the parameters carry the proved annotations, so
-    the returns and locals the checker derives from them are consistent
-    with what the lowerer will apply.
+    copy of each module with pins: the parameters carry the proved
+    annotations, so the returns and locals the checker derives from them
+    are consistent with what the lowerer will apply. A file no pin lands
+    in keeps the first pass's facts, so it is not re-checked at all.
     """
 
     from pyscriptc.check import CheckFailed
@@ -267,33 +268,34 @@ def pinned_facts(root: Path, facts: InferFacts, provider: str = "pyrefly") -> di
                 file_pins[param] = pin
         pins_by_file[path] = file_pins
     out: dict[Path, Any] = {}
-    bridge = PyreflyBridge()
     mirror = tempfile.mkdtemp(prefix="pyscriptc-pinned-")
     try:
         # The mirror holds the whole tree, so an import of a sibling
         # module resolves the way it does in the original.
         shutil.copytree(root, Path(mirror, "tree"), dirs_exist_ok=True)
-        for path, file_pins in pins_by_file.items():
-            if not file_pins:
+        # One `pyrefly tsp` server serves the whole re-check: the server
+        # keeps a snapshot per open document, so a package costs one
+        # server start instead of one per file.
+        with PyreflyBridge() as bridge:
+            for path, file_pins in pins_by_file.items():
+                if not file_pins:
+                    # No pin can change this file's facts, so the first
+                    # pass already holds the answer.
+                    continue
+                tree = ast.parse(path.read_text(encoding="utf-8"))
+                pinned = apply_pins(tree, file_pins)
+                # The pinned copy keeps the module's place in the package: a
+                # relative import must resolve the same way it does in the
+                # original, or the checker types the whole module `Any` and
+                # the re-check proves nothing.
+                module = _module_name(path, root)
+                target = Path(mirror, "tree", *module.split(".")).with_suffix(".py")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(ast.unparse(pinned), encoding="utf-8")
                 try:
-                    out[path] = bridge.facts(path)
+                    out[path] = bridge.facts(target)
                 except CheckFailed:
                     continue
-                continue
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-            pinned = apply_pins(tree, file_pins)
-            # The pinned copy keeps the module's place in the package: a
-            # relative import must resolve the same way it does in the
-            # original, or the checker types the whole module `Any` and
-            # the re-check proves nothing.
-            module = _module_name(path, root)
-            target = Path(mirror, "tree", *module.split(".")).with_suffix(".py")
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(ast.unparse(pinned), encoding="utf-8")
-            try:
-                out[path] = bridge.facts(target)
-            except CheckFailed:
-                continue
     finally:
         shutil.rmtree(mirror, ignore_errors=True)
     return out
