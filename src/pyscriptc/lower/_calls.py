@@ -169,7 +169,14 @@ class CallsMixin:
                 return self._island_call(node, span, binding.module, binding.attr, expect)
             # boxed:end
             if binding.kind == "pyfunc":
-                return self._linked_call(node, span, self.pkg_funcs[name], name)
+                return self._linked_call(node, span, self.pkg_funcs[name], name, expect)
+            # boxed:begin
+            # The per-module plane split: the definition rides another
+            # module's island floor, so the call crosses the boundary
+            # through the boxed seam, namespaced by the defining module.
+            if binding.kind == "island_floor":
+                return self._island_floor_call(node, span, binding.module, binding.attr, expect)
+            # boxed:end
             if binding.kind == "const" and self._ffi_module(binding.module) is not None:
                 self.fail(node, "PS2002", f"{name} is a constant and is not a function")
             self.fail(node, "PS2002", f"{name} is not a function")
@@ -562,7 +569,7 @@ class CallsMixin:
                     return self._construct(node, span, str(item["name"]))
                 if item["kind"] != "func":
                     self.fail(node, "PS2002", f"{dotted} is not a function")
-                return self._linked_call(node, span, item, dotted)
+                return self._linked_call(node, span, item, dotted, expect)
             if status == "queued":
                 self._queued(node, dotted)
             if status != "lowered":
