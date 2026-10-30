@@ -582,3 +582,87 @@ def test_island_floor_seed_imports_its_sibling(tmp_path: Path) -> None:
     want = subprocess.run([sys.executable, str(prog)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
     assert (got.returncode, got.stdout) == (want.returncode, want.stdout)
     assert got.stdout == "X!\n"
+
+
+def test_an_import_cycle_rides_the_island_and_the_rest_stays_native(tmp_path: Path) -> None:
+    """A module-level import cycle does not refuse the compile.
+
+    The three-module shape of the cycle rule: `alpha` and `beta` import
+    each other at module level, `clean` sits outside the cycle, and the
+    entry calls a clean definition and a cycle definition. The cycle
+    members ride the island group (one bootstrap under CPython resolves the
+    cycle the way CPython does), the clean module lowers native, and the
+    native lane reaches the cycle member through the boxed seam.
+    """
+    prog = tmp_path / "prog"
+    _write(
+        prog,
+        {
+            "__main__.py": (
+                "from clean import add\n"
+                "from driver import drive\n"
+                "\n"
+                "\n"
+                "def main() -> None:\n"
+                "    print(add(1, 2))\n"
+                "    print(drive())\n"
+                "\n"
+                "\n"
+                "if __name__ == '__main__':\n"
+                "    main()\n"
+            ),
+            "alpha.py": "def one() -> int:\n    return two() + 1\n\n\nfrom beta import two\n",
+            "beta.py": "from alpha import one\n\n\ndef two() -> int:\n    return 10\n",
+            "clean.py": "def add(a: int, b: int) -> int:\n    return a + b\n",
+            "driver.py": "from alpha import one\n\n\ndef drive() -> int:\n    return one()\n",
+        },
+    )
+    out = _compare(tmp_path, prog)
+    assert out == "3\n11\n"
+    planes = _plane_map(tmp_path, prog)["functions"]
+    assert planes["clean.add"] == "native"
+    assert planes["driver.drive"] == "native"
+    assert planes["alpha.one"] == "island"
+    assert planes["beta.two"] == "island"
+
+
+def test_the_cycle_group_runs_under_one_bootstrap(tmp_path: Path) -> None:
+    """The cycle members ride one bootstrap, not one seed each.
+
+    The group's bootstrap installs a finder over the group's own sources
+    and imports every member, so the cycle resolves the way CPython
+    resolves it: the module that started the cycle sees the partially
+    initialized sibling. A second seed per member would run the bodies
+    twice, so the binary carries one group bootstrap and no per-module
+    seed for the members.
+    """
+    prog = tmp_path / "prog"
+    _write(
+        prog,
+        {
+            "__main__.py": (
+                "from driver import drive\n"
+                "\n"
+                "\n"
+                "def main() -> None:\n"
+                "    print(drive())\n"
+                "\n"
+                "\n"
+                "if __name__ == '__main__':\n"
+                "    main()\n"
+            ),
+            "alpha.py": "def one() -> int:\n    return two() + 1\n\n\nfrom beta import two\n",
+            "beta.py": "from alpha import one\n\n\ndef two() -> int:\n    return 10\n",
+            "driver.py": "from alpha import one\n\n\ndef drive() -> int:\n    return one()\n",
+        },
+    )
+    binary, comp = _compile(tmp_path, prog)
+    assert comp.returncode == 0, comp.stderr
+    llvm = (binary.parent / f"{binary.name}.ll").read_text(encoding="utf-8")
+    # One group bootstrap, no per-module seed for the two members.
+    assert "ps_island_fn_seed" in llvm
+    assert "ps_island_mod_seed" not in llvm
+    got = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    want = subprocess.run([sys.executable, str(prog)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    assert (got.returncode, got.stdout) == (want.returncode, want.stdout)
+    assert got.stdout == "11\n"
