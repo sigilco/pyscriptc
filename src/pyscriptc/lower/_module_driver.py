@@ -199,6 +199,18 @@ class ModuleDriverMixin:
                     fences.extend(probe_fences)
                 if entry_name:
                     self._boxed_island.add(entry_name)
+            # The island group: a unit the program plan routed to the island
+            # floor for the import cycle rides whole-module. Every definition
+            # and the top level join the island; the seed is the module's own
+            # source, exec'd by CPython, which resolves the cycle natively.
+            if self._boxed_island_unit:
+                self._boxed_top_island = True
+                for fn in self._boxed_functions:
+                    self._boxed_island.add(fn.name)
+                for node in class_nodes:
+                    if node.name not in self.island_classes:
+                        self._boxed_island_class(node)
+                self.island_fns = set(self._boxed_island)
         # boxed:end
         if self.cataloguing:
             self.function = None
