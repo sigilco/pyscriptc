@@ -676,7 +676,7 @@ class CoroMixin:
         consumer reads the same shape the defining module emitted; only the
         poll side runs here, so `params` and `ir_name` stay empty.
         """
-        for exports in (self.package or {}).values():
+        for exports in self._export_table().values():
             item = exports.get(frame)
             if item is None or item.get("kind") != "class":
                 continue

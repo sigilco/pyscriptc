@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import ast
 import copy
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -217,8 +218,6 @@ def _lower_units(
     entry never imports them, so CPython never runs their bodies.
     """
 
-    exports, failed = _catalog([*units, *(catalog_units or [])], program, entry=entry, target=target, config=config)
-
     # A bridge is built per file: mypy's TypeMap covers one module, so a
     # package tree runs the checker once per unit and lowering consults the
     # map of the file it is in (issue #258). A plain `CheckerBridge` is a
@@ -234,6 +233,19 @@ def _lower_units(
             found = per_file(path)
             file_bridges[str(path)] = found
         return found
+
+    # The catalog pass runs the same lowering over each unit to learn the
+    # exports, so it needs the same bridges and the same pin map: a def
+    # the checker proved keeps its export instead of being reported as
+    # unexported.
+    exports, failed = _catalog(
+        [*units, *(catalog_units or [])],
+        program,
+        entry=entry,
+        target=target,
+        config=config,
+        bridge=bridge_for,
+    )
 
     if program:
         fences, owners = _program_plan(units, exports, entry=entry)
@@ -268,7 +280,11 @@ def _lower_units(
             lowerer.program_roots = dep_names
             lowerer.module_init = program and name != "__main__" and name != entry
             lowerer.entry_module = entry is not None and name == entry
-            lowerer.bridge = bridge_for(path)
+            per_file_bridge = bridge_for(path)
+            lowerer.bridge = per_file_bridge
+            # The package-wide pin map rides the per-file bridge: the
+            # lowerer reads it through the same handle (`pyscriptc infer`).
+            lowerer.call_site_facts = getattr(per_file_bridge, "call_site_facts", None)
             module = lowerer.module(tree)
             # boxed:begin
             needs_island = needs_island or _boxed.unit_needs_island(module)
@@ -960,17 +976,50 @@ def _catalog(
     entry: str | None = None,
     target: str | None = None,
     config: Any = None,
+    bridge: Any = None,
 ) -> tuple[dict[str, dict[str, dict[str, Any]]], dict[str, dict[str, dict[str, Any]]]]:
-    """Repeat until a subclass can see a base exported by an earlier pass."""
+    """Repeat until a subclass can see a base exported by an earlier pass.
+
+    A round re-lowers every unit, but a unit's result depends only on its
+    source, its checker facts and the export-table entries it read. The
+    lowerer records the entries it read (issue #424), so a unit whose
+    entries did not change since the previous round keeps that round's
+    result instead of lowering again. The fixpoint test still runs over
+    the whole table, so the rounds stop exactly where they stopped
+    before.
+    """
 
     exports: dict[str, dict[str, dict[str, Any]]] = {}
     failed: dict[str, dict[str, dict[str, Any]]] = {}
+    # unit name -> (entries read, the values they held, the exports, the
+    # failed definitions, the exception-code counter it consumed).
+    memo: dict[str, _CatalogMemo] = {}
     for _ in range(len(units) + 1):
-        nxt, nxt_failed = _catalog_once(units, exports, program, entry=entry, target=target, config=config)
+        nxt, nxt_failed, round_memo = _catalog_once(
+            units, exports, program, entry=entry, target=target, config=config, bridge=bridge, memo=memo
+        )
         if nxt == exports:
             return nxt, nxt_failed
         exports, failed = nxt, nxt_failed
+        memo = round_memo
     return exports, failed
+
+
+@dataclass
+class _CatalogMemo:
+    """One unit's catalog result and the export-table entries it read.
+
+    The entries are the unit's dirty-tracking: the unit lowers to the
+    same thing in the next round when every entry it read holds the same
+    value. The counter is how many exception codes the unit consumed, so
+    a reused unit keeps the codes of the units before it.
+    """
+
+    reads: dict[tuple[str, str | None], Any]
+    exports: dict[str, dict[str, Any]]
+    failed: dict[str, dict[str, Any]]
+    exc_used: int
+    exc_base: int
 
 
 def _catalog_once(
@@ -980,11 +1029,28 @@ def _catalog_once(
     entry: str | None = None,
     target: str | None = None,
     config: Any = None,
-) -> tuple[dict[str, dict[str, dict[str, Any]]], dict[str, dict[str, dict[str, Any]]]]:
+    bridge: Any = None,
+    memo: dict[str, _CatalogMemo] | None = None,
+) -> tuple[
+    dict[str, dict[str, dict[str, Any]]],
+    dict[str, dict[str, dict[str, Any]]],
+    dict[str, _CatalogMemo],
+]:
     found: dict[str, dict[str, dict[str, Any]]] = {}
     failed: dict[str, dict[str, dict[str, Any]]] = {}
+    round_memo: dict[str, _CatalogMemo] = {}
     exc_n = USER_EXC_BASE
     for name, path, is_package in units:
+        cached = memo.get(name) if memo is not None else None
+        if cached is not None and cached.exc_base == exc_n and _catalog_entries_unchanged(cached, exports):
+            # The unit's imports resolved to the same exports, so its
+            # lowering is the same: the previous round's result stands.
+            found[name] = cached.exports
+            if cached.failed:
+                failed[name] = cached.failed
+            exc_n += cached.exc_used
+            round_memo[name] = cached
+            continue
         text = path.read_text(encoding="utf-8")
         tree = ast.parse(text, filename=str(path))
         lowerer = Lowerer(str(path), text, target=target, config=config)
@@ -996,20 +1062,83 @@ def _catalog_once(
         lowerer.program = program
         lowerer.module_init = program and name != "__main__" and name != entry
         lowerer.entry_module = entry is not None and name == entry
+        if bridge is not None:
+            unit_bridge = bridge(path) if callable(bridge) else bridge
+            lowerer.bridge = unit_bridge
+            lowerer.call_site_facts = getattr(unit_bridge, "call_site_facts", None)
         module = lowerer.module(tree)
+        exc_used = lowerer.exc_n - exc_n
         exc_n = lowerer.exc_n
         found[name] = _exports_of(name, lowerer)
         found[name]["__all__"] = {"kind": "all", "names": _all_names(tree)}
         # A re-export in an `__init__.py` (`from .core import where`,
         # issue #405) makes the name part of the package's public surface,
         # so `from pkg import where` binds the way it does in CPython.
-        for local, item in _reexports_of(name, tree, exports, is_package).items():
+        for local, item in _reexports_of(name, tree, exports, is_package, lowerer._export_reads).items():
             if local not in found[name]:
                 found[name][local] = item
         missed = _unexported_definitions(tree, lowerer, module["fences"])
         if missed:
             failed[name] = missed
-    return found, failed
+        round_memo[name] = _CatalogMemo(
+            reads=_export_entries_read(lowerer, exports),
+            exports=found[name],
+            failed=failed.get(name, {}),
+            exc_used=exc_used,
+            exc_base=exc_n - exc_used,
+        )
+    return found, failed, round_memo
+
+
+_WHOLE_TABLE = "*"
+
+
+# Shared with `coro.py`, which records its table-wide frame scan through
+# `Lowerer._export_table` under this sentinel key.
+WHOLE_TABLE = _WHOLE_TABLE
+
+
+def _export_entries_read(
+    lowerer: Lowerer, exports: dict[str, dict[str, dict[str, Any]]]
+) -> dict[tuple[str, str | None], Any]:
+    """The export-table entries the unit read, with the values it saw."""
+
+    values: dict[tuple[str, str | None], Any] = {}
+    for module, member in lowerer._export_reads:
+        if module == _WHOLE_TABLE:
+            # A table-wide scan (the coroutine frame search) saw everything,
+            # so its recorded value is the whole table.
+            values[(module, member)] = exports
+            continue
+        if member is None:
+            # Every `(module, None)` read is a presence check (`is not None`),
+            # so the recorded value is whether the module exported anything.
+            values[(module, member)] = module in exports
+            continue
+        bucket = exports.get(module)
+        values[(module, member)] = None if bucket is None else bucket.get(member)
+    return values
+
+
+def _catalog_entries_unchanged(cached: _CatalogMemo, exports: dict[str, dict[str, dict[str, Any]]]) -> bool:
+    """Whether every entry the unit read still holds the value it saw."""
+
+    for key, seen in cached.reads.items():
+        module, member = key
+        if module == _WHOLE_TABLE:
+            if exports != seen:
+                return False
+            continue
+        bucket = exports.get(module)
+        if member is None:
+            now = module in exports
+        elif bucket is None:
+            now = None
+        else:
+            now = bucket.get(member)
+        if now != seen:
+            return False
+    return True
 
 
 def _exports_of(module_name: str, lowerer: Lowerer) -> dict[str, dict[str, Any]]:
@@ -1075,6 +1204,7 @@ def _reexports_of(
     tree: ast.Module,
     exports: dict[str, dict[str, dict[str, Any]]],
     is_package: bool,
+    reads: set[tuple[str, str | None]] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """The names an `__init__.py` re-exports from a sibling module.
 
@@ -1089,7 +1219,8 @@ def _reexports_of(
     `ir_name`. An alias chain (`pkg/__init__.py` re-exports from
     `pkg.sub`, whose own `__init__.py` re-exports again) resolves through
     the table the catalog fixpoint builds, so the chain lands in one pass
-    per fixpoint round.
+    per fixpoint round. The table entries it reads land in `reads` when
+    the caller passes the catalog memo's tracking set.
     """
 
     if not is_package:
@@ -1125,7 +1256,7 @@ def _reexports_of(
                         if name not in bucket:
                             bucket[name] = copy.deepcopy(item)
                     continue
-                item = _alias_item(exports, source, alias.name)
+                item = _alias_item(exports, source, alias.name, reads)
                 if item is not None:
                     bucket[alias.asname or alias.name] = item
             continue
@@ -1134,18 +1265,27 @@ def _reexports_of(
             if alias.name == "*":
                 continue
             source = ".".join([*base, alias.name])
+            if reads is not None:
+                reads.add((source, None))
             if source in exports:
                 bucket[alias.asname or alias.name] = {"kind": "module", "module": source}
     return bucket
 
 
-def _alias_item(exports: dict[str, dict[str, dict[str, Any]]], module: str, name: str) -> dict[str, Any] | None:
+def _alias_item(
+    exports: dict[str, dict[str, dict[str, Any]]],
+    module: str,
+    name: str,
+    reads: set[tuple[str, str | None]] | None = None,
+) -> dict[str, Any] | None:
     """The export `name` of `module`, or None when it is not exported.
 
     The entry is copied, so the alias carries the defining module's
     `ir_name`: the defining module still emits the function or class.
     """
 
+    if reads is not None:
+        reads.add((module, name))
     item = exports.get(module, {}).get(name)
     if item is None:
         return None

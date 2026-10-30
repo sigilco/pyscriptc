@@ -330,14 +330,13 @@ class StmtMixin:
                         if value["type"]["kind"] != "func":
                             self.locals[target] = value["type"]
                             return [_assign(target, value, span)]
-                if self._bridge_type(stmt.value) is not None:
-                    # Checker bridge: an unannotated assignment whose inferred
-                    # type the subset can express binds without an annotation.
-                    value = self._expr(stmt.value)
-                    self.locals[target] = value["type"]
-                    self._note_frozen(target, stmt.value)
-                    return [_assign(target, value, span)]
-                # The inference peek (issue #500): a literal, a comprehension
+                # The inference peek (issue #500) runs before the checker
+                # bridge: a value the compiler's own analysis types stays on
+                # that path, so the bridge only ever rescues what the
+                # compiler refused. The bridge's fact may name a type the
+                # expression does not lower to, and binding that would
+                # fence where the peek would not.
+                # The inference peek: a literal, a comprehension
                 # or a call of known return type types the name from its
                 # value. The peek discards the speculative IR; the real pass
                 # below emits the value once. Anything the peek refuses keeps
@@ -355,6 +354,11 @@ class StmtMixin:
                     self._note_frozen(target, stmt.value)
                     return [*dropped, _assign(target, value, span)]
                 inferred = self._infer_type_known(stmt.value) or self._infer_type_of(stmt.value)
+                if inferred is None and self._bridge_type(stmt.value) is not None:
+                    # Checker bridge: an unannotated assignment the
+                    # compiler's own peek refused, whose inferred type the
+                    # subset can express, binds to the checker's proof.
+                    inferred = self._bridge_type(stmt.value)
                 if inferred is not None and inferred["kind"] != "none":
                     self.locals[target] = inferred
                     value = self._expr(stmt.value, inferred)
