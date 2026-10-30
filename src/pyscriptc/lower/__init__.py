@@ -1644,11 +1644,22 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         return AbiMixin._ISLAND_ARG_CODES[typ["kind"]]
 
     def _boxed_stage2_source(self, tree: ast.Module, island: set[str]) -> str:
-        """The Stage 2 seed: imports, literal module values, island defs."""
+        """The Stage 2 seed: imports, literal module values, island defs.
+
+        An import of another program module rides the seed only when that
+        module rides the island too: the split seeds one namespace per
+        fenced module, and a sibling that lowered native has no namespace
+        for the import to resolve against. The import is not load-bearing
+        anyway: an island definition that used the native sibling's
+        definition already refused (the island-to-compiled seam, one
+        module further out), so the seed loses nothing it could use.
+        """
+
         segments: list[str] = []
         for stmt in tree.body:
             if isinstance(stmt, (ast.Import, ast.ImportFrom)):
-                segments.append(ast.get_source_segment(self.source, stmt) or "")
+                if self._boxed_seed_import_is_island(stmt):
+                    segments.append(ast.get_source_segment(self.source, stmt) or "")
                 continue
             if isinstance(stmt, (ast.Assign, ast.AnnAssign)) and self._boxed_is_literal_module_value(stmt):
                 segment = ast.get_source_segment(self.source, stmt)
@@ -1666,6 +1677,45 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 if segment:
                     segments.append(segment)
         return "\n\n\n".join(segment for segment in segments if segment)
+
+    def _boxed_seed_import_is_island(self, stmt: ast.Import | ast.ImportFrom) -> bool:
+        """True when a seed import resolves against an island namespace.
+
+        A program sibling's island plans live in the export table under its
+        name: the sibling that carries an island plan carries a seed, and
+        its namespace exists when this seed runs (the merge emits the
+        seeds in finish order). A stdlib module outside the closed table
+        resolves through the island's own import machinery. An import of a
+        sibling with no island plan has nothing to resolve against and
+        drops from the seed: the native lane ran the sibling's body
+        already, and an island definition of this module that used it
+        fenced instead of lowering.
+        """
+        if self.program is None:
+            return True
+        targets: list[str] = []
+        if isinstance(stmt, ast.Import):
+            targets.extend(alias.name for alias in stmt.names)
+        elif stmt.level:
+            # A relative import inside a program is not a plain sibling
+            # shape (the split refuses package-shaped programs), so it
+            # keeps the old seed behavior.
+            return True
+        else:
+            targets.append(stmt.module or "")
+        exports = self.package or {}
+        for target in targets:
+            root = target.split(".", 1)[0]
+            if root in exports or target in exports:
+                module = target if target in exports else root
+                bucket = exports.get(module) or {}
+                if any(item.get("island") for item in bucket.values()):
+                    continue
+                return False
+            # Not a program module (stdlib): the island import machinery
+            # resolves it, as before.
+            continue
+        return True
 
     def _boxed_definition_source(self, node: ast.AST) -> str:
         """One definition's source text, decorators included.
