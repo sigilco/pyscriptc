@@ -89,9 +89,18 @@ def test_compiler_compiles_itself_and_the_result_compiles_hello(tmp_path: Path) 
 
 
 @needs_cc
-def test_self_compile_reports_the_cycle_fences_without_the_island_tier(tmp_path: Path) -> None:
-    """Without the island tier the compiler's own import cycles refuse with
-    PS2002, naming the cycle. The island tier is what routes them.
+def test_self_compile_reports_no_import_cycle_without_the_island_tier(tmp_path: Path) -> None:
+    """The compiler's own tree has no import-time cycle, so program mode
+    never refuses with a circular-import fence.
+
+    The compiler used to report three cycles (imports -> config -> imports,
+    imports -> coverage -> imports, embed -> sitedeps -> imports ->
+    config -> embed). Each one closed through a function-local import, which
+    CPython runs at call time and therefore never at import time. The plan
+    now follows only the import-time edges, so the tree has no cycle: what
+    program mode reports instead are the ordinary construct fences (the
+    `Any` annotations and the closed import table), which is the honest
+    state of the tree.
     """
     comp = _cli(
         "compile",
@@ -106,7 +115,33 @@ def test_self_compile_reports_the_cycle_fences_without_the_island_tier(tmp_path:
     )
     assert comp.returncode == 3, comp.stderr[-4000:]
     assert "PS2002" in comp.stderr
-    assert "circular import" in comp.stderr
+    assert "circular import" not in comp.stderr
+
+
+@needs_cc
+def test_a_module_level_cycle_still_refuses_in_the_compiler_tree_shape(tmp_path: Path) -> None:
+    """The relaxation is scoped to lazy imports: a module-level cycle in
+    the same shape as the compiler's own tree still refuses with the path
+    that closes it.
+    """
+    root = tmp_path / "cyc"
+    root.mkdir()
+    (root / "__main__.py").write_text("import a\n\nprint(a.one())\n", encoding="utf-8")
+    (root / "a.py").write_text("import b\n\n\ndef one() -> int:\n    return 1\n", encoding="utf-8")
+    (root / "b.py").write_text("import a\n\n\ndef two() -> int:\n    return 2\n", encoding="utf-8")
+    comp = _cli(
+        "compile",
+        str(root),
+        "--program",
+        "--skip-check",
+        "--emit",
+        "ir",
+        "-o",
+        str(tmp_path / "out"),
+        cwd=ROOT,
+    )
+    assert comp.returncode == 3, comp.stderr[-4000:]
+    assert "circular import: a -> b -> a" in comp.stderr
 
 
 @needs_cc
