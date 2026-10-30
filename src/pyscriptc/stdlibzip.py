@@ -338,11 +338,18 @@ def minimal_modules(stdlib_dir: Path | None = None) -> list[Path]:
                     keep.add(prefix)
     tree = stdlib_dir if stdlib_dir is not None else source_tree
     files: list[Path] = []
+    seen: set[Path] = set()
     for name in sorted(keep):
         rel = name.replace(".", "/")
         for candidate in (tree / f"{rel}.py", tree / rel / "__init__.py"):
             if candidate.is_file():
-                files.append(candidate)
+                # A package's `__init__.py` answers two names (the package
+                # and the module), so the same file can be reached twice. The
+                # zip would then carry the entry twice, which the archive
+                # writer warns about and the importer reads twice.
+                if candidate not in seen:
+                    seen.add(candidate)
+                    files.append(candidate)
                 break
     return files
 
