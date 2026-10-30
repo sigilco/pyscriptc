@@ -446,6 +446,18 @@ class AbiMixin:
         source = self.module.get("islandSource")
         if source:
             self._emit_island_seed(source)
+        # The island group: one bootstrap execs the cycle group's module
+        # bodies under CPython, with a finder over the group's sources, so
+        # the cycle resolves. It runs before the per-module seeds: a seed
+        # that imports a group module resolves against the group's
+        # `sys.modules` entries.
+        group = self.module.get("islandGroup")
+        if group:
+            data = group.encode("utf-8")
+            size = len(data)
+            symbol = self.format_global("island.seed.group", data)
+            self._abi_decl("ps_island_fn_seed", "void", ["i64", "ptr"])
+            self._call_void("ps_island_fn_seed", [f"i64 {size}", f"ptr {symbol}"])
         # The per-module plane split: every program module's island floor
         # seed runs beside the single-namespace seed, in the merge's module
         # order (the import order the merge recorded).
