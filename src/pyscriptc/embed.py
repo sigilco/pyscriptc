@@ -29,6 +29,7 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -432,6 +433,24 @@ def link_flags(pack_directory: Path, version: str) -> tuple[str, list[str]]:
     return str(include), flags
 
 
+def strip_runtime_libs(lib_dir: Path) -> None:
+    """Strip the staged libpython in place (`--strip-runtime`).
+
+    Plain `strip` (not `--strip-debug`) removes the debug and the static
+    symbol table but keeps `.dynsym`, which is where every `PyInit_*`
+    extension entry point and the interpreter's own exported API live, so the
+    interpreter still loads its built-in extension modules. About 12 MB off
+    the 32 MB Linux libpython. A missing `strip` is not an error: the option
+    is a size lever, not a correctness one.
+    """
+    if shutil.which("strip") is None:
+        return
+    for shared in sorted(lib_dir.glob("libpython*")):
+        if shared.is_symlink() or not shared.is_file():
+            continue
+        subprocess.run(["strip", str(shared)], check=False)
+
+
 def stage_bundle(
     output: Path,
     pack_directory: Path,
@@ -441,6 +460,7 @@ def stage_bundle(
     stdlib_mode: str = stdlibzip.DEFAULT_MODE,
     dependency_roots: list[str] | None = None,
     with_headers: bool = False,
+    strip_runtime: bool = False,
 ) -> Path:
     """Copy the pack runtime next to the binary: `name/bin/name` plus `name/lib/`.
 
@@ -476,6 +496,8 @@ def stage_bundle(
         # real file must travel with it or the loader finds nothing.
         for extra in sorted(shared.parent.glob(f"libpython{version}.so*")):
             shutil.copy2(extra, lib_dir / extra.name, follow_symlinks=False)
+    if strip_runtime:
+        strip_runtime_libs(lib_dir)
     stdlib_src = pack_directory / "lib" / f"python{version}"
     if stdlib_src.is_dir():
         stdlibzip.stage_stdlib(lib_dir, pack_directory, version, stdlib_mode)

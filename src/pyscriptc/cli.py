@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 # boxed:begin
-from pyscriptc import embed, runcache, sitedeps, stdlibzip
+from pyscriptc import embed, onefile, runcache, sitedeps, stdlibzip
 
 # boxed:end
 from pyscriptc.config import apply_to_args, entry_points, load_config
@@ -291,6 +291,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="stdlib trim of a bundle: safe (the default; everything except test, idlelib, "
         "tkinter, turtledemo, ensurepip, pydoc_data, __phello__) or minimal (an opt-in frozen "
         "closure plus allowlist). Also read from the `stdlib` key of [tool.pyscriptc.island]",
+    )
+    compile_parser.add_argument(
+        "--onefile",
+        action="store_true",
+        help="write the bundle as one executable: the payload travels appended to a small "
+        "stub, which extracts it into the cache (keyed by the payload's sha256) on the first "
+        "run and execs it on every run. Needs --embed-python=bundle",
+    )
+    compile_parser.add_argument(
+        "--strip-runtime",
+        action="store_true",
+        help="strip the staged libpython of a bundle: the dynamic symbols the interpreter "
+        "exports stay, the debug and static symbols go (about 12 MB on Linux)",
     )
     # boxed:end
     compile_parser.add_argument("--call", metavar="FUNC", help="function the generated main calls")
@@ -789,7 +802,7 @@ def main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 1
     # boxed:begin
-    except (embed.EmbedError, sitedeps.SiteError) as exc:
+    except (embed.EmbedError, sitedeps.SiteError, onefile.OnefileError) as exc:
         # Issues #661 and #662: a bundle compile that cannot get its pack (or
         # that carries a native dependency) is a user-facing refusal, not a
         # crash: one line naming `pyscriptc embed fetch`, no traceback.
@@ -2248,9 +2261,23 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                 stdlib_mode=getattr(args, "embed_stdlib", None) or stdlibzip.DEFAULT_MODE,
                 dependency_roots=dep_roots,
                 with_headers=bool(getattr(args, "embed_headers", False)),
+                strip_runtime=bool(getattr(args, "strip_runtime", False)),
             )
             outputs["bin"] = str(staged)
             binary = staged
+        # The onefile output: the staged bundle travels appended to a small
+        # stub, which extracts it into the cache on the first run and execs
+        # it on every run. The unpacked bundle stays on disk (it is the
+        # payload's source), but the shipped artifact is the single file.
+        if getattr(args, "onefile", False):
+            if resolved_embed != "bundle":
+                raise IRError("--onefile needs --embed-python=bundle")
+            bundle_dir = binary.parent.parent
+            onefile_path = bundle_dir.parent / f"{bundle_dir.name}.onefile"
+            built = onefile.build(bundle_dir, binary.name, onefile_path)
+            outputs["bin"] = str(built)
+            outputs["onefile"] = str(built)
+            binary = built
         # boxed:end
         state["binary_bytes"] = binary.stat().st_size if binary.is_file() else None
         log.info("link.binary", output=str(binary), driver=args.driver, target=args.target)
