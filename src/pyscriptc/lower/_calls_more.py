@@ -219,7 +219,8 @@ class CallsMoreMixin:
         return expr
 
     def _json_dumps_flags(self, node: ast.Call) -> int:
-        """The dumps options: bit 0 sorts the keys, bits 8-15 the indent.
+        """The dumps options: bit 0 sorts the keys, bit 1 keeps non-ASCII
+        text raw (ensure_ascii=False), bits 8-15 the indent.
 
         The closed set is `indent`, `sort_keys` and `ensure_ascii`; the
         other CPython options stay fenced.
@@ -249,7 +250,7 @@ class CallsMoreMixin:
                 if not isinstance(keyword.value, ast.Constant) or not isinstance(keyword.value.value, bool):
                     self.fail(node, "PS2003", "json.dumps ensure_ascii is a bool constant")
                 if not keyword.value.value:
-                    self.fail(node, "PS2003", "json.dumps ensure_ascii=False is not lowered")
+                    flags |= 2
             else:
                 self.fail(node, "PS2003", f"json.dumps keyword {name} is not lowered")
         return flags
