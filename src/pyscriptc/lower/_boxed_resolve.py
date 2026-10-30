@@ -603,6 +603,17 @@ class BoxedResolveMixin:
             return not elem.get("optional") and _maybe_type_kind(elem) in {"bool", "int", "float", "str", "bytes"}
         return False
 
+    def _boxed_cross_module_island(self) -> bool:
+        """Whether a call may cross into another module's island floor.
+
+        The plane split (the per-module island granularity) is on when the
+        compile runs the fallback tier and the program keeps both planes.
+        The merge sets the flag once it knows the program is not one whole
+        island.
+        """
+
+        return self._boxed_plane_split
+
     # boxed:end
 
     # boxed:begin

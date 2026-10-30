@@ -203,7 +203,7 @@ class CallAttrMixin:
                     return self._construct(node, span, name)
                 if item["kind"] != "func":
                     self.fail(node, "PS2002", f"{dotted} is not a function")
-                return self._linked_call(node, span, item, dotted)
+                return self._linked_call(node, span, item, dotted, expect)
             if status == "queued":
                 self._queued(node, dotted)
             if status != "lowered":
