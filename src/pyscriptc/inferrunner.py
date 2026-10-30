@@ -39,6 +39,12 @@ def _module_name(path: Path, root: Path) -> str:
     Every directory between the file and the root that holds an
     `__init__.py` is a package and joins the name; the root itself joins
     too when it is a package.
+
+    The name must match the one the lowerer gives the same file, or a pin
+    keyed under this name never reaches the definition it proves. The
+    lowerer names a unit after the package directory it sits in, so a
+    package directory joins the name once. The `__init__.py` of a package
+    directory is the package itself and contributes no extra part.
     """
 
     path = path.resolve()
@@ -49,17 +55,20 @@ def _module_name(path: Path, root: Path) -> str:
         parts = parts[:-1]
     else:
         parts[-1] = parts[-1][:-3]
-    # Walk up from the file, adding every enclosing package directory.
-    directory = path.parent
-    prefixes: list[str] = []
-    while directory != root and (directory / "__init__.py").is_file():
-        prefixes.insert(0, directory.name)
-        if directory.parent == directory:
-            break
-        directory = directory.parent
-    if directory == root and (root / "__init__.py").is_file():
-        prefixes.insert(0, root.name)
-    return ".".join([*prefixes, *parts]) if parts else ".".join(prefixes)
+    if not parts:
+        return root.name
+    # The program entry file lowers as `__main__`, not as a module of the
+    # package (`python -m pkg` parity).
+    if relative == Path("__main__.py"):
+        return "__main__"
+    # The lowerer names a unit after the tree it lowers: a package tree
+    # namespaces its modules under the package directory, a program tree
+    # (no `__init__.py` at the root) uses the plain relative path. The pin
+    # key must be the same name, or the pin never reaches the definition
+    # it proves.
+    if (root / "__init__.py").is_file():
+        return ".".join([root.name, *parts])
+    return ".".join(parts)
 
 
 def _imported_names(tree: ast.Module, module: str) -> dict[str, str]:
