@@ -25,9 +25,11 @@ Two trims, both shipped as zips:
   still fails closed at compile time, so the failure is a build error, not a
   runtime `ModuleNotFoundError`.
 
-The zip stores `.pyc` bodies with their magic-number header; a stored
-(uncompressed) zip keeps the pages cache-friendly and the pack reproducible
-byte-for-byte from the same pack directory.
+The zip stores `.pyc` bodies with their magic-number header; the archive is
+deflated, because the zip is data (not an executable) and the saved bytes
+cost one decompression of a few milliseconds at first import. A stored
+(uncompressed) zip keeps the pages cache-friendly, and the pack reproducible
+byte-for-byte from the same pack directory either way.
 """
 
 from __future__ import annotations
@@ -154,6 +156,27 @@ MINIMAL_EXTRA = (
     "getopt",
     "getpass",
     "gzip",
+    "email",
+    "_markupbase",
+    "importlib.resources",
+    "importlib.resources._common",
+    "importlib.resources._adapters",
+    "importlib.resources._functional",
+    "importlib.resources._itertools",
+    "importlib.resources._legacy",
+    "importlib.metadata",
+    "importlib.metadata._adapters",
+    "importlib.metadata._collections",
+    "importlib.metadata._functools",
+    "importlib.metadata._itertools",
+    "importlib.metadata._text",
+    "importlib.abc",
+    "importlib.readers",
+    "encodings.idna",
+    "fileinput",
+    "optparse",
+    "pty",
+    "secrets",
     "html",
     "http",
     "ipaddress",
@@ -169,6 +192,8 @@ MINIMAL_EXTRA = (
     "unittest.mock",
     "uuid",
     "xml",
+    "xml.etree",
+    "xml.etree.ElementTree",
     "zlib",
 )
 
@@ -208,6 +233,34 @@ def _import_names(source: str) -> set[str]:
             found.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             found.add(node.module)
+    return found
+
+
+def _import_names_relative(source: str, package: str) -> set[str]:
+    """The import names of a module source, relatives resolved to absolute.
+
+    A `from . import sibling` inside a package resolves against the package,
+    and the frozen closure must follow it or a kept submodule loses a peer
+    (`xml.etree.ElementTree` pulls `ElementPath` that way).
+    """
+
+    found = _import_names(source)
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return found
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom) or node.level == 0:
+            continue
+        parts = package.split(".") if package else []
+        if node.level > 1:
+            parts = parts[: len(parts) - (node.level - 1)]
+        base = ".".join(parts)
+        if node.module:
+            found.add(f"{base}.{node.module}" if base else node.module)
+        for alias in node.names:
+            if alias.name != "*":
+                found.add(f"{base}.{alias.name}" if base else alias.name)
     return found
 
 
@@ -265,7 +318,10 @@ def minimal_modules(stdlib_dir: Path | None = None) -> list[Path]:
         if not path.is_file():
             continue
         keep.add(name)
-        for found in _import_names(path.read_text(encoding="utf-8", errors="replace")):
+        package = name if path.name == "__init__.py" else name.rpartition(".")[0]
+        for found in _import_names_relative(
+            path.read_text(encoding="utf-8", errors="replace"), package
+        ):
             if found in seen:
                 continue
             parts = found.split(".")
@@ -339,14 +395,14 @@ def _pyc_bytes(source: Path, module_name: str) -> bytes:
 
 
 def write_zip(sources: list[Path], stdlib_dir: Path, zip_path: Path) -> Path:
-    """Write a stored zip of `.pyc` bodies for the kept modules.
+    """Write a deflated zip of `.pyc` bodies for the kept modules.
 
     Archive names are the module paths relative to the stdlib root, so
     `python314.zip` answers `import encodings` exactly as the unpacked tree
     did. `.py` files are kept out on purpose: startup must not compile.
     """
     zip_path.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED) as archive:
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for source in sorted(sources):
             relative = source.relative_to(stdlib_dir)
             module_name = str(relative.with_suffix("")).replace(os.sep, ".")
