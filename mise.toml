@@ -32,6 +32,7 @@
 #   compile         pyscriptc compile, args pass through (mise run compile FILE --emit bin)
 #   run             pyscriptc run, args pass through (mise run run FILE -- args)
 #   wheel:smoke     build the wheel, install it in a fresh venv, compile+run hello
+#   selfbin         build the self-compiled pyscriptc into dist/selfbin and run its tests
 #   release:rehearse  dispatch release.yml on the master tip (the rehearsal run)
 #
 # CI does not run through mise: the workflows pin uv (the emSign CA incident
@@ -200,6 +201,10 @@ run = "bash scripts/wt_prune.sh"
 [tasks."wheel:smoke"]
 description = "Build the wheel, install it in a fresh venv, compile and run hello"
 run = "bash scripts/wheel_smoke.sh"
+
+[tasks.selfbin]
+description = "Build the self-compiled pyscriptc (a bundle that carries its own runtime) and run its tests"
+run = "uv run pyscriptc compile src/pyscriptc --program --skip-check --island --emit bin --embed-python bundle --embed-headers --bundle-exclude mypy -o dist/selfbin && uv run pytest tests/test_selfbin.py -m slow"
 
 # The rehearsal is a workflow_dispatch of release.yml on the full SHA. Only a
 # run titled "rehearsal <full SHA>" counts for the cut-release and publish gates.
