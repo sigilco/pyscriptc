@@ -322,7 +322,10 @@ int main(int argc, char **argv) {
         /* Extract into a private staging directory and rename it into place:
            a run that races another first run loses the rename and execs the
            winner's tree, whatever it is - both hold the same digest. */
-        mkdir(home, 0755);
+        if (ps_mkdirs(home) != 0 || (mkdir(home, 0755) != 0 && errno != EEXIST)) {
+            perror("onefile: the cache root");
+            return 2;
+        }
         char tmpl[PATH_MAX];
         snprintf(tmpl, sizeof tmpl, "%s/.extract-XXXXXX", home);
         char *dir = mkdtemp(tmpl);
