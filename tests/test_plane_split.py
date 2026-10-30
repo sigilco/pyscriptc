@@ -340,3 +340,245 @@ def test_island_definition_raising_propagates(tmp_path: Path) -> None:
     want = subprocess.run([sys.executable, str(prog)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
     assert (got.returncode, got.stdout) == (want.returncode, want.stdout)
     assert got.stdout == "caught\n"
+
+
+def _class_shapes(root: Path) -> None:
+    _write(
+        root,
+        {
+            "shapes.py": (
+                "import dataclasses\n"
+                "\n"
+                "\n"
+                "@dataclasses.dataclass(frozen=True, slots=True)\n"
+                "class Point:\n"
+                "    x: int\n"
+                "    y: int\n"
+            ),
+        },
+    )
+
+
+def test_island_class_import_does_not_fence_the_consumer_top_level(tmp_path: Path) -> None:
+    """`from shapes import Point` binds across the boundary instead of fencing.
+
+    Before the export table carried island classes, this import fenced at
+    module level and Decision A dragged the consumer's whole top level
+    island-side. The consumer stays native; only the uses that need the
+    class natively (a base class, an except clause) fence their own
+    definition.
+    """
+    prog = tmp_path / "prog"
+    _class_shapes(prog)
+    _write(
+        prog,
+        {
+            "__main__.py": (
+                "from shapes import Point\n"
+                "\n"
+                "\n"
+                "def main() -> None:\n"
+                "    p = Point(10, 20)\n"
+                "    print(p)\n"
+                "\n"
+                "\n"
+                "if __name__ == '__main__':\n"
+                "    main()\n"
+            ),
+        },
+    )
+    out = _compare(tmp_path, prog)
+    assert out == "Point(x=10, y=20)\n"
+    planes = _plane_map(tmp_path, prog)
+    assert planes["moduleTopLevel"] == "native"
+    assert planes["classes"]["shapes.Point"] == "island"
+
+
+def test_island_class_as_a_value_and_kwargs(tmp_path: Path) -> None:
+    """The class object taken as a value is a handle from the sibling namespace."""
+    prog = tmp_path / "prog"
+    _class_shapes(prog)
+    _write(
+        prog,
+        {
+            "__main__.py": (
+                "from shapes import Point\n"
+                "\n"
+                "\n"
+                "def main() -> None:\n"
+                "    q = Point(x=3, y=4)\n"
+                "    cls = Point\n"
+                "    print(q.y, cls is Point)\n"
+                "\n"
+                "\n"
+                "if __name__ == '__main__':\n"
+                "    main()\n"
+            ),
+        },
+    )
+    out = _compare(tmp_path, prog)
+    assert out == "4 True\n"
+
+
+def test_package_reexport_of_an_island_class_names_the_owner(tmp_path: Path) -> None:
+    """`from pkg import Cls` reaches the class in the defining module's namespace.
+
+    The package `__init__.py` re-exports the class from a sibling (`from
+    .shapes import Point`), so the module the import names (`pkg`) is not
+    the module whose island namespace holds the class object. The export
+    entry carries the owner, and the consumer's call lands there.
+    """
+    prog = tmp_path / "prog"
+    _write(
+        prog,
+        {
+            "__init__.py": "from .shapes import Point\n",
+            "shapes.py": (
+                "import dataclasses\n"
+                "\n"
+                "\n"
+                "@dataclasses.dataclass(frozen=True, slots=True)\n"
+                "class Point:\n"
+                "    x: int\n"
+                "    y: int\n"
+            ),
+            "__main__.py": (
+                "from prog.shapes import Point\n"
+                "\n"
+                "\n"
+                "def main() -> None:\n"
+                "    print(Point(1, 2).x)\n"
+                "\n"
+                "\n"
+                "if __name__ == '__main__':\n"
+                "    main()\n"
+            ),
+        },
+    )
+    binary, comp = _compile(tmp_path, prog)
+    # A package-shaped program runs whole island-side (the split refuses a
+    # package tree), so the assertion is the run, not the plane map.
+    assert comp.returncode == 0, comp.stderr
+    got = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    want = subprocess.run([sys.executable, "-m", "prog"], capture_output=True, text=True, timeout=60, cwd=prog.parent)
+    assert got.returncode == want.returncode == 0, (got.stderr, want.stderr)
+    assert got.stdout == want.stdout == "1\n"
+
+
+def test_native_subclass_of_a_cross_module_island_class_fences_the_subclass(tmp_path: Path) -> None:
+    """A native class cannot extend a sibling's island class.
+
+    The island class has no native record, so the subclass definition
+    fences and joins the island instead of refusing the compile.
+    """
+    prog = tmp_path / "prog"
+    _class_shapes(prog)
+    _write(
+        prog,
+        {
+            "__main__.py": (
+                "from shapes import Point\n"
+                "\n"
+                "\n"
+                "class Spot(Point):\n"
+                "    pass\n"
+                "\n"
+                "\n"
+                "def main() -> None:\n"
+                "    s = Spot(1, 2)\n"
+                "    print(s.x, s.y)\n"
+                "\n"
+                "\n"
+                "if __name__ == '__main__':\n"
+                "    main()\n"
+            ),
+        },
+    )
+    binary, comp = _compile(tmp_path, prog)
+    assert comp.returncode == 0, comp.stderr
+    planes = _plane_map(tmp_path, prog)
+    assert planes["classes"]["__main__.Spot"] == "island"
+    got = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    want = subprocess.run([sys.executable, str(prog)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    assert (got.returncode, got.stdout, got.stderr) == (want.returncode, want.stdout, want.stderr)
+    assert got.stdout == "1 2\n"
+
+
+def test_module_owns_its_island_floor_namespace_in_split_mode(tmp_path: Path) -> None:
+    """A module's own island definitions ride the namespaced seam.
+
+    The split mode has no single island namespace: every module's floor
+    is its own namespace. An island function of the entry module is
+    called through `ps_island_mod_fn_invoke` with the entry module's name,
+    not the never-seeded single namespace.
+    """
+    prog = tmp_path / "prog"
+    _write(
+        prog,
+        {
+            "__main__.py": (
+                "from clean import add\n"
+                "\n"
+                "\n"
+                "def main() -> None:\n"
+                "    print(add(1, 2))\n"
+                "    tripled: int = helper(2)\n"
+                "    print(tripled)\n"
+                "\n"
+                "\n"
+                "def helper(x):\n"
+                "    return x * 3\n"
+                "\n"
+                "\n"
+                "if __name__ == '__main__':\n"
+                "    main()\n"
+            ),
+            "clean.py": "def add(a: int, b: int) -> int:\n    return a + b\n",
+        },
+    )
+    binary, comp = _compile(tmp_path, prog)
+    assert comp.returncode == 0, comp.stderr
+    llvm = (binary.parent / f"{binary.name}.ll").read_text(encoding="utf-8")
+    assert "ps_island_mod_fn_invoke" in llvm
+    got = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    want = subprocess.run([sys.executable, str(prog)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    assert (got.returncode, got.stdout) == (want.returncode, want.stdout)
+    assert got.stdout == "3\n6\n"
+
+
+def test_island_floor_seed_imports_its_sibling(tmp_path: Path) -> None:
+    """A seed whose body imports a sibling finds the sibling's namespace.
+
+    The seeds run in the order CPython finishes the module bodies, so a
+    module that imports a sibling is seeded after it.
+    """
+    prog = tmp_path / "prog"
+    _write(
+        prog,
+        {
+            "__main__.py": (
+                "from mid import relay\n"
+                "\n"
+                "\n"
+                "def main() -> None:\n"
+                "    print(relay('x'))\n"
+                "\n"
+                "\n"
+                "if __name__ == '__main__':\n"
+                "    main()\n"
+            ),
+            "mid.py": "from leaf import shout\n\n\ndef relay(s):\n    return shout(s + '!')\n",
+            "leaf.py": "def shout(s):\n    return s.upper()\n",
+        },
+    )
+    binary, comp = _compile(tmp_path, prog)
+    assert comp.returncode == 0, comp.stderr
+    llvm = (binary.parent / f"{binary.name}.ll").read_text(encoding="utf-8")
+    # `leaf` finishes before `mid`, so its seed runs first.
+    leaf_pos = llvm.index("ps.fmt.island.mod.leaf")
+    mid_pos = llvm.index("ps.fmt.island.mod.mid")
+    assert leaf_pos < mid_pos
+    got = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    want = subprocess.run([sys.executable, str(prog)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    assert (got.returncode, got.stdout) == (want.returncode, want.stdout)
+    assert got.stdout == "X!\n"

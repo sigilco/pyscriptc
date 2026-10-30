@@ -378,7 +378,14 @@ def _lower_units(
     }
     # boxed:begin
     if island_modules:
-        merged["islandModules"] = island_modules
+        # The seeds run in the order CPython finishes the bodies: a seed
+        # that imports a sibling finds that sibling's namespace in
+        # `sys.modules` (the runtime registers each seeded module under
+        # its real name), so the defining module must be seeded first.
+        finish = _program_finish_order(units, exports, entry=entry)
+        merged["islandModules"] = {
+            name: island_modules[name] for name in finish if name in island_modules
+        }
         merged["fallback"] = {
             "moduleTopLevel": _boxed.ISLAND if plane_top_island else _boxed.NATIVE,
             "functions": plane_functions,
@@ -791,6 +798,40 @@ def _program_plan(
     if fences:
         return fences, {}
     return fences, owners
+
+
+def _program_finish_order(
+    units: list[tuple[str, Path, bool]],
+    exports: dict[str, dict[str, dict[str, Any]]],
+    entry: str | None = None,
+) -> list[str]:
+    """The units in the order CPython finishes their bodies.
+
+    The per-module plane split: each fenced unit's island seed execs into
+    its own namespace, and a seed that imports a sibling needs that
+    sibling's namespace to exist first. The order is the import-time graph
+    in reverse (a module's body finishes before its importer's), so the
+    seeds land in the order the bodies ran. A cycle has no such order:
+    the plan refuses it before the split engages.
+    """
+    trees = {name: ast.parse(path.read_text(encoding="utf-8"), filename=str(path)) for name, path, _ in units}
+    packages = {name: is_package for name, _, is_package in units}
+    edges = {name: _program_imports(trees[name], exports, name, packages[name]) for name in trees}
+    order: list[str] = []
+    state: dict[str, int] = {}
+
+    def visit(name: str) -> None:
+        state[name] = 1
+        for child in edges.get(name, []):
+            if child in trees and state.get(child) is None:
+                visit(child)
+        state[name] = 2
+        order.append(name)
+
+    for name in _program_roots(trees, entry):
+        if state.get(name) is None:
+            visit(name)
+    return order
 
 
 def _program_roots(trees: dict[str, ast.Module], entry: str | None = None) -> list[str]:
@@ -1307,6 +1348,25 @@ def _exports_of(module_name: str, lowerer: Lowerer) -> dict[str, dict[str, Any]]
         if info.get("synthetic") or info.get("imported"):
             continue
         bucket[class_name] = {"kind": "class", "name": class_name, "info": _class_export(info)}
+    # boxed:begin
+    # An island class (issue #628) has no native body: the merged module
+    # emits no class record for it, so a cross-module consumer cannot
+    # resolve the name and the import fences at module level. That fence
+    # routes the *importing* module's whole top level to the island
+    # (Decision A), so one island class in a widely imported module drags
+    # every consumer with it. The export table carries the class with the
+    # island flag, the way it carries an island function (Refs #641): the
+    # consumer binds the class across the boundary instead of refusing.
+    for class_name in sorted(lowerer.island_classes):
+        if class_name in bucket:
+            continue
+        bucket[class_name] = {
+            "kind": "class",
+            "name": class_name,
+            "island": True,
+            "module": module_name,
+        }
+    # boxed:end
     # A module-level global that lives in a runtime slot (a list, a dict, a
     # threaded record) keeps one pointer for the process. A consumer in
     # another module reads it natively when the export table carries the
