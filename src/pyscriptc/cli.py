@@ -539,6 +539,21 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("blockers", "any"),
         help="exit 1 when root refusals (blockers) or any refusal (any) exist; default always exits 0",
     )
+    infer_parser = sub.add_parser(
+        "infer",
+        help="prove types for a package with the checker and show what lowering gained",
+        parents=[common],
+    )
+    infer_parser.add_argument("source", help="a package directory (or a file's tree) to infer over")
+    infer_parser.add_argument("--json", action="store_true", help="print the report as JSON")
+    infer_parser.add_argument(
+        "--overlay",
+        metavar="FILE",
+        help="write the inferred annotations to FILE as a sidecar the user can apply",
+    )
+    infer_parser.add_argument(
+        "--bridge", choices=("pyrefly",), default="pyrefly", help="checker to run (default: pyrefly)"
+    )
     config_parser = sub.add_parser("config", help="show the resolved config for a source", parents=[common])
     config_parser.add_argument("source", help="Python file, pyproject.toml or directory")
     config_parser.add_argument("--json", action="store_true", help="print the resolved config as JSON")
@@ -710,6 +725,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd == "coverage":
             _load_compiler()
             return coverage_cmd(args)
+        if args.cmd == "infer":
+            _load_compiler()
+            return infer_cmd(args)
         if args.cmd == "imports":
             _load_compiler()
             return imports_cmd(args)
@@ -1181,6 +1199,124 @@ def coverage_cmd(args: argparse.Namespace) -> int:
         return 1
     if mode == "blockers" and summary["rootFences"]:
         return 1
+    return 0
+
+
+def infer_cmd(args: argparse.Namespace) -> int:
+    """`pyscriptc infer`: what the checker proves for a package, and what lowering gains.
+
+    The command is a report first: it runs the checker over the tree,
+    reduces the call sites to the pins every caller agrees on, lowers
+    with the pins and the bridge applied, and prints the per-lever delta
+    (native definitions with and without inference). `--overlay` writes
+    the accepted annotations as a sidecar; the report never edits the
+    source.
+    """
+    from pyscriptc.coverage import build_report
+    from pyscriptc.inferrunner import build_facts
+
+    source = Path(args.source)
+    started = time.perf_counter()
+    facts = build_facts(source)
+    fact_seconds = time.perf_counter() - started
+
+    # Baseline: the package as it lowers today, no inference.
+    started = time.perf_counter()
+    base_report = build_report(source)
+    base_seconds = time.perf_counter() - started
+    base_summary = base_report["summary"]
+
+    # With inference: the pins lower through `_checker_pin_type`, the
+    # bridge (per file) proves returns and locals the checker types. The
+    # bridge facts come from a pinned re-check: the checker's own return
+    # inference reads the pinned parameters, so its answer is consistent
+    # with what the lowerer will apply.
+    from pyscriptc.factsbridge import BridgeProvider, CheckerBridge
+    from pyscriptc.inferrunner import facts_as_pins, pinned_facts
+
+    pin_map = facts_as_pins(facts)
+    started = time.perf_counter()
+    facts_by_file = pinned_facts(source, facts)
+    pinned_seconds = time.perf_counter() - started
+
+    class _ProviderWithPins(BridgeProvider):
+        def for_file(self, path: Path):  # noqa: ANN202 - matches the base shape
+            found = facts_by_file.get(path.resolve())
+            if found is not None:
+                bridge = CheckerBridge(found, provider.records)
+            else:
+                bridge = super().for_file(path)
+            bridge.call_site_facts = pin_map
+            return bridge
+
+    provider = _ProviderWithPins(args.bridge, strict=False)
+    # One `pyrefly tsp` server serves the whole tree: the per-file bridge
+    # builds reuse it instead of spawning a server per file.
+    provider.open()
+    try:
+        started = time.perf_counter()
+        inferred_report = build_report(source, bridge=provider)
+        infer_seconds = time.perf_counter() - started
+    finally:
+        provider.close()
+    inferred_summary = inferred_report["summary"]
+
+    # The records the lowerer accepted, gathered through the provider.
+    # The catalog passes lower a unit more than once, so the same fact is
+    # recorded per pass; dedupe by the record's identity.
+    seen_records: set[tuple[Any, ...]] = set()
+    records = []
+    for record in provider.records:
+        key = (record["kind"], record["module"], record["name"], record["type"])
+        if key in seen_records:
+            continue
+        seen_records.add(key)
+        records.append(record)
+    pins = facts.pins
+    summary = {
+        "source": str(source),
+        "provider": facts.provider,
+        "checker_seconds": round(fact_seconds, 2),
+        "pinned_facts_seconds": round(pinned_seconds, 2),
+        "baseline_seconds": round(base_seconds, 2),
+        "inferred_seconds": round(infer_seconds, 2),
+        "pins": facts.pin_summary(),
+        "native_baseline": base_summary["nativeDefinitions"],
+        "native_inferred": inferred_summary["nativeDefinitions"],
+        "native_delta": inferred_summary["nativeDefinitions"] - base_summary["nativeDefinitions"],
+        "fences_baseline": base_summary["fences"],
+        "fences_inferred": inferred_summary["fences"],
+        "fences_delta": inferred_summary["fences"] - base_summary["fences"],
+        "definitions": base_summary["definitions"],
+        "pinned_params": sorted({f"{callee}.{param}" for callee, param in pins}),
+        "records": len(records),
+        "records_detail": records,
+    }
+    if args.overlay:
+        lines = ["# pyscriptc inferred overlay: checker-proved, package-wide pins."]
+        lines.append("# Apply by hand; a pin the checker proved at every call site is sound")
+        lines.append("# only while those call sites stay the same.")
+        for callee, param in sorted(pins):
+            pin = pins[(callee, param)]
+            lines.append(f"# {callee}: {param}: {pin.kind} ({pin.sites} call site(s))")
+        Path(args.overlay).write_text("\n".join(lines) + "\n", encoding="utf-8")
+        summary["overlay"] = args.overlay
+    if args.json:
+        print(json.dumps(summary, indent=2))
+        return 0
+    print(f"source: {summary['source']}")
+    print(f"provider: {summary['provider']} ({summary['checker_seconds']:.2f}s to collect facts)")
+    print(f"call sites resolved: {summary['pins']['call_sites']}")
+    print(f"parameters pinned: {summary['pins']['pinned_params']}")
+    print(
+        f"native definitions: {summary['native_baseline']} -> {summary['native_inferred']}"
+        f" ({summary['native_delta']:+d}) of {summary['definitions']}"
+    )
+    print(f"fences: {summary['fences_baseline']} -> {summary['fences_inferred']} ({summary['fences_delta']:+d})")
+    if summary["pinned_params"]:
+        print("pinned parameters:")
+        for item in summary["pinned_params"]:
+            print(f"  {item}")
     return 0
 
 

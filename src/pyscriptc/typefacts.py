@@ -1328,8 +1328,23 @@ class PyreflyTspFactsAdapter:
             else (shlex.split(command) if isinstance(command, str) else list(command))
         )
         self._argv = [*argv, "tsp"] if "tsp" not in argv else list(argv)
+        # Extra config flags pinned after the subcommand (`tsp` is a proxy
+        # for the check-mode configuration): the factsbridge passes the
+        # flags that make unannotated defs report inferred return types.
+        self._config_args: list[str] = []
         self._connection: _LspConnection | None = None
         self._opened: dict[str, tuple[int, str]] = {}
+
+    def with_config_args(self, args: Sequence[str]) -> PyreflyTspFactsAdapter:
+        """Return this adapter, with extra check-mode config flags pinned.
+
+        The flags land on the `pyrefly ... tsp` spawn line after the
+        `tsp` token, so they apply to the configuration the server uses
+        (`--check-unannotated-defs`, `--infer-return-types`, ...). An
+        empty sequence is a no-op.
+        """
+        self._config_args = list(args)
+        return self
 
     def facts(self, path: Path) -> ModuleFacts:
         path = path.resolve()
@@ -1423,7 +1438,7 @@ class PyreflyTspFactsAdapter:
     def _connect(self) -> _LspConnection:
         if self._connection is not None:
             return self._connection
-        connection = _LspConnection(self._argv, server_name="pyrefly tsp")
+        connection = _LspConnection([*self._argv, *self._config_args], server_name="pyrefly tsp")
         connection.start()
         initialized = connection.request(
             "initialize",
