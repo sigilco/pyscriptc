@@ -308,6 +308,17 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # checker's proof. The bridge owns the list when one is wired, so
         # a package compile gathers every file's records in one place.
         self.infer_records: list[dict[str, Any]] = []
+        # The pin-pass caller caches (issue #500, per pin round): the
+        # def-independent facts of each caller, reused across the pending
+        # defs of one `_pin_call_site_params` run. The calls list is the
+        # caller's Name-callee call nodes (a pure AST walk); the locals
+        # table is what `_call_site_locals` derives, keyed by the pin epoch
+        # so a pin landing mid-round (a new caller-parameter annotation, a
+        # new signature) recomputes the callers it can now see differently.
+        # Both reset at the start of every pin pass.
+        self._pin_epoch: int = 0
+        self._pin_caller_calls: dict[int, list[ast.Call]] = {}
+        self._pin_caller_locals: dict[tuple[int, int], dict[str, dict[str, Any]]] = {}
 
     def _record_inference(self, record: dict[str, Any]) -> None:
         """Record one accepted inference fact.
@@ -785,6 +796,9 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         """
 
         by_name = {fn.name: fn for fn in functions if isinstance(fn, ast.FunctionDef)}
+        self._pin_epoch = 0
+        self._pin_caller_calls = {}
+        self._pin_caller_locals = {}
         pending = [
             fn
             for fn in by_name.values()
@@ -821,6 +835,12 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                     continue
                 for arg, typ in pins.items():
                     arg.annotation = self._pin_annotation(typ)
+                # The pin mutated caller-visible state: a caller whose own
+                # parameter got an annotation reads differently in the
+                # caller walk, and every table derived before this point
+                # is stale. Bump the epoch so the cached caller walk
+                # recomputes (issue #500, the per-round invalidation).
+                self._pin_epoch += 1
                 saved_prelude = self.prelude
                 saved_caught = self.caught
                 saved_temp_n = self.temp_n
@@ -842,6 +862,9 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                     self.temp_n = saved_temp_n
                     self.function = saved_function
                 self.sigs[fn.name] = signed
+                # A new signature is caller-visible state for the peeks
+                # (`_call_site_types` reads returns through `self.sigs`).
+                self._pin_epoch += 1
                 pinned_names = {arg.arg for arg in pins}
                 fences[:] = [
                     item
@@ -886,7 +909,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         wanted = {arg.arg: arg for arg in unannotated}
         pins: dict[str, dict[str, Any]] = {}
 
-        def _call_site_locals(caller: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        def _call_site_locals(caller: ast.FunctionDef | ast.AsyncFunctionDef) -> dict[str, dict[str, Any]]:
             """Bind the caller body's own local names for the argument peeks.
 
             `get_category(ext)` passes a local the caller bound earlier; the
@@ -897,6 +920,11 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             name bound twice with different types leaves the table: the
             ambiguity refuses the pin rather than guessing. Loop targets
             resolve from their iterable when its type is known.
+
+            The table is returned rather than installed: the pin pass asks
+            for the same caller once per pending def, and the table is a
+            def-independent fact of the caller (it names no def), so the
+            caller caches it per pin epoch.
             """
 
             self.locals = self._bindings_types()
@@ -1019,6 +1047,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 if typ.get("kind") not in {None, "__peek_unresolved__"} and arg.arg not in self.bindings:
                     self.locals[arg.arg] = typ
             _visit(caller.body)
+            return self.locals
 
         saved_pin_locals = self.locals
         # The Namespace field scan is a pure function of the module AST and
@@ -1030,10 +1059,27 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         if namespace_fields is None:
             namespace_fields = self._pin_namespace_locals(list(by_name.values())) or []
         for caller in by_name.values():
-            _call_site_locals(caller)
-            for node in ast.walk(caller):
-                if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
-                    continue
+            # The caller's own facts are def-independent: the call list is a
+            # pure AST walk, the locals table names no def. Both are cached
+            # per pin epoch (the epoch bumps when a pin lands, so a table
+            # computed before the pin is not reused after it).
+            calls = self._pin_caller_calls.get(id(caller))
+            if calls is None:
+                calls = [
+                    node for node in ast.walk(caller) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                ]
+                self._pin_caller_calls[id(caller)] = calls
+            key = (id(caller), self._pin_epoch)
+            table = self._pin_caller_locals.get(key)
+            if table is None:
+                table = _call_site_locals(caller)
+                self._pin_caller_locals[key] = dict(table)
+            else:
+                # A fresh copy: the argument peeks below add their own
+                # temporaries to the installed table, and the cached one
+                # must stay the caller's own names.
+                self.locals = dict(table)
+            for node in calls:
                 if node.func.id != fn.name:
                     continue
                 if caller is fn:
