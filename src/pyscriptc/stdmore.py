@@ -1391,6 +1391,7 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("asyncio", "Event"): "AsyncEvent",
     ("asyncio", "Semaphore"): "AsyncSemaphore",
     ("asyncio", "Queue"): "AsyncQueue",
+    ("json", "JSONDecodeError"): "JSONDecodeError",
 }
 
 # Instance methods. `elem` means the deque's element type.

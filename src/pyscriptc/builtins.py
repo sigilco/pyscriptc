@@ -81,9 +81,11 @@ EXCEPTION_PARENTS: dict[str, str] = {
     "SyntaxWarning": "Warning",
     "UnicodeWarning": "Warning",
     "UserWarning": "Warning",
+    "JSONDecodeError": "ValueError",
 }
 
-# Names that share another class's code.
+# Names that share another class's code. JSONDecodeError is a ValueError
+# child, not an alias: CPython raises it on malformed JSON input.
 EXCEPTION_ALIASES: dict[str, str] = {
     "EnvironmentError": "OSError",
     "IOError": "OSError",
@@ -160,6 +162,7 @@ EXCEPTIONS: dict[str, int] = {
     "UserWarning": 67,
     "EnvironmentError": 24,
     "IOError": 24,
+    "JSONDecodeError": 68,
 }
 
 # User exception classes take codes from here up; matches PS_USER_BASE in

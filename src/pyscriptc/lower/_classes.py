@@ -1258,6 +1258,12 @@ class ClassesMixin:
             node.id in EXCEPTIONS or node.id == "BaseException" or self.classes.get(node.id, {}).get("exception")
         ):
             return {"kind": "exc"}
+        if isinstance(node, ast.Attribute):
+            # A dotted builtin exception spelling (json.JSONDecodeError): the
+            # alias name resolves through the module chain.
+            resolved = self._resolve_module(node)
+            if resolved is not None and resolved[3] == "lowered" and alias_name(resolved[1], resolved[2]) in EXCEPTIONS:
+                return {"kind": "exc"}
         # boxed:begin
         # An island class annotation is its handle type (issue #628): the
         # class lives in the embedded interpreter, and an instance crossed
