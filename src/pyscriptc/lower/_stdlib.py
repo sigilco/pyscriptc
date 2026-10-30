@@ -1026,14 +1026,15 @@ class StdlibDispatchMixin:
         The class object lives in the defining module's island namespace,
         where it is callable, so the instantiation is the same namespaced
         trampoline as `_island_floor_call` with the class name as the callee
-        key. The instance is an opaque handle of the class's own type.
+        key. The instance is an opaque handle of the class's own type (the
+        class's spelling carries the defining module, issue #628).
         """
         marshalled, npos, nkw = self._island_args(node, span)
         call_expr: dict[str, Any] = {
             "kind": "call",
             "callee": {"kind": "module", "module": "island", "name": name},
             "args": marshalled,
-            "type": _island_handle(f"{module}.{name}()"),
+            "type": island_class_type(f"{module}.{name}"),
             "symbol": INVOKE_SYMBOL,
             "island_fn": {"name": name, "module": module},
             "island_npos": npos,

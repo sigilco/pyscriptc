@@ -2615,8 +2615,13 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             # cross the boundary through the boxed seam.
             if item.get("island"):
                 if self.program and self._boxed_cross_module_island():
-                    self.bindings[local] = Binding("island_floor_class", module, name, False)
-                    self.island_floor_classes[local] = (module, name)
+                    # The class object lives in the *defining* module's island
+                    # namespace, which is not always the module the import
+                    # names: a package re-exports it (`from ._utils import
+                    # *`), so the entry carries the owner.
+                    owner = str(item.get("module") or module)
+                    self.bindings[local] = Binding("island_floor_class", owner, name, False)
+                    self.island_floor_classes[local] = (owner, name)
                     self.declared.add(local)
                     return
                 fence = Fence(
