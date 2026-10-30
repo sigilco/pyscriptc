@@ -1744,7 +1744,7 @@ def _require_toolchain(args: argparse.Namespace) -> None:
     if driver is None:
         raise IRError(
             "no C toolchain found on PATH (neither zig nor clang), and compiling to a binary needs a C toolchain. "
-            f"Install one of: {zigshim.install_hint()}, or clang (xcode-select --install, apt install clang, ...). "
+            f"{zigshim.install_hint()}, or clang (xcode-select --install, apt install clang, ...). "
             "Run `pyscriptc doctor` to see what was found and the README for install commands. "
             "`--emit ir` and `--emit llvm` need no toolchain."
         )
