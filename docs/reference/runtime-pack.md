@@ -74,3 +74,81 @@ What the binary needs at run time, and what it does not:
 - No network and no pack cache for `--embed-python bundle` compiles: the binary links user programs against the runtime it carries.
 
 `--bundle-exclude mypy` declares the optional mypy bridge an extern dependency: the import stays in the compiled compiler, and the host answers it exactly like CPython answers a dead import. Without the exclusion the bundle refuses the compile, because mypy ships a compiled extension and a bundle carries pure Python only (PS4302).
+
+## The onefile output
+
+`--onefile` writes the bundle as one executable instead of a directory. The
+flag needs `--embed-python=bundle`.
+
+```sh
+pyscriptc compile src/pyscriptc --program --skip-check --island --emit bin \
+  --embed-python bundle --embed-headers --embed-stdlib minimal \
+  --onefile --strip-runtime -o dist/selfbin-onefile
+```
+
+The output is `dist/selfbin-onefile/selfbin-onefile`, one file. It holds:
+
+- the compiled program, the pinned runtime and the staged data tree, in one
+  zlib-compressed payload,
+- a small C stub in front of it (about 17 KB compiled) that finds the payload
+  appended to its own file.
+
+The stub is the whole runtime story of the onefile. On the first run it
+inflates the payload into a cache directory and execs the extracted binary
+with the process argv; on every later run it finds the cache directory and
+execs straight away. The cache directory is named after the payload's
+sha256, so:
+
+- a rebuild whose payload differs extracts beside the old tree instead of
+  over it, and both keep working,
+- two hosts that run the same file for the first time at the same time race
+  for the extraction; the loser of the atomic rename execs the winner's
+  tree, which holds the same bytes.
+
+The cache root is `$PYSC_ONEFILE_CACHE` when it is set, then
+`$XDG_CACHE_HOME/pyscriptc/onefile`, then `~/.cache/pyscriptc/onefile`.
+
+The stub links zlib and nothing else, and it needs no `tar` and no Python: a
+container image with only libc runs the onefile as it runs the bundle. The
+build host needs zlib's development files (`libz-dev` on Debian, `zlib-devel`
+on Fedora) and a C compiler, because the stub is built from source on the
+machine that builds the onefile.
+
+The cost of the shape is one decompression on the first run: about 0.4 s for
+the 19 MB yt-dlp payload on the VPS. The warm run adds a `stat` and an
+`execv` to the program's own startup, which is under a millisecond.
+
+### What the host still needs
+
+The onefile carries the interpreter, the stdlib and the program's own data.
+It does not carry the tools around the compiler, and a self-compiled
+pyscriptc still needs them on the host:
+
+- A C toolchain on PATH (clang or zig) for `--emit bin` and `run`, exactly
+  like the installed compiler. This is the known gap of the onefile: the
+  compiler shells out to `cc` to build the emitted LLVM IR and the onefile
+  stub, and a onefile that carries a toolchain would carry a second copy of
+  a compiler.
+- `pyrefly` for `check` and for the preflight of a compile without
+  `--skip-check`. The binary resolves it like the installed compiler: the
+  `PYREFLY_BIN` override, then a `pyrefly` on PATH. When none is found the
+  compile says so and names the remedy instead of half-running.
+- No Python, uv or pip, and no pack cache and no network.
+
+### Shrinking the output
+
+Two flags cut the size, and neither is an executable compressor (zstd and
+upx are not used, and the note that froze the benchmark's size levers
+forbids them):
+
+- `--strip-runtime` strips the staged `libpython`. Plain `strip` keeps
+  `.dynsym`, where every `PyInit_*` extension entry point and the
+  interpreter's exported API live, and drops the debug and static symbol
+  tables: about 12 MB off the 32 MB Linux libpython.
+- `--embed-stdlib minimal` trims the stdlib zip to a frozen closure over the
+  CPython import graph instead of the safe trim's "everything except the
+  developer-facing trees". On the yt-dlp tree it takes the zip from 6.8 MB
+  to 4.1 MB.
+
+The size of a onefile is therefore the sum of the program, the runtime and
+the trimmed stdlib, compressed once with zlib.

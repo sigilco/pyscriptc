@@ -29,6 +29,8 @@ pyscriptc compile SOURCE [options]
 | `--bundle-exclude ROOT` | `ROOT` | import root a bundle does not carry: the host must provide it (an optional or native-backed dependency); repeatable |
 | `--island-engine ENGINE` | `ENGINE` | island engine descriptor to use (a TOML path, a name searched in PYSC_ISLAND_ENGINES, or cpython for the built-in embedded-CPython engine); resolved, validated and recorded in the debug summary. Also read from the `engine` key of [tool.pyscriptc.island] |
 | `--embed-headers` |  | stage the runtime pack's CPython headers into a bundle: a bundle that is itself a compiler (the self-compiled pyscriptc) needs Python.h to compile island programs at run time |
+| `--onefile` |  | write the bundle as one executable: the payload travels appended to a small stub, which extracts it into the cache (keyed by the payload's sha256) on the first run and execs it on every run. Needs --embed-python=bundle |
+| `--strip-runtime` |  | strip the staged libpython of a bundle: the dynamic symbols the interpreter exports stay, the debug and static symbols go (about 12 MB on Linux) |
 | `--call FUNC` | `FUNC` | function the generated main calls |
 | `--args ARGS` | `ARGS` | Python literal list of arguments for --call, parsed with ast.literal_eval (default `[]`) |
 | `--run` |  | compile a binary and run it; arguments after `--` go to the binary |
