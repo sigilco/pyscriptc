@@ -691,6 +691,10 @@ class TypeInferMixin:
         ]
         if not pending:
             return
+        # The Namespace field scan is def-independent: one run serves every
+        # pending def of this pass (the scan re-derives the same fields each
+        # time, so a per-def call inside `_call_site_types` is pure waste).
+        namespace_fields = self._pin_namespace_locals(list(by_name.values())) or []
         # The first signature pass fenced the unannotated parameters this
         # pass is about to prove. A def the pin rescues has its stale
         # first-pass fence dropped: the rescued signature is the answer and
@@ -707,7 +711,7 @@ class TypeInferMixin:
                 ]
                 if not unannotated:
                     continue
-                pins = self._call_site_types(fn, unannotated, by_name)
+                pins = self._call_site_types(fn, unannotated, by_name, namespace_fields)
                 if not pins:
                     continue
                 for arg, typ in pins.items():
@@ -764,6 +768,7 @@ class TypeInferMixin:
         fn: ast.FunctionDef | ast.AsyncFunctionDef,
         unannotated: list[ast.arg],
         by_name: dict[str, ast.FunctionDef | ast.AsyncFunctionDef],
+        namespace_fields: list[dict[str, Any]] | None = None,
     ) -> dict[ast.arg, dict[str, Any]]:
         """The one type every call site proves for each unannotated parameter.
 
@@ -911,7 +916,13 @@ class TypeInferMixin:
             _visit(caller.body)
 
         saved_pin_locals = self.locals
-        self._pin_namespace_locals(list(by_name.values()))
+        # The Namespace field scan is a pure function of the module AST and
+        # the closed add_argument keyword set: it does not read the pin in
+        # flight, and every call computes the same fields. The pin pass asks
+        # `_call_site_types` once per pending def, so without the hoist the
+        # same scan runs once per def: run it once per `_pin_call_site_params` instead.
+        if namespace_fields is None:
+            namespace_fields = self._pin_namespace_locals(list(by_name.values())) or []
         for caller in by_name.values():
             _call_site_locals(caller)
             for node in ast.walk(caller):
