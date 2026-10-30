@@ -822,13 +822,21 @@ class BridgeProvider:
     provider: str
     strict: int
 
-    def __init__(self, provider: str, strict: bool = True) -> None:
+    def __init__(self, provider: str, strict: bool = True, pins: Any = None, pinned: Any = None) -> None:
         self.provider = provider
         self.strict = 1 if strict else 0
         # The inference records the lowerer accepted across every file the
         # provider served, gathered by `pyscriptc infer` and `compile
         # --debug`. Each per-file `CheckerBridge` points here.
         self.records: list[dict[str, Any]] = []
+        # The package-wide pin map (`pyscriptc infer`): the lowerer asks
+        # every bridge for the pins of the callee it lowers, so the pins
+        # ride the bridge the same way the per-file facts do.
+        self.pins = pins
+        # The per-file facts re-checked over a pinned copy of each module
+        # (`pyscriptc infer`): a return the checker derives from a pinned
+        # parameter is consistent with what the lowerer applies.
+        self.pinned = pinned or {}
         self._pyrefly_bridge: PyreflyBridge | None = None
 
     def open(self) -> None:
@@ -859,10 +867,16 @@ class BridgeProvider:
         self.close()
 
     def for_file(self, path: Path) -> CheckerBridge:
-        if self._pyrefly_bridge is not None:
-            return CheckerBridge(self._pyrefly_bridge.facts(path), self.records)
+        found = self.pinned.get(path.resolve())
         strict_flag: bool = True if self.strict != 0 else False
-        return CheckerBridge.for_path(path, self.provider, strict=strict_flag, records=self.records)
+        if self._pyrefly_bridge is not None:
+            bridge = CheckerBridge(found if found is not None else self._pyrefly_bridge.facts(path), self.records)
+        elif found is not None:
+            bridge = CheckerBridge(found, self.records)
+        else:
+            bridge = CheckerBridge.for_path(path, self.provider, strict=strict_flag, records=self.records)
+        bridge.call_site_facts = self.pins
+        return bridge
 
 
 class CheckerBridge:
