@@ -350,8 +350,10 @@ def _lower_units(
         # a package-shaped program (`python -m pkg`) imports its modules
         # under the package name and resolves relative imports against the
         # package, which the per-module seed (one namespace per module, no
-        # finder bootstrap) cannot reproduce. Such a program runs whole
-        # island-side, as before.
+        # finder bootstrap) cannot reproduce: the experiment shows the
+        # island seed re-executing the package `__init__` (its prints
+        # double) and an island function reading `__file__` unresolved.
+        # Such a program runs whole island-side, as before.
         split_ready = (
             not plane_top_island
             and island_modules
