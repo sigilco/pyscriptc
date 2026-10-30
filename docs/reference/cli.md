@@ -26,6 +26,8 @@ pyscriptc compile SOURCE [options]
 | `--island` |  | alias of --fallback=cpython: route every import outside the closed table and every function pyscriptc cannot compile to embedded CPython (fallback mode) |
 | `--embed-python MODE` | `host\|bundle\|auto` | libpython embedded CPython links: host (the compiler interpreter), bundle (the pinned runtime pack, relocatable output) or auto (host when this interpreter has a shared libpython, bundle otherwise; the default). Also read from the `embed` key of [tool.pyscriptc.island] |
 | `--embed-stdlib TRIM` | `safe\|minimal` | stdlib trim of a bundle: safe (the default; everything except test, idlelib, tkinter, turtledemo, ensurepip, pydoc_data, __phello__) or minimal (an opt-in frozen closure plus allowlist). Also read from the `stdlib` key of [tool.pyscriptc.island] |
+| `--onefile` |  | write the bundle as one executable: the payload travels appended to a small stub, which extracts it into the cache (keyed by the payload's sha256) on the first run and execs it on every run. Needs --embed-python=bundle |
+| `--strip-runtime` |  | strip the staged libpython of a bundle: the dynamic symbols the interpreter exports stay, the debug and static symbols go (about 12 MB on Linux) |
 | `--call FUNC` | `FUNC` | function the generated main calls |
 | `--args ARGS` | `ARGS` | Python literal list of arguments for --call, parsed with ast.literal_eval (default `[]`) |
 | `--run` |  | compile a binary and run it; arguments after `--` go to the binary |

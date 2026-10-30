@@ -303,6 +303,12 @@ def minimal_modules(stdlib_dir: Path | None = None) -> list[Path]:
             for child in sorted(package.glob("*.py")):
                 keep.add(f"{name}.{child.stem}")
         queue.append(name)
+    # `sysconfig` reads the build's configuration through a data module whose
+    # name carries the platform and the ABI flags (`_sysconfigdata__linux_
+    # x86_64-linux-gnu`), imported by name at run time. The static walk
+    # cannot see it, so the module travels whenever `sysconfig` does.
+    for data in sorted(source_tree.glob("_sysconfigdata_*.py")):
+        keep.add(data.stem)
     seen: set[str] = set()
     while queue:
         name = queue.pop(0)

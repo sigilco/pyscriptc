@@ -206,6 +206,10 @@ run = "bash scripts/wheel_smoke.sh"
 description = "Build the self-compiled pyscriptc (a bundle that carries its own runtime) and run its tests"
 run = "uv run pyscriptc compile src/pyscriptc --program --skip-check --island --emit bin --embed-python bundle --embed-headers --bundle-exclude mypy -o dist/selfbin && uv run pytest tests/test_selfbin.py -m slow"
 
+[tasks.selfbin-onefile]
+description = "Build the self-compiled pyscriptc as one executable and run its tests"
+run = "uv run pyscriptc compile src/pyscriptc --program --skip-check --island --emit bin --embed-python bundle --embed-headers --embed-stdlib minimal --bundle-exclude mypy --onefile --strip-runtime -o dist/selfbin-onefile && uv run pytest tests/test_selfbin.py -m slow"
+
 # The rehearsal is a workflow_dispatch of release.yml on the full SHA. Only a
 # run titled "rehearsal <full SHA>" counts for the cut-release and publish gates.
 [tasks."release:rehearse"]
