@@ -320,6 +320,11 @@ class Lowerer(
         # and the island lane side by side, so a call into another module's
         # island floor crosses the boundary instead of refusing.
         self._boxed_plane_split = False
+        # The island group (the plane split's cycle rule): this unit rides
+        # the island floor whole-module. The merge sets it from the program
+        # plan's cycle members before the catalog pass, so the export table
+        # agrees on which definitions the unit keeps.
+        self._boxed_island_unit = False
         # boxed:end
         self.module_name = ""
         self.is_package = False
