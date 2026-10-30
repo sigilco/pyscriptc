@@ -386,6 +386,17 @@ void ps_json_loads(int64_t n, char *p, const PsType *types, int32_t root, void *
     }
 }
 
+void ps_json_loads_bytes(int64_t n, char *p, const PsType *types, int32_t root, void *out) {
+    /* json.loads over a bytes input: CPython decodes the buffer as UTF-8
+       before scanning, so malformed sequences raise the UnicodeDecodeError
+       family instead of a JSON scan error. The valid decode is the input
+       bytes themselves (a str is a UTF-8 buffer), so the check is the
+       whole work; the parse then runs on the original buffer. */
+    PsBuf decoded;
+    ps_utf8_decode(n, p, &decoded);
+    ps_json_loads(n, p, types, root, out);
+}
+
 static void ps_dump(const PsType *types, int32_t idx, const void *value, PsGrow *g);
 
 static void ps_dump_str(PsBuf buf, PsGrow *g) {
