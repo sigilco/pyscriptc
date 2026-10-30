@@ -72,6 +72,8 @@ from pyscriptc.stdlib_queue import (
 )
 from pyscriptc.stdmore import PTR_CLASSES, member_callable, module_constant
 
+WHOLE_TABLE = "*"
+
 
 class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixin, ClosuresMixin):
     def __init__(self, filename: str, source: str, target: str | None = None, config: Any = None) -> None:
@@ -297,6 +299,48 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # inferred-type map. None means no bridge: lowering keeps every
         # inference fence exactly as before.
         self.bridge: Any = None
+        # Cross-module parameter pinning (issue #87, `pyscriptc infer`):
+        # the checker's call-site facts, keyed by module stem and qualified
+        # name, with the source line/col of each call. Set by `pyscriptc
+        # infer`; None means the compiler's own same-module pin stands.
+        self.call_site_facts: Any = None
+        # Every fact the checker proved and the lowerer accepted this run,
+        # for `compile --debug` and `pyscriptc infer`. A record carries the
+        # module, qualified name, the accepted IR type and a render of the
+        # checker's proof. The bridge owns the list when one is wired, so
+        # a package compile gathers every file's records in one place.
+        self.infer_records: list[dict[str, Any]] = []
+        # The pin-pass caller caches (issue #500, per pin round): the
+        # def-independent facts of each caller, reused across the pending
+        # defs of one `_pin_call_site_params` run. The calls list is the
+        # caller's Name-callee call nodes (a pure AST walk); the locals
+        # table is what `_call_site_locals` derives, keyed by the pin epoch
+        # so a pin landing mid-round (a new caller-parameter annotation, a
+        # new signature) recomputes the callers it can now see differently.
+        # Both reset at the start of every pin pass.
+        self._pin_epoch: int = 0
+        self._pin_caller_calls: dict[int, list[ast.Call]] = {}
+        self._pin_caller_locals: dict[tuple[int, int], dict[str, dict[str, Any]]] = {}
+        # The export-table reads this run made (issue #424, the catalog
+        # fixpoint): (module, member) pairs, or (module, None) for a
+        # module-presence check. The catalog memo compares exactly these
+        # entries between rounds, so a unit whose imports did not change
+        # reuses its previous round's result instead of re-lowering.
+        self._export_reads: set[tuple[str, str | None]] = set()
+
+    def _record_inference(self, record: dict[str, Any]) -> None:
+        """Record one accepted inference fact.
+
+        The list lives on the bridge when one is wired (a package compile
+        gathers every file's records in one place) and on the lowerer
+        otherwise (a single-file compile with no bridge).
+        """
+        target = self.bridge
+        sink = getattr(target, "infer_records", None)
+        if sink is None:
+            self.infer_records.append(record)
+        else:
+            sink.append(record)
 
     def _bridge_type(self, node: ast.expr) -> dict[str, Any] | None:
         """The IR type the checker inferred for an expression, or None.
@@ -322,6 +366,43 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         if self.bridge is None:
             return None
         return self.bridge.param_type(fn, arg.arg, self.classes)
+
+    def _checker_pin_type(self, fn: ast.FunctionDef | ast.AsyncFunctionDef, arg: ast.arg) -> dict[str, Any] | None:
+        """The IR type the package's call sites proved for this parameter, or None.
+
+        The pin is a whole-package fact (`pyscriptc infer` ran the checker
+        over every module and reduced the call sites to the parameters
+        every caller agreed on). It applies only to a module-level def the
+        pin names by its qualified name; a method or a def the pin does not
+        name keeps its fence.
+        """
+        if self.call_site_facts is None:
+            return None
+        from pyscriptc.inferfacts import parse_pin_type
+
+        pins = self.call_site_facts.pins_for(f"{self.module_name}.{fn.name}" if self.module_name else fn.name)
+        pin = pins.get(arg.arg)
+        if pin is None:
+            return None
+        from pyscriptc.factsbridge import facts_to_ir
+
+        parsed = parse_pin_type(pin.kind)
+        if parsed is None:
+            return None
+        ir = facts_to_ir(parsed, self.classes)
+        if ir is not None:
+            self._record_inference(
+                {
+                    "kind": "param",
+                    "module": self.module_name,
+                    "name": f"{fn.name}.{arg.arg}",
+                    "type": pin.kind,
+                    "proof": (
+                        f"pyrefly proved the type of every argument passed to {arg.arg} across {pin.sites} call site(s)"
+                    ),
+                }
+            )
+        return ir
 
     def _bridge_return_type(self, fn: ast.FunctionDef | ast.AsyncFunctionDef) -> dict[str, Any] | None:
         """The IR type the checker inferred for a missing return annotation."""
@@ -484,6 +565,12 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         type, so it does not flow into the inferred return. The PS1004
         fall-off-the-end fence is replayed by the real pass, which signs
         and lowers the body for real.
+
+        When the body's own proof fails, the checker's proof is the
+        fallback (`--bridge pyrefly`, `pyscriptc infer`): the checker
+        types the whole body, so it sees returns the subset's peek cannot
+        lower. The checker's answer is used only when the subset can
+        express it, and it is recorded so `compile --debug` shows it.
         """
         if fn.returns is not None or self.function is None:
             return None
@@ -583,6 +670,68 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             return None
         return inferred
 
+    def _bridged_signature(self, fn: ast.FunctionDef | ast.AsyncFunctionDef) -> dict[str, Any] | None:
+        """The return type the checker proved for this def, or None.
+
+        The checker's answer is the fallback for the body's own proof: it
+        types the whole body, so it proves a return the subset's peek
+        cannot lower (a call the subset refuses, a builtin it does not
+        know). Only a type the subset can express is used, and only when
+        the checker proved a concrete one (never `Any`).
+
+        The soundness rule is the compiler's: the compiled function must
+        return what the body returns. So the checker's answer is accepted
+        only when every `return` expression in the body carries a fact
+        that agrees with it. A return the checker could not type, or one
+        that disagrees, refuses the inference and the fence stands: a
+        wrong inference is a miscompile, not a warning.
+        """
+        if self.bridge is None:
+            return None
+        proven = self._bridge_return_type(fn)
+        if proven is None:
+            return None
+        if not self._returns_agree(fn, proven):
+            return None
+        facts = self._bridge_def(fn)
+        rendered = None
+        if facts is not None and facts.return_type is not None:
+            rendered = facts.return_type.runtime_repr
+        self._record_inference(
+            {
+                "kind": "return",
+                "module": self.module_name,
+                "name": fn.name,
+                "type": rendered or str(proven),
+                "proof": "the checker proved this return type from the function body, and every return agrees",
+            }
+        )
+        return proven
+
+    def _returns_agree(self, fn: ast.FunctionDef | ast.AsyncFunctionDef, proven: dict[str, Any]) -> bool:
+        """Whether every return expression in the body carries the proven type.
+
+        The checker's per-expression facts are the evidence: a return the
+        checker typed `str` under a proven `int` means the two disagree
+        and the inference is refused. A return with no fact (the checker
+        could not type it) refuses the inference too, because the
+        compiler cannot prove the body returns what the signature says.
+        """
+        if self.bridge is None:
+            return False
+        returns = [stmt.value for stmt in ast.walk(fn) if isinstance(stmt, ast.Return) and stmt.value is not None]
+        if not returns:
+            # A def with no value return returns None; the checker must
+            # have proved None too.
+            return proven["kind"] == "none"
+        for value in returns:
+            fact = self.bridge.inferred_type(value, self.classes)
+            if fact is None:
+                return False
+            if not types_equal(fact, proven):
+                return False
+        return True
+
     def _bindings_types(self) -> dict[str, dict[str, Any]]:
         """The import-bound modules as peekable types.
 
@@ -651,6 +800,9 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         """
 
         by_name = {fn.name: fn for fn in functions if isinstance(fn, ast.FunctionDef)}
+        self._pin_epoch = 0
+        self._pin_caller_calls = {}
+        self._pin_caller_locals = {}
         pending = [
             fn
             for fn in by_name.values()
@@ -662,6 +814,10 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         ]
         if not pending:
             return
+        # The Namespace field scan is def-independent: one run serves every
+        # pending def of this pass (the scan re-derives the same fields each
+        # time, so a per-def call inside `_call_site_types` is pure waste).
+        namespace_fields = self._pin_namespace_locals(list(by_name.values())) or []
         # The first signature pass fenced the unannotated parameters this
         # pass is about to prove. A def the pin rescues has its stale
         # first-pass fence dropped: the rescued signature is the answer and
@@ -678,11 +834,17 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 ]
                 if not unannotated:
                     continue
-                pins = self._call_site_types(fn, unannotated, by_name)
+                pins = self._call_site_types(fn, unannotated, by_name, namespace_fields)
                 if not pins:
                     continue
                 for arg, typ in pins.items():
                     arg.annotation = self._pin_annotation(typ)
+                # The pin mutated caller-visible state: a caller whose own
+                # parameter got an annotation reads differently in the
+                # caller walk, and every table derived before this point
+                # is stale. Bump the epoch so the cached caller walk
+                # recomputes (issue #500, the per-round invalidation).
+                self._pin_epoch += 1
                 saved_prelude = self.prelude
                 saved_caught = self.caught
                 saved_temp_n = self.temp_n
@@ -704,6 +866,9 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                     self.temp_n = saved_temp_n
                     self.function = saved_function
                 self.sigs[fn.name] = signed
+                # A new signature is caller-visible state for the peeks
+                # (`_call_site_types` reads returns through `self.sigs`).
+                self._pin_epoch += 1
                 pinned_names = {arg.arg for arg in pins}
                 fences[:] = [
                     item
@@ -735,6 +900,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         fn: ast.FunctionDef | ast.AsyncFunctionDef,
         unannotated: list[ast.arg],
         by_name: dict[str, ast.FunctionDef | ast.AsyncFunctionDef],
+        namespace_fields: list[dict[str, Any]] | None = None,
     ) -> dict[ast.arg, dict[str, Any]]:
         """The one type every call site proves for each unannotated parameter.
 
@@ -747,7 +913,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         wanted = {arg.arg: arg for arg in unannotated}
         pins: dict[str, dict[str, Any]] = {}
 
-        def _call_site_locals(caller: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        def _call_site_locals(caller: ast.FunctionDef | ast.AsyncFunctionDef) -> dict[str, dict[str, Any]]:
             """Bind the caller body's own local names for the argument peeks.
 
             `get_category(ext)` passes a local the caller bound earlier; the
@@ -758,6 +924,11 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             name bound twice with different types leaves the table: the
             ambiguity refuses the pin rather than guessing. Loop targets
             resolve from their iterable when its type is known.
+
+            The table is returned rather than installed: the pin pass asks
+            for the same caller once per pending def, and the table is a
+            def-independent fact of the caller (it names no def), so the
+            caller caches it per pin epoch.
             """
 
             self.locals = self._bindings_types()
@@ -880,14 +1051,39 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 if typ.get("kind") not in {None, "__peek_unresolved__"} and arg.arg not in self.bindings:
                     self.locals[arg.arg] = typ
             _visit(caller.body)
+            return self.locals
 
         saved_pin_locals = self.locals
-        self._pin_namespace_locals(list(by_name.values()))
+        # The Namespace field scan is a pure function of the module AST and
+        # the closed add_argument keyword set: it does not read the pin in
+        # flight, and every call computes the same fields. The pin pass asks
+        # `_call_site_types` once per pending def, so without the hoist the
+        # same scan runs once per def (measured 34.6s of the 118s pin pass
+        # on yt-dlp utils/): run it once per `_pin_call_site_params` instead.
+        if namespace_fields is None:
+            namespace_fields = self._pin_namespace_locals(list(by_name.values())) or []
         for caller in by_name.values():
-            _call_site_locals(caller)
-            for node in ast.walk(caller):
-                if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
-                    continue
+            # The caller's own facts are def-independent: the call list is a
+            # pure AST walk, the locals table names no def. Both are cached
+            # per pin epoch (the epoch bumps when a pin lands, so a table
+            # computed before the pin is not reused after it).
+            calls = self._pin_caller_calls.get(id(caller))
+            if calls is None:
+                calls = [
+                    node for node in ast.walk(caller) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                ]
+                self._pin_caller_calls[id(caller)] = calls
+            key = (id(caller), self._pin_epoch)
+            table = self._pin_caller_locals.get(key)
+            if table is None:
+                table = _call_site_locals(caller)
+                self._pin_caller_locals[key] = dict(table)
+            else:
+                # A fresh copy: the argument peeks below add their own
+                # temporaries to the installed table, and the cached one
+                # must stay the caller's own names.
+                self.locals = dict(table)
+            for node in calls:
                 if node.func.id != fn.name:
                     continue
                 if caller is fn:
@@ -1592,7 +1788,13 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         functions: list[ast.FunctionDef] = []
         class_nodes: list[ast.ClassDef] = []
         live = self._live_statements(list(tree.body), fences)
+        # The import pass may have installed slots imported from other
+        # modules (a cross-module global read). The scan of the module's own
+        # `global` declarations does not know them, so they are kept: the
+        # scan replaces the table, and the imported entries survive it.
+        imported_slots = {k: v for k, v in self.global_slots.items() if v.get("foreign_key")}
         self.global_slots = self._scan_global_slots(live)
+        self.global_slots.update(imported_slots)
         entry_stmts = self._split_entry(live, functions, class_nodes, fences)
         # boxed:end
         entry_fn = self._entry_function(entry_stmts, functions)
@@ -1822,6 +2024,19 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 self.typevars = saved_typevars
         self._drain_instances(lowered, lowered_classes, fences)
         lowered.extend(self.nested_fns)
+        # A program module's global slot initializers belong to its module
+        # body: in CPython the assignment runs when the module is imported,
+        # so the synthesized `__init__` carries them. The single-file shape
+        # keeps them in `module["globals"]`, which the binary main emits
+        # before it calls the entry.
+        if self.module_init and self.global_inits:
+            for record in lowered:
+                if record["name"] == self._ir_name("__init__"):
+                    record["body"] = [
+                        {"kind": "expr", "expr": init, "span": init.get("span", {})} for init in self.global_inits
+                    ] + record["body"]
+                    self.global_inits = []
+                    break
         lowered_classes.extend(self._synthetic_classes({item["name"] for item in lowered_classes}))
         # The deferred classes (the argparse namespace) grew their fields
         # while the statements lowered, so they close here.
@@ -2049,14 +2264,20 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         A program's other modules synthesize `__init__`: their body runs when
         the program first imports them, before the importing module's body.
         """
-        if not stmts:
-            return []
         if self.module_name and not self._is_program_main():
             if not self.module_init:
+                return []
+            # A module whose top level only binds global slots has no script
+            # statements, but the slot initializers still run at import: an
+            # empty `__init__` carries them (the IR pass prepends the
+            # `ps_global_set_*` calls to this entry's body).
+            if not stmts and not self.global_inits:
                 return []
             taken = {fn.name for fn in functions} | self.declared
             name = "__init__" if "__init__" not in taken else "__init_entry__"
             return [self._make_entry(stmts, name)]
+        if not stmts:
+            return []
         if self.cataloguing:
             # The cataloguing pass only needs the signatures. The program's
             # entry is not an export, so it is not synthesized here.
@@ -2067,6 +2288,16 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
 
     def _make_entry(self, stmts: list[ast.stmt], name: str) -> ast.FunctionDef:
         """A synthetic no-argument function carrying `stmts` in source order."""
+
+        if not stmts:
+            # An empty entry carries only the module's global slot
+            # initializers, which the IR pass prepends to its body.
+            placeholder = ast.Pass()
+            placeholder.lineno = 1
+            placeholder.col_offset = 0
+            placeholder.end_lineno = 1
+            placeholder.end_col_offset = 0
+            stmts = [placeholder]
 
         fn = ast.FunctionDef(
             name=name,
@@ -2210,6 +2441,32 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                         else:
                             self.constants[name] = prev
 
+    def _export_lookup(self, module: str, member: str | None) -> Any:
+        """One export-table read, recorded for the catalog memo.
+
+        Every read the lowerer makes goes through here (or through the
+        helpers that call it), so the catalog memo can compare exactly the
+        entries a unit consumed: when they are unchanged, the unit's
+        lowering is unchanged and the previous round's result stands.
+        """
+
+        package = self.package or {}
+        self._export_reads.add((module, member))
+        bucket = package.get(module)
+        if bucket is None:
+            return None
+        return bucket if member is None else bucket.get(member)
+
+    def _export_table(self) -> dict[str, dict[str, dict[str, Any]]]:
+        """The whole export table, recorded as one table-wide read.
+
+        A scan over every bucket sees everything, so the catalog memo
+        invalidates the unit when any part of the table changes.
+        """
+
+        self._export_reads.add((WHOLE_TABLE, None))
+        return self.package or {}
+
     def _bind_star(self, module: str, stmt: ast.AST, fences: list[Fence]) -> None:
         """Bind the names `from module import *` brings in.
 
@@ -2245,8 +2502,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             self._bind_one_export(module, name, name, stmt, fences)
 
     def _bind_one_export(self, module: str, name: str, local: str, stmt: ast.AST, fences: list[Fence]) -> None:
-        package = self.package or {}
-        item = package.get(module, {}).get(name)
+        item = self._export_lookup(module, name)
         if item is None:
             fences.append(
                 Fence(
@@ -2299,6 +2555,19 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             # `pkg/__init__.py`, issue #405): the name binds the submodule.
             self._bind_pkg_module(local, str(item["module"]), stmt, fences)
             return
+        if item["kind"] == "global":
+            # A module-level global that lives in a runtime slot in the
+            # defining module. The consumer reads it through the defining
+            # module's qualified key, so the slot is installed locally with
+            # a foreign key and no initializer: the defining module's own
+            # `ps_global_set_*` runs in its module init.
+            self.global_slots[local] = {
+                "type": dict(item["type"]),
+                "active": True,
+                "foreign_key": f"{item['module']}.{item['name']}",
+            }
+            self.declared.add(local)
+            return
         fences.append(
             Fence("PS2002", f"{module}.{name} is not a function or constant", span_of(stmt, self.filename), None)
         )
@@ -2314,7 +2583,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         """
         if typ.get("kind") != "class" or typ["name"] in self.classes:
             return
-        item = (self.package or {}).get(module, {}).get(typ["name"])
+        item = self._export_lookup(module, typ["name"])
         if item is None or item["kind"] != "class":
             return
         self._install_class_export(typ["name"], item, stmt, fences)
@@ -2347,15 +2616,15 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             return False
         if module == "__main__":
             return True
-        if module in self.package:
+        if self._export_lookup(module, None) is not None:
             return True
         head = module.split(".", 1)[0]
         if head in self.program_roots:
             return True
-        return head in self.package and self.package[head] is not None
+        return self._export_lookup(head, None) is not None
 
     def _pkg_item(self, node: ast.AST, module: str, member: str) -> dict[str, Any]:
-        item = (self.package or {}).get(module, {}).get(member)
+        item = self._export_lookup(module, member)
         if item is None:
             self.fail(node, "PS2001", f"{module}.{member} is not exported by this package")
         return item
@@ -2764,7 +3033,10 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
     def _global_get(self, name: str, span: dict[str, Any]) -> dict[str, Any]:
         slot = self.global_slots[name]
         typ = slot["type"]
-        key = _text_ir(self._slot_key(name), "str", span)
+        # A slot imported from another module reads the defining module's
+        # qualified key: the runtime registry is process-wide and the
+        # defining module's init wrote the value there.
+        key = _text_ir(slot.get("foreign_key") or self._slot_key(name), "str", span)
         # boxed:begin
         # The island top level (issue #613): a global the island bound is a
         # read of the once-unboxed shadow slot, under the island-prefixed key.
@@ -2802,7 +3074,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 "write it in a function that runs on the island, or annotate the global so it lowers native",
             )
         # boxed:end
-        key = _text_ir(self._slot_key(name), "str", span)
+        key = _text_ir(slot.get("foreign_key") or self._slot_key(name), "str", span)
         if typ["kind"] == "str":
             symbol = "ps_global_set_str"
         elif typ["kind"] == "int":
@@ -2824,7 +3096,8 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         }
 
     def _global_is_set(self, name: str, span: dict[str, Any]) -> dict[str, Any]:
-        key = _text_ir(self._slot_key(name), "str", span)
+        slot = self.global_slots.get(name, {})
+        key = _text_ir(slot.get("foreign_key") or self._slot_key(name), "str", span)
         return self._abi_call("builtins", "global_is_set", [key], {"kind": "bool"}, "ps_global_is_set", span)
 
     def _bind_deferred_module(self, fences: list[Fence]) -> None:

@@ -351,13 +351,12 @@ class StdlibDispatchMixin:
                 continue
             local = alias.asname or alias.name
             child = ".".join([*base, alias.name]) if base else alias.name
-            package = self.package or {}
-            if child in package:
+            if self._export_lookup(child, None) is not None:
                 self._bind_pkg_module(local, child, stmt, fences)
                 continue
             owner = ".".join(base)
-            if owner and alias.name in package.get(owner, {}):
-                if owner != self.module_name and self.program and owner in package:
+            if owner and self._export_lookup(owner, alias.name) is not None:
+                if owner != self.module_name and self.program and self._export_lookup(owner, None) is not None:
                     # CPython runs the owner package's body before this
                     # import completes; the init call needs the name bound.
                     self._bind_pkg_module(owner.split(".")[-1], owner, stmt, fences)
@@ -385,10 +384,9 @@ class StdlibDispatchMixin:
         self.declared.add(local)
 
     def _bind_own_import(self, alias: ast.alias, stmt: ast.Import, fences: list[Fence]) -> None:
-        package = self.package or {}
         root = alias.name.split(".", 1)[0]
         if alias.asname:
-            if alias.name not in package:
+            if self._export_lookup(alias.name, None) is None:
                 fences.append(
                     Fence(
                         "PS2002",
@@ -400,7 +398,9 @@ class StdlibDispatchMixin:
                 return
             self._bind_pkg_module(alias.asname, alias.name, stmt, fences)
             return
-        if root not in package or (alias.name != root and alias.name not in package):
+        if self._export_lookup(root, None) is None or (
+            alias.name != root and self._export_lookup(alias.name, None) is None
+        ):
             missing = alias.name if alias.name != root else root
             fences.append(
                 Fence(
@@ -415,7 +415,6 @@ class StdlibDispatchMixin:
 
     def _bind_own_from(self, stmt: ast.ImportFrom, fences: list[Fence]) -> None:
         module = stmt.module or ""
-        package = self.package or {}
         if self.program and module and module != "__main__":
             # A program's `from pkg import x` runs pkg's body before it binds
             # x, and that body's call is spelled `pkg.__init__()`: the module
@@ -425,15 +424,21 @@ class StdlibDispatchMixin:
             self._bind_pkg_module(head, head, stmt, fences)
         for alias in stmt.names:
             if alias.name == "*":
-                fences.append(Fence("PS2002", "star import is not lowered", span_of(stmt, self.filename), None))
+                # `from pkg.mod import *` binds the module's public names,
+                # the same set the export table records.
+                self._bind_star(module, stmt, fences)
                 continue
             local = alias.asname or alias.name
             child = f"{module}.{alias.name}"
-            if child in package:
+            if self._export_lookup(child, None) is not None:
                 self._bind_pkg_module(local, child, stmt, fences)
                 continue
-            if module in package:
-                if module != self.module_name and child in package and alias.name not in package.get(module, {}):
+            if self._export_lookup(module, None) is not None:
+                if (
+                    module != self.module_name
+                    and self._export_lookup(child, None) is not None
+                    and self._export_lookup(module, alias.name) is None
+                ):
                     # CPython's submodule fallback: `from pkg.sub import blob`
                     # with no `blob` export in `pkg.sub` imports the module
                     # `pkg.sub.blob` and binds it. The import runs the
@@ -1178,10 +1183,9 @@ class StdlibDispatchMixin:
             return dotted, binding.module, member, "erased"
         if binding.kind == "pkg":
             module = binding.module
-            package = self.package or {}
             for attr in attrs[:-1]:
                 child = f"{module}.{attr}"
-                if child not in package:
+                if self._export_lookup(child, None) is None:
                     return dotted, module, ".".join(attrs), "missing"
                 module = child
             if not attrs:
