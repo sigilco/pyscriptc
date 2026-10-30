@@ -66,7 +66,14 @@ def host_platform() -> str:
 
 
 def lock_path() -> Path:
-    """The path of the runtime lock file in the installed package or the repo."""
+    """The path of the runtime lock file in the installed package or the repo.
+
+    The candidates are the repo checkout (`<repo>/packaging/`), the installed
+    package (`site-packages/packaging/`) and the staged program-data tree of
+    a self-compiled compiler (`<binary dir>/pyscriptc-data/packaging/`), where
+    the lock travels next to the package data so the binary can bundle a
+    program without a checkout around it.
+    """
     here = Path(__file__).resolve()
     for base in (here.parent.parent.parent, here.parent.parent):
         candidate = base / "packaging" / "runtime.lock.toml"
@@ -210,13 +217,37 @@ def runtime_dir() -> Path | None:
     return Path(value) if value else None
 
 
+def self_pack_dir() -> Path | None:
+    """The runtime pack the running binary carries, when it carries one.
+
+    A self-compiled pyscriptc (a `--embed-python=bundle` output) has the
+    pinned runtime next to itself: `lib/libpythonX.Y.so`, `include/pythonX.Y`
+    and `lib/pythonX.Y/` beside the binary. That tree is a pack, so a bundle
+    compile of a user program can link against the runtime the binary
+    already carries, with no cache and no network. The answer is None for
+    an ordinary install (the pack lives in the cache).
+    """
+    try:
+        executable = Path(sys.executable).resolve()
+    except OSError:
+        return None
+    root = executable.parent.parent
+    if not list((root / "lib").glob("libpython*")):
+        return None
+    if not list((root / "include").glob("python*")):
+        return None
+    return root
+
+
 def pack_dir(pack: Pack, root: Path | None = None) -> Path:
     """The unpacked pack directory for a pack.
 
     With `PYSC_RUNTIME_DIR` set, that directory is the pack itself (offline
     and air-gapped use): the variable names the unpacked runtime, whatever
     its own directory name is. Otherwise the pack lives in the cache under
-    its pack id.
+    its pack id. A binary that carries its own runtime (the self-compiled
+    pyscriptc) uses that tree first: it is the same pinned runtime, already
+    on disk.
     """
     if root is None:
         override = runtime_dir()
@@ -224,6 +255,9 @@ def pack_dir(pack: Pack, root: Path | None = None) -> Path:
             if list(override.glob("lib/libpython*")):
                 return override
             return override / pack.pack_id
+        carried = self_pack_dir()
+        if carried is not None:
+            return carried
     return (root or pack_root()) / pack.pack_id
 
 
@@ -406,6 +440,7 @@ def stage_bundle(
     *,
     stdlib_mode: str = stdlibzip.DEFAULT_MODE,
     dependency_roots: list[str] | None = None,
+    with_headers: bool = False,
 ) -> Path:
     """Copy the pack runtime next to the binary: `name/bin/name` plus `name/lib/`.
 
@@ -446,6 +481,14 @@ def stage_bundle(
         stdlibzip.stage_stdlib(lib_dir, pack_directory, version, stdlib_mode)
     else:
         (lib_dir / f"python{version}" / "lib-dynload").mkdir(parents=True, exist_ok=True)
+    if with_headers:
+        # A bundle that is itself a compiler (the self-compiled pyscriptc)
+        # compiles island programs at run time, and that compile needs the
+        # CPython headers: sysconfig of the bundled interpreter resolves
+        # `include` inside this directory tree.
+        include_src = pack_directory / "include"
+        if include_src.is_dir():
+            shutil.copytree(include_src, staging / "include")
     if dependency_roots:
         sitedeps.stage_site_packages(lib_dir, version, dependency_roots)
     # Issue #661: the staged program data tree (issue #665) sits beside the

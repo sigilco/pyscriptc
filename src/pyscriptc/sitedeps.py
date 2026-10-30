@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import shutil
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 
@@ -33,17 +34,23 @@ class SiteError(Exception):
     """A user-facing site-packages bundle failure (no traceback)."""
 
 
-def third_party_roots(source: Path) -> list[str]:
+def third_party_roots(source: Path, exclude: Sequence[str] = ()) -> list[str]:
     """The absolute third-party import roots of a program, in source order.
 
     Stdlib roots go to the stdlib zip (issue #659), relative imports stay in
     the program tree, and the program's own package root is not a dependency.
+    `exclude` names roots the caller declares extern (provided by the host,
+    not carried by the bundle): they are dropped with a warning, so a
+    native-backed optional dependency can stay behind while the program
+    still compiles (the self-compile of pyscriptc excludes its lazy mypy
+    bridge that way).
     """
 
     from pyscriptc.imports import collect_imports
 
     source = Path(source)
     own = source.stem if source.is_file() else source.name
+    dropped = sorted(set(exclude))
     found: list[str] = []
     for site in collect_imports(source):
         if site["level"] > 0 or not site["name"]:
@@ -51,8 +58,16 @@ def third_party_roots(source: Path) -> list[str]:
         root = site["name"].split(".")[0]
         if root in sys.stdlib_module_names or root == own:
             continue
+        if root in dropped:
+            continue
         if root not in found:
             found.append(root)
+    for root in dropped:
+        print(
+            f"warning: {root} declared extern for the bundle; it is not carried "
+            "(the host must provide it, like CPython would for a dead import)",
+            file=sys.stderr,
+        )
     return sorted(found)
 
 
