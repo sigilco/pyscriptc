@@ -28,6 +28,8 @@ pyscriptc compile SOURCE [options]
 | `--embed-stdlib TRIM` | `safe\|minimal` | stdlib trim of a bundle: safe (the default; everything except test, idlelib, tkinter, turtledemo, ensurepip, pydoc_data, __phello__) or minimal (an opt-in frozen closure plus allowlist). Also read from the `stdlib` key of [tool.pyscriptc.island] |
 | `--bundle-exclude ROOT` | `ROOT` | import root a bundle does not carry: the host must provide it (an optional or native-backed dependency); repeatable |
 | `--embed-headers` |  | stage the runtime pack's CPython headers into a bundle: a bundle that is itself a compiler (the self-compiled pyscriptc) needs Python.h to compile island programs at run time |
+| `--onefile` |  | write the bundle as one executable: the payload travels appended to a small stub, which extracts it into the cache (keyed by the payload's sha256) on the first run and execs it on every run. Needs --embed-python=bundle |
+| `--strip-runtime` |  | strip the staged libpython of a bundle: the dynamic symbols the interpreter exports stay, the debug and static symbols go (about 12 MB on Linux) |
 | `--call FUNC` | `FUNC` | function the generated main calls |
 | `--args ARGS` | `ARGS` | Python literal list of arguments for --call, parsed with ast.literal_eval (default `[]`) |
 | `--run` |  | compile a binary and run it; arguments after `--` go to the binary |
