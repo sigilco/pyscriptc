@@ -17,7 +17,9 @@ typedef struct PsJson {
     const PsType *types;
 } PsJson;
 
-static void ps_json_fail(const char *msg) { ps_raise_cstr(PS_VALUE, msg); }
+/* Malformed JSON raises the JSONDecodeError class (a ValueError child),
+   the way CPython's reader does. */
+static void ps_json_fail(const char *msg) { ps_raise_cstr(PS_JSONDECODEERROR, msg); }
 
 static void ps_skip(PsJson *j) {
     while (j->i < j->n) {

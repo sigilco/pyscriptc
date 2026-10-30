@@ -71,6 +71,42 @@ def test_r28_loads_null_to_optional(tmp_path: Path) -> None:
 
 
 @pytest.mark.linux_container
+def test_r28_json_decode_error_matches_cpython(tmp_path: Path) -> None:
+    """A malformed document raises the JSONDecodeError class: catchable by
+    name, by its ValueError parent and by Exception, all like CPython."""
+    path = write_case(
+        tmp_path,
+        "jdecode.py",
+        "\n".join(
+            [
+                "import json",
+                "",
+                "def run() -> int:",
+                "    caught = 0",
+                "    try:",
+                "        a: dict[str, int] = json.loads('{\"a\": ')",
+                "    except json.JSONDecodeError:",
+                "        caught = caught + 1",
+                "    try:",
+                "        b: dict[str, int] = json.loads('{\"b\": ')",
+                "    except ValueError:",
+                "        caught = caught + 2",
+                "    try:",
+                "        c: dict[str, int] = json.loads('not json')",
+                "    except Exception:",
+                "        caught = caught + 4",
+                "    print(caught)",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+    got = compile_run(tmp_path, path, "run")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle(path, "run")
+
+
+@pytest.mark.linux_container
 def test_r28_optional_bool_cell(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,
