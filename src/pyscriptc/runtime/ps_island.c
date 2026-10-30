@@ -1504,8 +1504,7 @@ void *ps_island_mod_def_handle(int64_t mod_n, const char *mod, int64_t n, const 
    `path` seeds `__file__` (a Path-global script resolves its data files
    through it); it may be NULL. The native entry never runs when this seed
    is present: it IS the program. */
-void ps_island_top_seed(int64_t n, const char *source, int64_t path_n, const char *path) {
-    PyObject *text;
+static void ps_island_top_seed_common(PyObject *text, int64_t path_n, const char *path) {
     PyObject *builtins = NULL;
     PyObject *main_name = NULL;
     PyObject *island_name = NULL;
@@ -1513,8 +1512,6 @@ void ps_island_top_seed(int64_t n, const char *source, int64_t path_n, const cha
     PyObject *module = NULL;
     PyObject *main_module = NULL;
     PyObject *result = NULL;
-    ps_island_ensure();
-    text = PyUnicode_DecodeUTF8(source, (Py_ssize_t)n, "strict");
     if (text == NULL) {
         ps_island_fail();
     }
@@ -1604,6 +1601,92 @@ void ps_island_top_seed(int64_t n, const char *source, int64_t path_n, const cha
     Py_DECREF(main_module);
     Py_DECREF(module);
     ps_island_done();
+}
+
+void ps_island_top_seed(int64_t n, const char *source, int64_t path_n, const char *path) {
+    PyObject *text;
+    ps_island_ensure();
+    text = PyUnicode_DecodeUTF8(source, (Py_ssize_t)n, "strict");
+    ps_island_top_seed_common(text, path_n, path);
+}
+
+/* The bytecode-backed seed (issue #712): the program's module bodies are
+   marshalled code objects, deflated one module at a time, in the `body`
+   blob; the `index` blob is the marshalled
+   `{name: (origin, is_package, offset, length)}` table. Both are handed to
+   the bootstrap through the `__pyscriptc_seed__` module, which the bootstrap
+   reads before it installs the finder. The body blob is exposed as a
+   read-only memoryview over the binary's own bytes: a run touches only the
+   pages of the modules it imports, so the program text never sits in the
+   resident set as source or as one inflated blob. */
+void ps_island_top_seed_payload(int64_t n, const char *source, int64_t path_n, const char *path,
+                                int64_t index_n, const char *index, int64_t body_n, const char *body) {
+    PyObject *text = NULL;
+    PyObject *index_obj = NULL;
+    PyObject *body_obj = NULL;
+    PyObject *body_view = NULL;
+    PyObject *seed_module = NULL;
+    PyObject *sys = NULL;
+    PyObject *modules = NULL;
+    PyObject *seed_name = NULL;
+    Py_buffer view;
+    ps_island_ensure();
+    text = PyUnicode_DecodeUTF8(source, (Py_ssize_t)n, "strict");
+    index_obj = PyBytes_FromStringAndSize(index, (Py_ssize_t)index_n);
+    /* A read-only view over the binary's own bytes: no copy, so the pages
+       stay file-backed until a module body is read out of them. */
+    memset(&view, 0, sizeof(view));
+    view.buf = (void *)body;
+    view.obj = Py_None;
+    view.len = (Py_ssize_t)body_n;
+    view.readonly = 1;
+    view.itemsize = 1;
+    view.format = "B";
+    view.ndim = 1;
+    view.shape = NULL;
+    view.strides = NULL;
+    view.suboffsets = NULL;
+    view.internal = NULL;
+    body_view = PyMemoryView_FromBuffer(&view);
+    if (body_view == NULL) {
+        PyErr_Clear();
+        body_view = PyBytes_FromStringAndSize(body, (Py_ssize_t)body_n);
+    }
+    seed_module = PyImport_AddModule("__pyscriptc_seed__");
+    if (text == NULL || index_obj == NULL || body_view == NULL || seed_module == NULL) {
+        Py_XDECREF(text);
+        Py_XDECREF(index_obj);
+        Py_XDECREF(body_view);
+        ps_island_fail();
+    }
+    if (PyObject_SetAttrString(seed_module, "index", index_obj) < 0 ||
+        PyObject_SetAttrString(seed_module, "body", body_view) < 0) {
+        Py_DECREF(text);
+        Py_DECREF(index_obj);
+        Py_DECREF(body_view);
+        ps_island_fail();
+    }
+    Py_DECREF(index_obj);
+    Py_DECREF(body_view);
+    /* The seed module has to be reachable as `sys.modules['__pyscriptc_seed__']`
+       before the bootstrap runs: the bootstrap reads it there. */
+    sys = PyImport_ImportModule("sys");
+    seed_name = PyUnicode_FromString("__pyscriptc_seed__");
+    if (sys != NULL) {
+        modules = PyObject_GetAttrString(sys, "modules");
+    }
+    if (modules == NULL || seed_name == NULL ||
+        PyDict_SetItem(modules, seed_name, seed_module) < 0) {
+        Py_XDECREF(modules);
+        Py_XDECREF(sys);
+        Py_XDECREF(seed_name);
+        Py_DECREF(text);
+        ps_island_fail();
+    }
+    Py_XDECREF(modules);
+    Py_XDECREF(sys);
+    Py_XDECREF(seed_name);
+    ps_island_top_seed_common(text, path_n, path);
 }
 
 /* Unbox one annotated scalar global the island top level bound (issue #613,

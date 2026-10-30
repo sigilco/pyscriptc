@@ -477,7 +477,7 @@ def _program_island(
         is_package = any(name == entry and pkg for name, _path, pkg in units)
         main_package = entry if is_package else entry.rpartition(".")[0]
     staged = stage_program_data(root, staged_data or [])
-    source = _boxed.program_island_source(
+    source, index_blob, body_blob = _boxed.program_island_source(
         units,
         entry=main,
         main_package=main_package,
@@ -485,7 +485,7 @@ def _program_island(
         path0=path0 or root,
         staged_data=staged,
     )
-    return _boxed.program_island_module(source, root)
+    return _boxed.program_island_module(source, root, (index_blob, body_blob))
 
 
 def stage_program_data(
