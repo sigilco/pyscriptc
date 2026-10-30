@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import ast
 import contextlib
+import importlib.util
 import io
 import json
 import os
@@ -2099,8 +2100,15 @@ def _stdlib_imports(source_path: Path) -> list[str]:
     for site in collect_imports(source_path):
         if site["level"] > 0 or not site["name"]:
             continue
-        if site["name"].split(".")[0] in sys.stdlib_module_names:
-            names.add(site["name"])
+        root = site["name"].split(".")[0]
+        if root not in sys.stdlib_module_names:
+            continue
+        # A stdlib name the running platform cannot import (msvcrt on POSIX,
+        # winreg on Linux) is unreachable on this host, so a bundle for this
+        # platform never carries it and the manifest check must not either.
+        if root not in sys.modules and importlib.util.find_spec(root) is None:
+            continue
+        names.add(site["name"])
     return sorted(names)
 
 

@@ -999,6 +999,7 @@ def _catalog_once(
         module = lowerer.module(tree)
         exc_n = lowerer.exc_n
         found[name] = _exports_of(name, lowerer)
+        found[name]["__all__"] = {"kind": "all", "names": _all_names(tree)}
         # A re-export in an `__init__.py` (`from .core import where`,
         # issue #405) makes the name part of the package's public surface,
         # so `from pkg import where` binds the way it does in CPython.
@@ -1045,6 +1046,30 @@ def _exports_of(module_name: str, lowerer: Lowerer) -> dict[str, dict[str, Any]]
     return bucket
 
 
+def _all_names(tree: ast.Module) -> list[str] | None:
+    """The `__all__` a module declares, or None when it declares none.
+
+    CPython's `from m import *` binds `m.__all__` when the module has one
+    and every public name of the module otherwise.
+    """
+
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if not isinstance(target, ast.Name) or target.id != "__all__":
+                continue
+            value = node.value
+            if not isinstance(value, (ast.List, ast.Tuple)):
+                return None
+            names: list[str] = []
+            for elt in value.elts:
+                if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                    names.append(elt.value)
+            return names
+    return None
+
+
 def _reexports_of(
     module_name: str,
     tree: ast.Module,
@@ -1081,6 +1106,24 @@ def _reexports_of(
             source = ".".join([*base, *node.module.split(".")])
             for alias in node.names:
                 if alias.name == "*":
+                    # A star import re-exports what the source module's
+                    # `__all__` picks, or every public name without one,
+                    # like CPython's `from m import *`. The lowerer still
+                    # fences the star import itself; the export table only
+                    # records the re-export so `from pkg import name`
+                    # binds the way it does in CPython.
+                    declared = exports.get(source, {}).get("__all__", {})
+                    names = declared.get("names") if isinstance(declared, dict) else None
+                    for name, item in exports.get(source, {}).items():
+                        if name == "__all__":
+                            continue
+                        if names is not None:
+                            if name not in names:
+                                continue
+                        elif name.startswith("_"):
+                            continue
+                        if name not in bucket:
+                            bucket[name] = copy.deepcopy(item)
                     continue
                 item = _alias_item(exports, source, alias.name)
                 if item is not None:
@@ -1316,7 +1359,10 @@ def _discover(
             continue
         stem = relative.with_suffix("")
         if not all(part.isidentifier() for part in stem.parts):
-            raise IRError(f"{relative} is not a module name")
+            # CPython cannot import it either (a dash in a name, a data file
+            # mislabeled .py): skip with a note instead of refusing the tree.
+            skipped.append(relative.as_posix())
+            continue
         if program and not namespaced:
             # A program sibling is imported by its plain name.
             found.append((".".join(stem.parts), path, False))
@@ -1328,7 +1374,9 @@ def _discover(
 
 
 def _skip_note(root: Path, relative: str) -> str:
-    return f"note: skipped {root.name}/{relative}; __main__.py is the python -m script, not an importable module"
+    if relative == "__main__.py" or relative.endswith("/__main__.py"):
+        return f"note: skipped {root.name}/{relative}; __main__.py is the python -m script, not an importable module"
+    return f"note: skipped {root.name}/{relative}; not an importable module name"
 
 
 _NOT_EXPORTED = " is not exported by this package"

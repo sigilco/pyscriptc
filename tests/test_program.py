@@ -400,6 +400,24 @@ def test_a_package_directory_still_skips_dunder_main(tmp_path: Path) -> None:
     assert "skipped lib/__main__.py" in got.stderr
 
 
+def test_a_file_that_is_no_module_name_is_skipped_with_a_note(tmp_path: Path) -> None:
+    # `hook-yt_dlp.py` in yt_dlp/__pyinstaller is never importable in CPython
+    # either (a dash); the tree scan skips it with a note instead of
+    # refusing the whole package.
+    root = write_tree(
+        tmp_path,
+        "lib",
+        {
+            "__init__.py": "",
+            "util.py": "def twice(n: int) -> int:\n    return n * 2\n",
+            "__pyinstaller/hook-bad-name.py": "print('never imported')\n",
+        },
+    )
+    got = run_cli("compile", str(root), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "lib.ir.json"))
+    assert got.returncode == 0, got.stderr
+    assert "skipped lib/__pyinstaller/hook-bad-name.py" in got.stderr
+
+
 def test_a_missing_program_module_fences_clearly(tmp_path: Path) -> None:
     root = write_tree(
         tmp_path,

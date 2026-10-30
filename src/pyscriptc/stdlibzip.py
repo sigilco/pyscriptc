@@ -427,11 +427,16 @@ def manifest_check(carried: set[str], imported: list[str], mode: str = DEFAULT_M
     importable when the zip carries it or a parent of it; the caller passes
     stdlib names only, so relative and third-party imports are not this
     check's business.
+
+    A module the interpreter itself carries (a builtin like `math` or
+    `binascii`, or a frozen one like `zipimport`) needs no `.py` source in
+    the zip, so it counts as carried: the trim drops the source of a
+    builtin, and the bundle still imports it.
     """
 
     missing: list[str] = []
     for name in imported:
-        if not name or name in carried:
+        if not name or name in carried or name in sys.builtin_module_names:
             continue
         parts = name.split(".")
         if not any(".".join(parts[: cut + 1]) in carried for cut in range(len(parts))):

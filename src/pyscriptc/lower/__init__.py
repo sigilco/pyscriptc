@@ -2210,6 +2210,40 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                         else:
                             self.constants[name] = prev
 
+    def _bind_star(self, module: str, stmt: ast.AST, fences: list[Fence]) -> None:
+        """Bind the names `from module import *` brings in.
+
+        CPython binds the module's `__all__` when it has one and every
+        public name otherwise. The export table records the module's
+        `__all__` under the `__all__` key, so the star binds the same set.
+        A name the table does not carry is skipped: the star import only
+        brings in what the module exports.
+        """
+
+        package = self.package or {}
+        exported = package.get(module)
+        if exported is None:
+            fences.append(
+                Fence(
+                    "PS2002",
+                    f"{module} is not a module in this package",
+                    span_of(stmt, self.filename),
+                    None,
+                )
+            )
+            return
+        declared = exported.get("__all__")
+        names = declared.get("names") if isinstance(declared, dict) else None
+        for name in sorted(exported):
+            if name == "__all__":
+                continue
+            if names is not None:
+                if name not in names:
+                    continue
+            elif name.startswith("_"):
+                continue
+            self._bind_one_export(module, name, name, stmt, fences)
+
     def _bind_one_export(self, module: str, name: str, local: str, stmt: ast.AST, fences: list[Fence]) -> None:
         package = self.package or {}
         item = package.get(module, {}).get(name)
