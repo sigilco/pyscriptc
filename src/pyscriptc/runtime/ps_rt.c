@@ -2872,3 +2872,19 @@ int64_t ps_bisect_right(PsSeq *s, int64_t key) {
     }
     return lo;
 }
+
+/* `insort_left(a, x)` inserts x before the leftmost equal cell, so it
+   lands at the position `bisect_left` returns. `insort_right(a, x)`
+   inserts it after the rightmost equal cell, at the position
+   `bisect_right` returns. CPython's `insort` is the alias of
+   `insort_right`. The list is mutated in place, like CPython's
+   `a.insert(lo, x)`. */
+void ps_bisect_insort_left(PsSeq *s, int64_t key) {
+    int64_t at = ps_bisect_left(s, key);
+    ps_seq_insert(s, at, &key);
+}
+
+void ps_bisect_insort_right(PsSeq *s, int64_t key) {
+    int64_t at = ps_bisect_right(s, key);
+    ps_seq_insert(s, at, &key);
+}
