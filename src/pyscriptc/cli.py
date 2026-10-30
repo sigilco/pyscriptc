@@ -342,6 +342,13 @@ def build_parser() -> argparse.ArgumentParser:
         "code compiles; needs mypy installed, or pyrefly for --bridge pyrefly",
     )
     compile_parser.add_argument(
+        "--infer",
+        action="store_true",
+        help="apply the package-wide pins `pyscriptc infer` proves: every call "
+        "site of a parameter that agrees on its type pins the parameter, so an "
+        "unannotated parameter lowers without the source being annotated",
+    )
+    compile_parser.add_argument(
         "--debug",
         nargs="?",
         const="",
@@ -1840,13 +1847,42 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
     llvm_text: str | None = None
     outputs: dict[str, str] = {}
     status = "ok"
+    bridge = None
     try:
-        bridge = None
-        if getattr(args, "bridge", None):
-            from pyscriptc.factsbridge import CheckerBridge
+        if getattr(args, "bridge", None) or getattr(args, "infer", False):
+            from pyscriptc.factsbridge import BridgeProvider, CheckerBridge
 
             dbg.begin("bridge")
-            bridge = CheckerBridge.for_path(source_path, args.bridge)
+            provider_name = getattr(args, "bridge", None) or "pyrefly"
+            pins = None
+            if getattr(args, "infer", False):
+                # The pins are a package-wide fact (`pyscriptc infer`): the
+                # checker proves the type of every argument at every call
+                # site, and the sites that agree pin the parameter. The
+                # checker then re-checks a pinned copy of each module, so
+                # the return and local types it derives from a pinned
+                # parameter agree with what the lowerer will apply.
+                from pyscriptc.inferrunner import build_facts, facts_as_pins, pinned_facts
+
+                dbg.begin("infer")
+                facts = build_facts(source_path)
+                pins = facts_as_pins(facts)
+                pinned = pinned_facts(source_path, facts) if source_path.is_dir() else {}
+                dbg.end("infer")
+            else:
+                pinned = {}
+            if source_path.is_dir():
+                # A directory compile lowers one unit at a time, so the
+                # bridge is a provider: one bridge per unit, from one
+                # checker server. The pins ride every bridge, the way
+                # `pyscriptc infer` wires them.
+                provider = BridgeProvider(provider_name, strict=False, pins=pins)
+                provider.pinned = pinned
+                provider.open()
+                bridge = provider
+            else:
+                bridge = CheckerBridge.for_path(source_path, provider_name)
+                bridge.call_site_facts = pins
             dbg.end("bridge")
         dbg.begin("lower")
         # boxed:begin
@@ -1914,6 +1950,8 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         finally:
             _package._STAGED_DATA_TARGET = None
         # boxed:end
+        if bridge is not None and hasattr(bridge, "close"):
+            bridge.close()
         dbg.end("lower")
         dbg.exclude("lower", "parse")
         if args.run:
