@@ -180,10 +180,10 @@ no = [["finditer", 'for m in re.finditer("a", s): pass', "PS2001"], ["5+ groups"
 
 [[stdlib]]
 names = ["json"]
-ok = ['y: list[int] = json.loads(s)', 'y: str = json.dumps(xs, indent=2)', 'y: str = json.dumps(d, sort_keys=True)', '''with open(s) as p:
+ok = ['y: list[int] = json.loads(s)', 'y: list[int] = json.loads(b)', 'y: str = json.dumps(xs, indent=2)', 'y: str = json.dumps(d, sort_keys=True)', 'y: str = json.dumps(xs, ensure_ascii=False)', '''with open(s) as p:
     y: dict[str, int] = json.load(p)''', '''with open(s, "w") as p:
     json.dump(d, p)''']
-no = [["ensure_ascii=False", 'y: str = json.dumps(xs, ensure_ascii=False)', "PS2003"], ["JSONDecodeError", 'y: json.JSONDecodeError', "PS1106"]]
+no = [["parse_float hook", 'y: list[int] = json.loads(s, parse_float=float)', "PS2003"]]
 
 [[stdlib]]
 names = ["tomllib"]

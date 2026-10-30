@@ -182,6 +182,90 @@ def test_json_load_matches_cpython(tmp_path: Path) -> None:
     )
 
 
+def test_json_loads_bytes_matches_cpython(tmp_path: Path) -> None:
+    """`json.loads` takes bytes the way CPython does: a UTF-8 decode feeds the
+    same annotation-driven parse, and malformed sequences raise the ValueError
+    family both runtimes catch."""
+    _oracle_run(
+        tmp_path,
+        "jloadsbytes.py",
+        "\n".join(
+            [
+                "import json",
+                "",
+                "def run() -> int:",
+                "    d: dict[str, int] = json.loads(b'{\"a\": 7}')",
+                "    xs: list[int] = json.loads(b'[1, 2]')",
+                "    print(d['a'])",
+                "    print(xs[0] + xs[1])",
+                "    caught = False",
+                "    try:",
+                "        y: dict[str, int] = json.loads(b'{\"a\": ')",
+                "    except ValueError:",
+                "        caught = True",
+                "    print(caught)",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_json_non_ascii_matches_cpython(tmp_path: Path) -> None:
+    """`ensure_ascii=False` writes the raw UTF-8, the default escapes it, and
+    both forms read back the same text."""
+    _oracle_run(
+        tmp_path,
+        "jnonascii.py",
+        "\n".join(
+            [
+                "import json",
+                "",
+                "def run() -> int:",
+                "    s = 'caf\\u00e9'",
+                "    escaped: str = json.dumps(s)",
+                "    raw: str = json.dumps(s, ensure_ascii=False)",
+                "    print(escaped)",
+                "    print(raw)",
+                "    a: str = json.loads(escaped)",
+                "    b: str = json.loads(raw)",
+                "    print(a)",
+                "    print(b)",
+                "    print(a == b)",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_json_file_round_trip_non_ascii_matches_cpython(tmp_path: Path) -> None:
+    """A non-ASCII document survives the dump/load round trip through a file,
+    both escaped and raw."""
+    out = tmp_path / "round.json"
+    _oracle_run(
+        tmp_path,
+        "jroundtrip.py",
+        "\n".join(
+            [
+                "import json",
+                "",
+                "def run() -> int:",
+                "    d: dict[str, str] = {}",
+                "    d['k'] = 'caf\\u00e9'",
+                f"    with open({str(out)!r}, 'w') as fp:",
+                "        json.dump(d, fp, ensure_ascii=False)",
+                f"    with open({str(out)!r}, 'r') as fp:",
+                "        back: dict[str, str] = json.load(fp)",
+                "    print(back['k'])",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+    assert out.read_bytes() == '{"k": "café"}'.encode()
+
+
 def test_json_dump_matches_cpython(tmp_path: Path) -> None:
     """`json.dump(obj, fp)` writes the same bytes to the file as CPython."""
     out = tmp_path / "out.json"

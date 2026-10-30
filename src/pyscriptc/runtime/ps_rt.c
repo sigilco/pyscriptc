@@ -104,6 +104,7 @@ static const int32_t ps_exc_parent[PS_USER_BASE] = {
     PS_WARNING,              /* SyntaxWarning */
     PS_WARNING,              /* UnicodeWarning */
     PS_WARNING,              /* UserWarning */
+    PS_VALUEERROR,           /* JSONDecodeError */
 };
 
 /* Class names for the builtin codes, indexed by code. Index 0 is unused. */
@@ -176,6 +177,7 @@ static const char *const ps_exc_names[PS_USER_BASE] = {
     "SyntaxWarning",
     "UnicodeWarning",
     "UserWarning",
+    "JSONDecodeError",
 };
 
 /* User exception classes register here: the parent code and the class name.

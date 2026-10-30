@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-10-27",
-  "commit": "95debbd232c8b3caebcd34907f4cfe161f914ec5",
+  "generated": "2026-10-30",
+  "commit": "55c4b10903e7f537223d9a46f14cd35407978adc",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -210,9 +210,8 @@
       "label": "`json`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "ensure_ascii=False, JSONDecodeError",
+      "missing": "parse_float hook",
       "codes": [
-        "PS1106",
         "PS2003"
       ]
     },

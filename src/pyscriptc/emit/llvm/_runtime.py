@@ -179,6 +179,7 @@ def _runtime_declarations(needed: set[str]) -> list[str]:
         lines.extend(
             [
                 "declare void @ps_json_loads(i64, ptr, ptr, i32, ptr)",
+                "declare void @ps_json_loads_bytes(i64, ptr, ptr, i32, ptr)",
                 "declare void @ps_json_dumps(ptr, i32, ptr, ptr)",
                 "declare void @ps_json_dumps_opts(ptr, i32, ptr, i32, ptr)",
             ]
