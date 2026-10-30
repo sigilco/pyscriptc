@@ -48,6 +48,11 @@ VARIANTS = {
         "path": os.environ.get("YTDLP_HOST", "/tmp/ytbench/outhost/yt_dlp"),
         "install_root": None,
     },
+    "V-onefile": {
+        "kind": "onefile",
+        "path": os.environ.get("YTDLP_ONEFILE", "/tmp/ytbench/outone/yt_dlp.onefile"),
+        "install_root": None,
+    },
     "B1": {
         "kind": "venv",
         "path": os.environ.get("YTDLP_B1", "/tmp/ytbench/b1venv/bin/yt-dlp"),
@@ -292,7 +297,11 @@ def main() -> int:
     args = ap.parse_args()
     samples = 3 if args.quick else 7
     dl_samples = 2 if args.quick else 5
-    names = args.only.split(",") if args.only else ["V-bundle", "V-minimal", "V-host", "B1", "B2", "B2z", "B3"]
+    names = (
+        args.only.split(",")
+        if args.only
+        else ["V-bundle", "V-minimal", "V-host", "V-onefile", "B1", "B2", "B2z", "B3"]
+    )
     workdir = Path(tempfile.mkdtemp(prefix="ytdlp-composite-"))
     results = {}
     for name in names:
@@ -300,7 +309,7 @@ def main() -> int:
         results[name] = measure(name, samples, dl_samples, workdir)
     print(f"load average at end: {loadavg():.2f}")
     table = {}
-    for cand in ("V-bundle", "V-minimal", "V-host"):
+    for cand in ("V-bundle", "V-minimal", "V-host", "V-onefile"):
         if cand in results and "B1" in results:
             table[f"{cand}/B1"] = composite(results[cand], results["B1"])
         if cand in results and "B2" in results:

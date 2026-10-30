@@ -202,8 +202,11 @@ static int ps_unpack(const char *dir) {
             return -1;
         }
         if ((mode & 0170000) == 0040000) {
-            /* A directory record: the mode's file-type bits say so. */
-            if (ps_mkdirs(target) != 0) {
+            /* A directory record: the mode's file-type bits say so. Every
+               parent comes along inside the record list, but an empty
+               directory (the lib-dynload landmark) has no file under it, so
+               the record itself is the only thing that creates it. */
+            if (mkdir(target, mode & 07777) != 0 && errno != EEXIST) {
                 fprintf(stderr, "onefile: cannot create %s: %s\n", target, strerror(errno));
                 return -1;
             }
