@@ -50,6 +50,55 @@ static int ps_hex_digit(char c) {
     return -1;
 }
 
+/* One \uXXXX escape body already read as `cp`: a surrogate pair combines
+   into one code point, every other scalar encodes as UTF-8. A lone
+   surrogate has no UTF-8 bytes to store, so it stays fenced. */
+static void ps_json_escape_cp(PsJson *j, PsGrow *g, unsigned int cp) {
+    if (cp >= 0xd800 && cp <= 0xdbff) {
+        if (j->i + 6 > j->n || j->p[j->i] != '\\' || j->p[j->i + 1] != 'u') {
+            free(g->data);
+            ps_json_fail("lone JSON surrogate is not lowered");
+        }
+        j->i += 2;
+        unsigned int low = 0;
+        for (int k = 0; k < 4; k++) {
+            if (j->i >= j->n) {
+                free(g->data);
+                ps_json_fail("bad JSON unicode escape");
+            }
+            int d = ps_hex_digit(j->p[j->i++]);
+            if (d < 0) {
+                free(g->data);
+                ps_json_fail("bad JSON unicode escape");
+            }
+            low = (low << 4) | (unsigned int)d;
+        }
+        if (low < 0xdc00 || low > 0xdfff) {
+            free(g->data);
+            ps_json_fail("lone JSON surrogate is not lowered");
+        }
+        cp = 0x10000 + ((cp - 0xd800) << 10) + (low - 0xdc00);
+    } else if (cp >= 0xdc00 && cp <= 0xdfff) {
+        free(g->data);
+        ps_json_fail("lone JSON surrogate is not lowered");
+    }
+    if (cp < 0x80) {
+        ps_grow_byte(g, (unsigned char)cp);
+    } else if (cp < 0x800) {
+        ps_grow_byte(g, (unsigned char)(0xc0 | (cp >> 6)));
+        ps_grow_byte(g, (unsigned char)(0x80 | (cp & 0x3f)));
+    } else if (cp < 0x10000) {
+        ps_grow_byte(g, (unsigned char)(0xe0 | (cp >> 12)));
+        ps_grow_byte(g, (unsigned char)(0x80 | ((cp >> 6) & 0x3f)));
+        ps_grow_byte(g, (unsigned char)(0x80 | (cp & 0x3f)));
+    } else {
+        ps_grow_byte(g, (unsigned char)(0xf0 | (cp >> 18)));
+        ps_grow_byte(g, (unsigned char)(0x80 | ((cp >> 12) & 0x3f)));
+        ps_grow_byte(g, (unsigned char)(0x80 | ((cp >> 6) & 0x3f)));
+        ps_grow_byte(g, (unsigned char)(0x80 | (cp & 0x3f)));
+    }
+}
+
 static void ps_parse_string(PsJson *j, PsBuf *out) {
     if (ps_peek(j) != '"') {
         ps_json_fail("JSON string expected");
@@ -82,7 +131,7 @@ static void ps_parse_string(PsJson *j, PsBuf *out) {
             } else if (e == 't') {
                 ps_grow_byte(&g, '\t');
             } else if (e == 'u') {
-                int cp = 0;
+                unsigned int cp = 0;
                 for (int k = 0; k < 4; k++) {
                     if (j->i >= j->n) {
                         free(g.data);
@@ -93,13 +142,9 @@ static void ps_parse_string(PsJson *j, PsBuf *out) {
                         free(g.data);
                         ps_json_fail("bad JSON unicode escape");
                     }
-                    cp = (cp << 4) | d;
+                    cp = (cp << 4) | (unsigned int)d;
                 }
-                if (cp > 127) {
-                    free(g.data);
-                    ps_json_fail("non-ASCII JSON string is not lowered");
-                }
-                ps_grow_byte(&g, (unsigned char)cp);
+                ps_json_escape_cp(j, &g, cp);
             } else {
                 free(g.data);
                 ps_json_fail("bad JSON string escape");
@@ -110,10 +155,8 @@ static void ps_parse_string(PsJson *j, PsBuf *out) {
             free(g.data);
             ps_json_fail("unescaped control character in JSON string");
         }
-        if (c > 127) {
-            free(g.data);
-            ps_json_fail("non-ASCII JSON string is not lowered");
-        }
+        /* Non-ASCII text passes through as UTF-8: the str buffer holds the
+           same bytes CPython's decoder produces. */
         ps_grow_byte(&g, c);
     }
     free(g.data);
@@ -399,29 +442,81 @@ void ps_json_loads_bytes(int64_t n, char *p, const PsType *types, int32_t root, 
 
 static void ps_dump(const PsType *types, int32_t idx, const void *value, PsGrow *g);
 
-static void ps_dump_str(PsBuf buf, PsGrow *g) {
+/* The code point at `at` and its byte width. The buffer holds UTF-8, so the
+   lead byte gives the width and the continuation bytes the payload. */
+static uint32_t ps_json_cp(const char *p, int64_t n, int64_t at, int *w) {
+    unsigned char c = (unsigned char)p[at];
+    if (c < 0x80) {
+        *w = 1;
+        return c;
+    }
+    int width = ps_utf8_len(c);
+    uint32_t v = width == 2 ? (uint32_t)(c & 0x1F) : (width == 3 ? (uint32_t)(c & 0x0F) : (uint32_t)(c & 0x07));
+    for (int k = 1; k < width && at + k < n; k++) {
+        v = (v << 6) | (uint32_t)((unsigned char)p[at + k] & 0x3F);
+    }
+    *w = width;
+    return v;
+}
+
+/* The \\u escape CPython writes for one code point. */
+static void ps_dump_escape_cp(PsGrow *g, uint32_t cp) {
+    char tmp[13];
+    if (cp < 0x10000) {
+        snprintf(tmp, sizeof tmp, "\\u%04x", (unsigned int)cp);
+        ps_grow_add(g, tmp, 6);
+        return;
+    }
+    /* A code point above the BMP is a surrogate pair in the escape form. */
+    uint32_t v = cp - 0x10000;
+    snprintf(tmp, sizeof tmp, "\\u%04x\\u%04x", (unsigned int)(0xd800 + (v >> 10)), (unsigned int)(0xdc00 + (v & 0x3ff)));
+    ps_grow_add(g, tmp, 12);
+}
+
+/* One JSON string. With `raw` (ensure_ascii=False) the non-ASCII text passes
+   through as UTF-8; otherwise every code point above 0x7f is escaped, the
+   way CPython's ensure_ascii=True writes it. */
+static void ps_dump_str(PsBuf buf, PsGrow *g, int32_t raw) {
     ps_grow_byte(g, '"');
-    for (int64_t i = 0; i < buf.len; i++) {
+    for (int64_t i = 0; i < buf.len;) {
         unsigned char c = (unsigned char)buf.data[i];
         if (c == '"' || c == '\\') {
             ps_grow_byte(g, '\\');
             ps_grow_byte(g, c);
+            i++;
         } else if (c == '\b') {
             ps_grow_add(g, "\\b", 2);
+            i++;
         } else if (c == '\f') {
             ps_grow_add(g, "\\f", 2);
+            i++;
         } else if (c == '\n') {
             ps_grow_add(g, "\\n", 2);
+            i++;
         } else if (c == '\r') {
             ps_grow_add(g, "\\r", 2);
+            i++;
         } else if (c == '\t') {
             ps_grow_add(g, "\\t", 2);
+            i++;
         } else if (c < 0x20) {
             char tmp[7];
-            snprintf(tmp, sizeof tmp, "\\u%04x", c);
+            snprintf(tmp, sizeof tmp, "\\u%04x", (unsigned int)c);
             ps_grow_add(g, tmp, 6);
-        } else {
+            i++;
+        } else if (c < 0x80) {
             ps_grow_byte(g, c);
+            i++;
+        } else if (raw) {
+            int width = 0;
+            ps_json_cp(buf.data, buf.len, i, &width);
+            ps_grow_add(g, buf.data + i, width);
+            i += width;
+        } else {
+            int width = 0;
+            uint32_t cp = ps_json_cp(buf.data, buf.len, i, &width);
+            ps_dump_escape_cp(g, cp);
+            i += width;
         }
     }
     ps_grow_byte(g, '"');
@@ -507,19 +602,21 @@ static void ps_dump_float(double v, PsGrow *g) {
 
 static void ps_dump(const PsType *types, int32_t idx, const void *value, PsGrow *g);
 
-/* The dumps options: bit 0 sorts the dict keys, bits 8-15 hold the
-   indent width (0 keeps the compact form), bit 16 drops the space after
-   the separators (the orjson form). */
+/* The dumps options: bit 0 sorts the dict keys, bit 1 keeps non-ASCII
+   text raw (ensure_ascii=False), bits 8-15 hold the indent width (0 keeps
+   the compact form), bit 16 drops the space after the separators (the
+   orjson form). */
 #define PS_JSON_SORT_KEYS 1
+#define PS_JSON_RAW_ASCII 2
 #define PS_JSON_COMPACT 0x10000
 
 /* ps_dump_fmt writes one value. `indent` is the pad width per level and
    `level` the current depth; a positive indent puts every item on its
    own line, the way `json.dumps(indent=n)` does. */
-static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsGrow *g, int32_t indent, int32_t level, int32_t sort_keys, int32_t compact);
+static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsGrow *g, int32_t indent, int32_t level, int32_t sort_keys, int32_t compact, int32_t raw);
 
 static void ps_dump(const PsType *types, int32_t idx, const void *value, PsGrow *g) {
-    ps_dump_fmt(types, idx, value, g, 0, 0, 0, 0);
+    ps_dump_fmt(types, idx, value, g, 0, 0, 0, 0, 0);
 }
 
 /* The newline and pad an indented item carries. */
@@ -530,7 +627,7 @@ static void ps_dump_pad(PsGrow *g, int32_t indent, int32_t level) {
     }
 }
 
-static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsGrow *g, int32_t indent, int32_t level, int32_t sort_keys, int32_t compact) {
+static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsGrow *g, int32_t indent, int32_t level, int32_t sort_keys, int32_t compact, int32_t raw) {
     PsType typ = types[idx];
     if (typ.kind == PS_JSON_INT) {
         int64_t v = 0;
@@ -567,13 +664,13 @@ static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsG
             return;
         }
         PsType child = types[typ.child];
-        ps_dump_fmt(types, typ.child, cell + ps_opt_off(child.kind), g, indent, level, sort_keys, compact);
+        ps_dump_fmt(types, typ.child, cell + ps_opt_off(child.kind), g, indent, level, sort_keys, compact, raw);
         return;
     }
     if (typ.kind == PS_JSON_STR) {
         PsBuf buf;
         memcpy(&buf, value, 16);
-        ps_dump_str(buf, g);
+        ps_dump_str(buf, g, raw);
         return;
     }
     if (typ.kind == PS_JSON_LIST) {
@@ -594,7 +691,7 @@ static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsG
             if (indent) {
                 ps_dump_pad(g, indent, level + 1);
             }
-            ps_dump_fmt(types, typ.child, (char *)seq->data + (size_t)i * (size_t)seq->elem, g, indent, level + 1, sort_keys, compact);
+            ps_dump_fmt(types, typ.child, (char *)seq->data + (size_t)i * (size_t)seq->elem, g, indent, level + 1, sort_keys, compact, raw);
         }
         if (indent) {
             ps_dump_pad(g, indent, level);
@@ -655,7 +752,7 @@ static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsG
             }
             PsBuf key;
             ps_map_key_at(map, at, &key);
-            ps_dump_str(key, g);
+            ps_dump_str(key, g, raw);
             ps_grow_byte(g, ':');
             /* The indented forms keep the space after the colon, the way
                json.dumps(indent=n) and orjson's OPT_INDENT_2 do. */
@@ -665,7 +762,7 @@ static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsG
             unsigned char slot[16];
             memset(slot, 0, sizeof slot);
             ps_map_val_at(map, at, slot);
-            ps_dump_fmt(types, typ.child, slot, g, indent, level + 1, sort_keys, compact);
+            ps_dump_fmt(types, typ.child, slot, g, indent, level + 1, sort_keys, compact, raw);
         }
         if (indent) {
             ps_dump_pad(g, indent, level);
@@ -689,6 +786,7 @@ void ps_json_dumps_opts(const PsType *types, int32_t root, void *value, int32_t 
     int32_t indent = (flags >> 8) & 0xff;
     int32_t sort_keys = flags & PS_JSON_SORT_KEYS;
     int32_t compact = flags & PS_JSON_COMPACT;
-    ps_dump_fmt(types, root, value, &g, indent, 0, sort_keys, compact);
+    int32_t raw = flags & PS_JSON_RAW_ASCII;
+    ps_dump_fmt(types, root, value, &g, indent, 0, sort_keys, compact, raw);
     ps_grow_finish(&g, out);
 }

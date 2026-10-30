@@ -219,5 +219,3 @@ def test_json_dumps_unknown_keyword_fences() -> None:
     mod = lower_source("import json\njson.dumps({'a': 1}, separators=(',', ':'))\n")
     assert [f["code"] for f in mod["fences"]] == ["PS2003"]
     assert "json.dumps keyword separators is not lowered" in mod["fences"][0]["message"]
-    mod = lower_source("import json\njson.dumps({'a': 1}, ensure_ascii=False)\n")
-    assert [f["code"] for f in mod["fences"]] == ["PS2003"]

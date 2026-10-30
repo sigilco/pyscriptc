@@ -211,6 +211,34 @@ def test_json_loads_bytes_matches_cpython(tmp_path: Path) -> None:
     )
 
 
+def test_json_non_ascii_matches_cpython(tmp_path: Path) -> None:
+    """`ensure_ascii=False` writes the raw UTF-8, the default escapes it, and
+    both forms read back the same text."""
+    _oracle_run(
+        tmp_path,
+        "jnonascii.py",
+        "\n".join(
+            [
+                "import json",
+                "",
+                "def run() -> int:",
+                "    s = 'caf\\u00e9'",
+                "    escaped: str = json.dumps(s)",
+                "    raw: str = json.dumps(s, ensure_ascii=False)",
+                "    print(escaped)",
+                "    print(raw)",
+                "    a: str = json.loads(escaped)",
+                "    b: str = json.loads(raw)",
+                "    print(a)",
+                "    print(b)",
+                "    print(a == b)",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
 def test_json_dump_matches_cpython(tmp_path: Path) -> None:
     """`json.dump(obj, fp)` writes the same bytes to the file as CPython."""
     out = tmp_path / "out.json"

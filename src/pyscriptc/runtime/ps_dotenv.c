@@ -21,8 +21,8 @@ of being skipped with a warning, a missing file parses as the empty
 document instead of a find_dotenv() search (so `dotenv_values` of a missing
 path is {} and `load_dotenv` is False), and `load_dotenv` only writes keys
 that are not already in the environment (its `override` default), returning
-whether the document held any binding, as python-dotenv does. Non-ASCII keys or values fail in the json
-path ("non-ASCII JSON string is not lowered"), as the json module does. */
+whether the document held any binding, as python-dotenv does. Non-ASCII keys or values write raw UTF-8 through
+the json.dumps writer, the way ensure_ascii=False does. */
 
 #include "ps_rt.h"
 
@@ -100,8 +100,8 @@ static void d_line_end(DParse *t) {
     }
 }
 
-/* JSON string body: escape the quote, backslash and control characters; the
-   json.loads read side rejects everything non-ASCII for us. */
+/* JSON string body: escape the quote, backslash and control characters;
+   non-ASCII text passes through as raw UTF-8 (the json.dumps raw form). */
 static void d_json_str(DParse *t, const char *s, int64_t len) {
     ps_grow_byte(&t->out, '"');
     for (int64_t i = 0; i < len; i++) {
