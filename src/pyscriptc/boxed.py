@@ -38,6 +38,7 @@ INVOKE_SYMBOL = "ps_island_fn_invoke"
 # site reuses `ps_island_fn_invoke`; a class-level attribute read or a class
 # taken as a value needs the object first, which this trampoline returns.
 DEF_HANDLE_SYMBOL = "ps_island_def_handle"
+MOD_DEF_HANDLE_SYMBOL = "ps_island_mod_def_handle"
 
 
 def _annotation_is_mutable(node: ast.expr | None) -> bool:

@@ -185,6 +185,14 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # Class name -> the hidden local that owns its island handle, reset
         # per function scope like `island_modules`.
         self.island_class_handles: dict[str, str] = {}
+        # boxed:begin
+        # The per-module plane split: another module's island classes this
+        # module imported (`from other import Cls` where `Cls` rides that
+        # module's island floor). Name -> (defining module, class name); the
+        # handle, the call and the base-class refusal all go through the
+        # namespaced seam (`ps_island_mod_def_handle`).
+        self.island_floor_classes: dict[str, tuple[str, str]] = {}
+        # boxed:end
         # The per-definition probe state: the definition list to probe and
         # the names the probe fenced.
         self._boxed_functions: list[ast.FunctionDef] = []
@@ -2596,6 +2604,34 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             self._install_return_class(module, item["return"], stmt, fences)
             return
         if item["kind"] == "class":
+            # boxed:begin
+            # The defining module planned the class for its own island floor
+            # (issue #628): no native body exists, so the import cannot
+            # install a lowered class record. Binding the name as a
+            # cross-module island class keeps the import from fencing the
+            # module level: the uses that need the class natively (a base
+            # class, an `except` clause) fence their own definition instead
+            # of the whole module, and the uses that only call or pass it
+            # cross the boundary through the boxed seam.
+            if item.get("island"):
+                if self.program and self._boxed_cross_module_island():
+                    self.bindings[local] = Binding("island_floor_class", module, name, False)
+                    self.island_floor_classes[local] = (module, name)
+                    self.declared.add(local)
+                    return
+                fence = Fence(
+                    "PS2002",
+                    f"{module}.{name} runs on the island floor of its own module, and importing it "
+                    "crosses a package boundary into it. Compile the tree as a program "
+                    "(--program --fallback=cpython) so the whole program runs island-side, "
+                    "or make the class lower natively.",
+                    span_of(stmt, self.filename),
+                    None,
+                )
+                fences.append(fence)
+                self._boxed_module_fences.append(fence)
+                return
+            # boxed:end
             self._install_class_export(local, item, stmt, fences)
             return
         if item["kind"] == "module":

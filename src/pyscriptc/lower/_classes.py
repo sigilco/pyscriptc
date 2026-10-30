@@ -655,6 +655,21 @@ class ClassesMixin:
             return {"kind": "enum", "name": enum}
         if isinstance(node, ast.Name) and node.id in EXCEPTIONS:
             return {"kind": "exception", "name": node.id}
+        # boxed:begin
+        # An island class of another module has no native class record, so a
+        # native subclass cannot extend it: the class definition fences and
+        # rides the island instead (issue #628, one module down). The fence
+        # names the defining module so the refusal reads the way the
+        # single-module refusal does.
+        if isinstance(node, ast.Name) and node.id in self.island_floor_classes:
+            module, name = self.island_floor_classes[node.id]
+            self.fail(
+                node,
+                "PS2002",
+                f"class {node.id} runs on the island floor of {module} and cannot be a native base class: "
+                "the subclass joins the island",
+            )
+        # boxed:end
         if isinstance(node, ast.Name) and node.id in self.classes:
             info = self.classes[node.id]
             if info.get("synthetic"):
@@ -1266,9 +1281,14 @@ class ClassesMixin:
         # boxed:begin
         # An island class annotation is its handle type (issue #628): the
         # class lives in the embedded interpreter, and an instance crossed
-        # into a compiled local is an opaque handle.
+        # into a compiled local is an opaque handle. Another module's island
+        # class annotates the same way, with the defining module in the type
+        # name so two modules' same-named classes stay distinct.
         if isinstance(node, ast.Name) and node.id in self.island_classes:
             return island_class_type(node.id)
+        floor = self.island_floor_classes.get(node.id) if isinstance(node, ast.Name) else None
+        if floor is not None:
+            return island_class_type(f"{floor[0]}.{floor[1]}")
         # boxed:end
         if isinstance(node, ast.Name) and (node.id in self.declared or node.id in self.known_classes):
             return {"kind": "class", "name": self.class_aliases.get(node.id, node.id)}
@@ -1747,7 +1767,20 @@ class ClassesMixin:
         code = info.get("exc_code") if info is not None else None
         return code if isinstance(code, int) else None
 
-    def _exception_codes(self, name: str) -> list[int]:
+    def _exception_codes(self, name: str, node: ast.AST | None = None) -> list[int]:
+        # boxed:begin
+        # Another module's island exception class has no native exc code:
+        # the native lane cannot match it, so the handler that names it is
+        # not lowered and the definition joins the island, where CPython's
+        # own matching applies.
+        if name in self.island_floor_classes:
+            module, cls = self.island_floor_classes[name]
+            self.fail(
+                node if node is not None else ast.Pass(),
+                "PS2002",
+                f"class {name} runs on the island floor of {module}: except {name} does not lower natively",
+            )
+        # boxed:end
         found: list[int] = []
         if name in EXCEPTIONS:
             found.append(EXCEPTIONS[name])

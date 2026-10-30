@@ -20,6 +20,7 @@ from typing import Any, NoReturn
 from pyscriptc.boxed import (  # boxed:begin
     DEF_HANDLE_SYMBOL,
     INVOKE_SYMBOL,
+    MOD_DEF_HANDLE_SYMBOL,
     island_class_type,
     island_handle_type,
 )  # boxed:end
@@ -991,6 +992,60 @@ class StdlibDispatchMixin:
             call_expr["island_fn"]["want"] = expect
         return call_expr
 
+    def _island_floor_class_handle(
+        self, local_name: str, module: str, name: str, span: dict[str, Any]
+    ) -> dict[str, Any]:
+        """`Cls` of another module as a value: a handle from its namespace.
+
+        The class object lives in the defining module's island namespace;
+        `ps_island_mod_def_handle(mod, name)` returns a new reference to it,
+        the namespaced shape of `ps_island_def_handle` (issue #628). The
+        hidden local owns the reference for the scope like the in-module
+        handle does.
+        """
+        local = self.island_class_handles.get(local_name)
+        if local is not None and local not in self.locals:
+            del self.island_class_handles[local_name]
+            local = None
+        if local is None:
+            local = self._temp("icls").replace(".", "_")
+            typ = island_class_type(f"{module}.{name}")
+            self.locals[local] = typ
+            call = self._abi_call(module, name, [], typ, MOD_DEF_HANDLE_SYMBOL, span)
+            call["island_mod_def"] = {"module": module, "name": name}
+            self.prelude.append(_assign(local, call, span))
+            self._own_handle(local, typ)
+            self.island_class_handles[local_name] = local
+        return _name(local, self.locals[local], span)
+
+    def _island_floor_class_call(
+        self, node: ast.Call, span: dict[str, Any], module: str, name: str, expect: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """`Cls(...)` where `Cls` rides another module's island floor.
+
+        The class object lives in the defining module's island namespace,
+        where it is callable, so the instantiation is the same namespaced
+        trampoline as `_island_floor_call` with the class name as the callee
+        key. The instance is an opaque handle of the class's own type.
+        """
+        marshalled, npos, nkw = self._island_args(node, span)
+        call_expr: dict[str, Any] = {
+            "kind": "call",
+            "callee": {"kind": "module", "module": "island", "name": name},
+            "args": marshalled,
+            "type": _island_handle(f"{module}.{name}()"),
+            "symbol": INVOKE_SYMBOL,
+            "island_fn": {"name": name, "module": module},
+            "island_npos": npos,
+            "island_nkw": nkw,
+            "span": span,
+        }
+        if expect is not None and not expect.get("island"):
+            self._island_validate_expect(node, expect)
+            call_expr["type"] = expect
+            call_expr["island_fn"]["want"] = expect
+        return call_expr
+
     def _island_fn_call(
         self, node: ast.Call, span: dict[str, Any], name: str, expect: dict[str, Any] | None = None
     ) -> dict[str, Any]:
@@ -1016,13 +1071,19 @@ class StdlibDispatchMixin:
         # An island class instantiation returns the class's one handle type,
         # so the destination annotation proves the same type (issue #628).
         result_type = island_class_type(name) if name in self.island_classes else _island_handle(f"{name}()")
+        island_fn: dict[str, Any] = {"name": name}
+        # The per-module plane split: the single island namespace does not
+        # exist (every module's floor is its own namespace), so the call
+        # names the owning module and rides the namespaced trampoline.
+        if self._boxed_plane_split and self.module_name:
+            island_fn["module"] = self.module_name
         call_expr: dict[str, Any] = {
             "kind": "call",
             "callee": {"kind": "module", "module": "island", "name": name},
             "args": marshalled,
             "type": result_type,
             "symbol": INVOKE_SYMBOL,
-            "island_fn": {"name": name},
+            "island_fn": island_fn,
             "island_npos": npos,
             "island_nkw": nkw,
             "span": span,
@@ -1051,9 +1112,16 @@ class StdlibDispatchMixin:
             local = self._temp("icls").replace(".", "_")
             typ = island_class_type(name)
             self.locals[local] = typ
-            call = self._abi_call("island", name, [], typ, DEF_HANDLE_SYMBOL, span)
-            call["island"] = {"name": name}
-            call["island_def"] = {"name": name}
+            if self._boxed_plane_split and self.module_name:
+                # The per-module plane split: the class object lives in this
+                # module's own island namespace, so the handle is fetched
+                # through the namespaced trampoline.
+                call = self._abi_call(self.module_name, name, [], typ, MOD_DEF_HANDLE_SYMBOL, span)
+                call["island_mod_def"] = {"module": self.module_name, "name": name}
+            else:
+                call = self._abi_call("island", name, [], typ, DEF_HANDLE_SYMBOL, span)
+                call["island"] = {"name": name}
+                call["island_def"] = {"name": name}
             self.prelude.append(_assign(local, call, span))
             self._own_handle(local, typ)
             self.island_class_handles[name] = local
