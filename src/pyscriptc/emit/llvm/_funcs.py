@@ -111,6 +111,7 @@ class FuncsMixin:
             # boxed:end
             for init in self.module.get("globals", []):
                 self.emit_expr(init)
+            self._emit_module_inits()
             values = [self.materialize_arg(param["type"], value) for param, value in zip(params, prepared, strict=True)]
             self.call_function(fn, values)
             self.line("ret i32 0")
@@ -142,6 +143,7 @@ class FuncsMixin:
         # boxed:end
         for init in self.module.get("globals", []):
             self.emit_expr(init)
+        self._emit_module_inits()
         values = [self.materialize_arg(param["type"], value) for param, value in zip(params, prepared, strict=True)]
         result = self.call_function(fn, values)
         if fn["returnType"]["kind"] != "none":
@@ -153,6 +155,21 @@ class FuncsMixin:
         self.span = None
         if self.dwarf is not None:
             self.dwarf.exit_function()
+
+    def _emit_module_inits(self) -> None:
+        """The module init calls a `--call` entry skips.
+
+        The program entry carries its own injected init calls at the import
+        sites. A called function bypasses the entry, so the module bodies
+        that bind global slots run here first, in the import order the
+        merge recorded.
+        """
+
+        for name in self.module.get("moduleInits", []):
+            fn = self.functions.get(name)
+            if fn is None:
+                continue
+            self.call_function(fn, [])
 
     def emit_noop_library_main(self) -> None:
         """The `pyscriptc_main` of a definition-only module.

@@ -424,7 +424,9 @@ class StdlibDispatchMixin:
             self._bind_pkg_module(head, head, stmt, fences)
         for alias in stmt.names:
             if alias.name == "*":
-                fences.append(Fence("PS2002", "star import is not lowered", span_of(stmt, self.filename), None))
+                # `from pkg.mod import *` binds the module's public names,
+                # the same set the export table records.
+                self._bind_star(module, stmt, fences)
                 continue
             local = alias.asname or alias.name
             child = f"{module}.{alias.name}"

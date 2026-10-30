@@ -33,6 +33,7 @@ from pyscriptc.errors import IRError
 from pyscriptc.ir import IR_VERSION, SUBSET, cpython_version
 from pyscriptc.lower import Lowerer
 from pyscriptc.stdlib_queue import dependency_lanes, ffi_modules, staged_resources
+from pyscriptc.stdmore import PTR_CLASSES
 
 # Issue #665: the staged data root of the running program-island compile.
 # `_program_island` writes the program directory's non-Python files here
@@ -333,7 +334,48 @@ def _lower_units(
         "classes": classes,
         "fences": fences,
     }
+    if program:
+        # The entry carries the injected init calls at its import sites, so
+        # the list only matters for a `--call` entry: drop the entry
+        # module's own init from the list.
+        entry_mod = merged["entry"].rsplit(".", 1)[0] if merged["entry"] else ""
+        inits = [name for name in _module_init_order(owners, exports, functions) if name != f"{entry_mod}.__init__"]
+        if inits:
+            merged["moduleInits"] = inits
     return merged, []
+
+
+def _module_init_order(
+    owners: dict[str, list[str]],
+    exports: dict[str, dict[str, dict[str, Any]]],
+    functions: list[dict[str, Any]],
+) -> list[str]:
+    """The module init functions, in the order their bodies ran.
+
+    A program's module body runs when the program imports it, so a module
+    that binds global slots initializes them at that point. The order is the
+    import order: a module comes after the modules it imports.
+    """
+
+    names = {fn["name"] for fn in functions}
+    ordered: list[str] = []
+    seen: set[str] = set()
+
+    def visit(name: str, stack: set[str]) -> None:
+        if name in seen or name in stack:
+            return
+        stack.add(name)
+        for child in owners.get(name, []):
+            visit(child, stack)
+        stack.discard(name)
+        seen.add(name)
+        candidate = f"{name}.__init__"
+        if candidate in names:
+            ordered.append(candidate)
+
+    for module in sorted(owners):
+        visit(module, set())
+    return ordered
 
 
 # boxed:begin
@@ -428,8 +470,14 @@ def _program_entry(functions: list[dict[str, Any]], entry: str | None = None) ->
         for fn in functions:
             if fn["name"].startswith(entry + "."):
                 return fn["name"]
+    # The synthesized script body wins over a user `main`: the module's
+    # own `main` runs when the body calls it, not instead of the body
+    # (the import inits and the module-level statements live in the body).
     for fn in functions:
-        if fn["name"] in {"__main__.main", "__main__.__entry__"}:
+        if fn["name"] == "__main__.__entry__":
+            return fn["name"]
+    for fn in functions:
+        if fn["name"] == "__main__.main":
             return fn["name"]
     for fn in functions:
         if fn["name"].startswith("__main__."):
@@ -908,7 +956,9 @@ def _statement_imports(stmt: ast.stmt, exports: dict[str, dict[str, dict[str, An
                 note(head, head)
         return found
     if isinstance(stmt, ast.ImportFrom) and stmt.level == 0 and stmt.module:
-        note(stmt.module, stmt.module.split(".")[0])
+        # `from pkg.mod import x` binds `pkg` (the top package) and runs
+        # `pkg.mod`'s body, so the init call spells the dotted module path.
+        note(stmt.module, stmt.module)
         for alias in stmt.names:
             note(f"{stmt.module}.{alias.name}", alias.asname or alias.name)
     return found
@@ -953,11 +1003,20 @@ def _inject_inits(
 
 
 def _init_call(local: str, anchor: ast.stmt) -> ast.stmt:
-    """`local.__init__()` as a statement, placed at the anchor's position."""
+    """`local.__init__()` as a statement, placed at the anchor's position.
 
+    The path may be dotted (`pkg.mod`): the call then reads the submodule
+    through the package the import bound, the way CPython reaches the
+    module whose body runs at the import.
+    """
+
+    parts = local.split(".")
+    value: ast.expr = ast.Name(id=parts[0], ctx=ast.Load())
+    for part in parts[1:]:
+        value = ast.Attribute(value=value, attr=part, ctx=ast.Load())
     call = ast.Call(
         func=ast.Attribute(
-            value=ast.Name(id=local, ctx=ast.Load()),
+            value=value,
             attr="__init__",
             ctx=ast.Load(),
         ),
@@ -1165,6 +1224,23 @@ def _exports_of(module_name: str, lowerer: Lowerer) -> dict[str, dict[str, Any]]
         if info.get("synthetic") or info.get("imported"):
             continue
         bucket[class_name] = {"kind": "class", "name": class_name, "info": _class_export(info)}
+    # A module-level global that lives in a runtime slot (a list, a dict, a
+    # threaded record) keeps one pointer for the process. A consumer in
+    # another module reads it natively when the export table carries the
+    # slot: the read is a `ps_global_get_*` on the defining module's
+    # qualified key rather than a fence.
+    for slot_name, slot in lowerer.global_slots.items():
+        if not slot.get("active") or slot.get("island"):
+            continue
+        typ = slot.get("type")
+        if typ is None or not _exportable_global_type(typ):
+            continue
+        bucket[slot_name] = {
+            "kind": "global",
+            "module": module_name,
+            "name": slot_name,
+            "type": copy.deepcopy(typ),
+        }
     # A re-export bound from a sibling (`from .core import where` in the
     # package `__init__.py`, issue #398): the name lands in `pkg_funcs`, so
     # it becomes the package's own export and `from pkg import where`
@@ -1290,6 +1366,23 @@ def _alias_item(
     if item is None:
         return None
     return copy.deepcopy(item)
+
+
+def _exportable_global_type(typ: dict[str, Any]) -> bool:
+    """A slot type a cross-module read can lower natively.
+
+    The runtime registry keys values by the module-qualified name and stores
+    str, int, Path, function pointers, pointer-class records and list/dict
+    pointers. A global of any other type has no `ps_global_get_*` symbol,
+    so exporting it would only move the fence to the consumer.
+    """
+
+    kind = typ.get("kind")
+    if kind in {"str", "int", "list", "dict", "func"}:
+        return True
+    if kind == "class" and typ.get("name") in PTR_CLASSES:
+        return True
+    return False
 
 
 def _class_export(info: dict[str, Any]) -> dict[str, Any]:

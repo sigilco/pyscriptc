@@ -719,11 +719,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         """
         if self.bridge is None:
             return False
-        returns = [
-            stmt.value
-            for stmt in ast.walk(fn)
-            if isinstance(stmt, ast.Return) and stmt.value is not None
-        ]
+        returns = [stmt.value for stmt in ast.walk(fn) if isinstance(stmt, ast.Return) and stmt.value is not None]
         if not returns:
             # A def with no value return returns None; the checker must
             # have proved None too.
@@ -1792,7 +1788,13 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         functions: list[ast.FunctionDef] = []
         class_nodes: list[ast.ClassDef] = []
         live = self._live_statements(list(tree.body), fences)
+        # The import pass may have installed slots imported from other
+        # modules (a cross-module global read). The scan of the module's own
+        # `global` declarations does not know them, so they are kept: the
+        # scan replaces the table, and the imported entries survive it.
+        imported_slots = {k: v for k, v in self.global_slots.items() if v.get("foreign_key")}
         self.global_slots = self._scan_global_slots(live)
+        self.global_slots.update(imported_slots)
         entry_stmts = self._split_entry(live, functions, class_nodes, fences)
         # boxed:end
         entry_fn = self._entry_function(entry_stmts, functions)
@@ -2022,6 +2024,19 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 self.typevars = saved_typevars
         self._drain_instances(lowered, lowered_classes, fences)
         lowered.extend(self.nested_fns)
+        # A program module's global slot initializers belong to its module
+        # body: in CPython the assignment runs when the module is imported,
+        # so the synthesized `__init__` carries them. The single-file shape
+        # keeps them in `module["globals"]`, which the binary main emits
+        # before it calls the entry.
+        if self.module_init and self.global_inits:
+            for record in lowered:
+                if record["name"] == self._ir_name("__init__"):
+                    record["body"] = [
+                        {"kind": "expr", "expr": init, "span": init.get("span", {})} for init in self.global_inits
+                    ] + record["body"]
+                    self.global_inits = []
+                    break
         lowered_classes.extend(self._synthetic_classes({item["name"] for item in lowered_classes}))
         # The deferred classes (the argparse namespace) grew their fields
         # while the statements lowered, so they close here.
@@ -2249,14 +2264,20 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         A program's other modules synthesize `__init__`: their body runs when
         the program first imports them, before the importing module's body.
         """
-        if not stmts:
-            return []
         if self.module_name and not self._is_program_main():
             if not self.module_init:
+                return []
+            # A module whose top level only binds global slots has no script
+            # statements, but the slot initializers still run at import: an
+            # empty `__init__` carries them (the IR pass prepends the
+            # `ps_global_set_*` calls to this entry's body).
+            if not stmts and not self.global_inits:
                 return []
             taken = {fn.name for fn in functions} | self.declared
             name = "__init__" if "__init__" not in taken else "__init_entry__"
             return [self._make_entry(stmts, name)]
+        if not stmts:
+            return []
         if self.cataloguing:
             # The cataloguing pass only needs the signatures. The program's
             # entry is not an export, so it is not synthesized here.
@@ -2267,6 +2288,16 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
 
     def _make_entry(self, stmts: list[ast.stmt], name: str) -> ast.FunctionDef:
         """A synthetic no-argument function carrying `stmts` in source order."""
+
+        if not stmts:
+            # An empty entry carries only the module's global slot
+            # initializers, which the IR pass prepends to its body.
+            placeholder = ast.Pass()
+            placeholder.lineno = 1
+            placeholder.col_offset = 0
+            placeholder.end_lineno = 1
+            placeholder.end_col_offset = 0
+            stmts = [placeholder]
 
         fn = ast.FunctionDef(
             name=name,
@@ -2436,6 +2467,40 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         self._export_reads.add((WHOLE_TABLE, None))
         return self.package or {}
 
+    def _bind_star(self, module: str, stmt: ast.AST, fences: list[Fence]) -> None:
+        """Bind the names `from module import *` brings in.
+
+        CPython binds the module's `__all__` when it has one and every
+        public name otherwise. The export table records the module's
+        `__all__` under the `__all__` key, so the star binds the same set.
+        A name the table does not carry is skipped: the star import only
+        brings in what the module exports.
+        """
+
+        package = self.package or {}
+        exported = package.get(module)
+        if exported is None:
+            fences.append(
+                Fence(
+                    "PS2002",
+                    f"{module} is not a module in this package",
+                    span_of(stmt, self.filename),
+                    None,
+                )
+            )
+            return
+        declared = exported.get("__all__")
+        names = declared.get("names") if isinstance(declared, dict) else None
+        for name in sorted(exported):
+            if name == "__all__":
+                continue
+            if names is not None:
+                if name not in names:
+                    continue
+            elif name.startswith("_"):
+                continue
+            self._bind_one_export(module, name, name, stmt, fences)
+
     def _bind_one_export(self, module: str, name: str, local: str, stmt: ast.AST, fences: list[Fence]) -> None:
         item = self._export_lookup(module, name)
         if item is None:
@@ -2489,6 +2554,19 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             # A module re-exported by the package (`from . import core` in
             # `pkg/__init__.py`, issue #405): the name binds the submodule.
             self._bind_pkg_module(local, str(item["module"]), stmt, fences)
+            return
+        if item["kind"] == "global":
+            # A module-level global that lives in a runtime slot in the
+            # defining module. The consumer reads it through the defining
+            # module's qualified key, so the slot is installed locally with
+            # a foreign key and no initializer: the defining module's own
+            # `ps_global_set_*` runs in its module init.
+            self.global_slots[local] = {
+                "type": dict(item["type"]),
+                "active": True,
+                "foreign_key": f"{item['module']}.{item['name']}",
+            }
+            self.declared.add(local)
             return
         fences.append(
             Fence("PS2002", f"{module}.{name} is not a function or constant", span_of(stmt, self.filename), None)
@@ -2955,7 +3033,10 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
     def _global_get(self, name: str, span: dict[str, Any]) -> dict[str, Any]:
         slot = self.global_slots[name]
         typ = slot["type"]
-        key = _text_ir(self._slot_key(name), "str", span)
+        # A slot imported from another module reads the defining module's
+        # qualified key: the runtime registry is process-wide and the
+        # defining module's init wrote the value there.
+        key = _text_ir(slot.get("foreign_key") or self._slot_key(name), "str", span)
         # boxed:begin
         # The island top level (issue #613): a global the island bound is a
         # read of the once-unboxed shadow slot, under the island-prefixed key.
@@ -2993,7 +3074,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 "write it in a function that runs on the island, or annotate the global so it lowers native",
             )
         # boxed:end
-        key = _text_ir(self._slot_key(name), "str", span)
+        key = _text_ir(slot.get("foreign_key") or self._slot_key(name), "str", span)
         if typ["kind"] == "str":
             symbol = "ps_global_set_str"
         elif typ["kind"] == "int":
@@ -3015,7 +3096,8 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         }
 
     def _global_is_set(self, name: str, span: dict[str, Any]) -> dict[str, Any]:
-        key = _text_ir(self._slot_key(name), "str", span)
+        slot = self.global_slots.get(name, {})
+        key = _text_ir(slot.get("foreign_key") or self._slot_key(name), "str", span)
         return self._abi_call("builtins", "global_is_set", [key], {"kind": "bool"}, "ps_global_is_set", span)
 
     def _bind_deferred_module(self, fences: list[Fence]) -> None:
