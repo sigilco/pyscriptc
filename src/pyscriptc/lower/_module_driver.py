@@ -193,7 +193,18 @@ class ModuleDriverMixin:
             has_import_fence = any(
                 fence.function in (None, "__module__") and fence.code in ("PS2001", "PS2002") for fence in fences
             )
-            self._boxed_top_island = bool(probe_fences) or has_import_fence
+            # The split's module rule: under the plane split a module-level
+            # fence anywhere in the module (a lambda the checker refuses, an
+            # empty container literal, an import outside the table) routes
+            # that module's top level to its own island floor, exactly like
+            # the import fences. Under the whole-program island these fences
+            # never mattered, so the rule stays scoped to the split: without
+            # a plane split (`_boxed_plane_split` false) the fence list
+            # reaches the CLI as before.
+            has_module_fence = self._boxed_plane_split and any(
+                fence.function in (None, "__module__") for fence in fences
+            )
+            self._boxed_top_island = bool(probe_fences) or has_import_fence or has_module_fence
             if self._boxed_top_island:
                 if probe_fences:
                     fences.extend(probe_fences)
@@ -205,6 +216,7 @@ class ModuleDriverMixin:
             # source, exec'd by CPython, which resolves the cycle natively.
             if self._boxed_island_unit:
                 self._boxed_top_island = True
+                self._boxed_island_unit_drops_module_fences = True
                 for fn in self._boxed_functions:
                     self._boxed_island.add(fn.name)
                 for node in class_nodes:
@@ -262,7 +274,12 @@ class ModuleDriverMixin:
                 continue
             # boxed:end
             if lowered is not None and not self.caught:
-                lowered_classes.append(lowered)
+                # The island group: the group's bootstrap defines the class
+                # in CPython, so a native copy of it would collide with the
+                # other modules' class of the same name (the merged class
+                # table is program-wide) and would be the wrong class.
+                if not (self._boxed_island_unit and node.name in self.island_classes):
+                    lowered_classes.append(lowered)
         lowered_classes.extend(self._synthetic_classes({item["name"] for item in lowered_classes}))
         lowered: list[dict[str, Any]] = []
         for fn in functions:
@@ -383,7 +400,19 @@ class ModuleDriverMixin:
                     fence
                     for fence in fences
                     if (fence.function != entry_name if entry_name is not None else True)
-                    and not (fence.function in (None, "__module__") and fence.code in ("PS2001", "PS2002"))
+                    and not (
+                        fence.function in (None, "__module__")
+                        and (
+                            fence.code in ("PS2001", "PS2002")
+                            # The island group: the group's bootstrap execs the
+                            # real body, so its module-level fences are the
+                            # island's, not the compile's.
+                            or self._boxed_island_unit_drops_module_fences
+                            # The split's module rule: the top level this
+                            # fence routed island-side owns the statement.
+                            or has_module_fence
+                        )
+                    )
                 ]
             else:
                 island.discard(entry_name)
