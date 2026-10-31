@@ -33,7 +33,16 @@ def _write(root: Path, files: dict[str, str]) -> None:
 def _compile(tmp_path: Path, prog: Path, *flags: str) -> tuple[Path, subprocess.CompletedProcess[str]]:
     binary = tmp_path / "bin"
     comp = _cli(
-        "compile", str(prog), "--program", "--fallback=cpython", "--emit", "bin", "-o", str(binary), *flags, cwd=tmp_path
+        "compile",
+        str(prog),
+        "--program",
+        "--fallback=cpython",
+        "--emit",
+        "bin",
+        "-o",
+        str(binary),
+        *flags,
+        cwd=tmp_path,
     )
     return binary, comp
 
@@ -177,10 +186,7 @@ def test_fenced_module_with_a_native_sibling(tmp_path: Path) -> None:
                 "    main()\n"
             ),
             "mixed.py": (
-                "def clean_one(n: int) -> int:\n    return n + 1\n"
-                "\n"
-                "\n"
-                "def dirty_one(s):\n    return s.upper()\n"
+                "def clean_one(n: int) -> int:\n    return n + 1\n\n\ndef dirty_one(s):\n    return s.upper()\n"
             ),
         },
     )
@@ -666,3 +672,94 @@ def test_the_cycle_group_runs_under_one_bootstrap(tmp_path: Path) -> None:
     want = subprocess.run([sys.executable, str(prog)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
     assert (got.returncode, got.stdout) == (want.returncode, want.stdout)
     assert got.stdout == "11\n"
+
+
+def test_a_cycle_member_with_a_module_level_fence_still_runs(tmp_path: Path) -> None:
+    """A cycle member's own module-level fences drop with its top level.
+
+    The group's bootstrap execs the real body under CPython, so a lambda
+    the checker refuses (PS1001) at module level is CPython's own there:
+    the fence is the island's, not the compile's, and the compile stays at
+    zero fences with the clean sibling native.
+    """
+    prog = tmp_path / "prog"
+    _write(
+        prog,
+        {
+            "__main__.py": (
+                "from clean import add\n"
+                "from driver import drive\n"
+                "\n"
+                "\n"
+                "def main() -> None:\n"
+                "    print(add(1, 2))\n"
+                "    print(drive())\n"
+                "\n"
+                "\n"
+                "if __name__ == '__main__':\n"
+                "    main()\n"
+            ),
+            # The lambda without a Callable annotation fences the checker;
+            # `alpha` and `beta` form the cycle.
+            "alpha.py": (
+                "wrap = lambda p: p + 1\n\n\ndef one() -> int:\n    return two() + wrap(1)\n\n\nfrom beta import two\n"
+            ),
+            "beta.py": "from alpha import one\n\n\ndef two() -> int:\n    return 10\n",
+            "clean.py": "def add(a: int, b: int) -> int:\n    return a + b\n",
+            "driver.py": "from alpha import one\n\n\ndef drive() -> int:\n    return one()\n",
+        },
+    )
+    out = _compare(tmp_path, prog)
+    assert out == "3\n12\n"
+    planes = _plane_map(tmp_path, prog)["functions"]
+    assert planes["clean.add"] == "native"
+    assert planes["alpha.one"] == "island"
+
+
+def test_a_cycle_member_namedtuple_shadowing_a_stdlib_type_does_not_collide(tmp_path: Path) -> None:
+    """A cycle member's own namedtuple named like a stdlib type stays island-side.
+
+    The merged class table is program-wide: `Time` is also the stdlib
+    `datetime.time` shape the clean modules lower against. The cycle
+    member's `collections.namedtuple('Time', ...)` is a different class
+    that only its own module sees, so it rides the group bootstrap and
+    never enters the native table — a PS2002 duplicate would refuse the
+    whole compile.
+    """
+    prog = tmp_path / "prog"
+    _write(
+        prog,
+        {
+            "__main__.py": (
+                "import collections\n"
+                "from clean import add\n"
+                "from driver import drive\n"
+                "\n"
+                "\n"
+                "def main() -> None:\n"
+                "    print(add(1, 2))\n"
+                "    print(drive())\n"
+                "\n"
+                "\n"
+                "if __name__ == '__main__':\n"
+                "    main()\n"
+            ),
+            # The cycle: `alpha` declares a namedtuple `Time` at module
+            # level; the stdlib `datetime` synthetics also name `Time`.
+            "alpha.py": (
+                "import collections\n\n\n"
+                "_tt = collections.namedtuple('Time', ('hours', 'minutes'))\n\n\n"
+                "def one() -> int:\n    return two() + _tt(1, 2).hours\n\n\nfrom beta import two\n"
+            ),
+            "beta.py": "from alpha import one\n\n\ndef two() -> int:\n    return 10\n",
+            # The clean module uses `datetime.time`, which is the stdlib
+            # `Time` shape in the native table.
+            "clean.py": (
+                "import datetime\n\n\ndef add(a: int, b: int) -> int:\n"
+                "    t = datetime.time(3)\n    return a + b + t.hour\n"
+            ),
+            "driver.py": "from alpha import one\n\n\ndef drive() -> int:\n    return one()\n",
+        },
+    )
+    out = _compare(tmp_path, prog)
+    assert out == "6\n11\n"

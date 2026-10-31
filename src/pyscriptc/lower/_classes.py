@@ -2045,8 +2045,17 @@ class ClassesMixin:
 
     def _synthetic_classes(self, seen: set[str], deferred_only: bool = False) -> list[dict[str, Any]]:
         found: list[dict[str, Any]] = []
+        # The island group: the group's bootstrap defines the module's names
+        # in CPython, so a class the island unit declares itself (a namedtuple
+        # that shadows a stdlib type, say) is the island's, not the merged
+        # native table's — emitting it would collide with the stdlib class of
+        # the same name in the other modules. The stdlib synthetics stay:
+        # they are program-wide and identical across modules.
+        skip_island = self._boxed_island_unit
         for name, info in self.classes.items():
             if name in seen or not info.get("synthetic"):
+                continue
+            if skip_island and info.get("namedtuple"):
                 continue
             # A deferred class (the argparse Namespace) grows fields while
             # the statements lower, so only the closing pass emits it.

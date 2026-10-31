@@ -259,7 +259,7 @@ def _lower_units(
     )
 
     if program:
-        fences, owners, _cycles = _program_plan(units, exports, entry=entry)
+        fences, owners, _cycles = _program_plan(units, exports, entry=entry, island_group=island_group)
         if fences:
             # boxed:begin
             island = _program_island(units, root, entry, main_package, path0, staged_data=staged_data or [])
@@ -412,9 +412,7 @@ def _lower_units(
         # `sys.modules` (the runtime registers each seeded module under
         # its real name), so the defining module must be seeded first.
         finish = _program_finish_order(units, exports, entry=entry)
-        merged["islandModules"] = {
-            name: island_modules[name] for name in finish if name in island_modules
-        }
+        merged["islandModules"] = {name: island_modules[name] for name in finish if name in island_modules}
         merged["fallback"] = {
             "moduleTopLevel": _boxed.ISLAND if plane_top_island else _boxed.NATIVE,
             "functions": plane_functions,
@@ -430,9 +428,7 @@ def _lower_units(
         # finder); the bootstrap registers each in `sys.modules` under its
         # real name, so the native lane reaches them through the boxed seam.
         group_sources = {
-            name: path.read_text(encoding="utf-8")
-            for name, path, _is_package in units
-            if name in island_group
+            name: path.read_text(encoding="utf-8") for name, path, _is_package in units if name in island_group
         }
         group_packages = {name: is_package for name, _path, is_package in units if name in island_group}
         merged["islandGroup"] = _boxed.island_group_bootstrap(
@@ -775,6 +771,7 @@ def _program_plan(
     units: list[tuple[str, Path, bool]],
     exports: dict[str, dict[str, dict[str, Any]]],
     entry: str | None = None,
+    island_group: set[str] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, dict[str, list[str]]], set[str]]:
     """The program's import graph: cycles found, init owners assigned.
 
@@ -790,6 +787,11 @@ def _program_plan(
     Without the tier there is no island floor to carry the cycle, so the
     cycle stays the refusal it was. The third value is the set of cycle
     members.
+
+    `island_group` is the set of modules the island group's bootstrap
+    imports. Their bodies run there, not at a native import site, so the
+    owner map leaves them alone: a native init call would reach an island
+    namespace that has no `__init__` to call.
     """
 
     trees: dict[str, ast.Module] = {}
@@ -845,7 +847,7 @@ def _program_plan(
                 continue
             if state.get(child) == 2:
                 continue
-            if child in inited:
+            if child in inited and child not in (island_group or set()):
                 owners[name].append(child)
             visit(child)
         stack.pop()
@@ -1309,7 +1311,14 @@ def _catalog(
     memo: dict[str, _CatalogMemo] = {}
     for _ in range(len(units) + 1):
         nxt, nxt_failed, round_memo = _catalog_once(
-            units, exports, program, entry=entry, target=target, config=config, bridge=bridge, memo=memo,
+            units,
+            exports,
+            program,
+            entry=entry,
+            target=target,
+            config=config,
+            bridge=bridge,
+            memo=memo,
             island_group=island_group or set(),
         )
         if nxt == exports:
