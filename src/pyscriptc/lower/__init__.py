@@ -325,6 +325,11 @@ class Lowerer(
         # plan's cycle members before the catalog pass, so the export table
         # agrees on which definitions the unit keeps.
         self._boxed_island_unit = False
+        # The island group's own module-level fences drop with its top
+        # level: the group's bootstrap execs the real body, so a lambda the
+        # checker refuses or an empty container literal is CPython's own
+        # there, exactly as under the whole-program island.
+        self._boxed_island_unit_drops_module_fences = False
         # boxed:end
         self.module_name = ""
         self.is_package = False
