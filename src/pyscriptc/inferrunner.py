@@ -129,30 +129,34 @@ def _callee_names(tree: ast.Module, module: str, imports: dict[str, str]) -> dic
 
 
 def _reexport_index(root: Path) -> dict[tuple[str, str], str]:
-    """The defining module of every name a package re-exports.
+    """The defining module of every name a module re-exports.
 
-    A package's `__init__.py` is its public face: `from .traversal import
-    *` makes `traverse_obj` a name of the package, and a consumer that
-    imports it calls the function the *defining* module holds. The lowerer
-    resolves such a call to the defining module's `ir_name`, so the pin
-    map must name the same module or the pin never reaches the
-    definition it proves.
+    A module that imports a name does not define it: `from ._utils import
+    url_or_none` binds the name to another module's function, and a
+    consumer that imports it calls the function the *defining* module
+    holds. The lowerer resolves such a call to the defining module's
+    `ir_name`, so the pin map must name the same module or the pin never
+    reaches the definition it proves.
 
-    The key is `(package module, exported name)` and the value is the
-    qualified name of the name in the module that defines it. A name the
-    tree does not define contributes nothing: the pin refuses, the fence
+    The key is `(module, re-exported name)` and the value is the
+    qualified name of the name in the module that defines it. The map is
+    a fixpoint: a name a module re-exports from a module that itself
+    re-exports it resolves to the module that defines it. A name the tree
+    does not define contributes nothing: the pin refuses, the fence
     stands.
     """
 
-    index: dict[tuple[str, str], str] = {}
-    # The names each module binds at module level, by its own module name.
+    # The names each module binds at module level, by its own module name,
+    # and the import statements that bring a name in.
     bound: dict[str, set[str]] = {}
+    imports: dict[str, list[tuple[str, str | None, str]]] = {}
     for path in sorted(root.rglob("*.py")):
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
         except (OSError, SyntaxError, UnicodeDecodeError):
             continue
         module = _module_name(path, root)
+        is_package = path.name == "__init__.py"
         names = bound.setdefault(module, set())
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -161,46 +165,51 @@ def _reexport_index(root: Path) -> dict[tuple[str, str], str]:
                 for alias in node.names:
                     names.add(alias.asname or alias.name)
             elif isinstance(node, ast.ImportFrom):
+                source = _import_source(module, node, is_package)
                 for alias in node.names:
                     if alias.name != "*":
                         names.add(alias.asname or alias.name)
+                        imports.setdefault(module, []).append((alias.asname or alias.name, alias.name, source))
+                    else:
+                        imports.setdefault(module, []).append(("*", "*", source))
             elif isinstance(node, ast.Assign):
                 for target in node.targets:
                     if isinstance(target, ast.Name):
                         names.add(target.id)
-    # The names each package re-exports, and the module they come from.
-    for path in sorted(root.rglob("__init__.py")):
-        try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-        except (OSError, SyntaxError, UnicodeDecodeError):
-            continue
-        module = _module_name(path, root)
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.ImportFrom):
-                continue
-            source = _import_source(module, node)
-            if source is None:
-                continue
-            for alias in node.names:
-                if alias.name == "*":
+    # The fixpoint: each round resolves one hop of every re-export chain.
+    index: dict[tuple[str, str], str] = {}
+    for _round in range(len(bound) + 1):
+        changed = False
+        for module, entries in imports.items():
+            for local, original, source in entries:
+                if source is None:
+                    continue
+                if original == "*":
                     # A star import re-exports what the source module's
                     # `__all__` picks, or every public name without one.
                     for name in sorted(bound.get(source, ())):
                         if name.startswith("_"):
                             continue
-                        index.setdefault((module, name), f"{source}.{name}")
+                        found = index.get((source, name), f"{source}.{name}")
+                        if index.setdefault((module, name), found) != found:
+                            changed = True
                     continue
-                local = alias.asname or alias.name
-                if alias.name in bound.get(source, ()):
-                    index.setdefault((module, local), f"{source}.{alias.name}")
+                found = index.get((source, original), f"{source}.{original}")
+                if index.setdefault((module, local), found) != found:
+                    changed = True
+        if not changed:
+            break
+    # A name the source module does not define is not a re-export: the map
+    # keeps the source's name, and the pin refuses when the signature map
+    # has no such callee.
     return index
 
 
 def _resolve_reexport(name: str, index: dict[tuple[str, str], str]) -> str:
     """The defining qualified name of an imported name, or the name itself.
 
-    The chain is followed to its end: a package that re-exports a name
-    another package already re-exports resolves to the module that
+    The chain is followed to its end: a module that re-exports a name
+    another module already re-exports resolves to the module that
     defines it. A cycle stops at the name it started from, so the
     resolution always ends.
     """
@@ -218,17 +227,21 @@ def _resolve_reexport(name: str, index: dict[tuple[str, str], str]) -> str:
         current = found
 
 
-def _import_source(module: str, node: ast.ImportFrom) -> str | None:
+def _import_source(module: str, node: ast.ImportFrom, is_package: bool) -> str | None:
     """The module a `from ... import` statement names, or None.
 
     An absolute import names the module as written. A relative import
     resolves against the importing module's own package, the same way the
-    lowerer's `_base_of` resolves it.
+    lowerer's `_base_of` resolves it: level 1 is the containing package
+    (the module itself when it is a package), and each extra level climbs
+    one parent.
     """
 
     if not node.level:
         return node.module or None
     bits = module.split(".")
+    if not is_package:
+        bits = bits[:-1]
     drop = node.level - 1
     if drop > len(bits):
         return None

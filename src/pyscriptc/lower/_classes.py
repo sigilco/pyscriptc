@@ -825,7 +825,7 @@ class ClassesMixin:
         span = span_of(node, self.filename)
         if isinstance(node, ast.Constant):
             return self._const(node, span)
-        if isinstance(node, (ast.List, ast.Dict)):
+        if isinstance(node, (ast.List, ast.Dict, ast.Set)):
             saved_prelude = self.prelude
             self.prelude = []
             try:
@@ -875,7 +875,7 @@ class ClassesMixin:
         slot = str(const["slot"])
         key = str(const.get("key") or self._slot_key(slot))
         typ = const["type"]
-        if typ["kind"] not in {"list", "dict"}:
+        if typ["kind"] not in {"list", "dict", "set"}:
             self.fail(ast.Pass(), "PS2002", f"class constant {slot} is not a container")
             raise AssertionError("unreachable")
         return self._abi_call(
@@ -2426,6 +2426,13 @@ def _param(
             inferred = lowerer._checker_pin_type(fn, arg)
             if inferred is not None:
                 return {"name": arg.arg, "type": inferred}
+            # Body-usage inference (issue #1002): the parameter's own uses
+            # prove its type when every use agrees. The checker's answer
+            # wins over the body's, so a proven annotation is never
+            # overridden by a use the checker read differently.
+            inferred = lowerer._body_param_type(fn, arg)
+            if inferred is not None:
+                return {"name": arg.arg, "type": inferred}
         # Every proof refused: the fence stands. The return peek catches it
         # and returns None. An unannotated parameter is named by its own fence.
         lowerer.fail(arg, "PS1001", f"parameter {arg.arg} needs an annotation")
@@ -2473,12 +2480,12 @@ def _is_scalar_const(node: ast.expr) -> bool:
 
 
 def _is_container_literal(node: ast.expr) -> bool:
-    """True for a list or dict display, the slice-2 class constant shapes.
+    """True for a list, dict or set display, the slice-2 class constant shapes.
 
     An empty display is still ambiguous to the inference peek (no element
     type), so it stays fenced here and the ordinary PS1204 message holds.
     """
-    if isinstance(node, ast.List):
+    if isinstance(node, (ast.List, ast.Set)):
         return bool(node.elts)
     if isinstance(node, ast.Dict):
         return bool(node.keys)

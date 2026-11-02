@@ -400,6 +400,36 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             return None
         return self.bridge.param_type(fn, arg.arg, self.classes)
 
+    # The cache is keyed by the id of the def, and the def is kept in the
+    # value: an id is only unique among live objects, so a cached entry
+    # whose def was collected would answer for a different def that
+    # happens to reuse the id.
+    _BODY_PARAM_CACHE: dict[int, tuple[ast.AST, dict[str, dict[str, Any]]]] = {}
+
+    def _body_param_type(self, fn: ast.FunctionDef | ast.AsyncFunctionDef, arg: ast.arg) -> dict[str, Any] | None:
+        """The IR type the parameter's own body uses prove, or None.
+
+        The body-usage scan (`_paraminfer.prove_params`) reads how the body
+        uses the parameter: every use names a type, and a parameter whose
+        uses agree on one concrete type is proved. The answer is cached per
+        def, so the return peek and the signature pass share one scan.
+        Only a scalar is provable this way: a container's IR type carries
+        its element type, and the element type needs a proof of its own, so
+        a proved container leaves the parameter fenced.
+        """
+        from pyscriptc.lower._paraminfer import prove_params
+
+        key = id(fn)
+        cached = self._BODY_PARAM_CACHE.get(key)
+        if cached is None or cached[0] is not fn:
+            proved = {name: {"kind": kind} for name, kind in prove_params(fn).items()}
+            self._BODY_PARAM_CACHE[key] = (fn, proved)
+            cached = self._BODY_PARAM_CACHE[key]
+        typ = cached[1].get(arg.arg)
+        if typ is None or typ["kind"] not in {"str", "int", "float", "bytes", "bool"}:
+            return None
+        return typ
+
     def _pin_callee_name(self, fn: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
         """The qualified name the package's pins name this def by.
 
