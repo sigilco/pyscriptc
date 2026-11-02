@@ -334,6 +334,7 @@ def _lower_units(
             # The island group: this unit rides the island floor whole, so
             # its seed is its own source and CPython resolves the cycle.
             lowerer._boxed_island_unit = name in island_group
+            lowerer._boxed_island_group = island_group
             per_file_bridge = bridge_for(path)
             lowerer.bridge = per_file_bridge
             # The package-wide pin map rides the per-file bridge: the
@@ -1538,6 +1539,7 @@ def _catalog_once(
         # The island group: a unit of the group rides the island floor whole,
         # so the catalog pass must agree on the routing before the real pass.
         lowerer._boxed_island_unit = name in (island_group or set())
+        lowerer._boxed_island_group = island_group or set()
         if bridge is not None:
             unit_bridge = bridge(path) if callable(bridge) else bridge
             lowerer.bridge = unit_bridge
