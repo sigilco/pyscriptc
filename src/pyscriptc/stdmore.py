@@ -1711,6 +1711,7 @@ REST_MODULES = frozenset(
         "uuid",
         "binascii",
         "shlex",
+        "secrets",
     }
 )
 
@@ -1978,6 +1979,8 @@ def member_callable(module: str, member: str) -> bool:
     if module == "binascii" and member in {"unhexlify", "hexlify"}:
         return True
     if module == "shlex" and member in {"split", "quote", "join"}:
+        return True
+    if module == "secrets" and member in {"token_hex", "token_bytes", "randbelow"}:
         return True
     if module == "tomllib" and member == "loads":
         return True

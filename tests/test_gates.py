@@ -74,6 +74,7 @@ QUEUE = (
     "uuid",
     "binascii",
     "shlex",
+    "secrets",
 )
 
 
