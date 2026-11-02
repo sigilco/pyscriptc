@@ -72,6 +72,7 @@ QUEUE = (
     "zipfile",
     "tarfile",
     "uuid",
+    "binascii",
 )
 
 

@@ -77,6 +77,7 @@ from pyscriptc.restlower._system import _as_file_value, _atexit_register, _exit,
 from pyscriptc.restlower._textwrap import _textwrap_call
 from pyscriptc.restlower._threading import _lock_method, _thread_method, _threading_call
 from pyscriptc.restlower._time import _clock, _sleep, _strftime
+from pyscriptc.restlower._binascii import _binascii_call
 from pyscriptc.restlower._tomllib import _tomllib_call
 from pyscriptc.restlower._urllib import _urllib_request_call
 from pyscriptc.restlower._uuid import _uuid_call, _uuid_construct
@@ -225,6 +226,8 @@ _AFTER_KEYWORDS: dict[tuple[str, str], Handler] = {
     ("uuid", "uuid4"): lambda lo, node, span, expect, attr: _uuid_call(lo, node, span, attr),
     ("uuid", "uuid5"): lambda lo, node, span, expect, attr: _uuid_call(lo, node, span, attr),
     ("uuid", "UUID"): lambda lo, node, span, expect, attr: _uuid_construct(lo, node, span),
+    ("binascii", "unhexlify"): lambda lo, node, span, expect, attr: _binascii_call(lo, node, span, attr),
+    ("binascii", "hexlify"): lambda lo, node, span, expect, attr: _binascii_call(lo, node, span, attr),
 }
 
 
