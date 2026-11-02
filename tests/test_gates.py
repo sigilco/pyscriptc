@@ -73,6 +73,7 @@ QUEUE = (
     "tarfile",
     "uuid",
     "binascii",
+    "shlex",
 )
 
 
