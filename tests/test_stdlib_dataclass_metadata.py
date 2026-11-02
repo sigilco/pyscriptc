@@ -239,3 +239,54 @@ def test_wrong_field_name_in_replace_fences(tmp_path: Path) -> None:
     got = run_cli("compile", str(path), "--skip-check", "--emit", "llvm", "-o", str(tmp_path / "bad.ll"))
     assert got.returncode == 3, got.stderr
     assert "PS2" in got.stderr
+
+
+def test_replace_uses_the_instance_value_not_the_default(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "replace_current.py",
+        "\n".join(
+            [
+                "from dataclasses import dataclass, replace",
+                "",
+                "@dataclass",
+                "class Point:",
+                "    x: int",
+                "    y: int = 0",
+                "    tag: str = 't'",
+                "",
+                "def run() -> int:",
+                "    p = Point(3, 4, tag='z')",
+                "    q = replace(p, y=9)",
+                "    print(p.x, p.y, p.tag)",
+                "    print(q.x, q.y, q.tag)",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_replace_leaves_init_false_out_of_the_call(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "replace_init_false.py",
+        "\n".join(
+            [
+                "from dataclasses import dataclass, field, replace",
+                "",
+                "@dataclass",
+                "class Point:",
+                "    x: int",
+                "    y: int = 0",
+                "    tag: str = field(default='t', init=False)",
+                "",
+                "def run() -> int:",
+                "    p = Point(3, 4)",
+                "    q = replace(p, y=9)",
+                "    print(q.x, q.y, q.tag)",
+                "    return 0",
+                "",
+            ]
+        ),
+    )

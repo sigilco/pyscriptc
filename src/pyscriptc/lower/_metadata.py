@@ -246,16 +246,11 @@ def dataclass_replace(lo: Any, node: ast.Call, span: dict[str, Any], expect: dic
             args.append(value)
         elif not field.get("init", True):
             continue
-        elif "default" in field:
-            # The declared default rides in the param row the call sites
-            # use, so the constructor call keeps its own arity. An
-            # optional field's default is boxed the way a call site boxes
-            # it, so the constructor sees the same shape.
-            default = field["default"]
-            if field.get("optdefault"):
-                default = lo._opt_box(None if default["type"]["kind"] == "none" else default, param["type"], span)
-            args.append(default)
         else:
+            # Every unchanged field reads the instance: CPython's replace
+            # copies the *current* value, not the declared default, so a
+            # `tag: str = "t"` field whose value a constructor call already
+            # overrode rides through as the instance's own.
             args.append({"kind": "attr", "value": receiver, "name": param["name"], "type": param["type"], "span": span})
     made = {
         "kind": "call",
