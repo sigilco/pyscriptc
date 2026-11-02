@@ -11,11 +11,15 @@ copies the distributions behind the program's third-party import roots into
 `site` initialization puts on `sys.path`).
 
 A distribution that ships a compiled extension (`.so`, `.pyd` and friends) is
-refused with `PS4302`, never silently dropped: a copied extension would have to
-match the pack's ABI and platform, and one that does not fails at runtime in
-ways the compiler cannot check. An import root no installed distribution
-provides is reported on stderr and skipped: the island fails at runtime exactly
-like CPython would, which is the honest answer for a dead-branch import.
+staged when the extension's ABI matches the pack's CPython (the pydantic-core
+case: the Rust wheel's `cpython-3xx` tag has to match the pack's minor
+version and platform), and refused with `PS4302` otherwise: a copied
+extension that does not match the pack's ABI and platform fails at run time
+in ways the compiler cannot check.
+
+An import root no installed distribution provides is reported on stderr and
+skipped: the island fails at runtime exactly like CPython would, which is the
+honest answer for a dead-branch import.
 
 Direct imports only (the roots the program's own statements name); a
 dependency-of-dependency arrives through its importer's imports when the
@@ -26,11 +30,16 @@ from __future__ import annotations
 
 import shutil
 import sys
+import sysconfig
 from pathlib import Path
 
 
 class SiteError(Exception):
     """A user-facing site-packages bundle failure (no traceback)."""
+
+
+# The extension suffixes CPython uses for a compiled extension module.
+_NATIVE_SUFFIXES = (".so", ".pyd", ".dylib", ".dll")
 
 
 def third_party_roots(source: Path) -> list[str]:
@@ -87,8 +96,58 @@ def distributions_of(root: str) -> list[str]:
     return []
 
 
-def check_pure(roots: list[str]) -> None:
-    """Refuse (PS4302) when a dependency the program imports is native-backed.
+def _extension_tag(version: str) -> tuple[str, str]:
+    """The (python tag, platform tag) the pack's CPython accepts.
+
+    CPython's own extension suffix is `.cpython-<major><minor>-<platform>`
+    (plus the abi3 and plain `.so` forms), so an extension built for another
+    minor version or another platform cannot load into the pack.
+    """
+
+    # SOABI is the ABI tag the running interpreter itself uses
+    # (`cpython-314-x86_64-linux-gnu`), which is the tag a wheel extension
+    # carries. Deriving the platform from `get_platform()` instead would give
+    # `linux-x86_64` where the wheel says `linux_x86_64`, and the match would
+    # never hold. The SOABI is `<python tag>-<platform tag>`, and the platform
+    # tag may itself hold dashes (`linux_x86_64-linux-gnu`), so the split is
+    # on the first dash only, after the `cpython-` prefix.
+    soabi = sysconfig.get_config_var("SOABI") or ""
+    if soabi.startswith("cpython-"):
+        py_tag = "cpython-" + soabi[len("cpython-") :].split("-", 1)[0]
+        plat = soabi.split("-", 2)[2] if soabi.count("-") >= 2 else ""
+        if plat:
+            return py_tag, plat
+    plat = sysconfig.get_platform().replace("-", "_").replace(".", "_")
+    return f"cpython-{version.replace('.', '')}", plat
+
+
+def extension_matches_pack(path: Path, version: str) -> bool:
+    """True when a compiled extension can load into the pack's CPython.
+
+    The filename carries the ABI tag: `foo.cpython-314-x86_64-linux-gnu.so`
+    is for CPython 3.14 on this platform, `foo.abi3.so` is for the stable ABI
+    (any CPython 3.x), and a plain `foo.so` is for the interpreter it was
+    built beside (the `sysconfig` EXT_SUFFIX). Anything else is refused.
+    """
+
+    name = path.name
+    py_tag, plat = _extension_tag(version)
+    if ".cpython-" in name:
+        # The filename is `<module>.cpython-<py tag>-<platform tag>.so`, and
+        # `py_tag` is the full `cpython-<digits>` spelling.
+        tail = name.split(".cpython-", 1)[1]
+        py_digits = py_tag.removeprefix("cpython-")
+        return tail.startswith(py_digits + "-") and tail.endswith(plat + ".so")
+    if ".abi3." in name:
+        return True
+    # A plain `.so` matches only when its suffix is the interpreter's own
+    # EXT_SUFFIX: that is the extension the interpreter itself would load.
+    ext_suffix = sysconfig.get_config_var("EXT_SUFFIX") or ""
+    return bool(ext_suffix) and name.endswith(ext_suffix)
+
+
+def check_staging(roots: list[str], version: str) -> None:
+    """Refuse (PS4302) a dependency whose extension cannot load into the pack.
 
     Called before anything is staged, so a native dependency costs no fetch
     and no partial bundle. A root with no installed distribution is not this
@@ -100,23 +159,66 @@ def check_pure(roots: list[str]) -> None:
 
     for dist, dist_roots in _closure(roots).items():
         native, reason = imports.distribution_is_native(dist)
-        if native:
-            raise SiteError(
-                f"PS4302: the dependency {dist} (import {', '.join(dist_roots)}) cannot be bundled: {reason}; "
-                "a bundle carries pure Python only - compile on the target platform or use "
-                "an extern manifest for the native part"
-            )
+        if not native:
+            continue
+        if _extensions_stable(dist, version):
+            continue
+        raise SiteError(
+            f"PS4302: the dependency {dist} (import {', '.join(dist_roots)}) cannot be bundled: {reason}; "
+            "a bundle carries pure Python and same-ABI extensions only - compile on the target "
+            "platform, or use an extern manifest for the native part"
+        )
+
+
+def _extensions_stable(dist: str, version: str) -> bool:
+    """True when every compiled extension of `dist` can load into the pack."""
+    from pyscriptc import imports
+
+    want = dist.lower().replace("_", "-")
+    found = False
+    for site_dir in imports._site_packages():
+        if not site_dir.is_dir():
+            continue
+        for dist_info in sorted(site_dir.glob("*.dist-info")):
+            # The directory name carries the version (`pydantic_core-2.50.2`),
+            # so the name is compared after the version is stripped, and the
+            # underscores and dashes are the same spelling.
+            name = dist_info.name[: -len(".dist-info")]
+            key = name.lower().replace("_", "-")
+            if key.rsplit("-", 1)[-1][:1].isdigit():
+                key = key.rsplit("-", 1)[0]
+            if key != want:
+                continue
+            for path in _distribution_files(dist_info.parent):
+                if path.suffix in _NATIVE_SUFFIXES or ".so" in path.name:
+                    found = True
+                    if not extension_matches_pack(path, version):
+                        return False
+    return found
+
+
+def _distribution_files(root: Path) -> list[Path]:
+    """The importable files of one installed distribution."""
+    files: list[Path] = []
+    for entry in sorted(root.iterdir()):
+        if entry.name.endswith(".dist-info") or entry.name.endswith(".data"):
+            continue
+        if entry.is_dir():
+            files.extend(sorted(p for p in entry.rglob("*") if p.is_file()))
+        elif entry.is_file():
+            files.append(entry)
+    return files
 
 
 def stage_site_packages(lib_dir: Path, version: str, roots: list[str]) -> list[str]:
-    """Copy the pure-Python distributions behind `roots` into the bundle.
+    """Copy the distributions behind `roots` into the bundle.
 
     The copy set is the transitive closure over `Requires-Dist`: a dependency
     of a dependency travels with it (`python-dateutil` needs `six`), resolved
     against what this interpreter has installed. Returns the staged
-    distribution names. A native-backed distribution anywhere in the closure
-    raises `SiteError` with `PS4302`; a root with no installed distribution is
-    reported on stderr and skipped.
+    distribution names. A native-backed distribution whose extension does not
+    match the pack's ABI raises `SiteError` with `PS4302`; a root with no
+    installed distribution is reported on stderr and skipped.
     """
 
     from pyscriptc import imports
@@ -133,11 +235,11 @@ def stage_site_packages(lib_dir: Path, version: str, roots: list[str]) -> list[s
             )
     for dist, dist_roots in resolved.items():
         native, reason = imports.distribution_is_native(dist)
-        if native:
+        if native and not _extensions_stable(dist, version):
             raise SiteError(
                 f"PS4302: the dependency {dist} (import {', '.join(dist_roots)}) cannot be bundled: "
-                f"{reason}; a bundle carries pure Python only - compile on the target platform or "
-                "use an extern manifest for the native part"
+                f"{reason}; a bundle carries pure Python and same-ABI extensions only - compile "
+                "on the target platform, or use an extern manifest for the native part"
             )
         copied = False
         for root in dist_roots:
@@ -165,21 +267,30 @@ def _closure(roots: list[str]) -> dict[str, list[str]]:
 
     resolved: dict[str, list[str]] = {}
     queue: list[str] = list(roots)
-    seen: set[str] = set()
+    # The two sets are kept apart on purpose: an import root and a
+    # distribution name are different namespaces, and a distribution whose
+    # name equals its import root (`pydantic` is both) must still have its
+    # own requirements walked.
+    seen_roots: set[str] = set()
+    seen_dists: set[str] = set()
     while queue:
         root = queue.pop(0)
-        if root in seen:
+        if root in seen_roots:
             continue
-        seen.add(root)
+        seen_roots.add(root)
         for dist in distributions_of(root):
             # A distribution is copied for the import roots that reach it, so
-            # `six` stages `six.py` even though only `dateutil` names it.
+            # `six` stages `six.py` even though only `dateutil` names it. The
+            # key is the import root (the dotted-path spelling), not the
+            # requirement string: `pydantic-core` the requirement is
+            # `pydantic_core` the package directory.
+            import_root = root.replace("-", "_")
             roots_of = resolved.setdefault(dist, [])
-            if root not in roots_of:
-                roots_of.append(root)
-            if dist in seen:
+            if import_root not in roots_of:
+                roots_of.append(import_root)
+            if dist in seen_dists:
                 continue
-            seen.add(dist)
+            seen_dists.add(dist)
             try:
                 requires = metadata.requires(dist) or []
             except Exception:
@@ -202,8 +313,12 @@ def _closure(roots: list[str]) -> dict[str, list[str]]:
                 for separator in " <>=!~[":
                     name = name.split(separator, 1)[0]
                 name = name.strip()
-                if name and name not in seen:
-                    queue.append(name)
+                if not name:
+                    continue
+                name = name.split("[", 1)[0]
+                for candidate in (name, name.replace("-", "_")):
+                    if candidate not in seen_roots:
+                        queue.append(candidate)
     return resolved
 
 

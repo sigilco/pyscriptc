@@ -1,0 +1,575 @@
+{
+  "snippets": 40,
+  "planes": {
+    "native": {
+      "pass": 40,
+      "total": 40
+    },
+    "island": {
+      "pass": 40,
+      "total": 40
+    }
+  },
+  "cases": [
+    {
+      "name": "01_base_fields",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "01_base_fields",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "02_base_defaults",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "02_base_defaults",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "03_optional",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "03_optional",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "04_nested",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "04_nested",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "05_nested_optional",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "05_nested_optional",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "06_model_validate",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "06_model_validate",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "07_model_validate_json",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "07_model_validate_json",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "08_model_dump",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "08_model_dump",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "09_field_constraints",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "09_field_constraints",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "10_field_default_factory",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "10_field_default_factory",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "11_field_validator",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "11_field_validator",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "12_model_validator",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "12_model_validator",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "13_generics",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "13_generics",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "14_generic_nested",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "14_generic_nested",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "15_discriminated_union",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "15_discriminated_union",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "16_plain_union",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "16_plain_union",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "17_type_adapter",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "17_type_adapter",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "18_root_model",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "18_root_model",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "19_root_model_dict",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "19_root_model_dict",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "20_enum_field",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "20_enum_field",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "21_openai_completion",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "21_openai_completion",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "22_openai_nested_list",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "22_openai_nested_list",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "23_anthropic_usage",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "23_anthropic_usage",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "24_anthropic_content_block",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "24_anthropic_content_block",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "25_openai_tool_call",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "25_openai_tool_call",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "26_langchain_tool_schema",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "26_langchain_tool_schema",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "27_langchain_tool_args_validate",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "27_langchain_tool_args_validate",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "28_field_alias",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "28_field_alias",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "29_config_extra_forbid",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "29_config_extra_forbid",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "30_config_frozen",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "30_config_frozen",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "31_model_dump_exclude",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "31_model_dump_exclude",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "32_model_copy_update",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "32_model_copy_update",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "33_model_fields_set",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "33_model_fields_set",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "34_model_equality",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "34_model_equality",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "35_model_repr",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "35_model_repr",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "36_validation_error",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "36_validation_error",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "37_validator_rejects",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "37_validator_rejects",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "38_list_of_models",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "38_list_of_models",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "39_dict_of_models",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "39_dict_of_models",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "40_annotated_metadata",
+      "plane": "native",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    },
+    {
+      "name": "40_annotated_metadata",
+      "plane": "island",
+      "outcome": "pass",
+      "code": "",
+      "detail": ""
+    }
+  ]
+}

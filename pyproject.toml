@@ -103,6 +103,10 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.ruff.lint.per-file-ignores]
 # The table generator emits C source with percent formats.
 "scripts/gen_case_tables.py" = ["UP031"]
+# The pydantic corpus measures the typing spellings the AI SDKs use
+# (`Generic[T]`, `Union[...]`); the modern spellings would change what the
+# snippets test.
+"benchmarks/pydantic/corpus/*.py" = ["UP007", "UP046"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["pyscriptc"]

@@ -1720,6 +1720,21 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             or config.fallback_definitions()
         )
         island_default = fallback or config.wildcard_island()
+        # The pydantic seam (note 2026-11-02-pydantic-support.md): a program
+        # that imports an island-defaulted module gets the definition tier
+        # too. pydantic's model classes cannot lower natively (the base is an
+        # island member), so without the tier every `class User(BaseModel)`
+        # fences PS2002 even though the import lane is ready. Only a program
+        # that actually imports such a module is affected: a program that
+        # imports none keeps the no-flag refusal contract.
+        if not fallback and not island_names:
+            from pyscriptc.stdlib_queue import _ISLAND_INSTALLED_DEFAULTS, island_lane
+
+            if _imports_island_default(source_path, _ISLAND_INSTALLED_DEFAULTS, island_lane):
+                fallback = True
+                # The island-lane names join the policy table so the lowerer
+                # and the site-path seed both see the program imports them.
+                island_names = {name for name in _ISLAND_INSTALLED_DEFAULTS if island_lane(name)}
         island_ctx = island_policy(island_names, island_default)
         # boxed:end
         dep_roots, checker_roots, dep_lanes = _dependency_roots(source_path, config, island_default=island_default)
@@ -2037,7 +2052,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         # them refuses the compile (PS4302) before anything is staged.
         dep_roots = sitedeps.third_party_roots(source_path) if resolved_embed == "bundle" else []
         if resolved_embed == "bundle":
-            sitedeps.check_pure(dep_roots)
+            sitedeps.check_staging(dep_roots, embed.python_version())
             pack = embed.lock_pack()
             pack_directory = embed.ensure_pack(pack)
             embed_version = embed.python_version()
@@ -2102,6 +2117,30 @@ def _stdlib_imports(source_path: Path) -> list[str]:
         if site["name"].split(".")[0] in sys.stdlib_module_names:
             names.add(site["name"])
     return sorted(names)
+
+
+# boxed:begin
+def _imports_island_default(source_path: Path, defaults: dict[str, str], lane) -> bool:
+    """True when the program imports a module the island default covers.
+
+    The definition-tier promotion is scoped to the programs it exists for
+    (the pydantic seam): without the import check, a program that never
+    imports such a module would silently lose the no-flag refusal contract
+    (an unannotated body would route to the island instead of fencing).
+    """
+
+    from pyscriptc.imports import collect_imports
+
+    for site in collect_imports(source_path):
+        if site["level"] > 0 or not site["name"]:
+            continue
+        root = site["name"].split(".")[0]
+        if root in defaults and lane(root):
+            return True
+    return False
+
+
+# boxed:end
 
 
 def _dependency_roots(
