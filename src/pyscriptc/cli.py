@@ -2046,7 +2046,12 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             carried = stdlibzip.kept_module_names(
                 stdlibzip.stdlib_sources(pack_directory / "lib" / f"python{embed_version}", trim)
             )
-            stdlibzip.manifest_check(carried, _stdlib_imports(source_path), trim)
+            stdlibzip.manifest_check(
+                carried,
+                _stdlib_imports(source_path),
+                trim,
+                interpreter=stdlibzip.interpreter_modules(pack_directory, embed_version),
+            )
         if resolved_embed == "bundle":
             pack = embed.lock_pack()
             staged = embed.stage_bundle(
