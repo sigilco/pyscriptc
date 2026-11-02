@@ -311,7 +311,7 @@ def test_relocated_run_puts_no_binary_dir_on_sys_path(tmp_path: Path) -> None:
 
 
 def test_unstaged_data_lookup_is_a_numbered_divergence(tmp_path: Path) -> None:
-    """The divergence 46 pin: a program whose data files were NOT staged
+    """The divergence 45 pin: a program whose data files were NOT staged
     (here: the module reads through a path that leaves the program root, so
     nothing is staged) still resolves the lookup against the compile-time
     path, and a relocated run fails where CPython succeeds."""

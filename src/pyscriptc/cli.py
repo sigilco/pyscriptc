@@ -1736,7 +1736,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             # directory's non-Python files beside the binary (under the same
             # relative paths), so a relocated run resolves sibling data files
             # against the copy instead of the compile-time tree. Non-directory
-            # sources keep today's behavior (divergence 46).
+            # sources keep today's behavior (divergence 45).
             staged_data = _collect_program_data(source_path)
         _package._STAGED_DATA_TARGET = (
             binary.parent / "pyscriptc-data" / source_path.resolve().name if staged_data and fallback else None

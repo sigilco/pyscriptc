@@ -406,7 +406,7 @@ PsSeq *ps_os_listdir(int64_t n, const char *s) {
 
    The walk is materialized: every row is computed before the loop body
    runs, so a body that edits `dirnames` does not prune the walk (the
-   CPython pruning rule; divergence 47). */
+   CPython pruning rule; divergence 46). */
 
 /* The record the walk row becomes: the (dirpath, dirnames, filenames)
    triple at the synthetic tuple class layout. The path is a str cell (the

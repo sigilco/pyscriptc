@@ -134,7 +134,7 @@ Limits to know:
 - Closures and generators cannot be passed across the boundary.
 - Cross-compiling a libpython-linked binary to a foreign target is refused (divergence 31); fallback mode needs the host libpython and its installed packages.
 - Uncaught exceptions from the embedded side print the type and message but not a traceback (divergences 12 and 42).
-- Unsupported module-level statements plan the whole module top level for the embedded interpreter (divergence 42).
+- Unsupported module-level statements plan the whole module top level for the embedded interpreter (divergence 41).
 
 The complete crossing rules and numbered divergences: [Divergences from CPython](../reference/divergences.md).
 Per-module and per-library support status: the [compat site]({{PYSC_COMPAT_URL}}).

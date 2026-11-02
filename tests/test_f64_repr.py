@@ -216,7 +216,7 @@ def test_compiled_float_print_matches_cpython(tmp_path: Path) -> None:
 
 def test_whole_floats_print_in_fixed_notation(tmp_path: Path) -> None:
     """The exponent form CPython does not use at that magnitude is gone:
-    `10.0` prints `10.0`, not `1e+01` (divergence 36)."""
+    `10.0` prints `10.0`, not `1e+01`. The entry is gone from the divergence list: `ps_f64_str` takes the shortest digits from Ryu and CPython's own notation rule, so the exponent form cannot appear."""
     path = write_case(
         tmp_path,
         "whole.py",

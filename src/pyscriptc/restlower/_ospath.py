@@ -58,7 +58,7 @@ def _walk(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     filenames) triples (issue #509).
 
     The runtime pre-computes every row in CPython's topdown pre-order, so a
-    loop body that edits `dirnames` does not prune the walk (divergence 47)
+    loop body that edits `dirnames` does not prune the walk (divergence 46)
     and `topdown`, `onerror` and `followlinks` stay fenced. The result is a
     `list` of the synthetic 3-tuple class, so `for root, dirs, files in
     os.walk(top)` lowers through the same unpack the dict.items loop uses.

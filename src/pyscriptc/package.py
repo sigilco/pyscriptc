@@ -340,7 +340,7 @@ def _program_island(
     bootstrap rebases every module origin from the compile-time directory
     onto the staged root, so `Path(__file__).parent` data lookups survive
     a relocation. When nothing is staged the origins stay compile-time
-    (divergence 46 pins the unstaged lookup paths).
+    (divergence 45 pins the unstaged lookup paths).
     """
 
     if not _boxed.definitions_tier():
