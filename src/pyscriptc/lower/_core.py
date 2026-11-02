@@ -11,7 +11,7 @@ import ast
 from typing import Any
 
 from pyscriptc import _irnode as _ir
-from pyscriptc._irnode import P_BOOL, P_FLOAT, P_INT, P_NONE, P_STR, t_class, t_dict, t_leaf, t_list
+from pyscriptc._irnode import P_BOOL, P_FLOAT, P_INT, P_NONE, P_STR, t_leaf, t_list
 from pyscriptc.ir import types_equal
 from pyscriptc.tirserde import dict_to_node, dict_to_span, dict_to_type, node_to_dict
 
