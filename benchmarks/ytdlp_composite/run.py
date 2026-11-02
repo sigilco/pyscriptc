@@ -17,8 +17,6 @@ import argparse
 import json
 import math
 import os
-import resource
-import shutil
 import statistics
 import subprocess
 import sys
@@ -65,9 +63,7 @@ VARIANTS = {
     },
     "B3": {
         "kind": "oracle",
-        "path": os.environ.get(
-            "YTDLP_B3", "/opt/mise/installs/python/3.14.9/bin/python3.14"
-        ),
+        "path": os.environ.get("YTDLP_B3", "/opt/mise/installs/python/3.14.9/bin/python3.14"),
         "install_root": None,
     },
 }
@@ -93,9 +89,7 @@ def child_env() -> dict:
 
 def run_once(argv: list[str], cwd: Path | None = None) -> tuple[float, int]:
     start = time.monotonic()
-    proc = subprocess.run(
-        argv, cwd=cwd, env=child_env(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-    )
+    proc = subprocess.run(argv, cwd=cwd, env=child_env(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return time.monotonic() - start, proc.returncode
 
 
@@ -134,9 +128,7 @@ def variant_argv(name: str, extra: list[str]) -> list[str]:
     return [v["path"], *extra]
 
 
-def time_variant(
-    name: str, args: list[str], samples: int, cwd: Path | None = None
-) -> dict:
+def time_variant(name: str, args: list[str], samples: int, cwd: Path | None = None) -> dict:
     argv = variant_argv(name, args)
     for _ in range(2):
         run_once(argv, cwd=cwd)
@@ -177,9 +169,7 @@ def measure(name: str, samples: int, dl_samples: int, workdir: Path) -> dict:
         dl_samples,
         cwd=dl_dir,
     )
-    argv = variant_argv(
-        name, ["-j", "--no-warnings", "--user-agent", PINNED_UA, SAMPLE_URL]
-    )
+    argv = variant_argv(name, ["-j", "--no-warnings", "--user-agent", PINNED_UA, SAMPLE_URL])
     for _ in range(2):
         run_once_rss(argv)
     rss = []
@@ -201,9 +191,7 @@ def measure(name: str, samples: int, dl_samples: int, workdir: Path) -> dict:
         out["artifact_bytes"] = path.stat().st_size
         root = Path(v["install_root"])
         out["files_n"] = sum(1 for p in root.rglob("*") if p.is_file())
-        out["install_bytes"] = sum(
-            p.stat().st_size for p in root.rglob("*") if p.is_file()
-        )
+        out["install_bytes"] = sum(p.stat().st_size for p in root.rglob("*") if p.is_file())
         # The venv ships as its tree: the console script alone is not the
         # artifact, so the shipped bytes are the install bytes.
         out["artifact_bytes"] = out["install_bytes"]
@@ -213,9 +201,7 @@ def measure(name: str, samples: int, dl_samples: int, workdir: Path) -> dict:
     elif v["kind"] == "bundle":
         root = Path(v["install_root"])
         out["files_n"] = sum(1 for p in root.rglob("*") if p.is_file())
-        out["install_bytes"] = sum(
-            p.stat().st_size for p in root.rglob("*") if p.is_file()
-        )
+        out["install_bytes"] = sum(p.stat().st_size for p in root.rglob("*") if p.is_file())
         # The bundle ships as a tree, so the shipped artifact is the tree.
         out["artifact_bytes"] = out["install_bytes"]
         out["needs_python"] = False
@@ -242,9 +228,7 @@ def measure(name: str, samples: int, dl_samples: int, workdir: Path) -> dict:
         tree = Path(os.environ.get("YTDLP_B2Z_TREE", "/tmp/ytbench/dl/zipapp-tree"))
         if tree.is_dir():
             # the installed form of the zipapp is its unpacked tree
-            out["install_bytes"] = sum(
-                q.stat().st_size for q in tree.rglob("*") if q.is_file()
-            )
+            out["install_bytes"] = sum(q.stat().st_size for q in tree.rglob("*") if q.is_file())
     else:  # oracle
         out["files_n"] = None
         out["install_bytes"] = None
@@ -305,7 +289,12 @@ def main() -> int:
             table[f"{cand}/B1"] = composite(results[cand], results["B1"])
         if cand in results and "B2" in results:
             table[f"{cand}/B2"] = composite(results[cand], results["B2"])
-    payload = {"samples": samples, "loadavg_end": loadavg(), "results": results, "composite": {k: {"geo": v[0], "ratios": v[1]} for k, v in table.items()}}
+    payload = {
+        "samples": samples,
+        "loadavg_end": loadavg(),
+        "results": results,
+        "composite": {k: {"geo": v[0], "ratios": v[1]} for k, v in table.items()},
+    }
     text = json.dumps(payload, indent=2, default=str)
     if args.json:
         args.json.write_text(text)

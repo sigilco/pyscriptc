@@ -20,9 +20,7 @@ def main() -> int:
     if not argv:
         print("usage: _rss.py -- <argv...>", file=sys.stderr)
         return 2
-    proc = subprocess.Popen(
-        argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=os.environ
-    )
+    proc = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=os.environ)
     proc.wait()
     usage = resource.getrusage(resource.RUSAGE_CHILDREN)
     sys.stdout.write(str(usage.ru_maxrss))
