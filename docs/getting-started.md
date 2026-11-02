@@ -60,6 +60,11 @@ You only need one of `clang` or `zig`. Run `pyscriptc doctor` after installing t
 
 ## Install pyscriptc
 
+These pages describe master; the newest released wheel can lag it.
+`uv tool install pyscriptc` installs the newest release; installing from the repository
+(`uv pip install git+https://github.com/sigilco/pyscriptc`) installs master.
+`pyscriptc doctor` prints the installed version, so you can see which one you have.
+
 Install pyscriptc as a tool:
 
 ```sh
@@ -125,6 +130,10 @@ Run `pyscriptc explain PS2003` to see what a code means and how to change your c
 
 ## If your app is framework-heavy
 
-Reflection-heavy and framework-heavy code (pydantic models, Flask routes, agent frameworks) does not compile to native code and, once an untyped import sits at a module top level, pulls that module's functions onto the embedded CPython island with it.
+Reflection-heavy and framework-heavy code (pydantic models, Flask routes, agent frameworks) does not compile to native code.
+It does not fail either: once an untyped import sits at a module top level, that module's functions are pulled onto the embedded CPython island with it, and the program runs there.
+What it costs is the island: those parts run at interpreter speed, and every call crossing between a native function and an island one pays a marshalling cost.
+The fences that remain in your own code (a missing annotation, an `Any` annotation, a construct outside the subset) still stop the build, and each names the line to change.
+
 Before building, run `pyscriptc assess` on the tree and read the plane map it prints: what runs native, what runs on the island and why, and the policy lines that route each unsupported import.
-The rules are in [What runs native and what runs on the island](guide/python-subset.md#what-runs-native-and-what-runs-on-the-island), the island mechanics in [Libraries and fallback mode](guide/libraries.md), and how this compares with other tools in [Comparison with other tools](guide/comparison.md).
+The rules are in [What runs native and what runs on the island](guide/python-subset.md#what-runs-native-and-what-runs-on-the-island), the island mechanics and what a crossing costs in [Libraries and fallback mode](guide/libraries.md#the-two-planes), and how this compares with other tools in [Comparison with other tools](guide/comparison.md).
