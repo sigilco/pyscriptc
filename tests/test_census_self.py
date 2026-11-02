@@ -299,6 +299,9 @@ def test_self_census_ballpark() -> None:
     # program import-cycle seed (#796): the census moves 3182 -> 3185.
     # The builtin-module bundle fix (#791) adds 4 more in stdlibzip.py and
     # package.py: 3185 -> 3189. The --infer lane (#792) adds the pin
-    # inference plumbing: 3189 -> 3270.
-    assert census["fences"] == 3270
-    assert sum(p["fences"] for p in census["packages"]) == 3270
+    # inference plumbing: 3189 -> 3270. The runtime-linked manifest check
+    # (#791 follow-up) rewrites interpreter_modules/host_modules in
+    # stdlibzip.py: the pack-tree walk and the set algebra add 7 fences
+    # there. 3270 -> 3277.
+    assert census["fences"] == 3277
+    assert sum(p["fences"] for p in census["packages"]) == 3277
