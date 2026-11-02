@@ -354,6 +354,8 @@ def enum_value_lookup(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str
 
     The member table is a compile-time dict, so the lookup is a constant
     fold and a value that names no member is a compile-time diagnostic.
+    CPython looks the *value* up here, not the member name (the name
+    lookup is `E["X"]`), so only the int form lowers.
     """
 
     if len(node.args) != 1 or node.keywords:

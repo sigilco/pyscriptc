@@ -83,6 +83,10 @@ There is no `typing` module object in the binary.
 | `Any`, `object` as an annotation | unsupported (`PS1104`) |
 | `async def` and `await` | compiles |
 | `dataclasses.dataclass` with no options | compiles as a native record; `frozen=True` and other decorators are unsupported (`PS1201`) |
+| `dataclasses.field(default=, kw_only=, init=, repr=)` | compiles; the flags reach the field table and the synthesized constructor |
+| `dataclasses.fields`, `asdict`, `astuple`, `replace` | compile over the compile-time field table; `asdict` and `vars` need one shared field type (divergence 48) |
+| `vars(o)` over a lowered class | compiles as the field table read; `vars()` with no argument is unsupported (`PS2002`) |
+| `E["NAME"]`, `E(v)`, `E.__members__`, `list(E)` | compile over the compile-time member table; a wrong name or value is a compile-time diagnostic (divergence 49) |
 | `cast(t, v)`, `get_type_hints`, `__annotations__` reads | unsupported (`PS2002`); write the type on an annotated local instead |
 | `isinstance(v, list[int])` | unsupported (`PS2001`); runtime checks take scalar and class names only |
 | quoted forward references (`"Node"`) | unsupported (`PS1105`); define the class first and write the name unquoted |
@@ -98,7 +102,7 @@ For background on the typing system itself, the upstream references are the best
 
 - Runtime reflection: `inspect.signature`, `getattr` dispatch, `**kwargs` forwarding, annotation reads.
 - Typing names used as values: `cast`, `NewType`, `get_type_hints`, `Annotated` outside an annotation.
-- Dynamic object model features: `issubclass`, `type(v)`, `vars`, `__import__`.
+- Dynamic object model features: `issubclass`, `type(v)`, `__import__`. (`vars(o)` over a lowered class compiles; `vars()` with no argument does not.)
 - Anything not covered above stops the build with a named `PSxxxx` code, never a guess.
 The full divergence list is in [Divergences from CPython](../reference/divergences.md).
 
