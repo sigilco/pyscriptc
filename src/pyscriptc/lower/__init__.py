@@ -330,6 +330,12 @@ class Lowerer(
         # checker refuses or an empty container literal is CPython's own
         # there, exactly as under the whole-program island.
         self._boxed_island_unit_drops_module_fences = False
+        # The island group's member names (the cycle rule's closed set). The
+        # group bootstrap installs every member in `sys.modules` before the
+        # per-module seeds run, so a seed import of a group member resolves
+        # against that namespace even when the member's own exports carry no
+        # island flag.
+        self._boxed_island_group: set[str] = set()
         # boxed:end
         self.module_name = ""
         self.is_package = False
