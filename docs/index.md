@@ -39,6 +39,7 @@ That prints `285`, the same value CPython returns, from a native binary.
 - [Examples](/examples/)
 - [The Python subset](/guide/python-subset/)
   - [Using libraries](/guide/libraries/)
+  - [Comparison with other tools](/guide/comparison/)
 - [CLI reference](/reference/cli/)
   - [Diagnostic codes](/reference/diagnostics/)
   - [Mobile apps](/guide/mobile/)
