@@ -75,6 +75,7 @@ QUEUE: tuple[str, ...] = (
     "uuid",
     "binascii",
     "shlex",
+    "secrets",
 )
 
 LOWERED: frozenset[str] = frozenset(QUEUE)
