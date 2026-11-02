@@ -12,10 +12,8 @@ fence, the helper lowers natively, and the binary calls it directly.
 
 from __future__ import annotations
 
-import ast
-from pathlib import Path
-
 import subprocess
+from pathlib import Path
 
 from tests.test_gates import run_cli, write_case
 
