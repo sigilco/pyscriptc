@@ -336,6 +336,21 @@ class AbiMixin:
         )
         return self._load_island_result(out, want)
 
+    def _emit_island_site_seed(self) -> None:
+        """The dependency site-packages seed, before any island seed runs.
+
+        The pydantic seam: the island-lane dependencies live in the compiler
+        interpreter's site-packages, and the embedded interpreter starts with
+        a bare `sys.path`, so the paths travel in the IR and join it here.
+        """
+        paths = self.module.get("islandSitePaths") or []
+        if not paths:
+            return
+        data = "\n".join(paths).encode("utf-8")
+        symbol = self.format_global("island.site.paths", data)
+        self._abi_decl("ps_island_site_seed", "void", ["i64", "ptr"])
+        self._call_void("ps_island_site_seed", [f"i64 {len(data)}", f"ptr {symbol}"])
+
     def _emit_island_seed(self, source: str) -> None:
         """The once-per-binary namespace seed: the module's own source text.
 
@@ -364,6 +379,7 @@ class AbiMixin:
 
     def _emit_island_seed_global(self) -> None:
         """The main-prologue seed, when the module plans island definitions."""
+        self._emit_island_site_seed()
         source = self.module.get("islandSource")
         if source:
             self._emit_island_seed(source)

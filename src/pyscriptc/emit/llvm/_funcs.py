@@ -208,6 +208,7 @@ class FuncsMixin:
         self._call_void("pyscriptc_init", [])
         self._call_void("ps_argv_init", ["i32 %argc", "ptr %argv"])
         self._emit_exc_registrations()
+        self._emit_island_site_seed()
         self._emit_island_top_seed()
         self._emit_island_top_globals()
         self.line("ret i32 0")

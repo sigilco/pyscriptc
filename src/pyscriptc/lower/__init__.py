@@ -1911,6 +1911,15 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 module["islandSource"] = module_plane
             if island_globals:
                 module["islandGlobals"] = island_globals
+        # The pydantic seam: the site-packages directories of the island-lane
+        # dependencies travel in the IR so the binary can seed them into
+        # `sys.path` at run time (an island dependency lives in the compiler
+        # interpreter's site-packages, which the embedded interpreter does
+        # not know about). This holds for every island-lane import, with or
+        # without the definition tier.
+        paths = _island_site_paths(Path(self.filename))
+        if paths:
+            module["islandSitePaths"] = paths
         # boxed:end
         if self.global_inits:
             module["globals"] = self.global_inits
@@ -3446,6 +3455,57 @@ def _assign(target: str, value: dict[str, Any], span: dict[str, Any]) -> dict[st
 # parenthesis nesting, not attribute or operator chains, so a source that
 # parses can still be too deep to lower.
 MAX_LOWER_DEPTH = 200
+
+
+# boxed:begin
+def _island_site_paths(source_path: Path) -> list[str]:
+    """The site-packages directories the island lane's dependencies live in.
+
+    The pydantic seam runs pydantic through the embedded interpreter, whose
+    `sys.path` starts bare: without the compiler interpreter's site-packages
+    the run dies on `ModuleNotFoundError` before the program's first
+    statement. The paths travel in the IR and the binary seeds them at init.
+
+    The dependencies are the ones *the program* imports on the island lane,
+    not the ones the policy table names: a wildcard lane (`--island`) routes
+    every unlowered import to the island, but only the ones the program
+    actually names need a site-packages directory.
+    """
+
+    try:
+        from pyscriptc.imports import _site_packages, collect_imports
+        from pyscriptc.sitedeps import distributions_of
+        from pyscriptc.stdlib_queue import island_lane
+
+        roots: set[str] = set()
+        for site in collect_imports(source_path):
+            if site["level"] > 0 or not site["name"]:
+                continue
+            root = site["name"].split(".")[0]
+            if island_lane(root):
+                roots.add(root)
+        if not roots:
+            return []
+        wanted: set[str] = set()
+        for root in roots:
+            for dist in distributions_of(root):
+                wanted.add(dist.lower().replace("_", "-"))
+        if not wanted:
+            return []
+        paths: list[str] = []
+        for site_dir in _site_packages():
+            if not site_dir.is_dir():
+                continue
+            if any((site_dir / name).exists() for name in wanted):
+                text = str(site_dir)
+                if text not in paths:
+                    paths.append(text)
+        return paths
+    except Exception:
+        return []
+
+
+# boxed:end
 
 
 def _ast_depth(tree: ast.AST) -> int:

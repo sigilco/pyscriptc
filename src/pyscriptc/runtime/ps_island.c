@@ -1607,3 +1607,61 @@ void ps_island_getitem(void *handle, int64_t n, const char *key, int32_t want, i
     }
     ps_island_done();
 }
+
+/* The pydantic seam: the site-packages directories of the island-lane
+   dependencies travel in the binary and are put on `sys.path` before the
+   island seed runs. Without them the embedded interpreter cannot import
+   the package the program asked for: `Py_InitializeEx(0)` starts with a
+   bare `sys.path`, and the compiler interpreter's site-packages (where
+   pydantic lives) is not one of them. The paths are a newline-separated
+   list; an empty list is a no-op. */
+void ps_island_site_seed(int64_t n, const char *paths) {
+    PyObject *sys_mod;
+    PyObject *sys_path;
+    const char *start;
+    const char *end;
+    ps_island_ensure();
+    if (n <= 0 || paths == NULL) {
+        ps_island_done();
+        return;
+    }
+    sys_mod = PyImport_ImportModule("sys");
+    if (sys_mod == NULL) {
+        ps_island_fail();
+    }
+    sys_path = PyObject_GetAttrString(sys_mod, "path");
+    if (sys_path == NULL) {
+        Py_DECREF(sys_mod);
+        ps_island_fail();
+    }
+    start = paths;
+    end = paths + n;
+    while (start < end) {
+        const char *sep = memchr(start, '\n', (size_t)(end - start));
+        size_t len = sep ? (size_t)(sep - start) : (size_t)(end - start);
+        if (len > 0) {
+            PyObject *entry = PyUnicode_DecodeUTF8(start, (Py_ssize_t)len, "strict");
+            if (entry == NULL) {
+                Py_DECREF(sys_path);
+                Py_DECREF(sys_mod);
+                ps_island_fail();
+            }
+            /* Appended, not inserted: the program's own directory and the
+               standard library keep their places ahead of it. */
+            if (PyList_Append(sys_path, entry) < 0) {
+                Py_DECREF(entry);
+                Py_DECREF(sys_path);
+                Py_DECREF(sys_mod);
+                ps_island_fail();
+            }
+            Py_DECREF(entry);
+        }
+        if (sep == NULL) {
+            break;
+        }
+        start = sep + 1;
+    }
+    Py_DECREF(sys_path);
+    Py_DECREF(sys_mod);
+    ps_island_done();
+}
