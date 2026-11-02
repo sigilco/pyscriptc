@@ -923,11 +923,17 @@ def _program_island_group(
 ) -> set[str]:
     """The units that ride the island floor for the import cycle, closed.
 
-    The cycle members and everything they import (transitively) join the
-    island floor, so a unit of the group never calls a native definition of
-    another module: the island-to-compiled seam stays where it was. The
-    closure is computed on the source import graph, before the catalog pass,
-    so the export table the units read already agrees on the routing.
+    The cycle members, everything they import (transitively), and every
+    package unit on the way join the island floor, so a unit of the group
+    never calls a native definition of another module: the island-to-compiled
+    seam stays where it was. The packages join for the same reason the
+    per-module seeds cannot serve them (the package-shaped-program rule):
+    a seeded submodule's relative import resolves through its package's
+    namespace, so the package body must run in the same CPython image the
+    group bootstrap owns; a disk-resident `__init__` would re-enter a
+    submodule the group is still executing. The closure is computed on the
+    source import graph, before the catalog pass, so the export table the
+    units read already agrees on the routing.
     """
 
     names = {name for name, _path, _is_package in units}
@@ -945,6 +951,17 @@ def _program_island_group(
         return found
 
     group: set[str] = set(cycles)
+    # The package units: a group's module's relative imports resolve
+    # through its package chain, so the chain runs under the group
+    # bootstrap too. A package that is not in the group runs from disk
+    # instead, and its body re-enters the seeded module that is still
+    # half-initialized, so the import fails with "cannot import name".
+    # The packages join only when the cycle put a group there: without a
+    # group the package-shaped program runs whole island-side, as before.
+    if group:
+        for name, _path, is_package in units:
+            if is_package:
+                group.add(name)
     work = list(group)
     while work:
         name = work.pop()
