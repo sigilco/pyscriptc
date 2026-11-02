@@ -322,7 +322,15 @@ def test_a_star_reexport_honors_all(tmp_path: Path) -> None:
         tmp_path / "pkg",
         {
             "__init__.py": "from .core import *\n",
-            "core.py": "__all__ = ['picked']\n\ndef picked() -> str:\n    return 'all'\n\ndef dropped() -> str:\n    return 'no'\n",
+            "core.py": (
+                "__all__ = ['picked']\n"
+                "\n"
+                "def picked() -> str:\n"
+                "    return 'all'\n"
+                "\n"
+                "def dropped() -> str:\n"
+                "    return 'no'\n"
+            ),
             "app.py": "from pkg import picked\n\ndef show() -> str:\n    return picked()\n",
         },
     )
