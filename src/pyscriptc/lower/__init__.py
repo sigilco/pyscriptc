@@ -254,6 +254,11 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         self.package: dict[str, dict[str, dict[str, Any]]] | None = None
         self.pkg_funcs: dict[str, dict[str, Any]] = {}
         self.class_aliases: dict[str, str] = {}
+        # The class the lowerer is collecting, so the package-wide pin map
+        # can name a method `module.Class.name` (issue: the pin reached
+        # module-level defs only, and most unannotated parameters in a real
+        # package are method parameters).
+        self._pin_class_name: str | None = None
         self.global_slots: dict[str, dict[str, Any]] = {}
         self.fn_globals: set[str] = set()
         # `nonlocal` declarations for the function being lowered.
@@ -395,20 +400,34 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             return None
         return self.bridge.param_type(fn, arg.arg, self.classes)
 
+    def _pin_callee_name(self, fn: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
+        """The qualified name the package's pins name this def by.
+
+        A module-level def is `module.name`; a method is `module.Class.name`,
+        the class being the one the lowerer is collecting. The pin map
+        (`pyscriptc infer`) builds the same names, so the two sides meet.
+        """
+        module = self.module_name or ""
+        if self._pin_class_name:
+            return f"{module}.{self._pin_class_name}.{fn.name}" if module else f"{self._pin_class_name}.{fn.name}"
+        return f"{module}.{fn.name}" if module else fn.name
+
     def _checker_pin_type(self, fn: ast.FunctionDef | ast.AsyncFunctionDef, arg: ast.arg) -> dict[str, Any] | None:
         """The IR type the package's call sites proved for this parameter, or None.
 
         The pin is a whole-package fact (`pyscriptc infer` ran the checker
         over every module and reduced the call sites to the parameters
-        every caller agreed on). It applies only to a module-level def the
-        pin names by its qualified name; a method or a def the pin does not
-        name keeps its fence.
+        every caller agreed on). It names the callee by its qualified
+        name: a module-level def as `module.name`, a method as
+        `module.Class.name` (the class is known at the call site through
+        the receiver's type, so the same soundness rule holds). A def the
+        pin does not name keeps its fence.
         """
         if self.call_site_facts is None:
             return None
         from pyscriptc.inferfacts import parse_pin_type
 
-        pins = self.call_site_facts.pins_for(f"{self.module_name}.{fn.name}" if self.module_name else fn.name)
+        pins = self.call_site_facts.pins_for(self._pin_callee_name(fn))
         pin = pins.get(arg.arg)
         if pin is None:
             return None

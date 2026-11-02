@@ -189,6 +189,7 @@ def collect_calls(
     tree: ast.Module,
     callee_names: dict[str, str],
     expressions: dict[str, TypeFacts],
+    classes: dict[str, str] | None = None,
 ) -> list[CallSiteFacts]:
     """The call sites of one module that the checker resolved.
 
@@ -198,13 +199,21 @@ def collect_calls(
     call site to agree, and an unresolved call site is a disagreement.
 
     `expressions` is the module's own fact map, keyed `line:col`.
+
+    `classes` maps a class short name to its qualified name. It resolves
+    a method call (`obj.method(...)`, `Cls.method(...)`) to the method's
+    qualified name `module.Class.method`, so the pin reaches a method's
+    parameters. The receiver's class comes from the checker's own fact for
+    the receiver expression; a receiver the checker typed as `Any`, or a
+    class name two modules both define, resolves to nothing and the call
+    site stays unresolved (the pin refuses, the fence stands).
     """
 
     calls: list[CallSiteFacts] = []
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
+        if not isinstance(node, ast.Call):
             continue
-        callee = callee_names.get(node.func.id)
+        callee = _resolve_callee(node, callee_names, expressions, classes or {})
         if callee is None:
             # A call the caller could not resolve (a name with no import
             # and no same-module def): contribute nothing. The pin does
@@ -239,6 +248,46 @@ def collect_calls(
             )
         )
     return calls
+
+
+def _resolve_callee(
+    node: ast.Call,
+    callee_names: dict[str, str],
+    expressions: dict[str, TypeFacts],
+    classes: dict[str, str],
+) -> str | None:
+    """The qualified callee of one call site, or None when it is unknown.
+
+    A plain name call resolves through the caller's own import map. A
+    method call resolves through the receiver's class: the checker typed
+    the receiver expression, and the class short name maps to the
+    qualified class. `Cls.method(...)` on a class the caller imported
+    resolves through the import map instead, because that names the class
+    the same way the caller spelled it.
+    """
+
+    func = node.func
+    if isinstance(func, ast.Name):
+        return callee_names.get(func.id)
+    if not isinstance(func, ast.Attribute) or not isinstance(func.value, ast.Name):
+        return None
+    base = callee_names.get(f"{func.value.id}.{func.attr}")
+    if base is not None:
+        return base
+    module_base = callee_names.get(func.value.id)
+    if module_base is not None and "." not in module_base.rsplit(".", 1)[0]:
+        # The receiver is an imported class: the import map names it.
+        return f"{module_base}.{func.attr}"
+    receiver = expressions.get(f"{func.value.lineno}:{func.value.col_offset}")
+    if receiver is None:
+        return None
+    kind = receiver.kind
+    if kind == "type" and receiver.args:
+        kind = receiver.args[0].kind
+    owner = classes.get(kind)
+    if owner is None:
+        return None
+    return f"{owner}.{func.attr}"
 
 
 def _argument_facts(node: ast.Call, expressions: dict[str, TypeFacts]) -> dict[str, TypeFacts] | None:

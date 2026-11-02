@@ -128,6 +128,33 @@ def _callee_names(tree: ast.Module, module: str, imports: dict[str, str]) -> dic
     return names
 
 
+def _class_index(root: Path) -> dict[str, str]:
+    """The qualified name of every class in the tree, by class short name.
+
+    A short name that two modules both define is dropped: the map must
+    never name the wrong class. A method call on a receiver whose class is
+    ambiguous resolves to no callee, which is the safe answer (the pin
+    refuses, the fence stands).
+    """
+
+    found: dict[str, str] = {}
+    ambiguous: set[str] = set()
+    for path in sorted(root.rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            continue
+        module = _module_name(path, root)
+        for cls in _class_nodes(tree):
+            if cls.name in found and found[cls.name] != f"{module}.{cls.name}":
+                ambiguous.add(cls.name)
+                continue
+            found[cls.name] = f"{module}.{cls.name}"
+    for name in ambiguous:
+        found.pop(name, None)
+    return found
+
+
 def _def_params(node: ast.FunctionDef | ast.AsyncFunctionDef) -> dict[str, str]:
     """One def's positional-index keys mapped to the real parameter names."""
 
@@ -144,21 +171,52 @@ def _qualified_signatures(root: Path) -> dict[str, dict[str, str]]:
     """The parameter names of every def in the tree, by qualified name.
 
     The key is the callee's dotted name, matching
-    `CallSiteFacts.signature_key`.
+    `CallSiteFacts.signature_key`. A method is keyed `module.Class.name`,
+    the same name the lowerer builds while it collects the class, so the
+    pin reaches a method's parameters and not only a module-level def's.
     """
 
     signatures: dict[str, dict[str, str]] = {}
     for path in sorted(root.rglob("*.py")):
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
-        except OSError, SyntaxError, UnicodeDecodeError:
+        except (OSError, SyntaxError, UnicodeDecodeError):
             continue
         module = _module_name(path, root)
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             signatures[f"{module}.{node.name}"] = _def_params(node)
+        for cls in _class_nodes(tree):
+            for node in cls.body:
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                signatures[f"{module}.{cls.name}.{node.name}"] = _def_params(node)
     return signatures
+
+
+def _class_nodes(tree: ast.Module) -> list[ast.ClassDef]:
+    """The class definitions of a module, at any nesting depth.
+
+    A nested class is keyed `module.Outer.Inner.name`: the lowerer
+    collects the inner class while it is inside the outer one, so the
+    names must line up.
+    """
+
+    found: list[ast.ClassDef] = []
+
+    def walk(node: ast.AST, prefix: str) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, ast.ClassDef):
+                found.append(child)
+                walk(child, f"{prefix}{child.name}.")
+            elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                walk(child, prefix)
+            else:
+                walk(child, prefix)
+
+    walk(tree, "")
+    return found
 
 
 class _tsp_server:
@@ -201,12 +259,13 @@ def build_facts(root: Path, provider: str = "pyrefly") -> InferFacts:
         raise CheckFailed(f"the infer runner supports pyrefly only, not {provider!r}")
     facts = InferFacts(provider=provider)
     signatures = _qualified_signatures(root)
+    classes = _class_index(root)
     with _tsp_server() as adapter:
         for path in sorted(root.rglob("*.py")):
             try:
                 source = path.read_text(encoding="utf-8")
                 tree = ast.parse(source, filename=str(path))
-            except OSError, SyntaxError, UnicodeDecodeError:
+            except (OSError, SyntaxError, UnicodeDecodeError):
                 continue
             module = _module_name(path, root)
             stem = path.stem
@@ -216,7 +275,7 @@ def build_facts(root: Path, provider: str = "pyrefly") -> InferFacts:
                 continue
             imports = _imported_names(tree, module)
             callees = _callee_names(tree, module, imports)
-            facts.calls.extend(collect_calls(stem, tree, callees, module_facts.expressions))
+            facts.calls.extend(collect_calls(stem, tree, callees, module_facts.expressions, classes))
     facts.pins = pins_from_calls(facts.calls, signatures)
     return facts
 

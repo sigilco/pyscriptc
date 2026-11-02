@@ -318,9 +318,18 @@ class ClassesMixin:
         sig_fences = 0
         for method, kind in methods:
             try:
-                method_sigs[method.name] = self._coro_method_signature(method, node.name) or self._signature(
-                    method, node.name, kind
-                )
+                # The pin map names a method `module.Class.name`; the lowerer
+                # must be inside the class while it collects the method's
+                # signature, or the lookup falls back to the module-level
+                # name and never finds the pin.
+                saved_pin_class = self._pin_class_name
+                self._pin_class_name = node.name
+                try:
+                    method_sigs[method.name] = self._coro_method_signature(method, node.name) or self._signature(
+                        method, node.name, kind
+                    )
+                finally:
+                    self._pin_class_name = saved_pin_class
                 kinds[method.name] = kind
                 owners[method.name] = node.name
                 if method.name == "__init__":
