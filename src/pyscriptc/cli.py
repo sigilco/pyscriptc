@@ -2037,7 +2037,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         # them refuses the compile (PS4302) before anything is staged.
         dep_roots = sitedeps.third_party_roots(source_path) if resolved_embed == "bundle" else []
         if resolved_embed == "bundle":
-            sitedeps.check_pure(dep_roots)
+            sitedeps.check_staging(dep_roots, embed.python_version())
             pack = embed.lock_pack()
             pack_directory = embed.ensure_pack(pack)
             embed_version = embed.python_version()

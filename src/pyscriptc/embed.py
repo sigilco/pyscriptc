@@ -417,7 +417,7 @@ def stage_bundle(
     directory (issue #659); the unpacked tree does not travel, and the pure-
     Python distributions behind `dependency_roots` are copied into its
     `site-packages/` (issue #660; a native dependency is refused by
-    `sitedeps.check_pure` before staging begins). Headers stay in the pack: a
+    `sitedeps.check_staging` before staging begins). Headers stay in the pack: a
     relocated bundle runs, it does not compile.
     """
     out_dir = output if output.suffix == "" else output.parent / output.stem
