@@ -293,6 +293,8 @@ def test_self_census_ballpark() -> None:
     # The self-host branch adds the exception-chain lowering (#814) and the
     # program import-cycle seed (#796): the census moves 3182 -> 3185.
     # The builtin-module bundle fix (#791) adds 4 more in stdlibzip.py and
-    # package.py: 3185 -> 3189.
-    assert census["fences"] == 3189
-    assert sum(p["fences"] for p in census["packages"]) == 3189
+    # package.py: 3185 -> 3189. The runtime-linked manifest check (#791
+    # follow-up) rewrites interpreter_modules/host_modules: the pack-tree
+    # walk and the set algebra add 7 fences in stdlibzip.py. 3189 -> 3196.
+    assert census["fences"] == 3196
+    assert sum(p["fences"] for p in census["packages"]) == 3196
