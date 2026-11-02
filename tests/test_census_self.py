@@ -56,7 +56,9 @@ def test_self_census_ballpark() -> None:
     # and stdlibzip.py were already counted) and moves the fence count: the
     # fetch notice became conditional (-1 fence) and the cli.py embed/site
     # refusal handlers replace an implicit crash path.
-    assert census["modules"] == 104
+    # The --infer lane (#792) adds the two inference modules (inferfacts.py,
+    # inferrunner.py): 104 -> 106 modules.
+    assert census["modules"] == 106
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -271,11 +273,13 @@ def test_self_census_ballpark() -> None:
     # yield inside try (#164): the re-entrant try in the coro guard transform
     # adds about 150 lines in coro.py. The asyncio primitives (#180 D3) add
     # about 400 in ps_async.c and restlower/_asyncio_sync.py.
-    assert 11_000 <= census["lines"] <= 53_000
+    # The --infer lane (#792) takes the compiler's own source past 53k lines.
+    assert 11_000 <= census["lines"] <= 54_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.
-    assert 11_000 <= census["lines"] <= 53_000
+    # The --infer lane (#792) takes the compiler's own source past 53k lines.
+    assert 11_000 <= census["lines"] <= 54_000
     # Island class definitions (#628): +9 self-host fences, one in
     # emit/llvm/_abi.py (the class-handle trampoline), one in
     # lower/_classes.py (the island class annotation), three in
@@ -286,13 +290,15 @@ def test_self_census_ballpark() -> None:
     # in emit/llvm/_driver.py.
     # embed.py (#657, the pinned CPython runtime pack) adds 1 module, about
     # 470 lines and 99 self-host fences, taking the source past 50k.
-    assert 11_000 <= census["lines"] <= 53_000
+    # The --infer lane (#792) takes the compiler's own source past 53k lines.
+    assert 11_000 <= census["lines"] <= 54_000
     # subprocess text mode (#680): the text-mode decode lowering nets -1
     # self-host fence (restlower/_subprocess.py +1, emit/llvm/_driver.py
     # and emitlib.py -1 each through the lowered-compiler re-run).
     # The self-host branch adds the exception-chain lowering (#814) and the
     # program import-cycle seed (#796): the census moves 3182 -> 3185.
     # The builtin-module bundle fix (#791) adds 4 more in stdlibzip.py and
-    # package.py: 3185 -> 3189.
-    assert census["fences"] == 3189
-    assert sum(p["fences"] for p in census["packages"]) == 3189
+    # package.py: 3185 -> 3189. The --infer lane (#792) adds the pin
+    # inference plumbing: 3189 -> 3270.
+    assert census["fences"] == 3270
+    assert sum(p["fences"] for p in census["packages"]) == 3270
