@@ -22,7 +22,6 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -36,10 +35,9 @@ PSC = REPO / ".venv" / "bin" / "pyscriptc"
 # The oracle interpreter must have pydantic importable: the compiler's own
 # venv usually does not, so an env var (or a `pydantic`-bearing interpreter)
 # is probed in order.
-ORACLE_CANDIDATES = (
-    [sys.executable]
-    + [str(p) for p in (REPO.parent / "pydenv" / "bin" / "python", Path("/tmp/pydenv/bin/python")) if p.exists()]
-)
+ORACLE_CANDIDATES = [sys.executable] + [
+    str(p) for p in (REPO.parent / "pydenv" / "bin" / "python", Path("/tmp/pydenv/bin/python")) if p.exists()
+]
 
 TIMEOUT = 300
 PLANES = ("native", "island")
@@ -72,7 +70,6 @@ def cpython_expect(path: Path, exe: str) -> tuple[str, int]:
 
 def run_plane(path: Path, plane: str, tmp: Path) -> tuple[str, int, str]:
     """Run one snippet on one plane; returns (stdout, exit code, first PS code)."""
-    out_bin = tmp / f"{path.stem}-{plane}"
     if plane == "island":
         cmd = [str(PSC), "run", "--fallback=cpython", "--embed-python=host", str(path)]
     else:
@@ -99,7 +96,9 @@ def score(expect: tuple[str, int], got: tuple[str, int]) -> Case:
     if g_code != e_code:
         return Case(name="", plane="", outcome="crash", detail=f"exit {g_code} vs {e_code}")
     if g_out != e_out:
-        first = next((line for line, eline in zip(g_out.splitlines(), e_out.splitlines()) if line != eline), "")
+        first = next(
+            (line for line, eline in zip(g_out.splitlines(), e_out.splitlines(), strict=False) if line != eline), ""
+        )
         return Case(name="", plane="", outcome="wrong-output", detail=first[:120])
     return Case(name="", plane="", outcome="pass")
 
@@ -142,9 +141,7 @@ def main() -> None:
         baseline = Path(__file__).resolve().parent / "BASELINE.json"
         payload = {
             "snippets": len(snippets),
-            "planes": {
-                plane: {"pass": tally[plane]["pass"], "total": sum(tally[plane].values())} for plane in planes
-            },
+            "planes": {plane: {"pass": tally[plane]["pass"], "total": sum(tally[plane].values())} for plane in planes},
             "cases": [
                 {"name": c.name, "plane": c.plane, "outcome": c.outcome, "code": c.code, "detail": c.detail}
                 for c in results

@@ -2,7 +2,7 @@
   "snippets": 40,
   "planes": {
     "native": {
-      "pass": 0,
+      "pass": 40,
       "total": 40
     },
     "island": {
@@ -14,8 +14,8 @@
     {
       "name": "01_base_fields",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -28,8 +28,8 @@
     {
       "name": "02_base_defaults",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -42,8 +42,8 @@
     {
       "name": "03_optional",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -56,8 +56,8 @@
     {
       "name": "04_nested",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -70,8 +70,8 @@
     {
       "name": "05_nested_optional",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -84,8 +84,8 @@
     {
       "name": "06_model_validate",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -98,8 +98,8 @@
     {
       "name": "07_model_validate_json",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -112,8 +112,8 @@
     {
       "name": "08_model_dump",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -126,8 +126,8 @@
     {
       "name": "09_field_constraints",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -140,8 +140,8 @@
     {
       "name": "10_field_default_factory",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -154,8 +154,8 @@
     {
       "name": "11_field_validator",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -168,8 +168,8 @@
     {
       "name": "12_model_validator",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -182,8 +182,8 @@
     {
       "name": "13_generics",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -196,8 +196,8 @@
     {
       "name": "14_generic_nested",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -210,8 +210,8 @@
     {
       "name": "15_discriminated_union",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -224,8 +224,8 @@
     {
       "name": "16_plain_union",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -238,8 +238,8 @@
     {
       "name": "17_type_adapter",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -252,8 +252,8 @@
     {
       "name": "18_root_model",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -266,8 +266,8 @@
     {
       "name": "19_root_model_dict",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -280,8 +280,8 @@
     {
       "name": "20_enum_field",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -294,9 +294,9 @@
     {
       "name": "21_openai_completion",
       "plane": "native",
-      "outcome": "crash",
+      "outcome": "pass",
       "code": "",
-      "detail": "exit 2 vs 0"
+      "detail": ""
     },
     {
       "name": "21_openai_completion",
@@ -308,9 +308,9 @@
     {
       "name": "22_openai_nested_list",
       "plane": "native",
-      "outcome": "crash",
+      "outcome": "pass",
       "code": "",
-      "detail": "exit 2 vs 0"
+      "detail": ""
     },
     {
       "name": "22_openai_nested_list",
@@ -322,8 +322,8 @@
     {
       "name": "23_anthropic_usage",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -336,9 +336,9 @@
     {
       "name": "24_anthropic_content_block",
       "plane": "native",
-      "outcome": "crash",
+      "outcome": "pass",
       "code": "",
-      "detail": "exit 2 vs 0"
+      "detail": ""
     },
     {
       "name": "24_anthropic_content_block",
@@ -350,8 +350,8 @@
     {
       "name": "25_openai_tool_call",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -364,8 +364,8 @@
     {
       "name": "26_langchain_tool_schema",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -378,8 +378,8 @@
     {
       "name": "27_langchain_tool_args_validate",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -392,8 +392,8 @@
     {
       "name": "28_field_alias",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -406,8 +406,8 @@
     {
       "name": "29_config_extra_forbid",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -420,8 +420,8 @@
     {
       "name": "30_config_frozen",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -434,8 +434,8 @@
     {
       "name": "31_model_dump_exclude",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -448,8 +448,8 @@
     {
       "name": "32_model_copy_update",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -462,8 +462,8 @@
     {
       "name": "33_model_fields_set",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -476,8 +476,8 @@
     {
       "name": "34_model_equality",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -490,8 +490,8 @@
     {
       "name": "35_model_repr",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -504,8 +504,8 @@
     {
       "name": "36_validation_error",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -518,8 +518,8 @@
     {
       "name": "37_validator_rejects",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -532,8 +532,8 @@
     {
       "name": "38_list_of_models",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -546,8 +546,8 @@
     {
       "name": "39_dict_of_models",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
@@ -560,8 +560,8 @@
     {
       "name": "40_annotated_metadata",
       "plane": "native",
-      "outcome": "fence",
-      "code": "PS2002",
+      "outcome": "pass",
+      "code": "",
       "detail": ""
     },
     {
