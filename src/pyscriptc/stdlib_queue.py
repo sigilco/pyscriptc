@@ -16,6 +16,7 @@ from pyscriptc.ffi_manifest import FfiManifest
 from pyscriptc.sigrec import (
     Sig,
     optional,
+    sig_for,
     t_class,
     t_dict,
     t_leaf,
@@ -214,8 +215,26 @@ SPECIAL_FUNCTIONS: dict[str, frozenset[str]] = {
 PACK_MODULES: frozenset[str] = frozenset({"jwt", "orjson"})
 
 
-def wave_function(module: str, name: str) -> Sig | None:
-    return WAVE_FUNCTIONS.get(module, {}).get(name)
+def math_function(name: str) -> dict[str, object]:
+    """The dict row of a math call, `sig_for`-cached on first use.
+
+    The record-to-dict boundary for `MATH_FUNCTIONS`: the table stores `Sig`
+    records, the lowerer and the LLVM emitter read the dict shape.
+    """
+
+    return sig_for(MATH_FUNCTIONS[name])
+
+
+def wave_function(module: str, name: str) -> dict[str, object] | None:
+    """The dict row of a wave call, `sig_for`-cached on first use.
+
+    The lowerer reads the dict shape (`_fixed_call`); the table stores the
+    records the typing-hygiene slice introduced, so the accessor is the
+    record-to-dict boundary.
+    """
+
+    row = WAVE_FUNCTIONS.get(module, {}).get(name)
+    return sig_for(row) if row is not None else None
 
 
 def module_status(name: str) -> str | None:

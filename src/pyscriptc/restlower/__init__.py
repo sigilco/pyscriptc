@@ -80,6 +80,7 @@ from pyscriptc.restlower._time import _clock, _sleep, _strftime
 from pyscriptc.restlower._tomllib import _tomllib_call
 from pyscriptc.restlower._urllib import _urllib_request_call
 from pyscriptc.restlower._yaml import _yaml_call
+from pyscriptc.sigrec import Sig, T, sig_for, type_to_dict
 from pyscriptc.stdmore import (
     CALL_FENCES,
     CLASS_METHODS,
@@ -319,11 +320,32 @@ def builtin_call(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any
 
 
 def method_spec(class_name: str, name: str) -> dict[str, Any] | None:
-    return CLASS_METHODS.get(class_name, {}).get(name)
+    """The dict row of a synthetic class method, `sig_for`-cached.
+
+    `CLASS_METHODS` rows are the `Sig` records of the typing-hygiene slice
+    where they have been named and plain dicts where they have not (the
+    deque rows carry an `elem` placeholder no record can express yet); the
+    lowerer reads the dict shape, so this accessor is the boundary.
+    """
+
+    row = CLASS_METHODS.get(class_name, {}).get(name)
+    if row is None:
+        return None
+    return sig_for(row) if isinstance(row, Sig) else row
 
 
 def path_attr(name: str) -> tuple[dict[str, Any], str] | None:
-    return PATH_ATTRS.get(name)
+    """The dict row of a Path property, the record-to-dict boundary.
+
+    `PATH_ATTRS` stores the `T` records of the typing-hygiene slice; the
+    lowerer reads the `{kind, ...}` dict shape.
+    """
+
+    found = PATH_ATTRS.get(name)
+    if found is None:
+        return None
+    typ, symbol = found
+    return (type_to_dict(typ) if isinstance(typ, T) else typ, symbol)
 
 
 def alias_name(module: str, member: str) -> str | None:
