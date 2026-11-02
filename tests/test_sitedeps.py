@@ -57,11 +57,11 @@ def _fake_site(tmp_path: Path) -> Path:
     native = site / "nativepkg"
     native.mkdir()
     (native / "__init__.py").write_text("value = 3\n", encoding="utf-8")
-    (native / "_speedups.cpython-314-x86_64-linux-gnu.so").write_bytes(b"\x7fELF")
+    (native / "_speedups.not-an-abi-tag.so").write_bytes(b"\x7fELF")
     native_info = site / "nativelib-1.0.dist-info"
     native_info.mkdir()
     (native_info / "RECORD").write_text(
-        "nativepkg/_speedups.cpython-314-x86_64-linux-gnu.so,,\nnativelib-1.0.dist-info/RECORD,,\n",
+        "nativepkg/_speedups.not-an-abi-tag.so,,\nnativelib-1.0.dist-info/RECORD,,\n",
         encoding="utf-8",
     )
     (native_info / "METADATA").write_text("Name: nativelib\n", encoding="utf-8")
@@ -98,7 +98,13 @@ def test_stage_site_packages_refuses_native_with_ps4302(tmp_path: Path, monkeypa
         sitedeps.stage_site_packages(tmp_path / "lib", "3.14", ["nativepkg"])
 
 
-def test_check_pure_refuses_native_before_staging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_check_staging_refuses_native_with_a_mismatched_abi(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A native extension built for another ABI is refused (PS4302) before staging.
+
+    The fake extension's filename carries no valid ABI tag, so it cannot load
+    into any pack and the check refuses it the way `check_staging` always has
+    refused what it cannot verify.
+    """
     site = _fake_site(tmp_path / "site")
     monkeypatch.setattr("pyscriptc.imports._site_packages", lambda: [site])
     from pyscriptc import imports
@@ -107,7 +113,7 @@ def test_check_pure_refuses_native_before_staging(tmp_path: Path, monkeypatch: p
     native, _ = imports.distribution_is_native("nativelib")
     assert native, "the fake site must mark nativelib native"
     with pytest.raises(sitedeps.SiteError, match="PS4302"):
-        sitedeps.check_pure(["nativepkg"])
+        sitedeps.check_staging(["nativepkg"], "3.14")
 
 
 def test_closure_walks_requirements(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -138,7 +144,7 @@ def test_record_roots_reads_a_dist_info_record(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(sysconfig.get_path("purelib") is None, reason="needs an installed interpreter")
-def test_check_pure_accepts_this_venv_s_pure_deps() -> None:
+def test_check_staging_accepts_this_venv_s_pure_deps() -> None:
     # `packaging` (a pyscriptc dependency) is pure; if it ever grows a wheel
     # extension this test flips and the refusal is the honest answer.
-    sitedeps.check_pure(["packaging"])
+    sitedeps.check_staging(["packaging"], "3.14")
