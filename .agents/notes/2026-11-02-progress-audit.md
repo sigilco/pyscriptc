@@ -10,8 +10,8 @@ Host: CPython 3.14.9 venv (`uv venv --python 3.14.9`).
 | claim the outside reader made | verdict |
 | --- | --- |
 | "PyPI has an old version while master is newer" | **Stale, and now false.** PyPI's newest release is `0.7.0` (uploaded 2026-10-27), and `pyproject.toml` on master also says `0.7.0`. The   gap was real on 2026-10-22 (`0.4.1`) and was closed by the `0.5.0`/`0.5.1`/`0.6.0`/`0.6.1`/`0.7.0` releases. Master is 77 commits ahead of the `v0.7.0` tag, but of those only two touch the compiler (`16c3bcf4` subprocess `text=True`/`encoding=`, `545da33f` island call in an f-string placeholder); the rest are docs, site, CI, release plumbing and the data regeneration. The doc gap that remains is not "PyPI is old" but "master carries two compiler fixes the released wheel does not", which is true and must be stated as such. |
-| "library support is a native-only verdict of none/partial/full per package" | **Correct about the site, and the site is wrong about reality.** The package status is computed only from the fence ratio over the package's own definitions (`scripts/build_compat_json.py:_package_rows`). It never asks whether the package can run on the island tier. A package with a high fence ratio is shown as `none`, which reads as "not usable", when the island tier runs it. |
-| "the listed packages are not really usable" | **Mostly false, and the site is the reason a reader believes it.** All 18 pinned trees in `benchmarks/compat/top100/src` are real packages with real versions, and `benchmarks/real/` measures eight real third-party scripts that run end to end on the island floor. The site shows a fence census and a red/amber/green grid with no run evidence and no island row, so the only visible fact is how many fences a package has. |
+| "library support is a native-only verdict of none/partial/full per package" | **Was correct about the site; the site is fixed now.** The package status was computed only from the fence ratio over the package's own definitions. It never asked whether the package can run on the island tier. A package with a high fence ratio was shown as `none`, which reads as "not usable". Schema 2 adds the island verdict and the plane split, and the page renders both axes. |
+| "the listed packages are not really usable" | **False, now measured rather than argued.** The island probe compiles one consumer program per pinned package with the island fallback and diffs the binary's output against CPython: all 18 pinned packages build and run with matching output. Under the old native-only verdict 9 of 18 read as `none`. The receipts are committed in `data/compat/island.json` and the nightly refreshes them. |
 | "apps with untyped third-party dependencies simply fail" | **False as stated, and true in a narrower sense that the docs do not say.** An untyped dependency does not fail the build by itself: the island tier routes it. What fails is the *construct* fences inside the app's own code (measured on one anonymized Flask-plus-LLM backend: 1285 fences over 548 of 934 definitions, of which PS1001 missing annotations and PS1104 `Any` are the fixable half). `docs/guide/libraries.md` states the routing; nothing states the cost. |
 
 ## (a) The compat site
@@ -197,3 +197,81 @@ or `canonical.py`.
    Python sdists, so the island run is reproducible in CI; the receipt would be a nightly job.
    This branch publishes the plane split and the evidence link; the nightly job that produces the
    receipts is the follow-up.
+
+## Measurement: every pinned package runs on the island tier
+
+The audit's third owner decision was answered by measuring it rather than by asking. The island
+probe (`benchmarks/compat/top100/island_probe.py`) compiles one consumer program per pinned
+package with `--fallback=cpython --embed-python=host --emit bin`, runs the emitted binary, runs
+the same program under CPython, and requires the two to agree on stdout and exit code.
+
+**All 18 pinned packages build and run on the island tier, with matching output.**
+
+That is the single most important finding of this pass, and it inverts the reading of the old
+site. Under the old native-only verdict, 9 of the 18 packages read as `none` ("not usable") and 7
+as `partial`. Under the measured island verdict, all 18 run. The fence census was telling the
+truth about the native plane and the site was reading it as a verdict about the package.
+
+| package | native verdict | island verdict | plane split (native / island / blocked) |
+| --- | --- | --- | --- |
+| certifi | full | runs | 5 / 0 / 0 |
+| colorama | none | runs | 26 / 0 / 51 |
+| python-dotenv | none | runs | 29 / 0 / 46 |
+| filelock | partial | runs | 382 / 4 / 255 |
+| h11 | none | runs | 50 / 17 / 66 |
+| idna | none | runs | 18 / 0 / 38 |
+| iniconfig | partial | runs | 19 / 0 / 15 |
+| jmespath | none | runs | 89 / 1 / 110 |
+| pyjwt | partial | runs | 99 / 0 / 72 |
+| mdurl | none | runs | 4 / 0 / 8 |
+| packaging | partial | runs | 274 / 0 / 284 |
+| pathspec | none | runs | 30 / 2 / 100 |
+| platformdirs | partial | runs | 226 / 0 / 162 |
+| pytz | partial | runs | 70 / 0 / 32 |
+| shellingham | none | runs | 6 / 0 / 19 |
+| trove-classifiers | partial | runs | 0 / 0 / 0 |
+| tzdata | full | runs | 0 / 0 / 0 |
+| zipp | none | runs | 16 / 0 / 59 |
+
+Corpus-wide plane share over the definitions the measurement placed: 50% native, 1% island,
+49% blocked. The island share is small because the plane split counts *definitions*, and the
+island tier takes over a *module's top level* when an import fence sits there, not definition by
+definition. That is why a package can be `none` natively and still run: the whole tree rides the
+island.
+
+Two measurement notes, both about the probe and not about the compiler:
+
+- The consumer program needs the `if __name__ == "__main__":` guard. Without it the compiler
+  emits `PS0001: module has no functions to emit`, which reads as a package failure and is not
+  one.
+- The probe needs the host `libpython` visible. A virtual environment inherits `sysconfig` from
+  the base install, so `LIBDIR` can name a directory that does not exist; the probe resolves the
+  directory that actually holds the shared library and passes it on as `LIBRARY_PATH` and
+  `LD_LIBRARY_PATH`.
+
+### What this changes in the plan
+
+- The island verdict is **receipt-driven**, not inferred. The first implementation inferred it
+  from the plane split and was wrong: it called `certifi` blocked when the tree has five
+  definitions, zero fences and a full native verdict. Only a run says whether a package runs.
+  The schema now has three island values (`runs`, `blocked`, `unmeasured`), and a package with no
+  receipt reads `unmeasured`.
+- The plane split counts definitions **per occurrence**, not per name. `coverage.capabilities`
+  keys its buckets by definition name, so a module that defines the same name twice (certifi
+  defines `where` and `contents` twice) collapses into one bucket and the counts stop adding up.
+  The builder counts per occurrence now, and a test asserts the three planes always add up.
+- The nightly runs the probe before rebuilding the compat file, so the published verdicts stay
+  current. A probe failure keeps the previous receipts rather than blocking the snapshot.
+
+### Still open for the owner
+
+- **The corpus.** 18 pinned packages, all measured, all running. The heading now says "pinned
+  packages". Growing the corpus is a separate piece of work.
+- **The native verdict's meaning.** The old `status` vocabulary is unchanged and still means
+  "the fence ratio over the package's own definitions". The site now labels it "native" and
+  shows the island verdict beside it. Whether `partial` should be reworded ("some definitions
+  fence") is a wording call.
+- **The island cost is not on the site.** The site says a package runs on the island. It does not
+  say what that costs at run time (interpreter speed plus a marshalling cost per native-island
+  crossing). The measurement for that is a benchmark, not a verdict, and it is not in this pass.
+
