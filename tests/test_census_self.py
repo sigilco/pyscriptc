@@ -57,8 +57,9 @@ def test_self_census_ballpark() -> None:
     # fetch notice became conditional (-1 fence) and the cli.py embed/site
     # refusal handlers replace an implicit crash path.
     # The --infer lane (#792) adds the two inference modules (inferfacts.py,
-    # inferrunner.py): 104 -> 106 modules.
-    assert census["modules"] == 106
+    # inferrunner.py): 104 -> 106 modules. The carried-zip work on
+    # work/ytbottle adds 2 modules: 106 -> 108.
+    assert census["modules"] == 108
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
