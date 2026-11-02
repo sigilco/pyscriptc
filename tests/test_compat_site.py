@@ -30,6 +30,9 @@ DATA = ROOT / "data" / "compat" / "compat.json"
 # The page sections, one per section of the schema.
 SECTIONS = ("ladder", "language", "builtins", "stdlib", "packages", "fences", "history")
 
+# The sections the page renders from, one per section it reads.
+PAGE_SECTIONS = ("channel", "island")
+
 
 @pytest.fixture(scope="module")
 def document() -> dict:
@@ -45,6 +48,34 @@ def test_data_file_validates(document: dict) -> None:
 def test_data_file_carries_every_schema_section(document: dict) -> None:
     for section in SECTIONS:
         assert section in document, section
+
+
+def test_data_file_carries_the_channel_and_the_island_receipts(document: dict) -> None:
+    for section in PAGE_SECTIONS:
+        assert section in document, section
+
+
+def test_page_renders_the_two_planes(document: dict) -> None:
+    html = (ROOT / "apps/web/src/pages/compat/index.astro").read_text(encoding="utf-8")
+    for seam in ("Two planes", "island", "getPlaneShare", "getIslandHeadline"):
+        assert seam in html, seam
+    table = (ROOT / "apps/web/src/components/compat/PackageTable.astro").read_text(encoding="utf-8")
+    for seam in ("Plane split", "Island", "row.plane"):
+        assert seam in table, seam
+
+
+def test_page_says_which_channel_it_measures(document: dict) -> None:
+    html = (ROOT / "apps/web/src/pages/compat/index.astro").read_text(encoding="utf-8")
+    assert "channel.released" in html, "the page does not name the released version"
+    assert "install_released" in html, "the page does not give the install command"
+
+
+def test_page_never_claims_a_run_without_a_receipt(document: dict) -> None:
+    """The island verdict comes from the receipts, and unmeasured means that."""
+    for row in document["packages"]:
+        if row["island"] == "runs":
+            assert document["island"]["runs"] >= 1, "island runs claimed with no receipts"
+            break
 
 
 def test_data_file_titles_use_the_public_name() -> None:
