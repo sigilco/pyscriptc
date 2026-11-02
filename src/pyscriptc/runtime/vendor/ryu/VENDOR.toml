@@ -1,0 +1,25 @@
+# Pinned Ryu float-to-string (ulfjack/ryu v2.0, tag v2.0, commit 6bcd775b74b112bfd4541af3b7c10cfd841cb53f).
+# The files are committed (small enough, unlike the sqlite amalgamation); this
+# pin records where they came from and the hashes to re-verify against:
+#
+#   curl -sSL -o ryu-v2.0.tar.gz https://github.com/ulfjack/ryu/archive/refs/tags/v2.0.tar.gz
+#   sha256sum ryu-v2.0.tar.gz
+#
+# Only the double-to-string drop-in is vendored (d2s.c plus its headers); the
+# float (f2s), generic-128, fixed and parse halves of upstream are not used by
+# the runtime. `d2s.c` keeps the `ryu/` include prefix, so it compiles with
+# `-I runtime/vendor` and no source edits.
+name = "ryu"
+version = "2.0"
+license = "Apache-2.0 (or Boost 1.0)"
+url = "https://github.com/ulfjack/ryu/archive/refs/tags/v2.0.tar.gz"
+commit = "6bcd775b74b112bfd4541af3b7c10cfd841cb53f"
+tarball_sha256 = "a362882dca2b692810aa1508b4fa16572590babd3db394442fb77c89bc1ce9b7"
+"ryu/d2s.c_sha256" = "7064fa597c87390ee90409cd40fec07bbbdb27985e83fd2a8e0a997ea61ebb45"
+"ryu/ryu.h_sha256" = "82b553031ae983ecaaf159da7a71926e869f172aa0b453d3e899bd1c1d66eb55"
+"ryu/d2s.h_sha256" = "a8c001069d5bbe38e6c26f949ae523d4d2bb42bb72e1663ae2771b237336bab6"
+"ryu/d2s_full_table.h_sha256" = "a3f4515459eca87e9f44e0ecd5e2b86ec9b6347e0f5fbb2f28432671193ff9af"
+"ryu/d2s_intrinsics.h_sha256" = "c5127459404ed8b5b943701dff54316a5099dc4463d5d99c607f03e20c83653a"
+"ryu/digit_table.h_sha256" = "8b782573abc0b8554d74163ae6c02f0beb5c30d1e63eaebdb0ddf2c98d817e01"
+"ryu/common.h_sha256" = "9545485fb2ed7f3c5d2e51353679ff011e5758ba0636552fbdae896131be2a06"
+"LICENSE-Apache2_sha256" = "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
