@@ -69,8 +69,7 @@ class Serializer:
         elif isinstance(value, float):
             if not math.isfinite(value):
                 raise ValueError(
-                    "a non-finite float reached the canonical IR; "
-                    "json.dumps(allow_nan=False) would refuse it too"
+                    "a non-finite float reached the canonical IR; json.dumps(allow_nan=False) would refuse it too"
                 )
             self._write(repr(value).encode("ascii"))
         elif isinstance(value, dict):
@@ -115,7 +114,9 @@ class Serializer:
                 escape = _SHORT_ESCAPES.get(code)
                 if escape is None:
                     # json's \\u%04x form, lower case hex digits.
-                    escape = "\\u" + _HEX[code >> 12] + _HEX[(code >> 8) & 0xF] + _HEX[(code >> 4) & 0xF] + _HEX[code & 0xF]
+                    escape = (
+                        "\\u" + _HEX[code >> 12] + _HEX[(code >> 8) & 0xF] + _HEX[(code >> 4) & 0xF] + _HEX[code & 0xF]
+                    )
             else:
                 continue
             if start < index:

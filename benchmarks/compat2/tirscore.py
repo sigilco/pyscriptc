@@ -31,8 +31,8 @@ from pathlib import Path
 from typing import Any
 
 from benchmarks.compat2.cache import oracle_version
-from benchmarks.compat2.loader import load_probes
 from benchmarks.compat2.irscore import _lower_one
+from benchmarks.compat2.loader import load_probes
 
 BASELINE_VERSION = 1
 HASH_ALGO = "sha256"
@@ -101,9 +101,7 @@ def load_baseline(path: Path) -> dict[str, Any]:
     if not isinstance(doc, dict) or not isinstance(doc.get("probes"), dict):
         raise BaselineError(f"baseline {path} has no probes object: {_REGENERATE_HINT}")
     if doc.get("tir_schema") != TIR_SCHEMA:
-        raise BaselineError(
-            f"tir_schema {doc.get('tir_schema')!r} != current {TIR_SCHEMA!r}; {_REGENERATE_HINT}"
-        )
+        raise BaselineError(f"tir_schema {doc.get('tir_schema')!r} != current {TIR_SCHEMA!r}; {_REGENERATE_HINT}")
     return doc
 
 
