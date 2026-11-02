@@ -1,7 +1,7 @@
 // Headline numbers for the compat page. Everything here is derived from the
 // data file, so the page cannot claim more than the data says.
 
-import type { CompatData, Status, SupportRow } from "./compat";
+import type { CompatData, IslandStatus, PackagePlane, Status, SupportRow } from "./compat";
 
 export interface CategorySummary {
   key: string;
@@ -30,7 +30,7 @@ export function getCategorySummaries(data: CompatData): CategorySummary[] {
   const groups: [string, string, SupportRow[]][] = [
     ["builtins", "Builtins", data.builtins],
     ["stdlib", "Standard library", data.stdlib],
-    ["packages", "PyPI top 100", data.packages.map(toSupportRow)],
+    ["packages", "Pinned packages", data.packages.map(toSupportRow)],
   ];
   return groups.map(([key, label, rows]) => {
     let full = 0;
@@ -61,6 +61,47 @@ function toSupportRow(pkg: CompatData["packages"][number]): SupportRow {
 
 export function getPackageCount(data: CompatData): number {
   return data.packages.length;
+}
+
+// The island headline: how many pinned packages were measured to run on the
+// island tier. The denominator is the measured set, not the corpus, so a
+// corpus the probe has not covered yet cannot inflate the number.
+export function getIslandHeadline(data: CompatData) {
+  const measured = data.island.packages;
+  const runs = data.island.runs;
+  return {
+    measured,
+    runs,
+    percent: measured === 0 ? 0 : Math.round((runs / measured) * 100),
+  };
+}
+
+// The island verdict counts over the package rows.
+export function getIslandCounts(data: CompatData): Record<IslandStatus, number> {
+  const counts: Record<IslandStatus, number> = { runs: 0, blocked: 0, unmeasured: 0 };
+  for (const row of data.packages) counts[row.island] += 1;
+  return counts;
+}
+
+// The plane share over the whole corpus: how many definitions lower
+// natively, how many route to the island and how many stay blocked. The
+// denominator is the definitions the measurement placed.
+export function getPlaneShare(data: CompatData) {
+  const totals: PackagePlane = { definitions: 0, native: 0, island: 0, blocked: 0 };
+  for (const row of data.packages) {
+    totals.definitions += row.plane.definitions;
+    totals.native += row.plane.native;
+    totals.island += row.plane.island;
+    totals.blocked += row.plane.blocked;
+  }
+  const denominator = totals.native + totals.island + totals.blocked;
+  const share = (value: number) => (denominator === 0 ? 0 : Math.round((value / denominator) * 100));
+  return {
+    ...totals,
+    nativeShare: share(totals.native),
+    islandShare: share(totals.island),
+    blockedShare: share(totals.blocked),
+  };
 }
 
 export function statusPercent(rows: { status: Status }[], status: Status): number {
