@@ -44,6 +44,7 @@ const REQUIRED = [
   "docs/llms-full.txt",
   "compat/index.html",
   "compat/data/compat.json",
+  "compat/data/island.json",
   "compat/data/ladder.json",
   "compat/data/what_will_fail.json",
   "compat/data/support.json",
@@ -130,8 +131,12 @@ function appendLlmsDataSection(): void {
   const compatBase = "https://pyscriptc.pages.dev/compat";
   const descriptions: Record<string, [string, string]> = {
     "compat.json": [
-      "Live compatibility metrics across builtins, standard library, and PyPI top-100 packages",
-      "compat_schema.py (version 1)",
+      "Live compatibility metrics across builtins, standard library, and the pinned package corpus, with the native verdict, the island run verdict and the plane split per package",
+      "compat_schema.py (version 2)",
+    ],
+    "island.json": [
+      "Island run receipts: one consumer program per pinned package, compiled with the island fallback and diffed against CPython",
+      "island receipts JSON (version 1)",
     ],
     "ladder.json": [
       "Adoption ladder scores across R1 (single-file), R2 (multi-module), and R4 (dependency lanes) rungs",

@@ -30,6 +30,7 @@ test("deploy tree carries the three site parts", { skip: !hasDeploy }, () => {
     "docs/llms-full.txt",
     "compat/index.html",
     "compat/data/compat.json",
+    "compat/data/island.json",
     "compat/data/ladder.json",
     "compat/data/what_will_fail.json",
     "compat/data/support.json",

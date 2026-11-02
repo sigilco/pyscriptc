@@ -1,11 +1,15 @@
-// The PyPI top-100 table: one row per pinned package, with the fence codes
-// that block it and the families that dominate the failures.
+// The pinned-package table: one row per pinned package, with the native
+// verdict, the island verdict, the plane split of its definitions and the
+// fences that block the native plane.
 ---
 export interface Props {
   rows: {
     name: string;
     version: string;
     status: string;
+    island: string;
+    plane: { definitions: number; native: number; island: number; blocked: number };
+    evidence: string;
     fences: number;
     definitions: number;
     fenced_definitions: number;
@@ -16,13 +20,31 @@ export interface Props {
 }
 
 const { rows } = Astro.props;
+
+const islandLabel: Record<string, string> = {
+  runs: "runs",
+  blocked: "blocked",
+  unmeasured: "not measured",
+};
+
+// The plane split of one package, as a share of its definitions. A package
+// with no definitions has nothing to split, so the cell says so.
+const planeShare = (plane: Props["rows"][number]["plane"]) => {
+  const total = plane.native + plane.island + plane.blocked;
+  if (total === 0) return "—";
+  const pct = (value: number) => Math.round((value / total) * 100);
+  return `${pct(plane.native)}% native · ${pct(plane.island)}% island · ${pct(plane.blocked)}% blocked`;
+};
 ---
 
 <section id="pypi" class="table-section">
-  <h2>PyPI top 100</h2>
+  <h2>Pinned packages</h2>
   <p class="section-note">
-    The pinned packages of the PyPI top-100 corpus, with the fences that
-    block them.
+    The pinned corpus of PyPI packages, one consumer program each. The native
+    column is the fence ratio over the package's own definitions: how much of
+    it lowers to machine code without an interpreter. The island column is the
+    run receipt: the package compiled with the island fallback and its output
+    was compared against CPython.
   </p>
   <div class="table-scroll">
     <table class="compat-table">
@@ -30,7 +52,9 @@ const { rows } = Astro.props;
         <tr>
           <th scope="col">Package</th>
           <th scope="col">Version</th>
-          <th scope="col">Status</th>
+          <th scope="col">Native</th>
+          <th scope="col">Island</th>
+          <th scope="col">Plane split</th>
           <th scope="col">Definitions</th>
           <th scope="col">Fenced</th>
           <th scope="col">Top fences</th>
@@ -44,6 +68,12 @@ const { rows } = Astro.props;
             </th>
             <td>{row.version}</td>
             <td><span class={`badge status-${row.status}`}>{row.status}</span></td>
+            <td>
+              <span class={`badge status-${row.island === "runs" ? "full" : row.island === "blocked" ? "none" : "unknown"}`}>
+                {islandLabel[row.island] ?? row.island}
+              </span>
+            </td>
+            <td class="plane-split">{planeShare(row.plane)}</td>
             <td>{row.definitions}</td>
             <td>{row.fenced_definitions}</td>
             <td>

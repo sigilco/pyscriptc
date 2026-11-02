@@ -7,6 +7,29 @@ pyscriptc compiles the typed subset of Python 3.14.
 Every dependency gets one of two execution modes: it compiles to native code when it fits the subset, or it runs through embedded CPython (fallback mode) when it does not.
 An untyped dependency is never impossible to use: it runs in fallback mode.
 
+## The two planes
+
+Every compiled program is split into two execution planes, decided per module and shown by
+`pyscriptc assess` (the plane map):
+
+| Plane | What runs there | What it costs |
+| --- | --- | --- |
+| **native** | compiled to machine code; no interpreter in the loop | the subset's speed and binary size; anything outside the subset fences the build |
+| **island** | an embedded CPython 3.14 interpreter in the same process | interpreter speed for those parts, plus a marshalling cost on every native-island call crossing |
+
+The split is not a per-package verdict of "works or not": a program can run entirely on the island
+tier and still produce correct output, at interpreter speed, in a single binary that needs no
+system Python.
+What the split decides is how much of the program gets native speed.
+`pyscriptc assess --json` prints the planned route per definition (`planeMap`, with `demotedBy`
+naming the import or call that pulled a function onto the island) and
+`pyscriptc run --report=report.json` prints the route that a run actually took.
+
+A fence (a `PSxxxx` diagnostic) is the compile-time signal that a construct cannot be lowered;
+the island is the run-time answer for the code that a fence would otherwise stop.
+Support status per package, including which packages are measured to run on which plane, is on
+the [compat site]({{PYSC_COMPAT_URL}}); this page states the mechanics and the costs.
+
 ## Route a module to fallback mode
 
 Fallback mode links your binary against `libpython` and runs the unsupported parts in an in-process CPython 3.14 interpreter, while the typed functions still compile to native code.
