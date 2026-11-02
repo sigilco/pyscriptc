@@ -21,8 +21,16 @@ class FuncsMixin:
         symbol = _fn_symbol(fn["name"])
         # In library mode only pyscriptc_main is exported; every other
         # definition is hidden, so an app link does not inherit the whole
-        # module namespace. In binding mode, definition symbols remain visible.
+        # module namespace. In binding mode, definition symbols remain
+        # visible — but they must not interpose: a compiled `stat` would
+        # capture glibc's `stat()` for every PLT call inside the shared
+        # object (the trampoline's `@stat` call resolves to the compiled
+        # one, then the runtime's internal `stat()` hits the compiled one
+        # too). Default visibility + `psb.` trampolines only, so the
+        # definition is protected by the local-symbol rule.
         visibility = "hidden " if (self.library and not self.binding) else ""
+        if self.binding and visibility == "":
+            visibility = "hidden "
         define = f"define {visibility}{ret} @{symbol}({', '.join(plist)})"
         if self.dwarf is not None:
             self.dwarf.enter_function(fn["name"], symbol, fn["span"], fn["params"], fn["returnType"], env="env" in fn)

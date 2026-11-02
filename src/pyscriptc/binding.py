@@ -17,9 +17,10 @@ import sys
 from typing import Any
 
 from pyscriptc.emit._ir import _fn_symbol
+from pyscriptc.emit.llvm._tramp import needs_trampoline, trampoline_symbol
 
-_SUPPORTED_PARAM_KINDS = frozenset({"int", "float", "bool"})
-_SUPPORTED_RETURN_KINDS = frozenset({"int", "float", "bool", "none"})
+_SUPPORTED_PARAM_KINDS = frozenset({"int", "float", "bool", "str"})
+_SUPPORTED_RETURN_KINDS = frozenset({"int", "float", "bool", "none", "str"})
 
 _CTYPES_TYPE_MAP = {
     "int": "ctypes.c_int64",
@@ -33,12 +34,19 @@ _PY_TYPE_MAP = {
     "float": "float",
     "bool": "bool",
     "none": "None",
+    "str": "str",
 }
 
 # The C types the shim wrapper and the guard callback use for each supported
 # kind. They are the ABI spelling of the LLVM types (`i64`, `double`, `i1`,
 # `void`): a C `bool` is i1 in the IR too, so a `_Bool` parameter matches the
-# emitted signature.
+# emitted signature. A `str` never crosses as a struct: the compiled
+# function's own signature carries it as a 32-byte aggregate, and the C ABI
+# and the IR lowering disagree about where an aggregate that size lives. The
+# emitter writes a flat-ABI trampoline for every exported function that
+# carries a str, and the shim calls that instead: a str argument arrives as
+# a byte length and a data pointer, and a str result is written through two
+# out-pointers into a buffer the caller owns.
 _C_TYPE_MAP = {
     "int": "int64_t",
     "float": "double",
@@ -51,6 +59,11 @@ _C_ZERO_MAP = {
     "float": "0.0",
     "bool": "false",
 }
+
+# The loader-side ctypes spelling of a str argument: the byte length and
+# the data pointer, the two halves the flat trampoline takes.
+_CTYPES_STR = "ctypes.c_int64"
+_CTYPES_STR_DATA = "ctypes.c_char_p"
 
 
 def shared_library_suffix(target: str | None = None) -> str:
@@ -144,23 +157,12 @@ def analyze_binding(
             pkind = param.get("type", {}).get("kind")
             if pkind not in _SUPPORTED_PARAM_KINDS:
                 rendered = _render_type(param.get("type", {}))
-                if pkind in ("str", "bytes"):
-                    reasons.append(
-                        f"parameter {param['name']!r} has unsupported type '{rendered}' "
-                        "(str/bytes C ABI not stabilized for bindings)"
-                    )
-                else:
-                    reasons.append(f"parameter {param['name']!r} has unsupported type '{rendered}'")
+                reasons.append(f"parameter {param['name']!r} has unsupported type '{rendered}'")
 
         rkind = fn.get("returnType", {}).get("kind")
         if rkind not in _SUPPORTED_RETURN_KINDS:
             rendered = _render_type(fn.get("returnType", {}))
-            if rkind in ("str", "bytes"):
-                reasons.append(
-                    f"return type has unsupported type '{rendered}' (str/bytes C ABI not stabilized for bindings)"
-                )
-            else:
-                reasons.append(f"return type has unsupported type '{rendered}'")
+            reasons.append(f"return type has unsupported type '{rendered}'")
 
         if reasons:
             skipped.append((name, "; ".join(reasons)))
@@ -197,6 +199,15 @@ def render_binding_shim(module_name: str, emitted: list[dict[str, Any]]) -> str:
     gets a wrapper whose body is a single call to `ps_bind_guard`, which runs
     the real function under a `setjmp` frame and parks the record when it
     raises; the loader module then raises the matching Python exception.
+
+    A `str` never crosses this shim as a struct. The emitter writes a
+    flat-ABI trampoline (`psb.<name>`) for every exported function that
+    carries one: the trampoline takes a byte length and a data pointer per
+    str argument and two out-pointers for a str result, so the C side and
+    the IR side agree on every parameter. The wrapper passes the host's
+    buffer straight through (the compiled code must not retain a str
+    argument past the call) and reads the result out of the out-pointers;
+    the loader frees that buffer through `ps_bind_str_free`.
     """
     lines: list[str] = []
     lines.append("/* The C ABI exception guard for a pyscriptc shared library.")
@@ -212,6 +223,7 @@ def render_binding_shim(module_name: str, emitted: list[dict[str, Any]]) -> str:
     lines.append("#include <stdbool.h>")
     lines.append("#include <stddef.h>")
     lines.append("#include <stdint.h>")
+    lines.append("#include <stdlib.h>")
     lines.append("")
     lines.append('#include "ps_rt.h"')
     lines.append("")
@@ -231,57 +243,122 @@ def render_binding_shim(module_name: str, emitted: list[dict[str, Any]]) -> str:
     lines.append("}")
     lines.append("")
 
+    has_str = any(needs_trampoline(fn) for fn in emitted)
+    if has_str:
+        lines.append("/* The buffer of one str result, freed after the loader reads it. */")
+        lines.append("void ps_bind_str_free(void *p) {")
+        lines.append("    free(p);")
+        lines.append("}")
+        lines.append("")
+
     for index, fn in enumerate(emitted):
         name = fn["name"]
         params = fn.get("params", [])
         ret_kind = fn.get("returnType", {}).get("kind", "none")
-        c_ret = _C_TYPE_MAP[ret_kind]
-        c_sig = ", ".join(_C_TYPE_MAP[p["type"]["kind"]] for p in params) or "void"
+        ret_is_str = ret_kind == "str"
+        flat = needs_trampoline(fn)
         target = f"ps_bind_target_{index}"
         struct = f"ps_bind_args_{index}"
-        call_args = ", ".join(f"args->p{i}" for i in range(len(params)))
+
+        # The flat parameter list of the target: a str argument is a length
+        # and a data pointer, and a str result adds two out-pointers.
+        target_types: list[str] = []
+        arg_fields: list[str] = []
+        call_args: list[str] = []
+        for i, param in enumerate(params):
+            kind = param["type"]["kind"]
+            if flat and kind == "str":
+                target_types.extend(["int64_t", "char *"])
+                arg_fields.append(f"    int64_t p{i}_len;")
+                arg_fields.append(f"    char *p{i}_data;")
+                call_args.append(f"args->p{i}_len")
+                call_args.append(f"args->p{i}_data")
+            else:
+                c_type = _C_TYPE_MAP[kind]
+                target_types.append(c_type)
+                arg_fields.append(f"    {c_type} p{i};")
+                call_args.append(f"args->p{i}")
+        if flat and ret_is_str:
+            target_types.extend(["int64_t *", "char **"])
+            arg_fields.append("    int64_t out_len;")
+            arg_fields.append("    char *out_data;")
+            call_args.append("&args->out_len")
+            call_args.append("&args->out_data")
+        c_ret = "void" if (flat and ret_is_str) else _C_TYPE_MAP[ret_kind]
+        # On the flat path the target keeps the function's own return type,
+        # except for a str result, which leaves through the out-pointers.
 
         # The target comes in as a pointer the loader resolved with dlsym on
         # the library itself, not as a call to a symbol: a compiled function
         # named `read` or `write` would otherwise be interposed by the libc
         # symbol already in the process' global scope.
         lines.append(f"/* {name} */")
-        lines.append(f"typedef {c_ret} (*{target})({c_sig});")
+        rendered_types = ", ".join(target_types) or "void"
+        lines.append(f"typedef {c_ret} (*{target})({rendered_types});")
         lines.append("")
         lines.append("typedef struct {")
         lines.append(f"    {target} target;")
-        for i, param in enumerate(params):
-            lines.append(f"    {_C_TYPE_MAP[param['type']['kind']]} p{i};")
-        if ret_kind != "none":
-            lines.append(f"    {c_ret} result;")
+        lines.extend(arg_fields)
+        if ret_kind != "none" and not (flat and ret_is_str):
+            lines.append(f"    {_C_TYPE_MAP[ret_kind]} result;")
         lines.append(f"}} {struct};")
         lines.append("")
         lines.append(f"static int32_t ps_bind_call_{index}(void *env) {{")
         lines.append(f"    {struct} *args = ({struct} *)env;")
-        if ret_kind != "none":
-            lines.append(f"    args->result = args->target({call_args});")
+        call_str = ", ".join(call_args)
+        if ret_kind == "none":
+            lines.append(f"    args->target({call_str});")
+        elif flat and ret_is_str:
+            lines.append(f"    args->target({call_str});")
         else:
-            lines.append(f"    args->target({call_args});")
+            lines.append(f"    args->result = args->target({call_str});")
         lines.append("    return 0;")
         lines.append("}")
         lines.append("")
-        wrapper = shim_symbol(name)
-        c_sig_params = ", ".join(
-            [f"{target} target", *(f"{_C_TYPE_MAP[p['type']['kind']]} p{i}" for i, p in enumerate(params))]
-        )
-        lines.append(f"{c_ret} {wrapper}({c_sig_params}) {{")
+
+        # The wrapper: the target pointer first, then the parameters. A str
+        # argument arrives as a length and a data pointer, and a str result
+        # leaves through the two out-pointers.
+        wrap_types = [f"{target} target"]
+        for i, param in enumerate(params):
+            kind = param["type"]["kind"]
+            if flat and kind == "str":
+                wrap_types.append(f"int64_t p{i}_len")
+                wrap_types.append(f"char *p{i}_data")
+            else:
+                wrap_types.append(f"{_C_TYPE_MAP[kind]} p{i}")
+        if flat and ret_is_str:
+            wrap_types.append("int64_t *out_len")
+            wrap_types.append("char **out_data")
+        lines.append(f"{c_ret} {shim_symbol(name)}({', '.join(wrap_types)}) {{")
         lines.append(f"    {struct} args;")
         lines.append("    args.target = target;")
-        for i in range(len(params)):
-            lines.append(f"    args.p{i} = p{i};")
-        if ret_kind != "none":
+        for i, param in enumerate(params):
+            kind = param["type"]["kind"]
+            if flat and kind == "str":
+                lines.append(f"    args.p{i}_len = p{i}_len;")
+                lines.append(f"    args.p{i}_data = p{i}_data;")
+            else:
+                lines.append(f"    args.p{i} = p{i};")
+        if flat and ret_is_str:
+            lines.append("    args.out_len = 0;")
+            lines.append("    args.out_data = NULL;")
+            lines.append(f"    if (ps_bind_guard(ps_bind_call_{index}, &args) != 0) {{")
+            lines.append("        *out_len = 0;")
+            lines.append("        *out_data = NULL;")
+            lines.append("        return;")
+            lines.append("    }")
+            lines.append("    *out_len = args.out_len;")
+            lines.append("    *out_data = args.out_data;")
+            lines.append("    return;")
+        elif ret_kind != "none":
+            assert ret_kind in _C_ZERO_MAP, ret_kind
             lines.append(f"    args.result = {_C_ZERO_MAP[ret_kind]};")
             lines.append(f"    if (ps_bind_guard(ps_bind_call_{index}, &args) != 0) {{")
             lines.append(f"        return {_C_ZERO_MAP[ret_kind]};")
             lines.append("    }")
             lines.append("    return args.result;")
-        else:
-            lines.append(f"    ps_bind_guard(ps_bind_call_{index}, &args);")
+        lines.append(f"    ps_bind_guard(ps_bind_call_{index}, &args);")
         lines.append("}")
         lines.append("")
 
@@ -402,32 +479,90 @@ def render_binding_module(
 
     all_names = ["CompiledError"]
 
+    needs_str = any(needs_trampoline(fn) for fn in emitted)
+    if needs_str:
+        # A str never crosses the ABI as a struct. The compiled function's
+        # own signature carries it as a 32-byte aggregate, and the C ABI and
+        # the IR lowering disagree about where an aggregate that size lives;
+        # the emitter writes a flat-ABI trampoline (`psb.<name>`) for every
+        # exported function that carries one, and the loader calls that: a
+        # str argument is a byte length and a data pointer, a str result is
+        # read out of two out-pointers, and the result buffer is freed
+        # through the shim's ps_bind_str_free.
+        lines.append("_str_free = _lib.ps_bind_str_free")
+        lines.append("_str_free.argtypes = [ctypes.c_void_p]")
+        lines.append("_str_free.restype = None")
+        lines.append("")
+        lines.append("")
+        lines.append("def _unpack_str(payload_len: int, payload_data: int | None) -> str:")
+        lines.append('    """The str one result buffer holds, its memory freed after the read."""')
+        lines.append("    if not payload_data:")
+        lines.append('        return ""')
+        lines.append("    data = ctypes.string_at(payload_data, payload_len) if payload_len > 0 else b\"\"")
+        lines.append("    _str_free(payload_data)")
+        lines.append('    return data.decode("utf-8")')
+        lines.append("")
+        lines.append("")
+
     for fn in emitted:
         name = fn["name"]
-        target_symbol = _fn_symbol(name)
         params = fn.get("params", [])
         ret_type = fn.get("returnType", {})
+        ret_kind = ret_type.get("kind", "none")
+        flat = needs_trampoline(fn)
+        target_symbol = trampoline_symbol(name) if flat else _fn_symbol(name)
 
-        argtypes = [_CTYPES_TYPE_MAP[p["type"]["kind"]] for p in params]
-        restype = _CTYPES_TYPE_MAP[ret_type.get("kind", "none")]
+        # The target signature: a str argument is the byte length and the
+        # data pointer on the flat path, otherwise the logical ctypes type.
+        argtypes = []
+        for p in params:
+            if flat and p["type"]["kind"] == "str":
+                argtypes.extend(["ctypes.c_int64", "ctypes.c_char_p"])
+            else:
+                argtypes.append(_CTYPES_TYPE_MAP[p["type"]["kind"]])
+        restype = "None" if (flat and ret_kind == "str") else _CTYPES_TYPE_MAP[ret_kind]
+
         # The guarded wrapper takes the resolved function pointer first, so
         # its ctypes shape is the logical one with a leading c_void_p.
-        bind_argtypes = ["ctypes.c_void_p", *argtypes]
+        bind_argtypes = ["ctypes.c_void_p"]
+        for p in params:
+            if flat and p["type"]["kind"] == "str":
+                bind_argtypes.extend(["ctypes.c_int64", "ctypes.c_char_p"])
+            else:
+                bind_argtypes.append(_CTYPES_TYPE_MAP[p["type"]["kind"]])
+        if flat and ret_kind == "str":
+            # The result buffer is a plain address, not a c_char_p: ctypes
+            # would turn a c_char_p into a bytes copy and the address the
+            # compiled side wrote would be lost.
+            bind_argtypes.extend(["ctypes.POINTER(ctypes.c_int64)", "ctypes.POINTER(ctypes.c_void_p)"])
+        bind_restype = restype
 
         sig_parts: list[str] = []
         call_parts: list[str] = []
+        pack_parts: list[str] = []
+        keep_parts: list[str] = []
         for p in params:
             pname = p["name"]
-            ptype_str = _PY_TYPE_MAP[p["type"]["kind"]]
+            kind = p["type"]["kind"]
+            ptype_str = _PY_TYPE_MAP[kind]
             default = p.get("default")
             if isinstance(default, dict) and default.get("kind") == "const":
                 val_repr = _python_const_repr(p["type"], default.get("value"))
                 sig_parts.append(f"{pname}: {ptype_str} = {val_repr}")
             else:
                 sig_parts.append(f"{pname}: {ptype_str}")
-            call_parts.append(pname)
+            if kind == "str":
+                pack_parts.append(f"    __{pname} = {pname}.encode('utf-8')")
+                call_parts.append(f"len(__{pname})")
+                call_parts.append(f"__{pname}")
+                # ctypes keeps a c_char_p alive through the call: the bytes
+                # object stays referenced by the local, and the compiled
+                # code must not retain the pointer past the call.
+                keep_parts.append(f"    del __{pname}")
+            else:
+                call_parts.append(pname)
 
-        ret_annot = _PY_TYPE_MAP[ret_type.get("kind", "none")]
+        ret_annot = _PY_TYPE_MAP[ret_kind]
         sig_str = ", ".join(sig_parts)
         call_str = ", ".join(call_parts)
 
@@ -438,14 +573,26 @@ def render_binding_module(
         lines.append(f"_{name}_ptr = ctypes.cast(_{name}_impl, ctypes.c_void_p)")
         lines.append(f"_{name} = getattr(_lib, {repr(shim_symbol(name))})")
         lines.append(f"_{name}.argtypes = [{', '.join(bind_argtypes)}]")
-        lines.append(f"_{name}.restype = {restype}")
+        lines.append(f"_{name}.restype = {bind_restype}")
         lines.append("")
         lines.append("")
         lines.append(f"def {name}({sig_str}) -> {ret_annot}:")
+        for pack_line in pack_parts:
+            lines.append(pack_line)
         args = ", ".join([f"_{name}_ptr", call_str]) if call_str else f"_{name}_ptr"
-        if ret_type.get("kind", "none") == "none":
+        if ret_kind == "none":
             lines.append(f"    _{name}({args})")
             lines.append("    _check()")
+        elif flat and ret_kind == "str":
+            lines.append("    _out_len = ctypes.c_int64(0)")
+            lines.append("    _out_data = ctypes.c_void_p(None)")
+            lines.append(f"    _{name}({args}, ctypes.byref(_out_len), ctypes.byref(_out_data))")
+            lines.append("    _check()")
+            lines.append("    return _unpack_str(_out_len.value, _out_data.value)")
+        elif ret_kind == "str":
+            lines.append(f"    _result = _{name}({args})")
+            lines.append("    _check()")
+            lines.append("    return _unpack_str(_result)")
         else:
             lines.append(f"    _result = _{name}({args})")
             lines.append("    _check()")

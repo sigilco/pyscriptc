@@ -542,18 +542,27 @@ class AbiMixin:
             self.line(f"{data_ptr} = getelementptr %ps.buf, ptr {buf}, i32 0, i32 1")
             length = self._load("i64", len_ptr)
             data = self._load("ptr", data_ptr)
-            str_slot = self._alloca("%ps.str")
-            self.line(f"store i64 {length}, ptr {str_slot}")
-            data_slot = self.tmp()
-            self.line(f"{data_slot} = getelementptr %ps.str, ptr {str_slot}, i32 0, i32 1")
-            self.line(f"store ptr {data}, ptr {data_slot}")
-            count_ptr = self.tmp()
-            flags_ptr = self.tmp()
-            self.line(f"{count_ptr} = getelementptr %ps.str, ptr {str_slot}, i32 0, i32 2")
-            self.line(f"{flags_ptr} = getelementptr %ps.str, ptr {str_slot}, i32 0, i32 3")
+            # Every field of the aggregate comes from a loaded scalar: a
+            # `poison` placeholder the optimizer cannot see a store to
+            # poisons the whole aggregate, and the count and the flag would
+            # stay poison.
+            count_slot = self._alloca("i64")
+            flags_slot = self._alloca("i32")
             self._abi_decl("ps_str_counts", "void", ["i64", "ptr", "ptr", "ptr"])
-            self.line(f"call void @ps_str_counts(i64 {length}, ptr {data}, ptr {count_ptr}, ptr {flags_ptr})")
-            return self._load("%ps.str", str_slot)
+            self.line(f"call void @ps_str_counts(i64 {length}, ptr {data}, ptr {count_slot}, ptr {flags_slot})")
+            count = self.tmp()
+            flags = self.tmp()
+            self.line(f"{count} = load i64, ptr {count_slot}")
+            self.line(f"{flags} = load i32, ptr {flags_slot}")
+            first = self.tmp()
+            second = self.tmp()
+            third = self.tmp()
+            reg = self.tmp()
+            self.line(f"{first} = insertvalue %ps.str poison, i64 {length}, 0")
+            self.line(f"{second} = insertvalue %ps.str {first}, ptr {data}, 1")
+            self.line(f"{third} = insertvalue %ps.str {second}, i64 {count}, 2")
+            self.line(f"{reg} = insertvalue %ps.str {third}, i32 {flags}, 3")
+            return reg
         raise IRError(f"cannot read an island value of kind {kind}")
 
     # boxed:end
@@ -567,19 +576,31 @@ class AbiMixin:
         # through every runtime constructor; the constant path (_print.py)
         # computes both fields at emit time instead.
         self.line(f"call void @{symbol}({', '.join([*args, f'ptr {out}'])})")
-        count_ptr = self.tmp()
-        flags_ptr = self.tmp()
         length = self.tmp()
         raw_ptr = self.tmp()
         data_ptr = self.tmp()
         self.line(f"{length} = load i64, ptr {out}")
         self.line(f"{raw_ptr} = getelementptr %ps.str, ptr {out}, i32 0, i32 1")
         self.line(f"{data_ptr} = load ptr, ptr {raw_ptr}")
-        self.line(f"{count_ptr} = getelementptr %ps.str, ptr {out}, i32 0, i32 2")
-        self.line(f"{flags_ptr} = getelementptr %ps.str, ptr {out}, i32 0, i32 3")
+        # The count and the flag come from loaded scalars, never from a
+        # `poison` placeholder the optimizer would keep.
+        count_slot = self._alloca("i64")
+        flags_slot = self._alloca("i32")
         self._abi_decl("ps_str_counts", "void", ["i64", "ptr", "ptr", "ptr"])
-        self.line(f"call void @ps_str_counts(i64 {length}, ptr {data_ptr}, ptr {count_ptr}, ptr {flags_ptr})")
-        return self._load("%ps.str", out)
+        self.line(f"call void @ps_str_counts(i64 {length}, ptr {data_ptr}, ptr {count_slot}, ptr {flags_slot})")
+        count = self.tmp()
+        flags = self.tmp()
+        self.line(f"{count} = load i64, ptr {count_slot}")
+        self.line(f"{flags} = load i32, ptr {flags_slot}")
+        first = self.tmp()
+        second = self.tmp()
+        third = self.tmp()
+        reg = self.tmp()
+        self.line(f"{first} = insertvalue %ps.str poison, i64 {length}, 0")
+        self.line(f"{second} = insertvalue %ps.str {first}, ptr {data_ptr}, 1")
+        self.line(f"{third} = insertvalue %ps.str {second}, i64 {count}, 2")
+        self.line(f"{reg} = insertvalue %ps.str {third}, i32 {flags}, 3")
+        return reg
 
     def _abi_decl(self, symbol: str, ret: str, params: list[str]) -> None:
         # A symbol already pre-baked in the `_declarations` table keeps that

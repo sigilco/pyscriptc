@@ -128,6 +128,8 @@ class CoreMixin:
         # in @main) can still register one.
         for name in sorted(self.clo_wrappers):
             self._emit_clo_wrapper(self.functions[name])
+        if self.binding:
+            self._emit_binding_trampolines()
         for symbol in sorted(self.partials):
             self._emit_partial_stub(symbol, self.partials[symbol])
         for symbol in sorted(self.threads):
@@ -135,9 +137,31 @@ class CoreMixin:
         self.out.extend(self.outline_lines)
         return self._render()
 
+    def _emit_binding_trampolines(self) -> None:
+        """Emit the flat-ABI trampolines of the exported functions.
+
+        A compiled function that carries a `str` has a signature the C ABI
+        cannot call: the str payload is a 32-byte aggregate, and the C ABI
+        passes an aggregate that size in memory while the IR lowering passes
+        it in registers. The trampoline is the C-facing entry point and
+        speaks only scalars and pointers, so both sides agree.
+        """
+        from pyscriptc.emit.llvm import _tramp
+
+        for fn in self.module.get("functions", []):
+            # A nested function takes the caller's env cell array as a
+            # leading pointer and has no C-callable entry point; the
+            # binding generator skips it too.
+            if "env" in fn or "." in fn["name"]:
+                continue
+            if not _tramp.needs_trampoline(fn):
+                continue
+            self.needed.add("str")
+            self.needed.add("trampoline")
+            self.out.append(_tramp.render_trampoline(fn))
+
     def _render(self) -> str:
         """Assemble the module text: types, globals, declarations, helpers, body."""
-
         # %ps.str is { i64, ptr, i64, i32 }: byte length, data pointer,
         # code-point count, flags (bit 0 ASCII). Until the str model lands
         # (epic #472) the count mirrors the byte count and the flag stays 0,
@@ -245,26 +269,32 @@ class CoreMixin:
         data_ptr = self.tmp()
         self.line(f"{data_ptr} = getelementptr %ps.buf, ptr {slot}, i32 0, i32 1")
         self.line(f"{ptr} = load ptr, ptr {data_ptr}")
+        count = "0"
+        flags = "0"
+        if typ["kind"] == "str":
+            # Bytes keep the zero count (their count is their byte length);
+            # str recomputes so len() and the case family read true values.
+            # Every field of the aggregate comes from a loaded scalar: a
+            # `poison` placeholder the optimizer cannot see a store to
+            # poisons the whole aggregate, and `len()` would then read the
+            # ASCII flag instead of the count. An inlined call folds the
+            # shape away, so only an exported function shows the bug.
+            nchars_slot = self._alloca("i64")
+            flags_slot = self._alloca("i32")
+            self._abi_decl("ps_str_counts", "void", ["i64", "ptr", "ptr", "ptr"])
+            self.line(f"call void @ps_str_counts(i64 {length}, ptr {ptr}, ptr {nchars_slot}, ptr {flags_slot})")
+            count = self.tmp()
+            flags = self.tmp()
+            self.line(f"{count} = load i64, ptr {nchars_slot}")
+            self.line(f"{flags} = load i32, ptr {flags_slot}")
         first = self.tmp()
         second = self.tmp()
         third = self.tmp()
         self.line(f"{first} = insertvalue %ps.str poison, i64 {length}, 0")
         self.line(f"{second} = insertvalue %ps.str {first}, ptr {ptr}, 1")
-        self.line(f"{third} = insertvalue %ps.str {second}, i64 0, 2")
+        self.line(f"{third} = insertvalue %ps.str {second}, i64 {count}, 2")
         reg = self.tmp()
-        self.line(f"{reg} = insertvalue %ps.str {third}, i32 0, 3")
-        if typ["kind"] == "str":
-            # Bytes keep the zero count (their count is their byte length);
-            # str recomputes so len() and the case family read true values.
-            slot_ptr = self._alloca("%ps.str")
-            count_ptr2 = self.tmp()
-            flags_ptr2 = self.tmp()
-            self.line(f"store %ps.str {reg}, ptr {slot_ptr}")
-            self.line(f"{count_ptr2} = getelementptr %ps.str, ptr {slot_ptr}, i32 0, i32 2")
-            self.line(f"{flags_ptr2} = getelementptr %ps.str, ptr {slot_ptr}, i32 0, i32 3")
-            self._abi_decl("ps_str_counts", "void", ["i64", "ptr", "ptr", "ptr"])
-            self.line(f"call void @ps_str_counts(i64 {length}, ptr {ptr}, ptr {count_ptr2}, ptr {flags_ptr2})")
-            reg = self._load("%ps.str", slot_ptr)
+        self.line(f"{reg} = insertvalue %ps.str {third}, i32 {flags}, 3")
         return reg
 
     def _alloca(self, llvm_type: str) -> str:

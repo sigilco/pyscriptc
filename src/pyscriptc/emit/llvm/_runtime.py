@@ -51,6 +51,7 @@ def _prebaked_declarations() -> list[str]:
             "struct",
             "url",
             "try",
+            "trampoline",
         }
     ):
         match = re.search(r"@([A-Za-z_][\w.]*?)\(", line)
@@ -98,6 +99,15 @@ def _declarations(needed: set[str]) -> list[str]:
     if "strconcat" in needed:
         lines.append("declare ptr @malloc(i64)")
         lines.append("declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)")
+    if "trampoline" in needed:
+        # The flat-ABI trampolines copy a str result into a buffer of their
+        # own, so the caller frees exactly one allocation. The allocator and
+        # the copy are the ones the strconcat path declares, so they come
+        # only when that path is not already active.
+        if "strconcat" not in needed:
+            lines.append("declare ptr @malloc(i64)")
+            lines.append("declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)")
+        lines.append("declare void @ps_str_header(i64, ptr, ptr, ptr, ptr)")
     if "dbg" in needed:
         lines.append("declare void @llvm.dbg.value(metadata, metadata, metadata)")
         lines.append("declare void @llvm.dbg.declare(metadata, metadata, metadata)")

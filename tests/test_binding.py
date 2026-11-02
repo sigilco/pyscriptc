@@ -222,7 +222,10 @@ def test_binding_skipped_functions_and_summary(tmp_path: Path) -> None:
     try:
         binding_mod = importlib.import_module("mixed_binding")
         assert binding_mod.add(10, 20) == 30
-        assert not hasattr(binding_mod, "greet")
+        # A str signature crosses the ABI through the flat trampoline: the
+        # argument is a byte length and a data pointer, the result leaves
+        # through two out-pointers.
+        assert binding_mod.greet("world") == "world"
         assert not hasattr(binding_mod, "process_items")
     finally:
         sys.path.remove(str(tmp_path))
@@ -231,9 +234,9 @@ def test_binding_skipped_functions_and_summary(tmp_path: Path) -> None:
     # Check compile summary carries nonzero skipped count
     summary = json.loads((dbg_dir / "summary.json").read_text())
     assert "binding" in summary
-    assert summary["binding"]["emitted"] == ["add"]
-    assert summary["binding"]["skippedCount"] >= 3
-    assert summary["bindingSkipped"] >= 3
+    assert summary["binding"]["emitted"] == ["add", "greet"]
+    assert summary["binding"]["skippedCount"] >= 2
+    assert summary["bindingSkipped"] >= 2
 
 
 @needs_clang
