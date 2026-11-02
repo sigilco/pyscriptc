@@ -274,6 +274,7 @@ def _lower_units(
     classes: list[dict[str, Any]] = []
     fences: list[dict[str, Any]] = []
     class_names: dict[str, dict[str, Any]] = {}
+    global_inits: list[dict[str, Any]] = []
     exc_n = USER_EXC_BASE
     needs_island = False  # boxed
     island_modules: dict[str, str] = {}  # boxed
@@ -337,6 +338,10 @@ def _lower_units(
                 module["fences"] = [*module["fences"], *(f.as_dict() for f in lowerer._boxed_module_fences)]
             # boxed:end
             exc_n = lowerer.exc_n
+            # The module's global slot initializers join the merged IR. Each
+            # key is module qualified, so two modules never collide, and the
+            # emitter runs them at the top of main, before any read.
+            global_inits.extend(module.get("globals") or [])
             for fn in module["functions"]:
                 functions.append(fn)
             for cls in module["classes"]:
@@ -436,6 +441,8 @@ def _lower_units(
             group_sources, group_packages, {name: str(path) for name, path, _ in units if name in island_group}
         )
     # boxed:end
+    if global_inits:
+        merged["globals"] = global_inits
     if program:
         # The entry carries the injected init calls at its import sites, so
         # the list only matters for a `--call` entry: drop the entry
@@ -1710,6 +1717,7 @@ def _class_export(info: dict[str, Any]) -> dict[str, Any]:
         "methods": copy.deepcopy(info.get("methods", {})),
         "method_kind": dict(info.get("method_kind", {})),
         "method_owner": dict(info.get("method_owner", {})),
+        "mro": list(info.get("mro") or []),
         "base": info.get("base"),
         "imported": True,
     }
@@ -1721,6 +1729,17 @@ def _class_export(info: dict[str, Any]) -> dict[str, Any]:
     if info.get("enum"):
         exported["enum"] = True
         exported["members"] = dict(info.get("members") or {})
+    consts = info.get("class_consts")
+    if consts:
+        # Immutable scalar constants re-inline in the consumer. A slot-bound
+        # container constant crosses as the slot's qualified global name: the
+        # consumer reads the defining module's object, the same one the
+        # defining module and every instance of the class share.
+        exported["class_consts"] = {
+            name: copy.deepcopy(const)
+            for name, const in consts.items()
+            if const.get("kind") in {"const", "tuple-const", "slot-const"}
+        }
     if info.get("coro"):
         # A coroutine frame class (issue #178, stage B). The consumer needs
         # the kind to tell a frame from a user class, and `coro_elem` (the
