@@ -45,6 +45,7 @@ from pyscriptc._irnode import (
     Pair,
     Span,
     Stub,
+    T,
     ThreadMeta,
     assign,
     attr,
@@ -348,6 +349,8 @@ def _type_dict(typ: Any) -> Any:
         out["params"] = [_type_dict(param) for param in typ.params or []]
         if typ.ret is not None:
             out["return"] = _type_dict(typ.ret)
+    if typ.kind == "typevar" and typ.name != "":
+        out["name"] = typ.name
     return out
 
 
@@ -616,6 +619,10 @@ def dict_to_type(d: Any) -> Any:
         return t_dict(dict_to_type(d.get("key")), dict_to_type(d.get("value")))
     if kind == "func":
         return t_func([dict_to_type(param) for param in d.get("params", [])], dict_to_type(d.get("return")))
+    if kind == "typevar" and d.get("name", "") != "":
+        # The `{"kind": "typevar", "name": T}` placeholder: T carries the
+        # name so `_subst_type` can resolve it at the call site.
+        return T(kind=kind, elem=None, key=None, value=None, params=None, ret=None, name=d["name"])
     return t_leaf(kind)
 
 
