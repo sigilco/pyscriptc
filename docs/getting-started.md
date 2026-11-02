@@ -122,3 +122,9 @@ If a file cannot be compiled, pyscriptc prints a table naming each construct and
 | 4 | A version or target mismatch |
 
 Run `pyscriptc explain PS2003` to see what a code means and how to change your code. The full list of diagnostic codes is in [Diagnostics](reference/diagnostics.md), and the general reference for unsupported behavior is [Divergences from CPython](reference/divergences.md).
+
+## If your app is framework-heavy
+
+Reflection-heavy and framework-heavy code (pydantic models, Flask routes, agent frameworks) does not compile to native code and, once an untyped import sits at a module top level, pulls that module's functions onto the embedded CPython island with it.
+Before building, run `pyscriptc assess` on the tree and read the plane map it prints: what runs native, what runs on the island and why, and the policy lines that route each unsupported import.
+The rules are in [What runs native and what runs on the island](guide/python-subset.md#what-runs-native-and-what-runs-on-the-island), the island mechanics in [Libraries and fallback mode](guide/libraries.md), and how this compares with other tools in [Comparison with other tools](guide/comparison.md).

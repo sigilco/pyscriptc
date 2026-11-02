@@ -61,6 +61,10 @@ Note that `helper` runs there too: when an unsupported function calls a typed on
 pyscriptc assess script.py
 ```
 
+Its summary counts definitions inside the subset; that is not the share that runs native.
+On a fallback build the deciding report is the plane map: `assess --json` prints the planned route per function plus `demotedBy` (the call that pulled a function onto the island), and `run --report=report.json` prints the executed route after a run.
+A module whose top level imports an untyped dependency has its whole top level routed first (divergence 42), so framework-heavy trees can show a high per-definition share with everything island at run time; see [What runs native and what runs on the island](python-subset.md#what-runs-native-and-what-runs-on-the-island).
+
 `pyscriptc imports SOURCE` classifies every imported module as `native` or as requiring libpython.
 `pyscriptc run --fallback=cpython --report=report.json script.py` writes the same classification as JSON after a run.
 
@@ -135,6 +139,7 @@ Limits to know:
 - Cross-compiling a libpython-linked binary to a foreign target is refused (divergence 31); fallback mode needs the host libpython and its installed packages.
 - Uncaught exceptions from the embedded side print the type and message but not a traceback (divergences 12 and 42).
 - Unsupported module-level statements plan the whole module top level for the embedded interpreter (divergence 42).
+- The island plan propagates through calls: a native-eligible function that names an island-planned import or an unannotated value reaching one is routed there too (divergence 48). On one measured Flask-plus-LLM backend this took the run-time native share from 41% (definitions passing in isolation) to 0% (functions planned island).
 
 The complete crossing rules and numbered divergences: [Divergences from CPython](../reference/divergences.md).
 Per-module and per-library support status: the [compat site]({{PYSC_COMPAT_URL}}).
