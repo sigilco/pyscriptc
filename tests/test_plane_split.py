@@ -33,7 +33,16 @@ def _write(root: Path, files: dict[str, str]) -> None:
 def _compile(tmp_path: Path, prog: Path, *flags: str) -> tuple[Path, subprocess.CompletedProcess[str]]:
     binary = tmp_path / "bin"
     comp = _cli(
-        "compile", str(prog), "--program", "--fallback=cpython", "--emit", "bin", "-o", str(binary), *flags, cwd=tmp_path
+        "compile",
+        str(prog),
+        "--program",
+        "--fallback=cpython",
+        "--emit",
+        "bin",
+        "-o",
+        str(binary),
+        *flags,
+        cwd=tmp_path,
     )
     return binary, comp
 
@@ -177,10 +186,7 @@ def test_fenced_module_with_a_native_sibling(tmp_path: Path) -> None:
                 "    main()\n"
             ),
             "mixed.py": (
-                "def clean_one(n: int) -> int:\n    return n + 1\n"
-                "\n"
-                "\n"
-                "def dirty_one(s):\n    return s.upper()\n"
+                "def clean_one(n: int) -> int:\n    return n + 1\n\n\ndef dirty_one(s):\n    return s.upper()\n"
             ),
         },
     )
