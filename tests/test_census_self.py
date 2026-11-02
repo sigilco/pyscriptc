@@ -274,12 +274,12 @@ def test_self_census_ballpark() -> None:
     # adds about 150 lines in coro.py. The asyncio primitives (#180 D3) add
     # about 400 in ps_async.c and restlower/_asyncio_sync.py.
     # The --infer lane (#792) takes the compiler's own source past 53k lines.
-    assert 11_000 <= census["lines"] <= 54_000
+    assert 11_000 <= census["lines"] <= 58_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.
     # The --infer lane (#792) takes the compiler's own source past 53k lines.
-    assert 11_000 <= census["lines"] <= 54_000
+    assert 11_000 <= census["lines"] <= 58_000
     # Island class definitions (#628): +9 self-host fences, one in
     # emit/llvm/_abi.py (the class-handle trampoline), one in
     # lower/_classes.py (the island class annotation), three in
@@ -291,7 +291,7 @@ def test_self_census_ballpark() -> None:
     # embed.py (#657, the pinned CPython runtime pack) adds 1 module, about
     # 470 lines and 99 self-host fences, taking the source past 50k.
     # The --infer lane (#792) takes the compiler's own source past 53k lines.
-    assert 11_000 <= census["lines"] <= 54_000
+    assert 11_000 <= census["lines"] <= 58_000
     # subprocess text mode (#680): the text-mode decode lowering nets -1
     # self-host fence (restlower/_subprocess.py +1, emit/llvm/_driver.py
     # and emitlib.py -1 each through the lowered-compiler re-run).
@@ -302,6 +302,8 @@ def test_self_census_ballpark() -> None:
     # inference plumbing: 3189 -> 3270. The runtime-linked manifest check
     # (#791 follow-up) rewrites interpreter_modules/host_modules in
     # stdlibzip.py: the pack-tree walk and the set algebra add 7 fences
-    # there. 3270 -> 3277.
-    assert census["fences"] == 3277
-    assert sum(p["fences"] for p in census["packages"]) == 3277
+    # there. 3270 -> 3277. The carried-zip path on work/ytbottle splits
+    # kept_module_names into stdlib_sources and adds carried_modules plus
+    # pack_stdlib_zip in stdlibzip.py: 3277 -> 3340.
+    assert census["fences"] == 3340
+    assert sum(p["fences"] for p in census["packages"]) == 3340
