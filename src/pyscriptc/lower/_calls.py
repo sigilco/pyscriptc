@@ -23,6 +23,7 @@ from pyscriptc.builtins import EXCEPTIONS, builtin_spec, method_spec
 from pyscriptc.coro import DONE, STATE
 from pyscriptc.errors import span_of
 from pyscriptc.ir import type_key, types_equal
+from pyscriptc.lower import _metadata
 from pyscriptc.lower._classes import _type_slug
 from pyscriptc.lower._core import (
     _assign,
@@ -41,7 +42,6 @@ from pyscriptc.lower._core import (
     _sig_typevars,
     _subst_type,
 )
-from pyscriptc.lower import _metadata
 from pyscriptc.lower._stdlib_shared import _mod_call, _synth_module
 from pyscriptc.reflection import inspect_note, kwargs_call_note, typing_note
 from pyscriptc.restlower import (

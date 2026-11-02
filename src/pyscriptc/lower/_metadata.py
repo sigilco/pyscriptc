@@ -86,9 +86,7 @@ def _field_text(lo: Any, typ: dict[str, Any]) -> str:
     return type_key(typ)
 
 
-def dataclass_fields(
-    lo: Any, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None
-) -> dict[str, Any]:
+def dataclass_fields(lo: Any, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
     """`dataclasses.fields(x)` over a lowered dataclass, class or instance.
 
     CPython takes the class or an instance of one; both forms read the same
@@ -138,7 +136,9 @@ def _field_row(lo: Any, field: dict[str, Any], typ: dict[str, Any], span: dict[s
         ("repr", {"kind": "const", "value": bool(field.get("repr", True)), "type": {"kind": "bool"}, "span": span}),
     ]
     for attr_name, value in values:
-        stmts.append({"kind": "setattr", "object": _name(temp, typ, span), "name": attr_name, "value": value, "span": span})
+        stmts.append(
+            {"kind": "setattr", "object": _name(temp, typ, span), "name": attr_name, "value": value, "span": span}
+        )
     lo.prelude.extend(stmts)
     return _name(temp, typ, span)
 
@@ -170,9 +170,7 @@ def _dataclass_name(lo: Any, node: ast.expr) -> str | None:
     return None
 
 
-def dataclass_as_dict(
-    lo: Any, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None
-) -> dict[str, Any]:
+def dataclass_as_dict(lo: Any, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
     """`dataclasses.asdict(o)` over a lowered dataclass instance.
 
     The dict result carries one value type, like every dict in the subset.
@@ -198,9 +196,7 @@ def dataclass_as_dict(
     return {"kind": "dict", "pairs": pairs, "type": typ, "span": span}
 
 
-def dataclass_as_tuple(
-    lo: Any, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None
-) -> dict[str, Any]:
+def dataclass_as_tuple(lo: Any, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
     """`dataclasses.astuple(o)`: the field values as a fixed-arity tuple."""
 
     receiver = _instance_arg(lo, node, span, "astuple")
@@ -215,9 +211,7 @@ def dataclass_as_tuple(
     return lo._materialize_tuple(elems, span, node)
 
 
-def dataclass_replace(
-    lo: Any, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None
-) -> dict[str, Any]:
+def dataclass_replace(lo: Any, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
     """`dataclasses.replace(o, **changes)` over a lowered dataclass instance.
 
     The changes are keyword arguments matched against the field rows at
@@ -259,22 +253,24 @@ def dataclass_replace(
             # it, so the constructor sees the same shape.
             default = field["default"]
             if field.get("optdefault"):
-                default = lo._opt_box(
-                    None if default["type"]["kind"] == "none" else default, param["type"], span
-                )
+                default = lo._opt_box(None if default["type"]["kind"] == "none" else default, param["type"], span)
             args.append(default)
         else:
             args.append({"kind": "attr", "value": receiver, "name": param["name"], "type": param["type"], "span": span})
-    made = {"kind": "call", "callee": {"kind": "class", "name": class_name}, "args": args, "type": receiver["type"], "span": span}
+    made = {
+        "kind": "call",
+        "callee": {"kind": "class", "name": class_name},
+        "args": args,
+        "type": receiver["type"],
+        "span": span,
+    }
     temp = lo._temp("repl")
     lo.locals[temp] = receiver["type"]
     lo.prelude.append({"kind": "assign", "target": temp, "value": made, "span": span})
     return _name(temp, receiver["type"], span)
 
 
-def class_vars(
-    lo: Any, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None
-) -> dict[str, Any]:
+def class_vars(lo: Any, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
     """`vars(o)`: the read-only field table of a lowered class instance.
 
     The same shape `asdict` returns — `dict[str, T]` over one shared field
@@ -367,7 +363,7 @@ def enum_value_lookup(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str
     if arg["kind"] != "const" or arg["type"]["kind"] != "int":
         lo.fail(node, "PS2002", f"{name}(v) needs a constant integer value")
     wanted = int(str(arg["value"]))
-    for member_name, member_value in info["members"].items():
+    for member_value in info["members"].values():
         if member_value == wanted:
             return {"kind": "const", "value": str(member_value), "type": {"kind": "int"}, "span": span}
     lo.fail(node, "PS2001", f"{wanted} is not a value of {name}")

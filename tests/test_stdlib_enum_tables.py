@@ -5,6 +5,7 @@ member table the compiler builds from the enum body, so no enum object
 exists in the binary. Each probe diffs stdout against the CPython oracle;
 a name or value that names no member is a compile-time diagnostic.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

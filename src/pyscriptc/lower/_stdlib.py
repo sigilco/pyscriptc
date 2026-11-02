@@ -29,6 +29,7 @@ from pyscriptc.coro import enabled
 from pyscriptc.errors import span_of
 from pyscriptc.ffi_manifest import handle_type, is_handle_type, type_ir
 from pyscriptc.ir import types_equal
+from pyscriptc.lower import _metadata
 from pyscriptc.lower._core import (
     _FUTURE_OK,
     _MISSING,
@@ -51,7 +52,6 @@ from pyscriptc.lower._core import (
     module_needs_slot,
 )
 from pyscriptc.lower._stdlib_shared import _ERASED_MODULES
-from pyscriptc.lower import _metadata
 from pyscriptc.restlower import alias_name, rest_call
 from pyscriptc.stdlib_queue import (
     MATH_CONSTANTS,

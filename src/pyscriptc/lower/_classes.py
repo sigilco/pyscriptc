@@ -577,9 +577,7 @@ class ClassesMixin:
             return resolved is not None and resolved[1] == "dataclasses" and resolved[2] == member
         return False
 
-    def _field_options(
-        self, node: ast.AnnAssign, deco: str | None
-    ) -> tuple[bool, bool, bool]:
+    def _field_options(self, node: ast.AnnAssign, deco: str | None) -> tuple[bool, bool, bool]:
         """The (kw_only, init, repr) flags a dataclass field carries.
 
         A plain annotated field is positional, in `__init__` and in the
@@ -622,7 +620,6 @@ class ClassesMixin:
             if kw.arg == "default":
                 return kw.value
         return None
-
 
     def _method_decorator(self, fn: ast.FunctionDef) -> str:
         # Erased typing decorators (`@abstractmethod`) drop out first, so
@@ -1003,9 +1000,7 @@ class ClassesMixin:
                     continue
                 value = field["default"]
                 if field.get("optdefault"):
-                    value = self._opt_box(
-                        None if value["type"]["kind"] == "none" else value, field["type"], span
-                    )
+                    value = self._opt_box(None if value["type"]["kind"] == "none" else value, field["type"], span)
                 body.append(
                     {
                         "kind": "setattr",
