@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-02",
-  "commit": "2033bcf09689f321b276f339cce8b59bd98ba511",
+  "commit": "fc62dd4c0adf6964e393711196101fed641a73a0",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -1430,10 +1430,14 @@
       "import_name": "colorama",
       "version": "0.4.6",
       "status": "none",
-      "fences": 84,
+      "fences": 133,
       "definitions": 77,
-      "fenced_definitions": 43,
+      "fenced_definitions": 48,
       "top_families": [
+        {
+          "family": "class-body",
+          "count": 51
+        },
         {
           "family": "param-inference",
           "count": 29
@@ -1441,13 +1445,13 @@
         {
           "family": "construct-other",
           "count": 13
-        },
-        {
-          "family": "name-resolution",
-          "count": 8
         }
       ],
       "codes": [
+        {
+          "code": "PS1204",
+          "count": 51
+        },
         {
           "code": "PS2002",
           "count": 42
@@ -1455,10 +1459,6 @@
         {
           "code": "PS1001",
           "count": 36
-        },
-        {
-          "code": "PS2003",
-          "count": 3
         }
       ],
       "pypi": "https://pypi.org/project/colorama/"
@@ -1506,13 +1506,13 @@
       "import_name": "filelock",
       "version": "4.1.1",
       "status": "partial",
-      "fences": 683,
+      "fences": 684,
       "definitions": 641,
       "fenced_definitions": 238,
       "top_families": [
         {
           "family": "name-resolution",
-          "count": 146
+          "count": 147
         },
         {
           "family": "construct-other",
@@ -1526,7 +1526,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 410
+          "count": 411
         },
         {
           "code": "PS2001",
@@ -1658,7 +1658,7 @@
       "import_name": "jmespath",
       "version": "1.1.0",
       "status": "none",
-      "fences": 121,
+      "fences": 125,
       "definitions": 200,
       "fenced_definitions": 107,
       "top_families": [
@@ -1671,8 +1671,8 @@
           "count": 15
         },
         {
-          "family": "decorators",
-          "count": 7
+          "family": "class-body",
+          "count": 9
         }
       ],
       "codes": [
@@ -1685,8 +1685,8 @@
           "count": 14
         },
         {
-          "code": "PS1201",
-          "count": 7
+          "code": "PS1204",
+          "count": 9
         }
       ],
       "pypi": "https://pypi.org/project/jmespath/"
@@ -1696,7 +1696,7 @@
       "import_name": "jwt",
       "version": "2.15.1",
       "status": "partial",
-      "fences": 121,
+      "fences": 122,
       "definitions": 171,
       "fenced_definitions": 65,
       "top_families": [
@@ -1774,7 +1774,7 @@
       "status": "partial",
       "fences": 555,
       "definitions": 558,
-      "fenced_definitions": 274,
+      "fenced_definitions": 279,
       "top_families": [
         {
           "family": "unlowered-type-name",
@@ -1786,7 +1786,7 @@
         },
         {
           "family": "class-body",
-          "count": 44
+          "count": 52
         }
       ],
       "codes": [
@@ -1799,8 +1799,8 @@
           "count": 90
         },
         {
-          "code": "PS2001",
-          "count": 51
+          "code": "PS1204",
+          "count": 52
         }
       ],
       "pypi": "https://pypi.org/project/packaging/"
@@ -1812,7 +1812,7 @@
       "status": "none",
       "fences": 219,
       "definitions": 132,
-      "fenced_definitions": 91,
+      "fenced_definitions": 92,
       "top_families": [
         {
           "family": "name-resolution",
@@ -1996,7 +1996,7 @@
       "import_name": "zipp",
       "version": "4.1.1",
       "status": "none",
-      "fences": 71,
+      "fences": 72,
       "definitions": 75,
       "fenced_definitions": 57,
       "top_families": [
@@ -2109,6 +2109,12 @@
       "packages": 9
     },
     {
+      "code": "PS1204",
+      "title": "class body statement",
+      "count": 125,
+      "packages": 7
+    },
+    {
       "code": "PS1103",
       "title": "generic alias annotation",
       "count": 121,
@@ -2137,12 +2143,6 @@
       "title": "dynamic or structural annotation",
       "count": 67,
       "packages": 6
-    },
-    {
-      "code": "PS1204",
-      "title": "class body statement",
-      "count": 61,
-      "packages": 7
     },
     {
       "code": "PS1003",
@@ -2214,12 +2214,12 @@
     },
     {
       "date": "2026-10-27",
-      "commit": "3bf40de6fe2fc661a956e88723d23776e9a5e0e4",
+      "commit": "95debbd232c8b3caebcd34907f4cfe161f914ec5",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 7,
       "packages_none": 9,
-      "fences": 2657
+      "fences": 2719
     },
     {
       "date": "2026-10-28",
@@ -2232,7 +2232,7 @@
     },
     {
       "date": "2026-11-02",
-      "commit": "2033bcf09689f321b276f339cce8b59bd98ba511",
+      "commit": "fc62dd4c0adf6964e393711196101fed641a73a0",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 7,
