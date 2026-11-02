@@ -87,6 +87,7 @@ from pyscriptc.restlower._threading import _lock_method, _thread_method, _thread
 from pyscriptc.restlower._time import _clock, _sleep, _strftime
 from pyscriptc.restlower._tomllib import _tomllib_call
 from pyscriptc.restlower._urllib import _urllib_request_call
+from pyscriptc.restlower._uuid import _uuid_call, _uuid_construct
 from pyscriptc.restlower._yaml import _yaml_call
 from pyscriptc.sigrec import Sig, sig_for, type_to_dict
 from pyscriptc.stdmore import (
@@ -235,6 +236,10 @@ _AFTER_KEYWORDS: dict[tuple[str, str], Handler] = {
     ("unicodedata", "name"): lambda lo, node, span, expect, attr: _unicode_name(lo, node, span),
     ("importlib.resources", "files"): lambda lo, node, span, expect, attr: _resource_files(lo, node, span),
     ("atexit", "register"): lambda lo, node, span, expect, attr: _atexit_register(lo, node, span),
+    ("uuid", "uuid1"): lambda lo, node, span, expect, attr: _uuid_call(lo, node, span, attr),
+    ("uuid", "uuid4"): lambda lo, node, span, expect, attr: _uuid_call(lo, node, span, attr),
+    ("uuid", "uuid5"): lambda lo, node, span, expect, attr: _uuid_call(lo, node, span, attr),
+    ("uuid", "UUID"): lambda lo, node, span, expect, attr: _uuid_construct(lo, node, span),
 }
 
 
