@@ -1,0 +1,134 @@
+{
+  "schemaVersion": 1,
+  "packages": 18,
+  "built": 18,
+  "runs": 18,
+  "results": [
+    {
+      "name": "certifi",
+      "built": true,
+      "runs": true,
+      "binaryExit": 0,
+      "cpythonExit": 0
+    },
+    {
+      "name": "colorama",
+      "built": true,
+      "runs": true,
+      "binaryExit": 0,
+      "cpythonExit": 0
+    },
+    {
+      "name": "dotenv",
+      "built": true,
+      "runs": true,
+      "binaryExit": 0,
+      "cpythonExit": 0
+    },
+    {
+      "name": "filelock",
+      "built": true,
+      "runs": true,
+      "binaryExit": 0,
+      "cpythonExit": 0
+    },
+    {
+      "name": "h11",
+      "built": true,
+      "runs": true,
+      "binaryExit": 0,
+      "cpythonExit": 0
+    },
+    {
+      "name": "idna",
+      "built": true,
+      "runs": true,
+      "binaryExit": 0,
+      "cpythonExit": 0
+    },
+    {
+      "name": "iniconfig",
+      "built": true,
+      "runs": true,
+      "binaryExit": 0,
+      "cpythonExit": 0
+    },
+    {
+      "name": "jmespath",
+      "built": true,
+      "runs": true,
+      "binaryExit": 0,
+      "cpythonExit": 0
+    },
+    {
+      "name": "jwt",
+      "built": true,
+      "runs": true,
+      "binaryExit": 0,
+      "cpythonExit": 0
+    },
+    {
+      "name": "mdurl",
+      "built": true,
+      "runs": true,
+      "binaryExit": 0,
+      "cpythonExit": 0
+    },
+    {
+      "name": "packaging",
+      "built": true,
+      "runs": true,
+      "binaryExit": 0,
+      "cpythonExit": 0
+    },
+    {
+      "name": "pathspec",
+      "built": true,
+      "runs": true,
+      "binaryExit": 0,
+      "cpythonExit": 0
+    },
+    {
+      "name": "platformdirs",
+      "built": true,
+      "runs": true,
+      "binaryExit": 0,
+      "cpythonExit": 0
+    },
+    {
+      "name": "pytz",
+      "built": true,
+      "runs": true,
+      "binaryExit": 0,
+      "cpythonExit": 0
+    },
+    {
+      "name": "shellingham",
+      "built": true,
+      "runs": true,
+      "binaryExit": 0,
+      "cpythonExit": 0
+    },
+    {
+      "name": "trove_classifiers",
+      "built": true,
+      "runs": true,
+      "binaryExit": 0,
+      "cpythonExit": 0
+    },
+    {
+      "name": "tzdata",
+      "built": true,
+      "runs": true,
+      "binaryExit": 0,
+      "cpythonExit": 0
+    },
+    {
+      "name": "zipp",
+      "built": true,
+      "runs": true,
+      "binaryExit": 0,
+      "cpythonExit": 0
+    }
+  ]
+}
