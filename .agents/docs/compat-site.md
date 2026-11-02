@@ -12,6 +12,7 @@ The compat site is the public, always-current answer to "what does pyscriptc sup
 | measure | `benchmarks/compat2.census` | `benchmarks/compat2/census-snapshot.json` | on demand |
 | measure | `benchmarks.compat2.score` | `nightly/visible-score.json` (run artifact) | nightly cron, 06:17 UTC |
 | measure | `benchmarks.compat2.census_self` | `benchmarks/compat2/census-self.json` | on demand, pinned by `tests/test_census_self.py` |
+| measure | `benchmarks.compat.top100.island_probe` | `data/compat/island.json` | on demand, opt-in |
 | aggregate | `scripts/build_compat_json.py` (new) | `data/compat/compat.json` | on demand and in the nightly job |
 | publish | Cloudflare Pages project `pyscriptc` | `https://pyscriptc.pages.dev/compat` | on push that changes site, compat or docs paths |
 
@@ -25,11 +26,13 @@ One JSON file is the contract between measurement and presentation. The site nev
 
 | key | type | meaning |
 | --- | --- | --- |
-| `schema` | string | schema version, currently `1`. A bump means the site must be updated in the same PR. |
+| `schema` | string | schema version, currently `2`. A bump means the site must be updated in the same PR. |
 | `generated` | string | UTC date of the measurement run (`YYYY-MM-DD`). |
 | `commit` | string | git SHA of the tree that produced the file. Empty when built from a dirty tree. |
 | `sources` | object | per-section provenance: which file or command produced it, and the date. |
 | `summary` | object | headline counters, so the site renders a summary without walking every section. |
+| `channel` | object | which install channel the measurement describes: the released version, the install command for it, and the command for master. |
+| `island` | object | the island run receipts behind the per-package verdicts: how many packages were measured, how many matched CPython, when, at which commit, and the probe that produced them. |
 | `builtins` | array | builtin support rows. |
 | `stdlib` | array | stdlib module support rows. |
 | `packages` | array | pinned PyPI top-100 package rows. |
@@ -74,7 +77,10 @@ One row per pinned package in `benchmarks/compat/top100/pins.json`, measured by 
 | `name` | string | project name, for example `python-dotenv` |
 | `import_name` | string | the importable name, for example `dotenv` |
 | `version` | string | pinned version |
-| `status` | string | status vocabulary |
+| `status` | string | status vocabulary, the native verdict |
+| `island` | string | the island verdict: `runs`, `blocked` or `unmeasured` |
+| `plane` | object | the plane split of the package's definitions: `definitions`, `native`, `island`, `blocked` |
+| `evidence` | string | the probe that produced the island verdict |
 | `fences` | int | total fences in the package |
 | `definitions` | int | definitions found |
 | `fenced_definitions` | int | definitions carrying at least one fence |
@@ -83,6 +89,31 @@ One row per pinned package in `benchmarks/compat/top100/pins.json`, measured by 
 | `pypi` | string | link to the project page |
 
 Status rule, same as `docs/compat-top100.md` today: no fences is 🟢, at most half the definitions fenced is 🟡, more than half is 🔴.
+
+#### The two axes
+
+`status` and `island` are independent, and the page shows both. `status` says
+how much of the package lowers to machine code without an interpreter.
+`island` says whether the package runs when the island tier takes over the
+code the subset cannot lower. A package can be `none` natively and still
+`runs` on the island; a package can be `full` natively and still fail to
+build.
+
+The island verdict comes from a run receipt, never from an inference about
+the fences. `benchmarks/compat/top100/island_probe.py` compiles one consumer
+program per package with `--fallback=cpython --embed-python=host` and
+requires the emitted binary's stdout and exit code to match CPython running
+the same program. The receipts land in `data/compat/island.json` and the
+builder reads them. A package with no receipt reads `unmeasured`, so the
+page never claims a run nobody made.
+
+#### The plane split
+
+`plane` counts definitions per plane, not per name: a module that defines
+the same name twice has two definitions. A definition with no fence inside it
+lowers natively, one whose fence traces to runtime reflection routes to the
+island, and one fenced by a construct the subset refuses stays blocked. The
+three counts add up to `plane.definitions`.
 
 ### Section: `language`
 
@@ -145,6 +176,7 @@ The JSON is committed because Cloudflare Pages builds from the repository, and b
 | `packages` | `benchmarks/compat/top100/pins.json` plus `pyscriptc coverage` | `mise run compat:json` (wraps `uv run python scripts/build_compat_json.py`) |
 | `language` | `benchmarks.compat2.score` over the visible probes | `uv run python -m benchmarks.compat2.score benchmarks/compat2/probes --corpus --out ...` |
 | `fences` | the same package measurement, aggregated per code | same builder command |
+| `island` | `data/compat/island.json`, the island probe receipts | `uv run python -m benchmarks.compat.top100.island_probe --json data/compat/island.json` |
 | `history` | the previous `compat.json` plus the current measurement | append in the builder |
 | `ladder` | `benchmarks.scripts_corpus.ladder`, written to `data/compat/ladder.json` | `mise run compat:ladder` (wraps `uv run python -m benchmarks.scripts_corpus.ladder --json data/compat/ladder.json`) |
 
