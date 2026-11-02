@@ -15,6 +15,12 @@ frame is still live if the body raises. Arithmetic overflow stays an LLVM trap.
 #include <stdlib.h>
 #include <string.h>
 
+/* Ryu (ulfjack/ryu v2.0, Apache-2.0), vendored under vendor/ryu with a
+   hash-pinned fetch. It carries the `ryu/` include prefix, so the vendor
+   directory rides the include path (see the driver). The shortest
+   round-trip digits come from Ryu's own algorithm, not from the libc. */
+#include "vendor/ryu/d2s.c"
+
 typedef struct PsJmp {
     ps_sigjmp_buf buf;
     struct PsJmp *prev;
@@ -2787,7 +2793,7 @@ static void ps_normalize_exp(char *tmp) {
 }
 
 void ps_f64_str(double v, PsBuf *out) {
-    char tmp[128];
+    char tmp[64];
     if (isnan(v)) {
         ps_buf_copy(out, "nan", 3);
         return;
@@ -2800,37 +2806,86 @@ void ps_f64_str(double v, PsBuf *out) {
         ps_buf_copy(out, signbit(v) ? "-0.0" : "0.0", signbit(v) ? 4 : 3);
         return;
     }
-    int prec = 1;
-    for (; prec <= 17; prec++) {
-        snprintf(tmp, sizeof tmp, "%.*g", prec, v);
-        char *end = NULL;
-        double back = strtod(tmp, &end);
-        if (end != tmp && end != NULL && *end == '\0' && back == v) {
-            break;
+    /* Ryu (d2s.c, vendored under vendor/ryu) produces the shortest
+       round-trip digits in scientific form: the first digit, then '.', then
+       the remaining digits, then 'E' and the decimal exponent of the first
+       digit. The digits carry no sign (the '-' is Ryu's own first byte) and
+       no trailing zeros. */
+    d2s_buffered(v, tmp);
+    char *exp = strchr(tmp, 'E');
+    const char *digits = tmp + (signbit(v) ? 1 : 0);
+    char dbuf[24];
+    int ndigits = 0;
+    for (const char *p = digits; p < exp; p++) {
+        if (*p != '.') {
+            dbuf[ndigits++] = *p;
         }
     }
-    int has_dot = 0;
-    int has_exp = 0;
-    for (char *cursor = tmp; *cursor != '\0'; cursor++) {
-        if (*cursor == '.') {
-            has_dot = 1;
+    dbuf[ndigits] = '\0';
+    int exp10 = (int)strtol(exp + 1, NULL, 10);
+    /* CPython repr keeps the fixed notation while -4 <= exp10 <= 15 and
+       always carries a '.' (the bare '.0' for a whole value); outside that
+       range it spells `d.ddde+NN` with a signed, at-least-two-digit
+       exponent. */
+    char body[64];
+    int n = 0;
+    int k = 0;
+    if (exp10 >= -4 && exp10 <= 15) {
+        int decpt = exp10 + 1;
+        if (decpt <= 0) {
+            body[n++] = '0';
+            body[n++] = '.';
+            for (k = decpt; k < 0; k++) {
+                body[n++] = '0';
+            }
+            for (k = 0; k < ndigits; k++) {
+                body[n++] = dbuf[k];
+            }
+        } else if (decpt >= ndigits) {
+            for (k = 0; k < ndigits; k++) {
+                body[n++] = dbuf[k];
+            }
+            for (k = ndigits; k < decpt; k++) {
+                body[n++] = '0';
+            }
+            body[n++] = '.';
+            body[n++] = '0';
+        } else {
+            for (k = 0; k < decpt; k++) {
+                body[n++] = dbuf[k];
+            }
+            body[n++] = '.';
+            for (k = decpt; k < ndigits; k++) {
+                body[n++] = dbuf[k];
+            }
         }
-        if (*cursor == 'e' || *cursor == 'E') {
-            has_exp = 1;
+    } else {
+        body[n++] = dbuf[0];
+        if (ndigits > 1) {
+            body[n++] = '.';
+            for (k = 1; k < ndigits; k++) {
+                body[n++] = dbuf[k];
+            }
         }
-    }
-    if (!has_dot && !has_exp) {
-        size_t len = strlen(tmp);
-        if (len + 3 < sizeof tmp) {
-            tmp[len] = '.';
-            tmp[len + 1] = '0';
-            tmp[len + 2] = '\0';
+        body[n++] = 'e';
+        body[n++] = exp10 < 0 ? '-' : '+';
+        int mag = exp10 < 0 ? -exp10 : exp10;
+        if (mag >= 100) {
+            body[n++] = (char)('0' + mag / 100);
+            mag %= 100;
         }
+        body[n++] = (char)('0' + mag / 10);
+        body[n++] = (char)('0' + mag % 10);
     }
-    if (has_exp) {
-        ps_normalize_exp(tmp);
+    body[n] = '\0';
+    if (signbit(v)) {
+        char signed_body[72];
+        signed_body[0] = '-';
+        memcpy(signed_body + 1, body, (size_t)n + 1);
+        ps_buf_copy(out, signed_body, (int64_t)n + 1);
+        return;
     }
-    ps_buf_copy(out, tmp, (int64_t)strlen(tmp));
+    ps_buf_copy(out, body, (int64_t)n);
 }
 
 static int64_t ps_seq_i64(PsSeq *s, int64_t index) {

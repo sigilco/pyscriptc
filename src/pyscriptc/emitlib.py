@@ -218,6 +218,9 @@ def build_library(
     if use_cache is None:
         use_cache = rtcache.prepare()
     runtime = runtime_dir()
+    # ps_rt.c includes the vendored Ryu units through `vendor/ryu/...`.
+    vendor_flags = ["-I", str(runtime / "vendor")]
+    cc_argv = [*cc_argv, *vendor_flags]
     hits = 0
     for source in runtime_sources(target):
         if use_cache:

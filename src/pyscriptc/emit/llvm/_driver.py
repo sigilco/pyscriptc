@@ -225,6 +225,9 @@ def link_binary(
     # cannot run threads on the target should not reach the compiler at all.
     refuse_unsupported_target(text, target)
     sources = [str(path) for path in sorted(runtime.glob("*.c"))]
+    # ps_rt.c includes the vendored Ryu units through `vendor/ryu/...`, so the
+    # vendor directory rides the include path of every runtime compile.
+    vendor_flags = ["-I", str(runtime / "vendor")]
     is_wasm = target is not None and target.startswith("wasm32")
     # wasm32-wasi-p2: the same p1 core module, wrapped into a WASI 0.2
     # component by wasm-tools after the link. The core build is identical
@@ -357,8 +360,8 @@ def link_binary(
     manifest_sources = frozenset(ffi_sources)
     for source in sources:
         src = Path(source)
-        flags = ["-O2", *pic_flags, *wasm_flags, *san_flags, *target_flags]
-        extra_dirs: tuple[Path, ...] = ()
+        flags = ["-O2", *pic_flags, *wasm_flags, *san_flags, *target_flags, *vendor_flags]
+        extra_dirs: tuple[Path, ...] = (runtime / "vendor" / "ryu",)
         if source in manifest_sources:
             flags.extend(ffi_include_flags)
             extra_dirs = (runtime, *(include_dirs or []))
