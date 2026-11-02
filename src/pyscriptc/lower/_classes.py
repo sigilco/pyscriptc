@@ -245,14 +245,39 @@ class ClassesMixin:
                         self.fail(stmt, "PS2002", "bool fields are not lowered")
                     if typ["kind"] == "func":
                         self.fail(stmt, "PS2002", "callable fields are not lowered")
-                    field: dict[str, Any] = {"name": stmt.target.id, "type": typ}
-                    if stmt.value is not None:
+                    # The field row carries the metadata the class table
+                    # publishes: name, annotation type, default, and the
+                    # three flags dataclasses exposes (kw_only, init, repr).
+                    field: dict[str, Any] = {
+                        "name": stmt.target.id,
+                        "type": typ,
+                        "kw_only": False,
+                        "init": True,
+                        "repr": True,
+                    }
+                    kw_only, init, repr_flag = self._field_options(stmt, deco)
+                    field["kw_only"] = kw_only
+                    field["init"] = init
+                    field["repr"] = repr_flag
+                    value_node = stmt.value
+                    # `x: int = field(default=3)` keeps the default in the
+                    # call, not in the assignment: the call is the field
+                    # spec, its `default` keyword is the field's default.
+                    if (
+                        deco == "dataclass"
+                        and isinstance(value_node, ast.Call)
+                        and self._is_dataclasses_member(value_node, "field")
+                    ):
+                        value_node = self._field_default_node(value_node)
+                        if value_node is None:
+                            self.fail(stmt, "PS2002", "a dataclass field default must be a constant")
+                    if value_node is not None:
                         saved_prelude = self.prelude
                         self.prelude = []
                         try:
                             # An Optional field takes `None` or a constant of its
                             # element type, boxed per construction like a def default.
-                            default = self._expr(stmt.value, None if typ.get("optional") else typ)
+                            default = self._expr(value_node, None if typ.get("optional") else typ)
                         finally:
                             self.prelude = saved_prelude
                         if default["kind"] != "const":
@@ -264,8 +289,9 @@ class ClassesMixin:
                         else:
                             self._expect(stmt, default["type"], typ, stmt.target.id)
                         field["default"] = default
-                        seen_default = True
-                    elif seen_default:
+                        if not kw_only:
+                            seen_default = True
+                    elif seen_default and not kw_only:
                         self.fail(stmt, "PS2002", "a non-default field follows a default")
                     seen.add(stmt.target.id)
                     fields.append(field)
@@ -344,8 +370,18 @@ class ClassesMixin:
             if wrote_init:
                 self.fail(node, "PS2002", "a dataclass does not take a written __init__")
             params = [{"name": "self", "type": {"kind": "class", "name": node.name}}]
-            for field in fields:
+            # Positional fields first (a non-default one after a default one
+            # already fenced above), then the kw_only fields by declaration
+            # order: the same order CPython synthesizes.
+            ordered = [field for field in fields if not field.get("kw_only")] + [
+                field for field in fields if field.get("kw_only")
+            ]
+            for field in ordered:
+                if not field.get("init", True):
+                    continue
                 param: dict[str, Any] = {"name": field["name"], "type": field["type"]}
+                if field.get("kw_only"):
+                    param["kwonly"] = True
                 if "default" in field:
                     param["default"] = field["default"]
                     if field.get("optdefault"):
@@ -521,6 +557,72 @@ class ClassesMixin:
             resolved = self._resolve_module(target)
             return resolved is not None and resolved[1] == "dataclasses" and resolved[2] == "dataclass"
         return False
+
+    def _is_dataclasses_member(self, node: ast.expr, member: str) -> bool:
+        """Whether an expression names `dataclasses.<member>`.
+
+        The module is in the closed import table, so the name resolves
+        through a binding (`from dataclasses import field`) or the dotted
+        spelling (`dataclasses.field(...)`).
+        """
+
+        target = node
+        if isinstance(node, ast.Call):
+            target = node.func
+        if isinstance(target, ast.Name):
+            binding = self.bindings.get(target.id)
+            return binding is not None and binding.module == "dataclasses" and binding.attr == member
+        if isinstance(target, ast.Attribute):
+            resolved = self._resolve_module(target)
+            return resolved is not None and resolved[1] == "dataclasses" and resolved[2] == member
+        return False
+
+    def _field_options(
+        self, node: ast.AnnAssign, deco: str | None
+    ) -> tuple[bool, bool, bool]:
+        """The (kw_only, init, repr) flags a dataclass field carries.
+
+        A plain annotated field is positional, in `__init__` and in the
+        repr. A `dataclasses.field(...)` call spells the flags out; only
+        the three boolean options the class table publishes lower, and a
+        `default_factory` (a call, not a constant) has no compile-time
+        value, so the field keeps a named fence instead of a guess.
+        """
+
+        if deco != "dataclass" or node.value is None:
+            return (False, True, True)
+        if not isinstance(node.value, ast.Call) or not self._is_dataclasses_member(node.value, "field"):
+            return (False, True, True)
+        call = node.value
+        if call.args:
+            self.fail(node, "PS2002", "a dataclass field takes no positional argument")
+        flags: dict[str, bool] = {}
+        for kw in call.keywords:
+            if kw.arg is None:
+                self.fail(node, "PS2002", "a dataclass field takes no keyword unpacking")
+            if kw.arg == "default":
+                continue
+            if kw.arg not in {"kw_only", "init", "repr"}:
+                self.fail(node, "PS2002", f"a dataclass field has no {kw.arg} option")
+            value = self._expr(kw.value)
+            if value["kind"] != "const" or value["type"]["kind"] != "bool":
+                self.fail(node, "PS2002", f"the {kw.arg} field option is a bool constant")
+            flags[kw.arg] = bool(value["value"])
+        return (flags.get("kw_only", False), flags.get("init", True), flags.get("repr", True))
+
+    def _field_default_node(self, call: ast.Call) -> ast.expr | None:
+        """The default expression of a `field(default=...)` call, or None.
+
+        `field()` with no `default` keyword is a `default_factory` shape:
+        the factory is a call, not a constant, and the class table keeps no
+        factory values, so None here means the caller fences.
+        """
+
+        for kw in call.keywords:
+            if kw.arg == "default":
+                return kw.value
+        return None
+
 
     def _method_decorator(self, fn: ast.FunctionDef) -> str:
         # Erased typing decorators (`@abstractmethod`) drop out first, so
@@ -892,7 +994,27 @@ class ClassesMixin:
                     "span": span,
                 }
                 for field in info["own_fields"]
+                if field.get("init", True)
             ]
+            # A field with init=False keeps its declared default: the
+            # synthesized init stores it, so the attribute still reads.
+            for field in info["own_fields"]:
+                if field.get("init", True) or "default" not in field:
+                    continue
+                value = field["default"]
+                if field.get("optdefault"):
+                    value = self._opt_box(
+                        None if value["type"]["kind"] == "none" else value, field["type"], span
+                    )
+                body.append(
+                    {
+                        "kind": "setattr",
+                        "object": _name("self", self_type, span),
+                        "name": field["name"],
+                        "value": value,
+                        "span": span,
+                    }
+                )
         else:
             parent = info.get("init_target") or info["base"]
             args = [_name(param["name"], param["type"], span) for param in params]

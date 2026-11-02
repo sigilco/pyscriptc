@@ -51,6 +51,7 @@ from pyscriptc.lower._core import (
     module_needs_slot,
 )
 from pyscriptc.lower._stdlib_shared import _ERASED_MODULES
+from pyscriptc.lower import _metadata
 from pyscriptc.restlower import alias_name, rest_call
 from pyscriptc.stdlib_queue import (
     MATH_CONSTANTS,
@@ -770,6 +771,17 @@ class StdlibDispatchMixin:
             if attr == "gcd":
                 return self._math_gcd(node, span)
             return self._math_call(node, span, attr)
+        if module == "dataclasses" and attr in {"fields", "asdict", "astuple", "replace"}:
+            # The metadata-table calls over a lowered dataclass: each reads
+            # the compile-time field table (`lower/_metadata.py`), so no
+            # runtime schema exists in the binary.
+            handler = {
+                "fields": _metadata.dataclass_fields,
+                "asdict": _metadata.dataclass_as_dict,
+                "astuple": _metadata.dataclass_as_tuple,
+                "replace": _metadata.dataclass_replace,
+            }[attr]
+            return handler(self, node, span, expect)
         if module in REST_MODULES:
             return rest_call(self, node, span, module, attr, expect)
         if module == "json" and attr == "loads":

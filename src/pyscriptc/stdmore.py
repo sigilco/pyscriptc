@@ -1885,7 +1885,7 @@ def member_callable(module: str, member: str) -> bool:
         return True
     if module == "enum" and member in {"Enum", "IntEnum", "auto"}:
         return True
-    if module == "dataclasses" and member == "dataclass":
+    if module == "dataclasses" and member in {"dataclass", "field", "fields", "asdict", "astuple", "replace"}:
         return True
     if module == "random" and member in {
         "seed",

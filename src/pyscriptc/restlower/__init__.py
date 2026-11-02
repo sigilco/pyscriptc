@@ -13,6 +13,7 @@ import ast
 from collections.abc import Callable
 from typing import Any
 
+from pyscriptc.lower._metadata import vars_call as _vars_call
 from pyscriptc.reflection import inspect_note
 from pyscriptc.restlower._argparse import _parser
 from pyscriptc.restlower._asyncio import (
@@ -304,6 +305,7 @@ _BUILTINS: dict[str, BuiltinHandler] = {
     "zip": lambda lo, node, span, name: _zip_value(lo, node, span),
     "eval": lambda lo, node, span, name: _eval_fold(lo, node, span),
     "hash": lambda lo, node, span, name: _hash_fold(lo, node, span),
+    "vars": lambda lo, node, span, name: _vars_call(lo, node, span),
 }
 
 

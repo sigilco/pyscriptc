@@ -41,6 +41,7 @@ from pyscriptc.lower._core import (
     _sig_typevars,
     _subst_type,
 )
+from pyscriptc.lower import _metadata
 from pyscriptc.lower._stdlib_shared import _mod_call, _synth_module
 from pyscriptc.reflection import inspect_note, kwargs_call_note, typing_note
 from pyscriptc.restlower import (
@@ -182,7 +183,13 @@ class CallsMixin:
             return self._island_fn_call(node, span, name, expect)
         # boxed:end
         if name in self.class_aliases or name in self.classes:
-            return self._construct(node, span, self.class_aliases.get(name, name))
+            resolved = self.class_aliases.get(name, name)
+            if self.classes.get(resolved, {}).get("enum"):
+                # `E(v)`: the member table is a compile-time dict, so the
+                # lookup folds and a value that names no member is a
+                # compile-time diagnostic.
+                return _metadata.enum_value_lookup(self, node, span)
+            return self._construct(node, span, resolved)
         ftype = self.locals.get(name, self.captures.get(name))
         if ftype is not None and ftype["kind"] == "func":
             args = self._fill_args(node, self._callable_params(ftype), name)
@@ -1884,6 +1891,10 @@ class CallsMixin:
         self._reject_keywords(node)
         if len(node.args) != 1:
             self.fail(node, "PS2003", "list expects 1 argument(s)")
+        if _metadata.enum_class(self, node.args[0]) is not None:
+            # `list(E)`: the member values in declaration order, folded from
+            # the compile-time member table.
+            return _metadata.enum_list(self, node, span, expect)
         source = self._expr(node.args[0])
         src_t = source["type"]
         if src_t["kind"] == "class" and self.classes.get(src_t["name"], {}).get("iterator"):

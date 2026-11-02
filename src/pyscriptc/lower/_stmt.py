@@ -54,11 +54,15 @@ if TYPE_CHECKING:
 
 class StmtMixin:
     def _plain_class_elem(self, elem: dict[str, Any]) -> bool:
-        """A user class iterates like any pointer element; synthetic runtime classes do not."""
+        """A user class iterates like any pointer element; synthetic runtime classes do not.
+
+        A metadata record (the `dataclasses.fields` descriptor) is a plain
+        struct of fields, so it iterates like one.
+        """
         if elem["kind"] != "class":
             return False
         info = self.classes.get(elem["name"], {})
-        return bool(info.get("tuple")) or not info.get("synthetic")
+        return bool(info.get("tuple")) or bool(info.get("record")) or not info.get("synthetic")
 
     def _narrowable(self, name: str) -> bool:
         typ = self.locals.get(name)

@@ -21,6 +21,7 @@ from pyscriptc.builtins import EXCEPTIONS
 from pyscriptc.errors import span_of
 from pyscriptc.ffi_manifest import type_ir
 from pyscriptc.ir import types_equal
+from pyscriptc.lower import _metadata
 from pyscriptc.lower._core import (
     _CMP,
     _SCALAR,
@@ -1160,6 +1161,10 @@ class ExprMixin:
     ) -> dict[str, Any]:
         if isinstance(node.slice, ast.Slice):
             return self._slice(node, span)
+        if _metadata.enum_class(self, node.value) is not None:
+            # `E["X"]`: the member table is a compile-time dict, so the
+            # lookup folds and a wrong name is a compile-time diagnostic.
+            return _metadata.enum_lookup(self, node, span)
         if self._is_environ(node.value):
             index = self._expr(node.slice)
             if index["type"]["kind"] != "str":
@@ -1326,6 +1331,10 @@ class ExprMixin:
         if class_name is not None and class_name in self.classes:
             info = self.classes[class_name]
             if info.get("enum"):
+                if node.attr == "__members__":
+                    # The member table as a dict[str, int], read from the
+                    # compile-time table.
+                    return _metadata.enum_members(self, node, span)
                 member = info["members"].get(node.attr)
                 if member is None:
                     self.fail(node, "PS2001", f"{node.value.id}.{node.attr} is not an enum member")
