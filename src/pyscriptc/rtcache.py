@@ -63,6 +63,25 @@ def headers_digest(runtime: Path) -> str:
     return _headers_digest(runtime, stamp)
 
 
+def vendor_headers_digest(runtime: Path) -> str:
+    """The digest of the vendored runtime headers (Ryu) under `runtime/vendor`.
+
+    The vendored units sit one directory down, so the runtime's own `*.h`
+    glob does not see them: a change to a vendored header must still
+    invalidate the objects built against it.
+    """
+    vendor = runtime / "vendor"
+    if not vendor.is_dir():
+        return ""
+    digest = hashlib.sha256()
+    for header in sorted(vendor.rglob("*.h")):
+        digest.update(str(header.relative_to(vendor)).encode())
+        digest.update(b"\0")
+        digest.update(header.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
 def extra_headers_digest(dirs: tuple[Path, ...]) -> str:
     """The digest of the `*.h` files in the include dirs of a manifest unit.
 
@@ -95,6 +114,7 @@ def key_for(
         source.name,
         hashlib.sha256(source.read_bytes()).hexdigest(),
         headers_digest(runtime),
+        vendor_headers_digest(runtime),
         extra_headers_digest(extra_dirs),
         compiler_identity(tuple(cc)),
         "\0".join(flags),

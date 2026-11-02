@@ -105,6 +105,8 @@ args=(
   "--include-data-files=$nroot/src/pyscriptc/native_packages.json=pyscriptc/native_packages.json"
   "--include-data-files=$nroot/src/pyscriptc/runtime/*.c=pyscriptc/runtime/"
   "--include-data-files=$nroot/src/pyscriptc/runtime/*.h=pyscriptc/runtime/"
+  # The vendored Ryu units ride the runtime: ps_rt.c includes them.
+  "--include-data-files=$nroot/src/pyscriptc/runtime/vendor/ryu/*=pyscriptc/runtime/vendor/ryu/"
   # The third-party license texts a bundle output stages (issue #709).
   "--include-data-files=$nroot/src/pyscriptc/pbs_licenses=pyscriptc/pbs_licenses/=**/*"
   --nofollow-import-to=pytest

@@ -33,7 +33,7 @@ def _harness_stdout() -> str:
         pytest.skip("no host C compiler")
     strict = ["-O1", "-Wall", "-Werror", f"-I{RUNTIME}"]
     units = [(PACK / "src" / "ps_pack_orjson.c", strict), (PACK / "tests" / "host_main.c", strict)]
-    units += [(path, ["-O1", "-w"]) for path in sorted(RUNTIME.glob("*.c")) if path.name != "ps_island.c"]
+    units += [(path, ["-O1", "-w", f"-I{RUNTIME / 'vendor'}"]) for path in sorted(RUNTIME.glob("*.c")) if path.name != "ps_island.c"]
     with tempfile.TemporaryDirectory(prefix="pyscriptc-orjson-") as tmp:
         objects: list[str] = []
         for index, (src, flags) in enumerate(units):

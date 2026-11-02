@@ -62,6 +62,7 @@ where = ["src"]
 pyscriptc = [
     "runtime/*.c",
     "runtime/*.h",
+    "runtime/vendor/ryu/*",
     "native_packages.json",
     "target.json",
     "_pyright_stubs/*/__init__.pyi",

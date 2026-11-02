@@ -61,10 +61,10 @@ build() {
     for unit in "$ll" "${rt[@]}" "$@"; do
         name="$(basename "$unit")"
         if [ ${#includes[@]} -gt 0 ]; then
-            zig cc -O2 "${includes[@]}" -c "$unit" -target "$target" -o "$work/${name%.*}.o" 2>/dev/null \
+            zig cc -O2 "${includes[@]}" -I "$root/src/pyscriptc/runtime/vendor" -c "$unit" -target "$target" -o "$work/${name%.*}.o" 2>/dev/null \
                 || fail "zig cc -c failed on $unit ($target)"
         else
-            zig cc -O2 -c "$unit" -target "$target" -o "$work/${name%.*}.o" 2>/dev/null \
+            zig cc -O2 -I "$root/src/pyscriptc/runtime/vendor" -c "$unit" -target "$target" -o "$work/${name%.*}.o" 2>/dev/null \
                 || fail "zig cc -c failed on $unit ($target)"
         fi
         objects+=("$work/${name%.*}.o")

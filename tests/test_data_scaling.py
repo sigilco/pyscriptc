@@ -258,7 +258,7 @@ def test_set_push_past_a_power_of_two_does_not_rehash(tmp_path: Path) -> None:
     cc = shutil.which("clang") or shutil.which("cc")
     assert cc is not None, "no C compiler on PATH"
     runtime = ROOT / "src" / "pyscriptc" / "runtime"
-    includes = [f"-I{runtime}", f"-I{sysconfig.get_path('include')}"]
+    includes = [f"-I{runtime}", f"-I{runtime / 'vendor'}", f"-I{sysconfig.get_path('include')}"]
     # The island and mix units embed the host CPython and are not part of
     # this probe; the driver drops them for non-fallback builds too.
     sources = sorted(p for p in runtime.glob("*.c") if p.name not in ("ps_island.c", "ps_mix.c"))

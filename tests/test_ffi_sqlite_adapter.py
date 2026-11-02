@@ -135,7 +135,7 @@ def test_thunk_matches_cpython_sqlite3(tmp_path: Path) -> None:
         (ADAPTER / "ps_ffi_sqlite.c", strict),
         (ADAPTER / "tests" / "host_main.c", strict),
     ]
-    units += [(path, ["-O1", "-w"]) for path in sorted(RUNTIME.glob("*.c")) if path.name != "ps_island.c"]
+    units += [(path, ["-O1", "-w", f"-I{RUNTIME / 'vendor'}"]) for path in sorted(RUNTIME.glob("*.c")) if path.name != "ps_island.c"]
     objects: list[str] = []
     for index, (src, flags) in enumerate(units):
         obj = tmp_path / f"{index}_{src.stem}.o"
