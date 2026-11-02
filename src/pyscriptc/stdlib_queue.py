@@ -301,11 +301,41 @@ def dependency_lanes(lanes: dict[str, dict[str, str]]) -> Iterator[None]:
 _ISLAND_LANES: frozenset[str] = frozenset()
 _ISLAND_DEFAULT = False
 
+# Import roots that default to the island lane when the distribution is
+# installed and native-backed (the pydantic seam, note
+# 2026-11-02-pydantic-support.md): pydantic's Python layer cannot lower, but
+# the island lane is the working PyO3-style boundary to pydantic-core, so an
+# installed pydantic runs out of the box instead of fencing PS2002 first and
+# requiring the user to know about `[imports]`. The per-import policy still
+# wins: an explicit `[imports] pydantic = "refuse"` refuses.
+#
+# The key is the distribution that carries the compiled extension: `pydantic`
+# is pure Python and `pydantic-core` is the Rust wheel, so the test is on the
+# distribution the import root belongs to.
+_ISLAND_INSTALLED_DEFAULTS: dict[str, str] = {
+    "pydantic": "pydantic-core",
+    "pydantic_core": "pydantic-core",
+}
+
 
 def island_lane(name: str) -> bool:
     """True when `name` resolves to the island lane for this compile."""
     root = name.split(".", 1)[0]
-    return _ISLAND_DEFAULT or name in _ISLAND_LANES or root in _ISLAND_LANES
+    if _ISLAND_DEFAULT or name in _ISLAND_LANES or root in _ISLAND_LANES:
+        return True
+    dist = _ISLAND_INSTALLED_DEFAULTS.get(name) or _ISLAND_INSTALLED_DEFAULTS.get(root)
+    return dist is not None and _installed_native(dist)
+
+
+def _installed_native(root: str) -> bool:
+    """True when `root` resolves to an installed, native-backed distribution."""
+    try:
+        from pyscriptc.imports import distribution_is_native
+
+        native, _reason = distribution_is_native(root.replace("_", "-"))
+    except Exception:
+        return False
+    return bool(native)
 
 
 @contextmanager
