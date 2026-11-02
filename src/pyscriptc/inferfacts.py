@@ -190,6 +190,7 @@ def collect_calls(
     callee_names: dict[str, str],
     expressions: dict[str, TypeFacts],
     classes: dict[str, str] | None = None,
+    classes_ctor: set[str] | None = None,
 ) -> list[CallSiteFacts]:
     """The call sites of one module that the checker resolved.
 
@@ -213,7 +214,7 @@ def collect_calls(
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
-        callee = _resolve_callee(node, callee_names, expressions, classes or {})
+        callee = _resolve_callee(node, callee_names, expressions, classes or {}, classes_ctor)
         if callee is None:
             # A call the caller could not resolve (a name with no import
             # and no same-module def): contribute nothing. The pin does
@@ -255,6 +256,7 @@ def _resolve_callee(
     callee_names: dict[str, str],
     expressions: dict[str, TypeFacts],
     classes: dict[str, str],
+    classes_ctor: set[str] | None = None,
 ) -> str | None:
     """The qualified callee of one call site, or None when it is unknown.
 
@@ -268,7 +270,13 @@ def _resolve_callee(
 
     func = node.func
     if isinstance(func, ast.Name):
-        return callee_names.get(func.id)
+        callee = callee_names.get(func.id)
+        if callee is not None and callee in classes_ctor:
+            # A class construction: the lowerer fills the arguments against
+            # the class's `__init__` parameters, so the pin proves those,
+            # not a function call that does not exist.
+            return f"{callee}.__init__"
+        return callee
     if not isinstance(func, ast.Attribute) or not isinstance(func.value, ast.Name):
         return None
     base = callee_names.get(f"{func.value.id}.{func.attr}")

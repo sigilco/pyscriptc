@@ -128,6 +128,116 @@ def _callee_names(tree: ast.Module, module: str, imports: dict[str, str]) -> dic
     return names
 
 
+def _reexport_index(root: Path) -> dict[tuple[str, str], str]:
+    """The defining module of every name a package re-exports.
+
+    A package's `__init__.py` is its public face: `from .traversal import
+    *` makes `traverse_obj` a name of the package, and a consumer that
+    imports it calls the function the *defining* module holds. The lowerer
+    resolves such a call to the defining module's `ir_name`, so the pin
+    map must name the same module or the pin never reaches the
+    definition it proves.
+
+    The key is `(package module, exported name)` and the value is the
+    qualified name of the name in the module that defines it. A name the
+    tree does not define contributes nothing: the pin refuses, the fence
+    stands.
+    """
+
+    index: dict[tuple[str, str], str] = {}
+    # The names each module binds at module level, by its own module name.
+    bound: dict[str, set[str]] = {}
+    for path in sorted(root.rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            continue
+        module = _module_name(path, root)
+        names = bound.setdefault(module, set())
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names.add(node.name)
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    names.add(alias.asname or alias.name)
+            elif isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    if alias.name != "*":
+                        names.add(alias.asname or alias.name)
+            elif isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        names.add(target.id)
+    # The names each package re-exports, and the module they come from.
+    for path in sorted(root.rglob("__init__.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            continue
+        module = _module_name(path, root)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            source = _import_source(module, node)
+            if source is None:
+                continue
+            for alias in node.names:
+                if alias.name == "*":
+                    # A star import re-exports what the source module's
+                    # `__all__` picks, or every public name without one.
+                    for name in sorted(bound.get(source, ())):
+                        if name.startswith("_"):
+                            continue
+                        index.setdefault((module, name), f"{source}.{name}")
+                    continue
+                local = alias.asname or alias.name
+                if alias.name in bound.get(source, ()):
+                    index.setdefault((module, local), f"{source}.{alias.name}")
+    return index
+
+
+def _resolve_reexport(name: str, index: dict[tuple[str, str], str]) -> str:
+    """The defining qualified name of an imported name, or the name itself.
+
+    The chain is followed to its end: a package that re-exports a name
+    another package already re-exports resolves to the module that
+    defines it. A cycle stops at the name it started from, so the
+    resolution always ends.
+    """
+
+    seen = {name}
+    current = name
+    while True:
+        module, _, member = current.rpartition(".")
+        if not module:
+            return current
+        found = index.get((module, member))
+        if found is None or found in seen:
+            return current
+        seen.add(found)
+        current = found
+
+
+def _import_source(module: str, node: ast.ImportFrom) -> str | None:
+    """The module a `from ... import` statement names, or None.
+
+    An absolute import names the module as written. A relative import
+    resolves against the importing module's own package, the same way the
+    lowerer's `_base_of` resolves it.
+    """
+
+    if not node.level:
+        return node.module or None
+    bits = module.split(".")
+    drop = node.level - 1
+    if drop > len(bits):
+        return None
+    base = bits[: len(bits) - drop]
+    if node.module:
+        return ".".join([*base, *node.module.split(".")])
+    return ".".join(base) if base else None
+
+
 def _class_index(root: Path) -> dict[str, str]:
     """The qualified name of every class in the tree, by class short name.
 
@@ -195,6 +305,28 @@ def _qualified_signatures(root: Path) -> dict[str, dict[str, str]]:
     return signatures
 
 
+def _constructible_classes(root: Path) -> set[str]:
+    """The qualified name of every class the tree defines with an `__init__`.
+
+    A call on such a class is a construction: the lowerer fills the
+    arguments against the class's `__init__` parameters, so the pin proves
+    those parameters and not a function call that does not exist.
+    """
+
+    found: set[str] = set()
+    for path in sorted(root.rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            continue
+        module = _module_name(path, root)
+        for cls in _class_nodes(tree):
+            for node in cls.body:
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "__init__":
+                    found.add(f"{module}.{cls.name}")
+    return found
+
+
 def _class_nodes(tree: ast.Module) -> list[ast.ClassDef]:
     """The class definitions of a module, at any nesting depth.
 
@@ -260,6 +392,8 @@ def build_facts(root: Path, provider: str = "pyrefly") -> InferFacts:
     facts = InferFacts(provider=provider)
     signatures = _qualified_signatures(root)
     classes = _class_index(root)
+    reexports = _reexport_index(root)
+    constructible = _constructible_classes(root)
     with _tsp_server() as adapter:
         for path in sorted(root.rglob("*.py")):
             try:
@@ -274,8 +408,14 @@ def build_facts(root: Path, provider: str = "pyrefly") -> InferFacts:
             except CheckFailed:
                 continue
             imports = _imported_names(tree, module)
+            # A name the import names through a package re-export resolves
+            # to the defining module: the lowerer calls the defining
+            # module's `ir_name`, so the pin must name the same thing.
+            imports = {local: _resolve_reexport(qualified, reexports) for local, qualified in imports.items()}
             callees = _callee_names(tree, module, imports)
-            facts.calls.extend(collect_calls(stem, tree, callees, module_facts.expressions, classes))
+            facts.calls.extend(
+                collect_calls(stem, tree, callees, module_facts.expressions, classes, constructible)
+            )
     facts.pins = pins_from_calls(facts.calls, signatures)
     return facts
 
