@@ -53,6 +53,27 @@ Without the flag the compile stops on the unannotated `raw` parameter (`PS1001`)
 With `--fallback=cpython` the unsupported definitions run in the embedded interpreter.
 Note that `helper` runs there too: when an unsupported function calls a typed one, the compiler moves the callee into the same interpreter so both run together.
 
+## pydantic models
+
+`pydantic` runs through the embedded interpreter out of the box: a program that imports it compiles and runs without `--fallback=cpython` and without an `[imports]` entry, when the `pydantic-core` distribution is installed.
+
+```python
+from pydantic import BaseModel
+
+
+class User(BaseModel):
+    name: str
+    age: int = 0
+
+
+user = User(name="alice", age=30)
+print(user.model_dump())
+```
+
+The model's Python layer cannot be compiled to native code, so the model class and every call on it run under the embedded interpreter, and the values that cross the boundary follow the handle rules below.
+An explicit `[imports]` entry still decides the lane, so `[imports] pydantic = "refuse"` refuses the import with a diagnostic.
+The compiled binary needs the host `libpython` and the installed `pydantic` wheel at run time.
+
 ## See what compiles and what does not
 
 `pyscriptc assess` reports which definitions compile and which do not, with the fix for each refusal:

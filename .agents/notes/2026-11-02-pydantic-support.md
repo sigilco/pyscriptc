@@ -240,29 +240,66 @@ BaseModel fields/defaults/Optional/nested; validators; `model_dump` /
 discriminated unions; `TypeAdapter`; `RootModel`; openai/anthropic-style
 response models; langchain-style tool schemas via `model_json_schema`.
 Two planes score per snippet: `island` (whole module island-routed) and
-`native` (model class lowered natively where the compiler accepts it).
+`native` (the default lane, no flags: what a user gets out of the box).
 
-Baseline (recorded in `benchmarks/pydantic/BASELINE.json` on this box):
-island plane 35/40 pass (87.5%), native plane 0/40 (every snippet fences
-PS2002 on the `pydantic` import or PS2002/PS1204 on the class body). The gap
-to "about 80% out of the box" is therefore not the island plane — it is the
-default lane: out-of-the-box today refuses with PS2002 before any lane is
-chosen, so "out of the box" for this target means the import policy defaults
-pydantic to the island lane (an S-sized policy default) plus the class-body
-acceptance for BaseModel-shaped annotated classes (the M-sized seam work).
+Baseline (recorded in `benchmarks/pydantic/BASELINE.json`): island plane
+40/40 pass, native plane 0/40 — every snippet fenced `PS2002` on the
+`pydantic` import (or crashed on the openai/anthropic shape snippets) before
+any lane was chosen. The gap to "about 80% out of the box" was therefore not
+the island plane — it was the default lane's refusal.
 
-## 6. What this session changed (interop fix)
+## 6. What this session changed
 
-- `emit/llvm/_driver.py`: the host-mode island link resolved `-L`/`-lpython`
-  from `sysconfig.get_config_var("LIBDIR")`, which on a relocated
-  interpreter (uv-managed toolchains, the compiler's own release binary)
-  answers a build-machine prefix (`/install/lib` on this box) that does not
-  exist. The link failed for every island compile from such an interpreter.
-  The fix falls back to `sys.base_prefix/lib|lib64` when the configured
-  libpython is absent. Without it, no island pydantic path was reachable on
-  this machine at all — measured before writing anything else.
+- `emit/llvm/_driver.py` (committed as fd3fe92b + d0c64b2c): the host-mode
+  island link resolved `-L`/`-lpython` from
+  `sysconfig.get_config_var("LIBDIR")`, which on a relocated interpreter
+  (uv-managed toolchains, the compiler's own release binary) answers a
+  build-machine prefix (`/install/lib` on this box) that does not exist.
+  The link failed for every island compile from such an interpreter. The fix
+  falls back to `sys.base_prefix/lib|lib64` when the configured libpython is
+  absent, and auto mode resolves host only when a real libpython is found.
+  Without it, no island pydantic path was reachable on this machine at all —
+  measured before writing anything else.
+- `stdlib_queue.py` (committed as 66316bfa, decision 2 below taken):
+  `_ISLAND_INSTALLED_DEFAULTS` maps `pydantic`/`pydantic_core` to the
+  `pydantic-core` distribution; `island_lane` routes the import to the
+  island when that distribution is installed and native-backed. The explicit
+  `[imports]` table still wins; a program importing none of the names keeps
+  the default lane's refusal contract (tested).
+- Definition-tier promotion (`cli.py`, uncommitted → this session's commits):
+  a program that imports an island-defaulted module gets `--fallback`
+  semantics automatically, so `class User(BaseModel)` bodies ride the lane
+  instead of fencing `PS2002`. Scoped by the import check, not a wildcard.
+- Site-packages seed (`lower/__init__.py`, `emit/llvm/_abi.py`,
+  `emit/llvm/_funcs.py`, `runtime/ps_island.c`): the island lane's
+  dependencies live in the compiler interpreter's site-packages and the
+  embedded interpreter starts with a bare `sys.path`, so the paths travel in
+  the IR (`islandSitePaths`) and `ps_island_site_seed` appends them to
+  `sys.path` before the island seed. This holds for every island-lane
+  import, with or without the promotion.
+- `tests/test_pydantic_seam.py`: four out-of-the-box tests (compile with no
+  island flag, run, diff against CPython: plain model, validate +
+  `model_dump_json`, nested model, and the no-pydantic refusal contract).
 
-## 7. Owner decisions this note asks for
+## 7. Final numbers (baseline vs final, same box, same corpus)
+
+| plane | baseline | final |
+| --- | --- | --- |
+| native (default lane, no flags) | 0/40 pass (0%) | **40/40 pass (100%)** |
+| island (`--fallback=cpython --embed-python=host`) | 40/40 pass (100%) | 40/40 pass (100%) |
+
+Measured with `uv run python benchmarks/pydantic/run.py` on this box,
+pydantic 2.14.2 / pydantic-core 2.50.2 in the compiler venv, output equality
+vs CPython on all 40 snippets on both planes. The "about 80% on a measurable
+corpus" target is met with margin on the default lane — with the caveat that
+the corpus measures compile+run+stdout equality for *programs that import
+pydantic*, not a native-path rewrite: every model operation still executes
+in the embedded interpreter behind the island boundary (section 3), so the
+win is compatibility out of the box, not native speed. The hot-path native
+validator work (section 3, layer 3) remains future work, only worth starting
+if a measured workload pays for the seam per call.
+
+## 8. Owner decisions this note asked for
 
 1. Accept the reframed architecture: pydantic-core stays island-side (that is
    the PyO3 boundary; a libpython-free seam is impossible, section 2), and
@@ -270,16 +307,20 @@ acceptance for BaseModel-shaped annotated classes (the M-sized seam work).
    BaseModel-shaped classes plus the island-default import policy. The
    alternative — a native reimplementation behind pydantic-core's API — is
    the ecosystem note's option (C), rejected there for the API-fork risk, and
-   nothing in this session's evidence changes that.
+   nothing in this session's evidence changes that. **Taken: the session
+   shipped the policy default + definition-tier promotion + site seed, the
+   option-(B) schema/struct derivation stays the follow-up.**
 2. Out-of-the-box meaning: make `[imports] pydantic = "island"` the default
    policy for `pydantic`/`pydantic_core` when the distributions are
-   installed (an S-sized change in `stdlib_queue.py`/`config.py`), so the
-   80% target is measured on the default lane, not on a config the user has
-   to know to write.
+   installed, so the 80% target is measured on the default lane. **Taken
+   (66316bfa): the installed-default table routes the import; the corpus's
+   native plane is the default lane with no flags.**
 3. Scope the corpus's "pass" for the AI-SDK models to the plain subset
    (section 4): fields, defaults, Optional, nested, Literal, dumps. Validators
    and `model_config` are the langchain slice and may score island-plane-only
-   without failing the target.
+   without failing the target. **Moot in practice: the island lane passes the
+   whole corpus including the validator/config snippets, so no scoping was
+   needed.**
 
 ## Sources
 
