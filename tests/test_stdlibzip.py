@@ -77,6 +77,65 @@ def test_manifest_check_fails_closed_with_ps4301(tmp_path: Path) -> None:
         stdlibzip.manifest_check({"json"}, ["json", "idlelib"], "safe")
 
 
+<<<<<<< HEAD
+=======
+def test_manifest_check_counts_a_builtin_as_carried(tmp_path: Path) -> None:
+    # A module the target runtime serves without a zip entry (a builtin
+    # like `math`, a frozen one like `zipimport`) must not be refused: the
+    # trim drops its source but the bundle still imports it. The check
+    # consults the interpreter set the caller passes, not the compiler
+    # host's own build (hosts disagree on what is built in).
+    stdlibzip.manifest_check(
+        {"json"},
+        ["json", "math", "binascii", "zlib", "time"],
+        interpreter={"math", "binascii", "zlib", "time"},
+    )
+
+
+def test_manifest_check_defaults_to_the_host_set(tmp_path: Path) -> None:
+    # Without an interpreter set the check answers the host link: every
+    # module the host serves without a `.py` file counts as carried. The
+    # assertion reads the host's builtin table, so it holds whatever the
+    # host built.
+    builtins = {name for name in ("math", "sys", "time") if name in sys.builtin_module_names}
+    stdlibzip.manifest_check(set(), sorted(builtins))
+    assert stdlibzip.host_modules() >= builtins
+
+
+def test_host_modules_serves_what_the_host_imports_without_a_source() -> None:
+    # The host set is a superset of the builtin table on any build: it adds
+    # frozen modules (`zipimport`) and the host's own extension modules,
+    # and drops names no module of this host provides.
+    assert stdlibzip.host_modules() >= set(sys.builtin_module_names)
+    for name in ("math", "binascii", "zlib"):
+        if name in sys.builtin_module_names:
+            assert name in stdlibzip.host_modules()
+    assert "idlelib" not in stdlibzip.host_modules()
+
+
+def test_interpreter_modules_reads_the_pack_tree(tmp_path: Path) -> None:
+    # The pack answer is read off the pack tree the bundle links: a stdlib
+    # name the pack tree carries no `.py` source and no `.so` for counts as
+    # source-free (the runtime serves it from the binary), an extension
+    # module does not (the staged bundle ships an empty `lib-dynload/`).
+    pack = tmp_path / "pack"
+    stdlib = pack / "lib" / "python3.14"
+    (stdlib / "lib-dynload").mkdir(parents=True)
+    (stdlib / "os.py").write_text("", encoding="utf-8")
+    (stdlib / "json" / "__init__.py").parent.mkdir()
+    (stdlib / "json" / "__init__.py").write_text("", encoding="utf-8")
+    (stdlib / "lib-dynload" / "_dbm.cpython-314-x86_64-linux-gnu.so").write_bytes(b"")
+    names = stdlibzip.interpreter_modules(pack, "3.14")
+    for name in ("math", "binascii", "zlib", "time", "sys"):
+        if name in sys.stdlib_module_names:
+            assert name in names, name
+    assert "os" not in names  # the tree carries os.py
+    assert "json" not in names  # the tree carries json/__init__.py
+    assert "_dbm" not in names  # an extension cannot serve a staged bundle
+    assert "not-a-module" not in names
+
+
+>>>>>>> 376a79b6 (fix(bundle): the stdlib manifest check answers the runtime it links)
 def test_stdlib_sources_refuses_an_unknown_mode(tmp_path: Path) -> None:
     with pytest.raises(stdlibzip.StdlibError, match="embed-stdlib"):
         stdlibzip.stdlib_sources(_stdlib(tmp_path), "profile")
