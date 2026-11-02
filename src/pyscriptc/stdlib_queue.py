@@ -85,6 +85,7 @@ QUEUE: tuple[str, ...] = (
     "zipfile",
     "tarfile",
     "uuid",
+    "binascii",
 )
 
 LOWERED: frozenset[str] = frozenset(QUEUE)
