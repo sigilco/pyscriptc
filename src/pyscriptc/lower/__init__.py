@@ -225,6 +225,12 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # checker refuses or an empty container literal is CPython's own
         # there, exactly as under the whole-program island.
         self._boxed_island_unit_drops_module_fences = False
+        # The island group's member names (the cycle rule's closed set). The
+        # group bootstrap installs every member in `sys.modules` before the
+        # per-module seeds run, so a seed import of a group member resolves
+        # against that namespace even when the member's own exports carry no
+        # island flag.
+        self._boxed_island_group: set[str] = set()
         # boxed:end
         self.module_name = ""
         self.is_package = False
@@ -1716,6 +1722,16 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         exports = self.package or {}
         for target in targets:
             root = target.split(".", 1)[0]
+            # An island group member's namespace lives in `sys.modules`:
+            # the group bootstrap execs the group's bodies under CPython and
+            # registers each under its real name before the per-module
+            # seeds run. Such an import resolves even when the member's
+            # exports carry no island flag (its definitions are constants),
+            # so the seed keeps it: dropping it loses a binding an island
+            # class body reads at definition time
+            # (`PROVIDER_VERSION = __version__`).
+            if target in self._boxed_island_group:
+                continue
             if root in exports or target in exports:
                 module = target if target in exports else root
                 bucket = exports.get(module) or {}
