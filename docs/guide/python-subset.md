@@ -85,7 +85,7 @@ There is no `typing` module object in the binary.
 | `dataclasses.dataclass` with no options | compiles as a native record; `frozen=True` and other decorators are unsupported (`PS1201`) |
 | `dataclasses.field(default=, kw_only=, init=, repr=)` | compiles; the flags reach the field table and the synthesized constructor |
 | `dataclasses.fields`, `asdict`, `astuple`, `replace` | compile over the compile-time field table; `asdict` and `vars` need one shared field type (divergence 48) |
-| `vars(o)` over a lowered class | compiles as the field table read; `vars()` with no argument is unsupported (`PS2002`) |
+| `vars(o)` over a lowered class | compiles as the instance-dict read; the class needs an `__init__` that writes its fields, and `vars()` with no argument is unsupported (`PS2002`) (divergence 48) |
 | `E["NAME"]`, `E(v)`, `E.__members__`, `list(E)` | compile over the compile-time member table; a wrong name or value is a compile-time diagnostic (divergence 49) |
 | `cast(t, v)`, `get_type_hints`, `__annotations__` reads | unsupported (`PS2002`); write the type on an annotated local instead |
 | `isinstance(v, list[int])` | unsupported (`PS2001`); runtime checks take scalar and class names only |

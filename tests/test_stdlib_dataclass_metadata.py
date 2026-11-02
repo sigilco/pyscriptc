@@ -290,3 +290,48 @@ def test_replace_leaves_init_false_out_of_the_call(tmp_path: Path) -> None:
             ]
         ),
     )
+
+
+def test_vars_excludes_init_false_fields(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "vars_init_false.py",
+        "\n".join(
+            [
+                "from dataclasses import dataclass, field",
+                "",
+                "@dataclass",
+                "class Point:",
+                "    x: int",
+                "    z: int = field(init=False, default=7)",
+                "",
+                "def run() -> int:",
+                "    p = Point(1)",
+                "    v = vars(p)",
+                "    print(v['x'])",
+                "    return len(v)",
+                "",
+            ]
+        ),
+    )
+
+
+def test_vars_needs_a_constructor_that_writes_the_fields(tmp_path: Path) -> None:
+    path = write_case(
+        tmp_path,
+        "vars_unwritten.py",
+        "\n".join(
+            [
+                "class C:",
+                "    a: int",
+                "",
+                "def run() -> int:",
+                "    c: C = C()",
+                "    return len(vars(c))",
+                "",
+            ]
+        ),
+    )
+    got = compile_run(tmp_path, path, "run")
+    assert got.returncode != 0
+    assert "cannot prove the instance dict" in got.stderr

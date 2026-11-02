@@ -266,16 +266,23 @@ def dataclass_replace(lo: Any, node: ast.Call, span: dict[str, Any], expect: dic
 
 
 def class_vars(lo: Any, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
-    """`vars(o)`: the read-only field table of a lowered class instance.
+    """`vars(o)`: the instance dict of a lowered class, read-only.
 
-    The same shape `asdict` returns — `dict[str, T]` over one shared field
-    type — with the divergence noted: writes into the result are not
-    writes into the instance, and the divergence entry says so.
+    CPython's `vars(o)` is `o.__dict__`, so the rows are the fields the
+    instance's own `__init__` writes: a dataclass (whose synthesized init
+    stores every `init=True` field) or a class whose written `__init__`
+    assigns them. A field declared `init=False` is a *class* attribute in
+    CPython (or missing when it has no default), so it is not in the
+    instance dict and drops from the rows. A class whose constructor does
+    not write a field keeps the named fence, because the compiler cannot
+    prove the attribute exists. The divergence entry says so: writes into
+    the result are not writes into the instance.
     """
 
     receiver = _instance_arg(lo, node, span, "vars")
     info = lo.classes[receiver["type"]["name"]]
-    val_t = _shared_field_type(lo, node, info, "vars")
+    rows = _instance_dict_fields(lo, node, info, "vars")
+    val_t = _shared_field_type(lo, node, info, "vars", rows)
     typ = {"kind": "dict", "key": {"kind": "str"}, "value": val_t}
     if expect is not None and expect["kind"] == "dict":
         lo._expect(node, typ, expect, "vars")
@@ -284,9 +291,93 @@ def class_vars(lo: Any, node: ast.Call, span: dict[str, Any], expect: dict[str, 
             "key": {"kind": "const", "value": field["name"], "type": {"kind": "str"}, "span": span},
             "value": {"kind": "attr", "value": receiver, "name": field["name"], "type": field["type"], "span": span},
         }
-        for field in info["fields"]
+        for field in rows
     ]
     return {"kind": "dict", "pairs": pairs, "type": typ, "span": span}
+
+
+def _instance_dict_fields(lo: Any, node: ast.AST, info: dict[str, Any], what: str) -> list[dict[str, Any]]:
+    """The fields an instance of this class actually carries.
+
+    A synthesized dataclass init stores every `init=True` field, so the
+    rows are those. A written `__init__` is lowered source, so the
+    attribute stores in its body decide; the compiler reads them the way
+    it reads any `setattr`. Inherited fields ride along: the base's own
+    rule decided them when the base lowered. A field declared `init=False`
+    is a class attribute in CPython (or missing when it has no default),
+    so it is not in the instance dict and drops from the rows.
+    """
+
+    name = _class_name(info)
+    own = {field["name"] for field in info.get("own_fields", [])}
+    if info.get("generated_init") == "dataclass":
+        return [field for field in info["fields"] if field.get("init", True)]
+    body = _init_body(info)
+    if body is None:
+        lo.fail(
+            node,
+            "PS2002",
+            f"{what} on {name} cannot prove the instance dict: the class has no __init__ that writes its fields",
+        )
+    stores = _init_stores(body)
+    rows = []
+    for field in info["fields"]:
+        if field.get("init", True) is False and "default" in field:
+            continue
+        if field["name"] in own and field["name"] not in stores:
+            lo.fail(
+                node,
+                "PS2002",
+                f"{what} on {name}: __init__ does not write {field['name']}, so the instance dict does not carry it",
+            )
+        rows.append(field)
+    return rows
+
+
+def _class_name(info: dict[str, Any]) -> str:
+    """The class's name, from its AST node or its emitted record."""
+
+    node = info.get("node")
+    if node is not None:
+        return node.name
+    return str(info.get("name", "the class"))
+
+
+def _init_stores(body: list[ast.stmt]) -> set[str]:
+    """The attribute names the class's own written `__init__` stores.
+
+    Only the body of this class's `__init__` counts: an inherited init is
+    the base's own rule. The body is the same source the emitter lowers,
+    so the reads are the stores the constructor actually performs.
+    """
+
+    names: set[str] = set()
+    for stmt in body:
+        if isinstance(stmt, ast.Assign):
+            for target in stmt.targets:
+                if (
+                    isinstance(target, ast.Attribute)
+                    and isinstance(target.value, ast.Name)
+                    and target.value.id == "self"
+                ):
+                    names.add(target.attr)
+        elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Attribute):
+            target = stmt.target
+            if isinstance(target.value, ast.Name) and target.value.id == "self":
+                names.add(target.attr)
+    return names
+
+
+def _init_body(info: dict[str, Any]) -> list[ast.stmt] | None:
+    """The `__init__` body of the class, or None when there is none here."""
+
+    node = info.get("node")
+    if node is None:
+        return None
+    for stmt in node.body:
+        if isinstance(stmt, ast.FunctionDef) and stmt.name == "__init__":
+            return stmt.body
+    return None
 
 
 def vars_call(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
@@ -422,7 +513,13 @@ def _instance_arg(
     return receiver
 
 
-def _shared_field_type(lo: Any, node: ast.AST, info: dict[str, Any], what: str) -> dict[str, Any]:
+def _shared_field_type(
+    lo: Any,
+    node: ast.AST,
+    info: dict[str, Any],
+    what: str,
+    rows: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """The one declared field type every row shares, or the named fence.
 
     A `dict[str, T]` result carries one value type in the IR; a class
@@ -430,7 +527,7 @@ def _shared_field_type(lo: Any, node: ast.AST, info: dict[str, Any], what: str) 
     heterogeneous dict literal gets (`PS1003`), never a widened guess.
     """
 
-    fields = info["fields"]
+    fields = info["fields"] if rows is None else rows
     if not fields:
         lo.fail(node, "PS2002", f"{what} on a class with no fields returns an empty dict: annotate the result")
     shared = fields[0]["type"]
