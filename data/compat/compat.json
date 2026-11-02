@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-10-28",
-  "commit": "0b108e1a50baec9381cf1b32152467178d934348",
+  "generated": "2026-11-02",
+  "commit": "823e73905fe8cb64de04e1335371a8fc5ac31f16",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 7,
     "packages_none": 9,
     "weighted_pass": 0.0,
-    "fences": 2718
+    "fences": 2716
   },
   "builtins": [
     {
@@ -1544,7 +1544,7 @@
       "import_name": "h11",
       "version": "0.16.0",
       "status": "none",
-      "fences": 192,
+      "fences": 191,
       "definitions": 133,
       "fenced_definitions": 74,
       "top_families": [
@@ -1564,7 +1564,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 106
+          "count": 105
         },
         {
           "code": "PS1106",
@@ -1810,7 +1810,7 @@
       "import_name": "pathspec",
       "version": "1.1.1",
       "status": "none",
-      "fences": 220,
+      "fences": 219,
       "definitions": 132,
       "fenced_definitions": 92,
       "top_families": [
@@ -1830,7 +1830,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 108
+          "count": 107
         },
         {
           "code": "PS1106",
@@ -2087,7 +2087,7 @@
     {
       "code": "PS2002",
       "title": "construct not supported",
-      "count": 1306,
+      "count": 1304,
       "packages": 16
     },
     {
@@ -2229,6 +2229,15 @@
       "packages_partial": 7,
       "packages_none": 9,
       "fences": 2718
+    },
+    {
+      "date": "2026-11-02",
+      "commit": "823e73905fe8cb64de04e1335371a8fc5ac31f16",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 7,
+      "packages_none": 9,
+      "fences": 2716
     }
   ]
 }
