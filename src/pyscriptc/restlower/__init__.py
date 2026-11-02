@@ -78,6 +78,7 @@ from pyscriptc.restlower._textwrap import _textwrap_call
 from pyscriptc.restlower._threading import _lock_method, _thread_method, _threading_call
 from pyscriptc.restlower._time import _clock, _sleep, _strftime
 from pyscriptc.restlower._binascii import _binascii_call
+from pyscriptc.restlower._shlex import _shlex_call
 from pyscriptc.restlower._tomllib import _tomllib_call
 from pyscriptc.restlower._urllib import _urllib_request_call
 from pyscriptc.restlower._uuid import _uuid_call, _uuid_construct
@@ -153,6 +154,9 @@ _EARLY: dict[tuple[str, str], Handler] = {
     ("asyncio", "Event"): _prim_call,
     ("asyncio", "Semaphore"): _prim_call,
     ("asyncio", "Queue"): _prim_call,
+    ("shlex", "split"): lambda lo, node, span, expect, attr: _shlex_call(lo, node, span, attr),
+    ("shlex", "quote"): lambda lo, node, span, expect, attr: _shlex_call(lo, node, span, attr),
+    ("shlex", "join"): lambda lo, node, span, expect, attr: _shlex_call(lo, node, span, attr),
 }
 
 # Whole-module handlers, consulted before `fixed_spec`.
