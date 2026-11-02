@@ -34,7 +34,52 @@ from pyscriptc._irnode import (
     F_TOPT,
     F_TSET,
     P_BOOL,
+    P_BYTES,
+    P_FLOAT,
+    P_INT,
     P_NONE,
+    P_STR,
+    EnvItem,
+    Handler,
+    IrNode,
+    Pair,
+    Span,
+    Stub,
+    ThreadMeta,
+    assign,
+    attr,
+    binary,
+    builtin,
+    call,
+    cast,
+    class_callee,
+    closure,
+    compare,
+    const_node,
+    contains,
+    dict_lit,
+    excmake,
+    expr_stmt,
+    function_callee,
+    if_stmt,
+    list_lit,
+    method_callee,
+    module_callee,
+    name_expr,
+    raise_stmt,
+    return_stmt,
+    setattr_stmt,
+    setitem_stmt,
+    subscript,
+    t_class,
+    t_dict,
+    t_func,
+    t_leaf,
+    t_list,
+    try_stmt,
+    unary,
+    value_callee,
+    while_stmt,
 )
 from pyscriptc.canonical import CANONICAL_SCHEMA_VERSION, canonicalize
 
@@ -545,3 +590,302 @@ def payload_bytes_node(module: Any) -> bytes:
 def hash_module_node(module: Any) -> str:
     """SHA-256 hex of the canonical payload of a typed-node module."""
     return hash_module(node_to_dict(module))
+
+
+# --- dict-IR admission ---------------------------------------------------
+#
+# The reverse of `node_to_dict`: a dict-IR value the old lowerer produces
+# becomes the typed record the R3 shapes carry. `_core.py` converts its
+# node-construction helpers through this on the way in and through
+# `node_to_dict` on the way out, so consumers still read the dict shape
+# while the nodes are the thing being built.
+
+_PTAGS = {"str": P_STR, "int": P_INT, "float": P_FLOAT, "bool": P_BOOL, "none": P_NONE, "bytes": P_BYTES}
+
+
+def dict_to_type(d: Any) -> Any:
+    """The `T` record one dict-IR type spells; plain values pass through."""
+    if d is None or not isinstance(d, dict) or "kind" not in d:
+        return d
+    kind = d["kind"]
+    if kind == "class":
+        return t_class(d.get("name", ""), d.get("label", ""), dict_to_type(d.get("elem")), bool(d.get("optional")))
+    if kind == "list":
+        return t_list(dict_to_type(d.get("elem")), bool(d.get("set")))
+    if kind == "dict":
+        return t_dict(dict_to_type(d.get("key")), dict_to_type(d.get("value")))
+    if kind == "func":
+        return t_func([dict_to_type(param) for param in d.get("params", [])], dict_to_type(d.get("return")))
+    return t_leaf(kind)
+
+
+def dict_to_span(d: Any) -> Any:
+    """The `Span` record one dict-IR span spells; None passes through."""
+    if d is None:
+        return None
+    return Span(d["file"], d["line"], d["col"], d["endLine"], d["endCol"])
+
+
+def dict_to_node(d: Any) -> Any:
+    """The typed record one dict-IR value spells: nodes, records, lists, dicts.
+
+    A plain scalar (str/int/float/bool/None) passes through; a dict with a
+    `kind` tag becomes the IrNode or callee record the tag names. Returns
+    what `node_to_dict` maps back exactly, so the pair is a round trip.
+    """
+    if d is None or isinstance(d, (str, int, float, bool)):
+        return d
+    if isinstance(d, list):
+        return [dict_to_node(item) for item in d]
+    if not isinstance(d, dict):
+        return d
+    kind = d.get("kind")
+    if kind is None:
+        # The record shapes: handler / env item / pair / stub / thread,
+        # keyed by the fields only that record carries.
+        if "exc" in d and "codes" in d:
+            flags = F_BARE if d.get("bare") else 0
+            return Handler(d["exc"], d["codes"], _node_list(d["body"]), d.get("excslot", ""), d.get("bind", ""), flags)
+        if "init" in d:
+            return EnvItem(dict_to_node(d["init"]), dict_to_type(d["type"]), "")
+        if "name" in d and "type" in d:
+            return EnvItem(None, dict_to_type(d["type"]), d["name"])
+        if "bound" in d:
+            return Stub(
+                [dict_to_type(item) for item in d["bound"]],
+                [dict_to_type(item) for item in d["params"]],
+                dict_to_type(d["return"]),
+            )
+        if "daemon" in d or ("result" in d and "size" in d):
+            return ThreadMeta(
+                dict_to_node(d.get("closure")),
+                dict_to_type(d.get("result")),
+                d.get("size", 0),
+                d.get("name", ""),
+                d.get("daemon", 0),
+            )
+        if "key" in d and "value" in d:
+            return Pair(dict_to_node(d["key"]), dict_to_node(d["value"]))
+        raise TypeError(f"a kindless dict is not dict IR: {sorted(d)}")
+    span = dict_to_span(d.get("span"))
+    typ = dict_to_type(d.get("type"))
+    flags = 0
+    if d.get("negated"):
+        flags |= F_NEGATED
+    if d.get("set"):
+        flags |= F_SET
+    if d.get("identity"):
+        flags |= F_IDENTITY
+    if d.get("reraise"):
+        flags |= F_RERAISE
+    if d.get("bare"):
+        flags |= F_BARE
+    if d.get("frozen"):
+        flags |= F_FROZEN
+    if kind == "const":
+        payload = d["type"]["kind"]
+        value = d["value"]
+        if payload == "bool":
+            return const_node(P_BOOL, "true" if value else "false", typ, span)
+        svalue = "" if payload == "none" else value
+        return const_node(_PTAGS[payload], svalue, typ, span)
+    if kind == "value":
+        return value_callee(dict_to_node(d["target"]))
+    if kind == "excmake":
+        return excmake(d["exc"], span, d.get("code", -1), dict_to_node(d.get("message")))
+    if kind == "method":
+        return method_callee(d["receiver"], d["name"], d.get("tuple", ""))
+    if kind == "module":
+        return module_callee(d["module"], d["name"])
+    if kind == "class":
+        return class_callee(d["name"])
+    if kind == "builtin":
+        return builtin(d["name"])
+    if kind == "function":
+        return function_callee(d["name"])
+    if kind == "closure":
+        return closure(
+            d["name"],
+            [dict_to_node(item) for item in d["env"]],
+            typ,
+            span,
+            dict_to_node(d.get("stub")),
+            dict_to_node(d.get("thread_stub")),
+        )
+    # The kinds the IrNode factories carry one for one.
+    made = _NODE_BUILDERS.get(kind)
+    if made is not None:
+        return made(d, span, typ, flags)
+    raise TypeError(f"a {kind!r} node has no dict_to_node mapping yet")
+
+
+def _node_list(items: Any) -> Any:
+    return None if items is None else [dict_to_node(item) for item in items]
+
+
+def _b_assign(d: Any, span: Any, typ: Any, flags: int) -> Any:
+    return assign(d["target"], dict_to_node(d["value"]), span)
+
+
+def _b_attr(d: Any, span: Any, typ: Any, flags: int) -> Any:
+    return attr(d["name"], typ, dict_to_node(d["value"]), span)
+
+
+def _b_binary(d: Any, span: Any, typ: Any, flags: int) -> Any:
+    return binary(d["op"], dict_to_node(d["left"]), dict_to_node(d["right"]), typ, span)
+
+
+def _b_call(d: Any, span: Any, typ: Any, flags: int) -> Any:
+    thread = dict_to_node(d.get("thread"))
+    return call(
+        dict_to_node(d["callee"]),
+        _node_list(d.get("args")),
+        typ,
+        span,
+        d.get("symbol", ""),
+        d.get("format_style", ""),
+        d.get("format_kwnames", -1),
+        thread,
+        bool(flags & F_IDENTITY),
+    )
+
+
+def _b_cast(d: Any, span: Any, typ: Any, flags: int) -> Any:
+    return cast(d["op"], dict_to_node(d["value"]), typ, span)
+
+
+def _b_compare(d: Any, span: Any, typ: Any, flags: int) -> Any:
+    return compare(d["op"], dict_to_node(d["left"]), dict_to_node(d["right"]), typ, span)
+
+
+def _b_contains(d: Any, span: Any, typ: Any, flags: int) -> Any:
+    return contains(dict_to_node(d["hay"]), dict_to_node(d["needle"]), typ, span, bool(flags & F_NEGATED))
+
+
+def _b_dict(d: Any, span: Any, typ: Any, flags: int) -> Any:
+    return dict_lit([dict_to_node(pair) for pair in d["pairs"]], typ, span)
+
+
+def _b_expr(d: Any, span: Any, typ: Any, flags: int) -> Any:
+    return expr_stmt(dict_to_node(d["expr"]), span)
+
+
+def _b_if(d: Any, span: Any, typ: Any, flags: int) -> Any:
+    return if_stmt(dict_to_node(d["cond"]), _node_list(d["then"]), _node_list(d.get("else")), span)
+
+
+def _b_list(d: Any, span: Any, typ: Any, flags: int) -> Any:
+    return list_lit(_node_list(d["elems"]), typ, span, bool(flags & F_FROZEN))
+
+
+def _b_name(d: Any, span: Any, typ: Any, flags: int) -> Any:
+    return name_expr(d["id"], typ, span)
+
+
+def _b_raise(d: Any, span: Any, typ: Any, flags: int) -> Any:
+    return raise_stmt(
+        d["exc"],
+        span,
+        d.get("code", -1),
+        dict_to_node(d.get("message")),
+        bool(flags & F_RERAISE),
+        d.get("excslot", ""),
+        dict_to_node(d.get("cause")),
+    )
+
+
+def _b_return(d: Any, span: Any, typ: Any, flags: int) -> Any:
+    return return_stmt(dict_to_node(d.get("value")), span)
+
+
+def _b_setattr(d: Any, span: Any, typ: Any, flags: int) -> Any:
+    return setattr_stmt(dict_to_node(d["object"]), d["name"], dict_to_node(d["value"]), span)
+
+
+def _b_setitem(d: Any, span: Any, typ: Any, flags: int) -> Any:
+    return setitem_stmt(dict_to_node(d["container"]), dict_to_node(d["index"]), dict_to_node(d["value"]), span)
+
+
+def _b_subscript(d: Any, span: Any, typ: Any, flags: int) -> Any:
+    return subscript(dict_to_node(d["value"]), dict_to_node(d["index"]), typ, span)
+
+
+def _b_try(d: Any, span: Any, typ: Any, flags: int) -> Any:
+    orelse = _node_list(d.get("orelse"))
+    return try_stmt(
+        _node_list(d["body"]),
+        [dict_to_node(item) for item in d["handlers"]],
+        span,
+        orelse,
+        _node_list(d.get("finalbody")),
+        d.get("brk", "") if orelse is not None else "",
+        d.get("cont", "") if orelse is not None else "",
+    )
+
+
+def _b_unary(d: Any, span: Any, typ: Any, flags: int) -> Any:
+    return unary(d["op"], dict_to_node(d["operand"]), typ, span)
+
+
+def _b_pass(d: Any, span: Any, typ: Any, flags: int) -> Any:
+    return IrNode(
+        kind="pass",
+        span=span,
+        type=None,
+        value=None,
+        object=None,
+        callee=None,
+        args=None,
+        env=None,
+        stub=None,
+        thread_stub=None,
+        thread=None,
+        operand=None,
+        left=None,
+        right=None,
+        hay=None,
+        needle=None,
+        elems=None,
+        pairs=None,
+        index=None,
+        cond=None,
+        then=None,
+        else_=None,
+        body=None,
+        orelse=None,
+        finalbody=None,
+        handlers=None,
+        expr=None,
+        message=None,
+        cause=None,
+        target_node=None,
+    )
+
+
+def _b_while(d: Any, span: Any, typ: Any, flags: int) -> Any:
+    return while_stmt(dict_to_node(d["cond"]), _node_list(d["body"]), span)
+
+
+_NODE_BUILDERS: dict[str, Any] = {
+    "assign": _b_assign,
+    "attr": _b_attr,
+    "binary": _b_binary,
+    "call": _b_call,
+    "cast": _b_cast,
+    "compare": _b_compare,
+    "contains": _b_contains,
+    "dict": _b_dict,
+    "expr": _b_expr,
+    "if": _b_if,
+    "list": _b_list,
+    "name": _b_name,
+    "pass": _b_pass,
+    "raise": _b_raise,
+    "return": _b_return,
+    "setattr": _b_setattr,
+    "setitem": _b_setitem,
+    "subscript": _b_subscript,
+    "try": _b_try,
+    "unary": _b_unary,
+    "while": _b_while,
+}

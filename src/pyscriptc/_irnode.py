@@ -1238,7 +1238,7 @@ def setitem_stmt(container: IrNode, index: IrNode, value: IrNode, span: Span) ->
         span=span,
         type=None,
         value=value,
-        object=None,
+        object=container,
         callee=None,
         args=None,
         env=None,
