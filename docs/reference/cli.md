@@ -38,6 +38,7 @@ pyscriptc compile SOURCE [options]
 | `--skip-check` |  | skip the type-checker preflight |
 | `--checker CHECKER` | `pyrefly\|mypy\|pyright` | type-checker preflight; mypy and pyright are deprecated (default `pyrefly`) |
 | `--bridge BRIDGE` | `mypy\|pyrefly` | feed the checker's inferred-type map to the compiler so unannotated code compiles; needs mypy installed, or pyrefly for --bridge pyrefly |
+| `--infer` |  | apply the package-wide pins `pyscriptc infer` proves: every call site of a parameter that agrees on its type pins the parameter, so an unannotated parameter lowers without the source being annotated |
 | `--debug[=WHAT]` | `WHAT` | print a compact stage table to stderr; WHAT is a comma list of stages,fences,cc,paths,all (also via PYSC_DEBUG) |
 | `--debug-dir DIR` | `DIR` | write debug artifacts (ir.json, out.ll, cc.sh, summary.json) to DIR |
 | `--timings` |  | print per-stage wall times (parse, check, lower, emit, cc/link) to stderr |
@@ -119,6 +120,17 @@ pyscriptc coverage SOURCE [options]
 | ---- | ----- | ------ |
 | `--json` |  | print the report as JSON |
 | `--fail-on FAIL_ON` | `blockers\|any` | exit 1 when root refusals (blockers) or any refusal (any) exist; default always exits 0 |
+
+### `infer`
+
+```sh
+pyscriptc infer SOURCE [options]
+```
+| Flag | Value | Effect |
+| ---- | ----- | ------ |
+| `--json` |  | print the report as JSON |
+| `--overlay FILE` | `FILE` | write the inferred annotations to FILE as a sidecar the user can apply |
+| `--bridge BRIDGE` | `pyrefly` | checker to run (default: pyrefly) (default `pyrefly`) |
 
 ### `config`
 
