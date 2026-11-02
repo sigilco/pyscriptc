@@ -185,6 +185,14 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # Class name -> the hidden local that owns its island handle, reset
         # per function scope like `island_modules`.
         self.island_class_handles: dict[str, str] = {}
+        # boxed:begin
+        # The per-module plane split: another module's island classes this
+        # module imported (`from other import Cls` where `Cls` rides that
+        # module's island floor). Name -> (defining module, class name); the
+        # handle, the call and the base-class refusal all go through the
+        # namespaced seam (`ps_island_mod_def_handle`).
+        self.island_floor_classes: dict[str, tuple[str, str]] = {}
+        # boxed:end
         # The per-definition probe state: the definition list to probe and
         # the names the probe fenced.
         self._boxed_functions: list[ast.FunctionDef] = []
@@ -207,6 +215,22 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # and the island lane side by side, so a call into another module's
         # island floor crosses the boundary instead of refusing.
         self._boxed_plane_split = False
+        # The island group (the plane split's cycle rule): this unit rides
+        # the island floor whole-module. The merge sets it from the program
+        # plan's cycle members before the catalog pass, so the export table
+        # agrees on which definitions the unit keeps.
+        self._boxed_island_unit = False
+        # The island group's own module-level fences drop with its top
+        # level: the group's bootstrap execs the real body, so a lambda the
+        # checker refuses or an empty container literal is CPython's own
+        # there, exactly as under the whole-program island.
+        self._boxed_island_unit_drops_module_fences = False
+        # The island group's member names (the cycle rule's closed set). The
+        # group bootstrap installs every member in `sys.modules` before the
+        # per-module seeds run, so a seed import of a group member resolves
+        # against that namespace even when the member's own exports carry no
+        # island flag.
+        self._boxed_island_group: set[str] = set()
         # boxed:end
         self.module_name = ""
         self.is_package = False
@@ -1636,11 +1660,22 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         return AbiMixin._ISLAND_ARG_CODES[typ["kind"]]
 
     def _boxed_stage2_source(self, tree: ast.Module, island: set[str]) -> str:
-        """The Stage 2 seed: imports, literal module values, island defs."""
+        """The Stage 2 seed: imports, literal module values, island defs.
+
+        An import of another program module rides the seed only when that
+        module rides the island too: the split seeds one namespace per
+        fenced module, and a sibling that lowered native has no namespace
+        for the import to resolve against. The import is not load-bearing
+        anyway: an island definition that used the native sibling's
+        definition already refused (the island-to-compiled seam, one
+        module further out), so the seed loses nothing it could use.
+        """
+
         segments: list[str] = []
         for stmt in tree.body:
             if isinstance(stmt, (ast.Import, ast.ImportFrom)):
-                segments.append(ast.get_source_segment(self.source, stmt) or "")
+                if self._boxed_seed_import_is_island(stmt):
+                    segments.append(ast.get_source_segment(self.source, stmt) or "")
                 continue
             if isinstance(stmt, (ast.Assign, ast.AnnAssign)) and self._boxed_is_literal_module_value(stmt):
                 segment = ast.get_source_segment(self.source, stmt)
@@ -1658,6 +1693,55 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 if segment:
                     segments.append(segment)
         return "\n\n\n".join(segment for segment in segments if segment)
+
+    def _boxed_seed_import_is_island(self, stmt: ast.Import | ast.ImportFrom) -> bool:
+        """True when a seed import resolves against an island namespace.
+
+        A program sibling's island plans live in the export table under its
+        name: the sibling that carries an island plan carries a seed, and
+        its namespace exists when this seed runs (the merge emits the
+        seeds in finish order). A stdlib module outside the closed table
+        resolves through the island's own import machinery. An import of a
+        sibling with no island plan has nothing to resolve against and
+        drops from the seed: the native lane ran the sibling's body
+        already, and an island definition of this module that used it
+        fenced instead of lowering.
+        """
+        if self.program is None:
+            return True
+        targets: list[str] = []
+        if isinstance(stmt, ast.Import):
+            targets.extend(alias.name for alias in stmt.names)
+        elif stmt.level:
+            # A relative import inside a program is not a plain sibling
+            # shape (the split refuses package-shaped programs), so it
+            # keeps the old seed behavior.
+            return True
+        else:
+            targets.append(stmt.module or "")
+        exports = self.package or {}
+        for target in targets:
+            root = target.split(".", 1)[0]
+            # An island group member's namespace lives in `sys.modules`:
+            # the group bootstrap execs the group's bodies under CPython and
+            # registers each under its real name before the per-module
+            # seeds run. Such an import resolves even when the member's
+            # exports carry no island flag (its definitions are constants),
+            # so the seed keeps it: dropping it loses a binding an island
+            # class body reads at definition time
+            # (`PROVIDER_VERSION = __version__`).
+            if target in self._boxed_island_group:
+                continue
+            if root in exports or target in exports:
+                module = target if target in exports else root
+                bucket = exports.get(module) or {}
+                if any(item.get("island") for item in bucket.values()):
+                    continue
+                return False
+            # Not a program module (stdlib): the island import machinery
+            # resolves it, as before.
+            continue
+        return True
 
     def _boxed_definition_source(self, node: ast.AST) -> str:
         """One definition's source text, decorators included.
@@ -1927,12 +2011,36 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             has_import_fence = any(
                 fence.function in (None, "__module__") and fence.code in ("PS2001", "PS2002") for fence in fences
             )
-            self._boxed_top_island = bool(probe_fences) or has_import_fence
+            # The split's module rule: under the plane split a module-level
+            # fence anywhere in the module (a lambda the checker refuses, an
+            # empty container literal, an import outside the table) routes
+            # that module's top level to its own island floor, exactly like
+            # the import fences. Under the whole-program island these fences
+            # never mattered, so the rule stays scoped to the split: without
+            # a plane split (`_boxed_plane_split` false) the fence list
+            # reaches the CLI as before.
+            has_module_fence = self._boxed_plane_split and any(
+                fence.function in (None, "__module__") for fence in fences
+            )
+            self._boxed_top_island = bool(probe_fences) or has_import_fence or has_module_fence
             if self._boxed_top_island:
                 if probe_fences:
                     fences.extend(probe_fences)
                 if entry_name:
                     self._boxed_island.add(entry_name)
+            # The island group: a unit the program plan routed to the island
+            # floor for the import cycle rides whole-module. Every definition
+            # and the top level join the island; the seed is the module's own
+            # source, exec'd by CPython, which resolves the cycle natively.
+            if self._boxed_island_unit:
+                self._boxed_top_island = True
+                self._boxed_island_unit_drops_module_fences = True
+                for fn in self._boxed_functions:
+                    self._boxed_island.add(fn.name)
+                for node in class_nodes:
+                    if node.name not in self.island_classes:
+                        self._boxed_island_class(node)
+                self.island_fns = set(self._boxed_island)
         # boxed:end
         if self.cataloguing:
             self.function = None
@@ -1984,7 +2092,12 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 continue
             # boxed:end
             if lowered is not None and not self.caught:
-                lowered_classes.append(lowered)
+                # The island group: the group's bootstrap defines the class
+                # in CPython, so a native copy of it would collide with the
+                # other modules' class of the same name (the merged class
+                # table is program-wide) and would be the wrong class.
+                if not (self._boxed_island_unit and node.name in self.island_classes):
+                    lowered_classes.append(lowered)
         lowered_classes.extend(self._synthetic_classes({item["name"] for item in lowered_classes}))
         lowered: list[dict[str, Any]] = []
         for fn in functions:
@@ -2105,7 +2218,19 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                     fence
                     for fence in fences
                     if (fence.function != entry_name if entry_name is not None else True)
-                    and not (fence.function in (None, "__module__") and fence.code in ("PS2001", "PS2002"))
+                    and not (
+                        fence.function in (None, "__module__")
+                        and (
+                            fence.code in ("PS2001", "PS2002")
+                            # The island group: the group's bootstrap execs the
+                            # real body, so its module-level fences are the
+                            # island's, not the compile's.
+                            or self._boxed_island_unit_drops_module_fences
+                            # The split's module rule: the top level this
+                            # fence routed island-side owns the statement.
+                            or has_module_fence
+                        )
+                    )
                 ]
             else:
                 island.discard(entry_name)
@@ -2596,6 +2721,39 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             self._install_return_class(module, item["return"], stmt, fences)
             return
         if item["kind"] == "class":
+            # boxed:begin
+            # The defining module planned the class for its own island floor
+            # (issue #628): no native body exists, so the import cannot
+            # install a lowered class record. Binding the name as a
+            # cross-module island class keeps the import from fencing the
+            # module level: the uses that need the class natively (a base
+            # class, an `except` clause) fence their own definition instead
+            # of the whole module, and the uses that only call or pass it
+            # cross the boundary through the boxed seam.
+            if item.get("island"):
+                if self.program and self._boxed_cross_module_island():
+                    # The class object lives in the *defining* module's island
+                    # namespace, which is not always the module the import
+                    # names: a package re-exports it (`from ._utils import
+                    # *`), so the entry carries the owner.
+                    owner = str(item.get("module") or module)
+                    self.bindings[local] = Binding("island_floor_class", owner, name, False)
+                    self.island_floor_classes[local] = (owner, name)
+                    self.declared.add(local)
+                    return
+                fence = Fence(
+                    "PS2002",
+                    f"{module}.{name} runs on the island floor of its own module, and importing it "
+                    "crosses a package boundary into it. Compile the tree as a program "
+                    "(--program --fallback=cpython) so the whole program runs island-side, "
+                    "or make the class lower natively.",
+                    span_of(stmt, self.filename),
+                    None,
+                )
+                fences.append(fence)
+                self._boxed_module_fences.append(fence)
+                return
+            # boxed:end
             self._install_class_export(local, item, stmt, fences)
             return
         if item["kind"] == "module":

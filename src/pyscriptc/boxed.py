@@ -38,6 +38,7 @@ INVOKE_SYMBOL = "ps_island_fn_invoke"
 # site reuses `ps_island_fn_invoke`; a class-level attribute read or a class
 # taken as a value needs the object first, which this trampoline returns.
 DEF_HANDLE_SYMBOL = "ps_island_def_handle"
+MOD_DEF_HANDLE_SYMBOL = "ps_island_mod_def_handle"
 
 
 def _annotation_is_mutable(node: ast.expr | None) -> bool:
@@ -399,6 +400,66 @@ __file__ = _ps_rebase(%(main_path)s)
 __package__ = %(package)s
 exec(compile(%(main_source)s, __file__, "exec"), globals())
 """
+
+
+# The island group's bootstrap (the plane split's cycle rule): one exec
+# under CPython that installs a finder over the group's own module sources
+# and imports every group module, so the cycle resolves the way CPython
+# always resolves it. The group is closed under imports, so no group module
+# reaches for a native definition of another module; the native lane reaches
+# the group through the boxed seam, which reads `sys.modules` under the
+# group's real names.
+_ISLAND_GROUP_BOOTSTRAP = """\
+import sys as _sys, importlib.abc as _abc, importlib.util as _iu
+_PS_GROUP = %(modules)s
+
+
+class _PsGroupLoader(_abc.Loader):
+    def create_module(self, spec):
+        return None
+    def exec_module(self, module):
+        path, _is_pkg, source = _PS_GROUP[module.__name__]
+        exec(compile(source, path, "exec"), module.__dict__)
+
+
+class _PsGroupFinder(_abc.MetaPathFinder):
+    def find_spec(self, name, path=None, target=None):
+        found = _PS_GROUP.get(name)
+        if found is None:
+            return None
+        origin = found[0]
+        spec = _iu.spec_from_loader(name, _PsGroupLoader(), origin=origin, is_package=found[1])
+        spec.has_location = True
+        if found[1]:
+            import os as _os
+            spec.submodule_search_locations = [_os.path.dirname(origin)]
+        return spec
+
+
+_sys.meta_path.insert(0, _PsGroupFinder())
+for _name in %(order)s:
+    __import__(_name)
+"""
+
+
+def island_group_bootstrap(
+    sources: dict[str, str],
+    packages: dict[str, bool],
+    paths: dict[str, str],
+) -> str:
+    """The island group's bootstrap source: the finder plus the import order.
+
+    `sources` maps each group module's real name to its source text,
+    `packages` to whether it is a package unit, `paths` to its compile-time
+    path (the origin the finder hands out). The import order is the group's
+    finish order (a module after the modules it imports), so a module body
+    that reads a sibling's binding finds it; a cycle member's body may read a
+    partially initialized sibling, exactly as under CPython.
+    """
+
+    modules = {name: (paths[name], packages[name], sources[name]) for name in sources}
+    order = sorted(sources, key=lambda n: (n.count("."), n))
+    return _ISLAND_GROUP_BOOTSTRAP % {"modules": repr(modules), "order": repr(order)}
 
 
 def program_island_source(

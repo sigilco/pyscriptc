@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 # boxed:begin
-from pyscriptc.boxed import DEF_HANDLE_SYMBOL, INVOKE_SYMBOL
+from pyscriptc.boxed import DEF_HANDLE_SYMBOL, INVOKE_SYMBOL, MOD_DEF_HANDLE_SYMBOL
 from pyscriptc.emit._ir import _elem_size, _memory_type
 
 # boxed:end
@@ -269,6 +269,8 @@ class CallsMixin:
             return self._emit_island_fn_call(expr, values)
         if expr.get("symbol") == DEF_HANDLE_SYMBOL:
             return self._emit_island_def_handle(expr)
+        if expr.get("symbol") == MOD_DEF_HANDLE_SYMBOL:
+            return self._emit_island_mod_def_handle(expr)
         if expr.get("symbol") == "ps_island_getattr":
             return self._emit_island_getattr(expr, values)
         if expr.get("symbol") == "ps_island_getitem":

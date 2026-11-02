@@ -176,6 +176,11 @@ class CallsMixin:
             # through the boxed seam, namespaced by the defining module.
             if binding.kind == "island_floor":
                 return self._island_floor_call(node, span, binding.module, binding.attr, expect)
+            # An island class of another module instantiates through the same
+            # namespaced trampoline: the class object is callable island-side,
+            # so `Cls(...)` is one invoke keyed by (module, class name).
+            if binding.kind == "island_floor_class":
+                return self._island_floor_class_call(node, span, binding.module, binding.attr, expect)
             # boxed:end
             if binding.kind == "const" and self._ffi_module(binding.module) is not None:
                 self.fail(node, "PS2002", f"{name} is a constant and is not a function")
@@ -187,6 +192,12 @@ class CallsMixin:
         # handle.
         if name in self.island_classes:
             return self._island_fn_call(node, span, name, expect)
+        # An island class of another module: the same trampoline with the
+        # defining module's name in front of the callee key.
+        floor = self.island_floor_classes.get(name)
+        if floor is not None:
+            module, cls = floor
+            return self._island_floor_class_call(node, span, module, cls, expect)
         # boxed:end
         if name in self.class_aliases or name in self.classes:
             return self._construct(node, span, self.class_aliases.get(name, name))

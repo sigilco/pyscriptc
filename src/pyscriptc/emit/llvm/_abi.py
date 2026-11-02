@@ -418,11 +418,46 @@ class AbiMixin:
         self._abi_decl("ps_island_def_handle", "ptr", ["i64", "ptr"])
         return self._call_ret("ptr", "ps_island_def_handle", [f"i64 {size}", f"ptr {symbol}"])
 
+    # boxed:begin
+    def _emit_island_mod_def_handle(self, expr: dict[str, Any]) -> str:
+        """The same handle, fetched from another module's island namespace.
+
+        The per-module plane split: the defining module's name fronts the
+        key (`ps_island_mod_def_handle(mod, name)`), the namespaced shape of
+        the single-namespace seam. The seed order guarantees the defining
+        module's namespace exists by the time the consumer's init reads it.
+        """
+        mod, name = expr["island_mod_def"]["module"], expr["island_mod_def"]["name"]
+        mod_data = mod.encode("utf-8")
+        name_data = name.encode("utf-8")
+        mod_sym = self.format_global(f"island.mod.{mod}", mod_data)
+        name_sym = self.format_global(f"island.cls.{name}", name_data)
+        self._abi_decl("ps_island_mod_def_handle", "ptr", ["i64", "ptr", "i64", "ptr"])
+        return self._call_ret(
+            "ptr",
+            "ps_island_mod_def_handle",
+            [f"i64 {len(mod_data)}", f"ptr {mod_sym}", f"i64 {len(name_data)}", f"ptr {name_sym}"],
+        )
+
+    # boxed:end
+
     def _emit_island_seed_global(self) -> None:
         """The main-prologue seed, when the module plans island definitions."""
         source = self.module.get("islandSource")
         if source:
             self._emit_island_seed(source)
+        # The island group: one bootstrap execs the cycle group's module
+        # bodies under CPython, with a finder over the group's sources, so
+        # the cycle resolves. It runs before the per-module seeds: a seed
+        # that imports a group module resolves against the group's
+        # `sys.modules` entries.
+        group = self.module.get("islandGroup")
+        if group:
+            data = group.encode("utf-8")
+            size = len(data)
+            symbol = self.format_global("island.seed.group", data)
+            self._abi_decl("ps_island_fn_seed", "void", ["i64", "ptr"])
+            self._call_void("ps_island_fn_seed", [f"i64 {size}", f"ptr {symbol}"])
         # The per-module plane split: every program module's island floor
         # seed runs beside the single-namespace seed, in the merge's module
         # order (the import order the merge recorded).

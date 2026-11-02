@@ -278,6 +278,12 @@ class ExprMixin:
         # `ps_island_fn_invoke`, like any other island definition.
         if node.id in self.island_classes:
             return self._island_class_handle(node.id, span)
+        # An island class of another module taken as a value: the same
+        # opaque handle, fetched from the defining module's namespace.
+        floor = self.island_floor_classes.get(node.id)
+        if floor is not None:
+            module, cls = floor
+            return self._island_floor_class_handle(node.id, module, cls, span)
         # boxed:end
         if node.id in self.classes:
             self.fail(node, "PS2002", f"class {node.id} is not a value")
