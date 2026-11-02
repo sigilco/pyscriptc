@@ -86,7 +86,7 @@ pyscriptc compile src/pyscriptc --program --skip-check --island --emit bin \
   --onefile --strip-runtime -o dist/selfbin-onefile
 ```
 
-The output is `dist/selfbin-onefile/selfbin-onefile`, one file. It holds:
+The output is `dist/selfbin-onefile/selfbin-onefile.onefile`, one file. It holds:
 
 - the compiled program, the pinned runtime and the staged data tree, in one
   zlib-compressed payload,
@@ -118,6 +118,11 @@ The cost of the shape is one decompression on the first run: about 0.4 s for
 the 19 MB yt-dlp payload on the VPS. The warm run adds a `stat` and an
 `execv` to the program's own startup, which is under a millisecond.
 
+The measured cold and warm starts of the 18.8 MB yt-dlp onefile on the VPS
+(2026-11-02) are 0.91 s cold and 0.48 s to 0.61 s warm, against 0.45 s for
+the unpacked bundle, so the extraction costs about 0.4 s once and nothing
+after that.
+
 ### What the host still needs
 
 The onefile carries the interpreter, the stdlib and the program's own data.
@@ -134,6 +139,14 @@ pyscriptc still needs them on the host:
   `PYREFLY_BIN` override, then a `pyrefly` on PATH. When none is found the
   compile says so and names the remedy instead of half-running.
 - No Python, uv or pip, and no pack cache and no network.
+
+The two gaps are the tools around the compiler, not the compiler itself: the
+14.5 MB self-compiled onefile runs its usage with `PATH=/nonexistent` and
+compiles a hello world to a working native binary with only `cc` on PATH.
+Closing the C-toolchain gap means shipping a second compiler inside the
+onefile, which costs more than the runtime it would carry; closing the
+pyrefly gap means shipping the checker, which is a separate program with
+its own release cadence. Both stay host tools for now.
 
 ### Shrinking the output
 
@@ -152,3 +165,38 @@ forbids them):
 
 The size of a onefile is therefore the sum of the program, the runtime and
 the trimmed stdlib, compressed once with zlib.
+
+### What the onefile measures
+
+The yt-dlp composite (`benchmarks/ytdlp_composite/`, the frozen definition
+in `.agents/notes/2026-10-30-ytdlp-composite.md`) measures the onefile as a
+candidate. The run of 2026-11-02 (CPython 3.14.9, 6 cores, load average 3.55
+during the run, min of 7 interleaved samples after 2 warmups):
+
+| Variant | `--version` s | `--list-extractors` s | extract s | download s | RSS MiB | files | installed bytes | shipped bytes | needs Python | relocatable | clean container |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| V-bundle (safe trim) | 0.453 | 0.550 | 1.441 | 1.468 | 57.7 | 170 | 82 441 773 | 82 441 773 | no | yes | yes |
+| V-minimal (minimal trim) | 0.453 | 0.625 | 1.396 | 1.472 | 57.4 | 170 | 79 231 932 | 79 231 932 | no | yes | yes |
+| V-onefile (minimal trim, stripped runtime) | 0.463 | 0.545 | 1.496 | 1.447 | 57.4 | 1 | 18 766 651 | 18 766 651 | no | yes | yes |
+| B1 (uv venv) | 0.287 | 0.468 | 1.228 | 1.353 | 49.1 | 1181 | 111 710 283 | 111 710 283 | yes | no | no |
+| B2 (`yt-dlp_linux`, PyInstaller onefile) | 1.429 | 1.561 | 2.373 | 2.482 | 73.4 | 1 | 41 166 968 | 41 166 968 | no | yes | yes |
+
+Composite (geometric mean over the 11 dimensions, lower is better; a PASS
+needs it below 1.0 against both baselines and no dimension worse than 2x):
+
+| Candidate | vs B1 | vs B2 |
+|---|---|---|
+| V-bundle | 1.009 | 0.994 |
+| V-minimal | 1.010 | 0.996 |
+| V-onefile | 0.644 | 0.635 |
+
+The onefile is the first candidate to pass on both sides. The bundle loses
+`files_n` (170 files against one) and `install_bytes` (4.4x B2); the onefile
+turns both into wins (1.0x and 0.46x) and pays for them with nothing, since
+its timings are the bundle's timings plus the extraction.
+
+Its output is the bundle's output: the `-j` extract of the local sample is
+byte-identical to B1's once the `epoch` key is removed, and
+`--list-extractors` is identical (1755 lines) to B1, B2 and the bundle. The
+onefile also runs in `debian:trixie-slim` (glibc 2.41, no Python), which is
+the `clean_container` answer the note asks for.
