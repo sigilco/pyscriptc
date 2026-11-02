@@ -18,7 +18,11 @@ frame is still live if the body raises. Arithmetic overflow stays an LLVM trap.
 /* Ryu (ulfjack/ryu v2.0, Apache-2.0), vendored under vendor/ryu with a
    hash-pinned fetch. It carries the `ryu/` include prefix, so the vendor
    directory rides the include path (see the driver). The shortest
-   round-trip digits come from Ryu's own algorithm, not from the libc. */
+   round-trip digits come from Ryu's own algorithm, not from the libc.
+   The small-table variant trades a little of Ryu's speed for ~8 KB of
+   binary size (the full pow5 tables are the single largest chunk of the
+   delta); float spelling is byte-identical between the two. */
+#define RYU_OPTIMIZE_SIZE 1
 #include "vendor/ryu/d2s.c"
 
 typedef struct PsJmp {
@@ -2765,31 +2769,6 @@ void ps_i64_str(int64_t v, PsBuf *out) {
         ps_raise_cstr(PS_VALUE, "int to str failed");
     }
     ps_buf_copy(out, tmp, wrote);
-}
-
-static void ps_normalize_exp(char *tmp) {
-    char *exp = strchr(tmp, 'e');
-    if (exp == NULL) {
-        exp = strchr(tmp, 'E');
-    }
-    if (exp == NULL) {
-        return;
-    }
-    *exp = 'e';
-    char *digits = exp + 1;
-    int sign = 1;
-    if (*digits == '+') {
-        digits++;
-    } else if (*digits == '-') {
-        sign = -1;
-        digits++;
-    }
-    int value = 0;
-    while (*digits >= '0' && *digits <= '9') {
-        value = value * 10 + (*digits - '0');
-        digits++;
-    }
-    snprintf(exp, 8, "e%c%02d", sign < 0 ? '-' : '+', value);
 }
 
 void ps_f64_str(double v, PsBuf *out) {
