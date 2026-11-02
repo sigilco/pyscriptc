@@ -821,3 +821,40 @@ def test_a_seed_keeps_its_import_of_a_cycle_group_member(tmp_path: Path) -> None
     )
     out = _compare(tmp_path, prog)
     assert out == "11\n"
+
+
+def test_a_cycle_group_carries_the_package_chain(tmp_path: Path) -> None:
+    """A package unit joins the cycle group, so its chain runs in the same image.
+
+    A seeded submodule's relative import resolves through its package's
+    namespace. When the package is not in the group, its body runs from
+    disk and re-enters the submodule the group is still executing, so the
+    import fails with "cannot import name". The package unit joins the
+    group, and the group's bootstrap owns the whole chain.
+
+    The shape: `pkg/__init__.py` imports `pkg.sub`; `pkg/sub.py` and
+    `pkg/other.py` form the cycle; the entry imports the package by its
+    package name (the `python -m pkg` shape).
+    """
+    prog = tmp_path / "prog"
+    _write(
+        prog,
+        {
+            "__main__.py": (
+                "import pkg\n"
+                "\n"
+                "\n"
+                "def main() -> None:\n"
+                "    print(pkg.get())\n"
+                "\n"
+                "\n"
+                "if __name__ == '__main__':\n"
+                "    main()\n"
+            ),
+            "pkg/__init__.py": ("from .sub import value\n\n\ndef get() -> str:\n    return value\n"),
+            "pkg/sub.py": ("value = 'v'\n\n\ndef one() -> int:\n    return two() + 1\n\n\nfrom .other import two\n"),
+            "pkg/other.py": "from .sub import one\n\n\ndef two() -> int:\n    return 10\n",
+        },
+    )
+    out = _compare(tmp_path, prog)
+    assert out == "v\n"
