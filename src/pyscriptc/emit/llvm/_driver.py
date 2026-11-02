@@ -273,6 +273,21 @@ def link_binary(
         include = sysconfig.get_path("include")
         libdir = sysconfig.get_config_var("LIBDIR")
         version = sysconfig.get_config_var("VERSION")
+        if not (libdir and Path(libdir, f"libpython{version}.so").exists()):
+            # boxed:begin
+            # A relocated interpreter (a uv-managed toolchain, an installed
+            # binary) answers LIBDIR with a build-machine prefix that does not
+            # exist here. The real shared library sits next to the running
+            # executable's prefix; finding it keeps the island link usable
+            # without a runtime-pack fetch. macOS keeps its own suffix, and
+            # everything else is the ELF `libpython<version>.so`.
+            mac = sys.platform == "darwin"
+            name = f"libpython{version}.dylib" if mac else f"libpython{version}.so"
+            for candidate in (Path(sys.base_prefix, "lib", name), Path(sys.base_prefix, "lib64", name)):
+                if candidate.exists():
+                    libdir = str(candidate.parent)
+                    break
+            # boxed:end
         # boxed:begin
         # --embed-python: host links the compiler interpreter (the line below is
         # unchanged), bundle links the pinned runtime pack, auto picks host when
