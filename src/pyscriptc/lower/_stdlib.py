@@ -961,6 +961,36 @@ class StdlibDispatchMixin:
         self.fail(node, "PS1003", f"island cannot unmarshal {_show(expect)}; {idiom_note}")
 
     # boxed:begin
+    def _island_floor_call(
+        self, node: ast.Call, span: dict[str, Any], module: str, name: str, expect: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """`helper(x)` where `helper` rides another module's island floor.
+
+        The per-module plane split: the same marshalling and `want`
+        unboxing as `_island_fn_call`, with the defining module's name in
+        front of the callee key (`ps_island_mod_fn_invoke`). The caller
+        stays native; the arguments cross as copies (the seam is
+        copy-in), the result unboxes through `want` like the
+        single-namespace trampoline.
+        """
+        marshalled, npos, nkw = self._island_args(node, span)
+        call_expr: dict[str, Any] = {
+            "kind": "call",
+            "callee": {"kind": "module", "module": "island", "name": name},
+            "args": marshalled,
+            "type": _island_handle(f"{module}.{name}()"),
+            "symbol": INVOKE_SYMBOL,
+            "island_fn": {"name": name, "module": module},
+            "island_npos": npos,
+            "island_nkw": nkw,
+            "span": span,
+        }
+        if expect is not None and not expect.get("island"):
+            self._island_validate_expect(node, expect)
+            call_expr["type"] = expect
+            call_expr["island_fn"]["want"] = expect
+        return call_expr
+
     def _island_fn_call(
         self, node: ast.Call, span: dict[str, Any], name: str, expect: dict[str, Any] | None = None
     ) -> dict[str, Any]:

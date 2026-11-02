@@ -269,6 +269,21 @@ def build_parser() -> argparse.ArgumentParser:
         "[tool.pyscriptc.island]",
     )
     compile_parser.add_argument(
+        "--bundle-exclude",
+        action="append",
+        default=[],
+        metavar="ROOT",
+        help="import root a bundle does not carry: the host must provide it "
+        "(an optional or native-backed dependency); repeatable",
+    )
+    compile_parser.add_argument(
+        "--embed-headers",
+        action="store_true",
+        help="stage the runtime pack's CPython headers into a bundle: a bundle that is "
+        "itself a compiler (the self-compiled pyscriptc) needs Python.h to compile "
+        "island programs at run time",
+    )
+    compile_parser.add_argument(
         "--embed-stdlib",
         choices=stdlibzip.STDLIB_MODES,
         default=None,
@@ -1729,7 +1744,7 @@ def _require_toolchain(args: argparse.Namespace) -> None:
     if driver is None:
         raise IRError(
             "no C toolchain found on PATH (neither zig nor clang), and compiling to a binary needs a C toolchain. "
-            f"Install one of: {zigshim.install_hint()}, or clang (xcode-select --install, apt install clang, ...). "
+            f"{zigshim.install_hint()}, or clang (xcode-select --install, apt install clang, ...). "
             "Run `pyscriptc doctor` to see what was found and the README for install commands. "
             "`--emit ir` and `--emit llvm` need no toolchain."
         )
@@ -2210,16 +2225,18 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         # The direct third-party import roots of the program, for the bundle's
         # site-packages tree (issue #660). A native-backed distribution among
         # them refuses the compile (PS4302) before anything is staged.
-        dep_roots = sitedeps.third_party_roots(source_path) if resolved_embed == "bundle" else []
+        dep_roots = (
+            sitedeps.third_party_roots(source_path, getattr(args, "bundle_exclude", []) or [])
+            if resolved_embed == "bundle"
+            else []
+        )
         if resolved_embed == "bundle":
             sitedeps.check_pure(dep_roots)
             pack = embed.lock_pack()
             pack_directory = embed.ensure_pack(pack)
             embed_version = embed.python_version()
             trim = getattr(args, "embed_stdlib", None) or stdlibzip.DEFAULT_MODE
-            carried = stdlibzip.kept_module_names(
-                stdlibzip.stdlib_sources(pack_directory / "lib" / f"python{embed_version}", trim)
-            )
+            carried = stdlibzip.carried_modules(pack_directory, embed_version, trim)
             stdlibzip.manifest_check(carried, _stdlib_imports(source_path), trim)
         if resolved_embed == "bundle":
             pack = embed.lock_pack()
@@ -2230,6 +2247,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                 binary,
                 stdlib_mode=getattr(args, "embed_stdlib", None) or stdlibzip.DEFAULT_MODE,
                 dependency_roots=dep_roots,
+                with_headers=bool(getattr(args, "embed_headers", False)),
             )
             outputs["bin"] = str(staged)
             binary = staged

@@ -203,6 +203,10 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # the island (Decision A). `entry_fn_name` then names the entry whose
         # fences drop with the top level.
         self._boxed_top_island = False
+        # The per-module plane split: a program compile keeps the native lane
+        # and the island lane side by side, so a call into another module's
+        # island floor crosses the boundary instead of refusing.
+        self._boxed_plane_split = False
         # boxed:end
         self.module_name = ""
         self.is_package = False
@@ -1332,6 +1336,28 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                         msg = f"{fn.name} runs on the island and cannot call the compiled function {callee}: {reason}"
                         fences.append(Fence("PS2002", msg, span_of(node, self.filename), fn.name))
                         self._boxed_sibling_fences.append(fences[-1])
+        # The per-module plane split: an island definition calling a native
+        # definition of another module is the same island-to-compiled seam,
+        # one module further out. The sibling above demotes a definition of
+        # the same module; a definition of another module cannot be
+        # demoted from here, so the call refuses with the same diagnostic.
+        for fn in self._boxed_functions:
+            if fn.name not in self.island_fns:
+                continue
+            for node in ast.walk(fn):
+                if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
+                    continue
+                callee = node.func.id
+                binding = self.bindings.get(callee)
+                if binding is None or binding.kind != "pyfunc":
+                    continue
+                module = binding.module
+                msg = (
+                    f"{fn.name} runs on the island and cannot call the compiled function "
+                    f"{module}.{callee}: the island-to-compiled seam is the `--emit binding` surface"
+                )
+                fences.append(Fence("PS2002", msg, span_of(node, self.filename), fn.name))
+                self._boxed_sibling_fences.append(fences[-1])
 
     def _island_call_passes_mutable(self, callee: str) -> bool:
         """Whether the island callee has a mutable container parameter
@@ -1492,6 +1518,17 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 self.borrowed_handles = saved["borrowed"]
         finally:
             self.caught = []
+
+    def _boxed_cross_module_island(self) -> bool:
+        """Whether a call may cross into another module's island floor.
+
+        The plane split (the per-module island granularity) is on when the
+        compile runs the fallback tier and the program keeps both planes.
+        The merge sets the flag once it knows the program is not one whole
+        island.
+        """
+
+        return self._boxed_plane_split
 
     def _boxed_island_source(
         self,
@@ -2529,6 +2566,17 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             # seam to cross: the import refuses here, at module level, where
             # the fence survives the module's own island planning.
             if item.get("island"):
+                # The per-module plane split: the defining module planned the
+                # definition for its own island floor, and a program compile
+                # keeps the two planes side by side. The call crosses the
+                # boundary through the boxed seam, namespaced by the
+                # defining module (`ps_island_mod_fn_invoke`). A package
+                # compile (no program) has no per-module seed to cross
+                # into, so it refuses as before.
+                if self.program and self._boxed_cross_module_island():
+                    self.bindings[local] = Binding("island_floor", module, name, False, item["return"])
+                    self.declared.add(local)
+                    return
                 fence = Fence(
                     "PS2002",
                     f"{module}.{name} runs on the island floor of its own module, and importing it "
@@ -2635,7 +2683,14 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             self.fail(node, "PS2001", f"{module}.{member} is not exported by this package")
         return item
 
-    def _linked_call(self, node: ast.Call, span: dict[str, Any], item: dict[str, Any], what: str) -> dict[str, Any]:
+    def _linked_call(
+        self,
+        node: ast.Call,
+        span: dict[str, Any],
+        item: dict[str, Any],
+        what: str,
+        expect: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         if item["kind"] != "func":
             self.fail(node, "PS2002", f"{what} is not a function")
         # boxed:begin
@@ -2648,6 +2703,15 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # The refusal is a module-level fence (it belongs to no
         # definition), so it survives the module's own island planning.
         if item.get("island"):
+            # The plane split (see `_bind_one_export`): in a program compile
+            # the call crosses into the defining module's island floor
+            # through the boxed seam instead of refusing. The actual
+            # argument values marshal (the island side receives them
+            # untyped); the result unboxes through the call site's
+            # expectation.
+            if self.program and self._boxed_cross_module_island():
+                name = item["ir_name"].rsplit(".", 1)[1]
+                return self._island_floor_call(node, span, item["ir_name"].rsplit(".", 1)[0], name, expect)
             fence = Fence(
                 "PS2002",
                 f"{what} runs on the island floor of its own module, and this call crosses a "

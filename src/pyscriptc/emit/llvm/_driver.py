@@ -293,6 +293,14 @@ def link_binary(
             target_flags.extend(["-I", include])
             tail = [*embed_flags, *tail]
         else:
+            if include is None or not Path(include).is_dir():
+                raise IRError(
+                    f"the island link needs the CPython headers ({include or 'include'}); "
+                    "this interpreter has no usable header directory. On a self-compiled "
+                    "pyscriptc bundle, rebuild it with --embed-python=bundle --embed-headers, "
+                    "or compile this program with --embed-python=bundle so the pinned "
+                    "runtime pack supplies the headers"
+                )
             # boxed:end
             target_flags.extend(["-I", include])
             tail = [f"-L{libdir}", f"-lpython{version}", f"-Wl,-rpath,{libdir}", *tail]

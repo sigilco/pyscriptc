@@ -25,9 +25,11 @@ Two trims, both shipped as zips:
   still fails closed at compile time, so the failure is a build error, not a
   runtime `ModuleNotFoundError`.
 
-The zip stores `.pyc` bodies with their magic-number header; a stored
-(uncompressed) zip keeps the pages cache-friendly and the pack reproducible
-byte-for-byte from the same pack directory.
+The zip stores `.pyc` bodies with their magic-number header; the archive is
+deflated, because the zip is data (not an executable) and the saved bytes
+cost one decompression of a few milliseconds at first import. A stored
+(uncompressed) zip keeps the pages cache-friendly, and the pack reproducible
+byte-for-byte from the same pack directory either way.
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ from __future__ import annotations
 import ast
 import os
 import py_compile
+import shutil
 import sys
 import tempfile
 import zipfile
@@ -154,6 +157,27 @@ MINIMAL_EXTRA = (
     "getopt",
     "getpass",
     "gzip",
+    "email",
+    "_markupbase",
+    "importlib.resources",
+    "importlib.resources._common",
+    "importlib.resources._adapters",
+    "importlib.resources._functional",
+    "importlib.resources._itertools",
+    "importlib.resources._legacy",
+    "importlib.metadata",
+    "importlib.metadata._adapters",
+    "importlib.metadata._collections",
+    "importlib.metadata._functools",
+    "importlib.metadata._itertools",
+    "importlib.metadata._text",
+    "importlib.abc",
+    "importlib.readers",
+    "encodings.idna",
+    "fileinput",
+    "optparse",
+    "pty",
+    "secrets",
     "html",
     "http",
     "ipaddress",
@@ -169,6 +193,8 @@ MINIMAL_EXTRA = (
     "unittest.mock",
     "uuid",
     "xml",
+    "xml.etree",
+    "xml.etree.ElementTree",
     "zlib",
 )
 
@@ -208,6 +234,34 @@ def _import_names(source: str) -> set[str]:
             found.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             found.add(node.module)
+    return found
+
+
+def _import_names_relative(source: str, package: str) -> set[str]:
+    """The import names of a module source, relatives resolved to absolute.
+
+    A `from . import sibling` inside a package resolves against the package,
+    and the frozen closure must follow it or a kept submodule loses a peer
+    (`xml.etree.ElementTree` pulls `ElementPath` that way).
+    """
+
+    found = _import_names(source)
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return found
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom) or node.level == 0:
+            continue
+        parts = package.split(".") if package else []
+        if node.level > 1:
+            parts = parts[: len(parts) - (node.level - 1)]
+        base = ".".join(parts)
+        if node.module:
+            found.add(f"{base}.{node.module}" if base else node.module)
+        for alias in node.names:
+            if alias.name != "*":
+                found.add(f"{base}.{alias.name}" if base else alias.name)
     return found
 
 
@@ -265,7 +319,10 @@ def minimal_modules(stdlib_dir: Path | None = None) -> list[Path]:
         if not path.is_file():
             continue
         keep.add(name)
-        for found in _import_names(path.read_text(encoding="utf-8", errors="replace")):
+        package = name if path.name == "__init__.py" else name.rpartition(".")[0]
+        for found in _import_names_relative(
+            path.read_text(encoding="utf-8", errors="replace"), package
+        ):
             if found in seen:
                 continue
             parts = found.split(".")
@@ -339,14 +396,14 @@ def _pyc_bytes(source: Path, module_name: str) -> bytes:
 
 
 def write_zip(sources: list[Path], stdlib_dir: Path, zip_path: Path) -> Path:
-    """Write a stored zip of `.pyc` bodies for the kept modules.
+    """Write a deflated zip of `.pyc` bodies for the kept modules.
 
     Archive names are the module paths relative to the stdlib root, so
     `python314.zip` answers `import encodings` exactly as the unpacked tree
     did. `.py` files are kept out on purpose: startup must not compile.
     """
     zip_path.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED) as archive:
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for source in sorted(sources):
             relative = source.relative_to(stdlib_dir)
             module_name = str(relative.with_suffix("")).replace(os.sep, ".")
@@ -369,6 +426,35 @@ def stdlib_zip_name(version: str) -> str:
     return f"python{version.replace('.', '')}.zip"
 
 
+def pack_stdlib_zip(pack_directory: Path, version: str) -> Path | None:
+    """The stdlib zip a pack carries, when its stdlib tree is already zipped.
+
+    A bundle that is itself a compiler (the self-compiled pyscriptc) carries
+    the runtime as a zip, not as an unpacked tree: the tree it hands to a
+    user program is the zip it already has.
+    """
+
+    candidate = pack_directory / "lib" / stdlib_zip_name(version)
+    return candidate if candidate.is_file() else None
+
+
+def carried_modules(pack_directory: Path, version: str, mode: str = DEFAULT_MODE) -> set[str]:
+    """The stdlib module names a pack carries, from its tree or its zip.
+
+    The manifest check (PS4301) asks what the trim keeps. A pack with an
+    unpacked tree answers from the trim; a pack that carries the zipped
+    stdlib answers from the zip.
+    """
+
+    tree = pack_directory / "lib" / f"python{version}"
+    if tree.is_dir() and any(tree.glob("*.py")):
+        return kept_module_names(stdlib_sources(tree, mode))
+    zip_path = pack_stdlib_zip(pack_directory, version)
+    if zip_path is not None:
+        return zip_modules(zip_path)
+    return set()
+
+
 def stage_stdlib(lib_dir: Path, pack_directory: Path, version: str, mode: str = DEFAULT_MODE) -> Path:
     """Replace the unpacked stdlib tree of a staged bundle with its zip.
 
@@ -382,10 +468,20 @@ def stage_stdlib(lib_dir: Path, pack_directory: Path, version: str, mode: str = 
     pack_stdlib = pack_directory / "lib" / f"python{version}"
     if not stdlib_dir.is_dir() and not pack_stdlib.is_dir():
         raise StdlibError(f"the runtime pack has no stdlib tree at {pack_stdlib}")
-    sources = stdlib_sources(pack_stdlib if pack_stdlib.is_dir() else stdlib_dir, mode)
     zip_path = lib_dir / stdlib_zip_name(version)
+    if pack_stdlib.is_dir() and not any(pack_stdlib.glob("*.py")):
+        # A pack that carries the zipped stdlib (the self-compiled compiler's
+        # own runtime) has no sources to re-trim: the zip travels as is.
+        carried = pack_stdlib_zip(pack_directory, version)
+        if carried is not None:
+            shutil.copy2(carried, zip_path)
+            if stdlib_dir.is_dir():
+                shutil.rmtree(stdlib_dir)
+            dynload = stdlib_dir / "lib-dynload"
+            dynload.mkdir(parents=True, exist_ok=True)
+            return zip_path
+    sources = stdlib_sources(pack_stdlib if pack_stdlib.is_dir() else stdlib_dir, mode)
     write_zip(sources, pack_stdlib if pack_stdlib.is_dir() else stdlib_dir, zip_path)
-    import shutil
 
     if stdlib_dir.is_dir():
         shutil.rmtree(stdlib_dir)
