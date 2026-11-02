@@ -431,6 +431,15 @@ def _run_pyrefly(
         raise CheckFailed("\n".join(_format_pyrefly_error(err) for err in kept))
     # Diagnostics go to stdout; stderr carries WARN/INFO progress lines.
     output = proc.stdout.strip() or proc.stderr.strip() or f"pyrefly exited {proc.returncode}"
+    if "usage: pyscriptc" in output:
+        # A self-compiled pyscriptc has no Python interpreter to run
+        # `python -m pyrefly`: the fallback launched the compiler itself, and
+        # the compiler printed its own usage. Name the remedy instead.
+        raise CheckFailed(
+            "pyrefly is not installed for this compiler; the checker is an external tool. "
+            "Install it (pip install pyrefly) or point PYREFLY_BIN at a pyrefly binary, "
+            "or compile with --skip-check"
+        )
     raise CheckFailed(output)
 
 

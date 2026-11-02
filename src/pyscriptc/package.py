@@ -515,6 +515,17 @@ def stage_program_data(
         target = root_dir / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(body)
+    # A program that is itself a compiler (pyscriptc compiled with
+    # --program) resolves packaging/runtime.lock.toml relative to its
+    # package at run time; the lock lives outside the program directory in
+    # the repo, so stage it next to the package data tree explicitly.
+    from pyscriptc import embed as _embed
+
+    lock = _embed.lock_path()
+    if lock.is_file():
+        target = root_dir.parent / "packaging" / lock.name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(lock.read_bytes())
     return (root_dir.parent.name, root_dir.name)
 
 
