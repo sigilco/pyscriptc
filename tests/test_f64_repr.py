@@ -24,8 +24,7 @@ import sys
 from pathlib import Path
 
 import pytest
-
-from tests.test_gates import ROOT, compile_run, run_cli, write_case
+from tests.test_gates import ROOT, run_cli, write_case
 
 RUNTIME = ROOT / "src" / "pyscriptc" / "runtime"
 
@@ -161,7 +160,9 @@ def test_float_spelling_matches_cpython_repr(tmp_path: Path) -> None:
     assert ran.returncode == 0, ran.stderr
     got = ran.stdout.splitlines()
     assert len(got) == len(values)
-    mismatches = [(value, spelling) for value, spelling in zip(values, got) if repr(value) != spelling]
+    mismatches = [
+        (value, spelling) for value, spelling in zip(values, got, strict=True) if repr(value) != spelling
+    ]
     assert not mismatches, f"{len(mismatches)} spellings differ from CPython: {mismatches[:5]}"
 
 
@@ -184,7 +185,7 @@ def test_float_spelling_is_the_same_on_glibc_and_musl(tmp_path: Path) -> None:
         assert ran.returncode == 0, ran.stderr
         outputs[name] = ran.stdout.splitlines()
     assert outputs["glibc"] == outputs["musl"], "the two libcs spell a float differently"
-    mismatches = [(v, s) for v, s in zip(values, outputs["glibc"]) if repr(v) != s]
+    mismatches = [(v, s) for v, s in zip(values, outputs["glibc"], strict=True) if repr(v) != s]
     assert not mismatches, f"{len(mismatches)} spellings differ from CPython: {mismatches[:5]}"
 
 
@@ -216,7 +217,9 @@ def test_compiled_float_print_matches_cpython(tmp_path: Path) -> None:
 
 def test_whole_floats_print_in_fixed_notation(tmp_path: Path) -> None:
     """The exponent form CPython does not use at that magnitude is gone:
-    `10.0` prints `10.0`, not `1e+01`. The entry is gone from the divergence list: `ps_f64_str` takes the shortest digits from Ryu and CPython's own notation rule, so the exponent form cannot appear."""
+    `10.0` prints `10.0`, not `1e+01`. The entry left the divergence list:
+    `ps_f64_str` takes the shortest digits from Ryu and applies CPython's own
+    notation rule, so the exponent form cannot appear."""
     path = write_case(
         tmp_path,
         "whole.py",
