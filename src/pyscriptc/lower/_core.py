@@ -10,7 +10,22 @@ from __future__ import annotations
 import ast
 from typing import Any
 
+from pyscriptc import _irnode as _ir
+from pyscriptc._irnode import P_BOOL, P_FLOAT, P_INT, P_NONE, P_STR, t_leaf, t_list
 from pyscriptc.ir import types_equal
+from pyscriptc.tirserde import dict_to_node, dict_to_span, dict_to_type, node_to_dict
+
+
+def _mk_span(span: dict[str, Any]) -> Any:
+    """The Span record the dict-IR span spells."""
+
+    return dict_to_span(span)
+
+
+def _mk_type(typ: dict[str, Any]) -> Any:
+    """The T record the dict-IR type spells."""
+
+    return dict_to_type(typ)
 
 
 class Fence(Exception):
@@ -50,7 +65,11 @@ class Binding:
 
 
 def _assign(target: str, value: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "assign", "target": target, "value": value, "span": span}
+    return node_to_dict(irnode_assign(target, value, span))
+
+
+def irnode_assign(target: str, value: dict[str, Any], span: dict[str, Any]) -> Any:
+    return _ir.assign(target, dict_to_node(value), _mk_span(span))
 
 
 def _const_str_join(parts: list[dict[str, Any]], span: dict[str, Any]) -> dict[str, Any] | None:
@@ -59,15 +78,23 @@ def _const_str_join(parts: list[dict[str, Any]], span: dict[str, Any]) -> dict[s
     if any(part.get("kind") != "const" or part.get("type", {}).get("kind") != "str" for part in parts):
         return None
     text = "".join(str(part["value"]) for part in parts)
-    return {"kind": "const", "value": text, "type": {"kind": "str"}, "span": span}
+    return _const_str(text, span)
 
 
 def _concat_str(parts: list[dict[str, Any]], span: dict[str, Any]) -> dict[str, Any]:
     if not parts:
-        return {"kind": "const", "value": "", "type": {"kind": "str"}, "span": span}
+        return _const_str("", span)
     acc = parts[0]
     for part in parts[1:]:
-        acc = {"kind": "binary", "op": "+", "left": acc, "right": part, "type": {"kind": "str"}, "span": span}
+        acc = node_to_dict(
+            _ir.binary(
+                "+",
+                dict_to_node(acc),
+                dict_to_node(part),
+                t_leaf("str"),
+                _mk_span(span),
+            )
+        )
     return acc
 
 
@@ -82,20 +109,21 @@ def _const_list_concat(left: dict[str, Any], right: dict[str, Any], span: dict[s
         return None
     if not types_equal(left["type"]["elem"], right["type"]["elem"]):
         return None
-    return {
-        "kind": "list",
-        "elems": [*left["elems"], *right["elems"]],
-        "type": {"kind": "list", "elem": left["type"]["elem"]},
-        "span": span,
-    }
+    return node_to_dict(
+        _ir.list_lit(
+            [dict_to_node(elem) for elem in [*left["elems"], *right["elems"]]],
+            t_list(dict_to_type(left["type"]["elem"])),
+            _mk_span(span),
+        )
+    )
 
 
 def _name(name: str, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "name", "id": name, "type": typ, "span": span}
+    return node_to_dict(_ir.name_expr(name, dict_to_type(typ), _mk_span(span)))
 
 
 def _const_int(value: int, span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "const", "value": str(value), "type": {"kind": "int"}, "span": span}
+    return node_to_dict(_ir.const_node(P_INT, str(value), t_leaf("int"), _mk_span(span)))
 
 
 def _int_text(value: str) -> bool:
@@ -116,11 +144,11 @@ def _static_int(expr: dict[str, Any]) -> int | None:
 
 
 def _const_bool(value: bool, span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "const", "value": value, "type": {"kind": "bool"}, "span": span}
+    return node_to_dict(_ir.const_node(P_BOOL, "true" if value else "false", t_leaf("bool"), _mk_span(span)))
 
 
 def _const_none(span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "const", "value": None, "type": {"kind": "none"}, "span": span}
+    return node_to_dict(_ir.const_node(P_NONE, "", t_leaf("none"), _mk_span(span)))
 
 
 def _const_truthy(value: dict[str, Any] | None) -> bool | None:
@@ -190,21 +218,25 @@ def module_needs_slot(value: dict[str, Any]) -> bool:
 
 
 def _len_call(seq: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "kind": "call",
-        "callee": {"kind": "builtin", "name": "len"},
-        "args": [seq],
-        "type": {"kind": "int"},
-        "span": span,
-    }
+    return node_to_dict(
+        _ir.call(
+            _ir.builtin("len"),
+            [dict_to_node(seq)],
+            t_leaf("int"),
+            _mk_span(span),
+            "",
+            "",
+            -1,
+        )
+    )
 
 
 def _binary_int(op: str, left: dict[str, Any], right: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "binary", "op": op, "left": left, "right": right, "type": {"kind": "int"}, "span": span}
+    return node_to_dict(_ir.binary(op, dict_to_node(left), dict_to_node(right), t_leaf("int"), _mk_span(span)))
 
 
 def _compare(op: str, left: dict[str, Any], right: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "compare", "op": op, "left": left, "right": right, "type": {"kind": "bool"}, "span": span}
+    return node_to_dict(_ir.compare(op, dict_to_node(left), dict_to_node(right), t_leaf("bool"), _mk_span(span)))
 
 
 _OP_SYMBOLS = {
@@ -431,23 +463,28 @@ def _package_base(module_name: str, is_package: bool, level: int) -> list[str] |
 def _tuple_assign(
     dest: str, typ: dict[str, Any], elems: list[dict[str, Any]], span: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    made = {
-        "kind": "call",
-        "callee": {"kind": "class", "name": typ["name"]},
-        "args": [],
-        "type": typ,
-        "span": span,
-    }
+    made = node_to_dict(
+        _ir.call(
+            _ir.class_callee(dict_to_type(typ).name),
+            [],
+            dict_to_type(typ),
+            _mk_span(span),
+            "",
+            "",
+            -1,
+        )
+    )
     stmts = [_assign(dest, made, span)]
     for index, elem in enumerate(elems):
         stmts.append(
-            {
-                "kind": "setattr",
-                "object": _name(dest, typ, span),
-                "name": f"_{index}",
-                "value": elem,
-                "span": span,
-            }
+            node_to_dict(
+                _ir.setattr_stmt(
+                    _ir.name_expr(dest, dict_to_type(typ), _mk_span(span)),
+                    f"_{index}",
+                    dict_to_node(elem),
+                    _mk_span(span),
+                )
+            )
         )
     return stmts
 
@@ -458,11 +495,11 @@ def _zero(typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
     if typ["kind"] == "bool":
         return _const_bool(False, span)
     if typ["kind"] == "float":
-        return {"kind": "const", "value": "0.0", "type": typ, "span": span}
+        return node_to_dict(_ir.const_node(P_FLOAT, "0.0", dict_to_type(typ), _mk_span(span)))
     if typ["kind"] == "list":
-        return {"kind": "list", "elems": [], "type": typ, "span": span}
+        return node_to_dict(_ir.list_lit([], dict_to_type(typ), _mk_span(span)))
     if typ["kind"] == "dict":
-        return {"kind": "dict", "pairs": [], "type": typ, "span": span}
+        return node_to_dict(_ir.dict_lit([], dict_to_type(typ), _mk_span(span)))
     if typ["kind"] == "any":
         # The unresolved slot has no zero: `d: dict[str, Any]` with no
         # initializer starts as an empty dict under the container's own
@@ -472,26 +509,30 @@ def _zero(typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
     if typ["kind"] == "class":
         # Fresh for-targets of a synthetic tuple class start as a zeroed
         # instance (ps_alloc calloc); the loop step then rebinding every field.
-        return {
-            "kind": "call",
-            "callee": {"kind": "class", "name": typ["name"]},
-            "args": [],
-            "type": typ,
-            "span": span,
-        }
-    return {"kind": "const", "value": "", "type": typ, "span": span}
+        return node_to_dict(
+            _ir.call(
+                _ir.class_callee(dict_to_type(typ).name),
+                [],
+                dict_to_type(typ),
+                _mk_span(span),
+                "",
+                "",
+                -1,
+            )
+        )
+    return node_to_dict(_ir.const_node(P_STR, "", dict_to_type(typ), _mk_span(span)))
 
 
 def _attr(value: dict[str, Any], name: str, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "attr", "value": value, "name": name, "type": typ, "span": span}
+    return node_to_dict(_ir.attr(name, dict_to_type(typ), dict_to_node(value), _mk_span(span)))
 
 
 def _item(value: dict[str, Any], index: dict[str, Any], typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "subscript", "value": value, "index": index, "type": typ, "span": span}
+    return node_to_dict(_ir.subscript(dict_to_node(value), dict_to_node(index), dict_to_type(typ), _mk_span(span)))
 
 
 def _const_str(value: str, span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "const", "value": value, "type": {"kind": "str"}, "span": span}
+    return node_to_dict(_ir.const_str(value, t_leaf("str"), _mk_span(span)))
 
 
 def _const_float(value: float, span: dict[str, Any]) -> dict[str, Any]:
@@ -542,7 +583,7 @@ def _make_const(val: Any, span: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _raise_value(message: dict[str, Any] | None, span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "raise", "exc": "ValueError", "message": message, "span": span}
+    return node_to_dict(_ir.raise_stmt("ValueError", _mk_span(span), -1, dict_to_node(message)))
 
 
 def _is_none_expr(node: ast.expr) -> bool:
