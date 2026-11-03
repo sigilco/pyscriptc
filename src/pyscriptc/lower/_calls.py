@@ -404,10 +404,10 @@ class CallsMixin:
         """`_fill_args` for a signature with TypeVar placeholders: each
         argument lowers once; placeholder parameters unify their declared
         TypeVars against the argument type instead of expecting it."""
+        self._expand_kwdisplay(node)
         if any(kw.arg is None for kw in node.keywords):
             self.fail(node, "PS2002", kwargs_call_note())
-        if any(isinstance(arg, ast.Starred) for arg in node.args):
-            self.fail(node, "PS2002", "starred calls are not lowered")
+        node.args = self._expand_starred(node)
         var_index = next((index for index, param in enumerate(params) if param.get("vararg")), None)
         ordinary = params if var_index is None else params[:var_index]
         if var_index is None and len(node.args) > len(params):
@@ -1614,10 +1614,10 @@ class CallsMixin:
         return slots
 
     def _fill_args(self, node: ast.Call, params: list[dict[str, Any]], what: str) -> list[dict[str, Any]]:
+        self._expand_kwdisplay(node)
         if any(kw.arg is None for kw in node.keywords):
             self.fail(node, "PS2002", kwargs_call_note())
-        if any(isinstance(arg, ast.Starred) for arg in node.args):
-            self.fail(node, "PS2002", "starred calls are not lowered")
+        node.args = self._expand_starred(node)
         var_index = next(
             (index for index, param in enumerate(params) if param.get("vararg") or param.get("kwarg")), None
         )
@@ -1690,6 +1690,62 @@ class CallsMixin:
             self.locals[temp] = value["type"]
             self.prelude.append(_assign(temp, value, span))
             slots[index] = _name(temp, value["type"], span)
+
+    def _expand_starred(self, node: ast.Call) -> list[ast.expr]:
+        """Positional arguments with statically-lengthed starred operands
+        expanded in place: `f(*[1, 2])` and `f(*(1, 2))` fill the known
+        signature positionally, so arity mismatches stay PS1003 count
+        errors.
+
+        A starred operand whose length the compiler cannot see (a bound
+        list name, a call result) keeps the PS2002 fence: the callee is
+        static, so the frame slots are fixed and nothing replays a
+        runtime-length tail into them.
+        """
+        if not any(isinstance(arg, ast.Starred) for arg in node.args):
+            return node.args
+        expanded: list[ast.expr] = []
+        for arg in node.args:
+            if not isinstance(arg, ast.Starred):
+                expanded.append(arg)
+                continue
+            operand = arg.value
+            display = isinstance(operand, (ast.List, ast.Tuple)) and not any(
+                isinstance(elt, ast.Starred) for elt in operand.elts
+            )
+            if not display:
+                self.fail(arg, "PS2002", "starred calls are not lowered")
+            expanded.extend(operand.elts)
+        return expanded
+
+    def _expand_kwdisplay(self, node: ast.Call) -> None:
+        """A `**` operand that is a dict display with constant str keys
+        forwards as explicit keyword arguments: `f(**{"a": 1})` binds the
+        `a` parameter exactly like `f(a=1)`.
+
+        The display is rewritten into `node.keywords` pairs before any fill
+        path runs, so duplicates, unknown names, and missing parameters
+        surface as the ordinary keyword-binding diagnostics. A `**` operand
+        that is not a display (a name, a call) keeps the PS2002 fence: a
+        runtime dict carries no static key set, so the lowering cannot
+        prove which declared params its members bind to.
+        """
+        if not any(kw.arg is None for kw in node.keywords):
+            return
+        keywords: list[ast.keyword] = []
+        for kw in node.keywords:
+            if kw.arg is not None:
+                keywords.append(kw)
+                continue
+            operand = kw.value
+            display = isinstance(operand, ast.Dict) and not any(key is None for key in operand.keys)
+            if not display:
+                self.fail(kw, "PS2002", kwargs_call_note())
+            for key_node, val_node in zip(operand.keys, operand.values, strict=True):
+                if not isinstance(key_node, ast.Constant) or not isinstance(key_node.value, str):
+                    self.fail(key_node, "PS2002", kwargs_call_note())
+                keywords.append(ast.keyword(arg=key_node.value, value=val_node))
+        node.keywords = keywords
 
     def _fill_varargs(
         self, node: ast.Call, params: list[dict[str, Any]], var_index: int, what: str

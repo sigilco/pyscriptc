@@ -1189,8 +1189,7 @@ class ClassesMixin:
         later ones check against them, like a class without an `__init__`.
         """
         fields = info["nt_fields"]
-        if any(isinstance(arg, ast.Starred) for arg in node.args):
-            self.fail(node, "PS2002", "starred calls are not lowered")
+        node.args = self._expand_starred(node)
         if len(node.args) > len(fields):
             self.fail(node, "PS2003", f"{name}() expects {len(fields)} argument(s)")
         values: dict[str, dict[str, Any]] = {}
