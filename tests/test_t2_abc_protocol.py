@@ -145,6 +145,46 @@ def test_t2_protocol_annotation_is_permissive(tmp_path: Path) -> None:
 
 
 @pytest.mark.linux_container
+def test_t2_protocol_receiver_with_override_fences(tmp_path: Path) -> None:
+    # Issue #801: a Protocol with a concrete body plus a subclass override.
+    # Method calls lower statically (`cls.{owner}.{method}`), so a Protocol-
+    # typed receiver dispatched to the Protocol body and printed PROTO where
+    # CPython prints IMPL. There is no virtual call yet, so the call fences
+    # instead of silently miscompiling.
+    path = write_case(
+        tmp_path,
+        "proto_override.py",
+        "\n".join(
+            [
+                "from typing import Protocol",
+                "",
+                "class Bridge(Protocol):",
+                "    def greet(self) -> str:",
+                "        return 'PROTO'",
+                "",
+                "class Impl(Bridge):",
+                "    def greet(self) -> str:",
+                "        return 'IMPL'",
+                "",
+                "def take(b: Bridge) -> str:",
+                "    return b.greet()",
+                "",
+                "def run() -> int:",
+                "    print(take(Impl()))",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+    got = compile_run(tmp_path, path, "run")
+    assert got.returncode != 0
+    assert "PS2001" in got.stderr
+    assert "Protocol-typed receiver" in got.stderr
+    assert "PROTO" not in got.stdout
+    assert "IMPL" not in got.stdout
+
+
+@pytest.mark.linux_container
 def test_t2_overload_stubs_erase(tmp_path: Path) -> None:
     path = write_case(
         tmp_path,

@@ -1404,9 +1404,31 @@ class CallsMixin:
         info = self.classes[class_name]
         sig = info["methods"].get(method)
         kind = info.get("method_kind", {}).get(method, "method")
+        if info.get("protocol") and kind == "method" and self._concrete_protocol_impl(class_name, method) is not None:
+            # Issue #801: method calls lower statically (`cls.{owner}.{method}`),
+            # so a Protocol-typed receiver dispatches to the Protocol body even
+            # when the value's real class overrides the method: silent wrong
+            # answer. Fence until dispatch through the concrete record exists.
+            self.fail(
+                node,
+                "PS2001",
+                f"a Protocol-typed receiver dispatches statically; {class_name}.{method} "
+                "has no virtual call on a concrete subclass (use the concrete type)",
+            )
         if sig is None or method == "__init__" or kind == "property":
             if kind == "property":
                 self.fail(node, "PS2002", "a property is not called")
+            if info.get("protocol") and self._concrete_protocol_impl(class_name, method) is not None:
+                # Issue #801: declaration-only Protocol members skip class
+                # lowering, so the receiver resolves to no body at all while a
+                # concrete override exists. Fence instead of a bare "not a
+                # method": the same dispatch gap.
+                self.fail(
+                    node,
+                    "PS2001",
+                    f"a Protocol-typed receiver dispatches statically; {class_name}.{method} "
+                    "has no virtual call on a concrete subclass (use the concrete type)",
+                )
             self.fail(node, "PS2001", f"{class_name}.{method} is not a method")
         if kind in {"static", "class"}:
             owner = info.get("method_owner", {}).get(method, class_name)
@@ -1422,6 +1444,21 @@ class CallsMixin:
             "type": sig[1],
             "span": span,
         }
+
+    def _concrete_protocol_impl(self, protocol_name: str, method: str) -> str | None:
+        """A subclass of `protocol_name` that owns its own `method` body.
+
+        Protocol-typed method calls dispatch statically (issue #801): they
+        always emit `cls.{protocol}.{method}`, so a concrete override on the
+        value's real class never runs. This probe tells the fence whether the
+        misdispatch is reachable.
+        """
+        for name, info in self.classes.items():
+            if name == protocol_name or info.get("protocol"):
+                continue
+            if info.get("method_owner", {}).get(method) == name and self._is_subclass_name(name, protocol_name):
+                return name
+        return None
 
     def _str_of_opt(self, node: ast.expr, arg: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
         """`str(opt)`: "None" when the tag is clear, str(_val) when set."""
