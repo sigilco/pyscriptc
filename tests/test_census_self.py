@@ -304,5 +304,6 @@ def test_self_census_ballpark() -> None:
     # 3226 -> 3229: the verdict annotations lose 5 dynamic-annotation fences
     # and the record boundary adds 8 (the row builder and its dict); the
     # family falls 692 -> 687.
-    assert census["fences"] == 3229
-    assert sum(p["fences"] for p in census["packages"]) == 3229
+    # Rebased on master with the telemetry flush and internal property: 3229 -> 3238.
+    assert census["fences"] == 3238
+    assert sum(p["fences"] for p in census["packages"]) == 3238
