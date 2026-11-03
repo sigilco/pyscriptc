@@ -305,7 +305,7 @@ def dependency_lanes(dependencies: tuple[str, ...], imports: dict[str, str] | No
             lanes[requirement] = POLICY_TO_LANE[chosen]
             continue
         verdict = classify(module, distribution=dist)
-        lane = verdict["lane"]
+        lane = verdict.lane
         lanes[requirement] = "native" if lane == "absent" else lane
     return lanes
 

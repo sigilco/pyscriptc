@@ -297,5 +297,13 @@ def test_self_census_ballpark() -> None:
     # 732 -> 716.
     # The builtin-module bundle fix (#791) adds 4 more in stdlibzip.py and
     # package.py: 3185 -> 3189.
-    assert census["fences"] == 3218
-    assert sum(p["fences"] for p in census["packages"]) == 3218
+    # stdmore.py (named records for the rest tables, the typing-hygiene
+    # slice) moves 3218 -> 3226: the table rows lose 24 dynamic-annotation
+    # fences and the record converters add 8; the family falls 716 -> 692, then imports.py takes it to 687.
+    # imports.py (the Verdict record, the typing-hygiene slice) moves
+    # 3226 -> 3229: the verdict annotations lose 5 dynamic-annotation fences
+    # and the record boundary adds 8 (the row builder and its dict); the
+    # family falls 692 -> 687.
+    # Rebased on master with the telemetry flush and internal property: 3229 -> 3238.
+    assert census["fences"] == 3238
+    assert sum(p["fences"] for p in census["packages"]) == 3238
