@@ -292,7 +292,8 @@ def test_self_census_ballpark() -> None:
     # and emitlib.py -1 each through the lowered-compiler re-run).
     # The self-host branch adds the exception-chain lowering (#814) and the
     # program import-cycle seed (#796): the census moves 3182 -> 3185.
+    # sigrec.py (named signature records) moves 3189 -> 3218 as it fences its own dynamic rows; the dynamic-annotation family falls 732 -> 716.
     # The builtin-module bundle fix (#791) adds 4 more in stdlibzip.py and
     # package.py: 3185 -> 3189.
-    assert census["fences"] == 3189
-    assert sum(p["fences"] for p in census["packages"]) == 3189
+    assert census["fences"] == 3218
+    assert sum(p["fences"] for p in census["packages"]) == 3218
