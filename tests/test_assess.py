@@ -188,6 +188,33 @@ def test_assess_reflection_culprits(tmp_path: Path, capsys: pytest.CaptureFixtur
     assert data["summary"]["definitions"]["island"] == 1
 
 
+def test_assess_summary_agrees_with_plane_maps(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """The summary definition counts read the per-file plane maps (issue #814).
+
+    The plane map is what the fallback tier plans (a fenced definition rides
+    the island), so the summary cannot disagree with it: the per-file island
+    counts summed must equal the summary's island count.
+    """
+
+    lib_dir = tmp_path / "mylib"
+    lib_dir.mkdir()
+    (lib_dir / "mod_a.py").write_text(MIXED_LIBRARY_A, encoding="utf-8")
+    (lib_dir / "mod_b.py").write_text(REFLECTION_SCRIPT, encoding="utf-8")
+
+    code = cli.main(["assess", str(lib_dir), "--json"])
+    assert code == 0
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    plane_island = 0
+    for f in data["files"]:
+        pm = f["planeMap"]
+        plane_island += sum(1 for p in pm.get("functions", {}).values() if p == "island")
+        plane_island += sum(1 for p in pm.get("classes", {}).values() if p == "island")
+    assert data["summary"]["definitions"]["island"] == plane_island
+    assert data["summary"]["definitions"]["island"] >= 1
+
+
 def test_assess_real_app_directory(capsys: pytest.CaptureFixture[str]) -> None:
     jwtapp_path = Path("benchmarks/compat/pyjwt/src/jwtapp")
     assert jwtapp_path.is_dir()

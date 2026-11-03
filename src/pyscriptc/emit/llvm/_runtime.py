@@ -12,6 +12,7 @@ import re
 
 from pyscriptc.builtins import EXCEPTIONS
 from pyscriptc.ir import zdi_variants
+from pyscriptc.sigrec import sig_for
 from pyscriptc.stdlib_queue import MATH_FUNCTIONS
 
 
@@ -158,7 +159,7 @@ def _runtime_declarations(needed: set[str]) -> list[str]:
         )
     if "math" in needed:
         lines.append("declare i64 @ps_float_to_int(double)")
-        for spec in MATH_FUNCTIONS.values():
+        for spec in (sig_for(row) for row in MATH_FUNCTIONS.values()):
             symbol = spec["symbol"]
             if not symbol:
                 continue

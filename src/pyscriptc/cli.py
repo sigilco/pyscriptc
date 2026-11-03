@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import ast
 import contextlib
+import importlib.util
 import io
 import json
 import os
@@ -20,8 +21,9 @@ from typing import Any
 from pyscriptc import embed, runcache, sitedeps, stdlibzip
 
 # boxed:end
-from pyscriptc.config import apply_to_args, entry_points, load_config
+from pyscriptc.config import Config, apply_to_args, entry_points, load_config
 from pyscriptc.errors import CheckFailed, FitError, IRError, SpikeError, VersionError
+from pyscriptc.ffi_manifest import FfiManifest
 from pyscriptc.log import enable_debug, get_logger, tail
 
 log = get_logger()
@@ -1613,7 +1615,7 @@ def _require_toolchain(args: argparse.Namespace) -> None:
         )
 
 
-def _load_ffi(args: argparse.Namespace, config: Any) -> list[Any]:
+def _load_ffi(args: argparse.Namespace, config: Config) -> list[FfiManifest]:
     """The `--ffi` manifests of this compile, CLI first then the config file.
 
     The manifests are validated before lowering starts, so a bad pin or a
@@ -1632,7 +1634,7 @@ def _load_ffi(args: argparse.Namespace, config: Any) -> list[Any]:
     return manifests
 
 
-def _require_manifest_units(manifest: Any) -> None:
+def _require_manifest_units(manifest: FfiManifest) -> None:
     """Refuse a manifest whose declared unit is missing, before the build starts.
 
     The linker checks the same paths, but the manifest is what names the
@@ -1647,7 +1649,7 @@ def _require_manifest_units(manifest: Any) -> None:
             )
 
 
-def _manifest_stub_roots(manifests: list[Any]) -> list[Path]:
+def _manifest_stub_roots(manifests: list[FfiManifest]) -> list[Path]:
     """The directories the checker searches for a manifest module's stub.
 
     An adapter ships its surface as a `.pyi` beside the manifest (the
@@ -2049,7 +2051,12 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             carried = stdlibzip.kept_module_names(
                 stdlibzip.stdlib_sources(pack_directory / "lib" / f"python{embed_version}", trim)
             )
-            stdlibzip.manifest_check(carried, _stdlib_imports(source_path), trim)
+            stdlibzip.manifest_check(
+                carried,
+                _stdlib_imports(source_path),
+                trim,
+                interpreter=stdlibzip.interpreter_modules(pack_directory, embed_version),
+            )
         if resolved_embed == "bundle":
             pack = embed.lock_pack()
             staged = embed.stage_bundle(
@@ -2103,13 +2110,20 @@ def _stdlib_imports(source_path: Path) -> list[str]:
     for site in collect_imports(source_path):
         if site["level"] > 0 or not site["name"]:
             continue
-        if site["name"].split(".")[0] in sys.stdlib_module_names:
-            names.add(site["name"])
+        root = site["name"].split(".")[0]
+        if root not in sys.stdlib_module_names:
+            continue
+        # A stdlib name the running platform cannot import (msvcrt on POSIX,
+        # winreg on Linux) is unreachable on this host, so a bundle for this
+        # platform never carries it and the manifest check must not either.
+        if root not in sys.modules and importlib.util.find_spec(root) is None:
+            continue
+        names.add(site["name"])
     return sorted(names)
 
 
 def _dependency_roots(
-    source_path: Path, config: Any, island_default: bool = False
+    source_path: Path, config: Config, island_default: bool = False
 ) -> tuple[list[Path], list[Path], dict[str, dict[str, str]]]:
     """The dependency source roots the compile may import (issue #398).
 
@@ -2207,7 +2221,7 @@ def _collect_program_data(source_path: Path) -> list[tuple[Path, bytes]]:
 
 
 def _stage_dependency_data(
-    source_path: Path, config: Any, args: argparse.Namespace, binary: Path, island_default: bool = False
+    source_path: Path, config: Config, args: argparse.Namespace, binary: Path, island_default: bool = False
 ) -> Path | None:
     """Stage the pure wheels' data files beside the emitted binary (issue #410).
 
@@ -2247,7 +2261,7 @@ def _stage_dependency_data(
     return stage_data_files(collected, binary)
 
 
-def _dependency_lane(distribution: str, config: Any, island_default: bool = False) -> str:
+def _dependency_lane(distribution: str, config: Config, island_default: bool = False) -> str:
     """The `[imports]` policy lane of one distribution, `compile` by default."""
     from pyscriptc.config import requirement_name
 

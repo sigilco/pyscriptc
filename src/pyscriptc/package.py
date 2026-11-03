@@ -598,7 +598,9 @@ def _program_plan(
     CPython runs a module body once, at the first import that reaches it.
     The owner map says which module triggers each body, so the init call
     lands in the module whose import statement performs it. A cycle is
-    refused with the path that closes it.
+    refused with the path that closes it. Only import-time edges close a
+    cycle: a function-local import runs at call time, after the importing
+    module's body finished, so it never does.
     """
 
     trees: dict[str, ast.Module] = {}
@@ -716,6 +718,11 @@ def _program_imports(
     Relative imports (project mode's package units) resolve against the
     importing module's package: ``from . import x`` in ``pkg.a`` reaches
     ``pkg.x`` and, through it, ``pkg``'s own body.
+
+    Only the imports that run at import time count. A function-local import
+    runs when the function is called, so it cannot close an import-time
+    cycle: CPython has already finished the importing module's body by then.
+    The reach graph therefore skips function and method bodies.
     """
 
     found: list[str] = []
@@ -743,7 +750,7 @@ def _program_imports(
                     targets.append(base_name)
         return targets
 
-    for node in ast.walk(tree):
+    for node in _import_time_nodes(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 if alias.name in exports:
@@ -772,6 +779,51 @@ def _program_imports(
             elif node.level and module:
                 for target in resolve(node):
                     note(target)
+    return found
+
+
+def _import_time_nodes(tree: ast.Module) -> list[ast.AST]:
+    """The import statements that run when the module body runs.
+
+    A module body runs its top-level statements in order, so an import
+    nested in a top-level `if`, `try`, `with` or `match` runs at import
+    time too. A function or method body does not: its imports run at call
+    time, after the importing module's body has finished, so they cannot
+    close an import-time cycle .
+    """
+
+    found: list[ast.AST] = []
+
+    def walk(stmts: list[ast.stmt]) -> None:
+        for stmt in stmts:
+            if isinstance(stmt, ast.Import | ast.ImportFrom):
+                found.append(stmt)
+                continue
+            if isinstance(stmt, ast.If):
+                walk(stmt.body)
+                walk(stmt.orelse)
+                continue
+            if isinstance(stmt, ast.Try):
+                walk(stmt.body)
+                walk(stmt.orelse)
+                walk(stmt.finalbody)
+                for handler in stmt.handlers:
+                    walk(handler.body)
+                continue
+            if isinstance(stmt, ast.With | ast.AsyncWith):
+                walk(stmt.body)
+                continue
+            if isinstance(stmt, ast.Match):
+                for case in stmt.cases:
+                    walk(case.body)
+                continue
+            if isinstance(stmt, ast.ClassDef):
+                # A class body runs at import time: its imports are
+                # import-time edges.
+                walk(stmt.body)
+                continue
+
+    walk(tree.body)
     return found
 
 

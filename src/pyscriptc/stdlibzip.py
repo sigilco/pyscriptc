@@ -33,6 +33,8 @@ byte-for-byte from the same pack directory.
 from __future__ import annotations
 
 import ast
+import importlib.machinery
+import importlib.util
 import os
 import py_compile
 import sys
@@ -418,7 +420,96 @@ def _names_of_entry(name: str) -> set[str]:
     return {".".join(parts[: cut + 1]) for cut in range(len(parts))}
 
 
-def manifest_check(carried: set[str], imported: list[str], mode: str = DEFAULT_MODE) -> None:
+def _tree_module_names(stdlib_dir: Path) -> set[str]:
+    """The dotted module names a stdlib tree has a `.py` source for."""
+
+    names: set[str] = set()
+    if not stdlib_dir.is_dir():
+        return names
+    for path in stdlib_dir.rglob("*.py"):
+        relative = path.relative_to(stdlib_dir)
+        parts = list(relative.with_suffix("").parts)
+        if parts and parts[-1] == "__init__":
+            parts.pop()
+        for cut in range(1, len(parts) + 1):
+            names.add(".".join(parts[:cut]))
+    return names
+
+
+def _extension_stems(dynload: Path) -> set[str]:
+    """The module names the extension modules of a `lib-dynload/` directory carry."""
+
+    stems: set[str] = set()
+    if not dynload.is_dir():
+        return stems
+    for entry in dynload.iterdir():
+        # `_dbm.cpython-314-x86_64-linux-gnu.so` -> `_dbm`
+        stem = entry.name.split(".")[0]
+        if stem:
+            stems.add(stem)
+    return stems
+
+
+def interpreter_modules(pack_directory: Path, version: str) -> set[str]:
+    """The stdlib names the bundle's runtime serves without a zip entry.
+
+    A builtin lives inside the runtime binary (`math`, `binascii`, `zlib`,
+    `errno`, `fcntl`) and a frozen module inside it (`zipimport`, the
+    importlib bootstrap); neither has a `.py` file in the pack's stdlib tree,
+    so the trim keeps no source and the zip carries no entry, yet the bundle
+    still imports the module from the runtime. Builds disagree on where they
+    drew the builtin/extension line, so the set is read off the pack tree
+    the bundle actually links instead of the compiler host's own build.
+
+    The pack's extension modules are the exception: they live in
+    `lib-dynload/` as `.so` files, and the staged bundle ships an empty
+    `lib-dynload/`, so the bundle cannot import them. They stay out of this
+    set, and a program that imports one fails the compile (PS4301) instead
+    of the run.
+
+    A stdlib name no build of this platform provides (`msvcrt`, `winreg` on
+    POSIX) has no tree entry either; `_stdlib_imports` drops such a name
+    before the check, and it stays out of the demand here.
+    """
+    stdlib_dir = pack_directory / "lib" / f"python{version}"
+    with_source = _tree_module_names(stdlib_dir)
+    extensions = _extension_stems(stdlib_dir / "lib-dynload")
+    return (set(sys.stdlib_module_names) - with_source) - extensions
+
+
+def host_modules() -> set[str]:
+    """The stdlib names the running interpreter serves without a `.py` file.
+
+    The host link keeps the whole interpreter, so every module the host can
+    import counts as carried: a builtin (`math`), a frozen one (`zipimport`)
+    and an extension module of the host's `lib-dynload/` alike. The answer
+    comes from the host's own module table, not from the way this host was
+    built, so it does not change from one machine to the next.
+    """
+
+    names = set(sys.builtin_module_names)
+    for name in sys.stdlib_module_names:
+        try:
+            spec = importlib.util.find_spec(name)
+        except Exception:
+            # A name this host cannot even look up (a broken meta path) is
+            # not a module it serves; leave it out.
+            continue
+        if spec is None:
+            continue
+        if spec.origin in ("built-in", "frozen"):
+            names.add(name)
+        elif isinstance(spec.loader, importlib.machinery.ExtensionFileLoader):
+            names.add(name)
+    return names
+
+
+def manifest_check(
+    carried: set[str],
+    imported: list[str],
+    mode: str = DEFAULT_MODE,
+    interpreter: set[str] | None = None,
+) -> None:
     """Fail closed (PS4301) when an imported stdlib module is not carried.
 
     `carried` is what the trim keeps (`zip_modules` of the zip, or the kept
@@ -427,11 +518,24 @@ def manifest_check(carried: set[str], imported: list[str], mode: str = DEFAULT_M
     importable when the zip carries it or a parent of it; the caller passes
     stdlib names only, so relative and third-party imports are not this
     check's business.
+
+    A module the runtime serves without a zip entry (a builtin like `math`
+    or `binascii`, a frozen one like `zipimport`) needs no `.py` source in
+    the zip, so it counts as carried: the trim drops the source of such a
+    module, and the bundle still imports it.
+
+    `interpreter` is that source-free set (see `interpreter_modules`); it
+    defaults to the running interpreter's own (see `host_modules`), which is
+    the right answer for a host link and for the unit tests, and a bundle
+    compile passes the pack's set so the verdict follows the runtime it
+    links.
     """
 
+    if interpreter is None:
+        interpreter = host_modules()
     missing: list[str] = []
     for name in imported:
-        if not name or name in carried:
+        if not name or name in carried or name in interpreter:
             continue
         parts = name.split(".")
         if not any(".".join(parts[: cut + 1]) in carried for cut in range(len(parts))):

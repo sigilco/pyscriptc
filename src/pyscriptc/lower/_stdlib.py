@@ -54,13 +54,13 @@ from pyscriptc.lower._stdlib_shared import _ERASED_MODULES
 from pyscriptc.restlower import alias_name, rest_call
 from pyscriptc.stdlib_queue import (
     MATH_CONSTANTS,
-    MATH_FUNCTIONS,
     PACK_MODULES,
     SPECIAL_FUNCTIONS,
     canonical_module,
     dep_lanes,
     ffi_manifests,
     island_lane,
+    math_function,
     module_status,
     wave_function,
 )
@@ -284,8 +284,8 @@ class StdlibDispatchMixin:
             if status == "queued":
                 self.bindings[local] = Binding("func", module, alias.name, True)
                 continue
-            if module == "math" and alias.name in MATH_FUNCTIONS:
-                self.bindings[local] = Binding("func", module, alias.name, False, MATH_FUNCTIONS[alias.name]["return"])
+            if module == "math" and math_function(alias.name) is not None:
+                self.bindings[local] = Binding("func", module, alias.name, False, math_function(alias.name)["return"])
                 continue
             if module == "math" and alias.name in MATH_CONSTANTS:
                 self.bindings[local] = Binding("const", module, alias.name, False, {"kind": "float"})

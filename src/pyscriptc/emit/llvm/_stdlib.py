@@ -8,12 +8,13 @@ from typing import Any
 
 from pyscriptc.emit._ir import _llvm_type
 from pyscriptc.errors import IRError
+from pyscriptc.sigrec import sig_for
 from pyscriptc.stdlib_queue import MATH_FUNCTIONS
 
 
 class StdlibMixin:
     def _emit_math(self, name: str, values: list[str]) -> str:
-        spec = MATH_FUNCTIONS[name]
+        spec = sig_for(MATH_FUNCTIONS[name])
         if name == "isnan":
             reg = self.tmp()
             self.line(f"{reg} = fcmp uno double {values[0]}, 0.0")
