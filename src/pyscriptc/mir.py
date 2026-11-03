@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import hashlib
 import struct
-from dataclasses import dataclass, field
 
 
 class MirError(Exception):
@@ -160,49 +159,48 @@ OP_RESULT_TYPE = {
 
 def copy_result_type(fn: MirFunction, i: int) -> int:
     arg2 = fn.arg2[i]
-    if arg2 in (MIR_W, MIR_D, MIR_B):
+    if arg2 == MIR_W or arg2 == MIR_D or arg2 == MIR_B:
         return arg2
     # A helper-carrying copy keeps both operands in arg1/arg2; its tag
     # rides the helpers entry beside the helper name.
     entry = fn.helpers.get(i)
     if entry is not None:
         tag = int(entry.split(" ")[1])
-        if tag in (MIR_W, MIR_D, MIR_B):
+        if tag == MIR_W or tag == MIR_D or tag == MIR_B:
             return tag
     return MIR_W
 
 
-# The ops that end a block.
-TERMINATORS = frozenset({MIR_JMP, MIR_BR, MIR_RET})
+# The ops that end a block. A list, not a set: `in` lowers for lists and
+# the table is four entries, so the membership walk costs nothing.
+TERMINATORS = [MIR_JMP, MIR_BR, MIR_RET]
 
 # The ops that produce a value a later instruction can reference.
-VALUE_OPS = frozenset(
-    {
-        MIR_ADDW,
-        MIR_SUBW,
-        MIR_MULW,
-        MIR_ADDD,
-        MIR_SUBD,
-        MIR_MULD,
-        MIR_NEGW,
-        MIR_NEGD,
-        MIR_CLTW,
-        MIR_CLEW,
-        MIR_CGTW,
-        MIR_CGEW,
-        MIR_CEQW,
-        MIR_CNEW,
-        MIR_CLTD,
-        MIR_CLED,
-        MIR_CGTD,
-        MIR_CGED,
-        MIR_CEQD,
-        MIR_CNED,
-        MIR_EXTWD,
-        MIR_COPY,
-        MIR_NOTB,
-    }
-)
+VALUE_OPS = [
+    MIR_ADDW,
+    MIR_SUBW,
+    MIR_MULW,
+    MIR_ADDD,
+    MIR_SUBD,
+    MIR_MULD,
+    MIR_NEGW,
+    MIR_NEGD,
+    MIR_CLTW,
+    MIR_CLEW,
+    MIR_CGTW,
+    MIR_CGEW,
+    MIR_CEQW,
+    MIR_CNEW,
+    MIR_CLTD,
+    MIR_CLED,
+    MIR_CGTD,
+    MIR_CGED,
+    MIR_CEQD,
+    MIR_CNED,
+    MIR_EXTWD,
+    MIR_COPY,
+    MIR_NOTB,
+]
 
 
 def const_ref(index: int) -> int:
@@ -229,15 +227,17 @@ def none_ref() -> int:
     return -1
 
 
-@dataclass
 class MirParam:
     """One function parameter: a value slot and its type tag."""
 
     vid: int
     typ: int
 
+    def __init__(self, vid: int, typ: int) -> None:
+        self.vid = vid
+        self.typ = typ
 
-@dataclass
+
 class MirConst:
     """One constant-pool entry. `typ` is `MIR_W` or `MIR_D`; exactly one of
     the two value fields is read."""
@@ -246,8 +246,12 @@ class MirConst:
     ival: int
     dval: float
 
+    def __init__(self, typ: int, ival: int, dval: float) -> None:
+        self.typ = typ
+        self.ival = ival
+        self.dval = dval
 
-@dataclass
+
 class MirBlockArg:
     """One typed block argument of a block: a value slot a predecessor
     passes and the block body reads. Types are `MIR_W`/`MIR_D`."""
@@ -255,8 +259,11 @@ class MirBlockArg:
     vid: int
     typ: int
 
+    def __init__(self, vid: int, typ: int) -> None:
+        self.vid = vid
+        self.typ = typ
 
-@dataclass
+
 class MirBlock:
     """One basic block: instructions over the function's parallel lists,
     its typed block arguments, and its successors.
@@ -270,13 +277,43 @@ class MirBlock:
 
     bid: int
     args: list[MirBlockArg]
-    succ1: int = -1
-    succ2: int = -1
-    br_args_true: list[int] = field(default_factory=list)
-    br_args_false: list[int] = field(default_factory=list)
+    succ1: int
+    succ2: int
+    br_args_true: list[int]
+    br_args_false: list[int]
+
+    def __init__(
+        self,
+        bid: int,
+        args: list[MirBlockArg] | None = None,
+        succ1: int = 0,
+        succ2: int = 0,
+        br_args_true: list[int] | None = None,
+        br_args_false: list[int] | None = None,
+    ) -> None:
+        self.bid = bid
+        block_args: list[MirBlockArg]
+        if args is None:
+            block_args = []
+        else:
+            block_args = list(args)
+        self.args = block_args
+        self.succ1 = succ1
+        self.succ2 = succ2
+        br_true: list[int]
+        if br_args_true is None:
+            br_true = []
+        else:
+            br_true = list(br_args_true)
+        self.br_args_true = br_true
+        br_false: list[int]
+        if br_args_false is None:
+            br_false = []
+        else:
+            br_false = list(br_args_false)
+        self.br_args_false = br_false
 
 
-@dataclass
 class MirFunction:
     """One lowered function: parallel instruction lists over a value-id
     space, a constant pool, its blocks, and the entry block id.
@@ -287,37 +324,57 @@ class MirFunction:
     """
 
     name: str
-    params: list[MirParam] = field(default_factory=list)
-    result: int = MIR_W
-    entry: int = 0
-    ops: list[int] = field(default_factory=list)
-    dsts: list[int] = field(default_factory=list)
-    arg1: list[int] = field(default_factory=list)
-    arg2: list[int] = field(default_factory=list)
-    blocks: list[MirBlock] = field(default_factory=list)
-    consts: list[MirConst] = field(default_factory=list)
+    params: list[MirParam]
+    result: int
+    entry: int
+    ops: list[int]
+    dsts: list[int]
+    arg1: list[int]
+    arg2: list[int]
+    blocks: list[MirBlock]
+    consts: list[MirConst]
     # Out-of-band helper names keyed by instruction index. The leaf slice
     # lowers a runtime-helper binary (`//`, `%`, `/`, ...) to a `MIR_COPY`
     # and records the `ps_*` helper the emitter renders at that index; the
     # canonical serializer deliberately omits it (the hash covers the
     # instruction stream, not the target's spelling of it).
-    helpers: dict[int, str] = field(default_factory=dict)
+    helpers: dict[int, str]
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.params = []
+        self.result = MIR_W
+        self.entry = 0
+        self.ops = []
+        self.dsts = []
+        self.arg1 = []
+        self.arg2 = []
+        self.blocks = []
+        self.consts = []
+        self.helpers = {}
 
     def n_instr(self) -> int:
         return len(self.ops)
 
 
-@dataclass
 class MirModule:
     """One lowered module: its functions and the entry function name."""
 
     source_file: str
     functions: list[MirFunction]
-    # The entry function name the direct path would have run, if any.
-    entry: str | None = None
+    # The entry function name the direct path would have run, if any. The
+    # None-vs-"" spelling is the dict's: None means no entry, "" an empty
+    # name.
+    entry: str | None
     # Out-of-slice function names: lowered nowhere, emitted by the direct
     # path unchanged. Empty when the whole module is in the slice.
-    skipped: list[str] = field(default_factory=list)
+    skipped: list[str]
+
+    def __init__(self, source_file: str, functions: list[MirFunction], entry: str | None = None) -> None:
+        self.source_file = source_file
+        self.functions = functions
+        self.entry = entry
+        self.skipped = []
 
 
 class MirBuilder:
@@ -328,43 +385,57 @@ class MirBuilder:
     flow is explicit: `start_block` opens a block, `emit_jmp`/`emit_br`/
     `emit_ret` close it. A value op inside no block, or a second value op
     after a terminator, is a `MirError`.
+
+    The `terminated` flag is an int (0/1), not a bool: bool fields do not
+    lower. The per-access list locals (`ops`, `dsts`, ...) alias the
+    function's lists because attribute-chained `append` does not lower.
     """
 
+    fn: MirFunction
+    next_vid: int
+    current: MirBlock | None
+    terminated: int
+
     def __init__(self, name: str) -> None:
-        self.fn = MirFunction(name=name)
+        self.fn = MirFunction(name)
         self.next_vid = 0
-        self.current: MirBlock | None = None
-        self.terminated = False
+        self.current = None
+        self.terminated = 0
 
     def add_param(self, typ: int) -> int:
         """Declare a parameter, return its value id."""
-        if typ not in (MIR_W, MIR_D, MIR_B):
+        if typ != MIR_W and typ != MIR_D and typ != MIR_B:
             raise MirError("parameter type must be MIR_W, MIR_B or MIR_D")
-        vid = self.next_vid
-        self.next_vid += 1
-        self.fn.params.append(MirParam(vid=vid, typ=typ))
+        vid: int = self.next_vid
+        self.next_vid = self.next_vid + 1
+        params: list[MirParam] = self.fn.params
+        params.append(MirParam(vid, typ))
         return vid
 
     def set_result(self, typ: int) -> None:
-        if typ not in (MIR_W, MIR_D, MIR_B):
+        if typ != MIR_W and typ != MIR_D and typ != MIR_B:
             raise MirError("result type must be MIR_W, MIR_B or MIR_D")
         self.fn.result = typ
 
     def const_b(self, value: int) -> int:
         """Intern a bool constant (0/1), return its operand encoding."""
-        for index, const in enumerate(self.fn.consts):
+        consts: list[MirConst] = self.fn.consts
+        for index in range(len(consts)):
+            const = consts[index]
             if const.typ == MIR_B and const.ival == value:
                 return const_ref(index)
-        self.fn.consts.append(MirConst(typ=MIR_B, ival=value, dval=0.0))
-        return const_ref(len(self.fn.consts) - 1)
+        consts.append(MirConst(MIR_B, value, 0.0))
+        return const_ref(len(consts) - 1)
 
     def const_w(self, value: int) -> int:
         """Intern an int constant, return its operand encoding."""
-        for index, const in enumerate(self.fn.consts):
+        consts: list[MirConst] = self.fn.consts
+        for index in range(len(consts)):
+            const = consts[index]
             if const.typ == MIR_W and const.ival == value:
                 return const_ref(index)
-        self.fn.consts.append(MirConst(typ=MIR_W, ival=value, dval=0.0))
-        return const_ref(len(self.fn.consts) - 1)
+        consts.append(MirConst(MIR_W, value, 0.0))
+        return const_ref(len(consts) - 1)
 
     def const_d(self, value: float) -> int:
         """Intern a float constant, return its operand encoding.
@@ -372,26 +443,31 @@ class MirBuilder:
         The lookup key is the IEEE-754 bit pattern, so `0.0` and `-0.0`
         stay distinct and a float equality quirk cannot merge them.
         """
+        consts: list[MirConst] = self.fn.consts
         bits = float_bits(value)
-        for index, const in enumerate(self.fn.consts):
+        for index in range(len(consts)):
+            const = consts[index]
             if const.typ == MIR_D and float_bits(const.dval) == bits:
                 return const_ref(index)
-        self.fn.consts.append(MirConst(typ=MIR_D, ival=0, dval=value))
-        return const_ref(len(self.fn.consts) - 1)
+        consts.append(MirConst(MIR_D, 0, value))
+        return const_ref(len(consts) - 1)
 
     def start_block(self, args: list[MirBlockArg] | None = None) -> int:
         """Open a block; returns its id. The first block is the entry."""
-        if self.current is not None and not self.terminated:
-            raise MirError(f"block {self.current.bid} has no terminator")
-        bid = len(self.fn.blocks)
-        block = MirBlock(bid=bid, args=[] if args is None else list(args))
-        self.fn.blocks.append(block)
+        current: MirBlock | None = self.current
+        if current is not None and not self.terminated:
+            raise MirError(f"block {current.bid} has no terminator")
+        blocks: list[MirBlock] = self.fn.blocks
+        bid: int = len(blocks)
+        block = MirBlock(bid, args, -1, -1, None, None)
+        blocks.append(block)
         self.current = block
-        self.terminated = False
+        self.terminated = 0
         return bid
 
     def _check_open(self, op: int) -> None:
-        if self.current is None:
+        current: MirBlock | None = self.current
+        if current is None:
             raise MirError(f"op {op} emitted outside a block")
         if self.terminated:
             raise MirError(f"op {op} emitted after a terminator")
@@ -404,24 +480,29 @@ class MirBuilder:
         arity = OP_ARITY.get(op)
         if arity is None:
             raise MirError(f"unknown op {op}")
-        if self.current is None:
+        current: MirBlock | None = self.current
+        if current is None:
             raise MirError(f"op {op} emitted outside a block")
         if self.terminated:
             raise MirError(f"op {op} emitted after a terminator")
-        self.fn.ops.append(op)
-        self.fn.dsts.append(dst)
-        self.fn.arg1.append(arg1)
-        self.fn.arg2.append(arg2)
-        return len(self.fn.ops) - 1
+        ops: list[int] = self.fn.ops
+        dsts: list[int] = self.fn.dsts
+        f_arg1: list[int] = self.fn.arg1
+        f_arg2: list[int] = self.fn.arg2
+        ops.append(op)
+        dsts.append(dst)
+        f_arg1.append(arg1)
+        f_arg2.append(arg2)
+        return len(ops) - 1
 
     def emit_val(self, op: int, arg1: int, arg2: int, typ: int) -> int:
         """Emit a value op with a fresh destination; returns the value id."""
         if op not in VALUE_OPS:
             raise MirError(f"op {op} is not a value op")
-        if typ not in (MIR_W, MIR_D, MIR_B):
+        if typ != MIR_W and typ != MIR_D and typ != MIR_B:
             raise MirError("value type must be MIR_W, MIR_B or MIR_D")
-        vid = self.next_vid
-        self.next_vid += 1
+        vid: int = self.next_vid
+        self.next_vid = self.next_vid + 1
         self.emit(op, vid, arg1, arg2)
         return vid
 
@@ -429,42 +510,46 @@ class MirBuilder:
         self.emit(MIR_NOP, -1, none_ref(), none_ref())
 
     def emit_copy(self, src: int, typ: int) -> int:
-        vid = self.next_vid
-        self.next_vid += 1
+        vid: int = self.next_vid
+        self.next_vid = self.next_vid + 1
         self.emit(MIR_COPY, vid, src, typ)
         return vid
 
     def emit_ret(self, value: int) -> None:
-        if self.current is None or self.terminated:
+        current: MirBlock | None = self.current
+        if current is None or self.terminated:
             raise MirError("ret outside an open block")
         self.emit(MIR_RET, -1, value, none_ref())
-        self.terminated = True
+        self.terminated = 1
 
     def emit_jmp(self, target: int) -> None:
-        if self.current is None or self.terminated:
+        current: MirBlock | None = self.current
+        if current is None or self.terminated:
             raise MirError("jmp outside an open block")
         self.emit(MIR_JMP, -1, target, none_ref())
-        self.current.succ1 = target
-        self.terminated = True
+        current.succ1 = target
+        self.terminated = 1
 
     def emit_br(self, cond: int, if_true: int, if_false: int, args_true: list[int], args_false: list[int]) -> None:
         """A conditional branch. `args_true`/`args_false` bind the target
         blocks' arguments positionally; `arg2` packs the false-target id
         and the false bindings live in the block's `succ2`-adjacent list.
         """
-        if self.current is None or self.terminated:
+        current: MirBlock | None = self.current
+        if current is None or self.terminated:
             raise MirError("br outside an open block")
         self.emit(MIR_BR, -1, cond, if_false)
-        self.current.succ1 = if_true
-        self.current.succ2 = if_false
-        self.current.br_args_true = list(args_true)
-        self.current.br_args_false = list(args_false)
-        self.terminated = True
+        current.succ1 = if_true
+        current.succ2 = if_false
+        current.br_args_true = list(args_true)
+        current.br_args_false = list(args_false)
+        self.terminated = 1
 
     def finish(self) -> MirFunction:
         """Return the function; refuses dangling open blocks."""
-        if self.current is not None and not self.terminated:
-            raise MirError(f"block {self.current.bid} has no terminator")
+        current: MirBlock | None = self.current
+        if current is not None and not self.terminated:
+            raise MirError(f"block {current.bid} has no terminator")
         return self.fn
 
 
@@ -484,35 +569,50 @@ def serialize(fn: MirFunction) -> str:
     """
     lines: list[str] = []
     lines.append(f"fn {fn.name} result={fn.result} entry={fn.entry}")
-    for param in fn.params:
+    params: list[MirParam] = fn.params
+    for i in range(len(params)):
+        param = params[i]
         lines.append(f"param v{param.vid} t{param.typ}")
-    for index, const in enumerate(fn.consts):
+    consts: list[MirConst] = fn.consts
+    for index in range(len(consts)):
+        const = consts[index]
         if const.typ == MIR_W:
             lines.append(f"const {index} w {const.ival}")
         elif const.typ == MIR_B:
             lines.append(f"const {index} b {const.ival}")
         else:
             lines.append(f"const {index} d {float_bits(const.dval)}")
-    for block in fn.blocks:
-        arg_ids = ",".join(f"v{item.vid}:t{item.typ}" for item in block.args)
+    blocks: list[MirBlock] = fn.blocks
+    for bi in range(len(blocks)):
+        block = blocks[bi]
+        bargs: list[MirBlockArg] = block.args
+        arg_ids: str = ",".join(f"v{bargs[i].vid}:t{bargs[i].typ}" for i in range(len(bargs)))
         lines.append(f"block {block.bid} args[{arg_ids}] succ {block.succ1} {block.succ2}")
-        br_true = block.br_args_true
-        br_false = block.br_args_false
+        br_true: list[int] = block.br_args_true
+        br_false: list[int] = block.br_args_false
         if br_true or br_false:
-            t = ",".join(str(item) for item in br_true)
-            f = ",".join(str(item) for item in br_false)
+            t: str = ",".join(str(br_true[i]) for i in range(len(br_true)))
+            f: str = ",".join(str(br_false[i]) for i in range(len(br_false)))
             lines.append(f"brbind true[{t}] false[{f}]")
-    for i in range(len(fn.ops)):
-        lines.append(f"instr {i} op{fn.ops[i]} dst{fn.dsts[i]} a1={fn.arg1[i]} a2={fn.arg2[i]}")
+    ops: list[int] = fn.ops
+    dsts: list[int] = fn.dsts
+    f_arg1: list[int] = fn.arg1
+    f_arg2: list[int] = fn.arg2
+    for i in range(len(ops)):
+        lines.append(f"instr {i} op{ops[i]} dst{dsts[i]} a1={f_arg1[i]} a2={f_arg2[i]}")
     return "\n".join(lines) + "\n"
 
 
 def module_serialize(module: MirModule) -> str:
     """The canonical text form of a whole module, functions in list order."""
+    functions: list[MirFunction] = module.functions
+    entry: str | None = module.entry
+    entry_text: str = "None" if entry is None else entry
     parts: list[str] = []
-    parts.append(f"module {module.source_file} entry={module.entry} n={len(module.functions)}")
-    for fn in module.functions:
-        parts.append(serialize(fn).rstrip("\n"))
+    parts.append(f"module {module.source_file} entry={entry_text} n={len(functions)}")
+    for i in range(len(functions)):
+        text = serialize(functions[i])
+        parts.append(text[: len(text) - 1])
     return "\n".join(parts) + "\n"
 
 
