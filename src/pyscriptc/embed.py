@@ -351,18 +351,10 @@ def host_has_shared_libpython() -> bool:
         return False
     if not Path(include).is_dir():
         return False
+    libdir_path = Path(libdir)
     mac = os.uname().sysname == "Darwin"
     name = f"libpython{version}.dylib" if mac else f"libpython{version}.so"
-    if (Path(libdir) / name).exists():
-        return True
-    # A relocated interpreter (a uv-managed toolchain, an installed binary)
-    # answers LIBDIR with the build machine's prefix, where the library does
-    # not exist. The running executable's own prefix holds it, so the host
-    # link is usable and `auto` must not fall back to the bundle.
-    for candidate in (Path(sys.base_prefix, "lib", name), Path(sys.base_prefix, "lib64", name)):
-        if candidate.exists():
-            return True
-    return False
+    return (libdir_path / name).exists()
 
 
 def resolve_mode(mode: str | None) -> str:
