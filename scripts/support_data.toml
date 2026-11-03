@@ -525,7 +525,7 @@ no = [["field(), asdict", '''@dataclasses.dataclass
 class D:
     a: int
 @@
-y: dict[str, int] = dataclasses.asdict(D(1))''', "PS2001"], ["frozen=, order= and other options", '''@dataclasses.dataclass(frozen=True)
+y: dict[str, int] = dataclasses.asdict(D(1))''', "PS2001"], ["order= and other options", '''@dataclasses.dataclass(order=True)
 class D:
     a: int
 @@

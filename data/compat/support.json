@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-10-28",
-  "commit": "0b108e1a50baec9381cf1b32152467178d934348",
+  "generated": "2026-11-03",
+  "commit": "c8c5742095e063277b3744ceae34bbef80e917d7",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -644,7 +644,7 @@
       "label": "`dataclasses`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "field(), asdict, frozen=, order= and other options",
+      "missing": "field(), asdict, order= and other options",
       "codes": [
         "PS1201",
         "PS2001"
@@ -778,8 +778,8 @@
       "name": "filelock",
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
-      "ratio": "238/641",
-      "blocking": "name-resolution (147), construct-other (101), generic-alias (52)",
+      "ratio": "237/641",
+      "blocking": "name-resolution (147), construct-other (102), generic-alias (55)",
       "codes": "PS2002, PS2001, PS1103"
     },
     {
@@ -810,7 +810,7 @@
       "name": "jmespath",
       "version": "1.1.0",
       "status": "\ud83d\udd34",
-      "ratio": "107/200",
+      "ratio": "106/200",
       "blocking": "param-inference (78), return-inference (15), class-body (9)",
       "codes": "PS1001, PS2002, PS1204"
     },
@@ -843,8 +843,8 @@
       "version": "1.1.1",
       "status": "\ud83d\udd34",
       "ratio": "92/132",
-      "blocking": "name-resolution (30), unlowered-type-name (21), decorators (21)",
-      "codes": "PS2002, PS1106, PS1201"
+      "blocking": "name-resolution (30), unlowered-type-name (22), construct-other (17)",
+      "codes": "PS2002, PS1106, PS2001"
     },
     {
       "name": "platformdirs",
