@@ -412,7 +412,6 @@ jobs:
         run: echo "The fixed point diverged. See the per-module table above; every DIVERGENT row is a module whose canonical IR moved between two runs of the same binary." >> "$GITHUB_STEP_SUMMARY"
 
   unit:
-  unit:
     # Required context `ruff and compat2`. Not a matrix job, so a
     # classifier skip reports this exact name as `skipped`, which
     # satisfies a required check (verified on #750/#751). No aggregator.
