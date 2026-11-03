@@ -55,6 +55,7 @@ from pyscriptc.restlower import method_spec as synth_method
 from pyscriptc.restlower._argparse import _add_argument, _parse_args
 from pyscriptc.restlower._asyncio import _task_method
 from pyscriptc.restlower._asyncio_sync import _prim_method
+from pyscriptc.sigrec import type_to_dict
 from pyscriptc.stdlib_queue import MATH_FUNCTIONS
 
 
@@ -882,17 +883,18 @@ class CallsMixin:
         spec = MATH_FUNCTIONS.get(attr)
         if spec is None:
             self.fail(node, "PS2001", f"math.{attr} is not in the lowered subset of math")
-        if len(node.args) != len(spec["params"]):
-            self.fail(node, "PS2003", f"math.{attr} expects {len(spec['params'])} argument(s)")
+        if len(node.args) != len(spec.params):
+            self.fail(node, "PS2003", f"math.{attr} expects {len(spec.params)} argument(s)")
         args = []
-        for arg_node, want in zip(node.args, spec["params"], strict=True):
+        for arg_node, want in zip(node.args, spec.params, strict=True):
             arg = self._expr(arg_node)
-            if want["kind"] == "float" and arg["type"]["kind"] == "int":
+            want_dict = type_to_dict(want)
+            if want_dict["kind"] == "float" and arg["type"]["kind"] == "int":
                 arg = {"kind": "cast", "op": "int_to_float", "value": arg, "type": {"kind": "float"}, "span": span}
-            if not types_equal(arg["type"], want):
+            if not types_equal(arg["type"], want_dict):
                 self.fail(node, "PS1003", f"math.{attr} argument is {_show(arg['type'])}, expected {_show(want)}")
             args.append(arg)
-        return _mod_call("math", attr, args, spec["return"], span)
+        return _mod_call("math", attr, args, type_to_dict(spec.ret), span)
 
     def _math_gcd(self, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         if len(node.args) != 2:
@@ -933,12 +935,12 @@ class CallsMixin:
     def _fixed_call(
         self, node: ast.Call, span: dict[str, Any], module: str, attr: str, spec: dict[str, Any]
     ) -> dict[str, Any]:
-        params: list[dict[str, Any]] = spec["params"]
-        names: list[str] | None = spec.get("names")
-        minimum = int(spec.get("min", len(params)))
+        params: list[dict[str, Any]] = [type_to_dict(param) for param in spec.params]
+        names: list[str] | None = spec.names
+        minimum = len(params) if spec.min < 0 else spec.min
         if names:
             named: list[dict[str, Any]] = []
-            defaults: list[str] = spec.get("defaults", [])
+            defaults: list[str] = spec.defaults or []
             for index, want in enumerate(params):
                 param: dict[str, Any] = {"name": names[index], "type": want}
                 if index >= minimum:
@@ -946,16 +948,16 @@ class CallsMixin:
                     param["default"] = {"kind": "const", "value": default, "type": want, "span": span}
                 named.append(param)
             args = self._fill_args(node, named, f"{module}.{attr}")
-            expr = _mod_call(module, attr, args, spec["return"], span)
-            if "symbol" in spec:
-                expr["symbol"] = spec["symbol"]
+            expr = _mod_call(module, attr, args, type_to_dict(spec.ret), span)
+            if spec.symbol is not None:
+                expr["symbol"] = spec.symbol
             return expr
         if node.keywords:
             self.fail(node, "PS2003", "keyword arguments are not lowered")
         if len(node.args) < minimum or len(node.args) > len(params):
             self.fail(node, "PS2003", f"{module}.{attr} expects {minimum} argument(s)")
         args: list[dict[str, Any]] = []
-        defaults: list[str] = spec.get("defaults", [])
+        defaults: list[str] = spec.defaults or []
         for index, want in enumerate(params):
             if index >= len(node.args):
                 default = defaults[index - minimum]
@@ -964,10 +966,10 @@ class CallsMixin:
             arg = self._expr(node.args[index])
             self._expect_wave(node, arg["type"], want, f"{module}.{attr}")
             args.append(arg)
-        expr = _mod_call(module, attr, args, spec["return"], span)
-        if "symbol" in spec:
-            self.mobile_symbol_guard(node, spec["symbol"])
-            expr["symbol"] = spec["symbol"]
+        expr = _mod_call(module, attr, args, type_to_dict(spec.ret), span)
+        if spec.symbol is not None:
+            self.mobile_symbol_guard(node, spec.symbol)
+            expr["symbol"] = spec.symbol
         return expr
 
     def _expect_wave(self, node: ast.AST, got: dict[str, Any], want: dict[str, Any], what: str) -> None:

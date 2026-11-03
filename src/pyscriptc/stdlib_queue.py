@@ -9,8 +9,18 @@ with PS2101 on use.
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator
+from collections.abc import Iterator as _Iterator
 from contextlib import contextmanager
-from typing import Any
+
+from pyscriptc.ffi_manifest import FfiManifest
+from pyscriptc.sigrec import (
+    Sig,
+    optional,
+    t_class,
+    t_dict,
+    t_leaf,
+    t_list,
+)
 
 # Iterative order from the top-100 import scan. Do not reorder casually:
 # tests lock this sequence.
@@ -87,35 +97,42 @@ def canonical_module(name: str) -> str:
     return MODULE_ALIASES.get(name, name)
 
 
-_F: dict[str, Any] = {"kind": "float"}
-_I: dict[str, Any] = {"kind": "int"}
-_B: dict[str, Any] = {"kind": "bool"}
+_F = t_leaf("float")
+_I = t_leaf("int")
+_B = t_leaf("bool")
 
 
-def _sig(params: list[dict[str, Any]], ret: dict[str, Any], symbol: str) -> dict[str, Any]:
-    return {"params": params, "return": ret, "symbol": symbol, "llvm": "double" if ret["kind"] == "float" else "i64"}
+def _fixed(params: list, ret) -> Sig:
+    """A wave row: fully fixed, no symbol key."""
+    return Sig(list(params), ret, None, None, -1, None)
+
+
+def _fixed_sig(params: list, ret, symbol: str = "") -> Sig:
+    """A math row: fully fixed with an ABI symbol ("" keys the symbol
+    pair, the spelling the isnan family and the wave rows carry)."""
+    return Sig(list(params), ret, None, None, -1, symbol or "")
 
 
 # Domain checks live in ps_rt.c. The symbol is the C function LLVM calls.
-MATH_FUNCTIONS: dict[str, dict[str, Any]] = {
-    "sqrt": _sig([_F], _F, "ps_math_sqrt"),
-    "fabs": _sig([_F], _F, "ps_math_fabs"),
-    "sin": _sig([_F], _F, "ps_math_sin"),
-    "cos": _sig([_F], _F, "ps_math_cos"),
-    "tan": _sig([_F], _F, "ps_math_tan"),
-    "exp": _sig([_F], _F, "ps_math_exp"),
-    "log": _sig([_F], _F, "ps_math_log"),
-    "log2": _sig([_F], _F, "ps_math_log2"),
-    "log10": _sig([_F], _F, "ps_math_log10"),
-    "hypot": _sig([_F, _F], _F, "ps_math_hypot"),
-    "pow": _sig([_F, _F], _F, "ps_math_pow"),
-    "atan2": _sig([_F, _F], _F, "ps_math_atan2"),
-    "floor": _sig([_F], _I, "ps_math_floor"),
-    "ceil": _sig([_F], _I, "ps_math_ceil"),
-    "trunc": _sig([_F], _I, "ps_math_trunc"),
-    "isnan": _sig([_F], _B, ""),
-    "isinf": _sig([_F], _B, ""),
-    "isfinite": _sig([_F], _B, ""),
+MATH_FUNCTIONS: dict[str, Sig] = {
+    "sqrt": _fixed_sig([_F], _F, "ps_math_sqrt"),
+    "fabs": _fixed_sig([_F], _F, "ps_math_fabs"),
+    "sin": _fixed_sig([_F], _F, "ps_math_sin"),
+    "cos": _fixed_sig([_F], _F, "ps_math_cos"),
+    "tan": _fixed_sig([_F], _F, "ps_math_tan"),
+    "exp": _fixed_sig([_F], _F, "ps_math_exp"),
+    "log": _fixed_sig([_F], _F, "ps_math_log"),
+    "log2": _fixed_sig([_F], _F, "ps_math_log2"),
+    "log10": _fixed_sig([_F], _F, "ps_math_log10"),
+    "hypot": _fixed_sig([_F, _F], _F, "ps_math_hypot"),
+    "pow": _fixed_sig([_F, _F], _F, "ps_math_pow"),
+    "atan2": _fixed_sig([_F, _F], _F, "ps_math_atan2"),
+    "floor": _fixed_sig([_F], _I, "ps_math_floor"),
+    "ceil": _fixed_sig([_F], _I, "ps_math_ceil"),
+    "trunc": _fixed_sig([_F], _I, "ps_math_trunc"),
+    "isnan": _fixed_sig([_F], _B),
+    "isinf": _fixed_sig([_F], _B),
+    "isfinite": _fixed_sig([_F], _B),
 }
 
 # repr() of the CPython 3.14 constants. inf and nan go through float() at emit.
@@ -127,33 +144,26 @@ MATH_CONSTANTS: dict[str, str] = {
     "nan": "nan",
 }
 
-_STR: dict[str, Any] = {"kind": "str"}
-_BYTES: dict[str, Any] = {"kind": "bytes"}
-_BUF: dict[str, Any] = {"kind": "buf"}
-_LIST_STR: dict[str, Any] = {"kind": "list", "elem": _STR}
-_HASH: dict[str, Any] = {"kind": "class", "name": "Hash"}
-_PATTERN: dict[str, Any] = {"kind": "class", "name": "Pattern"}
-_SPLIT: dict[str, Any] = {"kind": "class", "name": "SplitResult"}
-_DICT_STR: dict[str, Any] = {"kind": "dict", "key": _STR, "value": _STR}
-_QS: dict[str, Any] = {"kind": "dict", "key": _STR, "value": _LIST_STR}
+_STR = t_leaf("str")
+_BYTES = t_leaf("bytes")
+_BUF = t_leaf("buf")
+_LIST_STR = t_list(_STR)
+_HASH = t_class("Hash")
+_PATTERN = t_class("Pattern")
+_SPLIT = t_class("SplitResult")
+_DICT_STR = t_dict(_STR, _STR)
+_QS = t_dict(_STR, _LIST_STR)
 
 
-def _fixed(params: list[dict[str, Any]], ret: dict[str, Any]) -> dict[str, Any]:
-    return {"params": params, "return": ret}
-
-
-def _optional(
-    params: list[dict[str, Any]], ret: dict[str, Any], defaults: list[str], names: list[str] | None = None
-) -> dict[str, Any]:
-    spec: dict[str, Any] = {"params": params, "return": ret, "min": len(params) - len(defaults), "defaults": defaults}
-    if names is not None:
-        spec["names"] = names
-    return spec
+def _optional(params: list, ret, defaults: list[str], names: list[str] | None = None) -> Sig:
+    """A wave row with an optional tail and no symbol key."""
+    row = optional(params, ret, defaults, names)
+    return Sig(row.params, row.ret, row.defaults, row.names, row.min, None)
 
 
 # Fixed signatures for the codec wave. json and struct are checked in the
 # lowerer: loads follows the annotation, and struct follows a literal format.
-WAVE_FUNCTIONS: dict[str, dict[str, dict[str, Any]]] = {
+WAVE_FUNCTIONS: dict[str, dict[str, Sig]] = {
     "re": {
         "escape": _fixed([_STR], _STR),
         "findall": _optional([_STR, _STR, _I], _LIST_STR, ["0"], ["pattern", "string", "flags"]),
@@ -204,7 +214,7 @@ SPECIAL_FUNCTIONS: dict[str, frozenset[str]] = {
 PACK_MODULES: frozenset[str] = frozenset({"jwt", "orjson"})
 
 
-def wave_function(module: str, name: str) -> dict[str, Any] | None:
+def wave_function(module: str, name: str) -> Sig | None:
     return WAVE_FUNCTIONS.get(module, {}).get(name)
 
 
@@ -248,16 +258,16 @@ def queue_index(name: str) -> int:
 # ffi/ffi-manifest.md` section 7). Module-level on purpose: a subprocess or a
 # long-lived process (the CLI runs one lower per process; the tests use the
 # context manager) never sees a stale table.
-_FFI_MANIFESTS: dict[str, Any] = {}
+_FFI_MANIFESTS: dict[str, FfiManifest] = {}
 
 
-def ffi_manifests() -> dict[str, Any]:
+def ffi_manifests() -> dict[str, FfiManifest]:
     """The manifest modules of the running compile, keyed by module name."""
     return _FFI_MANIFESTS
 
 
 @contextmanager
-def ffi_modules(manifests: Iterable[Any]) -> Iterator[None]:
+def ffi_modules(manifests: Iterable[FfiManifest]) -> _Iterator[None]:
     """Install `--ffi` manifests for the duration of one lowering pass."""
     global _FFI_MANIFESTS
     saved = _FFI_MANIFESTS

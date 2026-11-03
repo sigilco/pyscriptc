@@ -103,12 +103,14 @@ class Sig:
     defaults: list[str] | None
     names: list[str] | None
     min: int = -1
-    symbol: str = ""
+    # None means "no symbol key in the dict"; "" means the key exists with
+    # the empty value, the spelling the isnan family carries.
+    symbol: str | None = None
 
 
 def sig(params: list[T], ret: T, symbol: str = "") -> Sig:
-    """A fully fixed row: no optional tail, no keyword spellings."""
-    return Sig(list(params), ret, None, None, -1, symbol)
+    """A fully fixed row with a symbol key (empty when the call is inline)."""
+    return Sig(list(params), ret, None, None, -1, symbol or "")
 
 
 def optional(
@@ -161,7 +163,7 @@ def sig_to_dict(row: Sig) -> dict[str, object]:
         "params": [type_to_dict(param) for param in row.params],
         "return": type_to_dict(row.ret),
     }
-    if row.symbol:
+    if row.symbol is not None:
         out["symbol"] = row.symbol
         out["llvm"] = "double" if row.ret.kind == "float" else "i64"
     if row.min >= 0:

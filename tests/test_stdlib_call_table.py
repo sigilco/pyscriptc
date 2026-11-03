@@ -26,6 +26,7 @@ from pathlib import Path
 
 import pytest
 
+from pyscriptc.sigrec import sig_for
 from pyscriptc.stdlib_queue import MATH_FUNCTIONS, SPECIAL_FUNCTIONS, WAVE_FUNCTIONS
 from pyscriptc.stdmore import REST_FIXED
 
