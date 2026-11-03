@@ -314,3 +314,37 @@ def test_self_census_ballpark() -> None:
     # a named verifier violation record retire 132 more: 3277.
     assert census["fences"] == 3285
     assert sum(p["fences"] for p in census["packages"]) == 3285
+
+
+def test_self_census_cache_is_byte_identical(tmp_path: Path, monkeypatch: object) -> None:
+    import json
+
+    from benchmarks.compat2 import census_self
+
+    cache_dir = tmp_path / "cache"
+    monkeypatch.setattr(census_self, "CACHE_DIR", cache_dir)  # type: ignore[attr-defined]
+    assert cache_dir.exists() is False
+    first = census_self.build_self_census(SRC)
+    assert cache_dir.exists()
+    second = census_self.build_self_census(SRC)
+    assert json.dumps(first, sort_keys=True) == json.dumps(second, sort_keys=True)
+    keys = list(cache_dir.glob("census-self-*.json"))
+    assert len(keys) == 1
+    stored = json.loads(keys[0].read_text(encoding="utf-8"))
+    assert json.dumps(stored, sort_keys=True) == json.dumps(first, sort_keys=True)
+
+
+def test_self_census_cache_stale_source(tmp_path: Path, monkeypatch: object) -> None:
+    import json
+
+    from benchmarks.compat2 import census_self
+
+    monkeypatch.setattr(census_self, "CACHE_DIR", tmp_path / "cache")  # type: ignore[attr-defined]
+    first = census_self.build_self_census(SRC)
+    stale = {"mode": "parse-only", "fences": -1}
+    keys = list((tmp_path / "cache").glob("census-self-*.json"))
+    assert keys
+    keys[0].write_text(json.dumps(stale), encoding="utf-8")
+    again = census_self.build_self_census(SRC)
+    assert again["fences"] != -1
+    assert json.dumps(again, sort_keys=True) == json.dumps(first, sort_keys=True)
