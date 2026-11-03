@@ -297,5 +297,8 @@ def test_self_census_ballpark() -> None:
     # 732 -> 716.
     # The builtin-module bundle fix (#791) adds 4 more in stdlibzip.py and
     # package.py: 3185 -> 3189.
-    assert census["fences"] == 3218
-    assert sum(p["fences"] for p in census["packages"]) == 3218
+    # stdmore.py (named records for the rest tables, the typing-hygiene
+    # slice) moves 3218 -> 3226: the table rows lose 24 dynamic-annotation
+    # fences and the record converters add 8; the family falls 716 -> 692.
+    assert census["fences"] == 3226
+    assert sum(p["fences"] for p in census["packages"]) == 3226

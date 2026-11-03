@@ -36,6 +36,7 @@ from pyscriptc.lower._stmt import _always_returns, _is_docstring
 from pyscriptc.reflection import annotation_note, kwargs_parameter_note, metaclass_note
 from pyscriptc.restlower import alias_name, path_attr
 from pyscriptc.restlower import method_spec as synth_method
+from pyscriptc.sigrec import T, type_to_dict
 from pyscriptc.stdmore import (
     ALWAYS_CLASSES,
     CLASS_FIELDS,
@@ -43,6 +44,15 @@ from pyscriptc.stdmore import (
     RESERVED_CODE_EXCEPTIONS,
     SYNTHETIC_EXCEPTIONS,
 )
+
+
+def _field_rows(fields: list[tuple[str, T]]) -> list[dict[str, Any]]:
+    """The `{name, type}` dict rows of `(name, T)` records, the
+    record-to-dict boundary of `CLASS_FIELDS` (the typing-hygiene slice).
+    """
+
+    return [{"name": name, "type": type_to_dict(typ)} for name, typ in fields]
+
 
 _UNWRAP_FORMS = frozenset({"Final", "ClassVar", "Annotated", "Required", "NotRequired"})
 # Spellings of the bottom type: a function annotated with one never returns a
@@ -118,12 +128,12 @@ class ClassesMixin:
                 {"name": name, "type": {"kind": "str"}} for name in ("scheme", "netloc", "path", "query", "fragment")
             ]
         if "HTTPError" in self.synthetics:
-            specs["HTTPError"] = CLASS_FIELDS["HTTPError"]
+            specs["HTTPError"] = _field_rows(CLASS_FIELDS["HTTPError"])
         if "URLError" in self.synthetics:
-            specs["URLError"] = CLASS_FIELDS["URLError"]
+            specs["URLError"] = _field_rows(CLASS_FIELDS["URLError"])
         for name in self.synthetics:
             if name in CLASS_FIELDS:
-                specs[name] = CLASS_FIELDS[name]
+                specs[name] = _field_rows(CLASS_FIELDS[name])
         user_names = {node.name for node in class_nodes}
         for name, fields in specs.items():
             existing = self.classes.get(name)

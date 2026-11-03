@@ -80,7 +80,7 @@ from pyscriptc.restlower._time import _clock, _sleep, _strftime
 from pyscriptc.restlower._tomllib import _tomllib_call
 from pyscriptc.restlower._urllib import _urllib_request_call
 from pyscriptc.restlower._yaml import _yaml_call
-from pyscriptc.sigrec import Sig, T, sig_for, type_to_dict
+from pyscriptc.sigrec import Sig, sig_for, type_to_dict
 from pyscriptc.stdmore import (
     CALL_FENCES,
     CLASS_METHODS,
@@ -345,7 +345,7 @@ def path_attr(name: str) -> tuple[dict[str, Any], str] | None:
     if found is None:
         return None
     typ, symbol = found
-    return (type_to_dict(typ) if isinstance(typ, T) else typ, symbol)
+    return (type_to_dict(typ), symbol)
 
 
 def alias_name(module: str, member: str) -> str | None:

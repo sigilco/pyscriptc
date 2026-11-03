@@ -46,6 +46,7 @@ from pyscriptc.lower._core import (
 )
 from pyscriptc.reflection import inspect_note, typing_note
 from pyscriptc.restlower._argparse import path_attribute
+from pyscriptc.sigrec import type_to_dict
 from pyscriptc.stdlib_queue import (
     MATH_CONSTANTS,
     MATH_FUNCTIONS,
@@ -1297,7 +1298,7 @@ class ExprMixin:
             class_const = class_constant(module, member)
             if class_const is not None:
                 typ, symbol = class_const
-                return self._abi_call(module, member, [], typ, symbol, span)
+                return self._abi_call(module, member, [], type_to_dict(typ), symbol, span)
             if (module == "math" and member in MATH_FUNCTIONS) or wave_function(module, member) is not None:
                 self.fail(node, "PS2002", f"{dotted} is a function and is not a value")
             if member in SPECIAL_FUNCTIONS.get(module, frozenset()) or member_callable(module, member):
