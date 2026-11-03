@@ -1,6 +1,6 @@
 # Draft recorded decision: the new gate, streaming serializer and TIR_HASHES probe
 
-Status: DRAFT for owner sign-off, 2026-11-02. On approval this is the decision row that unblocks roadmap R3+ gate movement (and, at R5, the `IR_HASHES.json` retirement); until then the new gate stays beside the old one and no frozen file changes. Input: `.agents/plans/2026-11-02-ir-rearchitecture-roadmap.md` and `.agents/notes/2026-11-02-ir-rearchitecture-reassessment.md`.
+Status: Approved 2026-11-03
 
 ## Decision (proposed)
 
@@ -13,6 +13,19 @@ The full serializer spec, the probe file format, and the regen ritual are in the
 The old gate's oracle is a test oracle over the old representation's determinism: 1.4MB of hand-regenerated digests whose only failure mode is "the IR you already know changed", regenerable in an afternoon under the 2026-10-22 ritual, ~30 repins and counting. A gate that cannot describe a new representation cannot guard the R3 strangler: the migration needs a gate whose digests move only through a recorded ritual while corpus outputs stay byte-identical. The streaming shape makes the typed-IR canonicity rules (field order in the serializer, not dict-shape enforcement) trivially true instead of policed, which is the reassessment's correction to the prior plan's "free canonicity" claim.
 
 The bootstrap receipt (2026-11-02, `work/tirgate`) is the evidence the byte-identity premise holds before any IR exists: the streaming serializer over today's canonical JSON stream reproduces today's `json.dumps` bytes on the full visible corpus (13,692 probes, 0 byte mismatches), and the A/B run-twice ritual is green (`cmp` byte-identical). Cost accepted: the streaming path is about 1.9x the wall time of the dict path (4.31s vs 2.31s over the corpus) in exchange for never materializing the payload, which matters at the arena/MIR scale and not at today's.
+
+## Per-stage cost rule (added 2026-11-03)
+
+Every new pass introduced by this work (the streaming serializer, later the typed lowering stages) records wall time and peak memory against the recorded baseline and surfaces both through the existing `--debug=stages` table. The recorded baseline, from the bootstrap receipt (2026-11-02, `work/tirgate`): streaming path 4.31s vs dict path 2.31s over the full corpus (~1.9x wall time, accepted). A new pass that pushes the stage it lives in past 2x its recorded baseline reopens the cost acceptance in this decision.
+
+Mechanism (proposal, no implementation in this decision): the existing `Debug` class (`src/pyscriptc/debug.py`) already brackets stages with `dbg.begin(name)` / `dbg.end(name)` and renders wall milliseconds in the `[debug] stage ms` table; `summary.json` already carries `timings` per stage (`--debug-dir`). The rule adds two fields per stage rather than new plumbing:
+
+- `ms` (existing): wall milliseconds, already recorded.
+- `peakMB` (new): peak RSS of the stage, sampled as `ru_maxrss` delta per stage bracket. `resource.getrusage(RUSAGE_SELF).ru_maxrss` is a process high-water mark, not per-stage, so the per-stage value is the running maximum seen at `end(name)` minus the maximum seen at `begin(name)`, rendered as an absolute high-water figure with a `+` delta column: `[debug] lower 812.3ms peak 148.2MB (+12.4)`. This is approximate for stages that do not set the process peak, which is acceptable: the rule needs a regression signal, not an allocator-accurate number. An env-only alternative (`tracemalloc` per stage) is rejected for this decision because tracing changes allocation timing and slows every debug run.
+- `summary.json` gains `timingsPeakMB: {<stage>: <float>}` beside the existing `timings` map, so `--debug-dir` artifacts carry both without changing the table consumers.
+- A `baseline` block in `summary.json` records the reference numbers (`{"streaming_corpus_s": 4.31, "dict_corpus_s": 2.31}`) when `--debug-dir` is used with `--debug=stages`, so any receipt comparing a new pass to the recorded baseline ships both in one artifact.
+
+New passes must call `dbg.begin`/`dbg.end` with their own stage name (they render automatically); a pass nested inside `lower` uses `dbg.exclude("lower", "<pass>")` so the parent's wall time stays the outer measurement. The regression check stays human-reviewed in receipts; no CI gate is added by this rule.
 
 ## Alternatives rejected
 

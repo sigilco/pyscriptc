@@ -1,6 +1,6 @@
 # Draft recorded decision: MIR is the backend-only contract
 
-Status: DRAFT for owner sign-off, 2026-11-02. On approval this is the decision row that unblocks roadmap R4 (3AC MIR) and frames R5 (backend migration); until then no MIR schema lands. Input: `.agents/plans/2026-11-02-ir-rearchitecture-roadmap.md` and `.agents/notes/2026-11-02-ir-rearchitecture-reassessment.md`.
+Status: Approved 2026-11-03
 
 ## Decision (proposed)
 
