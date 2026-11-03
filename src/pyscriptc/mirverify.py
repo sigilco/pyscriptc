@@ -29,8 +29,6 @@ module that is about to be emitted. Failures raise `MirVerifyError`, whose
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from pyscriptc.mir import (
     MIR_B,
     MIR_BR,
@@ -42,7 +40,9 @@ from pyscriptc.mir import (
     TERMINATORS,
     VALUE_OPS,
     MirBlock,
+    MirConst,
     MirFunction,
+    MirParam,
     const_index,
     copy_result_type,
     is_const_ref,
@@ -58,15 +58,22 @@ CODE_CONTROL = "MVS03"
 class MirVerifyError(Exception):
     """A structural violation in the MIR. `code` is stable."""
 
+    code: str
+
     def __init__(self, code: str, message: str) -> None:
         super().__init__(f"{code}: {message}")
         self.code = code
 
 
-@dataclass
 class _Violation:
+    """One internal violation row; `verify_function` converts these."""
+
     code: str
     message: str
+
+    def __init__(self, code: str, message: str) -> None:
+        self.code = code
+        self.message = message
 
 
 def _operand_type(fn: MirFunction, operand: int, defs: dict[int, int]) -> int | None:
@@ -77,8 +84,12 @@ def _operand_type(fn: MirFunction, operand: int, defs: dict[int, int]) -> int | 
     failure, so a missing definition is one diagnostic, not two.
     """
     if is_const_ref(operand):
-        index = const_index(operand)
-        return fn.consts[index].typ if index < len(fn.consts) else None
+        index: int = const_index(operand)
+        consts: list[MirConst] = fn.consts
+        if index < len(consts):
+            const: MirConst = consts[index]
+            return const.typ
+        return None
     return defs.get(operand)
 
 
@@ -89,10 +100,11 @@ def _span_end(fn: MirFunction, start: int) -> int:
     its tail takes everything to the end of the function; the missing
     terminator is reported separately.
     """
-    i = start
-    n = len(fn.ops)
+    i: int = start
+    ops: list[int] = fn.ops
+    n: int = len(ops)
     while i < n:
-        if fn.ops[i] in TERMINATORS:
+        if ops[i] in TERMINATORS:
             return i + 1
         i += 1
     return n
@@ -101,24 +113,31 @@ def _span_end(fn: MirFunction, start: int) -> int:
 def _check_instr_operands(fn: MirFunction, i: int, defs: dict[int, int]) -> list[_Violation]:
     """The operand checks of one instruction: arity, definitions, constants."""
     out: list[_Violation] = []
-    op = fn.ops[i]
-    arg1 = fn.arg1[i]
-    arg2 = fn.arg2[i]
-    arity = OP_ARITY.get(op)
+    op: int = fn.ops[i]
+    arg1: int = fn.arg1[i]
+    arg2: int = fn.arg2[i]
+    arity: int | None = OP_ARITY.get(op)
     if arity is None:
         out.append(_Violation(CODE_CONTROL, f"instr {i}: unknown op {op}"))
         return out
 
-    for slot, operand, needed in ((1, arg1, arity >= 1), (2, arg2, arity >= 2)):
+    consts: list[MirConst] = fn.consts
+    n_consts: int = len(consts)
+    checks: list[list[int]] = [[1, arg1, 1 if arity >= 1 else 0], [2, arg2, 1 if arity >= 2 else 0]]
+    for entry_index in range(len(checks)):
+        entry: list[int] = checks[entry_index]
+        slot: int = entry[0]
+        operand: int = entry[1]
+        needed: int = entry[2]
         if not needed:
             continue
         if is_const_ref(operand):
             index = const_index(operand)
-            if index >= len(fn.consts):
+            if index >= n_consts:
                 out.append(
                     _Violation(
                         CODE_USEDEF,
-                        f"instr {i}: constant a{slot} names pool entry {index} of {len(fn.consts)}",
+                        f"instr {i}: constant a{slot} names pool entry {index} of {n_consts}",
                     )
                 )
             continue
@@ -132,22 +151,25 @@ def _check_instr_operands(fn: MirFunction, i: int, defs: dict[int, int]) -> list
 
 def _check_ret_type(fn: MirFunction, i: int, defs: dict[int, int]) -> _Violation | None:
     """The returned value's tag against the function's result tag."""
-    operand = fn.arg1[i]
+    operand: int = fn.arg1[i]
+    consts: list[MirConst] = fn.consts
     if is_const_ref(operand):
         index = const_index(operand)
-        if index < len(fn.consts) and fn.consts[index].typ != fn.result:
-            got = fn.consts[index].typ
-            return _Violation(CODE_TYPE, f"instr {i}: ret of a {got} constant against result {fn.result}")
+        if index < len(consts):
+            got_const: MirConst = consts[index]
+            if got_const.typ != fn.result:
+                got: int = got_const.typ
+                return _Violation(CODE_TYPE, f"instr {i}: ret of a {got} constant against result {fn.result}")
         return None
-    got = defs.get(operand)
-    if got is not None and got != fn.result:
-        return _Violation(CODE_TYPE, f"instr {i}: ret of v{operand} typed {got} against result {fn.result}")
+    got_def: int | None = defs.get(operand)
+    if got_def is not None and got_def != fn.result:
+        return _Violation(CODE_TYPE, f"instr {i}: ret of v{operand} typed {got_def} against result {fn.result}")
     return None
 
 
 def _check_br_type(fn: MirFunction, i: int, defs: dict[int, int]) -> _Violation | None:
     """The branch condition must be a bool (an i1 0/1 value)."""
-    cond_type = _operand_type(fn, fn.arg1[i], defs)
+    cond_type: int | None = _operand_type(fn, fn.arg1[i], defs)
     if cond_type is not None and cond_type != MIR_B:
         return _Violation(CODE_TYPE, f"instr {i}: br condition typed {cond_type}, expected a bool")
     return None
@@ -155,11 +177,17 @@ def _check_br_type(fn: MirFunction, i: int, defs: dict[int, int]) -> _Violation 
 
 def _check_function(fn: MirFunction) -> list[_Violation]:
     out: list[_Violation] = []
-    order: list[MirBlock] = sorted(fn.blocks, key=lambda b: b.bid)
+    blocks: list[MirBlock] = fn.blocks
+    bids: list[int] = []
+    for b_index in range(len(blocks)):
+        bids.append(blocks[b_index].bid)
+    order: list[int] = sorted(bids)
 
     # Parameter slots seed the def map; a duplicate slot is a lowering bug.
     defs: dict[int, int] = {}
-    for param in fn.params:
+    params: list[MirParam] = fn.params
+    for p_index in range(len(params)):
+        param: MirParam = params[p_index]
         if param.vid in defs:
             out.append(_Violation(CODE_USEDEF, f"param v{param.vid} redefined"))
         defs[param.vid] = param.typ
@@ -168,24 +196,32 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
     # spans partition the instruction list by construction of the walk; an
     # instruction outside every block cannot arise here, only a block whose
     # body fails to end in a terminator.
-    block_of: dict[int, MirBlock] = {}
-    spans: dict[int, tuple[int, int]] = {}
-    cursor = 0
-    for block in order:
-        span_lo = cursor
+    block_of: dict[int, int] = {}
+    span_lo_by_bid: dict[int, int] = {}
+    span_hi_by_bid: dict[int, int] = {}
+    cursor: int = 0
+    for o_index in range(len(order)):
+        bid: int = order[o_index]
+        block: MirBlock = blocks[bid]
+        span_lo: int = cursor
         cursor = _span_end(fn, cursor)
-        spans[block.bid] = (span_lo, cursor)
+        span_lo_by_bid[bid] = span_lo
+        span_hi_by_bid[bid] = cursor
         for i in range(span_lo, cursor):
-            block_of[i] = block
+            block_of[i] = bid
 
     # The per-instruction walk, in list order so defs sees earlier
     # instructions only: a read of a value defined later is a violation.
-    for i in range(len(fn.ops)):
-        op = fn.ops[i]
-        dst = fn.dsts[i]
-        out.extend(_check_instr_operands(fn, i, defs))
-        block = block_of.get(i)
-        if block is None:
+    ops: list[int] = fn.ops
+    dsts: list[int] = fn.dsts
+    for i in range(len(ops)):
+        op = ops[i]
+        dst: int = dsts[i]
+        operand_checks: list[_Violation] = _check_instr_operands(fn, i, defs)
+        for c_index in range(len(operand_checks)):
+            out.append(operand_checks[c_index])
+        block_bid: int | None = block_of.get(i)
+        if block_bid is None:
             out.append(_Violation(CODE_CONTROL, f"instr {i} belongs to no block"))
         if op in VALUE_OPS:
             if dst < 0:
@@ -196,84 +232,112 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
                 else:
                     defs[dst] = OP_RESULT_TYPE[op]
         if op == MIR_RET:
-            violation = _check_ret_type(fn, i, defs)
+            violation: _Violation | None = _check_ret_type(fn, i, defs)
             if violation is not None:
                 out.append(violation)
         if op == MIR_BR:
-            violation = _check_br_type(fn, i, defs)
-            if violation is not None:
-                out.append(violation)
+            br_violation: _Violation | None = _check_br_type(fn, i, defs)
+            if br_violation is not None:
+                out.append(br_violation)
 
     # Control-flow closure: successors exist, bindings match, every block is
     # ended by exactly one terminator.
-    for block in order:
-        span_lo, span_hi = spans[block.bid]
-        body = [fn.ops[i] for i in range(span_lo, span_hi)]
-        terms = [op for op in body if op in TERMINATORS]
+    for o_index in range(len(order)):
+        bid = order[o_index]
+        block = blocks[bid]
+        span_lo = span_lo_by_bid[bid]
+        span_hi: int = span_hi_by_bid[bid]
+        body: list[int] = []
+        for i in range(span_lo, span_hi):
+            body.append(ops[i])
+        terms: list[int] = []
+        for b_index in range(len(body)):
+            term_op: int = body[b_index]
+            if term_op in TERMINATORS:
+                terms.append(term_op)
         if not terms:
-            out.append(_Violation(CODE_CONTROL, f"block {block.bid} has no terminator"))
+            out.append(_Violation(CODE_CONTROL, f"block {bid} has no terminator"))
         if len(terms) > 1:
-            out.append(_Violation(CODE_CONTROL, f"block {block.bid} has {len(terms)} terminators"))
-        last = body[-1] if body else None
+            out.append(_Violation(CODE_CONTROL, f"block {bid} has {len(terms)} terminators"))
+        last: int | None = None
+        if body:
+            last = body[-1]
         if last == MIR_JMP:
-            if block.succ1 < 0 or block.succ1 >= len(fn.blocks):
-                out.append(_Violation(CODE_CONTROL, f"block {block.bid} jumps to {block.succ1}, which does not exist"))
-            elif fn.blocks[block.succ1].args:
-                n_args = len(fn.blocks[block.succ1].args)
-                out.append(
-                    _Violation(
-                        CODE_CONTROL,
-                        f"block {block.bid} jumps to block {block.succ1} without binding its {n_args} block arguments",
-                    )
-                )
-        if last == MIR_BR:
-            if block.succ1 < 0 or block.succ1 >= len(fn.blocks) or block.succ2 < 0 or block.succ2 >= len(fn.blocks):
-                out.append(_Violation(CODE_CONTROL, f"block {block.bid} branches to a block that does not exist"))
-                continue
-            for label, target, bindings in (
-                ("true", fn.blocks[block.succ1], block.br_args_true),
-                ("false", fn.blocks[block.succ2], block.br_args_false),
-            ):
-                if len(bindings) != len(target.args):
+            if block.succ1 < 0 or block.succ1 >= len(blocks):
+                out.append(_Violation(CODE_CONTROL, f"block {bid} jumps to {block.succ1}, which does not exist"))
+            else:
+                target: MirBlock = blocks[block.succ1]
+                if target.args:
+                    n_args: int = len(target.args)
                     out.append(
                         _Violation(
                             CODE_CONTROL,
-                            f"block {block.bid} passes {len(bindings)} arguments to block {target.bid}'s"
-                            f" {len(target.args)} parameters ({label} edge)",
+                            f"block {bid} jumps to block {block.succ1} without binding its {n_args} block arguments",
+                        )
+                    )
+        if last == MIR_BR:
+            if block.succ1 < 0 or block.succ1 >= len(blocks) or block.succ2 < 0 or block.succ2 >= len(blocks):
+                out.append(_Violation(CODE_CONTROL, f"block {bid} branches to a block that does not exist"))
+                continue
+            edges: list[list] = [
+                [1, blocks[block.succ1], block.br_args_true],
+                [0, blocks[block.succ2], block.br_args_false],
+            ]
+            for e_index in range(len(edges)):
+                edge: list = edges[e_index]
+                label: str = "true" if edge[0] else "false"
+                edge_target: MirBlock = edge[1]
+                bindings: list[int] = edge[2]
+                if len(bindings) != len(edge_target.args):
+                    out.append(
+                        _Violation(
+                            CODE_CONTROL,
+                            f"block {bid} passes {len(bindings)} arguments to block {edge_target.bid}'s"
+                            f" {len(edge_target.args)} parameters ({label} edge)",
                         )
                     )
                     continue
-                for position, (binding, arg) in enumerate(zip(bindings, target.args, strict=False)):
-                    btype = _operand_type(fn, binding, defs)
+                target_args: list = edge_target.args
+                for position in range(len(bindings)):
+                    binding: int = bindings[position]
+                    btype: int | None = _operand_type(fn, binding, defs)
                     if btype is None:
                         out.append(
                             _Violation(
                                 CODE_USEDEF,
-                                f"block {block.bid} binds an unresolvable value to block"
-                                f" {target.bid} argument {position}",
+                                f"block {bid} binds an unresolvable value to block"
+                                f" {edge_target.bid} argument {position}",
                             )
                         )
-                    elif btype != arg.typ:
-                        out.append(
-                            _Violation(
-                                CODE_TYPE,
-                                f"block {block.bid} binds a {btype} value to block {target.bid} argument {position}"
-                                f" of type {arg.typ}",
+                    else:
+                        arg: object = target_args[position]
+                        if btype != arg.typ:
+                            out.append(
+                                _Violation(
+                                    CODE_TYPE,
+                                    f"block {bid} binds a {btype} value to block {edge_target.bid} argument {position}"
+                                    f" of type {arg.typ}",
+                                )
                             )
-                        )
         if last not in TERMINATORS and body:
-            out.append(_Violation(CODE_CONTROL, f"block {block.bid} falls through without a terminator"))
+            out.append(_Violation(CODE_CONTROL, f"block {bid} falls through without a terminator"))
 
     return out
 
 
 def verify_function(fn: MirFunction) -> list[MirVerifyError]:
     """Verify one MIR function and return every violation it found."""
-    return [MirVerifyError(v.code, v.message) for v in _check_function(fn)]
+    violations: list[_Violation] = _check_function(fn)
+    out: list[MirVerifyError] = []
+    for i in range(len(violations)):
+        v: _Violation = violations[i]
+        out.append(MirVerifyError(v.code, v.message))
+    return out
 
 
 def verify_or_raise_function(fn: MirFunction) -> None:
     """Verify one MIR function and raise on the first violation."""
-    errors = verify_function(fn)
+    errors: list[MirVerifyError] = verify_function(fn)
     if errors:
-        raise errors[0]
+        first: MirVerifyError = errors[0]
+        raise MirVerifyError(first.code, first.message[len(first.code) + 2 :])
