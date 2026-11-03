@@ -57,7 +57,7 @@ def test_self_census_ballpark() -> None:
     # fetch notice became conditional (-1 fence) and the cli.py embed/site
     # refusal handlers replace an implicit crash path.
     # The R4 MIR lane (mir, mirlower, miremit, mirverify) adds 4 modules on top of sigrec.py.
-    assert census["modules"] == 110
+    assert census["modules"] == 113
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -312,8 +312,9 @@ def test_self_census_ballpark() -> None:
     # an `ast.Call` annotation like every method in the file: 3416 -> 3418. Native
     # super() and dataclass lowering then retire 9: 3409. Named MIR record classes and
     # a named verifier violation record retire 132 more: 3277.
-    assert census["fences"] == 3285
-    assert sum(p["fences"] for p in census["packages"]) == 3285
+    # Annotation family extraction and the cli package split: 3285 -> 3250 (113 modules).
+    assert census["fences"] == 3250
+    assert sum(p["fences"] for p in census["packages"]) == 3250
 
 
 def test_self_census_cache_is_byte_identical(tmp_path: Path, monkeypatch: object) -> None:
