@@ -1,4 +1,4 @@
-"""Command line for the spike compiler."""
+"""Command line entry point: parser, main and the compile/run/build family."""
 
 from __future__ import annotations
 
@@ -21,10 +21,18 @@ from typing import Any
 from pyscriptc import embed, runcache, sitedeps, stdlibzip
 
 # boxed:end
+from pyscriptc.cli._report import (
+    config_cmd,
+    coverage_cmd,
+    explain_cmd,
+    imports_cmd,
+    logs_cmd,
+    reduce_cmd,
+)
 from pyscriptc.config import Config, apply_to_args, entry_points, load_config
 from pyscriptc.errors import CheckFailed, FitError, IRError, SpikeError, VersionError
 from pyscriptc.ffi_manifest import FfiManifest
-from pyscriptc.log import enable_debug, get_logger, tail
+from pyscriptc.log import enable_debug, get_logger
 
 log = get_logger()
 
@@ -700,7 +708,9 @@ def main(argv: list[str] | None = None) -> int:
             telemetry.track("cli.invoked", {"subcommand": args.cmd, **telemetry.base_properties()})
         if args.cmd == "compile":
             _load_compiler()
-            return compile_cmd(args)
+            from pyscriptc import cli as _cli_pkg
+
+            return _cli_pkg.compile_cmd(args)
         if args.cmd == "run":
             return run_cmd(args)
         if args.cmd == "verify":
@@ -1014,7 +1024,9 @@ def _build_for_run(args: argparse.Namespace, output: Path) -> int:
     real_stdout = sys.stdout
     sys.stdout = sys.stderr
     try:
-        return compile_cmd(compile_args)
+        from pyscriptc import cli as _cli_pkg
+
+        return _cli_pkg.compile_cmd(compile_args)
     finally:
         sys.stdout = real_stdout
 
@@ -1170,169 +1182,6 @@ def _verify_binary(args: argparse.Namespace, name: str, key: str, scratch: Path)
             return cached, False, 0, output.getvalue()
         return build / name, False, 0, output.getvalue()
     return cached, False, 0, output.getvalue()
-
-
-def coverage_cmd(args: argparse.Namespace) -> int:
-    _load_compiler()
-    report = build_report(Path(args.source))
-    log.info("coverage.report", source=args.source)
-    print(json.dumps(report, indent=2) if args.json else render_text(report))
-    summary = report["summary"]
-    telemetry.track("coverage.reported", telemetry.coverage_properties(summary))
-    mode = args.fail_on
-    if mode is None:
-        config = load_config(Path(args.source))
-        mode = config.fail_on
-    if mode == "any" and summary["fences"]:
-        return 1
-    if mode == "blockers" and summary["rootFences"]:
-        return 1
-    return 0
-
-
-def imports_cmd(args: argparse.Namespace) -> int:
-    _load_compiler()
-    source = Path(args.source)
-    config = load_config(source)
-    report = build_import_report(source, policy=config.imports)
-    log.info("imports.report", source=args.source)
-    print(json.dumps(report, indent=2) if args.json else render_import_text(report))
-    if args.reach:
-        payload = export_reach(report, Path(args.reach))
-        share = payload["boxed_only_reach"][-1]
-        log.info("imports.reach", path=args.reach, reach=share)
-        print(f"island reach {share:.4f} appended to {args.reach}", file=sys.stderr)
-    return 0
-
-
-def config_cmd(args: argparse.Namespace) -> int:
-    config = load_config(Path(args.source))
-    scripts = _scripts_of(Path(args.source))
-    data = {
-        "source": config.source,
-        "origin": str(config.origin) if config.origin else None,
-        "entry": config.entry,
-        "src": list(config.src),
-        "checker": config.checker,
-        "driver": config.driver,
-        "target": config.target,
-        "fail-on": config.fail_on,
-        "requires-python": config.requires_python,
-        "dependencies": list(config.dependencies),
-        "stub-path": list(config.stub_path),
-        "ffi": list(config.ffi),
-        "dependency-lanes": config.dependency_lanes(),
-        "imports": {name: config.lane_for(name)[0] for name in sorted(config.imports)},
-        "scripts": scripts,
-    }
-    if args.json:
-        print(json.dumps(data, indent=2))
-        return 0
-    print(f"source: {data['source']}")
-    if data["origin"]:
-        print(f"origin: {data['origin']}")
-    for key in ("entry", "checker", "driver", "target", "fail-on", "requires-python"):
-        if data[key] is not None:
-            print(f"{key}: {data[key]}")
-    if data["src"]:
-        print(f"src: {', '.join(data['src'])}")
-    for key in ("stub-path", "ffi"):
-        if data[key]:
-            print(f"{key}: {', '.join(data[key])}")
-    if data["dependencies"]:
-        print(f"dependencies: {', '.join(data['dependencies'])}")
-        for req, lane in data["dependency-lanes"].items():
-            print(f"  {req}: {lane}")
-    for name, lane in data["imports"].items():
-        print(f"import {name}: {lane}")
-    if data["scripts"]:
-        print("scripts:")
-        for name, target in data["scripts"].items():
-            print(f"  {name}: {target}")
-    return 0
-
-
-def _scripts_of(source: Path) -> dict[str, str]:
-    """The console scripts of the pyproject above `source`, if any."""
-
-    from pyscriptc import project
-
-    try:
-        pyproject = project.discover_pyproject(source)
-    except project.ProjectError:
-        return {}
-    try:
-        return entry_points(pyproject)
-    except Exception:
-        return {}
-
-
-def _reduce_predicate(args: argparse.Namespace) -> reduce.Predicate:
-    """The predicate the reducer checks on every candidate."""
-    if args.predicate:
-        source = Path(args.source)
-        return reduce.CommandPredicate(
-            args.predicate,
-            directory=source.parent if source.parent.is_dir() else Path.cwd(),
-            suffix=source.suffix or ".py",
-            timeout=args.timeout,
-        )
-    if args.fence:
-        return reduce.FencePredicate(args.fence)
-    return reduce.CrashPredicate()
-
-
-def reduce_cmd(args: argparse.Namespace) -> int:
-    """`pyscriptc reduce FILE`: shrink FILE to a minimal reproducer."""
-    _load_compiler()
-    predicate = _reduce_predicate(args)
-    out_path = Path(args.source).with_name(f"{Path(args.source).stem}.min.py")
-    target = out_path if not args.print and not args.json else None
-    result = reduce.reduce_file(args.source, predicate, output=target, max_steps=args.steps)
-    kept = sum(1 for step in result.steps if step.kept)
-    log.info(
-        "reduce.done",
-        source=args.source,
-        candidates=result.candidates,
-        kept=kept,
-        verdict=str(result.verdict),
-    )
-    telemetry.track(
-        "reduce.finished",
-        {
-            "candidates": result.candidates,
-            "steps": len(result.steps),
-            "kept": kept,
-            "changed": result.changed,
-            "mode": "predicate" if args.predicate else "fence" if args.fence else "crash",
-        },
-    )
-    if args.json:
-        print(json.dumps(result.as_dict(), indent=2))
-    elif args.print:
-        print(result.source, end="")
-    else:
-        print(f"predicate: {result.predicate}")
-        print(f"{result.candidates} candidates, {len(result.steps)} steps, {kept} kept")
-        print(f"wrote {out_path} ({'changed' if result.changed else 'no reduction found'})")
-        print(f"verdict: {result.verdict}")
-    return 0 if result.verdict.holds else 1
-
-
-def explain_cmd(args: argparse.Namespace) -> int:
-    _load_compiler()
-    text = explain(args.code)
-    log.info("explain.lookup", code=args.code, known=text is not None)
-    if text is None:
-        print(f"unknown diagnostic code: {args.code}", file=sys.stderr)
-        return 2
-    print(text)
-    return 0
-
-
-def logs_cmd(args: argparse.Namespace) -> int:
-    tail()
-    return 0
 
 
 def build_cmd(args: argparse.Namespace) -> int:
