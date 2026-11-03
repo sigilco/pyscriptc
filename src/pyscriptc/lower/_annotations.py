@@ -206,7 +206,7 @@ class AnnotationMixin:
         # class lives in the embedded interpreter, and an instance crossed
         # into a compiled local is an opaque handle.
         if isinstance(node, ast.Name) and node.id in self.island_classes:
-            return island_class_type(node.id)
+            return _type(island_class_type(node.id))
         # boxed:end
         if isinstance(node, ast.Name) and (node.id in self.declared or node.id in self.known_classes):
             return _type({"kind": "class", "name": self.class_aliases.get(node.id, node.id)})
@@ -372,7 +372,7 @@ class AnnotationMixin:
         if isinstance(node, ast.Name):
             binding = self.bindings.get(node.id)
             if binding is not None and binding.kind == "handle":
-                return handle_type(binding.attr)
+                return _type(handle_type(binding.attr))
             return None
         if isinstance(node, ast.Attribute):
             resolved = self._resolve_module(node)
@@ -384,7 +384,7 @@ class AnnotationMixin:
             manifest = self._ffi_module(module)
             if manifest is None or manifest.handle(member) is None:
                 return None
-            return handle_type(member)
+            return _type(handle_type(member))
         return None
 
     def _annotation_class(self, node: ast.AST) -> str | None:
