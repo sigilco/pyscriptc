@@ -518,8 +518,6 @@ def manifest_check(
     importable when the zip carries it or a parent of it; the caller passes
     stdlib names only, so relative and third-party imports are not this
     check's business.
-<<<<<<< HEAD
-=======
 
     A module the runtime serves without a zip entry (a builtin like `math`
     or `binascii`, a frozen one like `zipimport`) needs no `.py` source in
@@ -531,18 +529,13 @@ def manifest_check(
     the right answer for a host link and for the unit tests, and a bundle
     compile passes the pack's set so the verdict follows the runtime it
     links.
->>>>>>> 376a79b6 (fix(bundle): the stdlib manifest check answers the runtime it links)
     """
 
     if interpreter is None:
         interpreter = host_modules()
     missing: list[str] = []
     for name in imported:
-<<<<<<< HEAD
-        if not name or name in carried:
-=======
         if not name or name in carried or name in interpreter:
->>>>>>> 376a79b6 (fix(bundle): the stdlib manifest check answers the runtime it links)
             continue
         parts = name.split(".")
         if not any(".".join(parts[: cut + 1]) in carried for cut in range(len(parts))):

@@ -77,8 +77,6 @@ def test_manifest_check_fails_closed_with_ps4301(tmp_path: Path) -> None:
         stdlibzip.manifest_check({"json"}, ["json", "idlelib"], "safe")
 
 
-<<<<<<< HEAD
-=======
 def test_manifest_check_counts_a_builtin_as_carried(tmp_path: Path) -> None:
     # A module the target runtime serves without a zip entry (a builtin
     # like `math`, a frozen one like `zipimport`) must not be refused: the
@@ -135,7 +133,6 @@ def test_interpreter_modules_reads_the_pack_tree(tmp_path: Path) -> None:
     assert "not-a-module" not in names
 
 
->>>>>>> 376a79b6 (fix(bundle): the stdlib manifest check answers the runtime it links)
 def test_stdlib_sources_refuses_an_unknown_mode(tmp_path: Path) -> None:
     with pytest.raises(stdlibzip.StdlibError, match="embed-stdlib"):
         stdlibzip.stdlib_sources(_stdlib(tmp_path), "profile")
