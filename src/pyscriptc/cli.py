@@ -1871,15 +1871,26 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             )
         state["stage"] = "emit"
         dbg.begin("emit_llvm")
-        llvm_text = emit_llvm(
+        emit_fn = emit_llvm
+        extra: dict[str, Any] = {"binding": args.emit == "binding"}
+        if args.emit != "binding":
+            # The R4 strangler lane: HIR lowers to MIR and the LLVM text is
+            # emitted from the MIR leaf slice. Opt-in only (PYSC_MIR); the
+            # direct path stays the default. Imported lazily so the default
+            # compile never loads the lane.
+            from pyscriptc.miremit import emit_llvm_mir, mir_opt_in
+
+            if mir_opt_in():
+                emit_fn, extra = emit_llvm_mir, {}
+        llvm_text = emit_fn(
             module,
             args.call,
             call_args,
             standalone=args.emit == "bin",
             debug_info=debug_info,
             library=args.emit == "lib",
-            binding=args.emit == "binding",
             wasm=bool(args.target and args.target.startswith("wasm32")),
+            **extra,
         )
         dbg.end("emit_llvm")
         # The wasm thread refusal fires before the link, so a program that

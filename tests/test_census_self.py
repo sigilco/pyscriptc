@@ -56,7 +56,8 @@ def test_self_census_ballpark() -> None:
     # and stdlibzip.py were already counted) and moves the fence count: the
     # fetch notice became conditional (-1 fence) and the cli.py embed/site
     # refusal handlers replace an implicit crash path.
-    assert census["modules"] == 105  # sigrec.py (named signature records) adds 1 module
+    # The R4 MIR lane (mir, mirlower, miremit, mirverify) adds 4 modules on top of sigrec.py.
+    assert census["modules"] == 109
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -271,11 +272,11 @@ def test_self_census_ballpark() -> None:
     # yield inside try (#164): the re-entrant try in the coro guard transform
     # adds about 150 lines in coro.py. The asyncio primitives (#180 D3) add
     # about 400 in ps_async.c and restlower/_asyncio_sync.py.
-    assert 11_000 <= census["lines"] <= 53_000
+    assert 11_000 <= census["lines"] <= 56_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.
-    assert 11_000 <= census["lines"] <= 53_000
+    assert 11_000 <= census["lines"] <= 56_000
     # Island class definitions (#628): +9 self-host fences, one in
     # emit/llvm/_abi.py (the class-handle trampoline), one in
     # lower/_classes.py (the island class annotation), three in
@@ -286,7 +287,7 @@ def test_self_census_ballpark() -> None:
     # in emit/llvm/_driver.py.
     # embed.py (#657, the pinned CPython runtime pack) adds 1 module, about
     # 470 lines and 99 self-host fences, taking the source past 50k.
-    assert 11_000 <= census["lines"] <= 53_000
+    assert 11_000 <= census["lines"] <= 56_000
     # subprocess text mode (#680): the text-mode decode lowering nets -1
     # self-host fence (restlower/_subprocess.py +1, emit/llvm/_driver.py
     # and emitlib.py -1 each through the lowered-compiler re-run).
@@ -305,5 +306,7 @@ def test_self_census_ballpark() -> None:
     # and the record boundary adds 8 (the row builder and its dict); the
     # family falls 692 -> 687.
     # Rebased on master with the telemetry flush and internal property: 3229 -> 3238.
-    assert census["fences"] == 3238
-    assert sum(p["fences"] for p in census["packages"]) == 3238
+    # The R4 MIR lane adds 178 self-host fences (3238 -> 3416), mostly dynamic-annotation rows;
+    # retiring them is the typed-records follow-up.
+    assert census["fences"] == 3416
+    assert sum(p["fences"] for p in census["packages"]) == 3416
