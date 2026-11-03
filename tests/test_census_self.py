@@ -309,6 +309,7 @@ def test_self_census_ballpark() -> None:
     # The R4 MIR lane adds 178 self-host fences (3238 -> 3416), mostly dynamic-annotation rows;
     # retiring them is the typed-records follow-up.
     # The starred-call lowering adds two helpers in lower/_calls.py, each with
-    # an `ast.Call` annotation like every method in the file: 3416 -> 3418.
-    assert census["fences"] == 3418
-    assert sum(p["fences"] for p in census["packages"]) == 3418
+    # an `ast.Call` annotation like every method in the file: 3416 -> 3418. Native
+    # super() and dataclass lowering then retire 9: 3409.
+    assert census["fences"] == 3409
+    assert sum(p["fences"] for p in census["packages"]) == 3409
