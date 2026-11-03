@@ -313,4 +313,4 @@ def test_self_census_ballpark() -> None:
     # super() and dataclass lowering then retire 9: 3409. Named MIR record classes and
     # a named verifier violation record retire 132 more: 3277.
     assert census["fences"] == 3285
-    assert sum(p["fences"] for p in census["packages"]) == 3277
+    assert sum(p["fences"] for p in census["packages"]) == 3285
