@@ -8,6 +8,11 @@ plain dict in the body (`in`, `[]`, `.get`, iteration over keys).
 The dynamic `f(**d)` call-site unpack stays fenced (PS2002): a `dict[str, T]`
 carries no static key set, so the lowering cannot prove which declared params
 its members bind to nor whether the remainder fits the kwargs dict.
+
+Starred positional operands with a static length lower: `f(*[1, 2])` and
+`f(*(1, 2))` expand into the known signature positionally, so arity errors are
+the ordinary PS1003 count checks. An operand whose length the compiler cannot
+see (a bound list name, a call result) keeps the PS2002 fence.
 """
 
 from __future__ import annotations
@@ -111,6 +116,99 @@ def run() -> int:
     call = run["body"][-1]["value"]
     assert call["args"][1]["kind"] == "list"
     assert call["args"][2]["kind"] == "dict"
+
+
+def test_starred_list_display_fills_the_known_signature() -> None:
+    mod = lower_source(
+        """
+def probe(a: int, b: int) -> int:
+    return a + b
+def run() -> int:
+    return probe(*[1, 2])
+"""
+    )
+    assert mod["fences"] == []
+    run = next(fn for fn in mod["functions"] if fn["name"] == "run")
+    call = run["body"][-1]["value"]
+    assert [arg["kind"] for arg in call["args"]] == ["const", "const"]
+
+
+def test_starred_tuple_display_fills_the_known_signature() -> None:
+    mod = lower_source(
+        """
+def probe(a: int, b: int) -> int:
+    return a + b
+def run() -> int:
+    return probe(*(1, 2))
+"""
+    )
+    assert mod["fences"] == []
+    run = next(fn for fn in mod["functions"] if fn["name"] == "run")
+    call = run["body"][-1]["value"]
+    assert [arg["kind"] for arg in call["args"]] == ["const", "const"]
+
+
+def test_starred_runtime_length_operand_stays_fenced() -> None:
+    mod = lower_source(
+        """
+def probe(a: int, b: int) -> int:
+    return a + b
+def run() -> int:
+    xs: list[int] = [1, 2]
+    return probe(*xs)
+"""
+    )
+    fences = [fence for fn in mod["functions"] for fence in fn.get("fences", [])]
+    assert "PS2002" in {fence["code"] for fence in mod["fences"] + fences}
+
+
+def test_starred_display_arity_mismatch_is_a_count_error() -> None:
+    mod = lower_source(
+        """
+def probe(a: int, b: int) -> int:
+    return a + b
+def run() -> int:
+    return probe(*[1, 2, 3])
+"""
+    )
+    fences = [fence for fn in mod["functions"] for fence in fn.get("fences", [])]
+    assert "PS1003" in {fence["code"] for fence in mod["fences"] + fences}
+
+
+def test_starred_display_mixed_with_positional_lowers() -> None:
+    mod = lower_source(
+        """
+def probe(a: int, b: int, c: int) -> int:
+    return a + b + c
+def run() -> int:
+    return probe(1, *[2, 3])
+"""
+    )
+    assert mod["fences"] == []
+    run = next(fn for fn in mod["functions"] if fn["name"] == "run")
+    call = run["body"][-1]["value"]
+    assert [arg["kind"] for arg in call["args"]] == ["const", "const", "const"]
+
+
+def test_starred_display_into_varargs_matches_cpython(tmp_path: Path) -> None:
+    path = write_case(
+        tmp_path,
+        "starcall.py",
+        "\n".join(
+            [
+                "def probe(a: int, *rest: int) -> int:",
+                "    total = a",
+                "    for x in rest:",
+                "        total += x",
+                "    return total",
+                "def f() -> int:",
+                "    return probe(*[1, 2, 3])",
+                "",
+            ]
+        ),
+    )
+    got = compile_run(tmp_path, path, "f")
+    assert got.stdout == oracle(path, "f")
 
 
 def test_starstar_unpack_stays_fenced() -> None:

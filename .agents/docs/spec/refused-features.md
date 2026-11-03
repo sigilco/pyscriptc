@@ -14,7 +14,7 @@ Rows that changed since PR #72 wrote the table:
 
 | Doc row | Probe verdict on master | Consequence |
 | --- | --- | --- |
-| `def f(*args: int)` iterating `args` (PS4019) | **works** - lowers as a `list`, internal calls `f(1, 2)` and iteration match CPython | `*args` half of PS4019 is stale; only starred call sites (`g(*xs)`) stay fenced |
+| `def f(*args: int)` iterating `args` (PS4019) | **works** - lowers as a `list`, internal calls `f(1, 2)` and iteration match CPython | the `*args` half of PS4019 is stale; starred call sites lower when the operand is a list or tuple display (`g(*[1, 2])`), and only a runtime-length operand (`xs`, a call result) stays fenced |
 | `**kwargs` (PS4019) | **works** - `def f(**kwargs: int)` with `f(a=1, b=2)` returns 3 | the whole PS4019 row is stale; keyword passing at call sites also works |
 | `@property` getter (PS4201) | **works** - attribute read calls the getter (see the Tier C list in this file); only calling `C.a` and the setter stay fenced | PS4201 narrows to `__getattr__`/`__setattr__`/descriptors |
 | `class E(Exception)` user exceptions | **works** - raise and catch of a user exception class match CPython | not a refusal row; recorded as supported |
@@ -301,7 +301,7 @@ Deliberate divergences that are already lowered and documented; kept because the
 - `'%s' % x`, `'%d' % x`, format specs, mapping keys, tuple arguments, `%%` escapes all lower and match CPython. Caveat: prefer f-strings; this whole surface moved here from the refused table after the census.
 - `x is None` lowers as `==` against `None`. Caveat: correct only because `None` is a singleton; runtime-built operands are the PS4009 divergence.
 - Scalar/heap `is` on literals lowers to value equality or pointer compare (`lower/_expr.py:526`). Caveat: runtime-built equal strings diverge from CPython (compiled answers `0`, CPython `1`); the general form is the PS4009 refusal.
-- `*args` lowers as a `list` (not a `tuple`), `**kwargs` lowers as a `dict`; internal calls and iteration match CPython. Caveat: starred call sites `g(*xs)` still fence. Post-census.
+- `*args` lowers as a `list` (not a `tuple`), `**kwargs` lowers as a `dict`; internal calls and iteration match CPython. Caveat: starred call sites lower only with a statically-lengthed operand — a list or tuple display (`g(*[1, 2])`, `g(*(1, 2))`) expands into the known signature positionally, and an operand whose length the compiler cannot see (a bound list name, a call result) still fences PS2002, because the static callee has fixed frame slots and nothing replays a runtime-length tail into them. Post-census; narrowed 2026-11-03.
 - `@property` getters lower; user exception classes raise and catch; `getattr`/`hasattr` with a string literal lower; bare `except` and `except E as e` lower (E2 M3). Post-census.
 - `os.path.*` is a live alias of the `posixpath` table. Post-census; `pathlib` remains the recommended style.
 - Set iteration is insertion order, not hash order. Caveat: deterministic and stable, but different from CPython - use `sorted()` where order matters.
