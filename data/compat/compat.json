@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-10-28",
-  "commit": "0b108e1a50baec9381cf1b32152467178d934348",
+  "generated": "2026-11-03",
+  "commit": "c8c5742095e063277b3744ceae34bbef80e917d7",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 7,
     "packages_none": 9,
     "weighted_pass": 0.0,
-    "fences": 2718
+    "fences": 2714
   },
   "builtins": [
     {
@@ -1224,7 +1224,7 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "field(), asdict, frozen=, order= and other options"
+        "field(), asdict, order= and other options"
       ],
       "fences": [
         "PS1201",
@@ -1506,9 +1506,9 @@
       "import_name": "filelock",
       "version": "4.1.1",
       "status": "partial",
-      "fences": 684,
+      "fences": 681,
       "definitions": 641,
-      "fenced_definitions": 238,
+      "fenced_definitions": 237,
       "top_families": [
         {
           "family": "name-resolution",
@@ -1516,17 +1516,17 @@
         },
         {
           "family": "construct-other",
-          "count": 101
+          "count": 102
         },
         {
           "family": "generic-alias",
-          "count": 52
+          "count": 55
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 411
+          "count": 410
         },
         {
           "code": "PS2001",
@@ -1534,7 +1534,7 @@
         },
         {
           "code": "PS1103",
-          "count": 52
+          "count": 55
         }
       ],
       "pypi": "https://pypi.org/project/filelock/"
@@ -1564,7 +1564,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 106
+          "count": 107
         },
         {
           "code": "PS1106",
@@ -1658,9 +1658,9 @@
       "import_name": "jmespath",
       "version": "1.1.0",
       "status": "none",
-      "fences": 125,
+      "fences": 124,
       "definitions": 200,
-      "fenced_definitions": 107,
+      "fenced_definitions": 106,
       "top_families": [
         {
           "family": "param-inference",
@@ -1682,7 +1682,7 @@
         },
         {
           "code": "PS2002",
-          "count": 14
+          "count": 13
         },
         {
           "code": "PS1204",
@@ -1820,25 +1820,25 @@
         },
         {
           "family": "unlowered-type-name",
-          "count": 21
+          "count": 22
         },
         {
-          "family": "decorators",
-          "count": 21
+          "family": "construct-other",
+          "count": 17
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 108
+          "count": 109
         },
         {
           "code": "PS1106",
-          "count": 21
+          "count": 22
         },
         {
-          "code": "PS1201",
-          "count": 20
+          "code": "PS2001",
+          "count": 18
         }
       ],
       "pypi": "https://pypi.org/project/pathspec/"
@@ -2105,19 +2105,19 @@
     {
       "code": "PS1106",
       "title": "annotation names a type the compiler does not take",
-      "count": 197,
+      "count": 202,
       "packages": 9
     },
     {
       "code": "PS1204",
       "title": "class body statement",
-      "count": 125,
+      "count": 128,
       "packages": 7
     },
     {
       "code": "PS1103",
       "title": "generic alias annotation",
-      "count": 121,
+      "count": 124,
       "packages": 8
     },
     {
@@ -2133,16 +2133,16 @@
       "packages": 10
     },
     {
-      "code": "PS1201",
-      "title": "decorator",
-      "count": 72,
-      "packages": 8
-    },
-    {
       "code": "PS1104",
       "title": "dynamic or structural annotation",
       "count": 67,
       "packages": 6
+    },
+    {
+      "code": "PS1201",
+      "title": "decorator",
+      "count": 57,
+      "packages": 8
     },
     {
       "code": "PS1003",
@@ -2229,6 +2229,15 @@
       "packages_partial": 7,
       "packages_none": 9,
       "fences": 2718
+    },
+    {
+      "date": "2026-11-03",
+      "commit": "c8c5742095e063277b3744ceae34bbef80e917d7",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 7,
+      "packages_none": 9,
+      "fences": 2714
     }
   ]
 }
