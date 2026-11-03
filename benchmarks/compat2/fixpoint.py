@@ -9,8 +9,13 @@ divergence count becomes the headline self-host receipt, trending to zero as
 the migration lands.
 
 Run: uv run python -m benchmarks.compat2.fixpoint [--src DIR] [--out FILE]
+                                    [--summary FILE]
 
 Exit codes: 0 fixed point held, 1 divergence reported.
+
+`--summary` writes a per-module markdown table (one row per module, match or
+DIVERGENT) to the given file, for CI job summaries; the same table is printed
+to stdout alongside the usual headline.
 """
 
 from __future__ import annotations
@@ -71,6 +76,24 @@ def compare_runs(a: dict[str, str], b: dict[str, str]) -> dict[str, Any]:
     }
 
 
+def render_table(report: dict[str, Any]) -> str:
+    """Markdown table, one row per module: match, DIVERGENT or one-side-only."""
+
+    lines = ["| module | status |", "| --- | --- |"]
+    for module in sorted(set(report["divergent"] + report["onlyInA"] + report["onlyInB"])):
+        if module in report["divergent"]:
+            status = "DIVERGENT"
+        elif module in report["onlyInA"]:
+            status = "only in run A"
+        else:
+            status = "only in run B"
+        lines.append(f"| {module} | {status} |")
+    matched = report["matched"]
+    if matched:
+        lines.append(f"| _({matched} further module(s) matched)_ | match |")
+    return "\n".join(lines)
+
+
 def self_vs_self(src: Path) -> dict[str, Any]:
     """Two runs of the seed interpreter over the same tree, compared."""
 
@@ -90,6 +113,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="fixpoint")
     parser.add_argument("--src", type=Path, default=DEFAULT_SRC)
     parser.add_argument("--out", type=Path, dest="json_out", default=None)
+    parser.add_argument("--summary", type=Path, dest="summary_out", default=None)
     args = parser.parse_args(argv)
 
     result = self_vs_self(args.src.resolve())
@@ -104,6 +128,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  DIVERGENT {module}")
     if len(report["divergent"]) > 20:
         print(f"  ... and {len(report['divergent']) - 20} more")
+    table = render_table(report)
+    print(table)
+    if args.summary_out is not None:
+        args.summary_out.parent.mkdir(parents=True, exist_ok=True)
+        args.summary_out.write_text(table + "\n", encoding="utf-8")
+        print(f"wrote {args.summary_out}")
     if args.json_out is not None:
         args.json_out.parent.mkdir(parents=True, exist_ok=True)
         args.json_out.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")

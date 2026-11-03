@@ -42,6 +42,7 @@ Preview the internal notes with `mise run docs:internal` (a docmd dev server ove
 
 - [Compile-rate essence method](benchmarks/compile-rate-essence-method.md)
 - [Self-host baseline](benchmarks/self-host-baseline.md)
+- [Stage-2 fixed-point lane](benchmarks/fixpoint-lane.md)
 - [Cross-compile assessment](benchmarks/cross-compile-assessment.md)
 - [E0 cost baseline](benchmarks/e0-cost-baseline.md)
 

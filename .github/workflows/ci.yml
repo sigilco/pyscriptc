@@ -381,8 +381,37 @@ jobs:
           curl -fsSL https://github.com/Betterleaks/betterleaks/releases/download/v1.9.0/checksums.txt -o /tmp/checksums.txt
           (cd /tmp && grep betterleaks_1.9.0_linux_x64.tar.gz checksums.txt | sha256sum -c -)
           sudo tar -xzf /tmp/betterleaks_1.9.0_linux_x64.tar.gz -C /usr/local/bin betterleaks
-      - run: betterleaks git .
+  # Stage-2 fixed-point lane (issue #831, roadmap R6): the compiler tree is
+  # lowered to canonical IR twice and the per-module hashes compared. First
+  # state is self-vs-self (the seed interpreter runs both passes), so any
+  # divergence is a real nondeterminism leak. NOT a required check: the
+  # headline is the per-module divergence table in the job summary, and a
+  # new divergence is a signal for the typed-IR migration, not a merge
+  # blocker. Method and receipt: .agents/docs/benchmarks/fixpoint-lane.md.
+  fixpoint:
+    name: stage-2 fixpoint (self-vs-self per module)
+    runs-on: ubuntu-24.04
+    needs: changes
+    if: needs.changes.outputs.compiler == 'true'
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"  # emSign CA incident: uv 0.13.4 dropped the compromised root
+          enable-cache: true
+          python-version: "3.14"
+      - run: uv sync --frozen
+      - name: Stage-2 fixed point holds (self-vs-self)
+        run: uv run python -m benchmarks.compat2.fixpoint --summary "$GITHUB_STEP_SUMMARY"
+      - name: The headline when the lane failed
+        if: failure()
+        run: echo "The fixed point diverged. See the per-module table above; every DIVERGENT row is a module whose canonical IR moved between two runs of the same binary." >> "$GITHUB_STEP_SUMMARY"
 
+  unit:
   unit:
     # Required context `ruff and compat2`. Not a matrix job, so a
     # classifier skip reports this exact name as `skipped`, which
