@@ -211,6 +211,64 @@ def test_starred_display_into_varargs_matches_cpython(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "f")
 
 
+def test_kwdisplay_display_forwards_as_keywords() -> None:
+    mod = lower_source(
+        """
+def probe(a: int, b: int) -> int:
+    return a + b
+def run() -> int:
+    return probe(**{"a": 1, "b": 2})
+"""
+    )
+    assert mod["fences"] == []
+    run = next(fn for fn in mod["functions"] if fn["name"] == "run")
+    call = run["body"][-1]["value"]
+    assert [arg["kind"] for arg in call["args"]] == ["const", "const"]
+
+
+def test_kwdisplay_runtime_operand_stays_fenced() -> None:
+    mod = lower_source(
+        """
+def probe(a: int, b: int) -> int:
+    return a + b
+def run() -> int:
+    d: dict[str, int] = {"a": 1, "b": 2}
+    return probe(**d)
+"""
+    )
+    fences = [fence for fn in mod["functions"] for fence in fn.get("fences", [])]
+    assert "PS2002" in {fence["code"] for fence in mod["fences"] + fences}
+
+
+def test_kwdisplay_into_kwargs_param_packs_the_remainder() -> None:
+    mod = lower_source(
+        """
+def probe(a: int, **rest: int) -> int:
+    return a + len(rest)
+def run() -> int:
+    return probe(**{"a": 1, "z": 2, "w": 3})
+"""
+    )
+    assert mod["fences"] == []
+    run = next(fn for fn in mod["functions"] if fn["name"] == "run")
+    call = run["body"][-1]["value"]
+    assert call["args"][1]["kind"] == "dict"
+    assert [pair["key"]["value"] for pair in call["args"][1]["pairs"]] == ["z", "w"]
+
+
+def test_kwdisplay_non_str_key_stays_fenced() -> None:
+    mod = lower_source(
+        """
+def probe(a: int, b: int) -> int:
+    return a + b
+def run() -> int:
+    return probe(**{1: 1, "b": 2})
+"""
+    )
+    fences = [fence for fn in mod["functions"] for fence in fn.get("fences", [])]
+    assert "PS2002" in {fence["code"] for fence in mod["fences"] + fences}
+
+
 def test_starstar_unpack_stays_fenced() -> None:
     mod = lower_source(
         """
