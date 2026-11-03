@@ -20,6 +20,7 @@ import ast
 import copy
 from typing import TYPE_CHECKING, Any
 
+from pyscriptc import _irnode as _ir
 from pyscriptc.builtins import EXCEPTIONS, RESERVED_EXCEPTIONS
 from pyscriptc.errors import span_of
 from pyscriptc.ffi_manifest import is_handle_type
@@ -49,9 +50,92 @@ from pyscriptc.lower._core import (
 )
 from pyscriptc.reflection import kwargs_call_note
 from pyscriptc.restlower import alias_name
+from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
 
 if TYPE_CHECKING:
     from pyscriptc.lower import Lowerer
+
+
+def dict_to_list(items: list[dict[str, Any]]) -> list[Any]:
+    """The typed nodes one dict-IR statement list spells."""
+    return [dict_to_node(item) for item in items]
+
+
+def _body_nodes(body: list[dict[str, Any]]) -> list[Any]:
+    return dict_to_list(body)
+
+
+def _builtin_call(bname: str, args: list[dict[str, Any]], typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The dict-IR builtin call one typed construction spells."""
+    return node_to_dict(
+        _ir.call(_ir.builtin(bname), _body_nodes(args), dict_to_type(typ), _mk_span_of(span), "", "", -1)
+    )
+
+
+def _pass_stmt(span: dict[str, Any]) -> dict[str, Any]:
+    return node_to_dict(dict_to_node({"kind": "pass", "span": span}))
+
+
+def _expr_wrap(expr: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    return node_to_dict(_ir.expr_stmt(dict_to_node(expr), _mk_span_of(span)))
+
+
+def _mk_span_of(span: dict[str, Any]) -> Any:
+    from pyscriptc.tirserde import dict_to_span
+
+    return dict_to_span(span)
+
+
+def _if_stmt(
+    cond: dict[str, Any], then: list[dict[str, Any]], span: dict[str, Any], else_: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
+    from pyscriptc.tirserde import dict_to_span
+
+    return node_to_dict(
+        _ir.if_stmt(
+            dict_to_node(cond),
+            [dict_to_node(item) for item in then],
+            [dict_to_node(item) for item in (else_ or [])],
+            dict_to_span(span),
+        )
+    )
+
+
+def _while_loop(cond: dict[str, Any], body: list[dict[str, Any]], span: dict[str, Any]) -> dict[str, Any]:
+    from pyscriptc.tirserde import dict_to_span
+
+    return node_to_dict(_ir.while_stmt(dict_to_node(cond), [dict_to_node(item) for item in body], dict_to_span(span)))
+
+
+def _unary_not(operand: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    return node_to_dict(_ir.unary("not", dict_to_node(operand), dict_to_type({"kind": "bool"}), _mk_span_of(span)))
+
+
+def _raise_node(
+    exc: str,
+    span: dict[str, Any],
+    message: dict[str, Any] | None = None,
+    code: int = -1,
+    reraise: bool = False,
+    excslot: str = "",
+    cause: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    from pyscriptc.tirserde import dict_to_span
+
+    raise_node = _ir.raise_stmt(exc, dict_to_span(span), code, dict_to_node(message), reraise, excslot)
+    if cause is not None:
+        raise_node.cause = dict_to_node(cause)
+    out = node_to_dict(raise_node)
+    if message is None and cause is None:
+        # The bare raise dict spells no message key when there is none.
+        out.pop("message", None)
+    return out
+
+
+def _excmake_node(exc: str, span: dict[str, Any], message: dict[str, Any] | None, code: int = -1) -> dict[str, Any]:
+    from pyscriptc.tirserde import dict_to_span
+
+    return node_to_dict(_ir.excmake(exc, dict_to_span(span), code, dict_to_node(message)))
 
 
 class StmtMixin:
@@ -144,13 +228,9 @@ class StmtMixin:
         """
         guarded = stmts
         if self.continue_flag is not None:
-            guarded = [
-                {"kind": "if", "cond": _not_bool(self.continue_flag, span), "then": guarded, "else": [], "span": span}
-            ]
+            guarded = [_if_stmt(_not_bool(self.continue_flag, span), guarded, span)]
         if self.break_flag is not None:
-            guarded = [
-                {"kind": "if", "cond": _not_bool(self.break_flag, span), "then": guarded, "else": [], "span": span}
-            ]
+            guarded = [_if_stmt(_not_bool(self.break_flag, span), guarded, span)]
         return guarded[0]
 
     def _break_init(self, span: dict[str, Any]) -> list[dict[str, Any]]:
@@ -161,7 +241,7 @@ class StmtMixin:
     def _skip_on_break(self, stmts: list[dict[str, Any]], span: dict[str, Any]) -> list[dict[str, Any]]:
         if self.break_flag is None:
             return stmts
-        return [{"kind": "if", "cond": _not_bool(self.break_flag, span), "then": stmts, "else": [], "span": span}]
+        return [_if_stmt(_not_bool(self.break_flag, span), stmts, span)]
 
     def _user_while(
         self,
@@ -182,27 +262,20 @@ class StmtMixin:
         flag = self.break_flag
         pre = cond_pre or []
         if flag is None and not pre:
-            return [{"kind": "while", "cond": cond, "body": body, "span": span}]
+            return [_while_loop(cond, body, span)]
         own_flag = False
         if flag is None:
             flag = self._temp("whl")
             self.locals[flag] = {"kind": "bool"}
             own_flag = True
-        loop = {
-            "kind": "while",
-            "cond": _not_bool(flag, span),
-            "body": [
+        loop = _while_loop(
+            _not_bool(flag, span),
+            [
                 *pre,
-                {
-                    "kind": "if",
-                    "cond": cond,
-                    "then": body,
-                    "else": [_assign(flag, _const_bool(True, span), span)],
-                    "span": span,
-                },
+                _if_stmt(cond, body, span, [_assign(flag, _const_bool(True, span), span)]),
             ],
-            "span": span,
-        }
+            span,
+        )
         if not init and not own_flag:
             return [loop]
         return [_assign(flag, _const_bool(False, span), span), loop]
@@ -220,7 +293,7 @@ class StmtMixin:
     def _stmt_core(self, stmt: ast.stmt) -> list[dict[str, Any]]:
         span = span_of(stmt, self.filename)
         if isinstance(stmt, ast.Pass):
-            return [{"kind": "pass", "span": span}]
+            return [_pass_stmt(span)]
         if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Attribute):
             return [self._setattr(stmt, span)]
         if _is_setitem(stmt):
@@ -281,7 +354,7 @@ class StmtMixin:
                 slot = self.global_slots.get(name)
                 if slot is None or not slot.get("active"):
                     self.fail(stmt, "PS2002", f"global {name} is not a module slot")
-            return [{"kind": "pass", "span": span}]
+            return [_pass_stmt(span)]
         if isinstance(stmt, ast.Assign):
             if (
                 len(stmt.targets) == 1
@@ -289,14 +362,14 @@ class StmtMixin:
                 and (nt_call := self._namedtuple_call(stmt.value)) is not None
             ):
                 self._namedtuple_decl(stmt.targets[0].id, nt_call, stmt)
-                return [{"kind": "pass", "span": span}]
+                return [_pass_stmt(span)]
             if (
                 len(stmt.targets) == 1
                 and isinstance(stmt.targets[0], ast.Name)
                 and (tv_call := self._typevar_call(stmt.value)) is not None
             ):
                 self._declare_typevar(stmt.targets[0].id, tv_call, stmt)
-                return [{"kind": "pass", "span": span}]
+                return [_pass_stmt(span)]
             if len(stmt.targets) != 1 or not isinstance(stmt.targets[0], ast.Name):
                 return self._spread_assign(stmt, span)
             target = stmt.targets[0].id
@@ -392,15 +465,7 @@ class StmtMixin:
             when_true, when_false = self._narrow_names(stmt.test)
             then_body = self._narrowed(when_true, stmt.body, lambda: self._body(list(stmt.body)))
             else_body = self._narrowed(when_false, stmt.orelse, lambda: self._body(list(stmt.orelse)))
-            return [
-                {
-                    "kind": "if",
-                    "cond": self._bool_cond_of(stmt.test, {"kind": "bool"}),
-                    "then": then_body,
-                    "else": else_body,
-                    "span": span,
-                }
-            ]
+            return [_if_stmt(self._bool_cond_of(stmt.test, {"kind": "bool"}), then_body, span, else_body)]
         if isinstance(stmt, ast.Assert):
             return self._assert(stmt, span)
         if isinstance(stmt, ast.While):
@@ -441,13 +506,7 @@ class StmtMixin:
                 return [
                     _assign(broke, _const_bool(False, span), span),
                     *out,
-                    {
-                        "kind": "if",
-                        "cond": _not_bool(broke, span),
-                        "then": else_body,
-                        "else": [],
-                        "span": span,
-                    },
+                    _if_stmt(_not_bool(broke, span), else_body, span),
                 ]
             return out
         if isinstance(stmt, ast.Break):
@@ -472,19 +531,21 @@ class StmtMixin:
                 _params, ret = self._current_method()
             if stmt.value is None or (isinstance(stmt.value, ast.Constant) and stmt.value.value is None):
                 if ret.get("optional"):
-                    return [{"kind": "return", "value": self._opt_box(None, ret, span), "span": span}]
+                    return [
+                        node_to_dict(_ir.return_stmt(dict_to_node(self._opt_box(None, ret, span)), _mk_span_of(span)))
+                    ]
                 if ret["kind"] != "none":
                     self.fail(stmt, "PS1003", "bare return is None, and this function does not return None")
-                return [{"kind": "return", "value": _const_none(span), "span": span}]
+                return [node_to_dict(_ir.return_stmt(dict_to_node(_const_none(span)), _mk_span_of(span)))]
             value = self._expr(stmt.value, ret)
             self._expect(stmt, value["type"], ret, "return")
             # A returned handle transfers ownership to the caller: the scope
             # exit must not free it too (issue #224).
             if value["kind"] == "name" and is_handle_type(value["type"]):
                 self.returned_handles.add(value["id"])
-            return [{"kind": "return", "value": value, "span": span}]
+            return [node_to_dict(_ir.return_stmt(dict_to_node(value), _mk_span_of(span)))]
         if isinstance(stmt, ast.Expr):
-            return [{"kind": "expr", "expr": self._expr(stmt.value), "span": span}]
+            return [_expr_wrap(self._expr(stmt.value), span)]
         if isinstance(stmt, ast.Raise):
             return [self._raise(stmt, span)]
         if isinstance(stmt, ast.Pass):
@@ -545,7 +606,7 @@ class StmtMixin:
             cond = self._match_case(case, temp, span)
             then = self._body(list(case.body))
             self.prelude, pre = saved, self.prelude
-            chain = [*pre, {"kind": "if", "cond": cond, "then": then, "else": chain, "span": span}]
+            chain = [*pre, _if_stmt(cond, then, span, chain)]
         return chain
 
     def _match_case(self, case: ast.match_case, subject: str, span: dict[str, Any]) -> dict[str, Any]:
@@ -632,7 +693,7 @@ class StmtMixin:
                         "ps_map_del",
                         span,
                     )
-                    return [{"kind": "expr", "expr": call, "span": span}]
+                    return [_expr_wrap(call, span)]
                 if kind == "list" and not local.get("set"):
                     container = self._expr(target.value)
                     index = self._expr(target.slice)
@@ -646,7 +707,7 @@ class StmtMixin:
                         "ps_seq_del",
                         span,
                     )
-                    return [{"kind": "expr", "expr": call, "span": span}]
+                    return [_expr_wrap(call, span)]
             self.fail(stmt, "PS2002", "del of a subscript is not lowered")
         if isinstance(target, (ast.Tuple, ast.List)):
             self.fail(stmt, "PS2002", "del of a tuple of names is not lowered")
@@ -659,7 +720,7 @@ class StmtMixin:
             self.fail(stmt, "PS2002", "del of an unbound name is not lowered")
         if self._name_read_after(stmt, name):
             self.fail(stmt, "PS2002", "del of a name that is read later is not lowered")
-        return [{"kind": "pass", "span": span}]
+        return [_pass_stmt(span)]
 
     def _name_read_after(self, delete: ast.Delete, name: str) -> bool:
         state = {"seen": False, "hit": False}
@@ -1012,13 +1073,11 @@ class StmtMixin:
             stmts.append(_assign(seq, value, span))
             value = _name(seq, value["type"], span)
         length = _len_call(value, span)
-        got: dict[str, Any] = {
-            "kind": "call",
-            "callee": {"kind": "builtin", "name": "str"},
-            "args": [length],
-            "type": {"kind": "str"},
-            "span": span,
-        }
+        got = node_to_dict(
+            _ir.call(
+                _ir.builtin("str"), [dict_to_node(length)], dict_to_type({"kind": "str"}), _mk_span_of(span), "", "", -1
+            )
+        )
         need = len(elts) - 1 if star >= 0 else len(elts)
         checks: list[tuple[dict[str, Any], dict[str, Any]]] = []
         if star < 0:
@@ -1056,7 +1115,7 @@ class StmtMixin:
                 )
             )
         for cond, message in checks:
-            stmts.append({"kind": "if", "cond": cond, "then": [_raise_value(message, span)], "else": [], "span": span})
+            stmts.append(_if_stmt(cond, [_raise_value(message, span)], span))
         elem = value["type"]["elem"]
         for index, elt in enumerate(elts):
             if index == star:
@@ -1120,13 +1179,7 @@ class StmtMixin:
             return [
                 _assign(broke, _const_bool(False, span), span),
                 *out,
-                {
-                    "kind": "if",
-                    "cond": _not_bool(broke, span),
-                    "then": else_body,
-                    "else": [],
-                    "span": span,
-                },
+                _if_stmt(_not_bool(broke, span), else_body, span),
             ]
         return out
 
@@ -1264,17 +1317,7 @@ class StmtMixin:
         prefix.extend(
             [
                 _assign(seq, iterable, span),
-                _assign(
-                    length,
-                    {
-                        "kind": "call",
-                        "callee": {"kind": "builtin", "name": "len"},
-                        "args": [_name(seq, iterable["type"], span)],
-                        "type": int_t,
-                        "span": span,
-                    },
-                    span,
-                ),
+                _assign(length, _builtin_call("len", [_name(seq, iterable["type"], span)], int_t, span), span),
                 _assign(idx, _const_int(0, span), span),
                 *self._user_while(
                     _compare("<", _name(idx, int_t, span), _name(length, int_t, span), span),
@@ -1317,13 +1360,14 @@ class StmtMixin:
             ]
         else:
             bind = [_assign(target, item, span)]
-        advance = {
-            "kind": "setattr",
-            "object": itn_n,
-            "name": "idx",
-            "value": _binary_int("+", idx_r, _const_int(1, span), span),
-            "span": span,
-        }
+        advance = node_to_dict(
+            _ir.setattr_stmt(
+                dict_to_node(itn_n),
+                "idx",
+                dict_to_node(_binary_int("+", idx_r, _const_int(1, span), span)),
+                _mk_span_of(span),
+            )
+        )
         body = self._loop_body(stmt)
         out = [_assign(itn, iterable, span)]
         if fresh:
@@ -1353,33 +1397,36 @@ class StmtMixin:
             self.fail(stmt, "PS2001", f"{it_t['name']}.__next__ is not a method")
         saved_break = self.break_flag
         self.break_flag = flag
-        body = self._loop_body(stmt)
-        guarded = self._skip_on_break(body, span)
+        body = self._skip_on_break(self._loop_body(stmt), span)
         self.break_flag = saved_break
         out = [_assign(itn, iterable, span), _assign(flag, _const_bool(False, span), span)]
         if fresh:
             out.append(_assign(target, _zero(elem, span), span))
         out.append(
-            {
-                "kind": "while",
-                "cond": _not_bool(flag, span),
-                "body": [
-                    {
-                        "kind": "try",
-                        "body": [_assign(target, step, span)],
-                        "handlers": [
-                            {
-                                "exc": ["StopIteration"],
-                                "codes": [8],
-                                "body": [_assign(flag, _const_bool(True, span), span)],
-                            }
-                        ],
-                        "span": span,
-                    },
-                    *guarded,
-                ],
-                "span": span,
-            }
+            node_to_dict(
+                _ir.while_stmt(
+                    dict_to_node(_not_bool(flag, span)),
+                    [
+                        dict_to_node(
+                            node_to_dict(
+                                _ir.try_stmt(
+                                    [dict_to_node(_assign(target, step, span))],
+                                    [
+                                        _ir.Handler(
+                                            ["StopIteration"],
+                                            [8],
+                                            [dict_to_node(_assign(flag, _const_bool(True, span), span))],
+                                        )
+                                    ],
+                                    _mk_span_of(span),
+                                )
+                            )
+                        ),
+                        *_body_nodes(body),
+                    ],
+                    _mk_span_of(span),
+                )
+            )
         )
         return out
 
@@ -1426,30 +1473,27 @@ class StmtMixin:
                 _assign(cur, start, span),
                 _assign(stop_n, stop, span),
                 _assign(step_n, step, span),
-                {
-                    "kind": "if",
-                    "cond": _compare("==", _name(step_n, int_t, span), _const_int(0, span), span),
-                    "then": [{"kind": "raise", "exc": "ValueError", "message": None, "span": span}],
-                    "else": [],
-                    "span": span,
-                },
-                {
-                    "kind": "if",
-                    "cond": _compare(">", _name(step_n, int_t, span), _const_int(0, span), span),
-                    "then": self._user_while(
+                _if_stmt(
+                    _compare("==", _name(step_n, int_t, span), _const_int(0, span), span),
+                    [_raise_node("ValueError", span)],
+                    span,
+                ),
+                _if_stmt(
+                    _compare(">", _name(step_n, int_t, span), _const_int(0, span), span),
+                    self._user_while(
                         _compare("<", _name(cur, int_t, span), _name(stop_n, int_t, span), span),
                         up,
                         span,
                         init=False,
                     ),
-                    "else": self._user_while(
+                    span,
+                    self._user_while(
                         _compare(">", _name(cur, int_t, span), _name(stop_n, int_t, span), span),
                         down,
                         span,
                         init=False,
                     ),
-                    "span": span,
-                },
+                ),
             ]
         )
         return prefix
@@ -1485,9 +1529,9 @@ class StmtMixin:
                 then = self.prelude
             finally:
                 self.prelude = saved
-        then.append({"kind": "raise", "exc": "AssertionError", "message": message, "span": span})
-        negated = {"kind": "unary", "op": "not", "operand": cond, "type": {"kind": "bool"}, "span": span}
-        return [{"kind": "if", "cond": negated, "then": then, "else": [], "span": span}]
+        then.append(_raise_node("AssertionError", span, message))
+        negated = _unary_not(cond, span)
+        return [_if_stmt(negated, then, span)]
 
     def _raise(self, stmt: ast.Raise, span: dict[str, Any]) -> dict[str, Any]:
         # `E(arg)` becomes the message (str(arg)); bool goes through str() so
@@ -1528,13 +1572,7 @@ class StmtMixin:
                         self.fail(call, "PS2003", "raise SystemExit with a status and a cause is not lowered")
                     built = expr
                 elif expr["type"]["kind"] == "bool":
-                    built = {
-                        "kind": "call",
-                        "callee": {"kind": "builtin", "name": "str"},
-                        "args": [expr],
-                        "type": {"kind": "str"},
-                        "span": span,
-                    }
+                    built = _builtin_call("str", [expr], {"kind": "str"}, span)
                 elif expr["type"]["kind"] in {"str", "int", "float"}:
                     built = self._as_str(expr, call)
                 else:
@@ -1549,7 +1587,7 @@ class StmtMixin:
                 slot = self._temp("exc")
                 self.locals[slot] = {"kind": "exc"}
                 self.exc_stack[-1] = slot
-            node: dict[str, Any] = {"kind": "raise", "exc": "Exception", "reraise": True, "excslot": slot, "span": span}
+            node: dict[str, Any] = _raise_node("Exception", span, reraise=True, excslot=slot)
         else:
             exc: ast.expr = stmt.exc
             if isinstance(exc, ast.Call):
@@ -1557,16 +1595,10 @@ class StmtMixin:
             if not isinstance(exc, ast.Name):
                 self.fail(stmt, "PS2002", "raise names a lowered exception")
             if exc.id in EXCEPTIONS:
-                node = {"kind": "raise", "exc": exc.id, "message": message, "span": span}
+                node = _raise_node(exc.id, span, message)
             elif exc.id in RESERVED_EXCEPTIONS:
                 # A reserved class (queue.Empty): the code rides the node.
-                node = {
-                    "kind": "raise",
-                    "exc": exc.id,
-                    "code": RESERVED_EXCEPTIONS[exc.id],
-                    "message": message,
-                    "span": span,
-                }
+                node = _raise_node(exc.id, span, message, code=RESERVED_EXCEPTIONS[exc.id])
             else:
                 resolved = self.class_aliases.get(exc.id, exc.id)
                 info = self.classes.get(resolved)
@@ -1580,11 +1612,13 @@ class StmtMixin:
                 # report read what CPython reads (issue #814).
                 if chained is not None:
                     message = chained
-                node = {"kind": "raise", "exc": resolved, "code": info["exc_code"], "message": message, "span": span}
+                node = _raise_node(resolved, span, message, code=info["exc_code"])
         if stmt.cause is not None:
             cause_node = stmt.cause
             if isinstance(cause_node, ast.Name) and self.locals.get(cause_node.id, {}).get("kind") == "exc":
-                node["cause"] = {"kind": "name", "id": cause_node.id, "type": {"kind": "exc"}, "span": span}
+                node["cause"] = node_to_dict(
+                    _ir.name_expr(cause_node.id, dict_to_type({"kind": "exc"}), _mk_span_of(span))
+                )
             elif not (isinstance(cause_node, ast.Constant) and cause_node.value is None):
                 cexc = cause_node
                 if isinstance(cause_node, ast.Call):
@@ -1592,19 +1626,13 @@ class StmtMixin:
                 if not isinstance(cexc, ast.Name):
                     self.fail(cause_node, "PS2002", "raise-from needs an exception or None")
                 if cexc.id in EXCEPTIONS:
-                    node["cause"] = {"kind": "excmake", "exc": cexc.id, "message": cmessage, "span": span}
+                    node["cause"] = _excmake_node(cexc.id, span, cmessage)
                 else:
                     cresolved = self.class_aliases.get(cexc.id, cexc.id)
                     cinfo = self.classes.get(cresolved)
                     if cinfo is None or not cinfo.get("exception"):
                         self.fail(cause_node, "PS2002", "raise-from needs an exception or None")
-                    node["cause"] = {
-                        "kind": "excmake",
-                        "exc": cresolved,
-                        "code": cinfo["exc_code"],
-                        "message": cmessage,
-                        "span": span,
-                    }
+                    node["cause"] = _excmake_node(cresolved, span, cmessage, code=cinfo["exc_code"])
         return node
 
     def _chained_exc_message(self, stmt: ast.Raise) -> dict[str, Any] | None:
@@ -1737,25 +1765,44 @@ class StmtMixin:
                 if bind is not None:
                     self.dead_names.add(bind)  # CPython emits `del e` at handler end
 
-            node: dict[str, Any] = {"exc": names, "codes": codes, "body": body}
-            if handler.type is None:
-                node["bare"] = True
-            if slot:
-                node["excslot"] = slot
-            elif bind is not None:
-                node["excslot"] = bind
-            if bind is not None:
-                node["bind"] = bind
-            handlers.append(node)
-        node = {"kind": "try", "body": self._body(list(stmt.body)), "handlers": handlers, "span": span}
+            flags = _ir.F_BARE if handler.type is None else 0
+            # The try statement's own handlers always spell "codes" (empty
+            # when the exception carries none); the with-family handlers
+            # below omit the key entirely.
+            handlers.append(
+                _ir.Handler(
+                    names,
+                    codes,
+                    [dict_to_node(item) for item in body],
+                    slot or (bind or ""),
+                    bind or "",
+                    flags,
+                )
+            )
+        body = self._body(list(stmt.body))
         if stmt.orelse:
-            node["orelse"] = self._body(list(stmt.orelse))
-            if brk is not None:
-                node["brk"] = brk
-            if cont is not None:
-                node["cont"] = cont
+            orelse = self._body(list(stmt.orelse))
+            brk_s = brk or ""
+            cont_s = cont or ""
+        else:
+            orelse = None
+            brk_s = ""
+            cont_s = ""
         if stmt.finalbody:
-            node["finalbody"] = self._body(list(stmt.finalbody))
+            finalbody = self._body(list(stmt.finalbody))
+        else:
+            finalbody = None
+        node = node_to_dict(
+            _ir.try_stmt(
+                _body_nodes(body),
+                handlers,
+                _mk_span_of(span),
+                None if orelse is None else [dict_to_node(item) for item in orelse],
+                None if finalbody is None else [dict_to_node(item) for item in finalbody],
+                brk_s,
+                cont_s,
+            )
+        )
         return node
 
     def _with(self, stmt: ast.With, span: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1779,12 +1826,13 @@ class StmtMixin:
             if len(ctx.args) != 1 or not isinstance(ctx.args[0], ast.Name) or ctx.args[0].id not in EXCEPTIONS:
                 self.fail(ctx, "PS2002", "suppress takes one lowered exception")
             return [
-                {
-                    "kind": "try",
-                    "body": self._body(list(stmt.body)),
-                    "handlers": [{"exc": [ctx.args[0].id], "body": []}],
-                    "span": span,
-                }
+                node_to_dict(
+                    _ir.try_stmt(
+                        _body_nodes(self._body(list(stmt.body))),
+                        [_ir.Handler([ctx.args[0].id], None, [])],
+                        _mk_span_of(span),
+                    )
+                )
             ]
         if self._is_mod(ctx, "contextlib", "nullcontext"):
             if item.optional_vars is not None:
@@ -1894,30 +1942,21 @@ class StmtMixin:
         self.locals[length] = int_t
         return [
             _assign(seq, iterable, span),
-            _assign(
-                length,
-                {
-                    "kind": "call",
-                    "callee": {"kind": "builtin", "name": "len"},
-                    "args": [_name(seq, iterable["type"], span)],
-                    "type": int_t,
-                    "span": span,
-                },
-                span,
-            ),
+            _assign(length, _builtin_call("len", [_name(seq, iterable["type"], span)], int_t, span), span),
             _assign(idx, _const_int(0, span), span),
             *self._user_while(
                 _compare("<", _name(idx, int_t, span), _name(length, int_t, span), span),
                 [
                     _assign(
                         target,
-                        {
-                            "kind": "subscript",
-                            "value": _name(seq, iterable["type"], span),
-                            "index": _name(idx, int_t, span),
-                            "type": elem,
-                            "span": span,
-                        },
+                        node_to_dict(
+                            _ir.subscript(
+                                dict_to_node(_name(seq, iterable["type"], span)),
+                                dict_to_node(_name(idx, int_t, span)),
+                                dict_to_type(elem),
+                                _mk_span_of(span),
+                            )
+                        ),
                         span,
                     ),
                     *body,
@@ -2006,31 +2045,34 @@ class StmtMixin:
                 *inner,
                 _assign(kslot, key, key["span"]),
                 _assign(vslot, elt, elt["span"]),
-                {
-                    "kind": "setitem",
-                    "container": _name(self.comp_dest, typ, elt["span"]),
-                    "index": _name(kslot, key["type"], elt["span"]),
-                    "value": _name(vslot, elem, elt["span"]),
-                    "span": elt["span"],
-                },
+                node_to_dict(
+                    _ir.setitem_stmt(
+                        dict_to_node(_name(self.comp_dest, typ, elt["span"])),
+                        dict_to_node(_name(kslot, key["type"], elt["span"])),
+                        dict_to_node(_name(vslot, elem, elt["span"])),
+                        _mk_span_of(elt["span"]),
+                    )
+                ),
             ]
         elif self.comp_kind == "set":
             kept = [*inner, *self._set_insert_stmts(self.comp_dest, typ, elt, elt["span"])]
         else:
             slot = self._temp("elt")
             self.locals[slot] = elem
-            push = {
-                "kind": "expr",
-                "expr": {
-                    "kind": "call",
-                    "callee": {"kind": "module", "module": "builtins", "name": "list.append"},
-                    "args": [_name(self.comp_dest, typ, elt["span"]), _name(slot, elem, elt["span"])],
-                    "symbol": "ps_list_push",
-                    "type": {"kind": "none"},
-                    "span": elt["span"],
-                },
-                "span": elt["span"],
-            }
+            push = node_to_dict(
+                _ir.expr_stmt(
+                    _ir.call(
+                        _ir.module_callee("builtins", "list.append"),
+                        _body_nodes([_name(self.comp_dest, typ, elt["span"]), _name(slot, elem, elt["span"])]),
+                        dict_to_type({"kind": "none"}),
+                        _mk_span_of(elt["span"]),
+                        "ps_list_push",
+                        "",
+                        -1,
+                    ),
+                    _mk_span_of(elt["span"]),
+                )
+            )
             kept = [*inner, _assign(slot, elt, elt["span"]), push]
         for cond in reversed(self.comp_ifs):
             saved_cond = self.prelude
@@ -2042,7 +2084,7 @@ class StmtMixin:
                 self.prelude = saved_cond
             kept = [
                 *filt_pre,
-                {"kind": "if", "cond": filt, "then": kept, "else": [], "span": span_of(cond, self.filename)},
+                _if_stmt(filt, kept, span_of(cond, self.filename)),
             ]
         return kept
 
@@ -2099,24 +2141,25 @@ class StmtMixin:
         def box(typ: dict[str, Any], value: dict[str, Any] | None) -> tuple[str, list[dict[str, Any]]]:
             temp = self._temp("opt")
             self.locals[temp] = typ
-            made = {
-                "kind": "call",
-                "callee": {"kind": "class", "name": typ["name"]},
-                "args": [],
-                "type": typ,
-                "span": span,
-            }
+            made = node_to_dict(
+                _ir.call(_ir.class_callee(typ["name"]), [], dict_to_type(typ), _mk_span_of(span), "", "", -1)
+            )
             stmts = [_assign(temp, made, span)]
             if value is not None:
                 stmts += [
-                    {
-                        "kind": "setattr",
-                        "object": _name(temp, typ, span),
-                        "name": "_tag",
-                        "value": _const_bool(True, span),
-                        "span": span,
-                    },
-                    {"kind": "setattr", "object": _name(temp, typ, span), "name": "_val", "value": value, "span": span},
+                    node_to_dict(
+                        _ir.setattr_stmt(
+                            dict_to_node(_name(temp, typ, span)),
+                            "_tag",
+                            dict_to_node(_const_bool(True, span)),
+                            _mk_span_of(span),
+                        )
+                    ),
+                    node_to_dict(
+                        _ir.setattr_stmt(
+                            dict_to_node(_name(temp, typ, span)), "_val", dict_to_node(value), _mk_span_of(span)
+                        )
+                    ),
                 ]
             return temp, stmts
 
@@ -2147,45 +2190,40 @@ class StmtMixin:
         enter = self._dunder_call(stmt, mgr_n, "__enter__", [], span)
         out = [_assign(mgr, ctx_v, span)]
         if target is None:
-            out.append({"kind": "expr", "expr": enter, "span": span})
+            out.append(_expr_wrap(enter, span))
         else:
             self.locals[target.id] = enter["type"]
             out.append(_assign(target.id, enter, span))
         body = self._body(list(stmt.body))
+        handler_body = [
+            *et_stmts,
+            *ev_stmts,
+            *tb_stmts,
+            _assign(suppressed, raised_exit, span),
+            _if_stmt(
+                _not_bool(suppressed, span),
+                [_raise_node("Exception", span, reraise=True, excslot=exc_slot)],
+                span,
+            ),
+        ]
         out.append(
-            {
-                "kind": "try",
-                "body": [*et0_stmts, *ev0_stmts, *tb0_stmts, *body, {"kind": "expr", "expr": clean_exit, "span": span}],
-                "handlers": [
-                    {
-                        "exc": ["Exception"],
-                        "body": [
-                            *et_stmts,
-                            *ev_stmts,
-                            *tb_stmts,
-                            _assign(suppressed, raised_exit, span),
-                            {
-                                "kind": "if",
-                                "cond": _not_bool(suppressed, span),
-                                "then": [
-                                    {
-                                        "kind": "raise",
-                                        "exc": "Exception",
-                                        "reraise": True,
-                                        "excslot": exc_slot,
-                                        "span": span,
-                                    }
-                                ],
-                                "else": [],
-                                "span": span,
-                            },
-                        ],
-                        "excslot": exc_slot,
-                        "bind": exc_slot,
-                    }
-                ],
-                "span": span,
-            }
+            node_to_dict(
+                _ir.try_stmt(
+                    [
+                        *dict_to_list(et0_stmts),
+                        *dict_to_list(ev0_stmts),
+                        *dict_to_list(tb0_stmts),
+                        *dict_to_list(body),
+                        dict_to_node(_expr_wrap(clean_exit, span)),
+                    ],
+                    [
+                        _ir.Handler(
+                            ["Exception"], None, [dict_to_node(item) for item in handler_body], exc_slot, exc_slot
+                        )
+                    ],
+                    _mk_span_of(span),
+                )
+            )
         )
         return out
 
@@ -2198,36 +2236,26 @@ class StmtMixin:
         if target in self.bindings or target in self.constants:
             self.fail(item.optional_vars, "PS2002", f"{target} is already bound")
         self.locals[target] = opened["type"]
-        close = {
-            "kind": "expr",
-            "expr": self._abi_call(
-                "io", "close", [_name(target, opened["type"], span)], {"kind": "none"}, "ps_io_close", span
-            ),
-            "span": span,
-        }
+        close = _expr_wrap(
+            self._abi_call("io", "close", [_name(target, opened["type"], span)], {"kind": "none"}, "ps_io_close", span),
+            span,
+        )
         body = self._inject_close(self._body(list(stmt.body)), close)
         return [
             _assign(target, opened, span),
-            {
-                "kind": "try",
-                "body": [*body, close],
-                "handlers": [
-                    {
-                        "exc": ["Exception"],
-                        "body": [
-                            close,
-                            {
-                                "kind": "raise",
-                                "exc": "Exception",
-                                "message": None,
-                                "reraise": True,
-                                "span": span,
-                            },
-                        ],
-                    }
-                ],
-                "span": span,
-            },
+            node_to_dict(
+                _ir.try_stmt(
+                    [*dict_to_list(body), dict_to_node(close)],
+                    [
+                        _ir.Handler(
+                            ["Exception"],
+                            None,
+                            [dict_to_node(close), dict_to_node(_raise_node("Exception", span, reraise=True))],
+                        )
+                    ],
+                    _mk_span_of(span),
+                )
+            ),
         ]
 
     def _with_io(
@@ -2249,33 +2277,22 @@ class StmtMixin:
                 self.fail(target, "PS2002", f"{target.id} is already bound")
             self.locals[target.id] = ctx_v["type"]
             out.append(_assign(target.id, hold_n, span))
-        close = {
-            "kind": "expr",
-            "expr": self._abi_call("io", "close", [hold_n], {"kind": "none"}, "ps_io_close", span),
-            "span": span,
-        }
+        close = _expr_wrap(self._abi_call("io", "close", [hold_n], {"kind": "none"}, "ps_io_close", span), span)
         body = self._inject_close(self._body(list(stmt.body)), close)
         out.append(
-            {
-                "kind": "try",
-                "body": [*body, close],
-                "handlers": [
-                    {
-                        "exc": ["Exception"],
-                        "body": [
-                            close,
-                            {
-                                "kind": "raise",
-                                "exc": "Exception",
-                                "message": None,
-                                "reraise": True,
-                                "span": span,
-                            },
-                        ],
-                    }
-                ],
-                "span": span,
-            }
+            node_to_dict(
+                _ir.try_stmt(
+                    [*dict_to_list(body), dict_to_node(close)],
+                    [
+                        _ir.Handler(
+                            ["Exception"],
+                            None,
+                            [dict_to_node(close), dict_to_node(_raise_node("Exception", span, reraise=True))],
+                        )
+                    ],
+                    _mk_span_of(span),
+                )
+            )
         )
         return out
 
@@ -2361,13 +2378,14 @@ class StmtMixin:
             values.append(_name(enum_i, int_t, span))
         for seq, source, elem in zip(seqs, sources, elems, strict=True):
             values.append(
-                {
-                    "kind": "subscript",
-                    "value": _name(seq, source["type"], span),
-                    "index": _name(idx, int_t, span),
-                    "type": elem,
-                    "span": span,
-                }
+                node_to_dict(
+                    _ir.subscript(
+                        dict_to_node(_name(seq, source["type"], span)),
+                        dict_to_node(_name(idx, int_t, span)),
+                        dict_to_type(elem),
+                        _mk_span_of(span),
+                    )
+                )
             )
         if unpack:
             bind = self._for_unpack(stmt, fields, values, span)
@@ -2397,13 +2415,11 @@ class StmtMixin:
                     _assign(left_n, _len_call(_name(seqs[0], sources[0]["type"], span), span), span),
                     _assign(right_n, _len_call(_name(seqs[1], sources[1]["type"], span), span), span),
                     _assign(length, _name(left_n, int_t, span), span),
-                    {
-                        "kind": "if",
-                        "cond": _compare("<", _name(right_n, int_t, span), _name(left_n, int_t, span), span),
-                        "then": [_assign(length, _name(right_n, int_t, span), span)],
-                        "else": [],
-                        "span": span,
-                    },
+                    _if_stmt(
+                        _compare("<", _name(right_n, int_t, span), _name(left_n, int_t, span), span),
+                        [_assign(length, _name(right_n, int_t, span), span)],
+                        span,
+                    ),
                 ]
             )
         if enum_start is not None:
@@ -2555,13 +2571,7 @@ def _handler_names(lowerer: Lowerer, node: ast.expr) -> list[str]:
 
 
 def _not_bool(name: str, span: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "kind": "unary",
-        "op": "not",
-        "operand": _name(name, {"kind": "bool"}, span),
-        "type": {"kind": "bool"},
-        "span": span,
-    }
+    return _unary_not(_name(name, {"kind": "bool"}, span), span)
 
 
 def _stmt_jumps_this_loop(stmt: ast.stmt, jump: type[ast.stmt]) -> bool:

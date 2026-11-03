@@ -385,9 +385,10 @@ def _thread_dict(meta: Any) -> Any:
 def _handler_dict(handler: Any) -> Any:
     out: dict[str, Any] = {
         "exc": handler.exc,
-        "codes": handler.codes,
         "body": [node_to_dict(item) for item in handler.body],
     }
+    if handler.codes is not None:
+        out["codes"] = handler.codes
     if handler.flags & F_BARE:
         out["bare"] = True
     if handler.excslot != "":
@@ -650,9 +651,11 @@ def dict_to_node(d: Any) -> Any:
     if kind is None:
         # The record shapes: handler / env item / pair / stub / thread,
         # keyed by the fields only that record carries.
-        if "exc" in d and "codes" in d:
+        if "exc" in d and "body" in d:
             flags = F_BARE if d.get("bare") else 0
-            return Handler(d["exc"], d["codes"], _node_list(d["body"]), d.get("excslot", ""), d.get("bind", ""), flags)
+            return Handler(
+                d["exc"], d.get("codes"), _node_list(d["body"]), d.get("excslot", ""), d.get("bind", ""), flags
+            )
         if "init" in d:
             return EnvItem(dict_to_node(d["init"]), dict_to_type(d["type"]), "")
         if "name" in d and "type" in d:
