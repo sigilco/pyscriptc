@@ -1632,7 +1632,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         finally:
             _package._STAGED_DATA_TARGET = None
         # boxed:end
-        dbg.end("lower")
+        dbg.end("lower", module)
         dbg.exclude("lower", "parse")
         if args.run:
             args.emit = "bin"
@@ -1662,16 +1662,16 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                 fallback=fallback,
                 # boxed:end
             )
-            dbg.end("check")
+            dbg.end("check", module)
         state["stage"] = "validate"
         dbg.begin("validate")
         validate_module(module)
-        dbg.end("validate")
+        dbg.end("validate", module)
         if dbg.wants("verify"):
             state["stage"] = "verify"
             dbg.begin("verify")
             _verify_ir(module, dbg)
-            dbg.end("verify")
+            dbg.end("verify", module)
         ir_path = _output_path(args, source_path, ".ir.json")
         ir_path.parent.mkdir(parents=True, exist_ok=True)
         ir_path.write_text(json.dumps(module, indent=2) + "\n", encoding="utf-8")
@@ -1741,7 +1741,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             wasm=bool(args.target and args.target.startswith("wasm32")),
             **extra,
         )
-        dbg.end("emit_llvm")
+        dbg.end("emit_llvm", module)
         # The wasm thread refusal fires before the link, so a program that
         # cannot run threads on the target never reaches the compiler.
         refuse_unsupported_target(llvm_text, args.target)
