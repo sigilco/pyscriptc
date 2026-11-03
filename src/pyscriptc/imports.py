@@ -33,6 +33,7 @@ import re
 import sys
 import sysconfig
 import zipfile
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -115,21 +116,60 @@ def _verdict(
     distribution: str = "",
     pack: str = "",
     source: str = SOURCE_TABLE,
-) -> dict[str, Any]:
+) -> Verdict:
     """One verdict, as the report holds it."""
 
-    island = lane == LANE_ISLAND
+    return Verdict(name, kind, lane, reason, [], distribution, pack, source)
+
+
+@dataclass
+class Verdict:
+    """One import verdict: what the import is and which lane it takes.
+
+    `sites` collects the import statements grouped under this verdict while
+    the report builds; the record-to-dict boundary is `verdict_row`, which
+    the report (and its JSON export) reads.
+    """
+
+    name: str
+    kind: str
+    lane: str
+    reason: str
+    sites: list[dict[str, str]]
+    distribution: str = ""
+    pack: str = ""
+    source: str = SOURCE_TABLE
+
+    @property
+    def ladder(self) -> str:
+        return _ladder(self.lane)
+
+    @property
+    def requires_libpython(self) -> bool:
+        return self.lane == LANE_ISLAND
+
+    def with_lane(self, lane: str, reason: str) -> Verdict:
+        return Verdict(self.name, self.kind, lane, reason, self.sites, self.distribution, self.pack, self.source)
+
+
+def verdict_row(verdict: Verdict) -> dict[str, Any]:
+    """The dict row of a verdict, the record-to-dict boundary.
+
+    The report (and its JSON export) holds rows; the classifier works on the
+    records. The keys match the report schema the tests and `assess` read.
+    """
+
     return {
-        "name": name,
-        "kind": kind,
-        "lane": lane,
-        "ladder": _ladder(lane),
-        "requiresLibpython": island,
-        "reason": reason,
-        "distribution": distribution,
-        "pack": pack,
-        "source": source,
-        "sites": [],
+        "name": verdict.name,
+        "kind": verdict.kind,
+        "lane": verdict.lane,
+        "ladder": verdict.ladder,
+        "requiresLibpython": verdict.requires_libpython,
+        "reason": verdict.reason,
+        "distribution": verdict.distribution,
+        "pack": verdict.pack,
+        "source": verdict.source,
+        "sites": verdict.sites,
     }
 
 
@@ -438,7 +478,7 @@ def distribution_is_native(name: str) -> tuple[bool | None, str]:
 # Classification
 
 
-def _stdlib_verdict(name: str) -> dict[str, Any] | None:
+def _stdlib_verdict(name: str) -> Verdict | None:
     """Classify a standard-library import, or None when it is not stdlib.
 
     The closed import table wins over `sys.stdlib_module_names`, so a
@@ -499,7 +539,7 @@ def _policy_key(name: str, policy: dict[str, str]) -> tuple[str, str] | None:
     return POLICY_TO_LANE[lane], key
 
 
-def apply_policy(verdict: dict[str, Any], policy: dict[str, str] | None) -> dict[str, Any]:
+def apply_policy(verdict: Verdict, policy: dict[str, str] | None) -> Verdict:
     """Override a verdict with the per-import policy table, when it names the import.
 
     The table is the only route to the `island` lane. A policy entry also
@@ -510,28 +550,19 @@ def apply_policy(verdict: dict[str, Any], policy: dict[str, str] | None) -> dict
 
     if not policy:
         return verdict
-    found = _policy_key(verdict["name"], policy)
+    found = _policy_key(verdict.name, policy)
     if found is None:
         return verdict
     lane, key = found
-    if lane == verdict["lane"]:
+    if lane == verdict.lane:
         return verdict
     chosen = f"per-import policy {key!r}: {lane}"
     if lane == LANE_ISLAND:
         chosen = f"per-import policy {key!r}: island ({REQUIRES_LIBPYTHON}); the binary links the host interpreter"
-    updated = dict(verdict)
-    updated.update(
-        {
-            "lane": lane,
-            "ladder": _ladder(lane),
-            "requiresLibpython": lane == LANE_ISLAND,
-            "reason": chosen,
-        }
-    )
-    return updated
+    return verdict.with_lane(lane, chosen)
 
 
-def classify(name: str, distribution: str = "", policy: dict[str, str] | None = None) -> dict[str, Any]:
+def classify(name: str, distribution: str = "", policy: dict[str, str] | None = None) -> Verdict:
     """Classify one import name into a kind and a lane.
 
     `policy` is the `[tool.pyscriptc.imports]` table when the caller has one.
@@ -542,7 +573,7 @@ def classify(name: str, distribution: str = "", policy: dict[str, str] | None = 
     return apply_policy(_classify_base(name, distribution), policy)
 
 
-def _classify_base(name: str, distribution: str = "") -> dict[str, Any]:
+def _classify_base(name: str, distribution: str = "") -> Verdict:
     """The classifier verdict before the per-import policy is applied."""
 
     if not name:
@@ -610,10 +641,10 @@ def _classify_base(name: str, distribution: str = "") -> dict[str, Any]:
     )
 
 
-def _group_key(verdict: dict[str, Any]) -> str:
+def _group_key(verdict: Verdict) -> str:
     """The name a verdict is grouped under: the import root, not the submodule."""
 
-    return _top_level(verdict["name"])
+    return _top_level(verdict.name)
 
 
 def _fence_entries(target: Path) -> list[dict[str, Any]]:
@@ -709,12 +740,12 @@ def build_report(
             existing = verdict
         else:
             # A native-backed root wins over a pure guess for the same root.
-            if existing["kind"] == KIND_PURE and verdict["kind"] != KIND_PURE:
-                sites_json = existing["sites"]
+            if existing.kind == KIND_PURE and verdict.kind != KIND_PURE:
+                sites_json = existing.sites
                 grouped[key] = verdict
                 existing = verdict
-                existing["sites"] = sites_json
-        existing["sites"].append(
+                existing.sites = sites_json
+        existing.sites.append(
             {
                 "file": site["file"],
                 "line": site["line"],
@@ -723,7 +754,7 @@ def build_report(
             }
         )
 
-    imports = [grouped[key] for key in sorted(grouped)]
+    imports = [verdict_row(grouped[key]) for key in sorted(grouped)]
     fences = _fence_entries(target)
     roots = [item["name"] for item in imports]
     attributed: dict[str, list[dict[str, Any]]] = {root: [] for root in roots}

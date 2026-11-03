@@ -299,6 +299,10 @@ def test_self_census_ballpark() -> None:
     # package.py: 3185 -> 3189.
     # stdmore.py (named records for the rest tables, the typing-hygiene
     # slice) moves 3218 -> 3226: the table rows lose 24 dynamic-annotation
-    # fences and the record converters add 8; the family falls 716 -> 692.
-    assert census["fences"] == 3226
-    assert sum(p["fences"] for p in census["packages"]) == 3226
+    # fences and the record converters add 8; the family falls 716 -> 692, then imports.py takes it to 687.
+    # imports.py (the Verdict record, the typing-hygiene slice) moves
+    # 3226 -> 3229: the verdict annotations lose 5 dynamic-annotation fences
+    # and the record boundary adds 8 (the row builder and its dict); the
+    # family falls 692 -> 687.
+    assert census["fences"] == 3229
+    assert sum(p["fences"] for p in census["packages"]) == 3229
