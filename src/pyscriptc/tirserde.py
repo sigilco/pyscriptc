@@ -31,6 +31,11 @@ from pyscriptc._irnode import (
     F_NEGATED,
     F_RERAISE,
     F_SET,
+    F_TMARK_COUNTER,
+    F_TMARK_DEFAULTDICT,
+    F_TMARK_HANDLE,
+    F_TMARK_ISLAND,
+    F_TMARK_ORDERED,
     F_TOPT,
     F_TSET,
     P_BOOL,
@@ -332,6 +337,10 @@ def _type_dict(typ: Any) -> Any:
             out["elem"] = _type_dict(typ.elem)
         if typ.flags & F_TOPT:
             out["optional"] = True
+        if typ.flags & F_TMARK_HANDLE:
+            out["handle"] = True
+        if typ.flags & F_TMARK_ISLAND:
+            out["island"] = True
         return out
     if typ.kind == "list":
         if typ.elem is not None:
@@ -344,6 +353,12 @@ def _type_dict(typ: Any) -> Any:
             out["key"] = _type_dict(typ.key)
         if typ.value is not None:
             out["value"] = _type_dict(typ.value)
+        if typ.flags & F_TMARK_COUNTER:
+            out["counter"] = True
+        if typ.flags & F_TMARK_DEFAULTDICT:
+            out["defaultdict"] = True
+        if typ.flags & F_TMARK_ORDERED:
+            out["ordered"] = True
         return out
     if typ.kind == "func":
         out["params"] = [_type_dict(param) for param in typ.params or []]
@@ -613,11 +628,24 @@ def dict_to_type(d: Any) -> Any:
         return d
     kind = d["kind"]
     if kind == "class":
-        return t_class(d.get("name", ""), d.get("label", ""), dict_to_type(d.get("elem")), bool(d.get("optional")))
+        return t_class(
+            d.get("name", ""),
+            d.get("label", ""),
+            dict_to_type(d.get("elem")),
+            bool(d.get("optional")),
+            bool(d.get("handle")),
+            bool(d.get("island")),
+        )
     if kind == "list":
         return t_list(dict_to_type(d.get("elem")), bool(d.get("set")))
     if kind == "dict":
-        return t_dict(dict_to_type(d.get("key")), dict_to_type(d.get("value")))
+        return t_dict(
+            dict_to_type(d.get("key")),
+            dict_to_type(d.get("value")),
+            bool(d.get("counter")),
+            bool(d.get("defaultdict")),
+            bool(d.get("ordered")),
+        )
     if kind == "func":
         return t_func([dict_to_type(param) for param in d.get("params", [])], dict_to_type(d.get("return")))
     if kind == "typevar" and d.get("name", "") != "":
