@@ -57,7 +57,7 @@ def test_self_census_ballpark() -> None:
     # fetch notice became conditional (-1 fence) and the cli.py embed/site
     # refusal handlers replace an implicit crash path.
     # The R4 MIR lane (mir, mirlower, miremit, mirverify) adds 4 modules on top of sigrec.py.
-    assert census["modules"] == 113
+    assert census["modules"] == 114
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -272,7 +272,7 @@ def test_self_census_ballpark() -> None:
     # yield inside try (#164): the re-entrant try in the coro guard transform
     # adds about 150 lines in coro.py. The asyncio primitives (#180 D3) add
     # about 400 in ps_async.c and restlower/_asyncio_sync.py.
-    assert 11_000 <= census["lines"] <= 56_000
+    assert 11_000 <= census["lines"] <= 60_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.
@@ -314,8 +314,9 @@ def test_self_census_ballpark() -> None:
     # a named verifier violation record retire 132 more: 3277.
     # Annotation family extraction and the cli package split: 3285 -> 3250 (113 modules).
     # PS1104 option B (bridge-resolved dict[K, Any] and list[Any]): 3250 -> 3264.
-    assert census["fences"] == 3264
-    assert sum(p["fences"] for p in census["packages"]) == 3264
+    # Typed HIR node slice (_irnode.py, 114 modules): +50 in tirserde.py, rebased on PS1104 B: 3264 -> 3314.
+    assert census["fences"] == 3314
+    assert sum(p["fences"] for p in census["packages"]) == 3314
 
 
 def test_self_census_cache_is_byte_identical(tmp_path: Path, monkeypatch: object) -> None:
