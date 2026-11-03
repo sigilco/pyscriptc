@@ -315,8 +315,12 @@ def test_self_census_ballpark() -> None:
     # Annotation family extraction and the cli package split: 3285 -> 3250 (113 modules).
     # PS1104 option B (bridge-resolved dict[K, Any] and list[Any]): 3250 -> 3264.
     # Typed HIR node slice (_irnode.py, 114 modules): +50 in tirserde.py, rebased on PS1104 B: 3264 -> 3314.
-    assert census["fences"] == 3314
-    assert sum(p["fences"] for p in census["packages"]) == 3314
+    # The lower/_stmt typed-node slice adds 11 module-level helper defs with
+    # fully annotated signatures (dict[str, Any], list[dict[str, Any]],
+    # dict[str, Any] | None), one or two dynamic-annotation fences each:
+    # 3314 -> 3328. No fence is cut; the payload types stay dict[str, Any].
+    assert census["fences"] == 3328
+    assert sum(p["fences"] for p in census["packages"]) == 3328
 
 
 def test_self_census_cache_is_byte_identical(tmp_path: Path, monkeypatch: object) -> None:

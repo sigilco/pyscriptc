@@ -145,7 +145,10 @@ class Handler:
     body, and the optional bind/slot/bare spellings."""
 
     exc: list[str]
-    codes: list[int]
+    # None spells the dict form WITHOUT a "codes" key (the with-open/io/cm
+    # close handlers); [] spells "codes": [] present and empty (the try
+    # statement spelling). The distinction must survive the round trip.
+    codes: list[int] | None
     body: list[IrNode]
     excslot: str = ""
     bind: str = ""
