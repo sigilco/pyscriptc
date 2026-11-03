@@ -215,14 +215,15 @@ SPECIAL_FUNCTIONS: dict[str, frozenset[str]] = {
 PACK_MODULES: frozenset[str] = frozenset({"jwt", "orjson"})
 
 
-def math_function(name: str) -> dict[str, object]:
+def math_function(name: str) -> dict[str, object] | None:
     """The dict row of a math call, `sig_for`-cached on first use.
 
     The record-to-dict boundary for `MATH_FUNCTIONS`: the table stores `Sig`
     records, the lowerer and the LLVM emitter read the dict shape.
     """
 
-    return sig_for(MATH_FUNCTIONS[name])
+    row = MATH_FUNCTIONS.get(name)
+    return None if row is None else sig_for(row)
 
 
 def wave_function(module: str, name: str) -> dict[str, object] | None:

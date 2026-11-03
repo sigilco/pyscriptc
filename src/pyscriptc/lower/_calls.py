@@ -880,6 +880,8 @@ class CallsMixin:
 
     def _math_call(self, node: ast.Call, span: dict[str, Any], attr: str) -> dict[str, Any]:
         spec = math_function(attr)
+        if spec is None:
+            self.fail(node, "PS2001", f"math.{attr} is not in the lowered subset of math")
         if len(node.args) != len(spec["params"]):
             self.fail(node, "PS2003", f"math.{attr} expects {len(spec['params'])} argument(s)")
         args = []
