@@ -57,7 +57,7 @@ def test_self_census_ballpark() -> None:
     # fetch notice became conditional (-1 fence) and the cli.py embed/site
     # refusal handlers replace an implicit crash path.
     # The R4 MIR lane (mir, mirlower, miremit, mirverify) adds 4 modules on top of sigrec.py.
-    assert census["modules"] == 114
+    assert census["modules"] == 115
     # E1 items 2+7a: print support added 3 self-host fences, then the
     # list.append flip removed 20 fenced call sites; headroom 14k for wave-C lowers.
     # telemetry.py added 36 fences, log.py 20, debug.py 6 union-type
@@ -319,8 +319,9 @@ def test_self_census_ballpark() -> None:
     # fully annotated signatures (dict[str, Any], list[dict[str, Any]],
     # dict[str, Any] | None), one or two dynamic-annotation fences each:
     # 3314 -> 3328. No fence is cut; the payload types stay dict[str, Any].
-    assert census["fences"] == 3328
-    assert sum(p["fences"] for p in census["packages"]) == 3328
+    # Attribute-call family split into lower/_call_attr.py (115 modules): 3328 -> 3337.
+    assert census["fences"] == 3337
+    assert sum(p["fences"] for p in census["packages"]) == 3337
 
 
 def test_self_census_cache_is_byte_identical(tmp_path: Path, monkeypatch: object) -> None:
