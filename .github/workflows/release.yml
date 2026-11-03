@@ -122,6 +122,13 @@ jobs:
           POSTHOG_PROJECT_TOKEN: ${{ vars.POSTHOG_PROJECT_TOKEN }}
         run: printf 'TOKEN = "%s"\n' "$POSTHOG_PROJECT_TOKEN" > src/pyscriptc/_posthog_token.py
 
+      - name: Stamp release version
+        env:
+          PYSC_RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.ref }}
+        run: |
+          version="$(python3 -c 'import re, sys; m = re.match(r"v?(\d.*)", sys.argv[1]); sys.exit(1) if not m else None; print(m.group(1))' "$PYSC_RELEASE_VERSION")"
+          printf 'VERSION = "%s"\n' "$version" > src/pyscriptc/_release.py
+
       - name: Build
         shell: bash
         run: |
@@ -131,6 +138,10 @@ jobs:
       - name: Smoke (full)
         if: matrix.platform == 'unix'
         shell: bash
+        env:
+          # smoke.sh runs the release binary under env -i, which strips CI;
+          # PYSC_INTERNAL passes through the run wrapper and keeps CI silent.
+          PYSC_INTERNAL: "1"
         run: packaging/smoke.sh "packaging/dist/${{ matrix.artifact }}"
 
       # Explain-only on purpose. Emitted programs cannot compile on Windows:
@@ -140,6 +151,8 @@ jobs:
         if: matrix.platform == 'windows'
         continue-on-error: true
         shell: bash
+        env:
+          PYSC_INTERNAL: "1"
         run: packaging/smoke.sh "packaging/dist/${{ matrix.artifact }}"
 
       - uses: actions/upload-artifact@v6
@@ -297,6 +310,13 @@ jobs:
           POSTHOG_PROJECT_TOKEN: ${{ vars.POSTHOG_PROJECT_TOKEN }}
         run: printf 'TOKEN = "%s"\n' "$POSTHOG_PROJECT_TOKEN" > src/pyscriptc/_posthog_token.py
 
+      - name: Stamp release version
+        env:
+          PYSC_RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.ref }}
+        run: |
+          version="$(python3 -c 'import re, sys; m = re.match(r"v?(\d.*)", sys.argv[1]); sys.exit(1) if not m else None; print(m.group(1))' "$PYSC_RELEASE_VERSION")"
+          printf 'VERSION = "%s"\n' "$version" > src/pyscriptc/_release.py
+
       - name: Build sdist and wheel
         run: uv build
 
@@ -310,6 +330,9 @@ jobs:
           [ "$n" -ge 15 ]
 
       - name: Wheel-install smoke test
+        env:
+          # The installed wheel is our own traffic and CI must stay silent.
+          PYSC_INTERNAL: "1"
         run: |
           set -euo pipefail
           command -v clang >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq clang; }

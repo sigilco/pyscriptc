@@ -52,6 +52,7 @@ import json
 import os
 import sys
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Any
@@ -152,8 +153,31 @@ def ci() -> bool:
 OPT_IN = False
 
 
+# Delivery bound. A queued event never blocks the user longer than this, measured
+# from the last track() call, and the process never waits past process exit.
+_FLUSH_BUDGET_S = 0.3
+
+
+def internal() -> bool:
+    """True when the event comes from our own development or CI traffic.
+
+    Set by: a source checkout or editable install (an `__editable__` finder on
+    the path), `PYSC_INTERNAL=1`, or a CI environment. Our own smoke jobs run the
+    release binary under `env -i`, which strips CI, so they set PYSC_INTERNAL
+    explicitly in ci.yml and release.yml; that keeps CI silent (see _blocked).
+    """
+    if os.environ.get("PYSC_INTERNAL"):
+        return True
+    if ci():
+        return True
+    for entry in sys.path:
+        if "__editable__" in entry or entry.rstrip("/").endswith("/src"):
+            return True
+    return False
+
+
 def _blocked() -> bool:
-    return ci() or _truthy("PYSC_NO_TELEMETRY") or _truthy("DO_NOT_TRACK") or not _token()
+    return ci() or internal() or _truthy("PYSC_NO_TELEMETRY") or _truthy("DO_NOT_TRACK") or not _token()
 
 
 def enabled() -> bool:
@@ -233,6 +257,9 @@ def _notice_acknowledged() -> bool:
     return _notice_shown_now or _read_config().get("notice_seen") == "true"
 
 
+_pending: list[threading.Thread] = []
+
+
 def track(event: str, properties: dict | None = None) -> None:
     """Queue one event on a daemon thread. Every failure is swallowed."""
     if not enabled() or not _notice_acknowledged():
@@ -247,7 +274,25 @@ def track(event: str, properties: dict | None = None) -> None:
     try:
         thread.start()
     except Exception:
-        pass
+        return
+    _pending.append(thread)
+
+
+def flush() -> None:
+    """Wait for queued events to post, bounded so the user never waits long.
+
+    Without this a short command (`pyscriptc run`, `pyscriptc coverage`) exits
+    before the daemon post thread runs and the event is lost, which is why
+    `run.finished` and `coverage.reported` never arrived while the slower
+    `compile.finished` survived by accident.
+    """
+    deadline = time.monotonic() + _FLUSH_BUDGET_S
+    for thread in _pending:
+        budget = deadline - time.monotonic()
+        if budget <= 0:
+            break
+        thread.join(budget)
+    _pending.clear()
 
 
 def _post(payload: dict) -> None:
@@ -282,6 +327,7 @@ def base_properties() -> dict:
         "pyscriptc_version": __version__,
         "python_version": f"{sys.version_info.major}.{sys.version_info.minor}",
         "platform": sys.platform,
+        "internal": internal(),
     }
 
 

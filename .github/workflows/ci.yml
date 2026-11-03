@@ -608,6 +608,9 @@ jobs:
       - name: Fresh venv, install wheel, compile and run fixture
         env:
           WORK: ${{ runner.temp }}/wheel-smoke
+          # The installed wheel is our own traffic and CI must stay silent
+          # (env -i below strips CI; PYSC_INTERNAL passes through).
+          PYSC_INTERNAL: "1"
         run: |
           set -euo pipefail
           mkdir -p "$WORK"

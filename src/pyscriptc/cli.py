@@ -755,6 +755,10 @@ def main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 1
     # boxed:end
+    finally:
+        # Deliver queued events before the interpreter tears the daemon threads
+        # down; bounded (see telemetry._FLUSH_BUDGET_S) so it never stalls the CLI.
+        telemetry.flush()
     return 2
 
 
