@@ -202,6 +202,16 @@ print(*args)
     splatted = lower_source("print(**{})\n")
     assert splatted["fences"][0]["code"] == "PS2002"
     assert "keyword forwarding (**kwargs)" in splatted["fences"][0]["message"]
+    display = lower_source(
+        """
+def run() -> int:
+    print(*[1, 2])
+    return 0
+"""
+    )
+    assert display["fences"] == []
+    fence = [f for fn in display["functions"] for f in fn.get("fences", [])]
+    assert fence == []
 
 
 def test_print_in_entry_loop_matches_cpython(tmp_path: Path) -> None:

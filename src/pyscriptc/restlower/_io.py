@@ -62,9 +62,8 @@ def _print(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         if value["type"]["kind"] != "str":
             lo.fail(kw, "PS1003", f"print {kw.arg}= takes a str")
         extras[kw.arg] = value
-    if any(isinstance(arg, ast.Starred) for arg in node.args):
-        lo.fail(node, "PS2002", "starred calls are not lowered")
-    args = [lo._expr(arg) for arg in node.args]
+    expanded = lo._expand_starred(node)
+    args = [lo._expr(arg) for arg in expanded]
     for index, arg in enumerate(args):
         if arg["type"]["kind"] == "class" and lo.classes.get(arg["type"]["name"], {}).get("namedtuple"):
             # A namedtuple prints `P(x=1, y=2)` in CPython; the tuple-class
