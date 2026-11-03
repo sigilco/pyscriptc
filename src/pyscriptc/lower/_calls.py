@@ -456,9 +456,11 @@ class CallsMixin:
         return args
 
     def _super_call(self, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
-        """`super().method(args)`: resolution starts one MRO step past the
-        class the enclosing method text lives in (CPython's __class__ cell).
-        The receiver is still self, so the emitted symbol is the one valid for
+        """`super().method(args)` and `super(C, self).method(args)`: resolution
+        starts one MRO step past the start class — the class the enclosing
+        method text lives in (CPython's __class__ cell) for the zero-arg
+        form, the explicit first argument for the two-arg form. The receiver
+        is still self, so the emitted symbol is the one valid for
         self's static layout — the same `_emit_owner` rule every call uses.
 
         `super().__init__` on an exception class lowers to the runtime's
@@ -468,8 +470,6 @@ class CallsMixin:
         assert isinstance(node.func, ast.Attribute)
         super_call = node.func.value
         assert isinstance(super_call, ast.Call)
-        if super_call.args or super_call.keywords:
-            self.fail(super_call, "PS2002", "super() takes no arguments")
         class_name, _, method_name = (self.function or "").rpartition(".")
         info = self.classes.get(class_name)
         owner = info["method_owner"].get(method_name) if info is not None else None
@@ -479,6 +479,19 @@ class CallsMixin:
         mro = self.classes[self_t].get("mro", [self_t])
         if owner not in mro:
             self.fail(node, "PS2002", "super is not lowered")
+        # Two-argument form `super(C, self)`: the resolution start is C in
+        # self's MRO instead of the class the method text lives in. C must
+        # sit in self's MRO; the receiver must be the `self` local.
+        if super_call.args or super_call.keywords:
+            if super_call.keywords or len(super_call.args) != 2:
+                self.fail(super_call, "PS2002", "super() takes zero or two positional arguments")
+            start = super_call.args[0]
+            recv = super_call.args[1]
+            if not isinstance(start, ast.Name) or not isinstance(recv, ast.Name):
+                self.fail(super_call, "PS2002", "super(C, self) takes a class and the self local")
+            if recv.id != "self" or start.id not in mro:
+                self.fail(super_call, "PS2002", "super(C, self) needs a base of the receiver's class")
+            owner = start.id
         method = node.func.attr
         ancestors = mro[mro.index(owner) + 1 :]
         # The exception path: an ancestor off the class table that is a
