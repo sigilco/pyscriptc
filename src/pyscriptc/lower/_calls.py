@@ -1676,7 +1676,13 @@ class CallsMixin:
                 if "default" not in param:
                     self.fail(node, "PS1003", f"{what} expects {len(params)} argument(s)")
                 got = param["default"]
-                if param.get("optdefault"):
+                if got.get("kind") == "tuple-default":
+                    # A fixed-shape tuple default: each call site that omits
+                    # the argument materializes its own record (CPython
+                    # shares one tuple; value-identical replay here).
+                    got = self._materialize_tuple(list(got["elems"]), span_of(node, self.filename), node)
+                    self._expect(node, got["type"], param["type"], param["name"])
+                elif param.get("optdefault"):
                     got = self._opt_box(
                         None if got["type"]["kind"] == "none" else got,
                         param["type"],

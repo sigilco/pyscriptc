@@ -262,10 +262,26 @@ class ClassesMixin:
                         try:
                             # An Optional field takes `None` or a constant of its
                             # element type, boxed per construction like a def default.
-                            default = self._expr(stmt.value, None if typ.get("optional") else typ)
+                            # A fixed-shape tuple default stores its constant
+                            # elements, not a materialized record: the generated
+                            # init replays them per omitted argument.
+                            if typ.get("kind") == "class" and self.classes.get(typ["name"], {}).get("tuple"):
+                                field_rows = self.classes[typ["name"]]["fields"]
+                                if not isinstance(stmt.value, ast.Tuple) or len(stmt.value.elts) != len(field_rows):
+                                    self.fail(stmt, "PS2002", "a tuple default must match the annotation's shape")
+                                elems = []
+                                for elt, frow in zip(stmt.value.elts, field_rows, strict=True):
+                                    ev = self._expr(elt, frow["type"])
+                                    self._expect(elt, ev["type"], frow["type"], stmt.target.id)
+                                    if ev["kind"] != "const":
+                                        self.fail(elt, "PS2002", "a tuple default element must be a constant")
+                                    elems.append(ev)
+                                default = {"kind": "tuple-default", "elems": elems, "type": typ}
+                            else:
+                                default = self._expr(stmt.value, None if typ.get("optional") else typ)
                         finally:
                             self.prelude = saved_prelude
-                        if default["kind"] != "const":
+                        if default["kind"] not in {"const", "tuple-default"}:
                             self.fail(stmt, "PS2002", "a dataclass default must be a constant")
                         if typ.get("optional"):
                             if default["type"]["kind"] != "none" and not types_equal(default["type"], typ["elem"]):
@@ -521,8 +537,13 @@ class ClassesMixin:
     def _is_dataclass_deco(self, dec: ast.expr) -> bool:
         target = dec
         if isinstance(dec, ast.Call):
-            if dec.args or dec.keywords:
+            keywords = {kw.arg: kw.value for kw in dec.keywords}
+            extra = {name for name in keywords if name not in {"init", "frozen", "slots"}}
+            if dec.args or extra:
                 return False
+            for value in keywords.values():
+                if not isinstance(value, ast.Constant) or value.value is not True:
+                    return False
             target = dec.func
         if isinstance(target, ast.Name):
             binding = self.bindings.get(target.id)
@@ -1045,6 +1066,24 @@ class ClassesMixin:
                 self.fail(default_node, "PS1003", f"{arg.arg} is {_show(value['type'])}, not {_show(param['type'])}")
             param["default"] = value
             param["optdefault"] = True
+        elif param["type"].get("kind") == "class" and self.classes.get(param["type"]["name"], {}).get("tuple"):
+            # A fixed-shape tuple default: the elements must each be
+            # constants, and the shape must match the annotation. The
+            # elements are stored, not a materialized record: every call
+            # site that omits the argument materializes its own copy
+            # (CPython shares one tuple; ours replays — value-identical
+            # for the immutable shapes the subset allows).
+            fields = self.classes[param["type"]["name"]]["fields"]
+            if not isinstance(default_node, ast.Tuple) or len(default_node.elts) != len(fields):
+                self.fail(default_node, "PS2002", "a tuple default must match the annotation's shape")
+            elems = []
+            for elt, field in zip(default_node.elts, fields, strict=True):
+                value = self._expr(elt, field["type"])
+                self._expect(elt, value["type"], field["type"], arg.arg)
+                if value["kind"] != "const":
+                    self.fail(elt, "PS2002", "a tuple default element must be a constant")
+                elems.append(value)
+            param["default"] = {"kind": "tuple-default", "elems": elems, "type": param["type"]}
         else:
             value = self._expr(default_node, param["type"])
             self._expect(default_node, value["type"], param["type"], arg.arg)
