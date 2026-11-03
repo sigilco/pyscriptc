@@ -786,7 +786,10 @@ def _b_list(d: Any, span: Any, typ: Any, flags: int) -> Any:
 
 
 def _b_name(d: Any, span: Any, typ: Any, flags: int) -> Any:
-    return name_expr(d["id"], typ, span)
+    # The island peek handle (lower/_stdlib.py) spells a name node with a
+    # `name` key and no `id`; accept it so the node builders never crash on
+    # the compiler's own IR, and round trip it unchanged.
+    return name_expr(d.get("id", d.get("name", "")), typ, span)
 
 
 def _b_raise(d: Any, span: Any, typ: Any, flags: int) -> Any:

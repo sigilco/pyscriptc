@@ -144,9 +144,7 @@ def _static_int(expr: dict[str, Any]) -> int | None:
 
 
 def _const_bool(value: bool, span: dict[str, Any]) -> dict[str, Any]:
-    return node_to_dict(
-        _ir.const_node(P_BOOL, "true" if value else "false", t_leaf("bool"), _mk_span(span))
-    )
+    return node_to_dict(_ir.const_node(P_BOOL, "true" if value else "false", t_leaf("bool"), _mk_span(span)))
 
 
 def _const_none(span: dict[str, Any]) -> dict[str, Any]:
@@ -234,15 +232,11 @@ def _len_call(seq: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
 
 
 def _binary_int(op: str, left: dict[str, Any], right: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    return node_to_dict(
-        _ir.binary(op, dict_to_node(left), dict_to_node(right), t_leaf("int"), _mk_span(span))
-    )
+    return node_to_dict(_ir.binary(op, dict_to_node(left), dict_to_node(right), t_leaf("int"), _mk_span(span)))
 
 
 def _compare(op: str, left: dict[str, Any], right: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    return node_to_dict(
-        _ir.compare(op, dict_to_node(left), dict_to_node(right), t_leaf("bool"), _mk_span(span))
-    )
+    return node_to_dict(_ir.compare(op, dict_to_node(left), dict_to_node(right), t_leaf("bool"), _mk_span(span)))
 
 
 _OP_SYMBOLS = {
