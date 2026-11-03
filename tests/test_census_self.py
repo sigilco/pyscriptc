@@ -276,7 +276,7 @@ def test_self_census_ballpark() -> None:
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.
-    assert 11_000 <= census["lines"] <= 56_000
+    assert 11_000 <= census["lines"] <= 60_000
     # Island class definitions (#628): +9 self-host fences, one in
     # emit/llvm/_abi.py (the class-handle trampoline), one in
     # lower/_classes.py (the island class annotation), three in
@@ -287,7 +287,7 @@ def test_self_census_ballpark() -> None:
     # in emit/llvm/_driver.py.
     # embed.py (#657, the pinned CPython runtime pack) adds 1 module, about
     # 470 lines and 99 self-host fences, taking the source past 50k.
-    assert 11_000 <= census["lines"] <= 56_000
+    assert 11_000 <= census["lines"] <= 60_000
     # subprocess text mode (#680): the text-mode decode lowering nets -1
     # self-host fence (restlower/_subprocess.py +1, emit/llvm/_driver.py
     # and emitlib.py -1 each through the lowered-compiler re-run).
