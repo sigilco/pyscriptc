@@ -25,6 +25,7 @@ from pyscriptc.errors import span_of
 from pyscriptc.ir import type_key, types_equal
 from pyscriptc.lower._annotations import _type_slug
 from pyscriptc.lower._core import (
+    _any_accepts,
     _assign,
     _attr,
     _binary_int,
@@ -2124,7 +2125,7 @@ class CallsMixin:
                 self.fail(node, "PS2002", "list.append needs a name")
             elem = receiver["type"]["elem"]
             value = self._expr(node.args[0], elem)
-            if not types_equal(value["type"], elem):
+            if not types_equal(value["type"], elem) and not _any_accepts(elem, value["type"]):
                 self.fail(node, "PS1003", "list.append takes an element of that list")
             self.prelude.extend(
                 [

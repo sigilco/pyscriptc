@@ -24,6 +24,7 @@ from pyscriptc.lower._annotations import (
 )
 from pyscriptc.lower._core import (
     Fence,
+    _any_accepts,
     _assign,
     _has_typevar,
     _name,
@@ -631,9 +632,12 @@ class ClassesMixin(AnnotationMixin):
         satisfies its layout. A `gen.` frame class is accepted where an
         `Iterator[T]`-shaped annotation (the synthetic `iter_` cursor) is
         expected: the frame's `__next__` return type must equal the
-        annotation's element, and the caller narrows the slot to the frame."""
+        annotation's element, and the caller narrows the slot to the frame.
+        An `any` slot (an Any container's value, issue #781) accepts every
+        concrete value: the write site stamps what it wrote, and the read
+        site proves its own type."""
         if want["kind"] != "class" or got["kind"] != "class":
-            return False
+            return _any_accepts(want, got)
         want_name = want.get("name")
         got_name = got.get("name")
         if not isinstance(want_name, str) or not isinstance(got_name, str):

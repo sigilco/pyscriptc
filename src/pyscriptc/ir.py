@@ -21,7 +21,10 @@ from pyscriptc.errors import IRError, VersionError
 IR_VERSION = 2
 SUBSET = "gates-v1"
 
-TYPE_KINDS = {"int", "float", "bool", "none", "str", "bytes", "list", "dict", "class", "exc", "unknown", "func"}
+TYPE_KINDS = {"int", "float", "bool", "none", "str", "bytes", "list", "dict", "class", "exc", "unknown", "func", "any"}
+# The unresolved value slot of an Any container (issue #781): the container's
+# shape is known, the value type is not, and the read site proves it.
+ANY_KIND = "any"
 EXPR_KINDS = {
     "name",
     "const",
@@ -103,6 +106,10 @@ def zdi_variants() -> dict[str, int]:
 
 def type_key(typ: dict[str, Any]) -> str:
     if typ["kind"] == "list":
+        if "elem" not in typ:
+            # An accumulated list whose element is still unknown (a bare
+            # `[]` before the first append): key on the shape alone.
+            return "list[?]"
         head = "set" if typ.get("set") else "list"
         return f"{head}[{type_key(typ['elem'])}]"
     if typ["kind"] == "dict":
@@ -114,6 +121,10 @@ def type_key(typ: dict[str, Any]) -> str:
     if typ["kind"] == "func":
         args = ", ".join(type_key(param) for param in typ["params"])
         return f"({args}) -> {type_key(typ['return'])}"
+    if typ["kind"] == "any":
+        # The unresolved slot matches only itself: an `any` value never
+        # type-equal-checks against a concrete type.
+        return "any"
     return str(typ["kind"])
 
 

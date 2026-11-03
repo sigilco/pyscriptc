@@ -243,6 +243,8 @@ def _show(typ: dict[str, Any]) -> str:
         return f"dict[{_show(typ['key'])}, {_show(typ['value'])}]"
     if typ["kind"] == "class":
         return str(typ.get("label", typ["name"]))
+    if typ["kind"] == "any":
+        return "Any"
     return str(typ["kind"])
 
 
@@ -393,6 +395,10 @@ _TRUTHY = frozenset({"str", "bytes", "int", "list", "dict"})
 _LIST_FORMS = frozenset({"List"})
 _DICT_FORMS = frozenset({"Dict"})
 _SET_FORMS = frozenset({"Set"})
+# Issue #781: `dict[K, Any]` and `list[Any]` annotate as `any` elements; the
+# container's shape (the key type, the element slots) is known, the value type
+# is not, and every read proves it from a local source or fences with PS1107.
+_UNRESOLVED_KIND = "any"
 
 
 _FUTURE_OK = frozenset(
@@ -457,6 +463,12 @@ def _zero(typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
         return {"kind": "list", "elems": [], "type": typ, "span": span}
     if typ["kind"] == "dict":
         return {"kind": "dict", "pairs": [], "type": typ, "span": span}
+    if typ["kind"] == "any":
+        # The unresolved slot has no zero: `d: dict[str, Any]` with no
+        # initializer starts as an empty dict under the container's own
+        # annotation, never under the element slot, so this arm answers
+        # only stray walks. An str zero keeps the const shape honest.
+        return {"kind": "const", "value": "", "type": typ, "span": span}
     if typ["kind"] == "class":
         # Fresh for-targets of a synthetic tuple class start as a zeroed
         # instance (ps_alloc calloc); the loop step then rebinding every field.
@@ -601,3 +613,20 @@ def _subst_type(typ: dict[str, Any], mapping: dict[str, dict[str, Any]]) -> dict
     if "elem" in typ and isinstance(typ["elem"], dict):
         return {**typ, "elem": _subst_type(typ["elem"], mapping)}
     return typ
+
+
+def _any_accepts(want: dict[str, Any], got: dict[str, Any]) -> bool:
+    """An `any` slot (an Any container's value, issue #781) accepts every
+    concrete value; the read site proves the value's type on its own."""
+    return _any_contains(want) and not _any_contains(got)
+
+
+def _any_contains(typ: dict[str, Any]) -> bool:
+    """True when a type carries the `any` unresolved slot (issue #781)."""
+    if typ.get("kind") == "any":
+        return True
+    for key in ("elem", "key", "value", "return"):
+        inner = typ.get(key)
+        if isinstance(inner, dict) and _any_contains(inner):
+            return True
+    return any(isinstance(param, dict) and _any_contains(param) for param in typ.get("params", []))

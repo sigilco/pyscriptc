@@ -100,6 +100,11 @@ def _llvm_type(typ: dict[str, Any]) -> str:
         return "%ps.str"
     if kind in {"list", "dict", "class", "exc", "func"}:
         return "ptr"
+    if kind == "any":
+        # The unresolved slot of an Any container (issue #781): at the ABI a
+        # value the read site proved rides the pointer-shaped cell, like the
+        # heap kinds; the read's proven type decides how it is loaded.
+        return "ptr"
     if kind == "none":
         return "void"
     raise IRError(f"no LLVM type for {kind}")
@@ -139,6 +144,11 @@ def _elem_size(typ: dict[str, Any]) -> int:
         return 16
     if kind in {"list", "dict", "class", "func", "exc"}:
         return 8
+    if kind == "any":
+        # The unresolved cell is the str-sized %ps.buf (issue #781): a str
+        # value is stashed as the 16-byte prefix the runtime reads, and a
+        # scalar rides the first 8 bytes of the same cell.
+        return 16
     if kind == "bool":
         return 1
     raise IRError(f"no element size for {kind}")
