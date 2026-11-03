@@ -619,9 +619,10 @@ class AbiMixin:
         meta = expr["thread"]
         pair = self.emit_closure(meta["closure"])
         self._abi_decl("ps_thread_new", "ptr", ["ptr", "i64", "ptr"])
-        name = self.string_value(meta["name"])
+        name = self.string_value(meta.get("name", ""))
         name_len, name_ptr = self._buf_parts(name)
-        return self._call_ret("ptr", "ps_thread_new", [f"ptr {pair}", f"i64 {meta['daemon']}", f"ptr {name_ptr}"])
+        daemon = meta.get("daemon", 0)
+        return self._call_ret("ptr", "ps_thread_new", [f"ptr {pair}", f"i64 {daemon}", f"ptr {name_ptr}"])
 
     def _emit_to_thread_new(self, expr: dict[str, Any], values: list[str]) -> str:
         """`asyncio.to_thread(fn, ...)`: the record that owns the result.
