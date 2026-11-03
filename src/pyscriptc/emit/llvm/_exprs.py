@@ -225,17 +225,18 @@ class ExprsMixin:
         value = self.emit_expr(expr["value"])
         index = self.emit_expr(expr["index"])
         kind = expr["value"]["type"]["kind"]
+        slot = expr["value"]["type"]["elem"] if kind == "list" else expr["value"]["type"]["value"]
         if kind == "list":
             self.needed.add("seq")
             out = self._alloca(_memory_type(expr["type"]))
             self.line(f"call void @ps_seq_get(ptr {value}, i64 {index}, ptr {out})")
-            return self._widen_cell(expr["type"], out)
+            return self._widen_cell(expr["type"], out, slot if slot["kind"] == "any" else None)
         if kind == "dict":
             self.needed.add("map")
             key = self._stash_cell(expr["index"]["type"], index)
             out = self._alloca(_memory_type(expr["type"]))
             self.line(f"call void @ps_map_get(ptr {value}, ptr {key}, ptr {out})")
-            return self._widen_cell(expr["type"], out)
+            return self._widen_cell(expr["type"], out, slot if slot["kind"] == "any" else None)
         if kind == "str":
             self.needed.add("str")
             length, ptr = self._buf_parts(value)

@@ -21,6 +21,7 @@ from pyscriptc.lower._core import (
     _DICT_FORMS,
     _LIST_FORMS,
     _SET_FORMS,
+    _UNRESOLVED_KIND,
     _show,
 )
 from pyscriptc.reflection import kwargs_parameter_note
@@ -199,9 +200,15 @@ class AnnotationMixin:
         if handle is not None:
             return handle
         if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "list":
-            typ = {"kind": "list", "elem": self._annotation(node.slice)}
+            typ = {"kind": "list", "elem": self._any_annotation(node.slice)}
             self._reject_banned_type(node, typ)
             return typ
+        if isinstance(node, ast.Name) and (node.id == "Any" or node.id in _DYNAMIC_ANNOTATIONS):
+            # Issue #781: bare `Any` and every other dynamic or structural
+            # name still fences with PS1104. Only a container annotation
+            # (dict[K, Any], list[Any]) resolves through the `any` element,
+            # because there the shape is known.
+            self.fail(node, "PS1104", f"{node.id} is a dynamic or structural type and is not lowered")
         if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "set":
             elem = self._annotation(node.slice)
             if elem["kind"] not in {"int", "str"}:
@@ -229,6 +236,23 @@ class AnnotationMixin:
         if inst is not None:
             return inst
         self._fail_annotation(node)
+
+    def _any_annotation(self, node: ast.AST) -> dict[str, Any]:
+        """The value slot of an Any container annotation (issue #781).
+
+        A concrete type annotates through unchanged; bare `Any` becomes the
+        `any` placeholder instead of a PS1104 fence: the container's shape is
+        known (the key type, the element slots), only the value type is not,
+        and every read of the container proves it from a local source or
+        fences with PS1107 at the read site. `object` and the structural
+        names (Protocol, TypeVar, Callable and friends) keep their own
+        fence: they describe a shape, not an unresolved value.
+        """
+        if isinstance(node, ast.Name) and node.id == "Any":
+            return {"kind": _UNRESOLVED_KIND}
+        if isinstance(node, ast.Name) and node.id in _DYNAMIC_ANNOTATIONS:
+            self.fail(node, "PS1104", f"{node.id} is a dynamic or structural type and is not lowered")
+        return self._annotation(node)
 
     def _fail_annotation(self, node: ast.AST) -> NoReturn:
         """Fence an annotation the subset does not lower, with the code that names why."""
@@ -277,7 +301,7 @@ class AnnotationMixin:
             typ = {
                 "kind": "dict",
                 "key": self._annotation(node.slice.elts[0]),
-                "value": self._annotation(node.slice.elts[1]),
+                "value": self._any_annotation(node.slice.elts[1]),
             }
             self._reject_banned_type(node, typ)
             return typ
@@ -425,7 +449,7 @@ class AnnotationMixin:
                 self.fail(node, "PS1001", "IO is not a lowered type in the IR")
             return {"kind": "class", "name": handle}
         if alias in _LIST_FORMS:
-            typ = {"kind": "list", "elem": self._annotation(node.slice)}
+            typ = {"kind": "list", "elem": self._any_annotation(node.slice)}
             self._reject_banned_type(node, typ)
             return typ
         if alias in _SET_FORMS:
@@ -439,7 +463,7 @@ class AnnotationMixin:
             typ = {
                 "kind": "dict",
                 "key": self._annotation(node.slice.elts[0]),
-                "value": self._annotation(node.slice.elts[1]),
+                "value": self._any_annotation(node.slice.elts[1]),
             }
             self._reject_banned_type(node, typ)
             return typ

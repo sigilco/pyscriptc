@@ -29,6 +29,7 @@ from pyscriptc.lower._core import (
     _TRUTHY,
     Binding,
     Fence,
+    _any_accepts,
     _attr,
     _compare,
     _const_none,
@@ -266,6 +267,10 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # `if x is not None:` narrowing on a tagged optional: inside the taken
         # branch a read of the name lowers to its `_val` field. name -> opt typ.
         self.opt_unwrap: dict[str, dict[str, Any]] = {}
+        # Proven element types of Any-container reads (issue #781), keyed by
+        # the read node's (line, col): the emitter loads the proven LLVM
+        # shape out of the unresolved cell.
+        self._any_proven: dict[tuple[int, int], dict[str, Any]] = {}
         # Full signatures (names, defaults, keyword-only flags) of nested defs,
         # keyed by the identity of the local's func type, so a call through
         # that local binds keywords like a call to a module-level def. A
@@ -2458,7 +2463,6 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         elif kind == "dict":
             self._expect(target, index["type"], container["type"]["key"], "dict key")
             value = self._expr(stmt.value, container["type"]["value"])
-            self._expect(stmt, value["type"], container["type"]["value"], "dict value")
         else:
             self.fail(target, "PS2002", "item assignment targets a list or dict")
         return {"kind": "setitem", "container": container, "index": index, "value": value, "span": span}
@@ -2518,7 +2522,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         raise AssertionError("unreachable")
 
     def _expect(self, node: ast.AST, got: dict[str, Any], want: dict[str, Any], what: str) -> None:
-        if not types_equal(got, want) and not self._accepts_protocol(want, got):
+        if not types_equal(got, want) and not _any_accepts(want, got) and not self._accepts_protocol(want, got):
             self.fail(node, "PS1003", f"{what} is {_show(got)}, annotation says {_show(want)}")
 
     def _use_status(self, module: str) -> str:

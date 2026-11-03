@@ -427,6 +427,9 @@ class StmtsMixin:
         if kind == "dict":
             self.needed.add("map")
             key = self._stash_cell(stmt["index"]["type"], index)
+            # Issue #781: an Any container's slot is unresolved; the write
+            # site's value is concrete, and the cell takes the value under
+            # its own proven type.
             slot = self._stash_cell(stmt["value"]["type"], value)
             self.line(f"call void @ps_map_put(ptr {container}, ptr {key}, ptr {slot})")
             return

@@ -228,13 +228,39 @@ class CoreMixin:
         self.line(f"store ptr {ptr}, ptr {data_ptr}")
         return slot
 
-    def _widen_cell(self, typ: dict[str, Any], slot: str) -> str:
+    def _widen_cell(self, typ: dict[str, Any], slot: str, proven: dict[str, Any] | None = None) -> str:
         """Load a value out of a runtime-visible cell: a str widens from the
         16-byte %ps.buf prefix, and `ps_str_counts` refills the count and
         flag from the bytes (the cell stores only the prefix). None has no
         runtime value: the field slot is a placeholder byte and the read
         folds to the singleton."""
 
+        if typ["kind"] == "any":
+            # Issue #781: the read proved a concrete type, but the cell holds
+            # the unresolved shape the write stored; the proven type decides
+            # the load. A str (or bytes) value was stashed whole as the
+            # %ps.str aggregate, so the reload is a plain %ps.str load
+            # followed by the same count refill the str cells run.
+            if proven is None:
+                raise IRError("an unresolved read needs the proven type")
+            if proven["kind"] in {"str", "bytes"}:
+                reg = self._load("%ps.str", slot)
+                if proven["kind"] == "str":
+                    length = self.tmp()
+                    ptr = self.tmp()
+                    self.line(f"{length} = extractvalue %ps.str {reg}, 0")
+                    self.line(f"{ptr} = extractvalue %ps.str {reg}, 1")
+                    slot_ptr2 = self._alloca("%ps.str")
+                    count_ptr = self.tmp()
+                    flags_ptr = self.tmp()
+                    self.line(f"store %ps.str {reg}, ptr {slot_ptr2}")
+                    self.line(f"{count_ptr} = getelementptr %ps.str, ptr {slot_ptr2}, i32 0, i32 2")
+                    self.line(f"{flags_ptr} = getelementptr %ps.str, ptr {slot_ptr2}, i32 0, i32 3")
+                    self._abi_decl("ps_str_counts", "void", ["i64", "ptr", "ptr", "ptr"])
+                    self.line(f"call void @ps_str_counts(i64 {length}, ptr {ptr}, ptr {count_ptr}, ptr {flags_ptr})")
+                    reg = self._load("%ps.str", slot_ptr2)
+                return reg
+            return self._load(_llvm_type(proven), slot)
         if typ["kind"] == "none":
             return "0"
         if typ["kind"] not in {"str", "bytes"}:

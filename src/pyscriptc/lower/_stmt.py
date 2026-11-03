@@ -27,6 +27,7 @@ from pyscriptc.ir import types_equal
 from pyscriptc.lower._core import (
     _SCALAR,
     Fence,
+    _any_contains,
     _assign,
     _attr,
     _binary_int,
@@ -252,6 +253,17 @@ class StmtMixin:
                     self.locals[stmt.target.id] = typ
                 raise
             self._expect(stmt, value["type"], typ, stmt.target.id)
+            if typ["kind"] == "any" or (
+                typ["kind"] in {"dict", "list"}
+                and _any_contains(typ)
+                and value["type"]["kind"] in {"dict", "list"}
+                and not _any_contains(value["type"])
+            ):
+                # Issue #781: a concrete initializer satisfies an Any
+                # container annotation; the annotation's shape (the key
+                # type, the element slots) is the container the IR keeps,
+                # and the reads resolve the element from the value facts.
+                typ = value["type"]
             if self._narrows_to_generator(typ, value["type"]):
                 # An Iterator[T]/Generator[T, None, None] local holding a
                 # generator keeps the frame type: every later use (next,

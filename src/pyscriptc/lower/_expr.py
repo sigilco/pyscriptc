@@ -25,6 +25,7 @@ from pyscriptc.lower._core import (
     _CMP,
     _SCALAR,
     _TRUTHY,
+    _any_contains,
     _assign,
     _attr,
     _binary_int,
@@ -1124,6 +1125,10 @@ class ExprMixin:
                 self.fail(node, "PS1003", "list elements have one type")
         typ = {"kind": "list", "elem": elem}
         if expect and expect["kind"] == "list":
+            if _any_contains(expect) and not _any_contains(typ):
+                # Issue #781: a concrete display satisfies an Any container
+                # annotation; the display's element type is the answer.
+                return {"kind": "list", "elems": elems, "type": typ, "span": span}
             self._expect(node, typ, expect, "list")
         return {"kind": "list", "elems": elems, "type": typ, "span": span}
 
@@ -1153,6 +1158,11 @@ class ExprMixin:
                 self.fail(node, "PS1003", "dict entries have one key type and one value type")
         typ = {"kind": "dict", "key": key_t, "value": val_t}
         if expect and expect["kind"] == "dict":
+            if _any_contains(expect) and not _any_contains(typ):
+                # Issue #781: a concrete display satisfies an Any container
+                # annotation; the display's type is the answer, and the
+                # annotation's shape rode down as the element expectation.
+                return {"kind": "dict", "pairs": pairs, "type": typ, "span": span}
             self._expect(node, typ, expect, "dict")
         return {"kind": "dict", "pairs": pairs, "type": typ, "span": span}
 
@@ -1180,10 +1190,10 @@ class ExprMixin:
         if kind == "list":
             if index["type"]["kind"] != "int":
                 self.fail(node, "PS1003", "a list index is int")
-            result = value["type"]["elem"]
+            result = self._resolve_any_read(node, value["type"]["elem"], expect)
         elif kind == "dict":
             self._expect(node, index["type"], value["type"]["key"], "dict key")
-            result = value["type"]["value"]
+            result = self._resolve_any_read(node, value["type"]["value"], expect)
             if value["type"].get("counter") or value["type"].get("defaultdict"):
                 return self._defaulted_subscript(node, value, index, span)
         elif kind == "str":
@@ -1203,6 +1213,34 @@ class ExprMixin:
         else:
             self.fail(node, "PS2002", "subscript is lowered for list, dict, str, and bytes")
         return {"kind": "subscript", "value": value, "index": index, "type": result, "span": span}
+
+    def _resolve_any_read(self, node: ast.expr, elem: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
+        """The value type of a read out of an Any container (issue #781).
+
+        The container's shape is known, the element type is not: the `any`
+        slot has to be proven at the read site from a sound local source.
+        Two proofs are accepted: the read expression itself expects a type
+        (the assignment target's annotation, a call's parameter table, the
+        comparison operand), or the checker bridge's answer for the read
+        expression. A read nothing proves fences with PS1107, the code that
+        names the unresolved read, instead of guessing.
+        """
+        if elem["kind"] != "any":
+            return elem
+        if expect is not None and expect["kind"] != "any":
+            self._any_proven[node.lineno, node.col_offset] = expect
+            return expect
+        proven = self._bridge_type(node)
+        if proven is not None:
+            self._any_proven[node.lineno, node.col_offset] = proven
+            return proven
+        self.fail(
+            node,
+            "PS1107",
+            f"the element type of this read is unresolved ({_show(elem)} container); "
+            "annotate the read site or use a concretely typed container",
+        )
+        raise AssertionError("unreachable")
 
     def _defaulted_subscript(
         self, node: ast.Subscript, value: dict[str, Any], index: dict[str, Any], span: dict[str, Any]
