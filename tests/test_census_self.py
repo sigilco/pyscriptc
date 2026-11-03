@@ -310,6 +310,7 @@ def test_self_census_ballpark() -> None:
     # retiring them is the typed-records follow-up.
     # The starred-call lowering adds two helpers in lower/_calls.py, each with
     # an `ast.Call` annotation like every method in the file: 3416 -> 3418. Native
-    # super() and dataclass lowering then retire 9: 3409.
-    assert census["fences"] == 3409
-    assert sum(p["fences"] for p in census["packages"]) == 3409
+    # super() and dataclass lowering then retire 9: 3409. Named MIR record classes and
+    # a named verifier violation record retire 132 more: 3277.
+    assert census["fences"] == 3277
+    assert sum(p["fences"] for p in census["packages"]) == 3277
