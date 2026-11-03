@@ -313,8 +313,9 @@ def test_self_census_ballpark() -> None:
     # super() and dataclass lowering then retire 9: 3409. Named MIR record classes and
     # a named verifier violation record retire 132 more: 3277.
     # Annotation family extraction and the cli package split: 3285 -> 3250 (113 modules).
-    assert census["fences"] == 3250
-    assert sum(p["fences"] for p in census["packages"]) == 3250
+    # PS1104 option B (bridge-resolved dict[K, Any] and list[Any]): 3250 -> 3264.
+    assert census["fences"] == 3264
+    assert sum(p["fences"] for p in census["packages"]) == 3264
 
 
 def test_self_census_cache_is_byte_identical(tmp_path: Path, monkeypatch: object) -> None:
