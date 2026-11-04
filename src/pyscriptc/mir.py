@@ -158,16 +158,21 @@ OP_RESULT_TYPE = {
 
 
 def copy_result_type(fn: MirFunction, i: int) -> int:
-    arg2 = fn.arg2[i]
-    if arg2 == MIR_W or arg2 == MIR_D or arg2 == MIR_B:
-        return arg2
-    # A helper-carrying copy keeps both operands in arg1/arg2; its tag
-    # rides the helpers entry beside the helper name.
+    # A helper-carrying copy keeps both operands in arg1/arg2, so its tag
+    # rides the helpers entry beside the helper name. That entry is read
+    # first: an operand value id can collide with a tag value (the id `1`
+    # is `MIR_D`), and reading arg2 as the tag first would type the
+    # helper's i64 result as a double.
     entry = fn.helpers.get(i)
     if entry is not None:
         tag = int(entry.split(" ")[1])
         if tag == MIR_W or tag == MIR_D or tag == MIR_B:
             return tag
+    # A plain copy (a store into a name slot) packs the value's tag in
+    # arg2.
+    arg2 = fn.arg2[i]
+    if arg2 == MIR_W or arg2 == MIR_D or arg2 == MIR_B:
+        return arg2
     return MIR_W
 
 

@@ -160,6 +160,29 @@ def test_stage_bundle_writes_bin_and_lib(tmp_path: Path) -> None:
     assert not (tmp_path / "work" / "prog" / "lib" / f"python{VERSION}" / "os.py").exists()
 
 
+@pytest.mark.skipif(sys.platform == "darwin", reason="the Linux pack ships a symlink family")
+def test_stage_bundle_keeps_the_libpython_symlink_a_link(tmp_path: Path) -> None:
+    """Issue #885: the unversioned libpython name stays a symlink.
+
+    Copying it dereferenced the 32 MB library into a second full copy in
+    every bundle, which is what pushed the bundle over the size gate.
+    """
+    pack = _fake_pack(tmp_path / "pack")
+    (tmp_path / "work").mkdir()
+    binary = tmp_path / "work" / "prog"
+    binary.write_bytes(b"\xcf\xfa\xed\xfe")
+    embed.stage_bundle(binary, pack, VERSION, binary)
+    lib_dir = tmp_path / "work" / "prog" / "lib"
+    link = lib_dir / f"libpython{VERSION}.so"
+    real = lib_dir / f"libpython{VERSION}.so.1.0"
+    assert link.is_symlink()
+    assert link.readlink() == Path(f"libpython{VERSION}.so.1.0")
+    assert real.is_file() and not real.is_symlink()
+    # The link must stay relative: an absolute target would break the
+    # relocation the bundle exists for.
+    assert not link.readlink().is_absolute()
+
+
 def test_stage_bundle_writes_share_licenses(tmp_path: Path) -> None:
     """Issue #709: a bundle output carries the license texts in share/licenses/."""
     pack = _fake_pack(tmp_path / "pack")

@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from pyscriptc.dwarf import DwarfEmitter
-from pyscriptc.emit._ir import _fn_symbol, _llvm_field_type, _llvm_type, _safe, standalone_entry
+from pyscriptc.emit._ir import _fn_symbol, _kind, _llvm_field_type, _llvm_type, _safe, standalone_entry
 from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.emit.llvm._runtime import _declarations, _helpers
 from pyscriptc.errors import IRError
@@ -214,7 +214,7 @@ class CoreMixin(EmitterBase):
         parts array): a str narrows to the 16-byte %ps.buf prefix the
         runtime reads, everything else stores as is."""
 
-        if typ["kind"] not in {"str", "bytes"}:
+        if _kind(typ) not in {"str", "bytes"}:
             return self._stash(typ, value)
         slot = self._alloca("%ps.buf")
         length = self.tmp()
@@ -236,7 +236,8 @@ class CoreMixin(EmitterBase):
         runtime value: the field slot is a placeholder byte and the read
         folds to the singleton."""
 
-        if typ["kind"] == "any":
+        typ_kind: str = _kind(typ)
+        if typ_kind == "any":
             # Issue #781: the read proved a concrete type, but the cell holds
             # the unresolved shape the write stored; the proven type decides
             # the load. A str (or bytes) value was stashed whole as the
@@ -244,9 +245,10 @@ class CoreMixin(EmitterBase):
             # followed by the same count refill the str cells run.
             if proven is None:
                 raise IRError("an unresolved read needs the proven type")
-            if proven["kind"] in {"str", "bytes"}:
+            proven_kind: str = _kind(proven)
+            if proven_kind in {"str", "bytes"}:
                 reg = self._load("%ps.str", slot)
-                if proven["kind"] == "str":
+                if proven_kind == "str":
                     length = self.tmp()
                     ptr = self.tmp()
                     self.line(f"{length} = extractvalue %ps.str {reg}, 0")
@@ -262,9 +264,9 @@ class CoreMixin(EmitterBase):
                     reg = self._load("%ps.str", slot_ptr2)
                 return reg
             return self._load(_llvm_type(proven), slot)
-        if typ["kind"] == "none":
+        if typ_kind == "none":
             return "0"
-        if typ["kind"] not in {"str", "bytes"}:
+        if typ_kind not in {"str", "bytes"}:
             return self._load(_llvm_type(typ), slot)
         length = self.tmp()
         ptr = self.tmp()
@@ -280,7 +282,7 @@ class CoreMixin(EmitterBase):
         self.line(f"{third} = insertvalue %ps.str {second}, i64 0, 2")
         reg = self.tmp()
         self.line(f"{reg} = insertvalue %ps.str {third}, i32 0, 3")
-        if typ["kind"] == "str":
+        if typ_kind == "str":
             # Bytes keep the zero count (their count is their byte length);
             # str recomputes so len() and the case family read true values.
             slot_ptr = self._alloca("%ps.str")
@@ -405,11 +407,12 @@ class CoreMixin(EmitterBase):
 
     def store(self, name: str, value: str) -> None:
         ptr, typ = self.slots[name]
-        if typ["kind"] == "none":
+        store_kind: str = _kind(typ)
+        if store_kind == "none":
             # None is not a runtime value (see the local setup): the store is
             # a no-op, the singleton is the only value the type holds.
             return
-        if typ["kind"] in {"str", "bytes"}:
+        if store_kind in {"str", "bytes"}:
             length = self.tmp()
             ptr_val = self.tmp()
             self.line(f"{length} = extractvalue %ps.str {value}, 0")
@@ -425,10 +428,11 @@ class CoreMixin(EmitterBase):
 
     def load(self, name: str) -> str:
         ptr, typ = self.slots[name]
-        if typ["kind"] == "none":
+        load_kind: str = _kind(typ)
+        if load_kind == "none":
             # The local is the singleton: a read has nothing to load.
             return "null"
-        if typ["kind"] in {"str", "bytes"}:
+        if load_kind in {"str", "bytes"}:
             return self._widen_cell(typ, ptr)
         reg = self.tmp()
         self.line(f"{reg} = load {_llvm_type(typ)}, ptr {ptr}")

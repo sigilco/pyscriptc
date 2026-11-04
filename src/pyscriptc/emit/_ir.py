@@ -26,6 +26,15 @@ from pyscriptc.errors import FitError, IRError
 from pyscriptc.ir import fits_i64
 
 
+def _kind(typ: dict[str, Any]) -> str:
+    """The kind tag of a type record: int, float, bool, str, bytes, list,
+    dict, class, exc, func, any or none. Every emitter type dispatch reads
+    the record through this accessor instead of the raw dict key."""
+
+    kind: str = typ["kind"]
+    return kind
+
+
 def standalone_entry(module: dict[str, Any]) -> dict[str, Any] | None:
     """The module's runnable entry (a script body or `__main__` guard), if `--run` without `--call` has one."""
     entry = module.get("entry")

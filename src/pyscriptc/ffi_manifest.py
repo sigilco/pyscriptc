@@ -60,7 +60,7 @@ from __future__ import annotations
 
 import re
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -69,7 +69,7 @@ from pyscriptc.errors import SpikeError
 # The manifest schema version this compiler understands. A manifest with a
 # different `format` is refused, never guessed at: the schema is append-only
 # inside an epoch (`.agents/docs/ffi/ffi-manifest.md` section 6).
-SUPPORTED_FORMATS: frozenset[int] = frozenset({1})
+SUPPORTED_FORMATS = frozenset({1})
 
 # The `PS_ABI` epoch this compiler stamps. A manifest pins the epoch it was
 # written against and the compiler refuses a mismatch before lowering
@@ -77,20 +77,20 @@ SUPPORTED_FORMATS: frozenset[int] = frozenset({1})
 CURRENT_PS_ABI: int = 1
 
 # The scalar types that map onto a machine value with no runtime object.
-SCALAR_TYPES: frozenset[str] = frozenset({"int", "float", "bool", "str", "bytes"})
+SCALAR_TYPES = frozenset({"int", "float", "bool", "str", "bytes"})
 
 # Container types the subset lowers. `list` and `dict` cross the boundary as
 # a `ptr` to the runtime layout, so a manifest may name them only when the
 # adapter's thunk builds the value itself.
-CONTAINER_TYPES: frozenset[str] = frozenset({"list", "dict"})
+CONTAINER_TYPES = frozenset({"list", "dict"})
 
 # The type names a manifest may use in a `py` signature. Everything else is
 # refused: the vocabulary is the lowered subset's, so the emitter never has
 # to inspect a value at runtime.
-ALLOWED_TYPE_NAMES: frozenset[str] = SCALAR_TYPES | CONTAINER_TYPES
+ALLOWED_TYPE_NAMES = frozenset({"int", "float", "bool", "str", "bytes", "list", "dict"})
 
 # The C types a `[[const]]` may hold.
-CONST_TYPES: frozenset[str] = frozenset({"int", "float", "str"})
+CONST_TYPES = frozenset({"int", "float", "str"})
 
 # The keys each section accepts. Anything else is `PS4005`.
 _MANIFEST_KEYS = frozenset({"module", "ps_abi", "format", "libs", "lib_dirs"})
@@ -118,14 +118,16 @@ _C_TYPE = re.compile(r"^[A-Za-z_][A-Za-z0-9_ ]*\*$|^[A-Za-z_][A-Za-z0-9_]*$")
 # A typed container annotation, `list[str]` or `dict[str, str]`. The inner
 # types are validated separately; a dict inside a list (`list[dict[K, V]]`,
 # the sqlite row shape) is the one nesting the lane allows (issue #236).
-_CONTAINER = re.compile(r"^(?P<head>list|dict)\[(?P<inner>.+)\]$")
+_CONTAINER = re.compile(r"^(list|dict)\[(.+)\]$")
 
 # A `py` signature: `(a: int, b: str) -> int`. Optional `->` return is
 # allowed and means `None`.
 _SIGNATURE = re.compile(r"^\((?P<params>[^()]*)\)\s*(?:->\s*(?P<ret>[^()]+))?$")
 
 # A parameter inside a signature: `name: type`, with an optional default.
-_PARAM = re.compile(r"^(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*:\s*(?P<type>[^=,]+)(?:\s*=\s*(?P<default>.+))?$")
+# Numbered groups: `Match.group("name")` does not lower (the group order is
+# fixed by the pattern above).
+_PARAM = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([^=,]+)(?:\s*=\s*(.+))?$")
 
 
 class FfiManifestError(SpikeError):
@@ -276,7 +278,7 @@ class FfiManifest:
     handles: tuple[ManifestHandle, ...] = ()
     consts: tuple[ManifestConst, ...] = ()
     functions: tuple[ManifestFunction, ...] = ()
-    handle_names: frozenset[str] = field(default_factory=frozenset)
+    handle_names: frozenset[str] = frozenset()
     libs: tuple[str, ...] = ()
     lib_dirs: tuple[str, ...] = ()
 
@@ -667,7 +669,7 @@ def _build_functions(
 def _resolve_handle_refs(
     refs: tuple[str, ...],
     params: tuple[ManifestParam, ...],
-    handle_names: set[str],
+    handle_names: frozenset[str] | set[str],
     *,
     path: Path | None,
     where: str,
@@ -729,11 +731,19 @@ def _parse_signature(
             path=path,
             where=where,
         )
-    raw_params = match.group("params").strip()
+    raw_params = match.group(1)
+    if raw_params is None:
+        raise FfiManifestError(
+            "PS4006",
+            f"the signature {py!r} is not of the form (name: type, ...) -> type",
+            path=path,
+            where=where,
+        )
+    raw = raw_params.strip()
     params: list[ManifestParam] = []
     names: set[str] = set()
-    if raw_params:
-        for piece in _split_params(raw_params):
+    if raw:
+        for piece in _split_params(raw):
             param_match = _PARAM.match(piece.strip())
             if param_match is None:
                 raise FfiManifestError(
@@ -742,7 +752,15 @@ def _parse_signature(
                     path=path,
                     where=where,
                 )
-            name = param_match.group("name")
+            name = param_match.group(1)
+            declared = param_match.group(2)
+            if name is None or declared is None:
+                raise FfiManifestError(
+                    "PS4006",
+                    f"the parameter {piece.strip()!r} is not of the form name: type",
+                    path=path,
+                    where=where,
+                )
             if name in names:
                 raise FfiManifestError(
                     "PS4007",
@@ -751,11 +769,15 @@ def _parse_signature(
                     where=where,
                 )
             names.add(name)
-            type_name = param_match.group("type").strip()
+            type_name = declared.strip()
             _check_type(type_name, path=path, where=where, handle_names=handle_names)
-            default = param_match.group("default")
+            default = param_match.group(3)
             params.append(ManifestParam(name=name, type=type_name, default=default.strip() if default else None))
-    returns = (match.group("ret") or "None").strip()
+    ret = match.group(2)
+    if ret is None:
+        returns = "None"
+    else:
+        returns = ret.strip()
     _check_type(returns, path=path, where=where, handle_names=handle_names, allow_none=True)
     return tuple(params), returns
 
@@ -782,15 +804,23 @@ def _check_container(
             path=path,
             where=where,
         )
-    head = match.group("head")
-    inner = match.group("inner").strip()
+    head = match.group(1)
+    raw_inner = match.group(2)
+    if head is None or raw_inner is None:
+        raise FfiManifestError(
+            "PS4006",
+            f"the container type {name!r} is not of the form list[T] or dict[K, V]",
+            path=path,
+            where=where,
+        )
+    inner = raw_inner.strip()
     if head == "list":
         nested = _CONTAINER.match(inner)
         if nested is not None:
             # The one allowed nesting: `list[dict[K, V]]`. A list of lists
             # has no subset element type (a list value is a pointer, not a
             # scalar the runtime slot can hold).
-            if nested.group("head") == "dict":
+            if nested.group(1) == "dict":
                 _check_type(inner, path=path, where=where, handle_names=handle_names)
                 return
             raise FfiManifestError(
@@ -833,7 +863,14 @@ def _check_container(
         )
     for piece in pieces:
         piece = piece.strip()
-        if piece in {"list", "dict"} or _CONTAINER.match(piece):
+        if piece in {"list", "dict"}:
+            raise FfiManifestError(
+                "PS4006",
+                f"the type {name!r} nests a container; the lane marshals scalar rows only",
+                path=path,
+                where=where,
+            )
+        if _CONTAINER.match(piece):
             raise FfiManifestError(
                 "PS4006",
                 f"the type {name!r} nests a container; the lane marshals scalar rows only",
