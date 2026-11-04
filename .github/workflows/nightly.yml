@@ -286,11 +286,55 @@ jobs:
           retention-days: 90
           if-no-files-found: warn
 
+  # The embed acceptance (issue #885). It runs in its own workflow
+  # (embed.yml, on its own schedule at 06:43, after this nightly's 06:17),
+  # so nothing on the nightly page said when it went red. This lane reads
+  # the most recent embed run's conclusion and puts it in the nightly
+  # summary, so a red embed acceptance is visible next to the other nightly
+  # lanes. The embed workflow's own report job opens the issue the moment
+  # the acceptance fails; this lane is the standing "still red?" check.
+  embed-acceptance:
+    name: embed acceptance result
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      failed: ${{ steps.result.outputs.failed }}
+    steps:
+      - name: Read the latest embed run
+        id: run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # The latest run of the embed workflow on master (the schedule
+          # push runs it unconditionally).
+          conclusion="$(gh api "repos/$REPO/actions/workflows/embed.yml/runs?branch=master&per_page=1" \
+            --jq '.workflow_runs[0] | "\(.status) \(.conclusion) \(.html_url)"')"
+          echo "latest=$conclusion" >> "$GITHUB_OUTPUT"
+          echo "latest embed run: $conclusion"
+
+      - name: Record outcome
+        id: result
+        if: always()
+        run: |
+          set -euo pipefail
+          latest="${{ steps.run.outputs.latest }}"
+          echo "### Embed acceptance (latest run): $latest" >> "$GITHUB_STEP_SUMMARY"
+          case "$latest" in
+            *" success "*) echo "failed=false" >> "$GITHUB_OUTPUT" ;;
+            *" failure "*|*" cancelled "*) echo "failed=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "failed=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
   # Failure reporting. One open issue per label; repeat failures add a comment.
   report-failure:
     name: open or update nightly-failure issue
-    needs: [visible-score, boxed-ledger]
-    if: ${{ always() && (needs.visible-score.outputs.failed == 'true' || needs.boxed-ledger.outputs.failed == 'true') }}
+    needs: [visible-score, boxed-ledger, embed-acceptance]
+    if: ${{ always() && (needs.visible-score.outputs.failed == 'true' || needs.boxed-ledger.outputs.failed == 'true' || needs.embed-acceptance.outputs.failed == 'true') }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -306,10 +350,11 @@ jobs:
           gh label create nightly-failure --repo "$REPO" --color B60205 \
             --description "Nightly workflow failure" 2>/dev/null || true
           body="$(mktemp)"
-          printf 'Nightly run failed on %s.\n\nRun: %s\n\nVisible score: %s\nBoxed ledger: %s\n' \
+          printf 'Nightly run failed on %s.\n\nRun: %s\n\nVisible score: %s\nBoxed ledger: %s\nEmbed acceptance: %s\n' \
             "$(date -u +%Y-%m-%d)" "$RUN_URL" \
             "${{ needs.visible-score.outputs.failed == 'true' && 'failed' || 'ok' }}" \
-            "${{ needs.boxed-ledger.outputs.failed == 'true' && 'failed' || 'ok' }}" > "$body"
+            "${{ needs.boxed-ledger.outputs.failed == 'true' && 'failed' || 'ok' }}" \
+            "${{ needs.embed-acceptance.outputs.failed == 'true' && 'failed' || 'ok' }}" > "$body"
           existing="$(gh issue list --repo "$REPO" --label nightly-failure --state open \
             --json number --jq '.[0].number // empty')"
           if [ -n "$existing" ]; then

@@ -303,3 +303,63 @@ jobs:
         run: |
           set -euo pipefail
           echo "embed acceptance (${{ matrix.os }}): skipped=${{ steps.fetch.outputs.skip }}" >> "$GITHUB_STEP_SUMMARY"
+
+  # A red embed acceptance must be visible (issue #885). The acceptance runs
+  # in its own workflow, so neither the ci-ok aggregate nor the nightly
+  # summary saw it: the only red signal was inside this workflow's own run.
+  # This job reports a failed acceptance into the same `nightly-failure`
+  # channel the nightly workflow uses, so one red channel carries every
+  # red nightly lane.
+  report:
+    name: report the embed acceptance result
+    needs: [changes, acceptance]
+    # Always, so a green run says so too; the body only names a failure.
+    if: ${{ always() && needs.changes.outputs.run == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Record the acceptance outcome
+        id: result
+        env:
+          # A matrix job aggregates: `result` is failure when any cell
+          # failed (fail-fast is off, so every cell still ran).
+          RESULT: ${{ needs.acceptance.result }}
+        run: |
+          set -euo pipefail
+          if [ "$RESULT" != "success" ] && [ "$RESULT" != "skipped" ]; then
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+            echo "### Embed acceptance: FAILED" >> "$GITHUB_STEP_SUMMARY"
+            echo "Result: $RESULT. See the failed matrix cells in this run." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "failed=false" >> "$GITHUB_OUTPUT"
+            echo "### Embed acceptance: green" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Open or update the nightly-failure issue
+        # Only outside a pull request: a red PR run must not open an issue
+        # on every push of a branch. The step summary above already shows
+        # the red result on the run itself.
+        if: steps.result.outputs.failed == 'true' && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RESULT: ${{ needs.acceptance.result }}
+        run: |
+          set -euo pipefail
+          gh label create nightly-failure --repo "$REPO" --color B60205 \
+            --description "Nightly workflow failure" 2>/dev/null || true
+          body="$(mktemp)"
+          printf 'Embed acceptance failed on %s.\n\nRun: %s\n\nAcceptance result: %s\n' \
+            "$(date -u +%Y-%m-%d)" "$RUN_URL" "$RESULT" > "$body"
+          existing="$(gh issue list --repo "$REPO" --label nightly-failure --state open \
+            --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$REPO" --body-file "$body"
+          else
+            gh issue create --repo "$REPO" --label nightly-failure \
+              --title "embed acceptance failed: $(date -u +%Y-%m-%d)" --body-file "$body"
+          fi
