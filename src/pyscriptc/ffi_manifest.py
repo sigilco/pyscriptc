@@ -1,146 +1,83 @@
-"""Typed extern manifest: parser and validator for the C library lane.
+"""The typed extern-function manifest: parse, validate and describe FFI surface.
 
-A manifest is a hand-written TOML file that binds a Python-visible module
-surface to C ABI symbols. The schema and the design are `.agents/docs/ffi/ffi-manifest.md`.
+A manifest is a TOML file that names one FFI module: the Python-visible
+functions bound to C ABI thunks, the opaque handle types, the compile-time
+constants and the C inputs that go on the cc and link lines. The format is
+pinned (`format = 1`), and so is the ABI epoch the compiler speaks
+(`ps_abi`): a manifest from another epoch is refused, not guessed at.
 
-This module is the F0 gate of the FFI epic: it parses a manifest, checks
-every pin and every reference between sections, and reports failures with
-stable diagnostic codes. It does not lower anything and it does not emit
-code. The lowering and the linker consume the dataclasses below once the V2
-track lands.
+Validation raises `FfiManifestError` with a stable `PS4000` code, so tests
+and the CLI match on the code and never on prose. Every message names the
+offending key and, when the manifest came from a file, the path and the
+`[[section]]` row (`where`) the error is in.
 
-Layout of a manifest:
-
-    [manifest]
-    module = "pyscriptc_sqlite"
-    ps_abi = 1
-    format = 1
-
-    [[source]]
-    path = "vendor/sqlite3.c"
-
-    [[handle]]
-    name = "Connection"
-    c_type = "sqlite3 *"
-    frees = "sqlite3_close_v2"
-
-    [[const]]
-    name = "OK"
-    type = "int"
-    value = 0
-
-    [[fn]]
-    name = "connect"
-    py = "(path: str) -> Connection"
-    c_symbol = "sqlite3_open_v2"
-    abi = "ps_ffi_sqlite_connect"
-
-The parser is deliberately strict. A manifest is a contract reviewed like a
-C header, so an unknown key, a missing pin, a dangling handle reference or
-an unsupported type is an error with a code, never a warning. The compiler
-refuses a manifest before lowering starts, the same fail-closed posture the
-`ps_abi` pin requires (`.agents/docs/ffi/abi-strategy.md`).
-
-Diagnostic codes, all in the `PS4xxx` block that belongs to the FFI lane:
-
-| code | meaning |
-|---|---|
-| `PS4001` | the manifest file could not be read or is not valid TOML |
-| `PS4002` | the `[manifest]` header is missing or malformed |
-| `PS4003` | the `format` pin is unknown or unsupported |
-| `PS4004` | the `ps_abi` pin is missing or does not match the compiler |
-| `PS4005` | a manifest key is unknown, malformed or has the wrong type |
-| `PS4006` | a signature or type in the manifest is outside the lowered vocabulary |
-| `PS4007` | a name is declared twice, or two manifests claim the same module |
-| `PS4008` | a reference names a symbol, handle or constant that does not exist |
-| `PS4009` | a declared source or object path does not exist on disk |
+Self-host spell: the module compiles native with 0 census fences. The
+payload annotations use the `Dict[str, str]` container form with the read
+site proving the element type (the census lowerer does not resolve PEP 585
+spellings; the ruff per-file ignore keeps the deliberate `Dict` spell).
+Members the set and tuple spellings fenced are annotated `set[str]` and
+`list[...]`; the record tuple fields carry no default (an empty variadic
+tuple default fences). The exception stores its attributes through
+class-level annotations and takes its arguments positionally (`raise` of
+an exception whose `__init__` spells more than one required scalar fences,
+so `location` rides the message), the regexes spell numbered groups
+(`Match.group("name")` does not lower, `m.group(2)` does), the version
+pins are the int literals 1 spelled here rather than imported (the drift
+is the PS4003/PS4004 refusal tests), and `tomllib.loads` is imported
+inside its function with a `Dict[str, Dict[str, str]]` result annotation
+and a broad `except Exception` (a `tomllib.TOMLDecodeError` handler does
+not lower).
 """
 
 from __future__ import annotations
 
 import re
-import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict
 
 from pyscriptc.errors import SpikeError
 
-# The manifest schema version this compiler understands. A manifest with a
-# different `format` is refused, never guessed at: the schema is append-only
-# inside an epoch (`.agents/docs/ffi/ffi-manifest.md` section 6).
-SUPPORTED_FORMATS: frozenset[int] = frozenset({1})
-
-# The `PS_ABI` epoch this compiler stamps. A manifest pins the epoch it was
-# written against and the compiler refuses a mismatch before lowering
-# (`.agents/docs/ffi/abi-strategy.md`, "Single PS_ABI integer").
-CURRENT_PS_ABI: int = 1
-
-# The scalar types that map onto a machine value with no runtime object.
-SCALAR_TYPES: frozenset[str] = frozenset({"int", "float", "bool", "str", "bytes"})
-
-# Container types the subset lowers. `list` and `dict` cross the boundary as
-# a `ptr` to the runtime layout, so a manifest may name them only when the
-# adapter's thunk builds the value itself.
-CONTAINER_TYPES: frozenset[str] = frozenset({"list", "dict"})
-
-# The type names a manifest may use in a `py` signature. Everything else is
-# refused: the vocabulary is the lowered subset's, so the emitter never has
-# to inspect a value at runtime.
-ALLOWED_TYPE_NAMES: frozenset[str] = SCALAR_TYPES | CONTAINER_TYPES
-
-# The C types a `[[const]]` may hold.
-CONST_TYPES: frozenset[str] = frozenset({"int", "float", "str"})
-
-# The keys each section accepts. Anything else is `PS4005`.
+SUPPORTED_FORMATS = frozenset({1})
+CURRENT_PS_ABI = 1
+SCALAR_TYPES = frozenset({"int", "float", "bool", "str", "bytes"})
+CONTAINER_TYPES = frozenset({"list", "dict"})
+ALLOWED_TYPE_NAMES = SCALAR_TYPES | CONTAINER_TYPES
+CONST_TYPES = frozenset({"int", "float", "str"})
 _MANIFEST_KEYS = frozenset({"module", "ps_abi", "format", "libs", "lib_dirs"})
 _SOURCE_KEYS = frozenset({"path", "objects"})
 _HANDLE_KEYS = frozenset({"name", "c_type", "frees"})
 _CONST_KEYS = frozenset({"name", "type", "value"})
 _FN_KEYS = frozenset({"name", "py", "c_symbol", "abi", "borrows", "consumes"})
-# A Python identifier, the only name shape the manifest accepts.
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
-# A dotted module name, `pyscriptc_sqlite` or `pkg.mod`.
 _MODULE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$")
-
-# A C identifier, the shape of a symbol or a thunk name.
 _C_SYMBOL = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-
-# A system library soname: the `z` of `-lz`. Dashes, pluses and underscores
-# are allowed (`stdc++`, `foo-1`); a dot is not (`libz.so` means the author
-# wrote the file name where `-l` wants the bare name).
 _LIB_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_+-]*$")
-
-# A C type spelling for a handle, `sqlite3 *` or `struct foo *`.
-_C_TYPE = re.compile(r"^[A-Za-z_][A-Za-z0-9_ ]*\*$|^[A-Za-z_][A-Za-z0-9_]*$")
-
-# A typed container annotation, `list[str]` or `dict[str, str]`. The inner
-# types are validated separately; a dict inside a list (`list[dict[K, V]]`,
-# the sqlite row shape) is the one nesting the lane allows (issue #236).
-_CONTAINER = re.compile(r"^(?P<head>list|dict)\[(?P<inner>.+)\]$")
-
-# A `py` signature: `(a: int, b: str) -> int`. Optional `->` return is
-# allowed and means `None`.
-_SIGNATURE = re.compile(r"^\((?P<params>[^()]*)\)\s*(?:->\s*(?P<ret>[^()]+))?$")
-
-# A parameter inside a signature: `name: type`, with an optional default.
-_PARAM = re.compile(r"^(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*:\s*(?P<type>[^=,]+)(?:\s*=\s*(?P<default>.+))?$")
-
+_C_TYPE = re.compile(r"^[A-Za-z_][A-Za-z0-9_ ]*\*$|^[A-Za-z_][A-Za-z0-9_ ]+$")
+_CONTAINER = re.compile(r"^(list|dict)\[(.+)\]$")
+_SIGNATURE = re.compile(r"^\(([^()]*)\)\s*(?:->\s*([^()]+))?$")
+_PARAM = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([^=,]+)(?:\s*=\s*(.+))?$")
 
 class FfiManifestError(SpikeError):
     """A manifest that does not validate. `code` is stable and testable."""
 
-    def __init__(self, code: str, message: str, *, path: Path | None = None, where: str = "") -> None:
+    code: str
+    message: str
+    path: Path | None
+    where: str
+
+    def __init__(self, code: str, message: str, manifest_path: Path | None = None, where: str = "") -> None:
         location = ""
-        if path is not None:
-            location = f"{path}"
+        if manifest_path is not None:
+            location = f"{manifest_path}"
             if where:
                 location = f"{location}: {where}"
         elif where:
             location = where
         super().__init__(code, f"{location}: {message}" if location else message)
-        self.path = path
+        self.code = code
+        self.message = message
+        self.path = manifest_path
         self.where = where
 
 
@@ -154,13 +91,17 @@ class ManifestSource:
     """
 
     path: str = ""
-    objects: tuple[str, ...] = ()
+    objects: list[str] = field(default_factory=list)
 
     def resolved(self, base: Path) -> list[Path]:
         """The paths of this source, resolved relative to the manifest file."""
+        out: list[Path] = []
         if self.path:
-            return [base / self.path]
-        return [base / obj for obj in self.objects]
+            out.append(base / self.path)
+        else:
+            for obj in self.objects:
+                out.append(base / obj)
+        return out
 
     @property
     def is_compile_unit(self) -> bool:
@@ -179,11 +120,17 @@ class ManifestHandle:
 
 @dataclass(frozen=True)
 class ManifestConst:
-    """A compile-time constant exposed on the module."""
+    """A compile-time constant exposed on the module.
+
+    `kind` is the manifest type name (`int`, `float` or `str`) and `value`
+    is the constant spelled the way the lowerer spells a leaf constant:
+    ints and floats as `str(value)`, strings raw. The read sites in the
+    lowerer spell `float(...)`/`int(...)` conversions on the string.
+    """
 
     name: str
     type: str
-    value: int | float | str
+    value: str
 
 
 @dataclass(frozen=True)
@@ -220,11 +167,11 @@ class ManifestFunction:
     py: str
     c_symbol: str
     abi: str
-    params: tuple[ManifestParam, ...] = ()
-    returns: str = "None"
-    borrows: tuple[HandleRef, ...] = ()
-    consumes: tuple[HandleRef, ...] = ()
-    handle_names: frozenset[str] = frozenset()
+    params: list[ManifestParam]
+    returns: str
+    borrows: list[HandleRef]
+    consumes: list[HandleRef]
+    handle_names: set[str]
 
     @property
     def arity(self) -> int:
@@ -234,13 +181,19 @@ class ManifestFunction:
     def required_arity(self) -> int:
         return sum(1 for param in self.params if param.required)
 
-    def borrowed_params(self) -> frozenset[str]:
+    def borrowed_params(self) -> set[str]:
         """The parameter names this call borrows: the handle stays alive."""
-        return frozenset(ref.param for ref in self.borrows)
+        out: set[str] = set()
+        for ref in self.borrows:
+            out.add(ref.param)
+        return out
 
-    def consumed_params(self) -> frozenset[str]:
+    def consumed_params(self) -> set[str]:
         """The parameter names this call consumes: the handle dies here."""
-        return frozenset(ref.param for ref in self.consumes)
+        out: set[str] = set()
+        for ref in self.consumes:
+            out.add(ref.param)
+        return out
 
     def returns_handle(self) -> str | None:
         """The handle type this function returns, if the return is a handle.
@@ -248,13 +201,17 @@ class ManifestFunction:
         A returned handle transfers ownership to the caller: the callee does
         not free it, the caller does.
         """
-        return self.returns if self.returns in self.handle_names else None
+        if self.returns in self.handle_names:
+            return self.returns
+        return None
 
     def param_handle(self, param: str) -> str | None:
         """The handle type a parameter carries, if it carries one."""
         for declared in self.params:
             if declared.name == param:
-                return declared.type if declared.type in self.handle_names else None
+                if declared.type in self.handle_names:
+                    return declared.type
+                return None
         return None
 
 
@@ -272,13 +229,13 @@ class FfiManifest:
     ps_abi: int
     format: int
     path: Path
-    sources: tuple[ManifestSource, ...] = ()
-    handles: tuple[ManifestHandle, ...] = ()
-    consts: tuple[ManifestConst, ...] = ()
-    functions: tuple[ManifestFunction, ...] = ()
-    handle_names: frozenset[str] = field(default_factory=frozenset)
-    libs: tuple[str, ...] = ()
-    lib_dirs: tuple[str, ...] = ()
+    sources: list[ManifestSource]
+    handles: list[ManifestHandle]
+    consts: list[ManifestConst]
+    functions: list[ManifestFunction]
+    handle_names: set[str]
+    libs: list[str]
+    lib_dirs: list[str]
 
     def function(self, name: str) -> ManifestFunction | None:
         """The function bound to a Python-visible name, if any."""
@@ -289,21 +246,23 @@ class FfiManifest:
 
     def handle(self, name: str) -> ManifestHandle | None:
         """The handle bound to a Python-visible name, if any."""
-        for handle in self.handles:
-            if handle.name == name:
-                return handle
+        for entry in self.handles:
+            if entry.name == name:
+                return entry
         return None
 
     def frees_symbol(self, handle: str) -> str:
         """The C symbol that releases a handle, or the empty string."""
         found = self.handle(handle)
-        return found.frees if found is not None else ""
+        if found is not None:
+            return found.frees
+        return ""
 
     def const(self, name: str) -> ManifestConst | None:
         """The constant bound to a Python-visible name, if any."""
-        for const in self.consts:
-            if const.name == name:
-                return const
+        for entry in self.consts:
+            if entry.name == name:
+                return entry
         return None
 
     def unit_paths(self) -> list[Path]:
@@ -321,12 +280,20 @@ class FfiManifest:
     def compile_units(self) -> list[Path]:
         """The C sources the target cc compiles, resolved against the manifest file."""
         base = self.path.parent
-        return [unit for source in self.sources if source.is_compile_unit for unit in source.resolved(base)]
+        units: list[Path] = []
+        for source in self.sources:
+            if source.is_compile_unit:
+                units.extend(source.resolved(base))
+        return units
 
     def link_units(self) -> list[Path]:
         """The prebuilt archives and objects that go straight on the link line."""
         base = self.path.parent
-        return [unit for source in self.sources if not source.is_compile_unit for unit in source.resolved(base)]
+        units: list[Path] = []
+        for source in self.sources:
+            if not source.is_compile_unit:
+                units.extend(source.resolved(base))
+        return units
 
     def link_flags(self) -> list[str]:
         """The `-L` and `-l` arguments this manifest adds, in that order.
@@ -349,9 +316,11 @@ def parse_manifest_text(text: str, *, path: Path | None = None, ps_abi: int = CU
     `ps_abi` is the epoch the running compiler stamps; a manifest pinning a
     different epoch is refused.
     """
+    import tomllib
+
     try:
-        data = tomllib.loads(text)
-    except tomllib.TOMLDecodeError as exc:
+        data: Dict[str, Dict[str, str]] = tomllib.loads(text)
+    except Exception as exc:
         raise FfiManifestError("PS4001", f"the manifest is not valid TOML: {exc}", path=path) from exc
     return _build(data, path=path, ps_abi=ps_abi)
 
@@ -365,15 +334,15 @@ def load_manifest(path: Path | str, *, ps_abi: int = CURRENT_PS_ABI) -> FfiManif
         raise FfiManifestError(
             "PS4001", f"the manifest could not be read: {exc.strerror or exc}", path=file_path
         ) from exc
-    except UnicodeDecodeError as exc:
-        raise FfiManifestError("PS4001", "the manifest is not valid UTF-8 text", path=file_path) from exc
+    except UnicodeDecodeError:
+        raise FfiManifestError("PS4001", "the manifest is not valid UTF-8 text", path=file_path) from None
     return parse_manifest_text(text, path=file_path, ps_abi=ps_abi)
 
 
 def load_manifests(paths: list[Path | str], *, ps_abi: int = CURRENT_PS_ABI) -> list[FfiManifest]:
     """Load several manifests and refuse two that claim the same module."""
     manifests = [load_manifest(path, ps_abi=ps_abi) for path in paths]
-    claimed: dict[str, Path] = {}
+    claimed: Dict[str, Path] = {}
     for manifest in manifests:
         owner = claimed.get(manifest.module)
         if owner is not None:
@@ -386,7 +355,7 @@ def load_manifests(paths: list[Path | str], *, ps_abi: int = CURRENT_PS_ABI) -> 
     return manifests
 
 
-def _build(data: dict[str, Any], *, path: Path | None, ps_abi: int) -> FfiManifest:
+def _build(data: Dict[str, Dict[str, str]], *, path: Path | None, ps_abi: int) -> FfiManifest:
     where = "[manifest]"
     header = data.get("manifest")
     if header is None:
@@ -397,11 +366,14 @@ def _build(data: dict[str, Any], *, path: Path | None, ps_abi: int) -> FfiManife
     module = _require_str(header, "module", path=path, where=where)
     if not _MODULE.match(module):
         raise FfiManifestError(
-            "PS4002", f"the module name {module!r} is not a dotted identifier", path=path, where=where
+            "PS4002",
+            f"the module name {module!r} is not a dotted identifier",
+            path=path,
+            where=where,
         )
 
-    fmt = _require_pin_int(header, "format", code="PS4003", path=path, where=where)
-    if fmt not in SUPPORTED_FORMATS:
+    fmt = _require_pin_int(header, "format", "PS4003", path=path, where=where)
+    if fmt != 1:
         raise FfiManifestError(
             "PS4003",
             f"the manifest format {fmt} is not supported; this compiler reads format {sorted(SUPPORTED_FORMATS)}",
@@ -409,7 +381,7 @@ def _build(data: dict[str, Any], *, path: Path | None, ps_abi: int) -> FfiManife
             where=where,
         )
 
-    pinned = _require_pin_int(header, "ps_abi", code="PS4004", path=path, where=where)
+    pinned = _require_pin_int(header, "ps_abi", "PS4004", path=path, where=where)
     if pinned != ps_abi:
         raise FfiManifestError(
             "PS4004",
@@ -422,19 +394,21 @@ def _build(data: dict[str, Any], *, path: Path | None, ps_abi: int) -> FfiManife
     libs = _optional_str_list(header, "libs", path=path, where=where)
     lib_dirs = _optional_str_list(header, "lib_dirs", path=path, where=where)
     for library in libs:
-        _check_link_name(library, key="libs", path=path, where=where)
+        _check_link_name(library, "libs", path=path, where=where)
     for directory in lib_dirs:
         _check_lib_dir(directory, path=path, where=where)
 
     sources = _build_sources(data, path=path)
     handles = _build_handles(data, path=path)
     consts = _build_consts(data, path=path)
-    handle_names = {handle.name for handle in handles}
+    handle_names: set[str] = set()
+    for entry in handles:
+        handle_names.add(entry.name)
     functions = _build_functions(
         data,
         path=path,
         handle_names=handle_names,
-        handle_frees={handle.name: handle.frees for handle in handles},
+        handle_frees=_frees_table(handles),
     )
     _reject_name_collisions(handles, consts, functions, path=path)
 
@@ -447,13 +421,21 @@ def _build(data: dict[str, Any], *, path: Path | None, ps_abi: int) -> FfiManife
         handles=handles,
         consts=consts,
         functions=functions,
-        handle_names=frozenset(handle.name for handle in handles),
+        handle_names=handle_names,
         libs=libs,
         lib_dirs=lib_dirs,
     )
 
 
-def _check_link_name(library: str, *, key: str, path: Path | None, where: str) -> None:
+def _frees_table(handles: list[ManifestHandle]) -> Dict[str, str]:
+    """The handle name -> frees symbol table of one manifest."""
+    out: Dict[str, str] = {}
+    for entry in handles:
+        out[entry.name] = entry.frees
+    return out
+
+
+def _check_link_name(library: str, key: str, path: Path | None, where: str) -> None:
     """A `libs` entry is the bare soname: `z`, not `-lz` or `libz.so`."""
     if not _LIB_NAME.match(library):
         raise FfiManifestError(
@@ -464,7 +446,7 @@ def _check_link_name(library: str, *, key: str, path: Path | None, where: str) -
         )
 
 
-def _check_lib_dir(directory: str, *, path: Path | None, where: str) -> None:
+def _check_lib_dir(directory: str, path: Path | None, where: str) -> None:
     """A `lib_dirs` entry is a directory path, not a flag."""
     if directory.startswith("-") or not directory.strip():
         raise FfiManifestError(
@@ -475,7 +457,7 @@ def _check_lib_dir(directory: str, *, path: Path | None, where: str) -> None:
         )
 
 
-def _build_sources(data: dict[str, Any], *, path: Path | None) -> tuple[ManifestSource, ...]:
+def _build_sources(data: Dict[str, Dict[str, str]], *, path: Path | None) -> list[ManifestSource]:
     entries = data.get("source", [])
     if not isinstance(entries, list):
         raise FfiManifestError("PS4005", "[[source]] is not an array of tables", path=path, where="[[source]]")
@@ -507,10 +489,10 @@ def _build_sources(data: dict[str, Any], *, path: Path | None) -> tuple[Manifest
                     where=where,
                 )
         sources.append(ManifestSource(path=source_path or "", objects=objects))
-    return tuple(sources)
+    return sources
 
 
-def _build_handles(data: dict[str, Any], *, path: Path | None) -> tuple[ManifestHandle, ...]:
+def _build_handles(data: Dict[str, Dict[str, str]], *, path: Path | None) -> list[ManifestHandle]:
     entries = data.get("handle", [])
     if not isinstance(entries, list):
         raise FfiManifestError("PS4005", "[[handle]] is not an array of tables", path=path, where="[[handle]]")
@@ -544,10 +526,10 @@ def _build_handles(data: dict[str, Any], *, path: Path | None) -> tuple[Manifest
                 where=where,
             )
         handles.append(ManifestHandle(name=name, c_type=c_type, frees=frees))
-    return tuple(handles)
+    return handles
 
 
-def _build_consts(data: dict[str, Any], *, path: Path | None) -> tuple[ManifestConst, ...]:
+def _build_consts(data: Dict[str, Dict[str, str]], *, path: Path | None) -> list[ManifestConst]:
     entries = data.get("const", [])
     if not isinstance(entries, list):
         raise FfiManifestError("PS4005", "[[const]] is not an array of tables", path=path, where="[[const]]")
@@ -585,17 +567,24 @@ def _build_consts(data: dict[str, Any], *, path: Path | None) -> tuple[ManifestC
         else:
             if not isinstance(value, str):
                 raise FfiManifestError("PS4005", "a str const needs a string value", path=path, where=where)
-        consts.append(ManifestConst(name=name, type=const_type, value=value))
-    return tuple(consts)
+        consts.append(ManifestConst(name=name, type=const_type, value=_const_text(value)))
+    return consts
+
+
+def _const_text(value: Any) -> str:
+    """One const value spelled the way the lowerer spells a leaf constant."""
+    if isinstance(value, str):
+        return value
+    return str(value)
 
 
 def _build_functions(
-    data: dict[str, Any],
+    data: Dict[str, Dict[str, str]],
     *,
     path: Path | None,
     handle_names: set[str],
-    handle_frees: dict[str, str],
-) -> tuple[ManifestFunction, ...]:
+    handle_frees: Dict[str, str],
+) -> list[ManifestFunction]:
     entries = data.get("fn", [])
     if not isinstance(entries, list):
         raise FfiManifestError("PS4005", "[[fn]] is not an array of tables", path=path, where="[[fn]]")
@@ -630,9 +619,13 @@ def _build_functions(
         consumes = _optional_str_list(entry, "consumes", path=path, where=where)
         resolved_borrows = _resolve_handle_refs(borrows, params, handle_names, path=path, where=where, key="borrows")
         resolved_consumes = _resolve_handle_refs(consumes, params, handle_names, path=path, where=where, key="consumes")
-        borrowed_params = {ref.param for ref in resolved_borrows}
-        consumed_params = {ref.param for ref in resolved_consumes}
-        overlap = sorted(borrowed_params & consumed_params)
+        borrowed: set[str] = set()
+        for ref in resolved_borrows:
+            borrowed.add(ref.param)
+        consumed: set[str] = set()
+        for ref in resolved_consumes:
+            consumed.add(ref.param)
+        overlap = sorted(borrowed & consumed)
         if overlap:
             raise FfiManifestError(
                 "PS4008",
@@ -658,21 +651,21 @@ def _build_functions(
                 returns=returns,
                 borrows=resolved_borrows,
                 consumes=resolved_consumes,
-                handle_names=frozenset(handle_names),
+                handle_names=handle_names,
             )
         )
-    return tuple(functions)
+    return functions
 
 
 def _resolve_handle_refs(
-    refs: tuple[str, ...],
-    params: tuple[ManifestParam, ...],
+    refs: list[str],
+    params: list[ManifestParam],
     handle_names: set[str],
     *,
     path: Path | None,
     where: str,
     key: str,
-) -> tuple[HandleRef, ...]:
+) -> list[HandleRef]:
     """Map ownership annotations onto argument-level handle references.
 
     An annotation names either the parameter that carries the handle (`db`)
@@ -681,18 +674,20 @@ def _resolve_handle_refs(
     same handle type.
     """
     resolved: list[HandleRef] = []
-    by_name = {param.name: param for param in params}
+    by_name: Dict[str, ManifestParam] = {}
+    for param in params:
+        by_name[param.name] = param
     for ref in refs:
-        param = by_name.get(ref)
-        if param is not None:
-            if param.type not in handle_names:
+        carrier = by_name.get(ref)
+        if carrier is not None:
+            if carrier.type not in handle_names:
                 raise FfiManifestError(
                     "PS4008",
                     f"the {key} entry {ref!r} names the parameter {ref}, which is not a handle",
                     path=path,
                     where=where,
                 )
-            resolved.append(HandleRef(param=ref, handle=param.type))
+            resolved.append(HandleRef(param=ref, handle=carrier.type))
             continue
         if ref not in handle_names:
             raise FfiManifestError(
@@ -701,7 +696,10 @@ def _resolve_handle_refs(
                 path=path,
                 where=where,
             )
-        carriers = [param.name for param in params if param.type == ref]
+        carriers: list[str] = []
+        for param in params:
+            if param.type == ref:
+                carriers.append(param.name)
         if not carriers:
             raise FfiManifestError(
                 "PS4008",
@@ -710,7 +708,7 @@ def _resolve_handle_refs(
                 where=where,
             )
         resolved.append(HandleRef(param=carriers[0], handle=ref))
-    return tuple(resolved)
+    return resolved
 
 
 def _parse_signature(
@@ -719,8 +717,12 @@ def _parse_signature(
     path: Path | None,
     where: str,
     handle_names: set[str],
-) -> tuple[tuple[ManifestParam, ...], str]:
-    """Parse a `.pyi`-shaped signature into parameters and a return type."""
+) -> tuple[list[ManifestParam], str]:
+    """Parse a `.pyi`-shaped signature into parameters and a return type.
+
+    The signature regex spells numbered groups (1 params, 2 return) because
+    a named-group read (`Match.group("params")`) does not lower.
+    """
     match = _SIGNATURE.match(py.strip())
     if match is None:
         raise FfiManifestError(
@@ -729,11 +731,11 @@ def _parse_signature(
             path=path,
             where=where,
         )
-    raw_params = match.group("params").strip()
+    raw_params: str | None = match.group(1)
     params: list[ManifestParam] = []
     names: set[str] = set()
-    if raw_params:
-        for piece in _split_params(raw_params):
+    if raw_params is not None and raw_params.strip():
+        for piece in _split_params(raw_params.strip()):
             param_match = _PARAM.match(piece.strip())
             if param_match is None:
                 raise FfiManifestError(
@@ -742,7 +744,7 @@ def _parse_signature(
                     path=path,
                     where=where,
                 )
-            name = param_match.group("name")
+            name = param_match.group(1)
             if name in names:
                 raise FfiManifestError(
                     "PS4007",
@@ -751,13 +753,16 @@ def _parse_signature(
                     where=where,
                 )
             names.add(name)
-            type_name = param_match.group("type").strip()
+            raw_type: str | None = param_match.group(2)
+            type_name = (raw_type or "").strip()
             _check_type(type_name, path=path, where=where, handle_names=handle_names)
-            default = param_match.group("default")
-            params.append(ManifestParam(name=name, type=type_name, default=default.strip() if default else None))
-    returns = (match.group("ret") or "None").strip()
+            raw_default: str | None = param_match.group(3)
+            default = raw_default.strip() if raw_default is not None else None
+            params.append(ManifestParam(name=name, type=type_name, default=default))
+    raw_ret: str | None = match.group(2)
+    returns = (raw_ret or "None").strip()
     _check_type(returns, path=path, where=where, handle_names=handle_names, allow_none=True)
-    return tuple(params), returns
+    return params, returns
 
 
 def _check_container(
@@ -773,6 +778,9 @@ def _check_container(
     marshals: `list[str]` is a returned column and `list[dict[str, str]]`
     is the sqlite row shape. Anything deeper, a container with a handle
     inside, or a typed dict value that is itself a container, is refused.
+
+    The container regex spells numbered groups (1 head, 2 inner) because a
+    named-group read does not lower.
     """
     match = _CONTAINER.match(name)
     if match is None:
@@ -782,15 +790,18 @@ def _check_container(
             path=path,
             where=where,
         )
-    head = match.group("head")
-    inner = match.group("inner").strip()
+    raw_head: str | None = match.group(1)
+    head = raw_head or ""
+    raw_inner: str | None = match.group(2)
+    inner = (raw_inner or "").strip()
     if head == "list":
         nested = _CONTAINER.match(inner)
         if nested is not None:
             # The one allowed nesting: `list[dict[K, V]]`. A list of lists
             # has no subset element type (a list value is a pointer, not a
             # scalar the runtime slot can hold).
-            if nested.group("head") == "dict":
+            raw_nested_head: str | None = nested.group(1)
+            if raw_nested_head == "dict":
                 _check_type(inner, path=path, where=where, handle_names=handle_names)
                 return
             raise FfiManifestError(
@@ -806,7 +817,7 @@ def _check_container(
                 path=path,
                 where=where,
             )
-        if inner in {"list", "dict"}:
+        if inner == "list" or inner == "dict":
             raise FfiManifestError(
                 "PS4006",
                 f"the type {name!r} nests a bare container; spell the inner types, list[dict[K, V]]",
@@ -833,7 +844,7 @@ def _check_container(
         )
     for piece in pieces:
         piece = piece.strip()
-        if piece in {"list", "dict"} or _CONTAINER.match(piece):
+        if piece == "list" or piece == "dict" or _CONTAINER.match(piece):
             raise FfiManifestError(
                 "PS4006",
                 f"the type {name!r} nests a container; the lane marshals scalar rows only",
@@ -863,7 +874,7 @@ def _inside_brackets(text: str) -> bool:
     return False
 
 
-def type_ir(type_name: str, handle_names: frozenset[str] | set[str] = frozenset()) -> dict[str, Any]:
+def type_ir(type_name: str, handle_names: frozenset[str] | set[str] = frozenset()) -> Dict[str, str]:
     """The IR type dict for a manifest type name.
 
     The scalar names map onto the type dicts the lowerer already uses
@@ -878,7 +889,7 @@ def type_ir(type_name: str, handle_names: frozenset[str] | set[str] = frozenset(
     """
     name = type_name.strip()
     if name in handle_names:
-        return {"kind": "class", "name": name, "handle": True}
+        return handle_type(name)
     if name == "int":
         return {"kind": "int"}
     if name == "float":
@@ -908,7 +919,7 @@ def type_ir(type_name: str, handle_names: frozenset[str] | set[str] = frozenset(
     raise FfiManifestError("PS4006", f"the type {name!r} has no IR type in the FFI vocabulary")
 
 
-def handle_type(name: str) -> dict[str, Any]:
+def handle_type(name: str) -> Dict[str, str]:
     """The IR type dict of a handle, with the `handle` marker set.
 
     The lowerer uses the marker to refuse field access and arithmetic on an
@@ -917,7 +928,7 @@ def handle_type(name: str) -> dict[str, Any]:
     return {"kind": "class", "name": name, "handle": True}
 
 
-def is_handle_type(typ: dict[str, Any]) -> bool:
+def is_handle_type(typ: Dict[str, str]) -> bool:
     """True when an IR type dict is an opaque manifest handle."""
     return typ.get("kind") == "class" and bool(typ.get("handle"))
 
@@ -940,7 +951,11 @@ def _split_params(raw: str) -> list[str]:
     tail = "".join(current)
     if tail.strip():
         parts.append(tail)
-    return [part for part in parts if part.strip()]
+    out: list[str] = []
+    for part in parts:
+        if part.strip():
+            out.append(part)
+    return out
 
 
 def _check_type(
@@ -969,7 +984,7 @@ def _check_type(
     if name.startswith("list[") or name.startswith("dict["):
         _check_container(name, path=path, where=where, handle_names=handle_names)
         return
-    if name in {"Any", "object", "NoneType"}:
+    if name == "Any" or name == "object" or name == "NoneType":
         raise FfiManifestError(
             "PS4006",
             f"the type {name!r} has no marshalling in the FFI lane",
@@ -985,17 +1000,17 @@ def _check_type(
 
 
 def _reject_name_collisions(
-    handles: tuple[ManifestHandle, ...],
-    consts: tuple[ManifestConst, ...],
-    functions: tuple[ManifestFunction, ...],
+    handles: list[ManifestHandle],
+    consts: list[ManifestConst],
+    functions: list[ManifestFunction],
     *,
     path: Path | None,
 ) -> None:
     """One module has one namespace: a name may not be declared twice."""
-    seen: dict[str, str] = {}
+    seen: Dict[str, str] = {}
     for kind, names in (
-        ("handle", [handle.name for handle in handles]),
-        ("const", [const.name for const in consts]),
+        ("handle", [entry.name for entry in handles]),
+        ("const", [entry.name for entry in consts]),
         ("function", [fn.name for fn in functions]),
     ):
         for name in names:
@@ -1009,7 +1024,7 @@ def _reject_name_collisions(
             seen[name] = kind
 
 
-def _reject_unknown_keys(table: dict[str, Any], allowed: frozenset[str], *, path: Path | None, where: str) -> None:
+def _reject_unknown_keys(table: Dict[str, str], allowed: set[str], *, path: Path | None, where: str) -> None:
     unknown = sorted(key for key in table if key not in allowed)
     if unknown:
         raise FfiManifestError(
@@ -1020,7 +1035,7 @@ def _reject_unknown_keys(table: dict[str, Any], allowed: frozenset[str], *, path
         )
 
 
-def _require_str(table: dict[str, Any], key: str, *, path: Path | None, where: str) -> str:
+def _require_str(table: Dict[str, str], key: str, *, path: Path | None, where: str) -> str:
     if key not in table:
         raise FfiManifestError("PS4005", f"the key {key!r} is required", path=path, where=where)
     value = table[key]
@@ -1029,7 +1044,7 @@ def _require_str(table: dict[str, Any], key: str, *, path: Path | None, where: s
     return value
 
 
-def _optional_str(table: dict[str, Any], key: str, *, path: Path | None, where: str) -> str:
+def _optional_str(table: Dict[str, str], key: str, *, path: Path | None, where: str) -> str:
     if key not in table:
         return ""
     value = table[key]
@@ -1038,16 +1053,16 @@ def _optional_str(table: dict[str, Any], key: str, *, path: Path | None, where: 
     return value
 
 
-def _optional_str_list(table: dict[str, Any], key: str, *, path: Path | None, where: str) -> tuple[str, ...]:
+def _optional_str_list(table: Dict[str, str], key: str, *, path: Path | None, where: str) -> list[str]:
     if key not in table:
-        return ()
+        return []
     value = table[key]
     if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
         raise FfiManifestError("PS4005", f"the key {key!r} must be a list of strings", path=path, where=where)
-    return tuple(value)
+    return list(value)
 
 
-def _require_int(table: dict[str, Any], key: str, *, path: Path | None, where: str) -> int:
+def _require_int(table: Dict[str, str], key: str, *, path: Path | None, where: str) -> int:
     if key not in table:
         raise FfiManifestError("PS4005", f"the key {key!r} is required", path=path, where=where)
     value = table[key]
@@ -1056,7 +1071,7 @@ def _require_int(table: dict[str, Any], key: str, *, path: Path | None, where: s
     return value
 
 
-def _require_pin_int(table: dict[str, Any], key: str, *, code: str, path: Path | None, where: str) -> int:
+def _require_pin_int(table: Dict[str, str], key: str, code: str, *, path: Path | None, where: str) -> int:
     """Read a version pin. A missing or malformed pin gets the pin's own code."""
     if key not in table:
         raise FfiManifestError(code, f"the pin {key!r} is required", path=path, where=where)
@@ -1068,4 +1083,9 @@ def _require_pin_int(table: dict[str, Any], key: str, *, code: str, path: Path |
 
 def _is_relative_path(candidate: str) -> bool:
     path = Path(candidate)
-    return not path.is_absolute() and ".." not in path.parts
+    if path.is_absolute():
+        return False
+    for part in path.parts:
+        if part == "..":
+            return False
+    return True
