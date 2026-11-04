@@ -32,16 +32,10 @@ def _kind_name(typ: dict[str, Any]) -> str:
     return name
 
 
-def _fmt_arg(typ: dict[str, Any]) -> dict[str, str]:
-    """The %ps.arg record one formatted argument stores.
-
-    The argument's own kind with the `fmt` marker set, so the store picks the
-    display code for a dict (and its value kind when the dict carries one).
-    """
-    merged: dict[str, str] = {"fmt": "1", "kind": _kind(typ)}
-    if "value" in typ:
-        value: dict[str, Any] = typ["value"]
-        merged["value"] = _kind(value)
+def _fmt_arg(typ: dict[str, Any]) -> dict[str, Any]:
+    """The %ps.arg record one formatted argument stores: the type with the `fmt` marker set."""
+    merged: dict[str, Any] = dict(typ)
+    merged["fmt"] = 1
     return merged
 
 

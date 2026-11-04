@@ -25,7 +25,7 @@
   "pyscriptc.emit.llvm": 0,
   "pyscriptc.emit.llvm._abi": 35,
   "pyscriptc.emit.llvm._base": 5,
-  "pyscriptc.emit.llvm._calls": 0,
+  "pyscriptc.emit.llvm._calls": 1,
   "pyscriptc.emit.llvm._core": 82,
   "pyscriptc.emit.llvm._driver": 74,
   "pyscriptc.emit.llvm._exprs": 159,
