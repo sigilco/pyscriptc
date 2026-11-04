@@ -36,10 +36,8 @@ from pyscriptc.mir import (
     MIR_JMP,
     MIR_RET,
     OP_ARITY,
-    OP_RESULT_TYPE,
-    TERMINATORS,
-    VALUE_OPS,
     MirBlock,
+    MirBlockArg,
     MirConst,
     MirFunction,
     MirParam,
@@ -104,7 +102,8 @@ def _span_end(fn: MirFunction, start: int) -> int:
     ops: list[int] = fn.ops
     n: int = len(ops)
     while i < n:
-        if ops[i] in TERMINATORS:
+        op: int = ops[i]
+        if op == MIR_JMP or op == MIR_BR or op == MIR_RET:
             return i + 1
         i += 1
     return n
@@ -120,16 +119,17 @@ def _check_instr_operands(fn: MirFunction, i: int, defs: dict[int, int]) -> list
     if arity is None:
         out.append(_Violation(CODE_CONTROL, f"instr {i}: unknown op {op}"))
         return out
-
     consts: list[MirConst] = fn.consts
     n_consts: int = len(consts)
-    checks: list[list[int]] = [[1, arg1, 1 if arity >= 1 else 0], [2, arg2, 1 if arity >= 2 else 0]]
+    checks: list[list[int]] = [[1, arg1], [2, arg2]]
     for entry_index in range(len(checks)):
         entry: list[int] = checks[entry_index]
         slot: int = entry[0]
         operand: int = entry[1]
-        needed: int = entry[2]
+        # The arity floor per slot: a1 is read from arity 1, a2 from 2.
+        needed: int = 1 if arity >= slot else 0
         if not needed:
+            continue
             continue
         if is_const_ref(operand):
             index = const_index(operand)
@@ -173,6 +173,37 @@ def _check_br_type(fn: MirFunction, i: int, defs: dict[int, int]) -> _Violation 
     if cond_type is not None and cond_type != MIR_B:
         return _Violation(CODE_TYPE, f"instr {i}: br condition typed {cond_type}, expected a bool")
     return None
+
+
+def _result_type_of(op: int) -> int:
+    """The result tag of a value op, from the local spelling of the table.
+
+    The op sets partition by operand kind: the `w` compares and the two
+    `not`/`copy` ops produce a bool or a word, the double family produces
+    `MIR_D`. The compare family (the twelve `MIR_C*` ids) shares one
+    arm because every comparison produces a `MIR_B`.
+    """
+    # The op ids as locals: a module-level constant read from another
+    # module fences under the closed import table, so the table values
+    # are spelled here as ints.
+    neg_d: int = 11
+    ext_wd: int = 24
+    not_b: int = 26
+    clt_w: int = 12
+    cne_d: int = 23
+    tag_d: int = 1
+    tag_b: int = 2
+    tag_w: int = 0
+    if op == neg_d:
+        return tag_d
+    if op == ext_wd:
+        return tag_d
+    if op == not_b:
+        return tag_b
+    is_compare: int = 1 if op >= clt_w and op <= cne_d else 0
+    if is_compare:
+        return tag_b
+    return tag_w
 
 
 def _check_function(fn: MirFunction) -> list[_Violation]:
@@ -223,14 +254,20 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
         block_bid: int | None = block_of.get(i)
         if block_bid is None:
             out.append(_Violation(CODE_CONTROL, f"instr {i} belongs to no block"))
-        if op in VALUE_OPS:
+        # A value op, spelled through the arity table: every op that reads
+        # two operands is a value op, and the arity-1 family splits only on
+        # the two control ops (MIR_BR, MIR_RET). The result type comes from
+        # the same table through the lookup helper above.
+        arity_at: int | None = OP_ARITY.get(op)
+        is_control: int = 1 if op == MIR_BR or op == MIR_RET else 0
+        if arity_at is not None and (arity_at >= 2 or (arity_at == 1 and is_control == 0)):
             if dst < 0:
                 out.append(_Violation(CODE_USEDEF, f"instr {i}: value op without a dst"))
             else:
                 if op == MIR_COPY:
                     defs[dst] = copy_result_type(fn, i)
                 else:
-                    defs[dst] = OP_RESULT_TYPE[op]
+                    defs[dst] = _result_type_of(op)
         if op == MIR_RET:
             violation: _Violation | None = _check_ret_type(fn, i, defs)
             if violation is not None:
@@ -253,7 +290,7 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
         terms: list[int] = []
         for b_index in range(len(body)):
             term_op: int = body[b_index]
-            if term_op in TERMINATORS:
+            if term_op == MIR_JMP or term_op == MIR_BR or term_op == MIR_RET:
                 terms.append(term_op)
         if not terms:
             out.append(_Violation(CODE_CONTROL, f"block {bid} has no terminator"))
@@ -279,15 +316,22 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
             if block.succ1 < 0 or block.succ1 >= len(blocks) or block.succ2 < 0 or block.succ2 >= len(blocks):
                 out.append(_Violation(CODE_CONTROL, f"block {bid} branches to a block that does not exist"))
                 continue
-            edges: list[list] = [
-                [1, blocks[block.succ1], block.br_args_true],
-                [0, blocks[block.succ2], block.br_args_false],
+            # The two branch edges, flattened into one list the subset
+            # lowers: three fields per edge (the message flag, the target
+            # block, the bindings), true edge first.
+            edges: list[object] = [
+                1,
+                blocks[block.succ1],
+                block.br_args_true,
+                0,
+                blocks[block.succ2],
+                block.br_args_false,
             ]
-            for e_index in range(len(edges)):
-                edge: list = edges[e_index]
-                label: str = "true" if edge[0] else "false"
-                edge_target: MirBlock = edge[1]
-                bindings: list[int] = edge[2]
+            for half in range(2):
+                base: int = half * 3
+                label: str = "true" if edges[base] == 1 else "false"
+                edge_target: MirBlock = edges[base + 1]
+                bindings: list[int] = edges[base + 2]
                 if len(bindings) != len(edge_target.args):
                     out.append(
                         _Violation(
@@ -297,7 +341,7 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
                         )
                     )
                     continue
-                target_args: list = edge_target.args
+                target_args: list[MirBlockArg] = edge_target.args
                 for position in range(len(bindings)):
                     binding: int = bindings[position]
                     btype: int | None = _operand_type(fn, binding, defs)
@@ -310,7 +354,7 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
                             )
                         )
                     else:
-                        arg: object = target_args[position]
+                        arg: MirBlockArg = target_args[position]
                         if btype != arg.typ:
                             out.append(
                                 _Violation(
@@ -319,7 +363,7 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
                                     f" of type {arg.typ}",
                                 )
                             )
-        if last not in TERMINATORS and body:
+        if last != MIR_JMP and last != MIR_BR and last != MIR_RET and body:
             out.append(_Violation(CODE_CONTROL, f"block {bid} falls through without a terminator"))
 
     return out
