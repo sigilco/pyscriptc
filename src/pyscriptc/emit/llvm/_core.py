@@ -8,11 +8,12 @@ from typing import Any
 
 from pyscriptc.dwarf import DwarfEmitter
 from pyscriptc.emit._ir import _fn_symbol, _llvm_field_type, _llvm_type, _safe, standalone_entry
+from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.emit.llvm._runtime import _declarations, _helpers
 from pyscriptc.errors import IRError
 
 
-class CoreMixin:
+class CoreMixin(EmitterBase):
     def __init__(self, module: dict[str, Any], dwarf: DwarfEmitter | None = None, wasm: bool = False) -> None:
         self.module = module
         # wasm32 targets: wasm-ld only resolves a C-style `main` through the

@@ -5,10 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 from pyscriptc.emit._ir import _llvm_bytes, _llvm_double, _llvm_type
+from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.errors import FitError, IRError
 
 
-class PrintMixin:
+class PrintMixin(EmitterBase):
     def helper_call(self, name: str, ret: str, args: list[str], arg_type: str = "i64") -> str:
         self.needed.add(name)
         rendered = ", ".join(f"{arg_type} {arg}" for arg in args)

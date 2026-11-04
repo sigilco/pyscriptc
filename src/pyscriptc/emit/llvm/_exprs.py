@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import Any
 
 from pyscriptc.emit._ir import _elem_size, _fn_symbol, _llvm_double, _llvm_type, _memory_type
+from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.errors import FitError, IRError
 from pyscriptc.ir import fits_i64
 
@@ -29,7 +30,7 @@ _INT_INS = {"&": "and", "|": "or", "^": "xor"}
 _FHELPER = {"/": "fdiv", "%": "fmod", "//": "ffloordiv", "**": "fpow"}
 
 
-class ExprsMixin:
+class ExprsMixin(EmitterBase):
     def emit_expr(self, expr: dict[str, Any]) -> str:
         kind = expr["kind"]
         if kind == "const":
