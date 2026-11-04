@@ -6,15 +6,17 @@ method, the request headers, the body and the timeout the HTTP layer hands
 over, follows redirects and fills the same response shapes the plaintext
 transport fills, so the redirect loop in ps_http.c treats both schemes alike.
 
-Linking: the compiler driver adds -lcurl (resolved through curl-config or
-pkg-config libcurl) to the link line of a program whose emitted IR calls
-ps_http_request over an https:// URL, and only for those, so an http-only
-program carries no libcurl dependency. This file is part of the runtime the
-link always includes, so the surface is spelled here instead of through
-<curl/curl.h> and the symbols are declared weak: without -lcurl on the link
-line they resolve to NULL, `ps_http_curl_https` reports unavailable and the
-https:// request keeps raising the documented URLError, the way it did
-before the curl path existed.
+Linking: the compiler driver compiles this file with PSC_HAVE_CURL and adds
+-lcurl (resolved through curl-config or pkg-config libcurl) to the link line
+of a program whose emitted IR calls ps_http_request over an https:// URL, and
+only for those, so an http-only program carries no libcurl dependency and no
+curl symbol reaches its link line. This file is part of the runtime the link
+always includes, so the surface is spelled here instead of through
+<curl/curl.h>. Without PSC_HAVE_CURL the whole libcurl block compiles out and
+ps_http_curl_https below still exists (returning 0), so ps_http.c keeps a
+plain strong reference and nothing depends on weak-symbol link behavior,
+which Mach-O does not give for undefined symbols: the old `__attribute__
+((weak))` declarations broke every macOS link that skipped -lcurl.
 
 Verification is always on. CURLOPT_SSL_VERIFYPEER and CURLOPT_SSL_VERIFYHOST
 are set to their defaults explicitly (1 and 2), so the peer certificate
@@ -28,7 +30,7 @@ n + 20000, OFF_T = n + 30000. */
 
 #include "ps_rt.h"
 
-#if !defined(__wasi__) && !defined(_WIN32)
+#if !defined(__wasi__) && !defined(_WIN32) && defined(PSC_HAVE_CURL)
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -74,18 +76,17 @@ typedef int CURLinfo;
 #define PS_CURL_PEER_FAILED_VERIFICATION 60
 #define PS_CURL_SSL_CONNECT_ERROR 35
 
-/* The weak declarations: without -lcurl on the link line they resolve to
-   NULL and `ps_http_curl_https` reports unavailable; with -lcurl the strong
-   definitions in the shared library win and the request travels through
-   libcurl. */
-__attribute__((weak)) CURL *curl_easy_init(void);
-__attribute__((weak)) CURLcode curl_easy_setopt(CURL *easy, CURLoption option, ...);
-__attribute__((weak)) CURLcode curl_easy_perform(CURL *easy);
-__attribute__((weak)) CURLcode curl_easy_getinfo(CURL *easy, CURLinfo info, ...);
-__attribute__((weak)) void curl_easy_cleanup(CURL *easy);
-__attribute__((weak)) const char *curl_easy_strerror(CURLcode code);
-__attribute__((weak)) struct curl_slist *curl_slist_append(struct curl_slist *list, const char *string);
-__attribute__((weak)) void curl_slist_free_all(struct curl_slist *list);
+/* The libcurl declarations, spelled out so the runtime never includes
+   <curl/curl.h>: the file compiles only when the driver links libcurl, so
+   these resolve against the shared library at link time. */
+CURL *curl_easy_init(void);
+CURLcode curl_easy_setopt(CURL *easy, CURLoption option, ...);
+CURLcode curl_easy_perform(CURL *easy);
+CURLcode curl_easy_getinfo(CURL *easy, CURLinfo info, ...);
+void curl_easy_cleanup(CURL *easy);
+const char *curl_easy_strerror(CURLcode code);
+struct curl_slist *curl_slist_append(struct curl_slist *list, const char *string);
+void curl_slist_free_all(struct curl_slist *list);
 
 static void ps_curl_fail(const char *what) { ps_raise_cstr(PS_OSERROR, what); }
 
@@ -155,9 +156,6 @@ int ps_http_curl_https(
     PsGrow *headers,
     PsGrow *out_body
 ) {
-    if (curl_easy_init == NULL) {
-        return 0;
-    }
     CURL *easy = curl_easy_init();
     if (easy == NULL) {
         ps_curl_fail("HTTPS request failed: curl_easy_init returned NULL");
@@ -245,9 +243,39 @@ int ps_http_curl_https(
     return 1;
 }
 
-#else /* __wasi__ || _WIN32 */
+#elif defined(__wasi__) || defined(_WIN32)
 
 /* The curl file compiles to nothing on the unsupported targets: the HTTP
    stub in ps_http.c owns their whole urlopen story. */
 
-#endif /* __wasi__ || _WIN32 */
+#else /* no PSC_HAVE_CURL: wasi, win32, or the driver skipped libcurl */
+
+/* The driver skipped libcurl (no https:// in the IR, PSC_CURL_DYNAMIC=1, a
+   wasm target or Windows), or the target has no urlopen story at all (the
+   HTTP stub in ps_http.c owns WASI). The symbol stays defined so ps_http.c
+   links without any weak-symbol dependency, and the https:// request raises
+   the documented URLError. */
+int ps_http_curl_https(
+    const char *url,
+    const char *method,
+    const char *extra_headers,
+    const char *body,
+    int64_t body_len,
+    double timeout,
+    int64_t *status,
+    PsGrow *headers,
+    PsGrow *out_body
+) {
+    (void)url;
+    (void)method;
+    (void)extra_headers;
+    (void)body;
+    (void)body_len;
+    (void)timeout;
+    (void)status;
+    (void)headers;
+    (void)out_body;
+    return 0;
+}
+
+#endif /* PSC_HAVE_CURL */

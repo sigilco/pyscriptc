@@ -91,10 +91,13 @@ typedef struct {
     int tls;
 } PsHttpUrl;
 
-/* The https:// hop over libcurl (ps_http_curl.c). Weak there: a build
-   without libcurl linked leaves it NULL and the https:// request keeps
-   raising the URLError below, the way it always has. */
-__attribute__((weak)) int ps_http_curl_https(
+/* The https:// hop over libcurl (ps_http_curl.c). A strong declaration:
+   ps_http_curl.c always defines the symbol (a stub returning 0 when the
+   driver skipped libcurl), so nothing rides on weak-symbol link behavior,
+   which Mach-O does not give for undefined symbols. A build without libcurl
+   gets the stub and the https:// request keeps raising the URLError below,
+   the way it always has. */
+int ps_http_curl_https(
     const char *url,
     const char *method,
     const char *extra_headers,
@@ -120,8 +123,10 @@ static void ps_http_split(const char *url, PsHttpUrl *out) {
         out->tls = 1;
         out->port = 443;
         cursor += 8;
-        if (ps_tls_backend() == NULL && ps_http_curl_https == NULL) {
-            /* No libcurl linked and no TLS backend: the documented error. */
+        if (ps_tls_backend() == NULL) {
+            /* No libcurl linked and no TLS backend: the documented error
+               (the curl stub returns 0 and the round trip says the same
+               thing; this fires before any request is built). */
             ps_http_fail("https is not supported (build with libcurl; TLS is planned, issue 235)");
         }
     } else {

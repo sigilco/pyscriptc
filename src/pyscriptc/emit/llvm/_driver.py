@@ -142,10 +142,17 @@ _THREAD_SYMBOLS = (
 # The https:// hop needs libcurl at build time: the flag set is empty for a
 # program whose emitted IR never reaches an https:// URL, so http-only
 # programs carry no libcurl dependency. `PSC_CURL_DYNAMIC=1` opts out of the
-# build-time link: the weak symbols in ps_http_curl.c stay unresolved and
-# the https:// request raises URLError at run time instead.
+# build-time link: ps_http_curl.c compiles without PSC_HAVE_CURL then, its
+# stub returns 0 and the https:// request raises URLError at run time
+# instead. PSC_HAVE_CURL is the compile-time side of the same decision: the
+# driver defines it for the runtime units exactly when the link line gains
+# libcurl, so a program that does not link libcurl never references a curl
+# symbol (Mach-O has no undefined-weak-symbol story, so the old
+# __attribute__((weak)) declarations broke every macOS link that skipped
+# -lcurl).
 PS_HTTP_CURL_SYMBOL = "@ps_http_request("
 PS_CURL_DYNAMIC_ENV = "PSC_CURL_DYNAMIC"
+PS_HAVE_CURL_DEFINE = "PSC_HAVE_CURL"
 
 
 def _https_reachable(text: str) -> bool:
@@ -318,7 +325,13 @@ def link_binary(
     san_flags = sanitize_flags(sanitize)
     dbg_flags = ["-g"] if debug_info else []
     pic_flags = ["-fPIC"] if shared else []
-    tail = [*san_flags, "-lm", *curl_link_flags(text, target), "-o", str(output)]
+    curl_flags = curl_link_flags(text, target)
+    # The runtime units compile with PSC_HAVE_CURL exactly when the link line
+    # gains libcurl: ps_http_curl.c's real implementation (and its curl
+    # symbol references) exist only under the macro, so a no-curl link never
+    # sees one. The define rides the per-unit flags, not the link line.
+    curl_defines = [f"-D{PS_HAVE_CURL_DEFINE}"] if curl_flags else []
+    tail = [*san_flags, "-lm", *curl_flags, "-o", str(output)]
     if "ps_island_" in text:
         if target is not None:
             raise IRError(
@@ -414,7 +427,7 @@ def link_binary(
     manifest_sources = frozenset(ffi_sources)
     for source in sources:
         src = Path(source)
-        flags = ["-O2", *pic_flags, *wasm_flags, *san_flags, *target_flags]
+        flags = ["-O2", *pic_flags, *wasm_flags, *san_flags, *curl_defines, *target_flags]
         extra_dirs: tuple[Path, ...] = ()
         if source in manifest_sources:
             flags.extend(ffi_include_flags)
