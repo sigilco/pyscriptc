@@ -21,6 +21,9 @@
 # pyproject.toml carries the PEP 440 form (0.6.0, 0.6.0b1, 0.6.0rc2). On a tag push the
 # verify job maps the tag with release_bar.py and refuses a mismatch. b and rc tags get a
 # prerelease (never Latest) GitHub Release, still draft; the owner publishes it by hand.
+# A beta tag has the release class `checkpoint`: an internal mark between releases, never
+# published to PyPI (the publish job refuses the class by name). An rc tag keeps the
+# prerelease class and stays publishable behind the approval gate.
 name: release
 
 run-name: ${{ github.event_name == 'workflow_dispatch' && format('rehearsal {0}', inputs.ref || github.sha) || format('release {0}', github.ref_name) }}
@@ -293,6 +296,7 @@ jobs:
       contents: read
     outputs:
       is_prerelease: ${{ steps.tagver.outputs.is-prerelease }}
+      release_class: ${{ steps.tagver.outputs.release-class }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -371,6 +375,12 @@ jobs:
           [ "$P" = "$V" ] || { echo "version mismatch: tag $TAG maps to PEP 440 $V, pyproject says $P"; exit 1; }
           echo "tag-version=$V" >> "$GITHUB_OUTPUT"
           echo "is-prerelease=$([[ "$V" =~ (b|rc)[0-9]+$ ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          # The release class of the tag. A checkpoint tag (vX.Y.Z-beta.N) has
+          # the class `checkpoint`; the publish job refuses that class by name.
+          # The command exits non-zero for a class that never publishes, so the
+          # class is read here without failing the verify job.
+          C="$(python3 .github/scripts/release_bar.py class "$TAG" 2>/dev/null || true)"
+          echo "release-class=${C:-unknown}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v6
         with:
@@ -381,7 +391,11 @@ jobs:
   publish:
     name: publish to PyPI
     needs: verify
-    if: github.event_name == 'push'
+    # A checkpoint tag (vX.Y.Z-beta.N) never publishes. The job is skipped
+    # before it reaches the pypi-publish environment, so a checkpoint does not
+    # queue for an approval it can never use. The step inside the job repeats
+    # the refusal by name, for the case where the class is only known there.
+    if: github.event_name == 'push' && needs.verify.outputs.release_class != 'checkpoint'
     runs-on: ubuntu-24.04
     # Tag pushes queue here until a required reviewer approves the
     # pypi-publish environment (repo Settings > Environments).
@@ -399,6 +413,24 @@ jobs:
         with:
           sparse-checkout: .github/scripts
           sparse-checkout-cone-mode: false
+
+      # A checkpoint tag (vX.Y.Z-beta.N) marks a point between releases. It
+      # gets the release matrix, the draft release and the benchmark artifact,
+      # and never reaches PyPI. This refuses the class by name, so a checkpoint
+      # cannot queue behind the approval gate and slip through on an approval.
+      - name: Refuse a checkpoint tag
+        env:
+          RELEASE_CLASS: ${{ needs.verify.outputs.release_class }}
+        run: |
+          set -euo pipefail
+          echo "release class of $TAG: $RELEASE_CLASS"
+          python3 .github/scripts/release_bar.py class "$TAG"
+          # Double guard by name, not just the exit code above, so a future
+          # class rename cannot silently re-admit a checkpoint tag.
+          [ "$RELEASE_CLASS" != "checkpoint" ] || {
+            echo "refusing to publish a checkpoint tag ($TAG): checkpoints never reach PyPI" >&2
+            exit 1
+          }
 
       - name: Require a rehearsal of the release commit
         env:
