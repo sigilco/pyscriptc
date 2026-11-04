@@ -165,16 +165,28 @@ def _prune_unreached(
     """
 
     if not dep_units:
-        return [], [], []
-    reached = _reachable_modules([*units, *dep_units], _program_seeds(units, program=program, entry=entry))
-    referenced = _reachable_modules([*units, *dep_units], [name for name, _path, _is_package in units])
+        empty_kept: list[tuple[str, Path, bool]] = []
+        empty_catalogued: list[tuple[str, Path, bool]] = []
+        empty_pruned: list[tuple[str, Path, bool]] = []
+        return empty_kept, empty_catalogued, empty_pruned
+    combined: list[tuple[str, Path, bool]] = []
+    for unit in units:
+        combined.append(unit)
+    for unit in dep_units:
+        combined.append(unit)
+    seed_names: list[str] = []
+    for name, _path, _is_package in units:
+        seed_names.append(name)
+    reached = _reachable_modules(combined, _program_seeds(units, program=program, entry=entry))
+    referenced = _reachable_modules(combined, seed_names)
     kept: list[tuple[str, Path, bool]] = []
     catalogued: list[tuple[str, Path, bool]] = []
     pruned: list[tuple[str, Path, bool]] = []
     for unit in dep_units:
-        if unit[0] in reached:
+        name = unit[0]
+        if name in reached:
             kept.append(unit)
-        elif unit[0] in referenced:
+        elif name in referenced:
             catalogued.append(unit)
         else:
             pruned.append(unit)
@@ -487,14 +499,17 @@ def _reachable_modules(
     """
 
     trees: dict[str, ast.Module] = {}
-    packages: dict[str, bool] = {}
+    package_names: set[str] = set()
     for name, path, is_package in units:
         trees[name] = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        packages[name] = is_package
+        if is_package:
+            package_names.add(name)
     # The reach walk needs the module names, not their exports: an empty
     # bucket per module is enough for the import resolvers to resolve a
     # name against the unit table.
-    exports: dict[str, dict[str, dict[str, Any]]] = {name: {} for name in trees}
+    exports: dict[str, dict[str, dict[str, Any]]] = {}
+    for name in trees:
+        exports[name] = {}
 
     def parents_of(name: str) -> list[str]:
         """The package bodies an import of `name` runs first.
@@ -513,7 +528,7 @@ def _reachable_modules(
         return found
 
     def edges_of(name: str) -> list[str]:
-        found = _program_imports(trees[name], exports, name, packages[name])
+        found = _program_imports(trees[name], exports, name, name in package_names)
         edges: list[str] = []
         for target in found:
             if target not in exports:
@@ -622,7 +637,7 @@ def _program_plan(
     units: list[tuple[str, Path, bool]],
     exports: dict[str, dict[str, dict[str, Any]]],
     entry: str | None = None,
-) -> tuple[list[dict[str, Any]], dict[str, dict[str, list[str]]]]:
+) -> tuple[list[dict[str, Any]], dict[str, list[str]]]:
     """The program's import graph: cycles refused, init owners assigned.
 
     CPython runs a module body once, at the first import that reaches it.
@@ -635,37 +650,50 @@ def _program_plan(
 
     trees: dict[str, ast.Module] = {}
     files: dict[str, Path] = {}
-    for name, path, _ in units:
+    package_names: set[str] = set()
+    for name, path, is_package in units:
         trees[name] = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         files[name] = path
-    packages = {name: is_package for name, _, is_package in units}
-    edges: dict[str, list[str]] = {name: _program_imports(trees[name], exports, name, packages[name]) for name in trees}
+        if is_package:
+            package_names.add(name)
+    edges: dict[str, list[str]] = {}
+    for name in trees:
+        edges[name] = _program_imports(trees[name], exports, name, name in package_names)
     # The statement that imports a module, so a cycle fence points at it.
     sites: dict[tuple[str, str], ast.stmt] = {}
     for name, tree in trees.items():
         for stmt in tree.body:
             for module, _local in _statement_imports(stmt, exports):
                 sites.setdefault((name, module), stmt)
-            for module in _relative_statement_imports(stmt, exports, name, packages[name]):
+            for module in _relative_statement_imports(stmt, exports, name, name in package_names):
                 sites.setdefault((name, module), stmt)
     # Only a module with script statements has an `__init__` export: its body
     # runs at import. A definition-only module contributes nothing.
-    inited = {name for name, bucket in exports.items() if "__init__" in bucket}
+    inited: set[str] = set()
+    for name in exports:
+        bucket = exports[name]
+        if "__init__" in bucket:
+            inited.add(name)
 
     fences: list[dict[str, Any]] = []
-    owners: dict[str, dict[str, list[str]]] = {name: [] for name in trees}
+    owners: dict[str, list[str]] = {}
+    for name in trees:
+        owners[name] = []
     state: dict[str, int] = {}
     stack: list[str] = []
 
     def visit(name: str) -> None:
         state[name] = 1
         stack.append(name)
-        for child in edges.get(name, []):
+        children: list[str] = []
+        if name in edges:
+            children = edges[name]
+        for child in children:
             if child not in trees:
                 continue
             if state.get(child) == 1:
                 cycle = stack[stack.index(child) :] + [child]
-                if _is_package_submodule_cycle(cycle, packages):
+                if _is_package_submodule_cycle(cycle, package_names):
                     continue
                 fences.append(
                     {
@@ -688,7 +716,8 @@ def _program_plan(
         if state.get(name) is None:
             visit(name)
     if fences:
-        return fences, {}
+        empty_owners: dict[str, list[str]] = {}
+        return fences, empty_owners
     return fences, owners
 
 
@@ -706,7 +735,7 @@ def _program_roots(trees: dict[str, ast.Module], entry: str | None = None) -> li
     return roots
 
 
-def _is_package_submodule_cycle(cycle: list[str], packages: dict[str, bool]) -> bool:
+def _is_package_submodule_cycle(cycle: list[str], packages: set[str]) -> bool:
     """True when a package unit imports its own submodule.
 
     A package unit's `__init__.py` exposing its submodules (or a submodule
@@ -715,7 +744,7 @@ def _is_package_submodule_cycle(cycle: list[str], packages: dict[str, bool]) -> 
     and the submodule body within it without a cycle error.
     """
     for node in cycle:
-        if packages.get(node):
+        if node in packages:
             if all(m == node or m.startswith(node + ".") for m in cycle):
                 return True
     return False
