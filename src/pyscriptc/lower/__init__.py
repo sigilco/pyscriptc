@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 from typing import Any, NoReturn
 
+from pyscriptc import _irnode as _ir
 from pyscriptc.builtins import USER_EXC_BASE
 from pyscriptc.coro import CoroMixin
 from pyscriptc.errors import format_diagnostic, span_of
@@ -30,9 +31,11 @@ from pyscriptc.lower._core import (
     Binding,
     Fence,
     _any_accepts,
+    _assign,
     _attr,
     _compare,
     _const_none,
+    _const_str,
     _declared_globals,
     _dotted,
     _has_typevar,
@@ -72,6 +75,109 @@ from pyscriptc.stdlib_queue import (
     staged_resources,
 )
 from pyscriptc.stdmore import PTR_CLASSES, member_callable, module_constant
+from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
+from pyscriptc.tirserde import dict_to_span as dict_to_span_local
+
+
+def _mk_span(span: dict[str, Any]) -> Any:
+    """The Span record the dict-IR span spells."""
+
+    return dict_to_span_local(span)
+
+
+def _mk_type(typ: dict[str, Any]) -> Any:
+    """The T record the dict-IR type spells."""
+
+    return dict_to_type(typ)
+
+
+def _type_rt(typ: dict[str, Any]) -> dict[str, Any]:
+    """The exact type dict one dict-IR type spells, through the T record."""
+
+    return node_to_dict(dict_to_type(typ))
+
+
+def _call_node(callee: dict[str, Any], args: list[dict[str, Any]], typ: dict[str, Any], span: dict[str, Any]) -> Any:
+    """The call node one dict-IR call spells."""
+
+    return node_to_dict(
+        _ir.call(dict_to_node(callee), [dict_to_node(arg) for arg in args], _mk_type(typ), _mk_span(span), "", "", -1)
+    )
+
+
+def _function_call(name: str, args: list[dict[str, Any]], typ: dict[str, Any], span: dict[str, Any]) -> Any:
+    """The call to a lowered function."""
+
+    return _call_node({"kind": "function", "name": name}, args, typ, span)
+
+
+def _builtin_call(name: str, args: list[dict[str, Any]], typ: dict[str, Any], span: dict[str, Any]) -> Any:
+    """The call to a builtin."""
+
+    return _call_node({"kind": "builtin", "name": name}, args, typ, span)
+
+
+def _abi_call_node(
+    module: str, name: str, args: list[dict[str, Any]], typ: dict[str, Any], symbol: str, span: dict[str, Any]
+) -> Any:
+    """The module call node with the ABI symbol one `_abi_call` spells."""
+
+    node = _ir.call(
+        _ir.module_callee(module, name),
+        [dict_to_node(arg) for arg in args],
+        _mk_type(typ),
+        _mk_span(span),
+        symbol,
+        "",
+        -1,
+    )
+    return node_to_dict(node)
+
+
+def _expr_node(expr: dict[str, Any], span: dict[str, Any]) -> Any:
+    """The expression statement node."""
+
+    return node_to_dict(_ir.expr_stmt(dict_to_node(expr), _mk_span(span)))
+
+
+def _setitem_node(container: dict[str, Any], index: dict[str, Any], value: dict[str, Any], span: dict[str, Any]) -> Any:
+    """The container store node."""
+
+    return node_to_dict(
+        _ir.setitem_stmt(dict_to_node(container), dict_to_node(index), dict_to_node(value), _mk_span(span))
+    )
+
+
+def _setattr_node(obj: dict[str, Any], name: str, value: dict[str, Any], span: dict[str, Any]) -> Any:
+    """The attribute write node."""
+
+    return node_to_dict(_ir.setattr_stmt(dict_to_node(obj), name, dict_to_node(value), _mk_span(span)))
+
+
+def _unary_not_node(operand: dict[str, Any], span: dict[str, Any]) -> Any:
+    """The `not operand` node with the bool type."""
+
+    return node_to_dict(_ir.unary("not", dict_to_node(operand), _ir.t_leaf("bool"), _mk_span(span)))
+
+
+def _closure_node(name: str, params: list[dict[str, Any]], ret: dict[str, Any], span: dict[str, Any]) -> Any:
+    """The closure node with the empty environment."""
+
+    return node_to_dict(
+        _ir.closure(name, [], _ir.t_func([dict_to_type(p["type"]) for p in params], dict_to_type(ret)), _mk_span(span))
+    )
+
+
+def _list_empty_node(typ: dict[str, Any], span: dict[str, Any]) -> Any:
+    """The empty list display node."""
+
+    return node_to_dict(_ir.list_lit([], _mk_type(typ), _mk_span(span)))
+
+
+def _const_flag_node(value: bool, span: dict[str, Any]) -> Any:
+    """The int constant node one slice-bound `"True"`/`"False"` const spells."""
+
+    return node_to_dict(_ir.const_node(_ir.P_INT, str(value), _ir.t_leaf("int"), _mk_span(span)))
 
 
 class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixin, ClosuresMixin):
@@ -570,7 +676,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 # not a guess). A generator is refused above by the yield
                 # scan. The PS1004 fence does not apply: nothing can fall
                 # off because nothing expects a value.
-                return {"kind": "none"}
+                return _type_rt({"kind": "none"})
             inferred = None
             for item in returns:
                 assert item.value is not None
@@ -600,7 +706,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         out: dict[str, dict[str, Any]] = {}
         for name, binding in self.bindings.items():
             if binding.kind == "module":
-                out[name] = {"kind": "module", "name": binding.module}
+                out[name] = _type_rt({"kind": "module", "name": binding.module})
         return out
 
     def _pin_namespace_locals(
@@ -785,7 +891,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 """
 
                 if self.classes.get("Namespace", {}).get("fields"):
-                    return {"kind": "class", "name": "Namespace"}
+                    return _type_rt({"kind": "class", "name": "Namespace"})
                 return None
 
             def _assign_type(value: ast.expr) -> dict[str, Any] | None:
@@ -2171,7 +2277,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 self.locals = {param["name"]: param["type"] for param in params}
                 saved_consts = {name: self.constants.get(name) for name in dropped}
                 for name in dropped:
-                    self.constants[name] = {"kind": "const", "value": None, "type": {"kind": "none"}}
+                    self.constants[name] = {"kind": "const", "value": None, "type": _type_rt({"kind": "none"})}
                 self.frozen_names = set()
                 self.opt_unwrap = {}
                 self.boxed_names = set()
@@ -2363,13 +2469,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             raise fence
         # boxed:end
         args = self._fill_args(node, item["params"], what)
-        return {
-            "kind": "call",
-            "callee": {"kind": "function", "name": item["ir_name"]},
-            "args": args,
-            "type": item["return"],
-            "span": span,
-        }
+        return _function_call(item["ir_name"], args, item["return"], span)
 
     def _body(self, statements: list[ast.stmt]) -> list[dict[str, Any]]:
         body: list[dict[str, Any]] = []
@@ -2438,8 +2538,8 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             start, has_start = self._slice_bound(slc.lower, span)
             stop, has_stop = self._slice_bound(slc.upper, span)
             flags = [
-                {"kind": "const", "value": str(has_start), "type": {"kind": "int"}, "span": span},
-                {"kind": "const", "value": str(has_stop), "type": {"kind": "int"}, "span": span},
+                _const_flag_node(has_start, span),
+                _const_flag_node(has_stop, span),
             ]
             call = self._abi_call(
                 "builtins",
@@ -2449,7 +2549,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 "ps_seq_splice",
                 span,
             )
-            return {"kind": "expr", "expr": call, "span": span}
+            return _expr_node(call, span)
         container = self._expr(target.value)
         index = self._expr(target.slice)
         kind = container["type"]["kind"]
@@ -2465,7 +2565,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             value = self._expr(stmt.value, container["type"]["value"])
         else:
             self.fail(target, "PS2002", "item assignment targets a list or dict")
-        return {"kind": "setitem", "container": container, "index": index, "value": value, "span": span}
+        return _setitem_node(container, index, value, span)
 
     def _setattr(self, stmt: ast.Assign, span: dict[str, Any]) -> dict[str, Any]:
         target = stmt.targets[0]
@@ -2493,7 +2593,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             self.fail(target, "PS2001", f"{class_name}.{target.attr} is not a field")
         value = self._expr(stmt.value, field["type"])
         self._expect(stmt, value["type"], field["type"], target.attr)
-        return {"kind": "setattr", "object": obj, "name": target.attr, "value": value, "span": span}
+        return _setattr_node(obj, target.attr, value, span)
 
     def _bool_cond(self, node: ast.expr) -> dict[str, Any]:
         if isinstance(node, ast.BoolOp):
@@ -2579,12 +2679,12 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         elem = first["type"]
         if elem["kind"] not in {"int", "str"}:
             self.fail(node, "PS2002", "set elements are int or str")
-        typ = {"kind": "list", "elem": elem, "set": True}
+        typ = node_to_dict(_ir.t_list(dict_to_type(elem), set_=True))
         if expect and expect.get("set"):
             self._expect(node, typ, expect, "set")
         dest = self._temp("set")
         self.locals[dest] = typ
-        self.prelude.append(_assign(dest, {"kind": "list", "elems": [], "type": typ, "span": span}, span))
+        self.prelude.append(_assign(dest, _list_empty_node(typ, span), span))
         self.prelude.extend(self._set_insert_stmts(dest, typ, first, span))
         for elt in node.elts[1:]:
             value = self._expr(elt, elem)
@@ -2787,11 +2887,10 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             symbol = "ps_global_set_ptr"
         else:
             self.fail(ast.Pass(), "PS2002", f"global {name} of {_show(typ)} is not lowered")
-        return {
-            "kind": "expr",
-            "expr": self._abi_call("builtins", "global_set", [key, value], {"kind": "none"}, symbol, span),
-            "span": span,
-        }
+        return _expr_node(
+            self._abi_call("builtins", "global_set", [key, value], {"kind": "none"}, symbol, span),
+            span,
+        )
 
     def _global_is_set(self, name: str, span: dict[str, Any]) -> dict[str, Any]:
         key = _text_ir(self._slot_key(name), "str", span)
@@ -2829,13 +2928,12 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             if sig is None:
                 return  # the signature pass already recorded its fence
             params, ret = sig
-            value = {
-                "kind": "closure",
-                "name": self._ir_name(stmt.name),
-                "env": [],
-                "type": {"kind": "func", "params": [p["type"] for p in params], "return": ret},
-                "span": span,
-            }
+            value = _closure_node(
+                self._ir_name(stmt.name),
+                params,
+                ret,
+                span,
+            )
             try:
                 for dec in reversed(stmt.decorator_list):
                     value = self._apply_decorator(dec, value, span)
@@ -2921,7 +3019,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         flag = self._global_is_set(name, span)
         if negated:
             return flag
-        return {"kind": "unary", "op": "not", "operand": flag, "type": {"kind": "bool"}, "span": span}
+        return _unary_not_node(flag, span)
 
     def _compare_none(
         self,
@@ -2937,7 +3035,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             tag = _attr(value, "_tag", {"kind": "bool"}, span)
             if negated:
                 return tag
-            return {"kind": "unary", "op": "not", "operand": tag, "type": {"kind": "bool"}, "span": span}
+            return _unary_not_node(tag, span)
         if kind not in {"none", "int", "float", "bool", "str", "bytes"}:
             self.fail(node, "PS2004", f"{_show(value['type'])} cannot compare with None")
         none = _const_none(span)
@@ -3127,13 +3225,13 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
 
     def _infer_slot_type(self, node: ast.expr) -> dict[str, Any] | None:
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            return {"kind": "str"}
+            return _type_rt({"kind": "str"})
         if isinstance(node, ast.Constant) and isinstance(node.value, int) and not isinstance(node.value, bool):
-            return {"kind": "int"}
+            return _type_rt({"kind": "int"})
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "str":
-            return {"kind": "str"}
+            return _type_rt({"kind": "str"})
         if self._is_mod(node, "importlib.resources", "as_file"):
-            return {"kind": "class", "name": "Path"}
+            return _type_rt({"kind": "class", "name": "Path"})
         # Checker bridge: the checker inferred the slot's type from the
         # initializer expression; the literal rules above stay the fast path
         # and everything else consults the map when a bridge is wired.
@@ -3439,10 +3537,6 @@ def render_fences(module: dict[str, Any], source: str) -> str:
     return "\n".join(parts)
 
 
-def _assign(target: str, value: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "assign", "target": target, "value": value, "span": span}
-
-
 # Issue #587: the deepest AST nesting the recursive lowering passes handle.
 # Measured against the interpreter's own recursion limit: a chain around 250
 # levels already grazes it, so the fence fires well before the crash while
@@ -3533,15 +3627,15 @@ def _const_str_join(parts: list[dict[str, Any]], span: dict[str, Any]) -> dict[s
     if any(part.get("kind") != "const" or part.get("type", {}).get("kind") != "str" for part in parts):
         return None
     text = "".join(str(part["value"]) for part in parts)
-    return {"kind": "const", "value": text, "type": {"kind": "str"}, "span": span}
+    return _const_str(text, span)
 
 
 def _concat_str(parts: list[dict[str, Any]], span: dict[str, Any]) -> dict[str, Any]:
     if not parts:
-        return {"kind": "const", "value": "", "type": {"kind": "str"}, "span": span}
+        return _const_str("", span)
     acc = parts[0]
     for part in parts[1:]:
-        acc = {"kind": "binary", "op": "+", "left": acc, "right": part, "type": {"kind": "str"}, "span": span}
+        acc = node_to_dict(_ir.binary("+", dict_to_node(acc), dict_to_node(part), _ir.t_leaf("str"), _mk_span(span)))
     return acc
 
 
@@ -3556,12 +3650,13 @@ def _const_list_concat(left: dict[str, Any], right: dict[str, Any], span: dict[s
         return None
     if not types_equal(left["type"]["elem"], right["type"]["elem"]):
         return None
-    return {
-        "kind": "list",
-        "elems": [*left["elems"], *right["elems"]],
-        "type": {"kind": "list", "elem": left["type"]["elem"]},
-        "span": span,
-    }
+    return node_to_dict(
+        _ir.list_lit(
+            [dict_to_node(elem) for elem in [*left["elems"], *right["elems"]]],
+            _ir.t_list(dict_to_type(left["type"]["elem"])),
+            _mk_span(span),
+        )
+    )
 
 
 def _static_int(expr: dict[str, Any]) -> int | None:
@@ -3582,7 +3677,8 @@ def _int_text(value: str) -> bool:
 
 
 def _text_ir(value: str, kind: str, span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "const", "value": value, "type": {"kind": kind}, "span": span}
+    ptag = {"str": _ir.P_STR, "int": _ir.P_INT, "float": _ir.P_FLOAT, "bytes": _ir.P_BYTES}[kind]
+    return node_to_dict(_ir.const_node(ptag, value, _ir.t_leaf(kind), _mk_span(span)))
 
 
 def _is_int_const(node: ast.expr) -> bool:

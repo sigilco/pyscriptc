@@ -327,8 +327,9 @@ def test_self_census_ballpark() -> None:
     # Typed _expr nodes (R3e, #824): 3383 -> 3414; payload types stay dict[str, Any].
     # mirlower typing (R4): 3414 -> 3395; the mirlower module joins the clean list.
     # Typed _call_attr and _calls nodes (R3f, #824): 3395 -> 3418; payload types stay dict[str, Any].
-    assert census["fences"] == 3418
-    assert sum(p["fences"] for p in census["packages"]) == 3418
+    # Typed lower/__init__ nodes (R3g, #825): 3418 -> 3437; payload types stay dict[str, Any].
+    assert census["fences"] == 3437
+    assert sum(p["fences"] for p in census["packages"]) == 3437
 
 
 def test_self_census_cache_is_byte_identical(tmp_path: Path, monkeypatch: object) -> None:
