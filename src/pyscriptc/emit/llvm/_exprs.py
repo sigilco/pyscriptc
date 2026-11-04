@@ -32,35 +32,42 @@ _FHELPER = {"/": "fdiv", "%": "fmod", "//": "ffloordiv", "**": "fpow"}
 
 class ExprsMixin(EmitterBase):
     def emit_expr(self, expr: dict[str, Any]) -> str:
-        kind = expr["kind"]
+        kind: str = expr["kind"]
         if kind == "const":
             return self.emit_const(expr)
         if kind == "name":
-            return self.load(expr["id"])
+            name_id: str = expr["id"]
+            return self.load(name_id)
         if kind == "unary":
-            operand = self.emit_expr(expr["operand"])
-            if expr["op"] == "-" and expr["type"]["kind"] == "int":
+            operand_expr: dict[str, Any] = expr["operand"]
+            operand = self.emit_expr(operand_expr)
+            op: str = expr["op"]
+            typ: dict[str, Any] = expr["type"]
+            tk: str = typ["kind"]
+            if op == "-" and tk == "int":
                 return self.helper_call("ineg", "i64", [operand])
-            if expr["op"] == "-" and expr["type"]["kind"] == "float":
+            if op == "-" and tk == "float":
                 reg = self.tmp()
                 self.line(f"{reg} = fneg double {operand}")
                 return reg
-            if expr["op"] == "-" and expr["type"]["kind"] == "class":
+            if op == "-" and tk == "class":
                 mem = self._alloc_class("TimeDelta")
                 self._abi_decl("ps_delta_neg", "void", ["ptr", "ptr"])
                 self._call_void("ps_delta_neg", [f"ptr {operand}", f"ptr {mem}"])
                 return mem
-            if expr["op"] == "not":
+            if op == "not":
                 reg = self.tmp()
                 self.line(f"{reg} = xor i1 {operand}, true")
                 return reg
-            if expr["op"] == "~" and expr["type"]["kind"] == "int":
+            if op == "~" and tk == "int":
                 reg = self.tmp()
                 self.line(f"{reg} = xor i64 {operand}, -1")
                 return reg
-            raise IRError(f"cannot emit unary {expr['op']}")
+            raise IRError(f"cannot emit unary {op}")
         if kind == "binary":
-            return self.emit_binary(expr, self.emit_expr(expr["left"]), self.emit_expr(expr["right"]))
+            left_expr: dict[str, Any] = expr["left"]
+            right_expr: dict[str, Any] = expr["right"]
+            return self.emit_binary(expr, self.emit_expr(left_expr), self.emit_expr(right_expr))
         if kind == "compare":
             return self.emit_compare(expr)
         if kind == "call":
@@ -74,7 +81,8 @@ class ExprsMixin(EmitterBase):
         if kind == "attr":
             return self.emit_attr(expr)
         if kind == "cast":
-            value = self.emit_expr(expr["value"])
+            val_expr: dict[str, Any] = expr["value"]
+            value = self.emit_expr(val_expr)
             reg = self.tmp()
             self.line(f"{reg} = sitofp i64 {value} to double")
             return reg
@@ -85,28 +93,34 @@ class ExprsMixin(EmitterBase):
         raise IRError(f"cannot emit expression {kind}")
 
     def emit_const(self, expr: dict[str, Any]) -> str:
-        kind = expr["type"]["kind"]
-        value = expr["value"]
+        typ: dict[str, Any] = expr["type"]
+        kind: str = typ["kind"]
         if kind == "int":
-            number = int(value)
+            val_raw: str = expr["value"]
+            number = int(val_raw)
             if not fits_i64(number):
-                raise FitError(f"integer literal {value} does not fit in i64; refusing to truncate")
+                raise FitError(f"integer literal {val_raw} does not fit in i64; refusing to truncate")
             return str(number)
         if kind == "bool":
-            return "true" if value else "false"
+            val_bool: bool = expr["value"]
+            return "true" if val_bool else "false"
         if kind == "float":
-            return _llvm_double(float(value))
+            val_float_raw: str = expr["value"]
+            return _llvm_double(float(val_float_raw))
         if kind == "str":
-            return self.string_value(value)
+            val_str: str = expr["value"]
+            return self.string_value(val_str)
         if kind == "bytes":
-            return self.string_value(value, binary=True)
+            val_bytes: str = expr["value"]
+            return self.string_value(val_bytes, binary=True)
         if kind == "none":
             raise IRError("None is not a runtime value")
         raise IRError(f"cannot emit constant of type {kind}")
 
     def emit_binary(self, expr: dict[str, Any], left: str, right: str) -> str:
-        kind = expr["type"]["kind"]
-        op = expr["op"]
+        typ: dict[str, Any] = expr["type"]
+        kind: str = typ["kind"]
+        op: str = expr["op"]
         if kind == "int":
             if op in _INT_INS:
                 reg = self.tmp()
@@ -121,34 +135,43 @@ class ExprsMixin(EmitterBase):
             return self.helper_call(_FHELPER[op], "double", [left, right], arg_type="double")
         if kind in {"str", "bytes"} and op == "+":
             return self.helper_call("strconcat", "%ps.str", [left, right], arg_type="%ps.str")
-        if expr["left"]["type"]["kind"] == "class":
+        left_node: dict[str, Any] = expr["left"]
+        left_type: dict[str, Any] = left_node["type"]
+        left_kind: str = left_type["kind"]
+        if left_kind == "class":
             return self._emit_class_binary(expr, left, right)
         raise IRError(f"cannot emit {op} on {kind}")
 
     def emit_compare(self, expr: dict[str, Any]) -> str:
-        left_kind = expr["left"]["type"]["kind"]
-        right_kind = expr["right"]["type"]["kind"]
-        op = expr["op"]
+        left_node: dict[str, Any] = expr["left"]
+        right_node: dict[str, Any] = expr["right"]
+        left_type: dict[str, Any] = left_node["type"]
+        right_type: dict[str, Any] = right_node["type"]
+        left_kind: str = left_type["kind"]
+        right_kind: str = right_type["kind"]
+        op: str = expr["op"]
         if left_kind == "none" or right_kind == "none":
             if op not in {"==", "!="}:
                 raise IRError(f"cannot compare None with {op}")
-            self._emit_none_side(expr["left"])
-            self._emit_none_side(expr["right"])
+            self._emit_none_side(left_node)
+            self._emit_none_side(right_node)
             # None equals only None. A str, int, or other value is never None.
-            same = left_kind == "none" and right_kind == "none"
-            truth = same if op == "==" else not same
+            same: bool = left_kind == "none" and right_kind == "none"
+            truth: bool = same if op == "==" else not same
             reg = self.tmp()
-            bit = "true" if truth else "false"
+            bit: str = "true" if truth else "false"
             self.line(f"{reg} = icmp eq i1 {bit}, true")
             return reg
-        left = self.emit_expr(expr["left"])
-        right = self.emit_expr(expr["right"])
-        kind = left_kind
+        left = self.emit_expr(left_node)
+        right = self.emit_expr(right_node)
+        kind: str = left_kind
         if op in {"is", "is not"}:
             return self._emit_identity(op, kind, left, right)
         reg = self.tmp()
         if kind in {"int", "bool"}:
-            self.line(f"{reg} = icmp {_ICMP[op]} {'i64' if kind == 'int' else 'i1'} {left}, {right}")
+            icmp_op: str = _ICMP[op]
+            llvm_type: str = "i64" if kind == "int" else "i1"
+            self.line(f"{reg} = icmp {icmp_op} {llvm_type} {left}, {right}")
             return reg
         if kind == "float":
             pred = {"==": "oeq", "!=": "une", "<": "olt", "<=": "ole", ">": "ogt", ">=": "oge"}[op]
@@ -183,10 +206,13 @@ class ExprsMixin(EmitterBase):
 
     def _emit_none_side(self, expr: dict[str, Any]) -> None:
         """Emit a call that returns None. A None constant or a None local is not a register."""
-        if expr["type"]["kind"] != "none":
+        typ: dict[str, Any] = expr["type"]
+        tk: str = typ["kind"]
+        if tk != "none":
             self.emit_expr(expr)
             return
-        if expr["kind"] == "const" or expr["kind"] == "name":
+        kind: str = expr["kind"]
+        if kind == "const" or kind == "name":
             return
         self.emit_expr(expr)
 
