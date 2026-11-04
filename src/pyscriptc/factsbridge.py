@@ -88,7 +88,10 @@ def _module_identity(path: Path) -> tuple[str, Path]:
     parent: Path = path.parent
     if parent.name == "__init__":
         return parent.name, parent.parent
-    parts: list[str] = [] if path.stem == "__init__" else [path.stem]
+    if path.stem == "__init__":
+        parts: list[str] = []
+    else:
+        parts: list[str] = [path.stem]
     root: Path = parent
     while (root / "__init__.py").is_file():
         parts.insert(0, root.name)
@@ -108,9 +111,11 @@ def mypy_version() -> str | None:
     if api is None:
         return None
     version: str = api[3]
-    if not all(part.isdigit() for part in version.split(".")[:3]):
-        return None
-    return ".".join(version.split(".")[:3])
+    parts: list[str] = version.split(".")[:3]
+    for part in parts:
+        if not part.isdigit():
+            return None
+    return ".".join(parts)
 
 
 def provider_version(provider: str) -> str | None:
@@ -270,10 +275,12 @@ class MypyBridge:
     corpus type-check".
     """
 
-    name = "mypy"
+    name: str
+    strict: int
 
     def __init__(self, strict: bool = True) -> None:
-        self.strict = strict
+        self.name = "mypy"
+        self.strict = 1 if strict else 0
 
     def facts(self, path: Path) -> BridgeFacts:
         api = _mypy_api()
@@ -322,7 +329,7 @@ class MypyBridge:
                 continue
             expressions.setdefault(f"{node.line}:{node.column}", _mypy_type_facts(typ))
         defs: dict[str, DefFacts] = {}
-        module_prefix = f"{module.fullname}."
+        module_prefix: str = f"{module.fullname}."
         for node in _iter_mypy_nodes(module):
             if not isinstance(node, FuncDef):
                 continue
@@ -389,7 +396,10 @@ class PyreflyBridge:
     engine.
     """
 
-    name = "pyrefly"
+    name: str
+
+    def __init__(self) -> None:
+        self.name = "pyrefly"
 
     def facts(self, path: Path) -> BridgeFacts:
         from pyscriptc.typefacts import PyreflyTspFactsAdapter
@@ -536,7 +546,10 @@ def _same_shape(one: TypeFacts, other: TypeFacts) -> bool:
         return False
     if len(one.args) != len(other.args):
         return False
-    return all(_same_shape(a, b) for a, b in zip(one.args, other.args, strict=True))
+    for a, b in zip(one.args, other.args, strict=True):
+        if not _same_shape(a, b):
+            return False
+    return True
 
 
 def _collect_returns(fn: Any) -> list[Any]:
@@ -610,29 +623,33 @@ def facts_to_ir(facts: TypeFacts, classes: dict[str, Any] | None = None) -> dict
     if facts.kind == "literal" and facts.args:
         return facts_to_ir(facts.args[0], classes)
     if facts.kind == "list" and len(facts.args) == 1:
-        elem = facts_to_ir(facts.args[0], classes)
+        elem: dict[str, Any] | None = facts_to_ir(facts.args[0], classes)
         if elem is None:
             return None
         return {"kind": "list", "elem": elem}
     if facts.kind == "set" and len(facts.args) == 1:
-        elem = facts_to_ir(facts.args[0], classes)
-        if elem is None or elem["kind"] not in {"int", "str"}:
+        elem_set: dict[str, Any] | None = facts_to_ir(facts.args[0], classes)
+        if elem_set is None:
             return None
-        return {"kind": "list", "elem": elem, "set": True}
+        ekind: str = elem_set["kind"]
+        if ekind not in {"int", "str"}:
+            return None
+        return {"kind": "list", "elem": elem_set, "set": True}
     if facts.kind == "dict" and len(facts.args) == 2:
-        key = facts_to_ir(facts.args[0], classes)
-        value = facts_to_ir(facts.args[1], classes)
+        key: dict[str, Any] | None = facts_to_ir(facts.args[0], classes)
+        value: dict[str, Any] | None = facts_to_ir(facts.args[1], classes)
         if key is None or value is None:
             return None
-        if key["kind"] not in {"int", "str"}:
+        kkind: str = key["kind"]
+        if kkind not in {"int", "str"}:
             return None
         return {"kind": "dict", "key": key, "value": value}
     if facts.kind == "union":
-        arms = [arm for arm in facts.args if arm.kind != "none"]
-        optional = any(arm.kind == "none" for arm in facts.args)
+        arms: list[TypeFacts] = [arm for arm in facts.args if arm.kind != "none"]
+        optional: bool = any(arm.kind == "none" for arm in facts.args)
         if len(arms) != 1:
             return None
-        base = facts_to_ir(arms[0], classes)
+        base: dict[str, Any] | None = facts_to_ir(arms[0], classes)
         if base is None:
             return None
         if not optional:
@@ -647,12 +664,14 @@ def facts_to_ir(facts: TypeFacts, classes: dict[str, Any] | None = None) -> dict
     if facts.kind == "class" and classes is not None and facts.args:
         # A generic user class: the subset erases the type argument, so the
         # plain class name is the honest translation.
-        name = facts.runtime_repr.split("[", 1)[0].rsplit(".", 1)[-1]
+        runtime_repr: str = facts.runtime_repr or ""
+        name: str = runtime_repr.split("[", 1)[0].rsplit(".", 1)[-1]
         if name in classes:
             return {"kind": "class", "name": name}
         return None
     if facts.kind == "class" and not facts.args:
-        name = facts.runtime_repr.split("[", 1)[0].rsplit(".", 1)[-1]
+        runtime_repr = facts.runtime_repr or ""
+        name = runtime_repr.split("[", 1)[0].rsplit(".", 1)[-1]
         if classes is not None and name not in classes:
             return None
         return {"kind": "class", "name": name}
@@ -705,12 +724,16 @@ class BridgeProvider:
     `for_file`.
     """
 
+    provider: str
+    strict: int
+
     def __init__(self, provider: str, strict: bool = True) -> None:
         self.provider = provider
-        self.strict = strict
+        self.strict = 1 if strict else 0
 
     def for_file(self, path: Path) -> CheckerBridge:
-        return CheckerBridge.for_path(path, self.provider, strict=self.strict)
+        strict_flag: bool = True if self.strict != 0 else False
+        return CheckerBridge.for_path(path, self.provider, strict=strict_flag)
 
 
 class CheckerBridge:
@@ -721,6 +744,8 @@ class CheckerBridge:
     and the checker-proved parameter and return types of a `def`. It never
     invents a type: `None` means lowering keeps its existing fence.
     """
+
+    _facts: BridgeFacts
 
     def __init__(self, facts: BridgeFacts) -> None:
         self._facts = facts
