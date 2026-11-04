@@ -241,7 +241,6 @@ def collect_imports(target: Path) -> List[Dict[str, Any]]:
     that holds the code.
     """
 
-    target = Path(target)
     sites: List[Dict[str, Any]] = []
     for path in _source_files(target):
         package = _package_of(path, target)
@@ -320,26 +319,32 @@ def _read_wheel_record(path: Path) -> list[str] | None:
 
     if not path.is_file():
         return None
-    if not zipfile.is_zipfile(path):
+    if not zipfile.is_zipfile(str(path)):
         # An unpacked `*.dist-info/RECORD` is a csv text file. Refuse a plain
         # text file whose lines carry no RECORD separators, so a misnamed
         # non-record is not read as a one-file wheel.
         try:
-            body = path.read_text(encoding="utf-8", errors="replace")
-        except OSError:
+            body = path.read_text(encoding="utf-8")
+        except OSError, UnicodeDecodeError:
             return None
         files: list[str] = []
         for line in body.splitlines():
             if not line.strip():
                 continue
             files.append(line.split(",", 1)[0])
-        return files if any("," in line for line in body.splitlines()) else None
-    if not zipfile.is_zipfile(path):
+        has_separator: bool = False
+        for line in body.splitlines():
+            if "," in line:
+                has_separator = True
+        if not has_separator:
+            return None
+        return files
+    if not zipfile.is_zipfile(str(path)):
         return None
     try:
         with zipfile.ZipFile(path) as archive:
-            names = archive.namelist()
-    except OSError, zipfile.BadZipFile:
+            names: List[str] = archive.namelist()
+    except OSError, Exception:
         return None
     record = ""
     for item in names:
@@ -350,10 +355,11 @@ def _read_wheel_record(path: Path) -> list[str] | None:
         return names
     try:
         with zipfile.ZipFile(path) as archive:
-            body = archive.read(record).decode("utf-8", errors="replace")
-    except OSError, KeyError, zipfile.BadZipFile:
+            raw: bytes = archive.read(record)
+            body: str = raw.decode("utf-8")
+    except OSError, KeyError, Exception:
         return names
-    files: list[str] = []
+    files: List[str] = []
     for line in body.splitlines():
         if not line.strip():
             continue
@@ -394,8 +400,8 @@ def _metadata_of_tree(root: Path) -> Dict[str, Any]:
         if not meta.is_file():
             continue
         try:
-            body = meta.read_text(encoding="utf-8", errors="replace")
-        except OSError:
+            body = meta.read_text(encoding="utf-8")
+        except OSError, UnicodeDecodeError:
             continue
         for line in body.splitlines():
             if line.lower().startswith("name:"):
@@ -683,8 +689,12 @@ def _fence_root(entry: Dict[str, Any], roots: List[str]) -> str | None:
     raw_family: str = entry["family"]
     family = str(raw_family)
     if family.startswith("stdlib:"):
-        root = family.split(":", 1)[1].split(".")[0]
-        return root if root in roots else None
+        parts_all: List[str] = family.split(":")
+        tail: str = parts_all[1]
+        root: str = tail.split(".")[0]
+        if root in roots:
+            return root
+        return None
     raw_message: str = entry["message"]
     message = str(raw_message)
     for candidate in roots:
@@ -737,7 +747,6 @@ def build_report(
     only way an import reaches the island lane.
     """
 
-    target = Path(target)
     sites = collect_imports(target)
     dist_map: Dict[str, str] = {}
     if distributions is not None:
@@ -817,7 +826,8 @@ def build_report(
         item_ladder: str = item["ladder"]
         item_needs: bool = item["requiresLibpython"]
         item_sites: List[Dict[str, Any]] = item["sites"]
-        item_fences: List[Dict[str, Any]] = attributed.get(item_name, [])
+        empty_fences: List[Dict[str, Any]] = []
+        item_fences: List[Dict[str, Any]] = attributed.get(item_name, empty_fences)
         code_set: Dict[str, str] = {}
         for fence in item_fences:
             code_text: str = fence["code"]
@@ -935,7 +945,6 @@ def export_reach(report: Dict[str, Any], path: Path) -> Dict[str, Any]:
     never silently resets the history.
     """
 
-    path = Path(path)
     initial_series: List[Any] = []
     payload: Dict[str, Any] = {}
     payload["boxed_only_reach"] = initial_series
