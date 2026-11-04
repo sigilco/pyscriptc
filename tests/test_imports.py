@@ -429,7 +429,7 @@ def test_distribution_is_native_is_unknown_when_not_installed() -> None:
     from pyscriptc.imports import distribution_is_native
 
     native, reason = distribution_is_native("a-package-that-is-not-installed")
-    assert native is None
+    assert native is False
     assert "not installed" in reason
 
 
