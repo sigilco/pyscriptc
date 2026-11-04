@@ -756,7 +756,10 @@ def _program_roots(trees: dict[str, Any], entry: str | None = None) -> list[str]
             if name != entry:
                 rest.append(name)
         roots = [entry, *rest]
-    for name in sorted(trees):
+    tree_names: list[str] = []
+    for name in trees:
+        tree_names.append(name)
+    for name in sorted(tree_names):
         if name not in roots:
             roots.append(name)
     return roots
@@ -1339,19 +1342,29 @@ def _discover_dep_roots(roots: list[Path]) -> tuple[list[tuple[str, Path, bool]]
     for root in roots:
         root = root.resolve()
         if not root.is_dir():
-            return [], [_dep_fence(f"dependency source root {root} does not exist")]
+            fences: list[dict[str, Any]] = []
+            fences.append(_dep_fence(f"dependency source root {root} does not exist"))
+            empty_units: list[tuple[str, Path, bool]] = []
+            return empty_units, fences
         for path in sorted(root.iterdir()):
             if path.name.startswith(".") or path.name == "__pycache__":
                 continue
             if path.suffix == ".py":
                 if not path.stem.isidentifier():
-                    return [], [_dep_name_fence(path.name)]
+                    name_fences: list[dict[str, Any]] = []
+                    name_fences.append(_dep_name_fence(path.name))
+                    empty_units: list[tuple[str, Path, bool]] = []
+                    return empty_units, name_fences
                 units.append((path.stem, path, False))
             elif (path / "__init__.py").is_file():
                 if not path.name.isidentifier():
-                    return [], [_dep_name_fence(path.name)]
+                    name_fences = []
+                    name_fences.append(_dep_name_fence(path.name))
+                    empty_units = []
+                    return empty_units, name_fences
                 units.extend(_discover_dep_package(path, path.name))
-    return units, []
+    empty_fences: list[dict[str, Any]] = []
+    return units, empty_fences
 
 
 def _discover_dep_package(package_dir: Path, name: str) -> list[tuple[str, Path, bool]]:
@@ -1381,7 +1394,11 @@ def _discover_dep_package(package_dir: Path, name: str) -> list[tuple[str, Path,
 def _dep_fence(message: str) -> dict[str, Any]:
     """A PS3101 refusal fence outside any source span."""
 
-    fence: dict[str, Any] = {"code": "PS3101", "message": message, "span": None, "function": None}
+    fence: dict[str, Any] = {}
+    fence["code"] = "PS3101"
+    fence["message"] = message
+    fence["span"] = None
+    fence["function"] = None
     return fence
 
 
