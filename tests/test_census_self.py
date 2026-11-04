@@ -323,8 +323,9 @@ def test_self_census_ballpark() -> None:
     # Typed _classes and _annotations nodes (R3c, #822): 3337 -> 3354; payload types stay dict[str, Any].
     # bundle.py (opt-in AST bundler, #832, 116 modules): 3354 -> 3384.
     # Debug stage metrics (#819): 3384 -> 3388.
-    assert census["fences"] == 3388
-    assert sum(p["fences"] for p in census["packages"]) == 3388
+    # mirverify table-walk fences retired (#827): 3388 -> 3383.
+    assert census["fences"] == 3383
+    assert sum(p["fences"] for p in census["packages"]) == 3383
 
 
 def test_self_census_cache_is_byte_identical(tmp_path: Path, monkeypatch: object) -> None:
