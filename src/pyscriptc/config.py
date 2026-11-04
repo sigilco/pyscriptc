@@ -27,7 +27,7 @@ CONFIG_CODE = "PS3102"
 
 PEP723_RE = re.compile(r"(?m)^# /// (?P<type>[a-zA-Z0-9-]+)$\s(?P<content>(^#(| .*)$\s)+)^# ///$")
 
-LANES = ("compile", "replace", "extern", "island", "refuse")
+LANES: list[str] = ["compile", "replace", "extern", "island", "refuse"]
 DEFAULT_LANE = "compile"
 
 # The island is never automatic: only a per-import policy entry can select it,
@@ -35,19 +35,23 @@ DEFAULT_LANE = "compile"
 # label coverage and binary metadata print for that lane.
 ISLAND_LABEL = "requires libpython"
 
-_KEYS: dict[str, Any] = {
-    "entry": (str,),
-    "src": (str, list),
-    "checker": (str,),
-    "driver": (str,),
-    "target": (str,),
-    "fail-on": (str,),
-    "stub-path": (str, list),
-    "ffi": (str, list),
-    "imports": (dict,),
+# The accepted value type of every config key, by name. The names are the
+# runtime type names of the values TOML can hold (`str`, `list`, `dict`,
+# `bool`), so the validator can compare a value's type name against them
+# without reading a type object at run time.
+_KEYS: Dict[str, list[str]] = {
+    "entry": ["str"],
+    "src": ["str", "list"],
+    "checker": ["str"],
+    "driver": ["str"],
+    "target": ["str"],
+    "fail-on": ["str"],
+    "stub-path": ["str", "list"],
+    "ffi": ["str", "list"],
+    "imports": ["dict"],
     # boxed:begin
-    "fallback": (dict, str, bool),
-    "island": (dict,),
+    "fallback": ["dict", "str", "bool"],
+    "island": ["dict"],
     # boxed:end
 }
 _CHOICES: Dict[str, list[str]] = {
@@ -196,38 +200,38 @@ class Config:
         origin: Path | None = None,
         source: str = "default",
         entry: str | None = None,
-        src: tuple[str, ...] = (),
+        src: tuple[str, ...] | None = None,
         checker: str | None = None,
         driver: str | None = None,
         target: str | None = None,
         fail_on: str | None = None,
-        stub_path: tuple[str, ...] = (),
-        ffi: tuple[str, ...] = (),
+        stub_path: tuple[str, ...] | None = None,
+        ffi: tuple[str, ...] | None = None,
         imports: Dict[str, str] | None = None,
         # boxed:begin
         fallback: Any = None,
         island: Any = None,
         # boxed:end
         requires_python: str | None = None,
-        dependencies: tuple[str, ...] = (),
+        dependencies: tuple[str, ...] | None = None,
     ) -> None:
         self.origin = origin
         self.source = source
         self.entry = entry
-        self.src = src
+        self.src = () if src is None else src
         self.checker = checker
         self.driver = driver
         self.target = target
         self.fail_on = fail_on
-        self.stub_path = stub_path
-        self.ffi = ffi
+        self.stub_path = () if stub_path is None else stub_path
+        self.ffi = () if ffi is None else ffi
         self.imports = {} if imports is None else imports
         # boxed:begin
         self.fallback = {} if fallback is None else fallback
         self.island = {} if island is None else island
         # boxed:end
         self.requires_python = requires_python
-        self.dependencies = dependencies
+        self.dependencies = () if dependencies is None else dependencies
 
     # boxed:begin
     def fallback_definitions(self) -> bool:
@@ -412,30 +416,39 @@ def _paths(value: Any) -> tuple[str, ...]:
 def _validate(table: str, data: Dict[str, Any]) -> Dict[str, Any]:
     for key, value in data.items():
         if key not in _KEYS:
-            known = ", ".join(sorted(_KEYS))
-            raise ConfigError(f"{_where(table, key)}: unknown key (known: {known})")
-        types = _KEYS[key]
-        if not isinstance(value, types):
-            names: list[str] = []
-            for t in types:
-                if t.__name__ not in names:
-                    names.append(t.__name__)
+            key_names: list[str] = []
+            for known in _KEYS:
+                key_names.append(known)
+            joined = ", ".join(sorted(key_names))
+            raise ConfigError(f"{_where(table, key)}: unknown key (known: {joined})")
+        names = _KEYS[key]
+        actual: str = type(value).__name__
+        if actual not in names:
             want = "/".join(names)
-            raise ConfigError(f"{_where(table, key)} must be {want}, got {type(value).__name__}")
-        if key in _CHOICES and value not in _CHOICES[key]:
-            raise ConfigError(f"{_where(table, key)} must be one of {'|'.join(_CHOICES[key])}, got {value!r}")
+            raise ConfigError(f"{_where(table, key)} must be {want}, got {actual}")
+        if key in _CHOICES and actual == "str":
+            choice_str: str = data[key]
+            if choice_str not in _CHOICES[key]:
+                choice_names: list[str] = []
+                for choice in _CHOICES[key]:
+                    choice_names.append(choice)
+                choice_want = "|".join(choice_names)
+                raise ConfigError(f"{_where(table, key)} must be one of {choice_want}, got {choice_str!r}")
     for key in ("src", "stub-path", "ffi"):
         if key in data:
-            val_list = data[key]
-            if isinstance(val_list, list) and not all(isinstance(i, str) for i in val_list):
-                raise ConfigError(f"{_where(table, key)} must be a list of strings")
+            val_list: list[str] = data[key]
+            for item in val_list:
+                if not isinstance(item, str):
+                    raise ConfigError(f"{_where(table, key)} must be a list of strings")
     if "imports" in data:
         imports: Dict[str, Any] = data["imports"]
         for name, lane in imports.items():
             if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*|\*", name):
                 raise ConfigError(f"{_where(table, 'imports')}: invalid module name {name!r}")
-            if not isinstance(lane, str) or lane not in LANES:
-                raise ConfigError(f"{_where(table, 'imports')}.{name} must be one of {'|'.join(LANES)}, got {lane!r}")
+            lane_str: str = lane
+            if not isinstance(lane, str) or lane_str not in LANES:
+                lane_want = "|".join(LANES)
+                raise ConfigError(f"{_where(table, 'imports')}.{name} must be one of {lane_want}, got {lane_str!r}")
     return data
 
 
