@@ -73,6 +73,13 @@ def test_the_seam_knows_the_ir_type_mapping() -> None:
     assert _ir._llvm_type({"kind": "list", "elem": {"kind": "int"}}) == "ptr"
 
 
+def test_the_seam_reads_the_kind_tag() -> None:
+    from pyscriptc.emit import _ir
+
+    assert _ir._kind({"kind": "int"}) == "int"
+    assert _ir._kind({"kind": "str"}) == "str"
+
+
 def test_the_seam_knows_the_symbol_naming() -> None:
     from pyscriptc.emit import _ir
 
