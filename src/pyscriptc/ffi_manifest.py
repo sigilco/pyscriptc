@@ -753,7 +753,8 @@ def _parse_signature(
                     where=where,
                 )
             name = param_match.group(1)
-            if name is None:
+            declared = param_match.group(2)
+            if name is None or declared is None:
                 raise FfiManifestError(
                     "PS4006",
                     f"the parameter {piece.strip()!r} is not of the form name: type",
@@ -768,14 +769,6 @@ def _parse_signature(
                     where=where,
                 )
             names.add(name)
-            declared = param_match.group(2)
-            if declared is None:
-                raise FfiManifestError(
-                    "PS4006",
-                    f"the parameter {piece.strip()!r} is not of the form name: type",
-                    path=path,
-                    where=where,
-                )
             type_name = declared.strip()
             _check_type(type_name, path=path, where=where, handle_names=handle_names)
             default = param_match.group(3)
@@ -812,15 +805,8 @@ def _check_container(
             where=where,
         )
     head = match.group(1)
-    if head is None:
-        raise FfiManifestError(
-            "PS4006",
-            f"the container type {name!r} is not of the form list[T] or dict[K, V]",
-            path=path,
-            where=where,
-        )
     raw_inner = match.group(2)
-    if raw_inner is None:
+    if head is None or raw_inner is None:
         raise FfiManifestError(
             "PS4006",
             f"the container type {name!r} is not of the form list[T] or dict[K, V]",
