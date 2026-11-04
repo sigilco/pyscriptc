@@ -108,11 +108,11 @@
   "pyscriptc.stdlib_queue": 38,
   "pyscriptc.stdlibzip": 40,
   "pyscriptc.stdmore": 39,
-  "pyscriptc.stubs": 50,
+  "pyscriptc.stubs": 49,
   "pyscriptc.target": 7,
   "pyscriptc.telemetry": 28,
   "pyscriptc.tirserde": 53,
-  "pyscriptc.typefacts": 78,
+  "pyscriptc.typefacts": 75,
   "pyscriptc.verify": 5,
   "pyscriptc.wasm_adapter": 10,
   "pyscriptc.zigshim": 11

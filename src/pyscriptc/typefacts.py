@@ -36,7 +36,9 @@ from pyscriptc.errors import CheckFailed
 # A default value a checker could prove constant at compile time.
 StaticValue = int | float | bool | str | bytes | None
 
-_MISSING = object()
+# The sentinel `_MISSING`: a constant tuple compared by identity, so a
+# default no checker could prove constant never matches a real literal.
+_MISSING: tuple[str, str] = ("", "\x00pyscriptc-missing")
 
 
 @dataclass(frozen=True)
@@ -173,7 +175,7 @@ class _LspConnection:
             ) from exc
         threading.Thread(target=self._read_loop, daemon=True).start()
 
-    def request(self, method: str, params: Any, timeout: float = 30.0) -> dict[str, Any] | None:
+    def request(self, method: str, params: dict[str, Any] | None, timeout: float = 30.0) -> dict[str, Any] | None:
         """Send a request and return its `result`, or None on LSP error."""
         self._ensure_live()
         with self._lock:
@@ -195,7 +197,7 @@ class _LspConnection:
             return None
         return response.get("result")
 
-    def notify(self, method: str, params: Any) -> None:
+    def notify(self, method: str, params: dict[str, Any] | None) -> None:
         if self._dead:
             return
         try:
