@@ -705,6 +705,11 @@ def dict_to_node(d: Any) -> Any:
         if "key" in d and "value" in d:
             return Pair(dict_to_node(d["key"]), dict_to_node(d["value"]))
         raise TypeError(f"a kindless dict is not dict IR: {sorted(d)}")
+    if "island_fn" in d:
+        # The island call carries island_fn/island_npos/island_nkw, which the
+        # typed call record has no slot for; keep the dict whole so the
+        # round trip stays lossless (embed acceptance regression).
+        return d
     span = dict_to_span(d.get("span"))
     typ = dict_to_type(d.get("type"))
     flags = 0
