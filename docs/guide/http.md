@@ -35,8 +35,9 @@ Chunked transfer-encoding is decoded.
 
 ## Divergences from CPython
 
-- TLS is not there yet: an `https://` URL raises `OSError`.
-  TLS via mbedTLS is [#235](https://github.com/sigilco/pyscriptc/issues/235).
+- An `https://` URL needs libcurl on the machine running the binary: the runtime loads it at run time and performs the request through it, so the certificate and the host name are verified against the platform trust store.
+  Without libcurl the URL raises `OSError` (a `URLError`); there is no TLS stream API and no custom SSL context.
+  The portable fallback (mbedTLS) is [#235](https://github.com/sigilco/pyscriptc/issues/235).
 - `urlopen` takes `url`, `data` and `timeout`; other keywords are unsupported.
   Headers go on the `Request`, as a dict display with constant string keys and values; a header dict built at run time stops the compile.
 - 4xx and 5xx raise `HTTPError` carrying `status`, `headers` and a readable body; malformed URLs and connection failures raise `URLError`.
