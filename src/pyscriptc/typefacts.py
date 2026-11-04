@@ -30,7 +30,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-from pyscriptc.check import CheckFailed, _resolve_pyrefly_binary
+from pyscriptc.check import _resolve_pyrefly_binary
+from pyscriptc.errors import CheckFailed
 
 # A default value a checker could prove constant at compile time.
 StaticValue = int | float | bool | str | bytes | None
@@ -136,15 +137,6 @@ def facts_provider(checker: str = "pyrefly-tsp") -> FactsProvider:
     raise CheckFailed(f"checker {checker!r} has no facts adapter; use 'pyrefly-tsp' or 'pyrefly'")
 
 
-# Named tuples because ruff (target-version py314) strips except-parens
-# into `except A, B:` — valid only on 3.14+, broken on the 3.13 dev venv.
-_PIPE_ERRORS = (OSError, CheckFailed)
-_SHUTDOWN_ERRORS = _PIPE_ERRORS + (subprocess.TimeoutExpired,)
-_CLI_ERRORS = (OSError, subprocess.TimeoutExpired)
-_READ_ERRORS = (OSError, ValueError, json.JSONDecodeError)
-_EVAL_ERRORS = (ValueError, SyntaxError)
-
-
 class _LspConnection:
     """Minimal synchronous JSON-RPC client for one stdio langserver.
 
@@ -208,7 +200,7 @@ class _LspConnection:
             return
         try:
             self._send({"jsonrpc": "2.0", "method": method, "params": params})
-        except _PIPE_ERRORS:
+        except OSError, CheckFailed:
             self._dead = True
 
     def wait_notification(
@@ -240,7 +232,7 @@ class _LspConnection:
             self.request("shutdown", None, timeout=10)
             self.notify("exit", None)
             proc.wait(timeout=5)
-        except _SHUTDOWN_ERRORS:
+        except OSError, CheckFailed, subprocess.TimeoutExpired:
             pass
         if proc.poll() is None:
             proc.kill()
@@ -288,7 +280,7 @@ class _LspConnection:
                     self._mark_dead()
                     return
                 message = json.loads(body)
-            except _READ_ERRORS:
+            except OSError, ValueError:
                 self._mark_dead()
                 return
             self._dispatch(message)
@@ -318,8 +310,28 @@ class _LspConnection:
 
 def _utf16_col(line_text: str, byte_col: int) -> int:
     """ast col_offset is a UTF-8 byte offset; LSP wants UTF-16 units."""
-    prefix = line_text.encode("utf-8")[:byte_col].decode("utf-8", errors="ignore")
-    return len(prefix.encode("utf-16-le")) // 2
+    cur_bytes = 0
+    u16_units = 0
+    for idx in range(len(line_text)):
+        ch = line_text[idx]
+        code = ord(ch)
+        if code < 0x80:
+            ch_bytes = 1
+            ch_u16 = 1
+        elif code < 0x800:
+            ch_bytes = 2
+            ch_u16 = 1
+        elif code < 0x10000:
+            ch_bytes = 3
+            ch_u16 = 1
+        else:
+            ch_bytes = 4
+            ch_u16 = 2
+        if cur_bytes + ch_bytes > byte_col:
+            break
+        cur_bytes += ch_bytes
+        u16_units += ch_u16
+    return u16_units
 
 
 def _split_top(text: str, sep: str) -> list[str]:
@@ -383,6 +395,25 @@ def _short_name(name: str) -> str:
     """`module.Class` -> `Class`, keeping subscripts and whitespace out."""
     name = name.strip()
     return name.rsplit(".", 1)[-1]
+
+
+def _is_ident_part(part: str) -> bool:
+    if not part:
+        return False
+    if not (part[0].isalpha() or part[0] == "_"):
+        return False
+    for index in range(1, len(part)):
+        ch = part[index]
+        if not (ch.isalnum() or ch == "_"):
+            return False
+    return True
+
+
+def _is_dotted_identifier(text: str) -> bool:
+    for part in text.split("."):
+        if not _is_ident_part(part):
+            return False
+    return True
 
 
 def _parse_type_text(text: str) -> TypeFacts | None:
@@ -458,10 +489,12 @@ def _parse_type_text(text: str) -> TypeFacts | None:
             pieces = pieces[:-1]  # homogeneous `tuple[X, ...]`
         args = tuple(m for m in (_parse_type_text(p) for p in pieces) if m)
         return TypeFacts(kind=kind, args=args, runtime_repr=text)
-    if text.startswith(("*", "**")):
-        return _parse_type_text(text.lstrip("*"))
+    if text.startswith("**"):
+        return _parse_type_text(text[2:])
+    if text.startswith("*"):
+        return _parse_type_text(text[1:])
     if "@" in text and not text.startswith(('"', "'")):
-        name = text.split("@", 1)[0].strip()
+        name: str = text.split("@", 1)[0].strip()
         return TypeFacts(kind="typevar", runtime_repr=name) if name else None
     lowered = text.lower()
     if lowered in {"none", "nonetype"}:
@@ -475,7 +508,7 @@ def _parse_type_text(text: str) -> TypeFacts | None:
         return literal
     if text.startswith(("'", '"')) and text.endswith(("'", '"')):
         return _parse_type_text(text[1:-1])
-    if not all(part.isidentifier() for part in text.split(".")):
+    if not _is_dotted_identifier(text):
         return None
     return TypeFacts(kind=_short_name(text), runtime_repr=text)
 
@@ -484,7 +517,9 @@ def _split_head_bracket(text: str) -> tuple[str, str | None]:
     """`list[int]` -> ("list", "int"); returns (text, None) when bracketless."""
     depth = 0
     quote = ""
-    for index, char in enumerate(text):
+    none_tail: str | None = None
+    for index in range(len(text)):
+        char = text[index]
         if quote:
             if char == "\\":
                 continue
@@ -495,8 +530,9 @@ def _split_head_bracket(text: str) -> tuple[str, str | None]:
         elif char == "[":
             if depth == 0:
                 if not text.endswith("]"):
-                    return text, None
-                return text[:index], text[index + 1 : -1]
+                    return text, none_tail
+                tail: str | None = text[index + 1 : -1]
+                return text[:index], tail
             depth += 1
         elif char == "]":
             depth -= 1
@@ -504,14 +540,14 @@ def _split_head_bracket(text: str) -> tuple[str, str | None]:
             depth += 1
         elif char in ")}":
             depth -= 1
-    return text, None
+    return text, none_tail
 
 
 def _parse_literal_piece(text: str) -> TypeFacts | None:
     """A `Literal[...]` member or a bare literal: 1, 's', True, None, Color.RED."""
     try:
         value = ast.literal_eval(text)
-    except _EVAL_ERRORS:
+    except ValueError, SyntaxError:
         value = None
     if isinstance(value, bool):
         return TypeFacts(kind="literal", args=(TypeFacts(kind="bool"),), runtime_repr=text)
@@ -527,7 +563,7 @@ def _parse_literal_piece(text: str) -> TypeFacts | None:
         return TypeFacts(kind="literal", args=(TypeFacts(kind="bool"),), runtime_repr=text)
     if text == "None":
         return TypeFacts(kind="none", optional=True, runtime_repr="None")
-    if "." in text and all(part.isidentifier() for part in text.split(".")):
+    if "." in text and _is_dotted_identifier(text):
         # Enum member like `Color.RED`: fallback is the enum class.
         return TypeFacts(kind="literal", args=(TypeFacts(kind=_short_name(text)),), runtime_repr=text)
     return None
@@ -559,7 +595,7 @@ def _default_static_value(text: str) -> Any:
     """`"x"`/`3`/`True` -> StaticValue; _MISSING when unrepresentable."""
     try:
         value = ast.literal_eval(text)
-    except _EVAL_ERRORS:
+    except ValueError, SyntaxError:
         return _MISSING
     if value is ... or isinstance(value, (tuple, frozenset, complex)):
         return _MISSING
@@ -641,7 +677,8 @@ def _top_level_char(text: str, char: str) -> int:
     """Index of `char` at bracket depth 0 outside quotes, or -1."""
     depth = 0
     quote = ""
-    for index, current in enumerate(text):
+    for index in range(len(text)):
+        current = text[index]
         if quote:
             if current == "\\":
                 continue
@@ -824,7 +861,7 @@ def _static_defaults(tree: ast.Module) -> dict[str, dict[str, Any]]:
                         continue
                     try:
                         value = ast.literal_eval(expr)
-                    except _EVAL_ERRORS:
+                    except ValueError, SyntaxError:
                         value = _MISSING
                     if not (isinstance(value, (int, float, bool, str, bytes)) or value is None):
                         value = _MISSING
@@ -922,9 +959,11 @@ class PyreflyFactsAdapter:
     `check._resolve_pyrefly_binary`).
     """
 
-    name = "pyrefly"
+    @property
+    def name(self) -> str:
+        return "pyrefly"
 
-    def __init__(self, command: str | Sequence[str] | None = None) -> None:
+    def __init__(self, command: Sequence[str] | None = None) -> None:
         if command is None:
             self._argv = _resolve_pyrefly_binary()
         else:
@@ -961,7 +1000,7 @@ class PyreflyFactsAdapter:
                     f"pyrefly is not installed (command {self._argv[0]!r}); "
                     "pip install pyrefly, set PYREFLY_BIN, or put pyrefly on PATH"
                 ) from exc
-            except _CLI_ERRORS as exc:
+            except (OSError, subprocess.TimeoutExpired) as exc:
                 raise CheckFailed(f"pyrefly check failed for {path}: {exc}") from exc
             expressions_doc = self._read_report(tmp, "type_of_expressions", path)
             definitions_doc = self._read_report(tmp, "definitions", path)
@@ -981,7 +1020,7 @@ class PyreflyFactsAdapter:
         for candidate in sorted(report_dir.glob("*.json")):
             try:
                 doc = json.loads(candidate.read_text(encoding="utf-8"))
-            except _READ_ERRORS:
+            except OSError, ValueError:
                 continue
             if not isinstance(doc, Mapping):
                 continue
@@ -1319,9 +1358,11 @@ class PyreflyTspFactsAdapter:
     plus `tsp`.
     """
 
-    name = "pyrefly-tsp"
+    @property
+    def name(self) -> str:
+        return "pyrefly-tsp"
 
-    def __init__(self, command: str | Sequence[str] | None = None) -> None:
+    def __init__(self, command: Sequence[str] | None = None) -> None:
         argv = (
             _resolve_pyrefly_binary()
             if command is None
@@ -1411,14 +1452,13 @@ class PyreflyTspFactsAdapter:
     def __enter__(self) -> PyreflyTspFactsAdapter:
         return self
 
-    def __exit__(self, *_exc: object) -> None:
+    def __exit__(
+        self,
+        exc_type: BaseException | None = None,
+        exc_val: BaseException | None = None,
+        exc_tb: BaseException | None = None,
+    ) -> None:
         self.close()
-
-    def __del__(self) -> None:
-        try:
-            self.close()
-        except Exception:
-            pass
 
     def _connect(self) -> _LspConnection:
         if self._connection is not None:
@@ -1521,7 +1561,7 @@ class PyreflyTspFactsAdapter:
                 if default is not None:
                     try:
                         value = ast.literal_eval(default)
-                    except _EVAL_ERRORS:
+                    except ValueError, SyntaxError:
                         continue
                     if value is None or isinstance(value, (int, float, bool, str, bytes)):
                         default_values[arg.arg] = value

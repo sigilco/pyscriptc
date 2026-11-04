@@ -111,7 +111,7 @@
   "pyscriptc.target": 7,
   "pyscriptc.telemetry": 28,
   "pyscriptc.tirserde": 52,
-  "pyscriptc.typefacts": 100,
+  "pyscriptc.typefacts": 78,
   "pyscriptc.verify": 86,
   "pyscriptc.wasm_adapter": 10,
   "pyscriptc.zigshim": 11
