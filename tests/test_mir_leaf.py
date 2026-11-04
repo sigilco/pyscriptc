@@ -7,6 +7,8 @@ verifier tests pin the stable `MVS` codes on hand-built broken functions.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from pyscriptc.emit.llvm import emit_llvm
@@ -31,12 +33,8 @@ from pyscriptc.mirverify import (
     verify_function,
 )
 
-LEAF_SAMPLES = [
-    "/tmp/leafint.py",
-    "/tmp/leafbool.py",
-    "/tmp/mirleaf.py",
-    "/tmp/mirmix.py",
-]
+_FIXTURES = Path(__file__).parent / "fixtures" / "mir_leaf"
+LEAF_SAMPLES = [str(_FIXTURES / name) for name in ("leafint.py", "leafbool.py", "mirleaf.py", "mirmix.py")]
 
 
 @pytest.mark.parametrize("path", LEAF_SAMPLES)
