@@ -112,6 +112,7 @@ select = ["E", "F", "I", "UP", "B"]
 # `dict[str, Any]` return/local annotation fences PS1106 (the census
 # lowerer does not resolve PEP 585 spellings on a returned dict).
 "src/pyscriptc/deps.py" = ["UP006", "UP035"]
+"src/pyscriptc/ffi_manifest.py" = ["UP006", "UP035"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["pyscriptc"]
