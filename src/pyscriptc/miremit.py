@@ -69,6 +69,7 @@ from pyscriptc.mir import (
     MIR_W,
     TERMINATORS,
     MirBlock,
+    MirConst,
     MirFunction,
     MirModule,
     const_index,
@@ -480,7 +481,8 @@ def _result_tag(fn: MirFunction, i: int) -> int:
 
 def _llvm_of(fn: MirFunction, operand: int) -> str:
     if is_const_ref(operand):
-        return _tag_llvm(fn.consts[const_index(operand)].typ)
+        const: MirConst = fn.consts[const_index(operand)]
+        return _tag_llvm(const.typ)
     return "i64"
 
 
