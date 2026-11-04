@@ -226,12 +226,13 @@ class LockedWheel:
     sha256: str
     filename: str
 
-    @property
     def tags(self) -> tuple[str, str, str]:
-        parts = self.filename[: -len(".whl")].split("-")
+        """The wheel's (python, abi, platform) tags from its filename."""
+        stem: str = self.filename[: -len(".whl")]
+        parts: list[str] = stem.split("-")
         if len(parts) < 5:
             raise DepsError(f"malformed wheel filename {self.filename!r}")
-        return parts[-3], parts[-2], parts[-1]
+        return (parts[-3], parts[-2], parts[-1])
 
 
 @dataclass(frozen=True)
@@ -429,7 +430,7 @@ def _python_tag_ok(tag: str, python: str) -> bool:
 
 def is_pure_wheel(wheel: LockedWheel, python: str | None = None) -> bool:
     """`none-any` wheel usable by `python` (default: the host)."""
-    py, abi, plat = wheel.tags
+    py, abi, plat = wheel.tags()
     return abi == "none" and plat == "any" and _python_tag_ok(py, python or host_python())
 
 
@@ -438,12 +439,22 @@ def select_pure_wheel(pkg: LockedPackage, python: str | None = None) -> LockedWh
     return sorted(pure, key=lambda w: w.filename)[0] if pure else None
 
 
+def _wheel_abis(pkg: LockedPackage) -> list[str]:
+    """The distinct ABI tags of the package's wheels, sorted."""
+    found: list[str] = []
+    for wheel in pkg.wheels:
+        abi = wheel.tags()[1]
+        if abi not in found:
+            found.append(abi)
+    return sorted(found)
+
+
 def classify_tags(pkg: LockedPackage, python: str | None = None) -> tuple[str, str]:
     """Lane and reason from wheel tags alone (no download)."""
     if select_pure_wheel(pkg, python) is not None:
         return "pure", "none-any wheel"
     if pkg.wheels:
-        abis = ", ".join(sorted({w.tags[1] for w in pkg.wheels}))
+        abis = ", ".join(sorted(_wheel_abis(pkg)))
         return "native", f"only ABI or platform specific wheels ({len(pkg.wheels)} wheels, ABI {abis})"
     if pkg.flags & SDIST:
         return "sdist", "source distribution only"
