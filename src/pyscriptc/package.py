@@ -346,12 +346,22 @@ def _program_island(
     if not _boxed.definitions_tier():
         return None
     main = entry if entry is not None else "__main__"
-    if not any(name == main for name, _path, _is_package in units):
+    # `any(name == main ...)` is a bool-fold the lowered subset refuses
+    # (a generator over a bool list). The loop keeps the same answer.
+    found: bool = False
+    for name, _path, _is_package in units:
+        if name == main:
+            found = True
+    if not found:
         return None
+    main_package = ""
     if entry is not None:
-        is_package = any(name == entry and pkg for name, _path, pkg in units)
+        is_package = False
+        for name, _path, pkg in units:
+            if name == entry and pkg:
+                is_package = True
         main_package = entry if is_package else entry.rpartition(".")[0]
-    staged = stage_program_data(root, staged_data or [])
+    staged: tuple[str, str] | None = stage_program_data(root, staged_data or [])
     source = _boxed.program_island_source(
         units,
         entry=main,
@@ -407,18 +417,26 @@ def _program_entry(functions: list[dict[str, Any]], entry: str | None = None) ->
     if entry is not None:
         for suffix in ("__entry__", "main"):
             candidate = f"{entry}.{suffix}"
-            if any(fn["name"] == candidate for fn in functions):
-                return candidate
+            for fn in functions:
+                name: str = fn["name"]
+                if name == candidate:
+                    return candidate
         for fn in functions:
-            if fn["name"].startswith(entry + "."):
-                return fn["name"]
+            name = fn["name"]
+            if name.startswith(entry + "."):
+                return name
     for fn in functions:
-        if fn["name"] in {"__main__.main", "__main__.__entry__"}:
-            return fn["name"]
+        name = fn["name"]
+        if name == "__main__.main" or name == "__main__.__entry__":
+            return name
     for fn in functions:
-        if fn["name"].startswith("__main__."):
-            return fn["name"]
-    return functions[0]["name"] if functions else None
+        name = fn["name"]
+        if name.startswith("__main__."):
+            return name
+    if not functions:
+        return None
+    first: str = functions[0]["name"]
+    return first
 
 
 def _fenced_module(root: Path, fences: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1115,7 +1133,12 @@ def _alias_item(exports: dict[str, dict[str, dict[str, Any]]], module: str, name
     `ir_name`: the defining module still emits the function or class.
     """
 
-    item = exports.get(module, {}).get(name)
+    bucket: dict[str, dict[str, Any]] = {}
+    if module in exports:
+        bucket = exports[module]
+    item: dict[str, Any] | None = None
+    if name in bucket:
+        item = bucket[name]
     if item is None:
         return None
     return copy.deepcopy(item)
@@ -1124,30 +1147,71 @@ def _alias_item(exports: dict[str, dict[str, dict[str, Any]]], module: str, name
 def _class_export(info: dict[str, Any]) -> dict[str, Any]:
     """Class shape without the AST node. The defining module still emits the class."""
 
-    exported: dict[str, Any] = {
-        "fields": copy.deepcopy(info.get("fields", [])),
-        "own_fields": copy.deepcopy(info.get("own_fields", [])),
-        "methods": copy.deepcopy(info.get("methods", {})),
-        "method_kind": dict(info.get("method_kind", {})),
-        "method_owner": dict(info.get("method_owner", {})),
-        "base": info.get("base"),
-        "imported": True,
-    }
-    if info.get("generated_init") is not None:
-        exported["generated_init"] = info["generated_init"]
-    if info.get("exception"):
+    # The export table's rows are heterogeneous dicts, so every read of one
+    # goes through a membership guard and a typed local: the guard proves
+    # the key is there, the annotation proves the value's type.
+    exported: dict[str, Any] = {}
+    fields: list[dict[str, Any]] = []
+    if "fields" in info:
+        raw_fields: list[dict[str, Any]] = info["fields"]
+        for field in raw_fields:
+            fields.append(field)
+    exported["fields"] = fields
+    own_fields: list[dict[str, Any]] = []
+    if "own_fields" in info:
+        raw_own: list[dict[str, Any]] = info["own_fields"]
+        for field in raw_own:
+            own_fields.append(field)
+    exported["own_fields"] = own_fields
+    methods: dict[str, tuple[list[dict[str, Any]], dict[str, Any]]] = {}
+    if "methods" in info:
+        raw_methods: dict[str, tuple[list[dict[str, Any]], dict[str, Any]]] = info["methods"]
+        for mname in raw_methods:
+            methods[mname] = raw_methods[mname]
+    exported["methods"] = methods
+    method_kind: dict[str, str] = {}
+    if "method_kind" in info:
+        raw_kind: dict[str, str] = info["method_kind"]
+        for mname in raw_kind:
+            method_kind[mname] = raw_kind[mname]
+    exported["method_kind"] = method_kind
+    method_owner: dict[str, str] = {}
+    if "method_owner" in info:
+        raw_owner: dict[str, str] = info["method_owner"]
+        for mname in raw_owner:
+            method_owner[mname] = raw_owner[mname]
+    exported["method_owner"] = method_owner
+    base: str = ""
+    if "base" in info:
+        base = info["base"]
+    exported["base"] = base
+    exported["imported"] = True
+    if "generated_init" in info:
+        generated_init: str = info["generated_init"]
+        exported["generated_init"] = generated_init
+    if "exception" in info:
         exported["exception"] = True
-        exported["exc_code"] = info.get("exc_code")
-    if info.get("enum"):
+        exc_code: int = 0
+        if "exc_code" in info:
+            exc_code = info["exc_code"]
+        exported["exc_code"] = exc_code
+    if "enum" in info:
         exported["enum"] = True
-        exported["members"] = dict(info.get("members") or {})
-    if info.get("coro"):
+        members: dict[str, str] = {}
+        if "members" in info:
+            raw_members: dict[str, str] = info["members"]
+            for mname in raw_members:
+                members[mname] = raw_members[mname]
+        exported["members"] = members
+    if "coro" in info:
         # A coroutine frame class (issue #178, stage B). The consumer needs
         # the kind to tell a frame from a user class, and `coro_elem` (the
         # coroutine's result type) to know what the awaited value's type is.
-        exported["coro"] = info["coro"]
-        if info.get("coro_elem") is not None:
-            exported["coro_elem"] = copy.deepcopy(info["coro_elem"])
+        coro: str = info["coro"]
+        exported["coro"] = coro
+    if "coro_elem" in info:
+        coro_elem: dict[str, Any] = info["coro_elem"]
+        exported["coro_elem"] = copy.deepcopy(coro_elem)
     return exported
 
 
