@@ -81,7 +81,7 @@ class DepsError(SpikeError):
         super().__init__(DEPS_CODE, message)
 
 
-def _toml_loads(text: str) -> dict[str, Any]:
+def _toml_loads(text: str) -> Dict[str, Any]:
     try:
         import tomllib
     except ModuleNotFoundError as exc:  # Python 3.10
@@ -204,35 +204,78 @@ def input_digest(spec: DepSpec, python: str) -> str:
 
 
 def parse_pylock(text: str) -> list[LockedPackage]:
-    data = _toml_loads(text)
-    if not str(data.get("lock-version", "")).startswith("1."):
-        raise DepsError(f"unsupported pylock lock-version {data.get('lock-version')!r}")
+    data: Dict[str, Any] = _toml_loads(text)
+    if "lock-version" not in data:
+        raise DepsError("unsupported pylock lock-version None")
+    version: str = data["lock-version"]
+    if not str(version).startswith("1."):
+        raise DepsError(f"unsupported pylock lock-version {version!r}")
     packages: list[LockedPackage] = []
-    for entry in data.get("packages", []):
-        wheels = []
-        for wheel in entry.get("wheels", []):
-            url = wheel.get("url") or wheel.get("path") or ""
-            sha = wheel.get("hashes", {}).get("sha256")
+    entries: list[Dict[str, Any]] = []
+    if "packages" in data:
+        entries = data["packages"]
+    for entry in entries:
+        e: Dict[str, Any] = entry
+        wheels: list[LockedWheel] = []
+        wheel_rows: list[Dict[str, Any]] = []
+        if "wheels" in e:
+            wheel_rows = e["wheels"]
+        for wheel in wheel_rows:
+            w: Dict[str, Any] = wheel
+            url: str = ""
+            if "url" in w:
+                url = w["url"]
+            else:
+                path: str = ""
+                if "path" in w:
+                    path = w["path"]
+                url = path
+            sha: str = ""
+            if "hashes" in w:
+                hashes: Dict[str, Any] = w["hashes"]
+                if "sha256" in hashes:
+                    sha = hashes["sha256"]
             if not sha:
-                raise DepsError(f"{entry.get('name')}: locked wheel without a sha256 hash ({url})")
-            filename = wheel.get("name") or url.rsplit("/", 1)[-1]
+                name: str = e["name"]
+                raise DepsError(f"{name}: locked wheel without a sha256 hash ({url})")
+            filename: str = ""
+            if "name" in w:
+                filename = w["name"]
+            else:
+                filename = url.rsplit("/", 1)[-1]
             wheels.append(LockedWheel(url, sha.lower(), filename))
         packages.append(
             LockedPackage(
-                normalize_name(entry["name"]),
-                str(entry.get("version", "")),
+                normalize_name(e["name"]),
+                _version_string(e),
                 tuple(wheels),
-                SDIST if "sdist" in entry else 0,
-                entry.get("marker"),
+                SDIST if "sdist" in e else 0,
+                e.get("marker"),
             )
         )
     return sorted(packages, key=lambda p: p.name)
 
 
+def _version_string(entry: Dict[str, Any]) -> str:
+    """The locked version, "" when the row omits it."""
+    if "version" not in entry:
+        return ""
+    version: str = entry["version"]
+    return str(version)
+
+
 def lock_digest(text: str) -> str | None:
-    tool = _toml_loads(text).get("tool", {}).get(LOCK_TOOL_KEY, {})
-    value = tool.get("input-digest")
-    return value if isinstance(value, str) else None
+    data: Dict[str, Any] = _toml_loads(text)
+    if "tool" not in data:
+        return None
+    tool_block: Dict[str, Any] = data["tool"]
+    if LOCK_TOOL_KEY not in tool_block:
+        return None
+    tool: Dict[str, Any] = tool_block[LOCK_TOOL_KEY]
+    if "input-digest" not in tool:
+        return None
+    value: str = tool["input-digest"]
+    return value
 
 
 def uv_binary() -> str:
