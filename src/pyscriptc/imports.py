@@ -88,7 +88,7 @@ _ERASED = frozenset({"typing", "typing_extensions"})
 _DATA_FILE = Path(__file__).parent / "native_packages.json"
 
 # Extension suffixes CPython uses for a compiled extension module.
-_NATIVE_SUFFIXES = (".so", ".pyd", ".dylib", ".dll")
+_NATIVE_SUFFIXES = [".so", ".pyd", ".dylib", ".dll"]
 
 # The source of a verdict: which of the three sources answered it.
 SOURCE_TABLE = "stdlib-queue"
@@ -380,7 +380,7 @@ def _wheel_is_native(files: list[str]) -> bool:
 def _tree_has_extension(root: Path) -> bool:
     """True when a source tree holds a C, C++ or Rust source beside the Python."""
 
-    patterns = ("*.c", "*.cc", "*.cpp", "*.cxx", "*.rs", "*.pyx", "*.so")
+    patterns = ["*.c", "*.cc", "*.cpp", "*.cxx", "*.rs", "*.pyx", "*.so"]
     for pattern in patterns:
         for _ in root.rglob(pattern):
             return True
@@ -510,7 +510,7 @@ def _stdlib_verdict(name: str) -> Verdict | None:
         # A pack module rides the curated-pack lane, not the stdlib table,
         # even though the queue lists it so the lowering binds it.
         return None
-    in_table = module_status(canonical_module(name)) is not None
+    in_table: bool = module_status(canonical_module(name)) is not None
     if root not in sys.stdlib_module_names and not in_table:
         return None
     if root in _ERASED:
@@ -521,7 +521,7 @@ def _stdlib_verdict(name: str) -> Verdict | None:
             "annotation-only module; its types steer the lowering and the import is erased",
             source=SOURCE_TABLE,
         )
-    status = module_status(canonical_module(name))
+    status: str = module_status(canonical_module(name))
     if status == "lowered":
         return _verdict(
             name,
@@ -555,7 +555,8 @@ def _policy_key(name: str, policy: dict[str, str]) -> tuple[str, str] | None:
         lane, key = lane_for(_top_level(name), policy)
     if key == "default":
         return None
-    return POLICY_TO_LANE[lane], key
+    lane_name: str = POLICY_TO_LANE[lane]
+    return lane_name, key
 
 
 def apply_policy(verdict: Verdict, policy: dict[str, str] | None) -> Verdict:
