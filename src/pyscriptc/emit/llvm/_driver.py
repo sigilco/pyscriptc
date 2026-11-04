@@ -8,6 +8,7 @@ emitted text into a binary (`link_binary`, `compile_unit`).
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -138,6 +139,62 @@ _THREAD_SYMBOLS = (
 )
 
 
+# The https:// hop needs libcurl at build time: the flag set is empty for a
+# program whose emitted IR never reaches an https:// URL, so http-only
+# programs carry no libcurl dependency. `PSC_CURL_DYNAMIC=1` opts out of the
+# build-time link: the weak symbols in ps_http_curl.c stay unresolved and
+# the https:// request raises URLError at run time instead.
+PS_HTTP_CURL_SYMBOL = "@ps_http_request("
+PS_CURL_DYNAMIC_ENV = "PSC_CURL_DYNAMIC"
+
+
+def _https_reachable(text: str) -> bool:
+    """The emitted IR calls the HTTP client over an https:// URL.
+
+    The scheme literal rides in the IR as a string constant; the client
+    entry point anchors the call so a program that only imports
+    urllib.parse (or embeds the scheme in a comment string) does not trip
+    the detection.
+    """
+    return PS_HTTP_CURL_SYMBOL in text and "https://" in text
+
+
+def curl_link_flags(text: str, target: str | None = None) -> list[str]:
+    """The libcurl link arguments this program's link line gains, if any.
+
+    Resolved through `curl-config --libs` first, `pkg-config libcurl` when
+    curl-config is absent or fails. A program that cannot reach an https://
+    URL adds nothing, and `PSC_CURL_DYNAMIC=1` skips the build-time link
+    (the runtime then raises URLError for https at run time). When the
+    program does need libcurl and neither tool resolves it, the error names
+    libcurl and the way to install it instead of a linker wall. wasm targets
+    never link libcurl: ps_http.c owns their whole urlopen story as a stub.
+    """
+    if target is not None and target.startswith("wasm32"):
+        return []
+    if not _https_reachable(text):
+        return []
+    if os.environ.get(PS_CURL_DYNAMIC_ENV, "").strip() == "1":
+        return []
+    argvs = [["curl-config", "--libs"], ["pkg-config", "--libs", "libcurl"]]
+    for argv in argvs:
+        tool = shutil.which(argv[0])
+        if tool is None:
+            continue
+        proc = subprocess.run([tool, *argv[1:]], capture_output=True, text=True, timeout=30)
+        if proc.returncode == 0 and proc.stdout.strip():
+            return proc.stdout.split()
+    raise IRError(
+        "this program makes an https:// request and the runtime links libcurl "
+        "for it at build time, but neither curl-config nor pkg-config found "
+        "libcurl on this machine: install the libcurl development package "
+        "(Debian/Ubuntu: apt install libcurl-dev or libcurl4-openssl-dev; "
+        "macOS: brew install curl; Fedora: dnf install libcurl-devel) or set "
+        "PSC_CURL_DYNAMIC=1 to build without it (https then raises URLError "
+        "at run time)"
+    )
+
+
 def refuse_unsupported_target(text: str, target: str | None) -> None:
     """Refuse a target that cannot run the runtime's thread primitives.
 
@@ -261,7 +318,7 @@ def link_binary(
     san_flags = sanitize_flags(sanitize)
     dbg_flags = ["-g"] if debug_info else []
     pic_flags = ["-fPIC"] if shared else []
-    tail = [*san_flags, "-lm", "-o", str(output)]
+    tail = [*san_flags, "-lm", *curl_link_flags(text, target), "-o", str(output)]
     if "ps_island_" in text:
         if target is not None:
             raise IRError(
