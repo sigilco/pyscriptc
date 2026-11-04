@@ -13,22 +13,23 @@ export const out = join(here, "out");
 mkdirSync(out, { recursive: true });
 
 export const css = `
-:root{--bg:#07080a;--text:#f2f4f7;--muted:#6b7482;--sec:#9aa3b2;--accent:#4d80c4;--mono:ui-monospace,SFMono-Regular,Menlo,monospace}
+:root{--bg:#07080a;--text:#f2f4f7;--muted:#6b7482;--sec:#9aa3b2;--accent:#4d80c4;--mono:ui-monospace,SFMono-Regular,Menlo,monospace;--sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;--surface:#0e1013;--hair:rgba(255,255,255,.09);--slate:#b4bec8;--accent-strong:#6c9bd8}
 *{box-sizing:border-box;margin:0}
 body{background:var(--bg);color:var(--text);font-family:var(--mono)}
 #card{width:1080px;height:1080px;padding:64px}
-.grid{display:grid;gap:44px 36px;height:100%;align-content:space-between}
-.g3{grid-template-columns:repeat(3,1fr)} .g2{grid-template-columns:repeat(2,1fr);align-content:center;row-gap:110px}
-.name{font-size:25px;color:var(--text)}
+.grid{display:grid;gap:20px;height:100%;align-content:space-between}
+.cell{background:var(--surface);border:1px solid var(--hair);border-radius:14px;padding:22px 22px 20px}
+.g3{grid-template-columns:repeat(3,1fr)} .g2{grid-template-columns:repeat(2,1fr);align-content:center;row-gap:24px}
+.name{font:500 24px var(--sans);color:var(--slate)}
 .bar{margin-top:10px;font-size:21px}
 .bar .l{display:flex;justify-content:space-between}
-.bar.a .l{color:var(--text)} .bar.b .l{color:var(--muted)}
+.bar.a .l{color:var(--text)} .bar.a .l span:last-child{color:var(--accent-strong)} .bar.b .l{color:var(--muted)}
 .dots{height:14px;margin-top:5px;background-image:radial-gradient(circle,currentColor 2.2px,transparent 2.8px);background-size:6px 8px}
 .bar.a .dots{color:var(--accent)} .bar.b .dots{color:#3a404b;width:100%}
-.big .name{font-size:34px} .big .bar{font-size:28px} .big .dots{height:20px;background-size:8px 11px}
+.big .name{font-size:32px} .big .bar{font-size:28px} .big .dots{height:20px;background-size:8px 11px}
 .sect{border-bottom:1px solid rgba(255,255,255,.14);padding:56px 0}
 .sect:last-child{border:0}
-.lbl{color:var(--sec);font-size:26px;margin-bottom:22px}
+.lbl{font-family:var(--sans);color:var(--sec);font-size:26px;margin-bottom:22px}
 .code{font-size:44px;line-height:1.35;white-space:pre} .code .kw{color:var(--accent)}
 .hero{font-size:84px;font-weight:600;letter-spacing:-.02em}
 .msg{font-size:34px;line-height:1.4} .msg .a{color:var(--accent)}
@@ -39,7 +40,7 @@ export const fmt = (ms) => (ms >= 100 ? Math.round(ms).toLocaleString("en-US") :
 
 // One benchmark cell: native bar scaled against its own CPython bar (the reference style).
 export const cell = (name, native, py, a = "Native", b = "CPython") =>
-  `<div><div class="name">${name}</div>
+  `<div class="cell"><div class="name">${name}</div>
 <div class="bar a"><div class="l"><span>${a}</span><span>${fmt(native)}</span></div><div class="dots" style="width:${Math.max(4, (native / py) * 100).toFixed(1)}%"></div></div>
 <div class="bar b"><div class="l"><span>${b}</span><span>${fmt(py)}</span></div><div class="dots"></div></div></div>`;
 
