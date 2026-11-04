@@ -35,7 +35,7 @@ DEFAULT_LANE = "compile"
 # label coverage and binary metadata print for that lane.
 ISLAND_LABEL = "requires libpython"
 
-_KEYS: dict[str, tuple[type, ...]] = {
+_KEYS: dict[str, Any] = {
     "entry": (str,),
     "src": (str, list),
     "checker": (str,),
@@ -50,10 +50,10 @@ _KEYS: dict[str, tuple[type, ...]] = {
     "island": (dict,),
     # boxed:end
 }
-_CHOICES: Dict[str, tuple[str, ...]] = {
-    "checker": ("pyrefly", "mypy", "pyright"),
-    "driver": ("clang", "zig"),
-    "fail-on": ("blockers", "any"),
+_CHOICES: Dict[str, list[str]] = {
+    "checker": ["pyrefly", "mypy", "pyright"],
+    "driver": ["clang", "zig"],
+    "fail-on": ["blockers", "any"],
 }
 
 
@@ -112,15 +112,27 @@ def project_roots(pyproject: Path) -> tuple[str, ...]:
     pyproject) still resolves.
     """
 
-    base = pyproject.parent
-    data = _toml(pyproject)
-    table = _project_table(data, pyproject)
-    configured = table.get("src") if table else None
-    if configured is None:
-        configured = "src"
-    roots = (configured,) if isinstance(configured, str) else tuple(configured)
-    present = tuple(root for root in roots if (base / root).is_dir())
-    return present or (".",)
+    base: Path = pyproject.parent
+    data: Dict[str, Any] = _toml(pyproject)
+    table: Dict[str, Any] | None = _project_table(data, pyproject)
+    roots: list[str] = []
+    if table is not None and "src" in table:
+        if isinstance(table["src"], str):
+            src_str: str = table["src"]
+            roots.append(src_str)
+        elif isinstance(table["src"], list):
+            src_items: list[str] = table["src"]
+            for r in src_items:
+                roots.append(r)
+    if not roots:
+        roots.append("src")
+    present: list[str] = []
+    for root in roots:
+        if (base / root).is_dir():
+            present.append(root)
+    if not present:
+        present.append(".")
+    return tuple(present)
 
 
 def read_pep723(text: str) -> dict[str, Any] | None:
@@ -129,14 +141,25 @@ def read_pep723(text: str) -> dict[str, Any] | None:
     Shared parser: PR #138 carries an identical copy in deps.py; when that
     branch lands it should import this function instead.
     """
-    blocks = [m for m in PEP723_RE.finditer(text) if m.group("type") == "script"]
+    blocks: list[re.Match] = []
+    for m in PEP723_RE.finditer(text):
+        if m.group(1) == "script":
+            blocks.append(m)
     if not blocks:
         return None
     if len(blocks) > 1:
         raise ConfigError("more than one `# /// script` block (PEP 723 allows one)")
-    content = "".join(
-        line[2:] if line.startswith("# ") else line[1:] for line in blocks[0].group("content").splitlines(keepends=True)
-    )
+    target_match: re.Match = blocks[0]
+    raw = target_match.group(2)
+    raw_content: str = "" if raw is None else raw
+    lines: list[str] = raw_content.splitlines(True)
+    content_parts: list[str] = []
+    for line in lines:
+        if line.startswith("# "):
+            content_parts.append(line[2:])
+        else:
+            content_parts.append(line[1:])
+    content: str = "".join(content_parts)
     try:
         return tomllib.loads(content)
     except tomllib.TOMLDecodeError as exc:
@@ -158,8 +181,8 @@ class Config:
     ffi: tuple[str, ...]
     imports: Dict[str, str]
     # boxed:begin
-    fallback: Any
-    island: Any
+    fallback: Dict[str, Any]
+    island: Dict[str, Any]
     # boxed:end
     requires_python: str | None
     dependencies: tuple[str, ...]
@@ -339,7 +362,11 @@ def dependency_lanes(dependencies: tuple[str, ...], imports: dict[str, str] | No
     """
     from pyscriptc.imports import classify
 
-    policy: Dict[str, str] = {} if imports is None else imports
+    if imports is not None:
+        policy: Dict[str, str] = imports
+    else:
+        empty_policy: Dict[str, str] = {}
+        policy = empty_policy
     star: str | None = policy.get("*")
     lanes: dict[str, str] = {}
     for requirement in dependencies:
@@ -372,40 +399,40 @@ def _where(table: str, key: str) -> str:
     return f"[{table}].{key}" if table else key
 
 
-def _string(value: Any, where: str) -> str:
-    if not isinstance(value, str):
-        raise ConfigError(f"{where} must be a string, got {type(value).__name__}")
-    return value
+def _paths(value: Any) -> tuple[str, ...]:
+    if isinstance(value, str):
+        return (value,)
+    return tuple(value)
 
 
-def _validate(table: str, data: dict[str, Any]) -> dict[str, Any]:
+def _validate(table: str, data: Dict[str, Any]) -> Dict[str, Any]:
     for key, value in data.items():
         if key not in _KEYS:
             known = ", ".join(sorted(_KEYS))
             raise ConfigError(f"{_where(table, key)}: unknown key (known: {known})")
         types = _KEYS[key]
         if not isinstance(value, types):
-            want = "/".join(t.__name__ for t in types)
+            names: list[str] = []
+            for t in types:
+                if t.__name__ not in names:
+                    names.append(t.__name__)
+            want = "/".join(names)
             raise ConfigError(f"{_where(table, key)} must be {want}, got {type(value).__name__}")
         if key in _CHOICES and value not in _CHOICES[key]:
             raise ConfigError(f"{_where(table, key)} must be one of {'|'.join(_CHOICES[key])}, got {value!r}")
     for key in ("src", "stub-path", "ffi"):
-        if isinstance(data.get(key), list) and not all(isinstance(i, str) for i in data[key]):
-            raise ConfigError(f"{_where(table, key)} must be a list of strings")
+        if key in data:
+            val_list = data[key]
+            if isinstance(val_list, list) and not all(isinstance(i, str) for i in val_list):
+                raise ConfigError(f"{_where(table, key)} must be a list of strings")
     if "imports" in data:
-        imports = data["imports"]
+        imports: Dict[str, Any] = data["imports"]
         for name, lane in imports.items():
             if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*|\*", name):
                 raise ConfigError(f"{_where(table, 'imports')}: invalid module name {name!r}")
             if not isinstance(lane, str) or lane not in LANES:
                 raise ConfigError(f"{_where(table, 'imports')}.{name} must be one of {'|'.join(LANES)}, got {lane!r}")
     return data
-
-
-def _paths(value: Any) -> tuple[str, ...]:
-    if isinstance(value, str):
-        return (value,)
-    return tuple(value)
 
 
 def _from_table(table: dict[str, Any], origin: Path, source: str) -> Config:
