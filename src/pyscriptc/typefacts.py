@@ -1431,14 +1431,13 @@ class PyreflyTspFactsAdapter:
     def __enter__(self) -> PyreflyTspFactsAdapter:
         return self
 
-    def __exit__(self, *_exc: object) -> None:
+    def __exit__(
+        self,
+        exc_type: BaseException | None = None,
+        exc_val: BaseException | None = None,
+        exc_tb: BaseException | None = None,
+    ) -> None:
         self.close()
-
-    def __del__(self) -> None:
-        try:
-            self.close()
-        except Exception:
-            pass
 
     def _connect(self) -> _LspConnection:
         if self._connection is not None:
