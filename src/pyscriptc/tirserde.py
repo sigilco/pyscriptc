@@ -725,6 +725,10 @@ def dict_to_node(d: Any) -> Any:
         value = d["value"]
         if payload == "bool":
             return const_node(P_BOOL, "true" if value else "false", typ, span)
+        if payload == "any":
+            # The unresolved slot's stray-walk zero (see lower._core._zero):
+            # an str payload under the `any` type, P_STR like the spelling.
+            return const_node(P_STR, "" if value is None else str(value), typ, span)
         svalue = "" if payload == "none" else value
         return const_node(_PTAGS[payload], svalue, typ, span)
     if kind == "value":

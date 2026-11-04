@@ -147,3 +147,66 @@ def test_object_still_fences_ps1104(tmp_path: Path) -> None:
     path = write_case(tmp_path, "any_object.py", source)
     got = compile_run(tmp_path, path, "main")
     assert "PS1104" in got.stderr
+
+
+def test_dict_any_parameter_lowers(tmp_path: Path) -> None:
+    """Issue #817: `dict[str, Any]` in a parameter lowers like `Dict[str, Any]`."""
+    source = "\n".join(
+        [
+            "from typing import Any",
+            "",
+            "def get(d: dict[str, Any], k: str) -> int:",
+            "    v: int = d[k]",
+            "    return v",
+            "",
+            "def main() -> int:",
+            "    d: dict[str, Any] = {'n': 4}",
+            "    return get(d, 'n')",
+            "",
+        ]
+    )
+    path = write_case(tmp_path, "any_dict_param.py", source)
+    got = compile_run(tmp_path, path, "main")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle(path, "main")
+
+
+def test_dict_any_return_lowers(tmp_path: Path) -> None:
+    source = "\n".join(
+        [
+            "from typing import Any",
+            "",
+            "def make() -> dict[str, Any]:",
+            "    d: dict[str, Any] = {'m': 2}",
+            "    return d",
+            "",
+            "def main() -> int:",
+            "    v: int = make()['m']",
+            "    return v",
+            "",
+        ]
+    )
+    path = write_case(tmp_path, "any_dict_ret.py", source)
+    got = compile_run(tmp_path, path, "main")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle(path, "main")
+
+
+def test_dict_any_parameter_unproven_read_fences(tmp_path: Path) -> None:
+    """The dict spelling keeps the Dict spelling's PS1107 proof duty."""
+    source = "\n".join(
+        [
+            "from typing import Any",
+            "",
+            "def get(d: dict[str, Any], total: int) -> int:",
+            "    total = total + d['missing']",
+            "    return total",
+            "",
+            "def main() -> int:",
+            "    return get({}, 0)",
+            "",
+        ]
+    )
+    path = write_case(tmp_path, "any_dict_param_unproven.py", source)
+    got = compile_run(tmp_path, path, "main")
+    assert "PS1107" in got.stderr

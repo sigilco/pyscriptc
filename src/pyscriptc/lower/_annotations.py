@@ -236,11 +236,15 @@ class AnnotationMixin:
         if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "dict":
             if not isinstance(node.slice, ast.Tuple) or len(node.slice.elts) != 2:
                 self.fail(node, "PS1001", "dict annotations are dict[key, value]")
+            # Issue #817: the PEP 585 spelling matches the typing-module
+            # spelling. The value slot goes through `_any_annotation` like the
+            # Dict branch, so `dict[K, Any]` lowers with an unresolved value
+            # instead of a PS1104 fence.
             typ = _type(
                 {
                     "kind": "dict",
                     "key": self._annotation(node.slice.elts[0]),
-                    "value": self._annotation(node.slice.elts[1]),
+                    "value": self._any_annotation(node.slice.elts[1]),
                 }
             )
             self._reject_banned_type(node, typ)
