@@ -8,10 +8,45 @@ slots, so `nonlocal` writes and transitive captures share one cell.
 import ast
 from typing import Any
 
+from pyscriptc import _irnode as _ir
 from pyscriptc.errors import span_of
 from pyscriptc.ir import types_equal
-from pyscriptc.lower._core import Fence, _assign, _name
+from pyscriptc.lower._core import Fence, _assign, _mk_span, _mk_type, _name
 from pyscriptc.lower._stmt import _always_returns
+from pyscriptc.tirserde import dict_to_node, node_to_dict
+
+
+def _pass_stmt(span: dict[str, Any]) -> dict[str, Any]:
+    """The pass statement one dict-IR pass spells."""
+
+    return node_to_dict(dict_to_node({"kind": "pass", "span": span}))
+
+
+def _func_type(param_types: list[dict[str, Any]], ret: dict[str, Any]) -> dict[str, Any]:
+    """The func type dict one parameter/return pair spells."""
+
+    return node_to_dict(_ir.t_func([_mk_type(param) for param in param_types], _mk_type(ret)))
+
+
+def _env_item(entry: dict[str, Any]) -> Any:
+    """The EnvItem record one dict-IR env entry spells."""
+
+    if "init" in entry:
+        return _ir.EnvItem(dict_to_node(entry["init"]), _mk_type(entry["type"]), "")
+    return _ir.EnvItem(None, _mk_type(entry["type"]), entry["name"])
+
+
+def _closure_node(
+    name: str,
+    env: list[dict[str, Any]],
+    ftype: dict[str, Any],
+    span: dict[str, Any],
+    stub: Any = None,
+) -> Any:
+    """The typed closure node one dict-IR closure spells."""
+
+    return _ir.closure(name, [_env_item(item) for item in env], _mk_type(ftype), _mk_span(span), stub)
+
 
 # Lowerer fields swapped for the duration of one nested body's lowering.
 _FN_STATE = (
@@ -52,16 +87,16 @@ class ClosuresMixin:
         if isinstance(fn, ast.AsyncFunctionDef):
             self.fail(fn, "PS2002", "async functions are not lowered")
         params, ret = self._signature(fn, None, "static")
-        ftype = {"kind": "func", "params": [param["type"] for param in params], "return": ret}
+        ftype = _func_type([param["type"] for param in params], ret)
         # Bind the name before building the env so the def can capture itself
         # (self-recursion reads its own stack slot through the env pointer).
         self.locals[fn.name] = ftype
         self.local_sigs[id(ftype)] = (ftype, params)
         built = self._build_callable(fn.name, params, ret, fn.body, fn)
         if built is None:
-            return [{"kind": "pass", "span": span}]
+            return [_pass_stmt(span)]
         name, env, _ = built
-        stmts = [_assign(fn.name, {"kind": "closure", "name": name, "env": env, "type": ftype, "span": span}, span)]
+        stmts = [_assign(fn.name, node_to_dict(_closure_node(name, env, ftype, span)), span)]
         stmts.extend(self._decorators(fn, span))
         return stmts
 
@@ -101,13 +136,17 @@ class ClosuresMixin:
             or dec_expr["type"]["return"]["kind"] != "func"
         ):
             self.fail(dec, "PS2002", "user decorators are not lowered")
-        return {
-            "kind": "call",
-            "callee": {"kind": "value", "target": dec_expr},
-            "args": [value],
-            "type": dec_expr["type"]["return"],
-            "span": span,
-        }
+        return node_to_dict(
+            _ir.call(
+                _ir.value_callee(dict_to_node(dec_expr)),
+                [dict_to_node(value)],
+                _mk_type(dec_expr["type"]["return"]),
+                _mk_span(span),
+                "",
+                "",
+                -1,
+            )
+        )
 
     def _partial_callable(self, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         """`functools.partial(f, a, ...)`: a callable cell whose env holds the
@@ -138,25 +177,27 @@ class ClosuresMixin:
             self._expect(arg, value["type"], expect, f"functools.partial argument {index + 2}")
             env.append({"init": value, "type": expect})
         env.append({"init": target, "type": ftype})
-        result = {"kind": "func", "params": ftype["params"][len(bound) :], "return": ftype["return"]}
-        return {
-            "kind": "closure",
-            "name": "pa.partial",
-            "env": env,
-            "type": result,
-            "stub": {
-                "bound": [item["type"] for item in env[:-1]],
-                "params": result["params"],
-                "return": result["return"],
-            },
-            "span": span,
-        }
+        result = _func_type(ftype["params"][len(bound) :], ftype["return"])
+        typed_env = [_env_item(item) for item in env]
+        return node_to_dict(
+            _closure_node(
+                "pa.partial",
+                env,
+                result,
+                span,
+                _ir.Stub(
+                    [item.type for item in typed_env[:-1]],
+                    [_mk_type(param) for param in result["params"]],
+                    _mk_type(result["return"]),
+                ),
+            )
+        )
 
     def _callable_name_type(self, name: str) -> dict[str, Any] | None:
         """The func type a bare name carries, from any scope, else None."""
         if name in self.sigs and name not in self.generic_fns:
             params, ret = self.sigs[name]
-            return {"kind": "func", "params": [param["type"] for param in params], "return": ret}
+            return _func_type([param["type"] for param in params], ret)
         ftype = self.locals.get(name, self.captures.get(name))
         if ftype is not None and ftype["kind"] == "func":
             return ftype
@@ -169,7 +210,7 @@ class ClosuresMixin:
         for name in stmt.names:
             if name not in self.captures:
                 self.fail(stmt, "PS2002", f"nonlocal {name} has no enclosing binding")
-        return [{"kind": "pass", "span": span}]
+        return [_pass_stmt(span)]
 
     def _lambda(self, node: ast.Lambda, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
         """`f: Callable[[int], int] = lambda x: x + 1`. Parameter types come from
@@ -188,7 +229,7 @@ class ClosuresMixin:
         if built is None:
             self.fail(node, "PS2002", "the lambda body is not lowered")
         name, env, _ = built
-        return {"kind": "closure", "name": name, "env": env, "type": expect, "span": span}
+        return node_to_dict(_closure_node(name, env, expect, span))
 
     def _build_callable(
         self,
@@ -216,7 +257,7 @@ class ClosuresMixin:
                     # to a closure that outlives the frame must be heap
                     # storage, not an alloca.
                     self.boxed_names.add(free)
-        ftype = {"kind": "func", "params": [param["type"] for param in params], "return": ret}
+        ftype = _func_type([param["type"] for param in params], ret)
         saved = {field: getattr(self, field) for field in _FN_STATE}
         self.locals = {param["name"]: param["type"] for param in params}
         self.captures = {item["name"]: item["type"] for item in env}
