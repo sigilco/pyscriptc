@@ -137,15 +137,6 @@ def facts_provider(checker: str = "pyrefly-tsp") -> FactsProvider:
     raise CheckFailed(f"checker {checker!r} has no facts adapter; use 'pyrefly-tsp' or 'pyrefly'")
 
 
-# Named tuples because ruff (target-version py314) strips except-parens
-# into `except A, B:` — valid only on 3.14+, broken on the 3.13 dev venv.
-_PIPE_ERRORS = (OSError, CheckFailed)
-_SHUTDOWN_ERRORS = _PIPE_ERRORS + (subprocess.TimeoutExpired,)
-_CLI_ERRORS = (OSError, subprocess.TimeoutExpired)
-_READ_ERRORS = (OSError, ValueError, json.JSONDecodeError)
-_EVAL_ERRORS = (ValueError, SyntaxError)
-
-
 class _LspConnection:
     """Minimal synchronous JSON-RPC client for one stdio langserver.
 
@@ -209,7 +200,7 @@ class _LspConnection:
             return
         try:
             self._send({"jsonrpc": "2.0", "method": method, "params": params})
-        except _PIPE_ERRORS:
+        except OSError, CheckFailed:
             self._dead = True
 
     def wait_notification(
@@ -241,7 +232,7 @@ class _LspConnection:
             self.request("shutdown", None, timeout=10)
             self.notify("exit", None)
             proc.wait(timeout=5)
-        except _SHUTDOWN_ERRORS:
+        except OSError, CheckFailed, subprocess.TimeoutExpired:
             pass
         if proc.poll() is None:
             proc.kill()
@@ -289,7 +280,7 @@ class _LspConnection:
                     self._mark_dead()
                     return
                 message = json.loads(body)
-            except _READ_ERRORS:
+            except OSError, ValueError:
                 self._mark_dead()
                 return
             self._dispatch(message)
@@ -535,7 +526,7 @@ def _parse_literal_piece(text: str) -> TypeFacts | None:
     """A `Literal[...]` member or a bare literal: 1, 's', True, None, Color.RED."""
     try:
         value = ast.literal_eval(text)
-    except _EVAL_ERRORS:
+    except ValueError, SyntaxError:
         value = None
     if isinstance(value, bool):
         return TypeFacts(kind="literal", args=(TypeFacts(kind="bool"),), runtime_repr=text)
@@ -583,7 +574,7 @@ def _default_static_value(text: str) -> Any:
     """`"x"`/`3`/`True` -> StaticValue; _MISSING when unrepresentable."""
     try:
         value = ast.literal_eval(text)
-    except _EVAL_ERRORS:
+    except ValueError, SyntaxError:
         return _MISSING
     if value is ... or isinstance(value, (tuple, frozenset, complex)):
         return _MISSING
@@ -849,7 +840,7 @@ def _static_defaults(tree: ast.Module) -> dict[str, dict[str, Any]]:
                         continue
                     try:
                         value = ast.literal_eval(expr)
-                    except _EVAL_ERRORS:
+                    except ValueError, SyntaxError:
                         value = _MISSING
                     if not (isinstance(value, (int, float, bool, str, bytes)) or value is None):
                         value = _MISSING
@@ -988,7 +979,7 @@ class PyreflyFactsAdapter:
                     f"pyrefly is not installed (command {self._argv[0]!r}); "
                     "pip install pyrefly, set PYREFLY_BIN, or put pyrefly on PATH"
                 ) from exc
-            except _CLI_ERRORS as exc:
+            except (OSError, subprocess.TimeoutExpired) as exc:
                 raise CheckFailed(f"pyrefly check failed for {path}: {exc}") from exc
             expressions_doc = self._read_report(tmp, "type_of_expressions", path)
             definitions_doc = self._read_report(tmp, "definitions", path)
@@ -1008,7 +999,7 @@ class PyreflyFactsAdapter:
         for candidate in sorted(report_dir.glob("*.json")):
             try:
                 doc = json.loads(candidate.read_text(encoding="utf-8"))
-            except _READ_ERRORS:
+            except OSError, ValueError:
                 continue
             if not isinstance(doc, Mapping):
                 continue
@@ -1550,7 +1541,7 @@ class PyreflyTspFactsAdapter:
                 if default is not None:
                     try:
                         value = ast.literal_eval(default)
-                    except _EVAL_ERRORS:
+                    except ValueError, SyntaxError:
                         continue
                     if value is None or isinstance(value, (int, float, bool, str, bytes)):
                         default_values[arg.arg] = value
