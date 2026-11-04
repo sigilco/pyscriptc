@@ -87,7 +87,7 @@ CONTAINER_TYPES = frozenset({"list", "dict"})
 # The type names a manifest may use in a `py` signature. Everything else is
 # refused: the vocabulary is the lowered subset's, so the emitter never has
 # to inspect a value at runtime.
-ALLOWED_TYPE_NAMES: frozenset[str] = SCALAR_TYPES | CONTAINER_TYPES
+ALLOWED_TYPE_NAMES = frozenset({"int", "float", "bool", "str", "bytes", "list", "dict"})
 
 # The C types a `[[const]]` may hold.
 CONST_TYPES = frozenset({"int", "float", "str"})
