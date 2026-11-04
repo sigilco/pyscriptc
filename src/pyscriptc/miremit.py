@@ -31,7 +31,7 @@ together.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Dict
 
 from pyscriptc.dwarf import DwarfEmitter
 from pyscriptc.emit._ir import _fn_symbol, _llvm_double, _llvm_type, _safe
@@ -67,8 +67,8 @@ from pyscriptc.mir import (
     MIR_SUBD,
     MIR_SUBW,
     MIR_W,
-    TERMINATORS,
     MirBlock,
+    MirConst,
     MirFunction,
     MirModule,
     const_index,
@@ -109,6 +109,12 @@ _LLVM_W = {MIR_ADDW: "add", MIR_SUBW: "sub", MIR_MULW: "mul", MIR_NEGW: "sub"}
 _LLVM_D = {MIR_ADDD: "fadd", MIR_SUBD: "fsub", MIR_MULD: "fmul", MIR_NEGD: "fneg"}
 
 
+# The terminator ops, spelled here over the imported op constants: the
+# module-level table in `mir.py` binds a global slot, and slots do not
+# ride the package export table a cross-module import resolves against.
+_MIR_TERMINATORS: list[int] = [MIR_JMP, MIR_BR, MIR_RET]
+
+
 def mir_opt_in() -> bool:
     """Whether the environment opts into the MIR lane."""
     value = _env(MIR_ENV)
@@ -122,25 +128,52 @@ def _env(name: str) -> str:
 
 
 class MirEmitter:
-    """One module's MIR-to-LLVM walk. The MIR was verified before this runs."""
+    """One module's MIR-to-LLVM walk. The MIR was verified before this runs.
 
-    def __init__(self, module: dict[str, Any], dwarf: DwarfEmitter | None, wasm: bool = False) -> None:
+    The field table is spelled as class-level bare annotations: the census
+    lowerer collects fields from the `__init__` body, but its AnnAssign
+    statement shape is not lowered, so a `self.x: T = ...` assignment fences
+    every later `self.x` read. The bare-name form registers the field
+    without a statement to lower.
+    """
+
+    module: Dict[str, Any]
+    dwarf: DwarfEmitter | None
+    wasm: int
+    # The emitted symbol to the IR function name (main -> ps.user.main),
+    # rebuilt per function walk below.
+    _symbol_fn: Dict[str, str]
+    out: list[str]
+    globals: list[str]
+    needed: set[str]
+    abi_decls: Dict[str, tuple[str, list[str]]]
+    tid: int
+    # Per-function walk state.
+    fn: MirFunction | None
+    reg: Dict[int, str]
+    slot_vid: Dict[str, int]
+    slot_vid_set: set[int]
+
+    def __init__(self, module: Dict[str, Any], dwarf: DwarfEmitter | None, wasm: bool = False) -> None:
         self.module = module
         self.dwarf = dwarf
-        self.wasm = wasm
-        # The emitted symbol to the IR function name (main -> ps.user.main).
-        self._symbol_fn = {_fn_symbol(fn["name"]): fn["name"] for fn in module["functions"]}
-        self.out: list[str] = []
-        self.globals: list[str] = []
-        self.needed: set[str] = set()
-        self.abi_decls: dict[str, tuple[str, list[str]]] = {}
+        self.wasm = 1 if wasm else 0
+        functions: list[Dict[str, Any]] = module["functions"]
+        symbols: Dict[str, str] = {}
+        for fn in functions:
+            fn_name: str = fn["name"]
+            symbols[_fn_symbol(fn_name)] = fn_name
+        self._symbol_fn = symbols
+        self.out = []
+        self.globals = []
+        self.needed = set()
+        self.abi_decls = {}
         self.tid = 0
         # Per-function walk state.
-        self._symbol_fn: dict[str, str] = {}
-        self.fn: MirFunction | None = None
-        self.reg: dict[int, str] = {}
-        self.slot_vid: dict[str, int] = {}
-        self.slot_vid_set: set[int] = set()
+        self.fn = None
+        self.reg = {}
+        self.slot_vid = {}
+        self.slot_vid_set = set()
 
     # ---- module driver ----
 
@@ -152,7 +185,9 @@ class MirEmitter:
         # module shape (classes, the entry point, the runtime tables); the
         # direct path's per-function bodies the MIR covers are replaced by
         # the MIR lane's text, which is byte-identical by construction.
-        direct = Emitter(self.module, self.dwarf, wasm=self.wasm).emit(call, args, standalone, library=library)
+        wasm_flag = self.wasm != 0
+        emitter: Emitter = Emitter(self.module, self.dwarf, wasm=wasm_flag)
+        direct = emitter.emit(call, args, standalone, library=library)
         if not mir_module.functions:
             return direct
         return self._splice(direct, mir_module, by_name)
@@ -222,20 +257,31 @@ class MirEmitter:
         # independent of the lowerer's internals.
         self.slot_vid = {}
         self.slot_vid_set = set()
-        vid = len(ir_fn["params"])
-        for local in ir_fn["locals"]:
-            self.slot_vid[local["name"]] = vid
-            self.slot_vid_set.add(vid)
+        fns: list[Dict[str, Any]] = ir_fn["params"]
+        vid: int = len(fns)
+        locs: list[Dict[str, Any]] = ir_fn["locals"]
+        seen: set[int] = self.slot_vid_set
+        for local in locs:
+            lname: str = local["name"]
+            self.slot_vid[lname] = vid
+            seen.add(vid)
+            self.slot_vid_set = seen
             vid += 1
         # One alloca per name slot, in the locals order the direct walk
         # uses, the return slot for a non-void function, then the flow
         # slot: the direct path's allocation sequence, inside the entry
         # block.
-        ret = _llvm_type(ir_fn["returnType"])
-        plist = [f"{_llvm_type(p['type'])} %{_safe(p['name'])}" for p in ir_fn["params"]]
+        ret_type: Dict[str, Any] = ir_fn["returnType"]
+        ret: str = _llvm_type(ret_type)
+        plist: list[str] = []
+        for p in fns:
+            p_type: Dict[str, Any] = p["type"]
+            p_name: str = p["name"]
+            plist.append(f"{_llvm_type(p_type)} %{_safe(p_name)}")
         symbol = _fn_symbol(fn.name)
-        self.out.append(f"define {ret} @{symbol}({', '.join(plist)}) {{")
-        self.out.append("entry:")
+        out: list[str] = self.out
+        out.append(f"define {ret} @{symbol}({', '.join(plist)}) {{")
+        out.append("entry:")
         for slot_vid in self._slot_vids():
             self.reg[slot_vid] = self.tmp_reg()
             self.line(f"{self.reg[slot_vid]} = alloca {_tag_llvm(self._tag_of(slot_vid))}")
@@ -245,24 +291,33 @@ class MirEmitter:
         for i in self._span(0):
             self.emit_instr(fn, i)
         for bid in range(1, len(fn.blocks)):
-            self.out.append(f"{self._label(bid)}:")
+            out.append(f"{self._label(bid)}:")
             for i in self._span(bid):
                 self.emit_instr(fn, i)
-        self.out.append("}")
-        self.out.append("")
+        out.append("}")
+        out.append("")
+        self.out = out
 
-    def _ir_fn(self, name: str) -> dict[str, Any]:
-        for fn in self.module["functions"]:
-            if fn["name"] == name:
+    def _ir_fn(self, name: str) -> Dict[str, Any]:
+        functions: list[Dict[str, Any]] = self.module["functions"]
+        for fn in functions:
+            fn_name: str = fn["name"]
+            if fn_name == name:
                 return fn
         raise IRError(f"no IR function {name} behind the MIR")
 
     def _slot_vids(self) -> list[int]:
         """The name-slot value ids, in locals order (the alloca order)."""
-        assert self.fn is not None
-        ir_fn = self._ir_fn(self.fn.name)
-        names = [local["name"] for local in ir_fn["locals"]]
-        vids = []
+        current = self.fn
+        if current is None:
+            raise IRError("no function walk is active")
+        ir_fn = self._ir_fn(current.name)
+        names: list[str] = []
+        walk_locals: list[Dict[str, Any]] = ir_fn["locals"]
+        for local in walk_locals:
+            lname: str = local["name"]
+            names.append(lname)
+        vids: list[int] = []
         for name in names:
             vid = self.slot_vid.get(name)
             if vid is not None:
@@ -270,27 +325,32 @@ class MirEmitter:
         return vids
 
     def _tag_of(self, vid: int) -> int:
-        assert self.fn is not None
         fn = self.fn
+        if fn is None:
+            raise IRError("no function walk is active")
         for i in range(len(fn.ops)):
             if fn.dsts[i] == vid:
                 return copy_result_type(fn, i)
         raise IRError(f"no definition of v{vid}")
 
-    def _span(self, bid: int) -> range:
+    def _span(self, bid: int) -> list[int]:
         """The instruction indexes of block `bid` (construction order spans)."""
-        assert self.fn is not None
         fn = self.fn
-        cursor = 0
-        n = len(fn.ops)
+        if fn is None:
+            raise IRError("no function walk is active")
+        cursor: int = 0
+        n: int = len(fn.ops)
         for _ in range(bid):
-            while cursor < n and fn.ops[cursor] not in TERMINATORS:
+            while cursor < n and fn.ops[cursor] not in _MIR_TERMINATORS:
                 cursor += 1
             cursor += 1
         start = cursor
-        while cursor < n and fn.ops[cursor] not in TERMINATORS:
+        while cursor < n and fn.ops[cursor] not in _MIR_TERMINATORS:
             cursor += 1
-        return range(start, cursor + 1)
+        out: list[int] = []
+        for i in range(start, cursor + 1):
+            out.append(i)
+        return out
 
     def _label(self, bid: int) -> str:
         """The direct path's label spelling of MIR block `bid`.
@@ -326,7 +386,9 @@ class MirEmitter:
             if entry is not None:
                 helper = entry.split(" ")[0]
                 tag = int(entry.split(" ")[1])
-                self.needed.add(helper)
+                needed: set[str] = self.needed
+                needed.add(helper)
+                self.needed = needed
                 llvm = _tag_llvm(tag)
                 args = [self.operand(fn, x) for x in (a1, a2)]
                 rendered = ", ".join(f"{llvm} {arg}" for arg in args)
@@ -338,7 +400,9 @@ class MirEmitter:
             self.line(f"store {_tag_llvm(self._tag_of(dst))} {self.operand(fn, a1)}, ptr {self.reg[dst]}")
             return
         if op in _HELPER_W:
-            self.needed.add(_HELPER_W[op])
+            needed = self.needed
+            needed.add(_HELPER_W[op])
+            self.needed = needed
             args = [self.operand(fn, x) for x in (a1, a2)]
             rendered = ", ".join(f"i64 {arg}" for arg in args)
             reg = self.tmp_reg()
@@ -415,8 +479,9 @@ class MirEmitter:
         return "i64"
 
     def _def_tag(self, vid: int) -> int:
-        assert self.fn is not None
         fn = self.fn
+        if fn is None:
+            raise IRError("no function walk is active")
         for i in range(len(fn.ops)):
             if fn.dsts[i] == vid:
                 return copy_result_type(fn, i)
@@ -426,16 +491,24 @@ class MirEmitter:
         return vid in self.slot_vid_set
 
     def param_name(self, vid: int) -> str:
-        assert self.fn is not None
-        ir_fn = self._ir_fn(self.fn.name)
-        return f"%{_safe(ir_fn['params'][vid]['name'])}"
+        current = self.fn
+        if current is None:
+            raise IRError("no function walk is active")
+        ir_fn = self._ir_fn(current.name)
+        params: list[Dict[str, Any]] = ir_fn["params"]
+        param: Dict[str, Any] = params[vid]
+        pname: str = param["name"]
+        return f"%{_safe(pname)}"
 
     def tmp_reg(self) -> str:
-        self.tid += 1
-        return f"%t{self.tid}"
+        nxt: int = self.tid + 1
+        self.tid = nxt
+        return f"%t{nxt}"
 
     def line(self, text: str) -> None:
-        self.out.append(f"  {text}")
+        out: list[str] = self.out
+        out.append(f"  {text}")
+        self.out = out
 
     # ---- the entry points ----
 
@@ -448,8 +521,10 @@ class MirEmitter:
         raise IRError("the MIR leaf slice does not emit a standalone entry yet")
 
     def _abi_lines(self) -> list[str]:
-        lines = []
-        for symbol, (ret, params) in self.abi_decls.items():
+        lines: list[str] = []
+        for symbol, sig in self.abi_decls.items():
+            ret: str = sig[0]
+            params: list[str] = sig[1]
             rendered = ", ".join(params)
             lines.append(f"declare {ret} @{symbol}({rendered})")
         return lines
@@ -468,9 +543,9 @@ def _result_tag(fn: MirFunction, i: int) -> int:
     op = fn.ops[i]
     if op == MIR_COPY:
         return fn.arg2[i]
-    if op in (MIR_ADDD, MIR_SUBD, MIR_MULD, MIR_NEGD):
+    if op in [MIR_ADDD, MIR_SUBD, MIR_MULD, MIR_NEGD]:
         return MIR_D
-    if op in (MIR_ADDW, MIR_SUBW, MIR_MULW, MIR_NEGW):
+    if op in [MIR_ADDW, MIR_SUBW, MIR_MULW, MIR_NEGW]:
         return MIR_W
     if op in _ICMP_W or op in _FCMP_D:
         return MIR_W
@@ -479,7 +554,8 @@ def _result_tag(fn: MirFunction, i: int) -> int:
 
 def _llvm_of(fn: MirFunction, operand: int) -> str:
     if is_const_ref(operand):
-        return _tag_llvm(fn.consts[const_index(operand)].typ)
+        const: MirConst = fn.consts[const_index(operand)]
+        return _tag_llvm(const.typ)
     return "i64"
 
 
@@ -488,7 +564,7 @@ def _llvm_of_dst(fn: MirFunction, dst: int) -> str:
 
 
 def emit_llvm_mir(
-    module: dict[str, Any],
+    module: Dict[str, Any],
     call: str | None = None,
     args: list[Any] | None = None,
     standalone: bool = False,
@@ -498,9 +574,13 @@ def emit_llvm_mir(
 ) -> str:
     """The MIR lane's `emit_llvm`. Same contract, same bytes, opt-in only."""
     assert_same_cpython(module)
-    if module["fences"]:
+    fences: list[Any] = module["fences"]
+    if fences:
         raise IRError("refusing to emit LLVM while fences are present")
-    if not module["functions"]:
+    functions: list[Any] = module["functions"]
+    if not functions:
         raise IRError("module has no functions to emit")
-    dwarf = DwarfEmitter(module["sourceFile"]) if debug_info else None
-    return MirEmitter(module, dwarf).emit(call, [] if args is None else args, standalone, library)
+    source_file: str = module["sourceFile"]
+    dwarf = DwarfEmitter(source_file) if debug_info else None
+    emitter: MirEmitter = MirEmitter(module, dwarf)
+    return emitter.emit(call, [] if args is None else args, standalone, library)
