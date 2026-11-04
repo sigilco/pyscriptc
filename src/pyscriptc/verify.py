@@ -25,13 +25,15 @@ from pathlib import Path
 from typing import Any
 
 from pyscriptc.errors import IRError, VersionError
-from pyscriptc.target import TARGET_CPYTHON, TARGET_MINOR, TARGET_MINOR_INFO
 
-SCHEMA_VERSION = 1
-ORACLE_PIN = TARGET_MINOR_INFO
-ORACLE_NAME = f"CPython {TARGET_MINOR}"
-DEFAULT_TIMEOUT = 60.0
-TIMEOUT_EXIT = 124
+SCHEMA_VERSION: int = 1
+TARGET_CPYTHON: str = "3.14.9"
+TARGET_MINOR: str = "3.14"
+TARGET_MINOR_INFO: tuple[int, int] = (3, 14)
+ORACLE_PIN: tuple[int, int] = TARGET_MINOR_INFO
+ORACLE_NAME: str = "CPython 3.14"
+DEFAULT_TIMEOUT: float = 60.0
+TIMEOUT_EXIT: int = 124
 
 # The `--call` harness for the oracle: load the file as `__main__` (so sibling
 # imports and `__file__` behave), then print the return value with the same
@@ -78,7 +80,7 @@ class Observation:
     stdout: bytes
     stderr: bytes
     exit_code: int
-    timed_out: bool = False
+    timed_out: int = 0
 
 
 @dataclass
@@ -94,38 +96,55 @@ class Receipt:
     stdin_bytes: int
     checks: list[dict[str, Any]]
     call: dict[str, Any] | None
-    cache_hit: bool
+    cache_hit: int
     compile_ms: int
     duration_ms: int
     timeout_seconds: float
 
     @property
     def match(self) -> bool:
-        return all(check["match"] for check in self.checks)
+        for check in self.checks:
+            m: bool = check["match"]
+            if not m:
+                return False
+        return True
 
     def as_dict(self) -> dict[str, Any]:
-        micro_mismatch = self.oracle.version != TARGET_CPYTHON
-        return {
-            "schemaVersion": SCHEMA_VERSION,
-            "source": self.source,
-            "oracle": {
-                "executable": self.oracle.executable,
-                "version": self.oracle.version,
-                "targetVersion": TARGET_CPYTHON,
-                "microMismatch": micro_mismatch,
-            },
-            "native": {"binary": self.binary, "bytes": self.binary_bytes},
-            "compile": {"cacheHit": self.cache_hit, "milliseconds": self.compile_ms},
-            "argv": list(self.argv),
-            "stdin": {"path": self.stdin_path, "bytes": self.stdin_bytes},
-            "timeoutSeconds": self.timeout_seconds,
-            "checks": self.checks,
-            "call": self.call,
-            "match": self.match,
-            "durationMs": self.duration_ms,
-            "targetVersion": TARGET_CPYTHON,
-            "microMismatch": micro_mismatch,
-        }
+        micro_mismatch: bool = self.oracle.version != TARGET_CPYTHON
+        oracle_dict: dict[str, Any] = {}
+        oracle_dict["executable"] = self.oracle.executable
+        oracle_dict["version"] = self.oracle.version
+        oracle_dict["targetVersion"] = TARGET_CPYTHON
+        oracle_dict["microMismatch"] = micro_mismatch
+
+        native_dict: dict[str, Any] = {}
+        native_dict["binary"] = self.binary
+        native_dict["bytes"] = self.binary_bytes
+
+        compile_dict: dict[str, Any] = {}
+        compile_dict["cacheHit"] = bool(self.cache_hit)
+        compile_dict["milliseconds"] = self.compile_ms
+
+        stdin_dict: dict[str, Any] = {}
+        stdin_dict["path"] = self.stdin_path
+        stdin_dict["bytes"] = self.stdin_bytes
+
+        res: dict[str, Any] = {}
+        res["schemaVersion"] = SCHEMA_VERSION
+        res["source"] = self.source
+        res["oracle"] = oracle_dict
+        res["native"] = native_dict
+        res["compile"] = compile_dict
+        res["argv"] = list(self.argv)
+        res["stdin"] = stdin_dict
+        res["timeoutSeconds"] = self.timeout_seconds
+        res["checks"] = self.checks
+        res["call"] = self.call
+        res["match"] = self.match
+        res["durationMs"] = self.duration_ms
+        res["targetVersion"] = TARGET_CPYTHON
+        res["microMismatch"] = micro_mismatch
+        return res
 
 
 def _version_of(executable: str) -> str | None:
@@ -135,13 +154,15 @@ def _version_of(executable: str) -> str | None:
             [executable, "-c", "import sys; print('%d.%d.%d' % sys.version_info[:3])"],
             capture_output=True,
             text=True,
-            timeout=20,
         )
-    except OSError, subprocess.SubprocessError:
+        if proc.returncode != 0:
+            return None
+        out: str = proc.stdout.strip()
+        if not out:
+            return None
+        return out
+    except Exception:
         return None
-    if proc.returncode != 0:
-        return None
-    return proc.stdout.strip() or None
 
 
 def find_oracle() -> Oracle:
@@ -158,33 +179,32 @@ def find_oracle() -> Oracle:
             raise VersionError(f"PYSC_ORACLE={explicit!r} is not an executable path; the oracle must be {ORACLE_NAME}")
         version = _version_of(explicit)
         if not _is_pinned(version):
-            raise VersionError(
-                f"PYSC_ORACLE={explicit!r} is CPython {version or 'unknown'}; the oracle is pinned to {ORACLE_NAME}"
-            )
-        if version != TARGET_CPYTHON:
-            warnings.warn(
-                f"oracle is CPython {version}, declared target is {TARGET_CPYTHON}",
-                UserWarning,
-                stacklevel=2,
-            )
+            v_str: str = version if version is not None else "unknown"
+            raise VersionError(f"PYSC_ORACLE={explicit!r} is CPython {v_str}; the oracle is pinned to {ORACLE_NAME}")
+        if version is not None and version != TARGET_CPYTHON:
+            warnings.warn(f"oracle is CPython {version}, declared target is {TARGET_CPYTHON}", stacklevel=2)
         return Oracle(explicit, version or "")
     candidates: list[str] = []
     oracle_dir = os.environ.get("PYSC_ORACLE_DIR")
     if oracle_dir:
-        candidates += [str(p) for p in sorted(Path(oracle_dir).glob("cpython-3.14.*/bin/python3"))]
+        candidates += sorted([str(p) for p in Path(oracle_dir).glob("cpython-3.14.*/bin/python3")])
     for name in ("python3.14", "python3", "python"):
         found = shutil.which(name)
         if found is not None:
             candidates.append(found)
     try:
         # `uv` prints the interpreter it would use; a missing uv is not fatal.
-        found = subprocess.run(["uv", "python", "find", "3.14"], capture_output=True, text=True, timeout=30, check=True)
-        candidates.append(found.stdout.strip())
-    except OSError, subprocess.SubprocessError:
+        found_proc = subprocess.run(["uv", "python", "find", "3.14"], capture_output=True, text=True, check=True)
+        candidates.append(found_proc.stdout.strip())
+    except Exception:
         pass
     candidates.append(sys.executable)
     chosen: Oracle | None = None
-    for candidate in dict.fromkeys(candidate for candidate in candidates if candidate):
+    seen_candidates: list[str] = []
+    for candidate in candidates:
+        if candidate and candidate not in seen_candidates:
+            seen_candidates.append(candidate)
+    for candidate in seen_candidates:
         version = _version_of(candidate)
         if _is_pinned(version):
             oracle = Oracle(candidate, version or "")
@@ -193,11 +213,8 @@ def find_oracle() -> Oracle:
             if chosen is None:
                 chosen = oracle
     if chosen is not None:
-        warnings.warn(
-            f"oracle is CPython {chosen.version}, declared target is {TARGET_CPYTHON}",
-            UserWarning,
-            stacklevel=2,
-        )
+        cv: str = chosen.version
+        warnings.warn(f"oracle is CPython {cv}, declared target is {TARGET_CPYTHON}", stacklevel=2)
         return chosen
     raise VersionError(
         f"no {ORACLE_NAME} interpreter for the oracle: set PYSC_ORACLE=/path/to/python3.14, "
@@ -208,23 +225,36 @@ def find_oracle() -> Oracle:
 def _is_pinned(version: str | None) -> bool:
     if not version:
         return False
+    split_parts = version.split(".")
+    if len(split_parts) < 2:
+        return False
     try:
-        parts = tuple(int(part) for part in version.split(".")[:2])
+        major = int(split_parts[0])
+        minor = int(split_parts[1])
     except ValueError:
         return False
-    return parts == ORACLE_PIN
+    return (major, minor) == ORACLE_PIN
 
 
 def _decode(data: bytes) -> str:
-    return data.decode("utf-8", "backslashreplace")
+    try:
+        return data.decode("utf-8")
+    except Exception:
+        return str(data)
 
 
 def _line_at(data: bytes, offset: int) -> str:
     """The line of `data` that holds `offset` (the line ending is not part of it)."""
-    start = data.rfind(b"\n", 0, offset) + 1
-    end = data.find(b"\n", offset)
-    if end < 0:
-        end = len(data)
+    start: int = 0
+    for i in range(offset - 1, -1, -1):
+        if data[i] == 10:
+            start = i + 1
+            break
+    end: int = len(data)
+    for i in range(offset, len(data)):
+        if data[i] == 10:
+            end = i
+            break
     return _decode(data[start:end])
 
 
@@ -232,63 +262,68 @@ def first_difference(expected: bytes, actual: bytes) -> dict[str, Any] | None:
     """The first differing byte, the line that holds it, and both lines' text."""
     if expected == actual:
         return None
-    limit = min(len(expected), len(actual))
-    offset = next((index for index in range(limit) if expected[index] != actual[index]), limit)
-    return {
-        "offset": offset,
-        "line": expected.count(b"\n", 0, offset) + 1,
-        "oracle": _line_at(expected, offset),
-        "native": _line_at(actual, offset),
-        "oracleBytes": len(expected),
-        "nativeBytes": len(actual),
-    }
+    limit: int = min(len(expected), len(actual))
+    offset: int = limit
+    for index in range(limit):
+        if expected[index] != actual[index]:
+            offset = index
+            break
+    line_count: int = 1
+    for i in range(offset):
+        if expected[i] == 10:
+            line_count += 1
+    res: dict[str, Any] = {}
+    res["offset"] = offset
+    res["line"] = line_count
+    res["oracle"] = _line_at(expected, offset)
+    res["native"] = _line_at(actual, offset)
+    res["oracleBytes"] = len(expected)
+    res["nativeBytes"] = len(actual)
+    return res
 
 
 def compare(oracle: Observation, native: Observation) -> list[dict[str, Any]]:
     """The three observable checks, in the order the issue fixes them."""
     checks: list[dict[str, Any]] = []
-    for name, expected, actual in (
+    pairs: list[tuple[str, bytes, bytes]] = [
         ("stdout", oracle.stdout, native.stdout),
         ("stderr", oracle.stderr, native.stderr),
-    ):
-        checks.append(
-            {
-                "name": name,
-                "match": expected == actual,
-                "oracleBytes": len(expected),
-                "nativeBytes": len(actual),
-                "difference": first_difference(expected, actual),
-            }
-        )
-    timed_out = oracle.timed_out or native.timed_out
-    checks.append(
-        {
-            "name": "exit",
-            "match": oracle.exit_code == native.exit_code and not timed_out,
-            "oracle": oracle.exit_code,
-            "native": native.exit_code,
-            "timedOut": timed_out,
-            "oracleTimedOut": oracle.timed_out,
-            "nativeTimedOut": native.timed_out,
-        }
-    )
+    ]
+    for name, expected, actual in pairs:
+        c: dict[str, Any] = {}
+        c["name"] = name
+        c["match"] = expected == actual
+        c["oracleBytes"] = len(expected)
+        c["nativeBytes"] = len(actual)
+        c["difference"] = first_difference(expected, actual)
+        checks.append(c)
+    timed_out: bool = bool(oracle.timed_out) or bool(native.timed_out)
+    exit_c: dict[str, Any] = {}
+    exit_c["name"] = "exit"
+    exit_c["match"] = oracle.exit_code == native.exit_code and not timed_out
+    exit_c["oracle"] = oracle.exit_code
+    exit_c["native"] = native.exit_code
+    exit_c["timedOut"] = timed_out
+    exit_c["oracleTimedOut"] = bool(oracle.timed_out)
+    exit_c["nativeTimedOut"] = bool(native.timed_out)
+    checks.append(exit_c)
     return checks
 
 
-def _as_bytes(value: bytes | str | None) -> bytes:
+def _as_bytes(value: bytes | None) -> bytes:
     if value is None:
         return b""
-    return value.encode() if isinstance(value, str) else value
+    return value
 
 
 def run_process(command: list[str], *, stdin: bytes, cwd: Path, timeout: float) -> Observation:
     """Run one side with the same stdin, cwd and wall-clock ceiling."""
     try:
         proc = subprocess.run(command, input=stdin, cwd=cwd, capture_output=True, timeout=timeout)
+        code: int = 128 + (-proc.returncode) if proc.returncode < 0 else proc.returncode
+        return Observation(proc.stdout, proc.stderr, code)
     except subprocess.TimeoutExpired as exc:
-        return Observation(_as_bytes(exc.stdout), _as_bytes(exc.stderr), TIMEOUT_EXIT, timed_out=True)
-    code = 128 + (-proc.returncode) if proc.returncode < 0 else proc.returncode
-    return Observation(proc.stdout, proc.stderr, code)
+        return Observation(_as_bytes(exc.stdout), _as_bytes(exc.stderr), TIMEOUT_EXIT, timed_out=1)
 
 
 def oracle_command(
@@ -302,33 +337,44 @@ def oracle_command(
     cannot change what reaches the function.
     """
     if call is None:
-        return [oracle.executable, str(source), *argv]
+        return [oracle.executable, str(source)] + argv
     try:
-        payload = json.dumps(call_args)
+        payload: str = json.dumps(call_args)
     except TypeError as exc:
         raise IRError(f"--args must be JSON-serializable for the CPython side: {exc}") from exc
-    args_path = scratch / "verify-call-args.json"
-    args_path.write_text(payload, encoding="utf-8")
-    return [oracle.executable, "-c", CALL_HARNESS, str(source), call, str(args_path), *argv]
+    args_path: Path = scratch / "verify-call-args.json"
+    args_path.write_text(payload)
+    return [oracle.executable, "-c", CALL_HARNESS, str(source), call, str(args_path)] + argv
 
 
 def render_text(receipt: Receipt) -> str:
     """The short human receipt: one line per check, the diff when one differs."""
-    differing = sum(1 for check in receipt.checks if not check["match"])
-    verdict = "match" if receipt.match else f"divergence ({differing} of {len(receipt.checks)} checks differ)"
-    lines = [f"verify {receipt.source}: {verdict}"]
+    differing: int = 0
+    for check in receipt.checks:
+        m: bool = check["match"]
+        if not m:
+            differing += 1
+    verdict: str = "match" if receipt.match else f"divergence ({differing} of {len(receipt.checks)} checks differ)"
+    lines: list[str] = [f"verify {receipt.source}: {verdict}"]
     if receipt.oracle.version != TARGET_CPYTHON:
         lines.append(
             f"  oracle: {receipt.oracle.executable} (CPython {receipt.oracle.version}, target {TARGET_CPYTHON})"
         )
     else:
         lines.append(f"  oracle: {receipt.oracle.executable} (CPython {receipt.oracle.version})")
-    size = f", {receipt.binary_bytes} bytes" if receipt.binary_bytes is not None else ""
-    cache = " (cached)" if receipt.cache_hit else ""
+    size: str = ""
+    bb: int | None = receipt.binary_bytes
+    if bb is not None:
+        size = f", {bb} bytes"
+    cache: str = " (cached)" if receipt.cache_hit else ""
     lines.append(f"  native: {receipt.binary}{size}{cache}")
-    if receipt.call is not None:
-        rendered = ", ".join(repr(value) for value in receipt.call["args"])
-        lines.append(f"  call: {receipt.call['function']}({rendered}), return compared in stdout")
+    call_entry = receipt.call
+    if call_entry is not None:
+        call_dict: dict[str, Any] = call_entry
+        call_fn: str = call_dict["function"]
+        args_obj: list[Any] = call_dict["args"]
+        rendered: str = ", ".join(repr(value) for value in args_obj)
+        lines.append(f"  call: {call_fn}({rendered}), return compared in stdout")
     for check in receipt.checks:
         lines.extend(_render_check(check))
     if not receipt.match:
@@ -340,54 +386,76 @@ def render_text(receipt: Receipt) -> str:
 
 
 def _render_check(check: dict[str, Any]) -> list[str]:
-    name = check["name"]
+    name: str = check["name"]
+    is_match: bool = check["match"]
     if name == "exit":
-        if check["timedOut"]:
-            if check.get("oracleTimedOut") and check.get("nativeTimedOut"):
+        timed_out: bool = check["timedOut"]
+        if timed_out:
+            ora_timed: bool = False
+            nat_timed: bool = False
+            if "oracleTimedOut" in check:
+                ora_timed = check["oracleTimedOut"]
+            if "nativeTimedOut" in check:
+                nat_timed = check["nativeTimedOut"]
+            if ora_timed and nat_timed:
                 return ["  exit: both sides timed out"]
-            return [
-                "  exit: the oracle timed out" if check.get("oracleTimedOut") else "  exit: the native run timed out"
-            ]
-        if check["match"]:
-            return [f"  exit: {check['oracle']}, match"]
-        return [f"  exit: oracle {check['oracle']}, native {check['native']}"]
-    if check["match"]:
-        return [f"  {name}: {check['oracleBytes']} bytes, match"]
-    difference = check["difference"] or {}
-    line = difference.get("line", 1)
-    offset = difference.get("offset", 0)
-    lines = [
-        f"  {name}: differs at line {line}, byte {offset} ({check['oracleBytes']} vs {check['nativeBytes']} bytes)"
-    ]
-    if difference.get("oracle") or difference.get("native"):
-        lines.append(f"    oracle: {difference.get('oracle', '')}")
-        lines.append(f"    native: {difference.get('native', '')}")
-    else:
-        lines.append("    (the difference is past the end of one stream)")
-    return lines
+            if ora_timed:
+                return ["  exit: the oracle timed out"]
+            return ["  exit: the native run timed out"]
+        ora_code: int = check["oracle"]
+        nat_code: int = check["native"]
+        if is_match:
+            return [f"  exit: {ora_code}, match"]
+        return [f"  exit: oracle {ora_code}, native {nat_code}"]
+    ora_bytes: int = check["oracleBytes"]
+    nat_bytes: int = check["nativeBytes"]
+    if is_match:
+        return [f"  {name}: {ora_bytes} bytes, match"]
+    diff_dict: dict[str, Any] | None = check["difference"]
+    if diff_dict is not None:
+        line_num: int = diff_dict["line"]
+        offset_num: int = diff_dict["offset"]
+        lines: list[str] = [
+            f"  {name}: differs at line {line_num}, byte {offset_num} ({ora_bytes} vs {nat_bytes} bytes)"
+        ]
+        ora_text: str = diff_dict["oracle"]
+        nat_text: str = diff_dict["native"]
+        if ora_text or nat_text:
+            lines.append(f"    oracle: {ora_text}")
+            lines.append(f"    native: {nat_text}")
+        else:
+            lines.append("    (the difference is past the end of one stream)")
+        return lines
+    return []
 
 
 def failure_receipt(
     source: str, oracle: Oracle, exit_code: int, output: str, *, timeout_seconds: float
 ) -> dict[str, Any]:
     """The receipt for a program the compiler refused: fences or a build error."""
-    kind = "fences" if exit_code == 3 else "build"
-    micro_mismatch = oracle.version != TARGET_CPYTHON
-    return {
-        "schemaVersion": SCHEMA_VERSION,
-        "source": source,
-        "oracle": {
-            "executable": oracle.executable,
-            "version": oracle.version,
-            "targetVersion": TARGET_CPYTHON,
-            "microMismatch": micro_mismatch,
-        },
-        "match": False,
-        "error": {"kind": kind, "exitCode": exit_code, "output": output},
-        "timeoutSeconds": timeout_seconds,
-        "targetVersion": TARGET_CPYTHON,
-        "microMismatch": micro_mismatch,
-    }
+    kind: str = "fences" if exit_code == 3 else "build"
+    micro_mismatch: bool = oracle.version != TARGET_CPYTHON
+    oracle_dict: dict[str, Any] = {}
+    oracle_dict["executable"] = oracle.executable
+    oracle_dict["version"] = oracle.version
+    oracle_dict["targetVersion"] = TARGET_CPYTHON
+    oracle_dict["microMismatch"] = micro_mismatch
+
+    error_dict: dict[str, Any] = {}
+    error_dict["kind"] = kind
+    error_dict["exitCode"] = exit_code
+    error_dict["output"] = output
+
+    res: dict[str, Any] = {}
+    res["schemaVersion"] = SCHEMA_VERSION
+    res["source"] = source
+    res["oracle"] = oracle_dict
+    res["match"] = False
+    res["error"] = error_dict
+    res["timeoutSeconds"] = timeout_seconds
+    res["targetVersion"] = TARGET_CPYTHON
+    res["microMismatch"] = micro_mismatch
+    return res
 
 
 def _binary_size(binary: Path) -> int | None:
@@ -419,14 +487,23 @@ def measure(
     function owns everything after the binary exists, so the receipt shape and
     the diff stay together in one module.
     """
-    resolved = source.resolve()
-    command = oracle_command(oracle, resolved, argv, call, call_args, scratch)
-    expected = run_process(command, stdin=stdin, cwd=resolved.parent, timeout=timeout)
-    native = run_process([str(binary.absolute()), *argv], stdin=stdin, cwd=resolved.parent, timeout=timeout)
-    checks = compare(expected, native)
-    call_entry = None
+    resolved: Path = source.resolve()
+    command: list[str] = oracle_command(oracle, resolved, argv, call, call_args, scratch)
+    expected: Observation = run_process(command, stdin=stdin, cwd=resolved.parent, timeout=timeout)
+    native_bin: str = str(binary.resolve())
+    native_cmd: list[str] = [native_bin] + argv
+    native: Observation = run_process(native_cmd, stdin=stdin, cwd=resolved.parent, timeout=timeout)
+    checks: list[dict[str, Any]] = compare(expected, native)
+    call_entry: dict[str, Any] | None = None
     if call is not None:
-        call_entry = {"function": call, "args": call_args, "match": checks[0]["match"], "comparedIn": "stdout"}
+        first_check: dict[str, Any] = checks[0]
+        first_match: bool = first_check["match"]
+        entry: dict[str, Any] = {}
+        entry["function"] = call
+        entry["args"] = call_args
+        entry["match"] = first_match
+        entry["comparedIn"] = "stdout"
+        call_entry = entry
     return Receipt(
         source=str(source),
         oracle=oracle,
@@ -437,7 +514,7 @@ def measure(
         stdin_bytes=len(stdin),
         checks=checks,
         call=call_entry,
-        cache_hit=cache_hit,
+        cache_hit=1 if cache_hit else 0,
         compile_ms=compile_ms,
         duration_ms=int((time.monotonic() - started) * 1000),
         timeout_seconds=timeout,
@@ -445,11 +522,18 @@ def measure(
 
 
 def render_failure(receipt: dict[str, Any]) -> str:
-    error = receipt["error"]
-    kind = "the compiler fenced this program" if error["kind"] == "fences" else "the build failed"
-    lines = [f"verify {receipt['source']}: {kind} (exit {error['exitCode']})"]
-    output = str(error["output"]).rstrip()
+    error: dict[str, Any] = receipt["error"]
+    err_kind: str = error["kind"]
+    err_code: int = error["exitCode"]
+    kind: str = "the compiler fenced this program" if err_kind == "fences" else "the build failed"
+    source_str: str = receipt["source"]
+    lines: list[str] = [f"verify {source_str}: {kind} (exit {err_code})"]
+    output_str: str = ""
+    if "output" in error:
+        output_str = error["output"]
+    output: str = output_str.rstrip()
     if output:
-        lines.extend(f"  {line}" for line in output.splitlines())
+        for line in output.splitlines():
+            lines.append(f"  {line}")
     lines.append("hint: verify runs a program the compiler accepts; `pyscriptc coverage FILE` lists every fence.")
     return "\n".join(lines)

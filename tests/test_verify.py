@@ -20,7 +20,7 @@ needs_cc = pytest.mark.skipif(
     reason="clang or zig required",
 )
 
-MATCHING = """
+MATCHING = r"""
 import sys
 
 
@@ -28,7 +28,7 @@ def main() -> int:
     print("stdout:", 6 * 7)
     print("argv:", ",".join(sys.argv[1:]))
     line: str = input()
-    print("stdin:", line.upper(), file=sys.stderr)
+    sys.stderr.write("stdin: " + line.upper() + "\n")
     return 7
 
 
@@ -109,8 +109,8 @@ def test_timeout_names_the_side_that_hung() -> None:
     ]:
         checks = verify.compare(oracle, native)
         exit_check = next(check for check in checks if check["name"] == "exit")
-        assert exit_check["oracleTimedOut"] is oracle.timed_out
-        assert exit_check["nativeTimedOut"] is native.timed_out
+        assert exit_check["oracleTimedOut"] is bool(oracle.timed_out)
+        assert exit_check["nativeTimedOut"] is bool(native.timed_out)
         assert verify._render_check(exit_check) == [expected]
 
 
