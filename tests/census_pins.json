@@ -19,7 +19,7 @@
   "pyscriptc.diagnostics": 5,
   "pyscriptc.doctor": 23,
   "pyscriptc.dwarf": 7,
-  "pyscriptc.embed": 80,
+  "pyscriptc.embed": 0,
   "pyscriptc.emit": 2,
   "pyscriptc.emit._ir": 26,
   "pyscriptc.emit.llvm": 0,
