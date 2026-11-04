@@ -4,7 +4,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from pyscriptc.emit._ir import _llvm_bytes, _llvm_double, _llvm_type
+from pyscriptc.emit._ir import (
+    _field_name,
+    _field_type,
+    _has,
+    _kind,
+    _llvm_bytes,
+    _llvm_double,
+    _llvm_type,
+    _opt_str,
+    _type_name,
+)
 from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.errors import FitError, IRError
 
@@ -40,7 +50,7 @@ class PrintMixin(EmitterBase):
         return third
 
     def materialize_arg(self, typ: dict[str, Any], value: Any) -> str:
-        kind = typ["kind"]
+        kind = _kind(typ)
         if kind == "int":
             return str(value)
         if kind == "float":
@@ -52,7 +62,7 @@ class PrintMixin(EmitterBase):
         raise FitError(f"cannot pass a {kind} argument into main")
 
     def print_value(self, typ: dict[str, Any], value: str) -> None:
-        kind = typ["kind"]
+        kind = _kind(typ)
         self.needed.add("printf")
         if kind == "int":
             fmt = self.format_global("int", b"%lld\n")
@@ -84,9 +94,9 @@ class PrintMixin(EmitterBase):
         lowercase literals. Bytes print as their `b'...'` repr.
         """
         self.needed.add("printf")
-        err = expr.get("file") == "stderr"
-        sep = self.emit_expr(expr["sep"]) if expr.get("sep") else None
-        end = self.emit_expr(expr["end"]) if expr.get("end") else None
+        err = _opt_str(expr, "file") == "stderr"
+        sep = self.emit_expr(expr["sep"]) if _has(expr, "sep") else None
+        end = self.emit_expr(expr["end"]) if _has(expr, "end") else None
         for index, (value, typ) in enumerate(zip(values, arg_types, strict=True)):
             if index:
                 if sep is None:
@@ -155,7 +165,7 @@ class PrintMixin(EmitterBase):
         writes CPython's `(a, b)` shape field by field.
         """
 
-        kind = typ["kind"]
+        kind = _kind(typ)
         if kind == "int":
             self._print_fmt("int", b"%lld", [f"i64 {value}"], err=err)
         elif kind == "float":
@@ -181,8 +191,8 @@ class PrintMixin(EmitterBase):
             out = self._buf_out("ps_exc_str", [f"ptr {value}"])
             length, ptr = self._buf_parts(out)
             self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
-        elif kind == "class" and self._is_tuple(typ["name"]):
-            self._print_tuple(typ["name"], value, err)
+        elif kind == "class" and self._is_tuple(_type_name(typ)):
+            self._print_tuple(_type_name(typ), value, err)
         else:
             length, ptr = self._buf_parts(value)
             self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
@@ -193,7 +203,7 @@ class PrintMixin(EmitterBase):
         info = self.class_index.get(name)
         if info is None or not name.startswith("tuple_"):
             return False
-        return all(field["name"] == f"_{index}" for index, field in enumerate(info["fields"]))
+        return all(_field_name(field) == f"_{index}" for index, field in enumerate(info["fields"]))
 
     def _print_tuple(self, name: str, value: str, err: bool) -> None:
         """A synthetic tuple prints `(a, b)`; a lone field keeps the `,` tail.
@@ -209,22 +219,24 @@ class PrintMixin(EmitterBase):
         for index, field in enumerate(fields):
             if index:
                 self._print_fmt("tsep", b", ", err=err)
-            slot = self._field_ptr(name, value, self._field(name, field["name"]))
-            if field["type"]["kind"] in {"str", "bytes"}:
+            slot = self._field_ptr(name, value, self._field(name, _field_name(field)))
+            fkind = _kind(_field_type(field))
+            if fkind in {"str", "bytes"}:
                 length = self.tmp()
                 ptr = self.tmp()
                 self.line(f"{length} = load i64, ptr {slot}")
                 data_ptr = self.tmp()
                 self.line(f"{data_ptr} = getelementptr %ps.buf, ptr {slot}, i32 0, i32 1")
                 self.line(f"{ptr} = load ptr, ptr {data_ptr}")
-                if field["type"]["kind"] == "str":
+                if fkind == "str":
                     self._abi_decl("ps_repr_quoted", "void", ["i64", "ptr", "ptr"])
                     out = self._buf_out("ps_repr_quoted", [f"i64 {length}", f"ptr {ptr}"])
                     length, ptr = self._buf_parts(out)
                 self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
             else:
-                loaded = self._load(_llvm_type(field["type"]), slot)
-                self._print_one(field["type"], loaded, err)
+                ftype = _field_type(field)
+                loaded = self._load(_llvm_type(ftype), slot)
+                self._print_one(ftype, loaded, err)
         if len(fields) == 1:
             self._print_fmt("tsep", b",", err=err)
         self._print_fmt("rparen", b")", err=err)

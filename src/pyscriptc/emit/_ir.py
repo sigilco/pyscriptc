@@ -35,6 +35,37 @@ def _kind(typ: dict[str, Any]) -> str:
     return kind
 
 
+def _type_name(typ: dict[str, Any]) -> str:
+    """The class name of a class-typed type record."""
+    name: str = typ["name"]
+    return name
+
+
+def _field_name(field: dict[str, Any]) -> str:
+    """The source name of one class field."""
+    name: str = field["name"]
+    return name
+
+
+def _field_type(field: dict[str, Any]) -> dict[str, Any]:
+    """The type record one class field carries."""
+    typ: dict[str, Any] = field["type"]
+    return typ
+
+
+def _has(expr: dict[str, Any], key: str) -> bool:
+    """Whether an expression record carries an optional key at all."""
+    return key in expr
+
+
+def _opt_str(expr: dict[str, Any], key: str) -> str | None:
+    """An optional string key of an expression record, or None when absent."""
+    if key not in expr:
+        return None
+    value: str = expr[key]
+    return value
+
+
 def standalone_entry(module: dict[str, Any]) -> dict[str, Any] | None:
     """The module's runnable entry (a script body or `__main__` guard), if `--run` without `--call` has one."""
     entry = module.get("entry")
