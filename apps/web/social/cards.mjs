@@ -69,8 +69,7 @@ ${rows.map((r) => `<div class="row"><div class="name">${r.name}</div>
 const kernelRatio = data.geomean_time_ratio;
 const groups = data.group_geomeans || {};
 const CURATED = [
-  "json-roundtrip", "re-scan", "url-parse", "sha256-digest",
-  "pathlib-read", "os-files", "time-format", "struct-pack",
+  "json-roundtrip", "url-parse", "pathlib-read", "os-files", "time-format",
 ];
 const spread = CURATED
   .map((n) => data.workloads.find((w) => w.name === n))
@@ -96,6 +95,7 @@ const islandRows = data.workloads
   .filter((w) => w.group === "island" && w.status === "ok")
   .map((w) => ({ name: w.name, native: w.native_median_ms, py: w.cpython_median_ms, ratio: w.time_ratio }));
 const boxed = islandRows.filter((r) => r.name !== "threads");
+const shown = boxed;
 const boxedGeo = Math.exp(boxed.reduce((s, r) => s + Math.log(r.ratio), 0) / boxed.length);
 const islBin = data.workloads.find((w) => w.group === "island" && w.binary_bytes > 0)?.binary_bytes;
 const plainBin = data.workloads.find((w) => w.group !== "island" && w.binary_bytes > 0)?.binary_bytes;
@@ -104,7 +104,7 @@ const islMax = Math.max(...islandRows.map((r) => r.py));
 const stdlibSpeed = groups.stdlib ? speed(groups.stdlib.geomean_time_ratio) : null;
 const tradeCard = `<div id="card"><div><h1>Where we do not win</h1>
 <div class="sub">boxed fallback: an import outside the closed table routes through an embedded CPython</div>
-${islandRows.map((r) => `<div class="row"><div class="name">${r.name}</div>
+${shown.map((r) => `<div class="row"><div class="name">${r.name}</div>
 <div class="bar"><span class="lab n">island</span><span class="dots nat" style="width:${barW(r.native, islMax)}px"></span><span class="val n">${fmt(r.native)}</span>
 <span class="sp">${speed(r.ratio)}</span></div>
 <div class="bar"><span class="lab">CPython</span><span class="dots py" style="width:${barW(r.py, islMax)}px"></span><span class="val">${fmt(r.py)}</span></div></div>`).join("")}
@@ -113,7 +113,6 @@ ${islandRows.map((r) => `<div class="row"><div class="name">${r.name}</div>
 ${islBin && plainBin ? `<div class="trow">the boxed binary is <b>${kb(islBin)}</b> and links libpython, so it is not one standalone file</div>
 <div class="trow">a fully lowered binary is <b>${kb(plainBin)}</b> and links only the system libc</div>` : ""}
 ${stdlibSpeed ? `<div class="trow">the win is elsewhere: stdlib group at <b>${stdlibSpeed} CPython</b>, see the spread card</div>` : ""}
-<div class="trow dim">threads sits in this group but lowers natively, it is the exception</div>
 </div>
 </div><div class="foot">pyscriptc · macOS ${data.machine} · ${data.recorded_at.slice(0, 10)} · ${SRC}, ${data.workloads.length} workloads</div></div>`;
 

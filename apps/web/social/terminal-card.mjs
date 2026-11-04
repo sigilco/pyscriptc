@@ -37,7 +37,7 @@ h1{font:600 40px/1.2 var(--mono)} .sub{color:var(--sec);font-size:24px;margin-to
 const card = `<div id="card"><div><h1>Compile, build, run</h1>
 <div class="sub">the same annotated Python, from interpreter to binary</div>
 <div class="shot"><img src="data:image/png;base64,${frameData}"></div>
-</div><div class="foot">pyscriptc · real captured terminal session · CPython 3.14 target</div></div>`;
+</div><div class="foot">pyscriptc · CPython 3.14 target</div></div>`;
 
 const server = createServer((q, s) => { const f = join(out, q.url.slice(1)); if (!existsSync(f)) { s.writeHead(404); return s.end(); } s.writeHead(200, { "content-type": "text/html" }); s.end(readFileSync(f)); });
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
