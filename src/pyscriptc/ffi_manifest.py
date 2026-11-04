@@ -60,7 +60,7 @@ from __future__ import annotations
 
 import re
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -69,7 +69,7 @@ from pyscriptc.errors import SpikeError
 # The manifest schema version this compiler understands. A manifest with a
 # different `format` is refused, never guessed at: the schema is append-only
 # inside an epoch (`.agents/docs/ffi/ffi-manifest.md` section 6).
-SUPPORTED_FORMATS: frozenset[int] = frozenset({1})
+SUPPORTED_FORMATS = frozenset({1})
 
 # The `PS_ABI` epoch this compiler stamps. A manifest pins the epoch it was
 # written against and the compiler refuses a mismatch before lowering
@@ -77,12 +77,12 @@ SUPPORTED_FORMATS: frozenset[int] = frozenset({1})
 CURRENT_PS_ABI: int = 1
 
 # The scalar types that map onto a machine value with no runtime object.
-SCALAR_TYPES: frozenset[str] = frozenset({"int", "float", "bool", "str", "bytes"})
+SCALAR_TYPES = frozenset({"int", "float", "bool", "str", "bytes"})
 
 # Container types the subset lowers. `list` and `dict` cross the boundary as
 # a `ptr` to the runtime layout, so a manifest may name them only when the
 # adapter's thunk builds the value itself.
-CONTAINER_TYPES: frozenset[str] = frozenset({"list", "dict"})
+CONTAINER_TYPES = frozenset({"list", "dict"})
 
 # The type names a manifest may use in a `py` signature. Everything else is
 # refused: the vocabulary is the lowered subset's, so the emitter never has
@@ -90,7 +90,7 @@ CONTAINER_TYPES: frozenset[str] = frozenset({"list", "dict"})
 ALLOWED_TYPE_NAMES: frozenset[str] = SCALAR_TYPES | CONTAINER_TYPES
 
 # The C types a `[[const]]` may hold.
-CONST_TYPES: frozenset[str] = frozenset({"int", "float", "str"})
+CONST_TYPES = frozenset({"int", "float", "str"})
 
 # The keys each section accepts. Anything else is `PS4005`.
 _MANIFEST_KEYS = frozenset({"module", "ps_abi", "format", "libs", "lib_dirs"})
@@ -276,7 +276,7 @@ class FfiManifest:
     handles: tuple[ManifestHandle, ...] = ()
     consts: tuple[ManifestConst, ...] = ()
     functions: tuple[ManifestFunction, ...] = ()
-    handle_names: frozenset[str] = field(default_factory=frozenset)
+    handle_names: frozenset[str] = frozenset()
     libs: tuple[str, ...] = ()
     lib_dirs: tuple[str, ...] = ()
 
@@ -667,7 +667,7 @@ def _build_functions(
 def _resolve_handle_refs(
     refs: tuple[str, ...],
     params: tuple[ManifestParam, ...],
-    handle_names: set[str],
+    handle_names: frozenset[str] | set[str],
     *,
     path: Path | None,
     where: str,
