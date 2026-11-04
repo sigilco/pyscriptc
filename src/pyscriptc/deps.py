@@ -102,7 +102,14 @@ class DepSpec:
     origin: Path
     kind: str  # "script" or "project"
     requires_python: str | None
-    dependencies: tuple[str, ...]
+    first_requirement: str
+    all_requirements: str  # newline-joined, "" when none
+
+    def requirement_list(self) -> list[str]:
+        """The requirement strings in order, [] when none."""
+        if not self.all_requirements:
+            return []
+        return self.all_requirements.split("\n")
 
     @property
     def root(self) -> Path:
@@ -134,14 +141,52 @@ def requirement_name(requirement: str) -> str:
     return normalize_name(match.group(1))
 
 
-def _check_requirements(value: Any, where: str) -> tuple[str, ...]:
-    if value is None:
-        return ()
-    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-        raise DepsError(f"{where} must be a list of requirement strings")
+def _pep723_table(meta: Dict[str, Any] | None) -> Dict[str, Any]:
+    """The PEP 723 table, `{}` when the script block is absent."""
+    if meta is None:
+        return {}
+    return meta
+
+
+def _opt_str(table: Dict[str, Any], key: str) -> str | None:
+    """A string-valued table entry, None when absent (Any read proven at the site)."""
+    if key not in table:
+        return None
+    value: str = table[key]
+    return value
+
+
+def _opt_list(table: Dict[str, Any], key: str) -> list[str] | None:
+    """A list-of-strings table entry, None when absent or mistyped."""
+    if key not in table:
+        return None
+    value: list[str] = table[key]
+    if not isinstance(value, list):
+        raise DepsError(f"{key} must be a list of requirement strings")
     for item in value:
+        if not isinstance(item, str):
+            raise DepsError(f"{key} must be a list of requirement strings")
+    return value
+
+
+def _check_requirements(value: list[str] | None, where: str) -> tuple[str, str]:
+    """Validate the requirement list.
+
+    The tuple carries (first requirement, all requirements joined with
+    newlines) so a one-element requirement list and a many-element one
+    share the fixed two-field shape the record holds; the empty list is
+    ("", "").
+    """
+    if value is None:
+        return ("", "")
+    for item in value:
+        if not isinstance(item, str):
+            raise DepsError(f"{where} must be a list of requirement strings")
         requirement_name(item)
-    return tuple(value)
+    if not value:
+        return ("", "")
+    first: str = value[0]
+    return (first, "\n".join(value))
 
 
 def load_spec(path: Path) -> DepSpec:
@@ -153,15 +198,23 @@ def load_spec(path: Path) -> DepSpec:
         raise DepsError(f"{path}: not found (expected a .py script, a pyproject.toml or a project directory)")
     text = path.read_text(encoding="utf-8")
     if path.name == "pyproject.toml":
-        project = _toml_loads(text).get("project", {})
-        deps = _check_requirements(project.get("dependencies"), "[project].dependencies")
-        return DepSpec(path, "project", project.get("requires-python"), deps)
+        data: Dict[str, Any] = _toml_loads(text)
+        project: Dict[str, Any] = {}
+        if "project" in data:
+            project = data["project"]
+        checked = _check_requirements(_opt_list(project, "dependencies"), "[project].dependencies")
+        wants_python = _opt_str(project, "requires-python")
+        return DepSpec(path, "project", wants_python, checked[0], checked[1])
     try:
-        meta = read_pep723(text) or {}
+        meta_block: Dict[str, Any] | None = read_pep723(text)
     except ConfigError as exc:
+        failed: Dict[str, Any] | None = None
+        meta_block = failed
         raise DepsError(str(exc)) from exc
-    deps = _check_requirements(meta.get("dependencies"), "PEP 723 `dependencies`")
-    return DepSpec(path, "script", meta.get("requires-python"), deps)
+    meta_table: Dict[str, Any] = _pep723_table(meta_block)
+    checked = _check_requirements(_opt_list(meta_table, "dependencies"), "PEP 723 `dependencies`")
+    wants_python = _opt_str(meta_table, "requires-python")
+    return DepSpec(path, "script", wants_python, checked[0], checked[1])
 
 
 # ---------------------------------------------------------------- lock
@@ -197,7 +250,7 @@ def host_python() -> str:
 def input_digest(spec: DepSpec, python: str) -> str:
     """Stable digest of everything that feeds resolution; a lock with another digest is stale."""
     payload = json.dumps(
-        {"deps": sorted(spec.dependencies), "requires-python": spec.requires_python, "python": python},
+        {"deps": spec.requirement_list(), "requires-python": spec.requires_python, "python": python},
         sort_keys=True,
     )
     return hashlib.sha256(payload.encode()).hexdigest()
@@ -321,13 +374,13 @@ def resolve(spec: DepSpec, *, frozen: bool = False, upgrade: bool = False, offli
             raise DepsError(f"{lock.name} is stale for the current dependencies; rerun without --frozen")
     elif frozen:
         raise DepsError(f"--frozen needs {lock.name} (or uv's lock) beside {spec.origin.name}")
-    if not spec.dependencies:
+    if not spec.all_requirements:
         text = 'lock-version = "1.0"\ncreated-by = "pyscriptc"\n'
     else:
         with tempfile.TemporaryDirectory(prefix="pyscriptc-deps-") as tmp:
             req = Path(tmp) / "requirements.in"
             out = Path(tmp) / "pylock.toml"
-            req.write_text("\n".join(spec.dependencies) + "\n", encoding="utf-8")
+            req.write_text(spec.all_requirements + "\n", encoding="utf-8")
             args = ["pip", "compile", str(req), "--format", "pylock.toml", "-o", str(out)]
             args += ["--no-build", "--universal", "--python-version", python, "--no-header", "--quiet", *common]
             if upgrade:
@@ -813,7 +866,7 @@ def run_deps(
         "kind": spec.kind,
         "python": host_python(),
         "requiresPython": spec.requires_python,
-        "dependencies": list(spec.dependencies),
+        "dependencies": spec.requirement_list(),
         "lock": str(spec.uv_lock if provenance == "uv.lock" else spec.lock_path),
         "lockProvenance": provenance,
         "cache": str(cache),
