@@ -15,20 +15,22 @@ from pyscriptc.stdmore import COMPARE_CLASSES
 
 # The symbols `_declarations` already emits when their `needed` group is
 # active. A second declaration would be an invalid LLVM redefinition.
-_PREBAKED_DECLS = frozenset(_prebaked_declarations())
+_PREBAKED_DECLS = list(_prebaked_declarations())
 
 
 class AbiMixin(EmitterBase):
     def _ensure_arg_type(self) -> None:
         line = "%ps.arg = type { i32, i32, i64, double, %ps.buf }"
-        if line not in self.globals:
-            self.globals.append(line)
+        globals_lines = self.globals
+        if line not in globals_lines:
+            globals_lines.append(line)
 
     def _store_ps_arg(self, base: str, value: str, typ: dict[str, Any]) -> None:
-        kind = typ["kind"]
-        code = {"int": 1, "float": 2}.get(kind)
-        if code is None:
-            code = {"str": 3, "bool": 4, "bytes": 6, "dict": 7}.get(kind, 3) if typ.get("fmt") else 3
+        kind: str = typ["kind"]
+        code: int = {"int": 1, "float": 2}.get(kind, 0)
+        fmt: bool = bool(typ.get("fmt", None))
+        if code == 0:
+            code = {"str": 3, "bool": 4, "bytes": 6, "dict": 7}.get(kind, 3) if fmt else 3
         kind_ptr = self.tmp()
         self.line(f"{kind_ptr} = getelementptr %ps.arg, ptr {base}, i32 0, i32 0")
         self.line(f"store i32 {code}, ptr {kind_ptr}")
@@ -50,7 +52,9 @@ class AbiMixin(EmitterBase):
             self.line(f"store i64 {wide}, ptr {slot}")
             return
         if kind == "dict":
-            vkind = {"int": 1, "float": 2, "str": 3, "bytes": 6}[typ["value"]["kind"]]
+            value_type: dict[str, Any] = typ["value"]
+            value_kind: str = value_type["kind"]
+            vkind: int = {"int": 1, "float": 2, "str": 3, "bytes": 6}[value_kind]
             slot = self.tmp()
             self.line(f"{slot} = getelementptr %ps.arg, ptr {base}, i32 0, i32 2")
             self.line(f"store i64 {vkind}, ptr {slot}")
@@ -82,12 +86,15 @@ class AbiMixin(EmitterBase):
     _ISLAND_ARG_CODES = {"int": 1, "float": 2, "str": 3, "bool": 4, "list": 5, "bytes": 6, "dict": 8}
 
     def _island_code(self, typ: dict[str, Any]) -> int:
-        if typ.get("island"):
+        island: bool = bool(typ.get("island", None))
+        if island:
             return 7
-        return self._ISLAND_ARG_CODES[typ["kind"]]
+        codes: dict[str, int] = self._ISLAND_ARG_CODES
+        kind: str = typ["kind"]
+        return codes[kind]
 
     def _island_pad(self, want: dict[str, Any]) -> int:
-        kind = want.get("kind")
+        kind: str | None = want.get("kind", None)
         if kind == "list":
             return self._island_code(want["elem"])
         if kind == "dict":
@@ -99,7 +106,7 @@ class AbiMixin(EmitterBase):
         kind_ptr = self.tmp()
         self.line(f"{kind_ptr} = getelementptr %ps.arg, ptr {base}, i32 0, i32 0")
         self.line(f"store i32 {code}, ptr {kind_ptr}")
-        kind = typ["kind"]
+        kind: str = typ["kind"]
         if kind == "int":
             slot = self.tmp()
             self.line(f"{slot} = getelementptr %ps.arg, ptr {base}, i32 0, i32 2")
@@ -138,7 +145,8 @@ class AbiMixin(EmitterBase):
             self.line(f"{raw} = ptrtoint ptr {value} to i64")
             self.line(f"store i64 {raw}, ptr {slot}")
             return
-        if typ.get("island"):
+        island: bool = bool(typ.get("island", None))
+        if island:
             slot = self.tmp()
             self.line(f"{slot} = getelementptr %ps.arg, ptr {base}, i32 0, i32 2")
             raw = self.tmp()
@@ -162,7 +170,8 @@ class AbiMixin(EmitterBase):
         raise IRError(f"cannot marshal {kind} to the island")
 
     def _island_name(self, expr: dict[str, Any]) -> tuple[int, str]:
-        name = expr["island"]["name"]
+        island: dict[str, Any] = expr["island"]
+        name: str = island["name"]
         data = name.encode("utf-8")
         return len(data), self.format_global(f"island.{name}", data)
 
@@ -181,7 +190,7 @@ class AbiMixin(EmitterBase):
             for index in range(npos):
                 base = self.tmp()
                 self.line(f"{base} = getelementptr [{npos} x %ps.arg], ptr {slot}, i64 0, i64 {index}")
-                starred = bool(pos_args[index].get("island_starred"))
+                starred: bool = bool(pos_args[index].get("island_starred", None))
                 self._store_island_arg(base, pos_values[index], pos_args[index]["type"], starred=starred)
             pos_ptr = self.tmp()
             self.line(f"{pos_ptr} = getelementptr [{npos} x %ps.arg], ptr {slot}, i64 0, i64 0")
@@ -200,7 +209,7 @@ class AbiMixin(EmitterBase):
                 self.line(f"{base_v} = getelementptr [{total_kw} x %ps.arg], ptr {slot}, i64 0, i64 {2 * index + 1}")
                 k_arg = kw_args[2 * index]
                 v_arg = kw_args[2 * index + 1]
-                if k_arg.get("island_kwargs"):
+                if k_arg.get("island_kwargs", None):
                     kind_ptr = self.tmp()
                     self.line(f"{kind_ptr} = getelementptr %ps.arg, ptr {base_k}, i32 0, i32 0")
                     self.line(f"store i32 0, ptr {kind_ptr}")
@@ -216,15 +225,17 @@ class AbiMixin(EmitterBase):
     def _emit_island_call(self, expr: dict[str, Any], values: list[str]) -> str:
         """One trampoline call: `island_call(handle, name, args...) -> handle or value`."""
         target = values[0]
-        npos = expr.get("island_npos", len(values) - 1)
-        nkw = expr.get("island_nkw", 0)
-        pos_values = values[1 : 1 + npos]
-        pos_args = expr["args"][1 : 1 + npos]
-        kw_values = values[1 + npos :]
-        kw_args = expr["args"][1 + npos :]
+        npos: int = expr.get("island_npos", len(values) - 1) or 0
+        nkw: int = expr.get("island_nkw", None) or 0
+        pos_values: list[str] = values[1 : 1 + npos]
+        all_args: list[dict[str, Any]] = expr["args"]
+        pos_args: list[dict[str, Any]] = all_args[1 : 1 + npos]
+        kw_values: list[str] = values[1 + npos :]
+        kw_args: list[dict[str, Any]] = all_args[1 + npos :]
         pos_ptr, kw_ptr = self._prepare_island_call_args(pos_values, pos_args, kw_values, kw_args)
         size, symbol = self._island_name(expr)
-        if expr["type"].get("island"):
+        type_island: bool = bool(expr["type"].get("island", None))
+        if type_island:
             self._abi_decl("ps_island_call", "ptr", ["ptr", "i64", "ptr", "i64", "ptr", "i64", "ptr"])
             return self._call_ret(
                 "ptr",
@@ -239,8 +250,9 @@ class AbiMixin(EmitterBase):
                     f"ptr {kw_ptr}",
                 ],
             )
-        want = expr["island"]["want"]
-        code = self._island_code(want)
+        island: dict[str, Any] = expr["island"]
+        want: dict[str, Any] = island["want"]
+        code: int = self._island_code(want)
         pad = self._island_pad(want)
         out = self._alloca("%ps.arg")
         self._abi_decl(
@@ -275,19 +287,20 @@ class AbiMixin(EmitterBase):
         mechanism as `ps_island_call_value`. The namespace is seeded once
         with the module's own source before `main` runs.
         """
-        npos = expr.get("island_npos", len(values))
-        nkw = expr.get("island_nkw", 0)
-        pos_values = values[:npos]
-        pos_args = expr["args"][:npos]
-        kw_values = values[npos:]
-        kw_args = expr["args"][npos:]
+        npos: int = expr.get("island_npos", len(values)) or 0
+        nkw: int = expr.get("island_nkw", None) or 0
+        pos_values: list[str] = values[:npos]
+        all_args: list[dict[str, Any]] = expr["args"]
+        pos_args: list[dict[str, Any]] = all_args[:npos]
+        kw_values: list[str] = values[npos:]
+        kw_args: list[dict[str, Any]] = all_args[npos:]
         pos_ptr, kw_ptr = self._prepare_island_call_args(pos_values, pos_args, kw_values, kw_args)
-        fn = expr["island_fn"]
-        name = fn["name"]
+        fn: dict[str, Any] = expr["island_fn"]
+        name: str = fn["name"]
         data = name.encode("utf-8")
         size = len(data)
         symbol = self.format_global(f"island.fn.{name}", data)
-        want = fn.get("want")
+        want: dict[str, Any] | None = fn.get("want", None)
         if want is not None:
             code = self._island_code(want)
             pad = self._island_pad(want)
@@ -322,10 +335,11 @@ class AbiMixin(EmitterBase):
     def _emit_island_getitem(self, expr: dict[str, Any], values: list[str]) -> str:
         """One subscript into an island handle: `island_getitem(handle, key, want, &out)`."""
         self._ensure_arg_type()
-        want = expr["island"]["want"]
-        code = self._island_code(want)
+        island: dict[str, Any] = expr["island"]
+        want: dict[str, Any] = island["want"]
+        code: int = self._island_code(want)
         pad = self._island_pad(want)
-        key = expr["island"]["key"]
+        key: str = island["key"]
         data = key.encode("utf-8")
         size = len(data)
         symbol = self.format_global(f"island.key.{data.hex()}", data)
@@ -365,7 +379,7 @@ class AbiMixin(EmitterBase):
 
     def _emit_island_seed_global(self) -> None:
         """The main-prologue seed, when the module plans island definitions."""
-        source = self.module.get("islandSource")
+        source: str | None = self.module.get("islandSource", None)
         if source:
             self._emit_island_seed(source)
 
@@ -374,8 +388,9 @@ class AbiMixin(EmitterBase):
     def _emit_island_getattr(self, expr: dict[str, Any], values: list[str]) -> str:
         """One attribute read: `island_getattr(handle, name, want, &out)`."""
         self._ensure_arg_type()
-        want = expr["island"]["want"]
-        code = self._island_code(want)
+        island: dict[str, Any] = expr["island"]
+        want: dict[str, Any] = island["want"]
+        code: int = self._island_code(want)
         pad = self._island_pad(want)
         size, symbol = self._island_name(expr)
         out = self._alloca("%ps.arg")
@@ -389,8 +404,9 @@ class AbiMixin(EmitterBase):
     def _emit_island_unmarshal(self, expr: dict[str, Any], values: list[str]) -> str:
         """One unmarshal: `island_unmarshal(handle, want, pad, &out)`."""
         self._ensure_arg_type()
-        want = expr["island"]["want"]
-        code = self._island_code(want)
+        island: dict[str, Any] = expr["island"]
+        want: dict[str, Any] = island["want"]
+        code: int = self._island_code(want)
         pad = self._island_pad(want)
         out = self._alloca("%ps.arg")
         self._abi_decl("ps_island_unmarshal", "void", ["ptr", "i32", "i32", "ptr"])
@@ -401,7 +417,7 @@ class AbiMixin(EmitterBase):
         return self._load_island_result(out, want)
 
     def _load_island_result(self, out: str, want: dict[str, Any]) -> str:
-        kind = want["kind"]
+        kind: str = want["kind"]
         if kind == "int":
             slot = self.tmp()
             self.line(f"{slot} = getelementptr %ps.arg, ptr {out}, i32 0, i32 2")
@@ -417,13 +433,14 @@ class AbiMixin(EmitterBase):
             reg = self.tmp()
             self.line(f"{reg} = trunc i64 {wide} to i1")
             return reg
+        needed = self.needed
         if kind == "list":
-            self.needed.add("seq")
+            needed.add("seq")
             slot = self.tmp()
             self.line(f"{slot} = getelementptr %ps.arg, ptr {out}, i32 0, i32 2")
             return self._load("ptr", slot)
         if kind == "dict":
-            self.needed.add("map")
+            needed.add("map")
             slot = self.tmp()
             self.line(f"{slot} = getelementptr %ps.arg, ptr {out}, i32 0, i32 2")
             return self._load("ptr", slot)
@@ -460,7 +477,9 @@ class AbiMixin(EmitterBase):
         # produced. The scan is the price of not threading the header
         # through every runtime constructor; the constant path (_print.py)
         # computes both fields at emit time instead.
-        self.line(f"call void @{symbol}({', '.join([*args, f'ptr {out}'])})")
+        call_args: list[str] = list(args)
+        call_args.append(f"ptr {out}")
+        self.line(f"call void @{symbol}({', '.join(call_args)})")
         count_ptr = self.tmp()
         flags_ptr = self.tmp()
         length = self.tmp()
@@ -483,8 +502,11 @@ class AbiMixin(EmitterBase):
         self.abi_decls[symbol] = (ret, params)
 
     def _abi_lines(self) -> list[str]:
-        lines = []
-        for symbol, (ret, params) in self.abi_decls.items():
+        lines: list[str] = []
+        for item in self.abi_decls.items():
+            symbol = item[0]
+            ret = item[1][0]
+            params = item[1][1]
             if symbol == "exit":
                 lines.append("declare void @exit(i32) noreturn")
                 continue
@@ -501,7 +523,8 @@ class AbiMixin(EmitterBase):
         return reg
 
     def _alloc_class(self, name: str) -> str:
-        self.needed.add("alloc")
+        needed = self.needed
+        needed.add("alloc")
         size_ptr = self.tmp()
         size = self.tmp()
         self.line(f"{size_ptr} = getelementptr %cls.{name}, ptr null, i64 1")
@@ -509,7 +532,7 @@ class AbiMixin(EmitterBase):
         return self._call_ret("ptr", "ps_alloc", [f"i64 {size}"])
 
     def _c_pieces(self, value: str, typ: dict[str, Any]) -> list[tuple[str, str]]:
-        kind = typ["kind"]
+        kind: str = typ["kind"]
         if kind == "int":
             return [(f"i64 {value}", "i64")]
         if kind == "float":
@@ -522,17 +545,23 @@ class AbiMixin(EmitterBase):
         raise IRError(f"cannot pass {kind} to a runtime call")
 
     def _emit_abi(self, expr: dict[str, Any], values: list[str]) -> str:
-        symbol = expr["symbol"]
+        symbol: str = expr["symbol"]
         rendered: list[str] = []
         types: list[str] = []
-        for value, arg in zip(values, expr["args"], strict=True):
+        arg_index = 0
+        for value in values:
+            all_args: list[dict[str, Any]] = expr["args"]
+            arg: dict[str, Any] = all_args[arg_index]
+            arg_index = arg_index + 1
             for piece, typ in self._c_pieces(value, arg["type"]):
                 rendered.append(piece)
                 types.append(typ)
-        ret = expr["type"]
-        kind = ret["kind"]
+        ret: dict[str, Any] = expr["type"]
+        kind: str = ret["kind"]
         if kind in {"str", "bytes"}:
-            self._abi_decl(symbol, "void", [*types, "ptr"])
+            abi_params: list[str] = list(types)
+            abi_params.append("ptr")
+            self._abi_decl(symbol, "void", abi_params)
             return self._buf_out(symbol, rendered)
         if kind == "int":
             self._abi_decl(symbol, "i64", types)
@@ -550,7 +579,7 @@ class AbiMixin(EmitterBase):
         if kind in {"list", "dict", "func", "exc"} or (
             kind == "class"
             and (
-                ret.get("name")
+                ret.get("name", None)
                 in {
                     "Deque",
                     "TextIO",
@@ -583,8 +612,12 @@ class AbiMixin(EmitterBase):
                 # returns void, so a ptr-returning call reads a stale register
                 # and str() of the slot dereferenced it (certifi.where()).
                 out = self._alloca("%ps.buf")
-                self._abi_decl("ps_global_get_path", "void", [*types, "ptr"])
-                self._call_void("ps_global_get_path", [*rendered, f"ptr {out}"])
+                get_path_params: list[str] = list(types)
+                get_path_params.append("ptr")
+                self._abi_decl("ps_global_get_path", "void", get_path_params)
+                get_path_args: list[str] = list(rendered)
+                get_path_args.append(f"ptr {out}")
+                self._call_void("ps_global_get_path", get_path_args)
                 length = self.tmp()
                 data = self.tmp()
                 self.line(f"{length} = load i64, ptr {out}")
@@ -608,21 +641,26 @@ class AbiMixin(EmitterBase):
                 # The runtime owns the record: the value is the record pointer.
                 self._abi_decl(symbol, "ptr", types)
                 return self._call_ret("ptr", symbol, rendered)
-            self._abi_decl(symbol, "void", [*types, "ptr"])
+            tail_params: list[str] = list(types)
+            tail_params.append("ptr")
+            self._abi_decl(symbol, "void", tail_params)
             mem = self._alloc_class(ret["name"])
-            self._call_void(symbol, [*rendered, f"ptr {mem}"])
+            tail_args: list[str] = list(rendered)
+            tail_args.append(f"ptr {mem}")
+            self._call_void(symbol, tail_args)
             return mem
         raise IRError(f"cannot emit {symbol}")
 
     def _emit_thread_new(self, expr: dict[str, Any]) -> str:
         """`Thread(...)`: build the target's callable pair (bound args inside
         the env), then hand it to the runtime with the name and daemon bits."""
-        meta = expr["thread"]
+        meta: dict[str, Any] = expr["thread"]
         pair = self.emit_closure(meta["closure"])
         self._abi_decl("ps_thread_new", "ptr", ["ptr", "i64", "ptr"])
-        name = self.string_value(meta.get("name", ""))
+        thread_name: str | None = meta.get("name", None)
+        name = self.string_value(thread_name if thread_name is not None else "")
         name_len, name_ptr = self._buf_parts(name)
-        daemon = meta.get("daemon", 0)
+        daemon: int = meta.get("daemon", 0) or 0
         return self._call_ret("ptr", "ps_thread_new", [f"ptr {pair}", f"i64 {daemon}", f"ptr {name_ptr}"])
 
     def _emit_to_thread_new(self, expr: dict[str, Any], values: list[str]) -> str:
@@ -632,8 +670,8 @@ class AbiMixin(EmitterBase):
         the value's bytes. The callable pair and the worker start ride on
         the `ps_to_thread_start` call that follows.
         """
-        meta = expr["thread"]
-        size = meta["size"]
+        meta: dict[str, Any] = expr["thread"]
+        size: int = meta["size"]
         self._abi_decl("ps_to_thread_new", "ptr", ["i64"])
         return self._call_ret("ptr", "ps_to_thread_new", [f"i64 {size}"])
 
@@ -646,32 +684,39 @@ class AbiMixin(EmitterBase):
         into it.
         """
         record = values[0]
-        pair = self.emit_closure(expr["args"][1])
+        all_args: list[dict[str, Any]] = expr["args"]
+        arg1: dict[str, Any] = all_args[1]
+        pair = self.emit_closure(arg1)
         self._abi_decl("ps_to_thread_start", "void", ["ptr", "ptr"])
         self._call_void("ps_to_thread_start", [f"ptr {record}", f"ptr {pair}"])
         return ""
 
     def _emit_list_push(self, expr: dict[str, Any], values: list[str]) -> str:
         seq, elem = values
-        slot = self._stash_cell(expr["args"][1]["type"], elem)
+        all_args: list[dict[str, Any]] = expr["args"]
+        arg1: dict[str, Any] = all_args[1]
+        slot = self._stash_cell(arg1["type"], elem)
         self._abi_decl("ps_seq_push", "void", ["ptr", "ptr"])
         self._call_void("ps_seq_push", [f"ptr {seq}", f"ptr {slot}"])
         return ""
 
     def _emit_atexit(self, expr: dict[str, Any]) -> str:
-        name = expr["args"][0]["value"]
+        all_args: list[dict[str, Any]] = expr["args"]
+        name: str = all_args[0]["value"]
         fn = self.functions.get(name)
         if fn is None:
             raise IRError(f"atexit.register target {name} was not lowered")
         symbol = _fn_symbol(name)
         wrap = f"ps.atexit.{self.atexit_n}"
-        self.atexit_n += 1
-        ret = fn["returnType"]
-        if ret["kind"] == "none":
+        self.atexit_n = self.atexit_n + 1
+        ret: dict[str, Any] = fn["returnType"]
+        ret_kind: str = ret["kind"]
+        if ret_kind == "none":
             body = f"  call void @{symbol}()\n  ret void\n"
         else:
             body = f"  call {_llvm_type(ret)} @{symbol}()\n  ret void\n"
-        self.outline_lines.append(f"define internal void @{wrap}() {{\nentry:\n{body}}}")
+        outline_lines = self.outline_lines
+        outline_lines.append(f"define internal void @{wrap}() {{\nentry:\n{body}}}")
         self._abi_decl("atexit", "i32", ["ptr"])
         reg = self.tmp()
         self.line(f"{reg} = call i32 @atexit(ptr @{wrap})")
@@ -683,7 +728,7 @@ class AbiMixin(EmitterBase):
         self.line(f"{narrow} = trunc i64 {value} to i32")
         self._call_void("exit", [f"i32 {narrow}"])
         self.line("unreachable")
-        self.terminated = True
+        self.terminated = 1
         return ""
 
     def _emit_exit_message(self, message: str) -> str:
@@ -692,12 +737,13 @@ class AbiMixin(EmitterBase):
         `except SystemExit` still catches it (issue #645). The SystemExit
         raise path carries both rules.
         """
-        self.needed.add("exc")
+        needed = self.needed
+        needed.add("exc")
         self._abi_decl("ps_raise_msg", "void", ["i32", "i64", "ptr"])
         length, ptr = self._buf_parts(message)
         self.line(f"call void @ps_raise_msg(i32 {EXCEPTIONS['SystemExit']}, i64 {length}, ptr {ptr}) noreturn")
         self.line("unreachable")
-        self.terminated = True
+        self.terminated = 1
         return ""
 
     def _emit_join(self, values: list[str]) -> str:
@@ -723,22 +769,26 @@ class AbiMixin(EmitterBase):
         return self._buf_out("ps_path_join", [f"ptr {first}", f"i64 {count}"])
 
     def _emit_deque_store(self, expr: dict[str, Any], values: list[str]) -> str:
-        slot = self._stash_cell(expr["args"][1]["type"], values[1])
-        symbol = expr["symbol"]
+        all_args: list[dict[str, Any]] = expr["args"]
+        arg1: dict[str, Any] = all_args[1]
+        slot = self._stash_cell(arg1["type"], values[1])
+        symbol: str = expr["symbol"]
         self._abi_decl(symbol, "void", ["ptr", "ptr"])
         self._call_void(symbol, [f"ptr {values[0]}", f"ptr {slot}"])
         return ""
 
     def _emit_deque_load(self, expr: dict[str, Any], values: list[str]) -> str:
         out = self._alloca(_memory_type(expr["type"]))
-        symbol = expr["symbol"]
+        symbol: str = expr["symbol"]
         self._abi_decl(symbol, "void", ["ptr", "ptr"])
         self._call_void(symbol, [f"ptr {values[0]}", f"ptr {out}"])
         return self._widen_cell(expr["type"], out)
 
     def _emit_class_cmp(self, expr: dict[str, Any], left: str, right: str) -> str:
-        name = expr["left"]["type"]["name"]
-        op = expr["op"]
+        left_arg: dict[str, Any] = expr["left"]
+        left_type: dict[str, Any] = left_arg["type"]
+        name: str = left_type["name"]
+        op: str = expr["op"]
         if name == "Path":
             left_ptr = self.tmp()
             right_ptr = self.tmp()
@@ -746,7 +796,8 @@ class AbiMixin(EmitterBase):
             self.line(f"{right_ptr} = getelementptr %cls.Path, ptr {right}, i32 0, i32 0")
             cmp = self._buf_cmp_cells(self._load("%ps.buf", left_ptr), self._load("%ps.buf", right_ptr))
         elif name in COMPARE_CLASSES:
-            count = len(self.class_index[name]["fields"])
+            fields: list[dict[str, Any]] = self.class_index[name]["fields"]
+            count: int = len(fields)
             self._abi_decl("ps_i64_lex", "i32", ["ptr", "ptr", "i64"])
             cmp = self._call_ret("i32", "ps_i64_lex", [f"ptr {left}", f"ptr {right}", f"i64 {count}"])
         else:
@@ -763,11 +814,17 @@ class AbiMixin(EmitterBase):
         return reg
 
     def _emit_class_binary(self, expr: dict[str, Any], left: str, right: str) -> str:
-        left_name = expr["left"]["type"]["name"]
-        right_name = expr["right"]["type"]["name"]
-        out_name = expr["type"]["name"]
+        left_arg: dict[str, Any] = expr["left"]
+        left_type: dict[str, Any] = left_arg["type"]
+        left_name: str = left_type["name"]
+        right_arg: dict[str, Any] = expr["right"]
+        right_type: dict[str, Any] = right_arg["type"]
+        right_name: str = right_type["name"]
+        out_type: dict[str, Any] = expr["type"]
+        out_name: str = out_type["name"]
         mem = self._alloc_class(out_name)
-        sign = "1" if expr["op"] == "+" else "-1"
+        op: str = expr["op"]
+        sign: str = "1" if op == "+" else "-1"
         if left_name in {"Date", "DateTime"} and right_name == "TimeDelta":
             symbol = "ps_date_add" if left_name == "Date" else "ps_dt_add"
             self._abi_decl(symbol, "void", ["ptr", "ptr", "i32", "ptr"])
@@ -777,15 +834,15 @@ class AbiMixin(EmitterBase):
             self._abi_decl("ps_delta_add", "void", ["ptr", "ptr", "i32", "ptr"])
             self._call_void("ps_delta_add", [f"ptr {left}", f"ptr {right}", f"i32 {sign}", f"ptr {mem}"])
             return mem
-        if expr["op"] == "-" and left_name == right_name and left_name in {"Date", "DateTime"}:
+        if op == "-" and left_name == right_name and left_name in {"Date", "DateTime"}:
             symbol = "ps_date_diff" if left_name == "Date" else "ps_dt_diff"
             self._abi_decl(symbol, "void", ["ptr", "ptr", "ptr"])
             self._call_void(symbol, [f"ptr {left}", f"ptr {right}", f"ptr {mem}"])
             return mem
-        raise IRError(f"cannot emit {expr['op']} on {left_name}")
+        raise IRError(f"cannot emit {op} on {left_name}")
 
     def _emit_minmax(self, name: str, values: list[str], arg_types: list[dict[str, Any]]) -> str:
-        kind = arg_types[0]["kind"]
+        kind: str = arg_types[0]["kind"]
         left, right = values
         if kind == "int":
             pred = "sle" if name == "min" else "sge"
@@ -810,15 +867,20 @@ class AbiMixin(EmitterBase):
         return reg
 
     def _emit_reduce(self, expr: dict[str, Any]) -> str:
-        seq = self.emit_expr(expr["args"][0])
-        elem = expr["args"][0]["type"]["elem"]
-        llvm_t = _llvm_type(elem)
-        self.needed.add("seq")
+        all_args: list[dict[str, Any]] = expr["args"]
+        arg0: dict[str, Any] = all_args[0]
+        seq = self.emit_expr(arg0)
+        arg0_type: dict[str, Any] = arg0["type"]
+        elem: dict[str, Any] = arg0_type["elem"]
+        llvm_t: str = _llvm_type(elem)
+        needed = self.needed
+        needed.add("seq")
         length = self._call_ret("i64", "ps_seq_len", [f"ptr {seq}"])
         acc_slot = self._alloca(llvm_t)
         idx_slot = self._alloca("i64")
-        if len(expr["args"]) == 2:
-            init = self.emit_expr(expr["args"][1])
+        if len(all_args) == 2:
+            arg1: dict[str, Any] = all_args[1]
+            init = self.emit_expr(arg1)
             self.line(f"store {llvm_t} {init}, ptr {acc_slot}")
             self.line(f"store i64 0, ptr {idx_slot}")
         else:
@@ -827,12 +889,13 @@ class AbiMixin(EmitterBase):
             bad = self.fresh("red.empty")
             ok = self.fresh("red.start")
             self.line(f"br i1 {empty}, label %{bad}, label %{ok}")
-            self.terminated = True
+            self.terminated = 1
             self.block(bad)
-            self.needed.add("exc")
+            needed = self.needed
+            needed.add("exc")
             self.line(f"call void @ps_raise_code(i32 {EXCEPTIONS['ValueError']}) noreturn")
             self.line("unreachable")
-            self.terminated = True
+            self.terminated = 1
             self.block(ok)
             first = self._seq_at(seq, "0", elem)
             self.line(f"store {llvm_t} {first}, ptr {acc_slot}")
@@ -841,28 +904,31 @@ class AbiMixin(EmitterBase):
         body_l = self.fresh("red.body")
         end_l = self.fresh("red.end")
         self.line(f"br label %{cond_l}")
-        self.terminated = True
+        self.terminated = 1
         self.block(cond_l)
         idx = self._load("i64", idx_slot)
         cmp = self.tmp()
         self.line(f"{cmp} = icmp slt i64 {idx}, {length}")
         self.line(f"br i1 {cmp}, label %{body_l}, label %{end_l}")
-        self.terminated = True
+        self.terminated = 1
         self.block(body_l)
         current = self._load(llvm_t, acc_slot)
         item = self._seq_at(seq, idx, elem)
-        nxt = self.call_function(self.functions[expr["fn"]], [current, item])
+        fn_name: str = expr["fn"]
+        fn: dict[str, Any] = self.functions[fn_name]
+        nxt = self.call_function(fn, [current, item])
         self.line(f"store {llvm_t} {nxt}, ptr {acc_slot}")
         bumped = self.tmp()
         self.line(f"{bumped} = add i64 {idx}, 1")
         self.line(f"store i64 {bumped}, ptr {idx_slot}")
         self.line(f"br label %{cond_l}")
-        self.terminated = True
+        self.terminated = 1
         self.block(end_l)
         return self._load(llvm_t, acc_slot)
 
     def _seq_at(self, seq: str, index: str, elem: dict[str, Any]) -> str:
-        self.needed.add("seq")
+        needed = self.needed
+        needed.add("seq")
         out = self._alloca(_memory_type(elem))
         self.line(f"call void @ps_seq_get(ptr {seq}, i64 {index}, ptr {out})")
         return self._widen_cell(elem, out)
@@ -871,43 +937,54 @@ class AbiMixin(EmitterBase):
         """`pa.partial.N(env, p...)`: load the bound arguments and the inner
         pair out of the env, then call the inner impl env-first with the
         bound arguments prepended."""
-        bound = spec["bound"]
-        params = spec["params"]
-        ret = _llvm_type(spec["return"])
-        plist = ["ptr %env"] + [f"{_llvm_type(p)} %p{index}" for index, p in enumerate(params)]
-        self.out.append(f"define internal {ret} @{symbol}({', '.join(plist)}) {{")
-        self.out.append("entry:")
+        bound: list[dict[str, Any]] = spec["bound"]
+        params: list[dict[str, Any]] = spec["params"]
+        spec_return: dict[str, Any] = spec["return"]
+        ret = _llvm_type(spec_return)
+        plist: list[str] = ["ptr %env"]
+        for index in range(len(params)):
+            plist.append(f"{_llvm_type(params[index])} %p{index}")
+        out_lines = self.out
+        out_lines.append(f"define internal {ret} @{symbol}({', '.join(plist)}) {{")
+        out_lines.append("entry:")
         args: list[str] = []
-        for index, typ in enumerate(bound):
+        for index in range(len(bound)):
+            typ: dict[str, Any] = bound[index]
             if index == 0:
-                self.out.append(f"  %b{index} = load ptr, ptr %env")
+                out_lines.append(f"  %b{index} = load ptr, ptr %env")
             else:
-                self.out.append(f"  %g{index} = getelementptr ptr, ptr %env, i64 {index}")
-                self.out.append(f"  %b{index} = load ptr, ptr %g{index}")
-            self.out.append(f"  %v{index} = load {_llvm_type(typ)}, ptr %b{index}")
+                out_lines.append(f"  %g{index} = getelementptr ptr, ptr %env, i64 {index}")
+                out_lines.append(f"  %b{index} = load ptr, ptr %g{index}")
+            out_lines.append(f"  %v{index} = load {_llvm_type(typ)}, ptr %b{index}")
             args.append(f"{_llvm_type(typ)} %v{index}")
-        self.out.append(f"  %ip = getelementptr ptr, ptr %env, i64 {len(bound)}")
-        self.out.append("  %pc = load ptr, ptr %ip")
-        self.out.append("  %pp = load ptr, ptr %pc")
-        self.out.append("  %impl = load ptr, ptr %pp")
-        self.out.append("  %ip2 = getelementptr ptr, ptr %pp, i64 1")
-        self.out.append("  %env2 = load ptr, ptr %ip2")
-        call_args = ["ptr %env2", *args] + [f"{_llvm_type(p)} %p{index}" for index, p in enumerate(params)]
+        out_lines.append(f"  %ip = getelementptr ptr, ptr %env, i64 {len(bound)}")
+        out_lines.append("  %pc = load ptr, ptr %ip")
+        out_lines.append("  %pp = load ptr, ptr %pc")
+        out_lines.append("  %impl = load ptr, ptr %pp")
+        out_lines.append("  %ip2 = getelementptr ptr, ptr %pp, i64 1")
+        out_lines.append("  %env2 = load ptr, ptr %ip2")
+        call_args: list[str] = ["ptr %env2"]
+        call_args.extend(args)
+        for index in range(len(params)):
+            call_args.append(f"{_llvm_type(params[index])} %p{index}")
         if ret == "void":
-            self.out.append(f"  call void %impl({', '.join(call_args)})")
-            self.out.append("  ret void")
+            out_lines.append(f"  call void %impl({', '.join(call_args)})")
+            out_lines.append("  ret void")
         else:
-            self.out.append(f"  %r = call {ret} %impl({', '.join(call_args)})")
-            self.out.append(f"  ret {ret} %r")
-        self.out.append("}")
-        self.out.append("")
+            out_lines.append(f"  %r = call {ret} %impl({', '.join(call_args)})")
+            out_lines.append(f"  ret {ret} %r")
+        out_lines.append("}")
+        out_lines.append("")
 
     def _partial_symbol(self, spec: dict[str, Any]) -> str:
-        key = repr((spec["bound"], spec["params"], spec["return"]))
-        symbol = self.partial_keys.get(key)
+        spec_bound: list[dict[str, Any]] = spec["bound"]
+        spec_params: list[dict[str, Any]] = spec["params"]
+        spec_return: dict[str, Any] = spec["return"]
+        key: str = repr((spec_bound, spec_params, spec_return["kind"]))
+        symbol: str | None = self.partial_keys.get(key, None)
         if symbol is None:
             symbol = f"pa.partial.{self.partial_n}"
-            self.partial_n += 1
+            self.partial_n = self.partial_n + 1
             self.partial_keys[key] = symbol
             self.partials[symbol] = spec
         return symbol
@@ -919,11 +996,14 @@ class AbiMixin(EmitterBase):
         callable's return value into the thread record, so the loop can
         hand it back to the awaiting frame.
         """
-        key = repr((spec["bound"], spec["params"], spec["return"]))
-        symbol = self.thread_keys.get(key)
+        spec_bound: list[dict[str, Any]] = spec["bound"]
+        spec_params: list[dict[str, Any]] = spec["params"]
+        spec_return: dict[str, Any] = spec["return"]
+        key: str = repr((spec_bound, spec_params, spec_return["kind"]))
+        symbol: str | None = self.thread_keys.get(key, None)
         if symbol is None:
             symbol = f"ps.thread.{self.thread_n}"
-            self.thread_n += 1
+            self.thread_n = self.thread_n + 1
             self.thread_keys[key] = symbol
             self.threads[symbol] = spec
         return symbol
@@ -935,65 +1015,76 @@ class AbiMixin(EmitterBase):
         record. The stub calls the inner impl env-first with the bound
         arguments prepended, then copies the result into the record.
         """
-        bound = spec["bound"]
-        params = spec["params"]
-        ret = _llvm_type(spec["return"])
-        plist = ["ptr %env"] + [f"{_llvm_type(p)} %p{index}" for index, p in enumerate(params)]
+        bound: list[dict[str, Any]] = spec["bound"]
+        params: list[dict[str, Any]] = spec["params"]
+        spec_return: dict[str, Any] = spec["return"]
+        ret = _llvm_type(spec_return)
+        plist: list[str] = ["ptr %env"]
+        for index in range(len(params)):
+            plist.append(f"{_llvm_type(params[index])} %p{index}")
         # The stub is emitted outside the abi machinery, so it declares the
         # runtime call it makes itself.
         self._abi_decl("ps_to_thread_store", "void", ["ptr", "ptr", "i64"])
-        self.out.append(f"define internal {ret} @{symbol}({', '.join(plist)}) {{")
-        self.out.append("entry:")
+        out_lines = self.out
+        out_lines.append(f"define internal {ret} @{symbol}({', '.join(plist)}) {{")
+        out_lines.append("entry:")
         args: list[str] = []
-        for index, typ in enumerate(bound):
+        for index in range(len(bound)):
+            typ: dict[str, Any] = bound[index]
             if index == 0:
-                self.out.append("  %b0 = load ptr, ptr %env")
+                out_lines.append("  %b0 = load ptr, ptr %env")
             else:
-                self.out.append(f"  %g{index} = getelementptr ptr, ptr %env, i64 {index}")
-                self.out.append(f"  %b{index} = load ptr, ptr %g{index}")
-            self.out.append(f"  %v{index} = load {_llvm_type(typ)}, ptr %b{index}")
+                out_lines.append(f"  %g{index} = getelementptr ptr, ptr %env, i64 {index}")
+                out_lines.append(f"  %b{index} = load ptr, ptr %g{index}")
+            out_lines.append(f"  %v{index} = load {_llvm_type(typ)}, ptr %b{index}")
             args.append(f"{_llvm_type(typ)} %v{index}")
         # The inner pair sits after the bound arguments.
-        self.out.append(f"  %ip = getelementptr ptr, ptr %env, i64 {len(bound)}")
-        self.out.append("  %pc = load ptr, ptr %ip")
-        self.out.append("  %pp = load ptr, ptr %pc")
-        self.out.append("  %impl = load ptr, ptr %pp")
-        self.out.append("  %ip2 = getelementptr ptr, ptr %pp, i64 1")
-        self.out.append("  %env2 = load ptr, ptr %ip2")
+        out_lines.append(f"  %ip = getelementptr ptr, ptr %env, i64 {len(bound)}")
+        out_lines.append("  %pc = load ptr, ptr %ip")
+        out_lines.append("  %pp = load ptr, ptr %pc")
+        out_lines.append("  %impl = load ptr, ptr %pp")
+        out_lines.append("  %ip2 = getelementptr ptr, ptr %pp, i64 1")
+        out_lines.append("  %env2 = load ptr, ptr %ip2")
         # The thread record sits after the inner pair. The env entry packs
         # the record into a heap cell, so the stub loads it out of the cell.
-        self.out.append(f"  %ip3 = getelementptr ptr, ptr %env, i64 {len(bound) + 1}")
-        self.out.append("  %reccell = load ptr, ptr %ip3")
-        self.out.append("  %rec = load ptr, ptr %reccell")
-        call_args = ["ptr %env2", *args] + [f"{_llvm_type(p)} %p{index}" for index, p in enumerate(params)]
+        out_lines.append(f"  %ip3 = getelementptr ptr, ptr %env, i64 {len(bound) + 1}")
+        out_lines.append("  %reccell = load ptr, ptr %ip3")
+        out_lines.append("  %rec = load ptr, ptr %reccell")
+        call_args: list[str] = ["ptr %env2"]
+        call_args.extend(args)
+        for index in range(len(params)):
+            call_args.append(f"{_llvm_type(params[index])} %p{index}")
         if ret == "void":
-            self.out.append(f"  call void %impl({', '.join(call_args)})")
-            self.out.append("  ret void")
+            out_lines.append(f"  call void %impl({', '.join(call_args)})")
+            out_lines.append("  ret void")
         else:
-            self.out.append(f"  %r = call {ret} %impl({', '.join(call_args)})")
+            out_lines.append(f"  %r = call {ret} %impl({', '.join(call_args)})")
             # The result travels into the record: the worker stores it, the
             # loop hands it back to the awaiting frame. A str result narrows
             # to the 16-byte prefix the record cell holds.
-            if spec["return"]["kind"] in {"str", "bytes"}:
-                self.out.append("  %slot = alloca %ps.buf")
-                self.out.append("  %rn = extractvalue %ps.str %r, 0")
-                self.out.append("  %rp = extractvalue %ps.str %r, 1")
-                self.out.append("  %slen = getelementptr %ps.buf, ptr %slot, i32 0, i32 0")
-                self.out.append("  store i64 %rn, ptr %slen")
-                self.out.append("  %sdata = getelementptr %ps.buf, ptr %slot, i32 0, i32 1")
-                self.out.append("  store ptr %rp, ptr %sdata")
+            spec_return_kind: str = spec_return["kind"]
+            if spec_return_kind in {"str", "bytes"}:
+                out_lines.append("  %slot = alloca %ps.buf")
+                out_lines.append("  %rn = extractvalue %ps.str %r, 0")
+                out_lines.append("  %rp = extractvalue %ps.str %r, 1")
+                out_lines.append("  %slen = getelementptr %ps.buf, ptr %slot, i32 0, i32 0")
+                out_lines.append("  store i64 %rn, ptr %slen")
+                out_lines.append("  %sdata = getelementptr %ps.buf, ptr %slot, i32 0, i32 1")
+                out_lines.append("  store ptr %rp, ptr %sdata")
             else:
-                self.out.append(f"  %slot = alloca {ret}")
-                self.out.append(f"  store {ret} %r, ptr %slot")
-            self.out.append(f"  call void @ps_to_thread_store(ptr %rec, ptr %slot, i64 {_elem_size(spec['return'])})")
-            self.out.append(f"  ret {ret} %r")
-        self.out.append("}")
-        self.out.append("")
+                out_lines.append(f"  %slot = alloca {ret}")
+                out_lines.append(f"  store {ret} %r, ptr %slot")
+            out_lines.append(f"  call void @ps_to_thread_store(ptr %rec, ptr %slot, i64 {_elem_size(spec['return'])})")
+            out_lines.append(f"  ret {ret} %r")
+        out_lines.append("}")
+        out_lines.append("")
 
     def _heap_cell(self, typ: dict[str, Any], value: str) -> str:
-        self.needed.add("alloc")
+        needed = self.needed
+        needed.add("alloc")
         cell = self._call_ret("ptr", "ps_alloc", [f"i64 {_elem_size(typ)}"])
-        if typ["kind"] in {"str", "bytes"}:
+        kind: str = typ["kind"]
+        if kind in {"str", "bytes"}:
             length = self.tmp()
             ptr = self.tmp()
             self.line(f"{length} = extractvalue %ps.str {value}, 0")
@@ -1020,11 +1111,14 @@ class AbiMixin(EmitterBase):
         check (`ps_task_failure` re-raises the record's exception), so
         `task.result()` on a failed task raises, the way CPython's does.
         """
-        elem = expr["args"][0]["type"]["elem"]
+        all_args: list[dict[str, Any]] = expr["args"]
+        arg0: dict[str, Any] = all_args[0]
+        arg0_type: dict[str, Any] = arg0["type"]
+        elem: dict[str, Any] = arg0_type["elem"]
         out = self._alloca(_memory_type(elem))
         self._abi_decl("ps_task_failure", "void", ["ptr"])
         self._call_void("ps_task_failure", [f"ptr {values[0]}"])
-        symbol = expr["symbol"]
+        symbol: str = expr["symbol"]
         self._abi_decl(symbol, "void", ["ptr", "i64", "ptr"])
         self._call_void(symbol, [f"ptr {values[0]}", f"i64 {_elem_size(elem)}", f"ptr {out}"])
         return self._widen_cell(elem, out)
