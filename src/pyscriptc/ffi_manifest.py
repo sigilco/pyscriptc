@@ -58,6 +58,7 @@ _CONTAINER = re.compile(r"^(list|dict)\[(.+)\]$")
 _SIGNATURE = re.compile(r"^\(([^()]*)\)\s*(?:->\s*([^()]+))?$")
 _PARAM = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([^=,]+)(?:\s*=\s*(.+))?$")
 
+
 class FfiManifestError(SpikeError):
     """A manifest that does not validate. `code` is stable and testable."""
 
