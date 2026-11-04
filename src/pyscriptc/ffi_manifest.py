@@ -118,14 +118,16 @@ _C_TYPE = re.compile(r"^[A-Za-z_][A-Za-z0-9_ ]*\*$|^[A-Za-z_][A-Za-z0-9_]*$")
 # A typed container annotation, `list[str]` or `dict[str, str]`. The inner
 # types are validated separately; a dict inside a list (`list[dict[K, V]]`,
 # the sqlite row shape) is the one nesting the lane allows (issue #236).
-_CONTAINER = re.compile(r"^(?P<head>list|dict)\[(?P<inner>.+)\]$")
+_CONTAINER = re.compile(r"^(list|dict)\[(.+)\]$")
 
 # A `py` signature: `(a: int, b: str) -> int`. Optional `->` return is
 # allowed and means `None`.
 _SIGNATURE = re.compile(r"^\((?P<params>[^()]*)\)\s*(?:->\s*(?P<ret>[^()]+))?$")
 
 # A parameter inside a signature: `name: type`, with an optional default.
-_PARAM = re.compile(r"^(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*:\s*(?P<type>[^=,]+)(?:\s*=\s*(?P<default>.+))?$")
+# Numbered groups: `Match.group("name")` does not lower (the group order is
+# fixed by the pattern above).
+_PARAM = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([^=,]+)(?:\s*=\s*(.+))?$")
 
 
 class FfiManifestError(SpikeError):
@@ -729,7 +731,7 @@ def _parse_signature(
             path=path,
             where=where,
         )
-    raw_params = match.group("params").strip()
+    raw_params = match.group(1).strip()
     params: list[ManifestParam] = []
     names: set[str] = set()
     if raw_params:
@@ -742,7 +744,7 @@ def _parse_signature(
                     path=path,
                     where=where,
                 )
-            name = param_match.group("name")
+            name = param_match.group(1)
             if name in names:
                 raise FfiManifestError(
                     "PS4007",
@@ -751,11 +753,11 @@ def _parse_signature(
                     where=where,
                 )
             names.add(name)
-            type_name = param_match.group("type").strip()
+            type_name = param_match.group(2).strip()
             _check_type(type_name, path=path, where=where, handle_names=handle_names)
-            default = param_match.group("default")
+            default = param_match.group(3)
             params.append(ManifestParam(name=name, type=type_name, default=default.strip() if default else None))
-    returns = (match.group("ret") or "None").strip()
+    returns = (match.group(2) or "None").strip()
     _check_type(returns, path=path, where=where, handle_names=handle_names, allow_none=True)
     return tuple(params), returns
 
@@ -782,15 +784,15 @@ def _check_container(
             path=path,
             where=where,
         )
-    head = match.group("head")
-    inner = match.group("inner").strip()
+    head = match.group(1)
+    inner = match.group(2).strip()
     if head == "list":
         nested = _CONTAINER.match(inner)
         if nested is not None:
             # The one allowed nesting: `list[dict[K, V]]`. A list of lists
             # has no subset element type (a list value is a pointer, not a
             # scalar the runtime slot can hold).
-            if nested.group("head") == "dict":
+            if nested.group(1) == "dict":
                 _check_type(inner, path=path, where=where, handle_names=handle_names)
                 return
             raise FfiManifestError(
