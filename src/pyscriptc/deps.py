@@ -39,7 +39,7 @@ import tempfile
 import urllib.request
 import zipfile
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any, Dict
 
 from pyscriptc.config import ConfigError, read_pep723
@@ -468,6 +468,49 @@ def _record_hash(digest: str) -> str:
     return value
 
 
+def _posix_parts(name: str) -> list[str]:
+    """The POSIX components of `name`, what `PurePosixPath(name).parts` gives.
+    `PurePosixPath` is outside the lowered pathlib subset, so the wheel
+    member paths split here: a leading `/` (or the `//` two-slash drive
+    root) is its own component, empty and `.` components drop, and `..`
+    is kept so the unsafe-path check can see it.
+    """
+
+    root = ""
+    rest = name
+    if rest.startswith("/"):
+        slashes = 0
+        while slashes < len(rest) and rest[slashes] == "/":
+            slashes = slashes + 1
+        root = "//" if slashes == 2 else "/"
+        rest = rest[slashes:]
+    parts: list[str] = []
+    for piece in rest.split("/"):
+        if piece == "" or piece == ".":
+            continue
+        parts.append(piece)
+    if root != "":
+        found: list[str] = []
+        found.append(root)
+        for piece in parts:
+            found.append(piece)
+        return found
+    return parts
+
+
+def _join_parts(root: Path, parts: list[str]) -> Path:
+    """`root.joinpath(*parts)`, one component at a time.
+
+    The lowered pathlib subset joins one component per call, so the wheel
+    member path is built by walking the parts.
+    """
+
+    target = root
+    for piece in parts:
+        target = target / piece
+    return target
+
+
 def inspect_wheel(data: bytes) -> tuple[bool, str]:
     """(pure, reason) from wheel contents. Raises DepsError on a tampered or unsafe archive."""
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
@@ -504,11 +547,12 @@ def inspect_wheel(data: bytes) -> tuple[bool, str]:
 
 
 def _safe_member(info: zipfile.ZipInfo) -> None:
-    path = PurePosixPath(info.filename)
-    if path.is_absolute() or ".." in path.parts or "\\" in info.filename or ":" in path.parts[0]:
-        raise DepsError(f"unsafe path in wheel: {info.filename!r}")
+    filename: str = info.filename
+    parts = _posix_parts(filename)
+    if filename.startswith("/") or ".." in parts or "\\" in filename or ":" in parts[0]:
+        raise DepsError(f"unsafe path in wheel: {filename!r}")
     if stat.S_ISLNK(info.external_attr >> 16):
-        raise DepsError(f"symlink in wheel: {info.filename!r}")
+        raise DepsError(f"symlink in wheel: {filename!r}")
 
 
 # ---------------------------------------------------------------- cache
@@ -616,7 +660,7 @@ def data_files(data: bytes) -> list[tuple[str, bytes]]:
             _safe_member(info)
             if info.is_dir():
                 continue
-            parts = PurePosixPath(info.filename).parts
+            parts = _posix_parts(info.filename)
             if _should_skip_member(parts) or _is_code_member(parts):
                 continue
             if parts[0].endswith(".data"):
@@ -647,8 +691,7 @@ def _top_level_names(zf: zipfile.ZipFile, names: list[str], dist_info: str) -> t
     for row in csv.reader(io.StringIO(zf.read(f"{dist_info}/RECORD").decode("utf-8"))):
         if not row or not row[0]:
             continue
-        path = PurePosixPath(row[0])
-        parts = path.parts
+        parts = _posix_parts(row[0])
         if not parts or parts[0].endswith(".dist-info") or parts[0].endswith(".data"):
             continue
         # A top-level entry is a root `.py` module or a package directory
@@ -714,13 +757,13 @@ def materialise(data: bytes, sha256: str, cache: Path, *, name: str | None = Non
                 _safe_member(info)
                 if info.is_dir():
                     continue
-                parts = PurePosixPath(info.filename).parts
+                parts = _posix_parts(info.filename)
                 if _should_skip_member(parts):
                     skipped.append(info.filename)
                     continue
                 if parts[0].endswith(".data"):
                     parts = parts[2:]  # purelib/platlib content lands at the root
-                target = tmp.joinpath(*parts)
+                target = _join_parts(tmp, parts)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(zf.read(info))
             dist_infos = {n.split("/", 1)[0] for n in names if n.split("/", 1)[0].endswith(".dist-info")}
@@ -1033,8 +1076,8 @@ def stage_data_files(
     try:
         for _wheel, files in data:
             for path, body in files:
-                parts = PurePosixPath(path).parts
-                target = tmp.joinpath(*parts)
+                parts = _posix_parts(path)
+                target = _join_parts(tmp, parts)
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(body)
         if root.exists():
