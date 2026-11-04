@@ -397,6 +397,25 @@ def _short_name(name: str) -> str:
     return name.rsplit(".", 1)[-1]
 
 
+def _is_ident_part(part: str) -> bool:
+    if not part:
+        return False
+    if not (part[0].isalpha() or part[0] == "_"):
+        return False
+    for index in range(1, len(part)):
+        ch = part[index]
+        if not (ch.isalnum() or ch == "_"):
+            return False
+    return True
+
+
+def _is_dotted_identifier(text: str) -> bool:
+    for part in text.split("."):
+        if not _is_ident_part(part):
+            return False
+    return True
+
+
 def _parse_type_text(text: str) -> TypeFacts | None:
     """Parse one rendered type string into TypeFacts; None when unintelligible.
 
@@ -470,8 +489,10 @@ def _parse_type_text(text: str) -> TypeFacts | None:
             pieces = pieces[:-1]  # homogeneous `tuple[X, ...]`
         args = tuple(m for m in (_parse_type_text(p) for p in pieces) if m)
         return TypeFacts(kind=kind, args=args, runtime_repr=text)
-    if text.startswith(("*", "**")):
-        return _parse_type_text(text.lstrip("*"))
+    if text.startswith("**"):
+        return _parse_type_text(text[2:])
+    if text.startswith("*"):
+        return _parse_type_text(text[1:])
     if "@" in text and not text.startswith(('"', "'")):
         name: str = text.split("@", 1)[0].strip()
         return TypeFacts(kind="typevar", runtime_repr=name) if name else None
@@ -487,7 +508,7 @@ def _parse_type_text(text: str) -> TypeFacts | None:
         return literal
     if text.startswith(("'", '"')) and text.endswith(("'", '"')):
         return _parse_type_text(text[1:-1])
-    if not all(part.isidentifier() for part in text.split(".")):
+    if not _is_dotted_identifier(text):
         return None
     return TypeFacts(kind=_short_name(text), runtime_repr=text)
 
@@ -542,7 +563,7 @@ def _parse_literal_piece(text: str) -> TypeFacts | None:
         return TypeFacts(kind="literal", args=(TypeFacts(kind="bool"),), runtime_repr=text)
     if text == "None":
         return TypeFacts(kind="none", optional=True, runtime_repr="None")
-    if "." in text and all(part.isidentifier() for part in text.split(".")):
+    if "." in text and _is_dotted_identifier(text):
         # Enum member like `Color.RED`: fallback is the enum class.
         return TypeFacts(kind="literal", args=(TypeFacts(kind=_short_name(text)),), runtime_repr=text)
     return None
