@@ -261,11 +261,12 @@ class MirEmitter:
         # uses, the return slot for a non-void function, then the flow
         # slot: the direct path's allocation sequence, inside the entry
         # block.
-        ret = _llvm_type(ir_fn["returnType"])
-        plist = [f"{_llvm_type(p['type'])} %{_safe(p['name'])}" for p in ir_fn["params"]]
+        ret: str = _llvm_type(ir_fn["returnType"])
+        plist: list[str] = [f"{_llvm_type(p['type'])} %{_safe(p['name'])}" for p in ir_fn["params"]]
         symbol = _fn_symbol(fn.name)
-        self.out.append(f"define {ret} @{symbol}({', '.join(plist)}) {{")
-        self.out.append("entry:")
+        out: list[str] = self.out
+        out.append(f"define {ret} @{symbol}({', '.join(plist)}) {{")
+        out.append("entry:")
         for slot_vid in self._slot_vids():
             self.reg[slot_vid] = self.tmp_reg()
             self.line(f"{self.reg[slot_vid]} = alloca {_tag_llvm(self._tag_of(slot_vid))}")
@@ -275,11 +276,12 @@ class MirEmitter:
         for i in self._span(0):
             self.emit_instr(fn, i)
         for bid in range(1, len(fn.blocks)):
-            self.out.append(f"{self._label(bid)}:")
+            out.append(f"{self._label(bid)}:")
             for i in self._span(bid):
                 self.emit_instr(fn, i)
-        self.out.append("}")
-        self.out.append("")
+        out.append("}")
+        out.append("")
+        self.out = out
 
     def _ir_fn(self, name: str) -> Dict[str, Any]:
         for fn in self.module["functions"]:
@@ -291,8 +293,8 @@ class MirEmitter:
         """The name-slot value ids, in locals order (the alloca order)."""
         assert self.fn is not None
         ir_fn = self._ir_fn(self.fn.name)
-        names = [local["name"] for local in ir_fn["locals"]]
-        vids = []
+        names: list[str] = [local["name"] for local in ir_fn["locals"]]
+        vids: list[int] = []
         for name in names:
             vid = self.slot_vid.get(name)
             if vid is not None:
@@ -359,7 +361,9 @@ class MirEmitter:
             if entry is not None:
                 helper = entry.split(" ")[0]
                 tag = int(entry.split(" ")[1])
-                self.needed.add(helper)
+                needed: set[str] = self.needed
+                needed.add(helper)
+                self.needed = needed
                 llvm = _tag_llvm(tag)
                 args = [self.operand(fn, x) for x in (a1, a2)]
                 rendered = ", ".join(f"{llvm} {arg}" for arg in args)
@@ -371,7 +375,9 @@ class MirEmitter:
             self.line(f"store {_tag_llvm(self._tag_of(dst))} {self.operand(fn, a1)}, ptr {self.reg[dst]}")
             return
         if op in _HELPER_W:
-            self.needed.add(_HELPER_W[op])
+            needed = self.needed
+            needed.add(_HELPER_W[op])
+            self.needed = needed
             args = [self.operand(fn, x) for x in (a1, a2)]
             rendered = ", ".join(f"i64 {arg}" for arg in args)
             reg = self.tmp_reg()
@@ -464,11 +470,14 @@ class MirEmitter:
         return f"%{_safe(ir_fn['params'][vid]['name'])}"
 
     def tmp_reg(self) -> str:
-        self.tid += 1
-        return f"%t{self.tid}"
+        nxt: int = self.tid + 1
+        self.tid = nxt
+        return f"%t{nxt}"
 
     def line(self, text: str) -> None:
-        self.out.append(f"  {text}")
+        out: list[str] = self.out
+        out.append(f"  {text}")
+        self.out = out
 
     # ---- the entry points ----
 
@@ -481,8 +490,10 @@ class MirEmitter:
         raise IRError("the MIR leaf slice does not emit a standalone entry yet")
 
     def _abi_lines(self) -> list[str]:
-        lines = []
-        for symbol, (ret, params) in self.abi_decls.items():
+        lines: list[str] = []
+        for symbol, sig in self.abi_decls.items():
+            ret: str = sig[0]
+            params: list[str] = sig[1]
             rendered = ", ".join(params)
             lines.append(f"declare {ret} @{symbol}({rendered})")
         return lines
