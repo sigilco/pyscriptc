@@ -58,7 +58,7 @@
   "pyscriptc.lower._stdlib_shared": 5,
   "pyscriptc.lower._stmt": 77,
   "pyscriptc.mir": 0,
-  "pyscriptc.miremit": 6,
+  "pyscriptc.miremit": 10,
   "pyscriptc.mirlower": 0,
   "pyscriptc.mirverify": 9,
   "pyscriptc.mobile": 13,
