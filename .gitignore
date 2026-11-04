@@ -37,3 +37,8 @@ benchmarks/real/.scratch/
 /with.txt
 /nums.json
 *.obj
+
+# social media renders (generated, never committed)
+apps/web/social/out/
+apps/web/social/demo/demo
+apps/web/social/demo/demo.report.json
