@@ -30,7 +30,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-from pyscriptc.check import CheckFailed, _resolve_pyrefly_binary
+from pyscriptc.check import _resolve_pyrefly_binary
+from pyscriptc.errors import CheckFailed
 
 # A default value a checker could prove constant at compile time.
 StaticValue = int | float | bool | str | bytes | None
