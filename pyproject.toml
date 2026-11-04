@@ -103,6 +103,10 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.ruff.lint.per-file-ignores]
 # The table generator emits C source with percent formats.
 "scripts/gen_case_tables.py" = ["UP031"]
+# Self-host spell: the `Dict` container form is deliberate (the lowercase
+# `dict[str, Any]` annotation fences PS1106 dynamic-annotation rows on
+# every signature; the census lowerer does not resolve PEP 585 spellings).
+"src/pyscriptc/mirlower.py" = ["UP006", "UP035"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["pyscriptc"]

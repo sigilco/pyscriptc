@@ -28,44 +28,73 @@ negative constant-pool reference).
 The MIR lane emits `w` for ints and bools, `d` for floats; comparisons
 produce `w` 0/1 values, the bool the branch op reads.
 
+Self-host spell: the payload annotations use the `Dict[str, Any]` container
+form with the read site annotating the element type, the op ids from
+`mir.py` are spelled here as int literals (a drift is a mirverify or A/B
+byte-identity failure, not a silent wrong lowering), and the two helpers
+the module used to import (`fits_i64`, `_ir_const_value`) are local,
+spelled over the same values. Four fences remain, one root: the
+`pyscriptc.mir` import (the MirBuilder/MirFunction/MirModule annotations
+and the MirBuilder reads) is not in the closed import table yet; decision
+2026-11-02 admits it in R4 and drops all four at once.
+
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Dict
 
-from pyscriptc.emit._ir import _ir_const_value
-from pyscriptc.errors import IRError
-from pyscriptc.ir import fits_i64
-from pyscriptc.mir import (
-    MIR_ADDD,
-    MIR_ADDW,
-    MIR_B,
-    MIR_CEQD,
-    MIR_CEQW,
-    MIR_CGED,
-    MIR_CGEW,
-    MIR_CGTD,
-    MIR_CGTW,
-    MIR_CLED,
-    MIR_CLEW,
-    MIR_CLTD,
-    MIR_CLTW,
-    MIR_CNED,
-    MIR_CNEW,
-    MIR_COPY,
-    MIR_D,
-    MIR_MULD,
-    MIR_MULW,
-    MIR_NEGW,
-    MIR_NOTB,
-    MIR_SUBD,
-    MIR_SUBW,
-    MIR_W,
-    MirBuilder,
-    MirFunction,
-    MirModule,
-)
+from pyscriptc.mir import MirBuilder, MirFunction, MirModule
+
+# The type tags and op ids, spelled as int literals per the self-host
+# spell: `pyscriptc.mir` is not in the closed import table yet (decision
+# 2026-11-02 admits it in R4), so the values mirror `mir.py` here. A drift
+# is a mirverify or A/B byte-identity failure, not a silent wrong lowering.
+MIR_W = 0
+MIR_D = 1
+MIR_B = 2
+
+MIR_ADDW = 4
+MIR_SUBW = 5
+MIR_MULW = 6
+MIR_ADDD = 7
+MIR_SUBD = 8
+MIR_MULD = 9
+MIR_NEGW = 10
+
+MIR_CLTW = 12
+MIR_CLEW = 13
+MIR_CGTW = 14
+MIR_CGEW = 15
+MIR_CEQW = 16
+MIR_CNEW = 17
+MIR_CLTD = 18
+MIR_CLED = 19
+MIR_CGTD = 20
+MIR_CGED = 21
+MIR_CEQD = 22
+MIR_CNED = 23
+
+MIR_COPY = 25
+MIR_NOTB = 26
+
+I64_MIN = -9223372036854775807 - 1
+I64_MAX = 9223372036854775807
+
+
+class MirLowerError(Exception):
+    """A payload the leaf slice refuses. The class is local (the errors
+    module is not importable under the closed import table) and the name is
+    distinct from `errors.IRError`, which the census lowerer counts as a
+    duplicate class definition; callers catch the base exception, so the
+    shape is what matters."""
+
+    pass
+
+
+def _fits_i64(value: int) -> bool:
+    return I64_MIN <= value <= I64_MAX
+
 
 # The binary op to the MIR op, per operand kind. `//` and `%` on ints and
 # `/`/`%`/`//`/`**` on floats go through runtime helpers; they are part of
@@ -113,27 +142,36 @@ _EXPR_KINDS = frozenset({"const", "name", "binary", "compare", "unary"})
 _STMT_KINDS = frozenset({"assign", "expr", "return", "pass", "if"})
 
 
-def supported_expr(expr: dict[str, Any]) -> bool:
+def supported_expr(expr: Dict[str, Any]) -> bool:
     """The slice test for one expression node, recursive over its children."""
-    kind = expr["kind"]
+    kind: str = expr["kind"]
     if kind not in _EXPR_KINDS:
         return False
     if kind == "const":
-        if expr["type"]["kind"] not in ("int", "float", "bool"):
+        typ: Dict[str, Any] = expr["type"]
+        tkind: str = typ["kind"]
+        if tkind not in ("int", "float", "bool"):
             return False
-        if expr["type"]["kind"] == "int" and not fits_i64(int(expr["value"])):
-            return False
+        if tkind == "int":
+            raw: str = expr["value"]
+            if not _fits_i64(int(raw)):
+                return False
         return True
     if kind == "name":
-        return expr["type"]["kind"] in ("int", "float", "bool")
+        typ = expr["type"]
+        nkind: str = typ["kind"]
+        return nkind in ("int", "float", "bool")
     if kind == "unary":
-        if expr["type"]["kind"] not in ("int", "float", "bool"):
+        typ = expr["type"]
+        tkind = typ["kind"]
+        if tkind not in ("int", "float", "bool"):
             return False
-        if expr["op"] == "not":
-            return expr["type"]["kind"] == "bool" and supported_expr(expr["operand"])
-        if expr["op"] != "-":
+        op: str = expr["op"]
+        if op == "not":
+            return tkind == "bool" and supported_expr(expr["operand"])
+        if op != "-":
             return False
-        return expr["type"]["kind"] in ("int", "float") and supported_expr(expr["operand"])
+        return tkind in ("int", "float") and supported_expr(expr["operand"])
     if kind == "binary":
         return _supported_binary(expr)
     if kind == "compare":
@@ -141,9 +179,10 @@ def supported_expr(expr: dict[str, Any]) -> bool:
     return False
 
 
-def _supported_binary(expr: dict[str, Any]) -> bool:
-    tkind = expr["type"]["kind"]
-    op = expr["op"]
+def _supported_binary(expr: Dict[str, Any]) -> bool:
+    typ: Dict[str, Any] = expr["type"]
+    tkind: str = typ["kind"]
+    op: str = expr["op"]
     if tkind == "int":
         if op not in _W_BINOPS and op not in _W_HELPER_OPS:
             return False
@@ -154,27 +193,37 @@ def _supported_binary(expr: dict[str, Any]) -> bool:
         pass
     else:
         return False
-    if expr["left"]["type"]["kind"] not in ("int", "float", "bool"):
+    left: Dict[str, Any] = expr["left"]
+    ltyp: Dict[str, Any] = left["type"]
+    lkind: str = ltyp["kind"]
+    if lkind not in ("int", "float", "bool"):
         return False
-    if expr["left"]["type"]["kind"] != expr["right"]["type"]["kind"]:
+    right: Dict[str, Any] = expr["right"]
+    rtyp: Dict[str, Any] = right["type"]
+    rkind: str = rtyp["kind"]
+    if lkind != rkind:
         return False
-    return supported_expr(expr["left"]) and supported_expr(expr["right"])
+    return supported_expr(left) and supported_expr(right)
 
 
-def _supported_compare(expr: dict[str, Any]) -> bool:
-    op = expr["op"]
+def _supported_compare(expr: Dict[str, Any]) -> bool:
+    op: str = expr["op"]
     if op not in _W_CMPOPS:
         return False
-    lkind = expr["left"]["type"]["kind"]
-    rkind = expr["right"]["type"]["kind"]
+    left: Dict[str, Any] = expr["left"]
+    ltyp: Dict[str, Any] = left["type"]
+    lkind: str = ltyp["kind"]
+    right: Dict[str, Any] = expr["right"]
+    rtyp: Dict[str, Any] = right["type"]
+    rkind: str = rtyp["kind"]
     if lkind != rkind or lkind not in ("int", "float", "bool"):
         return False
-    return supported_expr(expr["left"]) and supported_expr(expr["right"])
+    return supported_expr(left) and supported_expr(right)
 
 
-def supported_stmt(stmt: dict[str, Any]) -> bool:
+def supported_stmt(stmt: Dict[str, Any]) -> bool:
     """The slice test for one statement, recursive into nested bodies."""
-    kind = stmt["kind"]
+    kind: str = stmt["kind"]
     if kind not in _STMT_KINDS:
         return False
     if kind == "assign":
@@ -186,23 +235,45 @@ def supported_stmt(stmt: dict[str, Any]) -> bool:
     if kind == "if":
         if not supported_expr(stmt["cond"]):
             return False
-        return all(supported_stmt(s) for s in stmt["then"]) and all(supported_stmt(s) for s in stmt["else"])
+        then_body: list[Dict[str, Any]] = stmt["then"]
+        for s in then_body:
+            if not supported_stmt(s):
+                return False
+        else_body: list[Dict[str, Any]] = stmt["else"]
+        for s in else_body:
+            if not supported_stmt(s):
+                return False
+        return True
     return True
 
 
-def supported_fn(fn: dict[str, Any]) -> bool:
+def supported_fn(fn: Dict[str, Any]) -> bool:
     """The slice test for one function: scalar params, scalar return, in-slice body."""
-    if fn.get("env") is not None:
-        return False
-    if fn["returnType"]["kind"] not in ("int", "float", "bool"):
-        return False
-    for param in fn["params"]:
-        if param["type"]["kind"] not in ("int", "float", "bool"):
+    if "env" in fn:
+        env: str = fn["env"]
+        if env is not None:
             return False
-    for local in fn["locals"]:
-        if local["type"]["kind"] not in ("int", "float", "bool"):
+    rt: Dict[str, Any] = fn["returnType"]
+    rtk: str = rt["kind"]
+    if rtk not in ("int", "float", "bool"):
+        return False
+    params: list[Dict[str, Any]] = fn["params"]
+    for param in params:
+        ptyp: Dict[str, Any] = param["type"]
+        pk: str = ptyp["kind"]
+        if pk not in ("int", "float", "bool"):
             return False
-    return all(supported_stmt(stmt) for stmt in fn["body"])
+    locals_list: list[Dict[str, Any]] = fn["locals"]
+    for local in locals_list:
+        ltyp: Dict[str, Any] = local["type"]
+        lk: str = ltyp["kind"]
+        if lk not in ("int", "float", "bool"):
+            return False
+    body: list[Dict[str, Any]] = fn["body"]
+    for stmt in body:
+        if not supported_stmt(stmt):
+            return False
+    return True
 
 
 def _param_tag(kind: str) -> int:
@@ -213,59 +284,88 @@ def _param_tag(kind: str) -> int:
     return MIR_W
 
 
-def _fn_result_tag(fn: dict[str, Any]) -> int:
-    return _param_tag(fn["returnType"]["kind"])
+def _fn_result_tag(fn: Dict[str, Any]) -> int:
+    rt: Dict[str, Any] = fn["returnType"]
+    return _param_tag(rt["kind"])
 
 
 class _FnLowerer:
-    """One function's body walk. Slots and the builder live here."""
+    """One function's body walk. Slots and the builder live here.
 
-    def __init__(self, fn: dict[str, Any]) -> None:
+    The field table is spelled as class-level bare annotations: the census
+    lowerer collects fields from the `__init__` body, but its AnnAssign
+    statement shape is not lowered, so a `self.x: T = ...` assignment fences
+    every later `self.x` read. The bare-name form registers the field
+    without a statement to lower.
+    """
+
+    fn: Dict[str, Any]
+    builder: MirBuilder
+    slots: Dict[str, int]
+    local_types: Dict[str, str]
+    slot_vids: Dict[str, int]
+
+    def __init__(self, fn: Dict[str, Any]) -> None:
         self.fn = fn
         self.builder = MirBuilder(fn["name"])
-        self.slots: dict[str, int] = {}
-        self.local_types: dict[str, str] = {}
+        self.slots = {}
+        self.local_types = {}
+        self.slot_vids = {}
 
     def run(self) -> MirFunction:
-        builder = self.builder
+        builder: MirBuilder = self.builder
         builder.set_result(_fn_result_tag(self.fn))
         # Parameters first, in IR order: their value ids seed the space the
         # body reads. The IR mirrors each parameter into `locals`, so the
         # locals walk skips the names the params already took.
-        for param in self.fn["params"]:
-            self.slots[param["name"]] = builder.add_param(_param_tag(param["type"]["kind"]))
+        params: list[Dict[str, Any]] = self.fn["params"]
+        for param in params:
+            ptyp: Dict[str, Any] = param["type"]
+            pname: str = param["name"]
+            pk: str = ptyp["kind"]
+            self.slots[pname] = builder.add_param(_param_tag(pk))
         # Every name (parameters included) gets one slot value id, in
         # locals order: the id the emitter renders as an alloca, stores
         # write, and pre-store reads load from. Parameters keep their
         # parameter ids for the prologue store; the slot id is the memory.
-        extra_locals = list(self.fn["locals"])
-        self.slot_vids: dict[str, int] = {}
+        fn_locals: list[Dict[str, Any]] = self.fn["locals"]
+        extra_locals: list[Dict[str, Any]] = []
+        for loc in fn_locals:
+            extra_locals.append(loc)
         for local in extra_locals:
-            vid = builder.next_vid
-            builder.next_vid += 1
-            self.slot_vids[local["name"]] = vid
-            self.local_types[local["name"]] = local["type"]["kind"]
+            vid: int = builder.next_vid
+            builder.next_vid = vid + 1
+            lname: str = local["name"]
+            self.slot_vids[lname] = vid
+            ltyp: Dict[str, Any] = local["type"]
+            self.local_types[lname] = ltyp["kind"]
         builder.start_block()
         # The prologue: every parameter stores into its slot value, the
         # direct path's `store i64 %a, ptr %tN` per parameter. Later reads
         # of the parameter's name read the slot, not the raw parameter.
-        for param in self.fn["params"]:
-            self.store(param["name"], self.slots[param["name"]])
-        self.emit_body(self.fn["body"])
+        for param in params:
+            pname: str = param["name"]
+            self.store(pname, self.slots[pname])
+        body: list[Dict[str, Any]] = self.fn["body"]
+        self.emit_body(body)
         return builder.finish()
 
     def kind_of(self, name: str) -> str:
-        for param in self.fn["params"]:
-            if param["name"] == name:
-                return param["type"]["kind"]
+        params: list[Dict[str, Any]] = self.fn["params"]
+        for param in params:
+            pname: str = param["name"]
+            if pname == name:
+                ptyp: Dict[str, Any] = param["type"]
+                pk: str = ptyp["kind"]
+                return pk
         return self.local_types[name]
 
-    def emit_body(self, body: list[dict[str, Any]]) -> None:
+    def emit_body(self, body: list[Dict[str, Any]]) -> None:
         for stmt in body:
             self.emit_stmt(stmt)
 
-    def emit_stmt(self, stmt: dict[str, Any]) -> None:
-        kind = stmt["kind"]
+    def emit_stmt(self, stmt: Dict[str, Any]) -> None:
+        kind: str = stmt["kind"]
         if kind == "pass":
             return
         if kind == "assign":
@@ -282,9 +382,9 @@ class _FnLowerer:
         if kind == "if":
             self.emit_if(stmt)
             return
-        raise IRError(f"the MIR leaf slice cannot lower statement {kind}")
+        raise MirLowerError(f"the MIR leaf slice cannot lower statement {kind}")
 
-    def emit_if(self, stmt: dict[str, Any]) -> None:
+    def emit_if(self, stmt: Dict[str, Any]) -> None:
         """One-level if without block arguments on the join.
 
         The join block takes the merge of the two arms' effects through
@@ -298,19 +398,24 @@ class _FnLowerer:
         merge_id = then_id + 2
         builder.emit_br(cond, then_id, else_id, [], [])
         builder.start_block()
-        self.emit_body(stmt["then"])
+        then_body: list[Dict[str, Any]] = stmt["then"]
+        self.emit_body(then_body)
         then_dead = builder.terminated
         if not then_dead:
             builder.emit_jmp(merge_id)
         builder.start_block()
-        self.emit_body(stmt["else"])
+        else_body: list[Dict[str, Any]] = stmt["else"]
+        self.emit_body(else_body)
         else_dead = builder.terminated
         if not else_dead:
             builder.emit_jmp(merge_id)
         if then_dead and else_dead:
             return
         builder.start_block()
-        self.emit_body([s for s in stmt.get("orelse", [])])
+        orelse: list[Dict[str, Any]] = []
+        if "orelse" in stmt:
+            orelse = stmt["orelse"]
+        self.emit_body(orelse)
 
     def store(self, name: str, value: int) -> None:
         """A store to `name`: a `MIR_COPY` into the name's slot value.
@@ -323,7 +428,7 @@ class _FnLowerer:
         """
         vid = self.slot_vids.get(name)
         if vid is None:
-            raise IRError(f"the MIR leaf slice has no slot for {name}")
+            raise MirLowerError(f"the MIR leaf slice has no slot for {name}")
         tag = _param_tag(self.kind_of(name))
         self.builder.emit(MIR_COPY, vid, value, tag)
 
@@ -337,11 +442,11 @@ class _FnLowerer:
         """
         vid = self.slot_vids.get(name)
         if vid is None:
-            raise IRError(f"the MIR leaf slice has no slot for {name}")
+            raise MirLowerError(f"the MIR leaf slice has no slot for {name}")
         return vid
 
-    def emit_expr(self, expr: dict[str, Any]) -> int:
-        kind = expr["kind"]
+    def emit_expr(self, expr: Dict[str, Any]) -> int:
+        kind: str = expr["kind"]
         if kind == "const":
             return self.emit_const(expr)
         if kind == "name":
@@ -352,24 +457,31 @@ class _FnLowerer:
             return self.emit_compare(expr)
         if kind == "unary":
             return self.emit_unary(expr)
-        raise IRError(f"the MIR leaf slice cannot lower expression {kind}")
+        raise MirLowerError(f"the MIR leaf slice cannot lower expression {kind}")
 
-    def emit_const(self, expr: dict[str, Any]) -> int:
-        tkind = expr["type"]["kind"]
-        value = _ir_const_value(expr["type"], expr["value"])
+    def emit_const(self, expr: Dict[str, Any]) -> int:
+        typ: Dict[str, Any] = expr["type"]
+        tkind: str = typ["kind"]
+        # The IR's const payload is the source spell: int and float consts
+        # carry a str, bool consts a bool, so each arm reads the payload at
+        # its own proven type and converts where the pool wants a number.
         if tkind == "int":
-            return self.builder.const_w(value)
+            raw: str = expr["value"]
+            return self.builder.const_w(int(raw))
         if tkind == "float":
-            return self.builder.const_d(value)
+            raw: str = expr["value"]
+            return self.builder.const_d(float(raw))
         if tkind == "bool":
-            return self.builder.const_b(1 if value else 0)
-        raise IRError(f"the MIR leaf slice cannot lower a {tkind} constant")
+            bval: bool = expr["value"]
+            return self.builder.const_b(1 if bval else 0)
+        raise MirLowerError(f"the MIR leaf slice cannot lower a {tkind} constant")
 
-    def emit_binary(self, expr: dict[str, Any]) -> int:
+    def emit_binary(self, expr: Dict[str, Any]) -> int:
         left = self.emit_expr(expr["left"])
         right = self.emit_expr(expr["right"])
-        tkind = expr["type"]["kind"]
-        op = expr["op"]
+        typ: Dict[str, Any] = expr["type"]
+        tkind: str = typ["kind"]
+        op: str = expr["op"]
         if tkind == "int":
             mir_op = _W_BINOPS.get(op)
             if mir_op is not None:
@@ -380,7 +492,7 @@ class _FnLowerer:
             if mir_op is not None:
                 return self.builder.emit_val(mir_op, left, right, MIR_D)
             return self.emit_helper(_D_HELPER_OPS[op], MIR_D, left, right)
-        raise IRError(f"the MIR leaf slice cannot lower {op} on {tkind}")
+        raise MirLowerError(f"the MIR leaf slice cannot lower {op} on {tkind}")
 
     def emit_helper(self, helper: str, tag: int, left: int, right: int) -> int:
         """A runtime-helper binary op, carried as a `MIR_COPY` with the
@@ -399,31 +511,35 @@ class _FnLowerer:
         self.builder.fn.helpers[index] = f"{helper} {tag}"
         return vid
 
-    def emit_compare(self, expr: dict[str, Any]) -> int:
+    def emit_compare(self, expr: Dict[str, Any]) -> int:
         left = self.emit_expr(expr["left"])
         right = self.emit_expr(expr["right"])
-        kind = expr["left"]["type"]["kind"]
-        table = _D_CMPOPS if kind == "float" else _W_CMPOPS
-        mir_op = table[expr["op"]]
+        lexpr: Dict[str, Any] = expr["left"]
+        ltyp: Dict[str, Any] = lexpr["type"]
+        kind: str = ltyp["kind"]
+        table: Dict[str, int] = _D_CMPOPS if kind == "float" else _W_CMPOPS
+        okey: str = expr["op"]
+        mir_op: int = table[okey]
         return self.builder.emit_val(mir_op, left, right, MIR_B)
 
-    def emit_unary(self, expr: dict[str, Any]) -> int:
+    def emit_unary(self, expr: Dict[str, Any]) -> int:
         operand = self.emit_expr(expr["operand"])
-        op = expr["op"]
-        tkind = expr["type"]["kind"]
+        op: str = expr["op"]
+        typ: Dict[str, Any] = expr["type"]
+        tkind: str = typ["kind"]
         if op == "not":
             return self.builder.emit_val(MIR_NOTB, operand, -1, MIR_B)
-        if op == "-":
-            if tkind == "int":
-                return self.builder.emit_val(MIR_NEGW, operand, -1, MIR_W)
+        if op == "-" and tkind == "int":
+            return self.builder.emit_val(MIR_NEGW, operand, -1, MIR_W)
+        raise MirLowerError(f"the MIR leaf slice cannot lower {op} on {tkind}")
 
 
-def lower_function(fn: dict[str, Any]) -> MirFunction:
+def lower_function(fn: Dict[str, Any]) -> MirFunction:
     """Lower one in-slice IR function to MIR. `supported_fn` must hold."""
     return _FnLowerer(fn).run()
 
 
-def lower_module(module: dict[str, Any]) -> MirModule:
+def lower_module(module: Dict[str, Any]) -> MirModule:
     """Lower every in-slice function; out-of-slice functions are skipped.
 
     The skipped names come back on `module.skipped` so the emitter can
@@ -432,11 +548,14 @@ def lower_module(module: dict[str, Any]) -> MirModule:
     """
     functions: list[MirFunction] = []
     skipped: list[str] = []
-    for fn in module["functions"]:
+    fns: list[Dict[str, Any]] = module["functions"]
+    for fn in fns:
         if supported_fn(fn):
             functions.append(lower_function(fn))
         else:
             skipped.append(fn["name"])
-    mir_module = MirModule(source_file=module["sourceFile"], functions=functions, entry=module.get("entry"))
+    source: str = module["sourceFile"]
+    entry: str = module["entry"]
+    mir_module: MirModule = MirModule(source_file=source, functions=functions, entry=entry)
     mir_module.skipped = skipped
     return mir_module
