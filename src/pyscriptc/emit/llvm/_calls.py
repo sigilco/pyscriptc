@@ -14,55 +14,156 @@ from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.errors import IRError
 
 
+def _kind(typ: dict[str, Any]) -> str:
+    """The kind tag of a type record."""
+    kind: str = typ["kind"]
+    return kind
+
+
+def _name_of(typ: dict[str, Any], default: str) -> str:
+    """The class name of a type record, or the default when absent."""
+    if "name" in typ:
+        return _kind_name(typ)
+    return default
+
+
+def _kind_name(typ: dict[str, Any]) -> str:
+    name: str = typ["name"]
+    return name
+
+
+def _fmt_arg(typ: dict[str, Any]) -> dict[str, str]:
+    """The %ps.arg record one formatted argument stores.
+
+    The argument's own kind with the `fmt` marker set, so the store picks the
+    display code for a dict (and its value kind when the dict carries one).
+    """
+    merged: dict[str, str] = {"fmt": "1", "kind": _kind(typ)}
+    if "value" in typ:
+        value: dict[str, Any] = typ["value"]
+        merged["value"] = _kind(value)
+    return merged
+
+
+def _callee_kind(callee: dict[str, Any]) -> str:
+    """The callee's kind tag: builtin, module, method, class or value."""
+    kind: str = callee["kind"]
+    return kind
+
+
+def _callee_name(callee: dict[str, Any]) -> str:
+    """The callee's name: the builtin, module member or method name."""
+    name: str = callee["name"]
+    return name
+
+
+def _callee_module(callee: dict[str, Any]) -> str:
+    """The module a module call names."""
+    module: str = callee["module"]
+    return module
+
+
+def _callee_receiver(callee: dict[str, Any]) -> str:
+    """The receiver kind a method call names: str or bytes."""
+    receiver: str = callee["receiver"]
+    return receiver
+
+
+def _callee_tuple(callee: dict[str, Any]) -> str:
+    """The tuple class a method call packs its result into."""
+    tname: str = callee["tuple"]
+    return tname
+
+
+def _expr_type(expr: dict[str, Any]) -> dict[str, Any]:
+    """The type record an expression carries."""
+    typ: dict[str, Any] = expr["type"]
+    return typ
+
+
+def _arg_type(arg: dict[str, Any]) -> dict[str, Any]:
+    """The type record one call argument carries."""
+    typ: dict[str, Any] = arg["type"]
+    return typ
+
+
+def _elem_name(typ: dict[str, Any]) -> str:
+    """The class name of a list or dict type record's element."""
+    elem: dict[str, Any] = typ["elem"]
+    return _kind_name(elem)
+
+
+def _sym(expr: dict[str, Any]) -> str:
+    """The ABI symbol a module call carries."""
+    symbol: str = expr["symbol"]
+    return symbol
+
+
+def _has(expr: dict[str, Any], key: str) -> bool:
+    """Whether an expression record carries a key at all."""
+    return key in expr
+
+
 class CallsMixin(EmitterBase):
     def emit_call(self, expr: dict[str, Any]) -> str:
-        callee = expr["callee"]
-        values = [self.emit_expr(arg) for arg in expr["args"]]
-        if callee["kind"] == "builtin":
-            return self.emit_builtin(callee["name"], values, [arg["type"] for arg in expr["args"]], expr)
-        if callee["kind"] == "module":
+        callee: dict[str, Any] = expr["callee"]
+        args: list[dict[str, Any]] = expr["args"]
+        values: list[str] = [self.emit_expr(arg) for arg in args]
+        kind: str = _callee_kind(callee)
+        if kind == "builtin":
+            arg_types: list[dict[str, Any]] = [_arg_type(arg) for arg in args]
+            return self.emit_builtin(_callee_name(callee), values, arg_types, expr)
+        if kind == "module":
             return self.emit_module_call(expr, values)
-        if callee["kind"] == "method":
+        if kind == "method":
             return self.emit_method(expr, values)
-        if callee["kind"] == "class":
-            return self.emit_constructor(callee["name"], values)
-        if callee["kind"] == "value":
+        if kind == "class":
+            return self.emit_constructor(_callee_name(callee), values)
+        if kind == "value":
             return self.emit_value_call(expr, values)
-        fn = self.functions.get(callee["name"])
+        fn: dict[str, Any] | None = self.functions.get(_callee_name(callee))
         if fn is None:
             # Refs #641: the defining module planned the callee for the
             # island and the merged module emits no body for it. A crash
             # here is a planning hole; name the callee instead.
-            raise IRError(f"call to {callee['name']} has no lowered body (its module planned it for the island floor)")
+            raise IRError(
+                f"call to {_callee_name(callee)} has no lowered body (its module planned it for the island floor)"
+            )
         return self.call_function(fn, values)
 
     def emit_builtin(self, name: str, values: list[str], arg_types: list[dict[str, Any]], expr: dict[str, Any]) -> str:
         if name == "print":
             self._emit_print(values, arg_types, expr)
             return ""
-        if name == "len" and arg_types[0]["kind"] == "str":
+        # The kind of the first argument, read only for the builtins that
+        # dispatch on it.
+        at0: dict[str, Any] = arg_types[0]
+        arg_kind: str = _kind(at0)
+        if name == "len" and arg_kind == "str":
             # The code-point count: field 2 (field 0 is the byte length).
             reg = self.tmp()
             self.line(f"{reg} = extractvalue %ps.str {values[0]}, 2")
             return reg
-        if name == "len" and arg_types[0]["kind"] == "bytes":
+        if name == "len" and arg_kind == "bytes":
             reg = self.tmp()
             self.line(f"{reg} = extractvalue %ps.str {values[0]}, 0")
             return reg
-        if name == "len" and arg_types[0]["kind"] == "list":
-            self.needed.add("seq")
+        if name == "len" and arg_kind == "list":
+            needed: set[str] = self.needed
+            needed.add("seq")
             return self._call_ret("i64", "ps_seq_len", [f"ptr {values[0]}"])
-        if name == "len" and arg_types[0]["kind"] == "dict":
-            self.needed.add("map")
+        if name == "len" and arg_kind == "dict":
+            needed = self.needed
+            needed.add("map")
             return self._call_ret("i64", "ps_map_len", [f"ptr {values[0]}"])
-        if name == "len" and arg_types[0]["kind"] == "class" and arg_types[0].get("name") == "Deque":
+        if name == "len" and arg_kind == "class" and _name_of(at0, "") == "Deque":
             self._abi_decl("ps_deque_len", "i64", ["ptr"])
             return self._call_ret("i64", "ps_deque_len", [f"ptr {values[0]}"])
         if name == "id":
             # CPython's id() is the object's address; same here for heap values.
             # str/bytes carry their buffer in field 1 — the stable identity.
             reg = self.tmp()
-            if arg_types[0]["kind"] in {"str", "bytes"}:
+            if arg_kind in {"str", "bytes"}:
                 ptr = self.tmp()
                 self.line(f"{ptr} = extractvalue %ps.str {values[0]}, 1")
                 self.line(f"{reg} = ptrtoint ptr {ptr} to i64")
@@ -72,18 +173,23 @@ class CallsMixin(EmitterBase):
         if name in {"min", "max"}:
             return self._emit_minmax(name, values, arg_types)
         if name == "int":
-            if arg_types[0]["kind"] in {"bytes", "str"}:
+            if arg_kind in {"bytes", "str"}:
                 self._abi_decl("ps_int_from_bytes", "i64", ["i64", "ptr"])
-                length, ptr = self._buf_parts(values[0])
+                parts1: tuple[str, str] = self._buf_parts(values[0])
+                length: str = parts1[0]
+                ptr: str = parts1[1]
                 return self._call_ret("i64", "ps_int_from_bytes", [f"i64 {length}", f"ptr {ptr}"])
-            self.needed.add("math")
+            needed = self.needed
+            needed.add("math")
             return self._call_ret("i64", "ps_float_to_int", [f"double {values[0]}"])
-        if name == "float" and arg_types[0]["kind"] == "str":
+        if name == "float" and arg_kind == "str":
             self._abi_decl("ps_float_from_str", "double", ["i64", "ptr"])
-            length, ptr = self._buf_parts(values[0])
+            parts2: tuple[str, str] = self._buf_parts(values[0])
+            length: str = parts2[0]
+            ptr: str = parts2[1]
             return self._call_ret("double", "ps_float_from_str", [f"i64 {length}", f"ptr {ptr}"])
         if name == "str":
-            kind = arg_types[0]["kind"]
+            kind: str = arg_kind
             if kind == "str":
                 return values[0]
             if kind == "int":
@@ -113,206 +219,250 @@ class CallsMixin(EmitterBase):
                 return ret
             if kind == "bytes":
                 self._abi_decl("ps_repr_bytes", "void", ["i64", "ptr", "ptr"])
-                length, ptr = self._buf_parts(values[0])
+                parts3: tuple[str, str] = self._buf_parts(values[0])
+                length: str = parts3[0]
+                ptr: str = parts3[1]
                 return self._buf_out("ps_repr_bytes", [f"i64 {length}", f"ptr {ptr}"])
             if kind == "exc":
                 self._abi_decl("ps_exc_str", "void", ["ptr", "ptr"])
                 return self._buf_out("ps_exc_str", [f"ptr {values[0]}"])
-            if kind == "class" and arg_types[0].get("name") == "Path":
+            if kind == "class" and _name_of(at0, "") == "Path":
                 self._abi_decl("ps_path_posix", "void", ["ptr", "ptr"])
                 return self._buf_out("ps_path_posix", [f"ptr {values[0]}"])
         raise IRError(f"no LLVM lowering for builtin {name}")
 
     def emit_module_call(self, expr: dict[str, Any], values: list[str]) -> str:
-        callee = expr["callee"]
-        module = callee["module"]
-        name = callee["name"]
-        args = expr["args"]
-        if expr.get("fn"):
+        callee: dict[str, Any] = expr["callee"]
+        module: str = _callee_module(callee)
+        name: str = _callee_name(callee)
+        args: list[dict[str, Any]] = expr["args"]
+        typ: dict[str, Any] = _expr_type(expr)
+        if _has(expr, "fn"):
             return self._emit_reduce(expr)
         if name == "exit":
-            if expr.get("exitMessage"):
+            if _has(expr, "exitMessage"):
                 return self._emit_exit_message(values[0])
             return self._emit_exit(values[0])
         if module == "atexit" and name == "register":
             return self._emit_atexit(expr)
-        if expr.get("symbol") == "ps_path_join":
-            return self._emit_join(values)
-        if expr.get("symbol") in {"ps_deque_append", "ps_deque_appendleft"}:
-            return self._emit_deque_store(expr, values)
-        if expr.get("symbol") in {"ps_deque_pop", "ps_deque_popleft"}:
-            return self._emit_deque_load(expr, values)
-        if expr.get("symbol") == "ps_task_result":
-            return self._emit_task_result(expr, values)
-        if expr.get("symbol") == "ps_queue_put":
-            # The item travels as a pointer to a stashed slot, the shape
-            # `deque.append` uses: the queue stores element-sized slots.
-            slot = self._stash_cell(expr["args"][2]["type"], values[2])
-            self._abi_decl("ps_queue_put", "void", ["ptr", "i64", "ptr"])
-            self._call_void("ps_queue_put", [f"ptr {values[0]}", f"i64 {values[1]}", f"ptr {slot}"])
-            return ""
-        if expr.get("symbol") == "ps_queue_get":
-            out = self._alloca(_memory_type(expr["type"]))
-            self._abi_decl("ps_queue_get", "void", ["ptr", "i64", "ptr"])
-            self._call_void("ps_queue_get", [f"ptr {values[0]}", f"i64 {values[1]}", f"ptr {out}"])
-            return self._widen_cell(expr["type"], out)
-        if expr.get("symbol") == "ps_aqueue_put":
-            # The item travels as a pointer to a stashed slot, the shape
-            # `deque.append` uses: the queue stores element-sized slots.
-            slot = self._stash_cell(expr["args"][1]["type"], values[1])
-            self._abi_decl("ps_aqueue_put", "i64", ["ptr", "ptr"])
-            return self._call_ret("i64", "ps_aqueue_put", [f"ptr {values[0]}", f"ptr {slot}"])
-        if expr.get("symbol") == "ps_aqueue_taken":
-            # The element the take removed rides out through an out pointer.
-            elem = expr["type"]
-            out = self._alloca(_memory_type(elem))
-            self._abi_decl("ps_aqueue_taken", "void", ["ptr", "i64", "ptr"])
-            self._call_void("ps_aqueue_taken", [f"ptr {values[0]}", f"i64 {_elem_size(elem)}", f"ptr {out}"])
-            return self._widen_cell(elem, out)
-        if expr.get("symbol") == "ps_to_thread_result":
-            elem = expr["type"]
-            out = self._alloca(_memory_type(elem))
-            self._abi_decl("ps_to_thread_result", "void", ["ptr", "i64", "ptr"])
-            self._call_void("ps_to_thread_result", [f"ptr {values[0]}", f"i64 {_elem_size(elem)}", f"ptr {out}"])
-            return self._widen_cell(elem, out)
-        if expr.get("symbol") == "ps_to_thread_new":
-            return self._emit_to_thread_new(expr, values)
-        if expr.get("symbol") == "ps_to_thread_start":
-            return self._emit_to_thread_start(expr, values)
-        if expr.get("symbol") == "ps_list_push":
-            return self._emit_list_push(expr, values)
-        if isinstance(expr.get("symbol"), str) and expr["symbol"].startswith("ps_exc_isa_value:"):
-            # isinstance(e, Exc): the wanted code rides in the symbol name; the
-            # runtime walks the parent chain off the caught value.
-            self.needed.add("exc")
-            code = expr["symbol"].split(":", 1)[1]
-            self._abi_decl("ps_exc_isa_value", "i32", ["ptr", "i32"])
-            raw = self._call_ret("i32", "ps_exc_isa_value", [f"ptr {values[0]}", f"i32 {code}"])
-            return self._flag(raw)
-        if expr.get("symbol") == "ps_map_del":
-            self.needed.add("map")
-            key = self._stash_cell(expr["args"][1]["type"], values[1])
-            self._abi_decl("ps_map_del", "void", ["ptr", "ptr"])
-            self._call_void("ps_map_del", [f"ptr {values[0]}", f"ptr {key}"])
-            return ""
-        if expr.get("symbol") == "ps_copy_deep":
-            return self._emit_copy_deep(expr, values)
-        if expr.get("symbol") == "ps_dict_items":
-            # The element is a synthetic tuple_N class; the C side packs key and
-            # value cells at byte offsets read off the class layout.
-            tname = expr["type"]["elem"]["name"]
-            size_ptr = self.tmp()
-            size = self.tmp()
-            self.line(f"{size_ptr} = getelementptr %cls.{tname}, ptr null, i64 1")
-            self.line(f"{size} = ptrtoint ptr {size_ptr} to i64")
-            voff_ptr = self.tmp()
-            voff = self.tmp()
-            self.line(f"{voff_ptr} = getelementptr %cls.{tname}, ptr null, i32 0, i32 1")
-            self.line(f"{voff} = ptrtoint ptr {voff_ptr} to i64")
-            self._abi_decl("ps_dict_items", "ptr", ["ptr", "i64", "i64"])
-            return self._call_ret("ptr", "ps_dict_items", [f"ptr {values[0]}", f"i64 {voff}", f"i64 {size}"])
-        if expr.get("symbol") == "ps_os_walk":
-            # The element is the synthetic (str, list[str], list[str]) tuple
-            # class; the C side builds one heap record per walk row at the
-            # class layout (path cell, dirs cell, files cell).
-            self.needed.add("seq")
-            tname = expr["type"]["elem"]["name"]
-            size_ptr = self.tmp()
-            size = self.tmp()
-            self.line(f"{size_ptr} = getelementptr %cls.{tname}, ptr null, i64 1")
-            self.line(f"{size} = ptrtoint ptr {size_ptr} to i64")
-            self._abi_decl("ps_os_walk", "ptr", ["i64", "ptr", "i64"])
-            length, ptr = self._buf_parts(values[0])
-            return self._call_ret("ptr", "ps_os_walk", [f"i64 {length}", f"ptr {ptr}", f"i64 {size}"])
-        if expr.get("symbol") == "ps_str_format":
-            # args[0] is the format string; the rest marshal into %ps.arg.
-            count = len(values) - 1
-            nkw = expr.get("format_kwnames", 0)
-            style = {"percent": 0, "dot": 1, "map": 2}[expr.get("format_style", "percent")]
-            if count:
-                self._ensure_arg_type()
-                slot = self.tmp()
-                self.line(f"{slot} = alloca [{count} x %ps.arg]")
-                for index in range(count):
-                    base = self.tmp()
-                    self.line(f"{base} = getelementptr [{count} x %ps.arg], ptr {slot}, i64 0, i64 {index}")
-                    self._store_ps_arg(base, values[index + 1], {**args[index + 1]["type"], "fmt": 1})
-                arg_ptr = self.tmp()
-                self.line(f"{arg_ptr} = getelementptr [{count} x %ps.arg], ptr {slot}, i64 0, i64 0")
-            else:
-                arg_ptr = "null"
-            flen, fptr = self._buf_parts(values[0])
-            self._abi_decl("ps_str_format", "void", ["i64", "ptr", "ptr", "i64", "i64", "i64", "ptr"])
-            return self._buf_out(
-                "ps_str_format",
-                [
-                    f"i64 {flen}",
-                    f"ptr {fptr}",
-                    f"ptr {arg_ptr}",
-                    f"i64 {count}",
-                    f"i64 {nkw}",
-                    f"i64 {style}",
-                ],
-            )
-        if expr.get("symbol") == "ps_thread_new":
-            return self._emit_thread_new(expr)
-        if expr.get("symbol") == "ps_cond_init":
-            # `Condition()`: the runtime owns the record; the value is its
-            # pointer, allocated here and initialized by ps_cond_init.
-            self.needed.add("alloc")
-            slot = self._call_ret("ptr", "ps_alloc", ["i64 96"])
-            self._abi_decl("ps_cond_init", "void", ["ptr"])
-            self._call_void("ps_cond_init", [f"ptr {slot}"])
-            return slot
-        # boxed:begin
-        if expr.get("symbol") == "ps_island_call":
-            return self._emit_island_call(expr, values)
-        if expr.get("symbol") == INVOKE_SYMBOL:
-            return self._emit_island_fn_call(expr, values)
-        if expr.get("symbol") == DEF_HANDLE_SYMBOL:
-            return self._emit_island_def_handle(expr)
-        if expr.get("symbol") == "ps_island_getattr":
-            return self._emit_island_getattr(expr, values)
-        if expr.get("symbol") == "ps_island_getitem":
-            return self._emit_island_getitem(expr, values)
-        if expr.get("symbol") == "ps_island_unmarshal":
-            return self._emit_island_unmarshal(expr, values)
-        # boxed:end
-        if expr.get("symbol"):
+        if _has(expr, "symbol"):
+            symbol: str = _sym(expr)
+            if symbol == "ps_path_join":
+                return self._emit_join(values)
+            if symbol in {"ps_deque_append", "ps_deque_appendleft"}:
+                return self._emit_deque_store(expr, values)
+            if symbol in {"ps_deque_pop", "ps_deque_popleft"}:
+                return self._emit_deque_load(expr, values)
+            if symbol == "ps_task_result":
+                return self._emit_task_result(expr, values)
+            if symbol == "ps_queue_put":
+                # The item travels as a pointer to a stashed slot, the shape
+                # `deque.append` uses: the queue stores element-sized slots.
+                stash_args: list[dict[str, Any]] = expr["args"]
+                stash_arg: dict[str, Any] = stash_args[2]
+                stash_typ: dict[str, Any] = stash_arg["type"]
+                slot = self._stash_cell(stash_typ, values[2])
+                self._abi_decl("ps_queue_put", "void", ["ptr", "i64", "ptr"])
+                self._call_void("ps_queue_put", [f"ptr {values[0]}", f"i64 {values[1]}", f"ptr {slot}"])
+                return ""
+            if symbol == "ps_queue_get":
+                out = self._alloca(_memory_type(typ))
+                self._abi_decl("ps_queue_get", "void", ["ptr", "i64", "ptr"])
+                self._call_void("ps_queue_get", [f"ptr {values[0]}", f"i64 {values[1]}", f"ptr {out}"])
+                return self._widen_cell(typ, out)
+            if symbol == "ps_aqueue_put":
+                # The item travels as a pointer to a stashed slot, the shape
+                # `deque.append` uses: the queue stores element-sized slots.
+                aq_args: list[dict[str, Any]] = expr["args"]
+                aq_arg: dict[str, Any] = aq_args[1]
+                aq_typ: dict[str, Any] = aq_arg["type"]
+                slot = self._stash_cell(aq_typ, values[1])
+                self._abi_decl("ps_aqueue_put", "i64", ["ptr", "ptr"])
+                return self._call_ret("i64", "ps_aqueue_put", [f"ptr {values[0]}", f"ptr {slot}"])
+            if symbol == "ps_aqueue_taken":
+                # The element the take removed rides out through an out pointer.
+                elem: dict[str, Any] = typ
+                out = self._alloca(_memory_type(elem))
+                self._abi_decl("ps_aqueue_taken", "void", ["ptr", "i64", "ptr"])
+                self._call_void("ps_aqueue_taken", [f"ptr {values[0]}", f"i64 {_elem_size(elem)}", f"ptr {out}"])
+                return self._widen_cell(elem, out)
+            if symbol == "ps_to_thread_result":
+                elem = typ
+                out = self._alloca(_memory_type(elem))
+                self._abi_decl("ps_to_thread_result", "void", ["ptr", "i64", "ptr"])
+                self._call_void("ps_to_thread_result", [f"ptr {values[0]}", f"i64 {_elem_size(elem)}", f"ptr {out}"])
+                return self._widen_cell(elem, out)
+            if symbol == "ps_to_thread_new":
+                return self._emit_to_thread_new(expr, values)
+            if symbol == "ps_to_thread_start":
+                return self._emit_to_thread_start(expr, values)
+            if symbol == "ps_list_push":
+                return self._emit_list_push(expr, values)
+            if symbol.startswith("ps_exc_isa_value:"):
+                # isinstance(e, Exc): the wanted code rides in the symbol name;
+                # the runtime walks the parent chain off the caught value.
+                needed: set[str] = self.needed
+                needed.add("exc")
+                code: str = symbol.split(":", 1)[1]
+                self._abi_decl("ps_exc_isa_value", "i32", ["ptr", "i32"])
+                raw = self._call_ret("i32", "ps_exc_isa_value", [f"ptr {values[0]}", f"i32 {code}"])
+                return self._flag(raw)
+            if symbol == "ps_map_del":
+                needed = self.needed
+                needed.add("map")
+                del_args: list[dict[str, Any]] = expr["args"]
+                del_arg: dict[str, Any] = del_args[1]
+                del_typ: dict[str, Any] = del_arg["type"]
+                key = self._stash_cell(del_typ, values[1])
+                self._abi_decl("ps_map_del", "void", ["ptr", "ptr"])
+                self._call_void("ps_map_del", [f"ptr {values[0]}", f"ptr {key}"])
+                return ""
+            if symbol == "ps_copy_deep":
+                return self._emit_copy_deep(expr, values)
+            if symbol == "ps_dict_items":
+                # The element is a synthetic tuple_N class; the C side packs key
+                # and value cells at byte offsets read off the class layout.
+                tname: str = _elem_name(typ)
+                size_ptr = self.tmp()
+                size = self.tmp()
+                self.line(f"{size_ptr} = getelementptr %cls.{tname}, ptr null, i64 1")
+                self.line(f"{size} = ptrtoint ptr {size_ptr} to i64")
+                voff_ptr = self.tmp()
+                voff = self.tmp()
+                self.line(f"{voff_ptr} = getelementptr %cls.{tname}, ptr null, i32 0, i32 1")
+                self.line(f"{voff} = ptrtoint ptr {voff_ptr} to i64")
+                self._abi_decl("ps_dict_items", "ptr", ["ptr", "i64", "i64"])
+                return self._call_ret("ptr", "ps_dict_items", [f"ptr {values[0]}", f"i64 {voff}", f"i64 {size}"])
+            if symbol == "ps_os_walk":
+                # The element is the synthetic (str, list[str], list[str]) tuple
+                # class; the C side builds one heap record per walk row at the
+                # class layout (path cell, dirs cell, files cell).
+                needed = self.needed
+                needed.add("seq")
+                tname = _elem_name(typ)
+                size_ptr = self.tmp()
+                size = self.tmp()
+                self.line(f"{size_ptr} = getelementptr %cls.{tname}, ptr null, i64 1")
+                self.line(f"{size} = ptrtoint ptr {size_ptr} to i64")
+                self._abi_decl("ps_os_walk", "ptr", ["i64", "ptr", "i64"])
+                parts4: tuple[str, str] = self._buf_parts(values[0])
+                length: str = parts4[0]
+                ptr: str = parts4[1]
+                return self._call_ret("ptr", "ps_os_walk", [f"i64 {length}", f"ptr {ptr}", f"i64 {size}"])
+            if symbol == "ps_str_format":
+                # args[0] is the format string; the rest marshal into %ps.arg.
+                count = len(values) - 1
+                nkw: int = 0
+                if _has(expr, "format_kwnames"):
+                    nkw = expr["format_kwnames"]
+                style_name: str = "percent"
+                if _has(expr, "format_style"):
+                    style_name = expr["format_style"]
+                style: int = {"percent": 0, "dot": 1, "map": 2}[style_name]
+                if count:
+                    self._ensure_arg_type()
+                    fmt_slot = self.tmp()
+                    self.line(f"{fmt_slot} = alloca [{count} x %ps.arg]")
+                    for index in range(count):
+                        base = self.tmp()
+                        self.line(f"{base} = getelementptr [{count} x %ps.arg], ptr {fmt_slot}, i64 0, i64 {index}")
+                        fmt_arg: dict[str, Any] = args[index + 1]
+                        fmt_typ: dict[str, Any] = fmt_arg["type"]
+                        self._store_ps_arg(base, values[index + 1], _fmt_arg(fmt_typ))
+                    arg_ptr = self.tmp()
+                    self.line(f"{arg_ptr} = getelementptr [{count} x %ps.arg], ptr {fmt_slot}, i64 0, i64 0")
+                else:
+                    arg_ptr = "null"
+                parts5: tuple[str, str] = self._buf_parts(values[0])
+                flen: str = parts5[0]
+                fptr: str = parts5[1]
+                self._abi_decl("ps_str_format", "void", ["i64", "ptr", "ptr", "i64", "i64", "i64", "ptr"])
+                return self._buf_out(
+                    "ps_str_format",
+                    [
+                        f"i64 {flen}",
+                        f"ptr {fptr}",
+                        f"ptr {arg_ptr}",
+                        f"i64 {count}",
+                        f"i64 {nkw}",
+                        f"i64 {style}",
+                    ],
+                )
+            if symbol == "ps_thread_new":
+                return self._emit_thread_new(expr)
+            if symbol == "ps_cond_init":
+                # `Condition()`: the runtime owns the record; the value is its
+                # pointer, allocated here and initialized by ps_cond_init.
+                needed = self.needed
+                needed.add("alloc")
+                cond_slot = self._call_ret("ptr", "ps_alloc", ["i64 96"])
+                self._abi_decl("ps_cond_init", "void", ["ptr"])
+                self._call_void("ps_cond_init", [f"ptr {cond_slot}"])
+                return cond_slot
+            # boxed:begin
+            if symbol == "ps_island_call":
+                return self._emit_island_call(expr, values)
+            if symbol == INVOKE_SYMBOL:
+                return self._emit_island_fn_call(expr, values)
+            if symbol == DEF_HANDLE_SYMBOL:
+                return self._emit_island_def_handle(expr)
+            if symbol == "ps_island_getattr":
+                return self._emit_island_getattr(expr, values)
+            if symbol == "ps_island_getitem":
+                return self._emit_island_getitem(expr, values)
+            if symbol == "ps_island_unmarshal":
+                return self._emit_island_unmarshal(expr, values)
+            # boxed:end
             return self._emit_abi(expr, values)
         if module == "math":
             return self._emit_math(name, values)
         if module == "re":
-            self.needed.add("re")
+            needed = self.needed
+            needed.add("re")
             return self._emit_re(name, values)
         if module in {"json", "orjson"}:
             # orjson is the pack over the same writer and reader: dumps comes
             # back as bytes, loads accepts str or bytes through the same
             # (len, ptr) ABI.
-            self.needed.add("json")
+            needed = self.needed
+            needed.add("json")
             if name == "loads":
-                return self._emit_json_loads(values[0], expr["type"])
-            return self._emit_json_dumps(values[0], args[0]["type"], expr.get("json_flags", 0))
+                return self._emit_json_loads(values[0], typ)
+            json_arg: dict[str, Any] = args[0]
+            json_typ: dict[str, Any] = json_arg["type"]
+            flags: int = 0
+            if _has(expr, "json_flags"):
+                flags = expr["json_flags"]
+            return self._emit_json_dumps(values[0], json_typ, flags)
         if module == "urllib.parse":
-            self.needed.add("url")
+            needed = self.needed
+            needed.add("url")
             return self._emit_url(name, values)
         if module == "base64":
-            self.needed.add("b64")
+            needed = self.needed
+            needed.add("b64")
             return self._emit_b64(name, values)
         if module == "hashlib":
-            self.needed.add("hash")
+            needed = self.needed
+            needed.add("hash")
             return self._emit_hash(name, values)
         if module == "struct":
-            self.needed.add("struct")
-            return self._emit_struct(name, values, args, expr["type"])
+            needed = self.needed
+            needed.add("struct")
+            return self._emit_struct(name, values, args, typ)
         raise IRError(f"no LLVM lowering for {module}.{name}")
 
     def emit_method(self, expr: dict[str, Any], values: list[str]) -> str:
-        callee = expr["callee"]
-        name = callee["name"]
-        kind = str(callee.get("receiver", "str"))
-        self.needed.add("str")
-        length, ptr = self._buf_parts(values[0])
+        callee: dict[str, Any] = expr["callee"]
+        name: str = _callee_name(callee)
+        kind: str = "str"
+        if _has(callee, "receiver"):
+            kind = _callee_receiver(callee)
+        needed: set[str] = self.needed
+        needed.add("str")
+        parts6: tuple[str, str] = self._buf_parts(values[0])
+        length: str = parts6[0]
+        ptr: str = parts6[1]
         if name in {"strip", "lstrip", "rstrip", "upper", "lower"}:
             self._abi_decl(f"ps_str_{name}", "void", ["i64", "ptr", "ptr"])
             return self._buf_out(f"ps_str_{name}", [f"i64 {length}", f"ptr {ptr}"])
@@ -335,18 +485,22 @@ class CallsMixin(EmitterBase):
             self._abi_decl("ps_str_splitlines", "ptr", ["i64", "ptr", "i64"])
             return self._call_ret("ptr", "ps_str_splitlines", [f"i64 {length}", f"ptr {ptr}", "i64 0"])
         if name == "expandtabs":
-            tabsize = values[1] if len(values) > 1 else "8"
+            tabsize: str = "8"
+            if len(values) > 1:
+                tabsize = values[1]
             self._abi_decl("ps_str_expandtabs", "void", ["i64", "ptr", "i64", "ptr"])
             return self._buf_out("ps_str_expandtabs", [f"i64 {length}", f"ptr {ptr}", f"i64 {tabsize}"])
         if name == "zfill":
             self._abi_decl("ps_str_zfill", "void", ["i64", "ptr", "i64", "ptr"])
             return self._buf_out("ps_str_zfill", [f"i64 {length}", f"ptr {ptr}", f"i64 {values[1]}"])
         if name in {"ljust", "rjust", "center"}:
-            side = {"ljust": "0", "rjust": "1", "center": "2"}[name]
+            side: str = {"ljust": "0", "rjust": "1", "center": "2"}[name]
+            fill_len: str = "1"
+            fill_ptr: str = self.format_global("fill", b" ")
             if len(values) > 2:
-                fill_len, fill_ptr = self._buf_parts(values[2])
-            else:
-                fill_len, fill_ptr = "1", self.format_global("fill", b" ")
+                parts7: tuple[str, str] = self._buf_parts(values[2])
+                fill_len: str = parts7[0]
+                fill_ptr: str = parts7[1]
             self._abi_decl("ps_str_justify", "void", ["i64", "ptr", "i64", "i64", "ptr", "i64", "ptr"])
             return self._buf_out(
                 "ps_str_justify",
@@ -360,10 +514,14 @@ class CallsMixin(EmitterBase):
                 ],
             )
         if name in {"partition", "rpartition"}:
-            sep_len, sep_ptr = self._buf_parts(values[1])
-            tname = callee["tuple"]
+            parts8: tuple[str, str] = self._buf_parts(values[1])
+            sep_len: str = parts8[0]
+            sep_ptr: str = parts8[1]
+            tname: str = _callee_tuple(callee)
             mem = self._alloc_class(tname)
-            right = "1" if name == "rpartition" else "0"
+            right: str = "0"
+            if name == "rpartition":
+                right = "1"
             self._abi_decl("ps_str_partition", "void", ["i64", "ptr", "i64", "ptr", "i64", "ptr"])
             self._call_void(
                 "ps_str_partition",
@@ -378,15 +536,27 @@ class CallsMixin(EmitterBase):
             )
             return mem
         if name in {"split", "rsplit"}:
+            sep_len: str
+            sep_ptr: str
+            mode: str
+            maxsplit: str
             if len(values) == 1:
                 sep_len, sep_ptr = "0", "null"
-                mode = "2" if kind == "bytes" else "1"
+                mode = "1"
+                if kind == "bytes":
+                    mode = "2"
                 maxsplit = "-1"
             else:
-                sep_len, sep_ptr = self._buf_parts(values[1])
+                parts9: tuple[str, str] = self._buf_parts(values[1])
+                sep_len: str = parts9[0]
+                sep_ptr: str = parts9[1]
                 mode = "0"
-                maxsplit = values[2] if len(values) > 2 else "-1"
-            right = "1" if name == "rsplit" else "0"
+                maxsplit = "-1"
+                if len(values) > 2:
+                    maxsplit = values[2]
+            right = "0"
+            if name == "rsplit":
+                right = "1"
             self._abi_decl("ps_str_split_m", "ptr", ["i64", "ptr", "i64", "ptr", "i64", "i64", "i64"])
             return self._call_ret(
                 "ptr",
@@ -404,21 +574,28 @@ class CallsMixin(EmitterBase):
         if name == "join":
             self._abi_decl("ps_str_join", "void", ["i64", "ptr", "ptr", "ptr"])
             return self._buf_out("ps_str_join", [f"i64 {length}", f"ptr {ptr}", f"ptr {values[1]}"])
-        arg_len, arg_ptr = self._buf_parts(values[1])
+        parts10: tuple[str, str] = self._buf_parts(values[1])
+        arg_len: str = parts10[0]
+        arg_ptr: str = parts10[1]
         if name in {"removeprefix", "removesuffix"}:
             self._abi_decl(f"ps_str_{name}", "void", ["i64", "ptr", "i64", "ptr", "ptr"])
             return self._buf_out(f"ps_str_{name}", [f"i64 {length}", f"ptr {ptr}", f"i64 {arg_len}", f"ptr {arg_ptr}"])
         if name == "replace":
-            new_len, new_ptr = self._buf_parts(values[2])
+            parts11: tuple[str, str] = self._buf_parts(values[2])
+            new_len: str = parts11[0]
+            new_ptr: str = parts11[1]
             self._abi_decl("ps_str_replace", "void", ["i64", "ptr", "i64", "ptr", "i64", "ptr", "ptr"])
             return self._buf_out(
                 "ps_str_replace",
                 [f"i64 {length}", f"ptr {ptr}", f"i64 {arg_len}", f"ptr {arg_ptr}", f"i64 {new_len}", f"ptr {new_ptr}"],
             )
         if name in {"find", "count", "index", "rfind"}:
-            symbol = {"find": "ps_str_find", "count": "ps_str_count", "index": "ps_str_index", "rfind": "ps_str_rfind"}[
-                name
-            ]
+            symbol: str = {
+                "find": "ps_str_find",
+                "count": "ps_str_count",
+                "index": "ps_str_index",
+                "rfind": "ps_str_rfind",
+            }[name]
             # ps_str_find is already declared by the "str" runtime block.
             if name != "find":
                 self._abi_decl(symbol, "i64", ["i64", "ptr", "i64", "ptr"])
@@ -433,7 +610,8 @@ class CallsMixin(EmitterBase):
         raise IRError(f"no LLVM lowering for method {name}")
 
     def emit_constructor(self, name: str, values: list[str]) -> str:
-        self.needed.add("alloc")
+        needed: set[str] = self.needed
+        needed.add("alloc")
         size_ptr = self.tmp()
         size = self.tmp()
         self.line(f"{size_ptr} = getelementptr %cls.{name}, ptr null, i64 1")
@@ -442,5 +620,8 @@ class CallsMixin(EmitterBase):
         init = f"cls.{name}.__init__"
         if init in self.functions:
             fn = self.functions[init]
-            self.call_function(fn, [mem, *values])
+            call_args: list[str] = [mem]
+            for value in values:
+                call_args.append(value)
+            self.call_function(fn, call_args)
         return mem
