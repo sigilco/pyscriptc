@@ -30,11 +30,11 @@ import hashlib
 import io
 import json
 import os
+import platform
 import re
 import shutil
 import stat
 import subprocess
-import sys
 import tempfile
 import urllib.request
 import zipfile
@@ -138,7 +138,10 @@ def requirement_name(requirement: str) -> str:
     match = NAME_RE.match(requirement)
     if match is None:
         raise DepsError(f"cannot read a project name from requirement {requirement!r}")
-    return normalize_name(match.group(1))
+    name: str | None = match.group(1)
+    if name is None:
+        raise DepsError(f"cannot read a project name from requirement {requirement!r}")
+    return normalize_name(name)
 
 
 def _pep723_table(meta: Dict[str, Any] | None) -> Dict[str, Any]:
@@ -239,21 +242,34 @@ class LockedWheel:
 class LockedPackage:
     name: str
     version: str
-    wheels: tuple[LockedWheel, ...]
+    wheels: list[LockedWheel]
     flags: int
     marker: str | None = None
 
 
 def host_python() -> str:
-    return f"{sys.version_info.major}.{sys.version_info.minor}"
+    # `sys.version_info` is outside the lowered subset of `sys`, so the
+    # host minor is the first two fields of `platform.python_version`, the
+    # same runtime answer.
+    parts = platform.python_version().split(".")
+    return parts[0] + "." + parts[1]
 
 
 def input_digest(spec: DepSpec, python: str) -> str:
     """Stable digest of everything that feeds resolution; a lock with another digest is stale."""
-    payload = json.dumps(
-        {"deps": spec.requirement_list(), "requires-python": spec.requires_python, "python": python},
-        sort_keys=True,
-    )
+    requires = spec.requires_python
+    # The payload is the same JSON object the dict literal built: the keys
+    # sort deps, python, requires-python and each value encodes through
+    # json.dumps, so the digest is byte-identical. A mixed-value dict
+    # literal itself does not lower (one key type and one value type).
+    parts: list[str] = []
+    parts.append('"deps": ')
+    parts.append(json.dumps(spec.requirement_list()))
+    parts.append(', "python": ')
+    parts.append(json.dumps(python))
+    parts.append(', "requires-python": ')
+    parts.append(json.dumps(requires))
+    payload = "{" + "".join(parts) + "}"
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -302,12 +318,35 @@ def parse_pylock(text: str) -> list[LockedPackage]:
             LockedPackage(
                 normalize_name(e["name"]),
                 _version_string(e),
-                tuple(wheels),
+                wheels,
                 SDIST if "sdist" in e else 0,
                 e.get("marker"),
             )
         )
-    return sorted(packages, key=lambda p: p.name)
+    return _sort_packages_by_name(packages)
+
+
+def _sort_packages_by_name(packages: list[LockedPackage]) -> list[LockedPackage]:
+    """`sorted(packages, key=lambda p: p.name)`: a stable insertion sort.
+
+    The lowered `sorted(key=)` reads scalar elements, so the record list
+    sorts here by walking and shifting: an element moves only past a
+    strictly greater name, which keeps the lock order of equal names.
+    """
+
+    found: list[LockedPackage] = []
+    for package in packages:
+        found.append(package)
+    index: int = 1
+    while index < len(found):
+        current: LockedPackage = found[index]
+        position: int = index - 1
+        while position >= 0 and found[position].name > current.name:
+            found[position + 1] = found[position]
+            position = position - 1
+        found[position + 1] = current
+        index = index + 1
+    return found
 
 
 def _version_string(entry: Dict[str, Any]) -> str:
