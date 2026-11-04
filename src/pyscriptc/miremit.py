@@ -484,7 +484,7 @@ class MirEmitter:
             raise IRError("no function walk is active")
         for i in range(len(fn.ops)):
             if fn.dsts[i] == vid:
-                return copy_result_type(fn, i)
+                return _result_tag(fn, i)
         raise IRError(f"no definition of v{vid}")
 
     def _is_slot(self, vid: int) -> bool:
@@ -540,16 +540,32 @@ def _tag_llvm(tag: int) -> str:
 
 
 def _result_tag(fn: MirFunction, i: int) -> int:
+    """The result tag of the value an instruction defines.
+
+    Only a `MIR_COPY` carries its tag out of band (in `arg2`, or beside a
+    helper name); every other value op takes its tag from the vocabulary's
+    result-type table, so a compare is a `MIR_B` (i1) and a word op is a
+    `MIR_W` whatever its operands happen to be. The op ids the walk reads
+    are spelled as the int literals of that table (`mirverify` does the
+    same): a module-level constant read across modules does not lower.
+    """
     op = fn.ops[i]
     if op == MIR_COPY:
-        return fn.arg2[i]
-    if op in [MIR_ADDD, MIR_SUBD, MIR_MULD, MIR_NEGD]:
-        return MIR_D
-    if op in [MIR_ADDW, MIR_SUBW, MIR_MULW, MIR_NEGW]:
-        return MIR_W
-    if op in _ICMP_W or op in _FCMP_D:
-        return MIR_W
-    raise IRError(f"no result tag for op {op}")
+        return copy_result_type(fn, i)
+    tag_d: int = MIR_D
+    tag_b: int = MIR_B
+    neg_d: int = 11
+    ext_wd: int = 24
+    not_b: int = 26
+    first_compare: int = 12
+    last_compare: int = 23
+    if op == neg_d or op == ext_wd:
+        return tag_d
+    if op == not_b:
+        return tag_b
+    if op >= first_compare and op <= last_compare:
+        return tag_b
+    return MIR_W
 
 
 def _llvm_of(fn: MirFunction, operand: int) -> str:

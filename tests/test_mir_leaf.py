@@ -34,7 +34,17 @@ from pyscriptc.mirverify import (
 )
 
 _FIXTURES = Path(__file__).parent / "fixtures" / "mir_leaf"
-LEAF_SAMPLES = [str(_FIXTURES / name) for name in ("leafint.py", "leafbool.py", "mirleaf.py", "mirmix.py")]
+LEAF_SAMPLES = [
+    str(_FIXTURES / name)
+    for name in (
+        "leafint.py",
+        "leafbool.py",
+        "mirleaf.py",
+        "mirmix.py",
+        "leafboolret.py",
+        "leafmulret.py",
+    )
+]
 
 
 @pytest.mark.parametrize("path", LEAF_SAMPLES)
