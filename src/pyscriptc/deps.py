@@ -49,9 +49,7 @@ from pyscriptc.log import get_logger
 DEPS_CODE = "PS3101"
 LOCK_TOOL_KEY = "pyscriptc"
 EXTENSION_SUFFIXES = (".so", ".pyd", ".dylib", ".dll")
-SKIPPED_DATA_DIRS = ("scripts", "headers", "data")
-SKIPPED_DIR_NAMES = ("test", "docs", "examples")  # only at the wheel root
-SKIPPED_ANYWHERE = ("tests",)
+SKIPPED_ANYWHERE = "tests"
 UNKNOWN_IMPORT_NAMES = "unknown"
 UNPACK_SCHEMA_VERSION = 2
 
@@ -432,12 +430,12 @@ def _should_skip_member(parts: tuple[str, ...]) -> bool:
     if any(part.endswith(".dist-info") for part in parts):
         return True
     if parts[0].endswith(".data"):
-        if len(parts) < 3 or parts[1] in SKIPPED_DATA_DIRS:
+        if len(parts) < 3 or parts[1] in ("scripts", "headers", "data"):
             return True
         parts = parts[2:]
         if not parts:
             return True
-    if (len(parts) > 1 and parts[0] in SKIPPED_DIR_NAMES) or any(part in SKIPPED_ANYWHERE for part in parts[:-1]):
+    if (len(parts) > 1 and parts[0] in ("test", "docs", "examples")) or SKIPPED_ANYWHERE in parts[:-1]:
         return True
     filename = parts[-1]
     if (filename.startswith("test_") and filename.endswith(".py")) or filename == "conftest.py":
