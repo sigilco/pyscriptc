@@ -82,23 +82,27 @@ def entry_points(pyproject: Path) -> dict[str, str]:
         raise ConfigError(f"{pyproject}: [project] must be a table")
     if "scripts" not in project:
         return {}
-    scripts: Dict[str, Any] = project["scripts"]
+    scripts: Dict[str, str] = project["scripts"]
     if not isinstance(scripts, dict):
         raise ConfigError(f"{pyproject}: [project.scripts] must be a table")
     out: dict[str, str] = {}
     for name, target in scripts.items():
-        if not isinstance(name, str) or not name.isidentifier():
+        if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z_]\w*", name):
             raise ConfigError(f"{pyproject}: [project.scripts].{name!r} is not a valid console script name")
-        if not isinstance(target, str) or target.count(":") != 1:
+        if not isinstance(target, str):
             raise ConfigError(
                 f"{pyproject}: [project.scripts].{name} must be 'module:attribute' (a dotted module, a function name)"
             )
         parts: list[str] = target.split(":")
+        if len(parts) != 2:
+            raise ConfigError(
+                f"{pyproject}: [project.scripts].{name} must be 'module:attribute' (a dotted module, a function name)"
+            )
         module: str = parts[0]
         attr: str = parts[1]
-        if not module or not all(part.isidentifier() for part in module.split(".")):
+        if not module or not re.fullmatch(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)*", module):
             raise ConfigError(f"{pyproject}: [project.scripts].{name}: {module!r} is not a module path")
-        if not attr.isidentifier():
+        if not re.fullmatch(r"[A-Za-z_]\w*", attr):
             raise ConfigError(f"{pyproject}: [project.scripts].{name}: {attr!r} is not an attribute name")
         out[name] = target
     return out
