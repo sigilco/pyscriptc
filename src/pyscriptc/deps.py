@@ -635,9 +635,10 @@ class DepResult:
 
     def names(self) -> list[str]:
         """The import names, `[]` when none are recorded."""
-        if self.import_names is None:
+        names = self.import_names
+        if names is None:
             return []
-        return self.import_names
+        return names
 
     def __post_init__(self) -> None:
         self.hint = LANE_HINTS[self.lane]
@@ -692,7 +693,13 @@ def import_module_map(packages: list[DepResult]) -> dict[str, dict[str, str]]:
     by_name: dict[str, list[DepResult]] = {}
     for result in packages:
         for import_name in result.names():
-            by_name.setdefault(import_name.lower(), []).append(result)
+            key = import_name.lower()
+            known = by_name.get(key)
+            if known is None:
+                by_name[key] = [result]
+            else:
+                current = known
+                current.append(result)
     mapping: dict[str, dict[str, str]] = {}
     for import_name, providers in by_name.items():
         entry = _map_entry(providers[0])
