@@ -226,13 +226,14 @@ class ExprsMixin(EmitterBase):
         value = self.emit_expr(expr["value"])
         index = self.emit_expr(expr["index"])
         kind = expr["value"]["type"]["kind"]
-        slot = expr["value"]["type"]["elem"] if kind == "list" else expr["value"]["type"]["value"]
         if kind == "list":
+            slot = expr["value"]["type"]["elem"]
             self.needed.add("seq")
             out = self._alloca(_memory_type(expr["type"]))
             self.line(f"call void @ps_seq_get(ptr {value}, i64 {index}, ptr {out})")
             return self._widen_cell(expr["type"], out, slot if slot["kind"] == "any" else None)
         if kind == "dict":
+            slot = expr["value"]["type"]["value"]
             self.needed.add("map")
             key = self._stash_cell(expr["index"]["type"], index)
             out = self._alloca(_memory_type(expr["type"]))

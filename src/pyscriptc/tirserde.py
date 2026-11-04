@@ -694,7 +694,7 @@ def dict_to_node(d: Any) -> Any:
                 [dict_to_type(item) for item in d["params"]],
                 dict_to_type(d["return"]),
             )
-        if "daemon" in d or ("result" in d and "size" in d):
+        if "daemon" in d or "closure" in d or ("result" in d and "size" in d):
             return ThreadMeta(
                 dict_to_node(d.get("closure")),
                 dict_to_type(d.get("result")),
@@ -705,10 +705,11 @@ def dict_to_node(d: Any) -> Any:
         if "key" in d and "value" in d:
             return Pair(dict_to_node(d["key"]), dict_to_node(d["value"]))
         raise TypeError(f"a kindless dict is not dict IR: {sorted(d)}")
-    if "island_fn" in d:
-        # The island call carries island_fn/island_npos/island_nkw, which the
-        # typed call record has no slot for; keep the dict whole so the
-        # round trip stays lossless (embed acceptance regression).
+    if d.get("kind") == "call" and not _CALL_KEYS.issuperset(d):
+        # Some calls carry keys the typed call record has no slot for: the
+        # island call's island_fn/island_npos/island_nkw, print's sep/end/file,
+        # sys.exit's exitMessage, reduce's fn, json_flags. Keep the dict whole
+        # so the round trip stays lossless (embed, print and exit regressions).
         return d
     span = dict_to_span(d.get("span"))
     typ = dict_to_type(d.get("type"))
@@ -780,6 +781,11 @@ def _b_attr(d: Any, span: Any, typ: Any, flags: int) -> Any:
 
 def _b_binary(d: Any, span: Any, typ: Any, flags: int) -> Any:
     return binary(d["op"], dict_to_node(d["left"]), dict_to_node(d["right"]), typ, span)
+
+
+_CALL_KEYS = frozenset(
+    ("kind", "callee", "args", "type", "span", "symbol", "format_style", "format_kwnames", "identity", "thread")
+)
 
 
 def _b_call(d: Any, span: Any, typ: Any, flags: int) -> Any:
