@@ -325,8 +325,9 @@ def test_self_census_ballpark() -> None:
     # Debug stage metrics (#819): 3384 -> 3388.
     # mirverify table-walk fences retired (#827): 3388 -> 3383.
     # Typed _expr nodes (R3e, #824): 3383 -> 3414; payload types stay dict[str, Any].
-    assert census["fences"] == 3414
-    assert sum(p["fences"] for p in census["packages"]) == 3414
+    # mirlower typing (R4): 3414 -> 3395; the mirlower module joins the clean list.
+    assert census["fences"] == 3395
+    assert sum(p["fences"] for p in census["packages"]) == 3395
 
 
 def test_self_census_cache_is_byte_identical(tmp_path: Path, monkeypatch: object) -> None:
