@@ -373,7 +373,8 @@ def _program_island(
             if name == entry and pkg:
                 is_package = True
         main_package = entry if is_package else entry.rpartition(".")[0]
-    staged: tuple[str, str] | None = stage_program_data(root, staged_data or [])
+    empty_staged: list[tuple[Path, bytes]] = []
+    staged: tuple[str, str] | None = stage_program_data(root, staged_data or empty_staged)
     source = _boxed.program_island_source(
         units,
         entry=main,
@@ -1380,11 +1381,11 @@ def _discover_dep_package(package_dir: Path, name: str) -> list[tuple[str, Path,
             # that imports `pkg.sub` (or reads `files("pkg.sub")`) binds the
             # package body the way CPython runs it, so the unit exists even
             # when nothing else inside it is reached.
-            parts = relative.parts[:-1]
+            parts: tuple[str, ...] = relative.parts[:-1]
             if parts:
                 units.append((".".join((name, *parts)), path, True))
             continue
-        stem = relative.with_suffix("")
+        stem: Path = relative.with_suffix("")
         if not all(part.isidentifier() for part in stem.parts):
             continue
         units.append((".".join((name, *stem.parts)), path, False))
@@ -1456,7 +1457,7 @@ def _discover(
             skipped.append(relative.as_posix())
             continue
         if path.name == "__init__.py":
-            parts = relative.parts[:-1]
+            parts: tuple[str, ...] = relative.parts[:-1]
             if program and not namespaced:
                 # A program sub-package: `pkg/__init__.py` is the module
                 # `pkg`, imported by its plain name.
