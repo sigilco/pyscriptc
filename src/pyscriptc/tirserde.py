@@ -789,7 +789,9 @@ def _b_call(d: Any, span: Any, typ: Any, flags: int) -> Any:
 
 
 def _b_cast(d: Any, span: Any, typ: Any, flags: int) -> Any:
-    return cast(d["op"], dict_to_node(d["value"]), typ, span)
+    # The omitted-default spelling (restlower/_urllib.py) leaves the op key
+    # out; cast("") writes it back omitted, so the round trip is lossless.
+    return cast(d.get("op", ""), dict_to_node(d["value"]), typ, span)
 
 
 def _b_compare(d: Any, span: Any, typ: Any, flags: int) -> Any:
