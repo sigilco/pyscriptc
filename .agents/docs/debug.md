@@ -19,7 +19,16 @@ saw, what it decided, and how long each stage took.
 - `stages` — `parse` / `lower` / `check` / `validate` / `verify` / `emit_llvm` /
   `llvmverify` / `link` / `run` in ms plus a total. `parse` is the part of
   lowering that went into the Python parser; `cc_compile` and `cc_link` break
-  the `link` stage into its object compiles and the final link.
+  the `link` stage into its object compiles and the final link. The compile
+  stages (the ones that see the module) also carry per-stage peak memory, IR
+  node and function counters: `rssKB` is the `ru_maxrss` delta against the
+  previous stage's peak (KiB, 0 means the process peak did not move),
+  `nodes` counts every IR node in the module (a dict with a string `kind`
+  key, walked recursively) and `funcs` the number of module functions.
+  `summary.json` carries the same rows as `stageStats` (name, ms, rssKb,
+  nodes, functions). Collecting the metrics costs one `getrusage` call and
+  one module walk per stage, only when debug is on; the IR and emitted text
+  are never touched.
 - `fences` — the fence table: count, then `file:line:col CODE message` per fence
   (the same dicts that `module["fences"]` carries; no extra computation).
 - `cc` — every clang/zig command line `link_binary` runs (the `.ll`/`.c -> .o`
@@ -55,7 +64,7 @@ Two read-only checks run when the `verify` topic is on (bare `--debug`,
 | `ir.json` | The lowered module, identical to the `<out>.ir.json` next to the output. |
 | `out.ll` | The emitted LLVM text (present for `--emit llvm` and `--emit bin`). |
 | `cc.sh` | The exact cc invocations, one per line (only when linking ran). |
-| `summary.json` | Stage timings (`timings` maps every stage and sub-step to ms), fence dicts, cc commands, output paths, verification verdicts (`verify.ir` list, `verify.llvm` object), final status (`ok` / `fences` / `error`). |
+| `summary.json` | Stage timings (`timings` maps every stage and sub-step to ms; `stageStats` adds per-stage `rssKb`, `nodes` and `functions` for the compile stages), fence dicts, cc commands, output paths, verification verdicts (`verify.ir` list, `verify.llvm` object), final status (`ok` / `fences` / `error`). |
 
 Artifacts are written in a `finally`, so a fenced or failed compile still
 leaves `ir.json` and `summary.json` for inspection.
