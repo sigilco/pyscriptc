@@ -678,13 +678,13 @@ def _program_plan(
     for name in trees:
         edges[name] = _program_imports(trees[name], exports, name, name in package_names)
     # The statement that imports a module, so a cycle fence points at it.
-    sites: dict[tuple[str, str], Any] = {}
+    sites: dict[str, Any] = {}
     for name, tree in trees.items():
         for stmt in tree.body:
             for module, _local in _statement_imports(stmt, exports):
-                sites.setdefault((name, module), stmt)
+                sites.setdefault(name + "." + module, stmt)
             for module in _relative_statement_imports(stmt, exports, name, name in package_names):
-                sites.setdefault((name, module), stmt)
+                sites.setdefault(name + "." + module, stmt)
     # Only a module with script statements has an `__init__` export: its body
     # runs at import. A definition-only module contributes nothing.
     inited: set[str] = set()
@@ -717,7 +717,7 @@ def _program_plan(
                     {
                         "code": "PS2002",
                         "message": f"circular import: {' -> '.join(cycle)}",
-                        "span": _cycle_span(files[name], sites.get((name, child))),
+                        "span": _cycle_span(files[name], sites.get(name + "." + child)),
                         "function": None,
                     }
                 )
