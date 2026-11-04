@@ -43,6 +43,7 @@ LEAF_SAMPLES = [
         "mirmix.py",
         "leafboolret.py",
         "leafmulret.py",
+        "leafneg.py",
     )
 ]
 
