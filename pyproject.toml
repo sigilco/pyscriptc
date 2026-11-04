@@ -113,6 +113,7 @@ select = ["E", "F", "I", "UP", "B"]
 # lowerer does not resolve PEP 585 spellings on a returned dict).
 "src/pyscriptc/deps.py" = ["UP006", "UP035"]
 "src/pyscriptc/ffi_manifest.py" = ["UP006", "UP035"]
+"src/pyscriptc/embed.py" = ["UP006", "UP035"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["pyscriptc"]
