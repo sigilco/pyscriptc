@@ -41,6 +41,17 @@ def test_safe_trim_drops_the_deny_list_only(tmp_path: Path) -> None:
     assert set(stdlibzip.SAFE_TRIM) >= {"test", "idlelib", "tkinter", "turtledemo", "ensurepip"}
 
 
+def test_safe_trim_drops_the_pack_site_packages(tmp_path: Path) -> None:
+    """Issue #885: the pack's own tooling (pip) never enters the stdlib zip."""
+    root = _stdlib(tmp_path)
+    bundled = root / "site-packages" / "pip"
+    bundled.mkdir(parents=True)
+    (bundled / "__init__.py").write_text("value = 7\n", encoding="utf-8")
+    kept = {path.relative_to(root).as_posix() for path in stdlibzip.safe_trim_modules(root)}
+    assert "site-packages/pip/__init__.py" not in kept
+    assert "os.py" in kept
+
+
 def test_write_zip_carries_pyc_bodies(tmp_path: Path) -> None:
     root = _stdlib(tmp_path)
     zip_path = stdlibzip.write_zip(stdlibzip.safe_trim_modules(root), root, tmp_path / "python314.zip")
