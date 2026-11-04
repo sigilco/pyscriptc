@@ -7,7 +7,7 @@ def r(a: int) -> int:
 
 
 def mul(a: int, b: int) -> int:
-    z = a * a
+    z = a * a  # noqa: F841
     return a * b
 
 
