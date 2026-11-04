@@ -38,7 +38,7 @@
   "pyscriptc.emitter": 6,
   "pyscriptc.errors": 12,
   "pyscriptc.factsbridge": 60,
-  "pyscriptc.ffi_manifest": 145,
+  "pyscriptc.ffi_manifest": 122,
   "pyscriptc.imports": 44,
   "pyscriptc.ir": 33,
   "pyscriptc.irverify": 28,
