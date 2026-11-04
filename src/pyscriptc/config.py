@@ -128,7 +128,7 @@ def project_roots(pyproject: Path) -> tuple[str, ...]:
         if isinstance(table["src"], str):
             src_str: str = table["src"]
             roots.append(src_str)
-        elif isinstance(table["src"], list):
+        else:
             src_items: list[str] = table["src"]
             for r in src_items:
                 roots.append(r)
@@ -140,7 +140,7 @@ def project_roots(pyproject: Path) -> tuple[str, ...]:
             present.append(root)
     if not present:
         present.append(".")
-    return tuple(present)
+    return _as_tuple(present)
 
 
 def read_pep723(text: str) -> dict[str, Any] | None:
@@ -209,37 +209,50 @@ class Config:
         ffi: tuple[str, ...] | None = None,
         imports: Dict[str, str] | None = None,
         # boxed:begin
-        fallback: Any = None,
-        island: Any = None,
+        fallback: Dict[str, Any] | None = None,
+        island: Dict[str, Any] | None = None,
         # boxed:end
         requires_python: str | None = None,
         dependencies: tuple[str, ...] | None = None,
     ) -> None:
+        empty_src: tuple[str, ...] = ()
         self.origin = origin
         self.source = source
         self.entry = entry
-        self.src = () if src is None else src
+        self.src = empty_src if src is None else src
         self.checker = checker
         self.driver = driver
         self.target = target
         self.fail_on = fail_on
-        self.stub_path = () if stub_path is None else stub_path
-        self.ffi = () if ffi is None else ffi
-        self.imports = {} if imports is None else imports
+        self.stub_path = empty_src if stub_path is None else stub_path
+        self.ffi = empty_src if ffi is None else ffi
+        empty_imports: Dict[str, str] = {}
+        self.imports = empty_imports if imports is None else imports
         # boxed:begin
-        self.fallback = {} if fallback is None else fallback
-        self.island = {} if island is None else island
+        empty_fallback: Dict[str, Any] = {}
+        self.fallback = empty_fallback if fallback is None else fallback
+        empty_island: Dict[str, Any] = {}
+        self.island = empty_island if island is None else island
         # boxed:end
         self.requires_python = requires_python
-        self.dependencies = () if dependencies is None else dependencies
+        self.dependencies = empty_src if dependencies is None else dependencies
 
     # boxed:begin
     def fallback_definitions(self) -> bool:
         """True when [tool.pyscriptc.fallback] enables per-definition island routing."""
         if isinstance(self.fallback, dict):
-            return bool(self.fallback.get("definitions", False)) or self.fallback.get("tier") == "cpython"
+            enabled = False
+            if "definitions" in self.fallback:
+                definitions: bool = self.fallback["definitions"]
+                if definitions:
+                    enabled = True
+            if "tier" in self.fallback:
+                tier: str = self.fallback["tier"]
+                if tier == "cpython":
+                    enabled = True
+            return enabled
         if isinstance(self.fallback, str):
-            return self.fallback in ("definitions", "cpython")
+            return self.fallback == "definitions" or self.fallback == "cpython"
         if isinstance(self.fallback, bool):
             return self.fallback
         return False
@@ -248,8 +261,8 @@ class Config:
         """The `[tool.pyscriptc.island] embed` mode, or None when unset."""
 
         if isinstance(self.island, dict):
-            value = self.island.get("embed")
-            if value is not None:
+            if "embed" in self.island:
+                value: str = self.island["embed"]
                 from pyscriptc.embed import MODES
 
                 table = "pyscriptc.island" if self.source == "pyscriptc.toml" else "tool.pyscriptc.island"
@@ -263,8 +276,8 @@ class Config:
         """The `[tool.pyscriptc.island] stdlib` trim, or None when unset."""
 
         if isinstance(self.island, dict):
-            value = self.island.get("stdlib")
-            if value is not None:
+            if "stdlib" in self.island:
+                value: str = self.island["stdlib"]
                 from pyscriptc.stdlibzip import STDLIB_MODES
 
                 table = "pyscriptc.island" if self.source == "pyscriptc.toml" else "tool.pyscriptc.island"
@@ -407,10 +420,24 @@ def _where(table: str, key: str) -> str:
     return f"[{table}].{key}" if table else key
 
 
-def _paths(value: Any) -> tuple[str, ...]:
-    if isinstance(value, str):
-        return (value,)
-    return tuple(value)
+def _as_tuple(items: list[str]) -> tuple[str, ...]:
+    """The runtime tuple of a name list. The IR models it as a list."""
+    return tuple(items)
+
+
+def _paths(table: Dict[str, Any], key: str) -> tuple[str, ...]:
+    """The `stub-path` or `ffi` entries of a config table, as a tuple."""
+    out: list[str] = []
+    if key in table:
+        probe: str = table[key]
+        if isinstance(probe, str):
+            one: str = table[key]
+            out.append(one)
+        else:
+            entries: list[str] = table[key]
+            for item in entries:
+                out.append(item)
+    return _as_tuple(out)
 
 
 def _validate(table: str, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -452,26 +479,62 @@ def _validate(table: str, data: Dict[str, Any]) -> Dict[str, Any]:
     return data
 
 
+def _src_list(table: Dict[str, Any]) -> list[str]:
+    """The `src` entries of a config table: one string or a list of strings."""
+    out: list[str] = []
+    if "src" in table:
+        probe: str = table["src"]
+        if isinstance(probe, str):
+            one: str = table["src"]
+            out.append(one)
+        else:
+            src: list[str] = table["src"]
+            for item in src:
+                out.append(item)
+    return out
+
+
 def _from_table(table: dict[str, Any], origin: Path, source: str) -> Config:
     _validate("tool.pyscriptc" if source == "pyproject.toml" else "pyscriptc", table)
-    src = table.get("src", ())
-    if isinstance(src, str):
-        src = (src,)
+    entry: str | None = None
+    if "entry" in table:
+        entry = table["entry"]
+    checker: str | None = None
+    if "checker" in table:
+        checker = table["checker"]
+    driver: str | None = None
+    if "driver" in table:
+        driver = table["driver"]
+    target: str | None = None
+    if "target" in table:
+        target = table["target"]
+    fail_on: str | None = None
+    if "fail-on" in table:
+        fail_on = table["fail-on"]
+    fallback: Dict[str, Any] = {}
+    if "fallback" in table:
+        fallback = table["fallback"]
+    island: Dict[str, Any] = {}
+    if "island" in table:
+        island = table["island"]
+    imports: Dict[str, str] = {}
+    if "imports" in table:
+        imports = table["imports"]
     return Config(
         origin=origin,
         source=source,
-        entry=table.get("entry"),
-        src=tuple(src),
-        checker=table.get("checker"),
-        driver=table.get("driver"),
-        target=table.get("target"),
-        fail_on=table.get("fail-on"),
-        stub_path=_paths(table.get("stub-path", ())),
-        ffi=_paths(table.get("ffi", ())),
-        imports=dict(table.get("imports", {})),
+        entry=entry,
+        src=_as_tuple(_src_list(table)),
+        checker=checker,
+        driver=driver,
+        target=target,
+        fail_on=fail_on,
+        stub_path=_paths(table, "stub-path"),
+        ffi=_paths(table, "ffi"),
+        imports=imports,
         # boxed:begin
-        fallback=table.get("fallback", {}),
-        island=table.get("island", {}),
+        fallback=fallback,
+        island=island,
         # boxed:end
     )
 
