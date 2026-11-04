@@ -67,6 +67,8 @@ from pyscriptc.mir import (
     MIR_SUBD,
     MIR_SUBW,
     MIR_W,
+    OP_ARITY,
+    OP_RESULT_TYPE,
     MirBlock,
     MirConst,
     MirFunction,
@@ -403,7 +405,13 @@ class MirEmitter:
             needed = self.needed
             needed.add(_HELPER_W[op])
             self.needed = needed
-            args = [self.operand(fn, x) for x in (a1, a2)]
+            # The checked helpers are unary (`ps.ineg`) or binary
+            # (`ps.iadd`); the arity table says which, and the unused
+            # operand slot of a unary op carries the `-1` sentinel that
+            # must not render as an argument.
+            args = [self.operand(fn, a1)]
+            if OP_ARITY[op] == 2:
+                args.append(self.operand(fn, a2))
             rendered = ", ".join(f"i64 {arg}" for arg in args)
             reg = self.tmp_reg()
             self.line(f"{reg} = call i64 @ps.{_HELPER_W[op]}({rendered})")
@@ -545,27 +553,15 @@ def _result_tag(fn: MirFunction, i: int) -> int:
     Only a `MIR_COPY` carries its tag out of band (in `arg2`, or beside a
     helper name); every other value op takes its tag from the vocabulary's
     result-type table, so a compare is a `MIR_B` (i1) and a word op is a
-    `MIR_W` whatever its operands happen to be. The op ids the walk reads
-    are spelled as the int literals of that table (`mirverify` does the
-    same): a module-level constant read across modules does not lower.
+    `MIR_W` whatever its operands happen to be.
     """
     op = fn.ops[i]
     if op == MIR_COPY:
         return copy_result_type(fn, i)
-    tag_d: int = MIR_D
-    tag_b: int = MIR_B
-    neg_d: int = 11
-    ext_wd: int = 24
-    not_b: int = 26
-    first_compare: int = 12
-    last_compare: int = 23
-    if op == neg_d or op == ext_wd:
-        return tag_d
-    if op == not_b:
-        return tag_b
-    if op >= first_compare and op <= last_compare:
-        return tag_b
-    return MIR_W
+    tag: int | None = OP_RESULT_TYPE.get(op)
+    if tag is None:
+        raise IRError(f"no result tag for op {op}")
+    return tag
 
 
 def _llvm_of(fn: MirFunction, operand: int) -> str:
