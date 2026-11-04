@@ -320,8 +320,9 @@ def test_self_census_ballpark() -> None:
     # dict[str, Any] | None), one or two dynamic-annotation fences each:
     # 3314 -> 3328. No fence is cut; the payload types stay dict[str, Any].
     # Attribute-call family split into lower/_call_attr.py (115 modules): 3328 -> 3337.
-    assert census["fences"] == 3337
-    assert sum(p["fences"] for p in census["packages"]) == 3337
+    # Typed _classes and _annotations nodes (R3c, #822): 3337 -> 3354; payload types stay dict[str, Any].
+    assert census["fences"] == 3354
+    assert sum(p["fences"] for p in census["packages"]) == 3354
 
 
 def test_self_census_cache_is_byte_identical(tmp_path: Path, monkeypatch: object) -> None:
