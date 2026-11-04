@@ -9,6 +9,7 @@ same listener.
 from __future__ import annotations
 
 import http.server
+import os
 import subprocess
 import sys
 import threading
@@ -560,7 +561,8 @@ def test_redirect_308_keeps_the_body(tmp_path: Path, listener: str) -> None:
     assert got.stdout == "payload\n"
 
 
-def test_https_is_refused(tmp_path: Path) -> None:
+def test_https_without_libcurl_is_refused(tmp_path: Path) -> None:
+    """Without libcurl on the machine, an https:// request raises URLError."""
     path = _case(
         tmp_path,
         "https.py",
@@ -579,7 +581,31 @@ def test_https_is_refused(tmp_path: Path) -> None:
             ]
         ),
     )
-    got = compile_run(tmp_path, path, "f", repr(["https://example.com/"]))
+    # The runtime honours an absolute PSC_LIBCURL_PATH for the library it
+    # dlopens; a path with no library behind it reproduces a machine without
+    # libcurl, no matter what this test machine has installed.
+    env = {**os.environ, "PSC_LIBCURL_PATH": str(tmp_path / "no-such-libcurl.so")}
+    got = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pyscriptc",
+            "compile",
+            str(path),
+            "--run",
+            "--call",
+            "f",
+            "--args",
+            repr(["https://example.com/"]),
+            "-o",
+            str(tmp_path / "f"),
+        ],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     assert got.returncode == 0, got.stderr
     assert got.stdout == "1\n"
 
@@ -673,8 +699,13 @@ def test_https_backend_sees_the_request_headers(tmp_path: Path, listener: str) -
     assert "Host:" in got.stdout
 
 
-def test_https_without_a_backend_still_raises(tmp_path: Path) -> None:
-    """With no backend linked, the https:// request raises URLError as before."""
+def test_https_without_libcurl_still_raises(tmp_path: Path) -> None:
+    """With no libcurl to load, the https:// request raises URLError.
+
+    A TLS stream backend is a separate thing (the mbedTLS fallback); the
+    libcurl path serves https:// on its own, so the check here is the
+    library, not the backend.
+    """
     path = _case(
         tmp_path,
         "https_none.py",
@@ -693,6 +724,27 @@ def test_https_without_a_backend_still_raises(tmp_path: Path) -> None:
             ]
         ),
     )
-    got = compile_run(tmp_path, path, "f", repr(["https://example.com/"]))
+    env = {**os.environ, "PSC_LIBCURL_PATH": str(tmp_path / "no-such-libcurl.so")}
+    got = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pyscriptc",
+            "compile",
+            str(path),
+            "--run",
+            "--call",
+            "f",
+            "--args",
+            repr(["https://example.com/"]),
+            "-o",
+            str(tmp_path / "f"),
+        ],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     assert got.returncode == 0, got.stderr
     assert got.stdout == "1\n"
