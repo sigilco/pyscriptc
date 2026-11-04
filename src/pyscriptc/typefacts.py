@@ -484,7 +484,9 @@ def _split_head_bracket(text: str) -> tuple[str, str | None]:
     """`list[int]` -> ("list", "int"); returns (text, None) when bracketless."""
     depth = 0
     quote = ""
-    for index, char in enumerate(text):
+    none_tail: str | None = None
+    for index in range(len(text)):
+        char = text[index]
         if quote:
             if char == "\\":
                 continue
@@ -495,7 +497,7 @@ def _split_head_bracket(text: str) -> tuple[str, str | None]:
         elif char == "[":
             if depth == 0:
                 if not text.endswith("]"):
-                    return text, None
+                    return text, none_tail
                 return text[:index], text[index + 1 : -1]
             depth += 1
         elif char == "]":
@@ -504,7 +506,7 @@ def _split_head_bracket(text: str) -> tuple[str, str | None]:
             depth += 1
         elif char in ")}":
             depth -= 1
-    return text, None
+    return text, none_tail
 
 
 def _parse_literal_piece(text: str) -> TypeFacts | None:
@@ -641,7 +643,8 @@ def _top_level_char(text: str, char: str) -> int:
     """Index of `char` at bracket depth 0 outside quotes, or -1."""
     depth = 0
     quote = ""
-    for index, current in enumerate(text):
+    for index in range(len(text)):
+        current = text[index]
         if quote:
             if current == "\\":
                 continue
