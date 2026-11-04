@@ -519,7 +519,8 @@ def _split_head_bracket(text: str) -> tuple[str, str | None]:
             if depth == 0:
                 if not text.endswith("]"):
                     return text, none_tail
-                return text[:index], text[index + 1 : -1]
+                tail: str | None = text[index + 1 : -1]
+                return text[:index], tail
             depth += 1
         elif char == "]":
             depth -= 1
@@ -946,9 +947,11 @@ class PyreflyFactsAdapter:
     `check._resolve_pyrefly_binary`).
     """
 
-    name = "pyrefly"
+    @property
+    def name(self) -> str:
+        return "pyrefly"
 
-    def __init__(self, command: str | Sequence[str] | None = None) -> None:
+    def __init__(self, command: Sequence[str] | None = None) -> None:
         if command is None:
             self._argv = _resolve_pyrefly_binary()
         else:
@@ -1343,9 +1346,11 @@ class PyreflyTspFactsAdapter:
     plus `tsp`.
     """
 
-    name = "pyrefly-tsp"
+    @property
+    def name(self) -> str:
+        return "pyrefly-tsp"
 
-    def __init__(self, command: str | Sequence[str] | None = None) -> None:
+    def __init__(self, command: Sequence[str] | None = None) -> None:
         argv = (
             _resolve_pyrefly_binary()
             if command is None
