@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import re
 import tomllib
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict
 
@@ -94,7 +93,9 @@ def entry_points(pyproject: Path) -> dict[str, str]:
             raise ConfigError(
                 f"{pyproject}: [project.scripts].{name} must be 'module:attribute' (a dotted module, a function name)"
             )
-        module, attr = target.split(":")
+        parts: list[str] = target.split(":")
+        module: str = parts[0]
+        attr: str = parts[1]
         if not module or not all(part.isidentifier() for part in module.split(".")):
             raise ConfigError(f"{pyproject}: [project.scripts].{name}: {module!r} is not a module path")
         if not attr.isidentifier():
@@ -142,27 +143,64 @@ def read_pep723(text: str) -> dict[str, Any] | None:
         raise ConfigError(f"invalid TOML in PEP 723 metadata: {exc}") from exc
 
 
-@dataclass(frozen=True)
 class Config:
     """The resolved config for one compile, with its origin for messages."""
 
     origin: Path | None
     source: str  # "pyscriptc.toml" | "pyproject.toml" | "pep723" | "default"
-    entry: str | None = None
-    src: tuple[str, ...] = ()
-    checker: str | None = None
-    driver: str | None = None
-    target: str | None = None
-    fail_on: str | None = None
-    stub_path: tuple[str, ...] = ()
-    ffi: tuple[str, ...] = ()
-    imports: dict[str, str] = field(default_factory=dict)
+    entry: str | None
+    src: tuple[str, ...]
+    checker: str | None
+    driver: str | None
+    target: str | None
+    fail_on: str | None
+    stub_path: tuple[str, ...]
+    ffi: tuple[str, ...]
+    imports: Dict[str, str]
     # boxed:begin
-    fallback: Any = field(default_factory=dict)
-    island: Any = field(default_factory=dict)
+    fallback: Any
+    island: Any
     # boxed:end
-    requires_python: str | None = None
-    dependencies: tuple[str, ...] = ()
+    requires_python: str | None
+    dependencies: tuple[str, ...]
+
+    def __init__(
+        self,
+        origin: Path | None = None,
+        source: str = "default",
+        entry: str | None = None,
+        src: tuple[str, ...] = (),
+        checker: str | None = None,
+        driver: str | None = None,
+        target: str | None = None,
+        fail_on: str | None = None,
+        stub_path: tuple[str, ...] = (),
+        ffi: tuple[str, ...] = (),
+        imports: Dict[str, str] | None = None,
+        # boxed:begin
+        fallback: Any = None,
+        island: Any = None,
+        # boxed:end
+        requires_python: str | None = None,
+        dependencies: tuple[str, ...] = (),
+    ) -> None:
+        self.origin = origin
+        self.source = source
+        self.entry = entry
+        self.src = src
+        self.checker = checker
+        self.driver = driver
+        self.target = target
+        self.fail_on = fail_on
+        self.stub_path = stub_path
+        self.ffi = ffi
+        self.imports = {} if imports is None else imports
+        # boxed:begin
+        self.fallback = {} if fallback is None else fallback
+        self.island = {} if island is None else island
+        # boxed:end
+        self.requires_python = requires_python
+        self.dependencies = dependencies
 
     # boxed:begin
     def fallback_definitions(self) -> bool:
@@ -185,7 +223,8 @@ class Config:
 
                 table = "pyscriptc.island" if self.source == "pyscriptc.toml" else "tool.pyscriptc.island"
                 if value not in MODES:
-                    raise ConfigError(f"{table}.embed must be one of {'|'.join(MODES)}, got {value!r}")
+                    modes_str: str = "|".join(MODES)
+                    raise ConfigError(f"{table}.embed must be one of {modes_str}, got {value!r}")
                 return str(value)
         return None
 
@@ -199,7 +238,8 @@ class Config:
 
                 table = "pyscriptc.island" if self.source == "pyscriptc.toml" else "tool.pyscriptc.island"
                 if value not in STDLIB_MODES:
-                    raise ConfigError(f"{table}.stdlib must be one of {'|'.join(STDLIB_MODES)}, got {value!r}")
+                    stdlib_modes_str: str = "|".join(STDLIB_MODES)
+                    raise ConfigError(f"{table}.stdlib must be one of {stdlib_modes_str}, got {value!r}")
                 return str(value)
         return None
 
@@ -210,8 +250,11 @@ class Config:
         return lane_for(name, self.imports)
 
     def _resolve(self, paths: tuple[str, ...]) -> tuple[Path, ...]:
-        base = self.origin.parent if self.origin is not None else Path.cwd()
-        return tuple((base / p).resolve() for p in paths)
+        base: Path = self.origin.parent if self.origin is not None else Path.cwd()
+        out: list[Path] = []
+        for p in paths:
+            out.append((base / p).resolve())
+        return tuple(out)
 
     @property
     def stub_paths(self) -> tuple[Path, ...]:
@@ -234,14 +277,15 @@ class Config:
             if lane == "island" and name != "*":
                 names.add(name)
                 names.add(name.replace("-", "_"))
-        return tuple(sorted(names))
+        out: list[str] = sorted(names)
+        return tuple(out)
 
     def wildcard_island(self) -> bool:
         """True when `* = "island"` makes every unlisted import island-bound."""
         return self.imports.get("*") == "island"
 
 
-def lane_for(name: str, imports: dict[str, str]) -> tuple[str, str]:
+def lane_for(name: str, imports: Dict[str, str]) -> tuple[str, str]:
     """(lane, matched key) for an imported top-level name.
 
     An exact module name wins over the `*` default; without either, the
@@ -263,7 +307,7 @@ def lane_for(name: str, imports: dict[str, str]) -> tuple[str, str]:
 # Policy-table lane to the lane vocabulary of the import classifier. The
 # island entry is the only way an import reaches that lane: classification
 # never guesses it from the package name or its metadata.
-POLICY_TO_LANE = {
+POLICY_TO_LANE: Dict[str, str] = {
     "compile": "native",
     "replace": "pack",
     "extern": "extern",
@@ -295,20 +339,24 @@ def dependency_lanes(dependencies: tuple[str, ...], imports: dict[str, str] | No
     """
     from pyscriptc.imports import classify
 
-    policy = imports or {}
-    star = policy.get("*")
+    policy: Dict[str, str] = {} if imports is None else imports
+    star: str | None = policy.get("*")
     lanes: dict[str, str] = {}
     for requirement in dependencies:
-        dist = requirement_name(requirement)
-        module = dist.lower().replace("-", "_").replace(".", "_")
-        chosen = next((policy[k] for k in (dist, dist.lower(), module) if k in policy), None)
-        if chosen is None and star not in (None, "compile"):
+        dist: str = requirement_name(requirement)
+        module: str = dist.lower().replace("-", "_").replace(".", "_")
+        chosen: str | None = None
+        for k in (dist, dist.lower(), module):
+            if k in policy:
+                chosen = policy[k]
+                break
+        if chosen is None and star is not None and star != "compile":
             chosen = star
         if chosen is not None:
             lanes[requirement] = POLICY_TO_LANE[chosen]
             continue
         verdict = classify(module, distribution=dist)
-        lane = verdict.lane
+        lane: str = verdict.lane
         lanes[requirement] = "native" if lane == "absent" else lane
     return lanes
 
