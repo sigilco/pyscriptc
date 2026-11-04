@@ -128,25 +128,47 @@ def _env(name: str) -> str:
 
 
 class MirEmitter:
-    """One module's MIR-to-LLVM walk. The MIR was verified before this runs."""
+    """One module's MIR-to-LLVM walk. The MIR was verified before this runs.
+
+    The field table is spelled as class-level bare annotations: the census
+    lowerer collects fields from the `__init__` body, but its AnnAssign
+    statement shape is not lowered, so a `self.x: T = ...` assignment fences
+    every later `self.x` read. The bare-name form registers the field
+    without a statement to lower.
+    """
+
+    module: Dict[str, Any]
+    dwarf: DwarfEmitter | None
+    wasm: int
+    # The emitted symbol to the IR function name (main -> ps.user.main),
+    # rebuilt per function walk below.
+    _symbol_fn: Dict[str, str]
+    out: list[str]
+    globals: list[str]
+    needed: set[str]
+    abi_decls: Dict[str, tuple[str, list[str]]]
+    tid: int
+    # Per-function walk state.
+    fn: MirFunction | None
+    reg: Dict[int, str]
+    slot_vid: Dict[str, int]
+    slot_vid_set: set[int]
 
     def __init__(self, module: Dict[str, Any], dwarf: DwarfEmitter | None, wasm: bool = False) -> None:
         self.module = module
         self.dwarf = dwarf
-        self.wasm = wasm
-        # The emitted symbol to the IR function name (main -> ps.user.main).
+        self.wasm = 1 if wasm else 0
         self._symbol_fn = {_fn_symbol(fn["name"]): fn["name"] for fn in module["functions"]}
-        self.out: list[str] = []
-        self.globals: list[str] = []
-        self.needed: set[str] = set()
-        self.abi_decls: Dict[str, tuple[str, list[str]]] = {}
+        self.out = []
+        self.globals = []
+        self.needed = set()
+        self.abi_decls = {}
         self.tid = 0
         # Per-function walk state.
-        self._symbol_fn: Dict[str, str] = {}
-        self.fn: MirFunction | None = None
-        self.reg: Dict[int, str] = {}
-        self.slot_vid: Dict[str, int] = {}
-        self.slot_vid_set: set[int] = set()
+        self.fn = None
+        self.reg = {}
+        self.slot_vid = {}
+        self.slot_vid_set = set()
 
     # ---- module driver ----
 
@@ -158,7 +180,8 @@ class MirEmitter:
         # module shape (classes, the entry point, the runtime tables); the
         # direct path's per-function bodies the MIR covers are replaced by
         # the MIR lane's text, which is byte-identical by construction.
-        emitter: Emitter = Emitter(self.module, self.dwarf, wasm=self.wasm)
+        wasm_flag = self.wasm != 0
+        emitter: Emitter = Emitter(self.module, self.dwarf, wasm=wasm_flag)
         direct = emitter.emit(call, args, standalone, library=library)
         if not mir_module.functions:
             return direct
