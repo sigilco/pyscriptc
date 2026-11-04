@@ -17,16 +17,22 @@ from __future__ import annotations
 import ast
 from typing import Any
 
+from pyscriptc import _irnode as _ir
+from pyscriptc._irnode import t_leaf
 from pyscriptc.builtins import EXCEPTIONS, method_spec
 from pyscriptc.coro import DONE, STATE
 from pyscriptc.ir import types_equal
 from pyscriptc.lower._core import (
     _any_accepts,
     _assign,
+    _attr,
     _const_bool,
     _const_int,
     _const_none,
+    _const_str,
     _dotted,
+    _mk_span,
+    _mk_type,
     _name,
     _show,
 )
@@ -42,6 +48,88 @@ from pyscriptc.restlower import method_spec as synth_method
 from pyscriptc.restlower._argparse import _add_argument, _parse_args
 from pyscriptc.restlower._asyncio import _task_method
 from pyscriptc.restlower._asyncio_sync import _prim_method
+from pyscriptc.tirserde import dict_to_node, node_to_dict
+
+
+def _contains_node(hay: dict[str, Any], needle: dict[str, Any], negated: bool, span: dict[str, Any]) -> dict[str, Any]:
+    """The membership node the dict IR spells."""
+    return node_to_dict(_ir.contains(dict_to_node(hay), dict_to_node(needle), t_leaf("bool"), _mk_span(span), negated))
+
+
+def _if_node(
+    cond: dict[str, Any],
+    then: list[dict[str, Any]],
+    else_: list[dict[str, Any]],
+    span: dict[str, Any],
+) -> dict[str, Any]:
+    """The if statement node."""
+    return node_to_dict(
+        _ir.if_stmt(
+            dict_to_node(cond),
+            [dict_to_node(item) for item in then],
+            [dict_to_node(item) for item in else_],
+            _mk_span(span),
+        )
+    )
+
+
+def _setitem_node(
+    container: dict[str, Any], index: dict[str, Any], value: dict[str, Any], span: dict[str, Any]
+) -> dict[str, Any]:
+    """The setitem statement node."""
+    return node_to_dict(
+        _ir.setitem_stmt(dict_to_node(container), dict_to_node(index), dict_to_node(value), _mk_span(span))
+    )
+
+
+def _subscript_node(
+    value: dict[str, Any], index: dict[str, Any], typ: dict[str, Any], span: dict[str, Any]
+) -> dict[str, Any]:
+    """The subscript read node."""
+    return node_to_dict(_ir.subscript(dict_to_node(value), dict_to_node(index), _mk_type(typ), _mk_span(span)))
+
+
+def _raise_keyerror(span: dict[str, Any]) -> dict[str, Any]:
+    """The bare KeyError raise node."""
+    return node_to_dict(_ir.raise_stmt("KeyError", _mk_span(span), -1))
+
+
+def _expr_node(expr: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The expression statement node."""
+    return node_to_dict(_ir.expr_stmt(dict_to_node(expr), _mk_span(span)))
+
+
+def _list_node(elems: list[dict[str, Any]], typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The list literal node."""
+    return node_to_dict(_ir.list_lit([dict_to_node(elem) for elem in elems], _mk_type(typ), _mk_span(span)))
+
+
+def _function_call_node(
+    fname: str, args: list[dict[str, Any]], typ: dict[str, Any], span: dict[str, Any]
+) -> dict[str, Any]:
+    """The call to a lowered class method."""
+    return node_to_dict(
+        _ir.call(
+            _ir.function_callee(fname),
+            [dict_to_node(arg) for arg in args],
+            _mk_type(typ),
+            _mk_span(span),
+            "",
+            "",
+            -1,
+        )
+    )
+
+
+def _opt_fill(dest: str, opt_t: dict[str, Any], got: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
+    """The hit-then-fill setattr pair: the tag first, then the value."""
+    target = _name(dest, opt_t, span)
+    return [
+        node_to_dict(
+            _ir.setattr_stmt(dict_to_node(target), "_tag", dict_to_node(_const_bool(True, span)), _mk_span(span))
+        ),
+        node_to_dict(_ir.setattr_stmt(dict_to_node(target), "_val", dict_to_node(got), _mk_span(span))),
+    ]
 
 
 class CallAttrMixin:
@@ -141,7 +229,7 @@ class CallAttrMixin:
                 # tuple is constant False per CPython.
                 elts = node.args[0].elts
                 if not elts:
-                    return {"kind": "const", "value": False, "type": {"kind": "bool"}, "span": span}
+                    return _const_bool(False, span)
                 rewritten = ast.BoolOp(
                     op=ast.Or(),
                     values=[ast.Call(func=node.func, args=[elt], keywords=[]) for elt in elts],
@@ -159,21 +247,22 @@ class CallAttrMixin:
                 sep = self._expr(node.args[0])
                 self._expect(node, sep["type"], {"kind": kind}, f"{kind}.{attr} separator")
                 typ = self._tuple_type([{"kind": kind}] * 3, node)
-                return {
-                    "kind": "call",
-                    "callee": {"kind": "method", "receiver": kind, "name": attr, "tuple": typ["name"]},
-                    "args": [receiver, sep],
-                    "type": typ,
-                    "span": span,
-                }
+                return node_to_dict(
+                    _ir.call(
+                        _ir.method_callee(kind, attr, str(typ["name"])),
+                        [dict_to_node(receiver), dict_to_node(sep)],
+                        _mk_type(typ),
+                        _mk_span(span),
+                        "",
+                        "",
+                        -1,
+                    )
+                )
             if attr == "format" and kind == "str":
                 # Same engine as `%`; arg layout is [kwarg names, positionals, kwarg values].
                 if any(keyword.arg is None for keyword in node.keywords):
                     self.fail(node, "PS2003", "str.format **kwargs are not lowered")
-                names = [
-                    {"kind": "const", "value": keyword.arg, "type": {"kind": "str"}, "span": span}
-                    for keyword in node.keywords
-                ]
+                names = [_const_str(str(keyword.arg), span) for keyword in node.keywords]
                 tail = [self._expr(arg) for arg in node.args]
                 tail += [self._expr(keyword.value) for keyword in node.keywords]
                 for arg in tail:
@@ -204,13 +293,17 @@ class CallAttrMixin:
             spec = method_spec(receiver["type"], node.func.attr, [arg["type"] for arg in args])
             if spec is None:
                 self.fail(node, "PS2001", f"call of attribute is not lowered ({_dotted(node.func)})")
-            return {
-                "kind": "call",
-                "callee": {"kind": "method", "receiver": kind, "name": node.func.attr},
-                "args": [receiver, *args],
-                "type": spec,
-                "span": span,
-            }
+            return node_to_dict(
+                _ir.call(
+                    _ir.method_callee(kind, node.func.attr),
+                    [dict_to_node(receiver), *[dict_to_node(arg) for arg in args]],
+                    _mk_type(spec),
+                    _mk_span(span),
+                    "",
+                    "",
+                    -1,
+                )
+            )
         if kind == "class" and receiver["type"]["name"] == "Hash":
             return self._hash_method(node, span, receiver)
         if kind == "class" and receiver["type"]["name"] == "Pattern":
@@ -246,7 +339,7 @@ class CallAttrMixin:
             self.locals[d_t] = receiver["type"]
             self.locals[k_t] = receiver["type"]["key"]
             for t, v in ((d_t, receiver), (k_t, key)):
-                self.prelude.append({"kind": "assign", "target": t, "value": v, "span": span})
+                self.prelude.append(_assign(t, v, span))
             ifexp = ast.IfExp(
                 test=ast.Compare(
                     left=ast.Name(id=k_t, ctx=ast.Load()),
@@ -306,7 +399,7 @@ class CallAttrMixin:
                     # Counter.update adds counts; dict.update replaces them.
                     symbol = "ps_counter_update" if dtyp.get("counter") else "ps_map_update"
                     call = self._abi_call("builtins", "dict.update", [receiver, other], {"kind": "none"}, symbol, span)
-                self.prelude.append({"kind": "expr", "expr": call, "span": span})
+                self.prelude.append(_expr_node(call, span))
                 return _const_none(span)
             # pop and setdefault are statements: the dict is bound to a temp,
             # the key checked with `in`, and the value bound before a ps_map_del
@@ -322,51 +415,17 @@ class CallAttrMixin:
             self.locals[d_t] = dtyp
             self.locals[k_t] = key_t
             for t, v in ((d_t, receiver), (k_t, key)):
-                self.prelude.append({"kind": "assign", "target": t, "value": v, "span": span})
+                self.prelude.append(_assign(t, v, span))
             if attr == "setdefault":
                 val = self._expr(node.args[1], val_t)
                 self._expect(node, val["type"], val_t, "dict.setdefault value")
-                cond = {
-                    "kind": "contains",
-                    "hay": _name(d_t, dtyp, span),
-                    "needle": _name(k_t, key_t, span),
-                    "negated": True,
-                    "type": {"kind": "bool"},
-                    "span": span,
-                }
-                self.prelude.append(
-                    {
-                        "kind": "if",
-                        "cond": cond,
-                        "then": [
-                            {
-                                "kind": "setitem",
-                                "container": _name(d_t, dtyp, span),
-                                "index": _name(k_t, key_t, span),
-                                "value": val,
-                                "span": span,
-                            }
-                        ],
-                        "else": [],
-                        "span": span,
-                    }
-                )
-                return {
-                    "kind": "subscript",
-                    "value": _name(d_t, dtyp, span),
-                    "index": _name(k_t, key_t, span),
-                    "type": val_t,
-                    "span": span,
-                }
+                cond = _contains_node(_name(d_t, dtyp, span), _name(k_t, key_t, span), True, span)
+                put = _setitem_node(_name(d_t, dtyp, span), _name(k_t, key_t, span), val, span)
+                self.prelude.append(_if_node(cond, [put], [], span))
+                return _subscript_node(_name(d_t, dtyp, span), _name(k_t, key_t, span), val_t, span)
             v_t = self._temp("popv").replace(".", "_")
             self.locals[v_t] = val_t
-            getitem = {
-                "kind": "subscript",
-                "value": _name(d_t, dtyp, span),
-                "index": _name(k_t, key_t, span),
-                "type": val_t,
-                "span": span,
-            }
+            getitem = _subscript_node(_name(d_t, dtyp, span), _name(k_t, key_t, span), val_t, span)
             delitem = self._abi_call(
                 "builtins",
                 "dict.delitem",
@@ -375,25 +434,15 @@ class CallAttrMixin:
                 "ps_map_del",
                 span,
             )
-            then = [
-                {"kind": "assign", "target": v_t, "value": getitem, "span": span},
-                {"kind": "expr", "expr": delitem, "span": span},
-            ]
+            then = [_assign(v_t, getitem, span), _expr_node(delitem, span)]
             if len(node.args) == 2:
                 fallback = self._expr(node.args[1], val_t)
                 self._expect(node, fallback["type"], val_t, "dict.pop default")
-                other = [{"kind": "assign", "target": v_t, "value": fallback, "span": span}]
+                other = [_assign(v_t, fallback, span)]
             else:
-                other = [{"kind": "raise", "exc": "KeyError", "message": None, "span": span}]
-            cond = {
-                "kind": "contains",
-                "hay": _name(d_t, dtyp, span),
-                "needle": _name(k_t, key_t, span),
-                "negated": False,
-                "type": {"kind": "bool"},
-                "span": span,
-            }
-            self.prelude.append({"kind": "if", "cond": cond, "then": then, "else": other, "span": span})
+                other = [_raise_keyerror(span)]
+            cond = _contains_node(_name(d_t, dtyp, span), _name(k_t, key_t, span), False, span)
+            self.prelude.append(_if_node(cond, then, other, span))
             return _name(v_t, val_t, span)
         if kind == "class":
             return self._method_call(node, span, receiver)
@@ -455,7 +504,7 @@ class CallAttrMixin:
             # arity: that base's `__init__` takes it.
             if len(ancestors) == 1 and len(node.args) > 1:
                 self.fail(node, "PS2003", "exception takes one scalar argument")
-            return {"kind": "const", "value": None, "type": {"kind": "none"}, "span": span}
+            return _const_none(span)
         ancestor = next((name for name in ancestors if method in self.classes.get(name, {}).get("methods", {})), None)
         if ancestor is None:
             self.fail(node, "PS2001", f"{self_t}.{method} is not a method")
@@ -473,13 +522,7 @@ class CallAttrMixin:
             ),
             ancestor,
         )
-        return {
-            "kind": "call",
-            "callee": {"kind": "function", "name": f"cls.{emit}.{method}"},
-            "args": args,
-            "type": sig[1],
-            "span": span,
-        }
+        return _function_call_node(f"cls.{emit}.{method}", args, sig[1], span)
 
     def _opt_env_get(self, node: ast.Call, key: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
         """`os.getenv(k)` / `os.environ.get(k)`: the tagged `str | None`.
@@ -492,30 +535,7 @@ class CallAttrMixin:
         dest = res["id"]
         has = self._abi_call("os", "environ.contains", [key], {"kind": "bool"}, "ps_env_has", span)
         got = self._abi_call("os", "environ.get", [key], {"kind": "str"}, "ps_os_getenv", span)
-        self.prelude.append(
-            {
-                "kind": "if",
-                "cond": has,
-                "then": [
-                    {
-                        "kind": "setattr",
-                        "object": _name(dest, opt_t, span),
-                        "name": "_tag",
-                        "value": _const_bool(True, span),
-                        "span": span,
-                    },
-                    {
-                        "kind": "setattr",
-                        "object": _name(dest, opt_t, span),
-                        "name": "_val",
-                        "value": got,
-                        "span": span,
-                    },
-                ],
-                "else": [],
-                "span": span,
-            }
-        )
+        self.prelude.append(_if_node(has, _opt_fill(dest, opt_t, got, span), [], span))
         return res
 
     def _named_class_call(self, node: ast.Call, span: dict[str, Any], class_name: str) -> dict[str, Any]:
@@ -532,13 +552,7 @@ class CallAttrMixin:
             self.fail(node, "PS2002", f"{class_name}.{method} needs an instance")
         owner = info.get("method_owner", {}).get(method, class_name)
         args = self._fill_args(node, sig[0], f"{class_name}.{method}")
-        return {
-            "kind": "call",
-            "callee": {"kind": "function", "name": f"cls.{owner}.{method}"},
-            "args": args,
-            "type": sig[1],
-            "span": span,
-        }
+        return _function_call_node(f"cls.{owner}.{method}", args, sig[1], span)
 
     def _method_call(self, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
         assert isinstance(node.func, ast.Attribute)
@@ -582,13 +596,7 @@ class CallAttrMixin:
             owner = self._emit_owner(class_name, method)
             params = [param for param in sig[0] if param["name"] != "self"]
             args = [receiver, *self._fill_args(node, params, f"{class_name}.{method}")]
-        return {
-            "kind": "call",
-            "callee": {"kind": "function", "name": f"cls.{owner}.{method}"},
-            "args": args,
-            "type": sig[1],
-            "span": span,
-        }
+        return _function_call_node(f"cls.{owner}.{method}", args, sig[1], span)
 
     def _concrete_protocol_impl(self, protocol_name: str, method: str) -> str | None:
         """A subclass of `protocol_name` that owns its own `method` body.
@@ -720,22 +728,18 @@ class CallAttrMixin:
             name = resolved
         frame_t = receiver["type"]
         self.prelude.append(
-            {
-                "kind": "setattr",
-                "object": receiver,
-                "name": STATE,
-                "value": _const_int(DONE, span),
-                "span": span,
-            }
+            node_to_dict(
+                _ir.setattr_stmt(dict_to_node(receiver), STATE, dict_to_node(_const_int(DONE, span)), _mk_span(span))
+            )
         )
         self.prelude.append(
-            {
-                "kind": "raise",
-                "exc": name,
-                "message": None,
-                **({"code": self.classes[name]["exc_code"]} if name not in EXCEPTIONS else {}),
-                "span": span,
-            }
+            node_to_dict(
+                _ir.raise_stmt(
+                    name,
+                    _mk_span(span),
+                    -1 if name in EXCEPTIONS else int(self.classes[name]["exc_code"]),
+                )
+            )
         )
         # Unreachable after the raise; the frame's elem keeps the expression typed.
         out = self._temp("thr")
@@ -761,8 +765,8 @@ class CallAttrMixin:
         assert isinstance(node.func, ast.Attribute)
         self._reject_keywords(node)
         name = node.func.attr
-        pattern = {"kind": "attr", "value": receiver, "name": "pattern", "type": {"kind": "str"}, "span": span}
-        flags = {"kind": "attr", "value": receiver, "name": "flags", "type": {"kind": "int"}, "span": span}
+        pattern = _attr(receiver, "pattern", {"kind": "str"}, span)
+        flags = _attr(receiver, "flags", {"kind": "int"}, span)
         if name == "findall":
             if len(node.args) != 1:
                 self.fail(node, "PS2003", "Pattern.findall expects 1 argument(s)")
@@ -788,11 +792,7 @@ class CallAttrMixin:
             text = self._expr(node.args[1])
             if repl["type"]["kind"] != "str" or text["type"]["kind"] != "str":
                 self.fail(node, "PS1003", f"Pattern.{name} arguments are str")
-            count = (
-                self._expr(node.args[2])
-                if len(node.args) == 3
-                else {"kind": "const", "value": 0, "type": {"kind": "int"}, "span": span}
-            )
+            count = self._expr(node.args[2]) if len(node.args) == 3 else _const_int(0, span)
             if count["type"]["kind"] != "int":
                 self.fail(node, "PS1003", f"Pattern.{name} count is an int")
             if name == "subn":
@@ -804,11 +804,7 @@ class CallAttrMixin:
             text = self._expr(node.args[0])
             if text["type"]["kind"] != "str":
                 self.fail(node, "PS1003", "Pattern.split argument is " + _show(text["type"]) + ", expected str")
-            maxsplit = (
-                self._expr(node.args[1])
-                if len(node.args) == 2
-                else {"kind": "const", "value": 0, "type": {"kind": "int"}, "span": span}
-            )
+            maxsplit = self._expr(node.args[1]) if len(node.args) == 2 else _const_int(0, span)
             if maxsplit["type"]["kind"] != "int":
                 self.fail(node, "PS1003", "Pattern.split maxsplit is an int")
             return _mod_call(
@@ -830,7 +826,7 @@ class CallAttrMixin:
             if index["type"]["kind"] != "int":
                 self.fail(node, "PS2001", f"Match.{name} names are not lowered")
         else:
-            index = {"kind": "const", "value": 0, "type": {"kind": "int"}, "span": span}
+            index = _const_int(0, span)
         if name == "start" or name == "end":
             return self._abi_call("re", f"Match.{name}", [receiver, index], {"kind": "int"}, f"ps_match_{name}", span)
         if name == "span":
@@ -848,30 +844,7 @@ class CallAttrMixin:
         dest = res["id"]
         hit = self._abi_call("re", "Match.group_hit", [receiver, index], {"kind": "bool"}, "ps_match_group_hit", span)
         got = self._abi_call("re", "Match.group", [receiver, index], {"kind": "str"}, "ps_match_group", span)
-        self.prelude.append(
-            {
-                "kind": "if",
-                "cond": hit,
-                "then": [
-                    {
-                        "kind": "setattr",
-                        "object": _name(dest, opt_t, span),
-                        "name": "_tag",
-                        "value": _const_bool(True, span),
-                        "span": span,
-                    },
-                    {
-                        "kind": "setattr",
-                        "object": _name(dest, opt_t, span),
-                        "name": "_val",
-                        "value": got,
-                        "span": span,
-                    },
-                ],
-                "else": [],
-                "span": span,
-            }
-        )
+        self.prelude.append(_if_node(hit, _opt_fill(dest, opt_t, got, span), [], span))
         return res
 
     def _list_method(self, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
@@ -889,22 +862,18 @@ class CallAttrMixin:
             value = self._expr(node.args[0], elem)
             if not types_equal(value["type"], elem) and not _any_accepts(elem, value["type"]):
                 self.fail(node, "PS1003", "list.append takes an element of that list")
-            self.prelude.extend(
-                [
-                    {
-                        "kind": "expr",
-                        "expr": {
-                            "kind": "call",
-                            "callee": {"kind": "module", "module": "builtins", "name": "list.append"},
-                            "args": [receiver, value],
-                            "symbol": "ps_list_push",
-                            "type": {"kind": "none"},
-                            "span": span,
-                        },
-                        "span": span,
-                    }
-                ]
+            push = node_to_dict(
+                _ir.call(
+                    _ir.module_callee("builtins", "list.append"),
+                    [dict_to_node(receiver), dict_to_node(value)],
+                    _mk_type({"kind": "none"}),
+                    _mk_span(span),
+                    "ps_list_push",
+                    "",
+                    -1,
+                )
             )
+            self.prelude.append(_expr_node(push, span))
             return _const_none(span)
         elem = receiver["type"]["elem"]
         # In-place mutations go through a prelude call; reads return a value.
@@ -926,7 +895,7 @@ class CallAttrMixin:
             call = self._abi_call(
                 "builtins", "list.sort", [receiver, desc], {"kind": "none"}, f"ps_seq_sort_{suffix}", span
             )
-            self.prelude.append({"kind": "expr", "expr": call, "span": span})
+            self.prelude.append(_expr_node(call, span))
             return _const_none(span)
         self._reject_keywords(node)
         mutating = {"extend", "insert", "remove", "reverse"}
@@ -943,7 +912,7 @@ class CallAttrMixin:
                 call = self._abi_call(
                     "builtins", "list.extend", [receiver, other], {"kind": "none"}, "ps_seq_extend", span
                 )
-                self.prelude.append({"kind": "expr", "expr": call, "span": span})
+                self.prelude.append(_expr_node(call, span))
                 return _const_none(span)
             if attr == "insert":
                 if len(node.args) != 2:
@@ -960,7 +929,7 @@ class CallAttrMixin:
                     f"ps_seq_insert_{suffix}",
                     span,
                 )
-                self.prelude.append({"kind": "expr", "expr": call, "span": span})
+                self.prelude.append(_expr_node(call, span))
                 return _const_none(span)
             if attr == "remove":
                 if len(node.args) != 1:
@@ -970,13 +939,13 @@ class CallAttrMixin:
                 call = self._abi_call(
                     "builtins", "list.remove", [receiver, value], {"kind": "none"}, f"ps_seq_remove_{suffix}", span
                 )
-                self.prelude.append({"kind": "expr", "expr": call, "span": span})
+                self.prelude.append(_expr_node(call, span))
                 return _const_none(span)
             if attr == "reverse":
                 if node.args:
                     self.fail(node, "PS2003", "list.reverse expects 0 argument(s)")
                 call = self._abi_call("builtins", "list.reverse", [receiver], {"kind": "none"}, "ps_seq_reverse", span)
-                self.prelude.append({"kind": "expr", "expr": call, "span": span})
+                self.prelude.append(_expr_node(call, span))
                 return _const_none(span)
             if attr in {"index", "count"}:
                 if len(node.args) != 1:
@@ -996,14 +965,7 @@ class CallAttrMixin:
                 self.fail(node, "PS2003", "list.clear expects 0 argument(s)")
             if receiver["kind"] != "name":
                 self.fail(node, "PS2002", "list.clear needs a name")
-            self.prelude.append(
-                {
-                    "kind": "assign",
-                    "target": receiver["id"],
-                    "value": {"kind": "list", "elems": [], "type": receiver["type"], "span": span},
-                    "span": span,
-                }
-            )
+            self.prelude.append(_assign(str(receiver["id"]), _list_node([], receiver["type"], span), span))
             return _const_none(span)
         if attr == "copy":
             if node.args:
@@ -1053,26 +1015,10 @@ class CallAttrMixin:
             needle = _name(slot, elem, span)
             drop = _mod_call("builtins", "list.remove", [hay, needle], {"kind": "none"}, span)
             drop["symbol"] = f"ps_seq_remove_{'i64' if elem['kind'] == 'int' else 'buf'}"
-            else_body = (
-                [{"kind": "raise", "exc": "KeyError", "message": None, "span": span}] if attr == "remove" else []
-            )
+            else_body = [_raise_keyerror(span)] if attr == "remove" else []
             self.prelude.append(_assign(slot, value, span))
-            self.prelude.append(
-                {
-                    "kind": "if",
-                    "cond": {
-                        "kind": "contains",
-                        "hay": _name(receiver["id"], receiver["type"], span),
-                        "needle": needle,
-                        "negated": False,
-                        "type": {"kind": "bool"},
-                        "span": span,
-                    },
-                    "then": [{"kind": "expr", "expr": drop, "span": span}],
-                    "else": else_body,
-                    "span": span,
-                }
-            )
+            cond = _contains_node(_name(str(receiver["id"]), receiver["type"], span), needle, False, span)
+            self.prelude.append(_if_node(cond, [_expr_node(drop, span)], else_body, span))
             return _const_none(span)
         if attr in {"union", "intersection"}:
             self._reject_keywords(node)
@@ -1141,4 +1087,4 @@ def _const_dict_keys(receiver: dict[str, Any], typ: dict[str, Any], span: dict[s
             continue
         seen.append(key["value"])
         elems.append(key)
-    return {"kind": "list", "elems": elems, "type": typ, "span": span}
+    return _list_node(elems, typ, span)
