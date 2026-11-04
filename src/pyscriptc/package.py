@@ -1435,6 +1435,7 @@ def _discover(
         raise IRError(f"package directory {package} is not an identifier")
     program = program_mode or _is_program_dir(root)
     namespaced = program_mode and not _is_program_dir(root)
+    entry_file: Path | None = None
     if entry is not None:
         namespaced = True
         program = True
