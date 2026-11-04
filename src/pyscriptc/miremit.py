@@ -158,7 +158,12 @@ class MirEmitter:
         self.module = module
         self.dwarf = dwarf
         self.wasm = 1 if wasm else 0
-        self._symbol_fn = {_fn_symbol(fn["name"]): fn["name"] for fn in module["functions"]}
+        functions: list[Dict[str, Any]] = module["functions"]
+        symbols: Dict[str, str] = {}
+        for fn in functions:
+            fn_name: str = fn["name"]
+            symbols[_fn_symbol(fn_name)] = fn_name
+        self._symbol_fn = symbols
         self.out = []
         self.globals = []
         self.needed = set()
@@ -252,17 +257,27 @@ class MirEmitter:
         # independent of the lowerer's internals.
         self.slot_vid = {}
         self.slot_vid_set = set()
-        vid = len(ir_fn["params"])
-        for local in ir_fn["locals"]:
-            self.slot_vid[local["name"]] = vid
-            self.slot_vid_set.add(vid)
+        fns: list[Dict[str, Any]] = ir_fn["params"]
+        vid: int = len(fns)
+        locs: list[Dict[str, Any]] = ir_fn["locals"]
+        seen: set[int] = self.slot_vid_set
+        for local in locs:
+            lname: str = local["name"]
+            self.slot_vid[lname] = vid
+            seen.add(vid)
+            self.slot_vid_set = seen
             vid += 1
         # One alloca per name slot, in the locals order the direct walk
         # uses, the return slot for a non-void function, then the flow
         # slot: the direct path's allocation sequence, inside the entry
         # block.
-        ret: str = _llvm_type(ir_fn["returnType"])
-        plist: list[str] = [f"{_llvm_type(p['type'])} %{_safe(p['name'])}" for p in ir_fn["params"]]
+        ret_type: Dict[str, Any] = ir_fn["returnType"]
+        ret: str = _llvm_type(ret_type)
+        plist: list[str] = []
+        for p in fns:
+            p_type: Dict[str, Any] = p["type"]
+            p_name: str = p["name"]
+            plist.append(f"{_llvm_type(p_type)} %{_safe(p_name)}")
         symbol = _fn_symbol(fn.name)
         out: list[str] = self.out
         out.append(f"define {ret} @{symbol}({', '.join(plist)}) {{")
@@ -284,16 +299,24 @@ class MirEmitter:
         self.out = out
 
     def _ir_fn(self, name: str) -> Dict[str, Any]:
-        for fn in self.module["functions"]:
-            if fn["name"] == name:
+        functions: list[Dict[str, Any]] = self.module["functions"]
+        for fn in functions:
+            fn_name: str = fn["name"]
+            if fn_name == name:
                 return fn
         raise IRError(f"no IR function {name} behind the MIR")
 
     def _slot_vids(self) -> list[int]:
         """The name-slot value ids, in locals order (the alloca order)."""
-        assert self.fn is not None
-        ir_fn = self._ir_fn(self.fn.name)
-        names: list[str] = [local["name"] for local in ir_fn["locals"]]
+        current = self.fn
+        if current is None:
+            raise IRError("no function walk is active")
+        ir_fn = self._ir_fn(current.name)
+        names: list[str] = []
+        walk_locals: list[Dict[str, Any]] = ir_fn["locals"]
+        for local in walk_locals:
+            lname: str = local["name"]
+            names.append(lname)
         vids: list[int] = []
         for name in names:
             vid = self.slot_vid.get(name)
@@ -302,8 +325,9 @@ class MirEmitter:
         return vids
 
     def _tag_of(self, vid: int) -> int:
-        assert self.fn is not None
         fn = self.fn
+        if fn is None:
+            raise IRError("no function walk is active")
         for i in range(len(fn.ops)):
             if fn.dsts[i] == vid:
                 return copy_result_type(fn, i)
@@ -311,10 +335,11 @@ class MirEmitter:
 
     def _span(self, bid: int) -> list[int]:
         """The instruction indexes of block `bid` (construction order spans)."""
-        assert self.fn is not None
         fn = self.fn
-        cursor = 0
-        n = len(fn.ops)
+        if fn is None:
+            raise IRError("no function walk is active")
+        cursor: int = 0
+        n: int = len(fn.ops)
         for _ in range(bid):
             while cursor < n and fn.ops[cursor] not in _MIR_TERMINATORS:
                 cursor += 1
@@ -454,8 +479,9 @@ class MirEmitter:
         return "i64"
 
     def _def_tag(self, vid: int) -> int:
-        assert self.fn is not None
         fn = self.fn
+        if fn is None:
+            raise IRError("no function walk is active")
         for i in range(len(fn.ops)):
             if fn.dsts[i] == vid:
                 return copy_result_type(fn, i)
@@ -465,9 +491,14 @@ class MirEmitter:
         return vid in self.slot_vid_set
 
     def param_name(self, vid: int) -> str:
-        assert self.fn is not None
-        ir_fn = self._ir_fn(self.fn.name)
-        return f"%{_safe(ir_fn['params'][vid]['name'])}"
+        current = self.fn
+        if current is None:
+            raise IRError("no function walk is active")
+        ir_fn = self._ir_fn(current.name)
+        params: list[Dict[str, Any]] = ir_fn["params"]
+        param: Dict[str, Any] = params[vid]
+        pname: str = param["name"]
+        return f"%{_safe(pname)}"
 
     def tmp_reg(self) -> str:
         nxt: int = self.tid + 1
@@ -543,10 +574,13 @@ def emit_llvm_mir(
 ) -> str:
     """The MIR lane's `emit_llvm`. Same contract, same bytes, opt-in only."""
     assert_same_cpython(module)
-    if module["fences"]:
+    fences: list[Any] = module["fences"]
+    if fences:
         raise IRError("refusing to emit LLVM while fences are present")
-    if not module["functions"]:
+    functions: list[Any] = module["functions"]
+    if not functions:
         raise IRError("module has no functions to emit")
-    dwarf = DwarfEmitter(module["sourceFile"]) if debug_info else None
+    source_file: str = module["sourceFile"]
+    dwarf = DwarfEmitter(source_file) if debug_info else None
     emitter: MirEmitter = MirEmitter(module, dwarf)
     return emitter.emit(call, [] if args is None else args, standalone, library)
