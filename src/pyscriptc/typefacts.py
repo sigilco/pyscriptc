@@ -319,8 +319,28 @@ class _LspConnection:
 
 def _utf16_col(line_text: str, byte_col: int) -> int:
     """ast col_offset is a UTF-8 byte offset; LSP wants UTF-16 units."""
-    prefix = line_text.encode("utf-8")[:byte_col].decode("utf-8", errors="ignore")
-    return len(prefix.encode("utf-16-le")) // 2
+    cur_bytes = 0
+    u16_units = 0
+    for idx in range(len(line_text)):
+        ch = line_text[idx]
+        code = ord(ch)
+        if code < 0x80:
+            ch_bytes = 1
+            ch_u16 = 1
+        elif code < 0x800:
+            ch_bytes = 2
+            ch_u16 = 1
+        elif code < 0x10000:
+            ch_bytes = 3
+            ch_u16 = 1
+        else:
+            ch_bytes = 4
+            ch_u16 = 2
+        if cur_bytes + ch_bytes > byte_col:
+            break
+        cur_bytes += ch_bytes
+        u16_units += ch_u16
+    return u16_units
 
 
 def _split_top(text: str, sep: str) -> list[str]:
@@ -462,7 +482,7 @@ def _parse_type_text(text: str) -> TypeFacts | None:
     if text.startswith(("*", "**")):
         return _parse_type_text(text.lstrip("*"))
     if "@" in text and not text.startswith(('"', "'")):
-        name = text.split("@", 1)[0].strip()
+        name: str = text.split("@", 1)[0].strip()
         return TypeFacts(kind="typevar", runtime_repr=name) if name else None
     lowered = text.lower()
     if lowered in {"none", "nonetype"}:
