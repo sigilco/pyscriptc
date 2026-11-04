@@ -13,6 +13,7 @@ from __future__ import annotations
 import ast
 from typing import Any, NoReturn
 
+from pyscriptc import _irnode as _ir
 from pyscriptc.boxed import island_class_type
 from pyscriptc.builtins import EXCEPTIONS
 from pyscriptc.ffi_manifest import handle_type
@@ -26,6 +27,19 @@ from pyscriptc.lower._core import (
 )
 from pyscriptc.reflection import kwargs_parameter_note
 from pyscriptc.restlower import alias_name
+from pyscriptc.tirserde import dict_to_node, dict_to_span, dict_to_type, node_to_dict
+
+
+def _type(typ: dict[str, Any]) -> dict[str, Any]:
+    """The exact type dict one dict-IR type spells, via the typed record.
+
+    Every type this module returns rounds through a `_irnode.T` record and
+    back: `node_to_dict` reproduces the dict key for key, and `dict_to_type`
+    refuses a shape the typed record cannot carry, so a drifted type dict
+    fails here instead of at the emitter.
+    """
+    return node_to_dict(dict_to_type(typ))
+
 
 _UNWRAP_FORMS = frozenset({"Final", "ClassVar", "Annotated", "Required", "NotRequired"})
 _NEVER_ALIASES = frozenset({"NoReturn", "Never"})
@@ -70,7 +84,7 @@ class AnnotationMixin:
                 self.fail(args[0], "PS2002", "self is not annotated")
             if class_name is None:
                 self.fail(fn, "PS1201", "decorators are not lowered")
-            params.append({"name": "self", "type": {"kind": "class", "name": class_name}})
+            params.append({"name": "self", "type": _type({"kind": "class", "name": class_name})})
             args = []
             pos_marks = []
         elif kind == "class":
@@ -88,7 +102,7 @@ class AnnotationMixin:
                 self.fail(fn, "PS2002", "a method's first parameter must be self")
             if args[0].annotation is not None:
                 self.fail(args[0], "PS2002", "self is not annotated")
-            params.append({"name": "self", "type": {"kind": "class", "name": class_name}})
+            params.append({"name": "self", "type": _type({"kind": "class", "name": class_name})})
             args = args[1:]
             pos_marks = pos_marks[1:]
         defaults = list(fn.args.defaults)
@@ -108,7 +122,7 @@ class AnnotationMixin:
             elem = self._annotation(vararg.annotation)
             if elem["kind"] == "bool":
                 self.fail(vararg, "PS2002", "list[bool] is not lowered")
-            params.append({"name": vararg.arg, "type": {"kind": "list", "elem": elem}, "vararg": True})
+            params.append({"name": vararg.arg, "type": _type({"kind": "list", "elem": elem}), "vararg": True})
         for karg, kdef in zip(fn.args.kwonlyargs, fn.args.kw_defaults, strict=True):
             param = _param(self, karg, fn, kdef)
             param["kwonly"] = True
@@ -125,7 +139,7 @@ class AnnotationMixin:
             params.append(
                 {
                     "name": kwarg.arg,
-                    "type": {"kind": "dict", "key": {"kind": "str"}, "value": value},
+                    "type": _type({"kind": "dict", "key": {"kind": "str"}, "value": value}),
                     "kwarg": True,
                 }
             )
@@ -164,7 +178,7 @@ class AnnotationMixin:
             bound = self.typevars[node.id]
             if bound is not None:
                 return bound
-            return {"kind": "typevar", "name": node.id}
+            return _type({"kind": "typevar", "name": node.id})
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
             opt = self._optional_pipe(node)
             if opt is not None:
@@ -178,29 +192,29 @@ class AnnotationMixin:
             # spelling of the bottom type.
             resolved = self._resolve_module(node)
             if resolved is not None and resolved[3] == "erased" and resolved[2] in _NEVER_ALIASES:
-                return {"kind": "none"}
+                return _type({"kind": "none"})
         if isinstance(node, ast.Name) and node.id in {"int", "float", "bool", "str", "bytes"}:
-            return {"kind": node.id}
+            return _type({"kind": node.id})
         if isinstance(node, ast.Constant) and node.value is None:
-            return {"kind": "none"}
+            return _type({"kind": "none"})
         if isinstance(node, ast.Name) and (
             node.id in EXCEPTIONS or node.id == "BaseException" or self.classes.get(node.id, {}).get("exception")
         ):
-            return {"kind": "exc"}
+            return _type({"kind": "exc"})
         # boxed:begin
         # An island class annotation is its handle type (issue #628): the
         # class lives in the embedded interpreter, and an instance crossed
         # into a compiled local is an opaque handle.
         if isinstance(node, ast.Name) and node.id in self.island_classes:
-            return island_class_type(node.id)
+            return _type(island_class_type(node.id))
         # boxed:end
         if isinstance(node, ast.Name) and (node.id in self.declared or node.id in self.known_classes):
-            return {"kind": "class", "name": self.class_aliases.get(node.id, node.id)}
+            return _type({"kind": "class", "name": self.class_aliases.get(node.id, node.id)})
         handle = self._handle_annotation(node)
         if handle is not None:
             return handle
         if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "list":
-            typ = {"kind": "list", "elem": self._any_annotation(node.slice)}
+            typ = _type({"kind": "list", "elem": self._any_annotation(node.slice)})
             self._reject_banned_type(node, typ)
             return typ
         if isinstance(node, ast.Name) and (node.id == "Any" or node.id in _DYNAMIC_ANNOTATIONS):
@@ -213,7 +227,7 @@ class AnnotationMixin:
             elem = self._annotation(node.slice)
             if elem["kind"] not in {"int", "str"}:
                 self.fail(node, "PS2002", "set elements are int or str")
-            return {"kind": "list", "elem": elem, "set": True}
+            return _type({"kind": "list", "elem": elem, "set": True})
         if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "tuple":
             return self._tuple_annotation(node)
         aliased = self._aliased_annotation(node)
@@ -222,16 +236,18 @@ class AnnotationMixin:
         if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "dict":
             if not isinstance(node.slice, ast.Tuple) or len(node.slice.elts) != 2:
                 self.fail(node, "PS1001", "dict annotations are dict[key, value]")
-            typ = {
-                "kind": "dict",
-                "key": self._annotation(node.slice.elts[0]),
-                "value": self._annotation(node.slice.elts[1]),
-            }
+            typ = _type(
+                {
+                    "kind": "dict",
+                    "key": self._annotation(node.slice.elts[0]),
+                    "value": self._annotation(node.slice.elts[1]),
+                }
+            )
             self._reject_banned_type(node, typ)
             return typ
         named = self._annotation_class(node)
         if named is not None:
-            return {"kind": "class", "name": named}
+            return _type({"kind": "class", "name": named})
         inst = self._generic_alias_annotation(node)
         if inst is not None:
             return inst
@@ -249,7 +265,7 @@ class AnnotationMixin:
         fence: they describe a shape, not an unresolved value.
         """
         if isinstance(node, ast.Name) and node.id == "Any":
-            return {"kind": _UNRESOLVED_KIND}
+            return _type({"kind": _UNRESOLVED_KIND})
         if isinstance(node, ast.Name) and node.id in _DYNAMIC_ANNOTATIONS:
             self.fail(node, "PS1104", f"{node.id} is a dynamic or structural type and is not lowered")
         return self._annotation(node)
@@ -279,7 +295,7 @@ class AnnotationMixin:
         elts = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
         args = [self._annotation(elt) for elt in elts]
         name = self._instantiate_class(node.value.id, args, node)
-        return {"kind": "class", "name": name}
+        return _type({"kind": "class", "name": name})
 
     def _aliased_annotation(self, node: ast.AST) -> dict[str, Any] | None:
         if not isinstance(node, ast.Subscript):
@@ -289,25 +305,29 @@ class AnnotationMixin:
             elem = self._annotation(node.slice)
             if elem["kind"] == "bool":
                 self.fail(node, "PS2002", "list[bool] is not lowered")
-            return {"kind": "class", "name": "Deque", "elem": elem}
+            return _type({"kind": "class", "name": "Deque", "elem": elem})
         if alias == "Task":
             # `asyncio.Task[T]`: the task handle carries the coroutine's
             # result type, so `await task` reads the right shape.
             elem = self._annotation(node.slice)
-            return {"kind": "class", "name": "Task", "elem": elem}
+            return _type({"kind": "class", "name": "Task", "elem": elem})
         if alias == "OrderedDict":
             if not isinstance(node.slice, ast.Tuple) or len(node.slice.elts) != 2:
                 self.fail(node, "PS1001", "OrderedDict annotations are OrderedDict[key, value]")
-            typ = {
-                "kind": "dict",
-                "key": self._annotation(node.slice.elts[0]),
-                "value": self._any_annotation(node.slice.elts[1]),
-            }
+            typ = _type(
+                {
+                    "kind": "dict",
+                    "key": self._annotation(node.slice.elts[0]),
+                    "value": self._any_annotation(node.slice.elts[1]),
+                }
+            )
             self._reject_banned_type(node, typ)
             return typ
         if alias == "Counter":
             # `counter` marks the dict so a `c[k]` read yields 0 on a miss.
-            typ = {"kind": "dict", "key": self._annotation(node.slice), "value": {"kind": "int"}, "counter": True}
+            typ = _type(
+                {"kind": "dict", "key": self._annotation(node.slice), "value": {"kind": "int"}, "counter": True}
+            )
             self._reject_banned_type(node, typ)
             return typ
         if alias == "defaultdict":
@@ -315,12 +335,14 @@ class AnnotationMixin:
             # default (the zero of the value type) before the read.
             if not isinstance(node.slice, ast.Tuple) or len(node.slice.elts) != 2:
                 self.fail(node, "PS1001", "defaultdict annotations are defaultdict[key, value]")
-            typ = {
-                "kind": "dict",
-                "key": self._annotation(node.slice.elts[0]),
-                "value": self._annotation(node.slice.elts[1]),
-                "defaultdict": True,
-            }
+            typ = _type(
+                {
+                    "kind": "dict",
+                    "key": self._annotation(node.slice.elts[0]),
+                    "value": self._annotation(node.slice.elts[1]),
+                    "defaultdict": True,
+                }
+            )
             self._reject_banned_type(node, typ)
             return typ
         if alias == "Queue":
@@ -329,14 +351,14 @@ class AnnotationMixin:
             elem = self._annotation(node.slice)
             if elem["kind"] == "bool":
                 self.fail(node, "PS2002", "list[bool] is not lowered")
-            return {"kind": "class", "name": "Queue", "elem": elem}
+            return _type({"kind": "class", "name": "Queue", "elem": elem})
         if alias == "AsyncQueue":
             # `asyncio.Queue[T]`: the same element-sized slots as the sync
             # queue, on the asyncio record.
             elem = self._annotation(node.slice)
             if elem["kind"] == "bool":
                 self.fail(node, "PS2002", "list[bool] is not lowered")
-            return {"kind": "class", "name": "AsyncQueue", "elem": elem}
+            return _type({"kind": "class", "name": "AsyncQueue", "elem": elem})
         return None
 
     def _handle_annotation(self, node: ast.AST) -> dict[str, Any] | None:
@@ -350,7 +372,7 @@ class AnnotationMixin:
         if isinstance(node, ast.Name):
             binding = self.bindings.get(node.id)
             if binding is not None and binding.kind == "handle":
-                return handle_type(binding.attr)
+                return _type(handle_type(binding.attr))
             return None
         if isinstance(node, ast.Attribute):
             resolved = self._resolve_module(node)
@@ -362,7 +384,7 @@ class AnnotationMixin:
             manifest = self._ffi_module(module)
             if manifest is None or manifest.handle(member) is None:
                 return None
-            return handle_type(member)
+            return _type(handle_type(member))
         return None
 
     def _annotation_class(self, node: ast.AST) -> str | None:
@@ -428,14 +450,14 @@ class AnnotationMixin:
         # carries `none`: callers read no result, and the body's exit (a
         # raise or an exit call) is what actually ends the process.
         if isinstance(node, ast.Name) and node.id in _NEVER_ALIASES:
-            return {"kind": "none"}
+            return _type({"kind": "none"})
         if isinstance(node, ast.Name) and node.id in self.type_aliases:
             alias = self.type_aliases[node.id]
             if alias in _NEVER_ALIASES:
-                return {"kind": "none"}
+                return _type({"kind": "none"})
             handle = _IO_HANDLES.get(alias)
             if handle is not None:
-                return {"kind": "class", "name": handle}
+                return _type({"kind": "class", "name": handle})
             code = "PS1104" if alias in _DYNAMIC_ANNOTATIONS else "PS1103"
             self.fail(node, code, f"{alias} is not a lowered type in the IR")
         if not isinstance(node, ast.Subscript):
@@ -447,24 +469,26 @@ class AnnotationMixin:
             handle = _io_parameter(node.slice)
             if handle is None:
                 self.fail(node, "PS1001", "IO is not a lowered type in the IR")
-            return {"kind": "class", "name": handle}
+            return _type({"kind": "class", "name": handle})
         if alias in _LIST_FORMS:
-            typ = {"kind": "list", "elem": self._any_annotation(node.slice)}
+            typ = _type({"kind": "list", "elem": self._any_annotation(node.slice)})
             self._reject_banned_type(node, typ)
             return typ
         if alias in _SET_FORMS:
             elem = self._annotation(node.slice)
             if elem["kind"] not in {"int", "str"}:
                 self.fail(node, "PS2002", "set elements are int or str")
-            return {"kind": "list", "elem": elem, "set": True}
+            return _type({"kind": "list", "elem": elem, "set": True})
         if alias in _DICT_FORMS:
             if not isinstance(node.slice, ast.Tuple) or len(node.slice.elts) != 2:
                 self.fail(node, "PS1001", "Dict annotations are Dict[key, value]")
-            typ = {
-                "kind": "dict",
-                "key": self._annotation(node.slice.elts[0]),
-                "value": self._any_annotation(node.slice.elts[1]),
-            }
+            typ = _type(
+                {
+                    "kind": "dict",
+                    "key": self._annotation(node.slice.elts[0]),
+                    "value": self._any_annotation(node.slice.elts[1]),
+                }
+            )
             self._reject_banned_type(node, typ)
             return typ
         if alias == "Callable":
@@ -476,11 +500,11 @@ class AnnotationMixin:
                 self.fail(node, "PS1001", "Callable annotations are Callable[[args], ret]")
             params = [self._annotation(arg) for arg in node.slice.elts[0].elts]
             ret = self._annotation(node.slice.elts[1])
-            return {"kind": "func", "params": params, "return": ret}
+            return _type({"kind": "func", "params": params, "return": ret})
         if alias == "Tuple":
             return self._tuple_annotation(node)
         if alias == "Iterable" or alias == "Sequence":
-            typ = {"kind": "list", "elem": self._annotation(node.slice)}
+            typ = _type({"kind": "list", "elem": self._annotation(node.slice)})
             self._reject_banned_type(node, typ)
             return typ
         if alias == "Iterator":
@@ -550,7 +574,7 @@ class AnnotationMixin:
             # shape. Mixed or nested ellipsis stays the current fence.
             if len(elts) == 2 and _ellipsis_const(elts[1]) and not _node_has_ellipsis(elts[0]):
                 elem = self._annotation(elts[0])
-                typ = {"kind": "list", "elem": elem}
+                typ = _type({"kind": "list", "elem": elem})
                 self._reject_banned_type(node, typ)
                 return typ
             self.fail(node, "PS1001", "tuple[T, ...] is not in the IR")
@@ -576,7 +600,7 @@ class AnnotationMixin:
             self.declared.add(name)
         elif not existing.get("tuple"):
             self.fail(node, "PS2002", f"{name} clashes with a tuple type")
-        return {"kind": "class", "name": name, "label": label}
+        return _type({"kind": "class", "name": name, "label": label})
 
     def _generator_annotation(self, node: ast.Subscript) -> dict[str, Any]:
         """`Generator[T, S, R]` as a value annotation is the iterator cursor
@@ -592,7 +616,7 @@ class AnnotationMixin:
         {seq: list[T], idx: int} whose cursor `next()`/`for` advance. The
         sequence materializes eagerly (the R24 model), so the record is a
         cursor into a list, not a lazy pull."""
-        self._reject_banned_type(node, {"kind": "list", "elem": elem})
+        self._reject_banned_type(node, _type({"kind": "list", "elem": elem}))
         name = f"iter_{_type_slug(elem)}"
         existing = self.classes.get(name)
         if existing is None:
@@ -600,8 +624,8 @@ class AnnotationMixin:
                 self.fail(node, "PS2002", f"{name} clashes with an iterator type")
             self.classes[name] = {
                 "fields": [
-                    {"name": "seq", "type": {"kind": "list", "elem": elem}},
-                    {"name": "idx", "type": {"kind": "int"}},
+                    {"name": "seq", "type": _type({"kind": "list", "elem": elem})},
+                    {"name": "idx", "type": _type({"kind": "int"})},
                 ],
                 "methods": {},
                 "synthetic": True,
@@ -610,7 +634,7 @@ class AnnotationMixin:
             self.declared.add(name)
         elif not existing.get("iterator"):
             self.fail(node, "PS2002", f"{name} clashes with an iterator type")
-        return {"kind": "class", "name": name, "elem": elem}
+        return _type({"kind": "class", "name": name, "elem": elem})
 
     def _tuple_expr(self, node: ast.Tuple, span: dict[str, Any]) -> dict[str, Any]:
         if len(node.elts) < 2:
@@ -628,7 +652,9 @@ class AnnotationMixin:
         if index < 0 or index >= len(fields):
             self.fail(node, "PS2002", "tuple index is out of range")
         field = fields[index]
-        return {"kind": "attr", "value": value, "name": field["name"], "type": field["type"], "span": span}
+        return node_to_dict(
+            _ir.attr(field["name"], dict_to_type(field["type"]), dict_to_node(value), dict_to_span(span))
+        )
 
     def _optional_pipe(self, node: ast.BinOp) -> dict[str, Any] | None:
         arms = []
@@ -652,7 +678,7 @@ class AnnotationMixin:
 
     def _opt_type(self, elem: dict[str, Any], node: ast.AST) -> dict[str, Any]:
         if elem["kind"] == "none":
-            return {"kind": "none"}
+            return _type({"kind": "none"})
         if elem.get("optional"):
             return elem
         name = "opt_" + _type_slug(elem)
@@ -662,7 +688,7 @@ class AnnotationMixin:
                 self.fail(node, "PS2002", f"{name} clashes with an optional type")
             self.classes[name] = {
                 "fields": [
-                    {"name": "_tag", "type": {"kind": "bool"}},
+                    {"name": "_tag", "type": _type({"kind": "bool"})},
                     {"name": "_val", "type": elem},
                 ],
                 "methods": {},
@@ -672,7 +698,7 @@ class AnnotationMixin:
             self.declared.add(name)
         elif not existing.get("optional"):
             self.fail(node, "PS2002", f"{name} clashes with an optional type")
-        return {"kind": "class", "name": name, "label": _show(elem) + " | None", "optional": True, "elem": elem}
+        return _type({"kind": "class", "name": name, "label": _show(elem) + " | None", "optional": True, "elem": elem})
 
 
 def _param(

@@ -12,6 +12,7 @@ import ast
 import copy
 from typing import Any
 
+from pyscriptc import _irnode as _ir
 from pyscriptc import coro
 from pyscriptc.builtins import EXCEPTIONS, RESERVED_EXCEPTIONS
 from pyscriptc.coro import enabled
@@ -27,6 +28,8 @@ from pyscriptc.lower._core import (
     _any_accepts,
     _assign,
     _has_typevar,
+    _mk_span,
+    _mk_type,
     _name,
     _plain_const_kind,
     _show,
@@ -45,6 +48,64 @@ from pyscriptc.stdmore import (
     RESERVED_CODE_EXCEPTIONS,
     SYNTHETIC_EXCEPTIONS,
 )
+from pyscriptc.tirserde import dict_to_node, node_to_dict
+
+
+def _const_str_node(value: str, span: dict[str, Any]) -> dict[str, Any]:
+    """The const str node one dict-IR const spells."""
+    return node_to_dict(_ir.const_node(_ir.P_STR, value, _ir.t_leaf("str"), _mk_span(span)))
+
+
+def _call_node(
+    callee: dict[str, Any],
+    args: list[dict[str, Any]],
+    typ: dict[str, Any],
+    span: dict[str, Any],
+) -> dict[str, Any]:
+    """The call node one dict-IR call spells."""
+    return node_to_dict(
+        _ir.call(
+            dict_to_node(callee),
+            [dict_to_node(arg) for arg in args],
+            _mk_type(typ),
+            _mk_span(span),
+            "",
+            "",
+            -1,
+        )
+    )
+
+
+def _class_call(name: str, args: list[dict[str, Any]], typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The call to a class constructor."""
+    return _call_node({"kind": "class", "name": name}, args, typ, span)
+
+
+def _function_call(fname: str, args: list[dict[str, Any]], typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The call to a lowered function."""
+    return _call_node({"kind": "function", "name": fname}, args, typ, span)
+
+
+def _attr_node(value: dict[str, Any], name: str, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The attribute read node."""
+    return node_to_dict(_ir.attr(name, _mk_type(typ), dict_to_node(value), _mk_span(span)))
+
+
+def _setattr_node(obj: dict[str, Any], name: str, value: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The attribute write node."""
+    return node_to_dict(_ir.setattr_stmt(dict_to_node(obj), name, dict_to_node(value), _mk_span(span)))
+
+
+def _binary_node(
+    op: str, left: dict[str, Any], right: dict[str, Any], typ: dict[str, Any], span: dict[str, Any]
+) -> dict[str, Any]:
+    """The binary operation node."""
+    return node_to_dict(_ir.binary(op, dict_to_node(left), dict_to_node(right), _mk_type(typ), _mk_span(span)))
+
+
+def _expr_stmt_node(expr: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The expression statement node."""
+    return node_to_dict(_ir.expr_stmt(dict_to_node(expr), _mk_span(span)))
 
 
 def _field_rows(fields: list[tuple[str, T]]) -> list[dict[str, Any]]:
@@ -516,13 +577,7 @@ class ClassesMixin(AnnotationMixin):
         if want is not None and ret["kind"] != want:
             self.fail(node, "PS1003", f"{class_name}.{name} returns {_show(ret)}, not {want}")
         emit = self._emit_owner(class_name, name)
-        return {
-            "kind": "call",
-            "callee": {"kind": "function", "name": f"cls.{emit}.{name}"},
-            "args": [receiver, *args],
-            "type": ret,
-            "span": span,
-        }
+        return _function_call(f"cls.{emit}.{name}", [receiver, *args], ret, span)
 
     def _class_decorator(self, node: ast.ClassDef) -> str | None:
         if not node.decorator_list:
@@ -915,31 +970,15 @@ class ClassesMixin(AnnotationMixin):
         self_type = {"kind": "class", "name": node.name}
         if mode == "dataclass":
             body = [
-                {
-                    "kind": "setattr",
-                    "object": _name("self", self_type, span),
-                    "name": field["name"],
-                    "value": _name(field["name"], field["type"], span),
-                    "span": span,
-                }
+                _setattr_node(
+                    _name("self", self_type, span), field["name"], _name(field["name"], field["type"], span), span
+                )
                 for field in info["own_fields"]
             ]
         else:
             parent = info.get("init_target") or info["base"]
             args = [_name(param["name"], param["type"], span) for param in params]
-            body = [
-                {
-                    "kind": "expr",
-                    "expr": {
-                        "kind": "call",
-                        "callee": {"kind": "function", "name": f"cls.{parent}.__init__"},
-                        "args": args,
-                        "type": {"kind": "none"},
-                        "span": span,
-                    },
-                    "span": span,
-                }
-            ]
+            body = [_expr_stmt_node(_function_call(f"cls.{parent}.__init__", args, {"kind": "none"}, span), span)]
         self.locals = {param["name"]: param["type"] for param in params}
         return self._method_ir("__init__", params, ret, body, span)
 
@@ -987,22 +1026,10 @@ class ClassesMixin(AnnotationMixin):
         if init is None:
             if node.args or node.keywords:
                 self.fail(node, "PS2003", f"{name} takes no arguments")
-            return {
-                "kind": "call",
-                "callee": {"kind": "class", "name": name},
-                "args": [],
-                "type": {"kind": "class", "name": name},
-                "span": span,
-            }
+            return _class_call(name, [], {"kind": "class", "name": name}, span)
         params = [param for param in init[0] if param["name"] != "self"]
         args = self._fill_args(node, params, name)
-        return {
-            "kind": "call",
-            "callee": {"kind": "class", "name": name},
-            "args": args,
-            "type": {"kind": "class", "name": name},
-            "span": span,
-        }
+        return _class_call(name, args, {"kind": "class", "name": name}, span)
 
     def _construct_generic(
         self, node: ast.Call, span: dict[str, Any], name: str, init: tuple[Any, Any] | None
@@ -1031,13 +1058,7 @@ class ClassesMixin(AnnotationMixin):
             want = _subst_type(param["type"], mapping)
             if not _has_typevar(want):
                 self._expect(node, arg["type"], want, name)
-        return {
-            "kind": "call",
-            "callee": {"kind": "class", "name": inst},
-            "args": args,
-            "type": {"kind": "class", "name": inst},
-            "span": span,
-        }
+        return _class_call(inst, args, {"kind": "class", "name": inst}, span)
 
     def _namedtuple_call(self, node: ast.expr) -> ast.Call | None:
         """The `collections.namedtuple(...)` call, spelled either binding or `collections.namedtuple`."""
@@ -1145,12 +1166,10 @@ class ClassesMixin(AnnotationMixin):
         typ = {"kind": "class", "name": name}
         dest = self._temp("nt").replace(".", "_")
         self.locals[dest] = typ
-        made = {"kind": "call", "callee": {"kind": "class", "name": name}, "args": [], "type": typ, "span": span}
+        made = _class_call(name, [], typ, span)
         self.prelude.append(_assign(dest, made, span))
         for field, arg in zip(fields, args, strict=True):
-            self.prelude.append(
-                {"kind": "setattr", "object": _name(dest, typ, span), "name": field, "value": arg, "span": span}
-            )
+            self.prelude.append(_setattr_node(_name(dest, typ, span), field, arg, span))
         return _name(dest, typ, span)
 
     def _typevar_call(self, node: ast.expr) -> ast.Call | None:
@@ -1284,18 +1303,11 @@ class ClassesMixin(AnnotationMixin):
         if op in {ast.Add, ast.Sub}:
             sign = "+" if op is ast.Add else "-"
             if left_name in {"Date", "DateTime"} and right_name == "TimeDelta":
-                return {"kind": "binary", "op": sign, "left": left, "right": right, "type": left["type"], "span": span}
+                return _binary_node(sign, left, right, left["type"], span)
             if left_name == "TimeDelta" and right_name == "TimeDelta":
-                return {"kind": "binary", "op": sign, "left": left, "right": right, "type": left["type"], "span": span}
+                return _binary_node(sign, left, right, left["type"], span)
             if op is ast.Sub and left_name == right_name and left_name in {"Date", "DateTime"}:
-                return {
-                    "kind": "binary",
-                    "op": "-",
-                    "left": left,
-                    "right": right,
-                    "type": {"kind": "class", "name": "TimeDelta"},
-                    "span": span,
-                }
+                return _binary_node("-", left, right, {"kind": "class", "name": "TimeDelta"}, span)
         if op is ast.Div:
             # `p / x` is pathlib's __truediv__/__rtruediv__: joinpath each way.
             if left_name == "Path" and right["type"]["kind"] == "str":
@@ -1362,17 +1374,11 @@ class ClassesMixin(AnnotationMixin):
             self.fail(node, "PS2001", f"{class_name} has no fields")
         for field in info["fields"]:
             if field["name"] == name:
-                return {"kind": "attr", "value": obj, "name": name, "type": field["type"], "span": span}
+                return _attr_node(obj, name, field["type"], span)
         if info.get("method_kind", {}).get(name) == "property":
             sig = info["methods"][name]
             owner = self._emit_owner(class_name, name)
-            return {
-                "kind": "call",
-                "callee": {"kind": "function", "name": f"cls.{owner}.{name}"},
-                "args": [obj],
-                "type": sig[1],
-                "span": span,
-            }
+            return _function_call(f"cls.{owner}.{name}", [obj], sig[1], span)
         hook = self._getattr_hook(class_name)
         if hook is not None:
             return self._getattr_hook_call(hook, obj, name, span, node, expect)
@@ -1457,13 +1463,12 @@ class ClassesMixin(AnnotationMixin):
                 f"{owner}.__getattr__ returns {_show(ret)}, the read site expects {_show(expect)}",
             )
             raise AssertionError("unreachable")
-        return {
-            "kind": "call",
-            "callee": {"kind": "function", "name": f"cls.{owner}.__getattr__"},
-            "args": [obj, {"kind": "const", "value": name, "type": {"kind": "str"}, "span": span}],
-            "type": copy.deepcopy(ret),
-            "span": span,
-        }
+        return _function_call(
+            f"cls.{owner}.__getattr__",
+            [obj, _const_str_node(name, span)],
+            copy.deepcopy(ret),
+            span,
+        )
 
     def _has_attr(self, obj: dict[str, Any], name: str) -> bool:
         if obj["type"]["kind"] != "class":
