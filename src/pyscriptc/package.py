@@ -626,7 +626,7 @@ def _mark_dep_fences(
         return fences
     out: list[dict[str, Any]] = []
     for fence in fences:
-        span: dict[str, Any] = {}
+        span: dict[str, str] = {}
         if "span" in fence:
             span = fence["span"]
         module: str | None = None
@@ -725,7 +725,8 @@ def _program_plan(
             if state.get(child) == 2:
                 continue
             if child in inited:
-                owners[name].append(child)
+                owned: list[str] = owners[name]
+                owned.append(child)
             visit(child)
         stack.pop()
         state[name] = 2
@@ -1380,7 +1381,8 @@ def _discover_dep_package(package_dir: Path, name: str) -> list[tuple[str, Path,
 def _dep_fence(message: str) -> dict[str, Any]:
     """A PS3101 refusal fence outside any source span."""
 
-    return {"code": "PS3101", "message": message, "span": None, "function": None}
+    fence: dict[str, Any] = {"code": "PS3101", "message": message, "span": None, "function": None}
+    return fence
 
 
 def _dep_name_fence(name: str) -> dict[str, Any]:
