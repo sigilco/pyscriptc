@@ -6,15 +6,20 @@ transfer-encoding decoding, error statuses (4xx/5xx raise HTTPError with a
 readable body), timeouts (TimeoutError), and redirects (301, 302, 303, 307,
 308, bounded at 10 hops like CPython's HTTPRedirectHandler).
 
-Plaintext http:// only: an https:// target raises URLError (OSError) until
-TLS lands (#235). The response is the HttpResponse record: status, the
+Plaintext http:// rides the transport below. https:// rides libcurl's easy
+API (ps_http_curl.c, linked at build time with -lcurl for the programs whose
+emitted IR reaches an https:// URL): libcurl performs the whole request and
+fills the same response shapes. Without libcurl linked, an https:// target
+raises URLError (OSError), the way it did before the curl path existed. The
+response is the HttpResponse record: status, the
 header block as one "Name: value\n" buffer, and the decoded body. Blocking
 sockets only; `Connection: close` and read to EOF, except a chunked body
 ends at the 0-chunk. No keep-alive, no proxies, no cookies.
 
 The bytes travel on a transport: four calls (connect, read, write, close)
 plus the verify-hostname flag, so the HTTP layer above never touches a
-socket. The plaintext TCP backend is the only backend today.
+socket. The plaintext TCP backend is the backend for http://; the transport
+interface stays for a later mbedTLS stream backend.
 
 The redirect Location is resolved against the request URL with
 urllib.parse.urljoin semantics (absolute, scheme-relative, absolute path,
@@ -86,8 +91,24 @@ typedef struct {
     int tls;
 } PsHttpUrl;
 
+/* The https:// hop over libcurl (ps_http_curl.c). Weak there: a build
+   without libcurl linked leaves it NULL and the https:// request keeps
+   raising the URLError below, the way it always has. */
+__attribute__((weak)) int ps_http_curl_https(
+    const char *url,
+    const char *method,
+    const char *extra_headers,
+    const char *body,
+    int64_t body_len,
+    double timeout,
+    int64_t *status,
+    PsGrow *headers,
+    PsGrow *out_body
+);
+
 /* The scheme each hop carries. An https hop goes to the TLS backend when
-   one is linked and refuses the request when none is. */
+   one is linked, to libcurl when it is linked with the library, and is
+   refused when neither is. */
 static void ps_http_split(const char *url, PsHttpUrl *out) {
     size_t n = strlen(url);
     const char *cursor = url;
@@ -99,9 +120,9 @@ static void ps_http_split(const char *url, PsHttpUrl *out) {
         out->tls = 1;
         out->port = 443;
         cursor += 8;
-        if (ps_tls_backend() == NULL) {
-            /* Clear message until TLS lands (#235). */
-            ps_http_fail("https is not supported yet (TLS is planned, issue 235)");
+        if (ps_tls_backend() == NULL && ps_http_curl_https == NULL) {
+            /* No libcurl linked and no TLS backend: the documented error. */
+            ps_http_fail("https is not supported (build with libcurl; TLS is planned, issue 235)");
         }
     } else {
         ps_http_fail("urlopen supports http:// URLs");
@@ -422,6 +443,38 @@ static void ps_http_write_all(
     }
 }
 
+/* One https:// round trip over libcurl. The response shapes are the ones
+   the plaintext round trip fills; the header block keeps the "Name:
+   value\n" rows the plaintext parser produces, so the Location scan and
+   r.info() see the same shape on both schemes. */
+static void ps_http_roundtrip_curl(
+    const PsHttpUrl *url,
+    const char *url_text,
+    const char *method,
+    const char *extra_headers,
+    const char *body,
+    int64_t body_len,
+    const PsHttpDeadline *dl,
+    PsHttpResp *out
+) {
+    (void)url;
+    PsGrow headers;
+    PsGrow bodyg;
+    int64_t status = 0;
+    if (ps_http_curl_https(
+            url_text, method, extra_headers, body, body_len, ps_http_left(dl), &status, &headers, &bodyg
+        )
+        == 0) {
+        /* Not linked after all: the split already proved either libcurl or
+           the TLS backend, so only the TLS-backend-without-curl case gets
+           here, and the transport below refuses it. */
+        ps_http_fail("https is not supported (build with libcurl; TLS is planned, issue 235)");
+    }
+    ps_grow_finish(&headers, &out->headers);
+    ps_grow_finish(&bodyg, &out->body);
+    out->status = status;
+}
+
 /* One request and response round trip. `headers` is the caller's extra
    header block (already CRLF-terminated lines). Fills the record and, when
    the status is a redirect, hands back the Location value (owned). */
@@ -703,6 +756,14 @@ PsHttpResp *ps_http_request(
         ps_http_split(url, &parsed);
         free(loc);
         loc = NULL;
+        if (parsed.tls && ps_tls_backend() == NULL) {
+            /* https over libcurl: the whole hop is one call, redirects
+               included, so the method and body rules ride inside curl and
+               the loop above only re-checks the final status. */
+            ps_http_roundtrip_curl(&parsed, url, method, headers, body, body_len, &dl, out);
+            status = (int)out->status;
+            break;
+        }
         ps_http_roundtrip(ps_http_transport_for(parsed.tls), &parsed, method, headers, body, body_len, &dl, out, &loc);
         status = (int)out->status;
         if (status != 301 && status != 302 && status != 303 && status != 307 && status != 308) {
