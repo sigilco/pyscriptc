@@ -88,6 +88,7 @@ def test_every_emitter_area_lives_in_its_own_module() -> None:
     modules = sorted(path.name for path in area.glob("_*.py") if path.name != "__init__.py")
     assert modules == [
         "_abi.py",
+        "_base.py",
         "_calls.py",
         "_core.py",
         "_driver.py",
@@ -100,11 +101,15 @@ def test_every_emitter_area_lives_in_its_own_module() -> None:
     ]
     # Every area module holds exactly one class, the mixin it contributes.
     # `_runtime.py` is the exception: it is the declaration table, not an area.
+    # `_base.py` holds the typed state and method stubs every mixin inherits.
     for name in modules:
         tree = ast.parse((area / name).read_text(encoding="utf-8"))
         classes = [n for n in tree.body if isinstance(n, ast.ClassDef)]
         if name == "_runtime.py":
             assert not classes, name
+            continue
+        if name == "_base.py":
+            assert [c.name for c in classes] == ["EmitterBase"], name
             continue
         assert len(classes) == 1, name
         assert classes[0].name.endswith("Mixin") or name == "_driver.py", name
@@ -131,6 +136,9 @@ def test_the_emitter_has_no_duplicated_method() -> None:
 
     seen: dict[str, str] = {}
     for base in Emitter.__mro__:
+        if base.__name__ == "EmitterBase":
+            # The typed stub base: its stubs sit behind every real method.
+            continue
         for value in vars(base).values():
             if not callable(value) and not isinstance(value, (staticmethod, classmethod)):
                 continue

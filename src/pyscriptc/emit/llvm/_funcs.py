@@ -7,10 +7,11 @@ from __future__ import annotations
 from typing import Any
 
 from pyscriptc.emit._ir import _elem_size, _fn_symbol, _ir_const_value, _llvm_type, _memory_type, _prepare_arg, _safe
+from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.errors import FitError, IRError
 
 
-class FuncsMixin:
+class FuncsMixin(EmitterBase):
     def emit_function(self, fn: dict[str, Any]) -> None:
         ret = _llvm_type(fn["returnType"])
         # Env-first functions (nested defs and lambdas) take the caller's env

@@ -4,15 +4,17 @@ from __future__ import annotations
 
 from typing import Any
 
-# boxed:begin
 from pyscriptc.boxed import DEF_HANDLE_SYMBOL, INVOKE_SYMBOL
 from pyscriptc.emit._ir import _elem_size, _memory_type
+
+# boxed:begin
+from pyscriptc.emit.llvm._base import EmitterBase
 
 # boxed:end
 from pyscriptc.errors import IRError
 
 
-class CallsMixin:
+class CallsMixin(EmitterBase):
     def emit_call(self, expr: dict[str, Any]) -> str:
         callee = expr["callee"]
         values = [self.emit_expr(arg) for arg in expr["args"]]

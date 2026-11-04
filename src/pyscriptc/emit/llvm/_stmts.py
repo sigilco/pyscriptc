@@ -8,6 +8,7 @@ from typing import Any
 
 from pyscriptc.builtins import EXCEPTIONS, RESERVED_EXCEPTIONS, USER_EXC_BASE
 from pyscriptc.emit._ir import _llvm_field_type
+from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.errors import IRError
 
 
@@ -23,7 +24,7 @@ def _is_exit_status(node: dict[str, Any] | None) -> bool:
     return kind in {"int", "bool"}
 
 
-class StmtsMixin:
+class StmtsMixin(EmitterBase):
     def emit_stmt(self, stmt: dict[str, Any]) -> None:
         kind = stmt["kind"]
         if kind == "assign":

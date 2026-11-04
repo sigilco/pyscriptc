@@ -8,6 +8,7 @@ from typing import Any
 
 from pyscriptc.builtins import EXCEPTIONS
 from pyscriptc.emit._ir import _elem_size, _fn_symbol, _llvm_type, _memory_type
+from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.emit.llvm._runtime import _prebaked_declarations
 from pyscriptc.errors import IRError
 from pyscriptc.stdmore import COMPARE_CLASSES
@@ -17,7 +18,7 @@ from pyscriptc.stdmore import COMPARE_CLASSES
 _PREBAKED_DECLS = frozenset(_prebaked_declarations())
 
 
-class AbiMixin:
+class AbiMixin(EmitterBase):
     def _ensure_arg_type(self) -> None:
         line = "%ps.arg = type { i32, i32, i64, double, %ps.buf }"
         if line not in self.globals:
