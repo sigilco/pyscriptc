@@ -46,9 +46,11 @@ def third_party_roots(source: Path) -> list[str]:
     own = source.stem if source.is_file() else source.name
     found: list[str] = []
     for site in collect_imports(source):
-        if site["level"] > 0 or not site["name"]:
+        level: int = site["level"]
+        name: str = site["name"]
+        if level > 0 or not name:
             continue
-        root = site["name"].split(".")[0]
+        root: str = name.split(".")[0]
         if root in sys.stdlib_module_names or root == own:
             continue
         if root not in found:
