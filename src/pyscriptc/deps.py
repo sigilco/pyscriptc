@@ -338,19 +338,40 @@ def uv_binary() -> str:
     return found
 
 
-def _run_uv(argv: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
+@dataclass(frozen=True)
+class UvResult:
+    """What one uv run produced; `_run_uv` is the seam the tests replace.
+
+    The compiler cannot lower `subprocess.CompletedProcess` (the generic
+    annotation is not in the IR), so the seam carries a record with the
+    three fields `_uv` reads; the tests build the same record shape with
+    `subprocess.CompletedProcess` and the duck typing agrees.
+    """
+
+    returncode: int
+    stderr: str
+    stdout: str
+
+
+def _run_uv(argv: list[str], cwd: Path) -> UvResult:
     """Seam for tests: every uv call goes through here."""
-    return subprocess.run(argv, cwd=cwd, capture_output=True, text=True, check=False)
+    done = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, check=False)
+    return UvResult(done.returncode, done.stderr, done.stdout)
 
 
 def _uv(args: list[str], cwd: Path) -> str:
-    proc = _run_uv([uv_binary(), *args], cwd)
+    argv = [uv_binary()]
+    for one in args:
+        argv.append(one)
+    proc = _run_uv(argv, cwd)
     if proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout).strip()
+        detail = proc.stderr.strip()
+        if not detail:
+            detail = proc.stdout.strip()
         hint = ""
         if "building from source is disabled" in detail or "--no-build" in detail:
             hint = "\nhint: a dependency publishes no wheel; pyscriptc never builds sdists (no setup.py execution)"
-        raise DepsError(f"uv {' '.join(args[:2])} failed:\n{detail}{hint}")
+        raise DepsError(f"uv {args[0]} {args[1]} failed:\n{detail}{hint}")
     return proc.stdout
 
 
