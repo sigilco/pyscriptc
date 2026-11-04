@@ -314,13 +314,17 @@ def parse_pylock(text: str) -> list[LockedPackage]:
             else:
                 filename = url.rsplit("/", 1)[-1]
             wheels.append(LockedWheel(url, sha.lower(), filename))
+        marker: str | None = None
+        if "marker" in e:
+            marker_value: str = e["marker"]
+            marker = marker_value
         packages.append(
             LockedPackage(
                 normalize_name(e["name"]),
                 _version_string(e),
                 wheels,
                 SDIST if "sdist" in e else 0,
-                e.get("marker"),
+                marker,
             )
         )
     return _sort_packages_by_name(packages)
@@ -417,8 +421,9 @@ def _uv(args: list[str], cwd: Path) -> str:
 
 def resolve(spec: DepSpec, *, frozen: bool = False, upgrade: bool = False, offline: bool = False) -> tuple[str, str]:
     """Return (pylock text, provenance). Provenance is `uv.lock`, `lock` (reused) or `resolved`."""
-    # `sorted(key=)` on records and `[*a, *b]` do not lower: append in order
-    # instead, so the command line is identical without the star.
+    # `[*a, *b]` does not lower: append in order instead, so the command
+    # line is identical without the star. The offline flag comes last, as
+    # the starred concat put it.
     common: list[str] = []
     if offline:
         common.append("--offline")
@@ -427,9 +432,9 @@ def resolve(spec: DepSpec, *, frozen: bool = False, upgrade: bool = False, offli
         if spec.kind == "script":
             args.append("--script")
             args.append(str(spec.origin))
-        for one in args:
-            common.append(one)
-        return _uv(common, spec.root), "uv.lock"
+        for one in common:
+            args.append(one)
+        return _uv(args, spec.root), "uv.lock"
 
     python = host_python()
     digest = input_digest(spec, python)
@@ -659,11 +664,15 @@ def _safe_member(info: zipfile.ZipInfo) -> None:
 def cache_root(override: Path | None = None) -> Path:
     """The dependency cache root: the override, `PYSC_CACHE_DIR`, or the default.
 
-    The override is a `Path`; a `str` caller is wrapped by the caller
-    that has it, so the parameter is the single arm the compiler lowers.
+    The parameter is the `Path` arm the compiler lowers; a `str` caller
+    still works, because the body takes the path through `str()` and
+    rebuilds it as a `Path`.
     """
 
-    base: Path | None = override
+    base: Path | None = None
+    if override is not None:
+        text: str = str(override)
+        base = Path(text)
     if base is None:
         env = os.environ.get("PYSC_CACHE_DIR")
         if env:
@@ -702,11 +711,25 @@ def _atomic_write(path: Path, data: bytes) -> None:
             counter = counter + 1
             continue
         try:
-            os.write(fd, data)
+            _write_all(fd, data)
         finally:
             os.close(fd)
         os.replace(str(tmp), str(path))
         return
+
+
+def _write_all(fd: int, data: bytes) -> None:
+    """`handle.write(data)`: every byte reaches the file.
+
+    `os.write` may write fewer bytes than it is given, so the write loops
+    until the buffer is empty; a buffered file object's `write` does the
+    same before it returns.
+    """
+
+    view: bytes = data
+    while view:
+        written: int = os.write(fd, view)
+        view = view[written:]
 
 
 def fetch_wheel(wheel: LockedWheel, cache: Path, *, offline: bool = False) -> bytes:
@@ -855,13 +878,22 @@ def _is_current_unpack(dest: Path) -> bool:
     return len(lines) >= 2 and lines[1].strip() == str(UNPACK_SCHEMA_VERSION)
 
 
-def _wheel_import_names(data: bytes) -> tuple[str, ...]:
+def _wheel_import_names(data: bytes) -> list[str]:
+    """The import names a wheel's own metadata records, `[]` when it records none.
+
+    The list is the shape the compiler lowers; the caller copies it into
+    the report.
+    """
+
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         names = zf.namelist()
         dist_infos = {n.split("/", 1)[0] for n in names if n.split("/", 1)[0].endswith(".dist-info")}
         if len(dist_infos) == 1:
-            return tuple(sorted(_top_level_names(zf, names, dist_infos.pop())))
-    return ()
+            found: list[str] = []
+            for one in sorted(_top_level_names(zf, names, dist_infos.pop())):
+                found.append(one)
+            return found
+    return []
 
 
 def materialise(data: bytes, sha256: str, cache: Path, *, name: str | None = None) -> Path:
@@ -871,7 +903,7 @@ def materialise(data: bytes, sha256: str, cache: Path, *, name: str | None = Non
     if marker.is_file():
         if _is_current_unpack(dest):
             return dest
-        top_level = list(_wheel_import_names(data))
+        top_level = _wheel_import_names(data)
         if top_level:
             _write_text(dest / ".imports", "\n".join(top_level) + "\n")
         _write_text(marker, f"{sha256}\n{UNPACK_SCHEMA_VERSION}\n")
@@ -944,7 +976,17 @@ def _make_temp_dir(parent: Path) -> Path:
             counter = counter + 1
             continue
         os.chmod(str(tmp), 0o700)
-        break
+        # `mkdtemp` creates the directory with the restrictive mode, so
+        # nothing else can put a file in it. `os.mkdir` takes the mode
+        # from the umask, so the window between the two calls is closed
+        # here: a directory that is not empty is not ours, and the
+        # rename into place would carry the intruder with it.
+        for _entry in tmp.iterdir():
+            _rmtree_quietly(tmp)
+            counter = counter + 1
+            break
+        else:
+            break
     return tmp
 
 
@@ -1101,10 +1143,13 @@ def unpacked_import_names(root: Path) -> tuple[str, ...]:
     """The recorded import names of one unpacked pure wheel, `()` when unknown.
 
     The public shape is the tuple the report and the tests read; the list
-    form `_unpacked_names` returns is what the compiler lowers.
+    form `_unpacked_names` returns is what the compiler lowers. The
+    parameter is the `Path` arm; a `str` caller still works, because the
+    body takes the path through `str()` and rebuilds it as a `Path`.
     """
 
-    found = _unpacked_names(root)
+    text: str = str(root)
+    found = _unpacked_names(Path(text))
     if not found:
         return ()
     return tuple(found)
@@ -1133,20 +1178,30 @@ def run_deps(
     sorted_names: dict[str, dict[str, str]] = {}
     for import_name in sorted(mapping.keys()):
         sorted_names[import_name] = mapping[import_name]
-    return {
-        "source": str(spec.origin),
-        "kind": spec.kind,
-        "python": host_python(),
-        "requiresPython": spec.requires_python,
-        "dependencies": spec.requirement_list(),
-        "lock": str(spec.uv_lock if provenance == "uv.lock" else spec.lock_path),
-        "lockProvenance": provenance,
-        "cache": str(cache),
-        "lanes": sorted_lanes,
-        "packages": [_report_row(r) for r in results],
-        "sourceRoots": [r.source_root for r in results if r.source_root],
-        "importNames": sorted_names,
-    }
+    roots: list[str] = []
+    for r in results:
+        root = r.source_root
+        if root is not None:
+            roots.append(root)
+    rows: list[Dict[str, Any]] = []
+    for r in results:
+        rows.append(_report_row(r))
+    # The report holds values of several types, so the dict is built one
+    # entry at a time: a mixed-value dict literal does not lower.
+    report: Dict[str, Any] = {}
+    report["source"] = str(spec.origin)
+    report["kind"] = spec.kind
+    report["python"] = host_python()
+    report["requiresPython"] = spec.requires_python
+    report["dependencies"] = spec.requirement_list()
+    report["lock"] = str(spec.uv_lock if provenance == "uv.lock" else spec.lock_path)
+    report["lockProvenance"] = provenance
+    report["cache"] = str(cache)
+    report["lanes"] = sorted_lanes
+    report["packages"] = rows
+    report["sourceRoots"] = roots
+    report["importNames"] = sorted_names
+    return report
 
 
 def _report_row(result: DepResult) -> Dict[str, Any]:
@@ -1184,7 +1239,11 @@ def source_roots(source: Path, *, cache_dir: Path | None = None) -> list[Path]:
     """
 
     report = run_deps(source, download=True, cache_dir=cache_dir)
-    return [Path(root) for root in report["sourceRoots"]]
+    roots: list[str] = report["sourceRoots"]
+    found: list[Path] = []
+    for root in roots:
+        found.append(Path(root))
+    return found
 
 
 def render_text(report: dict[str, Any]) -> str:
@@ -1217,7 +1276,10 @@ def render_text(report: dict[str, Any]) -> str:
             hint: str = p["hint"]
             lines.append(f"  {'':<{width}}  {'':<6}  hint: {hint}")
         if lane == "pure":
-            provided: list[str] = p.get("import_names") or []
+            provided: list[str] = []
+            if "import_names" in p:
+                names: list[str] = p["import_names"]
+                provided = names
             if provided:
                 lines.append(f"  {'':<{width}}  {'':<6}  provides: {', '.join(provided)}")
             else:
