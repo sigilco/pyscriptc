@@ -515,12 +515,19 @@ def stage_bundle(
     if mac:
         shutil.copy2(str(shared), str(lib_dir / shared.name))
     else:
-        # Linux ships libpython3.14.so as a symlink to libpython3.14.so.1.0; the
-        # real file must travel with it or the loader finds nothing.
+        # Linux ships libpython3.14.so as a symlink to libpython3.14.so.1.0.
+        # The real file must travel with it or the loader finds nothing, but
+        # the unversioned name is only a link: copying it dereferenced
+        # duplicated the 32 MB library in every bundle (issue #885). Copy
+        # the real file once and recreate the link.
         extras: list[str] = [child.name for child in shared.parent.glob(f"libpython{version}.so*")]
         extras.sort()
         for name in extras:
-            shutil.copy2(str(shared.parent / name), str(lib_dir / name))
+            source = shared.parent / name
+            if source.is_symlink():
+                (lib_dir / name).symlink_to(source.readlink())
+            else:
+                shutil.copy2(str(source), str(lib_dir / name))
     stdlib_src = pack_directory / "lib" / f"python{version}"
     if stdlib_src.is_dir():
         stdlibzip.stage_stdlib(lib_dir, pack_directory, version, stdlib_mode)

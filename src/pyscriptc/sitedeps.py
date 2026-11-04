@@ -127,6 +127,14 @@ def stage_site_packages(lib_dir: Path, version: str, roots: list[str]) -> list[s
     dest.mkdir(parents=True, exist_ok=True)
     staged: list[str] = []
     resolved = _closure(roots)
+    # A third-party tool installed in the development environment (pip) is
+    # never a program dependency: its code never travels (issue #885). The
+    # pack interpreter keeps its own pip at runtime; the bundle drops it
+    # like the stdlib trim drops idlelib.
+    known_unstaged = {"pip"}
+    for dist in list(resolved):
+        if dist.lower().replace("_", "-").split("-")[0] in known_unstaged:
+            del resolved[dist]
     for root in roots:
         if not distributions_of(root):
             print(
@@ -134,6 +142,8 @@ def stage_site_packages(lib_dir: Path, version: str, roots: list[str]) -> list[s
                 file=sys.stderr,
             )
     for dist, dist_roots in resolved.items():
+        if dist.lower().replace("_", "-") in known_unstaged:
+            continue
         native, reason = imports.distribution_is_native(dist)
         if native:
             raise SiteError(

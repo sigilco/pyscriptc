@@ -15,7 +15,7 @@ This page is the licensing and provenance contract that the pack and every outpu
 The pack for each supported platform (macOS arm64 and Linux x86_64 in the first slice) is a tarball produced from the pinned [python-build-standalone](https://github.com/astral-sh/python-build-standalone) release recorded in `packaging/runtime.lock.toml`:
 
 - `libpython3.14` shared library and the version headers,
-- the standard library as a safe-trimmed zip (modules a program can import; test, idle, tkinter and similar trees are not bundled),
+- the standard library as a safe-trimmed zip (modules a program can import; test, idle, tkinter and similar trees are not bundled, and neither is the pack interpreter's own `site-packages` tooling such as pip),
 - the `licenses/` directory from the matching `full` archive: the CPython license text plus the license of every third-party component compiled into libpython (for example expat, libffi, mpdecimal, OpenSSL, SQLite, zlib, zstd; the authoritative list is the inventory in the pack, not this page).
 
 The lock file pins the release tag, the asset name, the sha256 and the CPython micro version. A pack that does not match the lock is refused before anything is linked.

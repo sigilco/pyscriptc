@@ -184,7 +184,9 @@ def safe_trim_modules(stdlib_dir: Path) -> list[Path]:
 
     The deny list matches top-level names only: `tkinter` drops the package
     (and with it `turtledemo`'s only consumer), not a same-named submodule of
-    an unrelated package.
+    an unrelated package. The pack's `site-packages/` is out too: it holds
+    the pack interpreter's own tooling (pip), never a program dependency
+    (issue #885); program dependencies travel through `sitedeps`.
     """
     if not stdlib_dir.is_dir():
         raise StdlibError(f"the runtime pack has no stdlib tree at {stdlib_dir}")
@@ -192,6 +194,8 @@ def safe_trim_modules(stdlib_dir: Path) -> list[Path]:
     for path in sorted(stdlib_dir.rglob("*.py")):
         relative = path.relative_to(stdlib_dir)
         if relative.parts[0] in SAFE_TRIM:
+            continue
+        if relative.parts[0] == "site-packages":
             continue
         kept.append(path)
     return kept
