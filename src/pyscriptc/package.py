@@ -165,16 +165,28 @@ def _prune_unreached(
     """
 
     if not dep_units:
-        return [], [], []
-    reached = _reachable_modules([*units, *dep_units], _program_seeds(units, program=program, entry=entry))
-    referenced = _reachable_modules([*units, *dep_units], [name for name, _path, _is_package in units])
+        empty_kept: list[tuple[str, Path, bool]] = []
+        empty_catalogued: list[tuple[str, Path, bool]] = []
+        empty_pruned: list[tuple[str, Path, bool]] = []
+        return empty_kept, empty_catalogued, empty_pruned
+    combined: list[tuple[str, Path, bool]] = []
+    for unit in units:
+        combined.append(unit)
+    for unit in dep_units:
+        combined.append(unit)
+    seed_names: list[str] = []
+    for name, _path, _is_package in units:
+        seed_names.append(name)
+    reached = _reachable_modules(combined, _program_seeds(units, program=program, entry=entry))
+    referenced = _reachable_modules(combined, seed_names)
     kept: list[tuple[str, Path, bool]] = []
     catalogued: list[tuple[str, Path, bool]] = []
     pruned: list[tuple[str, Path, bool]] = []
     for unit in dep_units:
-        if unit[0] in reached:
+        name = unit[0]
+        if name in reached:
             kept.append(unit)
-        elif unit[0] in referenced:
+        elif name in referenced:
             catalogued.append(unit)
         else:
             pruned.append(unit)
@@ -346,12 +358,22 @@ def _program_island(
     if not _boxed.definitions_tier():
         return None
     main = entry if entry is not None else "__main__"
-    if not any(name == main for name, _path, _is_package in units):
+    # `any(name == main ...)` is a bool-fold the lowered subset refuses
+    # (a generator over a bool list). The loop keeps the same answer.
+    found: bool = False
+    for name, _path, _is_package in units:
+        if name == main:
+            found = True
+    if not found:
         return None
+    main_package = ""
     if entry is not None:
-        is_package = any(name == entry and pkg for name, _path, pkg in units)
+        is_package = False
+        for name, _path, pkg in units:
+            if name == entry and pkg:
+                is_package = True
         main_package = entry if is_package else entry.rpartition(".")[0]
-    staged = stage_program_data(root, staged_data or [])
+    staged: tuple[str, str] | None = stage_program_data(root, staged_data or [])
     source = _boxed.program_island_source(
         units,
         entry=main,
@@ -386,7 +408,25 @@ def stage_program_data(
     root_dir = stage_program_data_target()
     if root_dir is None:
         return None
-    for rel, body in sorted(staged_data):
+    # `sorted(staged_data)` fences (PS2003: sorted takes scalar elements),
+    # so the same order comes out of an insertion sort on the path. Path
+    # ordering is by parts tuple, so equal strings order the same way.
+    ordered: list[tuple[Path, bytes]] = []
+    for entry in staged_data:
+        ordered.append(entry)
+    n: int = len(ordered)
+    i: int = 0
+    while i < n - 1:
+        j: int = i + 1
+        while j < n:
+            a: tuple[Path, bytes] = ordered[i]
+            b: tuple[Path, bytes] = ordered[j]
+            if b[0].parts < a[0].parts:
+                ordered[i] = b
+                ordered[j] = a
+            j = j + 1
+        i = i + 1
+    for rel, body in ordered:
         target = root_dir / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(body)
@@ -407,18 +447,26 @@ def _program_entry(functions: list[dict[str, Any]], entry: str | None = None) ->
     if entry is not None:
         for suffix in ("__entry__", "main"):
             candidate = f"{entry}.{suffix}"
-            if any(fn["name"] == candidate for fn in functions):
-                return candidate
+            for fn in functions:
+                name: str = fn["name"]
+                if name == candidate:
+                    return candidate
         for fn in functions:
-            if fn["name"].startswith(entry + "."):
-                return fn["name"]
+            name = fn["name"]
+            if name.startswith(entry + "."):
+                return name
     for fn in functions:
-        if fn["name"] in {"__main__.main", "__main__.__entry__"}:
-            return fn["name"]
+        name = fn["name"]
+        if name == "__main__.main" or name == "__main__.__entry__":
+            return name
     for fn in functions:
-        if fn["name"].startswith("__main__."):
-            return fn["name"]
-    return functions[0]["name"] if functions else None
+        name = fn["name"]
+        if name.startswith("__main__."):
+            return name
+    if not functions:
+        return None
+    first: str = functions[0]["name"]
+    return first
 
 
 def _fenced_module(root: Path, fences: list[dict[str, Any]]) -> dict[str, Any]:
@@ -469,14 +517,17 @@ def _reachable_modules(
     """
 
     trees: dict[str, ast.Module] = {}
-    packages: dict[str, bool] = {}
+    package_names: set[str] = set()
     for name, path, is_package in units:
         trees[name] = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        packages[name] = is_package
+        if is_package:
+            package_names.add(name)
     # The reach walk needs the module names, not their exports: an empty
     # bucket per module is enough for the import resolvers to resolve a
     # name against the unit table.
-    exports: dict[str, dict[str, dict[str, Any]]] = {name: {} for name in trees}
+    exports: dict[str, dict[str, dict[str, Any]]] = {}
+    for name in trees:
+        exports[name] = {}
 
     def parents_of(name: str) -> list[str]:
         """The package bodies an import of `name` runs first.
@@ -495,7 +546,7 @@ def _reachable_modules(
         return found
 
     def edges_of(name: str) -> list[str]:
-        found = _program_imports(trees[name], exports, name, packages[name])
+        found = _program_imports(trees[name], exports, name, name in package_names)
         edges: list[str] = []
         for target in found:
             if target not in exports:
@@ -575,15 +626,27 @@ def _mark_dep_fences(
         return fences
     out: list[dict[str, Any]] = []
     for fence in fences:
-        span = fence.get("span") or {}
-        module = by_file.get(span.get("file", ""))
+        span: dict[str, str] = {}
+        if "span" in fence:
+            span = fence["span"]
+        module: str | None = None
+        if "file" in span:
+            module = by_file.get(span["file"])
         if module is None:
             out.append(fence)
             continue
         distribution = _dep_distribution(module, dep_lane_report)
-        message = fence.get("message", "")
+        message: str = ""
+        if "message" in fence:
+            message = fence["message"]
         if distribution and distribution not in message:
-            fence = {**fence, "message": f"{message} ({distribution} ships {module})"}
+            copy: dict[str, Any] = {}
+            for key in fence:
+                item: dict[str, Any] = fence[key]
+                copy[key] = item
+            copy["message"] = f"{message} ({distribution} ships {module})"
+            out.append(copy)
+            continue
         out.append(fence)
     return out
 
@@ -592,7 +655,7 @@ def _program_plan(
     units: list[tuple[str, Path, bool]],
     exports: dict[str, dict[str, dict[str, Any]]],
     entry: str | None = None,
-) -> tuple[list[dict[str, Any]], dict[str, dict[str, list[str]]]]:
+) -> tuple[list[dict[str, Any]], dict[str, list[str]]]:
     """The program's import graph: cycles refused, init owners assigned.
 
     CPython runs a module body once, at the first import that reaches it.
@@ -605,37 +668,50 @@ def _program_plan(
 
     trees: dict[str, ast.Module] = {}
     files: dict[str, Path] = {}
-    for name, path, _ in units:
+    package_names: set[str] = set()
+    for name, path, is_package in units:
         trees[name] = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         files[name] = path
-    packages = {name: is_package for name, _, is_package in units}
-    edges: dict[str, list[str]] = {name: _program_imports(trees[name], exports, name, packages[name]) for name in trees}
+        if is_package:
+            package_names.add(name)
+    edges: dict[str, list[str]] = {}
+    for name in trees:
+        edges[name] = _program_imports(trees[name], exports, name, name in package_names)
     # The statement that imports a module, so a cycle fence points at it.
     sites: dict[tuple[str, str], ast.stmt] = {}
     for name, tree in trees.items():
         for stmt in tree.body:
             for module, _local in _statement_imports(stmt, exports):
                 sites.setdefault((name, module), stmt)
-            for module in _relative_statement_imports(stmt, exports, name, packages[name]):
+            for module in _relative_statement_imports(stmt, exports, name, name in package_names):
                 sites.setdefault((name, module), stmt)
     # Only a module with script statements has an `__init__` export: its body
     # runs at import. A definition-only module contributes nothing.
-    inited = {name for name, bucket in exports.items() if "__init__" in bucket}
+    inited: set[str] = set()
+    for name in exports:
+        bucket = exports[name]
+        if "__init__" in bucket:
+            inited.add(name)
 
     fences: list[dict[str, Any]] = []
-    owners: dict[str, dict[str, list[str]]] = {name: [] for name in trees}
+    owners: dict[str, list[str]] = {}
+    for name in trees:
+        owners[name] = []
     state: dict[str, int] = {}
     stack: list[str] = []
 
     def visit(name: str) -> None:
         state[name] = 1
         stack.append(name)
-        for child in edges.get(name, []):
+        children: list[str] = []
+        if name in edges:
+            children = edges[name]
+        for child in children:
             if child not in trees:
                 continue
             if state.get(child) == 1:
                 cycle = stack[stack.index(child) :] + [child]
-                if _is_package_submodule_cycle(cycle, packages):
+                if _is_package_submodule_cycle(cycle, package_names):
                     continue
                 fences.append(
                     {
@@ -649,7 +725,8 @@ def _program_plan(
             if state.get(child) == 2:
                 continue
             if child in inited:
-                owners[name].append(child)
+                owned: list[str] = owners[name]
+                owned.append(child)
             visit(child)
         stack.pop()
         state[name] = 2
@@ -658,7 +735,8 @@ def _program_plan(
         if state.get(name) is None:
             visit(name)
     if fences:
-        return fences, {}
+        empty_owners: dict[str, list[str]] = {}
+        return fences, empty_owners
     return fences, owners
 
 
@@ -669,14 +747,22 @@ def _program_roots(trees: dict[str, ast.Module], entry: str | None = None) -> li
     reaches the other modules. The rest follow in name order.
     """
 
-    roots = ["__main__"] if "__main__" in trees else []
+    roots: list[str] = []
+    if "__main__" in trees:
+        roots.append("__main__")
     if entry is not None and entry in trees:
-        roots = [entry] + [name for name in roots if name != entry]
-    roots.extend(sorted(name for name in trees if name not in roots))
+        rest: list[str] = []
+        for name in roots:
+            if name != entry:
+                rest.append(name)
+        roots = [entry, *rest]
+    for name in sorted(trees):
+        if name not in roots:
+            roots.append(name)
     return roots
 
 
-def _is_package_submodule_cycle(cycle: list[str], packages: dict[str, bool]) -> bool:
+def _is_package_submodule_cycle(cycle: list[str], packages: set[str]) -> bool:
     """True when a package unit imports its own submodule.
 
     A package unit's `__init__.py` exposing its submodules (or a submodule
@@ -685,7 +771,7 @@ def _is_package_submodule_cycle(cycle: list[str], packages: dict[str, bool]) -> 
     and the submodule body within it without a cycle error.
     """
     for node in cycle:
-        if packages.get(node):
+        if node in packages:
             if all(m == node or m.startswith(node + ".") for m in cycle):
                 return True
     return False
@@ -694,10 +780,10 @@ def _is_package_submodule_cycle(cycle: list[str], packages: dict[str, bool]) -> 
 def _cycle_span(path: Path, stmt: ast.stmt | None) -> dict[str, Any]:
     """The span of the import statement that closes a cycle."""
 
-    line = getattr(stmt, "lineno", 1) or 1
-    col = getattr(stmt, "col_offset", 0) or 0
-    end_line = getattr(stmt, "end_lineno", line) or line
-    end_col = getattr(stmt, "end_col_offset", col) or col
+    line: int = getattr(stmt, "lineno", 1) or 1
+    col: int = getattr(stmt, "col_offset", 0) or 0
+    end_line: int = getattr(stmt, "end_lineno", line) or line
+    end_col: int = getattr(stmt, "end_col_offset", col) or col
     return {
         "file": str(path),
         "line": line,
@@ -1103,7 +1189,12 @@ def _alias_item(exports: dict[str, dict[str, dict[str, Any]]], module: str, name
     `ir_name`: the defining module still emits the function or class.
     """
 
-    item = exports.get(module, {}).get(name)
+    bucket: dict[str, dict[str, Any]] = {}
+    if module in exports:
+        bucket = exports[module]
+    item: dict[str, Any] | None = None
+    if name in bucket:
+        item = bucket[name]
     if item is None:
         return None
     return copy.deepcopy(item)
@@ -1112,30 +1203,71 @@ def _alias_item(exports: dict[str, dict[str, dict[str, Any]]], module: str, name
 def _class_export(info: dict[str, Any]) -> dict[str, Any]:
     """Class shape without the AST node. The defining module still emits the class."""
 
-    exported: dict[str, Any] = {
-        "fields": copy.deepcopy(info.get("fields", [])),
-        "own_fields": copy.deepcopy(info.get("own_fields", [])),
-        "methods": copy.deepcopy(info.get("methods", {})),
-        "method_kind": dict(info.get("method_kind", {})),
-        "method_owner": dict(info.get("method_owner", {})),
-        "base": info.get("base"),
-        "imported": True,
-    }
-    if info.get("generated_init") is not None:
-        exported["generated_init"] = info["generated_init"]
-    if info.get("exception"):
+    # The export table's rows are heterogeneous dicts, so every read of one
+    # goes through a membership guard and a typed local: the guard proves
+    # the key is there, the annotation proves the value's type.
+    exported: dict[str, Any] = {}
+    fields: list[dict[str, Any]] = []
+    if "fields" in info:
+        raw_fields: list[dict[str, Any]] = info["fields"]
+        for field in raw_fields:
+            fields.append(field)
+    exported["fields"] = fields
+    own_fields: list[dict[str, Any]] = []
+    if "own_fields" in info:
+        raw_own: list[dict[str, Any]] = info["own_fields"]
+        for field in raw_own:
+            own_fields.append(field)
+    exported["own_fields"] = own_fields
+    methods: dict[str, tuple[list[dict[str, Any]], dict[str, Any]]] = {}
+    if "methods" in info:
+        raw_methods: dict[str, tuple[list[dict[str, Any]], dict[str, Any]]] = info["methods"]
+        for mname in raw_methods:
+            methods[mname] = raw_methods[mname]
+    exported["methods"] = methods
+    method_kind: dict[str, str] = {}
+    if "method_kind" in info:
+        raw_kind: dict[str, str] = info["method_kind"]
+        for mname in raw_kind:
+            method_kind[mname] = raw_kind[mname]
+    exported["method_kind"] = method_kind
+    method_owner: dict[str, str] = {}
+    if "method_owner" in info:
+        raw_owner: dict[str, str] = info["method_owner"]
+        for mname in raw_owner:
+            method_owner[mname] = raw_owner[mname]
+    exported["method_owner"] = method_owner
+    base: str = ""
+    if "base" in info:
+        base = info["base"]
+    exported["base"] = base
+    exported["imported"] = True
+    if "generated_init" in info:
+        generated_init: str = info["generated_init"]
+        exported["generated_init"] = generated_init
+    if "exception" in info:
         exported["exception"] = True
-        exported["exc_code"] = info.get("exc_code")
-    if info.get("enum"):
+        exc_code: int = 0
+        if "exc_code" in info:
+            exc_code = info["exc_code"]
+        exported["exc_code"] = exc_code
+    if "enum" in info:
         exported["enum"] = True
-        exported["members"] = dict(info.get("members") or {})
-    if info.get("coro"):
+        members: dict[str, str] = {}
+        if "members" in info:
+            raw_members: dict[str, str] = info["members"]
+            for mname in raw_members:
+                members[mname] = raw_members[mname]
+        exported["members"] = members
+    if "coro" in info:
         # A coroutine frame class (issue #178, stage B). The consumer needs
         # the kind to tell a frame from a user class, and `coro_elem` (the
         # coroutine's result type) to know what the awaited value's type is.
-        exported["coro"] = info["coro"]
-        if info.get("coro_elem") is not None:
-            exported["coro_elem"] = copy.deepcopy(info["coro_elem"])
+        coro: str = info["coro"]
+        exported["coro"] = coro
+    if "coro_elem" in info:
+        coro_elem: dict[str, Any] = info["coro_elem"]
+        exported["coro_elem"] = copy.deepcopy(coro_elem)
     return exported
 
 
@@ -1249,7 +1381,8 @@ def _discover_dep_package(package_dir: Path, name: str) -> list[tuple[str, Path,
 def _dep_fence(message: str) -> dict[str, Any]:
     """A PS3101 refusal fence outside any source span."""
 
-    return {"code": "PS3101", "message": message, "span": None, "function": None}
+    fence: dict[str, Any] = {"code": "PS3101", "message": message, "span": None, "function": None}
+    return fence
 
 
 def _dep_name_fence(name: str) -> dict[str, Any]:
@@ -1334,6 +1467,36 @@ def _skip_note(root: Path, relative: str) -> str:
 _NOT_EXPORTED = " is not exported by this package"
 
 
+def _fence_ident(fence: dict[str, Any]) -> str:
+    """The identity of a fence: its code, message and span, as one key.
+
+    The key is the same five fields the tuple identity carried, joined with
+    a NUL separator. A NUL cannot appear in a code, a message or a file
+    name, so the join is unambiguous and two fences share a key exactly
+    when the tuple identity made them equal.
+    """
+
+    code: str = ""
+    if "code" in fence:
+        code = fence["code"]
+    message: str = ""
+    if "message" in fence:
+        message = fence["message"]
+    span: dict[str, Any] = {}
+    if "span" in fence:
+        span = fence["span"]
+    file: str = ""
+    if "file" in span:
+        file = span["file"]
+    line: int = 0
+    if "line" in span:
+        line = span["line"]
+    col: int = 0
+    if "col" in span:
+        col = span["col"]
+    return code + "\x00" + message + "\x00" + file + "\x00" + str(line) + "\x00" + str(col)
+
+
 def _promote_definition_fences(
     fences: list[dict[str, Any]], failed: dict[str, dict[str, dict[str, Any]]]
 ) -> list[dict[str, Any]]:
@@ -1343,28 +1506,26 @@ def _promote_definition_fences(
     if not by_qual:
         return fences
 
-    def ident(fence: dict[str, Any]) -> tuple[Any, ...]:
-        span = fence.get("span") or {}
-        return (fence.get("code"), fence.get("message"), span.get("file"), span.get("line"), span.get("col"))
-
-    wanted = {ident(fence) for fence in by_qual.values()}
-    emitted: set[tuple[Any, ...]] = set()
+    wanted: dict[str, str] = {}
+    for fence in by_qual.values():
+        wanted[_fence_ident(fence)] = "1"
+    emitted: dict[str, str] = {}
     out: list[dict[str, Any]] = []
     for fence in fences:
-        message = fence.get("message") or ""
+        message: str = fence["message"]
         if message.endswith(_NOT_EXPORTED):
             defined = by_qual.get(message[: -len(_NOT_EXPORTED)])
             if defined is not None:
-                mark = ident(defined)
+                mark = _fence_ident(defined)
                 if mark not in emitted:
                     out.append(defined)
-                    emitted.add(mark)
-        mark = ident(fence)
+                    emitted[mark] = "1"
+        mark = _fence_ident(fence)
         if mark in emitted and mark in wanted:
             continue
         out.append(fence)
         if mark in wanted:
-            emitted.add(mark)
+            emitted[mark] = "1"
     return out
 
 
