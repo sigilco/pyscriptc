@@ -85,11 +85,11 @@ def _module_identity(path: Path) -> tuple[str, Path]:
     `__init__.py` above it) is named after its stem.
     """
     path = path.resolve()
-    parent = path.parent
+    parent: Path = path.parent
     if parent.name == "__init__":
         return parent.name, parent.parent
-    parts = [] if path.stem == "__init__" else [path.stem]
-    root = parent
+    parts: list[str] = [] if path.stem == "__init__" else [path.stem]
+    root: Path = parent
     while (root / "__init__.py").is_file():
         parts.insert(0, root.name)
         root = root.parent
@@ -107,7 +107,7 @@ def mypy_version() -> str | None:
     api = _mypy_api()
     if api is None:
         return None
-    version = api[3]
+    version: str = api[3]
     if not all(part.isdigit() for part in version.split(".")[:3]):
         return None
     return ".".join(version.split(".")[:3])
@@ -133,6 +133,7 @@ def pyrefly_version() -> str | None:
         from importlib.metadata import PackageNotFoundError, version
     except ImportError:  # pragma: no cover - 3.8 and older only
         return None
+    found: str = ""
     try:
         found = version("pyrefly")
     except PackageNotFoundError:
@@ -659,24 +660,39 @@ def facts_to_ir(facts: TypeFacts, classes: dict[str, Any] | None = None) -> dict
 
 
 def _label(typ: dict[str, Any]) -> str:
-    kind = typ["kind"]
+    kind: str = typ["kind"]
     if kind == "list":
-        return f"list[{_label(typ['elem'])}]"
+        elem: dict[str, Any] = typ["elem"]
+        return f"list[{_label(elem)}]"
     if kind == "dict":
-        return f"dict[{_label(typ['key'])}, {_label(typ['value'])}]"
+        key: dict[str, Any] = typ["key"]
+        value: dict[str, Any] = typ["value"]
+        return f"dict[{_label(key)}, {_label(value)}]"
     if kind == "class":
-        return str(typ.get("label") or typ.get("name"))
+        if "label" in typ:
+            lbl: str = typ["label"]
+            return lbl
+        if "name" in typ:
+            nm: str = typ["name"]
+            return nm
+        return ""
     return kind
 
 
 def _slug(typ: dict[str, Any]) -> str:
-    kind = typ["kind"]
+    kind: str = typ["kind"]
     if kind == "list":
-        return f"list_{_slug(typ['elem'])}"
+        elem: dict[str, Any] = typ["elem"]
+        return f"list_{_slug(elem)}"
     if kind == "dict":
-        return f"dict_{_slug(typ['key'])}_{_slug(typ['value'])}"
+        key: dict[str, Any] = typ["key"]
+        value: dict[str, Any] = typ["value"]
+        return f"dict_{_slug(key)}_{_slug(value)}"
     if kind == "class":
-        return str(typ.get("name"))
+        if "name" in typ:
+            nm: str = typ["name"]
+            return nm
+        return ""
     return kind
 
 
