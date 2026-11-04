@@ -516,7 +516,7 @@ def _reachable_modules(
     stdlib, a pack or a refused name and never a unit.
     """
 
-    trees: dict[str, ast.Module] = {}
+    trees: dict[str, Any] = {}
     package_names: set[str] = set()
     for name, path, is_package in units:
         trees[name] = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -666,7 +666,7 @@ def _program_plan(
     module's body finished, so it never does.
     """
 
-    trees: dict[str, ast.Module] = {}
+    trees: dict[str, Any] = {}
     files: dict[str, Path] = {}
     package_names: set[str] = set()
     for name, path, is_package in units:
@@ -678,7 +678,7 @@ def _program_plan(
     for name in trees:
         edges[name] = _program_imports(trees[name], exports, name, name in package_names)
     # The statement that imports a module, so a cycle fence points at it.
-    sites: dict[tuple[str, str], ast.stmt] = {}
+    sites: dict[tuple[str, str], Any] = {}
     for name, tree in trees.items():
         for stmt in tree.body:
             for module, _local in _statement_imports(stmt, exports):
@@ -740,7 +740,7 @@ def _program_plan(
     return fences, owners
 
 
-def _program_roots(trees: dict[str, ast.Module], entry: str | None = None) -> list[str]:
+def _program_roots(trees: dict[str, Any], entry: str | None = None) -> list[str]:
     """The order the graph walk starts in.
 
     The program's entry comes first: CPython runs it, and it is what
@@ -777,7 +777,7 @@ def _is_package_submodule_cycle(cycle: list[str], packages: set[str]) -> bool:
     return False
 
 
-def _cycle_span(path: Path, stmt: ast.stmt | None) -> dict[str, Any]:
+def _cycle_span(path: Path, stmt: Any | None) -> dict[str, Any]:
     """The span of the import statement that closes a cycle."""
 
     line: int = getattr(stmt, "lineno", 1) or 1
@@ -794,7 +794,7 @@ def _cycle_span(path: Path, stmt: ast.stmt | None) -> dict[str, Any]:
 
 
 def _program_imports(
-    tree: ast.Module,
+    tree: Any,
     exports: dict[str, dict[str, dict[str, Any]]],
     module: str = "",
     is_package: bool = False,
@@ -868,7 +868,7 @@ def _program_imports(
     return found
 
 
-def _import_time_nodes(tree: ast.Module) -> list[ast.AST]:
+def _import_time_nodes(tree: Any) -> list[Any]:
     """The import statements that run when the module body runs.
 
     A module body runs its top-level statements in order, so an import
@@ -878,9 +878,9 @@ def _import_time_nodes(tree: ast.Module) -> list[ast.AST]:
     close an import-time cycle .
     """
 
-    found: list[ast.AST] = []
+    found: list[Any] = []
 
-    def walk(stmts: list[ast.stmt]) -> None:
+    def walk(stmts: list[Any]) -> None:
         for stmt in stmts:
             if isinstance(stmt, ast.Import | ast.ImportFrom):
                 found.append(stmt)
@@ -933,7 +933,7 @@ def _base_of(module: str, is_package: bool, level: int) -> list[str] | None:
 
 
 def _relative_statement_imports(
-    stmt: ast.stmt,
+    stmt: Any,
     exports: dict[str, dict[str, dict[str, Any]]],
     module: str,
     is_package: bool,
@@ -949,7 +949,7 @@ def _relative_statement_imports(
     ]
 
 
-def _statement_imports(stmt: ast.stmt, exports: dict[str, dict[str, dict[str, Any]]]) -> list[tuple[str, str]]:
+def _statement_imports(stmt: Any, exports: dict[str, dict[str, dict[str, Any]]]) -> list[tuple[str, str]]:
     """The program modules one import statement brings in.
 
     Each entry is the module and the local name the import binds for it, so
@@ -985,12 +985,12 @@ def _statement_imports(stmt: ast.stmt, exports: dict[str, dict[str, dict[str, An
 
 
 def _inject_inits(
-    tree: ast.Module,
+    tree: Any,
     owned: list[str],
     exports: dict[str, dict[str, dict[str, Any]]],
     module: str = "",
     is_package: bool = False,
-) -> ast.Module:
+) -> Any:
     """Call the init of every module this one first imports.
 
     CPython runs an imported module's body at the import statement, so the
@@ -1002,10 +1002,10 @@ def _inject_inits(
 
     if not owned:
         return tree
-    body: list[ast.stmt] = []
+    body: list[Any] = []
     done: set[str] = set()
 
-    def emit(target: str, local: str, stmt: ast.stmt) -> None:
+    def emit(target: str, local: str, stmt: Any) -> None:
         if target not in owned or target in done:
             return
         done.add(target)
@@ -1022,7 +1022,7 @@ def _inject_inits(
     return tree
 
 
-def _init_call(local: str, anchor: ast.stmt) -> ast.stmt:
+def _init_call(local: str, anchor: Any) -> Any:
     """`local.__init__()` as a statement, placed at the anchor's position."""
 
     call = ast.Call(
@@ -1097,7 +1097,7 @@ def _catalog_once(
     return found, failed
 
 
-def _exports_of(module_name: str, lowerer: Lowerer) -> dict[str, dict[str, Any]]:
+def _exports_of(module_name: str, lowerer: Any) -> dict[str, dict[str, Any]]:
     bucket: dict[str, dict[str, Any]] = {}
     for fn, (params, ret) in lowerer.sigs.items():
         bucket[fn] = {
@@ -1133,7 +1133,7 @@ def _exports_of(module_name: str, lowerer: Lowerer) -> dict[str, dict[str, Any]]
 
 def _reexports_of(
     module_name: str,
-    tree: ast.Module,
+    tree: Any,
     exports: dict[str, dict[str, dict[str, Any]]],
     is_package: bool,
 ) -> dict[str, dict[str, Any]]:
@@ -1529,9 +1529,7 @@ def _promote_definition_fences(
     return out
 
 
-def _unexported_definitions(
-    tree: ast.Module, lowerer: Lowerer, fences: list[dict[str, Any]]
-) -> dict[str, dict[str, Any]]:
+def _unexported_definitions(tree: Any, lowerer: Any, fences: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     exported = set(lowerer.sigs)
     for class_name, info in lowerer.classes.items():
         if info.get("synthetic") or info.get("imported"):
