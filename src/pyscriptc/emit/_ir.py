@@ -35,6 +35,16 @@ def _kind(typ: dict[str, Any]) -> str:
     return kind
 
 
+def _expr_kind(expr: dict[str, Any]) -> str:
+    """The kind tag of an expression record: const, name, unary, binary,
+    compare, call, list, dict, subscript, attr, cast, contains or closure.
+    The expression dispatch reads the record through this accessor instead of
+    the raw dict key."""
+
+    kind: str = expr["kind"]
+    return kind
+
+
 def standalone_entry(module: dict[str, Any]) -> dict[str, Any] | None:
     """The module's runnable entry (a script body or `__main__` guard), if `--run` without `--call` has one."""
     entry = module.get("entry")
