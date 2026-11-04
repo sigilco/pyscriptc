@@ -417,12 +417,19 @@ def _uv(args: list[str], cwd: Path) -> str:
 
 def resolve(spec: DepSpec, *, frozen: bool = False, upgrade: bool = False, offline: bool = False) -> tuple[str, str]:
     """Return (pylock text, provenance). Provenance is `uv.lock`, `lock` (reused) or `resolved`."""
-    common = ["--offline"] if offline else []
+    # `sorted(key=)` on records and `[*a, *b]` do not lower: append in order
+    # instead, so the command line is identical without the star.
+    common: list[str] = []
+    if offline:
+        common.append("--offline")
     if spec.uv_lock.is_file():
         args = ["export", "--format", "pylock.toml", "--frozen", "--no-dev", "--no-emit-project", "--no-header"]
         if spec.kind == "script":
-            args += ["--script", str(spec.origin)]
-        return _uv([*args, *common], spec.root), "uv.lock"
+            args.append("--script")
+            args.append(str(spec.origin))
+        for one in args:
+            common.append(one)
+        return _uv(common, spec.root), "uv.lock"
 
     python = host_python()
     digest = input_digest(spec, python)
@@ -438,19 +445,58 @@ def resolve(spec: DepSpec, *, frozen: bool = False, upgrade: bool = False, offli
     if not spec.all_requirements:
         text = 'lock-version = "1.0"\ncreated-by = "pyscriptc"\n'
     else:
-        with tempfile.TemporaryDirectory(prefix="pyscriptc-deps-") as tmp:
-            req = Path(tmp) / "requirements.in"
-            out = Path(tmp) / "pylock.toml"
-            req.write_text(spec.all_requirements + "\n", encoding="utf-8")
+        # `TemporaryDirectory(prefix=...)` is kwarg-fenced, so the scratch
+        # directory is `mkdtemp()` plus an explicit `rmtree` in a `finally`.
+        tmp = Path(tempfile.mkdtemp())
+        try:
+            req = tmp / "requirements.in"
+            out = tmp / "pylock.toml"
+            _write_text(req, spec.all_requirements + "\n")
             args = ["pip", "compile", str(req), "--format", "pylock.toml", "-o", str(out)]
-            args += ["--no-build", "--universal", "--python-version", python, "--no-header", "--quiet", *common]
+            args.append("--no-build")
+            args.append("--universal")
+            args.append("--python-version")
+            args.append(python)
+            args.append("--no-header")
+            args.append("--quiet")
+            for one in common:
+                args.append(one)
             if upgrade:
                 args.append("--upgrade")
             _uv(args, spec.root)
             text = out.read_text(encoding="utf-8")
-    text = text.rstrip("\n") + f'\n\n[tool.{LOCK_TOOL_KEY}]\ninput-digest = "{digest}"\npython = "{python}"\n'
-    lock.write_text(text, encoding="utf-8")
+        finally:
+            shutil.rmtree(str(tmp))
+    stamp = f'\n\n[tool.{LOCK_TOOL_KEY}]\ninput-digest = "{digest}"\npython = "{python}"\n'
+    text = _strip_trailing_newlines(text) + stamp
+    _write_text(lock, text)
     return text, "resolved"
+
+
+def _write_text(path: Path, text: str) -> None:
+    """`path.write_text(text, encoding="utf-8")`.
+
+    The lowered `Path.write_text` takes no keywords, and the lowered
+    `open` writes bytes as they come, so the utf-8 encoding is the
+    `open(..., encoding="utf-8")` the host `write_text` performs.
+    """
+
+    with open(str(path), "w", encoding="utf-8") as handle:
+        handle.write(text)
+
+
+def _strip_trailing_newlines(text: str) -> str:
+    """`text.rstrip("\\n")`: every trailing newline, none of the other space.
+
+    The lowered `rstrip` takes no argument, so the newlines come off one
+    at a time; the other whitespace CPython's `rstrip("\\n")` keeps is
+    kept here too.
+    """
+
+    out = text
+    while out.endswith("\n"):
+        out = out[:-1]
+    return out
 
 
 # ---------------------------------------------------------------- classify
@@ -459,11 +505,15 @@ def resolve(spec: DepSpec, *, frozen: bool = False, upgrade: bool = False, offli
 def _python_tag_ok(tag: str, python: str) -> bool:
     major, minor = (int(x) for x in python.split("."))
     for one in tag.split("."):
-        if one in ("py3", f"py{major}"):
+        if one == "py3" or one == f"py{major}":
             return True
         m = re.fullmatch(r"(?:py|cp)(\d)(\d+)", one)
-        if m and int(m.group(1)) == major and int(m.group(2)) <= minor:
-            return True
+        if m is not None:
+            tag_major: str | None = m.group(1)
+            tag_minor: str | None = m.group(2)
+            if tag_major is not None and tag_minor is not None:
+                if int(tag_major) == major and int(tag_minor) <= minor:
+                    return True
     return False
 
 
@@ -475,7 +525,16 @@ def is_pure_wheel(wheel: LockedWheel, python: str | None = None) -> bool:
 
 def select_pure_wheel(pkg: LockedPackage, python: str | None = None) -> LockedWheel | None:
     pure = [w for w in pkg.wheels if is_pure_wheel(w, python)]
-    return sorted(pure, key=lambda w: w.filename)[0] if pure else None
+    if not pure:
+        return None
+    # `sorted(pure, key=lambda w: w.filename)[0]` is the lexicographically
+    # first filename; `sorted(key=)` reads scalar elements only, so the
+    # minimum walks the list and keeps the first of equal names.
+    best = pure[0]
+    for wheel in pure:
+        if wheel.filename < best.filename:
+            best = wheel
+    return best
 
 
 def _wheel_abis(pkg: LockedPackage) -> list[str]:
@@ -597,9 +656,21 @@ def _safe_member(info: zipfile.ZipInfo) -> None:
 # ---------------------------------------------------------------- cache
 
 
-def cache_root(override: str | Path | None = None) -> Path:
-    base = override or os.environ.get("PYSC_CACHE_DIR")
-    return (Path(base) if base else Path.home() / ".cache" / "pyscriptc") / "deps"
+def cache_root(override: Path | None = None) -> Path:
+    """The dependency cache root: the override, `PYSC_CACHE_DIR`, or the default.
+
+    The override is a `Path`; a `str` caller is wrapped by the caller
+    that has it, so the parameter is the single arm the compiler lowers.
+    """
+
+    base: Path | None = override
+    if base is None:
+        env = os.environ.get("PYSC_CACHE_DIR")
+        if env:
+            base = Path(env)
+    if base is None:
+        return (Path.home() / ".cache" / "pyscriptc") / "deps"
+    return base / "deps"
 
 
 def _urlopen(url: str) -> bytes:
@@ -611,11 +682,31 @@ def _urlopen(url: str) -> bytes:
 
 
 def _atomic_write(path: Path, data: bytes) -> None:
+    """Write `data` to `path` through a temporary file in the same directory.
+
+    `tempfile.mkstemp(dir=..., prefix=...)` is keyword-fenced, so the
+    temporary name is built here: the process id and a counter make it
+    unique, and `O_EXCL` makes the create fail rather than clobber an
+    existing file. The write goes to the temporary file and `os.replace`
+    moves it into place, so a reader never sees a half-written file.
+    """
+
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".tmp-")
-    with os.fdopen(fd, "wb") as handle:
-        handle.write(data)
-    os.replace(tmp, path)
+    pid: int = os.getpid()
+    counter: int = 0
+    while True:
+        tmp: Path = path.parent / (f".tmp-{pid}-{counter}")
+        try:
+            fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            counter = counter + 1
+            continue
+        try:
+            os.write(fd, data)
+        finally:
+            os.close(fd)
+        os.replace(str(tmp), str(path))
+        return
 
 
 def fetch_wheel(wheel: LockedWheel, cache: Path, *, offline: bool = False) -> bytes:
@@ -639,16 +730,23 @@ def fetch_wheel(wheel: LockedWheel, cache: Path, *, offline: bool = False) -> by
 def _should_skip_member(parts: tuple[str, ...]) -> bool:
     if not parts:
         return True
-    if any(part.endswith(".dist-info") for part in parts):
-        return True
+    for part in parts:
+        if part.endswith(".dist-info"):
+            return True
     if parts[0].endswith(".data"):
-        if len(parts) < 3 or parts[1] in ("scripts", "headers", "data"):
+        if len(parts) < 3:
+            return True
+        if parts[1] == "scripts" or parts[1] == "headers" or parts[1] == "data":
             return True
         parts = parts[2:]
         if not parts:
             return True
-    if (len(parts) > 1 and parts[0] in ("test", "docs", "examples")) or SKIPPED_ANYWHERE in parts[:-1]:
-        return True
+    if len(parts) > 1:
+        if parts[0] == "test" or parts[0] == "docs" or parts[0] == "examples":
+            return True
+    for part in parts[:-1]:
+        if part == SKIPPED_ANYWHERE:
+            return True
     filename = parts[-1]
     if (filename.startswith("test_") and filename.endswith(".py")) or filename == "conftest.py":
         return True
@@ -775,8 +873,8 @@ def materialise(data: bytes, sha256: str, cache: Path, *, name: str | None = Non
             return dest
         top_level = list(_wheel_import_names(data))
         if top_level:
-            (dest / ".imports").write_text("\n".join(top_level) + "\n", encoding="utf-8")
-        marker.write_text(f"{sha256}\n{UNPACK_SCHEMA_VERSION}\n", encoding="utf-8")
+            _write_text(dest / ".imports", "\n".join(top_level) + "\n")
+        _write_text(marker, f"{sha256}\n{UNPACK_SCHEMA_VERSION}\n")
         log.info(
             "deps.materialise",
             name=name or "",
@@ -787,7 +885,7 @@ def materialise(data: bytes, sha256: str, cache: Path, *, name: str | None = Non
         )
         return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = Path(tempfile.mkdtemp(dir=dest.parent, prefix=".tmp-"))
+    tmp = _make_temp_dir(dest.parent)
     skipped: list[str] = []
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
@@ -807,12 +905,12 @@ def materialise(data: bytes, sha256: str, cache: Path, *, name: str | None = Non
                 target.write_bytes(zf.read(info))
             dist_infos = {n.split("/", 1)[0] for n in names if n.split("/", 1)[0].endswith(".dist-info")}
             top_level = sorted(_top_level_names(zf, names, dist_infos.pop())) if len(dist_infos) == 1 else []
-        (tmp / ".complete").write_text(f"{sha256}\n{UNPACK_SCHEMA_VERSION}\n", encoding="utf-8")
+        _write_text(tmp / ".complete", f"{sha256}\n{UNPACK_SCHEMA_VERSION}\n")
         if top_level:
-            (tmp / ".imports").write_text("\n".join(top_level) + "\n", encoding="utf-8")
+            _write_text(tmp / ".imports", "\n".join(top_level) + "\n")
         if dest.exists():
-            shutil.rmtree(dest)
-        os.replace(tmp, dest)
+            shutil.rmtree(str(dest))
+        os.replace(str(tmp), str(dest))
         log.info(
             "deps.materialise",
             name=name or "",
@@ -823,8 +921,44 @@ def materialise(data: bytes, sha256: str, cache: Path, *, name: str | None = Non
         )
     finally:
         if tmp.exists():
-            shutil.rmtree(tmp, ignore_errors=True)
+            _rmtree_quietly(tmp)
     return dest
+
+
+def _make_temp_dir(parent: Path) -> Path:
+    """`Path(tempfile.mkdtemp(dir=parent, prefix=".tmp-"))`.
+
+    The lowered `mkdtemp` takes the system temp directory only, so the
+    unique same-directory scratch directory is built here: the process id
+    and a counter make the name unique and `os.mkdir` fails rather than
+    reusing one. The mode is `0o700`, the `mkdtemp` default.
+    """
+
+    pid: int = os.getpid()
+    counter: int = 0
+    while True:
+        tmp: Path = parent / (f".tmp-{pid}-{counter}")
+        try:
+            os.mkdir(str(tmp))
+        except FileExistsError:
+            counter = counter + 1
+            continue
+        os.chmod(str(tmp), 0o700)
+        break
+    return tmp
+
+
+def _rmtree_quietly(target: Path) -> None:
+    """`shutil.rmtree(target, ignore_errors=True)`.
+
+    The lowered `rmtree` takes one `str` and no keywords, so the missing
+    `ignore_errors` is the `except OSError: pass` around it.
+    """
+
+    try:
+        shutil.rmtree(str(target))
+    except OSError:
+        pass
 
 
 # ---------------------------------------------------------------- report
@@ -872,7 +1006,7 @@ def analyse(
                 if pure:
                     root = materialise(data, wheel.sha256, cache, name=pkg.name)
                     result.source_root = str(root)
-                    result.import_names = list(unpacked_import_names(root))
+                    result.import_names = _unpacked_names(root)
                 else:
                     result.lane = "native"
                     result.hint = LANE_HINTS["native"]
@@ -943,8 +1077,8 @@ def _map_entry(result: DepResult) -> dict[str, str]:
     }
 
 
-def unpacked_import_names(root: str | Path) -> tuple[str, ...]:
-    """The recorded import names of one unpacked pure wheel, `()` when unknown.
+def _unpacked_names(root: Path) -> list[str]:
+    """The recorded import names of one unpacked pure wheel, `[]` when unknown.
 
     `materialise` writes the wheel's `top_level.txt` names (or its RECORD's
     top-level entries, issue #408) to `.imports` beside the unpacked
@@ -952,10 +1086,28 @@ def unpacked_import_names(root: str | Path) -> tuple[str, ...]:
     """
 
     try:
-        body = (Path(root) / ".imports").read_text(encoding="utf-8")
+        body: str = (root / ".imports").read_text(encoding="utf-8")
     except OSError:
+        return []
+    found: list[str] = []
+    for line in body.splitlines():
+        name = line.strip()
+        if name:
+            found.append(name)
+    return found
+
+
+def unpacked_import_names(root: Path) -> tuple[str, ...]:
+    """The recorded import names of one unpacked pure wheel, `()` when unknown.
+
+    The public shape is the tuple the report and the tests read; the list
+    form `_unpacked_names` returns is what the compiler lowers.
+    """
+
+    found = _unpacked_names(root)
+    if not found:
         return ()
-    return tuple(line.strip() for line in body.splitlines() if line.strip())
+    return tuple(found)
 
 
 def run_deps(
@@ -965,7 +1117,7 @@ def run_deps(
     upgrade: bool = False,
     download: bool = True,
     offline: bool = False,
-    cache_dir: str | Path | None = None,
+    cache_dir: Path | None = None,
 ) -> dict[str, Any]:
     spec = load_spec(source)
     text, provenance = resolve(spec, frozen=frozen, upgrade=upgrade, offline=offline)
@@ -975,6 +1127,12 @@ def run_deps(
     for r in results:
         lanes[r.lane] = lanes.get(r.lane, 0) + 1
     mapping = import_module_map(results)
+    sorted_lanes: dict[str, int] = {}
+    for lane in sorted(lanes.keys()):
+        sorted_lanes[lane] = lanes[lane]
+    sorted_names: dict[str, dict[str, str]] = {}
+    for import_name in sorted(mapping.keys()):
+        sorted_names[import_name] = mapping[import_name]
     return {
         "source": str(spec.origin),
         "kind": spec.kind,
@@ -984,10 +1142,10 @@ def run_deps(
         "lock": str(spec.uv_lock if provenance == "uv.lock" else spec.lock_path),
         "lockProvenance": provenance,
         "cache": str(cache),
-        "lanes": dict(sorted(lanes.items())),
+        "lanes": sorted_lanes,
         "packages": [_report_row(r) for r in results],
         "sourceRoots": [r.source_root for r in results if r.source_root],
-        "importNames": dict(sorted(mapping.items())),
+        "importNames": sorted_names,
     }
 
 
@@ -1014,7 +1172,7 @@ def _report_row(result: DepResult) -> Dict[str, Any]:
     return row
 
 
-def source_roots(source: Path, *, cache_dir: str | Path | None = None) -> list[Path]:
+def source_roots(source: Path, *, cache_dir: Path | None = None) -> list[Path]:
     """The unpacked pure-wheel roots a compile may import (issue #398).
 
     The deps report's `sourceRoots`, one directory per pure-Python
@@ -1030,25 +1188,47 @@ def source_roots(source: Path, *, cache_dir: str | Path | None = None) -> list[P
 
 
 def render_text(report: dict[str, Any]) -> str:
-    lines = [f"{report['source']}: {len(report['packages'])} locked distribution(s), lock {report['lockProvenance']}"]
-    if not report["packages"]:
+    """The report as the text the `deps` command prints.
+
+    Every read of the report goes through an annotated local: the report
+    is an `Any` container, so a read nothing proves is a fence.
+    """
+
+    source: str = report["source"]
+    provenance: str = report["lockProvenance"]
+    packages: list[dict[str, Any]] = report["packages"]
+    lanes: dict[str, int] = report["lanes"]
+    lines: list[str] = [f"{source}: {len(packages)} locked distribution(s), lock {provenance}"]
+    if not packages:
         lines.append("  no dependencies")
-    width = max((len(p["name"]) + len(p["version"]) for p in report["packages"]), default=0) + 1
-    for p in report["packages"]:
-        label = f"{p['name']} {p['version']}".ljust(width)
-        lines.append(f"  {label}  {p['lane']:<6}  {p['reason']}")
-        if p["lane"] != "pure":
-            lines.append(f"  {'':<{width}}  {'':<6}  hint: {p['hint']}")
-        if p["lane"] == "pure":
-            provided = p.get("import_names") or ()
+    width: int = 1
+    for p in packages:
+        name: str = p["name"]
+        version: str = p["version"]
+        width = max(width, len(name) + len(version) + 1)
+    for p in packages:
+        name = p["name"]
+        version = p["version"]
+        lane: str = p["lane"]
+        reason: str = p["reason"]
+        label: str = f"{name} {version}".ljust(width)
+        lines.append(f"  {label}  {lane:<6}  {reason}")
+        if lane != "pure":
+            hint: str = p["hint"]
+            lines.append(f"  {'':<{width}}  {'':<6}  hint: {hint}")
+        if lane == "pure":
+            provided: list[str] = p.get("import_names") or []
             if provided:
                 lines.append(f"  {'':<{width}}  {'':<6}  provides: {', '.join(provided)}")
             else:
                 lines.append(
                     f"  {'':<{width}}  {'':<6}  provides: {UNKNOWN_IMPORT_NAMES} (no top_level.txt, no RECORD entries)"
                 )
-    if report["lanes"]:
-        lines.append("lanes: " + ", ".join(f"{k} {v}" for k, v in report["lanes"].items()))
+    if lanes:
+        summary: list[str] = []
+        for k, v in lanes.items():
+            summary.append(f"{k} {v}")
+        lines.append("lanes: " + ", ".join(summary))
     return "\n".join(lines)
 
 
@@ -1072,13 +1252,16 @@ def register(sub: Any, common: argparse.ArgumentParser) -> None:
 
 def deps_cmd(args: argparse.Namespace) -> int:
     """Exit 0 when every dependency is on the pure lane, 3 otherwise (like `--print diagnostics`)."""
+    cache_dir: Path | None = None
+    if args.cache_dir:
+        cache_dir = Path(args.cache_dir)
     report = run_deps(
         Path(args.source),
         frozen=args.frozen,
         upgrade=args.upgrade,
         download=not args.no_download,
         offline=args.offline,
-        cache_dir=args.cache_dir,
+        cache_dir=cache_dir,
     )
     print(json.dumps(report, indent=2) if args.json else render_text(report))
     return 0 if all(p["lane"] == "pure" for p in report["packages"]) else 3
@@ -1105,13 +1288,13 @@ def stage_data_files(
     with no data files behaves exactly as before.
     """
 
-    root = (binary.parent / (binary.name + "-data")).resolve()
+    root: Path = (binary.parent / (binary.name + "-data")).resolve()
     members = [(path, body) for _wheel, files in data for path, body in files]
     if not members:
         if root.exists():
-            shutil.rmtree(root)
+            shutil.rmtree(str(root))
         return root
-    tmp = Path(tempfile.mkdtemp(dir=root.parent, prefix=".tmp-data-"))
+    tmp = _make_temp_dir(root.parent)
     try:
         for _wheel, files in data:
             for path, body in files:
@@ -1120,10 +1303,10 @@ def stage_data_files(
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(body)
         if root.exists():
-            shutil.rmtree(root)
-        os.replace(tmp, root)
+            shutil.rmtree(str(root))
+        os.replace(str(tmp), str(root))
         log.info("deps.stage_data", binary=str(binary), root=str(root), files=len(members))
     finally:
         if tmp.exists():
-            shutil.rmtree(tmp, ignore_errors=True)
+            _rmtree_quietly(tmp)
     return root
