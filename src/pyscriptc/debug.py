@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import resource
 import time
 from pathlib import Path
 from typing import Any
@@ -60,6 +61,11 @@ class Debug:
         self.entries: list[tuple[str, float, bool]] = []
         self.commands: list[list[str]] = []
         self._starts: list[float] = []
+        # Per-stage metrics, recorded by `end` when the stage hands over the
+        # module: wall ms (also in `entries`), ru_maxrss delta since the
+        # previous peak, IR node count and function count.
+        self.stage_stats: dict[str, dict[str, Any]] = {}
+        self._rss_peak = _rss_kb()
         self._t0 = time.perf_counter()
         self.timings_map: dict[str, float] = _TimingSink(self)
         # Verification results, recorded by the compile pipeline when the
@@ -83,8 +89,17 @@ class Debug:
     def begin(self, name: str) -> None:
         self._starts.append(time.perf_counter())
 
-    def end(self, name: str) -> None:
-        self.entries.append((name, (time.perf_counter() - self._starts.pop()) * 1000.0, True))
+    def end(self, name: str, module: dict[str, Any] | None = None) -> None:
+        ms = (time.perf_counter() - self._starts.pop()) * 1000.0
+        self.entries.append((name, ms, True))
+        rss = _rss_kb()
+        self.stage_stats[name] = {
+            "ms": round(ms, 3),
+            "rssKb": max(rss - self._rss_peak, 0),
+            "nodes": _count_nodes(module),
+            "functions": 0 if module is None else len(module.get("functions", [])),
+        }
+        self._rss_peak = max(self._rss_peak, rss)
 
     def add(self, name: str, ms: float) -> None:
         """Record a measurement taken inside a stage (parse, cc, link)."""
@@ -116,9 +131,15 @@ class Debug:
     def render(self, module: dict[str, Any] | None, outputs: dict[str, str]) -> str:
         lines: list[str] = []
         if self.wants("stages"):
-            lines.append("[debug] stage           ms")
-            for name, ms, _ in self.entries:
-                lines.append(f"[debug] {name:<12}{ms:>8.1f}")
+            lines.append("[debug] stage           ms    rssKB   nodes   funcs")
+            for name, ms, primary in self.entries:
+                stats = self.stage_stats.get(name) if primary else None
+                if stats is None:
+                    lines.append(f"[debug] {name:<12}{ms:>8.1f}")
+                else:
+                    lines.append(
+                        f"[debug] {name:<12}{ms:>8.1f}{stats['rssKb']:>8}{stats['nodes']:>8}{stats['functions']:>8}"
+                    )
             total = (time.perf_counter() - self._t0) * 1000.0
             lines.append(f"[debug] {'total':<12}{total:>8.1f}")
         if module is not None and self.wants("stages"):
@@ -158,6 +179,11 @@ class Debug:
     def summary(self, module: dict[str, Any] | None, outputs: dict[str, str], status: str) -> dict[str, Any]:
         res: dict[str, Any] = {
             "stages": [{"name": name, "ms": round(ms, 3)} for name, ms in self.stages],
+            "stageStats": [
+                {"name": name, **self.stage_stats[name]}
+                for name, _, primary in self.entries
+                if primary and name in self.stage_stats
+            ],
             "timings": self.timings(),
             "totalMs": round((time.perf_counter() - self._t0) * 1000.0, 3),
             "fences": [] if module is None else module.get("fences", []),
@@ -203,6 +229,32 @@ class Debug:
         (self.debug_dir / "summary.json").write_text(
             json.dumps(self.summary(module, outputs, status), indent=2) + "\n", encoding="utf-8"
         )
+
+
+def _rss_kb() -> int:
+    """Peak resident set size of this process so far, in KiB."""
+
+    try:
+        return int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+    except OSError, ValueError:
+        return 0
+
+
+def _count_nodes(module: dict[str, Any] | None) -> int:
+    """Every IR node in the module: a dict with a string `kind` key."""
+
+    if module is None:
+        return 0
+
+    def walk(value: Any) -> int:
+        if isinstance(value, dict):
+            count = 1 if isinstance(value.get("kind"), str) else 0
+            return count + sum(walk(item) for item in value.values())
+        if isinstance(value, list):
+            return sum(walk(item) for item in value)
+        return 0
+
+    return walk(module)
 
 
 def _module_files(module: dict[str, Any]) -> list[str]:

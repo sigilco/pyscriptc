@@ -131,7 +131,7 @@ def test_timings_flag_prints_stage_table(tmp_path: Path) -> None:
     assert "[debug] total" in proc.stderr
     # parse is the part of the lower stage that went into the parser:
     # the lower row must not repeat it.
-    lower = float(next(line for line in proc.stderr.splitlines() if line.startswith("[debug] lower")).split()[-1])
+    lower = float(next(line for line in proc.stderr.splitlines() if line.startswith("[debug] lower")).split()[2])
     assert lower > 0.0
 
 
@@ -157,6 +157,48 @@ def test_summary_json_carries_timings_field(tmp_path: Path) -> None:
 
 
 def test_timings_without_debug_stays_quiet(tmp_path: Path) -> None:
+    out = tmp_path / "main.ll"
+    proc = run_cli("compile", str(EXAMPLES / "sum_squares.py"), "--emit", "llvm", "-o", str(out))
+    assert proc.returncode == 0, proc.stderr
+    assert "[debug]" not in proc.stderr
+
+
+def test_stage_table_prints_metrics(tmp_path: Path) -> None:
+    out = tmp_path / "main.ll"
+    proc = run_cli("compile", str(EXAMPLES / "sum_squares.py"), "--emit", "llvm", "-o", str(out), "--debug")
+    assert proc.returncode == 0, proc.stderr
+    header = next(line for line in proc.stderr.splitlines() if line.startswith("[debug] stage"))
+    for column in ("ms", "rssKB", "nodes", "funcs"):
+        assert column in header, header
+    lower = next(line for line in proc.stderr.splitlines() if line.startswith("[debug] lower"))
+    fields = lower.split()
+    # name, ms, rssKb, nodes, functions
+    assert len(fields) == 6, lower
+    assert int(fields[4]) > 0
+    assert int(fields[5]) >= 1
+
+
+def test_summary_json_carries_stage_stats(tmp_path: Path) -> None:
+    out = tmp_path / "main.ll"
+    dbg = tmp_path / "dbg"
+    proc = run_cli(
+        "compile", str(EXAMPLES / "sum_squares.py"), "--emit", "llvm", "-o", str(out), "--debug-dir", str(dbg)
+    )
+    assert proc.returncode == 0, proc.stderr
+    summary = json.loads((dbg / "summary.json").read_text())
+    stats = {entry["name"]: entry for entry in summary["stageStats"]}
+    for stage in ("check", "validate", "emit_llvm"):
+        assert stage in stats, stats
+        assert stats[stage]["ms"] >= 0.0
+        assert stats[stage]["rssKb"] >= 0
+        assert stats[stage]["nodes"] > 0, stats[stage]
+        assert stats[stage]["functions"] >= 1, stats[stage]
+    # stageStats only covers primary stages; every one must appear in timings.
+    for name in stats:
+        assert name in summary["timings"]
+
+
+def test_stage_stats_absent_without_debug(tmp_path: Path) -> None:
     out = tmp_path / "main.ll"
     proc = run_cli("compile", str(EXAMPLES / "sum_squares.py"), "--emit", "llvm", "-o", str(out))
     assert proc.returncode == 0, proc.stderr
