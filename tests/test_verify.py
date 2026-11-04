@@ -109,8 +109,8 @@ def test_timeout_names_the_side_that_hung() -> None:
     ]:
         checks = verify.compare(oracle, native)
         exit_check = next(check for check in checks if check["name"] == "exit")
-        assert exit_check["oracleTimedOut"] is oracle.timed_out
-        assert exit_check["nativeTimedOut"] is native.timed_out
+        assert exit_check["oracleTimedOut"] is bool(oracle.timed_out)
+        assert exit_check["nativeTimedOut"] is bool(native.timed_out)
         assert verify._render_check(exit_check) == [expected]
 
 
