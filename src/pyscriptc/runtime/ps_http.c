@@ -6,15 +6,21 @@ transfer-encoding decoding, error statuses (4xx/5xx raise HTTPError with a
 readable body), timeouts (TimeoutError), and redirects (301, 302, 303, 307,
 308, bounded at 10 hops like CPython's HTTPRedirectHandler).
 
-Plaintext http:// only: an https:// target raises URLError (OSError) until
-TLS lands (#235). The response is the HttpResponse record: status, the
-header block as one "Name: value\n" buffer, and the decoded body. Blocking
-sockets only; `Connection: close` and read to EOF, except a chunked body
-ends at the 0-chunk. No keep-alive, no proxies, no cookies.
+http:// runs on the plaintext transport below. https:// runs over dlopen'ed
+libcurl (ps_http_curl.c, issue #235): an HTTP client, not a TLS stream, so it
+performs the whole hop itself and hands the response record back. Without
+libcurl on the machine, an https:// target raises URLError (OSError) with a
+hint that installing libcurl enables it. The response is the HttpResponse
+record either way: status, the header block as one "Name: value\n" buffer,
+and the decoded body. Plaintext blocking sockets only; `Connection: close`
+and read to EOF, except a chunked body ends at the 0-chunk. No keep-alive,
+no proxies, no cookies.
 
-The bytes travel on a transport: four calls (connect, read, write, close)
-plus the verify-hostname flag, so the HTTP layer above never touches a
-socket. The plaintext TCP backend is the only backend today.
+The plaintext bytes travel on a transport: four calls (connect, read, write,
+close) plus the verify-hostname flag, so the HTTP layer above never touches a
+socket. The plaintext TCP backend is the only transport backend today; a TLS
+stream backend (mbedTLS) stays open behind the same interface for a later
+portable fallback.
 
 The redirect Location is resolved against the request URL with
 urllib.parse.urljoin semantics (absolute, scheme-relative, absolute path,
@@ -86,8 +92,9 @@ typedef struct {
     int tls;
 } PsHttpUrl;
 
-/* The scheme each hop carries. An https hop goes to the TLS backend when
-   one is linked and refuses the request when none is. */
+/* The scheme each hop carries. An https hop goes to the libcurl backend in
+   ps_http_curl.c, which raises the not-supported URLError itself when libcurl
+   is missing from the machine. */
 static void ps_http_split(const char *url, PsHttpUrl *out) {
     size_t n = strlen(url);
     const char *cursor = url;
@@ -99,10 +106,6 @@ static void ps_http_split(const char *url, PsHttpUrl *out) {
         out->tls = 1;
         out->port = 443;
         cursor += 8;
-        if (ps_tls_backend() == NULL) {
-            /* Clear message until TLS lands (#235). */
-            ps_http_fail("https is not supported yet (TLS is planned, issue 235)");
-        }
     } else {
         ps_http_fail("urlopen supports http:// URLs");
     }
@@ -279,11 +282,12 @@ static int64_t ps_tcp_write(int64_t handle, const char *buf, int64_t len, double
 
 static void ps_tcp_close(int64_t handle) { close((int)handle); }
 
-/* The default TLS backend: none. A TLS implementation (mbedTLS first,
-   #235) defines a strong `ps_tls_backend` in its own file and returns its
-   transport; the link picks it over this weak definition. With none
-   linked, an https:// request raises URLError below, the way it always
-   has. */
+/* The default TLS backend: none. A TLS stream implementation (mbedTLS, the
+   portable fallback behind the libcurl path, #235) defines a strong
+   `ps_tls_backend` in its own file and returns its transport; the link picks
+   it over this weak definition. With none linked, an https:// request still
+   works through the libcurl backend in ps_http_curl.c, which is an HTTP
+   client rather than a TLS stream and therefore does not use this hook. */
 __attribute__((weak)) const PsHttpTransport *ps_tls_backend(void) { return NULL; }
 
 /* The plaintext TCP backend: the reference implementation of the transport
@@ -297,17 +301,21 @@ static const PsHttpTransport ps_tcp_transport = {
     1,
 };
 
-/* The backend for the scheme of the current hop. An https hop goes to the
-   TLS backend, which `ps_http_split` already proved is linked, and refuses
-   it when the backend reports certificate hostname verification off: there
-   is no silent insecure fallback (#235). */
+/* The backend for the scheme of the current hop. An https hop does not ride
+   a transport: libcurl is an HTTP client, so the hop goes through
+   ps_http_curl_roundtrip, which performs the whole request and verifies the
+   peer certificate against the platform trust store. The transport backend
+   hook stays for a TLS stream implementation (mbedTLS), which refuses a
+   backend that reports certificate hostname verification off: there is no
+   silent insecure fallback (#235). */
 static const PsHttpTransport *ps_http_transport_for(int tls) {
     if (!tls) {
         return &ps_tcp_transport;
     }
     const PsHttpTransport *backend = ps_tls_backend();
     if (backend == NULL) {
-        ps_http_fail("https is not supported yet (TLS is planned, issue 235)");
+        /* No TLS stream backend linked: the libcurl path serves https://. */
+        return &ps_tcp_transport;
     }
     if (backend->connect == NULL || backend->read == NULL || backend->write == NULL || backend->close == NULL) {
         ps_http_fail("the TLS backend is incomplete");
@@ -570,6 +578,26 @@ static void ps_http_roundtrip(
     out->status = status;
 }
 
+/* The https:// hop over libcurl (ps_http_curl.c). The declaration lives here
+   so the runtime keeps one header for the client: the curl backend fills the
+   same response record and hands back the Location of a redirect hop. */
+typedef struct {
+    int64_t status;
+    PsBuf headers;
+    PsBuf body;
+} PsHttpCurlResp;
+
+void ps_http_curl_roundtrip(
+    const char *url,
+    const char *method,
+    const char *extra_headers,
+    const char *body,
+    int64_t body_len,
+    double timeout,
+    PsHttpCurlResp *out,
+    char **location
+);
+
 /* Resolve a Location against the request URL with urllib.parse.urljoin
    semantics: an absolute URL replaces the request, a scheme-relative URL
    keeps the scheme, an absolute path keeps the origin, and a relative path
@@ -703,7 +731,32 @@ PsHttpResp *ps_http_request(
         ps_http_split(url, &parsed);
         free(loc);
         loc = NULL;
-        ps_http_roundtrip(ps_http_transport_for(parsed.tls), &parsed, method, headers, body, body_len, &dl, out, &loc);
+        if (parsed.tls && ps_tls_backend() == NULL) {
+            /* No TLS stream backend linked: the hop goes through libcurl,
+               which is an HTTP client and does the whole request itself. The
+               redirect rules and the hop budget stay here, so both paths
+               behave the same. */
+            PsHttpCurlResp curl_out;
+            /* 0 means no timeout, the way the plaintext path reads an
+               absent deadline; a live deadline passes the seconds left on
+               it, so the hops share one budget. */
+            double left = dl.on ? ps_http_left(&dl) : 0.0;
+            ps_http_curl_roundtrip(
+                url,
+                method,
+                headers,
+                body,
+                body_len,
+                left,
+                &curl_out,
+                &loc
+            );
+            out->status = curl_out.status;
+            out->headers = curl_out.headers;
+            out->body = curl_out.body;
+        } else {
+            ps_http_roundtrip(ps_http_transport_for(parsed.tls), &parsed, method, headers, body, body_len, &dl, out, &loc);
+        }
         status = (int)out->status;
         if (status != 301 && status != 302 && status != 303 && status != 307 && status != 308) {
             break;
