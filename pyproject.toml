@@ -107,6 +107,7 @@ select = ["E", "F", "I", "UP", "B"]
 # `dict[str, Any]` annotation fences PS1106 dynamic-annotation rows on
 # every signature; the census lowerer does not resolve PEP 585 spellings).
 "src/pyscriptc/mirlower.py" = ["UP006", "UP035"]
+"src/pyscriptc/miremit.py" = ["UP006", "UP035"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["pyscriptc"]

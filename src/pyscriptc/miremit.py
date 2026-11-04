@@ -31,7 +31,7 @@ together.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Dict
 
 from pyscriptc.dwarf import DwarfEmitter
 from pyscriptc.emit._ir import _fn_symbol, _llvm_double, _llvm_type, _safe
@@ -124,7 +124,7 @@ def _env(name: str) -> str:
 class MirEmitter:
     """One module's MIR-to-LLVM walk. The MIR was verified before this runs."""
 
-    def __init__(self, module: dict[str, Any], dwarf: DwarfEmitter | None, wasm: bool = False) -> None:
+    def __init__(self, module: Dict[str, Any], dwarf: DwarfEmitter | None, wasm: bool = False) -> None:
         self.module = module
         self.dwarf = dwarf
         self.wasm = wasm
@@ -133,13 +133,13 @@ class MirEmitter:
         self.out: list[str] = []
         self.globals: list[str] = []
         self.needed: set[str] = set()
-        self.abi_decls: dict[str, tuple[str, list[str]]] = {}
+        self.abi_decls: Dict[str, tuple[str, list[str]]] = {}
         self.tid = 0
         # Per-function walk state.
-        self._symbol_fn: dict[str, str] = {}
+        self._symbol_fn: Dict[str, str] = {}
         self.fn: MirFunction | None = None
-        self.reg: dict[int, str] = {}
-        self.slot_vid: dict[str, int] = {}
+        self.reg: Dict[int, str] = {}
+        self.slot_vid: Dict[str, int] = {}
         self.slot_vid_set: set[int] = set()
 
     # ---- module driver ----
@@ -152,7 +152,8 @@ class MirEmitter:
         # module shape (classes, the entry point, the runtime tables); the
         # direct path's per-function bodies the MIR covers are replaced by
         # the MIR lane's text, which is byte-identical by construction.
-        direct = Emitter(self.module, self.dwarf, wasm=self.wasm).emit(call, args, standalone, library=library)
+        emitter: Emitter = Emitter(self.module, self.dwarf, wasm=self.wasm)
+        direct = emitter.emit(call, args, standalone, library=library)
         if not mir_module.functions:
             return direct
         return self._splice(direct, mir_module, by_name)
@@ -251,7 +252,7 @@ class MirEmitter:
         self.out.append("}")
         self.out.append("")
 
-    def _ir_fn(self, name: str) -> dict[str, Any]:
+    def _ir_fn(self, name: str) -> Dict[str, Any]:
         for fn in self.module["functions"]:
             if fn["name"] == name:
                 return fn
@@ -468,9 +469,9 @@ def _result_tag(fn: MirFunction, i: int) -> int:
     op = fn.ops[i]
     if op == MIR_COPY:
         return fn.arg2[i]
-    if op in (MIR_ADDD, MIR_SUBD, MIR_MULD, MIR_NEGD):
+    if op in [MIR_ADDD, MIR_SUBD, MIR_MULD, MIR_NEGD]:
         return MIR_D
-    if op in (MIR_ADDW, MIR_SUBW, MIR_MULW, MIR_NEGW):
+    if op in [MIR_ADDW, MIR_SUBW, MIR_MULW, MIR_NEGW]:
         return MIR_W
     if op in _ICMP_W or op in _FCMP_D:
         return MIR_W
@@ -488,7 +489,7 @@ def _llvm_of_dst(fn: MirFunction, dst: int) -> str:
 
 
 def emit_llvm_mir(
-    module: dict[str, Any],
+    module: Dict[str, Any],
     call: str | None = None,
     args: list[Any] | None = None,
     standalone: bool = False,
@@ -503,4 +504,5 @@ def emit_llvm_mir(
     if not module["functions"]:
         raise IRError("module has no functions to emit")
     dwarf = DwarfEmitter(module["sourceFile"]) if debug_info else None
-    return MirEmitter(module, dwarf).emit(call, [] if args is None else args, standalone, library)
+    emitter: MirEmitter = MirEmitter(module, dwarf)
+    return emitter.emit(call, [] if args is None else args, standalone, library)
