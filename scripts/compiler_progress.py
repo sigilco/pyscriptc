@@ -5,7 +5,11 @@ module line counts, hand-built `"kind":` node dicts (lowering still dict based),
 `["kind"]` dispatch sites (emitters still reading dicts), typed-node users, plus
 optional self-host census pins and the state of the epic's task issues.
 
-    uv run python scripts/compiler_progress.py [--json] [--issues] [--census OUT.json]
+    uv run python scripts/compiler_progress.py [--json] [--issues] [--census OUT.json] [--summary FILE]
+
+`--summary FILE` appends a markdown table (per-seam totals and the ten modules
+holding the most self-host fences, read from `tests/census_pins.json`) to FILE,
+for `$GITHUB_STEP_SUMMARY` in CI.
 """
 
 from __future__ import annotations
@@ -53,6 +57,29 @@ def census_pins(path: Path | None) -> dict[str, object]:
     return {"modules": len(mods) if hasattr(mods, "__len__") else None, "fences": data.get("fences")}
 
 
+def summary_markdown(totals: dict[str, dict[str, int]], pins_path: Path) -> str:
+    lines = [
+        "### Re-architecture progress by seam",
+        "",
+        "| seam | lines | dict builds | dict reads | typed uses |",
+        "|---|---:|---:|---:|---:|",
+    ]
+    for seam, t in totals.items():
+        lines.append(f"| {seam} | {t['lines']} | {t['dict_build']} | {t['dict_read']} | {t['typed_use']} |")
+    if pins_path.is_file():
+        pins: dict[str, int] = json.loads(pins_path.read_text(encoding="utf-8"))
+        top = sorted(pins.items(), key=lambda kv: (-kv[1], kv[0]))[:10]
+        lines += [
+            "",
+            f"### Self-host fences: {sum(pins.values())} across {len(pins)} modules",
+            "",
+            "| module | fences |",
+            "|---|---:|",
+        ]
+        lines += [f"| {name} | {count} |" for name, count in top]
+    return "\n".join(lines) + "\n"
+
+
 def issue_states() -> list[str]:
     out: list[str] = []
     for n in EPIC_TASKS:
@@ -86,6 +113,7 @@ def main() -> int:
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--issues", action="store_true")
     ap.add_argument("--census", type=Path, default=None)
+    ap.add_argument("--summary", type=Path, default=None, help="append a markdown summary to FILE")
     args = ap.parse_args()
     rows = seam_rows()
     totals: dict[str, dict[str, int]] = {}
@@ -96,6 +124,9 @@ def main() -> int:
     report: dict[str, object] = {"totals": totals, "modules": rows, "census": census_pins(args.census)}
     if args.issues:
         report["issues"] = issue_states()
+    if args.summary is not None:
+        with args.summary.open("a", encoding="utf-8") as handle:
+            handle.write(summary_markdown(totals, ROOT / "tests" / "census_pins.json"))
     if args.json:
         json.dump(report, sys.stdout, indent=2)
         print()
