@@ -408,7 +408,25 @@ def stage_program_data(
     root_dir = stage_program_data_target()
     if root_dir is None:
         return None
-    for rel, body in sorted(staged_data):
+    # `sorted(staged_data)` fences (PS2003: sorted takes scalar elements),
+    # so the same order comes out of an insertion sort on the path. Path
+    # ordering is by parts tuple, so equal strings order the same way.
+    ordered: list[tuple[Path, bytes]] = []
+    for entry in staged_data:
+        ordered.append(entry)
+    n: int = len(ordered)
+    i: int = 0
+    while i < n - 1:
+        j: int = i + 1
+        while j < n:
+            a: tuple[Path, bytes] = ordered[i]
+            b: tuple[Path, bytes] = ordered[j]
+            if b[0].parts < a[0].parts:
+                ordered[i] = b
+                ordered[j] = a
+            j = j + 1
+        i = i + 1
+    for rel, body in ordered:
         target = root_dir / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(body)
@@ -624,7 +642,7 @@ def _mark_dep_fences(
         if distribution and distribution not in message:
             copy: dict[str, Any] = {}
             for key in fence:
-                item: Any = fence[key]
+                item: dict[str, Any] = fence[key]
                 copy[key] = item
             copy["message"] = f"{message} ({distribution} ships {module})"
             out.append(copy)
@@ -728,10 +746,18 @@ def _program_roots(trees: dict[str, ast.Module], entry: str | None = None) -> li
     reaches the other modules. The rest follow in name order.
     """
 
-    roots = ["__main__"] if "__main__" in trees else []
+    roots: list[str] = []
+    if "__main__" in trees:
+        roots.append("__main__")
     if entry is not None and entry in trees:
-        roots = [entry] + [name for name in roots if name != entry]
-    roots.extend(sorted(name for name in trees if name not in roots))
+        rest: list[str] = []
+        for name in roots:
+            if name != entry:
+                rest.append(name)
+        roots = [entry, *rest]
+    for name in sorted(trees):
+        if name not in roots:
+            roots.append(name)
     return roots
 
 
@@ -753,10 +779,10 @@ def _is_package_submodule_cycle(cycle: list[str], packages: set[str]) -> bool:
 def _cycle_span(path: Path, stmt: ast.stmt | None) -> dict[str, Any]:
     """The span of the import statement that closes a cycle."""
 
-    line = getattr(stmt, "lineno", 1) or 1
-    col = getattr(stmt, "col_offset", 0) or 0
-    end_line = getattr(stmt, "end_lineno", line) or line
-    end_col = getattr(stmt, "end_col_offset", col) or col
+    line: int = getattr(stmt, "lineno", 1) or 1
+    col: int = getattr(stmt, "col_offset", 0) or 0
+    end_line: int = getattr(stmt, "end_lineno", line) or line
+    end_col: int = getattr(stmt, "end_col_offset", col) or col
     return {
         "file": str(path),
         "line": line,
