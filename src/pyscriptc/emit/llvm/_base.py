@@ -25,7 +25,7 @@ class EmitterBase:
     tid: int
     lid: int
     slots: dict[str, tuple[str, dict[str, Any]]]
-    terminated: bool
+    terminated: int
     try_depth: int
     outline_depth: int
     outline_n: int
