@@ -55,7 +55,10 @@ jobs:
     permissions:
       contents: write  # gh release upload attaches the JSON to the release
     steps:
+      # Full history: the delta step looks up the previous tag.
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-python@v6
         with:
@@ -81,11 +84,29 @@ jobs:
             echo "### Benchmarks for $BENCH_ID"
             echo
             echo "Runs per workload: $BENCH_RUNS. Report-only: nothing fails on a regression."
-            echo
-            echo '```'
-            cat "bench-$BENCH_ID.json"
-            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # The delta against the previous tag. The previous bench JSON rides along
+      # in the previous release's assets, so the comparison needs no rerun.
+      # Report-only: a missing previous file is a note, not a failure.
+      - name: Delta against the previous tag
+        id: delta
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Only the stable tags (vX.Y.Z). A checkpoint tag (vX.Y.Z-beta.N) is
+          # an internal mark between releases, not a comparison base.
+          prev="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' "${GITHUB_SHA}^" 2>/dev/null || true)"
+          if [ -z "$prev" ]; then
+            echo "::notice::no previous tag to compare against"
+            exit 0
+          fi
+          if ! gh release download "$prev" --pattern "bench-$prev.json" --dir /tmp/prev-bench --clobber 2>/dev/null; then
+            echo "::notice::$prev has no bench-$prev.json asset; no delta"
+            exit 0
+          fi
+          uv run python -m benchmarks.baseline.delta "/tmp/prev-bench/bench-$prev.json" "bench-$BENCH_ID.json" --summary "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the bench JSON
         uses: actions/upload-artifact@v6
