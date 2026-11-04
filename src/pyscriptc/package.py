@@ -422,7 +422,7 @@ def stage_program_data(
         while j < n:
             a: tuple[Path, bytes] = ordered[i]
             b: tuple[Path, bytes] = ordered[j]
-            if b[0].parts < a[0].parts:
+            if a[0] > b[0]:
                 ordered[i] = b
                 ordered[j] = a
             j = j + 1
