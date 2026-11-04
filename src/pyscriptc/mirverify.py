@@ -259,8 +259,8 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
         # the two control ops (MIR_BR, MIR_RET). The result type comes from
         # the same table through the lookup helper above.
         arity_at: int | None = OP_ARITY.get(op)
-        is_control: int = op == MIR_BR or op == MIR_RET
-        if arity_at is not None and (arity_at >= 2 or (arity_at >= 1 and not is_control)):
+        is_control: int = 1 if op == MIR_BR or op == MIR_RET else 0
+        if arity_at is not None and (arity_at >= 2 or (arity_at == 1 and is_control == 0)):
             if dst < 0:
                 out.append(_Violation(CODE_USEDEF, f"instr {i}: value op without a dst"))
             else:
