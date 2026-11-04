@@ -1,0 +1,107 @@
+# Benchmark runs for every release and every checkpoint (issue #882).
+#
+# Triggers:
+#   - a release tag      vX.Y.Z
+#   - a checkpoint tag   vX.Y.Z-beta.N   (internal, never published to PyPI)
+#   - workflow_dispatch  on any ref (a branch, a tag or a full SHA)
+#
+# One benchmark result maps 1:1 to a version: the run writes
+# bench-<tag-or-sha>.json and, for a tag, attaches that file to the release
+# as an asset. A manual run uploads the same file as a workflow artifact
+# instead.
+#
+# The runner is pinned to ubuntu-24.04 (Linux x86_64, glibc 2.39), the same
+# machine class as the Linux release build. macOS arm64 runners are noisy and
+# are not used here.
+#
+# At least 20 runs per workload: the committed suite records 5, which is too
+# few to say anything about spread. The recorded JSON keeps the median, the
+# interquartile spread of the samples, the peak RSS and the linked binary's
+# size, so a later run can be compared against it.
+#
+# The comparison is report-only. Nothing here fails on a regression: the
+# threshold becomes a gate after two releases of data, per the design
+# comment on #882.
+name: bench
+
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('bench {0}', github.sha) || format('bench {0}', github.ref_name) }}
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+      - "v*.*.*-beta.*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bench-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # The tag for a tag push, the short commit sha otherwise. The JSON file is
+  # named after it.
+  BENCH_ID: ${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+  # Runs per workload. The design asks for at least 20.
+  BENCH_RUNS: "20"
+
+jobs:
+  bench:
+    name: benchmarks (${{ github.ref_type == 'tag' && github.ref_name || github.sha }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: write  # gh release upload attaches the JSON to the release
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"  # emSign CA incident: uv 0.13.4 dropped the compromised root
+          enable-cache: true
+          python-version: "3.14"
+
+      # The emitted binaries link the runtime C, so clang must be present.
+      - name: Install clang
+        run: command -v clang >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq clang; }
+
+      - name: Run the baseline suite
+        run: uv run python -m benchmarks.baseline.run --runs "$BENCH_RUNS" --json "bench-$BENCH_ID.json"
+
+      - name: Summarize the run
+        run: |
+          set -euo pipefail
+          {
+            echo "### Benchmarks for $BENCH_ID"
+            echo
+            echo "Runs per workload: $BENCH_RUNS. Report-only: nothing fails on a regression."
+            echo
+            echo '```'
+            cat "bench-$BENCH_ID.json"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the bench JSON
+        uses: actions/upload-artifact@v6
+        with:
+          name: bench-${{ env.BENCH_ID }}
+          path: bench-${{ env.BENCH_ID }}.json
+          if-no-files-found: error
+
+      # A tag run attaches the JSON to the release, so the release assets hold
+      # the perf receipt next to the binaries. The release is a draft until
+      # the owner publishes it, and the file lands on the draft too.
+      - name: Attach the bench JSON to the release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload "$BENCH_ID" "bench-$BENCH_ID.json" --clobber || \
+            echo "::warning::could not attach bench-$BENCH_ID.json to the release (it may not exist yet)"
