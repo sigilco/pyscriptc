@@ -20,7 +20,7 @@ import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict
 
 from pyscriptc.errors import SpikeError
 
@@ -51,7 +51,7 @@ _KEYS: dict[str, tuple[type, ...]] = {
     "island": (dict,),
     # boxed:end
 }
-_CHOICES = {
+_CHOICES: Dict[str, tuple[str, ...]] = {
     "checker": ("pyrefly", "mypy", "pyright"),
     "driver": ("clang", "zig"),
     "fail-on": ("blockers", "any"),
@@ -73,17 +73,17 @@ def entry_points(pyproject: Path) -> dict[str, str]:
     """
 
     try:
-        data = _toml(pyproject)
+        data: Dict[str, Any] = _toml(pyproject)
     except ConfigError:
         raise
-    project = data.get("project")
-    if project is None:
+    if "project" not in data:
         return {}
+    project: Dict[str, Any] = data["project"]
     if not isinstance(project, dict):
         raise ConfigError(f"{pyproject}: [project] must be a table")
-    scripts = project.get("scripts")
-    if scripts is None:
+    if "scripts" not in project:
         return {}
+    scripts: Dict[str, Any] = project["scripts"]
     if not isinstance(scripts, dict):
         raise ConfigError(f"{pyproject}: [project.scripts] must be a table")
     out: dict[str, str] = {}
@@ -279,7 +279,10 @@ def requirement_name(requirement: str) -> str:
     match = _REQ_NAME_RE.match(requirement)
     if match is None:
         raise ConfigError(f"PEP 723 dependency {requirement!r} is not a valid requirement")
-    return match.group(1)
+    name: str | None = match.group(1)
+    if name is None:
+        raise ConfigError(f"PEP 723 dependency {requirement!r} is not a valid requirement")
+    return name
 
 
 def dependency_lanes(dependencies: tuple[str, ...], imports: dict[str, str] | None = None) -> dict[str, str]:
@@ -381,28 +384,39 @@ def _from_table(table: dict[str, Any], origin: Path, source: str) -> Config:
     )
 
 
-def _project_table(data: dict[str, Any], origin: Path) -> dict[str, Any] | None:
-    tool = data.get("tool", {})
+def _project_table(data: Dict[str, Any], origin: Path) -> Dict[str, Any] | None:
+    if "tool" not in data:
+        return None
+    tool: Dict[str, Any] = data["tool"]
     if not isinstance(tool, dict):
         raise ConfigError(f"{origin}: [tool] must be a table")
-    table = tool.get("pyscriptc")
-    if table is None:
+    if "pyscriptc" not in tool:
         return None
+    table: Dict[str, Any] = tool["pyscriptc"]
     if not isinstance(table, dict):
         raise ConfigError(f"{origin}: [tool.pyscriptc] must be a table")
     return table
 
 
-def _deps_of(meta: dict[str, Any]) -> tuple[str | None, tuple[str, ...]]:
-    requires = meta.get("requires-python")
-    if requires is not None and not isinstance(requires, str):
-        raise ConfigError("PEP 723 `requires-python` must be a string")
-    deps = meta.get("dependencies")
-    if deps is None:
-        return requires, ()
-    if not isinstance(deps, list) or not all(isinstance(item, str) for item in deps):
+def _deps_of(meta: Dict[str, Any]) -> tuple[str | None, tuple[str, ...]]:
+    requires: str | None = None
+    if "requires-python" in meta:
+        req_val: str = meta["requires-python"]
+        if not isinstance(req_val, str):
+            raise ConfigError("PEP 723 `requires-python` must be a string")
+        requires = req_val
+    if "dependencies" not in meta:
+        empty_deps: list[str] = []
+        return requires, tuple(empty_deps)
+    deps_val: list[str] = meta["dependencies"]
+    if not isinstance(deps_val, list):
         raise ConfigError("PEP 723 `dependencies` must be a list of requirement strings")
-    return requires, tuple(deps)
+    deps_list: list[str] = []
+    for item in deps_val:
+        if not isinstance(item, str):
+            raise ConfigError("PEP 723 `dependencies` must be a list of requirement strings")
+        deps_list.append(item)
+    return requires, tuple(deps_list)
 
 
 def _read_script_meta(script: Path) -> dict[str, Any]:
