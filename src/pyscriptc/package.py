@@ -575,15 +575,27 @@ def _mark_dep_fences(
         return fences
     out: list[dict[str, Any]] = []
     for fence in fences:
-        span = fence.get("span") or {}
-        module = by_file.get(span.get("file", ""))
+        span: dict[str, Any] = {}
+        if "span" in fence:
+            span = fence["span"]
+        module: str | None = None
+        if "file" in span:
+            module = by_file.get(span["file"])
         if module is None:
             out.append(fence)
             continue
         distribution = _dep_distribution(module, dep_lane_report)
-        message = fence.get("message", "")
+        message: str = ""
+        if "message" in fence:
+            message = fence["message"]
         if distribution and distribution not in message:
-            fence = {**fence, "message": f"{message} ({distribution} ships {module})"}
+            copy: dict[str, Any] = {}
+            for key in fence:
+                item: Any = fence[key]
+                copy[key] = item
+            copy["message"] = f"{message} ({distribution} ships {module})"
+            out.append(copy)
+            continue
         out.append(fence)
     return out
 
@@ -1334,6 +1346,36 @@ def _skip_note(root: Path, relative: str) -> str:
 _NOT_EXPORTED = " is not exported by this package"
 
 
+def _fence_ident(fence: dict[str, Any]) -> str:
+    """The identity of a fence: its code, message and span, as one key.
+
+    The key is the same five fields the tuple identity carried, joined with
+    a NUL separator. A NUL cannot appear in a code, a message or a file
+    name, so the join is unambiguous and two fences share a key exactly
+    when the tuple identity made them equal.
+    """
+
+    code: str = ""
+    if "code" in fence:
+        code = fence["code"]
+    message: str = ""
+    if "message" in fence:
+        message = fence["message"]
+    span: dict[str, Any] = {}
+    if "span" in fence:
+        span = fence["span"]
+    file: str = ""
+    if "file" in span:
+        file = span["file"]
+    line: int = 0
+    if "line" in span:
+        line = span["line"]
+    col: int = 0
+    if "col" in span:
+        col = span["col"]
+    return code + "\x00" + message + "\x00" + file + "\x00" + str(line) + "\x00" + str(col)
+
+
 def _promote_definition_fences(
     fences: list[dict[str, Any]], failed: dict[str, dict[str, dict[str, Any]]]
 ) -> list[dict[str, Any]]:
@@ -1343,28 +1385,26 @@ def _promote_definition_fences(
     if not by_qual:
         return fences
 
-    def ident(fence: dict[str, Any]) -> tuple[Any, ...]:
-        span = fence.get("span") or {}
-        return (fence.get("code"), fence.get("message"), span.get("file"), span.get("line"), span.get("col"))
-
-    wanted = {ident(fence) for fence in by_qual.values()}
-    emitted: set[tuple[Any, ...]] = set()
+    wanted: dict[str, str] = {}
+    for fence in by_qual.values():
+        wanted[_fence_ident(fence)] = "1"
+    emitted: dict[str, str] = {}
     out: list[dict[str, Any]] = []
     for fence in fences:
-        message = fence.get("message") or ""
+        message: str = fence["message"]
         if message.endswith(_NOT_EXPORTED):
             defined = by_qual.get(message[: -len(_NOT_EXPORTED)])
             if defined is not None:
-                mark = ident(defined)
+                mark = _fence_ident(defined)
                 if mark not in emitted:
                     out.append(defined)
-                    emitted.add(mark)
-        mark = ident(fence)
+                    emitted[mark] = "1"
+        mark = _fence_ident(fence)
         if mark in emitted and mark in wanted:
             continue
         out.append(fence)
         if mark in wanted:
-            emitted.add(mark)
+            emitted[mark] = "1"
     return out
 
 
