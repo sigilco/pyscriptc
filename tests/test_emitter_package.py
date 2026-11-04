@@ -80,6 +80,14 @@ def test_the_seam_reads_the_kind_tag() -> None:
     assert _ir._kind({"kind": "str"}) == "str"
 
 
+def test_the_seam_reads_an_absent_kind_tag() -> None:
+    from pyscriptc.emit import _ir
+
+    assert _ir._kind_or_none({"kind": "int"}) == "int"
+    assert _ir._kind_or_none({}) is None
+    assert _ir._kind_or_none(None) is None
+
+
 def test_the_seam_knows_the_symbol_naming() -> None:
     from pyscriptc.emit import _ir
 

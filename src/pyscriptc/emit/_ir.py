@@ -35,6 +35,17 @@ def _kind(typ: dict[str, Any]) -> str:
     return kind
 
 
+def _kind_or_none(typ: dict[str, Any] | None) -> str | None:
+    """The kind tag of a type record that may be absent, as with an
+    unannotated `want` on an island call. Every emitter type dispatch reads
+    the record through this accessor instead of the raw dict key."""
+
+    if typ is None:
+        return None
+    kind: str | None = typ.get("kind", None)
+    return kind
+
+
 def standalone_entry(module: dict[str, Any]) -> dict[str, Any] | None:
     """The module's runnable entry (a script body or `__main__` guard), if `--run` without `--call` has one."""
     entry = module.get("entry")
