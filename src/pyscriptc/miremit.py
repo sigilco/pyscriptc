@@ -67,7 +67,6 @@ from pyscriptc.mir import (
     MIR_SUBD,
     MIR_SUBW,
     MIR_W,
-    TERMINATORS,
     MirBlock,
     MirConst,
     MirFunction,
@@ -108,6 +107,12 @@ _HELPER_W = {MIR_ADDW: "iadd", MIR_SUBW: "isub", MIR_MULW: "imul", MIR_NEGW: "in
 # The plain arithmetic spellings, per tag.
 _LLVM_W = {MIR_ADDW: "add", MIR_SUBW: "sub", MIR_MULW: "mul", MIR_NEGW: "sub"}
 _LLVM_D = {MIR_ADDD: "fadd", MIR_SUBD: "fsub", MIR_MULD: "fmul", MIR_NEGD: "fneg"}
+
+
+# The terminator ops, spelled here over the imported op constants: the
+# module-level table in `mir.py` binds a global slot, and slots do not
+# ride the package export table a cross-module import resolves against.
+_MIR_TERMINATORS: list[int] = [MIR_JMP, MIR_BR, MIR_RET]
 
 
 def mir_opt_in() -> bool:
@@ -279,20 +284,23 @@ class MirEmitter:
                 return copy_result_type(fn, i)
         raise IRError(f"no definition of v{vid}")
 
-    def _span(self, bid: int) -> range:
+    def _span(self, bid: int) -> list[int]:
         """The instruction indexes of block `bid` (construction order spans)."""
         assert self.fn is not None
         fn = self.fn
         cursor = 0
         n = len(fn.ops)
         for _ in range(bid):
-            while cursor < n and fn.ops[cursor] not in TERMINATORS:
+            while cursor < n and fn.ops[cursor] not in _MIR_TERMINATORS:
                 cursor += 1
             cursor += 1
         start = cursor
-        while cursor < n and fn.ops[cursor] not in TERMINATORS:
+        while cursor < n and fn.ops[cursor] not in _MIR_TERMINATORS:
             cursor += 1
-        return range(start, cursor + 1)
+        out: list[int] = []
+        for i in range(start, cursor + 1):
+            out.append(i)
+        return out
 
     def _label(self, bid: int) -> str:
         """The direct path's label spelling of MIR block `bid`.
