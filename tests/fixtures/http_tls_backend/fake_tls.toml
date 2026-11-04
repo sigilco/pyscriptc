@@ -1,0 +1,12 @@
+# The manifest that links the fake in-process TLS backend into a test
+# binary. The backend implements the transport contract of ps_tls.h, so the
+# https:// request in test_urllib_request.py travels through the transport
+# interface instead of the plaintext socket path.
+
+[manifest]
+module = "faketls"
+ps_abi = 1
+format = 1
+
+[[source]]
+path = "fake_tls_backend.c"

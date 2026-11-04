@@ -12,12 +12,17 @@ header block as one "Name: value\n" buffer, and the decoded body. Blocking
 sockets only; `Connection: close` and read to EOF, except a chunked body
 ends at the 0-chunk. No keep-alive, no proxies, no cookies.
 
+The bytes travel on a transport: four calls (connect, read, write, close)
+plus the verify-hostname flag, so the HTTP layer above never touches a
+socket. The plaintext TCP backend is the only backend today.
+
 The redirect Location is resolved against the request URL with
 urllib.parse.urljoin semantics (absolute, scheme-relative, absolute path,
 and relative path with . and .. segments).
 */
 
 #include "ps_rt.h"
+#include "ps_tls.h"
 
 #if !defined(__wasi__) && !defined(_WIN32)
 
@@ -71,25 +76,33 @@ static char *ps_http_dup(int64_t n, const char *s) {
     return text;
 }
 
-/* Parsed http URL: host, port, and the path-plus-query to send. The host
-   and path borrow from the (mutable) working copy of the URL text. */
+/* The URL text is not modified: the redirect loop needs the whole URL to
+   resolve a relative Location against it. The host and the path are copies.
+   `out->tls` says whether the request goes to the TLS backend. */
 typedef struct {
     const char *host;
     int port;
     const char *path;
+    int tls;
 } PsHttpUrl;
 
-/* The URL text is not modified: the redirect loop needs the whole URL to
-   resolve a relative Location against it. The host and the path are copies. */
+/* The scheme each hop carries. An https hop goes to the TLS backend when
+   one is linked and refuses the request when none is. */
 static void ps_http_split(const char *url, PsHttpUrl *out) {
     size_t n = strlen(url);
     const char *cursor = url;
     out->port = 80;
+    out->tls = 0;
     if (n >= 7 && strncmp(cursor, "http://", 7) == 0) {
         cursor += 7;
     } else if (n >= 8 && strncmp(cursor, "https://", 8) == 0) {
-        /* Clear message until TLS lands (#235). */
-        ps_http_fail("https is not supported yet (TLS is planned, issue 235)");
+        out->tls = 1;
+        out->port = 443;
+        cursor += 8;
+        if (ps_tls_backend() == NULL) {
+            /* Clear message until TLS lands (#235). */
+            ps_http_fail("https is not supported yet (TLS is planned, issue 235)");
+        }
     } else {
         ps_http_fail("urlopen supports http:// URLs");
     }
@@ -149,83 +162,203 @@ static void ps_http_deadline_start(PsHttpDeadline *dl, double timeout) {
     dl->on = 0;
 }
 
-/* The remaining time, or the fallback when there is no deadline. */
-static void ps_http_left(const PsHttpDeadline *dl, struct timeval *left) {
+/* The seconds left on the deadline, or the fallback when there is no
+   deadline. An expired deadline raises, so a call never happens with no
+   time left. */static double ps_http_left(const PsHttpDeadline *dl) {
     if (!dl->on) {
-        left->tv_sec = 60;
-        left->tv_usec = 0;
-        return;
+        return 60.0;
     }
     struct timeval now;
     gettimeofday(&now, NULL);
-    left->tv_sec = dl->at.tv_sec - now.tv_sec;
-    left->tv_usec = dl->at.tv_usec - now.tv_usec;
-    if (left->tv_sec < 0 || (left->tv_sec == 0 && left->tv_usec <= 0)) {
+    double left = (double)(dl->at.tv_sec - now.tv_sec) + (double)(dl->at.tv_usec - now.tv_usec) / 1e6;
+    if (left <= 0.0) {
         ps_http_fail("timed out");
     }
+    return left;
 }
 
-static void ps_http_wait_read(int fd, const PsHttpDeadline *dl) {
+
+/* Connect to host:port. The timeout applies to the connect through the
+   socket's own send and receive timeouts. */
+static int64_t ps_tcp_connect(const char *host, int port, double timeout) {
+    char port_text[8];
+    struct addrinfo hints;
+    struct addrinfo *res = NULL;
+    snprintf(port_text, sizeof port_text, "%d", port);
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    int gai = getaddrinfo(host, port_text, &hints, &res);
+    if (gai != 0 || res == NULL) {
+        ps_http_fail(gai == 0 ? "no address for host" : gai_strerror(gai));
+    }
+    int fd = -1;
+    for (struct addrinfo *ai = res; ai != NULL; ai = ai->ai_next) {
+        fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        if (fd < 0) {
+            continue;
+        }
+        if (connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) {
+            break;
+        }
+        close(fd);
+        fd = -1;
+    }
+    freeaddrinfo(res);
+    if (fd < 0) {
+        ps_http_fail("connection refused");
+    }
+    if (timeout > 0) {
+        struct timeval tv;
+        tv.tv_sec = (time_t)timeout;
+        tv.tv_usec = (suseconds_t)((timeout - (double)tv.tv_sec) * 1e6);
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+    }
+    return (int64_t)fd;
+}
+
+/* Wait for the socket to be readable, then read once. */
+static int64_t ps_tcp_read(int64_t handle, char *buf, int64_t len, double timeout) {
+    int fd = (int)handle;
     for (;;) {
         fd_set rf;
         struct timeval left;
-        ps_http_left(dl, &left);
+        left.tv_sec = (time_t)timeout;
+        left.tv_usec = (suseconds_t)((timeout - (double)left.tv_sec) * 1e6);
         FD_ZERO(&rf);
         FD_SET(fd, &rf);
         int n = select(fd + 1, &rf, NULL, NULL, &left);
-        if (n > 0) {
-            return;
-        }
         if (n < 0 && errno == EINTR) {
             continue;
         }
-        ps_http_fail("timed out");
+        if (n <= 0) {
+            return PS_HTTP_IO_TIMEOUT;
+        }
+        ssize_t got = read(fd, buf, (size_t)len);
+        if (got == 0) {
+            return 0;
+        }
+        if (got < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            return PS_HTTP_IO_ERROR;
+        }
+        return (int64_t)got;
     }
+}
+
+/* Wait for the socket to be writable, then write once. */
+static int64_t ps_tcp_write(int64_t handle, const char *buf, int64_t len, double timeout) {
+    int fd = (int)handle;
+    for (;;) {
+        fd_set wf;
+        struct timeval left;
+        left.tv_sec = (time_t)timeout;
+        left.tv_usec = (suseconds_t)((timeout - (double)left.tv_sec) * 1e6);
+        FD_ZERO(&wf);
+        FD_SET(fd, &wf);
+        int n = select(fd + 1, NULL, &wf, NULL, &left);
+        if (n < 0 && errno == EINTR) {
+            continue;
+        }
+        if (n <= 0) {
+            return PS_HTTP_IO_TIMEOUT;
+        }
+        ssize_t wrote = write(fd, buf, (size_t)len);
+        if (wrote < 0 && errno == EINTR) {
+            continue;
+        }
+        if (wrote <= 0) {
+            return PS_HTTP_IO_ERROR;
+        }
+        return (int64_t)wrote;
+    }
+}
+
+static void ps_tcp_close(int64_t handle) { close((int)handle); }
+
+/* The default TLS backend: none. A TLS implementation (mbedTLS first,
+   #235) defines a strong `ps_tls_backend` in its own file and returns its
+   transport; the link picks it over this weak definition. With none
+   linked, an https:// request raises URLError below, the way it always
+   has. */
+__attribute__((weak)) const PsHttpTransport *ps_tls_backend(void) { return NULL; }
+
+/* The plaintext TCP backend: the reference implementation of the transport
+   contract. A plaintext stream carries no certificate, so the verification
+   flag has nothing to act on here and stays at its default. */
+static const PsHttpTransport ps_tcp_transport = {
+    ps_tcp_connect,
+    ps_tcp_read,
+    ps_tcp_write,
+    ps_tcp_close,
+    1,
+};
+
+/* The backend for the scheme of the current hop. An https hop goes to the
+   TLS backend, which `ps_http_split` already proved is linked, and refuses
+   it when the backend reports certificate hostname verification off: there
+   is no silent insecure fallback (#235). */
+static const PsHttpTransport *ps_http_transport_for(int tls) {
+    if (!tls) {
+        return &ps_tcp_transport;
+    }
+    const PsHttpTransport *backend = ps_tls_backend();
+    if (backend == NULL) {
+        ps_http_fail("https is not supported yet (TLS is planned, issue 235)");
+    }
+    if (backend->connect == NULL || backend->read == NULL || backend->write == NULL || backend->close == NULL) {
+        ps_http_fail("the TLS backend is incomplete");
+    }
+    if (!backend->verify_hostname) {
+        ps_http_fail("the TLS backend does not verify hostnames");
+    }
+    return backend;
 }
 
 /* Read up to `want` bytes into the grow buffer, at most `limit` in total.
    `limit` of -1 reads until EOF. Returns the bytes read. */
-static int64_t ps_http_read_into(int fd, PsGrow *g, int64_t limit, const PsHttpDeadline *dl) {
+static int64_t ps_http_read_into(
+    const PsHttpTransport *t,
+    int64_t handle,
+    PsGrow *g,
+    int64_t limit,
+    const PsHttpDeadline *dl
+) {
     char chunk[8192];
     int64_t got = 0;
     for (;;) {
         if (limit >= 0 && got >= limit) {
             return got;
         }
-        ps_http_wait_read(fd, dl);
         size_t want = sizeof chunk;
         if (limit >= 0 && limit - got < (int64_t)want) {
             want = (size_t)(limit - got);
         }
-        ssize_t n = read(fd, chunk, want);
+        int64_t n = t->read(handle, chunk, (int64_t)want, ps_http_left(dl));
         if (n == 0) {
             return got;
         }
         if (n < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            ps_http_fail("socket read failed");
+            ps_http_fail(n == PS_HTTP_IO_TIMEOUT ? "timed out" : "socket read failed");
         }
-        ps_grow_add(g, chunk, (int64_t)n);
+        ps_grow_add(g, chunk, n);
         got += n;
     }
 }
 
 /* Read one CRLF-terminated line (without the CRLF). */
-static void ps_http_read_line(int fd, PsGrow *g, const PsHttpDeadline *dl) {
+static void ps_http_read_line(const PsHttpTransport *t, int64_t handle, PsGrow *g, const PsHttpDeadline *dl) {
     char ch;
     for (;;) {
-        ps_http_wait_read(fd, dl);
-        ssize_t n = read(fd, &ch, 1);
+        int64_t n = t->read(handle, &ch, 1, ps_http_left(dl));
         if (n == 0) {
             ps_http_fail("connection closed mid-response");
         }
         if (n < 0) {
-            if (errno == EINTR) {
-                continue;
-            }
-            ps_http_fail("socket read failed");
+            ps_http_fail(n == PS_HTTP_IO_TIMEOUT ? "timed out" : "socket read failed");
         }
         if (ch == '\n') {
             return;
@@ -268,67 +401,21 @@ static int ps_http_ci_eq(const char *a, const char *b) {
 /* A header name (lowercased) compared case-insensitively against a literal. */
 static int ps_http_is_header(const char *name, const char *want) { return ps_http_ci_eq(name, want); }
 
-/* Connect to host:port. The timeout applies to the connect through the
-   socket's own send and receive timeouts. */
-static int ps_http_connect(const char *host, int port, double timeout) {
-    char port_text[8];
-    struct addrinfo hints;
-    struct addrinfo *res = NULL;
-    snprintf(port_text, sizeof port_text, "%d", port);
-    memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    int gai = getaddrinfo(host, port_text, &hints, &res);
-    if (gai != 0 || res == NULL) {
-        ps_http_fail(gai == 0 ? "no address for host" : gai_strerror(gai));
-    }
-    int fd = -1;
-    for (struct addrinfo *ai = res; ai != NULL; ai = ai->ai_next) {
-        fd = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
-        if (fd < 0) {
-            continue;
-        }
-        if (connect(fd, ai->ai_addr, ai->ai_addrlen) == 0) {
-            break;
-        }
-        close(fd);
-        fd = -1;
-    }
-    freeaddrinfo(res);
-    if (fd < 0) {
-        ps_http_fail("connection refused");
-    }
-    if (timeout > 0) {
-        struct timeval tv;
-        tv.tv_sec = (time_t)timeout;
-        tv.tv_usec = (suseconds_t)((timeout - (double)tv.tv_sec) * 1e6);
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
-        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
-    }
-    return fd;
-}
-
 /* Write the whole request buffer. */
-static void ps_http_write_all(int fd, const char *data, int64_t len, const PsHttpDeadline *dl) {
+static void ps_http_write_all(
+    const PsHttpTransport *t,
+    int64_t handle,
+    const char *data,
+    int64_t len,
+    const PsHttpDeadline *dl
+) {
     int64_t done = 0;
     while (done < len) {
-        fd_set wf;
-        struct timeval left;
-        ps_http_left(dl, &left);
-        FD_ZERO(&wf);
-        FD_SET(fd, &wf);
-        int n = select(fd + 1, NULL, &wf, NULL, &left);
-        if (n < 0 && errno == EINTR) {
-            continue;
+        int64_t wrote = t->write(handle, data + done, len - done, ps_http_left(dl));
+        if (wrote < 0) {
+            ps_http_fail(wrote == PS_HTTP_IO_TIMEOUT ? "timed out" : "socket write failed");
         }
-        if (n <= 0) {
-            ps_http_fail("timed out");
-        }
-        ssize_t wrote = write(fd, data + done, (size_t)(len - done));
-        if (wrote <= 0) {
-            if (wrote < 0 && errno == EINTR) {
-                continue;
-            }
+        if (wrote == 0) {
             ps_http_fail("socket write failed");
         }
         done += wrote;
@@ -339,6 +426,7 @@ static void ps_http_write_all(int fd, const char *data, int64_t len, const PsHtt
    header block (already CRLF-terminated lines). Fills the record and, when
    the status is a redirect, hands back the Location value (owned). */
 static void ps_http_roundtrip(
+    const PsHttpTransport *t,
     const PsHttpUrl *url,
     const char *method,
     const char *extra_headers,
@@ -348,7 +436,10 @@ static void ps_http_roundtrip(
     PsHttpResp *out,
     char **location
 ) {
-    int fd = ps_http_connect(url->host, url->port, dl->on ? (double)dl->at.tv_sec : 0.0);
+    int64_t handle = t->connect(url->host, url->port, dl->on ? (double)dl->at.tv_sec : 0.0);
+    if (handle < 0) {
+        ps_http_fail("connection refused");
+    }
     PsGrow req;
     ps_grow_init(&req);
     char head[512];
@@ -371,13 +462,13 @@ static void ps_http_roundtrip(
     }
     PsBuf wire;
     ps_grow_finish(&req, &wire);
-    ps_http_write_all(fd, wire.data, wire.len, dl);
+    ps_http_write_all(t, handle, wire.data, wire.len, dl);
     free(wire.data);
 
     /* Status line. */
     PsGrow line;
     ps_grow_init(&line);
-    ps_http_read_line(fd, &line, dl);
+    ps_http_read_line(t, handle, &line, dl);
     PsBuf status_line;
     ps_grow_finish(&line, &status_line);
     int64_t status = ps_http_status_of(status_line.data);
@@ -392,7 +483,7 @@ static void ps_http_roundtrip(
     for (;;) {
         PsGrow hl;
         ps_grow_init(&hl);
-        ps_http_read_line(fd, &hl, dl);
+        ps_http_read_line(t, handle, &hl, dl);
         int64_t row_len = hl.len;
         PsBuf row_buf;
         ps_grow_finish(&hl, &row_buf);
@@ -440,7 +531,7 @@ static void ps_http_roundtrip(
         for (;;) {
             PsGrow szl;
             ps_grow_init(&szl);
-            ps_http_read_line(fd, &szl, dl);
+            ps_http_read_line(t, handle, &szl, dl);
             PsBuf size_buf;
             ps_grow_finish(&szl, &size_buf);
             int64_t size = strtoll(size_buf.data, NULL, 16);
@@ -450,7 +541,7 @@ static void ps_http_roundtrip(
                 for (;;) {
                     PsGrow tl;
                     ps_grow_init(&tl);
-                    ps_http_read_line(fd, &tl, dl);
+                    ps_http_read_line(t, handle, &tl, dl);
                     int64_t tl_len = tl.len;
                     ps_grow_finish(&tl, &size_buf);
                     free(size_buf.data);
@@ -460,21 +551,21 @@ static void ps_http_roundtrip(
                 }
                 break;
             }
-            ps_http_read_into(fd, &bodyg, size, dl);
+            ps_http_read_into(t, handle, &bodyg, size, dl);
             /* The CRLF that ends the chunk. */
             PsGrow crlf;
             ps_grow_init(&crlf);
-            ps_http_read_line(fd, &crlf, dl);
+            ps_http_read_line(t, handle, &crlf, dl);
             ps_grow_finish(&crlf, &size_buf);
             free(size_buf.data);
         }
     } else if (clen >= 0) {
-        ps_http_read_into(fd, &bodyg, clen, dl);
+        ps_http_read_into(t, handle, &bodyg, clen, dl);
     } else {
-        ps_http_read_into(fd, &bodyg, -1, dl);
+        ps_http_read_into(t, handle, &bodyg, -1, dl);
     }
     ps_grow_finish(&bodyg, &out->body);
-    close(fd);
+    t->close(handle);
     *location = loc;
     out->status = status;
 }
@@ -612,7 +703,7 @@ PsHttpResp *ps_http_request(
         ps_http_split(url, &parsed);
         free(loc);
         loc = NULL;
-        ps_http_roundtrip(&parsed, method, headers, body, body_len, &dl, out, &loc);
+        ps_http_roundtrip(ps_http_transport_for(parsed.tls), &parsed, method, headers, body, body_len, &dl, out, &loc);
         status = (int)out->status;
         if (status != 301 && status != 302 && status != 303 && status != 307 && status != 308) {
             break;
