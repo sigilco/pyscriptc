@@ -657,7 +657,7 @@ def test_fallback_island_class_plane_map(tmp_path: Path) -> None:
         """import dataclasses
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(order=True)
 class Point:
     x: int
     y: int
@@ -702,7 +702,7 @@ if __name__ == "__main__":
     assert summary["fallback"]["classes"]["Point"] == "island"
     assert summary["fallback"]["classes"]["Pair"] == "native"
     module = json.loads((tmp_path / "planes.ir.json").read_text(encoding="utf-8"))
-    assert "@dataclasses.dataclass(frozen=True, slots=True)" in module["islandSource"]
+    assert "@dataclasses.dataclass(order=True)" in module["islandSource"]
 
 
 def test_fallback_island_class_total_ordering(tmp_path: Path) -> None:
@@ -742,7 +742,7 @@ def test_fallback_island_class_dataclass_unusual_args(tmp_path: Path) -> None:
     source_text = """import dataclasses
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(order=True)
 class Point:
     x: int
     y: int
@@ -752,17 +752,18 @@ def main() -> None:
     p = Point(10, 20)
     print(p.x, p.y)
     print(p)
-    p.x = 5
+    print(p < Point(11, 0))
 
 
 if __name__ == "__main__":
     main()
 """
     native, cpython = _compile_and_compare(tmp_path, source_text, name="frozen_dc")
-    # The frozen write raises CPython's FrozenInstanceError on the island.
-    assert cpython.returncode != 0
-    assert native.returncode != 0
-    assert native.stdout == cpython.stdout == "10 20\nPoint(x=10, y=20)\n"
+    # `order=True` is still outside the native dataclass form (frozen and
+    # slots lower natively since #815), so the class runs island-side.
+    assert cpython.returncode == 0, cpython.stderr
+    assert native.returncode == 0, native.stderr
+    assert native.stdout == cpython.stdout == "10 20\nPoint(x=10, y=20)\nTrue\n"
 
 
 def test_fallback_island_class_method_body_fence(tmp_path: Path) -> None:
