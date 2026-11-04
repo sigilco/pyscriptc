@@ -20,7 +20,7 @@ needs_cc = pytest.mark.skipif(
     reason="clang or zig required",
 )
 
-MATCHING = """
+MATCHING = r"""
 import sys
 
 
@@ -28,7 +28,7 @@ def main() -> int:
     print("stdout:", 6 * 7)
     print("argv:", ",".join(sys.argv[1:]))
     line: str = input()
-    print("stdin:", line.upper(), file=sys.stderr)
+    sys.stderr.write("stdin: " + line.upper() + "\n")
     return 7
 
 

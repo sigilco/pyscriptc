@@ -25,13 +25,15 @@ from pathlib import Path
 from typing import Any
 
 from pyscriptc.errors import IRError, VersionError
-from pyscriptc.target import TARGET_CPYTHON, TARGET_MINOR, TARGET_MINOR_INFO
 
-SCHEMA_VERSION = 1
-ORACLE_PIN = TARGET_MINOR_INFO
-ORACLE_NAME = f"CPython {TARGET_MINOR}"
-DEFAULT_TIMEOUT = 60.0
-TIMEOUT_EXIT = 124
+SCHEMA_VERSION: int = 1
+TARGET_CPYTHON: str = "3.14.9"
+TARGET_MINOR: str = "3.14"
+TARGET_MINOR_INFO: tuple[int, int] = (3, 14)
+ORACLE_PIN: tuple[int, int] = TARGET_MINOR_INFO
+ORACLE_NAME: str = "CPython 3.14"
+DEFAULT_TIMEOUT: float = 60.0
+TIMEOUT_EXIT: int = 124
 
 # The `--call` harness for the oracle: load the file as `__main__` (so sibling
 # imports and `__file__` behave), then print the return value with the same
@@ -208,11 +210,15 @@ def find_oracle() -> Oracle:
 def _is_pinned(version: str | None) -> bool:
     if not version:
         return False
+    split_parts = version.split(".")
+    if len(split_parts) < 2:
+        return False
     try:
-        parts = tuple(int(part) for part in version.split(".")[:2])
+        major = int(split_parts[0])
+        minor = int(split_parts[1])
     except ValueError:
         return False
-    return parts == ORACLE_PIN
+    return (major, minor) == ORACLE_PIN
 
 
 def _decode(data: bytes) -> str:
