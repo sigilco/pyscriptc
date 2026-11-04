@@ -7,7 +7,14 @@ from __future__ import annotations
 from typing import Any
 
 from pyscriptc.builtins import EXCEPTIONS, RESERVED_EXCEPTIONS, USER_EXC_BASE
-from pyscriptc.emit._ir import _llvm_field_type
+from pyscriptc.emit._ir import (
+    _kind,
+    _llvm_field_type,
+    _maybe_node_kind,
+    _maybe_node_type_kind,
+    _node_kind,
+    _node_type_kind,
+)
 from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.errors import IRError
 
@@ -20,21 +27,21 @@ def _is_exit_status(node: dict[str, Any] | None) -> bool:
     """
     if node is None:
         return False
-    kind = node.get("type", {}).get("kind")
+    kind = _maybe_node_type_kind(node)
     return kind in {"int", "bool"}
 
 
 class StmtsMixin(EmitterBase):
     def emit_stmt(self, stmt: dict[str, Any]) -> None:
-        kind = stmt["kind"]
+        kind = _node_kind(stmt)
         if kind == "assign":
-            if stmt["value"]["type"]["kind"] == "none":
-                if stmt["value"]["kind"] != "const":
+            if _node_type_kind(stmt["value"]) == "none":
+                if _node_kind(stmt["value"]) != "const":
                     self.emit_expr(stmt["value"])
                 return
             self.store(stmt["target"], self.emit_expr(stmt["value"]))
         elif kind == "expr":
-            if stmt["expr"]["kind"] == "const" and stmt["expr"]["type"]["kind"] == "none":
+            if _node_kind(stmt["expr"]) == "const" and _node_type_kind(stmt["expr"]) == "none":
                 return
             self.emit_expr(stmt["expr"])
         elif kind == "return":
@@ -384,14 +391,14 @@ class StmtsMixin(EmitterBase):
                 mlen, mptr = self._buf_parts(msg)
                 made = self._call_ret("ptr", "ps_exc_make", [f"i32 {code}", f"i64 {mlen}", f"ptr {mptr}"])
             cause = stmt["cause"]
-            if cause["kind"] == "excmake":
+            if _node_kind(cause) == "excmake":
                 ccode = cause["code"] if "code" in cause else EXCEPTIONS[cause["exc"]]
                 cause_value = self._call_ret("ptr", "ps_exc_make", [f"i32 {ccode}", "i64 0", "ptr null"])
                 if cause.get("message") is not None:
                     cmsg = self.emit_expr(cause["message"])
                     clen, cptr = self._buf_parts(cmsg)
                     cause_value = self._call_ret("ptr", "ps_exc_make", [f"i32 {ccode}", f"i64 {clen}", f"ptr {cptr}"])
-            elif cause["kind"] == "name":
+            elif _node_kind(cause) == "name":
                 cause_value = self.load(cause["id"])
             else:
                 raise IRError("raise cause must be a name or excmake")
@@ -401,7 +408,7 @@ class StmtsMixin(EmitterBase):
             # `raise SystemExit(3)` keeps its value typed: ps_raise_system_exit
             # stores it as the process status for the uncaught handler (#603).
             value = self.emit_expr(stmt["message"])
-            if stmt["message"]["type"]["kind"] == "bool":
+            if _node_type_kind(stmt["message"]) == "bool":
                 wide = self.tmp()
                 self.line(f"{wide} = zext i1 {value} to i64")
                 value = wide
@@ -419,7 +426,7 @@ class StmtsMixin(EmitterBase):
         container = self.emit_expr(stmt["container"])
         index = self.emit_expr(stmt["index"])
         value = self.emit_expr(stmt["value"])
-        kind = stmt["container"]["type"]["kind"]
+        kind = _node_type_kind(stmt["container"])
         if kind == "list":
             self.needed.add("seq")
             slot = self._stash_cell(stmt["value"]["type"], value)
@@ -441,11 +448,11 @@ class StmtsMixin(EmitterBase):
         value = self.emit_expr(stmt["value"])
         field = self._field(stmt["object"]["type"]["name"], stmt["name"])
         slot = self._field_ptr(stmt["object"]["type"]["name"], obj, field)
-        if field["type"]["kind"] == "none":
+        if _kind(field["type"]) == "none":
             # A None field holds the singleton: one placeholder byte, zero.
             self.line(f"store i8 0, ptr {slot}")
             return
-        if field["type"]["kind"] in {"str", "bytes"}:
+        if _kind(field["type"]) in {"str", "bytes"}:
             length = self.tmp()
             ptr = self.tmp()
             self.line(f"{length} = extractvalue %ps.str {value}, 0")
@@ -515,7 +522,7 @@ def _used_names(body: list[dict[str, Any]]) -> set[str]:
             continue
         if not isinstance(node, dict):
             continue
-        kind = node.get("kind")
+        kind = _maybe_node_kind(node)
         if kind == "name":
             names.add(node["id"])
             continue
