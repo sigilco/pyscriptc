@@ -731,11 +731,19 @@ def _parse_signature(
             path=path,
             where=where,
         )
-    raw_params = match.group(1).strip()
+    raw_params = match.group(1)
+    if raw_params is None:
+        raise FfiManifestError(
+            "PS4006",
+            f"the signature {py!r} is not of the form (name: type, ...) -> type",
+            path=path,
+            where=where,
+        )
+    raw = raw_params.strip()
     params: list[ManifestParam] = []
     names: set[str] = set()
-    if raw_params:
-        for piece in _split_params(raw_params):
+    if raw:
+        for piece in _split_params(raw):
             param_match = _PARAM.match(piece.strip())
             if param_match is None:
                 raise FfiManifestError(
@@ -745,6 +753,13 @@ def _parse_signature(
                     where=where,
                 )
             name = param_match.group(1)
+            if name is None:
+                raise FfiManifestError(
+                    "PS4006",
+                    f"the parameter {piece.strip()!r} is not of the form name: type",
+                    path=path,
+                    where=where,
+                )
             if name in names:
                 raise FfiManifestError(
                     "PS4007",
@@ -753,11 +768,23 @@ def _parse_signature(
                     where=where,
                 )
             names.add(name)
-            type_name = param_match.group(2).strip()
+            declared = param_match.group(2)
+            if declared is None:
+                raise FfiManifestError(
+                    "PS4006",
+                    f"the parameter {piece.strip()!r} is not of the form name: type",
+                    path=path,
+                    where=where,
+                )
+            type_name = declared.strip()
             _check_type(type_name, path=path, where=where, handle_names=handle_names)
             default = param_match.group(3)
             params.append(ManifestParam(name=name, type=type_name, default=default.strip() if default else None))
-    returns = (match.group(2) or "None").strip()
+    ret = match.group(2)
+    if ret is None:
+        returns = "None"
+    else:
+        returns = ret.strip()
     _check_type(returns, path=path, where=where, handle_names=handle_names, allow_none=True)
     return tuple(params), returns
 
@@ -785,7 +812,22 @@ def _check_container(
             where=where,
         )
     head = match.group(1)
-    inner = match.group(2).strip()
+    if head is None:
+        raise FfiManifestError(
+            "PS4006",
+            f"the container type {name!r} is not of the form list[T] or dict[K, V]",
+            path=path,
+            where=where,
+        )
+    raw_inner = match.group(2)
+    if raw_inner is None:
+        raise FfiManifestError(
+            "PS4006",
+            f"the container type {name!r} is not of the form list[T] or dict[K, V]",
+            path=path,
+            where=where,
+        )
+    inner = raw_inner.strip()
     if head == "list":
         nested = _CONTAINER.match(inner)
         if nested is not None:
