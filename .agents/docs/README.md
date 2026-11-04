@@ -8,6 +8,7 @@ Preview the internal notes with `mise run docs:internal` (a docmd dev server ove
 
 - [Invariants](invariants.md) — rules a change has to keep
 - [Debug mode](debug.md) — `compile --debug`, `PYSC_DEBUG`, `--debug-dir` artifacts
+- [Compiler progress trend](compiler-progress.md) — reading the `--markdown` trend table and what moves it
 - [Audit logging](pyscriptc-debug.md) — the JSONL audit log and its directives
 - [Map](map.md) — which file owns a fence, a runtime call, or a test
 - [Toolchain](toolchain.md) — C compiler driver resolution, Zig preference, and `ziglang`

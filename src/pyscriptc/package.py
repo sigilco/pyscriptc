@@ -373,8 +373,7 @@ def _program_island(
             if name == entry and pkg:
                 is_package = True
         main_package = entry if is_package else entry.rpartition(".")[0]
-    empty_staged: list[tuple[Path, bytes]] = []
-    staged: tuple[str, str] | None = stage_program_data(root, staged_data or empty_staged)
+    staged: tuple[str, str] | None = stage_program_data(root, staged_data or [])
     source = _boxed.program_island_source(
         units,
         entry=main,
@@ -422,7 +421,7 @@ def stage_program_data(
         while j < n:
             a: tuple[Path, bytes] = ordered[i]
             b: tuple[Path, bytes] = ordered[j]
-            if a[0] > b[0]:
+            if b[0].parts < a[0].parts:
                 ordered[i] = b
                 ordered[j] = a
             j = j + 1
@@ -517,7 +516,7 @@ def _reachable_modules(
     stdlib, a pack or a refused name and never a unit.
     """
 
-    trees: dict[str, Any] = {}
+    trees: dict[str, ast.Module] = {}
     package_names: set[str] = set()
     for name, path, is_package in units:
         trees[name] = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -667,7 +666,7 @@ def _program_plan(
     module's body finished, so it never does.
     """
 
-    trees: dict[str, Any] = {}
+    trees: dict[str, ast.Module] = {}
     files: dict[str, Path] = {}
     package_names: set[str] = set()
     for name, path, is_package in units:
@@ -679,13 +678,13 @@ def _program_plan(
     for name in trees:
         edges[name] = _program_imports(trees[name], exports, name, name in package_names)
     # The statement that imports a module, so a cycle fence points at it.
-    sites: dict[str, Any] = {}
+    sites: dict[tuple[str, str], ast.stmt] = {}
     for name, tree in trees.items():
         for stmt in tree.body:
             for module, _local in _statement_imports(stmt, exports):
-                sites.setdefault(name + "." + module, stmt)
+                sites.setdefault((name, module), stmt)
             for module in _relative_statement_imports(stmt, exports, name, name in package_names):
-                sites.setdefault(name + "." + module, stmt)
+                sites.setdefault((name, module), stmt)
     # Only a module with script statements has an `__init__` export: its body
     # runs at import. A definition-only module contributes nothing.
     inited: set[str] = set()
@@ -718,7 +717,7 @@ def _program_plan(
                     {
                         "code": "PS2002",
                         "message": f"circular import: {' -> '.join(cycle)}",
-                        "span": _cycle_span(files[name], sites.get(name + "." + child)),
+                        "span": _cycle_span(files[name], sites.get((name, child))),
                         "function": None,
                     }
                 )
@@ -741,7 +740,7 @@ def _program_plan(
     return fences, owners
 
 
-def _program_roots(trees: dict[str, Any], entry: str | None = None) -> list[str]:
+def _program_roots(trees: dict[str, ast.Module], entry: str | None = None) -> list[str]:
     """The order the graph walk starts in.
 
     The program's entry comes first: CPython runs it, and it is what
@@ -757,10 +756,7 @@ def _program_roots(trees: dict[str, Any], entry: str | None = None) -> list[str]
             if name != entry:
                 rest.append(name)
         roots = [entry, *rest]
-    tree_names: list[str] = []
-    for name in trees:
-        tree_names.append(name)
-    for name in sorted(tree_names):
+    for name in sorted(trees):
         if name not in roots:
             roots.append(name)
     return roots
@@ -781,7 +777,7 @@ def _is_package_submodule_cycle(cycle: list[str], packages: set[str]) -> bool:
     return False
 
 
-def _cycle_span(path: Path, stmt: Any | None) -> dict[str, Any]:
+def _cycle_span(path: Path, stmt: ast.stmt | None) -> dict[str, Any]:
     """The span of the import statement that closes a cycle."""
 
     line: int = getattr(stmt, "lineno", 1) or 1
@@ -798,7 +794,7 @@ def _cycle_span(path: Path, stmt: Any | None) -> dict[str, Any]:
 
 
 def _program_imports(
-    tree: Any,
+    tree: ast.Module,
     exports: dict[str, dict[str, dict[str, Any]]],
     module: str = "",
     is_package: bool = False,
@@ -872,7 +868,7 @@ def _program_imports(
     return found
 
 
-def _import_time_nodes(tree: Any) -> list[Any]:
+def _import_time_nodes(tree: ast.Module) -> list[ast.AST]:
     """The import statements that run when the module body runs.
 
     A module body runs its top-level statements in order, so an import
@@ -882,9 +878,9 @@ def _import_time_nodes(tree: Any) -> list[Any]:
     close an import-time cycle .
     """
 
-    found: list[Any] = []
+    found: list[ast.AST] = []
 
-    def walk(stmts: list[Any]) -> None:
+    def walk(stmts: list[ast.stmt]) -> None:
         for stmt in stmts:
             if isinstance(stmt, ast.Import | ast.ImportFrom):
                 found.append(stmt)
@@ -937,7 +933,7 @@ def _base_of(module: str, is_package: bool, level: int) -> list[str] | None:
 
 
 def _relative_statement_imports(
-    stmt: Any,
+    stmt: ast.stmt,
     exports: dict[str, dict[str, dict[str, Any]]],
     module: str,
     is_package: bool,
@@ -953,7 +949,7 @@ def _relative_statement_imports(
     ]
 
 
-def _statement_imports(stmt: Any, exports: dict[str, dict[str, dict[str, Any]]]) -> list[tuple[str, str]]:
+def _statement_imports(stmt: ast.stmt, exports: dict[str, dict[str, dict[str, Any]]]) -> list[tuple[str, str]]:
     """The program modules one import statement brings in.
 
     Each entry is the module and the local name the import binds for it, so
@@ -989,12 +985,12 @@ def _statement_imports(stmt: Any, exports: dict[str, dict[str, dict[str, Any]]])
 
 
 def _inject_inits(
-    tree: Any,
+    tree: ast.Module,
     owned: list[str],
     exports: dict[str, dict[str, dict[str, Any]]],
     module: str = "",
     is_package: bool = False,
-) -> Any:
+) -> ast.Module:
     """Call the init of every module this one first imports.
 
     CPython runs an imported module's body at the import statement, so the
@@ -1006,10 +1002,10 @@ def _inject_inits(
 
     if not owned:
         return tree
-    body: list[Any] = []
+    body: list[ast.stmt] = []
     done: set[str] = set()
 
-    def emit(target: str, local: str, stmt: Any) -> None:
+    def emit(target: str, local: str, stmt: ast.stmt) -> None:
         if target not in owned or target in done:
             return
         done.add(target)
@@ -1026,7 +1022,7 @@ def _inject_inits(
     return tree
 
 
-def _init_call(local: str, anchor: Any) -> Any:
+def _init_call(local: str, anchor: ast.stmt) -> ast.stmt:
     """`local.__init__()` as a statement, placed at the anchor's position."""
 
     call = ast.Call(
@@ -1101,7 +1097,7 @@ def _catalog_once(
     return found, failed
 
 
-def _exports_of(module_name: str, lowerer: Any) -> dict[str, dict[str, Any]]:
+def _exports_of(module_name: str, lowerer: Lowerer) -> dict[str, dict[str, Any]]:
     bucket: dict[str, dict[str, Any]] = {}
     for fn, (params, ret) in lowerer.sigs.items():
         bucket[fn] = {
@@ -1137,7 +1133,7 @@ def _exports_of(module_name: str, lowerer: Any) -> dict[str, dict[str, Any]]:
 
 def _reexports_of(
     module_name: str,
-    tree: Any,
+    tree: ast.Module,
     exports: dict[str, dict[str, dict[str, Any]]],
     is_package: bool,
 ) -> dict[str, dict[str, Any]]:
@@ -1343,29 +1339,19 @@ def _discover_dep_roots(roots: list[Path]) -> tuple[list[tuple[str, Path, bool]]
     for root in roots:
         root = root.resolve()
         if not root.is_dir():
-            fences: list[dict[str, Any]] = []
-            fences.append(_dep_fence(f"dependency source root {root} does not exist"))
-            empty_units: list[tuple[str, Path, bool]] = []
-            return empty_units, fences
+            return [], [_dep_fence(f"dependency source root {root} does not exist")]
         for path in sorted(root.iterdir()):
             if path.name.startswith(".") or path.name == "__pycache__":
                 continue
             if path.suffix == ".py":
                 if not path.stem.isidentifier():
-                    name_fences: list[dict[str, Any]] = []
-                    name_fences.append(_dep_name_fence(path.name))
-                    empty_units: list[tuple[str, Path, bool]] = []
-                    return empty_units, name_fences
+                    return [], [_dep_name_fence(path.name)]
                 units.append((path.stem, path, False))
             elif (path / "__init__.py").is_file():
                 if not path.name.isidentifier():
-                    name_fences = []
-                    name_fences.append(_dep_name_fence(path.name))
-                    empty_units = []
-                    return empty_units, name_fences
+                    return [], [_dep_name_fence(path.name)]
                 units.extend(_discover_dep_package(path, path.name))
-    empty_fences: list[dict[str, Any]] = []
-    return units, empty_fences
+    return units, []
 
 
 def _discover_dep_package(package_dir: Path, name: str) -> list[tuple[str, Path, bool]]:
@@ -1381,11 +1367,11 @@ def _discover_dep_package(package_dir: Path, name: str) -> list[tuple[str, Path,
             # that imports `pkg.sub` (or reads `files("pkg.sub")`) binds the
             # package body the way CPython runs it, so the unit exists even
             # when nothing else inside it is reached.
-            parts: tuple[str, ...] = relative.parts[:-1]
+            parts = relative.parts[:-1]
             if parts:
                 units.append((".".join((name, *parts)), path, True))
             continue
-        stem: Path = relative.with_suffix("")
+        stem = relative.with_suffix("")
         if not all(part.isidentifier() for part in stem.parts):
             continue
         units.append((".".join((name, *stem.parts)), path, False))
@@ -1395,11 +1381,7 @@ def _discover_dep_package(package_dir: Path, name: str) -> list[tuple[str, Path,
 def _dep_fence(message: str) -> dict[str, Any]:
     """A PS3101 refusal fence outside any source span."""
 
-    fence: dict[str, Any] = {}
-    fence["code"] = "PS3101"
-    fence["message"] = message
-    fence["span"] = None
-    fence["function"] = None
+    fence: dict[str, Any] = {"code": "PS3101", "message": message, "span": None, "function": None}
     return fence
 
 
@@ -1436,7 +1418,6 @@ def _discover(
         raise IRError(f"package directory {package} is not an identifier")
     program = program_mode or _is_program_dir(root)
     namespaced = program_mode and not _is_program_dir(root)
-    entry_file: Path | None = None
     if entry is not None:
         namespaced = True
         program = True
@@ -1457,7 +1438,7 @@ def _discover(
             skipped.append(relative.as_posix())
             continue
         if path.name == "__init__.py":
-            parts: tuple[str, ...] = relative.parts[:-1]
+            parts = relative.parts[:-1]
             if program and not namespaced:
                 # A program sub-package: `pkg/__init__.py` is the module
                 # `pkg`, imported by its plain name.
@@ -1548,7 +1529,9 @@ def _promote_definition_fences(
     return out
 
 
-def _unexported_definitions(tree: Any, lowerer: Any, fences: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+def _unexported_definitions(
+    tree: ast.Module, lowerer: Lowerer, fences: list[dict[str, Any]]
+) -> dict[str, dict[str, Any]]:
     exported = set(lowerer.sigs)
     for class_name, info in lowerer.classes.items():
         if info.get("synthetic") or info.get("imported"):
