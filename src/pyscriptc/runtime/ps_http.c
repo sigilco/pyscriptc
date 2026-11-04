@@ -22,6 +22,7 @@ and relative path with . and .. segments).
 */
 
 #include "ps_rt.h"
+#include "ps_tls.h"
 
 #if !defined(__wasi__) && !defined(_WIN32)
 
@@ -75,25 +76,33 @@ static char *ps_http_dup(int64_t n, const char *s) {
     return text;
 }
 
-/* Parsed http URL: host, port, and the path-plus-query to send. The host
-   and path borrow from the (mutable) working copy of the URL text. */
+/* The URL text is not modified: the redirect loop needs the whole URL to
+   resolve a relative Location against it. The host and the path are copies.
+   `out->tls` says whether the request goes to the TLS backend. */
 typedef struct {
     const char *host;
     int port;
     const char *path;
+    int tls;
 } PsHttpUrl;
 
-/* The URL text is not modified: the redirect loop needs the whole URL to
-   resolve a relative Location against it. The host and the path are copies. */
+/* The scheme each hop carries. An https hop goes to the TLS backend when
+   one is linked and refuses the request when none is. */
 static void ps_http_split(const char *url, PsHttpUrl *out) {
     size_t n = strlen(url);
     const char *cursor = url;
     out->port = 80;
+    out->tls = 0;
     if (n >= 7 && strncmp(cursor, "http://", 7) == 0) {
         cursor += 7;
     } else if (n >= 8 && strncmp(cursor, "https://", 8) == 0) {
-        /* Clear message until TLS lands (#235). */
-        ps_http_fail("https is not supported yet (TLS is planned, issue 235)");
+        out->tls = 1;
+        out->port = 443;
+        cursor += 8;
+        if (ps_tls_backend() == NULL) {
+            /* Clear message until TLS lands (#235). */
+            ps_http_fail("https is not supported yet (TLS is planned, issue 235)");
+        }
     } else {
         ps_http_fail("urlopen supports http:// URLs");
     }
@@ -155,8 +164,7 @@ static void ps_http_deadline_start(PsHttpDeadline *dl, double timeout) {
 
 /* The seconds left on the deadline, or the fallback when there is no
    deadline. An expired deadline raises, so a call never happens with no
-   time left. */
-static double ps_http_left(const PsHttpDeadline *dl) {
+   time left. */static double ps_http_left(const PsHttpDeadline *dl) {
     if (!dl->on) {
         return 60.0;
     }
@@ -169,28 +177,6 @@ static double ps_http_left(const PsHttpDeadline *dl) {
     return left;
 }
 
-/* The transport contract: four calls and the verification flag. The HTTP
-   layer above never touches a socket, so the same request code runs over a
-   plaintext TCP stream or over a TLS one.
-
-   `connect` returns a handle (>= 0) or raises; `read` returns the byte
-   count, 0 at end of stream, or a negative code; `write` returns the byte
-   count written or a negative code; `close` drops the handle. The negative
-   codes are PS_HTTP_IO_ERROR and PS_HTTP_IO_TIMEOUT. Every call takes the
-   seconds it may take: the request deadline, less what the request already
-   used. */
-typedef struct PsHttpTransport {
-    int64_t (*connect)(const char *host, int port, double timeout);
-    int64_t (*read)(int64_t handle, char *buf, int64_t len, double timeout);
-    int64_t (*write)(int64_t handle, const char *buf, int64_t len, double timeout);
-    void (*close)(int64_t handle);
-    /* Whether the peer certificate is verified against the host name. On
-       by default; only a backend that carries a certificate acts on it. */
-    int verify_hostname;
-} PsHttpTransport;
-
-#define PS_HTTP_IO_ERROR (-1)
-#define PS_HTTP_IO_TIMEOUT (-2)
 
 /* Connect to host:port. The timeout applies to the connect through the
    socket's own send and receive timeouts. */
@@ -293,6 +279,13 @@ static int64_t ps_tcp_write(int64_t handle, const char *buf, int64_t len, double
 
 static void ps_tcp_close(int64_t handle) { close((int)handle); }
 
+/* The default TLS backend: none. A TLS implementation (mbedTLS first,
+   #235) defines a strong `ps_tls_backend` in its own file and returns its
+   transport; the link picks it over this weak definition. With none
+   linked, an https:// request raises URLError below, the way it always
+   has. */
+__attribute__((weak)) const PsHttpTransport *ps_tls_backend(void) { return NULL; }
+
 /* The plaintext TCP backend: the reference implementation of the transport
    contract. A plaintext stream carries no certificate, so the verification
    flag has nothing to act on here and stays at its default. */
@@ -303,6 +296,27 @@ static const PsHttpTransport ps_tcp_transport = {
     ps_tcp_close,
     1,
 };
+
+/* The backend for the scheme of the current hop. An https hop goes to the
+   TLS backend, which `ps_http_split` already proved is linked, and refuses
+   it when the backend reports certificate hostname verification off: there
+   is no silent insecure fallback (#235). */
+static const PsHttpTransport *ps_http_transport_for(int tls) {
+    if (!tls) {
+        return &ps_tcp_transport;
+    }
+    const PsHttpTransport *backend = ps_tls_backend();
+    if (backend == NULL) {
+        ps_http_fail("https is not supported yet (TLS is planned, issue 235)");
+    }
+    if (backend->connect == NULL || backend->read == NULL || backend->write == NULL || backend->close == NULL) {
+        ps_http_fail("the TLS backend is incomplete");
+    }
+    if (!backend->verify_hostname) {
+        ps_http_fail("the TLS backend does not verify hostnames");
+    }
+    return backend;
+}
 
 /* Read up to `want` bytes into the grow buffer, at most `limit` in total.
    `limit` of -1 reads until EOF. Returns the bytes read. */
@@ -689,7 +703,7 @@ PsHttpResp *ps_http_request(
         ps_http_split(url, &parsed);
         free(loc);
         loc = NULL;
-        ps_http_roundtrip(&ps_tcp_transport, &parsed, method, headers, body, body_len, &dl, out, &loc);
+        ps_http_roundtrip(ps_http_transport_for(parsed.tls), &parsed, method, headers, body, body_len, &dl, out, &loc);
         status = (int)out->status;
         if (status != 301 && status != 302 && status != 303 && status != 307 && status != 308) {
             break;
