@@ -125,9 +125,9 @@ def project_roots(pyproject: Path) -> tuple[str, ...]:
     table: Dict[str, Any] | None = _project_table(data, pyproject)
     roots: list[str] = []
     if table is not None and "src" in table:
-        if isinstance(table["src"], str):
-            src_str: str = table["src"]
-            roots.append(src_str)
+        probe: str = table["src"]
+        if isinstance(probe, str):
+            roots.append(probe)
         else:
             src_items: list[str] = table["src"]
             for r in src_items:
@@ -149,28 +149,32 @@ def read_pep723(text: str) -> dict[str, Any] | None:
     Shared parser: PR #138 carries an identical copy in deps.py; when that
     branch lands it should import this function instead.
     """
-    blocks: list[re.Match] = []
-    for m in PEP723_RE.finditer(text):
-        if m.group(1) == "script":
-            blocks.append(m)
+    blocks: list[str] = []
+    for m in PEP723_RE.findall(text):
+        if m[0] == "script":
+            blocks.append(m[1])
     if not blocks:
         return None
     if len(blocks) > 1:
         raise ConfigError("more than one `# /// script` block (PEP 723 allows one)")
-    target_match: re.Match = blocks[0]
-    raw = target_match.group(2)
-    raw_content: str = "" if raw is None else raw
-    lines: list[str] = raw_content.splitlines(True)
+    raw_content: str = blocks[0]
+    lines: list[str] = raw_content.split("\n")
+    last: int = len(lines) - 1
     content_parts: list[str] = []
-    for line in lines:
+    for index in range(len(lines)):
+        line: str = lines[index]
         if line.startswith("# "):
-            content_parts.append(line[2:])
+            body: str = line[2:]
         else:
-            content_parts.append(line[1:])
+            body = line[1:]
+        if index < last:
+            body = body + "\n"
+        content_parts.append(body)
     content: str = "".join(content_parts)
     try:
-        return tomllib.loads(content)
-    except tomllib.TOMLDecodeError as exc:
+        meta: dict[str, Any] = tomllib.loads(content)
+        return meta
+    except ValueError as exc:
         raise ConfigError(f"invalid TOML in PEP 723 metadata: {exc}") from exc
 
 
@@ -215,7 +219,7 @@ class Config:
         requires_python: str | None = None,
         dependencies: tuple[str, ...] | None = None,
     ) -> None:
-        empty_src: tuple[str, ...] = ()
+        empty_src: tuple[str, ...] = ("", "")[0:0]
         self.origin = origin
         self.source = source
         self.entry = entry
