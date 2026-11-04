@@ -1,0 +1,73 @@
+name: nightly-gates
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-gates-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  nightly-gates:
+    name: nightly-gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: master
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"
+          enable-cache: true
+          python-version: "3.14"
+
+      - run: uv python install 3.14.9
+      - run: uv sync --frozen
+
+      - name: oracle is CPython 3.14.9
+        run: uv run python -c "import sys; assert sys.version_info[:3] == (3, 14, 9), sys.version"
+
+      - name: TIR gate
+        id: gate
+        continue-on-error: true
+        run: uv run python -m benchmarks.compat2.tirscore benchmarks/compat2/probes --baseline benchmarks/compat2/probes/TIR_HASHES.json
+
+      - name: stage-2 fixpoint (self-vs-self per module)
+        id: fixpoint
+        continue-on-error: true
+        run: uv run python -m benchmarks.compat2.fixpoint --summary "$GITHUB_STEP_SUMMARY"
+
+      - name: Record nightly gate result
+        if: always()
+        run: |
+          set -euo pipefail
+          DATE="$(date -u +%Y-%m-%d)"
+          COMMIT="$(git rev-parse HEAD)"
+          GATE="${{ steps.gate.outcome || 'failure' }}"
+          FIXPOINT="${{ steps.fixpoint.outcome || 'failure' }}"
+          LINE="${DATE} ${COMMIT} ${GATE} ${FIXPOINT}"
+          echo "${LINE}" >> "$GITHUB_STEP_SUMMARY"
+          echo "${LINE}" > nightly-gate-result.txt
+
+      - name: Upload nightly-gate-result artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-gate-result
+          path: nightly-gate-result.txt
+          if-no-files-found: error
+
+      - name: Check overall result
+        if: always()
+        run: |
+          if [ "${{ steps.gate.outcome || 'failure' }}" != "success" ] || [ "${{ steps.fixpoint.outcome || 'failure' }}" != "success" ]; then
+            echo "Nightly gate failed: gate=${{ steps.gate.outcome }} fixpoint=${{ steps.fixpoint.outcome }}" >&2
+            exit 1
+          fi
