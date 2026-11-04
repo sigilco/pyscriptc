@@ -863,7 +863,14 @@ def _check_container(
         )
     for piece in pieces:
         piece = piece.strip()
-        if piece in {"list", "dict"} or _CONTAINER.match(piece):
+        if piece in {"list", "dict"}:
+            raise FfiManifestError(
+                "PS4006",
+                f"the type {name!r} nests a container; the lane marshals scalar rows only",
+                path=path,
+                where=where,
+            )
+        if _CONTAINER.match(piece):
             raise FfiManifestError(
                 "PS4006",
                 f"the type {name!r} nests a container; the lane marshals scalar rows only",
