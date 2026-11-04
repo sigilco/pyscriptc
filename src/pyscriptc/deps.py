@@ -38,9 +38,9 @@ import sys
 import tempfile
 import urllib.request
 import zipfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Dict
 
 from pyscriptc.config import ConfigError, read_pep723
 from pyscriptc.errors import SpikeError
@@ -52,6 +52,7 @@ EXTENSION_SUFFIXES = (".so", ".pyd", ".dylib", ".dll")
 SKIPPED_ANYWHERE = "tests"
 UNKNOWN_IMPORT_NAMES = "unknown"
 UNPACK_SCHEMA_VERSION = 2
+SDIST = 1
 
 log = get_logger()
 
@@ -185,7 +186,7 @@ class LockedPackage:
     name: str
     version: str
     wheels: tuple[LockedWheel, ...]
-    has_sdist: bool
+    flags: int
     marker: str | None = None
 
 
@@ -221,7 +222,7 @@ def parse_pylock(text: str) -> list[LockedPackage]:
                 normalize_name(entry["name"]),
                 str(entry.get("version", "")),
                 tuple(wheels),
-                "sdist" in entry,
+                SDIST if "sdist" in entry else 0,
                 entry.get("marker"),
             )
         )
@@ -327,7 +328,7 @@ def classify_tags(pkg: LockedPackage, python: str | None = None) -> tuple[str, s
     if pkg.wheels:
         abis = ", ".join(sorted({w.tags[1] for w in pkg.wheels}))
         return "native", f"only ABI or platform specific wheels ({len(pkg.wheels)} wheels, ABI {abis})"
-    if pkg.has_sdist:
+    if pkg.flags & SDIST:
         return "sdist", "source distribution only"
     return "sdist", "no wheel in the lock"
 
@@ -629,8 +630,14 @@ class DepResult:
     sha256: str | None = None
     source_root: str | None = None
     marker: str | None = None
-    import_names: tuple[str, ...] = ()
-    hint: str = field(init=False)
+    import_names: list[str] | None = None
+    hint: str = ""
+
+    def names(self) -> list[str]:
+        """The import names, `[]` when none are recorded."""
+        if self.import_names is None:
+            return []
+        return self.import_names
 
     def __post_init__(self) -> None:
         self.hint = LANE_HINTS[self.lane]
@@ -642,10 +649,11 @@ def analyse(
     results: list[DepResult] = []
     for pkg in packages:
         lane, reason = classify_tags(pkg)
-        result = DepResult(pkg.name, pkg.version, lane, reason, marker=pkg.marker)
+        result = DepResult(pkg.name, pkg.version, lane, reason, pkg.marker)
         wheel = select_pure_wheel(pkg)
         if wheel is not None:
-            result.wheel, result.sha256 = wheel.filename, wheel.sha256
+            result.wheel = wheel.filename
+            result.sha256 = wheel.sha256
             if download:
                 data = fetch_wheel(wheel, cache, offline=offline)
                 pure, reason = inspect_wheel(data)
@@ -653,7 +661,7 @@ def analyse(
                 if pure:
                     root = materialise(data, wheel.sha256, cache, name=pkg.name)
                     result.source_root = str(root)
-                    result.import_names = unpacked_import_names(root)
+                    result.import_names = list(unpacked_import_names(root))
                 else:
                     result.lane = "native"
                     result.hint = LANE_HINTS["native"]
@@ -664,7 +672,7 @@ def analyse(
                         names = zf.namelist()
                         dist_infos = {n.split("/", 1)[0] for n in names if n.split("/", 1)[0].endswith(".dist-info")}
                         if len(dist_infos) == 1:
-                            result.import_names = _top_level_names(zf, names, dist_infos.pop())
+                            result.import_names = list(_top_level_names(zf, names, dist_infos.pop()))
         results.append(result)
     return results
 
@@ -683,15 +691,15 @@ def import_module_map(packages: list[DepResult]) -> dict[str, dict[str, str]]:
 
     by_name: dict[str, list[DepResult]] = {}
     for result in packages:
-        for import_name in result.import_names:
+        for import_name in result.names():
             by_name.setdefault(import_name.lower(), []).append(result)
     mapping: dict[str, dict[str, str]] = {}
     for import_name, providers in by_name.items():
         entry = _map_entry(providers[0])
         if len(providers) > 1:
             entry["ambiguous"] = ", ".join(sorted(p.name for p in providers))
-        if len(providers[0].import_names) > 1:
-            entry["provides"] = ", ".join(sorted(providers[0].import_names))
+        if len(providers[0].names()) > 1:
+            entry["provides"] = ", ".join(sorted(providers[0].names()))
         mapping[import_name] = entry
     for result in packages:
         # Known import names are already in; a pure wheel with none of its
@@ -700,7 +708,7 @@ def import_module_map(packages: list[DepResult]) -> dict[str, dict[str, str]]:
         # sdist lane keeps its distribution-shaped key without the marker:
         # the fence names the lane, and there is no unpacked tree to lie
         # about.
-        if result.import_names:
+        if result.names():
             continue
         module = result.name.lower().replace("-", "_").replace(".", "_")
         entry = _map_entry(result)
@@ -760,10 +768,33 @@ def run_deps(
         "lockProvenance": provenance,
         "cache": str(cache),
         "lanes": dict(sorted(lanes.items())),
-        "packages": [vars(r) for r in results],
+        "packages": [_report_row(r) for r in results],
         "sourceRoots": [r.source_root for r in results if r.source_root],
         "importNames": dict(sorted(mapping.items())),
     }
+
+
+def _report_row(result: DepResult) -> Dict[str, Any]:
+    """The report's per-distribution row: the record's fields as JSON scalars.
+
+    The `Dict[str, Any]` container form is the self-host spell (the lowercase
+    `dict[str, Any]` return annotation fences PS1106, like `mirlower.py`).
+    The names row is a `list` copy, not a `tuple(...)`: the tuple constructor
+    call is not lowered either, and a one-element or empty tuple literal
+    fences. The JSON consumers read a list the same way they read a tuple.
+    """
+    row: Dict[str, Any] = {}
+    row["name"] = result.name
+    row["version"] = result.version
+    row["lane"] = result.lane
+    row["reason"] = result.reason
+    row["wheel"] = result.wheel
+    row["sha256"] = result.sha256
+    row["source_root"] = result.source_root
+    row["marker"] = result.marker
+    row["import_names"] = list(result.names())
+    row["hint"] = result.hint
+    return row
 
 
 def source_roots(source: Path, *, cache_dir: str | Path | None = None) -> list[Path]:
