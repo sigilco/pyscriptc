@@ -15,7 +15,7 @@
   "pyscriptc.coro": 328,
   "pyscriptc.coverage": 59,
   "pyscriptc.debug": 72,
-  "pyscriptc.deps": 73,
+  "pyscriptc.deps": 21,
   "pyscriptc.diagnostics": 5,
   "pyscriptc.doctor": 23,
   "pyscriptc.dwarf": 7,
