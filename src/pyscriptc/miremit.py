@@ -465,6 +465,10 @@ class MirEmitter:
     def operand(self, fn: MirFunction, operand: int) -> str:
         if is_const_ref(operand):
             const = fn.consts[const_index(operand)]
+            # A bool const is the pool's own tag: the direct path spells it
+            # `true`/`false`, and only a word const reads `ival` as-is.
+            if const.typ == MIR_B:
+                return "true" if const.ival else "false"
             return str(const.ival) if const.typ == MIR_W else _llvm_double(const.dval)
         if operand in self.reg:
             slot = self.reg[operand]
