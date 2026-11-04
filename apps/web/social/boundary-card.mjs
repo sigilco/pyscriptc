@@ -52,8 +52,8 @@ const card = `<div id="card"><div><h1>Typing names are not values</h1>
 <span class="diag">${esc(capture)}</span></div></div>
 <div class="why"><b>PS2002</b> is the fence between annotations and values. <b>Optional</b>
 describes types for the lowering input; using it as a runtime value would need the typing
-module at runtime, and this compiler has no interpreter to run it in.</div>
-</div><div class="foot">pyscriptc · real captured diagnostic · try it: pyscriptc explain PS2002</div></div>`;
+module at runtime, which is outside the typed subset.</div>
+</div><div class="foot">pyscriptc · try it: pyscriptc explain PS2002</div></div>`;
 
 const server = createServer((q, s) => { const f = join(out, q.url.slice(1)); if (!existsSync(f)) { s.writeHead(404); return s.end(); } s.writeHead(200, { "content-type": "text/html" }); s.end(readFileSync(f)); });
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
