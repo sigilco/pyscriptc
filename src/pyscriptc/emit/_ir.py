@@ -26,8 +26,11 @@ from pyscriptc.errors import FitError, IRError
 from pyscriptc.ir import fits_i64
 
 
-def _type_kind(typ: dict[str, Any]) -> str:
-    """The kind tag of a type record: int, float, str, list, class, ..."""
+def _kind(typ: dict[str, Any]) -> str:
+    """The kind tag of a type record: int, float, bool, str, bytes, list,
+    dict, class, exc, func, any or none. Every emitter type dispatch reads
+    the record through this accessor instead of the raw dict key."""
+
     kind: str = typ["kind"]
     return kind
 

@@ -8,11 +8,11 @@ from pyscriptc.emit._ir import (
     _field_name,
     _field_type,
     _has,
+    _kind,
     _llvm_bytes,
     _llvm_double,
     _llvm_type,
     _opt_str,
-    _type_kind,
     _type_name,
 )
 from pyscriptc.emit.llvm._base import EmitterBase
@@ -50,7 +50,7 @@ class PrintMixin(EmitterBase):
         return third
 
     def materialize_arg(self, typ: dict[str, Any], value: Any) -> str:
-        kind = _type_kind(typ)
+        kind = _kind(typ)
         if kind == "int":
             return str(value)
         if kind == "float":
@@ -62,7 +62,7 @@ class PrintMixin(EmitterBase):
         raise FitError(f"cannot pass a {kind} argument into main")
 
     def print_value(self, typ: dict[str, Any], value: str) -> None:
-        kind = _type_kind(typ)
+        kind = _kind(typ)
         self.needed.add("printf")
         if kind == "int":
             fmt = self.format_global("int", b"%lld\n")
@@ -165,7 +165,7 @@ class PrintMixin(EmitterBase):
         writes CPython's `(a, b)` shape field by field.
         """
 
-        kind = _type_kind(typ)
+        kind = _kind(typ)
         if kind == "int":
             self._print_fmt("int", b"%lld", [f"i64 {value}"], err=err)
         elif kind == "float":
@@ -220,7 +220,7 @@ class PrintMixin(EmitterBase):
             if index:
                 self._print_fmt("tsep", b", ", err=err)
             slot = self._field_ptr(name, value, self._field(name, _field_name(field)))
-            fkind = _type_kind(_field_type(field))
+            fkind = _kind(_field_type(field))
             if fkind in {"str", "bytes"}:
                 length = self.tmp()
                 ptr = self.tmp()
