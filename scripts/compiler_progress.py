@@ -94,7 +94,6 @@ def fence_seams(pins_path: Path) -> dict[str, int]:
     if not pins_path.is_file():
         return {}
     pins: dict[str, int] = json.loads(pins_path.read_text(encoding="utf-8"))
-    seam_re = re.compile(r"\w+\.(lower|emit|mir|cli)\b")
     out = dict.fromkeys(TREND_SEAMS, 0)
     seam_re = re.compile(r"\w+\.(lower|emit|mir|cli)\b")
     for name, count in pins.items():
