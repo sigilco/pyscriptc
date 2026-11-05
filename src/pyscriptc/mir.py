@@ -290,6 +290,14 @@ class MirBlock:
     # for blocks built without one: the emitter falls back to the `if`
     # shape's derived hints for those.
     hint: str
+    # The direct path's label number for this block, or 0 when the block
+    # carries no explicit label. The direct emitter allocates its labels
+    # lazily, in statement pre-order, so the label numbers do not follow
+    # the block construction order: the lowerer records the number it
+    # reserved for the block, and the emitter renders it. 0 is safe as the
+    # sentinel: the entry block is bid 0 and renders as `entry`, and the
+    # direct emitter's label numbers start at 1.
+    label_id: int
 
     def __init__(
         self,
@@ -300,9 +308,11 @@ class MirBlock:
         br_args_true: list[int] | None = None,
         br_args_false: list[int] | None = None,
         hint: str = "",
+        label_id: int = 0,
     ) -> None:
         self.bid = bid
         self.hint = hint
+        self.label_id = label_id
         block_args: list[MirBlockArg]
         if args is None:
             block_args = []
@@ -463,19 +473,21 @@ class MirBuilder:
         consts.append(MirConst(MIR_D, 0, value))
         return const_ref(len(consts) - 1)
 
-    def start_block(self, args: list[MirBlockArg] | None = None, hint: str = "") -> int:
+    def start_block(self, args: list[MirBlockArg] | None = None, hint: str = "", label_id: int = 0) -> int:
         """Open a block; returns its id. The first block is the entry.
 
         `hint` is the label hint the emitter renders (`then`,
         `while.cond`, ...); blocks built without one fall back to the
-        emitter's derived `if` hints.
+        emitter's derived `if` hints. `label_id` is the direct path's
+        label number for the block, recorded by the lowerer so the
+        emitter renders the same number.
         """
         current: MirBlock | None = self.current
         if current is not None and not self.terminated:
             raise MirError(f"block {current.bid} has no terminator")
         blocks: list[MirBlock] = self.fn.blocks
         bid: int = len(blocks)
-        block = MirBlock(bid, args, -1, -1, None, None, hint)
+        block = MirBlock(bid, args, -1, -1, None, None, hint, label_id)
         blocks.append(block)
         self.current = block
         self.terminated = 0
@@ -560,6 +572,35 @@ class MirBuilder:
         current.br_args_true = list(args_true)
         current.br_args_false = list(args_false)
         self.terminated = 1
+
+    def current_bid(self) -> int:
+        """The id of the open block, or -1 when no block is open.
+
+        The lowerer needs the id of the block a statement's body ends
+        in, to patch that block's forward jump once the target's id is
+        final. Reading the id here keeps the optional-block type out of
+        the lowerer's annotations.
+        """
+        current: MirBlock | None = self.current
+        if current is None:
+            return -1
+        return current.bid
+
+    def patch_succ1(self, bid: int, target: int) -> None:
+        """Rewrite block `bid`'s first successor edge.
+
+        The lowerer patches a forward jump's operand once the block it
+        names opens; the successor edge lives on the block, and the
+        rewrite stays here so the lowerer does not reach into the
+        successor field of a block it only holds by id.
+        """
+        block = self.fn.blocks[bid]
+        block.succ1 = target
+
+    def patch_succ2(self, bid: int, target: int) -> None:
+        """Rewrite block `bid`'s second successor edge; see `patch_succ1`."""
+        block = self.fn.blocks[bid]
+        block.succ2 = target
 
     def finish(self) -> MirFunction:
         """Return the function; refuses dangling open blocks."""
