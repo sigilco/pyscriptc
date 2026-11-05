@@ -59,6 +59,9 @@ def _type_kind(typ: dict[str, Any]) -> str:
 
 def _maybe_type_kind(typ: dict[str, Any]) -> str | None:
     """The kind tag of a type record that may carry none."""
+    if "kind" not in typ:
+        return None
+    return _type_kind(typ)
 
 
 _BASE_ENUM = "enum"
