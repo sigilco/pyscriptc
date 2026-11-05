@@ -131,3 +131,25 @@ def test_runtime_pack_script_builds_from_a_synthetic_asset(tmp_path: Path) -> No
     assert "lib/libpython3.so" in names
     assert "LICENSE.txt" in names
     assert not [name for name in names if "share" in name]
+
+
+def test_release_notes_script_renders_the_top_changelog_entry(tmp_path: Path) -> None:
+    """The notes step only runs on a tag, so a script error would surface after PyPI publish."""
+    changelog = ROOT / "CHANGELOG.md"
+    top = next(line for line in changelog.read_text(encoding="utf-8").splitlines() if line.startswith("## ["))
+    version = top[4 : top.index("]")]
+    done = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / ".github" / "scripts" / "release_notes.py"),
+            f"v{version}",
+            str(changelog),
+            str(ROOT / ".github" / "release-footer.md"),
+            "sigilco/pyscriptc",
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.startswith(f"## v{version}")
