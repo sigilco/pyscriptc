@@ -33,7 +33,7 @@
   "pyscriptc.emit.llvm._print": 1,
   "pyscriptc.emit.llvm._runtime": 6,
   "pyscriptc.emit.llvm._stdlib": 57,
-  "pyscriptc.emit.llvm._stmts": 26,
+  "pyscriptc.emit.llvm._stmts": 25,
   "pyscriptc.emitlib": 36,
   "pyscriptc.emitter": 6,
   "pyscriptc.errors": 12,
