@@ -53,6 +53,21 @@ def _field_type(field: dict[str, Any]) -> dict[str, Any]:
     return typ
 
 
+def _elem_kind(typ: dict[str, Any]) -> str:
+    """The kind tag of the element type a list or dict type record carries."""
+    elem: dict[str, Any] = typ["elem"]
+    kind: str = elem["kind"]
+    return kind
+
+
+def _is_optional(typ: dict[str, Any]) -> bool:
+    """Whether a type record is the optional wrapper (`T | None`)."""
+    if "optional" not in typ:
+        return False
+    optional: bool = typ["optional"]
+    return optional
+
+
 def _has(expr: dict[str, Any], key: str) -> bool:
     """Whether an expression record carries an optional key at all."""
     return key in expr
