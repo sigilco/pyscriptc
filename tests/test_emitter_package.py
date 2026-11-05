@@ -181,8 +181,8 @@ def test_the_seam_knows_the_typed_accessors() -> None:
     assert _ir._kind(_ir._field_type(field)) == "str"
     assert _ir._has({"sep": "x"}, "sep") is True
     assert _ir._has({"sep": "x"}, "end") is False
-    assert _ir._opt_str({"file": "stderr"}, "file") == "stderr"
-    assert _ir._opt_str({}, "file") is None
+    assert _ir._opt_str_or_none({"file": "stderr"}, "file") == "stderr"
+    assert _ir._opt_str_or_none({}, "file") is None
 
 
 def test_every_emitter_area_lives_in_its_own_module() -> None:
