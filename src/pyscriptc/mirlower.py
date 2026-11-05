@@ -352,10 +352,9 @@ class _FnLowerer:
         successor edge, once the target's id is final.
         """
         fn = self.builder.fn
-        block = fn.blocks[bid]
-        i = self.block_terminator[bid]
+        i: int = self.block_terminator[bid]
         fn.arg1[i] = target
-        block.succ1 = target
+        self.builder.patch_succ1(bid, target)
 
     def patch_br_false(self, bid: int, target: int) -> None:
         """Point block `bid`'s `MIR_BR` false edge at `target`.
@@ -366,10 +365,9 @@ class _FnLowerer:
         id is final.
         """
         fn = self.builder.fn
-        block = fn.blocks[bid]
-        i = self.block_terminator[bid]
+        i: int = self.block_terminator[bid]
         fn.arg2[i] = target
-        block.succ2 = target
+        self.builder.patch_succ2(bid, target)
 
     def _record_terminator(self) -> None:
         """Note the current block's terminator index.
@@ -377,10 +375,10 @@ class _FnLowerer:
         The builder's `emit_jmp`/`emit_br` do not return the instruction
         index, so the index is the last one appended.
         """
-        current = self.builder.current
-        if current is None:
+        bid = self.builder.current_bid()
+        if bid < 0:
             raise MirLowerError("no open block to terminate")
-        self.block_terminator[current.bid] = len(self.builder.fn.ops) - 1
+        self.block_terminator[bid] = len(self.builder.fn.ops) - 1
 
     def reserve_label(self) -> int:
         """Reserve the next direct-path label number.
@@ -495,7 +493,7 @@ class _FnLowerer:
         # The arm's jump to the join lives in the arm's last block: a
         # nested `if` inside the arm leaves its own join block open, and
         # the direct path continues the arm there.
-        then_last = builder.current.bid
+        then_last: int = builder.current_bid()
         if not then_dead:
             builder.emit_jmp(-1)
             self._record_terminator()
@@ -505,7 +503,7 @@ class _FnLowerer:
         else_body: list[Dict[str, Any]] = stmt["else"]
         self.emit_body(else_body)
         else_dead = builder.terminated
-        else_last = builder.current.bid
+        else_last: int = builder.current_bid()
         if not else_dead:
             builder.emit_jmp(-1)
             self._record_terminator()

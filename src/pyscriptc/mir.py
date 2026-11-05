@@ -573,6 +573,35 @@ class MirBuilder:
         current.br_args_false = list(args_false)
         self.terminated = 1
 
+    def current_bid(self) -> int:
+        """The id of the open block, or -1 when no block is open.
+
+        The lowerer needs the id of the block a statement's body ends
+        in, to patch that block's forward jump once the target's id is
+        final. Reading the id here keeps the optional-block type out of
+        the lowerer's annotations.
+        """
+        current: MirBlock | None = self.current
+        if current is None:
+            return -1
+        return current.bid
+
+    def patch_succ1(self, bid: int, target: int) -> None:
+        """Rewrite block `bid`'s first successor edge.
+
+        The lowerer patches a forward jump's operand once the block it
+        names opens; the successor edge lives on the block, and the
+        rewrite stays here so the lowerer does not reach into the
+        successor field of a block it only holds by id.
+        """
+        block = self.fn.blocks[bid]
+        block.succ1 = target
+
+    def patch_succ2(self, bid: int, target: int) -> None:
+        """Rewrite block `bid`'s second successor edge; see `patch_succ1`."""
+        block = self.fn.blocks[bid]
+        block.succ2 = target
+
     def finish(self) -> MirFunction:
         """Return the function; refuses dangling open blocks."""
         current: MirBlock | None = self.current
