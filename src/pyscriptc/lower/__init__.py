@@ -29,22 +29,17 @@ from pyscriptc.lower._core import (
     Binding,
     Fence,
     _any_accepts,
-    _assign,
     _attr,
     _compare,
     _const_none,
     _const_str,
     _declared_globals,
-    _dotted,
     _has_typevar,
-    _is_none_expr,
     _maybe_type_kind,
-    _name,
     _node_kind,
     _node_type_kind,
     _show,
     _subst_type,
-    _tuple_assign,
     _type_kind,
     _type_rt,
     module_needs_slot,
@@ -53,6 +48,7 @@ from pyscriptc.lower._coro_adapter import coro_module
 from pyscriptc.lower._entry import EntryMixin
 from pyscriptc.lower._expr import ExprMixin
 from pyscriptc.lower._infer import TypeInferMixin
+from pyscriptc.lower._misc_emit import MiscEmitMixin
 from pyscriptc.lower._stdlib import StdlibDispatchMixin
 from pyscriptc.lower._stmt import (
     StmtMixin,
@@ -131,20 +127,6 @@ def _expr_node(expr: dict[str, Any], span: dict[str, Any]) -> Any:
     return node_to_dict(_ir.expr_stmt(dict_to_node(expr), _mk_span(span)))
 
 
-def _setitem_node(container: dict[str, Any], index: dict[str, Any], value: dict[str, Any], span: dict[str, Any]) -> Any:
-    """The container store node."""
-
-    return node_to_dict(
-        _ir.setitem_stmt(dict_to_node(container), dict_to_node(index), dict_to_node(value), _mk_span(span))
-    )
-
-
-def _setattr_node(obj: dict[str, Any], name: str, value: dict[str, Any], span: dict[str, Any]) -> Any:
-    """The attribute write node."""
-
-    return node_to_dict(_ir.setattr_stmt(dict_to_node(obj), name, dict_to_node(value), _mk_span(span)))
-
-
 def _unary_not_node(operand: dict[str, Any], span: dict[str, Any]) -> Any:
     """The `not operand` node with the bool type."""
 
@@ -157,18 +139,6 @@ def _closure_node(name: str, params: list[dict[str, Any]], ret: dict[str, Any], 
     return node_to_dict(
         _ir.closure(name, [], _ir.t_func([dict_to_type(p["type"]) for p in params], dict_to_type(ret)), _mk_span(span))
     )
-
-
-def _list_empty_node(typ: dict[str, Any], span: dict[str, Any]) -> Any:
-    """The empty list display node."""
-
-    return node_to_dict(_ir.list_lit([], _mk_type(typ), _mk_span(span)))
-
-
-def _const_flag_node(value: bool, span: dict[str, Any]) -> Any:
-    """The int constant node one slice-bound `"True"`/`"False"` const spells."""
-
-    return node_to_dict(_ir.const_node(_ir.P_INT, str(value), _ir.t_leaf("int"), _mk_span(span)))
 
 
 def _maybe_node_kind(node: dict[str, Any]) -> str | None:
@@ -199,6 +169,7 @@ class Lowerer(
     ClosuresMixin,
     TypeInferMixin,
     EntryMixin,
+    MiscEmitMixin,
 ):
     def __init__(self, filename: str, source: str, target: str | None = None, config: Any = None) -> None:
         self.filename = filename
@@ -1646,102 +1617,11 @@ class Lowerer(
         finally:
             self.opt_unwrap = saved_unwrap
 
-    def _setitem(self, stmt: ast.Assign, span: dict[str, Any]) -> dict[str, Any]:
-        target = stmt.targets[0]
-        assert isinstance(target, ast.Subscript)
-        if isinstance(target.slice, ast.Slice):
-            # `xs[a:b] = ys` splices a list, growing or shrinking it; a step
-            # stays fenced with the slice-read message.
-            slc = target.slice
-            container = self._expr(target.value)
-            kind = _node_type_kind(container)
-            if kind == "list" and container["type"].get("set"):
-                self.fail(target, "PS2002", "a set has no item assignment")
-            if kind != "list":
-                self.fail(target, "PS2002", "slice assignment targets a list")
-            if slc.step is not None:
-                self.fail(target, "PS2002", "slices are not lowered")
-            value = self._expr(stmt.value)
-            if _node_type_kind(value) != "list" or not types_equal(value["type"]["elem"], container["type"]["elem"]):
-                self.fail(stmt, "PS1003", "slice assignment takes a list of the same element type")
-            start, has_start = self._slice_bound(slc.lower, span)
-            stop, has_stop = self._slice_bound(slc.upper, span)
-            flags = [
-                _const_flag_node(has_start, span),
-                _const_flag_node(has_stop, span),
-            ]
-            call = self._abi_call(
-                "builtins",
-                "list.setslice",
-                [container, start, stop, *flags, value],
-                {"kind": "none"},
-                "ps_seq_splice",
-                span,
-            )
-            return _expr_node(call, span)
-        container = self._expr(target.value)
-        index = self._expr(target.slice)
-        kind = _node_type_kind(container)
-        if kind == "list" and container["type"].get("set"):
-            self.fail(target, "PS2002", "a set has no item assignment")
-        if kind == "list":
-            if _node_type_kind(index) != "int":
-                self.fail(target, "PS1003", "a list index is int")
-            value = self._expr(stmt.value, container["type"]["elem"])
-            self._expect(stmt, value["type"], container["type"]["elem"], "list item")
-        elif kind == "dict":
-            self._expect(target, index["type"], container["type"]["key"], "dict key")
-            value = self._expr(stmt.value, container["type"]["value"])
-        else:
-            self.fail(target, "PS2002", "item assignment targets a list or dict")
-        return _setitem_node(container, index, value, span)
-
-    def _setattr(self, stmt: ast.Assign, span: dict[str, Any]) -> dict[str, Any]:
-        target = stmt.targets[0]
-        assert isinstance(target, ast.Attribute)
-        obj = self._expr(target.value)
-        if _node_type_kind(obj) != "class":
-            self.fail(target, "PS2001", f"attribute assignment is not lowered ({_dotted(target)})")
-        class_name = obj["type"]["name"]
-        # boxed:begin
-        # An island handle is opaque, and the seam carries values one way:
-        # a compiled attribute write would have to carry the value back into
-        # the island, so it fences instead of reaching a native field table.
-        if obj["type"].get("island"):
-            self.fail(
-                target,
-                "PS2001",
-                f"{class_name} is an island handle: mutate it on the island, or read the result back",
-            )
-        # boxed:end
-        info = self.classes[class_name]
-        if info.get("namedtuple"):
-            self.fail(target, "PS2002", f"{class_name}.{target.attr} is read-only on a namedtuple")
-        field = next((item for item in info["fields"] if item["name"] == target.attr), None)
-        if field is None:
-            self.fail(target, "PS2001", f"{class_name}.{target.attr} is not a field")
-        value = self._expr(stmt.value, field["type"])
-        self._expect(stmt, value["type"], field["type"], target.attr)
-        return _setattr_node(obj, target.attr, value, span)
-
     def _bool_cond(self, node: ast.expr) -> dict[str, Any]:
         if isinstance(node, ast.BoolOp):
             cond = self._boolop(node, span_of(node, self.filename), as_cond=True)
         else:
             cond = self._expr(node)
-        kind = _node_type_kind(cond)
-        if kind == "bool":
-            return cond
-        if kind in _TRUTHY or cond["type"].get("optional"):
-            return self._truthy(cond, span_of(node, self.filename))
-        self.fail(node, "PS2004", "condition must be a bool, not a truthy value")
-        raise AssertionError("unreachable")
-
-    def _bool_cond_of(self, node: ast.expr, want: dict[str, Any]) -> dict[str, Any]:
-        """A condition whose expected type rides down (the `__getattr__` hook)."""
-        if isinstance(node, ast.BoolOp):
-            return self._bool_cond(node)
-        cond = self._expr(node, want)
         kind = _node_type_kind(cond)
         if kind == "bool":
             return cond
@@ -1798,117 +1678,11 @@ class Lowerer(
             return dotted, parent, joined, "lowered"
         return dotted, parent, joined, "missing"
 
-    def _set_display(self, node: ast.Set, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
-        if not node.elts:
-            self.fail(node, "PS1001", "an empty set needs a set annotation")
-        if any(isinstance(elt, ast.Starred) for elt in node.elts):
-            self.fail(node, "PS2002", "set unpacking is not lowered")
-        elem_expect = expect["elem"] if expect and expect.get("set") else None
-        first = self._expr(node.elts[0], elem_expect)
-        elem = first["type"]
-        if _type_kind(elem) not in {"int", "str"}:
-            self.fail(node, "PS2002", "set elements are int or str")
-        typ = node_to_dict(_ir.t_list(dict_to_type(elem), set_=True))
-        if expect and expect.get("set"):
-            self._expect(node, typ, expect, "set")
-        dest = self._temp("set")
-        self.locals[dest] = typ
-        self.prelude.append(_assign(dest, _list_empty_node(typ, span), span))
-        self.prelude.extend(self._set_insert_stmts(dest, typ, first, span))
-        for elt in node.elts[1:]:
-            value = self._expr(elt, elem)
-            if not types_equal(value["type"], elem):
-                self.fail(node, "PS1003", "set elements have one type")
-            self.prelude.extend(self._set_insert_stmts(dest, typ, value, span))
-        return _name(dest, typ, span)
-
-    def _comp(
-        self,
-        node: ast.ListComp | ast.SetComp | ast.DictComp | ast.GeneratorExp,
-        span: dict[str, Any],
-        expect: dict[str, Any] | None,
-    ) -> dict[str, Any]:
-        # GeneratorExp lowers like ListComp: the elements materialize
-        # eagerly into a list (the eager model documented for R24).
-        if isinstance(node, (ast.ListComp, ast.GeneratorExp)):
-            kind = "list"
-        elif isinstance(node, ast.SetComp):
-            kind = "set"
-        else:
-            kind = "dict"
-        if any(gen.is_async for gen in node.generators):
-            self.fail(node, "PS2002", "async comprehensions are not lowered")
-        for gen in node.generators:
-            if isinstance(gen.target, (ast.Tuple, ast.List)):
-                for elt in gen.target.elts:
-                    if not isinstance(elt, ast.Name):
-                        self.fail(elt, "PS2002", "for unpacks flat names")
-            elif not isinstance(gen.target, ast.Name):
-                self.fail(node, "PS2002", "for targets a single name")
-        dest = self._temp("comp")
-        saved = (
-            self.comp_elt,
-            self.comp_key,
-            self.comp_kind,
-            self.comp_gens,
-            self.comp_ifs,
-            self.comp_dest,
-            self.comp_init,
-            self.comp_expect,
-            self.comp_ready,
-        )
-        self.comp_elt = node.value if isinstance(node, ast.DictComp) else node.elt
-        self.comp_key = node.key if isinstance(node, ast.DictComp) else None
-        self.comp_kind = kind
-        self.comp_gens = node.generators[1:]
-        self.comp_ifs = node.generators[0].ifs
-        self.comp_dest = dest
-        self.comp_init = None
-        self.comp_expect = expect
-        self.comp_ready = False
-        first = node.generators[0]
-        loop = ast.For(target=first.target, iter=first.iter, body=[ast.Pass()], orelse=[], type_comment=None)
-        ast.copy_location(loop, node)
-        try:
-            lowered = self._for(loop, span)
-        finally:
-            init = self.comp_init
-            (
-                self.comp_elt,
-                self.comp_key,
-                self.comp_kind,
-                self.comp_gens,
-                self.comp_ifs,
-                self.comp_dest,
-                self.comp_init,
-                self.comp_expect,
-                self.comp_ready,
-            ) = saved
-        if init is None:
-            self.fail(node, "PS2002", f"{kind} comprehension is not lowered")
-        self.prelude.append(init)
-        self.prelude.extend(lowered)
-        return _name(dest, self.locals[dest], span)
-
     def _store_constant(self, name: str, value: dict[str, Any], node: ast.AST) -> None:
         if name in self.bindings or name in self.declared or name in self.constants or name in self.type_aliases:
             self.fail(node, "PS2002", f"{name} is already bound")
         self.constants[name] = value
         self.declared.add(name)
-
-    def _store_tuple_constant(self, name: str, node: ast.Tuple, stmt: ast.AST) -> None:
-        if len(node.elts) < 2:
-            self.fail(node, "PS2002", "tuples need at least two fields")
-        elems: list[dict[str, Any]] = []
-        for elt in node.elts:
-            value = self._module_fold(elt)
-            if value is None:
-                value = self._expr(elt)
-            if _node_kind(value) != "const":
-                self.fail(stmt, "PS2002", "a module assignment must be a constant")
-            elems.append(value)
-        self._tuple_type([elem["type"] for elem in elems], node)
-        self._store_constant(name, {"kind": "tuple-const", "elems": elems}, stmt)
 
     def _bind_threading_global(self, name: str, value: dict[str, Any], typ: dict[str, Any], node: ast.AST) -> None:
         """A module-level record with identity binds a global slot.
@@ -2128,22 +1902,6 @@ class Lowerer(
         init = self._global_set(name, value, span)
         self.global_inits.append(init["expr"])
 
-    def _is_none(self, node: ast.Compare, span: dict[str, Any], negated: bool) -> dict[str, Any]:
-        left, right = node.left, node.comparators[0]
-        # A process slot's `is None` is the unset flag. Every other None literal
-        # is the existing == / != compare against none.
-        if _is_none_expr(right):
-            name = self._slot_read_name(left)
-            if name is not None:
-                return self._slot_is_unset(name, span, negated)
-            return self._compare_none(node, self._expr(left), negated, span, none_on_left=False)
-        if _is_none_expr(left):
-            name = self._slot_read_name(right)
-            if name is not None:
-                return self._slot_is_unset(name, span, negated)
-            return self._compare_none(node, self._expr(right), negated, span, none_on_left=True)
-        return self._identity(node, span, negated)
-
     def _slot_is_unset(self, name: str, span: dict[str, Any], negated: bool) -> dict[str, Any]:
         flag = self._global_is_set(name, span)
         if negated:
@@ -2171,23 +1929,6 @@ class Lowerer(
         op = "!=" if negated else "=="
         left, right = (none, value) if none_on_left else (value, none)
         return _compare(op, left, right, span)
-
-    def _slot_read_name(self, node: ast.expr) -> str | None:
-        if not isinstance(node, ast.Name) or node.id in self.locals:
-            return None
-        slot = self.global_slots.get(node.id)
-        if slot is None or not slot.get("active"):
-            return None
-        return node.id
-
-    def _materialize_tuple(
-        self, elems: list[dict[str, Any]], span: dict[str, Any], node: ast.AST | None = None
-    ) -> dict[str, Any]:
-        typ = self._tuple_type([elem["type"] for elem in elems], node or ast.Pass())
-        temp = self._temp("tuple")
-        self.locals[temp] = typ
-        self.prelude.extend(_tuple_assign(temp, typ, elems, span))
-        return _name(temp, typ, span)
 
     def _globals_for(self, body: list[ast.stmt]) -> frozenset[str]:
         """`global`-declared names for one function body, walked once.
@@ -2251,10 +1992,6 @@ class Lowerer(
         # initializer expression; the literal rules above stay the fast path
         # and everything else consults the map when a bridge is wired.
         return self._bridge_type(node)
-
-    def _temp(self, hint: str) -> str:
-        self.temp_n += 1
-        return f".ps_{hint}_{self.temp_n}"
 
 
 def lower_source(
