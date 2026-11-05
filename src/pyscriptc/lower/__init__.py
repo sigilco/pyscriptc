@@ -49,6 +49,7 @@ from pyscriptc.lower._core import (
     _tuple_assign,
     module_needs_slot,
 )
+from pyscriptc.lower._coro_adapter import coro_module
 from pyscriptc.lower._expr import ExprMixin
 from pyscriptc.lower._stdlib import StdlibDispatchMixin
 from pyscriptc.lower._stdlib_shared import (
@@ -2025,7 +2026,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # boxed:end
         if self.global_inits:
             module["globals"] = self.global_inits
-        return self._coro_finish(module)
+        return self._coro_finish(coro_module(module))
 
     def _split_entry(
         self,
