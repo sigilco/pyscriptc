@@ -88,6 +88,17 @@ def test_the_seam_reads_an_absent_kind_tag() -> None:
     assert _ir._kind_or_none(None) is None
 
 
+def test_the_seam_reads_the_node_kind_tags() -> None:
+    from pyscriptc.emit import _ir
+
+    assert _ir._node_kind({"kind": "assign"}) == "assign"
+    assert _ir._node_type_kind({"kind": "const", "type": {"kind": "int"}}) == "int"
+    assert _ir._maybe_node_kind({"kind": "raise"}) == "raise"
+    assert _ir._maybe_node_kind({"target": "x"}) is None
+    assert _ir._maybe_node_type_kind({"kind": "name", "type": {"kind": "str"}}) == "str"
+    assert _ir._maybe_node_type_kind({"kind": "pass"}) is None
+
+
 def test_the_seam_knows_the_symbol_naming() -> None:
     from pyscriptc.emit import _ir
 
