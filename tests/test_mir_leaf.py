@@ -50,6 +50,7 @@ LEAF_SAMPLES = [
         "leafwhile.py",
         "leafbreak.py",
         "leafforrange.py",
+        "leafelif.py",
     )
 ]
 
