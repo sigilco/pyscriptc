@@ -34,6 +34,7 @@ from pyscriptc.mir import (
     MIR_BR,
     MIR_COPY,
     MIR_JMP,
+    MIR_RAISE_CODE,
     MIR_RET,
     MirBlock,
     MirBlockArg,
@@ -55,6 +56,7 @@ _OP_ARITY: dict[int, int] = {
     1: 0,  # MIR_JMP
     2: 1,  # MIR_BR
     3: 1,  # MIR_RET
+    40: 0,  # MIR_RAISE_CODE: the exception code rides arg1, not a value
     4: 2,  # MIR_ADDW
     5: 2,  # MIR_SUBW
     6: 2,  # MIR_MULW
@@ -136,7 +138,7 @@ def _span_end(fn: MirFunction, start: int) -> int:
     n: int = len(ops)
     while i < n:
         op: int = ops[i]
-        if op == MIR_JMP or op == MIR_BR or op == MIR_RET:
+        if op == MIR_JMP or op == MIR_BR or op == MIR_RET or op == MIR_RAISE_CODE:
             return i + 1
         i += 1
     return n
@@ -323,7 +325,7 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
         terms: list[int] = []
         for b_index in range(len(body)):
             term_op: int = body[b_index]
-            if term_op == MIR_JMP or term_op == MIR_BR or term_op == MIR_RET:
+            if term_op == MIR_JMP or term_op == MIR_BR or term_op == MIR_RET or term_op == MIR_RAISE_CODE:
                 terms.append(term_op)
         if not terms:
             out.append(_Violation(CODE_CONTROL, f"block {bid} has no terminator"))
@@ -390,7 +392,7 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
                                     f" of type {arg.typ}",
                                 )
                             )
-        if last != MIR_JMP and last != MIR_BR and last != MIR_RET and body:
+        if last != MIR_JMP and last != MIR_BR and last != MIR_RET and last != MIR_RAISE_CODE and body:
             out.append(_Violation(CODE_CONTROL, f"block {bid} falls through without a terminator"))
 
     return out

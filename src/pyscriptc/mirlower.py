@@ -85,6 +85,19 @@ MIR_CNED = 23
 MIR_COPY = 25
 MIR_NOTB = 26
 
+# The out-of-vocabulary terminator: a message-less raise renders as one
+# noreturn `ps_raise_code` call plus `unreachable`. The op id sits above
+# the vocabulary (`mir.py`'s tables end at 26), so a drift in `mir.py`
+# cannot silently rebind it; the emitter and the verifier spell the same
+# value.
+MIR_RAISE_CODE = 40
+
+# The exception codes the slice raises, spelled over `builtins.EXCEPTIONS`
+# (the read site imports it at emit time; the census lowerer counts the
+# cross-module read, and spelling it here as the two literals the slice
+# can raise keeps the import table closed).
+_EXC_CODES: Dict[str, int] = {"ValueError": 51, "OverflowError": 10}
+
 I64_MIN = -9223372036854775807 - 1
 I64_MAX = 9223372036854775807
 
@@ -146,7 +159,10 @@ _D_HELPER_OPS = {
 }
 
 _EXPR_KINDS = frozenset({"const", "name", "binary", "compare", "unary"})
-_STMT_KINDS = frozenset({"assign", "expr", "return", "pass", "if", "while"})
+# The raise statements the slice lowers: the `range` desugar guards the
+# zero step with `raise ValueError`, so the slice admits the
+# message-less, code-less form the desugar produces and nothing else.
+_STMT_KINDS = frozenset({"assign", "expr", "return", "pass", "if", "while", "raise"})
 
 
 def supported_expr(expr: Dict[str, Any]) -> bool:
@@ -264,6 +280,15 @@ def supported_stmt(stmt: Dict[str, Any]) -> bool:
             if not supported_stmt(s):
                 return False
         return True
+    if kind == "raise":
+        # The `range` desugar's zero-step guard only: a message-less,
+        # cause-less `ValueError`. Anything else stays out of the slice.
+        # The membership test reads the container, not an element type,
+        # so the read site stays fence-free.
+        if "message" in stmt or "cause" in stmt:
+            return False
+        exc: str = stmt["exc"]
+        return exc == "ValueError"
     return True
 
 
@@ -463,7 +488,30 @@ class _FnLowerer:
         if kind == "while":
             self.emit_while(stmt)
             return
+        if kind == "raise":
+            self.emit_raise(stmt)
+            return
         raise MirLowerError(f"the MIR leaf slice cannot lower statement {kind}")
+
+    def emit_raise(self, stmt: Dict[str, Any]) -> None:
+        """A message-less `raise ValueError`: the `range` desugar's
+        zero-step guard.
+
+        The direct path renders the code-less form as one noreturn helper
+        call plus `unreachable`; the MIR carries the exception code as
+        the instruction's `arg1` (a negative operand is a sentinel there,
+        so the code rides `dst`, which a control op never reads). The
+        block stays terminated, so the merge logic sees the arm dead the
+        same way it sees a `return`.
+        """
+        exc: str = stmt["exc"]
+        if "message" in stmt or "cause" in stmt:
+            raise MirLowerError(f"the MIR leaf slice cannot lower raise {exc} with a message")
+        code: int = _EXC_CODES.get(exc, -1)
+        if code < 0:
+            raise MirLowerError(f"the MIR leaf slice cannot lower raise {exc}")
+        self.builder.emit_raise_code(code)
+        self._record_terminator()
 
     def emit_if(self, stmt: Dict[str, Any]) -> None:
         """One-level if without block arguments on the join.

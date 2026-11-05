@@ -63,6 +63,7 @@ from pyscriptc.mir import (
     MIR_NEGD,
     MIR_NEGW,
     MIR_NOTB,
+    MIR_RAISE_CODE,
     MIR_RET,
     MIR_SUBD,
     MIR_SUBW,
@@ -112,7 +113,7 @@ _LLVM_D = {MIR_ADDD: "fadd", MIR_SUBD: "fsub", MIR_MULD: "fmul", MIR_NEGD: "fneg
 # The terminator ops, spelled here over the imported op constants: the
 # module-level table in `mir.py` binds a global slot, and slots do not
 # ride the package export table a cross-module import resolves against.
-_MIR_TERMINATORS: list[int] = [MIR_JMP, MIR_BR, MIR_RET]
+_MIR_TERMINATORS: list[int] = [MIR_JMP, MIR_BR, MIR_RET, MIR_RAISE_CODE]
 
 # The op tables, spelled here for the same reason as `_MIR_TERMINATORS`:
 # `mir.py`'s module-level tables bind global slots, and slots do not ride
@@ -124,6 +125,7 @@ _OP_ARITY: Dict[int, int] = {
     MIR_JMP: 0,
     MIR_BR: 1,
     MIR_RET: 1,
+    MIR_RAISE_CODE: 0,
     MIR_ADDW: 2,
     MIR_SUBW: 2,
     MIR_MULW: 2,
@@ -151,6 +153,7 @@ _OP_RESULT_TYPE: Dict[int, int] = {
     MIR_JMP: MIR_W,
     MIR_BR: MIR_W,
     MIR_RET: MIR_W,
+    MIR_RAISE_CODE: MIR_W,
     MIR_ADDW: MIR_W,
     MIR_SUBW: MIR_W,
     MIR_MULW: MIR_W,
@@ -444,6 +447,14 @@ class MirEmitter:
         a2 = fn.arg2[i]
         if op == MIR_RET:
             self.line(f"ret {self.llvm_of(fn, a1)} {self.operand(fn, a1)}")
+            return
+        if op == MIR_RAISE_CODE:
+            # The message-less raise: one noreturn helper call plus
+            # `unreachable`, the direct path's `emit_raise` spelling.
+            # The `exc` group the declaration table needs comes from
+            # the direct walk's own `emit_raise` on this module.
+            self.line(f"call void @ps_raise_code(i32 {a1}) noreturn")
+            self.line("unreachable")
             return
         if op == MIR_JMP:
             self.line(f"br label %{self._label(a1)}")

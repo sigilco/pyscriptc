@@ -88,6 +88,14 @@ MIR_COPY = 25
 # Bool negation: `xor i1 v, true` on the MIR_B operand.
 MIR_NOTB = 26
 
+# The out-of-vocabulary terminator: a message-less raise renders as one
+# noreturn `ps_raise_code` call plus `unreachable`. The op id sits above
+# the value vocabulary (the tables end at 26), so a drift in the value
+# ops cannot silently rebind it; the emitter and the verifier spell the
+# same value. The exception code rides `dst` (a control op never reads
+# it), so the operand slots stay free for the `-1` sentinel.
+MIR_RAISE_CODE = 40
+
 # The op arity table. `MIR_NOP` through `MIR_COPY`: the branch reads its
 # condition from `arg1`, and its two successors carry the block arguments
 # (see `MirBlock`). Every value op reads `arg1`/`arg2` per this table.
@@ -97,6 +105,7 @@ OP_ARITY = {
     MIR_JMP: 0,
     MIR_BR: 1,
     MIR_RET: 1,
+    MIR_RAISE_CODE: 0,
     MIR_ADDW: 2,
     MIR_SUBW: 2,
     MIR_MULW: 2,
@@ -129,6 +138,7 @@ OP_RESULT_TYPE = {
     MIR_JMP: MIR_W,
     MIR_BR: MIR_W,
     MIR_RET: MIR_W,
+    MIR_RAISE_CODE: MIR_W,
     MIR_ADDW: MIR_W,
     MIR_SUBW: MIR_W,
     MIR_MULW: MIR_W,
@@ -177,8 +187,8 @@ def copy_result_type(fn: MirFunction, i: int) -> int:
 
 
 # The ops that end a block. A list, not a set: `in` lowers for lists and
-# the table is four entries, so the membership walk costs nothing.
-TERMINATORS = [MIR_JMP, MIR_BR, MIR_RET]
+# the table is five entries, so the membership walk costs nothing.
+TERMINATORS = [MIR_JMP, MIR_BR, MIR_RET, MIR_RAISE_CODE]
 
 # The ops that produce a value a later instruction can reference.
 VALUE_OPS = [
@@ -548,6 +558,15 @@ class MirBuilder:
         if current is None or self.terminated:
             raise MirError("ret outside an open block")
         self.emit(MIR_RET, -1, value, none_ref())
+        self.terminated = 1
+
+    def emit_raise_code(self, code: int) -> None:
+        """End the block with a message-less raise. `code` rides `arg1`
+        (the op reads no value, so the operand checks skip the slot)."""
+        current: MirBlock | None = self.current
+        if current is None or self.terminated:
+            raise MirError("raise outside an open block")
+        self.emit(MIR_RAISE_CODE, -1, code, none_ref())
         self.terminated = 1
 
     def emit_jmp(self, target: int) -> None:
