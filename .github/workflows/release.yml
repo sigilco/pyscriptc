@@ -51,8 +51,29 @@ env:
   TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
 
 jobs:
+  # Cheap gate (about a minute): the release-only steps (version stamp, runtime
+  # pack builder) run against synthetic inputs before the 20 minute matrix
+  # starts, so a break in one of them fails here instead of after the builds.
+  preflight:
+    name: preflight (release steps)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"
+          enable-cache: true
+          python-version: "3.14"
+      - run: uv run pytest tests/test_release_aux_scripts.py -q -p no:cacheprovider
+
   build:
     name: build (${{ matrix.target }}${{ matrix.experimental && ', experimental' || '' }})
+    needs: [preflight]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     strategy:
@@ -293,6 +314,7 @@ jobs:
   # and on a prior successful rehearsal of the release commit.
   verify:
     name: verify dists
+    needs: [preflight]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
