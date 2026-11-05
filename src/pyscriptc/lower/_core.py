@@ -28,6 +28,44 @@ def _mk_type(typ: dict[str, Any]) -> Any:
     return dict_to_type(typ)
 
 
+def _type_kind(typ: dict[str, Any]) -> str:
+    """The kind tag of a type record: int, float, bool, str, bytes, list,
+    dict, class, exc, func, any or none. Every type dispatch reads the
+    record through this accessor instead of the raw dict key."""
+
+    kind: str = typ["kind"]
+    return kind
+
+
+def _maybe_type_kind(typ: dict[str, Any]) -> str | None:
+    """The kind tag of a type record, or None when the record carries no
+    kind. Optional-shape dispatch reads the record through this accessor
+    instead of the raw dict key."""
+
+    if "kind" not in typ:
+        return None
+    kind: str = typ["kind"]
+    return kind
+
+
+def _node_kind(node: dict[str, Any]) -> str:
+    """The kind tag of a dict-IR node (assign, expr, raise, ...). Statement
+    and expression dispatch reads the node through this accessor instead of
+    the raw dict key."""
+
+    kind: str = node["kind"]
+    return kind
+
+
+def _node_type_kind(node: dict[str, Any]) -> str:
+    """The kind tag of the type record a dict-IR node carries. A dispatch
+    on the node's own type reads it through this accessor instead of the
+    raw nested dict key."""
+
+    typ: dict[str, Any] = node["type"]
+    return _type_kind(typ)
+
+
 class Fence(Exception):
     def __init__(self, code: str, message: str, span: dict[str, Any], function: str | None) -> None:
         super().__init__(message)

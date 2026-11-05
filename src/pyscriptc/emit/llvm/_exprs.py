@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pyscriptc.emit._ir import _elem_size, _fn_symbol, _llvm_double, _llvm_type, _memory_type
+from pyscriptc.emit._ir import _elem_size, _expr_kind, _fn_symbol, _kind, _llvm_double, _llvm_type, _memory_type
 from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.errors import FitError, IRError
 from pyscriptc.ir import fits_i64
@@ -32,7 +32,7 @@ _FHELPER = {"/": "fdiv", "%": "fmod", "//": "ffloordiv", "**": "fpow"}
 
 class ExprsMixin(EmitterBase):
     def emit_expr(self, expr: dict[str, Any]) -> str:
-        kind: str = expr["kind"]
+        kind: str = _expr_kind(expr)
         if kind == "const":
             return self.emit_const(expr)
         if kind == "name":
@@ -43,7 +43,7 @@ class ExprsMixin(EmitterBase):
             sub_operand: dict[str, Any] = expr["operand"]
             operand: str = self.emit_expr(sub_operand)
             expr_type: dict[str, Any] = expr["type"]
-            type_kind: str = expr_type["kind"]
+            type_kind: str = _kind(expr_type)
             if op == "-" and type_kind == "int":
                 return self.helper_call("ineg", "i64", [operand])
             if op == "-" and type_kind == "float":
@@ -94,7 +94,7 @@ class ExprsMixin(EmitterBase):
 
     def emit_const(self, expr: dict[str, Any]) -> str:
         expr_type: dict[str, Any] = expr["type"]
-        kind: str = expr_type["kind"]
+        kind: str = _kind(expr_type)
         if kind == "int":
             raw_int: str = expr["value"]
             number: int = int(raw_int)
@@ -120,7 +120,7 @@ class ExprsMixin(EmitterBase):
 
     def emit_binary(self, expr: dict[str, Any], left: str, right: str) -> str:
         expr_type: dict[str, Any] = expr["type"]
-        kind: str = expr_type["kind"]
+        kind: str = _kind(expr_type)
         op: str = expr["op"]
         if kind == "int":
             if op in _INT_INS:
@@ -142,7 +142,7 @@ class ExprsMixin(EmitterBase):
             return self.helper_call("strconcat", "%ps.str", [left, right], arg_type="%ps.str")
         left_sub: dict[str, Any] = expr["left"]
         left_sub_type: dict[str, Any] = left_sub["type"]
-        left_kind: str = left_sub_type["kind"]
+        left_kind: str = _kind(left_sub_type)
         if left_kind == "class":
             return self._emit_class_binary(expr, left, right)
         raise IRError(f"cannot emit {op} on {kind}")
@@ -152,8 +152,8 @@ class ExprsMixin(EmitterBase):
         right_expr: dict[str, Any] = expr["right"]
         left_type: dict[str, Any] = left_expr["type"]
         right_type: dict[str, Any] = right_expr["type"]
-        left_kind: str = left_type["kind"]
-        right_kind: str = right_type["kind"]
+        left_kind: str = _kind(left_type)
+        right_kind: str = _kind(right_type)
         op: str = expr["op"]
         if left_kind == "none" or right_kind == "none":
             if op not in {"==", "!="}:
@@ -214,11 +214,11 @@ class ExprsMixin(EmitterBase):
     def _emit_none_side(self, expr: dict[str, Any]) -> None:
         """Emit a call that returns None. A None constant or a None local is not a register."""
         expr_type: dict[str, Any] = expr["type"]
-        type_kind: str = expr_type["kind"]
+        type_kind: str = _kind(expr_type)
         if type_kind != "none":
             self.emit_expr(expr)
             return
-        expr_kind: str = expr["kind"]
+        expr_kind: str = _expr_kind(expr)
         if expr_kind == "const" or expr_kind == "name":
             return
         self.emit_expr(expr)
@@ -243,7 +243,7 @@ class ExprsMixin(EmitterBase):
         expr_type: dict[str, Any] = expr["type"]
         key_t: dict[str, Any] = expr_type["key"]
         val_t: dict[str, Any] = expr_type["value"]
-        key_t_kind: str = key_t["kind"]
+        key_t_kind: str = _kind(key_t)
         key_kind: int = 1 if key_t_kind == "int" else 2
         pairs: list[dict[str, Any]] = expr["pairs"]
         stored_keys: list[str] = []
@@ -277,7 +277,7 @@ class ExprsMixin(EmitterBase):
         sub_idx: dict[str, Any] = expr["index"]
         index: str = self.emit_expr(sub_idx)
         val_type: dict[str, Any] = sub_val["type"]
-        kind: str = val_type["kind"]
+        kind: str = _kind(val_type)
         expr_type: dict[str, Any] = expr["type"]
         mem_type: str = _memory_type(expr_type)
         needed = self.needed
@@ -286,7 +286,7 @@ class ExprsMixin(EmitterBase):
             needed.add("seq")
             out: str = self._alloca(mem_type)
             self.line(f"call void @ps_seq_get(ptr {value}, i64 {index}, ptr {out})")
-            slot_kind: str = slot["kind"]
+            slot_kind: str = _kind(slot)
             proven: dict[str, Any] | None = slot if slot_kind == "any" else None
             return self._widen_cell(expr_type, out, proven)
         if kind == "dict":
@@ -296,7 +296,7 @@ class ExprsMixin(EmitterBase):
             key: str = self._stash_cell(idx_type, index)
             out = self._alloca(mem_type)
             self.line(f"call void @ps_map_get(ptr {value}, ptr {key}, ptr {out})")
-            slot_kind = slot["kind"]
+            slot_kind = _kind(slot)
             proven = slot if slot_kind == "any" else None
             return self._widen_cell(expr_type, out, proven)
         if kind == "str":
@@ -336,7 +336,7 @@ class ExprsMixin(EmitterBase):
         hay_expr: dict[str, Any] = expr["hay"]
         hay: str = self.emit_expr(hay_expr)
         hay_type: dict[str, Any] = hay_expr["type"]
-        hay_kind: str = hay_type["kind"]
+        hay_kind: str = _kind(hay_type)
         flag: str = ""
         needed = self.needed
         if hay_kind in {"str", "bytes"}:
@@ -351,7 +351,7 @@ class ExprsMixin(EmitterBase):
         elif hay_kind == "list":
             needed.add("seq")
             elem_type: dict[str, Any] = hay_type["elem"]
-            elem: str = elem_type["kind"]
+            elem: str = _kind(elem_type)
             raw_flag: str = ""
             if elem == "int":
                 raw_flag = self._call_ret("i32", "ps_seq_has_i64", [f"ptr {hay}", f"i64 {needle}"])

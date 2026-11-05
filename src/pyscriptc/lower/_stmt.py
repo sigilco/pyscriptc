@@ -42,10 +42,14 @@ from pyscriptc.lower._core import (
     _is_none_expr,
     _item,
     _len_call,
+    _maybe_type_kind,
     _name,
+    _node_kind,
+    _node_type_kind,
     _raise_value,
     _show,
     _tuple_assign,
+    _type_kind,
     _zero,
 )
 from pyscriptc.reflection import kwargs_call_note
@@ -141,7 +145,7 @@ def _excmake_node(exc: str, span: dict[str, Any], message: dict[str, Any] | None
 class StmtMixin:
     def _plain_class_elem(self, elem: dict[str, Any]) -> bool:
         """A user class iterates like any pointer element; synthetic runtime classes do not."""
-        if elem["kind"] != "class":
+        if _type_kind(elem) != "class":
             return False
         info = self.classes.get(elem["name"], {})
         return bool(info.get("tuple")) or not info.get("synthetic")
@@ -319,17 +323,17 @@ class StmtMixin:
                 # raise a second, misleading PS2002 on top of the real
                 # fence. Bind the annotation's type so the name resolves,
                 # and re-raise the real fence.
-                if not (typ.get("kind") == "class" and typ.get("name") == "Deque" and "elem" not in typ):
+                if not (_maybe_type_kind(typ) == "class" and typ.get("name") == "Deque" and "elem" not in typ):
                     # A bare `collections.deque` annotation carries no element
                     # type; binding it would send a later `.append` into the
                     # synthetic-method path with no `elem` to check against.
                     self.locals[stmt.target.id] = typ
                 raise
             self._expect(stmt, value["type"], typ, stmt.target.id)
-            if typ["kind"] == "any" or (
-                typ["kind"] in {"dict", "list"}
+            if _type_kind(typ) == "any" or (
+                _type_kind(typ) in {"dict", "list"}
                 and _any_contains(typ)
-                and value["type"]["kind"] in {"dict", "list"}
+                and _node_type_kind(value) in {"dict", "list"}
                 and not _any_contains(value["type"])
             ):
                 # Issue #781: a concrete initializer satisfies an Any
@@ -394,7 +398,7 @@ class StmtMixin:
                     # whose result is a callable binds like a Callable
                     # annotation.
                     value = self._expr(stmt.value)
-                    if value["type"]["kind"] == "func":
+                    if _node_type_kind(value) == "func":
                         self.locals[target] = value["type"]
                         return [_assign(target, value, span)]
                     # boxed:begin
@@ -405,14 +409,14 @@ class StmtMixin:
                         self._own_handle(target, value["type"])
                         return [_assign(target, value, span)]
                     # boxed:end
-                    if value["type"]["kind"] == "class" and value["type"].get("name") in {"ArgParser", "Namespace"}:
+                    if _node_type_kind(value) == "class" and value["type"].get("name") in {"ArgParser", "Namespace"}:
                         self.locals[target] = value["type"]
                         return [_assign(target, value, span)]
                     if self._bridge_type(stmt.value) is not None:
                         # Checker bridge: the checker proved the call's result
                         # type; bind the name to it instead of fencing.
                         value = self._expr(stmt.value)
-                        if value["type"]["kind"] != "func":
+                        if _node_type_kind(value) != "func":
                             self.locals[target] = value["type"]
                             return [_assign(target, value, span)]
                 if self._bridge_type(stmt.value) is not None:
@@ -440,7 +444,7 @@ class StmtMixin:
                     self._note_frozen(target, stmt.value)
                     return [*dropped, _assign(target, value, span)]
                 inferred = self._infer_type_known(stmt.value) or self._infer_type_of(stmt.value)
-                if inferred is not None and inferred["kind"] != "none":
+                if inferred is not None and _type_kind(inferred) != "none":
                     self.locals[target] = inferred
                     value = self._expr(stmt.value, inferred)
                     self._expect(stmt, value["type"], inferred, target)
@@ -534,14 +538,14 @@ class StmtMixin:
                     return [
                         node_to_dict(_ir.return_stmt(dict_to_node(self._opt_box(None, ret, span)), _mk_span_of(span)))
                     ]
-                if ret["kind"] != "none":
+                if _type_kind(ret) != "none":
                     self.fail(stmt, "PS1003", "bare return is None, and this function does not return None")
                 return [node_to_dict(_ir.return_stmt(dict_to_node(_const_none(span)), _mk_span_of(span)))]
             value = self._expr(stmt.value, ret)
             self._expect(stmt, value["type"], ret, "return")
             # A returned handle transfers ownership to the caller: the scope
             # exit must not free it too (issue #224).
-            if value["kind"] == "name" and is_handle_type(value["type"]):
+            if _node_kind(value) == "name" and is_handle_type(value["type"]):
                 self.returned_handles.add(value["id"])
             return [node_to_dict(_ir.return_stmt(dict_to_node(value), _mk_span_of(span)))]
         if isinstance(stmt, ast.Expr):
@@ -598,7 +602,7 @@ class StmtMixin:
             if not (isinstance(pat, ast.MatchAs) and pat.pattern is None and pat.name) or pat.name in self.locals:
                 continue
             self.locals[pat.name] = subject_expr["type"]  # fresh capture: zero-init like a `for` target
-            if subject_expr["type"]["kind"] != "none":
+            if _node_type_kind(subject_expr) != "none":
                 self.prelude.append(_assign(pat.name, _zero(subject_expr["type"], span), span))
         chain: list[dict[str, Any]] = []
         for case in reversed(stmt.cases):
@@ -680,7 +684,7 @@ class StmtMixin:
             # other subscript target keeps the subscript fence.
             if isinstance(target.value, ast.Name):
                 local = self.locals.get(target.value.id, {})
-                kind = local.get("kind")
+                kind = _maybe_type_kind(local)
                 if kind == "dict":
                     container = self._expr(target.value)
                     index = self._expr(target.slice)
@@ -697,7 +701,7 @@ class StmtMixin:
                 if kind == "list" and not local.get("set"):
                     container = self._expr(target.value)
                     index = self._expr(target.slice)
-                    if index["type"]["kind"] != "int":
+                    if _node_type_kind(index) != "int":
                         self.fail(stmt, "PS1003", "a list index is int")
                     call = self._abi_call(
                         "builtins",
@@ -791,7 +795,7 @@ class StmtMixin:
                         if inner.value is stmt.value:
                             continue
                         typ = self._infer_type_of(inner.value)
-                        if typ is not None and typ["kind"] != "none":
+                        if typ is not None and _type_kind(typ) != "none":
                             self.locals[name] = typ
 
         def _bind_for_targets() -> None:
@@ -820,7 +824,7 @@ class StmtMixin:
                         # element type is the fact, or the peek refuses and
                         # the target stays out.
                         iter_typ = self._infer_type_of(loop.iter)
-                    if iter_typ is not None and iter_typ.get("kind") == "list":
+                    if iter_typ is not None and _maybe_type_kind(iter_typ) == "list":
                         self.locals[name] = iter_typ["elem"]
 
         def _written_value(node: ast.expr) -> dict[str, Any] | None:
@@ -838,16 +842,16 @@ class StmtMixin:
             if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Sub)):
                 left = _written_value(node.left)
                 right = self._infer_type_of(node.right)
-                if left is None or right is None or right["kind"] != "int":
+                if left is None or right is None or _type_kind(right) != "int":
                     return None
-                if left["kind"] == "int":
+                if _type_kind(left) == "int":
                     return left
                 return None
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
                 recv = node.func.value
                 if node.func.attr == "get" and isinstance(recv, ast.Name) and recv.id == target and len(node.args) == 2:
                     default = self._infer_type_of(node.args[1])
-                    if default is None or default["kind"] == "none":
+                    if default is None or _type_kind(default) == "none":
                         return None
                     return default
             saved = dict(self.locals)
@@ -877,7 +881,7 @@ class StmtMixin:
                     _locals_upto(node)
                     _bind_for_targets()
                     typ = self._infer_type_of(node.args[0])
-                    if typ is None or typ["kind"] in {"none", "bool", "func"}:
+                    if typ is None or _type_kind(typ) in {"none", "bool", "func"}:
                         return None
                     if elem is None:
                         elem = typ
@@ -894,7 +898,7 @@ class StmtMixin:
                     _bind_for_targets()
                     key = self._infer_type_of(node.args[0])
                     val = self._infer_type_of(node.args[1])
-                    if key is None or val is None or key["kind"] not in {"int", "str"}:
+                    if key is None or val is None or _type_kind(key) not in {"int", "str"}:
                         return None
                     if value is None:
                         value = val
@@ -911,7 +915,7 @@ class StmtMixin:
                         _bind_for_targets()
                         key = self._infer_type_of(node.targets[0].slice)
                         val = _written_value(node.value)
-                        if key is None or val is None or key["kind"] not in {"int", "str"}:
+                        if key is None or val is None or _type_kind(key) not in {"int", "str"}:
                             return None
                         if value is None:
                             value = val
@@ -974,7 +978,7 @@ class StmtMixin:
         return stmts
 
     def _pin(self, value: dict[str, Any], stmts: list[dict[str, Any]], span: dict[str, Any]) -> dict[str, Any]:
-        if value["kind"] == "name":
+        if _node_kind(value) == "name":
             return value
         holder = self._temp("hold")
         self.locals[holder] = value["type"]
@@ -1021,9 +1025,9 @@ class StmtMixin:
                     self.fail(elt, "PS2002", "unpack keeps a single star")
                 star = index
         typ = value["type"]
-        if typ["kind"] == "class" and self.classes.get(typ["name"], {}).get("tuple"):
+        if _type_kind(typ) == "class" and self.classes.get(typ["name"], {}).get("tuple"):
             return self._unpack_fixed(node, elts, star, value, span)
-        if typ["kind"] == "list" and not typ.get("set"):
+        if _type_kind(typ) == "list" and not typ.get("set"):
             return self._unpack_sized(elts, star, value, span)
         self.fail(node, "PS2002", "unpacking needs a tuple or list value")
         raise AssertionError("unreachable")
@@ -1067,7 +1071,7 @@ class StmtMixin:
     ) -> list[dict[str, Any]]:
         """A list RHS length-checks at run time; a wrong count raises the CPython ValueError."""
         stmts: list[dict[str, Any]] = []
-        if value["kind"] != "name":
+        if _node_kind(value) != "name":
             seq = self._temp("seq")
             self.locals[seq] = value["type"]
             stmts.append(_assign(seq, value, span))
@@ -1210,15 +1214,15 @@ class StmtMixin:
             ast.copy_location(list_iter, iter_node)
             iter_node = list_iter
         iterable = self._expr(iter_node)
-        kind = iterable["type"]["kind"]
+        kind = _node_type_kind(iterable)
         if kind == "class" and "__iter__" in self.classes.get(iterable["type"]["name"], {}).get("methods", {}):
             called = self._dunder_call(stmt.iter, iterable, "__iter__", [], span)
             if called is not None:
                 iterable = called
-                kind = iterable["type"]["kind"]
+                kind = _node_type_kind(iterable)
         if kind == "dict":
             key_t = iterable["type"]["key"]
-            if key_t["kind"] not in {"int", "str"}:
+            if _type_kind(key_t) not in {"int", "str"}:
                 self.fail(stmt.iter, "PS2002", "dict keys are int or str")
             # `for k in d` visits keys in insertion order; ps_dict_keys builds
             # the list in that same order.
@@ -1266,7 +1270,7 @@ class StmtMixin:
             elem = {"kind": "int"}
         elif kind == "list":
             elem = iterable["type"]["elem"]
-            if elem["kind"] not in _SCALAR | {"list", "dict"} and not self._plain_class_elem(elem):
+            if _type_kind(elem) not in _SCALAR | {"list", "dict"} and not self._plain_class_elem(elem):
                 self.fail(stmt, "PS2002", f"for over list[{_show(elem)}] is not lowered")
         else:
             self.fail(stmt.iter, "PS2002", "for iterates over a list or range")
@@ -1274,7 +1278,7 @@ class StmtMixin:
         target = ""
         fresh = False
         if unpack:
-            if elem["kind"] != "class" or not self.classes.get(elem["name"], {}).get("tuple"):
+            if _type_kind(elem) != "class" or not self.classes.get(elem["name"], {}).get("tuple"):
                 self.fail(stmt, "PS2002", "for unpacks a list of tuples or enumerate/zip")
         else:
             target = stmt.target.id
@@ -1310,7 +1314,7 @@ class StmtMixin:
         prefix = []
         # A record class has no zero instance to pre-bind; the loop step binds it before any read.
         record = (
-            elem["kind"] == "class" and elem["name"] in self.classes and not self.classes[elem["name"]].get("tuple")
+            _type_kind(elem) == "class" and elem["name"] in self.classes and not self.classes[elem["name"]].get("tuple")
         )
         if fresh and not record:
             prefix.append(_assign(target, _zero(elem, span), span))
@@ -1343,7 +1347,7 @@ class StmtMixin:
         target = ""
         fresh = False
         if unpack:
-            if elem["kind"] != "class" or not self.classes.get(elem["name"], {}).get("tuple"):
+            if _type_kind(elem) != "class" or not self.classes.get(elem["name"], {}).get("tuple"):
                 self.fail(stmt, "PS2002", "for unpacks a list of tuples or enumerate/zip")
         else:
             target = stmt.target.id
@@ -1437,7 +1441,7 @@ class StmtMixin:
             self.fail(call, "PS2003", "keyword arguments are not lowered")
         args = [self._expr(arg, {"kind": "int"}) for arg in call.args]
         for arg in args:
-            if arg["type"]["kind"] != "int":
+            if _node_type_kind(arg) != "int":
                 self.fail(call, "PS1003", "range arguments are int")
         if len(args) == 1:
             start, stop, step = _const_int(0, span), args[0], _const_int(1, span)
@@ -1524,7 +1528,7 @@ class StmtMixin:
             self.prelude = []
             try:
                 message = self._expr(stmt.msg, {"kind": "str"})
-                if message["type"]["kind"] != "str":
+                if _node_type_kind(message) != "str":
                     self.fail(stmt.msg, "PS1003", "an exception message is a str")
                 then = self.prelude
             finally:
@@ -1563,7 +1567,7 @@ class StmtMixin:
                     msgs[which] = None
                     continue
                 expr = self._expr(call.args[0])
-                if exit_value and which == 0 and expr["type"]["kind"] in {"int", "bool"}:
+                if exit_value and which == 0 and _node_type_kind(expr) in {"int", "bool"}:
                     cause = stmt.cause
                     if cause is not None and not (isinstance(cause, ast.Constant) and cause.value is None):
                         # A raise-from record carries a str message only, so
@@ -1571,9 +1575,9 @@ class StmtMixin:
                         # exiting with the wrong code.
                         self.fail(call, "PS2003", "raise SystemExit with a status and a cause is not lowered")
                     built = expr
-                elif expr["type"]["kind"] == "bool":
+                elif _node_type_kind(expr) == "bool":
                     built = _builtin_call("str", [expr], {"kind": "str"}, span)
-                elif expr["type"]["kind"] in {"str", "int", "float"}:
+                elif _node_type_kind(expr) in {"str", "int", "float"}:
                     built = self._as_str(expr, call)
                 else:
                     self.fail(call, "PS2003", "exception argument is a scalar")
@@ -1615,7 +1619,7 @@ class StmtMixin:
                 node = _raise_node(resolved, span, message, code=info["exc_code"])
         if stmt.cause is not None:
             cause_node = stmt.cause
-            if isinstance(cause_node, ast.Name) and self.locals.get(cause_node.id, {}).get("kind") == "exc":
+            if isinstance(cause_node, ast.Name) and _maybe_type_kind(self.locals.get(cause_node.id, {})) == "exc":
                 node["cause"] = node_to_dict(
                     _ir.name_expr(cause_node.id, dict_to_type({"kind": "exc"}), _mk_span_of(span))
                 )
@@ -1658,7 +1662,7 @@ class StmtMixin:
         if message_node is None:
             return None
         message = self._expr(message_node, {"kind": "str"})
-        if message["type"]["kind"] != "str":
+        if _node_type_kind(message) != "str":
             return None
         return message
 
@@ -1754,7 +1758,7 @@ class StmtMixin:
                 prior = self.locals.get(bind)
                 if prior is None:
                     self.locals[bind] = {"kind": "exc"}
-                elif prior.get("kind") != "exc":
+                elif _maybe_type_kind(prior) != "exc":
                     self.fail(handler, "PS1205", f"{bind} is {_show(prior)}, and except-as binds an exception")
                 self.dead_names.discard(bind)
             self.exc_stack.append(bind or "")
@@ -1842,9 +1846,9 @@ class StmtMixin:
                 self.fail(ctx, "PS2003", "nullcontext takes no arguments")
             return self._body(list(stmt.body))
         ctx_v = self._expr(ctx)
-        if ctx_v["type"]["kind"] == "class" and ctx_v["type"].get("name") in {"TextIO", "BytesIO"}:
+        if _node_type_kind(ctx_v) == "class" and ctx_v["type"].get("name") in {"TextIO", "BytesIO"}:
             return self._with_io(stmt, item, ctx_v, span)
-        if ctx_v["type"]["kind"] == "class" and "__enter__" in self.classes.get(ctx_v["type"].get("name"), {}).get(
+        if _node_type_kind(ctx_v) == "class" and "__enter__" in self.classes.get(ctx_v["type"].get("name"), {}).get(
             "methods", {}
         ):
             return self._with_cm(stmt, item, ctx_v, span)
@@ -1864,9 +1868,9 @@ class StmtMixin:
             self.fail(call, "PS2003", "itertools.repeat takes a value and a count")
         value = self._expr(call.args[0])
         count = self._expr(call.args[1])
-        if count["type"]["kind"] != "int":
+        if _node_type_kind(count) != "int":
             self.fail(call, "PS1003", "itertools.repeat count is int")
-        if value["type"]["kind"] not in _SCALAR:
+        if _node_type_kind(value) not in _SCALAR:
             self.fail(call, "PS2002", "itertools.repeat takes a scalar")
         target = stmt.target.id
         assert isinstance(stmt.target, ast.Name)
@@ -1909,10 +1913,10 @@ class StmtMixin:
         if not 2 <= len(call.args) <= 8:
             self.fail(call, "PS2003", "itertools.chain takes 2 to 8 lists")
         lists = [self._expr(arg) for arg in call.args]
-        if any(item["type"]["kind"] != "list" for item in lists):
+        if any(_node_type_kind(item) != "list" for item in lists):
             self.fail(call, "PS2002", "itertools.chain takes lists")
         elem = lists[0]["type"]["elem"]
-        if elem["kind"] not in _SCALAR:
+        if _type_kind(elem) not in _SCALAR:
             self.fail(call, "PS2002", f"for over list[{_show(elem)}] is not lowered")
         for item in lists[1:]:
             if not types_equal(item["type"]["elem"], elem):
@@ -2005,23 +2009,31 @@ class StmtMixin:
             if key_node is None or key is None:
                 self.fail(self.comp_elt, "PS2002", "dict comprehension is not lowered")
             key_t = key["type"]
-            if key_t["kind"] not in {"int", "str"}:
+            if _type_kind(key_t) not in {"int", "str"}:
                 self.fail(key_node, "PS2002", "dict keys are int or str")
-            if elem["kind"] == "bool":
+            if _type_kind(elem) == "bool":
                 self.fail(self.comp_elt, "PS2002", "dict values of bool are not lowered")
             typ = {"kind": "dict", "key": key_t, "value": elem}
             what = "dict"
         elif self.comp_kind == "set":
-            if elem["kind"] not in {"int", "str"}:
+            if _type_kind(elem) not in {"int", "str"}:
                 self.fail(self.comp_elt, "PS2002", "set elements are int or str")
             typ = {"kind": "list", "elem": elem, "set": True}
             what = "set"
         else:
-            if elem["kind"] == "bool" or elem["kind"] not in {"int", "float", "str", "bytes", "list", "dict", "class"}:
+            if _type_kind(elem) == "bool" or _type_kind(elem) not in {
+                "int",
+                "float",
+                "str",
+                "bytes",
+                "list",
+                "dict",
+                "class",
+            }:
                 self.fail(self.comp_elt, "PS2002", f"list[{_show(elem)}] is not lowered")
             typ = {"kind": "list", "elem": elem}
             what = "list"
-        if self.comp_expect is not None and self.comp_expect["kind"] == typ["kind"]:
+        if self.comp_expect is not None and _type_kind(self.comp_expect) == _type_kind(typ):
             self._expect(self.comp_elt, typ, self.comp_expect, what)
         if not self.comp_ready:
             self.locals[self.comp_dest] = typ
@@ -2096,7 +2108,7 @@ class StmtMixin:
         if len(ctx.args) != 1 or ctx.keywords:
             self.fail(ctx, "PS2003", "as_file expects 1 argument(s)")
         opened = self._expr(ctx.args[0])
-        if opened["type"]["kind"] != "class" or opened["type"].get("name") != "Path":
+        if _node_type_kind(opened) != "class" or opened["type"].get("name") != "Path":
             self.fail(ctx, "PS1003", "as_file takes a resource path")
         target = item.optional_vars.id
         if target in self.bindings or target in self.constants:
@@ -2316,15 +2328,15 @@ class StmtMixin:
                 self.fail(call, "PS2003", "enumerate start given more than once")
             start_node = call.args[1]
         source = self._expr(call.args[0])
-        if source["type"]["kind"] != "list" or source["type"].get("set"):
+        if _node_type_kind(source) != "list" or source["type"].get("set"):
             self.fail(call, "PS2002", "enumerate() takes a list")
         elem = source["type"]["elem"]
-        if elem["kind"] not in _SCALAR | {"bool"}:
+        if _type_kind(elem) not in _SCALAR | {"bool"}:
             self.fail(call, "PS2002", f"enumerate() of list[{_show(elem)}] is not lowered")
         start = _const_int(0, span)
         if start_node is not None:
             start = self._expr(start_node, {"kind": "int"})
-            if start["type"]["kind"] != "int":
+            if _node_type_kind(start) != "int":
                 self.fail(call, "PS1003", "enumerate start is int")
         return self._for_pairs(stmt, span, [source], [elem], start, "enumerate")
 
@@ -2336,10 +2348,10 @@ class StmtMixin:
         sources = [self._expr(arg) for arg in call.args]
         elems: list[dict[str, Any]] = []
         for source in sources:
-            if source["type"]["kind"] != "list" or source["type"].get("set"):
+            if _node_type_kind(source) != "list" or source["type"].get("set"):
                 self.fail(call, "PS2002", "zip() takes lists")
             elem = source["type"]["elem"]
-            if elem["kind"] not in _SCALAR | {"bool"}:
+            if _type_kind(elem) not in _SCALAR | {"bool"}:
                 self.fail(call, "PS2002", f"zip() of list[{_show(elem)}] is not lowered")
             elems.append(elem)
         return self._for_pairs(stmt, span, sources, elems, None, "zip")
@@ -2467,9 +2479,9 @@ class StmtMixin:
         """Close after a return value is computed, so ``return handle.read()`` still sees an open file."""
         out: list[dict[str, Any]] = []
         for stmt in body:
-            if stmt["kind"] == "return":
+            if _node_kind(stmt) == "return":
                 value = stmt["value"]
-                if value["kind"] == "const" and value["type"]["kind"] == "none":
+                if _node_kind(value) == "const" and _node_type_kind(value) == "none":
                     out.append(close)
                     out.append(stmt)
                     continue
@@ -2479,7 +2491,7 @@ class StmtMixin:
                 out.append(close)
                 out.append({**stmt, "value": _name(temp, value["type"], value["span"])})
                 continue
-            if stmt["kind"] == "if":
+            if _node_kind(stmt) == "if":
                 out.append(
                     {
                         **stmt,
@@ -2488,10 +2500,10 @@ class StmtMixin:
                     }
                 )
                 continue
-            if stmt["kind"] == "while":
+            if _node_kind(stmt) == "while":
                 out.append({**stmt, "body": self._inject_close(stmt["body"], close)})
                 continue
-            if stmt["kind"] == "try":
+            if _node_kind(stmt) == "try":
                 out.append(
                     {
                         **stmt,
@@ -2624,12 +2636,12 @@ def _ast_exits(body: list[ast.stmt]) -> bool:
 
 def _always_returns(body: list[dict[str, Any]]) -> bool:
     for stmt in body:
-        if stmt["kind"] == "return" or stmt["kind"] == "raise":
+        if _node_kind(stmt) == "return" or _node_kind(stmt) == "raise":
             return True
-        if stmt["kind"] == "if" and _always_returns(stmt["then"]) and _always_returns(stmt["else"]):
+        if _node_kind(stmt) == "if" and _always_returns(stmt["then"]) and _always_returns(stmt["else"]):
             return True
         if (
-            stmt["kind"] == "try"
+            _node_kind(stmt) == "try"
             and _always_returns(stmt["body"])
             and all(_always_returns(handler["body"]) for handler in stmt["handlers"])
         ):
