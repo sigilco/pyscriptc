@@ -192,6 +192,15 @@ run = "uv run pyscriptc compile"
 description = "pyscriptc run (content-cached compile + execute), args pass through"
 run = "uv run pyscriptc run"
 
+# Split planner for the lower/ god files (#852): per-method lines, self
+# attributes, call graph, clusters and cut sets, plus long methods, cyclomatic
+# complexity, lower/ import cycles and unused module-level names.
+#   mise run lower:report src/pyscriptc/lower/__init__.py
+#   mise run lower:report src/pyscriptc/lower/__init__.py --json
+[tasks."lower:report"]
+description = "Split report for a lower/ module (args pass through, add --json for JSON)"
+run = "uv run python scripts/lower_split_report.py"
+
 [tasks."wt:prune"]
 description = "List removable agent worktrees under ~/.worktrees (add --yes to remove them)"
 run = "bash scripts/wt_prune.sh"
