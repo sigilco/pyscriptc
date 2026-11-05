@@ -35,6 +35,16 @@ def _kind(typ: dict[str, Any]) -> str:
     return kind
 
 
+def _expr_kind(expr: dict[str, Any]) -> str:
+    """The kind tag of an expression record: const, name, unary, binary,
+    compare, call, list, dict, subscript, attr, cast, contains or closure.
+    The expression dispatch reads the record through this accessor instead of
+    the raw dict key."""
+
+    kind: str = expr["kind"]
+    return kind
+
+
 def _kind_or_none(typ: dict[str, Any] | None) -> str | None:
     """The kind tag of a type record that may be absent, as with an
     unannotated `want` on an island call. Every emitter type dispatch reads

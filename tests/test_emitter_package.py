@@ -80,6 +80,13 @@ def test_the_seam_reads_the_kind_tag() -> None:
     assert _ir._kind({"kind": "str"}) == "str"
 
 
+def test_the_seam_reads_the_expression_kind_tag() -> None:
+    from pyscriptc.emit import _ir
+
+    assert _ir._expr_kind({"kind": "const"}) == "const"
+    assert _ir._expr_kind({"kind": "closure"}) == "closure"
+
+
 def test_the_seam_reads_an_absent_kind_tag() -> None:
     from pyscriptc.emit import _ir
 
