@@ -51,6 +51,7 @@ LEAF_SAMPLES = [
         "leafbreak.py",
         "leafforrange.py",
         "leafaugassign.py",
+        "leafelif.py",
     )
 ]
 
