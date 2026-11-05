@@ -103,11 +103,6 @@ def _field_type(field: dict[str, Any]) -> dict[str, Any]:
     return typ
 
 
-def _has(expr: dict[str, Any], key: str) -> bool:
-    """Whether an expression record carries an optional key at all."""
-    return key in expr
-
-
 def _opt_str_or_none(expr: dict[str, Any], key: str) -> str | None:
     """An optional string key of an expression record, or None when absent."""
     if key not in expr:
