@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pyscriptc.emit._ir import _llvm_type
+from pyscriptc.emit._ir import _elem_kind, _is_optional, _kind, _llvm_type
 from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.errors import IRError
 from pyscriptc.sigrec import sig_for
@@ -184,7 +184,7 @@ class StdlibMixin(EmitterBase):
     def _emit_struct(self, name: str, values: list[str], args: list[dict[str, Any]], typ: dict[str, Any]) -> str:
         if name == "pack":
             return self._emit_struct_pack(values, args)
-        elem = typ["elem"]["kind"]
+        elem = _elem_kind(typ)
         want = {"int": 1, "float": 2, "bytes": 3}[elem]
         fmt_len, fmt_ptr = self._buf_parts(values[0])
         data_len, data_ptr = self._buf_parts(values[1])
@@ -234,7 +234,7 @@ class StdlibMixin(EmitterBase):
         def add(node: dict[str, Any]) -> int:
             idx = len(entries)
             entries.append(None)
-            kind = node["kind"]
+            kind = _kind(node)
             if kind == "int":
                 entries[idx] = (1, 0)
             elif kind == "bool":
@@ -249,7 +249,7 @@ class StdlibMixin(EmitterBase):
                 entries[idx] = (5, child)
             elif kind == "float":
                 entries[idx] = (6, 0)
-            elif node.get("optional"):
+            elif _is_optional(node):
                 child = add(node["elem"])
                 entries[idx] = (7, child)
             else:
@@ -266,7 +266,7 @@ class StdlibMixin(EmitterBase):
         return symbol, root
 
     def _json_alloca(self, typ: dict[str, Any]) -> str:
-        kind = typ["kind"]
+        kind = _kind(typ)
         if kind == "bool":
             return self._alloca("i32")
         if kind in {"list", "dict"}:
@@ -274,7 +274,7 @@ class StdlibMixin(EmitterBase):
         return self._alloca(_llvm_type(typ))
 
     def _json_read(self, typ: dict[str, Any], slot: str) -> str:
-        kind = typ["kind"]
+        kind = _kind(typ)
         if kind == "bool":
             raw = self._load("i32", slot)
             reg = self.tmp()
@@ -286,7 +286,7 @@ class StdlibMixin(EmitterBase):
 
     def _json_write(self, typ: dict[str, Any], value: str) -> str:
         slot = self._json_alloca(typ)
-        kind = typ["kind"]
+        kind = _kind(typ)
         if kind == "bool":
             wide = self.tmp()
             self.line(f"{wide} = zext i1 {value} to i32")
@@ -309,7 +309,7 @@ class StdlibMixin(EmitterBase):
         def add(node: dict[str, Any]) -> int:
             idx = len(entries)
             entries.append(None)
-            kind = node["kind"]
+            kind = _kind(node)
             if kind == "int":
                 entries[idx] = (1, 0)
             elif kind == "float":
