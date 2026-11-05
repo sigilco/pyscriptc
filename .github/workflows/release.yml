@@ -126,6 +126,7 @@ jobs:
         run: printf 'TOKEN = "%s"\n' "$POSTHOG_PROJECT_TOKEN" > src/pyscriptc/_posthog_token.py
 
       - name: Stamp release version
+        shell: bash
         env:
           PYSC_RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: |
@@ -316,6 +317,7 @@ jobs:
         run: printf 'TOKEN = "%s"\n' "$POSTHOG_PROJECT_TOKEN" > src/pyscriptc/_posthog_token.py
 
       - name: Stamp release version
+        shell: bash
         env:
           PYSC_RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: |
