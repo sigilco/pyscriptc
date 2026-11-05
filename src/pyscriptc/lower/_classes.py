@@ -281,7 +281,7 @@ class ClassesMixin(ClassesMoreMixin, AnnotationMixin):
             specs["HTTPError"] = _field_rows(CLASS_FIELDS["HTTPError"])
         if "URLError" in self.synthetics:
             specs["URLError"] = _field_rows(CLASS_FIELDS["URLError"])
-        for name in self.synthetics:
+        for name in sorted(self.synthetics):
             if name in CLASS_FIELDS:
                 specs[name] = _field_rows(CLASS_FIELDS[name])
         user_names = {node.name for node in class_nodes}
