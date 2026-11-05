@@ -45,26 +45,117 @@ from pyscriptc.lower._core import (
 )
 from pyscriptc.lower._stmt_a import (
     _body_nodes,  # noqa: F401  # moved-verbatim import
-    _builtin_call,  # noqa: F401  # moved-verbatim import
-    _excmake_node,  # noqa: F401  # moved-verbatim import
     _expr_wrap,  # noqa: F401  # moved-verbatim import
-    _handler_names,  # noqa: F401  # moved-verbatim import
     _if_stmt,  # noqa: F401  # moved-verbatim import
-    _is_call_name,  # noqa: F401  # moved-verbatim import
-    _is_docstring,  # noqa: F401  # moved-verbatim import
-    _is_range_call,  # noqa: F401  # moved-verbatim import
     _mk_span_of,  # noqa: F401  # moved-verbatim import
     _not_bool,  # noqa: F401  # moved-verbatim import
-    _raise_node,  # noqa: F401  # moved-verbatim import
-    _substitute_names,  # noqa: F401  # moved-verbatim import
     _unary_not,  # noqa: F401  # moved-verbatim import
     dict_to_list,  # noqa: F401  # moved-verbatim import
 )
-from pyscriptc.reflection import kwargs_call_note  # noqa: F401  # moved-verbatim import
+from pyscriptc.reflection import kwargs_call_note
+from pyscriptc.restlower import alias_name  # noqa: F401  # moved-verbatim import
 from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict  # noqa: F401  # moved-verbatim import
 
 if TYPE_CHECKING:
     from pyscriptc.lower import Lowerer  # noqa: F401  # moved-verbatim import
+
+
+def _excmake_node(exc: str, span: dict[str, Any], message: dict[str, Any] | None, code: int = -1) -> dict[str, Any]:
+    from pyscriptc.tirserde import dict_to_span
+
+    return node_to_dict(_ir.excmake(exc, dict_to_span(span), code, dict_to_node(message)))
+
+
+def _handler_names(lowerer: Lowerer, node: ast.expr) -> list[str]:
+    names = node.elts if isinstance(node, ast.Tuple) else [node]
+    found: list[str] = []
+    for item in names:
+        if isinstance(item, ast.Attribute):
+            # A dotted spelling (urllib.error.HTTPError): resolve through the
+            # module chain and alias onto the synthetic class.
+            resolved_attr = lowerer._resolve_module(item)
+            if resolved_attr is None or resolved_attr[3] != "lowered":
+                lowerer.fail(item, "PS2002", "except names a lowered exception")
+            alias = alias_name(resolved_attr[1], resolved_attr[2])
+            if alias is None:
+                lowerer.fail(item, "PS2002", "except names a lowered exception")
+            found.append(alias)
+            continue
+        if not isinstance(item, ast.Name):
+            lowerer.fail(item, "PS2002", "except names a lowered exception")
+        resolved = lowerer.class_aliases.get(item.id, item.id)
+        info = lowerer.classes.get(resolved)
+        user_exception = info is not None and bool(info.get("exception"))
+        if (
+            resolved not in EXCEPTIONS
+            and item.id not in EXCEPTIONS
+            and resolved not in RESERVED_EXCEPTIONS
+            and item.id not in RESERVED_EXCEPTIONS
+            and not user_exception
+        ):
+            lowerer.fail(item, "PS2002", "except names a lowered exception")
+        found.append(resolved if user_exception else item.id)
+    return found
+
+
+def _is_call_name(node: ast.expr, name: str) -> bool:
+    return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == name
+
+
+def _is_range_call(node: ast.expr) -> bool:
+    return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "range"
+
+
+def _raise_node(
+    exc: str,
+    span: dict[str, Any],
+    message: dict[str, Any] | None = None,
+    code: int = -1,
+    reraise: bool = False,
+    excslot: str = "",
+    cause: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    from pyscriptc.tirserde import dict_to_span
+
+    raise_node = _ir.raise_stmt(exc, dict_to_span(span), code, dict_to_node(message), reraise, excslot)
+    if cause is not None:
+        raise_node.cause = dict_to_node(cause)
+    out = node_to_dict(raise_node)
+    if message is None and cause is None:
+        # The bare raise dict spells no message key when there is none.
+        out.pop("message", None)
+    return out
+
+
+def _substitute_names(node: ast.AST, binding: dict[str, ast.expr]) -> ast.AST:
+    """Copy `node` with each `Name` read in `binding` replaced by its expression.
+
+    The raise site evaluates an `__init__`'s super-message with the ctor
+    parameters bound to the call arguments; a pure name-for-expression
+    copy keeps the spans of the original message (the eval order inside
+    the expression is the expression's own).
+    """
+
+    if isinstance(node, ast.Name) and node.id in binding and isinstance(node.ctx, ast.Load):
+        return copy.deepcopy(binding[node.id])
+    for field, value in ast.iter_fields(node):
+        if isinstance(value, list):
+            replaced = [_substitute_names(item, binding) if isinstance(item, ast.AST) else item for item in value]
+            setattr(node, field, replaced)
+        elif isinstance(value, ast.AST):
+            setattr(node, field, _substitute_names(value, binding))
+    return node
+
+
+def _builtin_call(bname: str, args: list[dict[str, Any]], typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The dict-IR builtin call one typed construction spells."""
+    return node_to_dict(
+        _ir.call(_ir.builtin(bname), _body_nodes(args), dict_to_type(typ), _mk_span_of(span), "", "", -1)
+    )
+
+
+def _is_docstring(stmt: ast.stmt) -> bool:
+    return isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant) and isinstance(stmt.value.value, str)
 
 
 class StmtBMixin:

@@ -24,60 +24,92 @@ import ast
 from typing import TYPE_CHECKING, Any  # noqa: F401  # moved-verbatim import
 
 from pyscriptc import _irnode as _ir  # noqa: F401  # moved-verbatim import
-from pyscriptc.builtins import EXCEPTIONS, RESERVED_EXCEPTIONS  # noqa: F401  # moved-verbatim import
 from pyscriptc.errors import span_of  # noqa: F401  # moved-verbatim import
 from pyscriptc.ffi_manifest import is_handle_type  # noqa: F401  # moved-verbatim import
-from pyscriptc.ir import types_equal  # noqa: F401  # moved-verbatim import
 from pyscriptc.lower._core import (
-    _SCALAR,  # noqa: F401  # moved-verbatim import
     Fence,  # noqa: F401  # moved-verbatim import
     _any_contains,  # noqa: F401  # moved-verbatim import
     _assign,  # noqa: F401  # moved-verbatim import
-    _attr,  # noqa: F401  # moved-verbatim import
-    _binary_int,  # noqa: F401  # moved-verbatim import
-    _compare,  # noqa: F401  # moved-verbatim import
-    _concat_str,  # noqa: F401  # moved-verbatim import
     _const_bool,  # noqa: F401  # moved-verbatim import
-    _const_int,  # noqa: F401  # moved-verbatim import
     _const_none,  # noqa: F401  # moved-verbatim import
-    _const_str,  # noqa: F401  # moved-verbatim import
     _has_typevar,  # noqa: F401  # moved-verbatim import
-    _is_none_expr,  # noqa: F401  # moved-verbatim import
-    _item,  # noqa: F401  # moved-verbatim import
-    _len_call,  # noqa: F401  # moved-verbatim import
     _maybe_type_kind,  # noqa: F401  # moved-verbatim import
-    _name,  # noqa: F401  # moved-verbatim import
     _node_kind,  # noqa: F401  # moved-verbatim import
     _node_type_kind,  # noqa: F401  # moved-verbatim import
-    _raise_value,  # noqa: F401  # moved-verbatim import
-    _show,  # noqa: F401  # moved-verbatim import
-    _tuple_assign,  # noqa: F401  # moved-verbatim import
     _type_kind,  # noqa: F401  # moved-verbatim import
     _zero,  # noqa: F401  # moved-verbatim import
 )
 from pyscriptc.lower._stmt_a import (
     StmtAMixin,  # noqa: F401  # moved-verbatim import
-    _always_returns,  # noqa: F401  # moved-verbatim import
-    _ast_exits,  # noqa: F401  # moved-verbatim import
+    _always_returns,  # noqa: F401  # re-exported for lower.__init__ and the sibling mixins
     _expr_wrap,  # noqa: F401  # moved-verbatim import
     _if_stmt,  # noqa: F401  # moved-verbatim import
-    _is_docstring,  # noqa: F401  # moved-verbatim import
-    _is_main_guard,  # noqa: F401  # moved-verbatim import
-    _is_setitem,  # noqa: F401  # moved-verbatim import
+    _is_main_guard,  # noqa: F401  # re-exported for lower.__init__
     _mk_span_of,  # noqa: F401  # moved-verbatim import
     _not_bool,  # noqa: F401  # moved-verbatim import
     _pass_stmt,  # noqa: F401  # moved-verbatim import
-    _stmt_breaks_this_loop,  # noqa: F401  # moved-verbatim import
-    _stmt_continues_this_loop,  # noqa: F401  # moved-verbatim import
     _while_loop,  # noqa: F401  # moved-verbatim import
 )
-from pyscriptc.lower._stmt_b import StmtBMixin  # noqa: F401  # moved-verbatim import
-from pyscriptc.reflection import kwargs_call_note  # noqa: F401  # moved-verbatim import
-from pyscriptc.restlower import alias_name  # noqa: F401  # moved-verbatim import
-from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict  # noqa: F401  # moved-verbatim import
+from pyscriptc.lower._stmt_b import (
+    StmtBMixin,  # noqa: F401  # moved-verbatim import
+    _is_docstring,  # noqa: F401  # re-exported for lower.__init__ and _classes
+)
+from pyscriptc.tirserde import dict_to_node, node_to_dict  # noqa: F401  # moved-verbatim import
 
 if TYPE_CHECKING:
     from pyscriptc.lower import Lowerer  # noqa: F401  # moved-verbatim import
+
+
+def _is_setitem(stmt: ast.stmt) -> bool:
+    return isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Subscript)
+
+
+def _ast_exits(body: list[ast.stmt]) -> bool:
+    """The statement list never falls through: it returns, raises, continues, breaks or exits the process."""
+    for stmt in body:
+        if isinstance(stmt, (ast.Return, ast.Raise, ast.Continue, ast.Break)):
+            return True
+        if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+            func = stmt.value.func
+            if isinstance(func, ast.Attribute) and func.attr == "exit" and isinstance(func.value, ast.Name):
+                if func.value.id == "sys":
+                    return True
+            if isinstance(func, ast.Name) and func.id in {"exit", "quit"}:
+                return True
+        if isinstance(stmt, ast.If) and stmt.orelse and _ast_exits(stmt.body) and _ast_exits(stmt.orelse):
+            return True
+    return False
+
+
+def _stmt_jumps_this_loop(stmt: ast.stmt, jump: type[ast.stmt]) -> bool:
+    if isinstance(stmt, jump):
+        return True
+    if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return False
+    nested: list[ast.stmt] = []
+    if isinstance(stmt, (ast.While, ast.For)):
+        # A jump in the body targets the nested loop; a jump in its else
+        # block runs after the loop and targets the enclosing one.
+        nested = list(stmt.orelse)
+    elif isinstance(stmt, ast.If):
+        nested = [*stmt.body, *stmt.orelse]
+    elif isinstance(stmt, ast.Try):
+        nested = [*stmt.body, *stmt.orelse, *stmt.finalbody]
+        for handler in stmt.handlers:
+            nested.extend(handler.body)
+    elif isinstance(stmt, ast.With):
+        nested = list(stmt.body)
+    elif isinstance(stmt, ast.Match):
+        nested = [child for case in stmt.cases for child in case.body]
+    return any(_stmt_jumps_this_loop(child, jump) for child in nested)
+
+
+def _stmt_breaks_this_loop(stmt: ast.stmt) -> bool:
+    return _stmt_jumps_this_loop(stmt, ast.Break)
+
+
+def _stmt_continues_this_loop(stmt: ast.stmt) -> bool:
+    return _stmt_jumps_this_loop(stmt, ast.Continue)
 
 
 class StmtMixin(StmtAMixin, StmtBMixin):
