@@ -32,6 +32,11 @@ on:
       - "v*.*.*"
       - "v*.*.*-beta.*"
   workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag, branch or SHA of the compiler to benchmark (default: the dispatched ref). The harness in benchmarks/baseline always comes from the dispatched commit, so two versions compare on one harness."
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -43,7 +48,7 @@ concurrency:
 env:
   # The tag for a tag push, the short commit sha otherwise. The JSON file is
   # named after it.
-  BENCH_ID: ${{ github.ref_type == 'tag' && github.ref_name || github.sha }}
+  BENCH_ID: ${{ github.ref_type == 'tag' && github.ref_name || inputs.ref || github.sha }}
   # Runs per workload. The design asks for at least 20.
   BENCH_RUNS: "20"
 
@@ -59,6 +64,14 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          ref: ${{ inputs.ref || github.sha }}
+
+      # A version older than the harness (a tag from before the spread fields
+      # or delta.py existed) is measured with the dispatched commit's harness.
+      # The workload catalog (benchmarks/runtime) is unchanged between them.
+      - name: Use the dispatched commit's harness
+        if: inputs.ref != ''
+        run: git checkout "$GITHUB_SHA" -- benchmarks/baseline
 
       - uses: actions/setup-python@v6
         with:
@@ -97,7 +110,7 @@ jobs:
           set -euo pipefail
           # Only the stable tags (vX.Y.Z). A checkpoint tag (vX.Y.Z-beta.N) is
           # an internal mark between releases, not a comparison base.
-          prev="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' "${GITHUB_SHA}^" 2>/dev/null || true)"
+          prev="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' "HEAD^" 2>/dev/null || true)"
           if [ -z "$prev" ]; then
             echo "::notice::no previous tag to compare against"
             exit 0
