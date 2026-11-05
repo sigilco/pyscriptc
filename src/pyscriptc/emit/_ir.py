@@ -119,11 +119,6 @@ def _is_optional(typ: dict[str, Any]) -> bool:
     return optional
 
 
-def _has(expr: dict[str, Any], key: str) -> bool:
-    """Whether an expression record carries an optional key at all."""
-    return key in expr
-
-
 def _opt_str_or_none(expr: dict[str, Any], key: str) -> str | None:
     """An optional string key of an expression record, or None when absent."""
     if key not in expr:
