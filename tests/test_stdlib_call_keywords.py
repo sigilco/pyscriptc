@@ -43,12 +43,30 @@ def test_int_base_keyword_and_positional_match_cpython(tmp_path: Path) -> None:
                 "    d: int = int('102', 3)",
                 "    e: int = int('Zz', base=36)",
                 "    f: int = int(b'caFe', 16)",
+                "    g: int = int('1_0_1', 2)",
+                "    h: int = int('0x_f', 16)",
+                "    i: int = int('0b1_01', 2)",
+                "    j: int = int(' 1_0 ', 10)",
+                "    k: int = int('-1_0', 10)",
                 "    print(a, b, c, d, e, f)",
+                "    print(g, h, i, j, k)",
                 "    return 0",
                 "",
             ]
         ),
     )
+
+
+def test_int_base_bad_underscores_raise_value_error(tmp_path: Path) -> None:
+    # CPython's separator rules: one '_' between digits, none at an end,
+    # none doubled, none next to a prefix letter. The message carries the
+    # base, like CPython.
+    for literal in ("'_1'", "'1_'", "'1__0'", "'0_x1'", "'0x__1'", "'0x1_'"):
+        for base in (2, 16):
+            path = write_case(tmp_path, "badus.py", f"print(int({literal}, {base}))\n")
+            got = compile_run(tmp_path, path, "main")
+            assert got.returncode != 0, literal
+            assert f"ValueError: invalid literal for int() with base {base}" in got.stderr, literal
 
 
 def test_int_bad_base_raises_value_error(tmp_path: Path) -> None:

@@ -333,6 +333,7 @@ PROBES: list[Probe] = [
         "which_path: str | None = shutil.which('sh')",
         "if which_path is not None:",
         "    print(which_path.endswith('sh'))",
+        "print(shutil.which('pyscriptc-missing-binary-xyz') is None)",
     ),
     _p("shutil", "copy", "files", "shutil.copy(files_src, files_copy)", "print(os.path.exists(files_copy))"),
     _p("shutil", "copy2", "files", "shutil.copy2(files_src, files_copy2)", "print(os.path.exists(files_copy2))"),

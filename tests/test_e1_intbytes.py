@@ -117,6 +117,40 @@ def test_int_bytes_invalid_literal_raises_value_error(tmp_path: Path) -> None:
         assert "ValueError" in got.stderr, literal
 
 
+def test_int_bytes_invalid_literal_message_carries_the_repr(tmp_path: Path) -> None:
+    # CPython 3.14 appends the repr'd literal: ": 'x'". The message is the
+    # runtime's own repr, quotes and escapes included.
+    path = write_case(
+        tmp_path,
+        "msg.py",
+        "\n".join(["def probe(p: bytes) -> int:", "    return int(p)", "", "", "print(int(b'1x'))", ""]),
+    )
+    got = run_cli("compile", str(path), "--run", "--emit", "bin", "--call", "main", "-o", str(tmp_path / "msg"))
+    assert got.returncode != 0, got.stdout
+    assert "ValueError: invalid literal for int() with base 10: '1x'" in got.stderr, got.stderr
+
+
+def test_int_bytes_unicode_whitespace_matches_cpython(tmp_path: Path) -> None:
+    # CPython strips Unicode spaces (U+00A0, U+2000..U+200A, U+3000, ...)
+    # around the literal but keeps the file separators U+001C..U+001F as
+    # literal bytes; both sides here carry their own file's bytes so the
+    # oracle diff stays byte-true.
+    sources = [
+        "print(int('\u00a0-3\u00a0'))",
+        "print(int('\u2003-3\u200a'))",
+        "print(int('\u3000-3'))",
+        "print(int('\u2028-3'))",
+        "print(int(' -3 '))",
+    ]
+    for index, body in enumerate(sources):
+        path = write_case(tmp_path, f"uni{index}.py", f"{body}\n")
+        got = run_cli(
+            "compile", str(path), "--run", "--emit", "bin", "--call", "main", "-o", str(tmp_path / f"uni{index}")
+        )
+        assert got.returncode == 0, got.stderr
+        assert got.stdout == _oracle(path), body
+
+
 def test_int_bytes_out_of_i64_range_stays_a_runtime_error(tmp_path: Path) -> None:
     # CPython has bignums, so the value itself never errors there; the i64
     # subset fences at runtime with ValueError instead, like json integers.

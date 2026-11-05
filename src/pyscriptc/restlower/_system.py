@@ -8,6 +8,31 @@ from typing import Any
 from pyscriptc.restlower._shared import _const_int, _const_text
 
 
+def _shutil_which(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """`shutil.which(cmd)` -> the tagged `str | None`.
+
+    CPython returns the path of the first executable found walking PATH, or
+    None when there is none. The runtime call reports the hit as a flag and
+    fills the path buffer only on a hit, so the tagged optional follows the
+    same hit-then-fill shape as `os.getenv` and `re.search`.
+    """
+    from pyscriptc.lower._call_attr import _if_node, _opt_fill
+
+    lo._reject_keywords(node)
+    if len(node.args) != 1:
+        lo.fail(node, "PS2003", "shutil.which expects 1 argument(s)")
+    cmd = lo._expr(node.args[0])
+    if cmd["type"]["kind"] != "str":
+        lo.fail(node, "PS1003", "shutil.which takes str arguments")
+    opt_t = lo._opt_type({"kind": "str"}, node)
+    res = lo._opt_box(None, opt_t, span)
+    dest = res["id"]
+    hit = lo._abi_call("shutil", "which.hit", [cmd], {"kind": "bool"}, "ps_shutil_which_hit", span)
+    got = lo._abi_call("shutil", "which.get", [cmd], {"kind": "str"}, "ps_shutil_which_get", span)
+    lo.prelude.append(_if_node(hit, _opt_fill(dest, opt_t, got, span), [], span))
+    return res
+
+
 def _getenv(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     lo._reject_keywords(node)
     args = [lo._expr(arg) for arg in node.args]
