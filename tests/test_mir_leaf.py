@@ -47,6 +47,7 @@ LEAF_SAMPLES = [
         "leafboolconst.py",
         "leafhelperret.py",
         "leaforder.py",
+        "leafwhile.py",
     )
 ]
 

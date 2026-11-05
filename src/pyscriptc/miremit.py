@@ -357,12 +357,20 @@ class MirEmitter:
     def _label(self, bid: int) -> str:
         """The direct path's label spelling of MIR block `bid`.
 
-        Blocks append as entry, then (then, else, merge) per `if` in source
-        order; `lid` counts 3 per `if` starting at 1, exactly the direct
-        emitter's `fresh()` sequence.
+        Blocks with a hint (`while.cond` and friends, spelled by the
+        lowerer) render `L<n>.<hint>`. Unhinted blocks append as entry,
+        then (then, else, merge) per `if` in source order; `lid` counts 3
+        per `if` starting at 1, exactly the direct emitter's `fresh()`
+        sequence.
         """
         if bid == 0:
             return "entry"
+        fn = self.fn
+        if fn is None:
+            raise IRError("no function walk is active")
+        hint: str = fn.blocks[bid].hint
+        if hint:
+            return f"L{bid}.{hint}"
         k, which = divmod(bid - 1, 3)
         return f"L{3 * k + which + 1}.{'then' if which == 0 else 'else' if which == 1 else 'merge'}"
 

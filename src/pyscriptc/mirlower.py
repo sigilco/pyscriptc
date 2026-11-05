@@ -2,9 +2,11 @@
 
 The leaf slice covers pure scalar arithmetic: int/float/bool constants,
 binary arithmetic and comparison on scalars, unary minus and `not`, names,
-assignments, and `return`. It is the straight-line and one-level-`if` shape
-the byte-identity A/B runs against; everything outside the slice stays on
-the direct path unchanged.
+assignments, `return`, one-level `if` and `while` loops whose condition is
+a scalar compare or bool and whose body is leaf statements (no
+break/continue/else). It is the straight-line, one-level-`if` and
+plain-`while` shape the byte-identity A/B runs against; everything
+outside the slice stays on the direct path unchanged.
 
 Three functions:
 
@@ -139,7 +141,7 @@ _D_HELPER_OPS = {
 }
 
 _EXPR_KINDS = frozenset({"const", "name", "binary", "compare", "unary"})
-_STMT_KINDS = frozenset({"assign", "expr", "return", "pass", "if"})
+_STMT_KINDS = frozenset({"assign", "expr", "return", "pass", "if", "while"})
 
 
 def supported_expr(expr: Dict[str, Any]) -> bool:
@@ -241,6 +243,19 @@ def supported_stmt(stmt: Dict[str, Any]) -> bool:
                 return False
         else_body: list[Dict[str, Any]] = stmt["else"]
         for s in else_body:
+            if not supported_stmt(s):
+                return False
+        return True
+    if kind == "while":
+        # The condition is a scalar compare or bool: a `MIR_BR` reads an
+        # i1, which a compare or a bool name/const already is. No
+        # break/continue/else in this slice: the body is plain leaf
+        # statements, so the loop lowers to a header block, a body block
+        # and an exit block with no interior control flow to route.
+        if not supported_expr(stmt["cond"]):
+            return False
+        body: list[Dict[str, Any]] = stmt["body"]
+        for s in body:
             if not supported_stmt(s):
                 return False
         return True
@@ -382,6 +397,9 @@ class _FnLowerer:
         if kind == "if":
             self.emit_if(stmt)
             return
+        if kind == "while":
+            self.emit_while(stmt)
+            return
         raise MirLowerError(f"the MIR leaf slice cannot lower statement {kind}")
 
     def emit_if(self, stmt: Dict[str, Any]) -> None:
@@ -416,6 +434,30 @@ class _FnLowerer:
         if "orelse" in stmt:
             orelse = stmt["orelse"]
         self.emit_body(orelse)
+
+    def emit_while(self, stmt: Dict[str, Any]) -> None:
+        """A plain `while`: header block, body block, exit block.
+
+        The label order mirrors `_stmts.emit_while`'s `fresh` sequence
+        (`while.cond`, `while.body`, `while.end`), so the emitter's
+        labels land on the direct path's. The body's effects merge
+        through the shared slots the same way the `if` arms' do: no
+        value flows through a block argument in this slice.
+        """
+        builder = self.builder
+        cond_id = len(builder.fn.blocks)
+        body_id = cond_id + 1
+        end_id = cond_id + 2
+        builder.emit_jmp(cond_id)
+        builder.start_block(hint="while.cond")
+        cond = self.emit_expr(stmt["cond"])
+        builder.emit_br(cond, body_id, end_id, [], [])
+        builder.start_block(hint="while.body")
+        body: list[Dict[str, Any]] = stmt["body"]
+        self.emit_body(body)
+        if not builder.terminated:
+            builder.emit_jmp(cond_id)
+        builder.start_block(hint="while.end")
 
     def store(self, name: str, value: int) -> None:
         """A store to `name`: a `MIR_COPY` into the name's slot value.

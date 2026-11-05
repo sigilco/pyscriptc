@@ -286,6 +286,10 @@ class MirBlock:
     succ2: int
     br_args_true: list[int]
     br_args_false: list[int]
+    # The label hint the emitter renders (`then`, `while.cond`, ...). Empty
+    # for blocks built without one: the emitter falls back to the `if`
+    # shape's derived hints for those.
+    hint: str
 
     def __init__(
         self,
@@ -295,8 +299,10 @@ class MirBlock:
         succ2: int = 0,
         br_args_true: list[int] | None = None,
         br_args_false: list[int] | None = None,
+        hint: str = "",
     ) -> None:
         self.bid = bid
+        self.hint = hint
         block_args: list[MirBlockArg]
         if args is None:
             block_args = []
@@ -457,14 +463,19 @@ class MirBuilder:
         consts.append(MirConst(MIR_D, 0, value))
         return const_ref(len(consts) - 1)
 
-    def start_block(self, args: list[MirBlockArg] | None = None) -> int:
-        """Open a block; returns its id. The first block is the entry."""
+    def start_block(self, args: list[MirBlockArg] | None = None, hint: str = "") -> int:
+        """Open a block; returns its id. The first block is the entry.
+
+        `hint` is the label hint the emitter renders (`then`,
+        `while.cond`, ...); blocks built without one fall back to the
+        emitter's derived `if` hints.
+        """
         current: MirBlock | None = self.current
         if current is not None and not self.terminated:
             raise MirError(f"block {current.bid} has no terminator")
         blocks: list[MirBlock] = self.fn.blocks
         bid: int = len(blocks)
-        block = MirBlock(bid, args, -1, -1, None, None)
+        block = MirBlock(bid, args, -1, -1, None, None, hint)
         blocks.append(block)
         self.current = block
         self.terminated = 0
