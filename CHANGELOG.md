@@ -1,5 +1,58 @@
 # Changelog
 
+## [0.8.0] - 2026-11-05
+
+0.8.0 is the architecture release. The compiler's lowering stage is split into typed HIR and MIR slices behind opt-in lanes, with fixed-point, per-function IR digest and TIR gates guarding that the output stays byte-identical. Users get `https://` over libcurl, native `super()` with two arguments, frozen and slots dataclasses, `while` and `for range` loops in the MIR lane, an opt-in project bundler and a Windows install script. Measured against 0.7.0 on the same scorer, probes and workloads, compat outcomes and speed are unchanged within noise (see Receipt).
+
+### Highlights
+
+- **https:// works natively,** over libcurl linked at build time and a registered TLS backend interface (#881, #884, #235).
+- **More Python lowers natively:** two-argument `super()`, frozen and slots dataclasses, statically-lengthed starred call arguments and `dict[K, Any]` / `list[Any]` bridge reads (#815, #814, #837).
+- **Opt-in MIR lane (`PYSC_MIR`)** emits byte-identical output to the direct path and now covers `while`, `break`, `continue` and `for range` (#813, #906, #911, #916).
+- **Opt-in AST-level project bundler** and a Windows install script (#846).
+- **Debuggable compiler:** per-stage rss and IR counters in `--debug=stages`, and per-function IR digests that name the first differing unit (#847, #866).
+
+### Receipt
+
+- Compat (scorer v2, 13,798 visible probes, CPython 3.14.9 oracle, baseline v0.7.0): pass 1635 and weighted pass 919.0 of 8429.4 (10.90%) on both 0.7.0 and this release, with 0 outcome flips in either direction. Expected for a behavior-preserving architecture release.
+- Speed (`benchmarks.baseline`, 20 runs per workload, ratio pyscriptc / CPython, lower is faster, baseline v0.7.0): kernel 0.0358 to 0.0363, stdlib 0.0764 to 0.0757, scripting 0.0454 to 0.0435, island 0.4697 to 0.4640. All inside the noise: no regression and no gain.
+- Release rehearsal: build matrix, runtime packs, smoke and wheel verify passed on the base commit `f782151c`.
+- The full tables are recorded on #852 and #924.
+
+### Features
+
+- **https://** over libcurl linked at build time, on a transport interface with a registered TLS backend (#235, #881, #884).
+- **Native `super()`** with two arguments, and frozen and slots dataclasses (#815).
+- **Starred call arguments** of known length lower natively (#814).
+- **Bridge-resolved reads** of `dict[K, Any]` and `list[Any]` (PS1104 option B) (#837).
+- **`text=True` and `encoding=`** are honored in native `run` (#736).
+- **MIR leaf lane:** the `PYSC_MIR` opt-in lane, plus `while`, `break`, `continue` and `for range` (#813, #906, #911, #916).
+- **`--debug=stages`** reports per-stage rss and IR counters (#847).
+- **Per-function IR digests** name the first differing unit (#820, #866).
+- **Opt-in AST-level project bundler** (R7) (#846).
+- **Windows install script**, and generated CLI, config and diagnostics reference pages.
+- **Streaming TIR gate, stage-2 fixed-point lane and progress tables** in the nightly and fixpoint job summaries (#834, #841, #840, #867, #887).
+- **Typed HIR node module** and the first `lower/_core` slice (#839).
+- **Landing page** redesign with new Open Graph cards.
+
+### Fixes
+
+- **Binary operands** evaluate in source order (#905).
+- **Typed lowering regressions** restored: subscript, call extras, `ffi_manifest` and island call keys (#869, #861).
+- **MIR leaf emitter:** bool consts, helper-copy result tags and negative leaf constants (#889, #873).
+- **PEP 585 `dict`** spelling lowers like the `typing` spelling (#855).
+- **Protocol receiver dispatch** and the memoized self census (#801, #835).
+- **Island call inside an f-string** placeholder lowers (#734).
+- **Linux bundle** is trimmed under the size gate and a red embed acceptance is surfaced (#888).
+- **Release and nightly pipeline:** compat site data step, TIR hash baselines, rehearsal version stamp, Windows stamp shell and runtime pack extraction (#790, #925, #926, #928, #929, #930, #931).
+- **Landing copy** corrected to measured claims.
+
+### Internal
+
+- Lowering split into mixin modules under `lower/`, with per-seam fences and a progress table (#852).
+- Release preflight job and macos-26 runners (#932, #933).
+- Nightly builds the site over the exact snapshot the bot PR carries.
+
 ## [0.7.0] - 2026-10-27
 
 ### Receipt
@@ -427,3 +480,5 @@ Initial release.
 - CPython island: calls outside the subset (`subprocess`, `socket`, `threading`, `inspect`, `logging`, `asyncio`, `ssl`, `ctypes`) embed libpython only when the emitted code uses them.
 - Closed stdlib surface: `math`, `re`, `json`, `urllib.parse`, `base64`, `hashlib`, `hmac`, `struct`, `datetime`, `collections`, `itertools`, `os`, `pathlib`, `tempfile`, `atexit`, `shutil`, `enum`, `dataclasses`. Anything outside the table fences instead of guessing.
 - `try`/`except` for builtin exceptions and user subclasses; `sys.argv` as `list[str]`.
+
+[0.8.0]: https://github.com/sigilco/pyscriptc/compare/v0.7.0...v0.8.0
