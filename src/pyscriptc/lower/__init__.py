@@ -41,12 +41,16 @@ from pyscriptc.lower._core import (
     _has_typevar,
     _ir_kinds_of,
     _is_none_expr,
+    _maybe_type_kind,
     _name,
+    _node_kind,
+    _node_type_kind,
     _peek_annotated_params,
     _peek_annotation,
     _show,
     _subst_type,
     _tuple_assign,
+    _type_kind,
     module_needs_slot,
 )
 from pyscriptc.lower._coro_adapter import coro_module
@@ -179,6 +183,24 @@ def _const_flag_node(value: bool, span: dict[str, Any]) -> Any:
     """The int constant node one slice-bound `"True"`/`"False"` const spells."""
 
     return node_to_dict(_ir.const_node(_ir.P_INT, str(value), _ir.t_leaf("int"), _mk_span(span)))
+
+
+def _maybe_node_kind(node: dict[str, Any]) -> str | None:
+    """The kind tag of an IR node, or None when the record carries none."""
+
+    if "kind" not in node:
+        return None
+    return _node_kind(node)
+
+
+def _record_kind(record: dict[str, Any]) -> str:
+    """The kind tag of a record the typed layer cannot carry.
+
+    A package export row (`func`, `const`, `class`, `module`) is not IR and
+    has no typed record, so its tag reads off the plain dict in one place.
+    """
+    kind: str = record["kind"]
+    return kind
 
 
 class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixin, ClosuresMixin):
@@ -559,7 +581,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         if sig is None or node.func.id in self.generic_fns:
             return None
         params, ret = sig
-        if ret["kind"] == "none" or _has_typevar(ret):
+        if _type_kind(ret) == "none" or _has_typevar(ret):
             return None
         if any(k in self._PEEK_UNSAFE for k in _ir_kinds_of(node)):
             return None
@@ -575,7 +597,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         approximate.
         """
 
-        if not isinstance(typ, dict) or typ.get("kind") != "class":
+        if not isinstance(typ, dict) or _maybe_type_kind(typ) != "class":
             return None
         info = self.classes.get(typ["name"])
         if info is None or not info.get("tuple") or not info.get("synthetic"):
@@ -632,7 +654,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                     # the appends and item writes in this body. The fn_body
                     # window above is what that pass scans.
                     typ = self._infer_accumulated_type(item) or self._infer_type_of(item.value)
-                    if typ is not None and typ["kind"] != "none":
+                    if typ is not None and _type_kind(typ) != "none":
                         body_locals[name] = typ
                         self.locals[name] = typ
                 elif (
@@ -682,7 +704,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             for item in returns:
                 assert item.value is not None
                 typ = self._infer_type_of(item.value)
-                if typ is None or typ["kind"] == "none":
+                if typ is None or _type_kind(typ) == "none":
                     return None
                 if inferred is None:
                     inferred = typ
@@ -875,7 +897,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             self.locals = self._bindings_types()
 
             def _bind(name: str, typ: dict[str, Any] | None) -> None:
-                if typ is None or typ["kind"] == "none":
+                if typ is None or _type_kind(typ) == "none":
                     return
                 known = self.locals.get(name)
                 if known is not None and not types_equal(known, typ):
@@ -929,7 +951,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                         if (
                             fields is None
                             and isinstance(value_type, dict)
-                            and value_type.get("kind") == "list"
+                            and _maybe_type_kind(value_type) == "list"
                             and not value_type.get("set")
                         ):
                             fields = [value_type["elem"]] * len(item.targets[0].elts)
@@ -946,8 +968,8 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                             _bind(item.target.id, self._infer_type_of(binop))
                     if isinstance(item, ast.For) and isinstance(item.target, ast.Name):
                         iter_typ = self._infer_type_of(item.iter)
-                        if iter_typ is not None and iter_typ.get("kind") in {"list", "dict"}:
-                            elem = iter_typ["elem"] if iter_typ["kind"] == "list" else iter_typ["key"]
+                        if iter_typ is not None and _maybe_type_kind(iter_typ) in {"list", "dict"}:
+                            elem = iter_typ["elem"] if _type_kind(iter_typ) == "list" else iter_typ["key"]
                             _bind(item.target.id, elem)
                     if isinstance(item, ast.If):
                         _visit(item.body)
@@ -955,8 +977,8 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                     if isinstance(item, (ast.For, ast.While)):
                         if isinstance(item, ast.For) and isinstance(item.target, ast.Name):
                             iter_typ = self._infer_type_of(item.iter)
-                            if iter_typ is not None and iter_typ.get("kind") in {"list", "dict"}:
-                                elem = iter_typ["elem"] if iter_typ["kind"] == "list" else iter_typ["key"]
+                            if iter_typ is not None and _maybe_type_kind(iter_typ) in {"list", "dict"}:
+                                elem = iter_typ["elem"] if _type_kind(iter_typ) == "list" else iter_typ["key"]
                                 _bind(item.target.id, elem)
                         _visit(item.body)
                         _visit(item.orelse)
@@ -972,7 +994,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                         for it in item.items:
                             if isinstance(it.optional_vars, ast.Name):
                                 opened = self._infer_type_of(it.context_expr)
-                                if opened is not None and opened.get("kind") == "class":
+                                if opened is not None and _maybe_type_kind(opened) == "class":
                                     _bind(it.optional_vars.id, opened)
                         if len(item.items) == 1 or named:
                             _visit(item.body)
@@ -989,7 +1011,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 if arg.annotation is None:
                     continue
                 typ = _peek_annotation(arg.annotation)
-                if typ.get("kind") not in {None, "__peek_unresolved__"} and arg.arg not in self.bindings:
+                if _maybe_type_kind(typ) not in {None, "__peek_unresolved__"} and arg.arg not in self.bindings:
                     self.locals[arg.arg] = typ
             _visit(caller.body)
 
@@ -1010,7 +1032,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                         continue
                     name = plain[index].arg
                     typ = self._infer_type_of(arg_node)
-                    if typ is None or typ["kind"] == "none":
+                    if typ is None or _type_kind(typ) == "none":
                         pins.pop(name, None)
                         wanted.pop(name, None)
                         continue
@@ -1024,7 +1046,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                     if kw.arg is None or kw.arg not in wanted:
                         continue
                     typ = self._infer_type_of(kw.value)
-                    if typ is None or typ["kind"] == "none":
+                    if typ is None or _type_kind(typ) == "none":
                         pins.pop(kw.arg, None)
                         wanted.pop(kw.arg, None)
                         continue
@@ -1052,7 +1074,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         helper reads).
         """
 
-        kind = typ.get("kind")
+        kind = _maybe_type_kind(typ)
         if kind in {"int", "float", "bool", "str", "bytes"}:
             return ast.Name(id=kind, ctx=ast.Load())
         if kind == "list" and typ.get("set"):
@@ -1267,11 +1289,11 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         except KeyError:
             return True
         for param in params:
-            kind = param["type"]["kind"]
+            kind = _type_kind(param["type"])
             elem = param["type"].get("elem") or {}
             if kind in {"list", "dict"} or param["type"].get("set"):
                 return True
-            if param["type"].get("optional") and elem.get("kind") in {"list", "dict"}:
+            if param["type"].get("optional") and _maybe_type_kind(elem) in {"list", "dict"}:
                 return True
         return False
 
@@ -1378,7 +1400,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 body = self._body(list(fn.body))
                 if not self.caught:
                     body = self._scope_exit_frees(body, span_of(fn, self.filename))
-                    if ret["kind"] != "none" and not _always_returns(body):
+                    if _type_kind(ret) != "none" and not _always_returns(body):
                         sink.append(
                             Fence(
                                 "PS1004",
@@ -1482,7 +1504,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 self.declared.discard(name)
                 continue
             slot["island"] = True
-            kind = typ["kind"]
+            kind = _type_kind(typ)
             if kind == "list":
                 pad = self._boxed_island_pad_code(typ["elem"])
                 globals_out[name] = f"5:{pad}"
@@ -1495,7 +1517,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             if not self._boxed_unboxable_global(typ):
                 continue
             slot["island"] = True
-            kind = typ["kind"]
+            kind = _type_kind(typ)
             if kind == "list":
                 pad = self._boxed_island_pad_code(typ["elem"])
                 globals_out[slot_name] = f"5:{pad}"
@@ -1512,7 +1534,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
 
         from pyscriptc.emit.llvm._abi import AbiMixin
 
-        return AbiMixin._ISLAND_ARG_CODES[typ["kind"]]
+        return AbiMixin._ISLAND_ARG_CODES[_type_kind(typ)]
 
     def _boxed_stage2_source(self, tree: ast.Module, island: set[str]) -> str:
         """The Stage 2 seed: imports, literal module values, island defs."""
@@ -1617,12 +1639,12 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             return False
         if typ.get("island") or typ.get("optional"):
             return False
-        kind = typ.get("kind")
+        kind = _maybe_type_kind(typ)
         if kind in {"bool", "int", "str", "bytes"}:
             return True
         if kind == "list":
             elem = typ.get("elem") or {}
-            return not elem.get("optional") and elem.get("kind") in {"bool", "int", "float", "str", "bytes"}
+            return not elem.get("optional") and _maybe_type_kind(elem) in {"bool", "int", "float", "str", "bytes"}
         return False
 
     # boxed:end
@@ -1912,7 +1934,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                     # body still carries the flip signal in the IR.
                     if entry_name is None or fn.name != entry_name:
                         continue
-                if ret["kind"] != "none" and not _always_returns(body):
+                if _type_kind(ret) != "none" and not _always_returns(body):
                     self.fail(fn, "PS1004", f"{fn.name} can fall off the end and return None")
                 record = {
                     "name": self._ir_name(fn.name),
@@ -2273,7 +2295,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 # A param whose TypeVar resolved to none takes no runtime
                 # slot (void is not a value); it drops from the signature
                 # and binds as the `None` constant for the body.
-                dropped = {param["name"] for param in params if param["type"]["kind"] == "none"}
+                dropped = {param["name"] for param in params if _type_kind(param["type"]) == "none"}
                 params = [param for param in params if param["name"] not in dropped]
                 self.locals = {param["name"]: param["type"] for param in params}
                 saved_consts = {name: self.constants.get(name) for name in dropped}
@@ -2294,7 +2316,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                     if self.caught:
                         fences.extend(self.caught)
                         continue
-                    if ret["kind"] != "none" and not _always_returns(body):
+                    if _type_kind(ret) != "none" and not _always_returns(body):
                         self.fail(fn, "PS1004", f"{fn.name} can fall off the end and return None")
                     record = {
                         "name": self._ir_name(emit_name),
@@ -2338,11 +2360,11 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         if local in self.bindings or local in self.constants or local in self.declared or local in self.sigs:
             fences.append(Fence("PS2002", f"{local} is already bound", span_of(stmt, self.filename), None))
             return
-        if item["kind"] == "const":
+        if _record_kind(item) == "const":
             self.constants[local] = item["value"]
             self.declared.add(local)
             return
-        if item["kind"] == "func":
+        if _record_kind(item) == "func":
             # boxed:begin
             # Refs #641: the defining module planned the function for the
             # island, so the merged module emits no body for it. The runtime
@@ -2369,10 +2391,10 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             self.declared.add(local)
             self._install_return_class(module, item["return"], stmt, fences)
             return
-        if item["kind"] == "class":
+        if _record_kind(item) == "class":
             self._install_class_export(local, item, stmt, fences)
             return
-        if item["kind"] == "module":
+        if _record_kind(item) == "module":
             # A module re-exported by the package (`from . import core` in
             # `pkg/__init__.py`, issue #405): the name binds the submodule.
             self._bind_pkg_module(local, str(item["module"]), stmt, fences)
@@ -2390,10 +2412,10 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         module still emits it; the consumer sees it imported, like any other
         class export.
         """
-        if typ.get("kind") != "class" or typ["name"] in self.classes:
+        if _maybe_type_kind(typ) != "class" or typ["name"] in self.classes:
             return
         item = (self.package or {}).get(module, {}).get(typ["name"])
-        if item is None or item["kind"] != "class":
+        if item is None or _record_kind(item) != "class":
             return
         self._install_class_export(typ["name"], item, stmt, fences)
 
@@ -2440,12 +2462,12 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
 
     def _pkg_export(self, node: ast.AST, module: str, member: str) -> dict[str, Any]:
         item = self._pkg_item(node, module, member)
-        if item["kind"] not in {"func", "const"}:
+        if _record_kind(item) not in {"func", "const"}:
             self.fail(node, "PS2001", f"{module}.{member} is not exported by this package")
         return item
 
     def _linked_call(self, node: ast.Call, span: dict[str, Any], item: dict[str, Any], what: str) -> dict[str, Any]:
-        if item["kind"] != "func":
+        if _record_kind(item) != "func":
             self.fail(node, "PS2002", f"{what} is not a function")
         # boxed:begin
         # Refs #641: the defining module planned the callee for the island,
@@ -2492,7 +2514,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 if isinstance(stmt, ast.If):
                     when_true, when_false = self._narrow_names(stmt.test)
                     then_exits = _ast_exits(stmt.body) or (
-                        len(lowered) == 1 and lowered[0]["kind"] == "if" and _always_returns(lowered[0]["then"])
+                        len(lowered) == 1 and _node_kind(lowered[0]) == "if" and _always_returns(lowered[0]["then"])
                     )
                     else_exits = bool(stmt.orelse) and _ast_exits(stmt.orelse)
                     proven = when_false if then_exits and not else_exits else when_true if else_exits else set()
@@ -2526,7 +2548,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             # stays fenced with the slice-read message.
             slc = target.slice
             container = self._expr(target.value)
-            kind = container["type"]["kind"]
+            kind = _node_type_kind(container)
             if kind == "list" and container["type"].get("set"):
                 self.fail(target, "PS2002", "a set has no item assignment")
             if kind != "list":
@@ -2534,7 +2556,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             if slc.step is not None:
                 self.fail(target, "PS2002", "slices are not lowered")
             value = self._expr(stmt.value)
-            if value["type"]["kind"] != "list" or not types_equal(value["type"]["elem"], container["type"]["elem"]):
+            if _node_type_kind(value) != "list" or not types_equal(value["type"]["elem"], container["type"]["elem"]):
                 self.fail(stmt, "PS1003", "slice assignment takes a list of the same element type")
             start, has_start = self._slice_bound(slc.lower, span)
             stop, has_stop = self._slice_bound(slc.upper, span)
@@ -2553,11 +2575,11 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             return _expr_node(call, span)
         container = self._expr(target.value)
         index = self._expr(target.slice)
-        kind = container["type"]["kind"]
+        kind = _node_type_kind(container)
         if kind == "list" and container["type"].get("set"):
             self.fail(target, "PS2002", "a set has no item assignment")
         if kind == "list":
-            if index["type"]["kind"] != "int":
+            if _node_type_kind(index) != "int":
                 self.fail(target, "PS1003", "a list index is int")
             value = self._expr(stmt.value, container["type"]["elem"])
             self._expect(stmt, value["type"], container["type"]["elem"], "list item")
@@ -2572,7 +2594,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         target = stmt.targets[0]
         assert isinstance(target, ast.Attribute)
         obj = self._expr(target.value)
-        if obj["type"]["kind"] != "class":
+        if _node_type_kind(obj) != "class":
             self.fail(target, "PS2001", f"attribute assignment is not lowered ({_dotted(target)})")
         class_name = obj["type"]["name"]
         # boxed:begin
@@ -2601,7 +2623,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             cond = self._boolop(node, span_of(node, self.filename), as_cond=True)
         else:
             cond = self._expr(node)
-        kind = cond["type"]["kind"]
+        kind = _node_type_kind(cond)
         if kind == "bool":
             return cond
         if kind in _TRUTHY or cond["type"].get("optional"):
@@ -2614,7 +2636,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         if isinstance(node, ast.BoolOp):
             return self._bool_cond(node)
         cond = self._expr(node, want)
-        kind = cond["type"]["kind"]
+        kind = _node_type_kind(cond)
         if kind == "bool":
             return cond
         if kind in _TRUTHY or cond["type"].get("optional"):
@@ -2678,7 +2700,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         elem_expect = expect["elem"] if expect and expect.get("set") else None
         first = self._expr(node.elts[0], elem_expect)
         elem = first["type"]
-        if elem["kind"] not in {"int", "str"}:
+        if _type_kind(elem) not in {"int", "str"}:
             self.fail(node, "PS2002", "set elements are int or str")
         typ = node_to_dict(_ir.t_list(dict_to_type(elem), set_=True))
         if expect and expect.get("set"):
@@ -2776,7 +2798,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             value = self._module_fold(elt)
             if value is None:
                 value = self._expr(elt)
-            if value["kind"] != "const":
+            if _node_kind(value) != "const":
                 self.fail(stmt, "PS2002", "a module assignment must be a constant")
             elems.append(value)
         self._tuple_type([elem["type"] for elem in elems], node)
@@ -2842,17 +2864,17 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         if slot.get("island"):
             key = _text_ir(self._slot_island_key(name), "str", span)
         # boxed:end
-        if typ["kind"] == "str":
+        if _type_kind(typ) == "str":
             return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_str", span)
-        if typ["kind"] == "int":
+        if _type_kind(typ) == "int":
             return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_i64", span)
-        if typ["kind"] == "class" and typ.get("name") == "Path":
+        if _type_kind(typ) == "class" and typ.get("name") == "Path":
             return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_path", span)
-        if typ["kind"] == "func":
+        if _type_kind(typ) == "func":
             return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_ptr", span)
-        if typ["kind"] == "class" and typ.get("name") in PTR_CLASSES:
+        if _type_kind(typ) == "class" and typ.get("name") in PTR_CLASSES:
             return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_ptr", span)
-        if typ["kind"] in {"list", "dict"}:
+        if _type_kind(typ) in {"list", "dict"}:
             return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_ptr", span)
         self.fail(ast.Pass(), "PS2002", f"global {name} of {_show(typ)} is not lowered")
         raise AssertionError("unreachable")
@@ -2874,17 +2896,17 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             )
         # boxed:end
         key = _text_ir(self._slot_key(name), "str", span)
-        if typ["kind"] == "str":
+        if _type_kind(typ) == "str":
             symbol = "ps_global_set_str"
-        elif typ["kind"] == "int":
+        elif _type_kind(typ) == "int":
             symbol = "ps_global_set_i64"
-        elif typ["kind"] == "class" and typ.get("name") == "Path":
+        elif _type_kind(typ) == "class" and typ.get("name") == "Path":
             symbol = "ps_global_set_path"
-        elif typ["kind"] == "func":
+        elif _type_kind(typ) == "func":
             symbol = "ps_global_set_ptr"
-        elif typ["kind"] == "class" and typ.get("name") in PTR_CLASSES:
+        elif _type_kind(typ) == "class" and typ.get("name") in PTR_CLASSES:
             symbol = "ps_global_set_ptr"
-        elif typ["kind"] in {"list", "dict"}:
+        elif _type_kind(typ) in {"list", "dict"}:
             symbol = "ps_global_set_ptr"
         else:
             self.fail(ast.Pass(), "PS2002", f"global {name} of {_show(typ)} is not lowered")
@@ -2962,7 +2984,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                     self._expect(stmt, value["type"], expect, target)
                 else:
                     value = self._expr(stmt.value)
-                if value["type"]["kind"] != "func" and not self.prelude and module_needs_slot(value):
+                if _node_type_kind(value) != "func" and not self.prelude and module_needs_slot(value):
                     # A container or parser at plain-assign scope keeps its
                     # identity through the slot (#512), so it does not fall
                     # through to the constant replay below.
@@ -2970,7 +2992,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                     return
             except Fence as exc:
                 self.caught.append(exc)
-            if value is None or self.caught or value["type"]["kind"] != "func" or self.prelude:
+            if value is None or self.caught or _node_type_kind(value) != "func" or self.prelude:
                 # Not a lowered callable (or one needing prelude temps, which
                 # have no home at module scope): replay the ordinary binding
                 # path so constants still bind and fences stay identical.
@@ -3031,7 +3053,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         *,
         none_on_left: bool,
     ) -> dict[str, Any]:
-        kind = value["type"]["kind"]
+        kind = _node_type_kind(value)
         if kind == "class" and value["type"].get("optional"):
             tag = _attr(value, "_tag", {"kind": "bool"}, span)
             if negated:
@@ -3625,7 +3647,7 @@ def _bounded_pow(node: ast.expr) -> bool:
 def _const_str_join(parts: list[dict[str, Any]], span: dict[str, Any]) -> dict[str, Any] | None:
     """Module-level f-string pieces that are already str constants are one str constant."""
 
-    if any(part.get("kind") != "const" or part.get("type", {}).get("kind") != "str" for part in parts):
+    if any(_maybe_node_kind(part) != "const" or _maybe_type_kind(part.get("type", {})) != "str" for part in parts):
         return None
     text = "".join(str(part["value"]) for part in parts)
     return _const_str(text, span)
@@ -3643,9 +3665,9 @@ def _concat_str(parts: list[dict[str, Any]], span: dict[str, Any]) -> dict[str, 
 def _const_list_concat(left: dict[str, Any], right: dict[str, Any], span: dict[str, Any]) -> dict[str, Any] | None:
     """Two constant lists of one element type are one list. A runtime list stays fenced."""
 
-    if left.get("kind") != "list" or right.get("kind") != "list":
+    if _maybe_node_kind(left) != "list" or _maybe_node_kind(right) != "list":
         return None
-    if left["type"]["kind"] != "list" or right["type"]["kind"] != "list":
+    if _type_kind(left["type"]) != "list" or _type_kind(right["type"]) != "list":
         return None
     if left["type"].get("set") or right["type"].get("set"):
         return None
@@ -3661,11 +3683,11 @@ def _const_list_concat(left: dict[str, Any], right: dict[str, Any], span: dict[s
 
 
 def _static_int(expr: dict[str, Any]) -> int | None:
-    if expr.get("kind") == "const" and expr.get("type", {}).get("kind") == "int":
+    if _maybe_node_kind(expr) == "const" and _maybe_type_kind(expr.get("type", {})) == "int":
         value = expr.get("value")
         if isinstance(value, str) and _int_text(value):
             return int(value)
-    if expr.get("kind") == "unary" and expr.get("op") == "-" and isinstance(expr.get("operand"), dict):
+    if _maybe_node_kind(expr) == "unary" and expr.get("op") == "-" and isinstance(expr.get("operand"), dict):
         inner = _static_int(expr["operand"])
         if inner is not None:
             return -inner

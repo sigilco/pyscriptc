@@ -46,7 +46,7 @@
   "pyscriptc.llvm": 1,
   "pyscriptc.llvverify": 15,
   "pyscriptc.log": 17,
-  "pyscriptc.lower": 203,
+  "pyscriptc.lower": 201,
   "pyscriptc.lower._annotations": 33,
   "pyscriptc.lower._call_attr": 45,
   "pyscriptc.lower._calls": 60,
