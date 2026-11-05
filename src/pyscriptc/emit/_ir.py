@@ -109,7 +109,7 @@ def _has(expr: dict[str, Any], key: str) -> bool:
     return key in expr
 
 
-def _opt_str(expr: dict[str, Any], key: str) -> str | None:
+def _opt_str_or_none(expr: dict[str, Any], key: str) -> str | None:
     """An optional string key of an expression record, or None when absent."""
     if key not in expr:
         return None
@@ -128,6 +128,123 @@ def standalone_entry(module: dict[str, Any]) -> dict[str, Any] | None:
         if name in ("main", "__entry__") or name.startswith("__main__."):
             return fn
     return None
+
+
+def _type_of(expr: dict[str, Any]) -> dict[str, Any]:
+    """The type record an expression, local, param or env item carries."""
+    typ: dict[str, Any] = expr["type"]
+    return typ
+
+
+def _return_type(fn: dict[str, Any]) -> dict[str, Any]:
+    """The return type record of a function record."""
+    typ: dict[str, Any] = fn["returnType"]
+    return typ
+
+
+def _const_text(node: dict[str, Any]) -> str:
+    """The literal payload of a const node, as text (the int/float/str spelling)."""
+    payload: str = node["value"]
+    return payload
+
+
+def _const_bool(node: dict[str, Any]) -> bool:
+    """The literal payload of a bool const node."""
+    payload: bool = node["value"]
+    return payload
+
+
+def _span_of(record: dict[str, Any]) -> dict[str, Any]:
+    """The span of a record that always carries one (a function record)."""
+    span: dict[str, Any] = record["span"]
+    return span
+
+
+def _none_type() -> dict[str, Any]:
+    """The `none` type record: the return type of a function that returns nothing."""
+    typ: dict[str, Any] = {}
+    typ["kind"] = "none"
+    return typ
+
+
+def _opt_span(record: dict[str, Any]) -> dict[str, Any] | None:
+    """The span of a statement or expression, or None when it carries none."""
+    if "span" not in record:
+        return None
+    span: dict[str, Any] = record["span"]
+    return span
+
+
+def _opt_default(record: dict[str, Any]) -> dict[str, Any] | None:
+    """The default-value expression of a parameter, or None."""
+    if "default" not in record:
+        return None
+    default: dict[str, Any] = record["default"]
+    return default
+
+
+def _opt_int(record: dict[str, Any], key: str, default: int) -> int:
+    """An int field of a record, or `default` when the record omits it."""
+    if key not in record:
+        return default
+    count: int = record[key]
+    return count
+
+
+def _opt_str(record: dict[str, Any], key: str) -> str:
+    """A str field of a record, or "" when the record omits it."""
+    if key not in record:
+        return ""
+    name: str = record[key]
+    return name
+
+
+def _flag_of(record: dict[str, Any], key: str) -> bool:
+    """A boolean marker field (`island`, `handle`, `exception`), or False when absent."""
+    if key not in record:
+        return False
+    flag: bool = record[key]
+    return flag
+
+
+def _has(record: dict[str, Any], key: str) -> bool:
+    """Whether a record carries a key at all (`env`, `stub`, `name`, ...)."""
+    if key in record:
+        return True
+    return False
+
+
+def _items(record: dict[str, Any], key: str) -> list[dict[str, Any]]:
+    """A list of record fields (`params`, `locals`, `env`, `globals`, `classes`), or [] when absent."""
+    if key not in record:
+        return []
+    items: list[dict[str, Any]] = record[key]
+    return items
+
+
+def _name_list(record: dict[str, Any], key: str) -> list[str]:
+    """A list-of-str field (`boxed`, `fences` names), or [] when absent."""
+    if key not in record:
+        return []
+    names: list[str] = record[key]
+    return names
+
+
+def _str_map(record: dict[str, Any], key: str) -> dict[str, str]:
+    """A str-to-str map field (`islandGlobals`), or {} when absent."""
+    if key not in record:
+        return {}
+    entries: dict[str, str] = record[key]
+    return entries
+
+
+def _entry_span(module: dict[str, Any]) -> dict[str, Any]:
+    """The synthetic span of a process entry point: the module source at line 1."""
+    source: str = module["sourceFile"]
+    span: dict[str, Any] = {}
+    span["file"] = source
+    span["line"] = 1
+    return span
 
 
 def _fn_symbol(name: str) -> str:

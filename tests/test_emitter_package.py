@@ -88,6 +88,74 @@ def test_the_seam_reads_an_absent_kind_tag() -> None:
     assert _ir._kind_or_none(None) is None
 
 
+def test_the_seam_reads_the_function_record() -> None:
+    """The record readers `_funcs` uses: name, params, span, return type, env, boxed."""
+    from pyscriptc.emit import _ir
+
+    fn = {
+        "name": "main",
+        "params": [{"name": "x", "type": {"kind": "int"}}],
+        "returnType": {"kind": "none"},
+        "locals": [],
+        "body": [],
+        "span": {"file": "a.py", "line": 1},
+        "env": [{"name": "y", "type": {"kind": "str"}}],
+        "boxed": ["y"],
+    }
+    assert _ir._opt_str(fn, "name") == "main"
+    assert _ir._return_type(fn) == {"kind": "none"}
+    assert _ir._span_of(fn) == {"file": "a.py", "line": 1}
+    assert _ir._items(fn, "params") == [{"name": "x", "type": {"kind": "int"}}]
+    assert _ir._items(fn, "locals") == []
+    assert _ir._items(fn, "env") == [{"name": "y", "type": {"kind": "str"}}]
+    assert _ir._name_list(fn, "boxed") == ["y"]
+    assert _ir._has(fn, "env") is True
+    assert _ir._has(fn, "stub") is False
+    assert _ir._opt_str({"name": "x"}, "name") == "x"
+    assert _ir._opt_str({}, "name") == ""
+    assert _ir._opt_span(fn) == {"file": "a.py", "line": 1}
+    assert _ir._opt_span({"name": "x"}) is None
+
+
+def test_the_seam_reads_the_type_record_and_markers() -> None:
+    from pyscriptc.emit import _ir
+
+    typ = {"kind": "class", "name": "Handle", "island": True, "handle": True}
+    assert _ir._type_of({"type": typ}) == typ
+    assert _ir._kind(_ir._type_of({"type": typ})) == "class"
+    assert _ir._flag_of(typ, "island") is True
+    assert _ir._flag_of(typ, "handle") is True
+    assert _ir._flag_of({"kind": "int"}, "island") is False
+
+
+def test_the_seam_reads_the_optional_and_map_fields() -> None:
+    from pyscriptc.emit import _ir
+
+    param = {"name": "x", "type": {"kind": "int"}, "default": {"kind": "const", "value": "1"}}
+    assert _ir._opt_default(param) == {"kind": "const", "value": "1"}
+    assert _ir._opt_default({"name": "y"}) is None
+    assert _ir._opt_int({"exc_parent": 7}, "exc_parent", 0) == 7
+    assert _ir._opt_int({}, "exc_parent", 0) == 0
+    assert _ir._opt_int({"exc_code": 3}, "exc_parent", 9) == 9
+    module = {"sourceFile": "m.py", "islandGlobals": {"g": "int:1"}}
+    assert _ir._str_map(module, "islandGlobals") == {"g": "int:1"}
+    assert _ir._str_map({"sourceFile": "m.py"}, "islandGlobals") == {}
+    assert _ir._entry_span(module) == {"file": "m.py", "line": 1}
+
+
+def test_the_seam_reads_the_const_payload() -> None:
+    from pyscriptc.emit import _ir
+
+    assert _ir._const_text({"kind": "const", "value": "1"}) == "1"
+    assert _ir._const_bool({"kind": "const", "value": True}) is True
+
+
+def test_the_seam_builds_the_none_type() -> None:
+    from pyscriptc.emit import _ir
+
+    assert _ir._none_type() == {"kind": "none"}
+
+
 def test_the_seam_reads_the_node_kind_tags() -> None:
     from pyscriptc.emit import _ir
 
@@ -121,8 +189,8 @@ def test_the_seam_knows_the_typed_accessors() -> None:
     assert _ir._kind(_ir._field_type(field)) == "str"
     assert _ir._has({"sep": "x"}, "sep") is True
     assert _ir._has({"sep": "x"}, "end") is False
-    assert _ir._opt_str({"file": "stderr"}, "file") == "stderr"
-    assert _ir._opt_str({}, "file") is None
+    assert _ir._opt_str_or_none({"file": "stderr"}, "file") == "stderr"
+    assert _ir._opt_str_or_none({}, "file") is None
 
 
 def test_every_emitter_area_lives_in_its_own_module() -> None:
