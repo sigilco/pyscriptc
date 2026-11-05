@@ -34,7 +34,21 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono)}
 .hero{font-size:84px;font-weight:600;letter-spacing:-.02em}
 .msg{font-size:34px;line-height:1.4} .msg .a{color:var(--accent)}
 .term{font-size:33px;line-height:1.5;white-space:pre} .term .p{color:var(--accent)} .term .o{color:var(--sec)}
-.stack{display:flex;flex-direction:column;justify-content:center;height:100%}`;
+.stack{display:flex;flex-direction:column;justify-content:center;height:100%}
+.seam{justify-content:space-between}
+.top{padding-top:8px}
+.brand{font-family:var(--sans);font-weight:700;font-size:44px;letter-spacing:-.02em}
+.brand .ver{color:var(--accent);font-weight:600}
+.pitch{font-family:var(--sans);color:var(--sec);font-size:30px;margin-top:14px}
+.pipe{display:flex;flex-direction:column;justify-content:center;flex:1}
+.row{display:flex;align-items:baseline;gap:26px;padding:17px 0;border-bottom:1px solid var(--hair)}
+.row:last-child{border-bottom:0}
+.stage{font-family:var(--mono);font-weight:600;font-size:46px;width:230px;flex:none}
+.row.new .stage{color:var(--accent-strong)}
+.desc{font-family:var(--sans);color:var(--slate);font-size:27px;flex:1}
+.tag{font-family:var(--sans);color:var(--accent-strong);font-size:22px;width:190px;flex:none;text-align:right}
+.arrow{color:#3a404b;font-size:26px;line-height:1;padding:6px 0 6px 96px}
+.foot{font-family:var(--sans);color:var(--muted);font-size:28px;padding-bottom:8px}`;
 
 export const fmt = (ms) => (ms >= 100 ? Math.round(ms).toLocaleString("en-US") : ms.toFixed(ms < 10 ? 1 : 0)) + " ms";
 

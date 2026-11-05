@@ -1,11 +1,11 @@
 // Benchmark cards from a fresh run (/tmp/social-bench-fresh.json, or the committed
-// reference). Run from apps/web/: node social/cards.mjs. Output in out/, gitignored.
+// reference). Run from the repo root: node scripts/social/cards.mjs. Output in out/, gitignored.
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { here, cell, render } from "./lib.mjs";
 
 const fresh = "/tmp/social-bench-fresh.json";
-const ref = join(here, "..", "..", "..", "benchmarks/baseline/reference-macos-arm64.json");
+const ref = join(here, "..", "..", "benchmarks/baseline/reference-macos-arm64.json");
 const data = JSON.parse(readFileSync(existsSync(fresh) ? fresh : ref, "utf8"));
 const w = (n) => { const x = data.workloads.find((v) => v.name === n && v.status === "ok"); if (!x) throw new Error("missing workload " + n); return x; };
 

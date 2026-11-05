@@ -39,6 +39,6 @@ benchmarks/real/.scratch/
 *.obj
 
 # social media renders (generated, never committed)
-apps/web/social/out/
-apps/web/social/demo/demo
-apps/web/social/demo/demo.report.json
+scripts/social/out/
+scripts/social/demo/demo
+scripts/social/demo/demo.report.json

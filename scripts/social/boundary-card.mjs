@@ -1,5 +1,5 @@
 // Boundary card: the real PS2002 diagnostic (boundary-capture.txt, captured from
-// pyscriptc; regenerate with `uv run pyscriptc compile apps/web/social/boundary/fence.py --emit bin`).
+// pyscriptc; regenerate with `uv run pyscriptc compile scripts/social/boundary/fence.py --emit bin`).
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { here, render } from "./lib.mjs";
