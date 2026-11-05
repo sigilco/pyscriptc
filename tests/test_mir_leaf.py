@@ -46,6 +46,7 @@ LEAF_SAMPLES = [
         "leafneg.py",
         "leafboolconst.py",
         "leafhelperret.py",
+        "leaforder.py",
     )
 ]
 

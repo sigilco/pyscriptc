@@ -433,17 +433,21 @@ class _FnLowerer:
         self.builder.emit(MIR_COPY, vid, value, tag)
 
     def load_slot(self, name: str) -> int:
-        """The operand for a read of `name`: the name's slot value.
+        """The operand for a read of `name`: an eager copy of the slot.
 
-        Every read goes through the slot, the way the direct walk loads
-        the alloca per access; the emitter renders the slot read as one
-        `load`, so read counts and register order match the direct path
-        byte for byte.
+        Every read emits its `MIR_COPY` from the slot at the point the
+        body walk reaches it, so the loads (which the emitter renders as
+        one `load` per copy) land in the same source order the direct
+        walk produces. A lazy design that hands back the slot vid and
+        lets the emitter load at operand-render time evaluates a
+        computed right operand before an unresolved left one, which
+        reorders the loads against the direct path (issue #871).
         """
         vid = self.slot_vids.get(name)
         if vid is None:
             raise MirLowerError(f"the MIR leaf slice has no slot for {name}")
-        return vid
+        tag = _param_tag(self.kind_of(name))
+        return self.builder.emit_copy(vid, tag)
 
     def emit_expr(self, expr: Dict[str, Any]) -> int:
         kind: str = expr["kind"]
