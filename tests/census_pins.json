@@ -54,7 +54,7 @@
   "pyscriptc.lower._closures": 19,
   "pyscriptc.lower._core": 137,
   "pyscriptc.lower._expr": 90,
-  "pyscriptc.lower._stdlib": 49,
+  "pyscriptc.lower._stdlib": 63,
   "pyscriptc.lower._stdlib_shared": 5,
   "pyscriptc.lower._stmt": 75,
   "pyscriptc.mir": 0,

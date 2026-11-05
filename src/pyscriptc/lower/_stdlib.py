@@ -16,6 +16,9 @@ from __future__ import annotations
 import ast
 from typing import Any, NoReturn
 
+from pyscriptc import _irnode as _ir
+from pyscriptc._irnode import t_class, t_leaf, t_list
+
 # boxed:begin
 from pyscriptc.boxed import (  # boxed:begin
     DEF_HANDLE_SYMBOL,
@@ -43,6 +46,8 @@ from pyscriptc.lower._core import (
     _const_truthy,
     _is_none_expr,
     _make_const,
+    _mk_span,
+    _mk_type,
     _module_closed,
     _name,
     _package_base,
@@ -71,12 +76,98 @@ from pyscriptc.stdmore import (
     member_callable,
     module_constant,
 )
+from pyscriptc.tirserde import dict_to_node, node_to_dict
 
 
 # boxed:begin
 def _island_handle(name: str) -> dict[str, Any]:
     """The opaque handle type of an island value (issue #553)."""
     return island_handle_type(name)
+
+
+def _expr_stmt_node(expr: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The expr-statement node one dict-IR `{"kind": "expr", ...}` spells."""
+
+    return node_to_dict(_ir.expr_stmt(dict_to_node(expr), _mk_span(span)))
+
+
+def _try_stmt_node(body: list[dict[str, Any]], finalbody: list[dict[str, Any]], span: dict[str, Any]) -> dict[str, Any]:
+    """The try/finally statement one dict-IR `{"kind": "try", ...}` spells."""
+
+    return node_to_dict(
+        _ir.try_stmt(
+            [dict_to_node(stmt) for stmt in body],
+            [],
+            _mk_span(span),
+            None,
+            [dict_to_node(stmt) for stmt in finalbody],
+        )
+    )
+
+
+def _const_str_node(value: str, span: dict[str, Any], extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The str-constant node one dict-IR `{"kind": "const", ...}` spells.
+
+    The island keyword marshalling marks the const with extra keys the typed
+    const record has no slot for, so the spelling keeps the dict whole.
+    """
+
+    node = node_to_dict(_ir.const_str(value, t_leaf("str"), _mk_span(span)))
+    if extra:
+        node.update(extra)
+    return node
+
+
+def _island_call_node(
+    module: str,
+    name: str,
+    args: list[dict[str, Any]],
+    typ: dict[str, Any],
+    symbol: str,
+    span: dict[str, Any],
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """The island call node: a typed call plus the island's extra keys.
+
+    The island seam carries keys the typed call record has no slot for
+    (`island`, `island_fn`, `island_npos`, `island_nkw`), so the typed node
+    spells the call and the extras ride along on the dict.
+    """
+
+    node = node_to_dict(
+        _ir.call(
+            _ir.module_callee(module, name),
+            [dict_to_node(arg) for arg in args],
+            _mk_type(typ),
+            _mk_span(span),
+            symbol,
+            "",
+            -1,
+        )
+    )
+    if extra:
+        node.update(extra)
+    return node
+
+
+def _island_peek_handle(module: str, span: dict[str, Any]) -> dict[str, Any]:
+    """The isolated island-module handle node the peek outside a scope reads."""
+
+    return node_to_dict(
+        _ir.name_expr(
+            f"<imod:{module}>",
+            t_class(f"{module} module", "", None, False, False, True),
+            _mk_span(span),
+        )
+    )
+
+
+def _set_list_literal(elems: list[dict[str, Any]], elem_kind: str, span: dict[str, Any]) -> dict[str, Any]:
+    """The set-backed list node one dict-IR `{"kind": "list", "set": True}` spells."""
+
+    return node_to_dict(
+        _ir.list_lit([dict_to_node(elem) for elem in elems], t_list(t_leaf(elem_kind), True), _mk_span(span))
+    )
 
 
 # The `%ps.arg` kind codes the trampoline marshals (issue #553); they match
@@ -667,7 +758,7 @@ class StdlibDispatchMixin:
             self.handle_locals.pop(name, None)
         if old is None or (isinstance(value_node, ast.Name) and value_node.id == name):
             return []
-        return [{"kind": "expr", "expr": self._free_call(name, old, span), "span": span}]
+        return [_expr_stmt_node(self._free_call(name, old, span), span)]
 
     def _free_call(self, name: str, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
         """The IR call that releases one owned handle.
@@ -724,8 +815,8 @@ class StdlibDispatchMixin:
         ]
         if not owned:
             return body
-        frees = [{"kind": "expr", "expr": self._free_call(name, typ, span), "span": span} for name, typ in owned]
-        return [{"kind": "try", "body": body, "handlers": [], "finalbody": frees, "span": span}]
+        frees = [_expr_stmt_node(self._free_call(name, typ, span), span) for name, typ in owned]
+        return [_try_stmt_node(body, frees, span)]
 
     def _module_decorator_fence(self, fn: ast.FunctionDef) -> str | None:
         if not fn.decorator_list:
@@ -839,7 +930,7 @@ class StdlibDispatchMixin:
             if kw.arg is not None:
                 val = self._expr(kw.value)
                 self._island_check_arg(kw, val)
-                key = {"kind": "const", "value": kw.arg, "type": {"kind": "str"}, "span": span}
+                key = _const_str_node(kw.arg, span)
                 kw_args.extend([key, val])
             else:
                 val = self._expr(kw.value)
@@ -850,7 +941,7 @@ class StdlibDispatchMixin:
                     key_t = val["type"].get("key") or {}
                     if key_t.get("kind") != "str":
                         self.fail(kw, "PS1003", f"**kwargs keys must be str, got {_show(key_t)}")
-                marker = {"kind": "const", "value": "", "type": {"kind": "str"}, "span": span, "island_kwargs": True}
+                marker = _const_str_node("", span, {"island_kwargs": True})
                 kw_args.extend([marker, val])
 
         all_args = [*pos_args, *kw_args]
@@ -889,7 +980,7 @@ class StdlibDispatchMixin:
             # prelude to hold the import, no scope exit to free the handle.
             # The peeked type is all the caller needs, so return an isolated
             # handle node instead of binding a hidden local.
-            return {"kind": "name", "name": f"<imod:{module}>", "type": _island_handle(f"{module} module")}
+            return _island_peek_handle(module, span)
         if name is None:
             name = self._temp("imod").replace(".", "_")
             typ = _island_handle(f"{module} module")
@@ -897,7 +988,7 @@ class StdlibDispatchMixin:
             call = self._abi_call(
                 module,
                 "import",
-                [{"kind": "const", "value": module, "type": {"kind": "str"}, "span": span}],
+                [_const_str_node(module, span)],
                 typ,
                 "ps_island_import",
                 span,
@@ -981,17 +1072,15 @@ class StdlibDispatchMixin:
         # An island class instantiation returns the class's one handle type,
         # so the destination annotation proves the same type (issue #628).
         result_type = island_class_type(name) if name in self.island_classes else _island_handle(f"{name}()")
-        call_expr: dict[str, Any] = {
-            "kind": "call",
-            "callee": {"kind": "module", "module": "island", "name": name},
-            "args": marshalled,
-            "type": result_type,
-            "symbol": INVOKE_SYMBOL,
-            "island_fn": {"name": name},
-            "island_npos": npos,
-            "island_nkw": nkw,
-            "span": span,
-        }
+        call_expr: dict[str, Any] = _island_call_node(
+            "island",
+            name,
+            marshalled,
+            result_type,
+            INVOKE_SYMBOL,
+            span,
+            {"island_fn": {"name": name}, "island_npos": npos, "island_nkw": nkw},
+        )
         if expect is not None and not expect.get("island"):
             self._island_validate_expect(node, expect)
             call_expr["type"] = expect
@@ -1032,17 +1121,15 @@ class StdlibDispatchMixin:
         """`requests.get(...)`: a trampoline call on the imported module handle."""
         marshalled, npos, nkw = self._island_args(node, span)
         args = [self._island_module_handle(module, span), *marshalled]
-        call_expr: dict[str, Any] = {
-            "kind": "call",
-            "callee": {"kind": "module", "module": module, "name": attr},
-            "args": args,
-            "type": _island_handle(f"{module}.{attr}()"),
-            "symbol": "ps_island_call",
-            "island": {"name": attr},
-            "island_npos": npos,
-            "island_nkw": nkw,
-            "span": span,
-        }
+        call_expr: dict[str, Any] = _island_call_node(
+            module,
+            attr,
+            args,
+            _island_handle(f"{module}.{attr}()"),
+            "ps_island_call",
+            span,
+            {"island": {"name": attr}, "island_npos": npos, "island_nkw": nkw},
+        )
         if expect is not None and not expect.get("island"):
             self._island_validate_expect(node, expect)
             call_expr["type"] = expect
@@ -1057,17 +1144,15 @@ class StdlibDispatchMixin:
         attr = node.func.attr
         marshalled, npos, nkw = self._island_args(node, span)
         args = [receiver, *marshalled]
-        call_expr: dict[str, Any] = {
-            "kind": "call",
-            "callee": {"kind": "module", "module": receiver["type"].get("name", "island"), "name": attr},
-            "args": args,
-            "type": _island_handle(f"{receiver['type'].get('name', 'island')}.{attr}()"),
-            "symbol": "ps_island_call",
-            "island": {"name": attr},
-            "island_npos": npos,
-            "island_nkw": nkw,
-            "span": span,
-        }
+        call_expr: dict[str, Any] = _island_call_node(
+            receiver["type"].get("name", "island"),
+            attr,
+            args,
+            _island_handle(f"{receiver['type'].get('name', 'island')}.{attr}()"),
+            "ps_island_call",
+            span,
+            {"island": {"name": attr}, "island_npos": npos, "island_nkw": nkw},
+        )
         if expect is not None and not expect.get("island"):
             self._island_validate_expect(node, expect)
             call_expr["type"] = expect
@@ -1079,15 +1164,15 @@ class StdlibDispatchMixin:
     ) -> dict[str, Any]:
         """Unmarshal an island handle into a typed local value."""
         self._island_validate_expect(node, expect)
-        return {
-            "kind": "call",
-            "callee": {"kind": "module", "module": "island", "name": "unmarshal"},
-            "args": [obj],
-            "type": expect,
-            "symbol": "ps_island_unmarshal",
-            "island": {"name": "unmarshal", "want": expect},
-            "span": span,
-        }
+        return _island_call_node(
+            "island",
+            "unmarshal",
+            [obj],
+            expect,
+            "ps_island_unmarshal",
+            span,
+            {"island": {"name": "unmarshal", "want": expect}},
+        )
 
     def _island_getattr(
         self, obj: dict[str, Any], name: str, span: dict[str, Any], node: ast.AST, expect: dict[str, Any] | None
@@ -1136,15 +1221,15 @@ class StdlibDispatchMixin:
         key = index["value"] if index["kind"] == "const" else None
         if key is None:
             self.fail(node, "PS2002", "an island subscript key is a string literal")
-        return {
-            "kind": "call",
-            "callee": {"kind": "module", "module": "island", "name": "getitem"},
-            "args": [obj, {"kind": "const", "value": key, "type": {"kind": "str"}, "span": span}],
-            "type": expect,
-            "symbol": "ps_island_getitem",
-            "island": {"key": key, "want": expect},
-            "span": span,
-        }
+        return _island_call_node(
+            "island",
+            "getitem",
+            [obj, _const_str_node(key, span)],
+            expect,
+            "ps_island_getitem",
+            span,
+            {"island": {"key": key, "want": expect}},
+        )
 
     # boxed:end
 
@@ -1697,5 +1782,4 @@ class StdlibDispatchMixin:
             seen.append(value["value"])
             elems.append(value)
         span = span_of(node, self.filename)
-        typ = {"kind": "list", "elem": {"kind": kinds[0]}, "set": True}
-        return {"kind": "list", "elems": elems, "type": typ, "span": span}
+        return _set_list_literal(elems, kinds[0], span)
