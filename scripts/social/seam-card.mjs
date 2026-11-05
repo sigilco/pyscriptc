@@ -75,14 +75,11 @@ const mermaidConfig = JSON.stringify({
 
 const head = `<!doctype html><meta charset="utf-8"><title>seam</title>
 <style>${css}
-#card{display:flex;flex-direction:column;justify-content:space-between;background:var(--bg)}
-.top{padding-top:8px}
-.brand{font-family:var(--sans);font-weight:700;font-size:44px;letter-spacing:-.02em}
-.brand .ver{color:var(--accent-strong);font-weight:600}
-.pitch{font-family:var(--sans);color:var(--sec);font-size:30px;margin-top:14px}
-#graph{flex:1;display:flex;align-items:center;justify-content:center;min-height:0}
+#card{display:flex;flex-direction:column;justify-content:center;background:var(--bg)}
+.hero{font-family:var(--sans);font-weight:700;font-size:52px;letter-spacing:-.02em;text-align:center;padding-bottom:28px}
+.hero .ver{color:var(--accent-strong);font-weight:600}
+#graph{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;padding:36px 0}
 #graph .mermaid{width:100%;height:100%;display:flex;align-items:center;justify-content:center}
-.foot{font-family:var(--sans);color:var(--muted);font-size:28px;padding-bottom:8px}
 </style>
 ${mermaidScript}
 <script>
@@ -106,14 +103,10 @@ window.addEventListener('load', () => {
 </script>`;
 
 const body = `<div id="card">
-<div class="top">
-<div class="brand">pyscriptc <span class="ver">v0.8.0</span></div>
-<div class="pitch">the compiler core was rebuilt</div>
-</div>
+<div class="hero">new compiler architecture</div>
 <div id="graph"><pre class="mermaid">
 ${graph}
 </pre></div>
-<div class="foot">same bytes out, new pipeline in</div>
 </div>`;
 
 // lib render() writes its own template, which would drop the mermaid head, so
