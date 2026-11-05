@@ -10,7 +10,6 @@ them from the compiler. These tests run the same steps in seconds.
 from __future__ import annotations
 
 import hashlib
-import re
 import subprocess
 import sys
 import tarfile
@@ -44,7 +43,9 @@ def _stamp_steps() -> list[tuple[str, str]]:
                 shell = stripped.split(":", 1)[1].strip()
             if stripped == "run: |":
                 cursor += 1
-                while cursor < len(lines) and (not lines[cursor].strip() or len(lines[cursor]) - len(lines[cursor].lstrip()) > indent):
+                while cursor < len(lines) and (
+                    not lines[cursor].strip() or len(lines[cursor]) - len(lines[cursor].lstrip()) > indent
+                ):
                     script.append(lines[cursor])
                     cursor += 1
                 continue
@@ -106,7 +107,18 @@ def test_runtime_pack_script_builds_from_a_synthetic_asset(tmp_path: Path) -> No
     )
     out = tmp_path / "out"
     done = subprocess.run(
-        [sys.executable, str(PACK_SCRIPT), "--platform", "linux-x86_64", "--lock", str(lock), "--asset", str(asset), "-o", str(out)],
+        [
+            sys.executable,
+            str(PACK_SCRIPT),
+            "--platform",
+            "linux-x86_64",
+            "--lock",
+            str(lock),
+            "--asset",
+            str(asset),
+            "-o",
+            str(out),
+        ],
         capture_output=True,
         text=True,
     )
