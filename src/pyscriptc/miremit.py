@@ -63,6 +63,7 @@ from pyscriptc.mir import (
     MIR_NEGD,
     MIR_NEGW,
     MIR_NOTB,
+    MIR_RAISE,
     MIR_RET,
     MIR_SUBD,
     MIR_SUBW,
@@ -112,7 +113,7 @@ _LLVM_D = {MIR_ADDD: "fadd", MIR_SUBD: "fsub", MIR_MULD: "fmul", MIR_NEGD: "fneg
 # The terminator ops, spelled here over the imported op constants: the
 # module-level table in `mir.py` binds a global slot, and slots do not
 # ride the package export table a cross-module import resolves against.
-_MIR_TERMINATORS: list[int] = [MIR_JMP, MIR_BR, MIR_RET]
+_MIR_TERMINATORS: list[int] = [MIR_JMP, MIR_BR, MIR_RET, MIR_RAISE]
 
 # The op tables, spelled here for the same reason as `_MIR_TERMINATORS`:
 # `mir.py`'s module-level tables bind global slots, and slots do not ride
@@ -121,6 +122,7 @@ _MIR_TERMINATORS: list[int] = [MIR_JMP, MIR_BR, MIR_RET]
 # byte-identity failure, not a silent wrong emission.
 _OP_ARITY: Dict[int, int] = {
     MIR_NOTB: 1,
+    MIR_RAISE: 1,
     MIR_JMP: 0,
     MIR_BR: 1,
     MIR_RET: 1,
@@ -430,6 +432,9 @@ class MirEmitter:
         block = fn.blocks[bid]
         hint: str = block.hint
         if hint:
+            # A lowered block carries the direct path's label number (the
+            # `fresh()` sequence the lowerer replays), so a block nested
+            # inside an arm keeps the number the direct emitter gave it.
             lid: int = block.label_id
             if lid > 0:
                 return f"L{lid}.{hint}"
@@ -447,6 +452,11 @@ class MirEmitter:
             return
         if op == MIR_JMP:
             self.line(f"br label %{self._label(a1)}")
+            return
+        if op == MIR_RAISE:
+            code = self.operand(fn, a1)
+            self.line(f"call void @ps_raise_code(i32 {code}) noreturn")
+            self.line("unreachable")
             return
         if op == MIR_BR:
             block = self._block_of(fn, i)

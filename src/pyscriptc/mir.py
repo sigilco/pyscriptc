@@ -88,6 +88,12 @@ MIR_COPY = 25
 # Bool negation: `xor i1 v, true` on the MIR_B operand.
 MIR_NOTB = 26
 
+# Raise: `call void @ps_raise_code(i32 code) noreturn; unreachable`. The
+# arg1 operand is a constant-pool word carrying the exception code (the
+# `EXCEPTIONS` table's int, spelled at the lowerer). A raise ends its
+# block the way a `MIR_RET` does.
+MIR_RAISE = 27
+
 # The op arity table. `MIR_NOP` through `MIR_COPY`: the branch reads its
 # condition from `arg1`, and its two successors carry the block arguments
 # (see `MirBlock`). Every value op reads `arg1`/`arg2` per this table.
@@ -119,6 +125,7 @@ OP_ARITY = {
     MIR_CNED: 2,
     MIR_EXTWD: 1,
     MIR_COPY: 1,
+    MIR_RAISE: 1,
 }
 
 # The result type of each value op, in the constant-pool tag space.
@@ -152,6 +159,7 @@ OP_RESULT_TYPE = {
     MIR_NOTB: MIR_B,
     MIR_EXTWD: MIR_D,
     MIR_COPY: MIR_W,  # a copy's true tag rides arg2; the tables cannot know it
+    MIR_RAISE: MIR_W,
 }
 
 # The true result type of a `MIR_COPY`: the tag packed into `arg2`.
@@ -177,8 +185,8 @@ def copy_result_type(fn: MirFunction, i: int) -> int:
 
 
 # The ops that end a block. A list, not a set: `in` lowers for lists and
-# the table is four entries, so the membership walk costs nothing.
-TERMINATORS = [MIR_JMP, MIR_BR, MIR_RET]
+# the table is five entries, so the membership walk costs nothing.
+TERMINATORS = [MIR_JMP, MIR_BR, MIR_RET, MIR_RAISE]
 
 # The ops that produce a value a later instruction can reference.
 VALUE_OPS = [
@@ -550,6 +558,18 @@ class MirBuilder:
         self.emit(MIR_RET, -1, value, none_ref())
         self.terminated = 1
 
+    def emit_raise(self, code: int) -> None:
+        """Raise the exception with the given code; ends the block.
+
+        The code is a constant-pool operand (`const_w`'s encoding), the
+        int the emitter renders as the `ps_raise_code` immediate.
+        """
+        current: MirBlock | None = self.current
+        if current is None or self.terminated:
+            raise MirError("raise outside an open block")
+        self.emit(MIR_RAISE, -1, code, none_ref())
+        self.terminated = 1
+
     def emit_jmp(self, target: int) -> None:
         current: MirBlock | None = self.current
         if current is None or self.terminated:
@@ -557,6 +577,32 @@ class MirBuilder:
         self.emit(MIR_JMP, -1, target, none_ref())
         current.succ1 = target
         self.terminated = 1
+
+    def set_arg(self, index: int, arg1: int, arg2: int) -> None:
+        """Set an instruction's two operand slots by instruction index.
+
+        The lowerer needs this when a branch's target is not known when
+        the branch is emitted (a nested block in an arm opens more
+        blocks, so the join block's id is only known once the arm is
+        walked).
+        """
+        args1: list[int] = self.fn.arg1
+        args2: list[int] = self.fn.arg2
+        args1[index] = arg1
+        args2[index] = arg2
+
+    def set_succ(self, bid: int, succ1: int, succ2: int) -> None:
+        """Set a block's successors by block id.
+
+        The lowerer needs this when a block's successor is not known when
+        the branch is emitted (a nested block in an arm opens more
+        blocks, so the join block's id is only known once the arm is
+        walked).
+        """
+        blocks: list[MirBlock] = self.fn.blocks
+        block: MirBlock = blocks[bid]
+        block.succ1 = succ1
+        block.succ2 = succ2
 
     def emit_br(self, cond: int, if_true: int, if_false: int, args_true: list[int], args_false: list[int]) -> None:
         """A conditional branch. `args_true`/`args_false` bind the target

@@ -34,6 +34,7 @@ from pyscriptc.mir import (
     MIR_BR,
     MIR_COPY,
     MIR_JMP,
+    MIR_RAISE,
     MIR_RET,
     MirBlock,
     MirBlockArg,
@@ -77,6 +78,7 @@ _OP_ARITY: dict[int, int] = {
     23: 2,  # MIR_CNED
     26: 1,  # MIR_NOTB
     25: 1,  # MIR_COPY
+    27: 1,  # MIR_RAISE
 }
 
 # The verifier's own codes. They are stable: a test that pins a violation
@@ -136,7 +138,7 @@ def _span_end(fn: MirFunction, start: int) -> int:
     n: int = len(ops)
     while i < n:
         op: int = ops[i]
-        if op == MIR_JMP or op == MIR_BR or op == MIR_RET:
+        if op == MIR_JMP or op == MIR_BR or op == MIR_RET or op == MIR_RAISE:
             return i + 1
         i += 1
     return n
@@ -292,7 +294,7 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
         # the two control ops (MIR_BR, MIR_RET). The result type comes from
         # the same table through the lookup helper above.
         arity_at: int | None = _OP_ARITY.get(op)
-        is_control: int = 1 if op == MIR_BR or op == MIR_RET else 0
+        is_control: int = 1 if op == MIR_BR or op == MIR_RET or op == MIR_RAISE else 0
         if arity_at is not None and (arity_at >= 2 or (arity_at == 1 and is_control == 0)):
             if dst < 0:
                 out.append(_Violation(CODE_USEDEF, f"instr {i}: value op without a dst"))
@@ -323,7 +325,7 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
         terms: list[int] = []
         for b_index in range(len(body)):
             term_op: int = body[b_index]
-            if term_op == MIR_JMP or term_op == MIR_BR or term_op == MIR_RET:
+            if term_op == MIR_JMP or term_op == MIR_BR or term_op == MIR_RET or term_op == MIR_RAISE:
                 terms.append(term_op)
         if not terms:
             out.append(_Violation(CODE_CONTROL, f"block {bid} has no terminator"))
@@ -390,7 +392,7 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
                                     f" of type {arg.typ}",
                                 )
                             )
-        if last != MIR_JMP and last != MIR_BR and last != MIR_RET and body:
+        if last != MIR_JMP and last != MIR_BR and last != MIR_RET and last != MIR_RAISE and body:
             out.append(_Violation(CODE_CONTROL, f"block {bid} falls through without a terminator"))
 
     return out

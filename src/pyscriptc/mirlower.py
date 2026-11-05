@@ -84,9 +84,17 @@ MIR_CNED = 23
 
 MIR_COPY = 25
 MIR_NOTB = 26
+MIR_RAISE = 27
 
 I64_MIN = -9223372036854775807 - 1
 I64_MAX = 9223372036854775807
+
+# The one exception the leaf slice raises: `range`'s zero-step check. The
+# code mirrors `builtins.EXCEPTIONS["ValueError"]`, spelled as an int
+# literal per the self-host spell (`pyscriptc.builtins` is not in the
+# closed import table); a drift is a byte-identity failure, not a silent
+# wrong code.
+EXC_VALUE_ERROR = 51
 
 
 class MirLowerError(Exception):
@@ -146,7 +154,7 @@ _D_HELPER_OPS = {
 }
 
 _EXPR_KINDS = frozenset({"const", "name", "binary", "compare", "unary"})
-_STMT_KINDS = frozenset({"assign", "expr", "return", "pass", "if", "while"})
+_STMT_KINDS = frozenset({"assign", "expr", "return", "pass", "if", "while", "raise"})
 
 
 def supported_expr(expr: Dict[str, Any]) -> bool:
@@ -262,6 +270,29 @@ def supported_stmt(stmt: Dict[str, Any]) -> bool:
         body: list[Dict[str, Any]] = stmt["body"]
         for s in body:
             if not supported_stmt(s):
+                return False
+        return True
+    if kind == "raise":
+        # The one raise the slice covers: `range`'s zero-step check, a
+        # `ValueError` with no message. It raises the exception code
+        # (`ps_raise_code`) and ends its block, the way the direct path's
+        # `emit_raise` does. The absence reads spell "not present" (`_nd_key`
+        # drops a None message/cause and a non-raising reraise), spelled as
+        # membership tests to keep `Any` out of the locals.
+        exc: str = stmt["exc"]
+        if exc != "ValueError":
+            return False
+        if "message" in stmt:
+            message: Dict[str, Any] | None = stmt["message"]
+            if message is not None:
+                return False
+        if "cause" in stmt:
+            cause: Dict[str, Any] | None = stmt["cause"]
+            if cause is not None:
+                return False
+        if "reraise" in stmt:
+            reraise: bool = stmt["reraise"]
+            if reraise:
                 return False
         return True
     return True
@@ -439,7 +470,13 @@ class _FnLowerer:
         return self.local_types[name]
 
     def emit_body(self, body: list[Dict[str, Any]]) -> None:
+        # A statement after the block died (both arms of a nested `if`
+        # returned) is unreachable: the direct path drops it in
+        # `emit_body`, so the lane drops it here too.
+        builder: MirBuilder = self.builder
         for stmt in body:
+            if builder.terminated:
+                return
             self.emit_stmt(stmt)
 
     def emit_stmt(self, stmt: Dict[str, Any]) -> None:
@@ -462,6 +499,12 @@ class _FnLowerer:
             return
         if kind == "while":
             self.emit_while(stmt)
+            return
+        if kind == "raise":
+            # `range`'s zero-step check: a `ValueError` with no message,
+            # which the direct path raises as `ps_raise_code`.
+            code = self.builder.const_w(EXC_VALUE_ERROR)
+            self.builder.emit_raise(code)
             return
         raise MirLowerError(f"the MIR leaf slice cannot lower statement {kind}")
 
