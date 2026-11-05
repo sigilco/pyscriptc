@@ -22,20 +22,16 @@ from pyscriptc.lower._core import (
     _assign,
     _dotted,
     _is_none_expr,
+    _mk_span,
+    _mk_type,
     _name,
     _node_kind,
     _node_type_kind,
     _tuple_assign,
     _type_kind,
 )
+from pyscriptc.lower._expr_compare import _expr_stmt_node as _expr_node
 from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
-from pyscriptc.tirserde import dict_to_span as dict_to_span_local
-
-
-def _expr_node(expr: dict[str, Any], span: dict[str, Any]) -> Any:
-    """The expression statement node."""
-
-    return node_to_dict(_ir.expr_stmt(dict_to_node(expr), _mk_span(span)))
 
 
 def _setitem_node(container: dict[str, Any], index: dict[str, Any], value: dict[str, Any], span: dict[str, Any]) -> Any:
@@ -62,18 +58,6 @@ def _const_flag_node(value: bool, span: dict[str, Any]) -> Any:
     """The int constant node one slice-bound `"True"`/`"False"` const spells."""
 
     return node_to_dict(_ir.const_node(_ir.P_INT, str(value), _ir.t_leaf("int"), _mk_span(span)))
-
-
-def _mk_span(span: dict[str, Any]) -> Any:
-    """The Span record the dict-IR span spells."""
-
-    return dict_to_span_local(span)
-
-
-def _mk_type(typ: dict[str, Any]) -> Any:
-    """The T record the dict-IR type spells."""
-
-    return dict_to_type(typ)
 
 
 class MiscEmitMixin:

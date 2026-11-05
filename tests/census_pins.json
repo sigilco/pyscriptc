@@ -60,7 +60,7 @@
   "pyscriptc.lower._expr": 62,
   "pyscriptc.lower._expr_compare": 35,
   "pyscriptc.lower._infer": 18,
-  "pyscriptc.lower._misc_emit": 24,
+  "pyscriptc.lower._misc_emit": 22,
   "pyscriptc.lower._stdlib": 52,
   "pyscriptc.lower._stdlib_bind": 16,
   "pyscriptc.lower._stdlib_shared": 5,
