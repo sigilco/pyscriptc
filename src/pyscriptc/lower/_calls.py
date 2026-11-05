@@ -48,7 +48,79 @@ from pyscriptc.lower._stdlib_shared import _mod_call
 from pyscriptc.reflection import kwargs_call_note, typing_note
 from pyscriptc.restlower import _static_builtin_fold, builtin_call
 from pyscriptc.stdlib_queue import math_function
-from pyscriptc.tirserde import dict_to_node, node_to_dict
+from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
+
+
+def _type_kind(typ: dict[str, Any]) -> str:
+    """The kind tag of a type record: int, float, bool, str, bytes, list,
+    dict, class, exc, func, any or none."""
+
+    kind: str = typ["kind"]
+    return kind
+
+
+def _maybe_type_kind(typ: dict[str, Any]) -> str | None:
+    """The kind tag of a type record, or None when the record carries none."""
+
+    if "kind" not in typ:
+        return None
+    return _type_kind(typ)
+
+
+def _node_kind(node: dict[str, Any]) -> str:
+    """The kind tag of an IR node: call, const, name, list, attr, ..."""
+
+    kind: str = node["kind"]
+    return kind
+
+
+def _maybe_node_kind(node: dict[str, Any]) -> str | None:
+    """The kind tag of an IR node, or None when the node carries none."""
+
+    if "kind" not in node:
+        return None
+    return _node_kind(node)
+
+
+def _node_type_kind(node: dict[str, Any]) -> str:
+    """The kind tag of the type record an IR node carries."""
+
+    typ: dict[str, Any] = node["type"]
+    return _type_kind(typ)
+
+
+def _maybe_node_type_kind(node: dict[str, Any]) -> str | None:
+    """The kind tag of the type record an IR node carries, or None when the
+    node carries no type record."""
+
+    if "type" not in node:
+        return None
+    return _node_type_kind(node)
+
+
+def _type_name(typ: dict[str, Any]) -> str:
+    """The class name of a class-typed type record."""
+
+    name: str = typ["name"]
+    return name
+
+
+def _t_leaf(kind: str) -> dict[str, Any]:
+    """The leaf type dict one type record spells."""
+
+    return node_to_dict(_ir.t_leaf(kind))
+
+
+def _t_list(elem: dict[str, Any], set_: bool = False) -> dict[str, Any]:
+    """The list type dict one type record spells."""
+
+    return node_to_dict(_ir.t_list(dict_to_type(elem), set_))
+
+
+def _t_class(name: str) -> dict[str, Any]:
+    """The class type dict one type record spells."""
+
+    return node_to_dict(_ir.t_class(name))
 
 
 class CallsMixin(CallAttrMixin):
@@ -100,7 +172,7 @@ class CallsMixin(CallAttrMixin):
                     self.fail(node, "PS2003", f"unexpected keyword argument {named[0]}")
                 if any(kw.arg is None for kw in node.keywords):
                     self.fail(node, "PS2002", "**kwargs are not lowered")
-                kind = args[0]["type"]["kind"]
+                kind = _node_type_kind(args[0])
                 if kind not in {"str", "bytes"}:
                     self.fail(node, "PS2003", "int with an explicit base takes a str or bytes value")
                 if len(node.args) == 1:
@@ -110,10 +182,10 @@ class CallsMixin(CallAttrMixin):
                             self.fail(node, "PS2003", "int base 0 is not lowered")
                         if base_node.value < 2 or base_node.value > 36:
                             self.fail(node, "PS2003", "int lowers base 2 to 36 only")
-                    args.append(self._expr(base_node, {"kind": "int"}))
-                elif args[1]["type"]["kind"] != "int":
+                    args.append(self._expr(base_node, _t_leaf("int")))
+                elif _node_type_kind(args[1]) != "int":
                     self.fail(node, "PS2003", "int base is int")
-                return self._abi_call("builtins", "int", args, {"kind": "int"}, "ps_int_from_base", span)
+                return self._abi_call("builtins", "int", args, _t_leaf("int"), "ps_int_from_base", span)
             if len(args) == 1:
                 folded = _static_builtin_fold(name, args[0], span, fence=self)
                 if folded is not None:
@@ -124,21 +196,21 @@ class CallsMixin(CallAttrMixin):
                 # "None" for the untagged arm, str(_val) otherwise.
                 return self._str_of_opt(node, args[0], span)
             if spec is None:
-                if name in {"str", "len"} and len(args) == 1 and args[0]["type"]["kind"] == "class":
+                if name in {"str", "len"} and len(args) == 1 and _node_type_kind(args[0]) == "class":
                     called = self._dunder_call(node, args[0], {"str": "__str__", "len": "__len__"}[name], [], span)
                     if called is None and name == "str":
                         called = self._dunder_call(node, args[0], "__repr__", [], span)
                     if called is not None:
                         return called
                 self.fail(node, "PS2003", f"{name} is not lowered for these arguments")
-            if name == "float" and args[0]["type"]["kind"] == "int":
+            if name == "float" and _node_type_kind(args[0]) == "int":
                 return node_to_dict(_ir.cast("int_to_float", dict_to_node(args[0]), _mk_type(spec), _mk_span(span)))
-            if name == "str" and args[0]["type"]["kind"] == "str":
+            if name == "str" and _node_type_kind(args[0]) == "str":
                 return args[0]
-            if name == "str" and args[0]["type"]["kind"] == "none":
+            if name == "str" and _node_type_kind(args[0]) == "none":
                 # None is not a runtime value; str(None) folds at lowering.
                 return node_to_dict(_ir.const_node(_ir.P_STR, "None", _mk_type(spec), _mk_span(span)))
-            if name == "int" and args[0]["type"]["kind"] in {"bytes", "str"}:
+            if name == "int" and _node_type_kind(args[0]) in {"bytes", "str"}:
                 return self._abi_call("builtins", "int", args, spec, "ps_int_from_bytes", span)
             return node_to_dict(
                 _ir.call(
@@ -181,7 +253,7 @@ class CallsMixin(CallAttrMixin):
         if name in self.class_aliases or name in self.classes:
             return self._construct(node, span, self.class_aliases.get(name, name))
         ftype = self.locals.get(name, self.captures.get(name))
-        if ftype is not None and ftype["kind"] == "func":
+        if ftype is not None and _type_kind(ftype) == "func":
             args = self._fill_args(node, self._callable_params(ftype), name)
             return node_to_dict(
                 _ir.call(
@@ -195,7 +267,7 @@ class CallsMixin(CallAttrMixin):
                 )
             )
         slot = self.global_slots.get(name)
-        if slot is not None and slot.get("active") and slot["type"]["kind"] == "func":
+        if slot is not None and slot.get("active") and _type_kind(slot["type"]) == "func":
             # A module-level callable bind (`h = f`, `@dec def`, partial):
             # read the pair cell back through the global slot.
             ftype = slot["type"]
@@ -269,9 +341,9 @@ class CallsMixin(CallAttrMixin):
         conversion, so `int(m.group(1))` runs without a narrowing temp.
         """
         typ = arg["type"]
-        if not typ.get("optional") or typ["elem"]["kind"] not in {"str", "bytes", "int", "float"}:
+        if not typ.get("optional") or _type_kind(typ["elem"]) not in {"str", "bytes", "int", "float"}:
             return arg
-        if arg["kind"] != "name":
+        if _node_kind(arg) != "name":
             temp = self._temp("optarg")
             self.locals[temp] = typ
             self.prelude.append(_assign(temp, arg, span))
@@ -279,7 +351,7 @@ class CallsMixin(CallAttrMixin):
         message = f"{name}() argument must be a string, a bytes-like object or a real number, not 'NoneType'"
         cond = node_to_dict(
             _ir.unary(
-                "not", dict_to_node(_attr(arg, "_tag", {"kind": "bool"}, span)), _ir.t_leaf("bool"), _mk_span(span)
+                "not", dict_to_node(_attr(arg, "_tag", _t_leaf("bool"), span)), _ir.t_leaf("bool"), _mk_span(span)
             )
         )
         raised = node_to_dict(_ir.raise_stmt("TypeError", _mk_span(span), -1, dict_to_node(_const_str(message, span))))
@@ -299,7 +371,7 @@ class CallsMixin(CallAttrMixin):
         args = [
             arg
             for arg, param in zip(args, params, strict=True)
-            if _subst_type(param["type"], mapping)["kind"] != "none"
+            if _type_kind(_subst_type(param["type"], mapping)) != "none"
         ]
         return node_to_dict(
             _ir.call(
@@ -362,7 +434,7 @@ class CallsMixin(CallAttrMixin):
     ) -> None:
         """Bind the TypeVars in `want` against the concrete `got`, or check the
         concrete parts match when nothing remains to bind."""
-        if want["kind"] == "typevar":
+        if _type_kind(want) == "typevar":
             tv = want["name"]
             bound = self.typevars.get(tv)
             existing = mapping.get(tv)
@@ -376,21 +448,21 @@ class CallsMixin(CallAttrMixin):
             else:
                 mapping[tv] = got
             return
-        if want["kind"] == "list" and got["kind"] == "list":
+        if _type_kind(want) == "list" and _type_kind(got) == "list":
             self._unify(got["elem"], want["elem"], mapping, node, arg_node)
             return
-        if want["kind"] == "dict" and got["kind"] == "dict":
+        if _type_kind(want) == "dict" and _type_kind(got) == "dict":
             self._unify(got["key"], want["key"], mapping, node, arg_node)
             self._unify(got["value"], want["value"], mapping, node, arg_node)
             return
-        if want["kind"] == "func" and got["kind"] == "func":
+        if _type_kind(want) == "func" and _type_kind(got) == "func":
             for got_param, want_param in zip(got["params"], want["params"], strict=False):
                 self._unify(got_param, want_param, mapping, node, arg_node)
             self._unify(got["return"], want["return"], mapping, node, arg_node)
             return
         if (
-            want["kind"] == "class"
-            and got["kind"] == "class"
+            _type_kind(want) == "class"
+            and _type_kind(got) == "class"
             and got["name"] == want["name"]
             and isinstance(want.get("elem"), dict)
             and isinstance(got.get("elem"), dict)
@@ -475,7 +547,7 @@ class CallsMixin(CallAttrMixin):
         args = []
         for arg_node, want in zip(node.args, spec["params"], strict=True):
             arg = self._expr(arg_node)
-            if want["kind"] == "float" and arg["type"]["kind"] == "int":
+            if _type_kind(want) == "float" and _node_type_kind(arg) == "int":
                 arg = node_to_dict(_ir.cast("int_to_float", dict_to_node(arg), _ir.t_leaf("float"), _mk_span(span)))
             if not types_equal(arg["type"], want):
                 self.fail(node, "PS1003", f"math.{attr} argument is {_show(arg['type'])}, expected {_show(want)}")
@@ -487,9 +559,9 @@ class CallsMixin(CallAttrMixin):
             self.fail(node, "PS2003", "math.gcd expects 2 argument(s)")
         args = [self._expr(arg_node) for arg_node in node.args]
         for arg in args:
-            if arg["type"]["kind"] != "int":
+            if _node_type_kind(arg) != "int":
                 self.fail(node, "PS1003", f"math.gcd argument is {_show(arg['type'])}, expected int")
-        return self._abi_call("math", "gcd", args, {"kind": "int"}, "ps_math_gcd", span)
+        return self._abi_call("math", "gcd", args, _t_leaf("int"), "ps_math_gcd", span)
 
     def _math_isclose(self, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         """`math.isclose(a, b, *, rel_tol=1e-09, abs_tol=0.0)`: the tolerances are keyword-only."""
@@ -508,15 +580,15 @@ class CallsMixin(CallAttrMixin):
                 args.append(None)
                 continue
             arg = self._expr(arg_node)
-            if arg["type"]["kind"] == "int":
+            if _node_type_kind(arg) == "int":
                 arg = node_to_dict(_ir.cast("int_to_float", dict_to_node(arg), _ir.t_leaf("float"), _mk_span(span)))
-            if arg["type"]["kind"] != "float":
+            if _node_type_kind(arg) != "float":
                 self.fail(node, "PS1003", f"math.isclose argument is {_show(arg['type'])}, expected float")
             args.append(arg)
         for index, name in enumerate(defaults, start=2):
             if args[index] is None:
                 args[index] = _const_float_text(defaults[name], span)
-        return self._abi_call("math", "isclose", args, {"kind": "bool"}, "ps_math_isclose", span)
+        return self._abi_call("math", "isclose", args, _t_leaf("bool"), "ps_math_isclose", span)
 
     def _fixed_call(
         self, node: ast.Call, span: dict[str, Any], module: str, attr: str, spec: dict[str, Any]
@@ -559,8 +631,8 @@ class CallsMixin(CallAttrMixin):
         return expr
 
     def _expect_wave(self, node: ast.AST, got: dict[str, Any], want: dict[str, Any], what: str) -> None:
-        if want["kind"] == "buf":
-            if got["kind"] not in {"str", "bytes"}:
+        if _type_kind(want) == "buf":
+            if _type_kind(got) not in {"str", "bytes"}:
                 self.fail(node, "PS1003", f"{what} argument is {_show(got)}, expected str or bytes")
             return
         if not types_equal(got, want):
@@ -573,7 +645,7 @@ class CallsMixin(CallAttrMixin):
             self.fail(node, "PS1001", "json.loads needs the result annotation")
         self._json_type(node, expect, "json.loads")
         arg = self._expr(node.args[0])
-        if arg["type"]["kind"] != "str":
+        if _node_type_kind(arg) != "str":
             self.fail(node, "PS1003", "json.loads argument is " + _show(arg["type"]) + ", expected str")
         return _mod_call("json", "loads", [arg], expect, span)
 
@@ -592,9 +664,9 @@ class CallsMixin(CallAttrMixin):
             self.fail(node, "PS1001", "json.load needs the result annotation")
         self._json_type(node, expect, "json.load")
         handle = self._expr(node.args[0])
-        if handle["type"]["kind"] != "class" or handle["type"].get("name") not in {"TextIO", "BytesIO"}:
+        if _node_type_kind(handle) != "class" or _type_name(handle["type"]) not in {"TextIO", "BytesIO"}:
             self.fail(node, "PS1003", "json.load argument is a file handle (TextIO or BytesIO)")
-        kind = {"kind": "bytes"} if handle["type"]["name"] == "BytesIO" else {"kind": "str"}
+        kind = _t_leaf("bytes") if handle["type"]["name"] == "BytesIO" else _t_leaf("str")
         text = self._abi_call("io", "read", [handle], kind, "ps_io_read", span)
         return _mod_call("json", "loads", [text], expect, span)
 
@@ -612,13 +684,13 @@ class CallsMixin(CallAttrMixin):
         arg = self._expr(node.args[0])
         self._json_type(node, arg["type"], "json.dump")
         handle = self._expr(node.args[1])
-        if handle["type"]["kind"] != "class" or handle["type"].get("name") not in {"TextIO", "BytesIO"}:
+        if _node_type_kind(handle) != "class" or _type_name(handle["type"]) not in {"TextIO", "BytesIO"}:
             self.fail(node, "PS1003", "json.dump argument is a file handle (TextIO or BytesIO)")
-        text = _mod_call("json", "dumps", [arg], {"kind": "str"}, span)
+        text = _mod_call("json", "dumps", [arg], _t_leaf("str"), span)
         flags = self._json_dumps_flags(node)
         if flags:
             text["json_flags"] = flags
-        write = self._abi_call("io", "write", [handle, text], {"kind": "int"}, "ps_io_write", span)
+        write = self._abi_call("io", "write", [handle, text], _t_leaf("int"), "ps_io_write", span)
         self.prelude.append(node_to_dict(_ir.expr_stmt(dict_to_node(write), _mk_span(span))))
         return _const_none(span)
 
@@ -627,7 +699,7 @@ class CallsMixin(CallAttrMixin):
             self.fail(node, "PS2003", "json.dumps expects 1 argument(s)")
         arg = self._expr(node.args[0])
         self._json_type(node, arg["type"], "json.dumps")
-        expr = _mod_call("json", "dumps", [arg], {"kind": "str"}, span)
+        expr = _mod_call("json", "dumps", [arg], _t_leaf("str"), span)
         flags = self._json_dumps_flags(node)
         if flags:
             expr["json_flags"] = flags
@@ -670,21 +742,21 @@ class CallsMixin(CallAttrMixin):
         return flags
 
     def _json_type(self, node: ast.AST, typ: dict[str, Any], what: str) -> None:
-        kind = typ["kind"]
+        kind = _type_kind(typ)
         if kind in {"int", "bool", "str", "float"}:
             return
         if typ.get("optional"):
             self._json_type(node, typ["elem"], what)
             return
         if kind == "list":
-            if typ["elem"]["kind"] == "bool":
+            if _type_kind(typ["elem"]) == "bool":
                 self.fail(node, "PS2002", "list[bool] is not lowered")
             self._json_type(node, typ["elem"], what)
             return
         if kind == "dict":
-            if typ["key"]["kind"] != "str":
+            if _type_kind(typ["key"]) != "str":
                 self.fail(node, "PS2001", "JSON object keys are str")
-            if typ["value"]["kind"] == "bool":
+            if _type_kind(typ["value"]) == "bool":
                 self.fail(node, "PS2002", "dict values of bool are not lowered")
             self._json_type(node, typ["value"], what)
             return
@@ -708,7 +780,7 @@ class CallsMixin(CallAttrMixin):
             args = [format_arg]
             for kind, arg_node in zip(kinds, node.args[1:], strict=True):
                 arg = self._expr(arg_node)
-                got = arg["type"]["kind"]
+                got = _node_type_kind(arg)
                 if kind == "int" and got != "int":
                     self.fail(node, "PS1003", "struct.pack expected an int")
                 if kind == "float" and got == "float":
@@ -720,7 +792,7 @@ class CallsMixin(CallAttrMixin):
                 if kind == "bytes" and got not in {"bytes", "str"}:
                     self.fail(node, "PS1003", "struct.pack expected bytes")
                 args.append(arg)
-            return _mod_call("struct", "pack", args, {"kind": "bytes"}, span)
+            return _mod_call("struct", "pack", args, _t_leaf("bytes"), span)
         if len(node.args) != 2:
             self.fail(node, "PS2003", "struct.unpack expects 2 argument(s)")
         distinct = set(kinds)
@@ -728,13 +800,13 @@ class CallsMixin(CallAttrMixin):
             self.fail(node, "PS2001", "struct.unpack result types are mixed")
         elem = "int" if not distinct else next(iter(distinct))
         buffer = self._expr(node.args[1])
-        if buffer["type"]["kind"] not in {"bytes", "str"}:
+        if _node_type_kind(buffer) not in {"bytes", "str"}:
             self.fail(node, "PS1003", "struct.unpack buffer is bytes")
         return _mod_call(
             "struct",
             "unpack",
             [format_arg, buffer],
-            {"kind": "list", "elem": {"kind": elem}},
+            _t_list(_t_leaf(elem)),
             span,
         )
 
@@ -752,19 +824,19 @@ class CallsMixin(CallAttrMixin):
         """
         if args is None:
             params = [
-                {"name": "pattern", "type": {"kind": "str"}},
-                {"name": "string", "type": {"kind": "str"}},
+                {"name": "pattern", "type": _t_leaf("str")},
+                {"name": "string", "type": _t_leaf("str")},
                 {
                     "name": "flags",
-                    "type": {"kind": "int"},
+                    "type": _t_leaf("int"),
                     "default": _const_int(0, span),
                 },
             ]
             args = self._fill_args(node, params, f"re.{attr}")
-        opt_t = self._opt_type({"kind": "class", "name": "Match"}, node)
+        opt_t = self._opt_type(_t_class("Match"), node)
         res = self._opt_box(None, opt_t, span)
         dest = res["id"]
-        hit = self._abi_call("re", f"{attr}.hit", args, {"kind": "bool"}, f"ps_re_{attr}_hit", span)
+        hit = self._abi_call("re", f"{attr}.hit", args, _t_leaf("bool"), f"ps_re_{attr}_hit", span)
         made = self._abi_call("re", f"{attr}.make", args, opt_t["elem"], f"ps_re_{attr}_make", span)
         tag = node_to_dict(
             _ir.setattr_stmt(
@@ -789,14 +861,14 @@ class CallsMixin(CallAttrMixin):
         if args is None:
             zero = _const_int(0, span)
             params = [
-                {"name": "pattern", "type": {"kind": "str"}},
-                {"name": "repl", "type": {"kind": "str"}},
-                {"name": "string", "type": {"kind": "str"}},
-                {"name": "count", "type": {"kind": "int"}, "default": zero},
-                {"name": "flags", "type": {"kind": "int"}, "default": zero},
+                {"name": "pattern", "type": _t_leaf("str")},
+                {"name": "repl", "type": _t_leaf("str")},
+                {"name": "string", "type": _t_leaf("str")},
+                {"name": "count", "type": _t_leaf("int"), "default": zero},
+                {"name": "flags", "type": _t_leaf("int"), "default": zero},
             ]
             args = self._fill_args(node, params, "re.subn")
-        tup = self._tuple_type([{"kind": "str"}, {"kind": "int"}], node)
+        tup = self._tuple_type([_t_leaf("str"), _t_leaf("int")], node)
         return self._abi_call("re", "subn", args, tup, "ps_re_subn", span)
 
     def _group_tuple(self, node: ast.AST, pattern: ast.expr | None) -> tuple[dict[str, Any], str | None]:
@@ -805,9 +877,9 @@ class CallsMixin(CallAttrMixin):
         if groups > 4:
             self.fail(node, "PS2002", "re.findall with more than four capturing groups is not lowered")
         if groups >= 2:
-            elem = self._tuple_type([{"kind": "str"} for _ in range(groups)], node)
-            return {"kind": "list", "elem": elem}, "ps_re_findall_groups"
-        return {"kind": "list", "elem": {"kind": "str"}}, None
+            elem = self._tuple_type([_t_leaf("str") for _ in range(groups)], node)
+            return _t_list(elem), "ps_re_findall_groups"
+        return _t_list(_t_leaf("str")), None
 
     def _pattern_literal(self, node: ast.expr) -> str | None:
         direct = _const_text(node)
@@ -830,11 +902,11 @@ class CallsMixin(CallAttrMixin):
     def _str_of_opt(self, node: ast.expr, arg: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
         """`str(opt)`: "None" when the tag is clear, str(_val) when set."""
         out = self._temp("stropt")
-        self.locals[out] = {"kind": "str"}
+        self.locals[out] = _t_leaf("str")
         elem = arg["type"]["elem"]
         value = _attr(arg, "_val", elem, span)
         tagged_str: dict[str, Any] | None = None
-        if elem["kind"] == "class":
+        if _type_kind(elem) == "class":
             tagged_str = self._dunder_call(node, value, "__str__", [], span)
             if tagged_str is None:
                 tagged_str = self._dunder_call(node, value, "__repr__", [], span)
@@ -847,14 +919,14 @@ class CallsMixin(CallAttrMixin):
         self.prelude.append(
             node_to_dict(
                 _ir.if_stmt(
-                    dict_to_node(_attr(arg, "_tag", {"kind": "bool"}, span)),
+                    dict_to_node(_attr(arg, "_tag", _t_leaf("bool"), span)),
                     [dict_to_node(_assign(out, tagged_str, span))],
                     [dict_to_node(_assign(out, _const_str("None", span), span))],
                     _mk_span(span),
                 )
             )
         )
-        return _name(out, {"kind": "str"}, span)
+        return _name(out, _t_leaf("str"), span)
 
     def _abi_call(
         self,
@@ -931,7 +1003,7 @@ class CallsMixin(CallAttrMixin):
                 if "default" not in param:
                     self.fail(node, "PS1003", f"{what} expects {len(params)} argument(s)")
                 got = param["default"]
-                if got.get("kind") == "tuple-default":
+                if _maybe_node_kind(got) == "tuple-default":
                     # A fixed-shape tuple default: each call site that omits
                     # the argument materializes its own record (CPython
                     # shares one tuple; value-identical replay here).
@@ -939,7 +1011,7 @@ class CallsMixin(CallAttrMixin):
                     self._expect(node, got["type"], param["type"], param["name"])
                 elif param.get("optdefault"):
                     got = self._opt_box(
-                        None if got["type"]["kind"] == "none" else got,
+                        None if _node_type_kind(got) == "none" else got,
                         param["type"],
                         got.get("span", span_of(node, self.filename)),
                     )
@@ -958,7 +1030,7 @@ class CallsMixin(CallAttrMixin):
         for index in order:
             value = slots[index]
             assert value is not None
-            if value["kind"] in {"const", "name"}:
+            if _node_kind(value) in {"const", "name"}:
                 continue
             temp = self._temp("arg")
             self.locals[temp] = value["type"]
@@ -1125,12 +1197,12 @@ class CallsMixin(CallAttrMixin):
                 self.fail(node, "PS1001", "an empty set needs a set annotation")
             return node_to_dict(_ir.list_lit([], _mk_type(expect), _mk_span(span)))
         source = self._expr(node.args[0])
-        if source["type"]["kind"] != "list":
+        if _node_type_kind(source) != "list":
             self.fail(node, "PS2002", "set() takes a list of int or str")
         elem = source["type"]["elem"]
-        if elem["kind"] not in {"int", "str"} or source["type"].get("set"):
+        if _type_kind(elem) not in {"int", "str"} or source["type"].get("set"):
             self.fail(node, "PS2002", "set elements are int or str")
-        typ = {"kind": "list", "elem": elem, "set": True}
+        typ = _t_list(elem, True)
         if expect and expect.get("set"):
             self._expect(node, typ, expect, "set")
         folded = _const_set(source, typ, span)
@@ -1160,7 +1232,7 @@ class CallsMixin(CallAttrMixin):
         if folded is None:
             self.fail(node, "PS2002", "call to frozenset is not lowered")
         kind, elems = folded
-        typ = {"kind": "list", "elem": {"kind": kind}, "set": True}
+        typ = _t_list(_t_leaf(kind), True)
         if expect is not None and expect.get("set"):
             self._expect(node, typ, expect, "frozenset")
         return node_to_dict(_ir.list_lit([dict_to_node(e) for e in elems], _mk_type(typ), _mk_span(span), True))
@@ -1203,7 +1275,7 @@ class CallsMixin(CallAttrMixin):
                 continue
             seen.append(ch)
             elems.append(_const_str(ch, char_span))
-        typ = {"kind": "list", "elem": {"kind": "str"}, "set": True}
+        typ = _t_list(_t_leaf("str"), True)
         if expect is not None and expect.get("set"):
             self._expect(node, typ, expect, "frozenset")
         return node_to_dict(_ir.list_lit([dict_to_node(e) for e in elems], _mk_type(typ), _mk_span(span), True))
@@ -1236,7 +1308,7 @@ class CallsMixin(CallAttrMixin):
         folded = _static_builtin_fold("bool", arg, span, fence=self)
         if folded is not None:
             return folded
-        kind = arg["type"]["kind"]
+        kind = _node_type_kind(arg)
         if kind not in {"bool", "int", "float", "str", "bytes", "list", "dict"}:
             self.fail(node, "PS2002", f"bool() of {kind} is not lowered")
         return self._truthy(arg, span)
@@ -1247,18 +1319,18 @@ class CallsMixin(CallAttrMixin):
             self.fail(node, "PS2003", "list expects 1 argument(s)")
         source = self._expr(node.args[0])
         src_t = source["type"]
-        if src_t["kind"] == "class" and self.classes.get(src_t["name"], {}).get("iterator"):
+        if _type_kind(src_t) == "class" and self.classes.get(_type_name(src_t), {}).get("iterator"):
             # list(it): drain the remaining elements and move the cursor to
             # the end, like CPython's consuming list(iterator).
             elem = src_t["elem"]
-            if elem["kind"] == "bool":
+            if _type_kind(elem) == "bool":
                 self.fail(node, "PS2002", "list[bool] is not lowered")
-            typ = {"kind": "list", "elem": elem}
-            if expect is not None and expect["kind"] == "list":
+            typ = _t_list(elem)
+            if expect is not None and _type_kind(expect) == "list":
                 self._expect(node, typ, expect, "list")
             itn = self._pin(source, self.prelude, span)
-            int_t = {"kind": "int"}
-            seq_t = {"kind": "list", "elem": elem}
+            int_t = _t_leaf("int")
+            seq_t = _t_list(elem)
             seq_r = _attr(itn, "seq", seq_t, span)
             idx_r = _attr(itn, "idx", int_t, span)
             out = self._temp("dr")
@@ -1290,15 +1362,15 @@ class CallsMixin(CallAttrMixin):
                 ]
             )
             return _name(out, typ, span)
-        if src_t["kind"] != "list":
+        if _type_kind(src_t) != "list":
             self.fail(node, "PS2002", "list() takes a list, a set, or *args")
         elem = src_t["elem"]
-        if elem["kind"] == "bool":
+        if _type_kind(elem) == "bool":
             self.fail(node, "PS2002", "list[bool] is not lowered")
-        typ = {"kind": "list", "elem": elem}
-        if expect is not None and expect["kind"] == "list":
+        typ = _t_list(elem)
+        if expect is not None and _type_kind(expect) == "list":
             self._expect(node, typ, expect, "list")
-        if source["kind"] == "list" and not source["type"].get("set"):
+        if _node_kind(source) == "list" and not source["type"].get("set"):
             return node_to_dict(_ir.list_lit([dict_to_node(e) for e in source["elems"]], _mk_type(typ), _mk_span(span)))
         return self._abi_call(
             "builtins",
@@ -1325,7 +1397,7 @@ class CallsMixin(CallAttrMixin):
         loops, each insert gated by a membership test against the other operand
         for inter/diff/xor (`which` is `union`, `inter`, `diff`, or `xor`)."""
         elem = left["type"]["elem"]
-        typ = {"kind": "list", "elem": elem, "set": True}
+        typ = _t_list(elem, True)
         dest = self._temp("set")
         self.locals[dest] = typ
         self.prelude.append(_assign(dest, node_to_dict(_ir.list_lit([], _mk_type(typ), _mk_span(span))), span))
@@ -1335,7 +1407,7 @@ class CallsMixin(CallAttrMixin):
             return _name(dest, typ, span)
         # inter: keep members of `right`; diff: drop them; xor: both diffs.
         pairs = [(left, right)] if which != "xor" else [(left, right), (right, left)]
-        int_t = {"kind": "int"}
+        int_t = _t_leaf("int")
         for source, other in pairs:
             src = self._temp("src")
             oth = self._temp("oth")
@@ -1383,7 +1455,7 @@ class CallsMixin(CallAttrMixin):
         self, dest: str, typ: dict[str, Any], source: dict[str, Any], span: dict[str, Any]
     ) -> list[dict[str, Any]]:
         elem = typ["elem"]
-        int_t = {"kind": "int"}
+        int_t = _t_leaf("int")
         src = self._temp("src")
         idx = self._temp("idx")
         length = self._temp("len")
@@ -1426,7 +1498,7 @@ class CallsMixin(CallAttrMixin):
                         _ir.call(
                             _ir.module_callee("builtins", "list.append"),
                             [dict_to_node(hay), dict_to_node(needle)],
-                            _mk_type({"kind": "none"}),
+                            _mk_type(_t_leaf("none")),
                             _mk_span(span),
                             "ps_list_push",
                             "",
@@ -1458,17 +1530,17 @@ class CallsMixin(CallAttrMixin):
         if len(node.args) == 2:
             lowered_args = value.get("args") or []
             flag = lowered_args[1] if len(lowered_args) == 2 else None
-            if not isinstance(flag, dict) or flag.get("kind") != "const" or flag.get("type", {}).get("kind") != "int":
+            if not isinstance(flag, dict) or _maybe_node_kind(flag) != "const" or _maybe_node_type_kind(flag) != "int":
                 return False
-        if value.get("kind") != "call":
+        if _maybe_node_kind(value) != "call":
             return False
         callee = value.get("callee")
         if not isinstance(callee, dict):
             return False
-        if callee.get("kind") != "module" or callee.get("module") != "re" or callee.get("name") != "compile":
+        if _maybe_node_kind(callee) != "module" or callee.get("module") != "re" or callee.get("name") != "compile":
             return False
         typ = value.get("type")
-        return isinstance(typ, dict) and typ.get("kind") == "class" and typ.get("name") == "Pattern"
+        return isinstance(typ, dict) and _maybe_type_kind(typ) == "class" and typ.get("name") == "Pattern"
 
     def _all_any(self, node: ast.Call, span: dict[str, Any], want_all: bool) -> dict[str, Any]:
         label = "all" if want_all else "any"
@@ -1476,13 +1548,13 @@ class CallsMixin(CallAttrMixin):
         if len(node.args) != 1:
             self.fail(node, "PS2003", f"{label} expects 1 argument(s)")
         source = self._expr(node.args[0])
-        if source["type"]["kind"] != "list":
+        if _node_type_kind(source) != "list":
             self.fail(node, "PS2002", f"{label}() takes a list")
         elem = source["type"]["elem"]
-        if elem["kind"] not in {"bool", "int", "float", "str", "bytes", "list", "dict"}:
+        if _type_kind(elem) not in {"bool", "int", "float", "str", "bytes", "list", "dict"}:
             self.fail(node, "PS2002", f"{label}() of {_show(elem)} is not lowered")
-        int_t = {"kind": "int"}
-        bool_t = {"kind": "bool"}
+        int_t = _t_leaf("int")
+        bool_t = _t_leaf("bool")
         seq = self._temp("seq")
         idx = self._temp("idx")
         length = self._temp("len")
@@ -1540,7 +1612,7 @@ def _subscript_node(
 def _contains_node(hay: dict[str, Any], needle: dict[str, Any], negated: bool, span: dict[str, Any]) -> dict[str, Any]:
     """The membership node."""
     return node_to_dict(
-        _ir.contains(dict_to_node(hay), dict_to_node(needle), _mk_type({"kind": "bool"}), _mk_span(span), negated)
+        _ir.contains(dict_to_node(hay), dict_to_node(needle), _mk_type(_t_leaf("bool")), _mk_span(span), negated)
     )
 
 
@@ -1551,18 +1623,18 @@ def _len_of(seq: dict[str, Any], int_t: dict[str, Any], span: dict[str, Any]) ->
 
 def _const_float_text(text: str, span: dict[str, Any]) -> dict[str, Any]:
     """The float constant node from its decimal text."""
-    return node_to_dict(_ir.const_node(_ir.P_STR, text, _mk_type({"kind": "float"}), _mk_span(span)))
+    return node_to_dict(_ir.const_node(_ir.P_STR, text, _mk_type(_t_leaf("float")), _mk_span(span)))
 
 
 def _const_set(source: dict[str, Any], typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any] | None:
     """A constant list becomes the set list the IR already stores, first occurrence kept."""
 
-    if source.get("kind") != "list":
+    if _maybe_node_kind(source) != "list":
         return None
     elems: list[dict[str, Any]] = []
     seen: list[Any] = []
     for item in source["elems"]:
-        if item.get("kind") != "const":
+        if _maybe_node_kind(item) != "const":
             return None
         if item["value"] in seen:
             continue
