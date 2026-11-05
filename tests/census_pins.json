@@ -55,7 +55,7 @@
   "pyscriptc.lower._core": 137,
   "pyscriptc.lower._coro_adapter": 4,
   "pyscriptc.lower._expr": 90,
-  "pyscriptc.lower._stdlib": 51,
+  "pyscriptc.lower._stdlib": 52,
   "pyscriptc.lower._stdlib_bind": 16,
   "pyscriptc.lower._stdlib_shared": 5,
   "pyscriptc.lower._stmt": 75,

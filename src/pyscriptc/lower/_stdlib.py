@@ -64,6 +64,7 @@ from pyscriptc.stdmore import (
     PTR_CLASSES,
     REST_MODULES,
     member_callable,
+    module_constant,
 )
 from pyscriptc.tirserde import dict_to_node, node_to_dict
 
@@ -166,10 +167,7 @@ _ISLAND_SCALARS = frozenset({"int", "float", "str", "bool", "bytes"})
 # boxed:end
 
 
-
-
 class StdlibDispatchMixin(StdlibBindMixin):
-
     def _accept_module_function(self, fn: ast.FunctionDef | ast.AsyncFunctionDef, fences: list[Fence]) -> bool:
         """Module `@staticmethod` is the function the class decorator already emits.
 

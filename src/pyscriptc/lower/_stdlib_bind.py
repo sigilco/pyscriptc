@@ -13,7 +13,6 @@ in `lower._stdlib`, unchanged: the IR and diagnostics are byte-identical.
 from __future__ import annotations
 
 import ast
-from typing import Any
 
 from pyscriptc.errors import span_of
 from pyscriptc.ffi_manifest import handle_type, type_ir
@@ -391,6 +390,7 @@ class StdlibBindMixin:
             if module == name or module.startswith(name + "."):
                 if module_status(name) == "lowered":
                     self.synthetics.update(classes)
+
 
 def _dep_lane_hint(module: str, message: str) -> str:
     """The fence message for an import that names a locked dependency.
