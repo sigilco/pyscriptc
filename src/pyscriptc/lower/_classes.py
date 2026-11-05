@@ -48,7 +48,7 @@ from pyscriptc.stdmore import (
     RESERVED_CODE_EXCEPTIONS,
     SYNTHETIC_EXCEPTIONS,
 )
-from pyscriptc.tirserde import dict_to_node, node_to_dict
+from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
 
 
 def _const_str_node(value: str, span: dict[str, Any]) -> dict[str, Any]:
@@ -106,6 +106,100 @@ def _binary_node(
 def _expr_stmt_node(expr: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
     """The expression statement node."""
     return node_to_dict(_ir.expr_stmt(dict_to_node(expr), _mk_span(span)))
+
+
+def _type_rt(typ: dict[str, Any]) -> dict[str, Any]:
+    """The exact type dict one dict-IR type spells, through the T record."""
+    return node_to_dict(dict_to_type(typ))
+
+
+def _leaf_type(kind: str) -> dict[str, Any]:
+    """The leaf type record one dict-IR leaf type spells."""
+    return _type_rt(_ir.t_leaf(kind))
+
+
+def _list_type(elem: dict[str, Any]) -> dict[str, Any]:
+    """The list type record one dict-IR list type spells."""
+    return _type_rt(_ir.t_list(dict_to_type(elem)))
+
+
+def _class_type(name: str) -> dict[str, Any]:
+    """The class type record one dict-IR class type spells."""
+    return _type_rt(_ir.t_class(name))
+
+
+def _param_row(name: str, typ: dict[str, Any]) -> dict[str, Any]:
+    """The `{name, type}` parameter row one lowered parameter spells."""
+    return {"name": name, "type": _type_rt(typ)}
+
+
+def _self_param(class_name: str) -> dict[str, Any]:
+    """The `self` parameter row typed at its class."""
+    return _param_row("self", _class_type(class_name))
+
+
+def _type_kind(typ: dict[str, Any]) -> str:
+    """The kind tag of a type record, read off the typed `T` record."""
+    return _mk_type(typ).kind
+
+
+def _maybe_type_kind(typ: dict[str, Any]) -> str | None:
+    """The kind tag of a type record that may carry none."""
+    if "kind" not in typ:
+        return None
+    return _type_kind(typ)
+
+
+def _node_kind(node: dict[str, Any]) -> str:
+    """The kind tag of an IR node record, read off the typed node record."""
+    return dict_to_node(node).kind
+
+
+def _record_kind(record: dict[str, Any]) -> str:
+    """The kind tag of a record the typed layer cannot carry.
+
+    A class-base descriptor (`enum`, `exception`, `class`) is not an IR
+    node and has no typed record, so its tag stays a plain dict read, in
+    one place.
+    """
+    kind: str = record["kind"]
+    return kind
+
+
+def _base_kind(base: dict[str, Any]) -> str:
+    """The kind tag of a class-base descriptor."""
+    return _record_kind(base)
+
+
+_BASE_ENUM = "enum"
+_BASE_EXCEPTION = "exception"
+
+
+def _enum_base(name: str) -> dict[str, str]:
+    """The enum base descriptor one `_resolve_base` spells."""
+    return {"kind": _BASE_ENUM, "name": name}
+
+
+def _exception_base(name: str) -> dict[str, str]:
+    """The exception base descriptor one `_resolve_base` spells."""
+    return {"kind": _BASE_EXCEPTION, "name": name}
+
+
+def _tuple_default(elems: list[dict[str, Any]], typ: dict[str, Any]) -> dict[str, Any]:
+    """The tuple-default marker record a fixed-shape default spells.
+
+    The marker is not an IR node: the call site replays the stored constant
+    elements, so the record stays a plain dict.
+    """
+    return {"kind": "tuple-default", "elems": elems, "type": typ}
+
+
+def _bare_leaf(kind: str) -> dict[str, Any]:
+    """The bare leaf type record an isinstance target spells.
+
+    The `bare` bit has no typed `T` slot, so the record stays a plain dict.
+    """
+    return {"kind": kind, "bare": True}
 
 
 def _field_rows(fields: list[tuple[str, T]]) -> list[dict[str, Any]]:
@@ -171,19 +265,19 @@ class ClassesMixin(AnnotationMixin):
         specs: dict[str, list[dict[str, Any]]] = {}
         if "Pattern" in self.synthetics:
             specs["Pattern"] = [
-                {"name": "pattern", "type": {"kind": "str"}},
-                {"name": "flags", "type": {"kind": "int"}},
+                {"name": "pattern", "type": _leaf_type("str")},
+                {"name": "flags", "type": _leaf_type("int")},
             ]
         if "Match" in self.synthetics:
             # %cls.Match layout mirrors the runtime PsMatch: the subject
             # text plus a flat i64 span list, -1 for groups that did not take part.
             specs["Match"] = [
-                {"name": "_text", "type": {"kind": "str"}},
-                {"name": "_spans", "type": {"kind": "list", "elem": {"kind": "int"}}},
+                {"name": "_text", "type": _leaf_type("str")},
+                {"name": "_spans", "type": _list_type(_leaf_type("int"))},
             ]
         if "SplitResult" in self.synthetics:
             specs["SplitResult"] = [
-                {"name": name, "type": {"kind": "str"}} for name in ("scheme", "netloc", "path", "query", "fragment")
+                {"name": name, "type": _leaf_type("str")} for name in ("scheme", "netloc", "path", "query", "fragment")
             ]
         if "HTTPError" in self.synthetics:
             specs["HTTPError"] = _field_rows(CLASS_FIELDS["HTTPError"])
@@ -268,18 +362,18 @@ class ClassesMixin(AnnotationMixin):
                 protocol = protocol or erased == "Protocol"
                 continue
             resolved = self._resolve_base(base_node)
-            if resolved["kind"] != "class" and len(node.bases) > 1:
+            if _base_kind(resolved) != "class" and len(node.bases) > 1:
                 self.fail(node, "PS2002", "multiple inheritance needs lowered class bases")
             bases.append(resolved)
         base = bases[0] if bases else None
         if deco == "dataclass" and base is not None:
             self.fail(node, "PS2002", "a dataclass has no base")
-        if base is not None and base["kind"] == "enum":
+        if base is not None and _base_kind(base) == "enum":
             self._collect_enum(node, str(base["name"]))
             return
         self.declared.add(node.name)
         parent_name = base["name"] if base is not None else None
-        parent = self.classes.get(parent_name) if parent_name and base and base["kind"] == "class" else None
+        parent = self.classes.get(parent_name) if parent_name and base and _base_kind(base) == "class" else None
         inherited = list(parent["fields"]) if parent is not None else []
         inherited_types = {field["name"]: field["type"] for field in inherited}
         # Extra bases contribute the fields the earlier bases do not already
@@ -309,9 +403,9 @@ class ClassesMixin(AnnotationMixin):
                     if stmt.target.id in seen or stmt.target.id in inherited_types:
                         self.fail(stmt, "PS2002", f"duplicate field {stmt.target.id}")
                     typ = self._annotation(stmt.annotation)
-                    if typ["kind"] == "bool":
+                    if _type_kind(typ) == "bool":
                         self.fail(stmt, "PS2002", "bool fields are not lowered")
-                    if typ["kind"] == "func":
+                    if _type_kind(typ) == "func":
                         self.fail(stmt, "PS2002", "callable fields are not lowered")
                     field: dict[str, Any] = {"name": stmt.target.id, "type": typ}
                     if stmt.value is not None:
@@ -323,7 +417,7 @@ class ClassesMixin(AnnotationMixin):
                             # A fixed-shape tuple default stores its constant
                             # elements, not a materialized record: the generated
                             # init replays them per omitted argument.
-                            if typ.get("kind") == "class" and self.classes.get(typ["name"], {}).get("tuple"):
+                            if _maybe_type_kind(typ) == "class" and self.classes.get(typ["name"], {}).get("tuple"):
                                 field_rows = self.classes[typ["name"]]["fields"]
                                 if not isinstance(stmt.value, ast.Tuple) or len(stmt.value.elts) != len(field_rows):
                                     self.fail(stmt, "PS2002", "a tuple default must match the annotation's shape")
@@ -331,18 +425,18 @@ class ClassesMixin(AnnotationMixin):
                                 for elt, frow in zip(stmt.value.elts, field_rows, strict=True):
                                     ev = self._expr(elt, frow["type"])
                                     self._expect(elt, ev["type"], frow["type"], stmt.target.id)
-                                    if ev["kind"] != "const":
+                                    if _node_kind(ev) != "const":
                                         self.fail(elt, "PS2002", "a tuple default element must be a constant")
                                     elems.append(ev)
-                                default = {"kind": "tuple-default", "elems": elems, "type": typ}
+                                default = _tuple_default(elems, typ)
                             else:
                                 default = self._expr(stmt.value, None if typ.get("optional") else typ)
                         finally:
                             self.prelude = saved_prelude
-                        if default["kind"] not in {"const", "tuple-default"}:
+                        if _node_kind(default) not in {"const", "tuple-default"}:
                             self.fail(stmt, "PS2002", "a dataclass default must be a constant")
                         if typ.get("optional"):
-                            if default["type"]["kind"] != "none" and not types_equal(default["type"], typ["elem"]):
+                            if _type_kind(default["type"]) != "none" and not types_equal(default["type"], typ["elem"]):
                                 self.fail(stmt, "PS1003", f"{stmt.target.id} default is not {_show(typ)}")
                             field["optdefault"] = True
                         else:
@@ -390,7 +484,7 @@ class ClassesMixin(AnnotationMixin):
                 if ancestor_info["method_owner"].get(mname) != ancestor or mname in method_sigs:
                     continue
                 if sig[0] and sig[0][0]["name"] == "self":
-                    sig = ([{"name": "self", "type": {"kind": "class", "name": node.name}}, *sig[0][1:]], sig[1])
+                    sig = ([_self_param(node.name), *sig[0][1:]], sig[1])
                 method_sigs[mname] = sig
                 kinds[mname] = ancestor_info["method_kind"].get(mname, "method")
                 owners[mname] = ancestor
@@ -427,7 +521,7 @@ class ClassesMixin(AnnotationMixin):
         if deco == "dataclass":
             if wrote_init:
                 self.fail(node, "PS2002", "a dataclass does not take a written __init__")
-            params = [{"name": "self", "type": {"kind": "class", "name": node.name}}]
+            params = [_self_param(node.name)]
             for field in fields:
                 param: dict[str, Any] = {"name": field["name"], "type": field["type"]}
                 if "default" in field:
@@ -435,7 +529,7 @@ class ClassesMixin(AnnotationMixin):
                     if field.get("optdefault"):
                         param["optdefault"] = True
                 params.append(param)
-            method_sigs["__init__"] = (params, {"kind": "none"})
+            method_sigs["__init__"] = (params, _leaf_type("none"))
             kinds["__init__"] = "method"
             owners["__init__"] = node.name
             generated = "dataclass"
@@ -457,8 +551,8 @@ class ClassesMixin(AnnotationMixin):
                         init_target = name
                         break
                 method_sigs["__init__"] = (
-                    [{"name": "self", "type": {"kind": "class", "name": node.name}}, *method_sigs["__init__"][0][1:]],
-                    {"kind": "none"},
+                    [_self_param(node.name), *method_sigs["__init__"][0][1:]],
+                    _leaf_type("none"),
                 )
                 kinds["__init__"] = "method"
                 owners["__init__"] = node.name
@@ -469,7 +563,7 @@ class ClassesMixin(AnnotationMixin):
             # the secondary base's.
         elif parent is not None and fields and not wrote_init:
             self.fail(node, "PS1001", f"{node.name} needs __init__")
-        exception = bool(base and (base["kind"] == "exception" or (parent and parent.get("exception"))))
+        exception = bool(base and (_base_kind(base) == "exception" or (parent and parent.get("exception"))))
         info: dict[str, Any] = {
             "fields": [*inherited, *fields],
             "own_fields": fields,
@@ -574,7 +668,7 @@ class ClassesMixin(AnnotationMixin):
             "__eq__": "bool",
             "__exit__": "bool",
         }.get(name)
-        if want is not None and ret["kind"] != want:
+        if want is not None and _type_kind(ret) != want:
             self.fail(node, "PS1003", f"{class_name}.{name} returns {_show(ret)}, not {want}")
         emit = self._emit_owner(class_name, name)
         return _function_call(f"cls.{emit}.{name}", [receiver, *args], ret, span)
@@ -691,7 +785,7 @@ class ClassesMixin(AnnotationMixin):
         An `any` slot (an Any container's value, issue #781) accepts every
         concrete value: the write site stamps what it wrote, and the read
         site proves its own type."""
-        if want["kind"] != "class" or got["kind"] != "class":
+        if _type_kind(want) != "class" or _type_kind(got) != "class":
             return _any_accepts(want, got)
         want_name = want.get("name")
         got_name = got.get("name")
@@ -721,7 +815,7 @@ class ClassesMixin(AnnotationMixin):
         the value is a frame, the slot keeps the frame type so `next()`,
         `send()` and `for` dispatch on the real shape.
         """
-        if want.get("kind") != "class" or got.get("kind") != "class":
+        if _maybe_type_kind(want) != "class" or _maybe_type_kind(got) != "class":
             return False
         want_name = want.get("name")
         got_name = got.get("name")
@@ -738,16 +832,16 @@ class ClassesMixin(AnnotationMixin):
     def _resolve_base(self, node: ast.expr) -> dict[str, str]:
         enum = self._enum_base_name(node)
         if enum is not None:
-            return {"kind": "enum", "name": enum}
+            return _enum_base(enum)
         if isinstance(node, ast.Name) and node.id in EXCEPTIONS:
-            return {"kind": "exception", "name": node.id}
+            return _exception_base(node.id)
         if isinstance(node, ast.Name) and node.id in self.classes:
             info = self.classes[node.id]
             if info.get("synthetic"):
                 self.fail(node, "PS2002", "subclassing a stdlib type is not lowered")
             if info.get("enum"):
                 self.fail(node, "PS2002", "an enum is not a base")
-            return {"kind": "class", "name": node.id}
+            return _class_type(node.id)
         self.fail(node, "PS2002", "this class base is not lowered")
         raise AssertionError("unreachable")
 
@@ -909,7 +1003,7 @@ class ClassesMixin(AnnotationMixin):
         params, ret = info["methods"][stmt.name]
         kind = info["method_kind"].get(stmt.name, "method")
         if params and params[0]["name"] == "self":
-            params = [{"name": "self", "type": {"kind": "class", "name": class_name}}, *params[1:]]
+            params = [_self_param(class_name), *params[1:]]
         # A generator method's body lowers under the None-returning resume
         # signature; the outward frame type rides in the method signature.
         params, ret = self._coro_method_body_sig(class_name, stmt.name, params, ret)
@@ -917,7 +1011,7 @@ class ClassesMixin(AnnotationMixin):
         self.frozen_names = set()
         self.fn_body = list(stmt.body)
         if kind in {"method", "property"}:
-            self.locals["self"] = {"kind": "class", "name": class_name}
+            self.locals["self"] = _class_type(class_name)
         # Function-local imports rebind module names: snapshot the
         # compile-time binding tables so they restore when the body ends.
         saved_bindings = dict(self.bindings)
@@ -938,7 +1032,7 @@ class ClassesMixin(AnnotationMixin):
             missing = sorted(own_names - assigned)
             if missing:
                 self.fail(stmt, "PS1001", f"__init__ does not assign {', '.join(missing)}")
-        if ret["kind"] != "none" and not _always_returns(body):
+        if _type_kind(ret) != "none" and not _always_returns(body):
             self.fail(stmt, "PS1004", f"{stmt.name} can fall off the end and return None")
         return self._method_ir(stmt.name, params, ret, body, span_of(stmt, self.filename))
 
@@ -967,7 +1061,7 @@ class ClassesMixin(AnnotationMixin):
             return None
         params, ret = info["methods"]["__init__"]
         span = span_of(node, self.filename)
-        self_type = {"kind": "class", "name": node.name}
+        self_type = _class_type(node.name)
         if mode == "dataclass":
             body = [
                 _setattr_node(
@@ -978,20 +1072,20 @@ class ClassesMixin(AnnotationMixin):
         else:
             parent = info.get("init_target") or info["base"]
             args = [_name(param["name"], param["type"], span) for param in params]
-            body = [_expr_stmt_node(_function_call(f"cls.{parent}.__init__", args, {"kind": "none"}, span), span)]
+            body = [_expr_stmt_node(_function_call(f"cls.{parent}.__init__", args, _leaf_type("none"), span), span)]
         self.locals = {param["name"]: param["type"] for param in params}
         return self._method_ir("__init__", params, ret, body, span)
 
     def _param_default(self, arg: ast.arg, default_node: ast.expr, param: dict[str, Any]) -> None:
         if param["type"].get("optional"):
             value = self._expr(default_node)
-            if value["kind"] != "const":
+            if _node_kind(value) != "const":
                 self.fail(default_node, "PS2002", "a default must be a constant")
-            if value["type"]["kind"] != "none" and not types_equal(value["type"], param["type"]["elem"]):
+            if _type_kind(value["type"]) != "none" and not types_equal(value["type"], param["type"]["elem"]):
                 self.fail(default_node, "PS1003", f"{arg.arg} is {_show(value['type'])}, not {_show(param['type'])}")
             param["default"] = value
             param["optdefault"] = True
-        elif param["type"].get("kind") == "class" and self.classes.get(param["type"]["name"], {}).get("tuple"):
+        elif _maybe_type_kind(param["type"]) == "class" and self.classes.get(param["type"]["name"], {}).get("tuple"):
             # A fixed-shape tuple default: the elements must each be
             # constants, and the shape must match the annotation. The
             # elements are stored, not a materialized record: every call
@@ -1005,14 +1099,14 @@ class ClassesMixin(AnnotationMixin):
             for elt, field in zip(default_node.elts, fields, strict=True):
                 value = self._expr(elt, field["type"])
                 self._expect(elt, value["type"], field["type"], arg.arg)
-                if value["kind"] != "const":
+                if _node_kind(value) != "const":
                     self.fail(elt, "PS2002", "a tuple default element must be a constant")
                 elems.append(value)
-            param["default"] = {"kind": "tuple-default", "elems": elems, "type": param["type"]}
+            param["default"] = _tuple_default(elems, param["type"])
         else:
             value = self._expr(default_node, param["type"])
             self._expect(default_node, value["type"], param["type"], arg.arg)
-            if value["kind"] != "const":
+            if _node_kind(value) != "const":
                 self.fail(default_node, "PS2002", "a default must be a constant")
             param["default"] = value
 
@@ -1026,10 +1120,10 @@ class ClassesMixin(AnnotationMixin):
         if init is None:
             if node.args or node.keywords:
                 self.fail(node, "PS2003", f"{name} takes no arguments")
-            return _class_call(name, [], {"kind": "class", "name": name}, span)
+            return _class_call(name, [], _class_type(name), span)
         params = [param for param in init[0] if param["name"] != "self"]
         args = self._fill_args(node, params, name)
-        return _class_call(name, args, {"kind": "class", "name": name}, span)
+        return _class_call(name, args, _class_type(name), span)
 
     def _construct_generic(
         self, node: ast.Call, span: dict[str, Any], name: str, init: tuple[Any, Any] | None
@@ -1058,7 +1152,7 @@ class ClassesMixin(AnnotationMixin):
             want = _subst_type(param["type"], mapping)
             if not _has_typevar(want):
                 self._expect(node, arg["type"], want, name)
-        return _class_call(inst, args, {"kind": "class", "name": inst}, span)
+        return _class_call(inst, args, _class_type(inst), span)
 
     def _namedtuple_call(self, node: ast.expr) -> ast.Call | None:
         """The `collections.namedtuple(...)` call, spelled either binding or `collections.namedtuple`."""
@@ -1154,7 +1248,7 @@ class ClassesMixin(AnnotationMixin):
         if not info["fields"]:
             built: list[dict[str, Any]] = []
             for field, arg in zip(fields, args, strict=True):
-                if arg["type"]["kind"] in {"func", "none"}:
+                if _type_kind(arg["type"]) in {"func", "none"}:
                     self.fail(node, "PS2002", f"{name}() field {field} is {_show(arg['type'])}")
                 built.append({"name": field, "type": arg["type"]})
             info["fields"].extend(built)
@@ -1163,7 +1257,7 @@ class ClassesMixin(AnnotationMixin):
                 self.fail(node, "PS2003", f"{name}() expects {len(info['fields'])} argument(s)")
             for field, arg in zip(info["fields"], args, strict=True):
                 self._expect(node, arg["type"], field["type"], f"{name}.{field['name']}")
-        typ = {"kind": "class", "name": name}
+        typ = _class_type(name)
         dest = self._temp("nt").replace(".", "_")
         self.locals[dest] = typ
         made = _class_call(name, [], typ, span)
@@ -1203,7 +1297,7 @@ class ClassesMixin(AnnotationMixin):
         for kw in call.keywords:
             if kw.arg == "bound":
                 typ = self._annotation(kw.value)
-                bound = typ if typ["kind"] != "typevar" else None
+                bound = typ if _type_kind(typ) != "typevar" else None
             elif kw.arg in {"covariant", "contravariant"}:
                 continue
             else:
@@ -1240,7 +1334,7 @@ class ClassesMixin(AnnotationMixin):
             self.fail(node, "PS1003", f"{base} takes {len(tvars)} type argument(s)")
         mapping: dict[str, dict[str, Any]] = {}
         for tv, typ in zip(tvars, arg_types, strict=True):
-            if typ["kind"] == "none":
+            if _type_kind(typ) == "none":
                 self.fail(node, "PS1003", f"cannot instantiate {base} with none")
             bound = self.typevars.get(tv)
             if bound is not None and not types_equal(typ, bound):
@@ -1307,10 +1401,10 @@ class ClassesMixin(AnnotationMixin):
             if left_name == "TimeDelta" and right_name == "TimeDelta":
                 return _binary_node(sign, left, right, left["type"], span)
             if op is ast.Sub and left_name == right_name and left_name in {"Date", "DateTime"}:
-                return _binary_node("-", left, right, {"kind": "class", "name": "TimeDelta"}, span)
+                return _binary_node("-", left, right, _class_type("TimeDelta"), span)
         if op is ast.Div:
             # `p / x` is pathlib's __truediv__/__rtruediv__: joinpath each way.
-            if left_name == "Path" and right["type"]["kind"] == "str":
+            if left_name == "Path" and _type_kind(right["type"]) == "str":
                 return self._abi_call(
                     "pathlib", "Path.__truediv__", [left, right], left["type"], "ps_path_joinpath", span
                 )
@@ -1318,7 +1412,7 @@ class ClassesMixin(AnnotationMixin):
                 return self._abi_call(
                     "pathlib", "Path.__truediv__", [left, right], left["type"], "ps_path_joinpath_p", span
                 )
-            if left["type"]["kind"] == "str" and right_name == "Path":
+            if _type_kind(left["type"]) == "str" and right_name == "Path":
                 return self._abi_call(
                     "pathlib", "Path.__rtruediv__", [left, right], right["type"], "ps_path_rjoin", span
                 )
@@ -1333,11 +1427,9 @@ class ClassesMixin(AnnotationMixin):
         node: ast.AST,
         expect: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        if obj["type"]["kind"] == "exc":
+        if _type_kind(obj["type"]) == "exc":
             if name == "args":
-                return self._abi_call(
-                    "builtins", "exc.args", [obj], {"kind": "list", "elem": {"kind": "str"}}, "ps_exc_args", span
-                )
+                return self._abi_call("builtins", "exc.args", [obj], _list_type(_leaf_type("str")), "ps_exc_args", span)
             self.fail(node, "PS2001", f"exception has no attribute {name}")
         if obj.get("symbol") == "ps_exc_class" and obj.get("attrtype") == "type":
             # type(e): the carrier holds the runtime class name. `.__name__`
@@ -1345,7 +1437,7 @@ class ClassesMixin(AnnotationMixin):
             if name == "__name__":
                 return obj
             self.fail(node, "PS2001", f"type(e) has no attribute {name}")
-        if obj["type"]["kind"] != "class":
+        if _type_kind(obj["type"]) != "class":
             note = annotation_note(name)
             if note is not None:
                 self.fail(node, "PS2001", note)
@@ -1360,15 +1452,15 @@ class ClassesMixin(AnnotationMixin):
             # ABI, and reading a field would be a wild access (issue #224).
             self.fail(node, "PS4015", f"{class_name} is an opaque ffi handle and has no attributes")
         if class_name == "Semaphore" and name == "_value":
-            return self._abi_call("threading", "Semaphore._value", [obj], {"kind": "int"}, "ps_sem_value", span)
+            return self._abi_call("threading", "Semaphore._value", [obj], _leaf_type("int"), "ps_sem_value", span)
         if class_name == "AsyncSemaphore" and name == "_value":
             # The asyncio semaphore's counter, the same shape the threading
             # one has: an opaque pointer with a read-only count.
-            return self._abi_call("asyncio", "Semaphore._value", [obj], {"kind": "int"}, "ps_asem_value", span)
+            return self._abi_call("asyncio", "Semaphore._value", [obj], _leaf_type("int"), "ps_asem_value", span)
         if class_name == "Thread" and name == "name":
-            return self._abi_call("threading", "Thread.name", [obj], {"kind": "str"}, "ps_thread_name2", span)
+            return self._abi_call("threading", "Thread.name", [obj], _leaf_type("str"), "ps_thread_name2", span)
         if class_name == "Thread" and name == "daemon":
-            return self._abi_call("threading", "Thread.daemon", [obj], {"kind": "bool"}, "ps_thread_daemon", span)
+            return self._abi_call("threading", "Thread.daemon", [obj], _leaf_type("bool"), "ps_thread_daemon", span)
         info = self.classes.get(class_name)
         if info is None:
             self.fail(node, "PS2001", f"{class_name} has no fields")
@@ -1419,7 +1511,7 @@ class ClassesMixin(AnnotationMixin):
             if ancestor_info.get("method_kind", {}).get("__getattr__", "method") != "method":
                 return None
             params, _ = ancestor_info["methods"]["__getattr__"]
-            if len(params) != 2 or params[1].get("type", {}).get("kind") != "str":
+            if len(params) != 2 or _maybe_type_kind(params[1].get("type", {})) != "str":
                 return None
             return ancestor, ancestor_info["methods"]["__getattr__"]
         return None
@@ -1449,7 +1541,7 @@ class ClassesMixin(AnnotationMixin):
                 f"{owner}.__getattr__ returns {_show(ret)}; the return type must cover the read site exactly",
             )
             raise AssertionError("unreachable")
-        if ret["kind"] in {"none"}:
+        if _type_kind(ret) in {"none"}:
             self.fail(
                 node,
                 "PS4204",
@@ -1471,7 +1563,7 @@ class ClassesMixin(AnnotationMixin):
         )
 
     def _has_attr(self, obj: dict[str, Any], name: str) -> bool:
-        if obj["type"]["kind"] != "class":
+        if _type_kind(obj["type"]) != "class":
             return False
         class_name = obj["type"]["name"]
         info = self.classes.get(class_name)
@@ -1487,37 +1579,37 @@ class ClassesMixin(AnnotationMixin):
 
     def _isinstance_type(self, node: ast.expr) -> dict[str, Any]:
         if isinstance(node, ast.Name) and node.id in {"int", "float", "bool", "str", "bytes"}:
-            return {"kind": node.id}
+            return _leaf_type(node.id)
         if isinstance(node, ast.Name) and node.id in {"list", "dict"}:
-            return {"kind": node.id, "bare": True}
+            return _bare_leaf(node.id)
         if isinstance(node, ast.Name) and (
             node.id in self.classes or node.id in self.class_aliases or node.id in EXCEPTIONS
         ):
             name = self.class_aliases.get(node.id, node.id)
             if self.classes.get(name, {}).get("protocol"):
                 self.fail(node, "PS2001", "isinstance on a Protocol is not lowered")
-            return {"kind": "class", "name": name}
+            return _class_type(name)
         if isinstance(node, ast.Name):
             binding = self.bindings.get(node.id)
             if binding is not None:
                 alias = alias_name(binding.module, binding.attr)
                 if alias is not None:
-                    return {"kind": "class", "name": alias}
+                    return _class_type(alias)
         if isinstance(node, ast.Attribute):
             resolved = self._resolve_module(node)
             if resolved is not None:
                 alias = alias_name(resolved[1], resolved[2])
                 if alias is not None:
-                    return {"kind": "class", "name": alias}
+                    return _class_type(alias)
         self.fail(node, "PS2001", "isinstance type is not in the lowered subset")
         raise AssertionError("unreachable")
 
     def _isinstance_holds(self, got: dict[str, Any], want: dict[str, Any]) -> bool:
-        if want.get("bare") and got["kind"] == want["kind"]:
+        if want.get("bare") and _type_kind(got) == _type_kind(want):
             return True
-        if want["kind"] == "int" and got["kind"] == "bool":
+        if _type_kind(want) == "int" and _type_kind(got) == "bool":
             return True
-        if want["kind"] == "class" and got["kind"] == "class":
+        if _type_kind(want) == "class" and _type_kind(got) == "class":
             got_name = got.get("name")
             want_name = want.get("name")
             if isinstance(got_name, str) and isinstance(want_name, str) and self._is_subclass_name(got_name, want_name):
