@@ -42,6 +42,7 @@ def _expr_kind(expr: dict[str, Any]) -> str:
     the raw dict key."""
 
     kind: str = expr["kind"]
+    return kind
 
 
 def _kind_or_none(typ: dict[str, Any] | None) -> str | None:
