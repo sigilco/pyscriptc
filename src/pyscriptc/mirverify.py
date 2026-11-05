@@ -35,7 +35,6 @@ from pyscriptc.mir import (
     MIR_COPY,
     MIR_JMP,
     MIR_RET,
-    OP_ARITY,
     MirBlock,
     MirBlockArg,
     MirConst,
@@ -45,6 +44,40 @@ from pyscriptc.mir import (
     copy_result_type,
     is_const_ref,
 )
+
+# The op arity table, spelled here for the same reason as `mirlower`'s
+# int-literal op ids: `mir.py`'s module-level table binds a global slot,
+# and slots do not ride the package export table a cross-module import
+# resolves against. The keys are the op ids as int literals, the values
+# mirror `mir.py`'s table; a drift is a test failure, not a silent wrong
+# verification.
+_OP_ARITY: dict[int, int] = {
+    1: 0,  # MIR_JMP
+    2: 1,  # MIR_BR
+    3: 1,  # MIR_RET
+    4: 2,  # MIR_ADDW
+    5: 2,  # MIR_SUBW
+    6: 2,  # MIR_MULW
+    7: 2,  # MIR_ADDD
+    8: 2,  # MIR_SUBD
+    9: 2,  # MIR_MULD
+    10: 1,  # MIR_NEGW
+    11: 1,  # MIR_NEGD
+    12: 2,  # MIR_CLTW
+    13: 2,  # MIR_CLEW
+    14: 2,  # MIR_CGTW
+    15: 2,  # MIR_CGEW
+    16: 2,  # MIR_CEQW
+    17: 2,  # MIR_CNEW
+    18: 2,  # MIR_CLTD
+    19: 2,  # MIR_CLED
+    20: 2,  # MIR_CGTD
+    21: 2,  # MIR_CGED
+    22: 2,  # MIR_CEQD
+    23: 2,  # MIR_CNED
+    26: 1,  # MIR_NOTB
+    25: 1,  # MIR_COPY
+}
 
 # The verifier's own codes. They are stable: a test that pins a violation
 # pins the code, not the prose.
@@ -115,7 +148,7 @@ def _check_instr_operands(fn: MirFunction, i: int, defs: dict[int, int]) -> list
     op: int = fn.ops[i]
     arg1: int = fn.arg1[i]
     arg2: int = fn.arg2[i]
-    arity: int | None = OP_ARITY.get(op)
+    arity: int | None = _OP_ARITY.get(op)
     if arity is None:
         out.append(_Violation(CODE_CONTROL, f"instr {i}: unknown op {op}"))
         return out
@@ -258,7 +291,7 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
         # two operands is a value op, and the arity-1 family splits only on
         # the two control ops (MIR_BR, MIR_RET). The result type comes from
         # the same table through the lookup helper above.
-        arity_at: int | None = OP_ARITY.get(op)
+        arity_at: int | None = _OP_ARITY.get(op)
         is_control: int = 1 if op == MIR_BR or op == MIR_RET else 0
         if arity_at is not None and (arity_at >= 2 or (arity_at == 1 and is_control == 0)):
             if dst < 0:
@@ -316,22 +349,16 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
             if block.succ1 < 0 or block.succ1 >= len(blocks) or block.succ2 < 0 or block.succ2 >= len(blocks):
                 out.append(_Violation(CODE_CONTROL, f"block {bid} branches to a block that does not exist"))
                 continue
-            # The two branch edges, flattened into one list the subset
-            # lowers: three fields per edge (the message flag, the target
-            # block, the bindings), true edge first.
-            edges: list[object] = [
-                1,
-                blocks[block.succ1],
-                block.br_args_true,
-                0,
-                blocks[block.succ2],
-                block.br_args_false,
-            ]
+            # The two branch edges, one per half: the message flag, the
+            # target block, the bindings. True edge first.
             for half in range(2):
-                base: int = half * 3
-                label: str = "true" if edges[base] == 1 else "false"
-                edge_target: MirBlock = edges[base + 1]
-                bindings: list[int] = edges[base + 2]
+                label: str = "true" if half == 0 else "false"
+                if half == 0:
+                    edge_target: MirBlock = blocks[block.succ1]
+                    bindings: list[int] = block.br_args_true
+                else:
+                    edge_target = blocks[block.succ2]
+                    bindings = block.br_args_false
                 if len(bindings) != len(edge_target.args):
                     out.append(
                         _Violation(
@@ -375,13 +402,16 @@ def verify_function(fn: MirFunction) -> list[MirVerifyError]:
     out: list[MirVerifyError] = []
     for i in range(len(violations)):
         v: _Violation = violations[i]
-        out.append(MirVerifyError(v.code, v.message))
+        try:
+            raise MirVerifyError(v.code, v.message)
+        except MirVerifyError as e:
+            out.append(e)
     return out
 
 
 def verify_or_raise_function(fn: MirFunction) -> None:
     """Verify one MIR function and raise on the first violation."""
-    errors: list[MirVerifyError] = verify_function(fn)
-    if errors:
-        first: MirVerifyError = errors[0]
-        raise MirVerifyError(first.code, first.message[len(first.code) + 2 :])
+    violations: list[_Violation] = _check_function(fn)
+    if violations:
+        v: _Violation = violations[0]
+        raise MirVerifyError(v.code, v.message)
