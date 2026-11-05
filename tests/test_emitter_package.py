@@ -87,12 +87,41 @@ def test_the_seam_reads_the_expression_kind_tag() -> None:
     assert _ir._expr_kind({"kind": "closure"}) == "closure"
 
 
+def test_the_seam_reads_the_node_kind_tags() -> None:
+    from pyscriptc.emit import _ir
+
+    assert _ir._node_kind({"kind": "assign"}) == "assign"
+    assert _ir._node_type_kind({"kind": "const", "type": {"kind": "int"}}) == "int"
+    assert _ir._maybe_node_kind({"kind": "raise"}) == "raise"
+    assert _ir._maybe_node_kind({"target": "x"}) is None
+    assert _ir._maybe_node_type_kind({"kind": "name", "type": {"kind": "str"}}) == "str"
+    assert _ir._maybe_node_type_kind({"kind": "pass"}) is None
+
+
 def test_the_seam_knows_the_symbol_naming() -> None:
     from pyscriptc.emit import _ir
 
     assert _ir._fn_symbol("main") == "ps.user.main"
     assert _ir._fn_symbol("other") == "other"
     assert _ir._safe("a.b.c") == "a_b_c"
+
+
+def test_the_seam_knows_the_typed_accessors() -> None:
+    """The typed IR reads an emitter needs: kind tags, class and field names."""
+
+    from pyscriptc.emit import _ir
+
+    assert _ir._kind({"kind": "int"}) == "int"
+    assert _ir._kind({"kind": "class", "name": "tuple_2_int_str"}) == "class"
+    assert _ir._type_name({"kind": "class", "name": "tuple_2_int_str"}) == "tuple_2_int_str"
+    field = {"name": "_0", "type": {"kind": "str"}}
+    assert _ir._field_name(field) == "_0"
+    assert _ir._field_type(field) == {"kind": "str"}
+    assert _ir._kind(_ir._field_type(field)) == "str"
+    assert _ir._has({"sep": "x"}, "sep") is True
+    assert _ir._has({"sep": "x"}, "end") is False
+    assert _ir._opt_str({"file": "stderr"}, "file") == "stderr"
+    assert _ir._opt_str({}, "file") is None
 
 
 def test_every_emitter_area_lives_in_its_own_module() -> None:
