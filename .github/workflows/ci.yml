@@ -68,7 +68,7 @@ concurrency:
 # workload files. Those still fail format under ruff 0.17; reformatting them
 # is not part of this workflow.
 # Linux (unit): ruff plus compat2 under tests/compat2.
-# macOS (macos-safe): the rest of the test tree on macos-14, excluding
+# macOS (macos-safe): the rest of the test tree on macos-26, excluding
 # compat2 and any test marked linux_container.
 #
 # These steps run the raw commands, not `mise run <task>`, even though mise is
@@ -454,7 +454,7 @@ jobs:
     # matches the required context `tests without linux_container (shard
     # N/3)` on its own: the `shard-ok` aggregator above reports that name.
     name: unit shard ${{ matrix.group }}/3
-    runs-on: macos-14
+    runs-on: macos-26
     needs: changes
     if: needs.changes.outputs.compiler == 'true'
     strategy:
@@ -784,7 +784,7 @@ jobs:
         run: uv run pytest -q tests/test_threading_tsan.py -m "linux_container"
 
   # The mobile static-library mode (#356): build all three archives and
-  # link-check them. Apple legs run on macos-14 (Xcode SDKs are preinstalled);
+  # link-check them. Apple legs run on macos-26 (Xcode SDKs are preinstalled);
   # the Android leg downloads the pinned NDK. The simulator runner cannot
   # execute outside the simulator runtime, so linking is the check there.
   mobile-archives:
@@ -795,7 +795,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-26
             skip: android
             ndk: ""
           - os: ubuntu-24.04

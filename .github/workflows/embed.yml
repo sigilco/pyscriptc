@@ -1,7 +1,7 @@
 # Embed CI jobs (#662): the empty-environment acceptance slice for the
 # bundled CPython runtime (plan: .agents/plans/2026-10-25-embedding-release-
 # plan.md, issues #657 to #665, epic #428). Matrix: Linux x86_64 on
-# ubuntu-24.04 (glibc 2.39) and macOS arm64 on macos-14. A Linux aarch64 cell
+# ubuntu-24.04 (glibc 2.39) and macOS arm64 on macos-26. A Linux aarch64 cell
 # is a stretch, not in this matrix yet.
 #
 # Pull requests run the jobs path-filtered on the files the embedding work
@@ -122,7 +122,7 @@ jobs:
         include:
           - os: ubuntu-24.04
             platform: linux-x86_64
-          - os: macos-14
+          - os: macos-26
             platform: macos-arm64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 6
@@ -147,7 +147,7 @@ jobs:
           case "$EVENT" in
             push|schedule) echo "run=true" >> "$GITHUB_OUTPUT"; exit 0 ;;
           esac
-          if [ "$PR_SKIP_MACOS" = "true" ] && [ "${{ matrix.os }}" = "macos-14" ]; then
+          if [ "$PR_SKIP_MACOS" = "true" ] && [ "${{ matrix.os }}" = "macos-26" ]; then
             echo "macOS PR cell disabled by EMBED_PR_SKIP_MACOS" >&2
             echo "run=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -267,7 +267,7 @@ jobs:
 
           # Loader assertions: the relative rpath is present and no absolute
           # path into the build tree or the pack survives in the image.
-          if [ "${{ matrix.os }}" = "macos-14" ]; then
+          if [ "${{ matrix.os }}" = "macos-26" ]; then
             otool -L "$WORK/fresh/stdlib/bin/prog" | tail -n +2 > "$WORK/otool.txt"
             otool -l "$WORK/fresh/stdlib/bin/prog" | tail -n +2 > "$WORK/otool-l.txt"
             grep -q '@executable_path/../lib' "$WORK/otool-l.txt" \
@@ -287,7 +287,7 @@ jobs:
           # Size gates: macOS at most 40 MB, Linux at most 60 MB uncompressed,
           # measured on the largest of the three bundles.
           kb="$(du -sk "$WORK/fresh"/* | awk '{print $1}' | sort -n | tail -1)"
-          limit_mb=$([ "${{ matrix.os }}" = "macos-14" ] && echo 40 || echo 60)
+          limit_mb=$([ "${{ matrix.os }}" = "macos-26" ] && echo 40 || echo 60)
           echo "bundle size: $kb KB (limit ${limit_mb} MB)"
           [ "$kb" -le $((limit_mb * 1024)) ] || { echo "::error::the bundle exceeds its size gate" >&2; status=1; }
 

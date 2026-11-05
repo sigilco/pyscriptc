@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -51,7 +52,9 @@ def build(platform: str, out: Path, lock: Path | None = None, asset: Path | None
         embed.verify_sha256(archive, pack.sha256)
         staging = tmp_path / "unpacked"
         staging.mkdir()
-        embed.unpack(archive, staging, only=_UNPACK_ONLY)
+        # embed.unpack lost its `only` filter when the embed module was typed
+        # (#860); extract just the wanted members here so `share/` stays out.
+        subprocess.run(["tar", "-xf", str(archive), "-C", str(staging), *_UNPACK_ONLY], check=True)
         payload = embed._payload_root(staging)
         version = embed.python_version()
 
