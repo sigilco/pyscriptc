@@ -398,8 +398,20 @@ class MirEmitter:
                 self.line(f"{reg} = call {llvm} @ps.{helper}({rendered})")
                 self.reg[dst] = reg
                 return
-            # A store: the destination is a name slot.
-            self.line(f"store {_tag_llvm(self._tag_of(dst))} {self.operand(fn, a1)}, ptr {self.reg[dst]}")
+            if dst in self.slot_vid_set:
+                # A store: the destination is a name slot.
+                self.line(f"store {_tag_llvm(self._tag_of(dst))} {self.operand(fn, a1)}, ptr {self.reg[dst]}")
+                return
+            # A copy whose source is a name slot is a read: the lowerer
+            # emits one copy per slot read, in source order, so the loads
+            # land in the same order the direct walk produces.
+            if a1 in self.slot_vid_set:
+                llvm = _tag_llvm(self._tag_of(dst))
+                reg = self.tmp_reg()
+                self.line(f"{reg} = load {llvm}, ptr {self.reg[a1]}")
+                self.reg[dst] = reg
+                return
+            self.reg[dst] = self.operand(fn, a1)
             return
         if op in _HELPER_W:
             needed = self.needed
