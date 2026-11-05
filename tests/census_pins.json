@@ -50,7 +50,7 @@
   "pyscriptc.lower._annotations": 33,
   "pyscriptc.lower._call_attr": 45,
   "pyscriptc.lower._calls": 60,
-  "pyscriptc.lower._classes": 62,
+  "pyscriptc.lower._classes": 70,
   "pyscriptc.lower._closures": 19,
   "pyscriptc.lower._core": 137,
   "pyscriptc.lower._expr": 90,
