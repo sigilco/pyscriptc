@@ -35,6 +35,77 @@ def _kind(typ: dict[str, Any]) -> str:
     return kind
 
 
+def _node_kind(node: dict[str, Any]) -> str:
+    """The kind tag of a typed IR node (assign, expr, raise, ...). Statement
+    and expression dispatch reads the node through this accessor instead of
+    the raw dict key."""
+
+    kind: str = node["kind"]
+    return kind
+
+
+def _node_type_kind(node: dict[str, Any]) -> str:
+    """The kind tag of the type record a typed IR node carries. A dispatch
+    on the node's own type reads it through this accessor instead of the
+    raw nested dict key."""
+
+    typ: dict[str, Any] = node["type"]
+    return _kind(typ)
+
+
+def _maybe_node_kind(node: dict[str, Any]) -> str | None:
+    """The kind tag of a typed IR node, or None when the node carries no
+    kind (a handler record, an outline env entry). Optional-shape dispatch
+    reads the node through this accessor instead of the raw dict key."""
+
+    if "kind" not in node:
+        return None
+    kind: str = node["kind"]
+    return kind
+
+
+def _maybe_node_type_kind(node: dict[str, Any]) -> str | None:
+    """The kind tag of the type record a typed IR node carries, or None
+    when the node has no type record. Optional-shape dispatch reads the
+    node's type through this accessor instead of the raw nested dict key."""
+
+    if "type" not in node:
+        return None
+    typ: dict[str, Any] = node["type"]
+    return _kind(typ)
+
+
+def _type_name(typ: dict[str, Any]) -> str:
+    """The class name of a class-typed type record."""
+    name: str = typ["name"]
+    return name
+
+
+def _field_name(field: dict[str, Any]) -> str:
+    """The source name of one class field."""
+    name: str = field["name"]
+    return name
+
+
+def _field_type(field: dict[str, Any]) -> dict[str, Any]:
+    """The type record one class field carries."""
+    typ: dict[str, Any] = field["type"]
+    return typ
+
+
+def _has(expr: dict[str, Any], key: str) -> bool:
+    """Whether an expression record carries an optional key at all."""
+    return key in expr
+
+
+def _opt_str(expr: dict[str, Any], key: str) -> str | None:
+    """An optional string key of an expression record, or None when absent."""
+    if key not in expr:
+        return None
+    value: str = expr[key]
+    return value
+
+
 def standalone_entry(module: dict[str, Any]) -> dict[str, Any] | None:
     """The module's runnable entry (a script body or `__main__` guard), if `--run` without `--call` has one."""
     entry = module.get("entry")

@@ -8,6 +8,7 @@ emitted text into a binary (`link_binary`, `compile_unit`).
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -138,6 +139,69 @@ _THREAD_SYMBOLS = (
 )
 
 
+# The https:// hop needs libcurl at build time: the flag set is empty for a
+# program whose emitted IR never reaches an https:// URL, so http-only
+# programs carry no libcurl dependency. `PSC_CURL_DYNAMIC=1` opts out of the
+# build-time link: ps_http_curl.c compiles without PSC_HAVE_CURL then, its
+# stub returns 0 and the https:// request raises URLError at run time
+# instead. PSC_HAVE_CURL is the compile-time side of the same decision: the
+# driver defines it for the runtime units exactly when the link line gains
+# libcurl, so a program that does not link libcurl never references a curl
+# symbol (Mach-O has no undefined-weak-symbol story, so the old
+# __attribute__((weak)) declarations broke every macOS link that skipped
+# -lcurl).
+PS_HTTP_CURL_SYMBOL = "@ps_http_request("
+PS_CURL_DYNAMIC_ENV = "PSC_CURL_DYNAMIC"
+PS_HAVE_CURL_DEFINE = "PSC_HAVE_CURL"
+
+
+def _https_reachable(text: str) -> bool:
+    """The emitted IR calls the HTTP client over an https:// URL.
+
+    The scheme literal rides in the IR as a string constant; the client
+    entry point anchors the call so a program that only imports
+    urllib.parse (or embeds the scheme in a comment string) does not trip
+    the detection.
+    """
+    return PS_HTTP_CURL_SYMBOL in text and "https://" in text
+
+
+def curl_link_flags(text: str, target: str | None = None) -> list[str]:
+    """The libcurl link arguments this program's link line gains, if any.
+
+    Resolved through `curl-config --libs` first, `pkg-config libcurl` when
+    curl-config is absent or fails. A program that cannot reach an https://
+    URL adds nothing, and `PSC_CURL_DYNAMIC=1` skips the build-time link
+    (the runtime then raises URLError for https at run time). When the
+    program does need libcurl and neither tool resolves it, the error names
+    libcurl and the way to install it instead of a linker wall. wasm targets
+    never link libcurl: ps_http.c owns their whole urlopen story as a stub.
+    """
+    if target is not None and target.startswith("wasm32"):
+        return []
+    if not _https_reachable(text):
+        return []
+    if os.environ.get(PS_CURL_DYNAMIC_ENV, "").strip() == "1":
+        return []
+    argvs = [["curl-config", "--libs"], ["pkg-config", "--libs", "libcurl"]]
+    for argv in argvs:
+        tool = shutil.which(argv[0])
+        if tool is None:
+            continue
+        proc = subprocess.run([tool, *argv[1:]], capture_output=True, text=True, timeout=30)
+        if proc.returncode == 0 and proc.stdout.strip():
+            return proc.stdout.split()
+    raise IRError(
+        "this program makes an https:// request and the runtime links libcurl "
+        "for it at build time, but neither curl-config nor pkg-config found "
+        "libcurl on this machine: install the libcurl development package "
+        "(Debian/Ubuntu: apt install libcurl-dev or libcurl4-openssl-dev; "
+        "macOS: brew install curl; Fedora: dnf install libcurl-devel) or set "
+        "PSC_CURL_DYNAMIC=1 to build without it (https then raises URLError "
+        "at run time)"
+    )
+
+
 def refuse_unsupported_target(text: str, target: str | None) -> None:
     """Refuse a target that cannot run the runtime's thread primitives.
 
@@ -261,7 +325,13 @@ def link_binary(
     san_flags = sanitize_flags(sanitize)
     dbg_flags = ["-g"] if debug_info else []
     pic_flags = ["-fPIC"] if shared else []
-    tail = [*san_flags, "-lm", "-o", str(output)]
+    curl_flags = curl_link_flags(text, target)
+    # The runtime units compile with PSC_HAVE_CURL exactly when the link line
+    # gains libcurl: ps_http_curl.c's real implementation (and its curl
+    # symbol references) exist only under the macro, so a no-curl link never
+    # sees one. The define rides the per-unit flags, not the link line.
+    curl_defines = [f"-D{PS_HAVE_CURL_DEFINE}"] if curl_flags else []
+    tail = [*san_flags, "-lm", *curl_flags, "-o", str(output)]
     if "ps_island_" in text:
         if target is not None:
             raise IRError(
@@ -357,7 +427,7 @@ def link_binary(
     manifest_sources = frozenset(ffi_sources)
     for source in sources:
         src = Path(source)
-        flags = ["-O2", *pic_flags, *wasm_flags, *san_flags, *target_flags]
+        flags = ["-O2", *pic_flags, *wasm_flags, *san_flags, *curl_defines, *target_flags]
         extra_dirs: tuple[Path, ...] = ()
         if source in manifest_sources:
             flags.extend(ffi_include_flags)

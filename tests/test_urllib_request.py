@@ -15,6 +15,7 @@ import threading
 from pathlib import Path
 
 import pytest
+import tests.test_gates as gates
 from tests.test_gates import ROOT, compile_run, oracle, write_case
 
 
@@ -560,7 +561,9 @@ def test_redirect_308_keeps_the_body(tmp_path: Path, listener: str) -> None:
     assert got.stdout == "payload\n"
 
 
-def test_https_is_refused(tmp_path: Path) -> None:
+def test_https_is_refused_without_the_curl_link(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without libcurl linked (PSC_CURL_DYNAMIC=1), https raises URLError."""
+    monkeypatch.setitem(gates.ENV, "PSC_CURL_DYNAMIC", "1")
     path = _case(
         tmp_path,
         "https.py",
@@ -618,14 +621,20 @@ def _compile_run_with_backend(tmp_path: Path, source: Path, func: str, args: str
             str(tmp_path / func),
         ],
         cwd=ROOT,
+        env=gates.ENV,
         capture_output=True,
         text=True,
         check=False,
     )
 
 
-def test_https_goes_through_the_tls_backend(tmp_path: Path, listener: str) -> None:
-    """With a backend registered, an https:// request reads the response."""
+def test_https_goes_through_the_tls_backend(tmp_path: Path, listener: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """With a backend registered, an https:// request reads the response.
+
+    PSC_CURL_DYNAMIC=1 keeps libcurl off the link line, so the request takes
+    the registered-backend path this test exists to prove.
+    """
+    monkeypatch.setitem(gates.ENV, "PSC_CURL_DYNAMIC", "1")
     path = _case(
         tmp_path,
         "https_backend.py",
@@ -650,8 +659,9 @@ def test_https_goes_through_the_tls_backend(tmp_path: Path, listener: str) -> No
     assert got.stdout == "hello\n"
 
 
-def test_https_backend_sees_the_request_headers(tmp_path: Path, listener: str) -> None:
+def test_https_backend_sees_the_request_headers(tmp_path: Path, listener: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """The backend carries the request the HTTP layer wrote, headers included."""
+    monkeypatch.setitem(gates.ENV, "PSC_CURL_DYNAMIC", "1")
     path = _case(
         tmp_path,
         "https_headers.py",
@@ -673,8 +683,9 @@ def test_https_backend_sees_the_request_headers(tmp_path: Path, listener: str) -
     assert "Host:" in got.stdout
 
 
-def test_https_without_a_backend_still_raises(tmp_path: Path) -> None:
-    """With no backend linked, the https:// request raises URLError as before."""
+def test_https_without_a_backend_still_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """With no backend and no libcurl linked, the https:// request raises URLError."""
+    monkeypatch.setitem(gates.ENV, "PSC_CURL_DYNAMIC", "1")
     path = _case(
         tmp_path,
         "https_none.py",
