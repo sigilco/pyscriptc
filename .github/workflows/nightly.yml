@@ -105,6 +105,9 @@ jobs:
             echo "compat data unchanged"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+          # The artifact carries the raw JSON too, so the owner can refresh the
+          # data by hand when the bot PR cannot be opened.
           mkdir -p nightly
           cp data/compat/compat.json nightly/compat.json
           cp data/compat/ladder.json nightly/ladder.json
