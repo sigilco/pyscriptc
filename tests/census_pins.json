@@ -23,7 +23,7 @@
   "pyscriptc.emit": 2,
   "pyscriptc.emit._ir": 27,
   "pyscriptc.emit.llvm": 0,
-  "pyscriptc.emit.llvm._abi": 35,
+  "pyscriptc.emit.llvm._abi": 34,
   "pyscriptc.emit.llvm._base": 5,
   "pyscriptc.emit.llvm._calls": 1,
   "pyscriptc.emit.llvm._core": 73,

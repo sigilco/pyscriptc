@@ -35,6 +35,17 @@ def _kind(typ: dict[str, Any]) -> str:
     return kind
 
 
+def _kind_or_none(typ: dict[str, Any] | None) -> str | None:
+    """The kind tag of a type record that may be absent, as with an
+    unannotated `want` on an island call. Every emitter type dispatch reads
+    the record through this accessor instead of the raw dict key."""
+
+    if typ is None:
+        return None
+    kind: str | None = typ.get("kind", None)
+    return kind
+
+
 def _node_kind(node: dict[str, Any]) -> str:
     """The kind tag of a typed IR node (assign, expr, raise, ...). Statement
     and expression dispatch reads the node through this accessor instead of
@@ -106,11 +117,6 @@ def _is_optional(typ: dict[str, Any]) -> bool:
         return False
     optional: bool = typ["optional"]
     return optional
-
-
-def _has(expr: dict[str, Any], key: str) -> bool:
-    """Whether an expression record carries an optional key at all."""
-    return key in expr
 
 
 def _opt_str_or_none(expr: dict[str, Any], key: str) -> str | None:
