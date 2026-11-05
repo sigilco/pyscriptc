@@ -12,7 +12,7 @@ from pyscriptc.emit._ir import (
     _llvm_bytes,
     _llvm_double,
     _llvm_type,
-    _opt_str,
+    _opt_str_or_none,
     _type_name,
 )
 from pyscriptc.emit.llvm._base import EmitterBase
@@ -94,7 +94,7 @@ class PrintMixin(EmitterBase):
         lowercase literals. Bytes print as their `b'...'` repr.
         """
         self.needed.add("printf")
-        err = _opt_str(expr, "file") == "stderr"
+        err = _opt_str_or_none(expr, "file") == "stderr"
         sep = self.emit_expr(expr["sep"]) if _has(expr, "sep") else None
         end = self.emit_expr(expr["end"]) if _has(expr, "end") else None
         for index, (value, typ) in enumerate(zip(values, arg_types, strict=True)):
