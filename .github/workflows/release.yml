@@ -127,9 +127,10 @@ jobs:
 
       - name: Stamp release version
         env:
-          PYSC_RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.ref }}
+          PYSC_RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: |
-          version="$(python3 -c 'import re, sys; m = re.match(r"v?(\d.*)", sys.argv[1]); sys.exit(1) if not m else None; print(m.group(1))' "$PYSC_RELEASE_VERSION")"
+          # A tag names the version; a rehearsal dispatch (ref is a SHA or branch) reads pyproject.toml.
+          version="$(python3 -c 'import re, sys, tomllib; v = sys.argv[1] or "v" + tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]; m = re.match(r"v?(\d.*)", v); sys.exit(1) if not m else None; print(m.group(1))' "$PYSC_RELEASE_VERSION")"
           printf 'VERSION = "%s"\n' "$version" > src/pyscriptc/_release.py
 
       - name: Build
@@ -316,9 +317,10 @@ jobs:
 
       - name: Stamp release version
         env:
-          PYSC_RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.ref }}
+          PYSC_RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: |
-          version="$(python3 -c 'import re, sys; m = re.match(r"v?(\d.*)", sys.argv[1]); sys.exit(1) if not m else None; print(m.group(1))' "$PYSC_RELEASE_VERSION")"
+          # A tag names the version; a rehearsal dispatch (ref is a SHA or branch) reads pyproject.toml.
+          version="$(python3 -c 'import re, sys, tomllib; v = sys.argv[1] or "v" + tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]; m = re.match(r"v?(\d.*)", v); sys.exit(1) if not m else None; print(m.group(1))' "$PYSC_RELEASE_VERSION")"
           printf 'VERSION = "%s"\n' "$version" > src/pyscriptc/_release.py
 
       - name: Build sdist and wheel
