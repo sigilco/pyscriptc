@@ -3,10 +3,10 @@
 The leaf slice covers pure scalar arithmetic: int/float/bool constants,
 binary arithmetic and comparison on scalars, unary minus and `not`, names,
 assignments, `return`, one-level `if` and `while` loops whose condition is
-a scalar compare or bool and whose body is leaf statements (no
-break/continue/else). It is the straight-line, one-level-`if` and
-plain-`while` shape the byte-identity A/B runs against; everything
-outside the slice stays on the direct path unchanged.
+a scalar compare or bool and whose body is leaf statements plus `break`
+and `continue` (no `while ... else`). It is the straight-line,
+one-level-`if` and plain-`while` shape the byte-identity A/B runs
+against; everything outside the slice stays on the direct path unchanged.
 
 Three functions:
 
@@ -15,6 +15,11 @@ Three functions:
   a function the slice does not cover, and the MIR lane falls back to the
   direct emitter for it. This keeps the strangler incremental: the slice
   grows, the fallback shrinks.
+
+`while` loops admit `break` and `continue` in the body: the direct path
+desugars both into flag assignments plus guards the slice already
+lowers, so the lowerer only has to keep the block ids and label numbers
+of nested control flow aligned with that path.
 - `lower_function(fn)`: one IR function to a `MirFunction` built through
   `MirBuilder`, so construction invariants hold by construction.
 - `lower_module(module)`: every in-slice function, as a `MirModule`. A
@@ -248,10 +253,10 @@ def supported_stmt(stmt: Dict[str, Any]) -> bool:
         return True
     if kind == "while":
         # The condition is a scalar compare or bool: a `MIR_BR` reads an
-        # i1, which a compare or a bool name/const already is. No
-        # break/continue/else in this slice: the body is plain leaf
-        # statements, so the loop lowers to a header block, a body block
-        # and an exit block with no interior control flow to route.
+        # i1, which a compare or a bool name/const already is. The body
+        # is leaf statements; a `while ... else` stays out of the slice
+        # (the desugared shape carries no `orelse` key on the while, so
+        # an else on the source loop never reaches this walk).
         if not supported_expr(stmt["cond"]):
             return False
         body: list[Dict[str, Any]] = stmt["body"]
@@ -319,6 +324,14 @@ class _FnLowerer:
     slots: Dict[str, int]
     local_types: Dict[str, str]
     slot_vids: Dict[str, int]
+    # The direct emitter's label counter: `fresh()` hands out one number
+    # per label, in statement pre-order. The lowerer reserves the same
+    # numbers so the emitted labels land on the direct path's.
+    next_label: int
+    # The instruction index of each block's terminator, keyed by block
+    # id. A forward jump's operand is rewritten once the block it names
+    # opens, and the terminator is the block's last instruction.
+    block_terminator: Dict[int, int]
 
     def __init__(self, fn: Dict[str, Any]) -> None:
         self.fn = fn
@@ -326,6 +339,58 @@ class _FnLowerer:
         self.slots = {}
         self.local_types = {}
         self.slot_vids = {}
+        self.next_label = 0
+        self.block_terminator = {}
+
+    def patch_jmp(self, bid: int, target: int) -> None:
+        """Point block `bid`'s forward `MIR_JMP` at `target`.
+
+        The direct emitter allocates its labels lazily (`fresh` at the
+        line that emits the jump), so a nested `if` shifts the block ids
+        a precomputed forward jump would name. The lowerer emits the jump
+        with a placeholder and rewrites the operand, and the block's
+        successor edge, once the target's id is final.
+        """
+        fn = self.builder.fn
+        block = fn.blocks[bid]
+        i = self.block_terminator[bid]
+        fn.arg1[i] = target
+        block.succ1 = target
+
+    def patch_br_false(self, bid: int, target: int) -> None:
+        """Point block `bid`'s `MIR_BR` false edge at `target`.
+
+        The header of an `if` or `while` names its join or exit block
+        before the arm lowers; a nested `if` inside the arm shifts the
+        construction-order id, so the edge is rewritten once the target's
+        id is final.
+        """
+        fn = self.builder.fn
+        block = fn.blocks[bid]
+        i = self.block_terminator[bid]
+        fn.arg2[i] = target
+        block.succ2 = target
+
+    def _record_terminator(self) -> None:
+        """Note the current block's terminator index.
+
+        The builder's `emit_jmp`/`emit_br` do not return the instruction
+        index, so the index is the last one appended.
+        """
+        current = self.builder.current
+        if current is None:
+            raise MirLowerError("no open block to terminate")
+        self.block_terminator[current.bid] = len(self.builder.fn.ops) - 1
+
+    def reserve_label(self) -> int:
+        """Reserve the next direct-path label number.
+
+        The direct emitter's `fresh()` increments its counter before it
+        returns the label, so the first label is 1. The entry block has
+        no label.
+        """
+        self.next_label = self.next_label + 1
+        return self.next_label
 
     def run(self) -> MirFunction:
         builder: MirBuilder = self.builder
@@ -408,28 +473,50 @@ class _FnLowerer:
         The join block takes the merge of the two arms' effects through
         ordinary stores to the shared slots; no value flows through a
         block argument in this slice, so the branch binds nothing.
+
+        The three labels are reserved before the arms lower, matching
+        the direct emitter's `fresh()` order (then, else, merge). The
+        block ids do not: a nested `if` inside an arm opens blocks of
+        its own, so the arms' forward jumps and the header's false edge
+        are rewritten once the real ids are final.
         """
         builder = self.builder
         cond = self.emit_expr(stmt["cond"])
+        then_lid = self.reserve_label()
+        else_lid = self.reserve_label()
+        merge_lid = self.reserve_label()
         then_id = len(builder.fn.blocks)
-        else_id = then_id + 1
-        merge_id = then_id + 2
-        builder.emit_br(cond, then_id, else_id, [], [])
-        builder.start_block()
+        builder.emit_br(cond, then_id, -1, [], [])
+        self._record_terminator()
+        builder.start_block(hint="then", label_id=then_lid)
         then_body: list[Dict[str, Any]] = stmt["then"]
         self.emit_body(then_body)
         then_dead = builder.terminated
+        # The arm's jump to the join lives in the arm's last block: a
+        # nested `if` inside the arm leaves its own join block open, and
+        # the direct path continues the arm there.
+        then_last = builder.current.bid
         if not then_dead:
-            builder.emit_jmp(merge_id)
-        builder.start_block()
+            builder.emit_jmp(-1)
+            self._record_terminator()
+        else_id = len(builder.fn.blocks)
+        self.patch_br_false(then_id - 1, else_id)
+        builder.start_block(hint="else", label_id=else_lid)
         else_body: list[Dict[str, Any]] = stmt["else"]
         self.emit_body(else_body)
         else_dead = builder.terminated
+        else_last = builder.current.bid
         if not else_dead:
-            builder.emit_jmp(merge_id)
+            builder.emit_jmp(-1)
+            self._record_terminator()
         if then_dead and else_dead:
             return
-        builder.start_block()
+        merge_id = len(builder.fn.blocks)
+        if not then_dead:
+            self.patch_jmp(then_last, merge_id)
+        if not else_dead:
+            self.patch_jmp(else_last, merge_id)
+        builder.start_block(hint="merge", label_id=merge_lid)
         orelse: list[Dict[str, Any]] = []
         if "orelse" in stmt:
             orelse = stmt["orelse"]
@@ -443,21 +530,30 @@ class _FnLowerer:
         labels land on the direct path's. The body's effects merge
         through the shared slots the same way the `if` arms' do: no
         value flows through a block argument in this slice.
+
+        The exit's block id is not final until the body lowers: a nested
+        `if` inside the body opens blocks of its own, so the header's
+        false edge is rewritten once the exit's id is final.
         """
         builder = self.builder
+        cond_lid = self.reserve_label()
+        body_lid = self.reserve_label()
+        end_lid = self.reserve_label()
         cond_id = len(builder.fn.blocks)
         body_id = cond_id + 1
-        end_id = cond_id + 2
         builder.emit_jmp(cond_id)
-        builder.start_block(hint="while.cond")
+        self._record_terminator()
+        builder.start_block(hint="while.cond", label_id=cond_lid)
         cond = self.emit_expr(stmt["cond"])
-        builder.emit_br(cond, body_id, end_id, [], [])
-        builder.start_block(hint="while.body")
+        builder.emit_br(cond, body_id, -1, [], [])
+        self._record_terminator()
+        builder.start_block(hint="while.body", label_id=body_lid)
         body: list[Dict[str, Any]] = stmt["body"]
         self.emit_body(body)
         if not builder.terminated:
             builder.emit_jmp(cond_id)
-        builder.start_block(hint="while.end")
+        self.patch_br_false(cond_id, len(builder.fn.blocks))
+        builder.start_block(hint="while.end", label_id=end_lid)
 
     def store(self, name: str, value: int) -> None:
         """A store to `name`: a `MIR_COPY` into the name's slot value.

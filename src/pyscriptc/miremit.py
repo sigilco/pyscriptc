@@ -427,8 +427,12 @@ class MirEmitter:
         fn = self.fn
         if fn is None:
             raise IRError("no function walk is active")
-        hint: str = fn.blocks[bid].hint
+        block = fn.blocks[bid]
+        hint: str = block.hint
         if hint:
+            lid: int = block.label_id
+            if lid > 0:
+                return f"L{lid}.{hint}"
             return f"L{bid}.{hint}"
         k, which = divmod(bid - 1, 3)
         return f"L{3 * k + which + 1}.{'then' if which == 0 else 'else' if which == 1 else 'merge'}"
