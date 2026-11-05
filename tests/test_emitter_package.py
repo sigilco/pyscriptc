@@ -193,6 +193,18 @@ def test_the_seam_knows_the_typed_accessors() -> None:
     assert _ir._opt_str_or_none({}, "file") is None
 
 
+def test_the_seam_knows_the_container_accessors() -> None:
+    """The typed IR reads a stdlib emitter needs: element kinds and optionality."""
+
+    from pyscriptc.emit import _ir
+
+    assert _ir._elem_kind({"kind": "list", "elem": {"kind": "int"}}) == "int"
+    assert _ir._elem_kind({"kind": "dict", "elem": {"kind": "str"}}) == "str"
+    assert _ir._is_optional({"kind": "int", "optional": True}) is True
+    assert _ir._is_optional({"kind": "int"}) is False
+    assert _ir._is_optional({"kind": "int", "optional": False}) is False
+
+
 def test_every_emitter_area_lives_in_its_own_module() -> None:
     """Each area of the emission owns one file, so a change has one home."""
 
