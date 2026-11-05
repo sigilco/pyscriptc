@@ -28,6 +28,12 @@ def _mk_type(typ: dict[str, Any]) -> Any:
     return dict_to_type(typ)
 
 
+def _type_rt(typ: dict[str, Any]) -> dict[str, Any]:
+    """The exact type dict one dict-IR type spells, through the T record."""
+
+    return node_to_dict(dict_to_type(typ))
+
+
 def _type_kind(typ: dict[str, Any]) -> str:
     """The kind tag of a type record: int, float, bool, str, bytes, list,
     dict, class, exc, func, any or none. Every type dispatch reads the
