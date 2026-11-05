@@ -35,7 +35,7 @@ from typing import Any, Dict
 
 from pyscriptc.dwarf import DwarfEmitter
 from pyscriptc.emit._ir import _fn_symbol, _llvm_double, _llvm_type, _safe
-from pyscriptc.emit.llvm import Emitter
+from pyscriptc.emit.llvm._driver import Emitter
 from pyscriptc.errors import IRError
 from pyscriptc.ir import assert_same_cpython
 from pyscriptc.mir import (
@@ -67,8 +67,6 @@ from pyscriptc.mir import (
     MIR_SUBD,
     MIR_SUBW,
     MIR_W,
-    OP_ARITY,
-    OP_RESULT_TYPE,
     MirBlock,
     MirConst,
     MirFunction,
@@ -115,6 +113,67 @@ _LLVM_D = {MIR_ADDD: "fadd", MIR_SUBD: "fsub", MIR_MULD: "fmul", MIR_NEGD: "fneg
 # module-level table in `mir.py` binds a global slot, and slots do not
 # ride the package export table a cross-module import resolves against.
 _MIR_TERMINATORS: list[int] = [MIR_JMP, MIR_BR, MIR_RET]
+
+# The op tables, spelled here for the same reason as `_MIR_TERMINATORS`:
+# `mir.py`'s module-level tables bind global slots, and slots do not ride
+# the package export table. The keys are the imported op constants, the
+# values mirror `mir.py`'s tables; a drift is a mirverify or A/B
+# byte-identity failure, not a silent wrong emission.
+_OP_ARITY: Dict[int, int] = {
+    MIR_NOTB: 1,
+    MIR_JMP: 0,
+    MIR_BR: 1,
+    MIR_RET: 1,
+    MIR_ADDW: 2,
+    MIR_SUBW: 2,
+    MIR_MULW: 2,
+    MIR_ADDD: 2,
+    MIR_SUBD: 2,
+    MIR_MULD: 2,
+    MIR_NEGW: 1,
+    MIR_NEGD: 1,
+    MIR_CLTW: 2,
+    MIR_CLEW: 2,
+    MIR_CGTW: 2,
+    MIR_CGEW: 2,
+    MIR_CEQW: 2,
+    MIR_CNEW: 2,
+    MIR_CLTD: 2,
+    MIR_CLED: 2,
+    MIR_CGTD: 2,
+    MIR_CGED: 2,
+    MIR_CEQD: 2,
+    MIR_CNED: 2,
+    MIR_COPY: 1,
+}
+
+_OP_RESULT_TYPE: Dict[int, int] = {
+    MIR_JMP: MIR_W,
+    MIR_BR: MIR_W,
+    MIR_RET: MIR_W,
+    MIR_ADDW: MIR_W,
+    MIR_SUBW: MIR_W,
+    MIR_MULW: MIR_W,
+    MIR_ADDD: MIR_D,
+    MIR_SUBD: MIR_D,
+    MIR_MULD: MIR_D,
+    MIR_NEGW: MIR_W,
+    MIR_NEGD: MIR_D,
+    MIR_CLTW: MIR_B,
+    MIR_CLEW: MIR_B,
+    MIR_CGTW: MIR_B,
+    MIR_CGEW: MIR_B,
+    MIR_CEQW: MIR_B,
+    MIR_CNEW: MIR_B,
+    MIR_CLTD: MIR_B,
+    MIR_CLED: MIR_B,
+    MIR_CGTD: MIR_B,
+    MIR_CGED: MIR_B,
+    MIR_CEQD: MIR_B,
+    MIR_CNED: MIR_B,
+    MIR_NOTB: MIR_B,
+    MIR_COPY: MIR_W,
+}
 
 
 def mir_opt_in() -> bool:
@@ -430,7 +489,7 @@ class MirEmitter:
             # operand slot of a unary op carries the `-1` sentinel that
             # must not render as an argument.
             args = [self.operand(fn, a1)]
-            if OP_ARITY[op] == 2:
+            if _OP_ARITY[op] == 2:
                 args.append(self.operand(fn, a2))
             rendered = ", ".join(f"i64 {arg}" for arg in args)
             reg = self.tmp_reg()
@@ -582,7 +641,7 @@ def _result_tag(fn: MirFunction, i: int) -> int:
     op = fn.ops[i]
     if op == MIR_COPY:
         return copy_result_type(fn, i)
-    tag: int | None = OP_RESULT_TYPE.get(op)
+    tag: int | None = _OP_RESULT_TYPE.get(op)
     if tag is None:
         raise IRError(f"no result tag for op {op}")
     return tag
@@ -619,4 +678,7 @@ def emit_llvm_mir(
     source_file: str = module["sourceFile"]
     dwarf = DwarfEmitter(source_file) if debug_info else None
     emitter: MirEmitter = MirEmitter(module, dwarf)
-    return emitter.emit(call, [] if args is None else args, standalone, library)
+    call_args: list[Any] = []
+    if args is not None:
+        call_args = args
+    return emitter.emit(call, call_args, standalone, library)
