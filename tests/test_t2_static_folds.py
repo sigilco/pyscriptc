@@ -18,6 +18,7 @@ from pathlib import Path
 from tests.test_gates import oracle, run_cli, write_case
 
 from pyscriptc.lower import lower_source
+from pyscriptc.tirserde import dict_to_node
 
 
 def _oracle_diff(tmp_path: Path, name: str, source: str, func: str = "probe") -> None:
@@ -128,14 +129,32 @@ def probe() -> int:
     found: list[dict[str, object]] = []
 
     def walk(node: object) -> None:
-        if isinstance(node, dict):
-            if node.get("kind") == "call":
-                found.append(node)
-            for value in node.values():
+        converted = dict_to_node(node)
+        if getattr(converted, "kind", None) == "call":
+            found.append(converted)
+            return
+        if isinstance(converted, dict):
+            if converted.get("kind") == "call":
+                found.append(converted)
+            for value in converted.values():
                 walk(value)
-        elif isinstance(node, list):
-            for item in node:
+        elif isinstance(converted, list):
+            for item in converted:
                 walk(item)
+        elif hasattr(converted, "kind"):
+            for child in (
+                converted.value,
+                converted.left,
+                converted.right,
+                converted.operand,
+                converted.expr,
+                converted.args,
+                converted.body,
+                converted.then,
+                converted.else_,
+            ):
+                if child is not None:
+                    walk(child)
 
     walk(body)
     assert found == []

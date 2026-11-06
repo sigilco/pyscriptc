@@ -23,6 +23,7 @@ import pytest
 from tests.test_gates import compile_run, oracle, write_case
 
 from pyscriptc.lower import lower_source
+from pyscriptc.tirserde import dict_to_node, dict_to_type
 
 
 def _entry(mod: dict) -> dict | None:
@@ -40,11 +41,10 @@ def probe(a: int, **kwargs: int) -> int:
     entry = _entry(mod)
     assert entry is not None
     params = entry["params"]
-    assert params[-1] == {
-        "name": "kwargs",
-        "type": {"kind": "dict", "key": {"kind": "str"}, "value": {"kind": "int"}},
-        "kwarg": True,
-    }
+    packed = params[-1]
+    typ = dict_to_type(packed["type"])
+    assert packed["name"] == "kwargs" and packed.get("kwarg") is True
+    assert typ.kind == "dict" and typ.key.kind == "str" and typ.value.kind == "int"
 
 
 def test_call_site_binds_leftover_keywords_in_declaration_order() -> None:
@@ -58,11 +58,11 @@ def run() -> int:
     )
     assert mod["fences"] == []
     run = next(fn for fn in mod["functions"] if fn["name"] == "run")
-    call = run["body"][-1]["value"]
-    packed = call["args"][-1]
-    assert packed["kind"] == "dict"
-    assert [pair["key"]["value"] for pair in packed["pairs"]] == ["x", "y"]
-    assert [pair["value"]["value"] for pair in packed["pairs"]] == ["2", "3"]
+    call = dict_to_node(run["body"][-1]).value
+    packed = call.args[-1]
+    assert packed.kind == "dict"
+    assert [pair.key.svalue for pair in packed.pairs] == ["x", "y"]
+    assert [pair.value.svalue for pair in packed.pairs] == ["2", "3"]
 
 
 def test_keyword_matching_a_declared_param_does_not_pack() -> None:
@@ -76,10 +76,10 @@ def run() -> int:
     )
     assert mod["fences"] == []
     run = next(fn for fn in mod["functions"] if fn["name"] == "run")
-    call = run["body"][-1]["value"]
-    assert [arg["value"] for arg in call["args"][:2]] == ["1", "2"]
-    packed = call["args"][-1]
-    assert [pair["key"]["value"] for pair in packed["pairs"]] == ["c"]
+    call = dict_to_node(run["body"][-1]).value
+    assert [arg.svalue for arg in call.args[:2]] == ["1", "2"]
+    packed = call.args[-1]
+    assert [pair.key.svalue for pair in packed.pairs] == ["c"]
 
 
 def test_empty_kwargs_packs_an_empty_dict() -> None:
@@ -93,13 +93,11 @@ def run() -> int:
     )
     assert mod["fences"] == []
     run = next(fn for fn in mod["functions"] if fn["name"] == "run")
-    call = run["body"][-1]["value"]
-    assert call["args"][-1] == {
-        "kind": "dict",
-        "pairs": [],
-        "type": {"kind": "dict", "key": {"kind": "str"}, "value": {"kind": "int"}},
-        "span": call["args"][-1]["span"],
-    }
+    call = dict_to_node(run["body"][-1]).value
+    packed = call.args[-1]
+    assert packed.kind == "dict"
+    assert packed.pairs == []
+    assert packed.type.kind == "dict" and packed.type.key.kind == "str" and packed.type.value.kind == "int"
 
 
 def test_kwargs_and_varargs_pack_together() -> None:
@@ -113,9 +111,9 @@ def run() -> int:
     )
     assert mod["fences"] == []
     run = next(fn for fn in mod["functions"] if fn["name"] == "run")
-    call = run["body"][-1]["value"]
-    assert call["args"][1]["kind"] == "list"
-    assert call["args"][2]["kind"] == "dict"
+    call = dict_to_node(run["body"][-1]).value
+    assert call.args[1].kind == "list"
+    assert call.args[2].kind == "dict"
 
 
 def test_starred_list_display_fills_the_known_signature() -> None:
@@ -129,8 +127,8 @@ def run() -> int:
     )
     assert mod["fences"] == []
     run = next(fn for fn in mod["functions"] if fn["name"] == "run")
-    call = run["body"][-1]["value"]
-    assert [arg["kind"] for arg in call["args"]] == ["const", "const"]
+    call = dict_to_node(run["body"][-1]).value
+    assert [arg.kind for arg in call.args] == ["const", "const"]
 
 
 def test_starred_tuple_display_fills_the_known_signature() -> None:
@@ -144,8 +142,8 @@ def run() -> int:
     )
     assert mod["fences"] == []
     run = next(fn for fn in mod["functions"] if fn["name"] == "run")
-    call = run["body"][-1]["value"]
-    assert [arg["kind"] for arg in call["args"]] == ["const", "const"]
+    call = dict_to_node(run["body"][-1]).value
+    assert [arg.kind for arg in call.args] == ["const", "const"]
 
 
 def test_starred_runtime_length_operand_stays_fenced() -> None:
@@ -186,8 +184,8 @@ def run() -> int:
     )
     assert mod["fences"] == []
     run = next(fn for fn in mod["functions"] if fn["name"] == "run")
-    call = run["body"][-1]["value"]
-    assert [arg["kind"] for arg in call["args"]] == ["const", "const", "const"]
+    call = dict_to_node(run["body"][-1]).value
+    assert [arg.kind for arg in call.args] == ["const", "const", "const"]
 
 
 def test_starred_display_into_varargs_matches_cpython(tmp_path: Path) -> None:
@@ -222,8 +220,8 @@ def run() -> int:
     )
     assert mod["fences"] == []
     run = next(fn for fn in mod["functions"] if fn["name"] == "run")
-    call = run["body"][-1]["value"]
-    assert [arg["kind"] for arg in call["args"]] == ["const", "const"]
+    call = dict_to_node(run["body"][-1]).value
+    assert [arg.kind for arg in call.args] == ["const", "const"]
 
 
 def test_kwdisplay_runtime_operand_stays_fenced() -> None:
@@ -251,9 +249,9 @@ def run() -> int:
     )
     assert mod["fences"] == []
     run = next(fn for fn in mod["functions"] if fn["name"] == "run")
-    call = run["body"][-1]["value"]
-    assert call["args"][1]["kind"] == "dict"
-    assert [pair["key"]["value"] for pair in call["args"][1]["pairs"]] == ["z", "w"]
+    call = dict_to_node(run["body"][-1]).value
+    assert call.args[1].kind == "dict"
+    assert [pair.key.svalue for pair in call.args[1].pairs] == ["z", "w"]
 
 
 def test_kwdisplay_non_str_key_stays_fenced() -> None:
