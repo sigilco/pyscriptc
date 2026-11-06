@@ -76,9 +76,13 @@ def load_fixed_set(
 
 
 def lane_env(mir: bool) -> dict[str, str]:
+    """Compile environment for one lane. Direct sets `PYSC_MIR=0` so a parent opt-in cannot leak."""
     env = os.environ.copy()
-    env[MIR_ENV] = "1" if mir else "0"
+    src = str(ROOT / "src")
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = src if not existing else src + os.pathsep + existing
     env["PYTHONHASHSEED"] = "0"
+    env[MIR_ENV] = "1" if mir else "0"
     return env
 
 
@@ -104,7 +108,13 @@ def compile_lane(
         "-o",
         str(output),
     ]
-    return subprocess.run(command, capture_output=True, text=True, env=lane_env(mir))
+    return subprocess.run(
+        command,
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+        env=lane_env(mir),
+    )
 
 
 def _percentile(values: list[float], q: float) -> float:

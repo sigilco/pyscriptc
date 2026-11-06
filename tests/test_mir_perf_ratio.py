@@ -7,15 +7,19 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from scripts.mir_perf_ratio import (
     LANE_GROUPS,
     REFERENCE,
     compare_lanes,
+    lane_env,
     load_fixed_set,
     main,
     render_markdown,
     spread,
 )
+
+from pyscriptc.miremit import MIR_ENV
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -29,13 +33,21 @@ def test_fixed_set_is_kernel_stdlib_scripting_only() -> None:
     assert "math-loop" in names
     assert "script-slice" in names
     assert "threads" not in names
-    assert names == sorted(names) or names == [row["name"] for row in rows]
 
 
 def test_fixed_set_skips_island_and_fence() -> None:
     names = [row["name"] for row in load_fixed_set()]
     assert "socket-host" not in names
     assert "fenced-strip" not in names
+
+
+def test_lane_env_isolates_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(MIR_ENV, "1")
+    direct = lane_env(False)
+    mir = lane_env(True)
+    assert direct[MIR_ENV] == "0"
+    assert mir[MIR_ENV] == "1"
+    assert direct["PYTHONHASHSEED"] == "0"
 
 
 def test_spread_reports_iqr() -> None:
