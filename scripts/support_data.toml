@@ -37,6 +37,7 @@ ok = [
   'y: str = chr(n)',
   'a, c = divmod(n, 3)',
   'for i, v in enumerate(xs): pass',
+  'for i, ch in enumerate(s): pass',
   'y: int = getattr(p, "a")',
   'y: bool = hasattr(p, "a")',
   'y: str = hex(n)',
@@ -97,8 +98,7 @@ no = [["key= a function name", 'y: list[int] = sorted(xs, key=abs)', "PS2003"], 
 
 [[builtin]]
 names = ["zip"]
-ok = ['for i, v in zip(xs, ss): pass']
-no = [["more than 2 lists", 'y: int = len(list(zip(xs, xs, xs)))', "PS2003"]]
+ok = ['for i, v in zip(xs, ss): pass', 'y: int = len(list(zip(xs, xs, xs)))', 'for ch, n in zip(s, xs): pass']
 
 [[builtin]]
 names = ["filter"]
