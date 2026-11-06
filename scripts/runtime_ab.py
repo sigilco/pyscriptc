@@ -14,6 +14,7 @@ is reported as SKIP.
 Usage:
     uv run python scripts/runtime_ab.py
     uv run python scripts/runtime_ab.py path/to/prog.py --json
+    uv run python scripts/runtime_ab.py --json-out out.json --summary "$GITHUB_STEP_SUMMARY"
 """
 
 from __future__ import annotations
@@ -280,6 +281,38 @@ def render_table(rows: list[ProgramVerdict]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def render_summary(rows: list[ProgramVerdict]) -> str:
+    """Markdown per-program verdict table for a job summary. Report only."""
+    lines = [
+        "### Runtime A/B (direct vs MIR)",
+        "",
+        "Report only: no threshold. Each row is one program's stdout, stderr and exit compared across lanes.",
+        "",
+        "| program | slice | stdout | stderr | exit | verdict | note |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for row in rows:
+        stdout = stderr = exit_cell = "-"
+        if row.direct is not None and row.mir is not None:
+            stdout = "match" if row.direct.stdout == row.mir.stdout else "DIFF"
+            stderr = "match" if row.direct.stderr == row.mir.stderr else "DIFF"
+            if row.direct.returncode == row.mir.returncode:
+                exit_cell = str(row.direct.returncode)
+            else:
+                exit_cell = f"{row.direct.returncode}!={row.mir.returncode}"
+        note = row.note.replace("|", "\\|")
+        cell = f"{row.name} | {row.in_slice}/{row.functions} | {stdout} | {stderr}"
+        lines.append(f"| {cell} | {exit_cell} | {row.verdict} | {note} |")
+    passed = sum(1 for row in rows if row.verdict == PASS)
+    failed = sum(1 for row in rows if row.verdict == FAIL)
+    errors = sum(1 for row in rows if row.verdict == ERROR)
+    skipped = sum(1 for row in rows if row.verdict == SKIP)
+    lines.append("")
+    lines.append(f"{len(rows)} programs: {passed} {PASS}, {failed} {FAIL}, {errors} {ERROR}, {skipped} {SKIP}")
+    lines.append("")
+    return "\n".join(lines)
+
+
 def _exit_code(rows: list[ProgramVerdict]) -> int:
     if any(row.verdict in (FAIL, ERROR) for row in rows):
         return 1
@@ -297,6 +330,12 @@ def main(argv: list[str] | None = None) -> int:
         help="programs to compare (default: tests/fixtures/mir_leaf/*.py with an in-slice function)",
     )
     parser.add_argument("--json", action="store_true", help="print machine-readable rows instead of the table")
+    parser.add_argument("--json-out", type=Path, help="write machine-readable rows to this path")
+    parser.add_argument(
+        "--summary",
+        type=Path,
+        help="append a markdown per-program verdict table to this file (GITHUB_STEP_SUMMARY)",
+    )
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT, help="compile timeout in seconds")
     parser.add_argument("--run-timeout", type=float, default=RUN_TIMEOUT, help="binary run timeout in seconds")
     args = parser.parse_args(argv)
@@ -308,11 +347,17 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     programs = [path.resolve() for path in args.programs] if args.programs else None
     rows = compare_programs(programs, timeout=args.timeout, run_timeout=args.run_timeout)
+    payload = {
+        "rows": [row.as_dict() for row in rows],
+        "exit": _exit_code(rows),
+    }
+    if args.json_out is not None:
+        args.json_out.parent.mkdir(parents=True, exist_ok=True)
+        args.json_out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    if args.summary is not None:
+        with args.summary.open("a", encoding="utf-8") as handle:
+            handle.write(render_summary(rows))
     if args.json:
-        payload = {
-            "rows": [row.as_dict() for row in rows],
-            "exit": _exit_code(rows),
-        }
         print(json.dumps(payload, indent=2))
     else:
         sys.stdout.write(render_table(rows))

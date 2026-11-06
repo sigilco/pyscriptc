@@ -8,6 +8,7 @@ change either lane.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -27,6 +28,7 @@ from scripts.runtime_ab import (
     lane_env,
     leaf_fixture_paths,
     main,
+    render_summary,
     render_table,
     slice_counts,
 )
@@ -92,6 +94,62 @@ def test_render_table_has_per_program_verdict() -> None:
     assert PASS in table
     assert SKIP in table
     assert "2 programs:" in table
+
+
+def test_render_summary_has_per_program_verdict() -> None:
+    rows = [
+        ProgramVerdict(
+            LEAF_DIR / "leafint.py",
+            PASS,
+            3,
+            4,
+            "match",
+            Observation(b"7\n", b"", 0),
+            Observation(b"7\n", b"", 0),
+        ),
+        ProgramVerdict(LEAF_DIR / "skip.py", SKIP, 0, 1, "no function where supported_fn holds"),
+    ]
+    text = render_summary(rows)
+    assert "### Runtime A/B" in text
+    assert "| program |" in text
+    assert "leafint.py" in text
+    assert PASS in text
+    assert SKIP in text
+    assert "Report only" in text
+
+
+def test_json_out_and_summary_flags(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("scripts.runtime_ab.has_c_toolchain", lambda: True)
+    monkeypatch.setattr(
+        "scripts.runtime_ab.compare_programs",
+        lambda programs, timeout, run_timeout: [
+            ProgramVerdict(LEAF_DIR / "leafint.py", PASS, 1, 1, "match"),
+        ],
+    )
+    json_out = tmp_path / "ab.json"
+    summary = tmp_path / "summary.md"
+    summary.write_text("prefix\n", encoding="utf-8")
+    code = main(["--json-out", str(json_out), "--summary", str(summary)])
+    assert code == 0
+    payload = json.loads(json_out.read_text(encoding="utf-8"))
+    assert payload["rows"][0]["verdict"] == PASS
+    text = summary.read_text(encoding="utf-8")
+    assert text.startswith("prefix\n")
+    assert "leafint.py" in text
+    assert "### Runtime A/B" in text
+
+
+def test_nightly_wires_runtime_ab_as_report_only_lane() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "nightly.yml").read_text(encoding="utf-8")
+    assert "scripts/runtime_ab.py" in workflow
+    assert "--json-out nightly/runtime-ab.json" in workflow
+    assert '--summary "$GITHUB_STEP_SUMMARY"' in workflow
+    assert "runtime-ab:" in workflow
+    assert "continue-on-error: true" in workflow
+    # Report only: the failure-issue job does not wait on this lane.
+    report = workflow.split("report-failure:")[-1]
+    assert "needs: [visible-score, boxed-ledger, embed-acceptance]" in report
+    assert "runtime-ab" not in report.split("if:")[0]
 
 
 def test_unsupported_program_skips(tmp_path: Path) -> None:
