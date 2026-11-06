@@ -65,8 +65,10 @@ MIR_W = 0
 MIR_D = 1
 MIR_B = 2
 # The str value tag (`mir.py`'s MIR_S): a `%ps.str` aggregate at run time.
-# 3 is MIR_VOID and 5 is the reserved MIR_P, so the str tag is 4.
+# 3 is MIR_VOID, so the str tag is 4; 5 is the shared heap-pointer tag
+# (`mir.py`'s MIR_P) list values ride.
 MIR_S = 4
+MIR_P = 5
 
 MIR_ADDW = 4
 MIR_SUBW = 5
@@ -95,6 +97,11 @@ MIR_RAISE = 27
 MIR_CALL = 28
 MIR_EXTWD = 24
 MIR_ANDW = 29
+MIR_NEWSEQ = 30
+MIR_SEQGET = 31
+MIR_SEQSET = 32
+MIR_SEQPUSH = 33
+MIR_SEQLEN = 34
 
 # The void result tag (`mir.py`'s MIR_VOID): a function returning None has
 # no return value. Spelled as the int literal per the self-host spell, so a
@@ -169,8 +176,31 @@ _D_HELPER_OPS = {
     "**": "fpow",
 }
 
-_EXPR_KINDS = frozenset({"const", "name", "binary", "compare", "unary", "call", "cast"})
-_STMT_KINDS = frozenset({"assign", "expr", "return", "pass", "if", "while", "raise"})
+_EXPR_KINDS = frozenset({"const", "name", "binary", "compare", "unary", "call", "cast", "list", "subscript"})
+_STMT_KINDS = frozenset({"assign", "expr", "return", "pass", "if", "while", "raise", "setitem"})
+
+
+def supported_type(typ: Dict[str, Any]) -> bool:
+    """The slice test for one HIR type record.
+
+    Scalars ride their existing tags (`str` rides `MIR_S`); `list[int]`
+    and `list[float]` ride the shared `MIR_P` pointer tag. The element
+    type stays in HIR: MIR sees only the pointer shape, so nested or
+    non-scalar element lists stay out.
+    """
+    kind: str = typ["kind"]
+    if kind in ("int", "float", "bool", "str"):
+        return True
+    if kind != "list":
+        return False
+    elem: Dict[str, Any] = typ["elem"]
+    ekind: str = elem["kind"]
+    return ekind in ("int", "float")
+
+
+def _is_supported_list(typ: Dict[str, Any]) -> bool:
+    tkind: str = typ["kind"]
+    return tkind == "list" and supported_type(typ)
 
 
 def supported_expr(expr: Dict[str, Any]) -> bool:
@@ -191,9 +221,25 @@ def supported_expr(expr: Dict[str, Any]) -> bool:
                 return False
         return True
     if kind == "name":
-        typ = expr["type"]
-        nkind: str = typ["kind"]
-        return nkind in ("int", "float", "bool", "str")
+        return supported_type(expr["type"])
+    if kind == "list":
+        if not _is_supported_list(expr["type"]):
+            return False
+        elems: list[Dict[str, Any]] = expr["elems"]
+        for elem in elems:
+            if not supported_expr(elem):
+                return False
+        return True
+    if kind == "subscript":
+        value: Dict[str, Any] = expr["value"]
+        index: Dict[str, Any] = expr["index"]
+        if not _is_supported_list(value["type"]):
+            return False
+        itype: Dict[str, Any] = index["type"]
+        ikind: str = itype["kind"]
+        if ikind != "int":
+            return False
+        return supported_expr(value) and supported_expr(index)
     if kind == "unary":
         typ = expr["type"]
         tkind = typ["kind"]
@@ -250,17 +296,37 @@ def _supported_call(expr: Dict[str, Any]) -> bool:
     """
     callee: Dict[str, Any] = expr["callee"]
     ckind: str = callee["kind"]
-    if ckind != "function":
-        return False
     args: list[Dict[str, Any]] = expr["args"]
-    for arg in args:
-        atyp: Dict[str, Any] = arg["type"]
-        akind: str = atyp["kind"]
-        if akind not in ("int", "float", "bool"):
-            return False
-        if not supported_expr(arg):
-            return False
-    return True
+    if ckind == "function":
+        for arg in args:
+            atyp: Dict[str, Any] = arg["type"]
+            akind: str = atyp["kind"]
+            if akind not in ("int", "float", "bool") and not _is_supported_list(atyp):
+                return False
+            if not supported_expr(arg):
+                return False
+        return True
+    if ckind == "builtin":
+        cname: str = callee["name"]
+        if cname == "len" and len(args) == 1:
+            arg: Dict[str, Any] = args[0]
+            return _is_supported_list(arg["type"]) and supported_expr(arg)
+        return False
+    if ckind == "module":
+        cmodule: str = callee["module"]
+        mname: str = callee["name"]
+        if cmodule == "builtins" and mname == "list.append":
+            symbol: str = expr["symbol"]
+            if symbol == "ps_list_push" and len(args) == 2:
+                seq_arg: Dict[str, Any] = args[0]
+                elem_arg: Dict[str, Any] = args[1]
+                return (
+                    _is_supported_list(seq_arg["type"])
+                    and supported_type(elem_arg["type"])
+                    and supported_expr(seq_arg)
+                    and supported_expr(elem_arg)
+                )
+    return False
 
 
 def _supported_binary(expr: Dict[str, Any]) -> bool:
@@ -375,6 +441,17 @@ def supported_stmt(stmt: Dict[str, Any]) -> bool:
                 return _supported_call(rvalue)
             return False
         return supported_expr(rvalue)
+    if kind == "setitem":
+        container: Dict[str, Any] = stmt["container"]
+        index_node: Dict[str, Any] = stmt["index"]
+        item_value: Dict[str, Any] = stmt["value"]
+        if not _is_supported_list(container["type"]):
+            return False
+        itype: Dict[str, Any] = index_node["type"]
+        ikind: str = itype["kind"]
+        if ikind != "int" or not supported_type(item_value["type"]):
+            return False
+        return supported_expr(container) and supported_expr(index_node) and supported_expr(item_value)
     if kind == "if":
         if not supported_expr(stmt["cond"]):
             return False
@@ -434,19 +511,17 @@ def supported_fn(fn: Dict[str, Any]) -> bool:
             return False
     rt: Dict[str, Any] = fn["returnType"]
     rtk: str = rt["kind"]
-    if rtk != "none" and rtk not in ("int", "float", "bool", "str"):
+    if rtk != "none" and not supported_type(rt):
         return False
     params: list[Dict[str, Any]] = fn["params"]
     for param in params:
-        ptyp: Dict[str, Any] = param["type"]
-        pk: str = ptyp["kind"]
-        if pk not in ("int", "float", "bool", "str"):
+        if not supported_type(param["type"]):
             return False
     locals_list: list[Dict[str, Any]] = fn["locals"]
     for local in locals_list:
         ltyp: Dict[str, Any] = local["type"]
         lk: str = ltyp["kind"]
-        if lk != "none" and lk not in ("int", "float", "bool", "str"):
+        if lk != "none" and not supported_type(ltyp):
             return False
     body: list[Dict[str, Any]] = fn["body"]
     for stmt in body:
@@ -494,6 +569,15 @@ def _calls_in_slice_stmt(stmt: Dict[str, Any], callees: Dict[str, Dict[str, Any]
     if kind == "return":
         rvalue: Dict[str, Any] = stmt["value"]
         return _calls_in_slice_expr(rvalue, callees)
+    if kind == "setitem":
+        set_container: Dict[str, Any] = stmt["container"]
+        set_index: Dict[str, Any] = stmt["index"]
+        set_value: Dict[str, Any] = stmt["value"]
+        if not _calls_in_slice_expr(set_container, callees):
+            return False
+        if not _calls_in_slice_expr(set_index, callees):
+            return False
+        return _calls_in_slice_expr(set_value, callees)
     if kind == "if":
         if not _calls_in_slice_expr(stmt["cond"], callees):
             return False
@@ -521,17 +605,23 @@ def _calls_in_slice_expr(expr: Dict[str, Any], callees: Dict[str, Dict[str, Any]
     kind: str = expr["kind"]
     if kind == "call":
         callee: Dict[str, Any] = expr["callee"]
+        args: list[Dict[str, Any]] = expr["args"]
+        for arg in args:
+            if not _calls_in_slice_expr(arg, callees):
+                return False
+        ckind: str = callee["kind"]
+        if ckind != "function":
+            # `len(list)` and `list.append` are runtime-helper calls the
+            # emitter renders directly; they have no same-module callee to
+            # admit.
+            return True
         name: str = callee["name"]
         target: Dict[str, Any] | None = callees.get(name)
         if target is None:
             return False
-        args: list[Dict[str, Any]] = expr["args"]
         params: list[Dict[str, Any]] = target["params"]
         if len(args) != len(params):
             return False
-        for arg in args:
-            if not _calls_in_slice_expr(arg, callees):
-                return False
         return True
     if kind == "binary":
         if not _calls_in_slice_expr(expr["left"], callees):
@@ -545,6 +635,16 @@ def _calls_in_slice_expr(expr: Dict[str, Any], callees: Dict[str, Dict[str, Any]
         return _calls_in_slice_expr(expr["operand"], callees)
     if kind == "cast":
         return _calls_in_slice_expr(expr["value"], callees)
+    if kind == "list":
+        elems: list[Dict[str, Any]] = expr["elems"]
+        for elem in elems:
+            if not _calls_in_slice_expr(elem, callees):
+                return False
+        return True
+    if kind == "subscript":
+        if not _calls_in_slice_expr(expr["value"], callees):
+            return False
+        return _calls_in_slice_expr(expr["index"], callees)
     return True
 
 
@@ -555,6 +655,8 @@ def _param_tag(kind: str) -> int:
         return MIR_B
     if kind == "str":
         return MIR_S
+    if kind == "list":
+        return MIR_P
     return MIR_W
 
 
@@ -742,6 +844,15 @@ class _FnLowerer:
             value = self.emit_expr(value_expr)
             self.store(target, value)
             return
+        if kind == "setitem":
+            # The direct path evaluates container, index, then value, then
+            # stashes the value cell and calls `ps_seq_set`; the MIR keeps
+            # the same order and parks the stored value in `arg3`.
+            container = self.emit_expr(stmt["container"])
+            index = self.emit_expr(stmt["index"])
+            item = self.emit_expr(stmt["value"])
+            self.builder.emit(MIR_SEQSET, -1, container, index, item)
+            return
         if kind == "expr":
             expr: Dict[str, Any] = stmt["expr"]
             if self.is_none(expr):
@@ -918,6 +1029,10 @@ class _FnLowerer:
             return self.emit_call_expr(expr)
         if kind == "cast":
             return self.emit_cast(expr)
+        if kind == "list":
+            return self.emit_list(expr)
+        if kind == "subscript":
+            return self.emit_subscript(expr)
         raise MirLowerError(f"the MIR leaf slice cannot lower expression {kind}")
 
     def emit_call_expr(self, expr: Dict[str, Any]) -> int:
@@ -930,12 +1045,28 @@ class _FnLowerer:
         return). A void call returns -1: the direct path binds nothing.
         """
         callee: Dict[str, Any] = expr["callee"]
+        ckind: str = callee["kind"]
+        args: list[Dict[str, Any]] = expr["args"]
+        if ckind == "builtin":
+            cname: str = callee["name"]
+            if cname == "len":
+                seq = self.emit_expr(args[0])
+                return self.builder.emit_val(MIR_SEQLEN, seq, -1, MIR_W)
+        if ckind == "module":
+            cmodule: str = callee["module"]
+            mname: str = callee["name"]
+            if cmodule == "builtins" and mname == "list.append":
+                symbol: str = expr["symbol"]
+                if symbol == "ps_list_push":
+                    seq = self.emit_expr(args[0])
+                    item = self.emit_expr(args[1])
+                    self.builder.emit(MIR_SEQPUSH, -1, seq, item)
+                    return -1
         name: str = callee["name"]
         target: Dict[str, Any] | None = self.callees.get(name)
         if target is None:
             raise MirLowerError(f"the MIR leaf slice has no lowered callee {name}")
         callee_vid: int = self.builder.add_callee(name)
-        args: list[Dict[str, Any]] = expr["args"]
         values: list[int] = []
         for arg in args:
             values.append(self.emit_expr(arg))
@@ -946,6 +1077,34 @@ class _FnLowerer:
             self.builder.emit_call(callee_vid, values, MIR_VOID)
             return -1
         return self.builder.emit_call(callee_vid, values, tag)
+
+    def emit_list(self, expr: Dict[str, Any]) -> int:
+        """A list literal: evaluate the elements, `MIR_NEWSEQ`, then one
+        `MIR_SEQSET` per element, the direct path's order."""
+        elems: list[Dict[str, Any]] = expr["elems"]
+        values: list[int] = []
+        for elem in elems:
+            values.append(self.emit_expr(elem))
+        list_type: Dict[str, Any] = expr["type"]
+        elem_type: Dict[str, Any] = list_type["elem"]
+        ekind: str = elem_type["kind"]
+        elem_size: int = 8 if ekind in ("int", "float") else 1
+        seq: int = self.builder.emit_val(
+            MIR_NEWSEQ, self.builder.const_w(elem_size), self.builder.const_w(len(values)), MIR_P
+        )
+        for index in range(len(values)):
+            self.builder.emit(MIR_SEQSET, -1, seq, self.builder.const_w(index), values[index])
+        return seq
+
+    def emit_subscript(self, expr: Dict[str, Any]) -> int:
+        """A list load: container then index, `MIR_SEQGET` with the element
+        tag in `arg3` (the direct path's `ps_seq_get` + cell reload)."""
+        seq = self.emit_expr(expr["value"])
+        index = self.emit_expr(expr["index"])
+        result_type: Dict[str, Any] = expr["type"]
+        rkind: str = result_type["kind"]
+        tag: int = _param_tag(rkind)
+        return self.builder.emit_val3(MIR_SEQGET, seq, index, tag, tag)
 
     def is_none(self, expr: Dict[str, Any]) -> bool:
         """True when the expression's value is the None singleton.

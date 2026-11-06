@@ -48,18 +48,24 @@ MIR_B = 2  # an i1 bool: parameters, locals, constants, compare and `not` result
 # The void tag: a function returning None has no return value, so its
 # `MIR_RET` reads no operand and the function's result tag is `MIR_VOID`.
 # It is never a parameter, local, constant or value-op result. The tag
-# space (MIR_W, MIR_D, MIR_B, MIR_VOID) is its own: the numbers overlap
-# the op space below by design, and the two are never mixed.
+# space (MIR_W, MIR_D, MIR_B, MIR_VOID, MIR_P) is its own: the numbers
+# overlap the op space below by design, and the two are never mixed.
 MIR_VOID = 3
 
 # `MIR_S` is a str value: at run time the `%ps.str` aggregate (byte length,
 # data pointer, code-point count, flags). A `MIR_S` constant pool entry
 # carries the UTF-8 text in `sval`; a `MIR_S` value id names an SSA value
-# of that aggregate shape. `MIR_P` is reserved for M-2 heap pointers so
-# the tag space is not renumbered twice. (`MIR_S` is 4, not 3: 3 is
-# `MIR_VOID`.)
+# of that aggregate shape. `MIR_P` is the shared heap-pointer tag: list
+# and dict values are `ptr` at the ABI. HIR keeps the list-vs-dict and
+# element-type semantics; MIR carries only the pointer shape, so one tag
+# serves the pointer families. (`MIR_S` is 4, not 3: 3 is `MIR_VOID`.)
 MIR_S = 4
 MIR_P = 5
+
+# The `arg3` sentinel for instructions that do not read a third operand.
+# Kept as a name so self-host lowering sees a constant default, not a
+# unary-minus expression.
+ARG3_NONE = -1
 
 # Control flow. A `MIR_JMP` ends its block unconditionally; a `MIR_BR`
 # dispatches on an i1 value to two successors and carries the two argument
@@ -124,9 +130,23 @@ MIR_CALL = 28
 # (`and i64`); no overflow check applies.
 MIR_ANDW = 29
 
+# Sequences. `MIR_NEWSEQ` builds a list (`ps_seq_new`): `arg1` is the
+# element byte size and `arg2` the element count, both word constants, and
+# the result is a `MIR_P` pointer. `MIR_SEQGET` loads an element into a
+# fresh runtime cell and loads it back; `arg3` carries the element's result
+# tag (`MIR_W`/`MIR_D` today) because the operand slots are already spent
+# on the sequence and the index. `MIR_SEQSET` stores through the same cell
+# ABI with the stored value in `arg3`; `MIR_SEQPUSH` is `list.append`'s
+# `ps_seq_push`; `MIR_SEQLEN` is `len(seq)`.
+MIR_NEWSEQ = 30
+MIR_SEQGET = 31
+MIR_SEQSET = 32
+MIR_SEQPUSH = 33
+MIR_SEQLEN = 34
 # The op arity table. `MIR_NOP` through `MIR_COPY`: the branch reads its
 # condition from `arg1`, and its two successors carry the block arguments
-# (see `MirBlock`). Every value op reads `arg1`/`arg2` per this table.
+# (see `MirBlock`). Every value op reads `arg1`/`arg2` per this table;
+# `MIR_SEQSET` is the first op that also reads `arg3`.
 OP_ARITY = {
     MIR_NOP: 0,
     MIR_NOTB: 1,
@@ -158,6 +178,11 @@ OP_ARITY = {
     MIR_RAISE: 1,
     MIR_CALL: 2,
     MIR_ANDW: 2,
+    MIR_NEWSEQ: 2,
+    MIR_SEQGET: 2,
+    MIR_SEQSET: 3,
+    MIR_SEQPUSH: 2,
+    MIR_SEQLEN: 1,
 }
 
 # The result type of each value op, in the constant-pool tag space.
@@ -194,6 +219,11 @@ OP_RESULT_TYPE = {
     MIR_RAISE: MIR_W,
     MIR_CALL: MIR_W,  # a call's true tag rides arg2; the tables cannot know it
     MIR_ANDW: MIR_W,
+    MIR_NEWSEQ: MIR_P,
+    MIR_SEQGET: MIR_W,  # a seqget's true tag rides arg3; the tables cannot know it
+    MIR_SEQSET: MIR_W,
+    MIR_SEQPUSH: MIR_W,
+    MIR_SEQLEN: MIR_W,
 }
 
 # The true result type of a `MIR_COPY`: the tag packed into `arg2`.
@@ -208,12 +238,12 @@ def copy_result_type(fn: MirFunction, i: int) -> int:
     entry = fn.helpers.get(i)
     if entry is not None:
         tag = int(entry.split(" ")[1])
-        if tag == MIR_W or tag == MIR_D or tag == MIR_B or tag == MIR_S:
+        if tag == MIR_W or tag == MIR_D or tag == MIR_B or tag == MIR_S or tag == MIR_P:
             return tag
     # A plain copy (a store into a name slot) packs the value's tag in
     # arg2.
     arg2 = fn.arg2[i]
-    if arg2 == MIR_W or arg2 == MIR_D or arg2 == MIR_B or arg2 == MIR_S:
+    if arg2 == MIR_W or arg2 == MIR_D or arg2 == MIR_B or arg2 == MIR_S or arg2 == MIR_P:
         return arg2
     return MIR_W
 
@@ -248,6 +278,9 @@ VALUE_OPS = [
     MIR_COPY,
     MIR_NOTB,
     MIR_ANDW,
+    MIR_NEWSEQ,
+    MIR_SEQGET,
+    MIR_SEQLEN,
 ]
 
 
@@ -405,6 +438,12 @@ class MirFunction:
     dsts: list[int]
     arg1: list[int]
     arg2: list[int]
+    # The third operand slot. Most ops leave it at the `-1` sentinel; the
+    # sequence stores (`MIR_SEQSET`) read the stored value here, and
+    # `MIR_SEQGET` carries its element result tag here (a tag, not an
+    # operand). The serializer prints the slot on every instruction so the
+    # digest covers the full operand stream.
+    arg3: list[int]
     blocks: list[MirBlock]
     consts: list[MirConst]
     # out-of-band helper names keyed by instruction index. The leaf slice
@@ -434,6 +473,7 @@ class MirFunction:
         self.dsts = []
         self.arg1 = []
         self.arg2 = []
+        self.arg3 = []
         self.blocks = []
         self.consts = []
         self.helpers = {}
@@ -491,8 +531,8 @@ class MirBuilder:
 
     def add_param(self, typ: int) -> int:
         """Declare a parameter, return its value id."""
-        if typ != MIR_W and typ != MIR_D and typ != MIR_B and typ != MIR_S:
-            raise MirError("parameter type must be MIR_W, MIR_B, MIR_D or MIR_S")
+        if typ != MIR_W and typ != MIR_D and typ != MIR_B and typ != MIR_S and typ != MIR_P:
+            raise MirError("parameter type must be MIR_W, MIR_B, MIR_D, MIR_S or MIR_P")
         vid: int = self.next_vid
         self.next_vid = self.next_vid + 1
         params: list[MirParam] = self.fn.params
@@ -500,8 +540,8 @@ class MirBuilder:
         return vid
 
     def set_result(self, typ: int) -> None:
-        if typ != MIR_W and typ != MIR_D and typ != MIR_B and typ != MIR_S and typ != MIR_VOID:
-            raise MirError("result type must be MIR_W, MIR_B, MIR_D, MIR_S or MIR_VOID")
+        if typ != MIR_W and typ != MIR_D and typ != MIR_B and typ != MIR_S and typ != MIR_P and typ != MIR_VOID:
+            raise MirError("result type must be MIR_W, MIR_B, MIR_D, MIR_S, MIR_P or MIR_VOID")
         self.fn.result = typ
 
     def const_b(self, value: int) -> int:
@@ -582,10 +622,12 @@ class MirBuilder:
         if self.terminated:
             raise MirError(f"op {op} emitted after a terminator")
 
-    def emit(self, op: int, dst: int, arg1: int, arg2: int) -> int:
+    def emit(self, op: int, dst: int, arg1: int, arg2: int, arg3: int = ARG3_NONE) -> int:
         """Append one instruction; returns its instruction index.
 
-        `dst` is `-1` for ops that produce nothing.
+        `dst` is `-1` for ops that produce nothing. `arg3` is the third
+        operand slot (`MIR_SEQSET`'s stored value, `MIR_SEQGET`'s result
+        tag); every other op leaves it at the `-1` sentinel.
         """
         arity = OP_ARITY.get(op)
         if arity is None:
@@ -599,21 +641,34 @@ class MirBuilder:
         dsts: list[int] = self.fn.dsts
         f_arg1: list[int] = self.fn.arg1
         f_arg2: list[int] = self.fn.arg2
+        f_arg3: list[int] = self.fn.arg3
         ops.append(op)
         dsts.append(dst)
         f_arg1.append(arg1)
         f_arg2.append(arg2)
+        f_arg3.append(arg3)
         return len(ops) - 1
 
     def emit_val(self, op: int, arg1: int, arg2: int, typ: int) -> int:
         """Emit a value op with a fresh destination; returns the value id."""
         if op not in VALUE_OPS:
             raise MirError(f"op {op} is not a value op")
-        if typ != MIR_W and typ != MIR_D and typ != MIR_B and typ != MIR_S:
-            raise MirError("value type must be MIR_W, MIR_B, MIR_D or MIR_S")
+        if typ != MIR_W and typ != MIR_D and typ != MIR_B and typ != MIR_S and typ != MIR_P:
+            raise MirError("value type must be MIR_W, MIR_B, MIR_D, MIR_S or MIR_P")
         vid: int = self.next_vid
         self.next_vid = self.next_vid + 1
         self.emit(op, vid, arg1, arg2)
+        return vid
+
+    def emit_val3(self, op: int, arg1: int, arg2: int, arg3: int, typ: int) -> int:
+        """Emit a three-slot value op with a fresh destination."""
+        if op not in VALUE_OPS:
+            raise MirError(f"op {op} is not a value op")
+        if typ != MIR_W and typ != MIR_D and typ != MIR_B and typ != MIR_S and typ != MIR_P:
+            raise MirError("value type must be MIR_W, MIR_B, MIR_D, MIR_S or MIR_P")
+        vid: int = self.next_vid
+        self.next_vid = self.next_vid + 1
+        self.emit(op, vid, arg1, arg2, arg3)
         return vid
 
     def emit_nop(self) -> None:
@@ -683,9 +738,10 @@ class MirBuilder:
             and result_type != MIR_D
             and result_type != MIR_B
             and result_type != MIR_S
+            and result_type != MIR_P
             and result_type != MIR_VOID
         ):
-            raise MirError("call result type must be MIR_W, MIR_B, MIR_D, MIR_S or MIR_VOID")
+            raise MirError("call result type must be MIR_W, MIR_B, MIR_D, MIR_S, MIR_P or MIR_VOID")
         dst: int = -1
         if result_type != MIR_VOID:
             dst = self.next_vid
@@ -861,8 +917,11 @@ def serialize(fn: MirFunction) -> str:
     dsts: list[int] = fn.dsts
     f_arg1: list[int] = fn.arg1
     f_arg2: list[int] = fn.arg2
+    f_arg3: list[int] = fn.arg3
+    n_arg3: int = len(f_arg3)
     for i in range(len(ops)):
-        lines.append(f"instr {i} op{ops[i]} dst{dsts[i]} a1={f_arg1[i]} a2={f_arg2[i]}")
+        a3: int = f_arg3[i] if i < n_arg3 else -1
+        lines.append(f"instr {i} op{ops[i]} dst{dsts[i]} a1={f_arg1[i]} a2={f_arg2[i]} a3={a3}")
     # The call arguments render after the instruction stream, keyed by
     # instruction index. Insertion order is index order by construction
     # (`emit_call` appends at emission), so the bytes stay

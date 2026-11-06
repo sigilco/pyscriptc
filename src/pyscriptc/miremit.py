@@ -65,10 +65,16 @@ from pyscriptc.mir import (
     MIR_MULW,
     MIR_NEGD,
     MIR_NEGW,
+    MIR_NEWSEQ,
     MIR_NOTB,
+    MIR_P,
     MIR_RAISE,
     MIR_RET,
     MIR_S,
+    MIR_SEQGET,
+    MIR_SEQLEN,
+    MIR_SEQPUSH,
+    MIR_SEQSET,
     MIR_SUBD,
     MIR_SUBW,
     MIR_VOID,
@@ -162,6 +168,11 @@ _OP_ARITY: Dict[int, int] = {
     MIR_COPY: 1,
     MIR_EXTWD: 1,
     MIR_ANDW: 2,
+    MIR_NEWSEQ: 2,
+    MIR_SEQGET: 2,
+    MIR_SEQSET: 3,
+    MIR_SEQPUSH: 2,
+    MIR_SEQLEN: 1,
 }
 
 _OP_RESULT_TYPE: Dict[int, int] = {
@@ -192,6 +203,11 @@ _OP_RESULT_TYPE: Dict[int, int] = {
     MIR_COPY: MIR_W,
     MIR_EXTWD: MIR_D,
     MIR_ANDW: MIR_W,
+    MIR_NEWSEQ: MIR_P,
+    MIR_SEQGET: MIR_W,  # a seqget's true tag rides arg3
+    MIR_SEQSET: MIR_W,
+    MIR_SEQPUSH: MIR_W,
+    MIR_SEQLEN: MIR_W,
 }
 
 
@@ -523,6 +539,7 @@ class MirEmitter:
         dst = fn.dsts[i]
         a1 = fn.arg1[i]
         a2 = fn.arg2[i]
+        a3 = fn.arg3[i] if i < len(fn.arg3) else -1
         if op == MIR_RET:
             # A void return reads no operand and renders `ret void`; a
             # value return renders the value's type and the value.
@@ -588,6 +605,50 @@ class MirEmitter:
                 self.reg[dst] = reg
                 return
             self.reg[dst] = self.operand(fn, a1)
+            return
+        if op == MIR_NEWSEQ:
+            needed = self.needed
+            needed.add("seq")
+            self.needed = needed
+            reg = self.tmp_reg()
+            self.line(f"{reg} = call ptr @ps_seq_new(i64 {self.operand(fn, a1)}, i64 {self.operand(fn, a2)})")
+            self.reg[dst] = reg
+            return
+        if op == MIR_SEQLEN:
+            needed = self.needed
+            needed.add("seq")
+            self.needed = needed
+            reg = self.tmp_reg()
+            self.line(f"{reg} = call i64 @ps_seq_len(ptr {self.operand(fn, a1)})")
+            self.reg[dst] = reg
+            return
+        if op == MIR_SEQGET:
+            needed = self.needed
+            needed.add("seq")
+            self.needed = needed
+            tag: int = a3
+            llvm: str = _tag_llvm(tag)
+            out_slot: str = self._mir_alloca(llvm)
+            self.line(f"call void @ps_seq_get(ptr {self.operand(fn, a1)}, i64 {self.operand(fn, a2)}, ptr {out_slot})")
+            reg = self.tmp_reg()
+            self.line(f"{reg} = load {llvm}, ptr {out_slot}")
+            self.reg[dst] = reg
+            return
+        if op == MIR_SEQSET:
+            needed = self.needed
+            needed.add("seq")
+            self.needed = needed
+            value_tag: int = self._operand_tag(fn, a3)
+            slot: str = self._stash_cell_tag(value_tag, self.operand(fn, a3))
+            self.line(f"call void @ps_seq_set(ptr {self.operand(fn, a1)}, i64 {self.operand(fn, a2)}, ptr {slot})")
+            return
+        if op == MIR_SEQPUSH:
+            needed = self.needed
+            needed.add("seq")
+            self.needed = needed
+            value_tag = self._operand_tag(fn, a2)
+            slot = self._stash_cell_tag(value_tag, self.operand(fn, a2))
+            self.line(f"call void @ps_seq_push(ptr {self.operand(fn, a1)}, ptr {slot})")
             return
         if op == MIR_CALL:
             self._emit_call(fn, i, dst, a1, a2)
@@ -748,6 +809,38 @@ class MirEmitter:
             hoisted = self._hoisted
             hoisted.append(f"  {text}")
         return reg
+
+    def _operand_tag(self, fn: MirFunction, operand: int) -> int:
+        """The MIR tag of an operand the sequence stores stash."""
+        if is_const_ref(operand):
+            return fn.consts[const_index(operand)].typ
+        current = self.fn
+        if current is None:
+            raise IRError("no function walk is active")
+        ir_params: list[Dict[str, Any]] = self._ir_fn(current.name)["params"]
+        if operand < len(ir_params):
+            p_type: Dict[str, Any] = ir_params[operand]["type"]
+            kind: str = p_type["kind"]
+            if kind == "float":
+                return MIR_D
+            if kind == "bool":
+                return MIR_B
+            if kind == "str":
+                return MIR_S
+            if kind == "list":
+                return MIR_P
+            return MIR_W
+        if operand in self.slot_vid_set:
+            return self._tag_of(operand)
+        return self._def_tag(operand)
+
+    def _stash_cell_tag(self, tag: int, value: str) -> str:
+        """Stash one scalar/pointer value into a runtime cell, the direct
+        path's `_stash_cell` shape for the non-str kinds this slice admits."""
+        llvm: str = _tag_llvm(tag)
+        slot: str = self._mir_alloca(llvm)
+        self.line(f"store {llvm} {value}, ptr {slot}")
+        return slot
 
     def _widen_str_slot(self, a1: int) -> str:
         """Read a str name slot: widen the `%ps.buf` cell to `%ps.str`.
@@ -923,13 +1016,15 @@ def _str_refs(lines: list[str]) -> list[int]:
 
 def _tag_llvm(tag: int) -> str:
     """The LLVM spelling of a MIR tag: w -> i64, b -> i1, d -> double,
-    s -> the `%ps.str` aggregate."""
+    s -> the `%ps.str` aggregate, p -> ptr."""
     if tag == MIR_D:
         return "double"
     if tag == MIR_B:
         return "i1"
     if tag == MIR_S:
         return "%ps.str"
+    if tag == MIR_P:
+        return "ptr"
     return "i64"
 
 
@@ -955,6 +1050,8 @@ def _result_tag(fn: MirFunction, i: int) -> int:
         return copy_result_type(fn, i)
     if op == MIR_CALL:
         return fn.arg2[i]
+    if op == MIR_SEQGET:
+        return fn.arg3[i] if i < len(fn.arg3) else MIR_W
     tag: int | None = _OP_RESULT_TYPE.get(op)
     if tag is None:
         raise IRError(f"no result tag for op {op}")

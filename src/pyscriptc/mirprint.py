@@ -40,11 +40,17 @@ from pyscriptc.mir import (
     MIR_MULW,
     MIR_NEGD,
     MIR_NEGW,
+    MIR_NEWSEQ,
     MIR_NOP,
     MIR_NOTB,
+    MIR_P,
     MIR_RAISE,
     MIR_RET,
     MIR_S,
+    MIR_SEQGET,
+    MIR_SEQLEN,
+    MIR_SEQPUSH,
+    MIR_SEQSET,
     MIR_SUBD,
     MIR_SUBW,
     MIR_VOID,
@@ -88,6 +94,11 @@ OP_NAMES: dict[int, str] = {
     MIR_RAISE: "raise",
     MIR_CALL: "call",
     MIR_ANDW: "andw",
+    MIR_NEWSEQ: "newseq",
+    MIR_SEQGET: "seqget",
+    MIR_SEQSET: "seqset",
+    MIR_SEQPUSH: "seqpush",
+    MIR_SEQLEN: "seqlen",
 }
 
 _TERMINATORS: list[int] = [MIR_JMP, MIR_BR, MIR_RET, MIR_RAISE]
@@ -105,6 +116,8 @@ def tag_name(tag: int) -> str:
         return "s"
     if tag == MIR_VOID:
         return "void"
+    if tag == MIR_P:
+        return "p"
     return f"t{tag}"
 
 
@@ -159,6 +172,7 @@ def _instr_text(fn: MirFunction, bid: int, i: int) -> str:
     name = OP_NAMES.get(op, f"op{op}")
     a1 = fn.arg1[i]
     a2 = fn.arg2[i]
+    a3 = fn.arg3[i] if i < len(fn.arg3) else -1
     if op == MIR_RET:
         if a2 == MIR_VOID:
             return "ret"
@@ -177,7 +191,14 @@ def _instr_text(fn: MirFunction, bid: int, i: int) -> str:
         )
     if op == MIR_NOP:
         return "nop"
+    if op == MIR_SEQSET:
+        return f"{name} {_operand(fn, a1)}, {_operand(fn, a2)}, {_operand(fn, a3)}"
+    if op == MIR_SEQPUSH:
+        return f"{name} {_operand(fn, a1)}, {_operand(fn, a2)}"
     dst = f"v{fn.dsts[i]}"
+    if op == MIR_SEQGET:
+        tag = tag_name(a3)
+        return f"{dst}:{tag} = {name} {_operand(fn, a1)}, {_operand(fn, a2)}"
     if op == MIR_COPY:
         tag = tag_name(copy_result_type(fn, i))
         helper = fn.helpers.get(i)

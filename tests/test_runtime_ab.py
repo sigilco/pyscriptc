@@ -182,9 +182,9 @@ def test_nightly_wires_runtime_ab_as_report_only_lane() -> None:
 
 
 def test_unsupported_program_skips(tmp_path: Path) -> None:
-    source = tmp_path / "lists_only.py"
+    source = tmp_path / "str_list.py"
     source.write_text(
-        "def tot(xs: list[int]) -> int:\n    n = 0\n    for x in xs:\n        n = n + x\n    return n\n",
+        "def total(xs: list[str]) -> int:\n    return len(xs)\n",
         encoding="utf-8",
     )
     row = compare_program(source)
