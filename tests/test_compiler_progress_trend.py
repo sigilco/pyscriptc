@@ -70,3 +70,25 @@ def test_trend_table_includes_mir_slice_coverage() -> None:
     assert "| mir.percent | 10 | 0 | +10 |" in text
     assert "| mir.in_slice | 3 | 0 | +3 |" in text
     assert "| mir.functions | 31 | 0 | +31 |" in text
+
+
+def test_trend_table_includes_out_of_slice_reasons() -> None:
+    mod = _load()
+    current = {
+        "totals": {},
+        "fences": {},
+        "mir_coverage": {"out_of_slice": 28, "reason_kinds": 12},
+        "mir_reasons": {"local:list": 6, "expr:call": 4},
+    }
+    baseline = {
+        "totals": {},
+        "fences": {},
+        "mir_coverage": {"out_of_slice": 30, "reason_kinds": 12},
+        "mir_reasons": {"local:list": 6, "expr:call": 6},
+    }
+    text = mod.markdown_trend(current, baseline, "baseline.json")
+    assert "| mir.out_of_slice | 28 | 30 | -2 |" in text
+    assert "| mir.reason_kinds | 12 | 12 | +0 |" in text
+    assert "### MIR out-of-slice reasons (top 10)" in text
+    assert "| `expr:call` | 4 | 6 | -2 |" in text
+    assert "| `local:list` | 6 | 6 | +0 |" in text
