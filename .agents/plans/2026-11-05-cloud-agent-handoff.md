@@ -40,16 +40,17 @@ Build a tracked tool and test that compiles a program through the direct emitter
 ### A12 / D6 slice coverage metric
 Add `scripts/mir_coverage.py`: for each corpus program in the visible corpus (`benchmarks/compat2/corpus`, never any other split), run `lower_file` and `supported_fn` per function and print in-slice over total non-fenced functions, with a per-script breakdown. Then add the percentage to the trend table in `scripts/compiler_progress.py`. Baseline measured on 2026-11-05 over 20 scripts: 3 of 22 functions, 14 percent. Done when the script runs deterministically (twice, `cmp`) and the metric appears in the trend table.
 
-### C6 stdlib surface for the patch release (pick two)
-Pick two from #492, #493, #494, #495, #490, #487. Each lands with its compat probe and the census delta, in its own PR. Support state goes to the compat site data; user docs only list divergences and gaps.
-
 ### S1 spike: can the FFI data plane build on the MIR-default compiler?
 Deliverable is one page in a PR (`docs/` is off limits; put it under the repo notes area used by other spikes) with a verdict and one FFI probe compiled on both lanes. Do not change compiler code. Context: #240 stays in v0.9.0 only if the verdict is yes.
 
 ## Order and conflicts
 
-B5 to B8 touch separate files and merge in any order. B9 and A12 are new files. C6 items are independent. If a PR touches `emit/_ir.py`, rebase on master first because #939 and later seam PRs add accessors there; keep accessor additions alphabetically near their family so merges stay trivial.
+B5 to B8 touch separate files and merge in any order. B9 and A12 are new files. If a PR touches `emit/_ir.py`, rebase on master first because #939 and later seam PRs add accessors there; keep accessor additions alphabetically near their family so merges stay trivial.
 
 ## Reporting
 
 For each PR leave a short note with: gates run, census pins moved or not, and anything blocked. Stop and write the blocker instead of extending scope.
+
+## Deferred
+
+C6 (stdlib surface for the patch release) is deferred: new surface written against the dict IR widens the gap between the old and new architectures. It returns after the default flip.
