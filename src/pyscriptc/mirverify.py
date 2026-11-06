@@ -108,18 +108,18 @@ _OP_ARITY: dict[int, int] = {
     38: 3,  # MIR_SETATTR
     39: 3,  # MIR_GETATTR
     40: 3,  # MIR_MAP_PUT
-    40: 0,  # MIR_TRYPACK
-    41: 1,  # MIR_TRYCALL
-    42: 0,  # MIR_FLOWLD
-    43: 2,  # MIR_TRYICMP
-    44: 1,  # MIR_TRYNE
-    45: 0,  # MIR_EXCCODE
-    46: 2,  # MIR_EXCISA
-    47: 0,  # MIR_RETLOD
-    48: 0,  # MIR_EXCCUR
-    49: 0,  # MIR_RERAISE
-    50: 1,  # MIR_RAISEEXC
-    51: 0,  # MIR_UNREACH
+    41: 0,  # MIR_TRYPACK
+    42: 1,  # MIR_TRYCALL
+    43: 0,  # MIR_FLOWLD
+    44: 2,  # MIR_TRYICMP
+    45: 1,  # MIR_TRYNE
+    46: 0,  # MIR_EXCCODE
+    47: 2,  # MIR_EXCISA
+    48: 0,  # MIR_RETLOD
+    49: 0,  # MIR_EXCCUR
+    50: 0,  # MIR_RERAISE
+    51: 1,  # MIR_RAISEEXC
+    52: 0,  # MIR_UNREACH
 }
 
 # The try callsite terminators, spelled as int literals for the same

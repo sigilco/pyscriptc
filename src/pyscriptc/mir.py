@@ -189,18 +189,18 @@ MIR_GETATTR = 39
 # the saved exception pointer in `arg1`) and the dead merge
 # (`MIR_UNREACH`). The ids append after the class ops so existing
 # digests keep their bytes.
-MIR_TRYPACK = 40
-MIR_TRYCALL = 41
-MIR_FLOWLD = 42
-MIR_TRYICMP = 43
-MIR_TRYNE = 44
-MIR_EXCCODE = 45
-MIR_EXCISA = 46
-MIR_RETLOD = 47
-MIR_EXCCUR = 48
-MIR_RERAISE = 49
-MIR_RAISEEXC = 50
-MIR_UNREACH = 51
+MIR_TRYPACK = 41
+MIR_TRYCALL = 42
+MIR_FLOWLD = 43
+MIR_TRYICMP = 44
+MIR_TRYNE = 45
+MIR_EXCCODE = 46
+MIR_EXCISA = 47
+MIR_RETLOD = 48
+MIR_EXCCUR = 49
+MIR_RERAISE = 50
+MIR_RAISEEXC = 51
+MIR_UNREACH = 52
 # The op arity table. `MIR_NOP` through `MIR_COPY`: the branch reads its
 # condition from `arg1`, and its two successors carry the block arguments
 # (see `MirBlock`). Every value op reads `arg1`/`arg2` per this table;
