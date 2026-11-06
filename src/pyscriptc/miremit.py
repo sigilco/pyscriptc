@@ -680,9 +680,14 @@ class MirEmitter:
             needed.add("seq")
             self.needed = needed
             tag: int = a3
-            llvm: str = _tag_llvm(tag)
-            out_slot: str = self._mir_alloca(llvm)
+            out_slot: str = self._mir_alloca(_mem_llvm(tag))
             self.line(f"call void @ps_seq_get(ptr {self.operand(fn, a1)}, i64 {self.operand(fn, a2)}, ptr {out_slot})")
+            if tag == MIR_S:
+                # A str element lands in the cell as the 16-byte `%ps.buf`
+                # prefix; the read widens it back the way `_widen_cell` does.
+                self.reg[dst] = self._widen_str_cell(out_slot)
+                return
+            llvm: str = _tag_llvm(tag)
             reg = self.tmp_reg()
             self.line(f"{reg} = load {llvm}, ptr {out_slot}")
             self.reg[dst] = reg
@@ -817,6 +822,9 @@ class MirEmitter:
             return
         if marker is not None and marker.startswith("abi "):
             self._emit_abi_call(fn, i, dst, tag, fn.call_args[i], marker[len("abi ") :])
+            return
+        if marker is not None and marker.startswith("method:"):
+            self._emit_method_call(fn, i, dst, fn.call_args[i], marker[len("method:") :])
             return
         ir_fn: Dict[str, Any] = self._ir_fn(name)
         ret_type: Dict[str, Any] = ir_fn["returnType"]
@@ -1131,6 +1139,26 @@ class MirEmitter:
         self.line(f"{reg2} = call {llvm} @{symbol}({rendered})")
         self.reg[dst] = reg2
 
+    def _emit_method_call(self, fn: MirFunction, i: int, dst: int, args_i: list[int], name: str) -> None:
+        """An admitted method call's emission: the direct `emit_method` arm.
+
+        `join` is the only admitted method: the separator (a str, the
+        receiver the IR carries as `args[0]`) splits into its buffer
+        parts, the `list[str]` argument renders as the sequence pointer,
+        and the result rides `_buf_out`'s `ps_str_join` buffer shape —
+        the direct emitter's `values[0]`/`values[1]` order.
+        """
+        if name != "join":
+            raise IRError(f"the MIR lane has no method emission for {name}")
+        needed: set[str] = self.needed
+        needed.add("str")
+        self.needed = needed
+        sep: str = self.operand(fn, args_i[0])
+        length, ptr = self._buf_parts(sep)
+        seq: str = self.operand(fn, args_i[1])
+        self._abi_decl("ps_str_join", "void", ["i64", "ptr", "ptr", "ptr"])
+        self.reg[dst] = self._buf_out("ps_str_join", [f"i64 {length}", f"ptr {ptr}", f"ptr {seq}"])
+
     def _mir_class(self, name: str) -> Dict[str, Any]:
         """The module's class record for `name`, or an `IRError`."""
         for cls in _items(self.module, "classes"):
@@ -1322,7 +1350,11 @@ class MirEmitter:
         return slot
 
     def _widen_str_slot(self, a1: int) -> str:
-        """Read a str name slot: widen the `%ps.buf` cell to `%ps.str`.
+        """Read a str name slot: widen the `%ps.buf` cell to `%ps.str`."""
+        return self._widen_str_cell(self.reg[a1])
+
+    def _widen_str_cell(self, slot: str) -> str:
+        """Widen one `%ps.buf` cell to a `%ps.str` value.
 
         Mirrors the direct path's `_widen_cell` for `str`: load the
         length and data pointer out of the cell, rebuild the aggregate
@@ -1331,7 +1363,6 @@ class MirEmitter:
         bytes. The staging alloca hoists out of non-entry blocks exactly
         like the direct path's.
         """
-        slot = self.reg[a1]
         length = self.tmp_reg()
         ptr = self.tmp_reg()
         self.line(f"{length} = load i64, ptr {slot}")

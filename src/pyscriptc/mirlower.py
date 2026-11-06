@@ -250,11 +250,11 @@ def supported_type(typ: Dict[str, Any]) -> bool:
 
 
 def _supported_seq_elem(elem: Dict[str, Any]) -> bool:
-    """The element types a sequence value may carry: int and float at the
-    leaves, and lists of those recursively (the ABI is one pointer tag
-    either way; the element semantics stay in HIR)."""
+    """The element types a sequence value may carry: int, float and str
+    at the leaves, and lists of those recursively (the ABI is one pointer
+    tag either way; the element semantics stay in HIR)."""
     ekind: str = elem["kind"]
-    if ekind in ("int", "float"):
+    if ekind in ("int", "float", "str"):
         return True
     if ekind == "list":
         return supported_type(elem)
@@ -473,6 +473,8 @@ def _supported_call(expr: Dict[str, Any]) -> bool:
             return False
         rtype: Dict[str, Any] = expr["type"]
         return _is_supported_class(rtype)
+    if ckind == "method":
+        return _supported_method_call(callee, expr)
     if ckind == "builtin":
         cname: str = callee["name"]
         if cname == "print":
@@ -510,6 +512,32 @@ def _supported_call(expr: Dict[str, Any]) -> bool:
         if _rt_call_shape(cmodule, mname, expr):
             return _rt_args_order_ok(args)
     return False
+
+
+def _supported_method_call(callee: Dict[str, Any], expr: Dict[str, Any]) -> bool:
+    """The slice test for one method call.
+
+    Only `str.join` admits: a str receiver (the separator, carried as
+    `args[0]`), one `list[str]` argument and a str result. Every other
+    method stays outside.
+    """
+    if "receiver" not in callee or callee["receiver"] != "str":
+        return False
+    if callee["name"] != "join":
+        return False
+    args: list[Dict[str, Any]] = expr["args"]
+    if len(args) != 2:
+        return False
+    sep: Dict[str, Any] = args[0]
+    seq: Dict[str, Any] = args[1]
+    if _type_kind(sep["type"]) != "str":
+        return False
+    seq_type: Dict[str, Any] = seq["type"]
+    if _type_kind(seq_type) != "list" or _type_kind(seq_type["elem"]) != "str":
+        return False
+    if _type_kind(expr["type"]) != "str":
+        return False
+    return supported_expr(sep) and supported_expr(seq)
 
 
 def _expr_symbol(expr: Dict[str, Any]) -> str:
@@ -1486,6 +1514,8 @@ class _FnLowerer:
             if cname == "len" and _is_supported_list(args[0]["type"]):
                 seq = self.emit_expr(args[0])
                 return self.builder.emit_val(MIR_SEQLEN, seq, -1, MIR_W)
+        if ckind == "method":
+            return self.emit_method_call(expr)
         if ckind == "module":
             cmodule: str = callee["module"]
             mname: str = callee["name"]
@@ -1687,6 +1717,23 @@ class _FnLowerer:
         callee_vid: int = self.builder.add_callee(name)
         dst: int = self.builder.emit_call(callee_vid, [value], tag)
         self.builder.fn.helpers[len(self.builder.fn.ops) - 1] = f"builtin:{name}"
+        return dst
+
+    def emit_method_call(self, expr: Dict[str, Any]) -> int:
+        """An admitted method call (`str.join`): a marked `MIR_CALL`.
+
+        The separator and the list evaluate left to right; the callee
+        name is `str.join` and the `method:` helper marker tells the
+        emitter apart from a user function of the same spelling, the
+        same out-of-band convention `builtin:`/`abi ` use.
+        """
+        args: list[Dict[str, Any]] = expr["args"]
+        values: list[int] = []
+        for arg in args:
+            values.append(self.emit_expr(arg))
+        callee_vid: int = self.builder.add_callee("str.join")
+        dst: int = self.builder.emit_call(callee_vid, values, MIR_S)
+        self.builder.fn.helpers[len(self.builder.fn.ops) - 1] = "method:join"
         return dst
 
     def emit_module_call(self, expr: Dict[str, Any]) -> int:
