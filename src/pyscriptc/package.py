@@ -1396,10 +1396,7 @@ def _dep_fence(message: str) -> dict[str, Any]:
     """A PS3101 refusal fence outside any source span."""
 
     fence: dict[str, Any] = {}
-    fence["code"] = "PS3101"
-    fence["message"] = message
-    fence["span"] = None
-    fence["function"] = None
+    fence.update(code="PS3101", message=message, span=None, function=None)
     return fence
 
 
