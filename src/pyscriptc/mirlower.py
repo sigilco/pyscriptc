@@ -509,9 +509,47 @@ def _supported_call(expr: Dict[str, Any]) -> bool:
                 and supported_expr(arg)
             ):
                 return True
+        if cmodule == "builtins" and mname == "format":
+            return _supported_format(expr)
         if _rt_call_shape(cmodule, mname, expr):
             return _rt_args_order_ok(args)
     return False
+
+
+def _supported_format(expr: Dict[str, Any]) -> bool:
+    """The slice test for `builtins.format` (`ps_str_format`).
+
+    The admitted shape is the positional percent/dot form: a str format
+    constant first, then int/float arguments only (the `%ps.arg` marshal
+    covers those two kinds), no keyword names and a str result. The
+    style rides the call marker since MIR carries no expr payload.
+    """
+    if "symbol" not in expr or _expr_symbol(expr) != "ps_str_format":
+        return False
+    if "format_kwnames" in expr:
+        nkw: int = expr["format_kwnames"]
+        if nkw != 0:
+            return False
+    style: str = "percent"
+    if "format_style" in expr:
+        style = _opt_str(expr, "format_style")
+    if style != "percent" and style != "dot":
+        return False
+    args: list[Dict[str, Any]] = expr["args"]
+    if len(args) < 2:
+        return False
+    fmt_arg: Dict[str, Any] = args[0]
+    if _type_kind(fmt_arg["type"]) != "str":
+        return False
+    if not supported_expr(fmt_arg):
+        return False
+    for arg in args[1:]:
+        akind: str = _type_kind(arg["type"])
+        if akind != "int" and akind != "float":
+            return False
+        if not supported_expr(arg):
+            return False
+    return _type_kind(expr["type"]) == "str"
 
 
 def _supported_method_call(callee: Dict[str, Any], expr: Dict[str, Any]) -> bool:
@@ -538,6 +576,14 @@ def _supported_method_call(callee: Dict[str, Any], expr: Dict[str, Any]) -> bool
     if _type_kind(expr["type"]) != "str":
         return False
     return supported_expr(sep) and supported_expr(seq)
+
+
+def _opt_str(expr: Dict[str, Any], key: str) -> str:
+    """An optional str payload on an expr record; `""` when absent."""
+    if key not in expr:
+        return ""
+    val: str = expr[key]
+    return val
 
 
 def _expr_symbol(expr: Dict[str, Any]) -> str:
@@ -1526,6 +1572,8 @@ class _FnLowerer:
                     item = self.emit_expr(args[1])
                     self.builder.emit(MIR_SEQPUSH, -1, seq, item)
                     return -1
+            if cmodule == "builtins" and mname == "format":
+                return self.emit_format_call(expr)
             rt_symbol: str = _rt_call_symbol(cmodule, mname, expr)
             if rt_symbol != "":
                 # A runtime-ABI call: the `rt:` callee prefix marks the
@@ -1717,6 +1765,26 @@ class _FnLowerer:
         callee_vid: int = self.builder.add_callee(name)
         dst: int = self.builder.emit_call(callee_vid, [value], tag)
         self.builder.fn.helpers[len(self.builder.fn.ops) - 1] = f"builtin:{name}"
+        return dst
+
+    def emit_format_call(self, expr: Dict[str, Any]) -> int:
+        """An admitted `builtins.format` call: a marked `MIR_CALL`.
+
+        The arguments evaluate left to right (the format string first);
+        the marker carries the `ps_str_format` style code since the MIR
+        call record has no expr payload for `format_style`.
+        """
+        style: str = "percent"
+        if "format_style" in expr:
+            style = _opt_str(expr, "format_style")
+        style_code: int = 1 if style == "dot" else 0
+        args: list[Dict[str, Any]] = expr["args"]
+        values: list[int] = []
+        for arg in args:
+            values.append(self.emit_expr(arg))
+        callee_vid: int = self.builder.add_callee("format")
+        dst: int = self.builder.emit_call(callee_vid, values, MIR_S)
+        self.builder.fn.helpers[len(self.builder.fn.ops) - 1] = f"format:{style_code}"
         return dst
 
     def emit_method_call(self, expr: Dict[str, Any]) -> int:

@@ -826,6 +826,9 @@ class MirEmitter:
         if marker is not None and marker.startswith("method:"):
             self._emit_method_call(fn, i, dst, fn.call_args[i], marker[len("method:") :])
             return
+        if marker is not None and marker.startswith("format:"):
+            self._emit_format_call(fn, i, dst, fn.call_args[i], int(marker[len("format:") :]))
+            return
         ir_fn: Dict[str, Any] = self._ir_fn(name)
         ret_type: Dict[str, Any] = ir_fn["returnType"]
         ret: str = _llvm_type(ret_type)
@@ -1158,6 +1161,50 @@ class MirEmitter:
         seq: str = self.operand(fn, args_i[1])
         self._abi_decl("ps_str_join", "void", ["i64", "ptr", "ptr", "ptr"])
         self.reg[dst] = self._buf_out("ps_str_join", [f"i64 {length}", f"ptr {ptr}", f"ptr {seq}"])
+
+    def _emit_format_call(self, fn: MirFunction, i: int, dst: int, args_i: list[int], style: int) -> None:
+        """An admitted `builtins.format` call: the direct `_emit_abi` arm.
+
+        `args_i[0]` is the format string; the rest marshal into a
+        `[{count} x %ps.arg]` array through `_store_fmt_arg`, then the
+        `ps_str_format` buffer-out call. The style code and the zero
+        keyword count ride the marker (`format_kwnames` is always 0 in
+        the admitted shape). The `%ps.arg` global itself comes from the
+        direct pass's global table, which already rendered this call.
+        """
+        count: int = len(args_i) - 1
+        if count:
+            fmt_slot: str = self.tmp_reg()
+            self.line(f"{fmt_slot} = alloca [{count} x %ps.arg]")
+            for index in range(count):
+                base: str = self.tmp_reg()
+                self.line(f"{base} = getelementptr [{count} x %ps.arg], ptr {fmt_slot}, i64 0, i64 {index}")
+                arg_i: int = args_i[index + 1]
+                self._store_fmt_arg(base, self.operand(fn, arg_i), self._operand_tag(fn, arg_i))
+            arg_ptr: str = self.tmp_reg()
+            self.line(f"{arg_ptr} = getelementptr [{count} x %ps.arg], ptr {fmt_slot}, i64 0, i64 0")
+        else:
+            arg_ptr = "null"
+        flen, fptr = self._buf_parts(self.operand(fn, args_i[0]))
+        self._abi_decl("ps_str_format", "void", ["i64", "ptr", "ptr", "i64", "i64", "i64", "ptr"])
+        self.reg[dst] = self._buf_out(
+            "ps_str_format",
+            [f"i64 {flen}", f"ptr {fptr}", f"ptr {arg_ptr}", f"i64 {count}", "i64 0", f"i64 {style}"],
+        )
+
+    def _store_fmt_arg(self, base: str, value: str, tag: int) -> None:
+        """One `%ps.arg` store for the admitted int/float kinds: the kind
+        code at field 0, the payload at field 2 (i64) or 3 (double), the
+        direct `_store_ps_arg` spelling."""
+        code: int = 1 if tag == MIR_W else 2
+        kind_ptr: str = self.tmp_reg()
+        self.line(f"{kind_ptr} = getelementptr %ps.arg, ptr {base}, i32 0, i32 0")
+        self.line(f"store i32 {code}, ptr {kind_ptr}")
+        slot: str = self.tmp_reg()
+        field: int = 2 if tag == MIR_W else 3
+        piece: str = "i64" if tag == MIR_W else "double"
+        self.line(f"{slot} = getelementptr %ps.arg, ptr {base}, i32 0, i32 {field}")
+        self.line(f"store {piece} {value}, ptr {slot}")
 
     def _mir_class(self, name: str) -> Dict[str, Any]:
         """The module's class record for `name`, or an `IRError`."""
