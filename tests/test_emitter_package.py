@@ -156,6 +156,129 @@ def test_the_seam_reads_the_node_children() -> None:
     assert _ir._env_item_name(item_name) == "y"
 
 
+def test_the_seam_reads_the_abi_and_call_records() -> None:
+    """The record readers `_abi` and `_calls` use: the runtime symbol, the
+    thread and island plans, the shim specs, the callee and arg payloads."""
+    from pyscriptc.emit import _ir
+
+    typ = {"kind": "int"}
+    left = {"kind": "name", "id": "x", "type": typ}
+    right = {"kind": "name", "id": "y", "type": typ}
+
+    assert _ir._node_symbol({"kind": "expr", "symbol": "ps_seq_new"}) == "ps_seq_new"
+    assert _ir._node_fn_name({"kind": "expr", "fn": "add"}) == "add"
+
+    closure = {"kind": "closure", "name": "worker", "type": typ}
+    thread = {"closure": closure, "size": 16}
+    assert _ir._node_thread({"kind": "expr", "thread": thread}) == thread
+    assert _ir._thread_closure(thread) == closure
+    assert _ir._thread_size(thread) == 16
+
+    island = {"name": "render", "want": typ}
+    assert _ir._node_island({"kind": "expr", "island": island}) == island
+    assert _ir._island_want(island) == typ
+    assert _ir._island_text(island) == "render"
+    assert _ir._island_key({"key": "q"}) == "q"
+    assert _ir._node_island_fn({"kind": "expr", "island_fn": island}) == island
+
+    spec = {"bound": [typ], "params": [], "return": typ}
+    assert _ir._spec_bound(spec) == [typ]
+    assert _ir._spec_params(spec) == []
+    assert _ir._spec_return(spec) == typ
+
+    assert _ir._arg_type({"name": "x", "type": typ}) == typ
+    assert _ir._elem_of({"kind": "list", "elem": typ}) == typ
+    assert _ir._key_of({"kind": "dict", "key": left, "value": right}) == left
+    assert _ir._value_of({"kind": "dict", "key": left, "value": right}) == right
+    cls = {"name": "tuple_2", "fields": [{"name": "_0", "type": typ}]}
+    assert _ir._class_fields(cls) == cls["fields"]
+
+    assert _ir._opt_record({"want": typ}, "want") == typ
+    assert _ir._opt_record({}, "want") is None
+    marked = _ir._mark_fmt(typ)
+    assert marked["fmt"] == 1
+    assert {k: v for k, v in marked.items() if k != "fmt"} == typ
+
+    assert _ir._callee_kind({"kind": "module"}) == "module"
+    assert _ir._callee_name({"kind": "builtin", "name": "len"}) == "len"
+    assert _ir._callee_module({"kind": "module", "module": "math"}) == "math"
+    assert _ir._callee_receiver({"kind": "method", "receiver": "str"}) == "str"
+    assert _ir._callee_tuple({"kind": "method", "tuple": "tuple_2_int_str"}) == "tuple_2_int_str"
+
+
+def test_the_abi_and_calls_emitters_read_no_raw_node_key() -> None:
+    """`_abi` and `_calls` walk the IR through the `_ir` seam: no raw
+    string-literal dict key read on an IR node stays in either module.
+    The exception-table lookups and the dict-literal write are not IR
+    reads, so they stay out of the key set."""
+
+    ir_keys = {
+        "kind",
+        "type",
+        "span",
+        "value",
+        "object",
+        "callee",
+        "args",
+        "env",
+        "stub",
+        "thread_stub",
+        "thread",
+        "operand",
+        "left",
+        "right",
+        "hay",
+        "needle",
+        "elems",
+        "pairs",
+        "index",
+        "cond",
+        "expr",
+        "target",
+        "fn",
+        "symbol",
+        "island",
+        "island_fn",
+        "closure",
+        "size",
+        "want",
+        "name",
+        "key",
+        "elem",
+        "bound",
+        "params",
+        "return",
+        "receiver",
+        "tuple",
+        "module",
+        "fields",
+        "id",
+        "op",
+        "island_npos",
+        "island_nkw",
+        "island_starred",
+        "island_kwargs",
+        "daemon",
+        "islandSource",
+        "json_flags",
+        "format_kwnames",
+        "format_style",
+        "fmt",
+        "returnType",
+    }
+    for name in ("_abi.py", "_calls.py"):
+        source = (SRC / "emit" / "llvm" / name).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Subscript):
+                continue
+            if not isinstance(node.slice, ast.Constant) or not isinstance(node.slice.value, str):
+                continue
+            assert isinstance(node.ctx, ast.Load), f"{name}:{node.lineno}: raw key write"
+            key = node.slice.value
+            assert key not in ir_keys, f"{name}:{node.lineno}: raw read of IR key {key!r}; use the _ir seam"
+
+
 def test_the_seam_reads_the_function_record() -> None:
     """The record readers `_funcs` uses: name, params, span, return type, env, boxed."""
     from pyscriptc.emit import _ir
