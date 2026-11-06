@@ -17,6 +17,9 @@ Two directory shapes exist:
   would resolve them, and the whole tree compiles into one native binary.
 
 A single file still refuses a relative import.
+
+The merge reads each unit through the emit ``_ir`` accessors; the returned
+module keeps the dict-IR on-disk shape.
 """
 
 from __future__ import annotations
@@ -28,6 +31,15 @@ from typing import Any
 
 from pyscriptc import boxed as _boxed
 from pyscriptc.builtins import USER_EXC_BASE
+from pyscriptc.emit._ir import (
+    _has,
+    _items,
+    _node_name,
+    _opt_int,
+    _opt_span,
+    _opt_str,
+    _span_of,
+)
 from pyscriptc.errors import IRError
 from pyscriptc.ir import IR_VERSION, SUBSET, cpython_version
 from pyscriptc.lower import Lowerer
@@ -289,28 +301,32 @@ def _lower_units(
             # belong to no definition, so the unit's own island planning
             # drops them with the module-level fences. The merge keeps them.
             if lowerer._boxed_module_fences:
-                module["fences"] = [*module["fences"], *(f.as_dict() for f in lowerer._boxed_module_fences)]
+                module["fences"] = [
+                    *_items(module, "fences"),
+                    *(f.as_dict() for f in lowerer._boxed_module_fences),
+                ]
             # boxed:end
             exc_n = lowerer.exc_n
-            for fn in module["functions"]:
+            for fn in _items(module, "functions"):
                 functions.append(fn)
-            for cls in module["classes"]:
-                previous = class_names.get(cls["name"])
+            for cls in _items(module, "classes"):
+                previous = class_names.get(_node_name(cls))
                 if previous is not None:
-                    if previous["fields"] == cls["fields"] and previous["methods"] == cls["methods"]:
-                        continue
+                    if _items(previous, "fields") == _items(cls, "fields"):
+                        if _items(previous, "methods") == _items(cls, "methods"):
+                            continue
                     fences.append(
                         {
                             "code": "PS2002",
-                            "message": f"class {cls['name']} is defined in more than one module",
-                            "span": cls["span"],
+                            "message": f"class {_node_name(cls)} is defined in more than one module",
+                            "span": _span_of(cls),
                             "function": None,
                         }
                     )
                     continue
-                class_names[cls["name"]] = cls
+                class_names[_node_name(cls)] = cls
                 classes.append(cls)
-            fences.extend(module["fences"])
+            fences.extend(_items(module, "fences"))
     # boxed:begin
     if program and (needs_island or fences):
         island = _program_island(units, root, entry, main_package, path0, staged_data=staged_data or [])
@@ -324,7 +340,7 @@ def _lower_units(
         "subset": SUBSET,
         "cpython": cpython_version(),
         "sourceFile": str(root),
-        "entry": _program_entry(functions, entry) if program else (functions[0]["name"] if functions else None),
+        "entry": _program_entry(functions, entry) if program else (_node_name(functions[0]) if functions else None),
         "functions": functions,
         "classes": classes,
         "fences": fences,
@@ -448,24 +464,24 @@ def _program_entry(functions: list[dict[str, Any]], entry: str | None = None) ->
         for suffix in ("__entry__", "main"):
             candidate = f"{entry}.{suffix}"
             for fn in functions:
-                name: str = fn["name"]
+                name: str = _node_name(fn)
                 if name == candidate:
                     return candidate
         for fn in functions:
-            name = fn["name"]
+            name = _node_name(fn)
             if name.startswith(entry + "."):
                 return name
     for fn in functions:
-        name = fn["name"]
+        name = _node_name(fn)
         if name == "__main__.main" or name == "__main__.__entry__":
             return name
     for fn in functions:
-        name = fn["name"]
+        name = _node_name(fn)
         if name.startswith("__main__."):
             return name
     if not functions:
         return None
-    first: str = functions[0]["name"]
+    first: str = _node_name(functions[0])
     return first
 
 
@@ -626,19 +642,17 @@ def _mark_dep_fences(
         return fences
     out: list[dict[str, Any]] = []
     for fence in fences:
-        span: dict[str, str] = {}
-        if "span" in fence:
-            span = fence["span"]
+        span = _opt_span(fence)
+        if span is None:
+            span = {}
         module: str | None = None
-        if "file" in span:
-            module = by_file.get(span["file"])
+        if _has(span, "file"):
+            module = by_file.get(_opt_str(span, "file"))
         if module is None:
             out.append(fence)
             continue
         distribution = _dep_distribution(module, dep_lane_report)
-        message: str = ""
-        if "message" in fence:
-            message = fence["message"]
+        message: str = _opt_str(fence, "message")
         if distribution and distribution not in message:
             copy: dict[str, Any] = {}
             for key in fence:
@@ -1091,7 +1105,7 @@ def _catalog_once(
         for local, item in _reexports_of(name, tree, exports, is_package).items():
             if local not in found[name]:
                 found[name][local] = item
-        missed = _unexported_definitions(tree, lowerer, module["fences"])
+        missed = _unexported_definitions(tree, lowerer, _items(module, "fences"))
         if missed:
             failed[name] = missed
     return found, failed
@@ -1476,24 +1490,14 @@ def _fence_ident(fence: dict[str, Any]) -> str:
     when the tuple identity made them equal.
     """
 
-    code: str = ""
-    if "code" in fence:
-        code = fence["code"]
-    message: str = ""
-    if "message" in fence:
-        message = fence["message"]
-    span: dict[str, Any] = {}
-    if "span" in fence:
-        span = fence["span"]
-    file: str = ""
-    if "file" in span:
-        file = span["file"]
-    line: int = 0
-    if "line" in span:
-        line = span["line"]
-    col: int = 0
-    if "col" in span:
-        col = span["col"]
+    code: str = _opt_str(fence, "code")
+    message: str = _opt_str(fence, "message")
+    span = _opt_span(fence)
+    if span is None:
+        span = {}
+    file: str = _opt_str(span, "file")
+    line: int = _opt_int(span, "line", 0)
+    col: int = _opt_int(span, "col", 0)
     return code + "\x00" + message + "\x00" + file + "\x00" + str(line) + "\x00" + str(col)
 
 
@@ -1512,7 +1516,7 @@ def _promote_definition_fences(
     emitted: dict[str, str] = {}
     out: list[dict[str, Any]] = []
     for fence in fences:
-        message: str = fence["message"]
+        message: str = _opt_str(fence, "message")
         if message.endswith(_NOT_EXPORTED):
             defined = by_qual.get(message[: -len(_NOT_EXPORTED)])
             if defined is not None:
@@ -1548,7 +1552,13 @@ def _unexported_definitions(
         if decorators:
             start = min(start, min(item.lineno for item in decorators))
         end = node.end_lineno or node.lineno
-        inside = [fence for fence in fences if start <= fence["span"]["line"] <= end]
+        inside: list[dict[str, Any]] = []
+        for fence in fences:
+            span = _opt_span(fence)
+            if span is None:
+                continue
+            if start <= _opt_int(span, "line", 0) <= end:
+                inside.append(fence)
         if inside:
             found[node.name] = inside[0]
     return found
