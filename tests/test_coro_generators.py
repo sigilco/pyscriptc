@@ -1122,3 +1122,12 @@ def test_send_value_must_match_the_annotation() -> None:
     assert [(f["code"], f["message"]) for f in module["fences"]] == [
         ("PS1003", "the sent value is str, annotation says int")
     ]
+
+
+def test_iterator_send_form_recv_is_the_none_singleton() -> None:
+    module = lower_source(
+        "from typing import Iterator\n\n\ndef g(n: int) -> Iterator[int]:\n    x = yield n\n",
+        "iternone.py",
+    )
+    assert module["fences"] == []
+    validate_module(module)
