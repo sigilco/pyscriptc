@@ -614,8 +614,11 @@ class MirEmitter:
             if entry is not None:
                 helper = entry.split(" ")[0]
                 tag = int(entry.split(" ")[1])
-                if helper == "str_cmp_eq" or helper == "str_cmp_ne":
+                if helper.startswith("str_cmp_"):
                     self._emit_str_cmp(fn, dst, a1, a2, helper)
+                    return
+                if helper == "str_contains" or helper == "str_ncontains":
+                    self._emit_str_contains(fn, dst, a1, a2, helper == "str_ncontains")
                     return
                 needed: set[str] = self.needed
                 needed.add(helper)
@@ -1344,9 +1347,38 @@ class MirEmitter:
         self.line(f"{right_ptr} = extractvalue %ps.str {right}, 1")
         cmp = self.tmp_reg()
         self.line(f"{cmp} = call i32 @ps_str_cmp(i64 {left_len}, ptr {left_ptr}, i64 {right_len}, ptr {right_ptr})")
-        pred = "eq" if helper == "str_cmp_eq" else "ne"
+        pred = helper.rsplit("_", 1)[1]
         self.line(f"{reg} = icmp {pred} i32 {cmp}, 0")
         self.reg[dst] = reg
+
+    def _emit_str_contains(self, fn: MirFunction, dst: int, a1: int, a2: int, negated: bool) -> None:
+        """A str `in`/`not in`: the direct path's `ps_str_find` sequence.
+
+        `a1` is the haystack and `a2` the needle (the lowerer's operand
+        order). The direct `emit_contains` evaluates the needle before
+        the haystack — both already lowered — then emits the haystack's
+        buffer parts, the needle's, the `ps_str_find` call and the
+        `icmp sge`; `not in` adds the `xor i1` tail. The register order
+        matches the direct `tmp()` sequence: found, flag, then the
+        negation register.
+        """
+        needed: set[str] = self.needed
+        needed.add("str")
+        self.needed = needed
+        hay = self.operand(fn, a1)
+        needle = self.operand(fn, a2)
+        hay_len, hay_ptr = self._buf_parts(hay)
+        needle_len, needle_ptr = self._buf_parts(needle)
+        found = self.tmp_reg()
+        self.line(f"{found} = call i64 @ps_str_find(i64 {hay_len}, ptr {hay_ptr}, i64 {needle_len}, ptr {needle_ptr})")
+        flag = self.tmp_reg()
+        self.line(f"{flag} = icmp sge i64 {found}, 0")
+        if negated:
+            reg = self.tmp_reg()
+            self.line(f"{reg} = xor i1 {flag}, true")
+            self.reg[dst] = reg
+            return
+        self.reg[dst] = flag
 
     def operand(self, fn: MirFunction, operand: int) -> str:
         if is_const_ref(operand):

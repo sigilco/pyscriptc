@@ -171,6 +171,17 @@ _D_CMPOPS = {
     "!=": MIR_CNED,
 }
 
+# The str compare predicate suffixes: `ps_str_cmp` returns an i32
+# ordering and the direct path's `icmp` reads it against 0.
+_STR_CMPS = {
+    "==": "eq",
+    "!=": "ne",
+    "<": "slt",
+    "<=": "sle",
+    ">": "sgt",
+    ">=": "sge",
+}
+
 # The ps-helper-backed binary ops the slice lowers, per operand kind.
 _W_HELPER_OPS = {
     "//": "floordiv",
@@ -185,7 +196,9 @@ _D_HELPER_OPS = {
     "**": "fpow",
 }
 
-_EXPR_KINDS = frozenset({"const", "name", "binary", "compare", "unary", "call", "cast", "list", "subscript", "attr"})
+_EXPR_KINDS = frozenset(
+    {"const", "name", "binary", "compare", "unary", "call", "cast", "list", "subscript", "attr", "contains"}
+)
 _STMT_KINDS = frozenset({"assign", "expr", "return", "pass", "if", "while", "raise", "setitem", "setattr"})
 
 
@@ -318,6 +331,8 @@ def supported_expr(expr: Dict[str, Any]) -> bool:
         return _supported_binary(expr)
     if kind == "compare":
         return _supported_compare(expr)
+    if kind == "contains":
+        return _supported_contains(expr)
     if kind == "cast":
         return _supported_cast(expr)
     return False
@@ -611,7 +626,10 @@ def _supported_binary(expr: Dict[str, Any]) -> bool:
     typ: Dict[str, Any] = expr["type"]
     tkind: str = typ["kind"]
     op: str = expr["op"]
-    if tkind == "int":
+    if tkind == "str":
+        if op != "+":
+            return False
+    elif tkind == "int":
         if op not in _W_BINOPS and op not in _W_HELPER_OPS:
             return False
     elif tkind == "float":
@@ -624,7 +642,7 @@ def _supported_binary(expr: Dict[str, Any]) -> bool:
     left: Dict[str, Any] = expr["left"]
     ltyp: Dict[str, Any] = left["type"]
     lkind: str = ltyp["kind"]
-    if lkind not in ("int", "float", "bool"):
+    if lkind not in ("int", "float", "bool", "str"):
         return False
     right: Dict[str, Any] = expr["right"]
     rtyp: Dict[str, Any] = right["type"]
@@ -646,8 +664,8 @@ def _supported_compare(expr: Dict[str, Any]) -> bool:
         return False
     if lkind == "str":
         # The str slice compares through the `ps_str_cmp` helper copy;
-        # ordering operators stay out until a helper row exists for them.
-        if op != "==" and op != "!=":
+        # the six ordering/equality predicates all ride the same call.
+        if op not in ("==", "!=", "<", "<=", ">", ">="):
             return False
         return supported_expr(left) and supported_expr(right)
     if op not in _W_CMPOPS:
@@ -655,6 +673,22 @@ def _supported_compare(expr: Dict[str, Any]) -> bool:
     if lkind not in ("int", "float", "bool"):
         return False
     return supported_expr(left) and supported_expr(right)
+
+
+def _supported_contains(expr: Dict[str, Any]) -> bool:
+    """The slice test for one `in`/`not in` containment expression.
+
+    Only the str hay/needle pair lowers: the direct path's
+    `ps_str_find` sequence is the one the MIR helper copy renders.
+    """
+    typ: Dict[str, Any] = expr["type"]
+    if typ["kind"] != "bool":
+        return False
+    hay: Dict[str, Any] = expr["hay"]
+    needle: Dict[str, Any] = expr["needle"]
+    if hay["type"]["kind"] != "str" or needle["type"]["kind"] != "str":
+        return False
+    return supported_expr(hay) and supported_expr(needle)
 
 
 def supported_stmt(stmt: Dict[str, Any]) -> bool:
@@ -952,6 +986,10 @@ def _calls_in_slice_expr(expr: Dict[str, Any], callees: Dict[str, Dict[str, Any]
         return _calls_in_slice_expr(expr["index"], callees)
     if kind == "attr":
         return _calls_in_slice_expr(expr["value"], callees)
+    if kind == "contains":
+        if not _calls_in_slice_expr(expr["hay"], callees):
+            return False
+        return _calls_in_slice_expr(expr["needle"], callees)
     return True
 
 
@@ -1333,6 +1371,8 @@ class _FnLowerer:
             return self.emit_binary(expr)
         if kind == "compare":
             return self.emit_compare(expr)
+        if kind == "contains":
+            return self.emit_contains(expr)
         if kind == "unary":
             return self.emit_unary(expr)
         if kind == "call":
@@ -1612,6 +1652,11 @@ class _FnLowerer:
             if mir_op is not None:
                 return self.builder.emit_val(mir_op, left, right, MIR_D)
             return self.emit_helper(_D_HELPER_OPS[op], MIR_D, left, right)
+        if tkind == "str":
+            # `+` is the only admitted str binary: the direct path's
+            # `helper_call("strconcat", ...)` spelling rides the same
+            # helper-copy convention.
+            return self.emit_helper("strconcat", MIR_S, left, right)
         raise MirLowerError(f"the MIR leaf slice cannot lower {op} on {tkind}")
 
     def emit_cast(self, expr: Dict[str, Any]) -> int:
@@ -1652,14 +1697,28 @@ class _FnLowerer:
         okey: str = expr["op"]
         if kind == "str":
             # `ps_str_cmp` returns an i32 ordering; the direct path
-            # compares it to 0 with `icmp eq`/`ne`. The helper copy's
-            # name carries the predicate to the emitter, which renders
-            # the extractvalue/call/icmp sequence the direct path emits.
-            helper = "str_cmp_eq" if okey == "==" else "str_cmp_ne"
+            # compares it to 0 with `icmp`. The helper copy's name
+            # carries the predicate to the emitter, which renders the
+            # extractvalue/call/icmp sequence the direct path emits.
+            helper = "str_cmp_" + _STR_CMPS[okey]
             return self.emit_helper(helper, MIR_B, left, right)
         table: Dict[str, int] = _D_CMPOPS if kind == "float" else _W_CMPOPS
         mir_op: int = table[okey]
         return self.builder.emit_val(mir_op, left, right, MIR_B)
+
+    def emit_contains(self, expr: Dict[str, Any]) -> int:
+        """A str `in`/`not in`: a marked helper `MIR_COPY`.
+
+        The direct path evaluates the needle before the haystack, then
+        emits the `_buf_parts` extracts, the `ps_str_find` call and the
+        `icmp sge`; `not in` adds the `xor i1` tail. The helper copy's
+        operands carry (hay, needle) and its name carries the negation,
+        the same out-of-band convention the compare helpers use.
+        """
+        needle: int = self.emit_expr(expr["needle"])
+        hay: int = self.emit_expr(expr["hay"])
+        helper = "str_ncontains" if expr["negated"] else "str_contains"
+        return self.emit_helper(helper, MIR_B, hay, needle)
 
     def emit_unary(self, expr: Dict[str, Any]) -> int:
         operand = self.emit_expr(expr["operand"])
