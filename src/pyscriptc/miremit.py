@@ -43,6 +43,7 @@ from pyscriptc.mir import (
     MIR_ADDW,
     MIR_B,
     MIR_BR,
+    MIR_CALL,
     MIR_CEQD,
     MIR_CEQW,
     MIR_CGED,
@@ -528,6 +529,9 @@ class MirEmitter:
                 return
             self.reg[dst] = self.operand(fn, a1)
             return
+        if op == MIR_CALL:
+            self._emit_call(fn, i, dst, a1, a2)
+            return
         if op in _HELPER_W:
             needed = self.needed
             needed.add(_HELPER_W[op])
@@ -582,6 +586,36 @@ class MirEmitter:
             self.reg[dst] = reg
             return
         raise IRError(f"the MIR leaf slice cannot emit op {op}")
+
+    def _emit_call(self, fn: MirFunction, i: int, dst: int, callee_vid: int, tag: int) -> None:
+        """A `MIR_CALL`: the callee's symbol, the args, the result type.
+
+        The callee value id resolves through the function's callee table
+        (name -> symbol via `_fn_symbol`, the direct emitter's spelling);
+        the arguments ride `call_args` and each renders with its own LLVM
+        type from the IR, byte-for-byte the direct `call_function`'s
+        argument text. A void call renders bare and returns nothing; a
+        value call takes a fresh temp.
+        """
+        name: str = fn.callees[callee_vid]
+        ir_fn: Dict[str, Any] = self._ir_fn(name)
+        ret_type: Dict[str, Any] = ir_fn["returnType"]
+        ret: str = _llvm_type(ret_type)
+        ir_params: list[Dict[str, Any]] = ir_fn["params"]
+        args_i: list[int] = fn.call_args[i]
+        parts: list[str] = []
+        for position in range(len(args_i)):
+            param: Dict[str, Any] = ir_params[position]
+            p_type: Dict[str, Any] = param["type"]
+            parts.append(f"{_llvm_type(p_type)} {self.operand(fn, args_i[position])}")
+        symbol: str = _fn_symbol(name)
+        rendered: str = ", ".join(parts)
+        if ret == "void":
+            self.line(f"call void @{symbol}({rendered})")
+            return
+        reg: str = self.tmp_reg()
+        self.line(f"{reg} = call {ret} @{symbol}({rendered})")
+        self.reg[dst] = reg
 
     def _block_of(self, fn: MirFunction, i: int) -> MirBlock:
         for span_bid in range(len(fn.blocks)):
@@ -689,6 +723,8 @@ def _result_tag(fn: MirFunction, i: int) -> int:
     op = fn.ops[i]
     if op == MIR_COPY:
         return copy_result_type(fn, i)
+    if op == MIR_CALL:
+        return fn.arg2[i]
     tag: int | None = _OP_RESULT_TYPE.get(op)
     if tag is None:
         raise IRError(f"no result tag for op {op}")

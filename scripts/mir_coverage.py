@@ -128,14 +128,22 @@ def out_of_slice_reason(fn: dict[str, object]) -> str | None:
 
 
 def measure_script(path: Path) -> dict[str, object]:
-    """Lower one script and score each non-fenced IR function."""
+    """Lower one script and score each non-fenced IR function.
+
+    The slice test is the module-level one: a function whose calls all
+    name in-slice callees joins the slice with them, so the verdict and
+    the per-function reason cannot drift from `lower_module`'s skip list.
+    """
     from pyscriptc.lower import lower_file
+    from pyscriptc.mirlower import lower_module, supported_module_fn
 
     module, _source = lower_file(str(path))
     fenced = _fenced_names(module)
     functions = module.get("functions") or []
     if not isinstance(functions, list):
         functions = []
+    mir = lower_module(module)
+    mir_names = {fn.name for fn in mir.functions}
     counted: list[str] = []
     in_slice: list[str] = []
     reasons: dict[str, str] = {}
@@ -147,9 +155,15 @@ def measure_script(path: Path) -> dict[str, object]:
             continue
         counted.append(name)
         reason = out_of_slice_reason(fn)
-        if reason is None:
+        if (
+            reason is None
+            and name in mir_names
+            and supported_module_fn(fn, {f["name"]: f for f in functions if f.get("name") in mir_names})
+        ):
             in_slice.append(name)
         else:
+            if reason is None:
+                reason = "fn:callee out of slice"
             reasons[name] = reason
     counted.sort()
     in_slice.sort()

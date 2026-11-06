@@ -18,6 +18,7 @@ from pyscriptc.mir import (
     MIR_ADDW,
     MIR_B,
     MIR_BR,
+    MIR_CALL,
     MIR_CEQD,
     MIR_CEQW,
     MIR_CGED,
@@ -83,6 +84,7 @@ OP_NAMES: dict[int, str] = {
     MIR_COPY: "copy",
     MIR_NOTB: "notb",
     MIR_RAISE: "raise",
+    MIR_CALL: "call",
 }
 
 _TERMINATORS: list[int] = [MIR_JMP, MIR_BR, MIR_RET, MIR_RAISE]
@@ -139,6 +141,12 @@ def _bind(fn: MirFunction, values: list[int]) -> str:
     return ", ".join(_operand(fn, v) for v in values)
 
 
+def _call_args_text(fn: MirFunction, i: int) -> str:
+    if i not in fn.call_args:
+        return ""
+    return _bind(fn, fn.call_args[i])
+
+
 def _instr_text(fn: MirFunction, bid: int, i: int) -> str:
     op = fn.ops[i]
     name = OP_NAMES.get(op, f"op{op}")
@@ -169,6 +177,10 @@ def _instr_text(fn: MirFunction, bid: int, i: int) -> str:
         if helper is not None:
             return f"{dst}:{tag} = call {helper.split(' ')[0]} {_operand(fn, a1)}, {_operand(fn, a2)}"
         return f"{dst}:{tag} = copy {_operand(fn, a1)}"
+    if op == MIR_CALL:
+        callee: str = fn.callees.get(a1, "?")
+        tag = tag_name(fn.arg2[i])
+        return f"{dst}:{tag} = call @{callee}({_call_args_text(fn, i)})"
     tag = tag_name(OP_RESULT_TYPE.get(op, MIR_W))
     if OP_ARITY.get(op, 2) == 1:
         return f"{dst}:{tag} = {name} {_operand(fn, a1)}"

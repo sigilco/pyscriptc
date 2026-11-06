@@ -85,6 +85,7 @@ MIR_CNED = 23
 MIR_COPY = 25
 MIR_NOTB = 26
 MIR_RAISE = 27
+MIR_CALL = 28
 
 # The void result tag (`mir.py`'s MIR_VOID): a function returning None has
 # no return value. Spelled as the int literal per the self-host spell, so a
@@ -158,7 +159,7 @@ _D_HELPER_OPS = {
     "**": "fpow",
 }
 
-_EXPR_KINDS = frozenset({"const", "name", "binary", "compare", "unary"})
+_EXPR_KINDS = frozenset({"const", "name", "binary", "compare", "unary", "call"})
 _STMT_KINDS = frozenset({"assign", "expr", "return", "pass", "if", "while", "raise"})
 
 
@@ -167,6 +168,8 @@ def supported_expr(expr: Dict[str, Any]) -> bool:
     kind: str = expr["kind"]
     if kind not in _EXPR_KINDS:
         return False
+    if kind == "call":
+        return _supported_call(expr)
     if kind == "const":
         typ: Dict[str, Any] = expr["type"]
         tkind: str = typ["kind"]
@@ -197,6 +200,32 @@ def supported_expr(expr: Dict[str, Any]) -> bool:
     if kind == "compare":
         return _supported_compare(expr)
     return False
+
+
+def _supported_call(expr: Dict[str, Any]) -> bool:
+    """The slice test for one call expression.
+
+    The callee must be a plain same-module user function: the callee
+    record's kind is `function` (the IR's spelling for a same-module name
+    resolved at lowering), the name is defined by a function of this
+    module (checked against `supported_fn`'s own param/return rules by
+    the caller through `_callee_in_slice`), and every argument is in the
+    slice. Everything else (builtins, module members, methods, class
+    constructors, value callees) stays outside.
+    """
+    callee: Dict[str, Any] = expr["callee"]
+    ckind: str = callee["kind"]
+    if ckind != "function":
+        return False
+    args: list[Dict[str, Any]] = expr["args"]
+    for arg in args:
+        atyp: Dict[str, Any] = arg["type"]
+        akind: str = atyp["kind"]
+        if akind not in ("int", "float", "bool"):
+            return False
+        if not supported_expr(arg):
+            return False
+    return True
 
 
 def _supported_binary(expr: Dict[str, Any]) -> bool:
@@ -249,7 +278,8 @@ def supported_stmt(stmt: Dict[str, Any]) -> bool:
     if kind == "assign":
         # A None-typed value lowers to nothing (the None singleton has no
         # runtime value): a const or a name read assigns nothing. A
-        # None-typed call is out of the slice with every other call.
+        # None-typed call is the void-call form: it lowers when its callee
+        # is in the slice (the module-level callee test runs later).
         value: Dict[str, Any] = stmt["value"]
         vtyp: Dict[str, Any] = value["type"]
         vkind: str = vtyp["kind"]
@@ -257,12 +287,15 @@ def supported_stmt(stmt: Dict[str, Any]) -> bool:
             vnode: str = value["kind"]
             if vnode == "const" or vnode == "name":
                 return True
+            if vnode == "call":
+                return _supported_call(value)
             return False
         return supported_expr(value)
     if kind == "expr":
         # The direct path skips a None const expression statement, so the
-        # slice admits it and lowers to nothing; anything else is a value
-        # expression the walk has to cover.
+        # slice admits it and lowers to nothing; a None-typed call is the
+        # void-call form; anything else is a value expression the walk has
+        # to cover.
         expr: Dict[str, Any] = stmt["expr"]
         etyp: Dict[str, Any] = expr["type"]
         ekind: str = etyp["kind"]
@@ -270,13 +303,15 @@ def supported_stmt(stmt: Dict[str, Any]) -> bool:
             enode: str = expr["kind"]
             if enode == "const":
                 return True
+            if enode == "call":
+                return _supported_call(expr)
             return False
         return supported_expr(expr)
     if kind == "return":
         # A `None`-typed return lowers to a void `MIR_RET`; the body walk
         # skips the None const the IR carries (`return None` and bare
-        # `return` lower to the same node). A None-typed call is out of
-        # the slice with every other call.
+        # `return` lower to the same node). A None-typed call as the
+        # returned value is a void call followed by the void ret.
         rvalue: Dict[str, Any] = stmt["value"]
         rtyp: Dict[str, Any] = rvalue["type"]
         rkind: str = rtyp["kind"]
@@ -284,6 +319,8 @@ def supported_stmt(stmt: Dict[str, Any]) -> bool:
             rnode: str = rvalue["kind"]
             if rnode == "const" or rnode == "name":
                 return True
+            if rnode == "call":
+                return _supported_call(rvalue)
             return False
         return supported_expr(rvalue)
     if kind == "if":
@@ -366,6 +403,97 @@ def supported_fn(fn: Dict[str, Any]) -> bool:
     return True
 
 
+def supported_module_fn(fn: Dict[str, Any], callees: Dict[str, Dict[str, Any]]) -> bool:
+    """The module-level slice test: `supported_fn` plus the callee checks.
+
+    A call the body walk admits names a same-module function; here the
+    callee must itself be a plain module-level user function in the
+    slice, with an arity matching the call. The checks are pairwise
+    (call site against the callee's record), so a call to a function
+    that would lower clean but is out of the slice by its own shape
+    (a float param, an env) keeps the caller out too.
+    """
+    if not supported_fn(fn):
+        return False
+    body: list[Dict[str, Any]] = fn["body"]
+    return _calls_in_slice(body, callees)
+
+
+def _calls_in_slice(stmts: list[Dict[str, Any]], callees: Dict[str, Dict[str, Any]]) -> bool:
+    """Every call nested in `stmts` names an in-slice callee with a
+    matching arity. Recursion cycles (f calls f) are rejected: the MIR
+    emitter renders a call to the callee's symbol, but a self-call's
+    argument/result flow is the caller's own frame; the slice admits it
+    only through the direct path today."""
+    for stmt in stmts:
+        if not _calls_in_slice_stmt(stmt, callees):
+            return False
+    return True
+
+
+def _calls_in_slice_stmt(stmt: Dict[str, Any], callees: Dict[str, Dict[str, Any]]) -> bool:
+    kind: str = stmt["kind"]
+    if kind == "assign":
+        value: Dict[str, Any] = stmt["value"]
+        return _calls_in_slice_expr(value, callees)
+    if kind == "expr":
+        expr: Dict[str, Any] = stmt["expr"]
+        return _calls_in_slice_expr(expr, callees)
+    if kind == "return":
+        rvalue: Dict[str, Any] = stmt["value"]
+        return _calls_in_slice_expr(rvalue, callees)
+    if kind == "if":
+        if not _calls_in_slice_expr(stmt["cond"], callees):
+            return False
+        then_body: list[Dict[str, Any]] = stmt["then"]
+        for s in then_body:
+            if not _calls_in_slice_stmt(s, callees):
+                return False
+        else_body: list[Dict[str, Any]] = stmt["else"]
+        for s in else_body:
+            if not _calls_in_slice_stmt(s, callees):
+                return False
+        return True
+    if kind == "while":
+        if not _calls_in_slice_expr(stmt["cond"], callees):
+            return False
+        body: list[Dict[str, Any]] = stmt["body"]
+        for s in body:
+            if not _calls_in_slice_stmt(s, callees):
+                return False
+        return True
+    return True
+
+
+def _calls_in_slice_expr(expr: Dict[str, Any], callees: Dict[str, Dict[str, Any]]) -> bool:
+    kind: str = expr["kind"]
+    if kind == "call":
+        callee: Dict[str, Any] = expr["callee"]
+        name: str = callee["name"]
+        target: Dict[str, Any] | None = callees.get(name)
+        if target is None:
+            return False
+        args: list[Dict[str, Any]] = expr["args"]
+        params: list[Dict[str, Any]] = target["params"]
+        if len(args) != len(params):
+            return False
+        for arg in args:
+            if not _calls_in_slice_expr(arg, callees):
+                return False
+        return True
+    if kind == "binary":
+        if not _calls_in_slice_expr(expr["left"], callees):
+            return False
+        return _calls_in_slice_expr(expr["right"], callees)
+    if kind == "compare":
+        if not _calls_in_slice_expr(expr["left"], callees):
+            return False
+        return _calls_in_slice_expr(expr["right"], callees)
+    if kind == "unary":
+        return _calls_in_slice_expr(expr["operand"], callees)
+    return True
+
+
 def _param_tag(kind: str) -> int:
     if kind == "float":
         return MIR_D
@@ -397,6 +525,10 @@ class _FnLowerer:
     slots: Dict[str, int]
     local_types: Dict[str, str]
     slot_vids: Dict[str, int]
+    # The admitted callee records, keyed by the callee name the IR's
+    # `function` callee carries. A call lowers only when its name is here
+    # (`supported_module_fn` guaranteed it for in-slice bodies).
+    callees: Dict[str, Dict[str, Any]]
     # The direct emitter's label counter: `fresh()` hands out one number
     # per label, in statement pre-order. The lowerer reserves the same
     # numbers so the emitted labels land on the direct path's.
@@ -406,9 +538,10 @@ class _FnLowerer:
     # opens, and the terminator is the block's last instruction.
     block_terminator: Dict[int, int]
 
-    def __init__(self, fn: Dict[str, Any]) -> None:
+    def __init__(self, fn: Dict[str, Any], callees: Dict[str, Dict[str, Any]]) -> None:
         self.fn = fn
         self.builder = MirBuilder(fn["name"])
+        self.callees = callees
         self.slots = {}
         self.local_types = {}
         self.slot_vids = {}
@@ -543,7 +676,12 @@ class _FnLowerer:
             value_expr: Dict[str, Any] = stmt["value"]
             if self.is_none(value_expr):
                 # A None-typed value binds nothing: the None singleton has
-                # no runtime value, so there is no slot write.
+                # no runtime value, so there is no slot write. A void call
+                # still emits (its effects are the call itself), the way
+                # the direct path emits the call then skips the store.
+                vnode: str = value_expr["kind"]
+                if vnode == "call":
+                    self.emit_call_expr(value_expr)
                 return
             value = self.emit_expr(value_expr)
             self.store(target, value)
@@ -551,16 +689,24 @@ class _FnLowerer:
         if kind == "expr":
             expr: Dict[str, Any] = stmt["expr"]
             if self.is_none(expr):
-                # The direct path skips a None const expression statement.
+                # The direct path skips a None const expression statement;
+                # a void call emits.
+                enode: str = expr["kind"]
+                if enode == "call":
+                    self.emit_call_expr(expr)
                 return
             self.emit_expr(expr)
             return
         if kind == "return":
             # A None-typed return lowers to the void `MIR_RET`: no value
             # rides it, the way the direct path renders `ret void` at the
-            # same point in the flow.
+            # same point in the flow. A void call as the returned value
+            # emits first, then the void ret.
             rvalue: Dict[str, Any] = stmt["value"]
             if self.is_none(rvalue):
+                rnode: str = rvalue["kind"]
+                if rnode == "call":
+                    self.emit_call_expr(rvalue)
                 self.builder.emit_ret_void()
                 return
             value = self.emit_expr(rvalue)
@@ -712,7 +858,36 @@ class _FnLowerer:
             return self.emit_compare(expr)
         if kind == "unary":
             return self.emit_unary(expr)
+        if kind == "call":
+            return self.emit_call_expr(expr)
         raise MirLowerError(f"the MIR leaf slice cannot lower expression {kind}")
+
+    def emit_call_expr(self, expr: Dict[str, Any]) -> int:
+        """A call to an admitted same-module function: a `MIR_CALL`.
+
+        The callee rides `arg1` as the callee entry value id (allocated
+        through `MirBuilder.add_callee`, named in the function's callee
+        table); arguments evaluate left to right, then the call; the
+        result tag is the callee's return kind (`MIR_VOID` for a None
+        return). A void call returns -1: the direct path binds nothing.
+        """
+        callee: Dict[str, Any] = expr["callee"]
+        name: str = callee["name"]
+        target: Dict[str, Any] | None = self.callees.get(name)
+        if target is None:
+            raise MirLowerError(f"the MIR leaf slice has no lowered callee {name}")
+        callee_vid: int = self.builder.add_callee(name)
+        args: list[Dict[str, Any]] = expr["args"]
+        values: list[int] = []
+        for arg in args:
+            values.append(self.emit_expr(arg))
+        typ: Dict[str, Any] = expr["type"]
+        tkind: str = typ["kind"]
+        tag: int = _fn_result_tag(target)
+        if tkind == "none":
+            self.builder.emit_call(callee_vid, values, MIR_VOID)
+            return -1
+        return self.builder.emit_call(callee_vid, values, tag)
 
     def is_none(self, expr: Dict[str, Any]) -> bool:
         """True when the expression's value is the None singleton.
@@ -800,9 +975,17 @@ class _FnLowerer:
         raise MirLowerError(f"the MIR leaf slice cannot lower {op} on {tkind}")
 
 
-def lower_function(fn: Dict[str, Any]) -> MirFunction:
-    """Lower one in-slice IR function to MIR. `supported_fn` must hold."""
-    return _FnLowerer(fn).run()
+def lower_function(fn: Dict[str, Any], callees: Dict[str, Dict[str, Any]] | None = None) -> MirFunction:
+    """Lower one in-slice IR function to MIR. `supported_fn` must hold.
+
+    `callees` is the admitted callee table (name -> IR function record);
+    a call lowers to a `MIR_CALL` only when its name is in it, so a
+    function with no calls needs no table.
+    """
+    table: Dict[str, Dict[str, Any]] = {}
+    if callees is not None:
+        table = callees
+    return _FnLowerer(fn, table).run()
 
 
 def lower_module(module: Dict[str, Any]) -> MirModule:
@@ -811,15 +994,47 @@ def lower_module(module: Dict[str, Any]) -> MirModule:
     The skipped names come back on `module.skipped` so the emitter can
     refuse a module whose entry the slice cannot lower, instead of
     silently emitting a module without it.
+
+    The callee table: a call in an in-slice body must name a plain
+    module-level user function that itself lowers clean, with an arity
+    matching the call, so the lowerer can pack the callee as a call and
+    the emitter can resolve the symbol. A function a callee names but
+    that is out of the slice itself drags its callers out (pairwise,
+    transitively, through the two-pass order below: pass one collects
+    the plain-shape candidates, pass two re-tests callers against the
+    admitted set until it settles).
     """
+    fns: list[Dict[str, Any]] = module["functions"]
+    # Pass one: plain-shape candidates by name. A later def shadows an
+    # earlier one only if names repeat, which the lowerer refuses
+    # upstream; the dict keeps the first.
+    by_name: Dict[str, Dict[str, Any]] = {}
+    for fn in fns:
+        fname: str = fn["name"]
+        if fname not in by_name and supported_fn(fn):
+            by_name[fname] = fn
+    # Pass two: fixpoint of "every callee is admitted". A caller whose
+    # callee set never settles stays out (mutual recursion).
+    admitted: Dict[str, Dict[str, Any]] = {}
+    changed: bool = True
+    while changed:
+        changed = False
+        for fname in by_name:
+            if fname in admitted:
+                continue
+            fn = by_name[fname]
+            if _calls_in_slice(fn["body"], admitted):
+                admitted[fname] = fn
+                changed = True
     functions: list[MirFunction] = []
     skipped: list[str] = []
-    fns: list[Dict[str, Any]] = module["functions"]
     for fn in fns:
-        if supported_fn(fn):
-            functions.append(lower_function(fn))
+        fname2: str = fn["name"]
+        fn_admitted: Dict[str, Any] | None = admitted.get(fname2)
+        if fn_admitted is not None and supported_module_fn(fn, admitted):
+            functions.append(_FnLowerer(fn, admitted).run())
         else:
-            skipped.append(fn["name"])
+            skipped.append(fname2)
     source: str = module["sourceFile"]
     entry: str = module["entry"]
     mir_module: MirModule = MirModule(source_file=source, functions=functions, entry=entry)
