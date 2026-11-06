@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-06",
-  "commit": "b6011443e471904eab66c59de74a76aae21ea6ba",
+  "commit": "cb44a03d9d2cd19690a16172eb3abcbc50ca501d",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -20,8 +20,8 @@
     },
     "packages": {
       "green": 2,
-      "yellow": 7,
-      "red": 9
+      "yellow": 8,
+      "red": 8
     }
   },
   "builtins": [
@@ -778,8 +778,8 @@
       "name": "filelock",
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
-      "ratio": "237/641",
-      "blocking": "name-resolution (149), construct-other (100), generic-alias (55)",
+      "ratio": "233/641",
+      "blocking": "name-resolution (149), construct-other (90), generic-alias (55)",
       "codes": "PS2002, PS2001, PS1103"
     },
     {
@@ -795,7 +795,7 @@
       "version": "3.20",
       "status": "\ud83d\udd34",
       "ratio": "37/56",
-      "blocking": "keyword-args (16), construct-other (9), unlowered-call (8)",
+      "blocking": "keyword-args (16), unlowered-call (8), construct-other (7)",
       "codes": "PS2002, PS2003, PS1101"
     },
     {
@@ -818,33 +818,33 @@
       "name": "pyjwt",
       "version": "2.15.1",
       "status": "\ud83d\udfe1",
-      "ratio": "55/171",
+      "ratio": "52/171",
       "blocking": "name-resolution (19), union-types (14), unlowered-type-name (11)",
-      "codes": "PS2002, PS2001, PS1101"
+      "codes": "PS2002, PS1101, PS1106"
     },
     {
       "name": "mdurl",
       "version": "0.1.2",
-      "status": "\ud83d\udd34",
-      "ratio": "7/12",
-      "blocking": "name-resolution (5), construct-other (3), unlowered-call (3)",
+      "status": "\ud83d\udfe1",
+      "ratio": "6/12",
+      "blocking": "name-resolution (5), unlowered-call (3), construct-other (2)",
       "codes": "PS2002, PS2003, PS2001"
     },
     {
       "name": "packaging",
       "version": "26.3",
       "status": "\ud83d\udfe1",
-      "ratio": "279/558",
-      "blocking": "unlowered-type-name (90), name-resolution (78), class-body (52)",
+      "ratio": "277/558",
+      "blocking": "unlowered-type-name (90), name-resolution (77), class-body (52)",
       "codes": "PS2002, PS1106, PS1204"
     },
     {
       "name": "pathspec",
       "version": "1.1.1",
       "status": "\ud83d\udd34",
-      "ratio": "92/132",
-      "blocking": "name-resolution (30), unlowered-type-name (22), construct-other (17)",
-      "codes": "PS2002, PS1106, PS2001"
+      "ratio": "86/132",
+      "blocking": "name-resolution (27), unlowered-type-name (22), type-mismatch (17)",
+      "codes": "PS2002, PS1106, PS1003"
     },
     {
       "name": "platformdirs",
