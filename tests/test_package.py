@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import ast
+import json
 from pathlib import Path
 
 import pytest
 from tests.test_gates import compile_run, run_cli
+
+_SRC = Path(__file__).resolve().parents[1] / "src" / "pyscriptc"
+_IR_KEYS = frozenset({"kind", "functions", "classes", "body", "span"})
 
 
 @pytest.mark.linux_container  # HEAVY=1 docker/run.sh
@@ -244,3 +249,39 @@ def test_a_single_file_still_refuses_a_relative_import(tmp_path: Path) -> None:
     got = run_cli("compile", str(path), "--skip-check", "--emit", "llvm", "-o", str(tmp_path / "alone.ll"))
     assert got.returncode == 3
     assert "relative import" in got.stderr
+
+
+def _named_ir_reads(path: Path) -> int:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    count = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant) and node.slice.value in _IR_KEYS:
+            count += 1
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value in _IR_KEYS
+        ):
+            count += 1
+    return count
+
+
+def test_package_has_no_raw_dict_ir_reads() -> None:
+    assert _named_ir_reads(_SRC / "package.py") == 0
+
+
+def test_directory_ir_keeps_the_on_disk_module_shape(tmp_path: Path) -> None:
+    root = tmp_path / "pkg"
+    root.mkdir()
+    (root / "__init__.py").write_text("def add(n: int) -> int:\n    return n\n", encoding="utf-8")
+    out = tmp_path / "pkg.ir.json"
+    got = run_cli("compile", str(root), "--skip-check", "--emit", "ir", "-o", str(out))
+    assert got.returncode == 0, got.stderr
+    module = json.loads(out.read_text(encoding="utf-8"))
+    for key in ("irVersion", "functions", "classes", "fences", "entry", "sourceFile"):
+        assert key in module, key
+    names = [fn["name"] for fn in module["functions"]]
+    assert any(name.endswith(".add") for name in names)
