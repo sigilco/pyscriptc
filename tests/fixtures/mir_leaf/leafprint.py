@@ -22,6 +22,9 @@ def main() -> None:
     print(n, f, b)
     print(twice(4), positive(2), 7)
     print(-3, not False)
+    s = "txt"
+    print(s)
+    print("lit", s, twice(1))
     i = 0
     while i < 2:
         # A float print inside a loop body: the `%ps.str` alloca hoists

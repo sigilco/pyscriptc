@@ -40,8 +40,8 @@ from pyscriptc.mirlower import lower_module, supported_expr, supported_fn, suppo
 # The reason walk's child tables, the same keys `scripts/mir_coverage.py`
 # used before the walk moved here. Lists iterate and the frozenset is the
 # membership table, the spellings `mirlower.py` lowers clean.
-_SCALARS = frozenset({"int", "float", "bool"})
-_EXPR_CHILDREN = ["operand", "left", "right", "value"]
+_SCALARS = frozenset({"int", "float", "bool", "str"})
+_EXPR_CHILDREN = ["operand", "left", "right", "value", "hay", "needle"]
 _STMT_EXPRS = ["object", "value", "expr", "cond"]
 _STMT_BODIES = ["then", "else", "body"]
 

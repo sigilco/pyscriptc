@@ -77,6 +77,7 @@ MIR_ADDD = 7
 MIR_SUBD = 8
 MIR_MULD = 9
 MIR_NEGW = 10
+MIR_NEGD = 11
 
 MIR_CLTW = 12
 MIR_CLEW = 13
@@ -171,6 +172,17 @@ _D_CMPOPS = {
     "!=": MIR_CNED,
 }
 
+# The str compare predicate suffixes: `ps_str_cmp` returns an i32
+# ordering and the direct path's `icmp` reads it against 0.
+_STR_CMPS = {
+    "==": "eq",
+    "!=": "ne",
+    "<": "slt",
+    "<=": "sle",
+    ">": "sgt",
+    ">=": "sge",
+}
+
 # The ps-helper-backed binary ops the slice lowers, per operand kind.
 _W_HELPER_OPS = {
     "//": "floordiv",
@@ -185,7 +197,9 @@ _D_HELPER_OPS = {
     "**": "fpow",
 }
 
-_EXPR_KINDS = frozenset({"const", "name", "binary", "compare", "unary", "call", "cast", "list", "subscript", "attr"})
+_EXPR_KINDS = frozenset(
+    {"const", "name", "binary", "compare", "unary", "call", "cast", "list", "subscript", "attr", "contains"}
+)
 _STMT_KINDS = frozenset({"assign", "expr", "return", "pass", "if", "while", "raise", "setitem", "setattr"})
 
 
@@ -318,6 +332,8 @@ def supported_expr(expr: Dict[str, Any]) -> bool:
         return _supported_binary(expr)
     if kind == "compare":
         return _supported_compare(expr)
+    if kind == "contains":
+        return _supported_contains(expr)
     if kind == "cast":
         return _supported_cast(expr)
     return False
@@ -352,7 +368,7 @@ def _supported_print(expr: Dict[str, Any]) -> bool:
     The rest is a value the walk has to cover; `print` is the void
     statement-call form the slice lowers itself, so the callee check is
     the builtin's name, the kwargs are out (the sep/end walk is not in
-    the slice), and every argument is a scalar in the slice.
+    the slice), and every argument is a scalar or str in the slice.
     """
     etype: Dict[str, Any] = expr["type"]
     ekind: str = etype["kind"]
@@ -371,7 +387,7 @@ def _supported_print(expr: Dict[str, Any]) -> bool:
     for arg in args:
         atyp: Dict[str, Any] = arg["type"]
         akind: str = atyp["kind"]
-        if akind not in ("int", "float", "bool"):
+        if akind not in ("int", "float", "bool", "str"):
             return False
         if not supported_expr(arg):
             return False
@@ -381,23 +397,41 @@ def _supported_print(expr: Dict[str, Any]) -> bool:
 def _supported_call(expr: Dict[str, Any]) -> bool:
     """The slice test for one call expression.
 
-    A `print` call is the void builtin form (see `_supported_print`).
+    A `print` call is the void builtin form (see `_supported_print`);
+    `len`, `str` and `int` are the admitted builtin forms, and the
+    `builtins` module's `int`/`bin`/`hex`/`oct` are the admitted abi
+    forms (see `_supported_builtin_call`/`_supported_module_call`).
     Everything else names a plain same-module user function: the callee
     record's kind is `function` (the IR's spelling for a same-module name
     resolved at lowering), the name is defined by a function of this
     module (checked against `supported_fn`'s own param/return rules by
     the caller through `_callee_in_slice`), and every argument is in the
-    slice. Everything else (builtins, module members, methods, class
-    constructors, value callees) stays outside.
+    slice. Everything else (other builtins, other module members,
+    methods, class constructors, value callees) stays outside.
     """
     callee: Dict[str, Any] = expr["callee"]
     ckind: str = callee["kind"]
+    cname: str = callee["name"]
+    # The str builtins admit first; a `len` of a list falls through to
+    # the list arm below, and the `builtins` module's bin/hex/oct admit
+    # before `list.append`'s own arm (`builtins.int` rides the rt-call
+    # shape in the module arm).
+    if ckind == "builtin" and _supported_builtin_call(cname, expr):
+        return True
+    if ckind == "module":
+        bmodule: str = callee["module"]
+        if bmodule == "builtins" and _supported_module_call(expr):
+            return True
     args: list[Dict[str, Any]] = expr["args"]
     if ckind == "function":
         for arg in args:
             atyp: Dict[str, Any] = arg["type"]
             akind: str = atyp["kind"]
-            if akind not in ("int", "float", "bool") and not _is_supported_list(atyp) and not _is_supported_class(atyp):
+            if (
+                akind not in ("int", "float", "bool", "str")
+                and not _is_supported_list(atyp)
+                and not _is_supported_class(atyp)
+            ):
                 return False
             if not supported_expr(arg):
                 return False
@@ -542,11 +576,63 @@ def _rt_call_symbol(cmodule: str, mname: str, expr: Dict[str, Any]) -> str:
     return ""
 
 
+# The admitted builtin calls, as a name set plus "<name>:<arg-kind>"
+# pair set: `len` reads a str's code-point count, `str` renders a scalar
+# (a str argument is the identity), `int` converts a float or a str.
+_BUILTIN_CALLS = frozenset({"len", "str", "int"})
+_BUILTIN_CALL_ARGS = frozenset({"len:str", "str:int", "str:float", "str:bool", "str:str", "int:float", "int:str"})
+
+# The admitted `builtins` module calls the `_rt_call_shape` table does
+# not cover: each takes one int and returns a str through the direct
+# emitter's `_buf_out` ABI, so the admission keys on the callee name
+# plus the argument kind and the call carries its `ps_*` symbol.
+# `builtins.int` itself rides the `_rt_call_shape` path above.
+_MODULE_CALLS = frozenset({"bin", "hex", "oct"})
+_MODULE_CALL_ARGS = frozenset({"bin:int", "hex:int", "oct:int"})
+
+
+def _supported_builtin_call(name: str, expr: Dict[str, Any]) -> bool:
+    """The slice test for one admitted builtin call (`len`/`str`/`int`)."""
+    args: list[Dict[str, Any]] = expr["args"]
+    if len(args) != 1:
+        return False
+    arg: Dict[str, Any] = args[0]
+    atyp: Dict[str, Any] = arg["type"]
+    akind: str = atyp["kind"]
+    if f"{name}:{akind}" not in _BUILTIN_CALL_ARGS:
+        return False
+    return supported_expr(arg)
+
+
+def _supported_module_call(expr: Dict[str, Any]) -> bool:
+    """The slice test for one admitted `builtins` module call.
+
+    The abi path needs the runtime symbol the IR resolved onto the call
+    record; without it there is no spelling to emit.
+    """
+    callee: Dict[str, Any] = expr["callee"]
+    name: str = callee["name"]
+    if "symbol" not in expr:
+        return False
+    args: list[Dict[str, Any]] = expr["args"]
+    if len(args) != 1:
+        return False
+    arg: Dict[str, Any] = args[0]
+    atyp: Dict[str, Any] = arg["type"]
+    akind: str = atyp["kind"]
+    if f"{name}:{akind}" not in _MODULE_CALL_ARGS:
+        return False
+    return supported_expr(arg)
+
+
 def _supported_binary(expr: Dict[str, Any]) -> bool:
     typ: Dict[str, Any] = expr["type"]
     tkind: str = typ["kind"]
     op: str = expr["op"]
-    if tkind == "int":
+    if tkind == "str":
+        if op != "+":
+            return False
+    elif tkind == "int":
         if op not in _W_BINOPS and op not in _W_HELPER_OPS:
             return False
     elif tkind == "float":
@@ -559,7 +645,7 @@ def _supported_binary(expr: Dict[str, Any]) -> bool:
     left: Dict[str, Any] = expr["left"]
     ltyp: Dict[str, Any] = left["type"]
     lkind: str = ltyp["kind"]
-    if lkind not in ("int", "float", "bool"):
+    if lkind not in ("int", "float", "bool", "str"):
         return False
     right: Dict[str, Any] = expr["right"]
     rtyp: Dict[str, Any] = right["type"]
@@ -581,8 +667,8 @@ def _supported_compare(expr: Dict[str, Any]) -> bool:
         return False
     if lkind == "str":
         # The str slice compares through the `ps_str_cmp` helper copy;
-        # ordering operators stay out until a helper row exists for them.
-        if op != "==" and op != "!=":
+        # the six ordering/equality predicates all ride the same call.
+        if op not in ("==", "!=", "<", "<=", ">", ">="):
             return False
         return supported_expr(left) and supported_expr(right)
     if op not in _W_CMPOPS:
@@ -590,6 +676,27 @@ def _supported_compare(expr: Dict[str, Any]) -> bool:
     if lkind not in ("int", "float", "bool"):
         return False
     return supported_expr(left) and supported_expr(right)
+
+
+def _supported_contains(expr: Dict[str, Any]) -> bool:
+    """The slice test for one `in`/`not in` containment expression.
+
+    Only the str hay/needle pair lowers: the direct path's
+    `ps_str_find` sequence is the one the MIR helper copy renders.
+    """
+    typ: Dict[str, Any] = expr["type"]
+    tkind: str = typ["kind"]
+    if tkind != "bool":
+        return False
+    hay: Dict[str, Any] = expr["hay"]
+    needle: Dict[str, Any] = expr["needle"]
+    haytype: Dict[str, Any] = hay["type"]
+    haykind: str = haytype["kind"]
+    ntype: Dict[str, Any] = needle["type"]
+    nkind: str = ntype["kind"]
+    if haykind != "str" or nkind != "str":
+        return False
+    return supported_expr(hay) and supported_expr(needle)
 
 
 def supported_stmt(stmt: Dict[str, Any]) -> bool:
@@ -887,6 +994,10 @@ def _calls_in_slice_expr(expr: Dict[str, Any], callees: Dict[str, Dict[str, Any]
         return _calls_in_slice_expr(expr["index"], callees)
     if kind == "attr":
         return _calls_in_slice_expr(expr["value"], callees)
+    if kind == "contains":
+        if not _calls_in_slice_expr(expr["hay"], callees):
+            return False
+        return _calls_in_slice_expr(expr["needle"], callees)
     return True
 
 
@@ -1268,6 +1379,8 @@ class _FnLowerer:
             return self.emit_binary(expr)
         if kind == "compare":
             return self.emit_compare(expr)
+        if kind == "contains":
+            return self.emit_contains(expr)
         if kind == "unary":
             return self.emit_unary(expr)
         if kind == "call":
@@ -1298,7 +1411,7 @@ class _FnLowerer:
             return self.emit_newobj(expr)
         if ckind == "builtin":
             cname: str = callee["name"]
-            if cname == "len":
+            if cname == "len" and _is_supported_list(args[0]["type"]):
                 seq = self.emit_expr(args[0])
                 return self.builder.emit_val(MIR_SEQLEN, seq, -1, MIR_W)
         if ckind == "module":
@@ -1330,6 +1443,10 @@ class _FnLowerer:
         ckind: str = callee["kind"]
         if ckind == "builtin" and name == "print":
             return self.emit_print(expr)
+        if ckind == "builtin" and name in _BUILTIN_CALLS:
+            return self.emit_builtin_call(expr)
+        if ckind == "module" and cmodule == "builtins" and name in _MODULE_CALLS:
+            return self.emit_module_call(expr)
         target: Dict[str, Any] | None = self.callees.get(name)
         if target is None:
             raise MirLowerError(f"the MIR leaf slice has no lowered callee {name}")
@@ -1438,6 +1555,56 @@ class _FnLowerer:
         self.builder.fn.helpers[len(self.builder.fn.ops) - 1] = "print"
         return -1
 
+    def emit_builtin_call(self, expr: Dict[str, Any]) -> int:
+        """An admitted builtin call (`len`/`str`/`int`): a marked `MIR_CALL`.
+
+        The callee-table name is the builtin's, the same out-of-band marker
+        convention `print` uses: a user function named `len` shares the
+        table, so the emitter reads `helpers` to pick the builtin arm.
+        `str` of a str argument is the identity — the direct path returns
+        the value unchanged — so the lowerer binds the argument itself
+        and emits nothing.
+        """
+        callee: Dict[str, Any] = expr["callee"]
+        name: str = callee["name"]
+        args: list[Dict[str, Any]] = expr["args"]
+        arg: Dict[str, Any] = args[0]
+        atyp: Dict[str, Any] = arg["type"]
+        akind: str = atyp["kind"]
+        value: int = self.emit_expr(arg)
+        if name == "str" and akind == "str":
+            return value
+        etype: Dict[str, Any] = expr["type"]
+        tkind: str = etype["kind"]
+        tag: int = MIR_S if tkind == "str" else MIR_W
+        callee_vid: int = self.builder.add_callee(name)
+        dst: int = self.builder.emit_call(callee_vid, [value], tag)
+        self.builder.fn.helpers[len(self.builder.fn.ops) - 1] = f"builtin:{name}"
+        return dst
+
+    def emit_module_call(self, expr: Dict[str, Any]) -> int:
+        """An admitted `builtins` module call: a marked `MIR_CALL`.
+
+        These calls carry the runtime symbol on the IR record and lower
+        through the direct emitter's generic `_emit_abi` walk, so the
+        marker carries the symbol (`abi <symbol>`) and the result tag is
+        the call's return kind (`MIR_S` for the str-returning forms,
+        `MIR_W` for `int`).
+        """
+        callee: Dict[str, Any] = expr["callee"]
+        name: str = callee["name"]
+        symbol: str = expr["symbol"]
+        args: list[Dict[str, Any]] = expr["args"]
+        arg: Dict[str, Any] = args[0]
+        value: int = self.emit_expr(arg)
+        etype: Dict[str, Any] = expr["type"]
+        tkind: str = etype["kind"]
+        tag: int = MIR_S if tkind == "str" else MIR_W
+        callee_vid: int = self.builder.add_callee(name)
+        dst: int = self.builder.emit_call(callee_vid, [value], tag)
+        self.builder.fn.helpers[len(self.builder.fn.ops) - 1] = f"abi {symbol}"
+        return dst
+
     def is_none(self, expr: Dict[str, Any]) -> bool:
         """True when the expression's value is the None singleton.
 
@@ -1466,7 +1633,15 @@ class _FnLowerer:
             return self.builder.const_b(1 if bval else 0)
         if tkind == "str":
             sval: str = expr["value"]
-            return self.builder.const_s(sval)
+            # A str constant materializes through a copy instruction, not
+            # a bare pool reference: the copy sits in the instruction
+            # stream at the point the direct emitter's `emit_expr` ran,
+            # so the `%ps.str` insertvalue lines land in evaluation
+            # order against the slot reads around them. A deferred
+            # constant would materialize at its consumer, after every
+            # operand's instructions, which reorders the lines whenever
+            # a constant precedes a name read (`"a" == s`).
+            return self.builder.emit_copy(self.builder.const_s(sval), MIR_S)
         raise MirLowerError(f"the MIR leaf slice cannot lower a {tkind} constant")
 
     def emit_binary(self, expr: Dict[str, Any]) -> int:
@@ -1485,6 +1660,11 @@ class _FnLowerer:
             if mir_op is not None:
                 return self.builder.emit_val(mir_op, left, right, MIR_D)
             return self.emit_helper(_D_HELPER_OPS[op], MIR_D, left, right)
+        if tkind == "str":
+            # `+` is the only admitted str binary: the direct path's
+            # `helper_call("strconcat", ...)` spelling rides the same
+            # helper-copy convention.
+            return self.emit_helper("strconcat", MIR_S, left, right)
         raise MirLowerError(f"the MIR leaf slice cannot lower {op} on {tkind}")
 
     def emit_cast(self, expr: Dict[str, Any]) -> int:
@@ -1525,14 +1705,29 @@ class _FnLowerer:
         okey: str = expr["op"]
         if kind == "str":
             # `ps_str_cmp` returns an i32 ordering; the direct path
-            # compares it to 0 with `icmp eq`/`ne`. The helper copy's
-            # name carries the predicate to the emitter, which renders
-            # the extractvalue/call/icmp sequence the direct path emits.
-            helper = "str_cmp_eq" if okey == "==" else "str_cmp_ne"
+            # compares it to 0 with `icmp`. The helper copy's name
+            # carries the predicate to the emitter, which renders the
+            # extractvalue/call/icmp sequence the direct path emits.
+            helper = "str_cmp_" + _STR_CMPS[okey]
             return self.emit_helper(helper, MIR_B, left, right)
         table: Dict[str, int] = _D_CMPOPS if kind == "float" else _W_CMPOPS
         mir_op: int = table[okey]
         return self.builder.emit_val(mir_op, left, right, MIR_B)
+
+    def emit_contains(self, expr: Dict[str, Any]) -> int:
+        """A str `in`/`not in`: a marked helper `MIR_COPY`.
+
+        The direct path evaluates the needle before the haystack, then
+        emits the `_buf_parts` extracts, the `ps_str_find` call and the
+        `icmp sge`; `not in` adds the `xor i1` tail. The helper copy's
+        operands carry (hay, needle) and its name carries the negation,
+        the same out-of-band convention the compare helpers use.
+        """
+        needle: int = self.emit_expr(expr["needle"])
+        hay: int = self.emit_expr(expr["hay"])
+        negated: bool = expr["negated"]
+        helper: str = "str_ncontains" if negated else "str_contains"
+        return self.emit_helper(helper, MIR_B, hay, needle)
 
     def emit_unary(self, expr: Dict[str, Any]) -> int:
         operand = self.emit_expr(expr["operand"])
@@ -1549,6 +1744,8 @@ class _FnLowerer:
             # byte for byte.
             minus_one = self.builder.const_w(-1)
             return self.builder.emit_val(MIR_XORW, operand, minus_one, MIR_W)
+        if op == "-" and tkind == "float":
+            return self.builder.emit_val(MIR_NEGD, operand, -1, MIR_D)
         raise MirLowerError(f"the MIR leaf slice cannot lower {op} on {tkind}")
 
 

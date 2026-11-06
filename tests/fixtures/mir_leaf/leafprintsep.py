@@ -2,8 +2,7 @@ import sys
 
 
 def p_str() -> None:
-    # A str argument has no MIR tag (the lane carries w/b/d only), so
-    # the function stays out of the slice.
+    # A str argument rides the `MIR_S` tag: the `%.*s` spelling.
     print("hi")
 
 

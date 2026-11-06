@@ -114,7 +114,7 @@ def test_out_of_slice_reason_names_the_innermost_rejected_node(tmp_path: Path) -
     src.write_text(
         "def leaf(a: int) -> int:\n    return a + 1\n\n\n"
         "def calls(a: int) -> int:\n    return leaf(a) + 1\n\n\n"
-        "def text(a: int) -> str:\n    return str(a)\n\n\n"
+        "def text(a: int, b: list[str]) -> list[str]:\n    return b\n\n\n"
         "def bits(a: int) -> int:\n    if a > 0:\n        return abs(a)\n    return a\n",
         encoding="utf-8",
     )
@@ -125,7 +125,7 @@ def test_out_of_slice_reason_names_the_innermost_rejected_node(tmp_path: Path) -
     # the call slice (A3): the callee lowers to a `MIR_CALL` and the
     # caller rides the same lane.
     assert mod.out_of_slice_reason(by_name["calls"]) is None
-    assert mod.out_of_slice_reason(by_name["text"]) == "return:str"
+    assert mod.out_of_slice_reason(by_name["text"]) == "return:list"
     assert mod.out_of_slice_reason(by_name["bits"]) == "expr:call"
 
 
