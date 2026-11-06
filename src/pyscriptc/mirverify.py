@@ -32,11 +32,14 @@ from __future__ import annotations
 from pyscriptc.mir import (
     MIR_B,
     MIR_BR,
+    MIR_CALL,
     MIR_COPY,
+    MIR_D,
     MIR_JMP,
     MIR_RAISE,
     MIR_RET,
     MIR_VOID,
+    MIR_W,
     MirBlock,
     MirBlockArg,
     MirConst,
@@ -80,6 +83,7 @@ _OP_ARITY: dict[int, int] = {
     26: 1,  # MIR_NOTB
     25: 1,  # MIR_COPY
     27: 1,  # MIR_RAISE
+    28: 2,  # MIR_CALL
 }
 
 # The verifier's own codes. They are stable: a test that pins a violation
@@ -172,6 +176,10 @@ def _check_instr_operands(fn: MirFunction, i: int, defs: dict[int, int]) -> list
         if not needed:
             continue
             continue
+        # A call's arg2 carries the result tag, not a value read; the
+        # callee in arg1 and the arguments in `call_args` run the checks.
+        if op == MIR_CALL and slot == 2:
+            continue
         if is_const_ref(operand):
             index = const_index(operand)
             if index >= n_consts:
@@ -222,6 +230,39 @@ def _check_br_type(fn: MirFunction, i: int, defs: dict[int, int]) -> _Violation 
     if cond_type is not None and cond_type != MIR_B:
         return _Violation(CODE_TYPE, f"instr {i}: br condition typed {cond_type}, expected a bool")
     return None
+
+
+def _check_call(fn: MirFunction, i: int, defs: dict[int, int]) -> list[_Violation]:
+    """The call checks: result tag, dst presence, argument operands.
+
+    `arg2` carries the result tag, so it is not a value read: the tag
+    must be a scalar or the void tag, a void call takes no `dst`, and a
+    value call's `dst` is seeded into `defs` by the caller through the
+    returned type. The callee and the `call_args` operands resolve like
+    any value read.
+    """
+    out: list[_Violation] = []
+    tag: int = fn.arg2[i]
+    if tag != MIR_W and tag != MIR_D and tag != MIR_B and tag != MIR_VOID:
+        return [_Violation(CODE_TYPE, f"instr {i}: call result tag {tag} is not a scalar or the void tag")]
+    dst: int = fn.dsts[i]
+    if tag == MIR_VOID:
+        if dst >= 0:
+            out.append(_Violation(CODE_USEDEF, f"instr {i}: void call writes dst"))
+    else:
+        if dst < 0:
+            out.append(_Violation(CODE_USEDEF, f"instr {i}: value call without a dst"))
+    call_args: dict[int, list[int]] = fn.call_args
+    args_i: list[int] | None = call_args.get(i)
+    if args_i is None:
+        out.append(_Violation(CODE_USEDEF, f"instr {i}: call with no argument list"))
+        return out
+    for position in range(len(args_i)):
+        operand: int = args_i[position]
+        got: int | None = _operand_type(fn, operand, defs)
+        if got is None:
+            out.append(_Violation(CODE_USEDEF, f"instr {i}: call argument {position} does not resolve"))
+    return out
 
 
 def _result_type_of(op: int) -> int:
@@ -309,7 +350,10 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
         # the same table through the lookup helper above.
         arity_at: int | None = _OP_ARITY.get(op)
         is_control: int = 1 if op == MIR_BR or op == MIR_RET or op == MIR_RAISE else 0
-        if arity_at is not None and (arity_at >= 2 or (arity_at == 1 and is_control == 0)):
+        # A call's dst and result tag run through `_check_call` below: a
+        # void call legitimately writes no dst and its true tag rides
+        # arg2, so the generic value-op rules do not apply.
+        if op != MIR_CALL and arity_at is not None and (arity_at >= 2 or (arity_at == 1 and is_control == 0)):
             if dst < 0:
                 out.append(_Violation(CODE_USEDEF, f"instr {i}: value op without a dst"))
             else:
@@ -325,6 +369,12 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
             br_violation: _Violation | None = _check_br_type(fn, i, defs)
             if br_violation is not None:
                 out.append(br_violation)
+        if op == MIR_CALL:
+            call_violations: list[_Violation] = _check_call(fn, i, defs)
+            for c2_index in range(len(call_violations)):
+                out.append(call_violations[c2_index])
+            if dst >= 0 and fn.arg2[i] != MIR_VOID:
+                defs[dst] = fn.arg2[i]
 
     # Control-flow closure: successors exist, bindings match, every block is
     # ended by exactly one terminator.

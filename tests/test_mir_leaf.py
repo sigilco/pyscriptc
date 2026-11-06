@@ -16,7 +16,9 @@ from pyscriptc.lower import lower_file
 from pyscriptc.mir import (
     MIR_B,
     MIR_BR,
+    MIR_CALL,
     MIR_CLTW,
+    MIR_D,
     MIR_JMP,
     MIR_VOID,
     MIR_W,
@@ -205,3 +207,92 @@ class TestVerifierViolations:
         b.emit_ret_void()
         errs = verify_function(b.finish())
         assert any(e.code == CODE_TYPE for e in errs)
+
+    def test_call_verifies_and_types_its_result(self) -> None:
+        b = MirBuilder("f")
+        b.set_result(MIR_W)
+        p = b.add_param(MIR_W)
+        b.start_block()
+        arg = b.const_w(2)
+        r = b.emit_call(p, [arg], MIR_W)
+        b.emit_ret(r)
+        assert verify_function(b.finish()) == []
+
+    def test_void_call_verifies(self) -> None:
+        b = MirBuilder("f")
+        b.set_result(MIR_VOID)
+        p = b.add_param(MIR_W)
+        b.start_block()
+        arg = b.const_w(2)
+        b.emit_call(p, [arg], MIR_VOID)
+        b.emit_ret_void()
+        assert verify_function(b.finish()) == []
+
+    def test_void_call_with_dst_refused_by_builder(self) -> None:
+        b = MirBuilder("f")
+        b.set_result(MIR_VOID)
+        b.start_block()
+        with pytest.raises(MirError):
+            b.emit_call(0, [], "void")  # type: ignore[arg-type]
+
+    def test_call_bad_result_tag(self) -> None:
+        b = MirBuilder("f")
+        b.set_result(MIR_VOID)
+        b.start_block()
+        b.emit(MIR_CALL, -1, 0, 9)
+        b.emit_ret_void()
+        fn = b.finish()
+        fn.call_args[0] = []
+        errs = verify_function(fn)
+        assert any(e.code == CODE_TYPE for e in errs)
+
+    def test_value_call_without_dst(self) -> None:
+        b = MirBuilder("f")
+        b.set_result(MIR_VOID)
+        b.start_block()
+        b.emit(MIR_CALL, -1, 0, MIR_W)
+        b.emit_ret_void()
+        fn = b.finish()
+        fn.call_args[0] = []
+        errs = verify_function(fn)
+        assert any(e.code == CODE_USEDEF for e in errs)
+
+    def test_void_call_writing_dst(self) -> None:
+        b = MirBuilder("f")
+        b.set_result(MIR_VOID)
+        b.start_block()
+        b.emit(MIR_CALL, 0, 0, MIR_VOID)
+        b.emit_ret_void()
+        fn = b.finish()
+        fn.call_args[0] = []
+        errs = verify_function(fn)
+        assert any(e.code == CODE_USEDEF for e in errs)
+
+    def test_call_without_call_args_entry(self) -> None:
+        b = MirBuilder("f")
+        b.set_result(MIR_VOID)
+        b.start_block()
+        b.emit(MIR_CALL, -1, 0, MIR_VOID)
+        b.emit_ret_void()
+        errs = verify_function(b.finish())
+        assert any(e.code == CODE_USEDEF for e in errs)
+
+    def test_call_arg_use_before_def(self) -> None:
+        b = MirBuilder("f")
+        b.set_result(MIR_VOID)
+        b.start_block()
+        b.emit(MIR_CALL, -1, 0, MIR_VOID)
+        b.emit_ret_void()
+        fn = b.finish()
+        fn.call_args[0] = [99]
+        errs = verify_function(fn)
+        assert any(e.code == CODE_USEDEF for e in errs)
+
+    def test_call_result_feeds_ret(self) -> None:
+        b = MirBuilder("f")
+        b.set_result(MIR_D)
+        p = b.add_param(MIR_D)
+        b.start_block()
+        r = b.emit_call(p, [], MIR_D)
+        b.emit_ret(r)
+        assert verify_function(b.finish()) == []

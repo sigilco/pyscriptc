@@ -101,6 +101,16 @@ MIR_NOTB = 26
 # block the way a `MIR_RET` does.
 MIR_RAISE = 27
 
+# Call: a direct call to a callee value (a function's entry, packed as a
+# value id) with the arguments in `call_args`. `arg1` is the callee, `arg2`
+# carries the result tag (`MIR_VOID` when the call produces nothing, the
+# same spelling as a void `MIR_RET`). The operand slots cannot hold a
+# variable argument count, so the arguments ride `MirFunction.call_args`,
+# keyed by instruction index; the serializer renders them in index order
+# so the hash stays construction-ordered. A call is not a terminator: a
+# call's block continues.
+MIR_CALL = 28
+
 # The op arity table. `MIR_NOP` through `MIR_COPY`: the branch reads its
 # condition from `arg1`, and its two successors carry the block arguments
 # (see `MirBlock`). Every value op reads `arg1`/`arg2` per this table.
@@ -133,6 +143,7 @@ OP_ARITY = {
     MIR_EXTWD: 1,
     MIR_COPY: 1,
     MIR_RAISE: 1,
+    MIR_CALL: 2,
 }
 
 # The result type of each value op, in the constant-pool tag space.
@@ -167,6 +178,7 @@ OP_RESULT_TYPE = {
     MIR_EXTWD: MIR_D,
     MIR_COPY: MIR_W,  # a copy's true tag rides arg2; the tables cannot know it
     MIR_RAISE: MIR_W,
+    MIR_CALL: MIR_W,  # a call's true tag rides arg2; the tables cannot know it
 }
 
 # The true result type of a `MIR_COPY`: the tag packed into `arg2`.
@@ -369,12 +381,16 @@ class MirFunction:
     arg2: list[int]
     blocks: list[MirBlock]
     consts: list[MirConst]
-    # Out-of-band helper names keyed by instruction index. The leaf slice
+    # out-of-band helper names keyed by instruction index. The leaf slice
     # lowers a runtime-helper binary (`//`, `%`, `/`, ...) to a `MIR_COPY`
     # and records the `ps_*` helper the emitter renders at that index; the
     # canonical serializer deliberately omits it (the hash covers the
     # instruction stream, not the target's spelling of it).
     helpers: dict[int, str]
+    # Call arguments keyed by instruction index, one list per `MIR_CALL`
+    # in index order. A separate dict, not a slot packing: an instruction
+    # has two operand slots and a call reads a variable argument count.
+    call_args: dict[int, list[int]]
 
     def __init__(self, name: str) -> None:
         self.name = name
@@ -388,6 +404,7 @@ class MirFunction:
         self.blocks = []
         self.consts = []
         self.helpers = {}
+        self.call_args = {}
 
     def n_instr(self) -> int:
         return len(self.ops)
@@ -580,6 +597,28 @@ class MirBuilder:
         self.emit(MIR_RET, -1, none_ref(), MIR_VOID)
         self.terminated = 1
 
+    def emit_call(self, callee: int, args: list[int], result_type: int) -> int:
+        """A direct call: `callee` called with `args`.
+
+        `result_type` is the call's result tag (`MIR_W`, `MIR_D` or
+        `MIR_B`), or `MIR_VOID` when the call produces no value. A void
+        call returns `-1`; a value call returns the fresh value id.
+
+        The callee is a value id (a function's entry), so the call reads
+        its arguments from `call_args`, keyed by instruction index: an
+        instruction has two operand slots and a call reads a variable
+        argument count.
+        """
+        if result_type != MIR_W and result_type != MIR_D and result_type != MIR_B and result_type != MIR_VOID:
+            raise MirError("call result type must be MIR_W, MIR_B, MIR_D or MIR_VOID")
+        dst: int = -1
+        if result_type != MIR_VOID:
+            dst = self.next_vid
+            self.next_vid = self.next_vid + 1
+        index: int = self.emit(MIR_CALL, dst, callee, result_type)
+        self.fn.call_args[index] = list(args)
+        return dst
+
     def emit_raise(self, code: int) -> None:
         """Raise the exception with the given code; ends the block.
 
@@ -725,6 +764,16 @@ def serialize(fn: MirFunction) -> str:
     f_arg2: list[int] = fn.arg2
     for i in range(len(ops)):
         lines.append(f"instr {i} op{ops[i]} dst{dsts[i]} a1={f_arg1[i]} a2={f_arg2[i]}")
+    # The call arguments render after the instruction stream, keyed by
+    # instruction index. Insertion order is index order by construction
+    # (`emit_call` appends at emission), so the bytes stay
+    # construction-ordered; an empty dict renders nothing, and the
+    # existing leaf functions keep their bytes.
+    call_args: dict[int, list[int]] = fn.call_args
+    for i in call_args:
+        args_i: list[int] = call_args[i]
+        spelled: str = ",".join(str(args_i[k]) for k in range(len(args_i)))
+        lines.append(f"callargs {i} [{spelled}]")
     return "\n".join(lines) + "\n"
 
 
