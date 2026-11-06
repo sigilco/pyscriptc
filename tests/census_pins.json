@@ -94,7 +94,7 @@
   "pyscriptc.restlower._hmac": 4,
   "pyscriptc.restlower._io": 7,
   "pyscriptc.restlower._iterators": 15,
-  "pyscriptc.restlower._itertools": 25,
+  "pyscriptc.restlower._itertools": 31,
   "pyscriptc.restlower._jwt": 8,
   "pyscriptc.restlower._minmax": 15,
   "pyscriptc.restlower._operator": 6,

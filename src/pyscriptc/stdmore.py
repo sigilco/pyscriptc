@@ -1940,6 +1940,12 @@ def member_callable(module: str, member: str) -> bool:
         "chain.from_iterable",
         "starmap",
         "filterfalse",
+        "pairwise",
+        "batched",
+        "dropwhile",
+        "compress",
+        "tee",
+        "permutations",
     }:
         return True
     if module == "argparse" and member == "ArgumentParser":
