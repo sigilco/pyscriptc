@@ -122,6 +122,12 @@ MIR_RERAISE = 50
 MIR_RAISEEXC = 51
 MIR_UNREACH = 52
 MIR_INITCALL = 53
+# The dict lane: `ps_map_get`/`ps_map_has`/`ps_map_len` behind the dict
+# subscript, `in` and `len` forms. `MIR_MAP_GET` reads `arg3` as the
+# result tag, the `MIR_SEQGET` convention.
+MIR_MAP_GET = 54
+MIR_MAP_HAS = 55
+MIR_MAP_LEN = 56
 
 # The void result tag (`mir.py`'s MIR_VOID): a function returning None has
 # no return value. Spelled as the int literal per the self-host spell, so a
@@ -435,6 +441,17 @@ def supported_expr(expr: Dict[str, Any]) -> bool:
             if rkind != "str":
                 return False
             return supported_expr(value) and supported_expr(index)
+        if vkind == "dict":
+            # A dict load: the key kind must match the dict's key type
+            # and the loaded value must stay inside the slice's types.
+            vtype: Dict[str, Any] = value["type"]
+            if not supported_type(vtype):
+                return False
+            if _type_kind(index["type"]) != _type_kind(vtype["key"]):
+                return False
+            if not supported_type(expr["type"]):
+                return False
+            return supported_expr(value) and supported_expr(index)
         if not _is_supported_list(value["type"]):
             return False
         itype = index["type"]
@@ -599,7 +616,11 @@ def _supported_call(expr: Dict[str, Any]) -> bool:
             return _supported_print(expr)
         if cname == "len" and len(args) == 1:
             arg: Dict[str, Any] = args[0]
-            return _is_supported_list(arg["type"]) and supported_expr(arg)
+            atype: Dict[str, Any] = arg["type"]
+            ak: str = _type_kind(atype)
+            if _is_supported_list(atype) or (ak == "dict" and supported_type(atype)):
+                return supported_expr(arg)
+            return False
         return False
     if ckind == "module":
         cmodule: str = callee["module"]
@@ -673,15 +694,20 @@ def _supported_format(expr: Dict[str, Any]) -> bool:
 def _supported_method_call(callee: Dict[str, Any], expr: Dict[str, Any]) -> bool:
     """The slice test for one method call.
 
-    Only `str.join` admits: a str receiver (the separator, carried as
-    `args[0]`), one `list[str]` argument and a str result. Every other
-    method stays outside.
+    `str.join` admits the separator (a str, carried as `args[0]`), one
+    `list[str]` argument and a str result. `str.split`/`str.rsplit`
+    admit the receiver (a str, `args[0]`), an optional str separator
+    and an optional int maxsplit, with a `list[str]` result. Every
+    other method stays outside.
     """
     if "receiver" not in callee or callee["receiver"] != "str":
         return False
-    if callee["name"] != "join":
-        return False
+    name: str = callee["name"]
     args: list[Dict[str, Any]] = expr["args"]
+    if name == "split" or name == "rsplit":
+        return _supported_str_split(expr)
+    if name != "join":
+        return False
     if len(args) != 2:
         return False
     sep: Dict[str, Any] = args[0]
@@ -694,6 +720,33 @@ def _supported_method_call(callee: Dict[str, Any], expr: Dict[str, Any]) -> bool
     if _type_kind(expr["type"]) != "str":
         return False
     return supported_expr(sep) and supported_expr(seq)
+
+
+def _supported_str_split(expr: Dict[str, Any]) -> bool:
+    """The slice test for `str.split`/`str.rsplit`.
+
+    The receiver is `args[0]` (a str); `args[1]` is the optional str
+    separator and `args[2]` the optional int maxsplit, the arities the
+    direct `ps_str_split_m` arm renders. The result is `list[str]`.
+    """
+    args: list[Dict[str, Any]] = expr["args"]
+    if len(args) < 1 or len(args) > 3:
+        return False
+    recv: Dict[str, Any] = args[0]
+    if _type_kind(recv["type"]) != "str" or not supported_expr(recv):
+        return False
+    rtype: Dict[str, Any] = expr["type"]
+    if _type_kind(rtype) != "list" or _type_kind(rtype["elem"]) != "str":
+        return False
+    if len(args) >= 2:
+        sep: Dict[str, Any] = args[1]
+        if _type_kind(sep["type"]) != "str" or not supported_expr(sep):
+            return False
+    if len(args) == 3:
+        maxsplit: Dict[str, Any] = args[2]
+        if _type_kind(maxsplit["type"]) != "int" or not supported_expr(maxsplit):
+            return False
+    return True
 
 
 def _opt_str(expr: Dict[str, Any], key: str) -> str:
@@ -944,6 +997,14 @@ def _supported_contains(expr: Dict[str, Any]) -> bool:
     haykind: str = haytype["kind"]
     ntype: Dict[str, Any] = needle["type"]
     nkind: str = ntype["kind"]
+    if haykind == "dict":
+        # A dict membership test: the needle kind must match the dict's
+        # key type and the dict type must stay inside the slice.
+        if not supported_type(haytype):
+            return False
+        if nkind != _type_kind(haytype["key"]):
+            return False
+        return supported_expr(hay) and supported_expr(needle)
     if haykind != "str" or nkind != "str":
         return False
     return supported_expr(hay) and supported_expr(needle)
@@ -1015,6 +1076,18 @@ def supported_stmt(stmt: Dict[str, Any]) -> bool:
         container: Dict[str, Any] = stmt["container"]
         index_node: Dict[str, Any] = stmt["index"]
         item_value: Dict[str, Any] = stmt["value"]
+        ckind: str = _type_kind(container["type"])
+        if ckind == "dict":
+            # A dict store: the key kind must match the dict's key type
+            # and the stored value must stay inside the slice's types.
+            ctype: Dict[str, Any] = container["type"]
+            if not supported_type(ctype):
+                return False
+            if _type_kind(index_node["type"]) != _type_kind(ctype["key"]):
+                return False
+            if not supported_type(item_value["type"]):
+                return False
+            return supported_expr(container) and supported_expr(index_node) and supported_expr(item_value)
         if not _is_supported_list(container["type"]):
             return False
         itype: Dict[str, Any] = index_node["type"]
@@ -1720,10 +1793,14 @@ class _FnLowerer:
         if kind == "setitem":
             # The direct path evaluates container, index, then value, then
             # stashes the value cell and calls `ps_seq_set`; the MIR keeps
-            # the same order and parks the stored value in `arg3`.
+            # the same order and parks the stored value in `arg3`. A dict
+            # store rides `MIR_MAP_PUT` the same way (`ps_map_put`).
             container = self.emit_expr(stmt["container"])
             index = self.emit_expr(stmt["index"])
             item = self.emit_expr(stmt["value"])
+            if _type_kind(stmt["container"]["type"]) == "dict":
+                self.builder.emit(MIR_MAP_PUT, -1, container, index, item)
+                return
             self.builder.emit(MIR_SEQSET, -1, container, index, item)
             return
         if kind == "setattr":
@@ -2158,9 +2235,16 @@ class _FnLowerer:
             return self.emit_initcall(expr)
         if ckind == "builtin":
             cname: str = callee["name"]
-            if cname == "len" and _is_supported_list(args[0]["type"]):
-                seq = self.emit_expr(args[0])
-                return self.builder.emit_val(MIR_SEQLEN, seq, -1, MIR_W)
+            if cname == "len" and len(args) == 1:
+                arg0: Dict[str, Any] = args[0]
+                arg0_type: Dict[str, Any] = arg0["type"]
+                if _is_supported_list(arg0_type):
+                    seq = self.emit_expr(arg0)
+                    return self.builder.emit_val(MIR_SEQLEN, seq, -1, MIR_W)
+                if _type_kind(arg0_type) == "dict":
+                    # `len(d)` reads `ps_map_len`, the direct builtin arm.
+                    mapping = self.emit_expr(arg0)
+                    return self.builder.emit_val(MIR_MAP_LEN, mapping, -1, MIR_W)
         if ckind == "method":
             return self.emit_method_call(expr)
         if ckind == "module":
@@ -2344,7 +2428,8 @@ class _FnLowerer:
         """A subscript load: container then index.
 
         A list load is `MIR_SEQGET` with the element tag in `arg3` (the
-        direct path's `ps_seq_get` + cell reload). A str load is the
+        direct path's `ps_seq_get` + cell reload); a dict load is
+        `MIR_MAP_GET` the same way (`ps_map_get`). A str load is the
         direct path's `ps_str_get` buffer-out call, carried as a marked
         `MIR_CALL` (`strget`) since its argument order — buffer parts of
         the string, then the index — is the abi walk's, not the seq
@@ -2359,12 +2444,14 @@ class _FnLowerer:
             dst: int = self.builder.emit_call(callee_vid, [seq, index], MIR_S)
             self.builder.fn.helpers[len(self.builder.fn.ops) - 1] = "strget"
             return dst
-        seq = self.emit_expr(value_node)
+        value = self.emit_expr(value_node)
         index = self.emit_expr(expr["index"])
         result_type: Dict[str, Any] = expr["type"]
         rkind: str = result_type["kind"]
         tag: int = _param_tag(rkind)
-        return self.builder.emit_val3(MIR_SEQGET, seq, index, tag, tag)
+        if _type_kind(expr["value"]["type"]) == "dict":
+            return self.builder.emit_val3(MIR_MAP_GET, value, index, tag, tag)
+        return self.builder.emit_val3(MIR_SEQGET, value, index, tag, tag)
 
     def emit_print(self, expr: Dict[str, Any]) -> int:
         """A `print` call: the args lower, then one void `MIR_CALL`.
@@ -2438,20 +2525,31 @@ class _FnLowerer:
         return dst
 
     def emit_method_call(self, expr: Dict[str, Any]) -> int:
-        """An admitted method call (`str.join`): a marked `MIR_CALL`.
+        """An admitted method call (`str.join`, `str.split`, `str.rsplit`):
+        a marked `MIR_CALL`.
 
-        The separator and the list evaluate left to right; the callee
-        name is `str.join` and the `method:` helper marker tells the
-        emitter apart from a user function of the same spelling, the
-        same out-of-band convention `builtin:`/`abi ` use.
+        The arguments evaluate left to right; the callee name is the
+        receiver-qualified spelling (`str.join`, `str.split`) and the
+        `method:` helper marker tells the emitter apart from a user
+        function of the same spelling, the same out-of-band convention
+        `builtin:`/`abi ` use. `join` returns a str (`MIR_S`); the split
+        family returns `list[str]` (`MIR_P`).
         """
+        callee: Dict[str, Any] = expr["callee"]
+        name: str = callee["name"]
         args: list[Dict[str, Any]] = expr["args"]
         values: list[int] = []
         for arg in args:
             values.append(self.emit_expr(arg))
-        callee_vid: int = self.builder.add_callee("str.join")
-        dst: int = self.builder.emit_call(callee_vid, values, MIR_S)
-        self.builder.fn.helpers[len(self.builder.fn.ops) - 1] = "method:join"
+        if name == "join":
+            callee_name: str = "str.join"
+            tag: int = MIR_S
+        else:
+            callee_name = "str." + name
+            tag = MIR_P
+        callee_vid: int = self.builder.add_callee(callee_name)
+        dst: int = self.builder.emit_call(callee_vid, values, tag)
+        self.builder.fn.helpers[len(self.builder.fn.ops) - 1] = "method:" + name
         return dst
 
     def emit_module_call(self, expr: Dict[str, Any]) -> int:
@@ -2598,8 +2696,25 @@ class _FnLowerer:
         needle: int = self.emit_expr(expr["needle"])
         hay: int = self.emit_expr(expr["hay"])
         negated: bool = expr["negated"]
+        if _type_kind(expr["hay"]["type"]) == "dict":
+            # A dict membership test: `MIR_MAP_HAS` reads (hay, needle)
+            # and produces the bool flag; `not in` folds through
+            # `MIR_NOTB`, the direct path's `xor i1` tail.
+            return self._emit_map_contains(hay, needle, negated)
         helper: str = "str_ncontains" if negated else "str_contains"
         return self.emit_helper(helper, MIR_B, hay, needle)
+
+    def _emit_map_contains(self, hay: int, needle: int, negated: bool) -> int:
+        """A dict `in`/`not in`: `MIR_MAP_HAS` plus the `not` fold.
+
+        The direct path emits `ps_map_has` then `icmp ne` for `in`, and
+        an `xor i1` for `not in`; the MIR keeps the same shape — the op
+        produces the un-negated flag and a `MIR_NOTB` folds the
+        negation, rendering the same `xor i1 flag, true` line."""
+        flag: int = self.builder.emit_val(MIR_MAP_HAS, hay, needle, MIR_B)
+        if not negated:
+            return flag
+        return self.builder.emit_val(MIR_NOTB, flag, -1, MIR_B)
 
     def emit_unary(self, expr: Dict[str, Any]) -> int:
         operand = self.emit_expr(expr["operand"])

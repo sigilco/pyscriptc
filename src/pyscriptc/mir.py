@@ -208,6 +208,13 @@ MIR_RERAISE = 50
 MIR_RAISEEXC = 51
 MIR_UNREACH = 52
 MIR_INITCALL = 53
+# The dict lane: `ps_map_*` runtime calls behind the `dict` leaf values.
+# `MIR_MAP_GET` reads `d[key]` (`arg3` carries the result tag, the
+# `MIR_SEQGET` convention), `MIR_MAP_HAS` is the `in` membership test
+# (its result is always `MIR_B`), and `MIR_MAP_LEN` is `len(d)`.
+MIR_MAP_GET = 54
+MIR_MAP_HAS = 55
+MIR_MAP_LEN = 56
 # The op arity table. `MIR_NOP` through `MIR_COPY`: the branch reads its
 # condition from `arg1`, and its two successors carry the block arguments
 # (see `MirBlock`). Every value op reads `arg1`/`arg2` per this table;
@@ -267,6 +274,9 @@ OP_ARITY = {
     MIR_RAISEEXC: 1,
     MIR_UNREACH: 0,
     MIR_INITCALL: 1,
+    MIR_MAP_GET: 2,
+    MIR_MAP_HAS: 2,
+    MIR_MAP_LEN: 1,
 }
 
 # The result type of each value op, in the constant-pool tag space.
@@ -327,6 +337,9 @@ OP_RESULT_TYPE = {
     MIR_RAISEEXC: MIR_W,
     MIR_UNREACH: MIR_W,
     MIR_INITCALL: MIR_P,
+    MIR_MAP_GET: MIR_W,  # a mapget's true tag rides arg3; the tables cannot know it
+    MIR_MAP_HAS: MIR_B,
+    MIR_MAP_LEN: MIR_W,
 }
 
 # The true result type of a `MIR_COPY`: the tag packed into `arg2`.
@@ -398,6 +411,9 @@ VALUE_OPS = [
     MIR_RETLOD,
     MIR_EXCCUR,
     MIR_INITCALL,
+    MIR_MAP_GET,
+    MIR_MAP_HAS,
+    MIR_MAP_LEN,
 ]
 
 
