@@ -98,6 +98,8 @@ _OP_ARITY: dict[int, int] = {
     32: 3,  # MIR_SEQSET
     33: 2,  # MIR_SEQPUSH
     34: 1,  # MIR_SEQLEN
+    35: 2,  # MIR_ORW
+    36: 2,  # MIR_XORW
 }
 
 # The verifier's own codes. They are stable: a test that pins a violation

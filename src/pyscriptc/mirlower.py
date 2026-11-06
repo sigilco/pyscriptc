@@ -102,6 +102,8 @@ MIR_SEQGET = 31
 MIR_SEQSET = 32
 MIR_SEQPUSH = 33
 MIR_SEQLEN = 34
+MIR_ORW = 35
+MIR_XORW = 36
 
 # The void result tag (`mir.py`'s MIR_VOID): a function returning None has
 # no return value. Spelled as the int literal per the self-host spell, so a
@@ -141,6 +143,8 @@ _W_BINOPS = {
     "-": MIR_SUBW,
     "*": MIR_MULW,
     "&": MIR_ANDW,
+    "|": MIR_ORW,
+    "^": MIR_XORW,
 }
 _D_BINOPS = {
     "+": MIR_ADDD,
@@ -168,6 +172,8 @@ _D_CMPOPS = {
 _W_HELPER_OPS = {
     "//": "floordiv",
     "%": "imod",
+    "<<": "ishl",
+    ">>": "ishr",
 }
 _D_HELPER_OPS = {
     "/": "fdiv",
@@ -258,6 +264,8 @@ def supported_expr(expr: Dict[str, Any]) -> bool:
         op: str = expr["op"]
         if op == "not":
             return tkind == "bool" and supported_expr(expr["operand"])
+        if op == "~":
+            return tkind == "int" and supported_expr(expr["operand"])
         if op != "-":
             return False
         return tkind in ("int", "float") and supported_expr(expr["operand"])
@@ -1420,6 +1428,12 @@ class _FnLowerer:
             return self.builder.emit_val(MIR_NOTB, operand, -1, MIR_B)
         if op == "-" and tkind == "int":
             return self.builder.emit_val(MIR_NEGW, operand, -1, MIR_W)
+        if op == "~" and tkind == "int":
+            # `~x` is `x ^ -1`: the direct path spells it `xor i64 v, -1`,
+            # which a `MIR_XORW` against the interned -1 const renders
+            # byte for byte.
+            minus_one = self.builder.const_w(-1)
+            return self.builder.emit_val(MIR_XORW, operand, minus_one, MIR_W)
         raise MirLowerError(f"the MIR leaf slice cannot lower {op} on {tkind}")
 
 

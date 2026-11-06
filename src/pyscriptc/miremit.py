@@ -68,6 +68,7 @@ from pyscriptc.mir import (
     MIR_NEGW,
     MIR_NEWSEQ,
     MIR_NOTB,
+    MIR_ORW,
     MIR_P,
     MIR_RAISE,
     MIR_RET,
@@ -80,6 +81,7 @@ from pyscriptc.mir import (
     MIR_SUBW,
     MIR_VOID,
     MIR_W,
+    MIR_XORW,
     MirBlock,
     MirConst,
     MirFunction,
@@ -125,7 +127,15 @@ _FCMP_D = {
 _HELPER_W = {MIR_ADDW: "iadd", MIR_SUBW: "isub", MIR_MULW: "imul", MIR_NEGW: "ineg"}
 
 # The plain arithmetic spellings, per tag.
-_LLVM_W = {MIR_ADDW: "add", MIR_SUBW: "sub", MIR_MULW: "mul", MIR_NEGW: "sub", MIR_ANDW: "and"}
+_LLVM_W = {
+    MIR_ADDW: "add",
+    MIR_SUBW: "sub",
+    MIR_MULW: "mul",
+    MIR_NEGW: "sub",
+    MIR_ANDW: "and",
+    MIR_ORW: "or",
+    MIR_XORW: "xor",
+}
 _LLVM_D = {MIR_ADDD: "fadd", MIR_SUBD: "fsub", MIR_MULD: "fmul", MIR_NEGD: "fneg"}
 
 
@@ -173,6 +183,8 @@ _OP_ARITY: Dict[int, int] = {
     MIR_SEQSET: 3,
     MIR_SEQPUSH: 2,
     MIR_SEQLEN: 1,
+    MIR_ORW: 2,
+    MIR_XORW: 2,
 }
 
 _OP_RESULT_TYPE: Dict[int, int] = {
@@ -208,6 +220,8 @@ _OP_RESULT_TYPE: Dict[int, int] = {
     MIR_SEQSET: MIR_W,
     MIR_SEQPUSH: MIR_W,
     MIR_SEQLEN: MIR_W,
+    MIR_ORW: MIR_W,
+    MIR_XORW: MIR_W,
 }
 
 

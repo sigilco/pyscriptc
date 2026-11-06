@@ -127,8 +127,13 @@ MIR_RAISE = 27
 MIR_CALL = 28
 
 # Bitwise. `w` ops on ints render as the plain LLVM bitwise instruction
-# (`and i64`); no overflow check applies.
+# (`and i64`); no overflow check applies. Shifts are not ops: `<<`/`>>`
+# lower to the `ps.ishl`/`ps.ishr` runtime helpers through the same
+# out-of-band helper channel the `//`/`%` ops use. The ids sit after the
+# sequence ops (30-34) so the two ranges never collide.
 MIR_ANDW = 29
+MIR_ORW = 35
+MIR_XORW = 36
 
 # Sequences. `MIR_NEWSEQ` builds a list (`ps_seq_new`): `arg1` is the
 # element byte size and `arg2` the element count, both word constants, and
@@ -183,6 +188,8 @@ OP_ARITY = {
     MIR_SEQSET: 3,
     MIR_SEQPUSH: 2,
     MIR_SEQLEN: 1,
+    MIR_ORW: 2,
+    MIR_XORW: 2,
 }
 
 # The result type of each value op, in the constant-pool tag space.
@@ -224,6 +231,8 @@ OP_RESULT_TYPE = {
     MIR_SEQSET: MIR_W,
     MIR_SEQPUSH: MIR_W,
     MIR_SEQLEN: MIR_W,
+    MIR_ORW: MIR_W,
+    MIR_XORW: MIR_W,
 }
 
 # The true result type of a `MIR_COPY`: the tag packed into `arg2`.
@@ -281,6 +290,8 @@ VALUE_OPS = [
     MIR_NEWSEQ,
     MIR_SEQGET,
     MIR_SEQLEN,
+    MIR_ORW,
+    MIR_XORW,
 ]
 
 
