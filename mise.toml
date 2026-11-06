@@ -19,6 +19,8 @@
 #   lint            ruff check
 #   format-check    ruff format --check
 #   check           lint + format-check + the unit (compat2) test selection
+#   check:fast      the pre-push checks on uncommitted changes (no pytest suite)
+#   hooks:install   point git core.hooksPath at scripts/hooks (the pre-push hook)
 #   bench:baseline  perf regression gate against benchmarks/baseline/reference*.json
 #   compat:json     rebuild data/compat/compat.json (add --check to compare)
 #   compat:ladder   rebuild data/compat/ladder.json
@@ -129,6 +131,14 @@ uv run ruff format --check \
 description = "lint + format-check + tests/compat2 (the CI unit job)"
 depends = ["lint", "format-check"]
 run = "uv run pytest -q tests/compat2 -m 'not linux_container'"
+
+[tasks."check:fast"]
+description = "Pre-push fast checks on uncommitted changes (ruff, support table, doc scans; no pytest)"
+run = "uv run python scripts/pre_push_hook.py --check"
+
+[tasks."hooks:install"]
+description = "Point git core.hooksPath at the tracked hooks in scripts/hooks"
+run = "git config core.hooksPath scripts/hooks"
 
 # The rest of the checks, one command each. CI runs the raw commands in the
 # workflows, not through mise (see the header comment).
