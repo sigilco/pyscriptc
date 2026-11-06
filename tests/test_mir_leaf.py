@@ -89,6 +89,7 @@ LEAF_SAMPLES = [
         "leafdict.py",
         "leafstrlist.py",
         "leafstrindex.py",
+        "leafboollist.py",
     )
 ]
 

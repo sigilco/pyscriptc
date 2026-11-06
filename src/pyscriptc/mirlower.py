@@ -353,7 +353,7 @@ def _supported_seq_elem(elem: Dict[str, Any]) -> bool:
     at the leaves, and lists of those recursively (the ABI is one pointer
     tag either way; the element semantics stay in HIR)."""
     ekind: str = elem["kind"]
-    if ekind in ("int", "float", "str"):
+    if ekind in ("int", "float", "str", "bool"):
         return True
     if ekind == "list":
         return supported_type(elem)
