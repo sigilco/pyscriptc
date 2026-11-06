@@ -815,17 +815,20 @@ class MirEmitter:
     def _emit_print(self, fn: MirFunction, i: int, args_i: list[int]) -> None:
         """The `print` builtin's emission: the direct `_print_one` walk.
 
-        The slice admits scalar arguments only (the slice test refuses a
-        `str` argument before this runs), so the value spellings are the
-        three scalar arms of `_print_one`: an int is one `printf` with the
-        `%lld` format global, a bool selects between the `True`/`False`
-        globals and prints through `%s`, a float renders `ps_f64_str` and
-        the `%.*s` pair. The separator and the terminator match the
-        defaults (space, newline); the slice test refuses `sep=`/`end=`.
+        The slice admits scalar and str arguments (the slice test
+        refuses every other kind before this runs), so the value
+        spellings are the arms of `_print_one`: an int is one `printf`
+        with the `%lld` format global, a bool selects between the
+        `True`/`False` globals and prints through `%s`, a float renders
+        `ps_f64_str` and the `%.*s` pair, a str extracts its length and
+        data pointer for the same `%.*s` pair. The separator and the
+        terminator match the defaults (space, newline); the slice test
+        refuses `sep=`/`end=`.
 
         The argument kinds come from the MIR tags, not from the IR: a
-        `MIR_W` is an int, a `MIR_B` a bool and a `MIR_D` a float, the
-        same three tags the leaf slice admits. `self.needed`,
+        `MIR_W` is an int, a `MIR_B` a bool, a `MIR_D` a float and a
+        `MIR_S` a str, the same tags the leaf slice admits.
+        `self.needed`,
         `self.globals` and `self.abi_decls` are the same stores the
         direct emitter reads, so the declarations land identically.
         """
@@ -848,6 +851,9 @@ class MirEmitter:
                 out = self._buf_out("ps_f64_str", [f"double {value}"])
                 length, ptr = self._buf_parts(out)
                 self._abi_decl("ps_f64_str", "void", ["double", "ptr"])
+                self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"])
+            elif tag == MIR_S:
+                length, ptr = self._buf_parts(value)
                 self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"])
             else:
                 self._print_fmt("int", b"%lld", [f"i64 {value}"])

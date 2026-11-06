@@ -352,7 +352,7 @@ def _supported_print(expr: Dict[str, Any]) -> bool:
     The rest is a value the walk has to cover; `print` is the void
     statement-call form the slice lowers itself, so the callee check is
     the builtin's name, the kwargs are out (the sep/end walk is not in
-    the slice), and every argument is a scalar in the slice.
+    the slice), and every argument is a scalar or str in the slice.
     """
     etype: Dict[str, Any] = expr["type"]
     ekind: str = etype["kind"]
@@ -371,7 +371,7 @@ def _supported_print(expr: Dict[str, Any]) -> bool:
     for arg in args:
         atyp: Dict[str, Any] = arg["type"]
         akind: str = atyp["kind"]
-        if akind not in ("int", "float", "bool"):
+        if akind not in ("int", "float", "bool", "str"):
             return False
         if not supported_expr(arg):
             return False

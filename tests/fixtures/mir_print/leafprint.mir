@@ -28,8 +28,10 @@ fn main() -> void {
   c6 = w 4
   c7 = w 2
   c8 = w 7
-  c9 = w 0
-  c10 = d 1.5 (0x3ff8000000000000)
+  c9 = s 'txt'
+  c10 = s 'lit'
+  c11 = w 0
+  c12 = d 1.5 (0x3ff8000000000000)
 b0 entry():
   v-1:void = call @print()
   v-1:void = call @print(c0)
@@ -38,40 +40,48 @@ b0 entry():
   v-1:void = call @print(c3)
   v0:w = copy c4
   v1:d = copy c5
-  v5:w = copy v0
-  v6:b = cgtw v5, c0
-  v2:b = copy v6
-  v7:w = copy v0
-  v8:d = copy v1
-  v9:b = copy v2
-  v-1:void = call @print(v7, v8, v9)
-  v11:w = call @twice(c6)
-  v13:b = call @positive(c7)
-  v-1:void = call @print(v11, v13, c8)
-  v14:w = negw c4
-  v15:b = notb c3
-  v-1:void = call @print(v14, v15)
-  v3:w = copy c9
+  v6:w = copy v0
+  v7:b = cgtw v6, c0
+  v2:b = copy v7
+  v8:w = copy v0
+  v9:d = copy v1
+  v10:b = copy v2
+  v-1:void = call @print(v8, v9, v10)
+  v12:w = call @twice(c6)
+  v14:b = call @positive(c7)
+  v-1:void = call @print(v12, v14, c8)
+  v15:w = negw c4
+  v16:b = notb c3
+  v-1:void = call @print(v15, v16)
+  v17:s = copy c9
+  v3:s = copy v17
+  v18:s = copy v3
+  v-1:void = call @print(v18)
+  v19:s = copy c10
+  v20:s = copy v3
+  v21:w = call @twice(c0)
+  v-1:void = call @print(v19, v20, v21)
+  v4:w = copy c11
   jmp b1
 b1 while.cond():
-  v16:w = copy v3
-  v17:b = cltw v16, c7
-  br v17, b2(), b3()
+  v22:w = copy v4
+  v23:b = cltw v22, c7
+  br v23, b2(), b3()
 b2 while.body():
-  v18:w = copy v3
-  v-1:void = call @print(c10, v18)
-  v19:w = copy v3
-  v20:w = addw v19, c0
-  v3:w = copy v20
+  v24:w = copy v4
+  v-1:void = call @print(c12, v24)
+  v25:w = copy v4
+  v26:w = addw v25, c0
+  v4:w = copy v26
   jmp b1
 b3 while.end():
-  v21:b = copy v2
-  br v21, b4(), b5()
+  v27:b = copy v2
+  br v27, b4(), b5()
 b4 then():
   v-1:void = call @print(c3)
   jmp b6
 b5 else():
-  v-1:void = call @print(c9)
+  v-1:void = call @print(c11)
   jmp b6
 b6 merge():
   ret

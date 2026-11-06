@@ -468,8 +468,9 @@ class TestCallSlice:
 
 class TestPrintSlice:
     """The `print` builtin slice: a none-typed `print` call with scalar
-    arguments lowers to a void `MIR_CALL` the emitter renders through the
-    direct `_print_one` walk; kwargs and non-scalar args stay out."""
+    and str arguments lowers to a void `MIR_CALL` the emitter renders
+    through the direct `_print_one` walk; kwargs and other kinds stay
+    out."""
 
     def test_print_functions_in_slice(self) -> None:
         module, _ = lower_file(str(_FIXTURES / "leafprint.py"))
@@ -485,8 +486,9 @@ class TestPrintSlice:
     def test_print_kwargs_and_non_scalars_stay_out(self) -> None:
         module, _ = lower_file(str(_FIXTURES / "leafprintsep.py"))
         mir = lower_module(module)
-        assert sorted(mir.skipped) == ["p_bytes", "p_end", "p_sep", "p_stderr", "p_str"]
+        assert sorted(mir.skipped) == ["p_bytes", "p_end", "p_sep", "p_stderr"]
         names = {fn.name for fn in mir.functions}
+        assert "p_str" in names
         assert "p_stdout" in names
         assert "main" in names
         for fn in mir.functions:
