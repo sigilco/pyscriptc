@@ -305,6 +305,20 @@ def _elem_kind(typ: dict[str, Any]) -> str:
     return kind
 
 
+def _elem_type(typ: dict[str, Any]) -> dict[str, Any]:
+    """The element type record a list or optional type carries."""
+
+    elem: dict[str, Any] = typ["elem"]
+    return elem
+
+
+def _map_value_type(typ: dict[str, Any]) -> dict[str, Any]:
+    """The value type record a dict type carries."""
+
+    value: dict[str, Any] = typ["value"]
+    return value
+
+
 def _is_optional(typ: dict[str, Any]) -> bool:
     """Whether a type record is the optional wrapper (`T | None`)."""
     if "optional" not in typ:
