@@ -683,11 +683,16 @@ def _supported_contains(expr: Dict[str, Any]) -> bool:
     `ps_str_find` sequence is the one the MIR helper copy renders.
     """
     typ: Dict[str, Any] = expr["type"]
-    if typ["kind"] != "bool":
+    tkind: str = typ["kind"]
+    if tkind != "bool":
         return False
     hay: Dict[str, Any] = expr["hay"]
     needle: Dict[str, Any] = expr["needle"]
-    if hay["type"]["kind"] != "str" or needle["type"]["kind"] != "str":
+    haytype: Dict[str, Any] = hay["type"]
+    haykind: str = haytype["kind"]
+    ntype: Dict[str, Any] = needle["type"]
+    nkind: str = ntype["kind"]
+    if haykind != "str" or nkind != "str":
         return False
     return supported_expr(hay) and supported_expr(needle)
 
@@ -1718,7 +1723,8 @@ class _FnLowerer:
         """
         needle: int = self.emit_expr(expr["needle"])
         hay: int = self.emit_expr(expr["hay"])
-        helper = "str_ncontains" if expr["negated"] else "str_contains"
+        negated: bool = expr["negated"]
+        helper: str = "str_ncontains" if negated else "str_contains"
         return self.emit_helper(helper, MIR_B, hay, needle)
 
     def emit_unary(self, expr: Dict[str, Any]) -> int:
