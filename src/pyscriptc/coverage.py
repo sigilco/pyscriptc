@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from pyscriptc.emit._ir import _items, _opt_int, _opt_str, _span_of
 from pyscriptc.errors import IRError, format_diagnostic
 from pyscriptc.imports import REQUIRES_LIBPYTHON
 from pyscriptc.lower import lower_file
@@ -302,8 +303,9 @@ def capabilities(module: dict[str, Any], files: list[str]) -> dict[str, Any]:
 
     sources: dict[str, str | None] = {}
     fences_by_file: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for fence in module.get("fences", []):
-        fences_by_file[fence["span"]["file"]].append(fence)
+    for fence in _items(module, "fences"):
+        span = _span_of(fence)
+        fences_by_file[_opt_str(span, "file")].append(fence)
     paths = list(dict.fromkeys([*files, *sorted(fences_by_file)]))
     by_file: list[dict[str, Any]] = []
     totals = {
@@ -324,7 +326,7 @@ def capabilities(module: dict[str, Any], files: list[str]) -> dict[str, Any]:
         owned: dict[str, list[dict[str, Any]]] = {item.name: [] for item in defs}
         module_fences = 0
         for fence in local:
-            owner = _innermost(defs, fence["span"]["line"])
+            owner = _innermost(defs, _opt_int(_span_of(fence), "line", 0))
             if owner is None:
                 module_fences += 1
             else:
@@ -332,14 +334,14 @@ def capabilities(module: dict[str, Any], files: list[str]) -> dict[str, Any]:
         buckets = Counter()
         for name in owned:
             inside = owned[name]
-            if any(routes_to_island(fence["message"]) for fence in inside):
+            if any(routes_to_island(_opt_str(fence, "message")) for fence in inside):
                 buckets[CAP_ISLAND] += 1
             elif inside:
                 buckets[CAP_FENCED] += 1
             else:
                 buckets[CAP_NATIVE] += 1
-        codes = {fence["code"] for fence in local}
-        mechanisms = {found for fence in local if (found := mechanism_of(fence["message"])) is not None}
+        codes = {_opt_str(fence, "code") for fence in local}
+        mechanisms = {found for fence in local if (found := mechanism_of(_opt_str(fence, "message"))) is not None}
         all_codes |= codes
         all_mechanisms |= mechanisms
         entry = {
@@ -478,38 +480,47 @@ def build_report(target: Path, bridge: Any = None) -> dict[str, Any]:
     seen: set[tuple[Any, ...]] = set()
     entries: list[dict[str, Any]] = []
     raw = sorted(
-        module["fences"],
-        key=lambda f: (f["span"]["file"], f["span"]["line"], f["span"]["col"], f["code"]),
+        _items(module, "fences"),
+        key=lambda f: (
+            _opt_str(_span_of(f), "file"),
+            _opt_int(_span_of(f), "line", 0),
+            _opt_int(_span_of(f), "col", 0),
+            _opt_str(f, "code"),
+        ),
     )
     for fence in raw:
-        span = fence["span"]
-        key = (fence["code"], span["file"], span["line"], span["col"], fence["message"])
+        span = _span_of(fence)
+        code = _opt_str(fence, "code")
+        message = _opt_str(fence, "message")
+        path = _opt_str(span, "file")
+        line = _opt_int(span, "line", 0)
+        col = _opt_int(span, "col", 0)
+        key = (code, path, line, col, message)
         if key in seen:
             continue
         seen.add(key)
-        path = span["file"]
         text = _read(path, sources)
         defs = trees.get(path, [])
-        owner = _innermost(defs, span["line"])
-        family = family_of(fence["code"], fence["message"])
+        owner = _innermost(defs, line)
+        family = family_of(code, message)
         lines = text.splitlines() if text else []
-        statement = lines[span["line"] - 1].strip() if 1 <= span["line"] <= len(lines) else ""
+        statement = lines[line - 1].strip() if 1 <= line <= len(lines) else ""
         entries.append(
             _annotate(
                 {
-                    "code": fence["code"],
-                    "message": fence["message"],
+                    "code": code,
+                    "message": message,
                     "family": family,
                     "derived": is_derived(family),
                     "file": path,
-                    "line": span["line"],
-                    "col": span["col"],
-                    "endLine": span["endLine"],
-                    "endCol": span["endCol"],
+                    "line": line,
+                    "col": col,
+                    "endLine": _opt_int(span, "endLine", 0),
+                    "endCol": _opt_int(span, "endCol", 0),
                     "definition": owner.name if owner else None,
                     "statement": statement,
                     "frame": format_diagnostic(fence, text),
-                    "hint": hint_for(family, fence["message"]),
+                    "hint": hint_for(family, message),
                 },
                 known,
             )
