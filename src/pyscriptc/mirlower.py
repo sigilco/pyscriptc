@@ -121,6 +121,7 @@ MIR_EXCCUR = 49
 MIR_RERAISE = 50
 MIR_RAISEEXC = 51
 MIR_UNREACH = 52
+MIR_INITCALL = 53
 
 # The void result tag (`mir.py`'s MIR_VOID): a function returning None has
 # no return value. Spelled as the int literal per the self-host spell, so a
@@ -324,20 +325,17 @@ def supported_type(typ: Dict[str, Any]) -> bool:
     type stays in HIR: MIR sees only the pointer shape, so nested or
     non-scalar element lists stay out.
 
-    A `class` value rides `MIR_P` too, but only the `tuple_N_*` classes
-    the IR synthesizes for unpacking: they carry no methods, their
-    fields are written by `setattr` after a bare constructor call and
-    read back by `attr`. User classes (and the `Tree`/`opt_Tree` shapes
-    the corpus's recursive walkers need) stay outside the slice.
+    A `class` value rides `MIR_P` too: every class kind qualifies at the
+    type level, and the constructor call, the field ops and the
+    call/return walks gate which class shapes the slice carries — the
+    `tuple_N_*` unpacking classes and user classes whose constructor
+    arguments and fields stay in the slice.
     """
     kind: str = typ["kind"]
     if kind in ("int", "float", "bool", "str"):
         return True
     if kind == "class":
-        if "name" not in typ:
-            return False
-        cname: str = typ["name"]
-        return cname.startswith("tuple_")
+        return "name" in typ
     if kind == "dict":
         key: Dict[str, Any] = typ["key"]
         value: Dict[str, Any] = typ["value"]
@@ -545,8 +543,9 @@ def _supported_call(expr: Dict[str, Any]) -> bool:
     resolved at lowering), the name is defined by a function of this
     module (checked against `supported_fn`'s own param/return rules by
     the caller through `_callee_in_slice`), and every argument is in the
-    slice. Everything else (other builtins, other module members,
-    methods, class constructors, value callees) stays outside.
+    slice. Class constructor calls admit the same way (the
+    `MIR_INITCALL` form). Everything else (other builtins, other module
+    members, methods, value callees) stays outside.
     """
     callee: Dict[str, Any] = expr["callee"]
     ckind: str = callee["kind"]
@@ -577,14 +576,21 @@ def _supported_call(expr: Dict[str, Any]) -> bool:
                 return False
         return True
     if ckind == "class":
-        # A `tuple_N_*` constructor: the IR emits it with no arguments
-        # (fields are written by `setattr` after the bare alloc) and a
-        # class-typed result.
+        # A `tuple_N_*` constructor keeps the bare-alloc form: the IR
+        # emits it with no arguments (fields are written by `setattr`
+        # after the call). Every other class call is the user-class
+        # constructor (`MIR_INITCALL`): each argument must be in the
+        # slice and the result a class value.
         cname: str = callee["name"]
-        if not cname.startswith("tuple_") or args:
-            return False
         rtype: Dict[str, Any] = expr["type"]
-        return _is_supported_class(rtype)
+        if not _is_supported_class(rtype):
+            return False
+        if cname.startswith("tuple_"):
+            return len(args) == 0
+        for arg in args:
+            if not supported_expr(arg):
+                return False
+        return True
     if ckind == "method":
         return _supported_method_call(callee, expr)
     if ckind == "builtin":
@@ -1173,12 +1179,16 @@ def supported_fn(fn: Dict[str, Any]) -> bool:
     return True
 
 
-def supported_module_fn(fn: Dict[str, Any], callees: Dict[str, Dict[str, Any]]) -> bool:
+def supported_module_fn(
+    fn: Dict[str, Any], callees: Dict[str, Dict[str, Any]], module_fns: Dict[str, Dict[str, Any]]
+) -> bool:
     """The module-level slice test: `supported_fn` plus the callee checks.
 
     A call the body walk admits names a same-module function; here the
     callee must itself be a plain module-level user function in the
-    slice, with an arity matching the call. The checks are pairwise
+    slice, with an arity matching the call — or a name `module_fns`
+    does not define at all (a fenced sibling the IR still references,
+    which has no callee record to check). The checks are pairwise
     (call site against the callee's record), so a call to a function
     that would lower clean but is out of the slice by its own shape
     (a float param, an env) keeps the caller out too.
@@ -1186,65 +1196,71 @@ def supported_module_fn(fn: Dict[str, Any], callees: Dict[str, Dict[str, Any]]) 
     if not supported_fn(fn):
         return False
     body: list[Dict[str, Any]] = fn["body"]
-    return _calls_in_slice(body, callees)
+    return _calls_in_slice(body, callees, module_fns)
 
 
-def _calls_in_slice(stmts: list[Dict[str, Any]], callees: Dict[str, Dict[str, Any]]) -> bool:
+def _calls_in_slice(
+    stmts: list[Dict[str, Any]], callees: Dict[str, Dict[str, Any]], module_fns: Dict[str, Dict[str, Any]]
+) -> bool:
     """Every call nested in `stmts` names an in-slice callee with a
     matching arity. `callees` is the admitted set, which may contain the
     caller itself: the module-level fixpoint admits recursion cycles
     (f calls f, or f and g calling each other), and a self-call reads the
-    caller's own record for the arity check."""
+    caller's own record for the arity check. `module_fns` is every
+    function the module defines: a call naming a name outside it is the
+    non-module callee the slice admits."""
     for stmt in stmts:
-        if not _calls_in_slice_stmt(stmt, callees):
+        if not _calls_in_slice_stmt(stmt, callees, module_fns):
             return False
     return True
 
 
-def _calls_in_slice_stmt(stmt: Dict[str, Any], callees: Dict[str, Dict[str, Any]]) -> bool:
+def _calls_in_slice_stmt(
+    stmt: Dict[str, Any], callees: Dict[str, Dict[str, Any]], module_fns: Dict[str, Dict[str, Any]]
+) -> bool:
     kind: str = stmt["kind"]
     if kind == "assign":
         value: Dict[str, Any] = stmt["value"]
-        return _calls_in_slice_expr(value, callees)
+        return _calls_in_slice_expr(value, callees, module_fns)
     if kind == "expr":
         expr: Dict[str, Any] = stmt["expr"]
-        return _calls_in_slice_expr(expr, callees)
+        return _calls_in_slice_expr(expr, callees, module_fns)
     if kind == "return":
         rvalue: Dict[str, Any] = stmt["value"]
-        return _calls_in_slice_expr(rvalue, callees)
+        return _calls_in_slice_expr(rvalue, callees, module_fns)
     if kind == "setitem":
         set_container: Dict[str, Any] = stmt["container"]
         set_index: Dict[str, Any] = stmt["index"]
         set_value: Dict[str, Any] = stmt["value"]
-        if not _calls_in_slice_expr(set_container, callees):
+        if not _calls_in_slice_expr(set_container, callees, module_fns):
             return False
-        if not _calls_in_slice_expr(set_index, callees):
+        if not _calls_in_slice_expr(set_index, callees, module_fns):
             return False
-        return _calls_in_slice_expr(set_value, callees)
+        return _calls_in_slice_expr(set_value, callees, module_fns)
     if kind == "setattr":
         set_object: Dict[str, Any] = stmt["object"]
         set_value = stmt["value"]
-        if not _calls_in_slice_expr(set_object, callees):
+        if not _calls_in_slice_expr(set_object, callees, module_fns):
             return False
-        return _calls_in_slice_expr(set_value, callees)
+        return _calls_in_slice_expr(set_value, callees, module_fns)
     if kind == "if":
-        if not _calls_in_slice_expr(stmt["cond"], callees):
+        if not _calls_in_slice_expr(stmt["cond"], callees, module_fns):
             return False
         then_body: list[Dict[str, Any]] = stmt["then"]
         for s in then_body:
-            if not _calls_in_slice_stmt(s, callees):
+            if not _calls_in_slice_stmt(s, callees, module_fns):
                 return False
         else_body: list[Dict[str, Any]] = stmt["else"]
         for s in else_body:
-            if not _calls_in_slice_stmt(s, callees):
+            if not _calls_in_slice_stmt(s, callees, module_fns):
                 return False
         return True
     if kind == "while":
-        if not _calls_in_slice_expr(stmt["cond"], callees):
+        if not _calls_in_slice_expr(stmt["cond"], callees, module_fns):
             return False
         body: list[Dict[str, Any]] = stmt["body"]
         for s in body:
-            if not _calls_in_slice_stmt(s, callees):
+            if not _calls_in_slice_stmt(s, callees, module_fns):
                 return False
         return True
     if kind == "try":
@@ -1254,21 +1270,23 @@ def _calls_in_slice_stmt(stmt: Dict[str, Any], callees: Dict[str, Dict[str, Any]
         # handler bodies (and `orelse`, fenced above) at the callsite.
         finalbody: list[Dict[str, Any]] = _mir_items(stmt, "finalbody")
         if finalbody:
-            return _calls_in_slice(finalbody, callees)
+            return _calls_in_slice(finalbody, callees, module_fns)
         for handler in _mir_items(stmt, "handlers"):
-            if not _calls_in_slice(_mir_items(handler, "body"), callees):
+            if not _calls_in_slice(_mir_items(handler, "body"), callees, module_fns):
                 return False
-        return _calls_in_slice(_mir_items(stmt, "orelse"), callees)
+        return _calls_in_slice(_mir_items(stmt, "orelse"), callees, module_fns)
     return True
 
 
-def _calls_in_slice_expr(expr: Dict[str, Any], callees: Dict[str, Dict[str, Any]]) -> bool:
+def _calls_in_slice_expr(
+    expr: Dict[str, Any], callees: Dict[str, Dict[str, Any]], module_fns: Dict[str, Dict[str, Any]]
+) -> bool:
     kind: str = expr["kind"]
     if kind == "call":
         callee: Dict[str, Any] = expr["callee"]
         args: list[Dict[str, Any]] = expr["args"]
         for arg in args:
-            if not _calls_in_slice_expr(arg, callees):
+            if not _calls_in_slice_expr(arg, callees, module_fns):
                 return False
         ckind: str = callee["kind"]
         if ckind != "function":
@@ -1283,44 +1301,49 @@ def _calls_in_slice_expr(expr: Dict[str, Any], callees: Dict[str, Dict[str, Any]
             # The void builtin form: no module-level callee to check, only
             # the arguments' own shape.
             for arg in args:
-                if not _calls_in_slice_expr(arg, callees):
+                if not _calls_in_slice_expr(arg, callees, module_fns):
                     return False
             return True
         target: Dict[str, Any] | None = callees.get(name)
         if target is None:
-            return False
+            # A call to a name no function of this module defines (a
+            # fenced sibling the IR still references): there is no
+            # callee record to check, so the call rides the lane. A
+            # name the module does define but the slice rejected keeps
+            # the caller out through the fixpoint.
+            return name not in module_fns
         params: list[Dict[str, Any]] = target["params"]
         if len(args) != len(params):
             return False
         return True
     if kind == "binary":
-        if not _calls_in_slice_expr(expr["left"], callees):
+        if not _calls_in_slice_expr(expr["left"], callees, module_fns):
             return False
-        return _calls_in_slice_expr(expr["right"], callees)
+        return _calls_in_slice_expr(expr["right"], callees, module_fns)
     if kind == "compare":
-        if not _calls_in_slice_expr(expr["left"], callees):
+        if not _calls_in_slice_expr(expr["left"], callees, module_fns):
             return False
-        return _calls_in_slice_expr(expr["right"], callees)
+        return _calls_in_slice_expr(expr["right"], callees, module_fns)
     if kind == "unary":
-        return _calls_in_slice_expr(expr["operand"], callees)
+        return _calls_in_slice_expr(expr["operand"], callees, module_fns)
     if kind == "cast":
-        return _calls_in_slice_expr(expr["value"], callees)
+        return _calls_in_slice_expr(expr["value"], callees, module_fns)
     if kind == "list":
         elems: list[Dict[str, Any]] = expr["elems"]
         for elem in elems:
-            if not _calls_in_slice_expr(elem, callees):
+            if not _calls_in_slice_expr(elem, callees, module_fns):
                 return False
         return True
     if kind == "subscript":
-        if not _calls_in_slice_expr(expr["value"], callees):
+        if not _calls_in_slice_expr(expr["value"], callees, module_fns):
             return False
-        return _calls_in_slice_expr(expr["index"], callees)
+        return _calls_in_slice_expr(expr["index"], callees, module_fns)
     if kind == "attr":
-        return _calls_in_slice_expr(expr["value"], callees)
+        return _calls_in_slice_expr(expr["value"], callees, module_fns)
     if kind == "contains":
-        if not _calls_in_slice_expr(expr["hay"], callees):
+        if not _calls_in_slice_expr(expr["hay"], callees, module_fns):
             return False
-        return _calls_in_slice_expr(expr["needle"], callees)
+        return _calls_in_slice_expr(expr["needle"], callees, module_fns)
     return True
 
 
@@ -1500,6 +1523,11 @@ class _FnLowerer:
     # `function` callee carries. A call lowers only when its name is here
     # (`supported_module_fn` guaranteed it for in-slice bodies).
     callees: Dict[str, Dict[str, Any]]
+    # Every function name the module defines, admitted or not. A call
+    # naming a name outside this table is the admitted non-module
+    # callee (a fenced sibling); `None` keeps the strict spelling for
+    # `lower_function` callers that pass no module context.
+    module_fns: Dict[str, Dict[str, Any]] | None
     # The direct emitter's label counter: `fresh()` hands out one number
     # per label, in statement pre-order. The lowerer reserves the same
     # numbers so the emitted labels land on the direct path's.
@@ -1515,10 +1543,17 @@ class _FnLowerer:
     # `ps.try.N` the direct path's `_emit_outline` minted.
     next_outline: int
 
-    def __init__(self, fn: Dict[str, Any], callees: Dict[str, Dict[str, Any]], outline_base: int = 0) -> None:
+    def __init__(
+        self,
+        fn: Dict[str, Any],
+        callees: Dict[str, Dict[str, Any]],
+        outline_base: int = 0,
+        module_fns: Dict[str, Dict[str, Any]] | None = None,
+    ) -> None:
         self.fn = fn
         self.builder = MirBuilder(fn["name"])
         self.callees = callees
+        self.module_fns = module_fns
         self.slots = {}
         self.local_types = {}
         self.slot_vids = {}
@@ -2117,7 +2152,10 @@ class _FnLowerer:
         ckind: str = callee["kind"]
         args: list[Dict[str, Any]] = expr["args"]
         if ckind == "class":
-            return self.emit_newobj(expr)
+            class_name: str = callee["name"]
+            if class_name.startswith("tuple_") and len(args) == 0:
+                return self.emit_newobj(expr)
+            return self.emit_initcall(expr)
         if ckind == "builtin":
             cname: str = callee["name"]
             if cname == "len" and _is_supported_list(args[0]["type"]):
@@ -2162,17 +2200,30 @@ class _FnLowerer:
             return self.emit_module_call(expr)
         target: Dict[str, Any] | None = self.callees.get(name)
         if target is None:
-            raise MirLowerError(f"the MIR leaf slice has no lowered callee {name}")
+            module_fns = self.module_fns
+            if module_fns is None:
+                raise MirLowerError(f"the MIR leaf slice has no lowered callee {name}")
+            if name in module_fns:
+                raise MirLowerError(f"the MIR leaf slice has no lowered callee {name}")
+        # A `target` of None here is the admitted non-module callee: a
+        # call to a name no function of this module defines (a fenced
+        # sibling the IR still references). The module-level walk
+        # admitted it because there is no callee record to check; the
+        # MIR records the call and a fenced module never reaches
+        # emission, so the result tag comes from the expression's own
+        # type instead of the callee record.
         callee_vid: int = self.builder.add_callee(name)
         values: list[int] = []
         for arg in args:
             values.append(self.emit_expr(arg))
         typ: Dict[str, Any] = expr["type"]
         tkind: str = typ["kind"]
-        tag: int = _fn_result_tag(target)
         if tkind == "none":
             self.builder.emit_call(callee_vid, values, MIR_VOID)
             return -1
+        tag: int = _param_tag(tkind)
+        if target is not None:
+            tag = _fn_result_tag(target)
         return self.builder.emit_call(callee_vid, values, tag)
 
     def emit_list(self, expr: Dict[str, Any]) -> int:
@@ -2208,6 +2259,26 @@ class _FnLowerer:
         callee: Dict[str, Any] = expr["callee"]
         name: str = callee["name"]
         return self.builder.emit_val(MIR_NEWOBJ, self.builder.const_s(name), -1, MIR_P)
+
+    def emit_initcall(self, expr: Dict[str, Any]) -> int:
+        """A user-class constructor call: `MIR_INITCALL`.
+
+        The class name interns as a `MIR_S` constant the emitter reads
+        without materializing (the `MIR_NEWOBJ` convention); the
+        constructor arguments evaluate left to right and ride
+        `call_args`, the `MIR_CALL` channel. The emitter allocates the
+        `%cls.<name>` struct and runs `cls.<name>.__init__` when the
+        class defines one, the direct `emit_constructor`'s shape.
+        """
+        callee: Dict[str, Any] = expr["callee"]
+        name: str = callee["name"]
+        args: list[Dict[str, Any]] = expr["args"]
+        values: list[int] = []
+        for arg in args:
+            values.append(self.emit_expr(arg))
+        vid: int = self.builder.emit_val(MIR_INITCALL, self.builder.const_s(name), -1, MIR_P)
+        self.builder.fn.call_args[len(self.builder.fn.ops) - 1] = values
+        return vid
 
     def emit_setattr(self, stmt: Dict[str, Any]) -> None:
         """A field write: object then value (the direct order), then
@@ -2551,20 +2622,25 @@ class _FnLowerer:
 
 
 def lower_function(
-    fn: Dict[str, Any], callees: Dict[str, Dict[str, Any]] | None = None, outline_base: int = 0
+    fn: Dict[str, Any],
+    callees: Dict[str, Dict[str, Any]] | None = None,
+    outline_base: int = 0,
+    module_fns: Dict[str, Dict[str, Any]] | None = None,
 ) -> MirFunction:
     """Lower one in-slice IR function to MIR. `supported_fn` must hold.
 
     `callees` is the admitted callee table (name -> IR function record);
     a call lowers to a `MIR_CALL` only when its name is in it, so a
-    function with no calls needs no table. `outline_base` seeds the
-    `ps.try.N` counter with the outlines earlier module functions
-    consumed.
+    function with no calls needs no table. `module_fns` is the module's
+    full function-name table when the caller has one: a call naming a
+    name outside it is the admitted non-module callee. `outline_base`
+    seeds the `ps.try.N` counter with the outlines earlier module
+    functions consumed.
     """
     table: Dict[str, Dict[str, Any]] = {}
     if callees is not None:
         table = callees
-    return _FnLowerer(fn, table, outline_base).run()
+    return _FnLowerer(fn, table, outline_base, module_fns).run()
 
 
 def lower_module(module: Dict[str, Any]) -> MirModule:
@@ -2590,8 +2666,11 @@ def lower_module(module: Dict[str, Any]) -> MirModule:
     # earlier one only if names repeat, which the lowerer refuses
     # upstream; the dict keeps the first.
     by_name: Dict[str, Dict[str, Any]] = {}
+    module_fns: Dict[str, Dict[str, Any]] = {}
     for fn in fns:
         fname: str = fn["name"]
+        if fname not in module_fns:
+            module_fns[fname] = fn
         if fname not in by_name and supported_fn(fn):
             by_name[fname] = fn
     # Pass two: greatest fixpoint of "every callee is a candidate". Each
@@ -2605,7 +2684,7 @@ def lower_module(module: Dict[str, Any]) -> MirModule:
         kept: Dict[str, Dict[str, Any]] = {}
         for fname in admitted:
             fn = admitted[fname]
-            if _calls_in_slice(fn["body"], admitted):
+            if _calls_in_slice(fn["body"], admitted, module_fns):
                 kept[fname] = fn
             else:
                 settling = True
@@ -2619,8 +2698,8 @@ def lower_module(module: Dict[str, Any]) -> MirModule:
     for fn in fns:
         fname2: str = fn["name"]
         fn_admitted: Dict[str, Any] | None = admitted.get(fname2)
-        if fn_admitted is not None and supported_module_fn(fn, admitted):
-            functions.append(_FnLowerer(fn, admitted, outline_base).run())
+        if fn_admitted is not None and supported_module_fn(fn, admitted, module_fns):
+            functions.append(_FnLowerer(fn, admitted, outline_base, module_fns).run())
         else:
             skipped.append(fname2)
         outline_base = outline_base + _mir_list_cost(_mir_items(fn, "body"))

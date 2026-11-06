@@ -78,6 +78,7 @@ from pyscriptc.mir import (
     MIR_EXTWD,
     MIR_FLOWLD,
     MIR_GETATTR,
+    MIR_INITCALL,
     MIR_JMP,
     MIR_MAP_PUT,
     MIR_MULD,
@@ -229,6 +230,7 @@ _OP_ARITY: Dict[int, int] = {
     MIR_RERAISE: 0,
     MIR_RAISEEXC: 1,
     MIR_UNREACH: 0,
+    MIR_INITCALL: 1,
 }
 
 _OP_RESULT_TYPE: Dict[int, int] = {
@@ -282,6 +284,7 @@ _OP_RESULT_TYPE: Dict[int, int] = {
     MIR_RERAISE: MIR_W,
     MIR_RAISEEXC: MIR_W,
     MIR_UNREACH: MIR_W,
+    MIR_INITCALL: MIR_P,
 }
 
 
@@ -770,6 +773,9 @@ class MirEmitter:
             return
         if op == MIR_NEWOBJ:
             self._emit_newobj(fn, dst, a1)
+            return
+        if op == MIR_INITCALL:
+            self._emit_initcall(fn, i, dst, a1)
             return
         if op == MIR_SETATTR:
             self._emit_setattr(fn, a1, a2, a3)
@@ -1482,6 +1488,52 @@ class MirEmitter:
         reg: str = self.tmp_reg()
         self.line(f"{reg} = call ptr @ps_alloc(i64 {size})")
         self.reg[dst] = reg
+
+    def _emit_initcall(self, fn: MirFunction, i: int, dst: int, a1: int) -> None:
+        """A user-class constructor call: the direct `emit_constructor`.
+
+        The same three `ps_alloc` temporaries `MIR_NEWOBJ` emits, then
+        the `cls.<name>.__init__` call when the class defines one — the
+        method record's params type each argument (`self` binds the
+        fresh allocation) exactly as the direct `call_function` does.
+        `arg1` is the `MIR_S` class-name constant; the constructor
+        arguments ride `call_args`.
+        """
+        const: MirConst = fn.consts[const_index(a1)]
+        name: str = const.sval
+        cls: Dict[str, Any] = self._mir_class(name)
+        init: Dict[str, Any] | None = None
+        for method in _items(cls, "methods"):
+            if _opt_str(method, "name") == "__init__":
+                init = method
+                break
+        needed: set[str] = self.needed
+        needed.add("alloc")
+        self.needed = needed
+        size_ptr: str = self.tmp_reg()
+        self.line(f"{size_ptr} = getelementptr %cls.{name}, ptr null, i64 1")
+        size: str = self.tmp_reg()
+        self.line(f"{size} = ptrtoint ptr {size_ptr} to i64")
+        mem: str = self.tmp_reg()
+        self.line(f"{mem} = call ptr @ps_alloc(i64 {size})")
+        if init is not None:
+            params: list[Dict[str, Any]] = init["params"]
+            parts: list[str] = []
+            parts.append(f"{_llvm_type(params[0]['type'])} {mem}")
+            args_i: list[int] = fn.call_args[i]
+            for position in range(len(args_i)):
+                param: Dict[str, Any] = params[position + 1]
+                p_type: Dict[str, Any] = param["type"]
+                parts.append(f"{_llvm_type(p_type)} {self.operand(fn, args_i[position])}")
+            ret: str = _llvm_type(init["returnType"])
+            symbol: str = f"cls.{name}.__init__"
+            rendered: str = ", ".join(parts)
+            if ret == "void":
+                self.line(f"call void @{symbol}({rendered})")
+            else:
+                call_reg: str = self.tmp_reg()
+                self.line(f"{call_reg} = call {ret} @{symbol}({rendered})")
+        self.reg[dst] = mem
 
     def _emit_setattr(self, fn: MirFunction, a1: int, a2: int, a3: int) -> None:
         """A field store: object and value already evaluated, then the
