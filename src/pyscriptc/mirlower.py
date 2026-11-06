@@ -77,6 +77,7 @@ MIR_ADDD = 7
 MIR_SUBD = 8
 MIR_MULD = 9
 MIR_NEGW = 10
+MIR_NEGD = 11
 
 MIR_CLTW = 12
 MIR_CLEW = 13
@@ -1735,6 +1736,8 @@ class _FnLowerer:
             # byte for byte.
             minus_one = self.builder.const_w(-1)
             return self.builder.emit_val(MIR_XORW, operand, minus_one, MIR_W)
+        if op == "-" and tkind == "float":
+            return self.builder.emit_val(MIR_NEGD, operand, -1, MIR_D)
         raise MirLowerError(f"the MIR leaf slice cannot lower {op} on {tkind}")
 
 

@@ -750,11 +750,13 @@ class MirEmitter:
             return
         if op in _LLVM_D:
             left = self.operand(fn, a1)
-            right = self.operand(fn, a2)
             reg = self.tmp_reg()
             if op == MIR_NEGD:
+                # `fneg` is unary: the second operand slot carries the
+                # unused-operand sentinel, not a value.
                 self.line(f"{reg} = fneg double {left}")
             else:
+                right = self.operand(fn, a2)
                 self.line(f"{reg} = {_LLVM_D[op]} double {left}, {right}")
             self.reg[dst] = reg
             return
