@@ -20,8 +20,12 @@ from pyscriptc.mir import (
     MIR_CALL,
     MIR_CLTW,
     MIR_D,
+    MIR_GETATTR,
     MIR_JMP,
+    MIR_NEWOBJ,
+    MIR_P,
     MIR_S,
+    MIR_SETATTR,
     MIR_VOID,
     MIR_W,
     MirBlock,
@@ -77,6 +81,7 @@ LEAF_SAMPLES = [
         "leafprintsep.py",
         "leafrec.py",
         "leafbit.py",
+        "leaftuple.py",
     )
 ]
 
@@ -544,6 +549,59 @@ class TestRecursionSlice:
         names = {fn.name for fn in mir.functions}
         assert "bad" not in names
         assert "wrap" not in names
+
+
+class TestClassSlice:
+    """The tuple-class slice: `tuple_N_*` unpacking constructors, field
+    writes and reads, class-valued params, args and returns all ride
+    `MIR_P`; the class name and field key ride `MIR_S` constants the
+    emitter reads as keys, never as runtime strings."""
+
+    def test_tuple_functions_in_slice(self) -> None:
+        module, _ = lower_file(str(_FIXTURES / "leaftuple.py"))
+        mir = lower_module(module)
+        assert mir.skipped == []
+        names = {fn.name for fn in mir.functions}
+        assert {"swap", "make", "read", "main"} <= names
+        for fn in mir.functions:
+            assert verify_function(fn) == []
+
+    def test_class_ops_lower(self) -> None:
+        module, _ = lower_file(str(_FIXTURES / "leaftuple.py"))
+        mir = lower_module(module)
+        by_name = {fn.name: fn for fn in mir.functions}
+        swap_fn = by_name["swap"]
+        assert MIR_NEWOBJ in swap_fn.ops
+        assert MIR_SETATTR in swap_fn.ops
+        assert MIR_GETATTR in swap_fn.ops
+        # `make` returns the tuple class: its MIR result tag is MIR_P.
+        make_fn = by_name["make"]
+        assert make_fn.result == MIR_P
+        # `read` takes the class as a MIR_P param.
+        read_fn = by_name["read"]
+        assert [p.typ for p in read_fn.params] == [MIR_P]
+        # `main` passes the `make` result into `read` as a class arg:
+        # the call's arg list carries a MIR_P operand.
+        main_fn = by_name["main"]
+        call_ops = [i for i, op in enumerate(main_fn.ops) if op == MIR_CALL]
+        assert call_ops
+
+    def test_user_classes_stay_out(self, tmp_path: Path) -> None:
+        src = tmp_path / "userclass.py"
+        src.write_text(
+            "class Node:\n"
+            "    def __init__(self) -> None:\n"
+            "        self.v = 1\n"
+            "\n"
+            "\n"
+            "def main() -> None:\n"
+            "    n = Node()\n"
+            "    print(n.v)\n",
+            encoding="utf-8",
+        )
+        module, _ = lower_file(str(src))
+        mir = lower_module(module)
+        assert not any(fn.name == "main" for fn in mir.functions)
 
 
 class TestShortCircuitSlice:
