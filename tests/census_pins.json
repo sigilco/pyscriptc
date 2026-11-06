@@ -9,7 +9,7 @@
   "pyscriptc.canonical": 19,
   "pyscriptc.check": 36,
   "pyscriptc.cli": 8,
-  "pyscriptc.cli._main": 560,
+  "pyscriptc.cli._main": 558,
   "pyscriptc.cli._report": 12,
   "pyscriptc.config": 25,
   "pyscriptc.coro": 328,

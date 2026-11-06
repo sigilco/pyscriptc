@@ -796,6 +796,19 @@ def embed_cmd(args: argparse.Namespace) -> int:
     return 0
 
 
+def _rmtree_quietly(target: Path) -> None:
+    """`shutil.rmtree(target, ignore_errors=True)`.
+
+    The lowered `rmtree` takes one `str` and no keywords, so the missing
+    `ignore_errors` is the `except OSError: pass` around it.
+    """
+
+    try:
+        shutil.rmtree(str(target))
+    except OSError:
+        pass
+
+
 def run_cmd(args: argparse.Namespace) -> int:
     """`pyscriptc run FILE [-- args]`: compile once per content hash, then run the cached binary."""
     started = time.monotonic()
@@ -833,8 +846,8 @@ def run_cmd(args: argparse.Namespace) -> int:
             _handle_run_report(args.report, binary, source)
         # boxed:end
         return code
-    build = runcache.cache_dir() / f".build-{os.getpid()}-{key}"
-    shutil.rmtree(build, ignore_errors=True)
+    build: Path = runcache.cache_dir() / f".build-{os.getpid()}-{key}"
+    _rmtree_quietly(build)
     build.mkdir(parents=True, exist_ok=True)
     try:
         code = _build_for_run(args, build / name)
@@ -842,7 +855,7 @@ def run_cmd(args: argparse.Namespace) -> int:
             return code
         if use_cache:
             try:
-                os.replace(build, binary.parent)
+                os.replace(str(build), str(binary.parent))
                 log.info("run.cache_store", key=key, binary=str(binary))
             except OSError:
                 # another run stored the same content first; build stays ours to run and clean
@@ -876,7 +889,7 @@ def run_cmd(args: argparse.Namespace) -> int:
         # boxed:end
         return code
     finally:
-        shutil.rmtree(build, ignore_errors=True)
+        _rmtree_quietly(build)
 
 
 # boxed:begin
