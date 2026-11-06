@@ -125,11 +125,15 @@ def test_validation_marks_entry_fences():
     #501: `int(text, base)` lowers, so bit_tricks has no fence left at all
     and drops out of the predicted flips (it compiles end to end).
     #502: unannotated foldable module constants bind as typed constants, so
-    gcd_lcm's `g`/`total` no longer fence and it drops out as well."""
+    gcd_lcm's `g`/`total` no longer fence and it drops out as well.
+    #1042: the yield-type peek proves `squares`' element type, so
+    generators_comp's first fence moves to its entry `print(sum(...))`
+    and the validator marks it."""
     records = entrypoints.scan(with_fences=True)
     flips = sorted(r["path"] for r in records if r.get("predicted_flip"))
     assert flips == [
         "benchmarks/compat2/corpus/scripts/exceptions_flow/main.py",
+        "benchmarks/compat2/corpus/scripts/generators_comp/main.py",
     ]
     fib = next(r for r in records if r["path"].endswith("fib_recursive/main.py"))
     assert fib["first_fence"] is None
