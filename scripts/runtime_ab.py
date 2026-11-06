@@ -7,9 +7,11 @@ program it compiles once through the default (direct) emitter and once with
 stdout, stderr and the return code.
 
 The default corpus is the MIR leaf fixtures under `tests/fixtures/mir_leaf/`
-that have at least one in-slice function (`mirlower.supported_fn`). Extra
-paths can be passed on the command line; a program with no in-slice function
-is reported as SKIP.
+that have at least one in-slice function (`mirlower.supported_fn`), plus every
+visible compat2 corpus script under `benchmarks/compat2/corpus/scripts/*/main.py`
+(the scripts split only; the holdout is never touched). Corpus scripts without
+an in-slice function report SKIP; ones that fail to lower or compile report
+ERROR with the compiler's note. Extra paths can be passed on the command line.
 
 Usage:
     uv run python scripts/runtime_ab.py
@@ -37,6 +39,7 @@ from pyscriptc.zigshim import resolve_zig
 
 ROOT = Path(__file__).resolve().parents[1]
 LEAF_DIR = ROOT / "tests" / "fixtures" / "mir_leaf"
+CORPUS_SCRIPTS = ROOT / "benchmarks" / "compat2" / "corpus" / "scripts"
 DEFAULT_TIMEOUT = 120.0
 RUN_TIMEOUT = 60.0
 
@@ -109,6 +112,17 @@ def leaf_fixture_paths() -> list[Path]:
     return sorted(path for path in LEAF_DIR.glob("*.py") if path.is_file())
 
 
+def corpus_script_paths() -> list[Path]:
+    """The visible compat2 script corpus `main.py` files, sorted.
+
+    Same enumeration as `scripts/mir_coverage.py:script_mains`; duplicated
+    here so this tool also runs standalone (`python scripts/runtime_ab.py`)
+    where the `scripts` package is not importable. Never walks any other
+    corpus split.
+    """
+    return sorted(path for path in CORPUS_SCRIPTS.glob("*/main.py") if path.is_file())
+
+
 def slice_counts(path: Path) -> tuple[int, int]:
     """In-slice functions over total functions after `lower_file`."""
     module, _fences = lower_file(str(path))
@@ -118,13 +132,19 @@ def slice_counts(path: Path) -> tuple[int, int]:
 
 
 def default_programs() -> list[Path]:
-    """Leaf fixtures that have at least one function where `supported_fn` holds."""
+    """Leaf fixtures with an in-slice function, plus every visible corpus script.
+
+    Corpus scripts are included unconditionally: the nightly A/B report should
+    show each script's verdict (PASS/FAIL/SKIP/ERROR), not silently drop the
+    ones the slice cannot reach yet.
+    """
     chosen: list[Path] = []
     for path in leaf_fixture_paths():
         in_slice, _total = slice_counts(path)
         if in_slice > 0:
             chosen.append(path)
-    return chosen
+    chosen.extend(corpus_script_paths())
+    return sorted(chosen, key=lambda p: str(p))
 
 
 def lane_env(mir: bool) -> dict[str, str]:
@@ -239,11 +259,26 @@ def compare_programs(
     return [compare_program(path, timeout=timeout, run_timeout=run_timeout) for path in paths]
 
 
+def _display_names(rows: list[ProgramVerdict]) -> list[str]:
+    """Per-row program labels; disambiguate same-named files (e.g. corpus `main.py`s) with the parent dir."""
+    counts: dict[str, int] = {}
+    for row in rows:
+        counts[row.name] = counts.get(row.name, 0) + 1
+    names: list[str] = []
+    for row in rows:
+        if counts[row.name] > 1:
+            names.append(f"{row.path.parent.name}/{row.name}")
+        else:
+            names.append(row.name)
+    return names
+
+
 def render_table(rows: list[ProgramVerdict]) -> str:
     """A per-program verdict table (stdout of the tool)."""
     headers = ("program", "slice", "stdout", "stderr", "exit", "verdict", "note")
+    display = _display_names(rows)
     body: list[tuple[str, str, str, str, str, str, str]] = []
-    for row in rows:
+    for row, label in zip(rows, display, strict=True):
         stdout = stderr = exit_cell = "-"
         if row.direct is not None and row.mir is not None:
             stdout = "match" if row.direct.stdout == row.mir.stdout else "DIFF"
@@ -253,7 +288,7 @@ def render_table(rows: list[ProgramVerdict]) -> str:
                 exit_cell = f"{row.direct.returncode}!={row.mir.returncode}"
         body.append(
             (
-                row.name,
+                label,
                 f"{row.in_slice}/{row.functions}",
                 stdout,
                 stderr,
@@ -327,7 +362,8 @@ def main(argv: list[str] | None = None) -> int:
         "programs",
         nargs="*",
         type=Path,
-        help="programs to compare (default: tests/fixtures/mir_leaf/*.py with an in-slice function)",
+        help="programs to compare (default: tests/fixtures/mir_leaf/*.py with an in-slice function "
+        "plus benchmarks/compat2/corpus/scripts/*/main.py)",
     )
     parser.add_argument("--json", action="store_true", help="print machine-readable rows instead of the table")
     parser.add_argument("--json-out", type=Path, help="write machine-readable rows to this path")

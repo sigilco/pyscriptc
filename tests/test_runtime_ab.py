@@ -1,8 +1,10 @@
 """Runtime A/B harness: direct emitter vs opt-in MIR lane (epic #817, task B9).
 
-The emit-flip release gate. Compiles each MIR leaf fixture through both lanes,
-runs the binaries in isolated temp dirs, and requires stdout, stderr and the
-return code to match. Skips cleanly when no C toolchain is on PATH. Does not
+The emit-flip release gate. The default program set is the in-slice MIR leaf
+fixtures plus the 20 visible compat2 corpus scripts. Compiles each program
+through both lanes, runs the binaries in isolated temp dirs, and requires
+stdout, stderr and the return code to match. Skips cleanly when no C
+toolchain is on PATH. Does not
 change either lane.
 """
 
@@ -16,6 +18,7 @@ from pathlib import Path
 
 import pytest
 from scripts.runtime_ab import (
+    CORPUS_SCRIPTS,
     LEAF_DIR,
     PASS,
     SKIP,
@@ -23,6 +26,7 @@ from scripts.runtime_ab import (
     ProgramVerdict,
     compare_program,
     compare_programs,
+    corpus_script_paths,
     default_programs,
     has_c_toolchain,
     lane_env,
@@ -46,15 +50,40 @@ def test_leaf_fixtures_exist() -> None:
     assert "mirmix.py" in names
 
 
-def test_default_programs_are_in_slice_leaf_fixtures() -> None:
+def test_default_programs_cover_leaf_fixtures_and_corpus_scripts() -> None:
     defaults = default_programs()
     assert defaults
-    assert defaults == sorted(defaults, key=lambda p: p.name)
-    for path in defaults:
-        assert path.parent == LEAF_DIR
+    assert defaults == sorted(defaults, key=lambda p: str(p))
+    leaf_defaults = {path for path in defaults if path.parent == LEAF_DIR}
+    corpus_defaults = {path for path in defaults if path.parent.parent == CORPUS_SCRIPTS}
+    # Every in-slice leaf fixture is in; corpus scripts are all in, in-slice or not.
+    expected_leaf = {path for path in leaf_fixture_paths() if slice_counts(path)[0] > 0}
+    assert leaf_defaults == expected_leaf
+    assert corpus_defaults == set(corpus_script_paths())
+    for path in leaf_defaults:
         in_slice, total = slice_counts(path)
         assert in_slice > 0
         assert total >= in_slice
+
+
+def test_corpus_script_paths_are_visible_scripts_only() -> None:
+    paths = corpus_script_paths()
+    assert len(paths) == 20
+    for path in paths:
+        assert path.name == "main.py"
+        assert path.parent.parent == CORPUS_SCRIPTS
+        # The visible scripts split only: no holdout or other split is reachable.
+        assert "holdout" not in path.parts
+
+
+def test_corpus_script_without_slice_skips() -> None:
+    """A corpus script with no in-slice function reports SKIP, never crashes."""
+    skips = [path for path in corpus_script_paths() if slice_counts(path)[0] == 0]
+    assert skips, "expected at least one corpus script outside the MIR slice"
+    row = compare_program(skips[0])
+    assert row.verdict == SKIP
+    assert row.in_slice == 0
+    assert "supported_fn" in row.note
 
 
 def test_mirmix_is_mixed_slice() -> None:
@@ -172,13 +201,26 @@ def test_harness_skips_without_c_toolchain(monkeypatch: pytest.MonkeyPatch) -> N
 
 @pytest.mark.skipif(not has_c_toolchain(), reason="no C toolchain")
 def test_leaf_fixtures_runtime_match() -> None:
-    rows = compare_programs()
+    programs = [path for path in leaf_fixture_paths() if slice_counts(path)[0] > 0]
+    rows = compare_programs(programs)
     assert rows, "default corpus was empty"
     failed = [row for row in rows if row.verdict != PASS]
     assert not failed, render_table(rows)
     names = {row.name for row in rows}
     assert "leafint.py" in names
     assert "mirmix.py" in names
+
+
+def test_render_table_disambiguates_same_named_programs() -> None:
+    corpus = corpus_script_paths()
+    rows = [
+        ProgramVerdict(corpus[0], SKIP, 0, 1, "no function where supported_fn holds"),
+        ProgramVerdict(corpus[1], SKIP, 0, 1, "no function where supported_fn holds"),
+    ]
+    table = render_table(rows)
+    # Both are `main.py`; the table qualifies them with the script directory.
+    assert f"{corpus[0].parent.name}/main.py" in table
+    assert f"{corpus[1].parent.name}/main.py" in table
 
 
 @pytest.mark.skipif(not has_c_toolchain(), reason="no C toolchain")
