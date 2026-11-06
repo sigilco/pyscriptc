@@ -11,6 +11,7 @@ from pyscriptc.debug import Debug
 from pyscriptc.emit._mir_in import last_plan, out_of_slice_reason, plan_module
 from pyscriptc.emit.llvm import emit_llvm
 from pyscriptc.lower import lower_file
+from pyscriptc.mir import MIR_INITCALL
 from pyscriptc.miremit import emit_llvm_mir
 
 FIXTURES = Path(__file__).parent / "fixtures" / "mir_leaf"
@@ -63,6 +64,29 @@ def test_callee_out_of_slice_reason(tmp_path: Path) -> None:
     fallbacks: list[dict] = plan["fallbacks"]
     by_function = {record["function"]: record for record in fallbacks}
     assert by_function["outer"]["reason"] == "fn:callee out of slice"
+
+
+def test_user_class_return_and_non_module_callee() -> None:
+    """The binary_trees shapes: a `-> Tree` return, `Tree(...)` constructor
+    calls with arguments, and a call to `check` — a function the fences
+    dropped from `module["functions"]` — all ride the MIR lane. The
+    module itself stays fenced, so this pins the lane verdict only."""
+    corpus = (
+        Path(__file__).resolve().parent.parent
+        / "benchmarks"
+        / "compat2"
+        / "corpus"
+        / "scripts"
+        / "binary_trees"
+        / "main.py"
+    )
+    module, _ = lower_file(str(corpus))
+    plan = plan_module(module)
+    lowered = {fn.name for fn in plan["mir"].functions}
+    assert {"bottom_up", "main"} <= lowered
+    by_name = {fn.name: fn for fn in plan["mir"].functions}
+    assert MIR_INITCALL in by_name["bottom_up"].ops
+    assert by_name["main"].callees and "check" in by_name["main"].callees.values()
 
 
 def test_emit_records_last_plan(tmp_path: Path) -> None:

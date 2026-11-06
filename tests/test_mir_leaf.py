@@ -21,6 +21,7 @@ from pyscriptc.mir import (
     MIR_CLTW,
     MIR_D,
     MIR_GETATTR,
+    MIR_INITCALL,
     MIR_JMP,
     MIR_NEWOBJ,
     MIR_P,
@@ -88,6 +89,8 @@ LEAF_SAMPLES = [
         "leaftuple.py",
         "leafdict.py",
         "leafstrlist.py",
+        "leafstrindex.py",
+        "leafuserclass.py",
         "leafzip.py",
     )
 ]
@@ -595,7 +598,30 @@ class TestClassSlice:
         call_ops = [i for i, op in enumerate(main_fn.ops) if op == MIR_CALL]
         assert call_ops
 
-    def test_user_classes_stay_out(self, tmp_path: Path) -> None:
+    def test_user_class_constructor_slice(self) -> None:
+        # A user class whose fields are class-level annotations and whose
+        # constructor arguments stay in the slice rides `MIR_INITCALL`:
+        # `Pair(n, n + 1)` lowers to the alloc-plus-`__init__` op, the
+        # `-> Pair` return rides `MIR_P`, and `main`'s none-typed `print`
+        # call carries the nested user calls.
+        module, _ = lower_file(str(_FIXTURES / "leafuserclass.py"))
+        assert module["fences"] == []
+        mir = lower_module(module)
+        assert mir.skipped == []
+        by_name = {fn.name: fn for fn in mir.functions}
+        assert {"make_pair", "sum_pair", "build", "main"} <= set(by_name)
+        build_fn = by_name["build"]
+        assert MIR_INITCALL in build_fn.ops
+        assert build_fn.result == MIR_P
+        make_fn = by_name["make_pair"]
+        assert MIR_INITCALL in make_fn.ops
+        for fn in mir.functions:
+            assert verify_function(fn) == []
+
+    def test_fenced_user_class_stays_out(self, tmp_path: Path) -> None:
+        # The same class shape without the class-level field annotation
+        # fences `__init__` and `main` upstream (PS2001), so nothing
+        # reaches the slice predicates at all.
         src = tmp_path / "userclass.py"
         src.write_text(
             "class Node:\n"

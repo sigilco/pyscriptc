@@ -78,6 +78,7 @@ from pyscriptc.mir import (
     MIR_EXTWD,
     MIR_FLOWLD,
     MIR_GETATTR,
+    MIR_INITCALL,
     MIR_JMP,
     MIR_MAP_PUT,
     MIR_MULD,
@@ -100,7 +101,6 @@ from pyscriptc.mir import (
     MIR_SEQPUSH,
     MIR_SEQSET,
     MIR_SETATTR,
-    MIR_STRGET,
     MIR_SUBD,
     MIR_SUBW,
     MIR_TRYCALL,
@@ -230,7 +230,7 @@ _OP_ARITY: Dict[int, int] = {
     MIR_RERAISE: 0,
     MIR_RAISEEXC: 1,
     MIR_UNREACH: 0,
-    MIR_STRGET: 2,
+    MIR_INITCALL: 1,
 }
 
 _OP_RESULT_TYPE: Dict[int, int] = {
@@ -284,7 +284,7 @@ _OP_RESULT_TYPE: Dict[int, int] = {
     MIR_RERAISE: MIR_W,
     MIR_RAISEEXC: MIR_W,
     MIR_UNREACH: MIR_W,
-    MIR_STRGET: MIR_S,
+    MIR_INITCALL: MIR_P,
 }
 
 
@@ -774,6 +774,9 @@ class MirEmitter:
         if op == MIR_NEWOBJ:
             self._emit_newobj(fn, dst, a1)
             return
+        if op == MIR_INITCALL:
+            self._emit_initcall(fn, i, dst, a1)
+            return
         if op == MIR_SETATTR:
             self._emit_setattr(fn, a1, a2, a3)
             return
@@ -865,9 +868,6 @@ class MirEmitter:
             return
         if op == MIR_UNREACH:
             self.line("unreachable")
-            return
-        if op == MIR_STRGET:
-            self._emit_strget(fn, dst, a1, a2)
             return
         if op in _HELPER_W:
             needed = self.needed
@@ -1029,6 +1029,9 @@ class MirEmitter:
             return
         if marker is not None and marker.startswith("abi "):
             self._emit_abi_call(fn, i, dst, tag, fn.call_args[i], marker[len("abi ") :])
+            return
+        if marker == "strget":
+            self._emit_strget(fn, dst, fn.call_args[i])
             return
         if marker is not None and marker.startswith("method:"):
             self._emit_method_call(fn, i, dst, fn.call_args[i], marker[len("method:") :])
@@ -1206,6 +1209,24 @@ class MirEmitter:
         reg = self.tmp_reg()
         self.line(f"{reg} = call {ret} @{symbol}({', '.join(rendered)})")
         self.reg[dst] = reg
+
+    def _emit_strget(self, fn: MirFunction, dst: int, args_i: list[int]) -> None:
+        """A str subscript: the direct `emit_subscript` str arm.
+
+        Both operands render first (the string value, then the index —
+        the direct walk's `emit_expr` order), then the string's buffer
+        parts extract and the `ps_str_get` buffer-out call runs. The
+        generic abi walk cannot spell this: it would extract the string
+        parts before the index's own lines, reordering the emits.
+        """
+        needed: set[str] = self.needed
+        needed.add("str")
+        self.needed = needed
+        seq: str = self.operand(fn, args_i[0])
+        index: str = self.operand(fn, args_i[1])
+        length, ptr = self._buf_parts(seq)
+        self._abi_decl("ps_str_get", "void", ["i64", "ptr", "i64", "ptr"])
+        self.reg[dst] = self._buf_out("ps_str_get", [f"i64 {length}", f"ptr {ptr}", f"i64 {index}"])
 
     def _print_fmt(self, name: str, data: bytes, args: list[str] | None = None) -> None:
         """The direct `_print_fmt`'s stdout spelling (the slice prints to stdout only)."""
@@ -1468,6 +1489,52 @@ class MirEmitter:
         self.line(f"{reg} = call ptr @ps_alloc(i64 {size})")
         self.reg[dst] = reg
 
+    def _emit_initcall(self, fn: MirFunction, i: int, dst: int, a1: int) -> None:
+        """A user-class constructor call: the direct `emit_constructor`.
+
+        The same three `ps_alloc` temporaries `MIR_NEWOBJ` emits, then
+        the `cls.<name>.__init__` call when the class defines one — the
+        method record's params type each argument (`self` binds the
+        fresh allocation) exactly as the direct `call_function` does.
+        `arg1` is the `MIR_S` class-name constant; the constructor
+        arguments ride `call_args`.
+        """
+        const: MirConst = fn.consts[const_index(a1)]
+        name: str = const.sval
+        cls: Dict[str, Any] = self._mir_class(name)
+        init: Dict[str, Any] | None = None
+        for method in _items(cls, "methods"):
+            if _opt_str(method, "name") == "__init__":
+                init = method
+                break
+        needed: set[str] = self.needed
+        needed.add("alloc")
+        self.needed = needed
+        size_ptr: str = self.tmp_reg()
+        self.line(f"{size_ptr} = getelementptr %cls.{name}, ptr null, i64 1")
+        size: str = self.tmp_reg()
+        self.line(f"{size} = ptrtoint ptr {size_ptr} to i64")
+        mem: str = self.tmp_reg()
+        self.line(f"{mem} = call ptr @ps_alloc(i64 {size})")
+        if init is not None:
+            params: list[Dict[str, Any]] = init["params"]
+            parts: list[str] = []
+            parts.append(f"{_llvm_type(params[0]['type'])} {mem}")
+            args_i: list[int] = fn.call_args[i]
+            for position in range(len(args_i)):
+                param: Dict[str, Any] = params[position + 1]
+                p_type: Dict[str, Any] = param["type"]
+                parts.append(f"{_llvm_type(p_type)} {self.operand(fn, args_i[position])}")
+            ret: str = _llvm_type(init["returnType"])
+            symbol: str = f"cls.{name}.__init__"
+            rendered: str = ", ".join(parts)
+            if ret == "void":
+                self.line(f"call void @{symbol}({rendered})")
+            else:
+                call_reg: str = self.tmp_reg()
+                self.line(f"{call_reg} = call {ret} @{symbol}({rendered})")
+        self.reg[dst] = mem
+
     def _emit_setattr(self, fn: MirFunction, a1: int, a2: int, a3: int) -> None:
         """A field store: object and value already evaluated, then the
         direct `emit_setattr`'s field gep and typed store."""
@@ -1697,24 +1764,6 @@ class MirEmitter:
             self.reg[dst] = reg
             return
         self.reg[dst] = flag
-
-    def _emit_strget(self, fn: MirFunction, dst: int, a1: int, a2: int) -> None:
-        """A str subscript: the direct `emit_subscript` str arm.
-
-        The container's `(length, data)` extract pair feeds `ps_str_get`
-        through `_buf_out`, which stages the one-character result as a
-        `%ps.str` — the `MIR_S` value the op's result tag carries.
-        """
-        needed: set[str] = self.needed
-        needed.add("str")
-        self.needed = needed
-        value: str = self.operand(fn, a1)
-        index: str = self.operand(fn, a2)
-        length: str
-        ptr: str
-        length, ptr = self._buf_parts(value)
-        self._abi_decl("ps_str_get", "void", ["i64", "ptr", "i64", "ptr"])
-        self.reg[dst] = self._buf_out("ps_str_get", [f"i64 {length}", f"ptr {ptr}", f"i64 {index}"])
 
     def operand(self, fn: MirFunction, operand: int) -> str:
         if is_const_ref(operand):
