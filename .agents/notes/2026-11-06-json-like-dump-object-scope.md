@@ -8,11 +8,16 @@ Read first: `benchmarks/compat2/corpus/scripts/json_like_dump/main.py`, `docs/gu
 
 ```python
 def dump(value: object) -> str:
-    if isinstance(value, bool): ...
-    if isinstance(value, int): ...
-    if isinstance(value, str): ...
-    if isinstance(value, list): ...   # ",".join(dump(v) for v in value)
-    if isinstance(value, dict): ...   # value.items(), dump(k) + ":" + dump(v)
+    if isinstance(value, bool):
+        ...
+    if isinstance(value, int):
+        ...
+    if isinstance(value, str):
+        ...
+    if isinstance(value, list):
+        ...  # ",".join(dump(v) for v in value)
+    if isinstance(value, dict):
+        ...  # value.items(), dump(k) + ":" + dump(v)
     return "null"
 ```
 
