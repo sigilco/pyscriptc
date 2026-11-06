@@ -104,6 +104,7 @@ MIR_SEQPUSH = 33
 MIR_SEQLEN = 34
 MIR_ORW = 35
 MIR_XORW = 36
+MIR_MAP_PUT = 37
 
 # The void result tag (`mir.py`'s MIR_VOID): a function returning None has
 # no return value. Spelled as the int literal per the self-host spell, so a
@@ -182,7 +183,7 @@ _D_HELPER_OPS = {
     "**": "fpow",
 }
 
-_EXPR_KINDS = frozenset({"const", "name", "binary", "compare", "unary", "call", "cast", "list", "subscript"})
+_EXPR_KINDS = frozenset({"const", "name", "binary", "compare", "unary", "call", "cast", "list", "dict", "subscript"})
 _STMT_KINDS = frozenset({"assign", "expr", "return", "pass", "if", "while", "raise", "setitem"})
 
 
@@ -197,6 +198,11 @@ def supported_type(typ: Dict[str, Any]) -> bool:
     kind: str = typ["kind"]
     if kind in ("int", "float", "bool", "str"):
         return True
+    if kind == "dict":
+        key: Dict[str, Any] = typ["key"]
+        value: Dict[str, Any] = typ["value"]
+        kkind: str = key["kind"]
+        return kkind in ("int", "str") and supported_type(value)
     if kind != "list":
         return False
     return _supported_seq_elem(typ["elem"])
@@ -244,6 +250,14 @@ def supported_expr(expr: Dict[str, Any]) -> bool:
         elems: list[Dict[str, Any]] = expr["elems"]
         for elem in elems:
             if not supported_expr(elem):
+                return False
+        return True
+    if kind == "dict":
+        if not supported_type(expr["type"]):
+            return False
+        pairs: list[Dict[str, Any]] = expr["pairs"]
+        for pair in pairs:
+            if not supported_expr(pair["key"]) or not supported_expr(pair["value"]):
                 return False
         return True
     if kind == "subscript":
@@ -352,7 +366,7 @@ def _supported_call(expr: Dict[str, Any]) -> bool:
         for arg in args:
             atyp: Dict[str, Any] = arg["type"]
             akind: str = atyp["kind"]
-            if akind not in ("int", "float", "bool") and not _is_supported_list(atyp):
+            if akind not in ("int", "float", "bool") and not _is_supported_list(atyp) and akind != "dict":
                 return False
             if not supported_expr(arg):
                 return False
@@ -379,9 +393,29 @@ def _supported_call(expr: Dict[str, Any]) -> bool:
                     and supported_expr(seq_arg)
                     and supported_expr(elem_arg)
                 )
+        if cmodule == "builtins" and mname == "dict.keys" and len(args) == 1:
+            arg: Dict[str, Any] = args[0]
+            atype: Dict[str, Any] = arg["type"]
+            if (
+                _type_kind(atype) == "dict"
+                and supported_type(atype)
+                and _is_supported_list(expr["type"])
+                and "symbol" in expr
+                and _expr_symbol(expr) == "ps_dict_keys"
+                and supported_expr(arg)
+            ):
+                return True
         if _rt_call_shape(cmodule, mname, expr):
             return _rt_args_order_ok(args)
     return False
+
+
+def _expr_symbol(expr: Dict[str, Any]) -> str:
+    """The `symbol` payload of a call expr; `""` when the key is absent."""
+    if "symbol" not in expr:
+        return ""
+    symbol: str = expr["symbol"]
+    return symbol
 
 
 def _type_kind(typ: Dict[str, Any]) -> str:
@@ -484,6 +518,8 @@ def _rt_call_symbol(cmodule: str, mname: str, expr: Dict[str, Any]) -> str:
     if cmodule == "builtins" and mname == "repeat":
         return symbol
     if cmodule == "builtins" and mname == "int":
+        return symbol
+    if cmodule == "builtins" and mname == "dict.keys":
         return symbol
     return ""
 
@@ -816,6 +852,26 @@ def _calls_in_slice_expr(expr: Dict[str, Any], callees: Dict[str, Dict[str, Any]
     return True
 
 
+def _is_str_const(expr: Dict[str, Any]) -> bool:
+    """A str const node: the map cell stashes it as a `%ps.buf` prefix."""
+    ekind: str = expr["kind"]
+    if ekind != "const":
+        return False
+    etyp: Dict[str, Any] = expr["type"]
+    return _type_kind(etyp) == "str"
+
+
+def _elem_size(typ: Dict[str, Any]) -> int:
+    kind: str = typ["kind"]
+    if kind in ("int", "float"):
+        return 8
+    if kind in ("str", "bytes"):
+        return 16
+    if kind == "bool":
+        return 1
+    return 8
+
+
 def _param_tag(kind: str) -> int:
     if kind == "float":
         return MIR_D
@@ -823,7 +879,7 @@ def _param_tag(kind: str) -> int:
         return MIR_B
     if kind == "str":
         return MIR_S
-    if kind == "list":
+    if kind == "list" or kind == "dict":
         return MIR_P
     return MIR_W
 
@@ -1199,6 +1255,8 @@ class _FnLowerer:
             return self.emit_cast(expr)
         if kind == "list":
             return self.emit_list(expr)
+        if kind == "dict":
+            return self.emit_dict(expr)
         if kind == "subscript":
             return self.emit_subscript(expr)
         raise MirLowerError(f"the MIR leaf slice cannot lower expression {kind}")
@@ -1288,6 +1346,41 @@ class _FnLowerer:
         for index in range(len(values)):
             self.builder.emit(MIR_SEQSET, -1, seq, self.builder.const_w(index), values[index])
         return seq
+
+    def emit_dict(self, expr: Dict[str, Any]) -> int:
+        """A dict literal: evaluate pairs, `ps_map_new`, then `MIR_MAP_PUT`s."""
+        pairs: list[Dict[str, Any]] = expr["pairs"]
+        keys: list[int] = []
+        vals: list[int] = []
+        for pair in pairs:
+            key_node: Dict[str, Any] = pair["key"]
+            val_node: Dict[str, Any] = pair["value"]
+            key = self.emit_expr(key_node)
+            val = self.emit_expr(val_node)
+            if _is_str_const(key_node):
+                key = self.builder.emit_copy(key, MIR_S)
+            if _is_str_const(val_node):
+                val = self.builder.emit_copy(val, MIR_S)
+            keys.append(key)
+            vals.append(val)
+        typ: Dict[str, Any] = expr["type"]
+        key_t: Dict[str, Any] = typ["key"]
+        val_t: Dict[str, Any] = typ["value"]
+        key_kind: int = 1 if _type_kind(key_t) == "int" else 2
+        reg: int = self._map_new(key_kind, _elem_size(key_t), _elem_size(val_t), len(keys))
+        for index in range(len(keys)):
+            self.builder.emit(MIR_MAP_PUT, -1, reg, keys[index], vals[index])
+        return reg
+
+    def _map_new(self, key_kind: int, key_size: int, val_size: int, count: int) -> int:
+        callee = self.builder.add_callee("rt:ps_map_new")
+        args = [
+            self.builder.const_w(key_kind),
+            self.builder.const_w(key_size),
+            self.builder.const_w(val_size),
+            self.builder.const_w(count),
+        ]
+        return self.builder.emit_call(callee, args, MIR_P)
 
     def emit_subscript(self, expr: Dict[str, Any]) -> int:
         """A list load: container then index, `MIR_SEQGET` with the element

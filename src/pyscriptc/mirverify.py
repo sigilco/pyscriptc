@@ -100,6 +100,7 @@ _OP_ARITY: dict[int, int] = {
     34: 1,  # MIR_SEQLEN
     35: 2,  # MIR_ORW
     36: 2,  # MIR_XORW
+    37: 3,  # MIR_MAP_PUT
 }
 
 # The verifier's own codes. They are stable: a test that pins a violation
@@ -450,7 +451,7 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
         # stores are arity-2/3 ops that produce nothing, so they are out
         # of the value-op rule too; `MIR_SEQGET` is a value op whose tag
         # rides `arg3`.
-        is_seq_store: int = 1 if op == MIR_SEQSET or op == MIR_SEQPUSH else 0
+        is_seq_store: int = 1 if op == MIR_SEQSET or op == MIR_SEQPUSH or op == 37 else 0
         if (
             op != MIR_CALL
             and is_seq_store == 0

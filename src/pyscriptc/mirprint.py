@@ -36,6 +36,7 @@ from pyscriptc.mir import (
     MIR_D,
     MIR_EXTWD,
     MIR_JMP,
+    MIR_MAP_PUT,
     MIR_MULD,
     MIR_MULW,
     MIR_NEGD,
@@ -101,6 +102,7 @@ OP_NAMES: dict[int, str] = {
     MIR_SEQSET: "seqset",
     MIR_SEQPUSH: "seqpush",
     MIR_SEQLEN: "seqlen",
+    MIR_MAP_PUT: "map_put",
     MIR_ORW: "orw",
     MIR_XORW: "xorw",
 }

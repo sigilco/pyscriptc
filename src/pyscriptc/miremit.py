@@ -62,6 +62,7 @@ from pyscriptc.mir import (
     MIR_D,
     MIR_EXTWD,
     MIR_JMP,
+    MIR_MAP_PUT,
     MIR_MULD,
     MIR_MULW,
     MIR_NEGD,
@@ -185,6 +186,7 @@ _OP_ARITY: Dict[int, int] = {
     MIR_SEQLEN: 1,
     MIR_ORW: 2,
     MIR_XORW: 2,
+    MIR_MAP_PUT: 3,
 }
 
 _OP_RESULT_TYPE: Dict[int, int] = {
@@ -222,6 +224,7 @@ _OP_RESULT_TYPE: Dict[int, int] = {
     MIR_SEQLEN: MIR_W,
     MIR_ORW: MIR_W,
     MIR_XORW: MIR_W,
+    MIR_MAP_PUT: MIR_W,
 }
 
 
@@ -676,6 +679,16 @@ class MirEmitter:
             slot = self._stash_cell_tag(value_tag, self.operand(fn, a2))
             self.line(f"call void @ps_seq_push(ptr {self.operand(fn, a1)}, ptr {slot})")
             return
+        if op == MIR_MAP_PUT:
+            needed = self.needed
+            needed.add("map")
+            self.needed = needed
+            key_tag = self._operand_tag(fn, a2)
+            key_slot = self._stash_cell_tag(key_tag, self.operand(fn, a2))
+            val_tag = self._operand_tag(fn, a3)
+            val_slot = self._stash_cell_tag(val_tag, self.operand(fn, a3))
+            self.line(f"call void @ps_map_put(ptr {self.operand(fn, a1)}, ptr {key_slot}, ptr {val_slot})")
+            return
         if op == MIR_CALL:
             self._emit_call(fn, i, dst, a1, a2)
             return
@@ -955,7 +968,12 @@ class MirEmitter:
                 parts.append(f"i64 {value}")
             else:
                 raise IRError(f"cannot pass MIR tag {otag} to a runtime call")
-        rendered: str = ", ".join(parts)
+        if symbol == "ps_map_new":
+            # ps_map_new's first word is the i32 key-kind selector; the
+            # remaining three stay i64.
+            rendered = f"i32 {values[0]}, " + ", ".join(parts[1:])
+        else:
+            rendered = ", ".join(parts)
         if tag == MIR_VOID:
             self.line(f"call void @{symbol}({rendered})")
             return
@@ -1053,7 +1071,7 @@ class MirEmitter:
                 return MIR_B
             if kind == "str":
                 return MIR_S
-            if kind == "list":
+            if kind == "list" or kind == "dict":
                 return MIR_P
             return MIR_W
         if operand in self.slot_vid_set:
@@ -1063,6 +1081,19 @@ class MirEmitter:
     def _stash_cell_tag(self, tag: int, value: str) -> str:
         """Stash one scalar/pointer value into a runtime cell, the direct
         path's `_stash_cell` shape for the non-str kinds this slice admits."""
+        if tag == MIR_S:
+            slot = self._mir_alloca("%ps.buf")
+            length = self.tmp_reg()
+            ptr = self.tmp_reg()
+            self.line(f"{length} = extractvalue %ps.str {value}, 0")
+            self.line(f"{ptr} = extractvalue %ps.str {value}, 1")
+            len_ptr = self.tmp_reg()
+            data_ptr = self.tmp_reg()
+            self.line(f"{len_ptr} = getelementptr %ps.buf, ptr {slot}, i32 0, i32 0")
+            self.line(f"store i64 {length}, ptr {len_ptr}")
+            self.line(f"{data_ptr} = getelementptr %ps.buf, ptr {slot}, i32 0, i32 1")
+            self.line(f"store ptr {ptr}, ptr {data_ptr}")
+            return slot
         llvm: str = _tag_llvm(tag)
         slot: str = self._mir_alloca(llvm)
         self.line(f"store {llvm} {value}, ptr {slot}")
