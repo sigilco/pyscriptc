@@ -35,11 +35,13 @@ from pyscriptc.mir import (
     MIR_COPY,
     MIR_D,
     MIR_EXTWD,
+    MIR_GETATTR,
     MIR_JMP,
     MIR_MULD,
     MIR_MULW,
     MIR_NEGD,
     MIR_NEGW,
+    MIR_NEWOBJ,
     MIR_NEWSEQ,
     MIR_NOP,
     MIR_NOTB,
@@ -52,6 +54,7 @@ from pyscriptc.mir import (
     MIR_SEQLEN,
     MIR_SEQPUSH,
     MIR_SEQSET,
+    MIR_SETATTR,
     MIR_SUBD,
     MIR_SUBW,
     MIR_VOID,
@@ -103,6 +106,9 @@ OP_NAMES: dict[int, str] = {
     MIR_SEQLEN: "seqlen",
     MIR_ORW: "orw",
     MIR_XORW: "xorw",
+    MIR_NEWOBJ: "newobj",
+    MIR_SETATTR: "setattr",
+    MIR_GETATTR: "getattr",
 }
 
 _TERMINATORS: list[int] = [MIR_JMP, MIR_BR, MIR_RET, MIR_RAISE]
@@ -199,8 +205,13 @@ def _instr_text(fn: MirFunction, bid: int, i: int) -> str:
         return f"{name} {_operand(fn, a1)}, {_operand(fn, a2)}, {_operand(fn, a3)}"
     if op == MIR_SEQPUSH:
         return f"{name} {_operand(fn, a1)}, {_operand(fn, a2)}"
+    if op == MIR_SETATTR:
+        return f"{name} {_operand(fn, a1)}, {_operand(fn, a2)}, {_operand(fn, a3)}"
     dst = f"v{fn.dsts[i]}"
     if op == MIR_SEQGET:
+        tag = tag_name(a3)
+        return f"{dst}:{tag} = {name} {_operand(fn, a1)}, {_operand(fn, a2)}"
+    if op == MIR_GETATTR:
         tag = tag_name(a3)
         return f"{dst}:{tag} = {name} {_operand(fn, a1)}, {_operand(fn, a2)}"
     if op == MIR_COPY:

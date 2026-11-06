@@ -35,7 +35,9 @@ from pyscriptc.mir import (
     MIR_CALL,
     MIR_COPY,
     MIR_D,
+    MIR_GETATTR,
     MIR_JMP,
+    MIR_NEWOBJ,
     MIR_NEWSEQ,
     MIR_P,
     MIR_RAISE,
@@ -45,6 +47,7 @@ from pyscriptc.mir import (
     MIR_SEQLEN,
     MIR_SEQPUSH,
     MIR_SEQSET,
+    MIR_SETATTR,
     MIR_VOID,
     MIR_W,
     MirBlock,
@@ -100,6 +103,9 @@ _OP_ARITY: dict[int, int] = {
     34: 1,  # MIR_SEQLEN
     35: 2,  # MIR_ORW
     36: 2,  # MIR_XORW
+    37: 1,  # MIR_NEWOBJ
+    38: 3,  # MIR_SETATTR
+    39: 3,  # MIR_GETATTR
 }
 
 # The verifier's own codes. They are stable: a test that pins a violation
@@ -197,8 +203,9 @@ def _check_instr_operands(fn: MirFunction, i: int, defs: dict[int, int]) -> list
         # callee in arg1 and the arguments in `call_args` run the checks.
         if op == MIR_CALL and slot == 2:
             continue
-        # A seqget's arg3 carries the element result tag, not a value read.
-        if op == MIR_SEQGET and slot == 3:
+        # A seqget's arg3 carries the element result tag, not a value read;
+        # a getattr's arg3 carries the field result tag the same way.
+        if (op == MIR_SEQGET or op == MIR_GETATTR) and slot == 3:
             continue
         if is_const_ref(operand):
             index = const_index(operand)
@@ -345,6 +352,63 @@ def _check_sequence(fn: MirFunction, i: int, defs: dict[int, int]) -> list[_Viol
     return out
 
 
+def _check_class(fn: MirFunction, i: int, defs: dict[int, int]) -> list[_Violation]:
+    """The class ops' operand types.
+
+    `MIR_P` is the pointer tag a class value rides. `MIR_NEWOBJ`'s `arg1`
+    and the attr ops' key operand are `MIR_S` constants carrying the class
+    (and field) name — name carriers, never materialized as `%ps.str`
+    values. `MIR_SETATTR` produces nothing; `MIR_GETATTR`'s result tag
+    rides `arg3`.
+    """
+    out: list[_Violation] = []
+    op: int = fn.ops[i]
+    arg3: int = fn.arg3[i] if i < len(fn.arg3) else -1
+    if op == MIR_NEWOBJ:
+        operand: int = fn.arg1[i]
+        if not is_const_ref(operand):
+            out.append(_Violation(CODE_TYPE, f"instr {i}: newobj class name is not a constant"))
+        else:
+            consts: list[MirConst] = fn.consts
+            index: int = const_index(operand)
+            if index < len(consts) and consts[index].typ != MIR_S:
+                out.append(_Violation(CODE_TYPE, f"instr {i}: newobj class name typed non-str"))
+        return out
+    if op == MIR_SETATTR:
+        if fn.dsts[i] >= 0:
+            out.append(_Violation(CODE_USEDEF, f"instr {i}: setattr writes dst"))
+        obj_type: int | None = _operand_type(fn, fn.arg1[i], defs)
+        if obj_type != MIR_P:
+            out.append(_Violation(CODE_TYPE, f"instr {i}: setattr object typed non-pointer"))
+        stored: int | None = _operand_type(fn, fn.arg2[i], defs)
+        if not (stored == MIR_W or stored == MIR_D or stored == MIR_B or stored == MIR_S or stored == MIR_P):
+            out.append(_Violation(CODE_TYPE, f"instr {i}: setattr value typed non-value"))
+        key: int = arg3
+        if not is_const_ref(key):
+            out.append(_Violation(CODE_TYPE, f"instr {i}: setattr field key is not a constant"))
+        else:
+            consts = fn.consts
+            kindex: int = const_index(key)
+            if kindex < len(consts) and consts[kindex].typ != MIR_S:
+                out.append(_Violation(CODE_TYPE, f"instr {i}: setattr field key typed non-str"))
+        return out
+    if op == MIR_GETATTR:
+        obj_type = _operand_type(fn, fn.arg1[i], defs)
+        if obj_type != MIR_P:
+            out.append(_Violation(CODE_TYPE, f"instr {i}: getattr object typed non-pointer"))
+        key_op: int = fn.arg2[i]
+        if not is_const_ref(key_op):
+            out.append(_Violation(CODE_TYPE, f"instr {i}: getattr field key is not a constant"))
+        else:
+            consts = fn.consts
+            kindex = const_index(key_op)
+            if kindex < len(consts) and consts[kindex].typ != MIR_S:
+                out.append(_Violation(CODE_TYPE, f"instr {i}: getattr field key typed non-str"))
+        if not (arg3 == MIR_W or arg3 == MIR_D or arg3 == MIR_B or arg3 == MIR_P):
+            out.append(_Violation(CODE_TYPE, f"instr {i}: getattr result tag is not a value tag"))
+    return out
+
+
 def _result_type_of(op: int) -> int:
     """The result tag of a value op, from the local spelling of the table.
 
@@ -360,6 +424,7 @@ def _result_type_of(op: int) -> int:
     ext_wd: int = 24
     not_b: int = 26
     new_seq: int = 30
+    new_obj: int = 37
     clt_w: int = 12
     cne_d: int = 23
     tag_d: int = 1
@@ -372,7 +437,7 @@ def _result_type_of(op: int) -> int:
         return tag_d
     if op == not_b:
         return tag_b
-    if op == new_seq:
+    if op == new_seq or op == new_obj:
         return tag_p
     is_compare: int = 1 if op >= clt_w and op <= cne_d else 0
     if is_compare:
@@ -450,7 +515,7 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
         # stores are arity-2/3 ops that produce nothing, so they are out
         # of the value-op rule too; `MIR_SEQGET` is a value op whose tag
         # rides `arg3`.
-        is_seq_store: int = 1 if op == MIR_SEQSET or op == MIR_SEQPUSH else 0
+        is_seq_store: int = 1 if op == MIR_SEQSET or op == MIR_SEQPUSH or op == MIR_SETATTR else 0
         if (
             op != MIR_CALL
             and is_seq_store == 0
@@ -468,6 +533,12 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
                         defs[dst] = seq_tag
                     else:
                         defs[dst] = MIR_W
+                elif op == MIR_GETATTR:
+                    get_tag: int = fn.arg3[i] if i < len(fn.arg3) else -1
+                    if get_tag == MIR_W or get_tag == MIR_D or get_tag == MIR_B or get_tag == MIR_P:
+                        defs[dst] = get_tag
+                    else:
+                        defs[dst] = MIR_W
                 else:
                     defs[dst] = _result_type_of(op)
         is_seq = op == MIR_NEWSEQ or op == MIR_SEQGET or op == MIR_SEQSET or op == MIR_SEQPUSH or op == MIR_SEQLEN
@@ -475,6 +546,11 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
             seq_violations: list[_Violation] = _check_sequence(fn, i, defs)
             for s_index in range(len(seq_violations)):
                 out.append(seq_violations[s_index])
+        is_class_op: int = 1 if op == MIR_NEWOBJ or op == MIR_SETATTR or op == MIR_GETATTR else 0
+        if is_class_op:
+            class_violations: list[_Violation] = _check_class(fn, i, defs)
+            for c_index in range(len(class_violations)):
+                out.append(class_violations[c_index])
         if op == MIR_RET:
             violation: _Violation | None = _check_ret_type(fn, i, defs)
             if violation is not None:

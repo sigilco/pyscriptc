@@ -104,6 +104,9 @@ MIR_SEQPUSH = 33
 MIR_SEQLEN = 34
 MIR_ORW = 35
 MIR_XORW = 36
+MIR_NEWOBJ = 37
+MIR_SETATTR = 38
+MIR_GETATTR = 39
 
 # The void result tag (`mir.py`'s MIR_VOID): a function returning None has
 # no return value. Spelled as the int literal per the self-host spell, so a
@@ -182,8 +185,8 @@ _D_HELPER_OPS = {
     "**": "fpow",
 }
 
-_EXPR_KINDS = frozenset({"const", "name", "binary", "compare", "unary", "call", "cast", "list", "subscript"})
-_STMT_KINDS = frozenset({"assign", "expr", "return", "pass", "if", "while", "raise", "setitem"})
+_EXPR_KINDS = frozenset({"const", "name", "binary", "compare", "unary", "call", "cast", "list", "subscript", "attr"})
+_STMT_KINDS = frozenset({"assign", "expr", "return", "pass", "if", "while", "raise", "setitem", "setattr"})
 
 
 def supported_type(typ: Dict[str, Any]) -> bool:
@@ -193,10 +196,21 @@ def supported_type(typ: Dict[str, Any]) -> bool:
     and `list[float]` ride the shared `MIR_P` pointer tag. The element
     type stays in HIR: MIR sees only the pointer shape, so nested or
     non-scalar element lists stay out.
+
+    A `class` value rides `MIR_P` too, but only the `tuple_N_*` classes
+    the IR synthesizes for unpacking: they carry no methods, their
+    fields are written by `setattr` after a bare constructor call and
+    read back by `attr`. User classes (and the `Tree`/`opt_Tree` shapes
+    the corpus's recursive walkers need) stay outside the slice.
     """
     kind: str = typ["kind"]
     if kind in ("int", "float", "bool", "str"):
         return True
+    if kind == "class":
+        if "name" not in typ:
+            return False
+        cname: str = typ["name"]
+        return cname.startswith("tuple_")
     if kind != "list":
         return False
     return _supported_seq_elem(typ["elem"])
@@ -217,6 +231,27 @@ def _supported_seq_elem(elem: Dict[str, Any]) -> bool:
 def _is_supported_list(typ: Dict[str, Any]) -> bool:
     tkind: str = typ["kind"]
     return tkind == "list" and supported_type(typ)
+
+
+def _is_supported_class(typ: Dict[str, Any]) -> bool:
+    tkind: str = typ["kind"]
+    return tkind == "class" and supported_type(typ)
+
+
+def _supported_field_type(typ: Dict[str, Any]) -> bool:
+    """The field types an `attr`/`setattr` pair may carry.
+
+    Scalars and nested tuple classes load and store as plain LLVM
+    values; `str`/`bytes` fields need the `%ps.buf` narrow/widen the
+    slice does not emit here, `none` fields are placeholder bytes, and
+    the pointer containers stay out until their own slice lands.
+    """
+    fkind: str = typ["kind"]
+    if fkind in ("int", "float", "bool"):
+        return True
+    if fkind == "class":
+        return supported_type(typ)
+    return False
 
 
 def supported_expr(expr: Dict[str, Any]) -> bool:
@@ -256,6 +291,16 @@ def supported_expr(expr: Dict[str, Any]) -> bool:
         if ikind != "int":
             return False
         return supported_expr(value) and supported_expr(index)
+    if kind == "attr":
+        # A field read off a tuple-class value: the object must be an
+        # in-slice class and the field's type one the attr ops carry.
+        value = expr["value"]
+        vtyp: Dict[str, Any] = value["type"]
+        if not _is_supported_class(vtyp):
+            return False
+        if not _supported_field_type(expr["type"]):
+            return False
+        return supported_expr(value)
     if kind == "unary":
         typ = expr["type"]
         tkind = typ["kind"]
@@ -352,11 +397,20 @@ def _supported_call(expr: Dict[str, Any]) -> bool:
         for arg in args:
             atyp: Dict[str, Any] = arg["type"]
             akind: str = atyp["kind"]
-            if akind not in ("int", "float", "bool") and not _is_supported_list(atyp):
+            if akind not in ("int", "float", "bool") and not _is_supported_list(atyp) and not _is_supported_class(atyp):
                 return False
             if not supported_expr(arg):
                 return False
         return True
+    if ckind == "class":
+        # A `tuple_N_*` constructor: the IR emits it with no arguments
+        # (fields are written by `setattr` after the bare alloc) and a
+        # class-typed result.
+        cname: str = callee["name"]
+        if not cname.startswith("tuple_") or args:
+            return False
+        rtype: Dict[str, Any] = expr["type"]
+        return _is_supported_class(rtype)
     if ckind == "builtin":
         cname: str = callee["name"]
         if cname == "print":
@@ -611,6 +665,18 @@ def supported_stmt(stmt: Dict[str, Any]) -> bool:
         if ikind != "int" or not supported_type(item_value["type"]):
             return False
         return supported_expr(container) and supported_expr(index_node) and supported_expr(item_value)
+    if kind == "setattr":
+        # A field write on a tuple-class value: the object must be an
+        # in-slice class and the stored value's type one the attr ops
+        # carry (the field record's type matches it; the IR verified).
+        object_node: Dict[str, Any] = stmt["object"]
+        otyp: Dict[str, Any] = object_node["type"]
+        if not _is_supported_class(otyp):
+            return False
+        value_node: Dict[str, Any] = stmt["value"]
+        if not _supported_field_type(value_node["type"]):
+            return False
+        return supported_expr(object_node) and supported_expr(value_node)
     if kind == "if":
         if not supported_expr(stmt["cond"]):
             return False
@@ -737,6 +803,12 @@ def _calls_in_slice_stmt(stmt: Dict[str, Any], callees: Dict[str, Dict[str, Any]
         if not _calls_in_slice_expr(set_index, callees):
             return False
         return _calls_in_slice_expr(set_value, callees)
+    if kind == "setattr":
+        set_object: Dict[str, Any] = stmt["object"]
+        set_value = stmt["value"]
+        if not _calls_in_slice_expr(set_object, callees):
+            return False
+        return _calls_in_slice_expr(set_value, callees)
     if kind == "if":
         if not _calls_in_slice_expr(stmt["cond"], callees):
             return False
@@ -813,6 +885,8 @@ def _calls_in_slice_expr(expr: Dict[str, Any], callees: Dict[str, Dict[str, Any]
         if not _calls_in_slice_expr(expr["value"], callees):
             return False
         return _calls_in_slice_expr(expr["index"], callees)
+    if kind == "attr":
+        return _calls_in_slice_expr(expr["value"], callees)
     return True
 
 
@@ -823,7 +897,7 @@ def _param_tag(kind: str) -> int:
         return MIR_B
     if kind == "str":
         return MIR_S
-    if kind == "list":
+    if kind == "list" or kind == "class":
         return MIR_P
     return MIR_W
 
@@ -1021,6 +1095,9 @@ class _FnLowerer:
             item = self.emit_expr(stmt["value"])
             self.builder.emit(MIR_SEQSET, -1, container, index, item)
             return
+        if kind == "setattr":
+            self.emit_setattr(stmt)
+            return
         if kind == "expr":
             expr: Dict[str, Any] = stmt["expr"]
             if self.is_none(expr):
@@ -1201,6 +1278,8 @@ class _FnLowerer:
             return self.emit_list(expr)
         if kind == "subscript":
             return self.emit_subscript(expr)
+        if kind == "attr":
+            return self.emit_attr(expr)
         raise MirLowerError(f"the MIR leaf slice cannot lower expression {kind}")
 
     def emit_call_expr(self, expr: Dict[str, Any]) -> int:
@@ -1215,6 +1294,8 @@ class _FnLowerer:
         callee: Dict[str, Any] = expr["callee"]
         ckind: str = callee["kind"]
         args: list[Dict[str, Any]] = expr["args"]
+        if ckind == "class":
+            return self.emit_newobj(expr)
         if ckind == "builtin":
             cname: str = callee["name"]
             if cname == "len":
@@ -1288,6 +1369,40 @@ class _FnLowerer:
         for index in range(len(values)):
             self.builder.emit(MIR_SEQSET, -1, seq, self.builder.const_w(index), values[index])
         return seq
+
+    def emit_newobj(self, expr: Dict[str, Any]) -> int:
+        """A `tuple_N_*` constructor call: `MIR_NEWOBJ` with the class
+        name interned as a `MIR_S` constant the emitter reads without
+        materializing. The slice admits only the no-argument form (the
+        IR writes fields through `setattr` after the bare alloc)."""
+        callee: Dict[str, Any] = expr["callee"]
+        name: str = callee["name"]
+        return self.builder.emit_val(MIR_NEWOBJ, self.builder.const_s(name), -1, MIR_P)
+
+    def emit_setattr(self, stmt: Dict[str, Any]) -> None:
+        """A field write: object then value (the direct order), then
+        `MIR_SETATTR` keyed by a `<class>.<field>` `MIR_S` constant."""
+        obj = self.emit_expr(stmt["object"])
+        value = self.emit_expr(stmt["value"])
+        object_node: Dict[str, Any] = stmt["object"]
+        otyp: Dict[str, Any] = object_node["type"]
+        cls_name: str = otyp["name"]
+        field: str = stmt["name"]
+        key: int = self.builder.const_s(cls_name + "." + field)
+        self.builder.emit(MIR_SETATTR, -1, obj, value, key)
+
+    def emit_attr(self, expr: Dict[str, Any]) -> int:
+        """A field read: `MIR_GETATTR` keyed the same way, the field's
+        type tag riding `arg3` (the `MIR_SEQGET` convention)."""
+        obj = self.emit_expr(expr["value"])
+        value_node: Dict[str, Any] = expr["value"]
+        vtyp: Dict[str, Any] = value_node["type"]
+        cls_name: str = vtyp["name"]
+        field: str = expr["name"]
+        key: int = self.builder.const_s(cls_name + "." + field)
+        rkind: str = _type_kind(expr["type"])
+        tag: int = _param_tag(rkind)
+        return self.builder.emit_val3(MIR_GETATTR, obj, key, tag, tag)
 
     def emit_subscript(self, expr: Dict[str, Any]) -> int:
         """A list load: container then index, `MIR_SEQGET` with the element

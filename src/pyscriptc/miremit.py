@@ -34,7 +34,19 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from pyscriptc.dwarf import DwarfEmitter
-from pyscriptc.emit._ir import _fn_symbol, _llvm_bytes, _llvm_double, _llvm_type, _safe
+from pyscriptc.emit._ir import (
+    _class_fields,
+    _field_name,
+    _field_type,
+    _fn_symbol,
+    _items,
+    _llvm_bytes,
+    _llvm_double,
+    _llvm_field_type,
+    _llvm_type,
+    _opt_str,
+    _safe,
+)
 from pyscriptc.emit._mir_in import plan_module
 from pyscriptc.emit.llvm._driver import Emitter
 from pyscriptc.errors import IRError
@@ -61,11 +73,13 @@ from pyscriptc.mir import (
     MIR_COPY,
     MIR_D,
     MIR_EXTWD,
+    MIR_GETATTR,
     MIR_JMP,
     MIR_MULD,
     MIR_MULW,
     MIR_NEGD,
     MIR_NEGW,
+    MIR_NEWOBJ,
     MIR_NEWSEQ,
     MIR_NOTB,
     MIR_ORW,
@@ -77,6 +91,7 @@ from pyscriptc.mir import (
     MIR_SEQLEN,
     MIR_SEQPUSH,
     MIR_SEQSET,
+    MIR_SETATTR,
     MIR_SUBD,
     MIR_SUBW,
     MIR_VOID,
@@ -185,6 +200,9 @@ _OP_ARITY: Dict[int, int] = {
     MIR_SEQLEN: 1,
     MIR_ORW: 2,
     MIR_XORW: 2,
+    MIR_NEWOBJ: 1,
+    MIR_SETATTR: 3,
+    MIR_GETATTR: 3,
 }
 
 _OP_RESULT_TYPE: Dict[int, int] = {
@@ -222,6 +240,9 @@ _OP_RESULT_TYPE: Dict[int, int] = {
     MIR_SEQLEN: MIR_W,
     MIR_ORW: MIR_W,
     MIR_XORW: MIR_W,
+    MIR_NEWOBJ: MIR_P,
+    MIR_SETATTR: MIR_W,
+    MIR_GETATTR: MIR_P,  # a getattr's true tag rides arg3
 }
 
 
@@ -679,6 +700,15 @@ class MirEmitter:
         if op == MIR_CALL:
             self._emit_call(fn, i, dst, a1, a2)
             return
+        if op == MIR_NEWOBJ:
+            self._emit_newobj(fn, dst, a1)
+            return
+        if op == MIR_SETATTR:
+            self._emit_setattr(fn, a1, a2, a3)
+            return
+        if op == MIR_GETATTR:
+            self._emit_getattr(fn, dst, a1, a2)
+            return
         if op in _HELPER_W:
             needed = self.needed
             needed.add(_HELPER_W[op])
@@ -971,6 +1001,86 @@ class MirEmitter:
         self.line(f"{reg2} = call {llvm} @{symbol}({rendered})")
         self.reg[dst] = reg2
 
+    def _mir_class(self, name: str) -> Dict[str, Any]:
+        """The module's class record for `name`, or an `IRError`."""
+        for cls in _items(self.module, "classes"):
+            if _opt_str(cls, "name") == name:
+                return cls
+        raise IRError(f"the MIR lane has no class record for {name}")
+
+    def _mir_field(self, cls_name: str, field_name: str) -> tuple[Dict[str, Any], int]:
+        """One class field record and its struct index, the direct
+        `_field`'s enumerate order."""
+        cls: Dict[str, Any] = self._mir_class(cls_name)
+        fields: list[Dict[str, Any]] = _class_fields(cls)
+        for index in range(len(fields)):
+            field: Dict[str, Any] = fields[index]
+            if _field_name(field) == field_name:
+                return field, index
+        raise IRError(f"{cls_name}.{field_name} is not a field")
+
+    def _class_field_key(self, fn: MirFunction, operand: int) -> tuple[str, str]:
+        """The `<class>.<field>` key a class op's `MIR_S` constant carries."""
+        const: MirConst = fn.consts[const_index(operand)]
+        key: str = const.sval
+        dot: int = key.find(".")
+        if dot < 0:
+            raise IRError(f"the MIR lane cannot read class key {key!r}")
+        cls_name: str = key[:dot]
+        field_name: str = key[dot + 1 :]
+        return cls_name, field_name
+
+    def _emit_newobj(self, fn: MirFunction, dst: int, a1: int) -> None:
+        """A class constructor call: the direct `emit_constructor` shape.
+
+        `ps_alloc` over the `%cls.<name>` struct size, three temporaries
+        in the direct order (the size gep, the ptrtoint, the call). The
+        synthesized `tuple_N_*` classes carry no methods, so no `__init__`
+        call follows; a class that grew one is outside the slice and
+        fails loudly here rather than half-emitting.
+        """
+        const: MirConst = fn.consts[const_index(a1)]
+        name: str = const.sval
+        cls: Dict[str, Any] = self._mir_class(name)
+        for method in _items(cls, "methods"):
+            if _opt_str(method, "name") == "__init__":
+                raise IRError(f"the MIR leaf slice cannot lower {name}.__init__")
+        needed: set[str] = self.needed
+        needed.add("alloc")
+        self.needed = needed
+        size_ptr: str = self.tmp_reg()
+        self.line(f"{size_ptr} = getelementptr %cls.{name}, ptr null, i64 1")
+        size: str = self.tmp_reg()
+        self.line(f"{size} = ptrtoint ptr {size_ptr} to i64")
+        reg: str = self.tmp_reg()
+        self.line(f"{reg} = call ptr @ps_alloc(i64 {size})")
+        self.reg[dst] = reg
+
+    def _emit_setattr(self, fn: MirFunction, a1: int, a2: int, a3: int) -> None:
+        """A field store: object and value already evaluated, then the
+        direct `emit_setattr`'s field gep and typed store."""
+        obj: str = self.operand(fn, a1)
+        value: str = self.operand(fn, a2)
+        cls_name, field_name = self._class_field_key(fn, a3)
+        field, index = self._mir_field(cls_name, field_name)
+        field_type: Dict[str, Any] = _field_type(field)
+        slot: str = self.tmp_reg()
+        self.line(f"{slot} = getelementptr %cls.{cls_name}, ptr {obj}, i32 0, i32 {index}")
+        self.line(f"store {_llvm_field_type(field_type)} {value}, ptr {slot}")
+
+    def _emit_getattr(self, fn: MirFunction, dst: int, a1: int, a2: int) -> None:
+        """A field load: the direct `emit_attr`'s field gep and `_load`,
+        the result register the `MIR_GETATTR` dst names."""
+        obj: str = self.operand(fn, a1)
+        cls_name, field_name = self._class_field_key(fn, a2)
+        field, index = self._mir_field(cls_name, field_name)
+        field_type: Dict[str, Any] = _field_type(field)
+        slot: str = self.tmp_reg()
+        self.line(f"{slot} = getelementptr %cls.{cls_name}, ptr {obj}, i32 0, i32 {index}")
+        reg: str = self.tmp_reg()
+        self.line(f"{reg} = load {_llvm_type(field_type)}, ptr {slot}")
+        self.reg[dst] = reg
+
     def _block_of(self, fn: MirFunction, i: int) -> MirBlock:
         for span_bid in range(len(fn.blocks)):
             if i in self._span(span_bid):
@@ -1053,7 +1163,7 @@ class MirEmitter:
                 return MIR_B
             if kind == "str":
                 return MIR_S
-            if kind == "list":
+            if kind == "list" or kind == "class":
                 return MIR_P
             return MIR_W
         if operand in self.slot_vid_set:
@@ -1277,6 +1387,8 @@ def _result_tag(fn: MirFunction, i: int) -> int:
     if op == MIR_CALL:
         return fn.arg2[i]
     if op == MIR_SEQGET:
+        return fn.arg3[i] if i < len(fn.arg3) else MIR_W
+    if op == MIR_GETATTR:
         return fn.arg3[i] if i < len(fn.arg3) else MIR_W
     tag: int | None = _OP_RESULT_TYPE.get(op)
     if tag is None:
