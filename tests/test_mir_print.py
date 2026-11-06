@@ -20,7 +20,9 @@ from pyscriptc.mirprint import OP_NAMES, print_module
 
 _LEAF = Path(__file__).parent / "fixtures" / "mir_leaf"
 _GOLDEN = Path(__file__).parent / "fixtures" / "mir_print"
-GOLDEN_SAMPLES = ("leafint", "leafelif", "leafhelperret", "leafprint", "leafprintsep")
+# Discovery over the golden files: adding a .mir golden opts the matching
+# leaf fixture into the printer sweep with no list edit.
+GOLDEN_SAMPLES = tuple(sorted(p.stem for p in _GOLDEN.glob("*.mir")))
 
 
 def _render(stem: str) -> str:
