@@ -284,6 +284,7 @@ def test_generator_return_stays_fenced(tmp_path: Path) -> None:
             [
                 "def g():",
                 "    yield 1",
+                "    yield 'a'",
                 "",
                 "def probe() -> int:",
                 "    return 0",
