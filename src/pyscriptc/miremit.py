@@ -782,7 +782,8 @@ class MirEmitter:
         value call takes a fresh temp.
         """
         name: str = fn.callees[callee_vid]
-        if fn.helpers.get(i) == "print":
+        marker: str | None = fn.helpers.get(i)
+        if marker == "print":
             # The builtin `print` marks its call out of band: a user
             # function named `print` shares the callee-table name, so the
             # name alone cannot tell the two apart.
@@ -792,6 +793,12 @@ class MirEmitter:
             # A runtime-ABI call: the `rt:` prefix marks a `ps_*` symbol
             # the lowerer admitted, not a module function name.
             self._emit_rt_call(fn, i, dst, name[3:], tag)
+            return
+        if marker is not None and marker.startswith("builtin:"):
+            self._emit_builtin_call(fn, i, dst, fn.call_args[i], marker[len("builtin:") :])
+            return
+        if marker is not None and marker.startswith("abi "):
+            self._emit_abi_call(fn, i, dst, tag, fn.call_args[i], marker[len("abi ") :])
             return
         ir_fn: Dict[str, Any] = self._ir_fn(name)
         ret_type: Dict[str, Any] = ir_fn["returnType"]
@@ -839,7 +846,7 @@ class MirEmitter:
             if position:
                 self._print_fmt("space", b" ")
             value: str = self.operand(fn, args_i[position])
-            tag: int = self._print_tag(fn, args_i[position])
+            tag: int = self._operand_tag(fn, args_i[position])
             if tag == MIR_B:
                 picked = self.tmp_reg()
                 self.line(
@@ -859,16 +866,110 @@ class MirEmitter:
                 self._print_fmt("int", b"%lld", [f"i64 {value}"])
         self._print_fmt("nl", b"\n")
 
-    def _print_tag(self, fn: MirFunction, operand: int) -> int:
-        """The scalar tag of a print argument: W (int), B (bool) or D (float).
-
-        A constant reads the pool; a value reads the tag of the
-        instruction that defined it, the same way `llvm_of` reads it.
-        """
+    def _operand_tag(self, fn: MirFunction, operand: int) -> int:
+        """The value tag of an operand: a constant reads the pool; a value
+        reads the tag of the instruction that defined it."""
         if is_const_ref(operand):
             const = fn.consts[const_index(operand)]
             return const.typ
         return self._def_tag(operand)
+
+    def _emit_builtin_call(self, fn: MirFunction, i: int, dst: int, args_i: list[int], name: str) -> None:
+        """An admitted builtin call's emission: the direct `emit_builtin` arms.
+
+        `len` of a str is the code-point count (field 2); `str` renders an
+        int through `ps_i64_str`, a float through `ps_f64_str` and a bool
+        through the `True`/`False` select aggregate; `int` of a str reads
+        `ps_int_from_bytes` off the buffer parts and `int` of a float
+        calls `ps_float_to_int`. Each spelling matches the direct
+        emitter's line order.
+        """
+        value: str = self.operand(fn, args_i[0])
+        vtag: int = self._operand_tag(fn, args_i[0])
+        if name == "len":
+            reg = self.tmp_reg()
+            self.line(f"{reg} = extractvalue %ps.str {value}, 2")
+            self.reg[dst] = reg
+            return
+        if name == "str":
+            if vtag == MIR_S:
+                self.reg[dst] = value
+                return
+            if vtag == MIR_B:
+                t_len = self.tmp_reg()
+                t_ptr = self.tmp_reg()
+                self.line(f"{t_len} = select i1 {value}, i64 4, i64 5")
+                self.line(
+                    f"{t_ptr} = select i1 {value}, ptr {self.format_global('boolT', b'True')}, "
+                    f"ptr {self.format_global('boolF', b'False')}"
+                )
+                agg = self.tmp_reg()
+                p1 = self.tmp_reg()
+                p2 = self.tmp_reg()
+                ret = self.tmp_reg()
+                self.line(f"{agg} = insertvalue %ps.str poison, i64 {t_len}, 0")
+                self.line(f"{p1} = insertvalue %ps.str {agg}, ptr {t_ptr}, 1")
+                self.line(f"{p2} = insertvalue %ps.str {p1}, i64 {t_len}, 2")
+                self.line(f"{ret} = insertvalue %ps.str {p2}, i32 1, 3")
+                self.reg[dst] = ret
+                return
+            symbol = "ps_i64_str" if vtag == MIR_W else "ps_f64_str"
+            piece = "i64" if vtag == MIR_W else "double"
+            self._abi_decl(symbol, "void", [piece, "ptr"])
+            self.reg[dst] = self._buf_out(symbol, [f"{piece} {value}"])
+            return
+        # name == "int"
+        if vtag == MIR_S:
+            self._abi_decl("ps_int_from_bytes", "i64", ["i64", "ptr"])
+            length, ptr = self._buf_parts(value)
+            reg = self.tmp_reg()
+            self.line(f"{reg} = call i64 @ps_int_from_bytes(i64 {length}, ptr {ptr})")
+            self.reg[dst] = reg
+            return
+        needed: set[str] = self.needed
+        needed.add("math")
+        self.needed = needed
+        reg = self.tmp_reg()
+        self.line(f"{reg} = call i64 @ps_float_to_int(double {value})")
+        self.reg[dst] = reg
+
+    def _emit_abi_call(self, fn: MirFunction, i: int, dst: int, tag: int, args_i: list[int], symbol: str) -> None:
+        """A `builtins` module call's emission: the direct `_emit_abi` walk.
+
+        Each argument renders its C pieces off the MIR tag (a str splits
+        into length and data pointer through `_buf_parts`, the scalars
+        spell directly); the return kind rides the call's result tag — a
+        str return goes through `_buf_out`'s buffer shape, a scalar
+        return through a plain `call`.
+        """
+        rendered: list[str] = []
+        types: list[str] = []
+        for arg_i in args_i:
+            value = self.operand(fn, arg_i)
+            vtag = self._operand_tag(fn, arg_i)
+            if vtag == MIR_S:
+                length, ptr = self._buf_parts(value)
+                rendered.append(f"i64 {length}")
+                rendered.append(f"ptr {ptr}")
+                types.append("i64")
+                types.append("ptr")
+            elif vtag == MIR_D:
+                rendered.append(f"double {value}")
+                types.append("double")
+            else:
+                rendered.append(f"i64 {value}")
+                types.append("i64")
+        if tag == MIR_S:
+            abi_params: list[str] = list(types)
+            abi_params.append("ptr")
+            self._abi_decl(symbol, "void", abi_params)
+            self.reg[dst] = self._buf_out(symbol, rendered)
+            return
+        ret = "i64" if tag == MIR_W else "double"
+        self._abi_decl(symbol, ret, types)
+        reg = self.tmp_reg()
+        self.line(f"{reg} = call {ret} @{symbol}({', '.join(rendered)})")
+        self.reg[dst] = reg
 
     def _print_fmt(self, name: str, data: bytes, args: list[str] | None = None) -> None:
         """The direct `_print_fmt`'s stdout spelling (the slice prints to stdout only)."""

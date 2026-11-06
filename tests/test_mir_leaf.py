@@ -74,6 +74,7 @@ LEAF_SAMPLES = [
         "leafstrcall.py",
         "leafstrconst.py",
         "leafstrargs.py",
+        "leafstrbuiltins.py",
         "leafand.py",
         "leafcast.py",
         "leaflist.py",
@@ -458,7 +459,7 @@ class TestCallSlice:
     def test_builtin_and_method_calls_stay_out(self, tmp_path: Path) -> None:
         src = tmp_path / "outcalls.py"
         src.write_text(
-            "def shout(a: int) -> int:\n    return len(str(a))\n\n\ndef main() -> None:\n    pass\n",
+            "def shout(a: int) -> int:\n    return min(1, 2)\n\n\ndef main() -> None:\n    pass\n",
             encoding="utf-8",
         )
         module, _ = lower_file(str(src))

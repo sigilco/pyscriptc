@@ -381,17 +381,31 @@ def _supported_print(expr: Dict[str, Any]) -> bool:
 def _supported_call(expr: Dict[str, Any]) -> bool:
     """The slice test for one call expression.
 
-    A `print` call is the void builtin form (see `_supported_print`).
+    A `print` call is the void builtin form (see `_supported_print`);
+    `len`, `str` and `int` are the admitted builtin forms, and the
+    `builtins` module's `int`/`bin`/`hex`/`oct` are the admitted abi
+    forms (see `_supported_builtin_call`/`_supported_module_call`).
     Everything else names a plain same-module user function: the callee
     record's kind is `function` (the IR's spelling for a same-module name
     resolved at lowering), the name is defined by a function of this
     module (checked against `supported_fn`'s own param/return rules by
     the caller through `_callee_in_slice`), and every argument is in the
-    slice. Everything else (builtins, module members, methods, class
-    constructors, value callees) stays outside.
+    slice. Everything else (other builtins, other module members,
+    methods, class constructors, value callees) stays outside.
     """
     callee: Dict[str, Any] = expr["callee"]
     ckind: str = callee["kind"]
+    cname: str = callee["name"]
+    # The str builtins admit first; a `len` of a list falls through to
+    # the list arm below, and the `builtins` module's bin/hex/oct admit
+    # before `list.append`'s own arm (`builtins.int` rides the rt-call
+    # shape in the module arm).
+    if ckind == "builtin" and _supported_builtin_call(cname, expr):
+        return True
+    if ckind == "module":
+        bmodule: str = callee["module"]
+        if bmodule == "builtins" and _supported_module_call(expr):
+            return True
     args: list[Dict[str, Any]] = expr["args"]
     if ckind == "function":
         for arg in args:
@@ -540,6 +554,57 @@ def _rt_call_symbol(cmodule: str, mname: str, expr: Dict[str, Any]) -> str:
     if cmodule == "builtins" and mname == "int":
         return symbol
     return ""
+
+
+# The admitted builtin calls, as a name set plus "<name>:<arg-kind>"
+# pair set: `len` reads a str's code-point count, `str` renders a scalar
+# (a str argument is the identity), `int` converts a float or a str.
+_BUILTIN_CALLS = frozenset({"len", "str", "int"})
+_BUILTIN_CALL_ARGS = frozenset(
+    {"len:str", "str:int", "str:float", "str:bool", "str:str", "int:float", "int:str"}
+)
+
+# The admitted `builtins` module calls the `_rt_call_shape` table does
+# not cover: each takes one int and returns a str through the direct
+# emitter's `_buf_out` ABI, so the admission keys on the callee name
+# plus the argument kind and the call carries its `ps_*` symbol.
+# `builtins.int` itself rides the `_rt_call_shape` path above.
+_MODULE_CALLS = frozenset({"bin", "hex", "oct"})
+_MODULE_CALL_ARGS = frozenset({"bin:int", "hex:int", "oct:int"})
+
+
+def _supported_builtin_call(name: str, expr: Dict[str, Any]) -> bool:
+    """The slice test for one admitted builtin call (`len`/`str`/`int`)."""
+    args: list[Dict[str, Any]] = expr["args"]
+    if len(args) != 1:
+        return False
+    arg: Dict[str, Any] = args[0]
+    atyp: Dict[str, Any] = arg["type"]
+    akind: str = atyp["kind"]
+    if f"{name}:{akind}" not in _BUILTIN_CALL_ARGS:
+        return False
+    return supported_expr(arg)
+
+
+def _supported_module_call(expr: Dict[str, Any]) -> bool:
+    """The slice test for one admitted `builtins` module call.
+
+    The abi path needs the runtime symbol the IR resolved onto the call
+    record; without it there is no spelling to emit.
+    """
+    callee: Dict[str, Any] = expr["callee"]
+    name: str = callee["name"]
+    if "symbol" not in expr:
+        return False
+    args: list[Dict[str, Any]] = expr["args"]
+    if len(args) != 1:
+        return False
+    arg: Dict[str, Any] = args[0]
+    atyp: Dict[str, Any] = arg["type"]
+    akind: str = atyp["kind"]
+    if f"{name}:{akind}" not in _MODULE_CALL_ARGS:
+        return False
+    return supported_expr(arg)
 
 
 def _supported_binary(expr: Dict[str, Any]) -> bool:
@@ -1298,7 +1363,7 @@ class _FnLowerer:
             return self.emit_newobj(expr)
         if ckind == "builtin":
             cname: str = callee["name"]
-            if cname == "len":
+            if cname == "len" and _is_supported_list(args[0]["type"]):
                 seq = self.emit_expr(args[0])
                 return self.builder.emit_val(MIR_SEQLEN, seq, -1, MIR_W)
         if ckind == "module":
@@ -1330,6 +1395,10 @@ class _FnLowerer:
         ckind: str = callee["kind"]
         if ckind == "builtin" and name == "print":
             return self.emit_print(expr)
+        if ckind == "builtin" and name in _BUILTIN_CALLS:
+            return self.emit_builtin_call(expr)
+        if ckind == "module" and cmodule == "builtins" and name in _MODULE_CALLS:
+            return self.emit_module_call(expr)
         target: Dict[str, Any] | None = self.callees.get(name)
         if target is None:
             raise MirLowerError(f"the MIR leaf slice has no lowered callee {name}")
@@ -1437,6 +1506,56 @@ class _FnLowerer:
         # marker to tell the builtin form from the user call.
         self.builder.fn.helpers[len(self.builder.fn.ops) - 1] = "print"
         return -1
+
+    def emit_builtin_call(self, expr: Dict[str, Any]) -> int:
+        """An admitted builtin call (`len`/`str`/`int`): a marked `MIR_CALL`.
+
+        The callee-table name is the builtin's, the same out-of-band marker
+        convention `print` uses: a user function named `len` shares the
+        table, so the emitter reads `helpers` to pick the builtin arm.
+        `str` of a str argument is the identity — the direct path returns
+        the value unchanged — so the lowerer binds the argument itself
+        and emits nothing.
+        """
+        callee: Dict[str, Any] = expr["callee"]
+        name: str = callee["name"]
+        args: list[Dict[str, Any]] = expr["args"]
+        arg: Dict[str, Any] = args[0]
+        atyp: Dict[str, Any] = arg["type"]
+        akind: str = atyp["kind"]
+        value: int = self.emit_expr(arg)
+        if name == "str" and akind == "str":
+            return value
+        etype: Dict[str, Any] = expr["type"]
+        tkind: str = etype["kind"]
+        tag: int = MIR_S if tkind == "str" else MIR_W
+        callee_vid: int = self.builder.add_callee(name)
+        dst: int = self.builder.emit_call(callee_vid, [value], tag)
+        self.builder.fn.helpers[len(self.builder.fn.ops) - 1] = f"builtin:{name}"
+        return dst
+
+    def emit_module_call(self, expr: Dict[str, Any]) -> int:
+        """An admitted `builtins` module call: a marked `MIR_CALL`.
+
+        These calls carry the runtime symbol on the IR record and lower
+        through the direct emitter's generic `_emit_abi` walk, so the
+        marker carries the symbol (`abi <symbol>`) and the result tag is
+        the call's return kind (`MIR_S` for the str-returning forms,
+        `MIR_W` for `int`).
+        """
+        callee: Dict[str, Any] = expr["callee"]
+        name: str = callee["name"]
+        symbol: str = expr["symbol"]
+        args: list[Dict[str, Any]] = expr["args"]
+        arg: Dict[str, Any] = args[0]
+        value: int = self.emit_expr(arg)
+        etype: Dict[str, Any] = expr["type"]
+        tkind: str = etype["kind"]
+        tag: int = MIR_S if tkind == "str" else MIR_W
+        callee_vid: int = self.builder.add_callee(name)
+        dst: int = self.builder.emit_call(callee_vid, [value], tag)
+        self.builder.fn.helpers[len(self.builder.fn.ops) - 1] = f"abi {symbol}"
+        return dst
 
     def is_none(self, expr: Dict[str, Any]) -> bool:
         """True when the expression's value is the None singleton.
