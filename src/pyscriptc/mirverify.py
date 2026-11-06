@@ -103,9 +103,9 @@ _OP_ARITY: dict[int, int] = {
     34: 1,  # MIR_SEQLEN
     35: 2,  # MIR_ORW
     36: 2,  # MIR_XORW
-    35: 1,  # MIR_NEWOBJ
-    36: 3,  # MIR_SETATTR
-    37: 3,  # MIR_GETATTR
+    37: 1,  # MIR_NEWOBJ
+    38: 3,  # MIR_SETATTR
+    39: 3,  # MIR_GETATTR
 }
 
 # The verifier's own codes. They are stable: a test that pins a violation
@@ -424,7 +424,7 @@ def _result_type_of(op: int) -> int:
     ext_wd: int = 24
     not_b: int = 26
     new_seq: int = 30
-    new_obj: int = 35
+    new_obj: int = 37
     clt_w: int = 12
     cne_d: int = 23
     tag_d: int = 1
