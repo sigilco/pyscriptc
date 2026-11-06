@@ -332,6 +332,73 @@ jobs:
           retention-days: 90
           if-no-files-found: warn
 
+
+  # The MIR lane nightly (cloud batch FR-1). PYSC_MIR=1 forces the MIR
+  # emission path (`mir_opt_in` in src/pyscriptc/miremit.py; contract:
+  # .agents/docs/mir-escape-hatch.md) for the whole default test
+  # selection, the same set the ci.yml `macos-safe` shards run:
+  # `tests --ignore=tests/compat2 -m "not linux_container"`. It runs the
+  # selection unsharded because a nightly lane is not a merge gate and
+  # one job is cheaper to read than three shards.
+  #
+  # It reports only: the pytest step is continue-on-error, the job feeds
+  # no `report-failure` need, and the outcome lands in the job summary.
+  # A red run means the MIR lane diverged somewhere in the suite; it is
+  # signal for the strangler lane, never a merge blocker. The lane
+  # changes no default: MIR stays opt-in and `MIR_DEFAULT` is untouched.
+  mir-lane:
+    name: MIR lane (PYSC_MIR=1, report only)
+    # Same runner and toolchain pins as the ci.yml macos-safe shards, so
+    # the selection runs where it is defined to pass.
+    runs-on: macos-26
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"  # emSign CA incident: uv 0.13.4 dropped the compromised root
+          enable-cache: true
+          python-version: "3.14"
+      - run: uv sync --frozen
+
+      - name: Default test selection under PYSC_MIR=1
+        id: tests
+        continue-on-error: true
+        env:
+          PYSC_MIR: "1"
+        run: |
+          set -o pipefail
+          mkdir -p nightly
+          uv run pytest -q tests --ignore=tests/compat2 -m "not linux_container" -n auto \
+            2>&1 | tee nightly/mir-lane.log
+
+      - name: Record outcome
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.tests.outcome }}" = "success" ]; then
+            echo "### MIR lane (PYSC_MIR=1): passed" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### MIR lane (PYSC_MIR=1): FAILED (report only, does not gate)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          # The pytest summary line carries the pass/fail counts; the full
+          # log ships as the nightly/mir-lane artifact below.
+          grep -E '[0-9]+ (passed|failed|error|skipped|deselected)' nightly/mir-lane.log \
+            | tail -5 >> "$GITHUB_STEP_SUMMARY" || true
+          echo "Full log: the \`nightly-mir-${{ github.run_id }}\` artifact, file nightly/mir-lane.log." \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: nightly-mir-${{ github.run_id }}
+          path: nightly/
+          retention-days: 90
+          if-no-files-found: warn
+
   # The embed acceptance (issue #885). It runs in its own workflow
   # (embed.yml, on its own schedule at 06:43, after this nightly's 06:17),
   # so nothing on the nightly page said when it went red. This lane reads
