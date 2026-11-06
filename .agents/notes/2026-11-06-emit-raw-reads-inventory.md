@@ -19,7 +19,7 @@ The broad count also hits reads of non-IR tables (exception codes, math specs, t
 | `emit/llvm/_stmts.py` | 24 | 70 | ~70 | Statement children (`value`, `target`, `cond`, `then`, `else`, `body`, `finalbody`, ...). Covered by open #947. |
 | `emit/llvm/_core.py` | 9 | 20 | 20 | Module, class, method and closure-wrapper records (`functions`, `classes`, `fields`, `methods`, `params`, `returnType`, `index`). Covered by open #950. |
 | `emit/llvm/_driver.py` | 1 | 9 | 5 | Module record (`fences`, `fallback.moduleTopLevel`, `sourceFile`, `functions`). The other 4 are `os.environ` and `timings`. Covered by open #950. |
-| `emit/llvm/_print.py` | 0 | 5 | 5 | `expr["sep"]`, `expr["end"]` (guarded by `_has`), and `class_index[...]["fields"]` twice plus one `class_index.get`. |
+| `emit/llvm/_print.py` | 0 | 5 | 5 | `expr["sep"]`, `expr["end"]` (guarded by `_has`), and `class_index[...]["fields"]` twice plus one `class_index.get`. Covered by open #949. |
 | `emit/llvm/_funcs.py` | 0 | 3 | 2 | `fn["returnType"]`, `stmt["value"]`. `functions.get(name)` is an emitter table lookup. Covered by open #950. |
 | `emit/llvm/_calls.py` | 0 | 3 | 0 | `self.functions.get(...)` lookup and `["ptr"]` list literals. |
 | `emit/llvm/_abi.py` | 0 | 9 | 0 | Kind-code maps, `self.functions` / `partial_keys` / `thread_keys` lookups, `EXCEPTIONS[...]`, `["ptr"]` list literals. |
@@ -31,6 +31,6 @@ The broad count also hits reads of non-IR tables (exception codes, math specs, t
 
 ## Gaps after batch 7
 
-- Once #947 and #950 merge, the only IR reads outside `_ir.py` are 5 in `_print.py` (class `fields` via `class_index`, and the `sep`/`end` children). No open PR covers them. They need two accessors (`_print_sep`/`_print_end`, or reuse `_opt_record`) and reuse of the existing `_class_fields`.
+- Once #947, #949 and #950 merge, the IR reads outside `_ir.py` are the ones those PRs move; #949 covers the 5 in `_print.py` (class `fields` via `class_index`, and the `sep`/`end` children).
 - `self.functions.get(...)` and `self.class_index.get(...)` look up emitter-built tables keyed by name, not IR records. The plan regex does not count them; moving them through the seam would mean `_ir.py` owning those tables.
 - The `.get("` part of the plan regex misses `.get(` with a non-literal key and single-quoted subscripts (`p['type']` in `_core.py` lines 395 and 396). Use the broad count to call the migration complete.
