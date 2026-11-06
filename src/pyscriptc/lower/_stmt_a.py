@@ -13,6 +13,7 @@ byte-identical.
 from __future__ import annotations
 
 import ast
+import copy
 from typing import TYPE_CHECKING, Any  # noqa: F401  # moved-verbatim import
 
 from pyscriptc import _irnode as _ir  # noqa: F401  # moved-verbatim import
@@ -393,8 +394,17 @@ class StmtAMixin:
                         # element type is the fact, or the peek refuses and
                         # the target stays out.
                         iter_typ = self._infer_type_of(loop.iter)
-                    if iter_typ is not None and _maybe_type_kind(iter_typ) == "list":
+                    if iter_typ is None:
+                        continue
+                    kind = _maybe_type_kind(iter_typ)
+                    if kind == "list":
                         self.locals[name] = iter_typ["elem"]
+                    elif kind == "dict":
+                        self.locals[name] = iter_typ["key"]
+                    elif kind == "str":
+                        self.locals[name] = {"kind": "str"}
+                    elif kind == "bytes":
+                        self.locals[name] = {"kind": "int"}
 
         def _written_value(node: ast.expr) -> dict[str, Any] | None:
             """The written value's type, read through the accumulator.
@@ -499,6 +509,23 @@ class StmtAMixin:
         return None
 
     def _aug_assign(self, stmt: ast.AugAssign, span: dict[str, Any]) -> list[dict[str, Any]]:
+        if isinstance(stmt.target, (ast.Attribute, ast.Subscript)):
+            # `t[i] op= v` / `o.f op= v` desugar to the plain store of the
+            # binary result: the Assign paths already lower subscript and
+            # attribute targets. Only the outermost target node carries the
+            # Store context, so a Load-context copy of it reads the current
+            # value back.
+            target = stmt.target
+            left = copy.deepcopy(target)
+            left.ctx = ast.Load()
+            assign = ast.Assign(
+                targets=[target],
+                value=ast.BinOp(left=left, op=stmt.op, right=stmt.value),
+            )
+            ast.copy_location(assign, stmt)
+            ast.copy_location(assign.value, stmt)
+            ast.copy_location(left, stmt)
+            return self._stmt_core(assign)
         if not isinstance(stmt.target, ast.Name):
             self.fail(stmt, "PS2002", "augmented assignment is only lowered for a name")
         target = stmt.target.id
