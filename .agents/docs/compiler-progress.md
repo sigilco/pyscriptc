@@ -30,6 +30,11 @@ by module name prefix. Fences must trend down; `other` typically dominates
 because modules outside the three stage seams still sit on the
 not-yet-lowered AST layer.
 
+The third table is MIR leaf-slice coverage from `scripts/mir_coverage.py`:
+in-slice over non-fenced IR functions on the visible corpus scripts
+(`benchmarks/compat2/corpus/scripts` only). `mir.percent` must trend up as
+the slice grows; `mir.in_slice` and `mir.functions` are the raw counts.
+
 ## What moves it
 
 - Landing a lowering slice that converts dict nodes to `_ir` typed nodes
@@ -39,3 +44,6 @@ not-yet-lowered AST layer.
 - Repinning the census (`uv run python scripts/repin_census.py`) moves the
   fence table; per-module pins are ceilings, so a run at a ceiling shows
   delta 0 until the fence is actually removed.
+- Growing the MIR leaf slice (`supported_fn`) moves `mir.in_slice` and
+  `mir.percent` up. Measure with `uv run python scripts/mir_coverage.py`;
+  do not hardcode the percentage.

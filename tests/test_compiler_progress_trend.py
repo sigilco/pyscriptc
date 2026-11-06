@@ -49,3 +49,24 @@ def test_trend_table_without_baseline_shows_zero_baseline() -> None:
     text = mod.markdown_trend({"totals": {}, "fences": {"lower": 3}}, None, "origin/master~20")
     assert "Baseline: origin/master~20" in text
     assert "| lower | 3 | 0 | +3 |" in text
+
+    assert "| mir.percent | 0 | 0 | +0 |" in text
+
+
+def test_trend_table_includes_mir_slice_coverage() -> None:
+    mod = _load()
+    current = {
+        "totals": {},
+        "fences": {},
+        "mir_coverage": {"percent": 10, "in_slice": 3, "functions": 31, "script_count": 20},
+    }
+    baseline = {
+        "totals": {},
+        "fences": {},
+        "mir_coverage": {"percent": 0, "in_slice": 0, "functions": 0, "script_count": 20},
+    }
+    text = mod.markdown_trend(current, baseline, "baseline.json")
+    assert "### MIR slice coverage" in text
+    assert "| mir.percent | 10 | 0 | +10 |" in text
+    assert "| mir.in_slice | 3 | 0 | +3 |" in text
+    assert "| mir.functions | 31 | 0 | +31 |" in text
