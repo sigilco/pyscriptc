@@ -424,10 +424,23 @@ def supported_expr(expr: Dict[str, Any]) -> bool:
     if kind == "subscript":
         value: Dict[str, Any] = expr["value"]
         index: Dict[str, Any] = expr["index"]
+        vkind: str = _type_kind(value["type"])
+        if vkind == "str":
+            # `s[i]`: the direct path's `ps_str_get` buffer-out call; the
+            # index must be an int and the result a one-character str.
+            itype: Dict[str, Any] = index["type"]
+            ikind: str = itype["kind"]
+            if ikind != "int":
+                return False
+            rtype: Dict[str, Any] = expr["type"]
+            rkind: str = rtype["kind"]
+            if rkind != "str":
+                return False
+            return supported_expr(value) and supported_expr(index)
         if not _is_supported_list(value["type"]):
             return False
-        itype: Dict[str, Any] = index["type"]
-        ikind: str = itype["kind"]
+        itype = index["type"]
+        ikind = itype["kind"]
         if ikind != "int":
             return False
         return supported_expr(value) and supported_expr(index)
@@ -806,12 +819,16 @@ _BUILTIN_CALLS = frozenset({"len", "str", "int"})
 _BUILTIN_CALL_ARGS = frozenset({"len:str", "str:int", "str:float", "str:bool", "str:str", "int:float", "int:str"})
 
 # The admitted `builtins` module calls the `_rt_call_shape` table does
-# not cover: each takes one int and returns a str through the direct
-# emitter's `_buf_out` ABI, so the admission keys on the callee name
-# plus the argument kind and the call carries its `ps_*` symbol.
-# `builtins.int` itself rides the `_rt_call_shape` path above.
-_MODULE_CALLS = frozenset({"bin", "hex", "oct"})
-_MODULE_CALL_ARGS = frozenset({"bin:int", "hex:int", "oct:int"})
+# not cover: each takes one argument and rides the direct emitter's
+# `_emit_abi` walk — the `bin`/`hex`/`oct`/`chr` forms return a str
+# through the `_buf_out` ABI and `ord` returns an i64 — so the admission
+# keys on the callee name plus the argument kind, the result kind is
+# checked against `_MODULE_CALL_RESULTS`, and the call carries its
+# `ps_*` symbol. `builtins.int` itself rides the `_rt_call_shape` path
+# above.
+_MODULE_CALLS = frozenset({"bin", "hex", "oct", "chr", "ord"})
+_MODULE_CALL_ARGS = frozenset({"bin:int", "hex:int", "oct:int", "chr:int", "ord:str"})
+_MODULE_CALL_RESULTS = {"bin": "str", "hex": "str", "oct": "str", "chr": "str", "ord": "int"}
 
 
 def _supported_builtin_call(name: str, expr: Dict[str, Any]) -> bool:
@@ -844,6 +861,10 @@ def _supported_module_call(expr: Dict[str, Any]) -> bool:
     atyp: Dict[str, Any] = arg["type"]
     akind: str = atyp["kind"]
     if f"{name}:{akind}" not in _MODULE_CALL_ARGS:
+        return False
+    expected: str = _MODULE_CALL_RESULTS[name]
+    rkind: str = _type_kind(expr["type"])
+    if rkind != expected:
         return False
     return supported_expr(arg)
 
@@ -2249,9 +2270,25 @@ class _FnLowerer:
         return self.builder.emit_call(callee, args, MIR_P)
 
     def emit_subscript(self, expr: Dict[str, Any]) -> int:
-        """A list load: container then index, `MIR_SEQGET` with the element
-        tag in `arg3` (the direct path's `ps_seq_get` + cell reload)."""
-        seq = self.emit_expr(expr["value"])
+        """A subscript load: container then index.
+
+        A list load is `MIR_SEQGET` with the element tag in `arg3` (the
+        direct path's `ps_seq_get` + cell reload). A str load is the
+        direct path's `ps_str_get` buffer-out call, carried as a marked
+        `MIR_CALL` (`strget`) since its argument order — buffer parts of
+        the string, then the index — is the abi walk's, not the seq
+        op's.
+        """
+        value_node: Dict[str, Any] = expr["value"]
+        vkind: str = _type_kind(value_node["type"])
+        if vkind == "str":
+            seq = self.emit_expr(value_node)
+            index = self.emit_expr(expr["index"])
+            callee_vid: int = self.builder.add_callee("strget")
+            dst: int = self.builder.emit_call(callee_vid, [seq, index], MIR_S)
+            self.builder.fn.helpers[len(self.builder.fn.ops) - 1] = "strget"
+            return dst
+        seq = self.emit_expr(value_node)
         index = self.emit_expr(expr["index"])
         result_type: Dict[str, Any] = expr["type"]
         rkind: str = result_type["kind"]
