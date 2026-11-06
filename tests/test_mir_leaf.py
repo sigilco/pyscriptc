@@ -53,53 +53,12 @@ from pyscriptc.mirverify import (
 )
 
 _FIXTURES = Path(__file__).parent / "fixtures" / "mir_leaf"
-LEAF_SAMPLES = [
-    str(_FIXTURES / name)
-    for name in (
-        "leafint.py",
-        "leafbool.py",
-        "mirleaf.py",
-        "mirmix.py",
-        "leafboolret.py",
-        "leafmulret.py",
-        "leafneg.py",
-        "leafboolconst.py",
-        "leafhelperret.py",
-        "leaforder.py",
-        "leafwhile.py",
-        "leafbreak.py",
-        "leafforrange.py",
-        "leafelif.py",
-        "leafnone.py",
-        "leafcall.py",
-        "leafshortcircuit.py",
-        "leafifexp.py",
-        "leafaug.py",
-        "leafstr.py",
-        "leafstrcmp.py",
-        "leafstrcall.py",
-        "leafstrconst.py",
-        "leafstrargs.py",
-        "leafstrbuiltins.py",
-        "leafstrops.py",
-        "leafand.py",
-        "leafcast.py",
-        "leaflist.py",
-        "leaflistfloat.py",
-        "leaflistfor.py",
-        "leafprint.py",
-        "leafprintsep.py",
-        "leafrec.py",
-        "leafbit.py",
-        "leaftuple.py",
-        "leafdict.py",
-        "leafstrlist.py",
-        "leafstrindex.py",
-        "leafuserclass.py",
-        "leafmap.py",
-        "leafzip.py",
-    )
-]
+# Every fixture in the directory is parametrized; discovery replaces the
+# hand-maintained list so a new fixture cannot drift out of the sweep.
+# A fixture that must stay unparametrized goes in LEAF_OPTOUT with a
+# one-line reason.
+LEAF_OPTOUT: dict[str, str] = {}
+LEAF_SAMPLES = [str(p) for p in sorted(_FIXTURES.glob("*.py")) if p.name not in LEAF_OPTOUT]
 
 
 # PYSC_MIR_BYTE_IDENTITY=0 opts out of the byte-equality assertions below:
