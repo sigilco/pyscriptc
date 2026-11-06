@@ -1592,6 +1592,10 @@ REST_FIXED: dict[str, dict[str, Sig]] = {
     "shutil": {
         "copyfile": sig([_S, _S], _S, "ps_shutil_copyfile"),
         "rmtree": sig([_S], _N, "ps_shutil_rmtree"),
+        # `which` keeps its row for the call-table inventory (the probe
+        # census counts it), but the _EARLY handler in restlower takes the
+        # call first: the return is the tagged `str | None`, not the fixed
+        # str this row would hand the fixed-call path.
         "which": sig([_S], _S, "ps_shutil_which"),
         "copy": sig([_S, _S], _S, "ps_shutil_copy"),
         "copy2": sig([_S, _S], _S, "ps_shutil_copy2"),
