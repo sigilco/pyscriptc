@@ -1,6 +1,6 @@
 # Nightly gates clock for issue #830
 
-Issue #830 records the decision to retire IR_HASHES.json and the dict-shape canonical rules in favor of the streaming TIR gate (TIR_HASHES.json) and the stage-2 fixed-point lane. The retirement criteria approved in roadmap decision 2026-11-02 require two calendar weeks of green gate runs on master, or one real nondeterminism caught.
+Issue #830 records the decision to retire IR_HASHES.json and the dict-shape canonical rules in favor of the streaming TIR gate (TIR_HASHES.json) and the stage-2 fixed-point lane. The retirement criteria approved in roadmap decision 2026-11-02 require two calendar weeks of green gate runs on master, or one real nondeterminism caught. The retirement plan itself is carried by open PRs #980 and #973 (not yet on master); this note stays the clock.
 
 The clock starts today on 2026-11-04 with the introduction of the nightly-gates workflow (.github/workflows/nightly-gates.yml). The workflow triggers automatically every day at 03:17 UTC via cron and can also be triggered manually via workflow_dispatch on master.
 
