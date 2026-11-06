@@ -19,6 +19,7 @@ from tests.test_gates import run_cli, write_case
 from tests.test_spike import ROOT
 
 from pyscriptc.lower import lower_source
+from pyscriptc.tirserde import dict_to_node
 
 
 def _entry(mod: dict) -> dict | None:
@@ -34,24 +35,26 @@ def probe(p: bytes) -> int:
     )
     assert mod["fences"] == []
     probe = next(fn for fn in mod["functions"] if fn["name"] == "probe")
-    ret = probe["body"][0]
-    assert ret["kind"] == "return"
-    calls: list[dict] = []
+    ret = dict_to_node(probe["body"][0])
+    assert ret.kind == "return"
+    calls: list[object] = []
 
-    def walk(expr: dict) -> None:
-        if expr.get("symbol") == "ps_int_from_bytes":
-            calls.append(expr)
+    def walk(expr: object) -> None:
+        node = dict_to_node(expr)
+        if getattr(node, "symbol", "") == "ps_int_from_bytes":
+            calls.append(node)
             return
-        for key in ("left", "right", "value"):
-            if isinstance(expr.get(key), dict):
-                walk(expr[key])
+        for child in (node.left, node.right, node.value):
+            if child is not None:
+                walk(child)
 
-    walk(ret["value"])
+    walk(ret.value)
     assert len(calls) == 3
     for call in calls:
-        assert call["callee"] == {"kind": "module", "module": "builtins", "name": "int"}
-        assert call["type"] == {"kind": "int"}
-        assert call["args"][0]["type"] == {"kind": "bytes"}
+        callee = dict_to_node(call.callee)
+        assert callee.kind == "module" and callee.module == "builtins" and callee.name == "int"
+        assert call.type.kind == "int"
+        assert call.args[0].type.kind == "bytes"
 
 
 def test_int_bytes_value_and_entry_matches_cpython(tmp_path: Path) -> None:

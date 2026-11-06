@@ -16,6 +16,7 @@ from tests.test_gates import compile_run, run_cli, write_case
 from tests.test_spike import ROOT
 
 from pyscriptc.lower import lower_source
+from pyscriptc.tirserde import dict_to_node, dict_to_type
 
 
 def _entry(mod: dict) -> dict | None:
@@ -37,11 +38,17 @@ print("hello", 42)
     entry = _entry(mod)
     assert entry is not None and entry["name"] == "main"
     shout = next(fn for fn in mod["functions"] if fn["name"] == "shout")
-    assert [stmt["kind"] for stmt in entry["body"]] == ["expr"]
-    assert [stmt["kind"] for stmt in shout["body"]] == ["expr", "expr"]
+    assert [dict_to_node(stmt).kind for stmt in entry["body"]] == ["expr"]
+    assert [dict_to_node(stmt).kind for stmt in shout["body"]] == ["expr", "expr"]
     for stmt in [*entry["body"], *shout["body"]]:
-        assert stmt["expr"]["callee"] == {"kind": "builtin", "name": "print"}
-        assert stmt["expr"]["type"] == {"kind": "none"}
+        node = dict_to_node(stmt)
+        expr = node.expr
+        callee_src = expr["callee"] if isinstance(expr, dict) else expr.callee
+        typ_src = expr["type"] if isinstance(expr, dict) else expr.type
+        callee = dict_to_node(callee_src)
+        typ = dict_to_type(typ_src) if isinstance(typ_src, dict) else typ_src
+        assert callee.kind == "builtin" and callee.name == "print"
+        assert typ.kind == "none"
 
 
 def test_print_in_entry_prints_like_cpython(tmp_path: Path) -> None:
