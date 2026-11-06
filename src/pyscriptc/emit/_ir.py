@@ -927,3 +927,18 @@ def _llvm_bytes(data: bytes) -> str:
             parts.append(f"\\{byte:02X}")
     parts.append("\\00")
     return "".join(parts)
+
+
+# Function-record readers the expression emitter uses (#829, batch 7).
+
+
+def _fn_name(fn: dict[str, Any]) -> str:
+    """The qualified name of a function record."""
+    name: str = fn["name"]
+    return name
+
+
+def _fn_params(fn: dict[str, Any]) -> list[dict[str, Any]]:
+    """The param records of a function record, in declaration order."""
+    params: list[dict[str, Any]] = fn["params"]
+    return params

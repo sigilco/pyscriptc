@@ -7,14 +7,23 @@ from __future__ import annotations
 from typing import Any
 
 from pyscriptc.emit._ir import (
+    _arg_type,
+    _const_bool,
+    _const_text,
     _elem_size,
+    _elem_type,
     _env_item_init,
     _env_item_name,
     _expr_kind,
+    _field_type,
+    _fn_name,
+    _fn_params,
     _fn_symbol,
+    _key_of,
     _kind,
     _llvm_double,
     _llvm_type,
+    _map_value_type,
     _memory_type,
     _node_args,
     _node_callee,
@@ -37,6 +46,9 @@ from pyscriptc.emit._ir import (
     _node_value_node,
     _pair_key,
     _pair_value,
+    _return_type,
+    _type_name,
+    _type_of,
 )
 from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.errors import FitError, IRError
@@ -73,7 +85,7 @@ class ExprsMixin(EmitterBase):
             op: str = _node_op(expr)
             sub_operand: dict[str, Any] = _node_operand(expr)
             operand: str = self.emit_expr(sub_operand)
-            expr_type: dict[str, Any] = expr["type"]
+            expr_type: dict[str, Any] = _type_of(expr)
             type_kind: str = _kind(expr_type)
             if op == "-" and type_kind == "int":
                 return self.helper_call("ineg", "i64", [operand])
@@ -124,33 +136,33 @@ class ExprsMixin(EmitterBase):
         raise IRError(f"cannot emit expression {kind}")
 
     def emit_const(self, expr: dict[str, Any]) -> str:
-        expr_type: dict[str, Any] = expr["type"]
+        expr_type: dict[str, Any] = _type_of(expr)
         kind: str = _kind(expr_type)
         if kind == "int":
-            raw_int: str = expr["value"]
+            raw_int: str = _const_text(expr)
             number: int = int(raw_int)
             if not fits_i64(number):
                 raise FitError(f"integer literal {raw_int} does not fit in i64; refusing to truncate")
             return str(number)
         if kind == "bool":
-            bool_val: bool = expr["value"]
+            bool_val: bool = _const_bool(expr)
             return "true" if bool_val else "false"
         if kind == "float":
-            raw_float: str = expr["value"]
+            raw_float: str = _const_text(expr)
             float_val: float = float(raw_float)
             return _llvm_double(float_val)
         if kind == "str":
-            str_val: str = expr["value"]
+            str_val: str = _const_text(expr)
             return self.string_value(str_val)
         if kind == "bytes":
-            bytes_val: str = expr["value"]
+            bytes_val: str = _const_text(expr)
             return self.string_value(bytes_val, binary=True)
         if kind == "none":
             raise IRError("None is not a runtime value")
         raise IRError(f"cannot emit constant of type {kind}")
 
     def emit_binary(self, expr: dict[str, Any], left: str, right: str) -> str:
-        expr_type: dict[str, Any] = expr["type"]
+        expr_type: dict[str, Any] = _type_of(expr)
         kind: str = _kind(expr_type)
         op: str = _node_op(expr)
         if kind == "int":
@@ -172,7 +184,7 @@ class ExprsMixin(EmitterBase):
         if kind in {"str", "bytes"} and op == "+":
             return self.helper_call("strconcat", "%ps.str", [left, right], arg_type="%ps.str")
         left_sub: dict[str, Any] = _node_left(expr)
-        left_sub_type: dict[str, Any] = left_sub["type"]
+        left_sub_type: dict[str, Any] = _type_of(left_sub)
         left_kind: str = _kind(left_sub_type)
         if left_kind == "class":
             return self._emit_class_binary(expr, left, right)
@@ -181,8 +193,8 @@ class ExprsMixin(EmitterBase):
     def emit_compare(self, expr: dict[str, Any]) -> str:
         left_expr: dict[str, Any] = _node_left(expr)
         right_expr: dict[str, Any] = _node_right(expr)
-        left_type: dict[str, Any] = left_expr["type"]
-        right_type: dict[str, Any] = right_expr["type"]
+        left_type: dict[str, Any] = _type_of(left_expr)
+        right_type: dict[str, Any] = _type_of(right_expr)
         left_kind: str = _kind(left_type)
         right_kind: str = _kind(right_type)
         op: str = _node_op(expr)
@@ -244,7 +256,7 @@ class ExprsMixin(EmitterBase):
 
     def _emit_none_side(self, expr: dict[str, Any]) -> None:
         """Emit a call that returns None. A None constant or a None local is not a register."""
-        expr_type: dict[str, Any] = expr["type"]
+        expr_type: dict[str, Any] = _type_of(expr)
         type_kind: str = _kind(expr_type)
         if type_kind != "none":
             self.emit_expr(expr)
@@ -257,8 +269,8 @@ class ExprsMixin(EmitterBase):
     def emit_list(self, expr: dict[str, Any]) -> str:
         needed = self.needed
         needed.add("seq")
-        expr_type: dict[str, Any] = expr["type"]
-        elem: dict[str, Any] = expr_type["elem"]
+        expr_type: dict[str, Any] = _type_of(expr)
+        elem: dict[str, Any] = _elem_type(expr_type)
         elems_list: list[dict[str, Any]] = _node_elems(expr)
         values: list[str] = [self.emit_expr(item) for item in elems_list]
         reg: str = self._call_ret("ptr", "ps_seq_new", [f"i64 {_elem_size(elem)}", f"i64 {len(values)}"])
@@ -271,9 +283,9 @@ class ExprsMixin(EmitterBase):
     def emit_dict(self, expr: dict[str, Any]) -> str:
         needed = self.needed
         needed.add("map")
-        expr_type: dict[str, Any] = expr["type"]
-        key_t: dict[str, Any] = expr_type["key"]
-        val_t: dict[str, Any] = expr_type["value"]
+        expr_type: dict[str, Any] = _type_of(expr)
+        key_t: dict[str, Any] = _key_of(expr_type)
+        val_t: dict[str, Any] = _map_value_type(expr_type)
         key_t_kind: str = _kind(key_t)
         key_kind: int = 1 if key_t_kind == "int" else 2
         pairs: list[dict[str, Any]] = _node_pairs(expr)
@@ -307,13 +319,13 @@ class ExprsMixin(EmitterBase):
         value: str = self.emit_expr(sub_val)
         sub_idx: dict[str, Any] = _node_index(expr)
         index: str = self.emit_expr(sub_idx)
-        val_type: dict[str, Any] = sub_val["type"]
+        val_type: dict[str, Any] = _type_of(sub_val)
         kind: str = _kind(val_type)
-        expr_type: dict[str, Any] = expr["type"]
+        expr_type: dict[str, Any] = _type_of(expr)
         mem_type: str = _memory_type(expr_type)
         needed = self.needed
         if kind == "list":
-            slot: dict[str, Any] = val_type["elem"]
+            slot: dict[str, Any] = _elem_type(val_type)
             needed.add("seq")
             out: str = self._alloca(mem_type)
             self.line(f"call void @ps_seq_get(ptr {value}, i64 {index}, ptr {out})")
@@ -321,9 +333,9 @@ class ExprsMixin(EmitterBase):
             proven: dict[str, Any] | None = slot if slot_kind == "any" else None
             return self._widen_cell(expr_type, out, proven)
         if kind == "dict":
-            slot = val_type["value"]
+            slot = _map_value_type(val_type)
             needed.add("map")
-            idx_type: dict[str, Any] = sub_idx["type"]
+            idx_type: dict[str, Any] = _type_of(sub_idx)
             key: str = self._stash_cell(idx_type, index)
             out = self._alloca(mem_type)
             self.line(f"call void @ps_map_get(ptr {value}, ptr {key}, ptr {out})")
@@ -342,7 +354,7 @@ class ExprsMixin(EmitterBase):
             blength, bptr = bparts
             return self._call_ret("i64", "ps_buf_at", [f"i64 {blength}", f"ptr {bptr}", f"i64 {index}"])
         if kind == "class" and "name" in val_type:
-            type_name: str = val_type["name"]
+            type_name: str = _type_name(val_type)
             if type_name == "Deque":
                 out = self._alloca(mem_type)
                 self._abi_decl("ps_deque_get", "void", ["ptr", "i64", "ptr"])
@@ -353,12 +365,12 @@ class ExprsMixin(EmitterBase):
     def emit_attr(self, expr: dict[str, Any]) -> str:
         sub_val: dict[str, Any] = _node_value_node(expr)
         obj: str = self.emit_expr(sub_val)
-        val_type: dict[str, Any] = sub_val["type"]
-        class_name: str = val_type["name"]
+        val_type: dict[str, Any] = _type_of(sub_val)
+        class_name: str = _type_name(val_type)
         attr_name: str = _node_name(expr)
         field: dict[str, Any] = self._field(class_name, attr_name)
         slot: str = self._field_ptr(class_name, obj, field)
-        field_type: dict[str, Any] = field["type"]
+        field_type: dict[str, Any] = _field_type(field)
         return self._widen_cell(field_type, slot)
 
     def emit_contains(self, expr: dict[str, Any]) -> str:
@@ -366,7 +378,7 @@ class ExprsMixin(EmitterBase):
         needle: str = self.emit_expr(needle_expr)
         hay_expr: dict[str, Any] = _node_hay(expr)
         hay: str = self.emit_expr(hay_expr)
-        hay_type: dict[str, Any] = hay_expr["type"]
+        hay_type: dict[str, Any] = _type_of(hay_expr)
         hay_kind: str = _kind(hay_type)
         flag: str = ""
         needed = self.needed
@@ -381,7 +393,7 @@ class ExprsMixin(EmitterBase):
             self.line(f"{flag} = icmp sge i64 {found}, 0")
         elif hay_kind == "list":
             needed.add("seq")
-            elem_type: dict[str, Any] = hay_type["elem"]
+            elem_type: dict[str, Any] = _elem_type(hay_type)
             elem: str = _kind(elem_type)
             raw_flag: str = ""
             if elem == "int":
@@ -396,7 +408,7 @@ class ExprsMixin(EmitterBase):
             flag = bit
         elif hay_kind == "dict":
             needed.add("map")
-            needle_type: dict[str, Any] = needle_expr["type"]
+            needle_type: dict[str, Any] = _type_of(needle_expr)
             key: str = self._stash_cell(needle_type, needle)
             raw: str = self._call_ret("i32", "ps_map_has", [f"ptr {hay}", f"ptr {key}"])
             flag = self.tmp()
@@ -432,7 +444,7 @@ class ExprsMixin(EmitterBase):
             expr_name: str = _node_name(expr)
             functions: dict[str, dict[str, Any]] = self.functions
             fn: dict[str, Any] = functions[expr_name]
-            fn_name: str = fn["name"]
+            fn_name: str = _fn_name(fn)
             fn_sym: str = _fn_symbol(fn_name)
             if "env" in fn:
                 impl = fn_sym
@@ -451,7 +463,7 @@ class ExprsMixin(EmitterBase):
                 item: dict[str, Any] = items[index]
                 init_expr: dict[str, Any] | None = _env_item_init(item)
                 if init_expr is not None:
-                    item_type: dict[str, Any] = item["type"]
+                    item_type: dict[str, Any] = _type_of(item)
                     cell: str = self._heap_cell(item_type, self.emit_expr(init_expr))
                 else:
                     item_name: str = _env_item_name(item)
@@ -484,9 +496,9 @@ class ExprsMixin(EmitterBase):
         for index in range(len(values)):
             arg: dict[str, Any] = expr_args[index]
             value: str = values[index]
-            arg_type: dict[str, Any] = arg["type"]
+            arg_type: dict[str, Any] = _arg_type(arg)
             args.append(f"{_llvm_type(arg_type)} {value}")
-        expr_type: dict[str, Any] = expr["type"]
+        expr_type: dict[str, Any] = _type_of(expr)
         ret: str = _llvm_type(expr_type)
         if ret == "void":
             self.line(f"call void {impl}({', '.join(args)})")
@@ -496,17 +508,17 @@ class ExprsMixin(EmitterBase):
         return reg
 
     def call_function(self, fn: dict[str, Any], values: list[str]) -> str:
-        ret_type: dict[str, Any] = fn["returnType"]
+        ret_type: dict[str, Any] = _return_type(fn)
         ret: str = _llvm_type(ret_type)
-        fn_params: list[dict[str, Any]] = fn["params"]
+        fn_params: list[dict[str, Any]] = _fn_params(fn)
         parts: list[str] = []
         for index in range(len(values)):
             param: dict[str, Any] = fn_params[index]
             value: str = values[index]
-            param_type: dict[str, Any] = param["type"]
+            param_type: dict[str, Any] = _type_of(param)
             parts.append(f"{_llvm_type(param_type)} {value}")
         rendered: str = ", ".join(parts)
-        fn_name: str = fn["name"]
+        fn_name: str = _fn_name(fn)
         symbol: str = _fn_symbol(fn_name)
         if ret == "void":
             self.line(f"call void @{symbol}({rendered})")
