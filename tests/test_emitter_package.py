@@ -413,6 +413,17 @@ def test_the_seam_reads_stdlib_type_children() -> None:
     assert _ir._type_of(arg) == list_t
 
 
+def test_the_seam_reads_function_records() -> None:
+    """The function-record readers `_exprs` uses for direct calls and closures."""
+    from pyscriptc.emit import _ir
+
+    param = {"name": "x", "type": {"kind": "int"}}
+    fn = {"name": "__main__.f", "params": [param], "returnType": {"kind": "int"}}
+    assert _ir._fn_name(fn) == "__main__.f"
+    assert _ir._fn_params(fn) == [param]
+    assert _ir._fn_params({"name": "g", "params": []}) == []
+
+
 def test_every_emitter_area_lives_in_its_own_module() -> None:
     """Each area of the emission owns one file, so a change has one home."""
 
