@@ -601,8 +601,10 @@ class CoroMixin:
         recvs: list[str] = self.__dict__.setdefault("_coro_recvs", [])
         name = f".ps_recv_{len(recvs) + 1}"
         recvs.append(name)
-        if send_t.get("kind") != "none":
-            self.locals[name] = send_t
+        # The temp is a frame local either way: with a send type it holds
+        # what `send()` stored, with None it holds the None singleton
+        # `next()` delivers.
+        self.locals[name] = send_t
         return name
 
     def _coro_yield(
@@ -1415,9 +1417,18 @@ class _Frame:
             if recv is not None:
                 # A yield used as an expression: the sent value (`.ps_send`,
                 # stored by `send()`) lands in the recv temp the lowering
-                # allocated for the marker's continuation.
+                # allocated for the marker's continuation. A frame whose
+                # send type is None has no `.ps_send` field and no `send()`
+                # method: `next()` delivers None, so the recv temp is the
+                # None singleton.
                 typ = stmt["expr"].get("recvType", dict(_NONE))
-                arrive.append(_assign(recv, self.field_get(SEND, typ, span), span))
+                arrive.append(
+                    _assign(
+                        recv,
+                        _const(None, typ, span) if typ.get("kind") == "none" else self.field_get(SEND, typ, span),
+                        span,
+                    )
+                )
             return [_if(self.fresh(span), leave, arrive, span)]
         if kind == "if":
             taken = self.temp("if", _BOOL)
