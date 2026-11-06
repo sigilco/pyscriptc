@@ -48,7 +48,7 @@ SUPPORT_INPUTS = (
     "data/compat/",
 )
 
-CENSUS_INPUTS = ("src/pyscriptc/", "tests/census_pins.json")
+CENSUS_INPUTS = ("src/pyscriptc/", "tests/census_pins")
 
 MARKDOWN = (".md", ".markdown", ".mdx")
 CONFLICT = re.compile(r"^(<{7}|>{7})( |$)|^={7}$")
