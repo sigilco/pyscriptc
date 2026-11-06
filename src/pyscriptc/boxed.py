@@ -24,6 +24,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from pyscriptc.emit._ir import _flag_of, _has, _node_name, _opt_record, _str_map
+
 # The execution planes of the plane map (plan Decision D).
 NATIVE = "native"
 ISLAND = "island"
@@ -91,7 +93,7 @@ def plane_map(
         top_level_island = True
     planes = {}
     for record in functions:
-        name = record["name"] if isinstance(record, dict) else str(record)
+        name = _node_name(record) if isinstance(record, dict) else str(record)
         if name == entry or (name.startswith("__") and name.endswith("__")):
             continue
         planes[name] = ISLAND if name in fenced or top_level_island else NATIVE
@@ -104,8 +106,11 @@ def plane_map(
     class_planes: dict[str, str] = {}
     island_classes: set[str] = set()
     for record in classes or []:
-        name = record["name"] if isinstance(record, dict) else str(record)
-        decided = record.get("island") if isinstance(record, dict) else None
+        name = _node_name(record) if isinstance(record, dict) else str(record)
+        if isinstance(record, dict) and _has(record, "island"):
+            decided = _flag_of(record, "island")
+        else:
+            decided = None
         if decided is not None:
             is_island = bool(decided)
         else:
@@ -207,7 +212,7 @@ def island_class_type(name: str) -> dict[str, Any]:
 def island_names(planes: dict[str, Any]) -> list[str]:
     """The definitions the plane map routes to the island, in map order."""
 
-    return [name for name, plane in planes.get("functions", {}).items() if plane == ISLAND]
+    return [name for name, plane in _str_map(planes, "functions").items() if plane == ISLAND]
 
 
 # The fallback tier of the running compile, module-level like the island
@@ -310,8 +315,8 @@ def is_island_diagnostic(
     if enclosing is None:
         return top_level_island
 
-    fns = plane_map.get("functions", {})
-    cls = plane_map.get("classes", {})
+    fns = _str_map(plane_map, "functions")
+    cls = _str_map(plane_map, "classes")
     if enclosing in fns:
         return fns[enclosing] == ISLAND
     if enclosing in cls:
@@ -467,10 +472,10 @@ def program_island_module(source: str, root: Path) -> dict[str, Any]:
 def unit_needs_island(module: dict[str, Any]) -> bool:
     """True when one unit's own plan put anything on the island."""
 
-    plan = module.get("fallback") or {}
+    plan = _opt_record(module, "fallback") or {}
     return (
         plan.get("moduleTopLevel") == ISLAND
-        or ISLAND in plan.get("functions", {}).values()
-        or ISLAND in plan.get("classes", {}).values()
+        or ISLAND in _str_map(plan, "functions").values()
+        or ISLAND in _str_map(plan, "classes").values()
         or bool(module.get("islandSource"))
     )
