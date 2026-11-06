@@ -377,8 +377,8 @@ jobs:
       - name: Install betterleaks 1.9.0
         run: |
           set -euo pipefail
-          curl -fsSL https://github.com/Betterleaks/betterleaks/releases/download/v1.9.0/betterleaks_1.9.0_linux_x64.tar.gz -o /tmp/betterleaks_1.9.0_linux_x64.tar.gz
-          curl -fsSL https://github.com/Betterleaks/betterleaks/releases/download/v1.9.0/checksums.txt -o /tmp/checksums.txt
+          curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors https://github.com/Betterleaks/betterleaks/releases/download/v1.9.0/betterleaks_1.9.0_linux_x64.tar.gz -o /tmp/betterleaks_1.9.0_linux_x64.tar.gz
+          curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors https://github.com/Betterleaks/betterleaks/releases/download/v1.9.0/checksums.txt -o /tmp/checksums.txt
           (cd /tmp && grep betterleaks_1.9.0_linux_x64.tar.gz checksums.txt | sha256sum -c -)
           sudo tar -xzf /tmp/betterleaks_1.9.0_linux_x64.tar.gz -C /usr/local/bin betterleaks
   # Stage-2 fixed-point lane (issue #831, roadmap R6): the compiler tree is
@@ -512,7 +512,7 @@ jobs:
             *) echo "no pinned sha256 for zig $version" >&2; exit 1 ;;
           esac
           [ -f "/tmp/zig-$version.tar.xz" ] || \
-            curl -fsSL "https://ziglang.org/download/$version/zig-x86_64-linux-$version.tar.xz" -o "/tmp/zig-$version.tar.xz"
+            curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors "https://ziglang.org/download/$version/zig-x86_64-linux-$version.tar.xz" -o "/tmp/zig-$version.tar.xz"
           echo "$sha  /tmp/zig-$version.tar.xz" | sha256sum -c -
           sudo tar -xJf "/tmp/zig-$version.tar.xz" -C /usr/local
           echo "/usr/local/zig-x86_64-linux-$version" >> "$GITHUB_PATH"
@@ -580,23 +580,35 @@ jobs:
         run: |
           set -euo pipefail
           [ -f /tmp/zig.tar.xz ] || \
-            curl -fsSL https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz -o /tmp/zig.tar.xz
+            curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz -o /tmp/zig.tar.xz
           echo "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00  /tmp/zig.tar.xz" | sha256sum -c -
           sudo tar -xJf /tmp/zig.tar.xz -C /usr/local
           echo "/usr/local/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
+      - name: Cache wasmtime tarball
+        uses: actions/cache@v5
+        with:
+          path: /tmp/wasmtime.tar.xz
+          key: wasmtime-v50.0.0-x86_64-linux
       - name: Install wasmtime v50.0.0
         run: |
           set -euo pipefail
-          curl -fsSL https://github.com/bytecodealliance/wasmtime/releases/download/v50.0.0/wasmtime-v50.0.0-x86_64-linux.tar.xz -o /tmp/wasmtime.tar.xz
+          [ -f /tmp/wasmtime.tar.xz ] || \
+            curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors https://github.com/bytecodealliance/wasmtime/releases/download/v50.0.0/wasmtime-v50.0.0-x86_64-linux.tar.xz -o /tmp/wasmtime.tar.xz
           tar -xJf /tmp/wasmtime.tar.xz -C /tmp
           echo "/tmp/wasmtime-v50.0.0-x86_64-linux" >> "$GITHUB_PATH"
       # The 0.2 lane: wasm-tools wraps the p1 core module into a component,
       # using the preview1 adapter that ships in the wasmtime release. The
       # compiler fetches and sha256-verifies the adapter itself.
+      - name: Cache wasm-tools tarball
+        uses: actions/cache@v5
+        with:
+          path: /tmp/wasm-tools.tar.gz
+          key: wasm-tools-1.262.0-x86_64-linux
       - name: Install wasm-tools 1.262.0
         run: |
           set -euo pipefail
-          curl -fsSL https://github.com/bytecodealliance/wasm-tools/releases/download/v1.262.0/wasm-tools-1.262.0-x86_64-linux.tar.gz -o /tmp/wasm-tools.tar.gz
+          [ -f /tmp/wasm-tools.tar.gz ] || \
+            curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors https://github.com/bytecodealliance/wasm-tools/releases/download/v1.262.0/wasm-tools-1.262.0-x86_64-linux.tar.gz -o /tmp/wasm-tools.tar.gz
           tar -xzf /tmp/wasm-tools.tar.gz -C /tmp
           echo "/tmp/wasm-tools-1.262.0-x86_64-linux" >> "$GITHUB_PATH"
       - uses: astral-sh/setup-uv@v6
@@ -824,7 +836,7 @@ jobs:
         run: |
           set -euo pipefail
           zip=/tmp/android-ndk-r28c-linux.zip
-          curl -fsSL https://dl.google.com/android/repository/android-ndk-r28c-linux.zip -o "$zip"
+          curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors https://dl.google.com/android/repository/android-ndk-r28c-linux.zip -o "$zip"
           echo "a7b54a5de87fecd125a17d54f73c446199e72a64  $zip" | sha1sum -c -
           unzip -q "$zip" -d /opt
           echo "PYSC_ANDROID_NDK=/opt/android-ndk-r28c" >> "$GITHUB_ENV"
