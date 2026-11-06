@@ -187,7 +187,7 @@ def test_print_to_stderr_links_and_writes_to_stderr(tmp_path: Path) -> None:
 def test_print_value_outside_the_scalar_set_fences() -> None:
     mod = lower_source(
         """
-items: list[int] = [1, 2]
+items: list[list[int]] = [[1, 2], [3]]
 print(items)
 """
     )

@@ -22,6 +22,11 @@ _TEMP_OPEN = {**_OPEN, "w+": 7, "w+b": 8}
 
 _PRINT_KINDS = {"str", "int", "float", "bool", "bytes"}
 
+# The `%ps.arg` kind codes the runtime reprs read (ps_fmt.c): a PsSeq cell
+# is only a byte size, so the element kind has to ride the call.
+_SEQ_KIND_CODES = {"int": 1, "float": 2, "str": 3, "bool": 4, "bytes": 6}
+_MAP_VALUE_CODES = {"int": 1, "float": 2, "str": 3, "bytes": 6}
+
 
 def _printable(lo: Any, typ: dict[str, Any]) -> bool:
     """printable: a scalar or a tuple class whose fields are all printable."""
@@ -31,6 +36,34 @@ def _printable(lo: Any, typ: dict[str, Any]) -> bool:
     if typ["kind"] == "class" and lo.classes.get(typ["name"], {}).get("tuple"):
         return all(_printable(lo, field["type"]) for field in lo.classes[typ["name"]]["fields"])
     return False
+
+
+def _container_repr(lo: Any, arg: dict[str, Any], span: dict[str, Any]) -> dict[str, Any] | None:
+    """A print argument that is a list, set or dict rewrites to its repr str.
+
+    `str(container)` is `repr(container)` for these types, so the argument
+    becomes a `ps_seq_repr`/`ps_map_repr` abi call whose str result the
+    ordinary print walk emits. Element kinds stay at the scalar leaves the
+    runtime repr covers; every other shape keeps the PS2003 fence.
+    """
+
+    typ = arg["type"]
+    kind = typ["kind"]
+    if kind == "dict":
+        key = typ["key"]["kind"]
+        value = typ["value"]["kind"]
+        if key not in {"int", "str"} or value not in _MAP_VALUE_CODES:
+            return None
+        vkind = _const_int(_MAP_VALUE_CODES[value], span)
+        return lo._abi_call("builtins", "map_repr", [arg, vkind], {"kind": "str"}, "ps_map_repr", span)
+    if kind == "list":
+        elem = typ["elem"]["kind"]
+        if elem not in _SEQ_KIND_CODES:
+            return None
+        ekind = _const_int(_SEQ_KIND_CODES[elem], span)
+        is_set = _const_int(1 if typ.get("set") else 0, span)
+        return lo._abi_call("builtins", "seq_repr", [arg, ekind, is_set], {"kind": "str"}, "ps_seq_repr", span)
+    return None
 
 
 def _print(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
@@ -77,6 +110,10 @@ def _print(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
                 if called is not None:
                     args[index] = called
                     continue
+            container = _container_repr(lo, arg, span)
+            if container is not None:
+                args[index] = container
+                continue
             lo.fail(
                 node,
                 "PS2003",
