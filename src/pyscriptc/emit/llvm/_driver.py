@@ -18,6 +18,7 @@ from typing import Any
 
 from pyscriptc import embed, rtcache, zigshim
 from pyscriptc.dwarf import DwarfEmitter
+from pyscriptc.emit._ir import _items, _name_list, _opt_module_fallback, _opt_str, _opt_str_or_none
 from pyscriptc.emit.llvm._abi import AbiMixin
 from pyscriptc.emit.llvm._calls import CallsMixin
 from pyscriptc.emit.llvm._core import CoreMixin
@@ -91,7 +92,7 @@ def emit_llvm(
     and `%.*s` printf lengths truncate to i32 (wasm32 varargs are 32-bit).
     """
     assert_same_cpython(module)
-    if module["fences"]:
+    if _name_list(module, "fences"):
         raise IRError("refusing to emit LLVM while fences are present")
     # boxed:begin
     # The island top level (issue #613): the module body runs island-side,
@@ -99,16 +100,22 @@ def emit_llvm(
     # alone, emitted as the no-op main with the island prologue. Native
     # functions that lowered clean may stay in the IR (the emitter skips
     # them); the seed's namespace holds the real definitions.
-    if module.get("fallback", {}).get("moduleTopLevel") == "island" and call is None and not (library or binding):
-        dwarf = DwarfEmitter(module["sourceFile"]) if debug_info else None
+    fallback = _opt_module_fallback(module)
+    if (
+        fallback is not None
+        and _opt_str_or_none(fallback, "moduleTopLevel") == "island"
+        and call is None
+        and not (library or binding)
+    ):
+        dwarf = DwarfEmitter(_opt_str(module, "sourceFile")) if debug_info else None
         emitter = Emitter(module, dwarf, wasm=wasm)
         emitter.library = library
         emitter.binding = binding
         return emitter.emit_top_island()
     # boxed:end
-    if not module["functions"]:
+    if not _items(module, "functions"):
         raise IRError("module has no functions to emit")
-    dwarf = DwarfEmitter(module["sourceFile"]) if debug_info else None
+    dwarf = DwarfEmitter(_opt_str(module, "sourceFile")) if debug_info else None
     return Emitter(module, dwarf, wasm=wasm).emit(
         call, [] if args is None else args, standalone, library=library, binding=binding
     )
