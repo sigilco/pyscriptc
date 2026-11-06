@@ -6,7 +6,16 @@ from __future__ import annotations
 
 from typing import Any
 
-from pyscriptc.emit._ir import _elem_kind, _is_optional, _kind, _llvm_type
+from pyscriptc.emit._ir import (
+    _elem_kind,
+    _elem_type,
+    _is_optional,
+    _kind,
+    _llvm_type,
+    _map_value_type,
+    _node_args,
+    _type_of,
+)
 from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.errors import IRError
 from pyscriptc.sigrec import sig_for
@@ -207,7 +216,7 @@ class StdlibMixin(EmitterBase):
             for index, (value, arg) in enumerate(payload):
                 base = self.tmp()
                 self.line(f"{base} = getelementptr [{count} x %ps.arg], ptr {slot}, i64 0, i64 {index}")
-                self._store_ps_arg(base, value, arg["type"])
+                self._store_ps_arg(base, value, _type_of(arg))
             arg_ptr = self.tmp()
             self.line(f"{arg_ptr} = getelementptr [{count} x %ps.arg], ptr {slot}, i64 0, i64 0")
         return self._buf_out(
@@ -242,15 +251,15 @@ class StdlibMixin(EmitterBase):
             elif kind == "str":
                 entries[idx] = (3, 0)
             elif kind == "list":
-                child = add(node["elem"])
+                child = add(_elem_type(node))
                 entries[idx] = (4, child)
             elif kind == "dict":
-                child = add(node["value"])
+                child = add(_map_value_type(node))
                 entries[idx] = (5, child)
             elif kind == "float":
                 entries[idx] = (6, 0)
             elif _is_optional(node):
-                child = add(node["elem"])
+                child = add(_elem_type(node))
                 entries[idx] = (7, child)
             else:
                 raise IRError(f"no JSON type for {kind}")
@@ -299,7 +308,8 @@ class StdlibMixin(EmitterBase):
         return slot
 
     def _emit_copy_deep(self, expr: dict[str, Any], values: list[str]) -> str:
-        symbol, root = self._copy_global(expr["args"][0]["type"])
+        copy_args: list[dict[str, Any]] = _node_args(expr)
+        symbol, root = self._copy_global(_type_of(copy_args[0]))
         self._abi_decl("ps_copy_deep", "ptr", ["ptr", "i32", "ptr"])
         return self._call_ret("ptr", "ps_copy_deep", [f"ptr {symbol}", f"i32 {root}", f"ptr {values[0]}"])
 
@@ -319,10 +329,10 @@ class StdlibMixin(EmitterBase):
             elif kind == "bytes":
                 entries[idx] = (4, 0)
             elif kind == "list":
-                child = add(node["elem"])
+                child = add(_elem_type(node))
                 entries[idx] = (5, child)
             elif kind == "dict":
-                child = add(node["value"])
+                child = add(_map_value_type(node))
                 entries[idx] = (6, child)
             else:
                 raise IRError(f"no copy type for {kind}")

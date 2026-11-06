@@ -396,6 +396,23 @@ def test_the_seam_knows_the_container_accessors() -> None:
     assert _ir._is_optional({"kind": "int", "optional": False}) is False
 
 
+def test_the_seam_reads_stdlib_type_children() -> None:
+    """The type-record readers `_stdlib` uses: nested elem/value types and
+    the argument list a copy call carries."""
+    from pyscriptc.emit import _ir
+
+    list_t = {"kind": "list", "elem": {"kind": "int"}}
+    dict_t = {"kind": "dict", "key": {"kind": "str"}, "value": {"kind": "float"}}
+    opt_t = {"kind": "int", "optional": True, "elem": {"kind": "int"}}
+    assert _ir._elem_type(list_t) == {"kind": "int"}
+    assert _ir._elem_type(opt_t) == {"kind": "int"}
+    assert _ir._map_value_type(dict_t) == {"kind": "float"}
+    arg = {"kind": "name", "id": "xs", "type": list_t}
+    call = {"kind": "call", "args": [arg], "type": list_t}
+    assert _ir._node_args(call) == [arg]
+    assert _ir._type_of(arg) == list_t
+
+
 def test_every_emitter_area_lives_in_its_own_module() -> None:
     """Each area of the emission owns one file, so a change has one home."""
 
