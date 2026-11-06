@@ -33,6 +33,7 @@ Preview the internal notes with `mise run docs:internal` (a docmd dev server ove
 
 - [Checker bridge](design/checker-bridge.md)
 - [Coroutine lowering](design/coroutine-lowering.md)
+- [MIR adapter fallback telemetry](design/mir-adapter-telemetry.md)
 
 ## FFI
 
