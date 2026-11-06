@@ -104,3 +104,39 @@ def test_cli_json_matches_text_totals() -> None:
     assert f"{payload['percent']}%" in text
     names = [row["script"] for row in payload["scripts"]]
     assert names == sorted(names)
+
+
+def test_out_of_slice_reason_names_the_innermost_rejected_node(tmp_path: Path) -> None:
+    from pyscriptc.lower import lower_file
+
+    mod = _load()
+    src = tmp_path / "reasons.py"
+    src.write_text(
+        "def leaf(a: int) -> int:\n    return a + 1\n\n\n"
+        "def calls(a: int) -> int:\n    return leaf(a) + 1\n\n\n"
+        "def text(a: int) -> str:\n    return str(a)\n\n\n"
+        "def bits(a: int) -> int:\n    if a > 0:\n        return a & 3\n    return a\n",
+        encoding="utf-8",
+    )
+    module, _ = lower_file(str(src))
+    by_name = {fn["name"]: fn for fn in module["functions"]}
+    assert mod.out_of_slice_reason(by_name["leaf"]) is None
+    assert mod.out_of_slice_reason(by_name["calls"]) == "expr:call"
+    assert mod.out_of_slice_reason(by_name["text"]) == "return:str"
+    assert mod.out_of_slice_reason(by_name["bits"]) == "expr:binary & int"
+
+
+def test_reasons_cover_every_out_of_slice_function() -> None:
+    mod = _load()
+    report = mod.measure_corpus(VISIBLE_SCRIPTS)
+    reasons = report["reasons"]
+    assert sum(reasons.values()) == report["functions"] - report["in_slice"]
+    for row in report["scripts"]:
+        assert set(row["out_of_slice"]) == set(row["names"]) - set(row["in_slice_names"])
+    top = mod.top_reasons(report)
+    assert len(top) <= mod.TOP_REASONS
+    assert list(top.values()) == sorted(top.values(), reverse=True)
+    summary = mod.coverage_summary(report=report)
+    assert summary["out_of_slice"] == sum(reasons.values())
+    assert summary["reason_kinds"] == len(reasons)
+    assert "Out-of-slice reasons (top 10)" in mod.format_report(report)

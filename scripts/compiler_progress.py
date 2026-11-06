@@ -17,7 +17,7 @@ against a baseline snapshot (`--baseline FILE`). Without `--baseline` the
 snapshot is taken from `git origin/master~20`, and `--snapshot FILE` writes
 the current snapshot JSON for the next run's baseline. The table includes
 MIR leaf-slice coverage over the visible corpus scripts
-(`scripts/mir_coverage.py`).
+(`scripts/mir_coverage.py`) and its top out-of-slice reasons.
 """
 
 from __future__ import annotations
@@ -122,15 +122,25 @@ def mir_coverage_summary() -> dict[str, int]:
     return _load_mir_coverage().coverage_summary()
 
 
+def mir_coverage_and_reasons() -> tuple[dict[str, int], dict[str, int]]:
+    """Coverage counters and the top out-of-slice reasons from one corpus walk."""
+    mod = _load_mir_coverage()
+    report = mod.measure_corpus()
+    return mod.coverage_summary(report=report), mod.top_reasons(report)
+
+
 def snapshot(
     totals: dict[str, dict[str, int]],
     pins_path: Path,
     mir_coverage: dict[str, int] | None = None,
+    mir_reasons: dict[str, int] | None = None,
 ) -> dict[str, object]:
     """A JSON-serializable baseline snapshot: per-seam totals plus per-seam fences."""
     snap: dict[str, object] = {"totals": totals, "fences": fence_seams(pins_path)}
     if mir_coverage is not None:
         snap["mir_coverage"] = mir_coverage
+    if mir_reasons is not None:
+        snap["mir_reasons"] = mir_reasons
     return snap
 
 
@@ -235,9 +245,26 @@ def markdown_trend(current: dict[str, object], baseline: dict[str, object] | Non
         "| metric | current | baseline | delta |",
         "|---|---:|---:|---:|",
     ]
-    for key in ("percent", "in_slice", "functions", "script_count"):
+    for key in ("percent", "in_slice", "functions", "script_count", "out_of_slice", "reason_kinds"):
         c, b = int(cur_m.get(key, 0)), int(base_m.get(key, 0))
         lines.append(f"| mir.{key} | {c} | {b} | {c - b:+d} |")
+    raw_cur_r = current.get("mir_reasons")
+    raw_base_r = (baseline or {}).get("mir_reasons")
+    cur_r = raw_cur_r if isinstance(raw_cur_r, dict) else {}
+    base_r = raw_base_r if isinstance(raw_base_r, dict) else {}
+    if cur_r:
+        lines += [
+            "",
+            "### MIR out-of-slice reasons (top 10)",
+            "",
+            "Innermost node the slice predicates reject, per non-fenced out-of-slice function.",
+            "",
+            "| reason | current | baseline | delta |",
+            "|---|---:|---:|---:|",
+        ]
+        for reason, count in cur_r.items():
+            c, b = int(count), int(base_r.get(reason, 0))
+            lines.append(f"| `{reason}` | {c} | {b} | {c - b:+d} |")
     return "\n".join(lines) + "\n"
 
 
@@ -292,11 +319,12 @@ def main() -> int:
         with args.summary.open("a", encoding="utf-8") as handle:
             handle.write(summary_markdown(totals, ROOT / "tests" / "census_pins.json"))
     coverage: dict[str, int] | None = None
+    reasons: dict[str, int] | None = None
     if args.snapshot is not None or args.markdown is not None:
-        coverage = mir_coverage_summary()
+        coverage, reasons = mir_coverage_and_reasons()
     if args.snapshot is not None:
         args.snapshot.write_text(
-            json.dumps(snapshot(totals, ROOT / "tests" / "census_pins.json", coverage), indent=2) + "\n",
+            json.dumps(snapshot(totals, ROOT / "tests" / "census_pins.json", coverage, reasons), indent=2) + "\n",
             encoding="utf-8",
         )
     if args.markdown is not None:
@@ -310,7 +338,7 @@ def main() -> int:
         with args.markdown.open("a", encoding="utf-8") as handle:
             handle.write(
                 markdown_trend(
-                    snapshot(totals, ROOT / "tests" / "census_pins.json", coverage),
+                    snapshot(totals, ROOT / "tests" / "census_pins.json", coverage, reasons),
                     baseline,
                     label,
                 )

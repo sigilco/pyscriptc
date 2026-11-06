@@ -4,7 +4,10 @@
 For each program under `benchmarks/compat2/corpus/scripts` (the visible
 scripts split only), run `lower_file` and test `supported_fn` on every
 non-fenced IR function. Prints in-slice over that total, with a per-script
-breakdown.
+breakdown and the top out-of-slice reasons. A reason names the innermost
+node the slice predicates reject (`expr:call`, `stmt:for`, `param:list`,
+...); it is located by calling the same `supported_*` predicates on the
+children, so the verdict and the reason cannot drift apart.
 
     uv run python scripts/mir_coverage.py
     uv run python scripts/mir_coverage.py --json
@@ -40,10 +43,93 @@ def _fenced_names(module: dict[str, object]) -> set[str]:
     return names
 
 
+_SCALARS = ("int", "float", "bool")
+_EXPR_CHILDREN = ("operand", "left", "right")
+_STMT_EXPRS = ("value", "expr", "cond")
+_STMT_BODIES = ("then", "else", "body")
+TOP_REASONS = 10
+
+
+def _expr_label(expr: dict[str, object]) -> str:
+    kind = str(expr.get("kind"))
+    typ = expr.get("type")
+    tkind = typ.get("kind") if isinstance(typ, dict) else None
+    op = expr.get("op")
+    if kind in ("binary", "compare", "unary") and isinstance(op, str):
+        return f"expr:{kind} {op} {tkind}"
+    if kind in ("const", "name"):
+        return f"expr:{kind} {tkind}"
+    return f"expr:{kind}"
+
+
+def _expr_reason(expr: dict[str, object]) -> str:
+    """The innermost rejected node under an expression `supported_expr` rejects."""
+    from pyscriptc.mirlower import supported_expr
+
+    for key in _EXPR_CHILDREN:
+        child = expr.get(key)
+        if isinstance(child, dict) and "kind" in child and not supported_expr(child):
+            return _expr_reason(child)
+    return _expr_label(expr)
+
+
+def _stmt_reason(stmt: dict[str, object]) -> str:
+    """The innermost rejected node under a statement `supported_stmt` rejects."""
+    from pyscriptc.mirlower import supported_expr, supported_stmt
+
+    for key in _STMT_EXPRS:
+        child = stmt.get(key)
+        if isinstance(child, dict) and "kind" in child:
+            ctyp = child.get("type")
+            if isinstance(ctyp, dict) and ctyp.get("kind") == "none" and key != "cond":
+                if child.get("kind") not in ("const", "name"):
+                    return f"{_expr_label(child)} (none-typed)"
+                continue
+            if not supported_expr(child):
+                return _expr_reason(child)
+    for key in _STMT_BODIES:
+        body = stmt.get(key)
+        if not isinstance(body, list):
+            continue
+        for inner in body:
+            if isinstance(inner, dict) and not supported_stmt(inner):
+                return _stmt_reason(inner)
+    return f"stmt:{stmt.get('kind')}"
+
+
+def out_of_slice_reason(fn: dict[str, object]) -> str | None:
+    """Why `supported_fn` rejects `fn`, or None when it is in the slice.
+
+    The first failing check wins, in `supported_fn`'s own order: closure
+    env, return type, params, locals, then the first rejected statement.
+    """
+    from pyscriptc.mirlower import supported_fn, supported_stmt
+
+    if supported_fn(fn):
+        return None
+    if fn.get("env") is not None:
+        return "fn:closure env"
+    rt = fn.get("returnType")
+    rtk = rt.get("kind") if isinstance(rt, dict) else None
+    if rtk != "none" and rtk not in _SCALARS:
+        return f"return:{rtk}"
+    for key, label, allow_none in (("params", "param", False), ("locals", "local", True)):
+        entries = fn.get(key) or []
+        for entry in entries if isinstance(entries, list) else []:
+            typ = entry.get("type") if isinstance(entry, dict) else None
+            kind = typ.get("kind") if isinstance(typ, dict) else None
+            if kind not in _SCALARS and not (allow_none and kind == "none"):
+                return f"{label}:{kind}"
+    body = fn.get("body") or []
+    for stmt in body if isinstance(body, list) else []:
+        if isinstance(stmt, dict) and not supported_stmt(stmt):
+            return _stmt_reason(stmt)
+    return "fn:unclassified"
+
+
 def measure_script(path: Path) -> dict[str, object]:
     """Lower one script and score each non-fenced IR function."""
     from pyscriptc.lower import lower_file
-    from pyscriptc.mirlower import supported_fn
 
     module, _source = lower_file(str(path))
     fenced = _fenced_names(module)
@@ -52,6 +138,7 @@ def measure_script(path: Path) -> dict[str, object]:
         functions = []
     counted: list[str] = []
     in_slice: list[str] = []
+    reasons: dict[str, str] = {}
     for fn in functions:
         if not isinstance(fn, dict):
             continue
@@ -59,8 +146,11 @@ def measure_script(path: Path) -> dict[str, object]:
         if not isinstance(name, str) or name in fenced:
             continue
         counted.append(name)
-        if supported_fn(fn):
+        reason = out_of_slice_reason(fn)
+        if reason is None:
             in_slice.append(name)
+        else:
+            reasons[name] = reason
     counted.sort()
     in_slice.sort()
     return {
@@ -70,6 +160,7 @@ def measure_script(path: Path) -> dict[str, object]:
         "in_slice": len(in_slice),
         "names": counted,
         "in_slice_names": in_slice,
+        "out_of_slice": dict(sorted(reasons.items())),
     }
 
 
@@ -80,8 +171,15 @@ def measure_corpus(scripts_root: Path | None = None) -> dict[str, object]:
     functions = sum(int(row["functions"]) for row in rows)
     in_slice = sum(int(row["in_slice"]) for row in rows)
     percent = 0 if functions == 0 else int(round(100 * in_slice / functions))
+    counts: dict[str, int] = {}
+    for row in rows:
+        row_reasons = row["out_of_slice"]
+        if isinstance(row_reasons, dict):
+            for reason in row_reasons.values():
+                counts[str(reason)] = counts.get(str(reason), 0) + 1
     return {
         "scripts": rows,
+        "reasons": dict(sorted(counts.items(), key=lambda item: (-item[1], item[0]))),
         "script_count": len(rows),
         "functions": functions,
         "in_slice": in_slice,
@@ -105,13 +203,31 @@ def format_report(report: dict[str, object]) -> str:
             name_s = ",".join(names) if isinstance(names, list) else ""
             lines.append(f"{str(row['script']):24} {int(row['in_slice']):8d} {int(row['functions']):9d}  {name_s}")
     lines.append(f"{'TOTAL':24} {int(report['in_slice']):8d} {int(report['functions']):9d}  {int(report['percent'])}%")
+    reasons = top_reasons(report)
+    if reasons:
+        lines += ["", f"Out-of-slice reasons (top {TOP_REASONS})", "", f"{'count':>5}  reason"]
+        for reason, count in reasons.items():
+            lines.append(f"{count:5d}  {reason}")
     return "\n".join(lines) + "\n"
 
 
-def coverage_summary(scripts_root: Path | None = None) -> dict[str, int]:
+def top_reasons(report: dict[str, object], limit: int = TOP_REASONS) -> dict[str, int]:
+    """The `limit` most common out-of-slice reasons, count descending then name."""
+    reasons = report.get("reasons") or {}
+    if not isinstance(reasons, dict):
+        return {}
+    ranked = sorted(((str(k), int(v)) for k, v in reasons.items()), key=lambda item: (-item[1], item[0]))
+    return dict(ranked[:limit])
+
+
+def coverage_summary(scripts_root: Path | None = None, report: dict[str, object] | None = None) -> dict[str, int]:
     """Compact counters for the compiler-progress trend snapshot."""
-    report = measure_corpus(scripts_root)
+    if report is None:
+        report = measure_corpus(scripts_root)
+    reasons = report.get("reasons") or {}
     return {
+        "out_of_slice": int(report["functions"]) - int(report["in_slice"]),
+        "reason_kinds": len(reasons) if isinstance(reasons, dict) else 0,
         "functions": int(report["functions"]),
         "in_slice": int(report["in_slice"]),
         "percent": int(report["percent"]),
