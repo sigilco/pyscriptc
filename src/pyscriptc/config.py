@@ -267,12 +267,9 @@ class Config:
         if isinstance(self.island, dict):
             if "embed" in self.island:
                 value: str = self.island["embed"]
-                from pyscriptc.embed import MODES
-
                 table = "pyscriptc.island" if self.source == "pyscriptc.toml" else "tool.pyscriptc.island"
-                if value not in MODES:
-                    modes_str: str = "|".join(MODES)
-                    raise ConfigError(f"{table}.embed must be one of {modes_str}, got {value!r}")
+                if value != "host" and value != "bundle" and value != "auto":
+                    raise ConfigError(f"{table}.embed must be one of host|bundle|auto, got {value!r}")
                 return str(value)
         return None
 
@@ -282,12 +279,9 @@ class Config:
         if isinstance(self.island, dict):
             if "stdlib" in self.island:
                 value: str = self.island["stdlib"]
-                from pyscriptc.stdlibzip import STDLIB_MODES
-
                 table = "pyscriptc.island" if self.source == "pyscriptc.toml" else "tool.pyscriptc.island"
-                if value not in STDLIB_MODES:
-                    stdlib_modes_str: str = "|".join(STDLIB_MODES)
-                    raise ConfigError(f"{table}.stdlib must be one of {stdlib_modes_str}, got {value!r}")
+                if value != "safe" and value != "minimal":
+                    raise ConfigError(f"{table}.stdlib must be one of safe|minimal, got {value!r}")
                 return str(value)
         return None
 

@@ -11,7 +11,7 @@
   "pyscriptc.cli": 8,
   "pyscriptc.cli._main": 553,
   "pyscriptc.cli._report": 12,
-  "pyscriptc.config": 29,
+  "pyscriptc.config": 25,
   "pyscriptc.coro": 328,
   "pyscriptc.coverage": 59,
   "pyscriptc.debug": 72,
