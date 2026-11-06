@@ -28,7 +28,7 @@ def test_fallback_records_carry_function_module_reason(tmp_path: Path) -> None:
     src = tmp_path / "adapter.py"
     src.write_text(
         "def leaf(a: int) -> int:\n    return a + 1\n\n\n"
-        "def text(a: int) -> str:\n    return str(a)\n\n\n"
+        'def text(a: int) -> bytes:\n    return b"x"\n\n\n'
         "def bits(a: int) -> int:\n    if a > 0:\n        return a & 3\n    return a\n",
         encoding="utf-8",
     )
@@ -41,7 +41,7 @@ def test_fallback_records_carry_function_module_reason(tmp_path: Path) -> None:
     for record in fallbacks:
         assert set(record) == {"module", "function", "reason"}
         assert record["module"] == module["sourceFile"]
-    assert by_function["text"]["reason"] == "return:str"
+    assert by_function["text"]["reason"] == "return:bytes"
     assert "leaf" not in by_function
     # `int &` joined the leaf slice in #1016, so `bits` rides the MIR lane.
     assert "bits" not in by_function
@@ -54,7 +54,7 @@ def test_callee_out_of_slice_reason(tmp_path: Path) -> None:
     records `fn:callee out of slice`, matching the coverage report."""
     src = tmp_path / "callee.py"
     src.write_text(
-        "def inner(a: int) -> int:\n    s = str(a)\n    return a\n\n\n"
+        'def inner(a: int) -> int:\n    s = b"x"\n    return a\n\n\n'
         "def outer(a: int) -> int:\n    return inner(a) + 1\n",
         encoding="utf-8",
     )
