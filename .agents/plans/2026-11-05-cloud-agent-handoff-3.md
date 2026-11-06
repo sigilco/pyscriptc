@@ -1,56 +1,51 @@
-# Cloud agent handoff 3: stdlib surface, bug fixes, bench and CI lanes
+# Cloud agent handoff 3: new-compiler-only work (restlower to typed nodes, MIR design, MIR gates)
 
-Date: 2026-11-05. Epic for the compiler program: #817. This batch is the independent product backlog; it does not touch the compiler re-architecture files. Batches 1 and 2 (`2026-11-05-cloud-agent-handoff.md`, `-2.md`) own the emit seam, MIR, A/B harness, coverage metric, self-host fences and typed-HIR passes; local sessions own A1, C1 to C4 and B3/B4.
+Date: 2026-11-05. Epic: #817. Milestone: v0.9.0. Replaces the earlier draft of this batch (old-architecture stdlib, bug and bench work), which is deferred so the old and new architectures do not drift further apart. Every task here moves code onto the typed HIR or the MIR, or designs the next MIR step. No task adds new surface written against the dict IR.
+
+Other work in flight (do not touch): batch 1 (`2026-11-05-cloud-agent-handoff.md`: emit seam B5 to B8, A/B harness B9, coverage metric A12/D6, spike S1), batch 2 (`-2.md`: U2, self-host fences, typed-HIR passes, observability), local sessions A1 (MIR None returns), C1 to C4 (runtime parity, edits `restlower/_system.py` and `restlower/__init__.py`), and the emit seam PRs.
 
 ## Rules for every task
 
-- Read `AGENTS.md` first; obey its guard rules. One branch and one PR per issue, base `master`.
-- Planning lives in GitHub: these issues sit in milestone `v0.10.0`. The PR carries the same milestone and `Closes #N`. Do not change milestones, issue bodies or the board.
-- Documentation policy: user docs state divergences from CPython and known gaps, never feature lists. When support changes, update the affected divergence or gap entry in the same PR. Support state lives on the compat site data.
-- Master is PR only. Never tag or release. No co-author trailers. Conventional atomic commits, one commit per verified unit.
-- Do not edit frozen gate files (`benchmarks/compat2/outcomes.py`, `score.py`, `coverage_map.py`, `cache.py`, `calibrate.py`, `CALIBRATION.json`, `TRIAGE.md`, `probes/*.jsonl`, `probes/IR_HASHES.json`, `probes/TIR_HASHES.json`, `canonical.py` rules). If a change would alter an IR or TIR hash or needs a probe edit, stop and write the blocker in the PR.
-- Never read or ask for any closed corpus split; work from the visible corpus only.
-- New stdlib or construct support lands with a differential probe against CPython 3.14 (the target, see `docs/reference/divergences.md`). Do not assume 3.12 or the host interpreter.
-- Gates before every commit: `uv run ruff check`, `uv run ruff format --check`, the tests the task names, and `tests/test_census_self.py`. Run the CI selection with `uv run pytest -n auto -m "not linux_container" --ignore=tests/compat2`. Repin census pins only when a count moves, with the repin script.
+- Read `AGENTS.md` first; obey its guard rules. One branch and PR per task, base `master`, milestone `v0.9.0`, body ends `Refs #817`. Never push to master, tag or release. No co-author trailers. Conventional atomic commits.
+- No GitHub issue, milestone or board edits. Do not edit frozen gate files (`benchmarks/compat2/outcomes.py`, `score.py`, `coverage_map.py`, `cache.py`, `calibrate.py`, `CALIBRATION.json`, `TRIAGE.md`, `probes/*.jsonl`, `probes/IR_HASHES.json`, `probes/TIR_HASHES.json`, `canonical.py` rules). If a change would alter an IR or TIR hash, stop and write the blocker in the PR.
+- Gates before every commit: `uv run ruff check`, `uv run ruff format --check`, `tests/test_emitter_goldens.py` (byte identical, no re-bless), `tests/test_mir_leaf.py`, `compiles_itself`, `no_import_cycle`, `tests/test_census_self.py`. Census pins are per module (`tests/census_pins.json`); repin with `scripts/repin_census.py` only when a count moves.
 - No absolute home paths in repo notes.
 
-## First step for every task
+## Group P2: `restlower/` builds typed nodes (drop package P2)
 
-Read the issue and check master: if the work is already done or the issue is stale, write one line in the PR description of a docs-free no-op PR or comment on the issue, and move to the next task instead of inventing work.
+`restlower/` is 36 modules, about 6,100 lines and about 100 raw `["kind"]` reads. The seam tracker never counted it. The goal is that each module reads and builds typed `_irnode` values through accessors/builders instead of dict keys, with identical emitted IR.
 
-## Group S: stdlib surface (runtime C and `restlower/`; conflicts only inside the same stdlib module)
+- P2-0 (pilot, do first, merge before the rest): `_shared.py` plus one small module (`_time.py`). Establish the pattern: which accessors and builders to use, and a seam test (see `tests/test_emitter_package.py` for the style) asserting the converted modules have no raw node-key reads. Write the pattern in the PR description so later tasks follow it.
+- P2-1 after P2-0 merges, one PR per module, any order: `_datetime`, `_pathlib`, `_copy`, `_textwrap`, `_csv`, `_dotenv`, `_hmac`, `_operator`, `_orjson`, `_ospath`, `_jwt`, `_random`.
+- P2-2 one PR per module: `_collections`, `_functools`, `_subprocess`, `_io`, `_folds`, `_asyncio`, `_builtins`, `_queue`, `_urllib`.
+- P2-3 larger modules, one PR each, only after P2-1 is mostly merged: `_minmax`, `_iterators`, `_asyncio_sync`, `_threading`, `_argparse`, `_itertools`.
+- Excluded for now: `_system.py` and `restlower/__init__.py` (a local session is editing them; revisit after it merges).
 
-- S-a #509 `os.walk`, `json.load` and `time.perf_counter` (the collector surface). One PR per function if they touch different files.
-- S-b #485 a closed `selectors` subset over the `ps_loop` event loop.
-- S-c #877 pick the two smallest of flock, symlink, mkstemp, chown from the native ops-script surface; leave `Popen` and `tarfile` for later.
-- S-d #502 import rows only: `platform` and `calendar`. Skip `zipfile` and `tarfile` here.
+Done per module: no raw node-key reads left, goldens byte identical, the IR for the module's tests unchanged (compare `--emit ir` before and after on the tests that exercise it), census pin moved only if the count moved.
 
-## Group B: bug fixes (each is one file area)
+## Group M: MIR design notes (docs only, no code)
 
-- B-a #764 a non-identifier module file must not refuse the whole tree scan.
-- B-b #765 a program island must not keep the binary path in `argv[0]` (breaks argparse prog).
-- B-c #484 the coverage tool must not crash on a dependency tree; add a regression test with a small fixture tree.
-- B-d #730 assess and coverage survive a real package tree (read after B-c, same area; do it second and rebase).
+Each is one note under the repo notes area used by other design notes, and ends with a concrete task breakdown of one-hour tasks plus the open decisions for the owner. Read `mir.py`, `mirlower.py`, `miremit.py`, `mirverify.py` and the decision `2026-11-02-mir-backend-only-contract.md` first. Measured baseline for context: 3 of 22 corpus functions are in the MIR slice today; 15 of 22 after None returns; about 18 of 22 after calls and short-circuit; 95 to 100 percent after str and list value types.
 
-## Group L: bench and CI lanes (scripts and workflows, no compiler code)
+- M-1 (A8) the str value type: operand encoding beyond int-only refs (value refs vs const-pool indices), what changes in `mir.py` and the digest gate, and the repin ritual cost.
+- M-2 (A9) list and dict value types, building on M-1.
+- M-3 (A10) try and handlers as a block-argument CFG, including how it interacts with fences and exception codes.
+- M-4 (A11) closures and env cells in MIR.
+- M-5 the MIR digest gate: how MIR hashes are recorded beside `TIR_HASHES.json`, the regen ritual, and what the nightly checks. Propose; do not edit gate files.
 
-- L-a #526 the verdict ratchet tracks a known wrong-output row instead of freezing it.
-- L-b #527 an unstripped-byte corpus comparison lane beside the stripped one.
-- L-c #506 a nightly lane that tracks the real-scripts corpus pass rate and publishes it on the ladder.
-- L-d #523 a differential probe lane in the nightly that byte-compares against CPython. Check #924 and the 2026-11-05 nightly state before starting; if the nightly is red for an unrelated cause, say so instead of changing thresholds.
+## Group G: MIR gates and tests (new files only)
 
-## Group E: embed docs (docs only)
+- G-1 negative tests for `mirverify.py`: one test per verifier rule, constructing a malformed MIR and asserting the diagnostic. New test file only; do not change `mirverify.py` unless a rule has no way to be reached, and then report instead.
+- G-2 a determinism test for the MIR lane: lower and emit each `tests/fixtures/mir_leaf/` fixture under three `PYTHONHASHSEED` values and assert identical output (the pattern of `tests/test_ll_hashseed.py`).
 
-- E-a #671 docs for the engine contract and what is not our responsibility. State what fails or is out of scope, not a feature list.
+## Out of scope
 
-## Explicitly out of scope
-
-Anything under `src/pyscriptc/lower/` (class constants #443, property setters #439, generators #437 to #442, protocol dispatch #445 and #446): the lowering modules are being split and fenced by other work. Anything in `emit/`, `mir*.py`, `_irnode.py`, `canonical.py`. Release cutting. GitHub housekeeping.
+Old-architecture stdlib surface, bug-fix and bench-lane work (deferred). Anything under `lower/` (being split and fenced elsewhere). `mir.py`, `mirlower.py`, `miremit.py`, `mirverify.py` edits beyond what a task above names (A1 is in flight locally). The default flip and decisions (owner). Release cutting.
 
 ## Order and conflicts
 
-Groups S, B, L and E touch different areas and merge in any order. Within a group, tasks touching the same file go sequentially (rebase on master first). If two PRs conflict on `tests/census_pins.json` or compat site data, rebase and regenerate, never hand-edit counts.
+P2-0 first; P2-1 to P2-3 modules touch separate files and merge in any order after it. M and G tasks are independent of P2. If a PR conflicts on `tests/census_pins.json`, rebase and repin, never hand-edit counts.
 
 ## Reporting
 
-Each PR states: the issue closed, gates run, census pins moved, probes added, and anything blocked. If a task does not finish inside an hour, write what remains and stop.
+Each PR states gates run, census pins moved, and anything blocked. If a task does not finish in an hour, write what remains and stop.
