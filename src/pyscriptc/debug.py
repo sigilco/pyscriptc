@@ -29,7 +29,7 @@ from pyscriptc.emit._ir import (
     _opt_str_or_none,
 )
 
-_TOPICS = {"stages", "fences", "cc", "paths", "verify", "all"}
+_TOPICS = {"stages", "fences", "cc", "paths", "verify", "mir", "all"}
 
 
 def parse_topics(value: str | None) -> set[str]:
@@ -63,6 +63,12 @@ def resolve(flag: str | None, debug_dir: str | None, timings: bool = False) -> D
 
 
 class Debug:
+    # The B11 MIR adapter record, set by the CLI only on the MIR lane:
+    # lowered/adapter counts plus the per-function fallback records. The
+    # bare annotation registers the field; `self.x: T = v` AnnAssigns do
+    # not lower, so `__init__` assigns a plain `None`.
+    mir_plan: dict[str, Any] | None
+
     def __init__(self, topics: set[str], debug_dir: Path | None) -> None:
         self.topics = topics
         self.debug_dir = debug_dir
@@ -84,6 +90,7 @@ class Debug:
         self.ir_verifications: list[dict[str, Any]] = []
         self.llvm_verification: dict[str, Any] | None = None
         self.binding_info: dict[str, Any] | None = None
+        self.mir_plan = None
 
     def set_binding(self, emitted: list[dict[str, Any]], skipped: list[tuple[str, str]]) -> None:
         self.binding_info = {
@@ -92,6 +99,28 @@ class Debug:
             "skipped": [{"name": name, "reason": reason} for name, reason in skipped],
             "skippedCount": len(skipped),
         }
+
+    def set_mir(self, lowered: int, records: list[dict[str, Any]]) -> None:
+        # Records print sorted by module then function. `sorted(key=)`
+        # does not lower on record elements, so the sort keys are plain
+        # strings looked back up in a name map.
+        keys: list[str] = []
+        record_by_key: dict[str, dict[str, Any]] = {}
+        for record in records:
+            record_module: str = record["module"]
+            record_fn: str = record["function"]
+            key = record_module + "\x00" + record_fn
+            keys.append(key)
+            record_by_key[key] = record
+        ordered: list[dict[str, Any]] = []
+        for key in sorted(keys):
+            rec: dict[str, Any] = record_by_key[key]
+            ordered.append(rec)
+        plan: dict[str, Any] = {}
+        plan["lowered"] = lowered
+        plan["adapter"] = len(ordered)
+        plan["records"] = ordered
+        self.mir_plan = plan
 
     def wants(self, topic: str) -> bool:
         return "all" in self.topics or topic in self.topics
@@ -140,6 +169,7 @@ class Debug:
 
     def render(self, module: dict[str, Any] | None, outputs: dict[str, str]) -> str:
         lines: list[str] = []
+        mir_plan = self.mir_plan
         if self.wants("stages"):
             lines.append("[debug] stage           ms    rssKB   nodes   funcs")
             for name, ms, primary in self.entries:
@@ -149,8 +179,19 @@ class Debug:
                 else:
                     funcs = _opt_int(stats, "functions", 0)
                     lines.append(f"[debug] {name:<12}{ms:>8.1f}{stats['rssKb']:>8}{stats['nodes']:>8}{funcs:>8}")
+                if name == "emit_llvm" and mir_plan is not None:
+                    mir_lowered: int = mir_plan["lowered"]
+                    mir_adapter: int = mir_plan["adapter"]
+                    lines.append(f"[debug] mir  lowered {mir_lowered}  adapter {mir_adapter}")
             total = (time.perf_counter() - self._t0) * 1000.0
             lines.append(f"[debug] {'total':<12}{total:>8.1f}")
+        if mir_plan is not None and self.wants("mir"):
+            records: list[dict[str, Any]] = mir_plan["records"]
+            for record in records:
+                record_module: str = record["module"]
+                record_fn: str = record["function"]
+                record_reason: str = record["reason"]
+                lines.append(f"[debug] mir.adapter {record_module}:{record_fn}  {record_reason}")
         if module is not None and self.wants("stages"):
             lines.extend(_capability_lines(module))
         if module is not None and self.wants("fences"):
@@ -210,6 +251,10 @@ class Debug:
             res["binding"] = self.binding_info
             if self.binding_info.get("skippedCount", 0) > 0:
                 res["bindingSkipped"] = self.binding_info["skippedCount"]
+        mir_plan = self.mir_plan
+        if mir_plan is not None:
+            mir_records: list[dict[str, Any]] = mir_plan["records"]
+            res["mirAdapter"] = mir_records
         # boxed:begin
         if module is not None and _has(module, "fallback"):
             res["fallback"] = module["fallback"]

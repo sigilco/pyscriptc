@@ -108,6 +108,8 @@ select = ["E", "F", "I", "UP", "B"]
 # every signature; the census lowerer does not resolve PEP 585 spellings).
 "src/pyscriptc/mirlower.py" = ["UP006", "UP035"]
 "src/pyscriptc/miremit.py" = ["UP006", "UP035"]
+# The B11 adapter keeps the same self-host `Dict` spell as the MIR lane.
+"src/pyscriptc/emit/_mir_in.py" = ["UP006", "UP035"]
 # Same self-host spell for the deps report row builder: the lowercase
 # `dict[str, Any]` return/local annotation fences PS1106 (the census
 # lowerer does not resolve PEP 585 spellings on a returned dict).

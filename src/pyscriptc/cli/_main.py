@@ -1745,6 +1745,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         dbg.begin("emit_llvm")
         emit_fn = emit_llvm
         extra: dict[str, Any] = {"binding": args.emit == "binding"}
+        mir_lane = False
         if args.emit != "binding":
             # The R4 strangler lane: HIR lowers to MIR and the LLVM text is
             # emitted from the MIR leaf slice. Opt-in only (PYSC_MIR); the
@@ -1754,6 +1755,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
 
             if mir_opt_in():
                 emit_fn, extra = emit_llvm_mir, {}
+                mir_lane = True
         llvm_text = emit_fn(
             module,
             args.call,
@@ -1765,6 +1767,18 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             **extra,
         )
         dbg.end("emit_llvm", module)
+        if mir_lane:
+            # The B11 adapter recorded the per-function MIR-or-direct
+            # verdict during the emit; hand it to the debug surface. Only
+            # the MIR lane produces a plan, so the direct compile prints
+            # nothing new.
+            from pyscriptc.emit._mir_in import last_plan
+
+            plan = last_plan()
+            if plan is not None:
+                lowered: int = plan["lowered"]
+                records: list[dict[str, Any]] = plan["fallbacks"]
+                dbg.set_mir(lowered, records)
         # The wasm thread refusal fires before the link, so a program that
         # cannot run threads on the target never reaches the compiler.
         refuse_unsupported_target(llvm_text, args.target)

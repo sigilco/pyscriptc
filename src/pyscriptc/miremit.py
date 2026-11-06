@@ -35,6 +35,7 @@ from typing import Any, Dict
 
 from pyscriptc.dwarf import DwarfEmitter
 from pyscriptc.emit._ir import _fn_symbol, _llvm_bytes, _llvm_double, _llvm_type, _safe
+from pyscriptc.emit._mir_in import plan_module
 from pyscriptc.emit.llvm._driver import Emitter
 from pyscriptc.errors import IRError
 from pyscriptc.ir import assert_same_cpython
@@ -87,7 +88,6 @@ from pyscriptc.mir import (
     copy_result_type,
     is_const_ref,
 )
-from pyscriptc.mirlower import lower_module
 
 # The MIR lane switch. One variable, three values the contract names:
 #   PYSC_MIR=1  (MIR_ON)  force the MIR lane
@@ -297,7 +297,11 @@ class MirEmitter:
     # ---- module driver ----
 
     def emit(self, call: str | None, args: list[Any], standalone: bool, library: bool) -> str:
-        mir_module = lower_module(self.module)
+        # The B11 adapter owns the per-function MIR-or-direct decision and
+        # records each fallback; `plan["mir"]` is the same `MirModule`
+        # `lower_module` produced, so the splice below is unchanged.
+        plan = plan_module(self.module)
+        mir_module: MirModule = plan["mir"]
         by_name = {fn.name: fn for fn in mir_module.functions}
         # The strangler seam: in-slice functions emit from the MIR, the
         # rest ride the direct emitter. One Emitter renders the whole
