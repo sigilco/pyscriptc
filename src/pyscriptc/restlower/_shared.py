@@ -62,6 +62,35 @@ def _t_leaf(kind: str) -> dict[str, Any]:
     return node_to_dict(_ir.t_leaf(kind))
 
 
+def _t_list(elem: dict[str, Any]) -> dict[str, Any]:
+    """The dict-IR `list` type one element type spells."""
+
+    return node_to_dict(_ir.t_list(dict_to_type(elem)))
+
+
+def _list_lit(elems: list[dict[str, Any]], elem: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The dict-IR list literal one element run spells."""
+
+    return node_to_dict(
+        _ir.list_lit([dict_to_node(item) for item in elems], _ir.t_list(dict_to_type(elem)), _mk_span(span))
+    )
+
+
+def _if_stmt(
+    cond: dict[str, Any], then: list[dict[str, Any]], else_: list[dict[str, Any]], span: dict[str, Any]
+) -> dict[str, Any]:
+    """The dict-IR if statement one condition and two arms spell."""
+
+    return node_to_dict(
+        _ir.if_stmt(
+            dict_to_node(cond),
+            [dict_to_node(item) for item in then],
+            [dict_to_node(item) for item in else_],
+            _mk_span(span),
+        )
+    )
+
+
 def _span_to(node: ast.AST, sub: ast.AST) -> ast.AST:
     """Copy a call's source span onto a synthesized expression, like the sorted block does."""
 
