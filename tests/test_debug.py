@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import subprocess
@@ -203,3 +204,33 @@ def test_stage_stats_absent_without_debug(tmp_path: Path) -> None:
     proc = run_cli("compile", str(EXAMPLES / "sum_squares.py"), "--emit", "llvm", "-o", str(out))
     assert proc.returncode == 0, proc.stderr
     assert "[debug]" not in proc.stderr
+
+
+_IR_KEYS = frozenset({"kind", "functions", "classes", "body", "span"})
+_SRC = ROOT / "src" / "pyscriptc"
+
+
+def _named_ir_reads(path: Path) -> int:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    count = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant) and node.slice.value in _IR_KEYS:
+            count += 1
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value in _IR_KEYS
+        ):
+            count += 1
+    return count
+
+
+def test_debug_has_no_raw_dict_ir_reads() -> None:
+    assert _named_ir_reads(_SRC / "debug.py") == 0
+
+
+def test_report_cli_has_no_raw_dict_ir_reads() -> None:
+    assert _named_ir_reads(_SRC / "cli" / "_report.py") == 0

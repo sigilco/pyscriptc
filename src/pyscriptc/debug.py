@@ -19,6 +19,16 @@ import time
 from pathlib import Path
 from typing import Any
 
+from pyscriptc.emit._ir import (
+    _has,
+    _items,
+    _kind_or_none,
+    _node_name,
+    _opt_int,
+    _opt_span,
+    _opt_str_or_none,
+)
+
 _TOPICS = {"stages", "fences", "cc", "paths", "verify", "all"}
 
 
@@ -77,7 +87,7 @@ class Debug:
 
     def set_binding(self, emitted: list[dict[str, Any]], skipped: list[tuple[str, str]]) -> None:
         self.binding_info = {
-            "emitted": [fn["name"] for fn in emitted],
+            "emitted": [_node_name(fn) for fn in emitted],
             "emittedCount": len(emitted),
             "skipped": [{"name": name, "reason": reason} for name, reason in skipped],
             "skippedCount": len(skipped),
@@ -97,7 +107,7 @@ class Debug:
             "ms": round(ms, 3),
             "rssKb": max(rss - self._rss_peak, 0),
             "nodes": _count_nodes(module),
-            "functions": 0 if module is None else len(module.get("functions", [])),
+            "functions": 0 if module is None else len(_items(module, "functions")),
         }
         self._rss_peak = max(self._rss_peak, rss)
 
@@ -137,20 +147,19 @@ class Debug:
                 if stats is None:
                     lines.append(f"[debug] {name:<12}{ms:>8.1f}")
                 else:
-                    lines.append(
-                        f"[debug] {name:<12}{ms:>8.1f}{stats['rssKb']:>8}{stats['nodes']:>8}{stats['functions']:>8}"
-                    )
+                    funcs = _opt_int(stats, "functions", 0)
+                    lines.append(f"[debug] {name:<12}{ms:>8.1f}{stats['rssKb']:>8}{stats['nodes']:>8}{funcs:>8}")
             total = (time.perf_counter() - self._t0) * 1000.0
             lines.append(f"[debug] {'total':<12}{total:>8.1f}")
         if module is not None and self.wants("stages"):
             lines.extend(_capability_lines(module))
         if module is not None and self.wants("fences"):
-            fences = module.get("fences", [])
+            fences = _items(module, "fences")
             lines.append(f"[debug] fences: {len(fences)}")
             for fence in fences:
-                span = fence.get("span", {})
+                span = _opt_span(fence) or {}
                 lines.append(
-                    f"[debug]   {span.get('file')}:{span.get('line')}:{span.get('col')}"
+                    f"[debug]   {_opt_str_or_none(span, 'file')}:{span.get('line')}:{span.get('col')}"
                     f" {fence.get('code')} {fence.get('message')}"
                 )
         if self.commands and self.wants("cc"):
@@ -186,8 +195,8 @@ class Debug:
             ],
             "timings": self.timings(),
             "totalMs": round((time.perf_counter() - self._t0) * 1000.0, 3),
-            "fences": [] if module is None else module.get("fences", []),
-            "functions": 0 if module is None else len(module.get("functions", [])),
+            "fences": [] if module is None else _items(module, "fences"),
+            "functions": 0 if module is None else len(_items(module, "functions")),
             "capabilities": {} if module is None else _capability_report(module),
             "commands": self.commands,
             "outputs": outputs,
@@ -202,7 +211,7 @@ class Debug:
             if self.binding_info.get("skippedCount", 0) > 0:
                 res["bindingSkipped"] = self.binding_info["skippedCount"]
         # boxed:begin
-        if module is not None and "fallback" in module:
+        if module is not None and _has(module, "fallback"):
             res["fallback"] = module["fallback"]
         # boxed:end
         return res
@@ -248,7 +257,7 @@ def _count_nodes(module: dict[str, Any] | None) -> int:
 
     def walk(value: Any) -> int:
         if isinstance(value, dict):
-            count = 1 if isinstance(value.get("kind"), str) else 0
+            count = 1 if isinstance(_kind_or_none(value), str) else 0
             return count + sum(walk(item) for item in value.values())
         if isinstance(value, list):
             return sum(walk(item) for item in value)
@@ -261,13 +270,15 @@ def _module_files(module: dict[str, Any]) -> list[str]:
     """Every source file the lowered module mentions."""
 
     files: set[str] = set()
-    for fence in module.get("fences", []):
-        path = fence.get("span", {}).get("file")
+    for fence in _items(module, "fences"):
+        span = _opt_span(fence) or {}
+        path = _opt_str_or_none(span, "file")
         if path:
             files.add(str(path))
     for key in ("functions", "classes"):
-        for item in module.get(key, []):
-            path = (item.get("span") or {}).get("file")
+        for item in _items(module, key):
+            span = _opt_span(item) or {}
+            path = _opt_str_or_none(span, "file")
             if path:
                 files.add(str(path))
     return sorted(files)
