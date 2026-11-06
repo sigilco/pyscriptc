@@ -75,6 +75,8 @@ LEAF_SAMPLES = [
         "leaflistfor.py",
         "leafprint.py",
         "leafprintsep.py",
+        "leafrec.py",
+        "leafbit.py",
     )
 ]
 
@@ -497,6 +499,51 @@ class TestPrintSlice:
         for i in print_calls:
             assert main_fn.helpers.get(i) == "print"
             assert main_fn.arg2[i] == MIR_VOID
+
+
+class TestRecursionSlice:
+    """The recursion slice: the module-level callee fixpoint is a greatest
+    fixpoint, so a self-call and a mutual-recursion pair admit each other
+    and lower to `MIR_CALL` byte-identical to the direct path (the
+    `leafrec.py` fixture pins the bytes through `LEAF_SAMPLES`)."""
+
+    def test_recursive_functions_lower_to_mir_call(self) -> None:
+        path = str(_FIXTURES / "leafrec.py")
+        module, _ = lower_file(path)
+        mir = lower_module(module)
+        by_name = {fn.name: fn for fn in mir.functions}
+        # `main` calls the admitted `print` builtin, so the whole module
+        # lowers: nothing is skipped.
+        assert mir.skipped == []
+        assert "main" in by_name
+        assert "fib" in by_name
+        assert "is_even" in by_name
+        assert "is_odd" in by_name
+        fib_fn = by_name["fib"]
+        assert MIR_CALL in fib_fn.ops
+        assert sorted(fib_fn.callees.values()) == ["fib"]
+        even_fn = by_name["is_even"]
+        assert sorted(even_fn.callees.values()) == ["is_odd"]
+        for fn in mir.functions:
+            assert verify_function(fn) == []
+
+    def test_caller_of_out_of_slice_callee_stays_out(self, tmp_path: Path) -> None:
+        # The greatest fixpoint must not admit a function whose callee is
+        # out of the slice by its own shape: `bad` calls the `abs`
+        # builtin, so it is not a candidate, and `wrap` stays out even
+        # though `wrap`'s own shape is leaf-clean.
+        src = tmp_path / "recbad.py"
+        src.write_text(
+            "def bad(n: int) -> int:\n    return abs(n)\n\n\n"
+            "def wrap(n: int) -> int:\n    return bad(n)\n\n\n"
+            "def main() -> None:\n    pass\n",
+            encoding="utf-8",
+        )
+        module, _ = lower_file(str(src))
+        mir = lower_module(module)
+        names = {fn.name for fn in mir.functions}
+        assert "bad" not in names
+        assert "wrap" not in names
 
 
 class TestShortCircuitSlice:

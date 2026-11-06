@@ -102,6 +102,8 @@ MIR_SEQGET = 31
 MIR_SEQSET = 32
 MIR_SEQPUSH = 33
 MIR_SEQLEN = 34
+MIR_ORW = 35
+MIR_XORW = 36
 
 # The void result tag (`mir.py`'s MIR_VOID): a function returning None has
 # no return value. Spelled as the int literal per the self-host spell, so a
@@ -141,6 +143,8 @@ _W_BINOPS = {
     "-": MIR_SUBW,
     "*": MIR_MULW,
     "&": MIR_ANDW,
+    "|": MIR_ORW,
+    "^": MIR_XORW,
 }
 _D_BINOPS = {
     "+": MIR_ADDD,
@@ -168,6 +172,8 @@ _D_CMPOPS = {
 _W_HELPER_OPS = {
     "//": "floordiv",
     "%": "imod",
+    "<<": "ishl",
+    ">>": "ishr",
 }
 _D_HELPER_OPS = {
     "/": "fdiv",
@@ -258,6 +264,8 @@ def supported_expr(expr: Dict[str, Any]) -> bool:
         op: str = expr["op"]
         if op == "not":
             return tkind == "bool" and supported_expr(expr["operand"])
+        if op == "~":
+            return tkind == "int" and supported_expr(expr["operand"])
         if op != "-":
             return False
         return tkind in ("int", "float") and supported_expr(expr["operand"])
@@ -699,10 +707,10 @@ def supported_module_fn(fn: Dict[str, Any], callees: Dict[str, Dict[str, Any]]) 
 
 def _calls_in_slice(stmts: list[Dict[str, Any]], callees: Dict[str, Dict[str, Any]]) -> bool:
     """Every call nested in `stmts` names an in-slice callee with a
-    matching arity. Recursion cycles (f calls f) are rejected: the MIR
-    emitter renders a call to the callee's symbol, but a self-call's
-    argument/result flow is the caller's own frame; the slice admits it
-    only through the direct path today."""
+    matching arity. `callees` is the admitted set, which may contain the
+    caller itself: the module-level fixpoint admits recursion cycles
+    (f calls f, or f and g calling each other), and a self-call reads the
+    caller's own record for the arity check."""
     for stmt in stmts:
         if not _calls_in_slice_stmt(stmt, callees):
             return False
@@ -1420,6 +1428,12 @@ class _FnLowerer:
             return self.builder.emit_val(MIR_NOTB, operand, -1, MIR_B)
         if op == "-" and tkind == "int":
             return self.builder.emit_val(MIR_NEGW, operand, -1, MIR_W)
+        if op == "~" and tkind == "int":
+            # `~x` is `x ^ -1`: the direct path spells it `xor i64 v, -1`,
+            # which a `MIR_XORW` against the interned -1 const renders
+            # byte for byte.
+            minus_one = self.builder.const_w(-1)
+            return self.builder.emit_val(MIR_XORW, operand, minus_one, MIR_W)
         raise MirLowerError(f"the MIR leaf slice cannot lower {op} on {tkind}")
 
 
@@ -1448,9 +1462,11 @@ def lower_module(module: Dict[str, Any]) -> MirModule:
     matching the call, so the lowerer can pack the callee as a call and
     the emitter can resolve the symbol. A function a callee names but
     that is out of the slice itself drags its callers out (pairwise,
-    transitively, through the two-pass order below: pass one collects
-    the plain-shape candidates, pass two re-tests callers against the
-    admitted set until it settles).
+    transitively). Pass two is a greatest fixpoint: it starts from every
+    plain-shape candidate and drops any whose callee set leaves the
+    candidate pool, so recursion cycles (a self-call, or mutual
+    recursion) stay admitted while a caller of a function that is out of
+    the slice by its own shape is still dragged out.
     """
     fns: list[Dict[str, Any]] = module["functions"]
     # Pass one: plain-shape candidates by name. A later def shadows an
@@ -1461,19 +1477,22 @@ def lower_module(module: Dict[str, Any]) -> MirModule:
         fname: str = fn["name"]
         if fname not in by_name and supported_fn(fn):
             by_name[fname] = fn
-    # Pass two: fixpoint of "every callee is admitted". A caller whose
-    # callee set never settles stays out (mutual recursion).
-    admitted: Dict[str, Dict[str, Any]] = {}
-    changed: bool = True
-    while changed:
-        changed = False
-        for fname in by_name:
-            if fname in admitted:
-                continue
-            fn = by_name[fname]
+    # Pass two: greatest fixpoint of "every callee is a candidate". Each
+    # round rebuilds the admitted set from the survivors of the previous
+    # one (the self-host subset has no `del` or `dict()`/`list()` calls),
+    # so a caller of a dropped callee drops in the next round.
+    admitted: Dict[str, Dict[str, Any]] = by_name
+    settling: bool = True
+    while settling:
+        settling = False
+        kept: Dict[str, Dict[str, Any]] = {}
+        for fname in admitted:
+            fn = admitted[fname]
             if _calls_in_slice(fn["body"], admitted):
-                admitted[fname] = fn
-                changed = True
+                kept[fname] = fn
+            else:
+                settling = True
+        admitted = kept
     functions: list[MirFunction] = []
     skipped: list[str] = []
     for fn in fns:

@@ -43,6 +43,7 @@ from pyscriptc.mir import (
     MIR_NEWSEQ,
     MIR_NOP,
     MIR_NOTB,
+    MIR_ORW,
     MIR_P,
     MIR_RAISE,
     MIR_RET,
@@ -55,6 +56,7 @@ from pyscriptc.mir import (
     MIR_SUBW,
     MIR_VOID,
     MIR_W,
+    MIR_XORW,
     OP_ARITY,
     OP_RESULT_TYPE,
     MirFunction,
@@ -99,6 +101,8 @@ OP_NAMES: dict[int, str] = {
     MIR_SEQSET: "seqset",
     MIR_SEQPUSH: "seqpush",
     MIR_SEQLEN: "seqlen",
+    MIR_ORW: "orw",
+    MIR_XORW: "xorw",
 }
 
 _TERMINATORS: list[int] = [MIR_JMP, MIR_BR, MIR_RET, MIR_RAISE]
