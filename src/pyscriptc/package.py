@@ -1395,7 +1395,8 @@ def _discover_dep_package(package_dir: Path, name: str) -> list[tuple[str, Path,
 def _dep_fence(message: str) -> dict[str, Any]:
     """A PS3101 refusal fence outside any source span."""
 
-    fence: dict[str, Any] = {"code": "PS3101", "message": message, "span": None, "function": None}
+    fence: dict[str, Any] = {}
+    fence.update(code="PS3101", message=message, span=None, function=None)
     return fence
 
 
