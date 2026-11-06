@@ -163,8 +163,6 @@ class AnnotationMixin:
         return params, ret
 
     def _reject_banned_type(self, node: ast.AST, typ: dict[str, Any]) -> None:
-        if typ["kind"] == "list" and typ["elem"]["kind"] == "bool":
-            self.fail(node, "PS2002", "list[bool] is not lowered")
         if typ["kind"] == "dict":
             if typ["key"]["kind"] not in {"int", "str"}:
                 self.fail(node, "PS2002", "dict keys are int or str")
