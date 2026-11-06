@@ -1,5 +1,4 @@
 ; module leafhelperret.py entry=__entry__
-; skipped (direct path): main, __entry__
 
 fn q(v0:w) -> w {
 b0 entry():
@@ -31,4 +30,22 @@ b0 entry():
   v9:w = copy v3
   v10:w = mulw v8, v9
   ret v10
+}
+
+fn main() -> void {
+  c0 = w 6
+  c1 = w 2
+  c2 = w 3
+b0 entry():
+  v1:w = call @q(c0)
+  v3:w = call @r(c0)
+  v5:w = call @mul(c1, c2)
+  v-1:void = call @print(v1, v3, v5)
+  ret
+}
+
+fn __entry__() -> void {
+b0 entry():
+  v-1:void = call @main()
+  ret
 }

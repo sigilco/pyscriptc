@@ -20,7 +20,7 @@ from pyscriptc.mirprint import OP_NAMES, print_module
 
 _LEAF = Path(__file__).parent / "fixtures" / "mir_leaf"
 _GOLDEN = Path(__file__).parent / "fixtures" / "mir_print"
-GOLDEN_SAMPLES = ("leafint", "leafelif", "leafhelperret")
+GOLDEN_SAMPLES = ("leafint", "leafelif", "leafhelperret", "leafprint", "leafprintsep")
 
 
 def _render(stem: str) -> str:

@@ -1,5 +1,4 @@
 ; module leafint.py entry=__entry__
-; skipped (direct path): main, __entry__
 
 fn add(v0:w, v1:w) -> w {
 b0 entry():
@@ -40,4 +39,24 @@ b2 else():
 b3 merge():
   v8:w = copy v2
   ret v8
+}
+
+fn main() -> void {
+  c0 = w 3
+  c1 = w 4
+  c2 = w 9
+  c3 = w 1
+  c4 = w 2
+b0 entry():
+  v2:w = call @add(c0, c1)
+  v4:w = call @sub3(c2, c3, c4)
+  v5:w = call @pick(v2, v4)
+  v-1:void = call @print(v5)
+  ret
+}
+
+fn __entry__() -> void {
+b0 entry():
+  v-1:void = call @main()
+  ret
 }

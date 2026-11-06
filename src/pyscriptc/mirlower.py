@@ -283,10 +283,43 @@ def _supported_cast(expr: Dict[str, Any]) -> bool:
     return supported_expr(value)
 
 
+def _supported_print(expr: Dict[str, Any]) -> bool:
+    """The slice test for one `print` call.
+
+    The rest is a value the walk has to cover; `print` is the void
+    statement-call form the slice lowers itself, so the callee check is
+    the builtin's name, the kwargs are out (the sep/end walk is not in
+    the slice), and every argument is a scalar in the slice.
+    """
+    etype: Dict[str, Any] = expr["type"]
+    ekind: str = etype["kind"]
+    if ekind != "none":
+        return False
+    if "sep" in expr or "end" in expr:
+        return False
+    if "file" in expr:
+        stream: str = expr["file"]
+        if stream != "stdout":
+            # `file=sys.stderr` rides the expr as the stream tag; the
+            # slice emits stdout only, so anything but the default
+            # stream stays out.
+            return False
+    args: list[Dict[str, Any]] = expr["args"]
+    for arg in args:
+        atyp: Dict[str, Any] = arg["type"]
+        akind: str = atyp["kind"]
+        if akind not in ("int", "float", "bool"):
+            return False
+        if not supported_expr(arg):
+            return False
+    return True
+
+
 def _supported_call(expr: Dict[str, Any]) -> bool:
     """The slice test for one call expression.
 
-    The callee must be a plain same-module user function: the callee
+    A `print` call is the void builtin form (see `_supported_print`).
+    Everything else names a plain same-module user function: the callee
     record's kind is `function` (the IR's spelling for a same-module name
     resolved at lowering), the name is defined by a function of this
     module (checked against `supported_fn`'s own param/return rules by
@@ -308,6 +341,8 @@ def _supported_call(expr: Dict[str, Any]) -> bool:
         return True
     if ckind == "builtin":
         cname: str = callee["name"]
+        if cname == "print":
+            return _supported_print(expr)
         if cname == "len" and len(args) == 1:
             arg: Dict[str, Any] = args[0]
             return _is_supported_list(arg["type"]) and supported_expr(arg)
@@ -616,6 +651,15 @@ def _calls_in_slice_expr(expr: Dict[str, Any], callees: Dict[str, Dict[str, Any]
             # admit.
             return True
         name: str = callee["name"]
+        ckind: str = callee["kind"]
+        args: list[Dict[str, Any]] = expr["args"]
+        if ckind == "builtin" and name == "print":
+            # The void builtin form: no module-level callee to check, only
+            # the arguments' own shape.
+            for arg in args:
+                if not _calls_in_slice_expr(arg, callees):
+                    return False
+            return True
         target: Dict[str, Any] | None = callees.get(name)
         if target is None:
             return False
@@ -1063,6 +1107,9 @@ class _FnLowerer:
                     self.builder.emit(MIR_SEQPUSH, -1, seq, item)
                     return -1
         name: str = callee["name"]
+        ckind: str = callee["kind"]
+        if ckind == "builtin" and name == "print":
+            return self.emit_print(expr)
         target: Dict[str, Any] | None = self.callees.get(name)
         if target is None:
             raise MirLowerError(f"the MIR leaf slice has no lowered callee {name}")
@@ -1105,6 +1152,30 @@ class _FnLowerer:
         rkind: str = result_type["kind"]
         tag: int = _param_tag(rkind)
         return self.builder.emit_val3(MIR_SEQGET, seq, index, tag, tag)
+
+    def emit_print(self, expr: Dict[str, Any]) -> int:
+        """A `print` call: the args lower, then one void `MIR_CALL`.
+
+        The callee is the builtin's name (`print`) in the function's
+        callee table: the same table a user callee rides, and the
+        emitter resolves the name to the builtin's emission there. The
+        arguments evaluate left to right (the direct path's order); the
+        call produces nothing (`MIR_VOID`), so the lowerer binds no
+        value. The direct path emits the argument expressions in
+        `_emit_call`'s first loop, before the dispatch the `print` arm
+        reads, so the order matches.
+        """
+        args: list[Dict[str, Any]] = expr["args"]
+        values: list[int] = []
+        for arg in args:
+            values.append(self.emit_expr(arg))
+        callee_vid: int = self.builder.add_callee("print")
+        self.builder.emit_call(callee_vid, values, MIR_VOID)
+        # The builtin marks its call out of band: a user function named
+        # `print` shares the callee-table name, so the emitter reads the
+        # marker to tell the builtin form from the user call.
+        self.builder.fn.helpers[len(self.builder.fn.ops) - 1] = "print"
+        return -1
 
     def is_none(self, expr: Dict[str, Any]) -> bool:
         """True when the expression's value is the None singleton.

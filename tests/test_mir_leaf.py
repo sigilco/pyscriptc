@@ -73,6 +73,8 @@ LEAF_SAMPLES = [
         "leaflist.py",
         "leaflistfloat.py",
         "leaflistfor.py",
+        "leafprint.py",
+        "leafprintsep.py",
     )
 ]
 
@@ -432,7 +434,10 @@ class TestCallSlice:
         module, _ = lower_file(path)
         mir = lower_module(module)
         by_name = {fn.name: fn for fn in mir.functions}
-        assert "main" in mir.skipped
+        # `main` prints its result: the none-typed `print` builtin is in
+        # the slice, so the entry function lowers too.
+        assert mir.skipped == []
+        assert "main" in by_name
         add_fn = by_name["add"]
         assert add_fn.call_args == {}
         total_fn = by_name["total"]
@@ -452,6 +457,48 @@ class TestCallSlice:
         assert "shout" in mir.skipped
 
 
+class TestPrintSlice:
+    """The `print` builtin slice: a none-typed `print` call with scalar
+    arguments lowers to a void `MIR_CALL` the emitter renders through the
+    direct `_print_one` walk; kwargs and non-scalar args stay out."""
+
+    def test_print_functions_in_slice(self) -> None:
+        module, _ = lower_file(str(_FIXTURES / "leafprint.py"))
+        mir = lower_module(module)
+        assert mir.skipped == []
+        by_name = {fn.name: fn for fn in mir.functions}
+        main_fn = by_name["main"]
+        assert MIR_CALL in main_fn.ops
+        assert sorted(main_fn.callees.values()) == ["positive", "print", "twice"]
+        for fn in mir.functions:
+            assert verify_function(fn) == []
+
+    def test_print_kwargs_and_non_scalars_stay_out(self) -> None:
+        module, _ = lower_file(str(_FIXTURES / "leafprintsep.py"))
+        mir = lower_module(module)
+        assert sorted(mir.skipped) == ["p_bytes", "p_end", "p_sep", "p_stderr", "p_str"]
+        names = {fn.name for fn in mir.functions}
+        assert "p_stdout" in names
+        assert "main" in names
+        for fn in mir.functions:
+            assert verify_function(fn) == []
+
+    def test_print_call_emits_void_call(self) -> None:
+        module, _ = lower_file(str(_FIXTURES / "leafprint.py"))
+        mir = lower_module(module)
+        by_name = {fn.name: fn for fn in mir.functions}
+        main_fn = by_name["main"]
+        # Every print call is a void `MIR_CALL` marked in `helpers`;
+        # the callee table carries the builtin's name once.
+        print_calls = [
+            i for i, op in enumerate(main_fn.ops) if op == MIR_CALL and main_fn.callees[main_fn.arg1[i]] == "print"
+        ]
+        assert print_calls
+        for i in print_calls:
+            assert main_fn.helpers.get(i) == "print"
+            assert main_fn.arg2[i] == MIR_VOID
+
+
 class TestShortCircuitSlice:
     """The short-circuit slice (A6): `and`/`or` and the ternary fold
     into the existing shape (the IR desugars both into temp assigns plus
@@ -465,22 +512,22 @@ class TestShortCircuitSlice:
 
     def test_shortcircuit_functions_in_slice(self) -> None:
         module, mir = self._lower("leafshortcircuit.py")
-        assert "main" in mir.skipped
         names = {fn.name for fn in mir.functions}
+        assert "main" in names
         assert "land_int" in names
         assert "land_calls" in names
 
     def test_ifexp_functions_in_slice(self) -> None:
         module, mir = self._lower("leafifexp.py")
-        assert "main" in mir.skipped
         names = {fn.name for fn in mir.functions}
+        assert "main" in names
         assert "ifexp_int" in names
         assert "ifexp_calls" in names
 
     def test_aug_functions_in_slice(self) -> None:
         module, mir = self._lower("leafaug.py")
-        assert "main" in mir.skipped
         names = {fn.name for fn in mir.functions}
+        assert "main" in names
         assert "aug_in_loop" in names
 
     def test_augassign_folds_to_plain_assign(self) -> None:
