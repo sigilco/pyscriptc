@@ -502,7 +502,7 @@ no = [["register of a function with arguments, unregister", 'atexit.unregister(n
 
 [[stdlib]]
 names = ["shutil"]
-ok = ['shutil.copyfile(s, s)', 'shutil.rmtree(s)', 'y: str = shutil.which(s)', 'shutil.move(s, s)', 'shutil.copytree(s, s)', 'y: int = shutil.get_terminal_size().columns']
+ok = ['shutil.copyfile(s, s)', 'shutil.rmtree(s)', 'y: str | None = shutil.which(s)', 'shutil.move(s, s)', 'shutil.copytree(s, s)', 'y: int = shutil.get_terminal_size().columns']
 no = [["make_archive, disk_usage, chown", 'shutil.disk_usage(s)', "PS2001"]]
 
 [[stdlib]]
