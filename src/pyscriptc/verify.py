@@ -182,7 +182,7 @@ def find_oracle() -> Oracle:
             v_str: str = version if version is not None else "unknown"
             raise VersionError(f"PYSC_ORACLE={explicit!r} is CPython {v_str}; the oracle is pinned to {ORACLE_NAME}")
         if version is not None and version != TARGET_CPYTHON:
-            warnings.warn(f"oracle is CPython {version}, declared target is {TARGET_CPYTHON}", stacklevel=2)
+            warnings.warn(f"oracle is CPython {version}, declared target is {TARGET_CPYTHON}")  # noqa: B028
         return Oracle(explicit, version or "")
     candidates: list[str] = []
     oracle_dir = os.environ.get("PYSC_ORACLE_DIR")
@@ -214,7 +214,7 @@ def find_oracle() -> Oracle:
                 chosen = oracle
     if chosen is not None:
         cv: str = chosen.version
-        warnings.warn(f"oracle is CPython {cv}, declared target is {TARGET_CPYTHON}", stacklevel=2)
+        warnings.warn(f"oracle is CPython {cv}, declared target is {TARGET_CPYTHON}")  # noqa: B028
         return chosen
     raise VersionError(
         f"no {ORACLE_NAME} interpreter for the oracle: set PYSC_ORACLE=/path/to/python3.14, "
@@ -373,7 +373,13 @@ def render_text(receipt: Receipt) -> str:
         call_dict: dict[str, Any] = call_entry
         call_fn: str = call_dict["function"]
         args_obj: list[Any] = call_dict["args"]
-        rendered: str = ", ".join(repr(value) for value in args_obj)
+        pieces: list[str] = []
+        index: int = 0
+        while index < len(args_obj):
+            value: Any = args_obj[index]
+            pieces.append(repr(value))
+            index += 1
+        rendered: str = ", ".join(pieces)
         lines.append(f"  call: {call_fn}({rendered}), return compared in stdout")
     for check in receipt.checks:
         lines.extend(_render_check(check))
