@@ -81,10 +81,12 @@ _OP_ARITY: dict[int, int] = {
     21: 2,  # MIR_CGED
     22: 2,  # MIR_CEQD
     23: 2,  # MIR_CNED
+    24: 1,  # MIR_EXTWD
     26: 1,  # MIR_NOTB
     25: 1,  # MIR_COPY
     27: 1,  # MIR_RAISE
     28: 2,  # MIR_CALL
+    29: 2,  # MIR_ANDW
 }
 
 # The verifier's own codes. They are stable: a test that pins a violation

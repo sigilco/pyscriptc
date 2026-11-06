@@ -16,6 +16,7 @@ import os
 from pyscriptc.mir import (
     MIR_ADDD,
     MIR_ADDW,
+    MIR_ANDW,
     MIR_B,
     MIR_BR,
     MIR_CALL,
@@ -86,6 +87,7 @@ OP_NAMES: dict[int, str] = {
     MIR_NOTB: "notb",
     MIR_RAISE: "raise",
     MIR_CALL: "call",
+    MIR_ANDW: "andw",
 }
 
 _TERMINATORS: list[int] = [MIR_JMP, MIR_BR, MIR_RET, MIR_RAISE]

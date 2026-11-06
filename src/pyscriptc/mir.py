@@ -120,6 +120,10 @@ MIR_RAISE = 27
 # call's block continues.
 MIR_CALL = 28
 
+# Bitwise. `w` ops on ints render as the plain LLVM bitwise instruction
+# (`and i64`); no overflow check applies.
+MIR_ANDW = 29
+
 # The op arity table. `MIR_NOP` through `MIR_COPY`: the branch reads its
 # condition from `arg1`, and its two successors carry the block arguments
 # (see `MirBlock`). Every value op reads `arg1`/`arg2` per this table.
@@ -153,6 +157,7 @@ OP_ARITY = {
     MIR_COPY: 1,
     MIR_RAISE: 1,
     MIR_CALL: 2,
+    MIR_ANDW: 2,
 }
 
 # The result type of each value op, in the constant-pool tag space.
@@ -188,6 +193,7 @@ OP_RESULT_TYPE = {
     MIR_COPY: MIR_W,  # a copy's true tag rides arg2; the tables cannot know it
     MIR_RAISE: MIR_W,
     MIR_CALL: MIR_W,  # a call's true tag rides arg2; the tables cannot know it
+    MIR_ANDW: MIR_W,
 }
 
 # The true result type of a `MIR_COPY`: the tag packed into `arg2`.
@@ -241,6 +247,7 @@ VALUE_OPS = [
     MIR_EXTWD,
     MIR_COPY,
     MIR_NOTB,
+    MIR_ANDW,
 ]
 
 
