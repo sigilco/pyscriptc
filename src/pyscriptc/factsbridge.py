@@ -626,7 +626,10 @@ def facts_to_ir(facts: TypeFacts, classes: dict[str, Any] | None = None) -> dict
         elem: dict[str, Any] | None = facts_to_ir(facts.args[0], classes)
         if elem is None:
             return None
-        return {"kind": "list", "elem": elem}
+        out: dict[str, Any] = {}
+        out["kind"] = "list"
+        out["elem"] = elem
+        return out
     if facts.kind == "set" and len(facts.args) == 1:
         elem_set: dict[str, Any] | None = facts_to_ir(facts.args[0], classes)
         if elem_set is None:
@@ -634,7 +637,11 @@ def facts_to_ir(facts: TypeFacts, classes: dict[str, Any] | None = None) -> dict
         ekind: str = elem_set["kind"]
         if ekind not in {"int", "str"}:
             return None
-        return {"kind": "list", "elem": elem_set, "set": True}
+        out_set: dict[str, Any] = {}
+        out_set["kind"] = "list"
+        out_set["elem"] = elem_set
+        out_set["set"] = True
+        return out_set
     if facts.kind == "dict" and len(facts.args) == 2:
         key: dict[str, Any] | None = facts_to_ir(facts.args[0], classes)
         value: dict[str, Any] | None = facts_to_ir(facts.args[1], classes)
@@ -643,7 +650,11 @@ def facts_to_ir(facts: TypeFacts, classes: dict[str, Any] | None = None) -> dict
         kkind: str = key["kind"]
         if kkind not in {"int", "str"}:
             return None
-        return {"kind": "dict", "key": key, "value": value}
+        out_dict: dict[str, Any] = {}
+        out_dict["kind"] = "dict"
+        out_dict["key"] = key
+        out_dict["value"] = value
+        return out_dict
     if facts.kind == "union":
         arms: list[TypeFacts] = [arm for arm in facts.args if arm.kind != "none"]
         optional: bool = any(arm.kind == "none" for arm in facts.args)
@@ -654,13 +665,13 @@ def facts_to_ir(facts: TypeFacts, classes: dict[str, Any] | None = None) -> dict
             return None
         if not optional:
             return base
-        return {
-            "kind": "class",
-            "name": f"__opt_{_slug(base)}",
-            "label": _label(base) + " | None",
-            "optional": True,
-            "elem": base,
-        }
+        out_opt: dict[str, Any] = {}
+        out_opt["kind"] = "class"
+        out_opt["name"] = f"__opt_{_slug(base)}"
+        out_opt["label"] = _label(base) + " | None"
+        out_opt["optional"] = True
+        out_opt["elem"] = base
+        return out_opt
     if facts.kind == "class" and classes is not None and facts.args:
         # A generic user class: the subset erases the type argument, so the
         # plain class name is the honest translation.
