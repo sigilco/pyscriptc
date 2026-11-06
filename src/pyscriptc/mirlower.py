@@ -193,9 +193,19 @@ def supported_type(typ: Dict[str, Any]) -> bool:
         return True
     if kind != "list":
         return False
-    elem: Dict[str, Any] = typ["elem"]
+    return _supported_seq_elem(typ["elem"])
+
+
+def _supported_seq_elem(elem: Dict[str, Any]) -> bool:
+    """The element types a sequence value may carry: int and float at the
+    leaves, and lists of those recursively (the ABI is one pointer tag
+    either way; the element semantics stay in HIR)."""
     ekind: str = elem["kind"]
-    return ekind in ("int", "float")
+    if ekind in ("int", "float"):
+        return True
+    if ekind == "list":
+        return supported_type(elem)
+    return False
 
 
 def _is_supported_list(typ: Dict[str, Any]) -> bool:
@@ -361,7 +371,113 @@ def _supported_call(expr: Dict[str, Any]) -> bool:
                     and supported_expr(seq_arg)
                     and supported_expr(elem_arg)
                 )
+        if _rt_call_shape(cmodule, mname, expr):
+            return _rt_args_order_ok(args)
     return False
+
+
+def _type_kind(typ: Dict[str, Any]) -> str:
+    """The `kind` string of an IR type record; the record binds to a
+    concrete container first so the element read stays typed."""
+    kind: str = typ["kind"]
+    return kind
+
+
+def _rt_call_shape(cmodule: str, mname: str, expr: Dict[str, Any]) -> bool:
+    """The slice test for a runtime-ABI module call.
+
+    These are the `module` calls the direct emitter renders through
+    `_emit_abi`/`_emit_math` (a `ps_*` symbol, no same-module callee):
+    `math.sqrt`, and the `builtins` `sum`/`repeat`/`int` forms whose IR
+    carries a `symbol`. The argument and result types must stay inside
+    the scalar/list slice; everything else stays outside.
+    """
+    args: list[Dict[str, Any]] = expr["args"]
+    if cmodule == "math" and mname == "sqrt":
+        # `math.sqrt` is not an `_abi_call`, so the IR carries no symbol;
+        # the emitter's `_emit_math` spells `ps_math_sqrt` for it.
+        if "symbol" in expr:
+            return False
+        if len(args) != 1 or _type_kind(expr["type"]) != "float":
+            return False
+        arg: Dict[str, Any] = args[0]
+        return _type_kind(arg["type"]) == "float" and supported_expr(arg)
+    if "symbol" not in expr:
+        return False
+    symbol: str = expr["symbol"]
+    if cmodule == "builtins" and mname == "sum":
+        if symbol != "ps_sum_i64" and symbol != "ps_sum_f64":
+            return False
+        if len(args) != 1 or _type_kind(expr["type"]) not in ("int", "float"):
+            return False
+        sum_arg: Dict[str, Any] = args[0]
+        return _is_supported_list(sum_arg["type"]) and supported_expr(sum_arg)
+    if cmodule == "builtins" and mname == "repeat":
+        if symbol != "ps_seq_repeat" or len(args) != 2:
+            return False
+        if not _is_supported_list(expr["type"]):
+            return False
+        seq_arg: Dict[str, Any] = args[0]
+        count_arg: Dict[str, Any] = args[1]
+        return (
+            _is_supported_list(seq_arg["type"])
+            and _type_kind(count_arg["type"]) == "int"
+            and supported_expr(seq_arg)
+            and supported_expr(count_arg)
+        )
+    if cmodule == "builtins" and mname == "int" and _type_kind(expr["type"]) == "int":
+        if symbol == "ps_int_from_bytes" and len(args) == 1:
+            text_arg: Dict[str, Any] = args[0]
+            return _type_kind(text_arg["type"]) == "str" and supported_expr(text_arg)
+        if symbol == "ps_int_from_base" and len(args) == 2:
+            first: Dict[str, Any] = args[0]
+            second: Dict[str, Any] = args[1]
+            return (
+                _type_kind(first["type"]) == "str"
+                and _type_kind(second["type"]) == "int"
+                and supported_expr(first)
+                and supported_expr(second)
+            )
+    return False
+
+
+def _rt_args_order_ok(args: list[Dict[str, Any]]) -> bool:
+    """A top-level str const argument materializes lazily at the call
+    instruction; the direct path materializes it at the argument's own
+    position. The two orders agree only while every argument after the
+    first str const is itself a const (which emits no instructions)."""
+    items: list[Dict[str, Any]] = args
+    seen: bool = False
+    for arg in items:
+        akind: str = arg["kind"]
+        atype: Dict[str, Any] = arg["type"]
+        if seen and akind != "const":
+            return False
+        if akind == "const" and _type_kind(atype) == "str":
+            seen = True
+    return True
+
+
+def _rt_call_symbol(cmodule: str, mname: str, expr: Dict[str, Any]) -> str:
+    """The `ps_*` symbol an admitted runtime module call lowers to.
+
+    The caller ran `supported_expr` first, so this only picks the
+    spelling. `math.sqrt` carries no `symbol` key in the IR (it is not
+    an `_abi_call`), so its symbol is written here; a drift is an A/B
+    byte-identity failure, not a silent wrong call.
+    """
+    if cmodule == "math" and mname == "sqrt":
+        return "ps_math_sqrt"
+    if "symbol" not in expr:
+        return ""
+    symbol: str = expr["symbol"]
+    if cmodule == "builtins" and mname == "sum":
+        return symbol
+    if cmodule == "builtins" and mname == "repeat":
+        return symbol
+    if cmodule == "builtins" and mname == "int":
+        return symbol
+    return ""
 
 
 def _supported_binary(expr: Dict[str, Any]) -> bool:
@@ -1106,6 +1222,21 @@ class _FnLowerer:
                     item = self.emit_expr(args[1])
                     self.builder.emit(MIR_SEQPUSH, -1, seq, item)
                     return -1
+            rt_symbol: str = _rt_call_symbol(cmodule, mname, expr)
+            if rt_symbol != "":
+                # A runtime-ABI call: the `rt:` callee prefix marks the
+                # name table entry so the emitter renders the `ps_*`
+                # symbol directly instead of resolving a module function.
+                rargs: list[int] = []
+                for arg in args:
+                    rargs.append(self.emit_expr(arg))
+                rtype: Dict[str, Any] = expr["type"]
+                rkind: str = rtype["kind"]
+                rtag: int = MIR_VOID
+                if rkind != "none":
+                    rtag = _param_tag(rkind)
+                rt_vid: int = self.builder.add_callee("rt:" + rt_symbol)
+                return self.builder.emit_call(rt_vid, rargs, rtag)
         name: str = callee["name"]
         ckind: str = callee["kind"]
         if ckind == "builtin" and name == "print":
@@ -1135,7 +1266,14 @@ class _FnLowerer:
         list_type: Dict[str, Any] = expr["type"]
         elem_type: Dict[str, Any] = list_type["elem"]
         ekind: str = elem_type["kind"]
-        elem_size: int = 8 if ekind in ("int", "float") else 1
+        # The stride mirrors the direct emitter's `_elem_size`: pointer
+        # elements (nested lists) are 8 bytes like the scalars, str cells
+        # are the 16-byte `%ps.buf` prefix, bool is one byte.
+        elem_size: int = 8
+        if ekind == "bool":
+            elem_size = 1
+        elif ekind == "str" or ekind == "bytes" or ekind == "any":
+            elem_size = 16
         seq: int = self.builder.emit_val(
             MIR_NEWSEQ, self.builder.const_w(elem_size), self.builder.const_w(len(values)), MIR_P
         )
