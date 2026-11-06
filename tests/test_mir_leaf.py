@@ -67,6 +67,8 @@ LEAF_SAMPLES = [
         "leafstr.py",
         "leafstrcmp.py",
         "leafstrcall.py",
+        "leafand.py",
+        "leafcast.py",
     )
 ]
 

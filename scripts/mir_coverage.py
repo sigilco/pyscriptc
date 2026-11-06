@@ -44,7 +44,7 @@ def _fenced_names(module: dict[str, object]) -> set[str]:
 
 
 _SCALARS = ("int", "float", "bool")
-_EXPR_CHILDREN = ("operand", "left", "right")
+_EXPR_CHILDREN = ("operand", "left", "right", "value")
 _STMT_EXPRS = ("value", "expr", "cond")
 _STMT_BODIES = ("then", "else", "body")
 TOP_REASONS = 10

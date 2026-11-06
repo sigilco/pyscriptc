@@ -93,6 +93,8 @@ MIR_COPY = 25
 MIR_NOTB = 26
 MIR_RAISE = 27
 MIR_CALL = 28
+MIR_EXTWD = 24
+MIR_ANDW = 29
 
 # The void result tag (`mir.py`'s MIR_VOID): a function returning None has
 # no return value. Spelled as the int literal per the self-host spell, so a
@@ -131,6 +133,7 @@ _W_BINOPS = {
     "+": MIR_ADDW,
     "-": MIR_SUBW,
     "*": MIR_MULW,
+    "&": MIR_ANDW,
 }
 _D_BINOPS = {
     "+": MIR_ADDD,
@@ -166,7 +169,7 @@ _D_HELPER_OPS = {
     "**": "fpow",
 }
 
-_EXPR_KINDS = frozenset({"const", "name", "binary", "compare", "unary", "call"})
+_EXPR_KINDS = frozenset({"const", "name", "binary", "compare", "unary", "call", "cast"})
 _STMT_KINDS = frozenset({"assign", "expr", "return", "pass", "if", "while", "raise"})
 
 
@@ -206,7 +209,32 @@ def supported_expr(expr: Dict[str, Any]) -> bool:
         return _supported_binary(expr)
     if kind == "compare":
         return _supported_compare(expr)
+    if kind == "cast":
+        return _supported_cast(expr)
     return False
+
+
+def _supported_cast(expr: Dict[str, Any]) -> bool:
+    """The slice test for one cast expression.
+
+    The IR admits one cast today, `int_to_float` (`ir.py` validates the
+    op), which the emitter renders as `sitofp i64 ... to double`: the
+    operand must be an in-slice int and the result a float. Anything
+    else stays outside.
+    """
+    op: str = expr["op"]
+    if op != "int_to_float":
+        return False
+    typ: Dict[str, Any] = expr["type"]
+    tkind: str = typ["kind"]
+    if tkind != "float":
+        return False
+    value: Dict[str, Any] = expr["value"]
+    vtyp: Dict[str, Any] = value["type"]
+    vkind: str = vtyp["kind"]
+    if vkind != "int":
+        return False
+    return supported_expr(value)
 
 
 def _supported_call(expr: Dict[str, Any]) -> bool:
@@ -515,6 +543,8 @@ def _calls_in_slice_expr(expr: Dict[str, Any], callees: Dict[str, Dict[str, Any]
         return _calls_in_slice_expr(expr["right"], callees)
     if kind == "unary":
         return _calls_in_slice_expr(expr["operand"], callees)
+    if kind == "cast":
+        return _calls_in_slice_expr(expr["value"], callees)
     return True
 
 
@@ -886,6 +916,8 @@ class _FnLowerer:
             return self.emit_unary(expr)
         if kind == "call":
             return self.emit_call_expr(expr)
+        if kind == "cast":
+            return self.emit_cast(expr)
         raise MirLowerError(f"the MIR leaf slice cannot lower expression {kind}")
 
     def emit_call_expr(self, expr: Dict[str, Any]) -> int:
@@ -963,6 +995,18 @@ class _FnLowerer:
                 return self.builder.emit_val(mir_op, left, right, MIR_D)
             return self.emit_helper(_D_HELPER_OPS[op], MIR_D, left, right)
         raise MirLowerError(f"the MIR leaf slice cannot lower {op} on {tkind}")
+
+    def emit_cast(self, expr: Dict[str, Any]) -> int:
+        """An `int_to_float` cast: `MIR_EXTWD`, the i64-to-double widen.
+
+        The emitter renders it as `sitofp i64 <operand> to double`, the
+        direct path's spelling for the same node.
+        """
+        op: str = expr["op"]
+        if op != "int_to_float":
+            raise MirLowerError(f"the MIR leaf slice cannot lower cast {op}")
+        operand = self.emit_expr(expr["value"])
+        return self.builder.emit_val(MIR_EXTWD, operand, -1, MIR_D)
 
     def emit_helper(self, helper: str, tag: int, left: int, right: int) -> int:
         """A runtime-helper binary op, carried as a `MIR_COPY` with the

@@ -41,6 +41,7 @@ from pyscriptc.ir import assert_same_cpython
 from pyscriptc.mir import (
     MIR_ADDD,
     MIR_ADDW,
+    MIR_ANDW,
     MIR_B,
     MIR_BR,
     MIR_CALL,
@@ -58,6 +59,7 @@ from pyscriptc.mir import (
     MIR_CNEW,
     MIR_COPY,
     MIR_D,
+    MIR_EXTWD,
     MIR_JMP,
     MIR_MULD,
     MIR_MULW,
@@ -117,7 +119,7 @@ _FCMP_D = {
 _HELPER_W = {MIR_ADDW: "iadd", MIR_SUBW: "isub", MIR_MULW: "imul", MIR_NEGW: "ineg"}
 
 # The plain arithmetic spellings, per tag.
-_LLVM_W = {MIR_ADDW: "add", MIR_SUBW: "sub", MIR_MULW: "mul", MIR_NEGW: "sub"}
+_LLVM_W = {MIR_ADDW: "add", MIR_SUBW: "sub", MIR_MULW: "mul", MIR_NEGW: "sub", MIR_ANDW: "and"}
 _LLVM_D = {MIR_ADDD: "fadd", MIR_SUBD: "fsub", MIR_MULD: "fmul", MIR_NEGD: "fneg"}
 
 
@@ -158,6 +160,8 @@ _OP_ARITY: Dict[int, int] = {
     MIR_CEQD: 2,
     MIR_CNED: 2,
     MIR_COPY: 1,
+    MIR_EXTWD: 1,
+    MIR_ANDW: 2,
 }
 
 _OP_RESULT_TYPE: Dict[int, int] = {
@@ -186,6 +190,8 @@ _OP_RESULT_TYPE: Dict[int, int] = {
     MIR_CNED: MIR_B,
     MIR_NOTB: MIR_B,
     MIR_COPY: MIR_W,
+    MIR_EXTWD: MIR_D,
+    MIR_ANDW: MIR_W,
 }
 
 
@@ -606,6 +612,13 @@ class MirEmitter:
             value = self.operand(fn, a1)
             reg = self.tmp_reg()
             self.line(f"{reg} = xor i1 {value}, true")
+            self.reg[dst] = reg
+            return
+        if op == MIR_EXTWD:
+            # `int_to_float`: the direct path's `sitofp i64 v to double`.
+            value = self.operand(fn, a1)
+            reg = self.tmp_reg()
+            self.line(f"{reg} = sitofp i64 {value} to double")
             self.reg[dst] = reg
             return
         if op in _LLVM_W:
