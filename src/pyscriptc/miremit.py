@@ -66,6 +66,7 @@ from pyscriptc.mir import (
     MIR_NOTB,
     MIR_RAISE,
     MIR_RET,
+    MIR_S,
     MIR_SUBD,
     MIR_SUBW,
     MIR_VOID,
@@ -234,6 +235,17 @@ class MirEmitter:
     reg: Dict[int, str]
     slot_vid: Dict[str, int]
     slot_vid_set: set[int]
+    # Per-function str state: `_str_seq` is the ordered list of `@ps.str.N`
+    # indices the direct emitter's body for the function being spliced
+    # references — one per `string_value` materialization, in emission
+    # order — and `_str_n` counts this function's materializations, which
+    # is the order the MIR lane's str constants consume them.
+    # `_hoisted` collects the `%ps.str` staging allocas a non-entry
+    # block's str slot read would hoist into the entry block.
+    _str_seq: list[int]
+    _str_n: int
+    _hoisted: list[str]
+    _in_entry: int
 
     def __init__(self, module: Dict[str, Any], dwarf: DwarfEmitter | None, wasm: bool = False) -> None:
         self.module = module
@@ -255,6 +267,10 @@ class MirEmitter:
         self.reg = {}
         self.slot_vid = {}
         self.slot_vid_set = set()
+        self._str_seq = []
+        self._str_n = 0
+        self._hoisted = []
+        self._in_entry = 1
 
     # ---- module driver ----
 
@@ -289,9 +305,11 @@ class MirEmitter:
             line = lines[i]
             name = self._define_name(line)
             if name is not None and name in by_name:
+                body_start = i
                 i += 1
                 while i < n and lines[i] != "}":
                     i += 1
+                self._str_seq = _str_refs(lines[body_start:i])
                 i += 1
                 out.extend(self.emit_function_lines(by_name[name]))
                 continue
@@ -319,6 +337,8 @@ class MirEmitter:
     def emit_function_lines(self, fn: MirFunction) -> list[str]:
         """The MIR lane's lines for one function, without the trailing blank."""
         marker = len(self.out)
+        self._str_n = 0
+        self._hoisted = []
         self.emit_function(fn)
         lines = self.out[marker:]
         self.out = self.out[:marker]
@@ -372,16 +392,36 @@ class MirEmitter:
         out.append("entry:")
         for slot_vid in self._slot_vids():
             self.reg[slot_vid] = self.tmp_reg()
-            self.line(f"{self.reg[slot_vid]} = alloca {_tag_llvm(self._tag_of(slot_vid))}")
+            self.line(f"{self.reg[slot_vid]} = alloca {_mem_llvm(self._tag_of(slot_vid))}")
         if ret != "void":
             self.line(f"{self.tmp_reg()} = alloca {ret}")
         self.line(f"{self.tmp_reg()} = alloca i32")
+        self._in_entry = 1
         for i in self._span(0):
             self.emit_instr(fn, i)
+        self._in_entry = 0
         for bid in range(1, len(fn.blocks)):
             out.append(f"{self._label(bid)}:")
             for i in self._span(bid):
                 self.emit_instr(fn, i)
+        if self._hoisted:
+            # A str slot read inside a non-entry block stages its widened
+            # `%ps.str` value through an alloca the direct path hoists to
+            # the entry block, just before the entry terminator. The MIR
+            # lane collects the same allocas during the walk and lands
+            # them at the same spot.
+            start = 0
+            for index in range(len(out) - 1, -1, -1):
+                if out[index] == "entry:":
+                    start = index
+                    break
+            at = len(out)
+            for index in range(start + 1, len(out)):
+                text = out[index]
+                if text.startswith("  br ") or text.startswith("  ret ") or text == "  unreachable":
+                    at = index
+                    break
+            out[at:at] = self._hoisted
         out.append("}")
         out.append("")
         self.out = out
@@ -504,6 +544,9 @@ class MirEmitter:
             if entry is not None:
                 helper = entry.split(" ")[0]
                 tag = int(entry.split(" ")[1])
+                if helper == "str_cmp_eq" or helper == "str_cmp_ne":
+                    self._emit_str_cmp(fn, dst, a1, a2, helper)
+                    return
                 needed: set[str] = self.needed
                 needed.add(helper)
                 self.needed = needed
@@ -515,13 +558,24 @@ class MirEmitter:
                 self.reg[dst] = reg
                 return
             if dst in self.slot_vid_set:
-                # A store: the destination is a name slot.
+                # A store: the destination is a name slot. A str store
+                # narrows the `%ps.str` value to the 16-byte `%ps.buf`
+                # prefix the slot holds, the way the direct path's
+                # `store` does.
+                if self._tag_of(dst) == MIR_S:
+                    self._store_str_slot(fn, dst, a1)
+                    return
                 self.line(f"store {_tag_llvm(self._tag_of(dst))} {self.operand(fn, a1)}, ptr {self.reg[dst]}")
                 return
             # A copy whose source is a name slot is a read: the lowerer
             # emits one copy per slot read, in source order, so the loads
-            # land in the same order the direct walk produces.
+            # land in the same order the direct walk produces. A str read
+            # widens the `%ps.buf` cell back to `%ps.str` through
+            # `ps_str_counts`, the direct path's `_widen_cell`.
             if a1 in self.slot_vid_set:
+                if self._tag_of(dst) == MIR_S:
+                    self.reg[dst] = self._widen_str_slot(a1)
+                    return
                 llvm = _tag_llvm(self._tag_of(dst))
                 reg = self.tmp_reg()
                 self.line(f"{reg} = load {llvm}, ptr {self.reg[a1]}")
@@ -623,17 +677,144 @@ class MirEmitter:
                 return fn.blocks[span_bid]
         raise IRError(f"instr {i} belongs to no block")
 
+    def _str_const(self, fn: MirFunction, const: MirConst) -> str:
+        """Materialize a `MIR_S` constant as a `%ps.str` SSA value.
+
+        The global already exists: the direct emitter interned the same
+        literal into `@ps.str.N` while it built the text this lane
+        splices into. `_str_seq` is that body's `@ps.str.N` references in
+        emission order and `_str_n` counts this function's
+        materializations, which is the direct path's `string_value`
+        order. The four `insertvalue` lines mirror `string_value` byte
+        for byte.
+        """
+        index = self._str_seq[self._str_n]
+        self._str_n = self._str_n + 1
+        text = const.sval
+        data = text.encode("utf-8")
+        count = len(text)
+        ascii_flag = 1 if count == len(data) else 0
+        parts = self.tmp_reg()
+        first = self.tmp_reg()
+        second = self.tmp_reg()
+        third = self.tmp_reg()
+        self.line(f"{parts} = insertvalue %ps.str poison, i64 {len(data)}, 0")
+        self.line(f"{first} = insertvalue %ps.str {parts}, ptr @ps.str.{index}, 1")
+        self.line(f"{second} = insertvalue %ps.str {first}, i64 {count}, 2")
+        self.line(f"{third} = insertvalue %ps.str {second}, i32 {ascii_flag}, 3")
+        return third
+
+    def _store_str_slot(self, fn: MirFunction, dst: int, a1: int) -> None:
+        """A store of a `%ps.str` value into a `%ps.buf` name slot.
+
+        The direct path's `store` extracts the length and data pointer
+        and writes the two `%ps.buf` fields; the count and flags are not
+        stored (the cell is the 16-byte prefix only).
+        """
+        value = self.operand(fn, a1)
+        slot = self.reg[dst]
+        length = self.tmp_reg()
+        ptr_val = self.tmp_reg()
+        self.line(f"{length} = extractvalue %ps.str {value}, 0")
+        self.line(f"{ptr_val} = extractvalue %ps.str {value}, 1")
+        len_ptr = self.tmp_reg()
+        data_ptr = self.tmp_reg()
+        self.line(f"{len_ptr} = getelementptr %ps.buf, ptr {slot}, i32 0, i32 0")
+        self.line(f"store i64 {length}, ptr {len_ptr}")
+        self.line(f"{data_ptr} = getelementptr %ps.buf, ptr {slot}, i32 0, i32 1")
+        self.line(f"store ptr {ptr_val}, ptr {data_ptr}")
+
+    def _mir_alloca(self, llvm_type: str) -> str:
+        """An alloca in the direct path's shape: inline in the entry
+        block, hoisted to just before the entry terminator otherwise."""
+        reg = self.tmp_reg()
+        text = f"{reg} = alloca {llvm_type}"
+        if self._in_entry:
+            self.line(text)
+        else:
+            hoisted = self._hoisted
+            hoisted.append(f"  {text}")
+        return reg
+
+    def _widen_str_slot(self, a1: int) -> str:
+        """Read a str name slot: widen the `%ps.buf` cell to `%ps.str`.
+
+        Mirrors the direct path's `_widen_cell` for `str`: load the
+        length and data pointer out of the cell, rebuild the aggregate
+        with a zero count and flag, stage it through a `%ps.str` alloca,
+        and let `ps_str_counts` refill the count and flags from the
+        bytes. The staging alloca hoists out of non-entry blocks exactly
+        like the direct path's.
+        """
+        slot = self.reg[a1]
+        length = self.tmp_reg()
+        ptr = self.tmp_reg()
+        self.line(f"{length} = load i64, ptr {slot}")
+        data_ptr = self.tmp_reg()
+        self.line(f"{data_ptr} = getelementptr %ps.buf, ptr {slot}, i32 0, i32 1")
+        self.line(f"{ptr} = load ptr, ptr {data_ptr}")
+        first = self.tmp_reg()
+        second = self.tmp_reg()
+        third = self.tmp_reg()
+        reg = self.tmp_reg()
+        self.line(f"{first} = insertvalue %ps.str poison, i64 {length}, 0")
+        self.line(f"{second} = insertvalue %ps.str {first}, ptr {ptr}, 1")
+        self.line(f"{third} = insertvalue %ps.str {second}, i64 0, 2")
+        self.line(f"{reg} = insertvalue %ps.str {third}, i32 0, 3")
+        slot_ptr = self._mir_alloca("%ps.str")
+        count_ptr = self.tmp_reg()
+        flags_ptr = self.tmp_reg()
+        self.line(f"store %ps.str {reg}, ptr {slot_ptr}")
+        self.line(f"{count_ptr} = getelementptr %ps.str, ptr {slot_ptr}, i32 0, i32 2")
+        self.line(f"{flags_ptr} = getelementptr %ps.str, ptr {slot_ptr}, i32 0, i32 3")
+        self.line(f"call void @ps_str_counts(i64 {length}, ptr {ptr}, ptr {count_ptr}, ptr {flags_ptr})")
+        final = self.tmp_reg()
+        self.line(f"{final} = load %ps.str, ptr {slot_ptr}")
+        return final
+
+    def _emit_str_cmp(self, fn: MirFunction, dst: int, a1: int, a2: int, helper: str) -> None:
+        """A str `==`/`!=`: the direct path's `ps_str_cmp` sequence.
+
+        Both operands evaluate first (a const materializes, a slot read
+        widens), then the result register is taken before the extract
+        temporaries — the same `tmp()` order the direct emitter's
+        `emit_compare` produces — and the sequence is `_buf_cmp`'s four
+        extracts, the `ps_str_cmp` call, and the `icmp eq`/`ne` against
+        0.
+        """
+        left = self.operand(fn, a1)
+        right = self.operand(fn, a2)
+        reg = self.tmp_reg()
+        left_len = self.tmp_reg()
+        left_ptr = self.tmp_reg()
+        self.line(f"{left_len} = extractvalue %ps.str {left}, 0")
+        self.line(f"{left_ptr} = extractvalue %ps.str {left}, 1")
+        right_len = self.tmp_reg()
+        right_ptr = self.tmp_reg()
+        self.line(f"{right_len} = extractvalue %ps.str {right}, 0")
+        self.line(f"{right_ptr} = extractvalue %ps.str {right}, 1")
+        cmp = self.tmp_reg()
+        self.line(f"{cmp} = call i32 @ps_str_cmp(i64 {left_len}, ptr {left_ptr}, i64 {right_len}, ptr {right_ptr})")
+        pred = "eq" if helper == "str_cmp_eq" else "ne"
+        self.line(f"{reg} = icmp {pred} i32 {cmp}, 0")
+        self.reg[dst] = reg
+
     def operand(self, fn: MirFunction, operand: int) -> str:
         if is_const_ref(operand):
             const = fn.consts[const_index(operand)]
             # A bool const is the pool's own tag: the direct path spells it
-            # `true`/`false`, and only a word const reads `ival` as-is.
+            # `true`/`false`, and only a word const reads `ival` as-is. A
+            # str const materializes as a `%ps.str` value.
             if const.typ == MIR_B:
                 return "true" if const.ival else "false"
+            if const.typ == MIR_S:
+                return self._str_const(fn, const)
             return str(const.ival) if const.typ == MIR_W else _llvm_double(const.dval)
         if operand in self.reg:
             slot = self.reg[operand]
             if self._is_slot(operand):
+                if self._tag_of(operand) == MIR_S:
+                    return self._widen_str_slot(operand)
                 reg = self.tmp_reg()
                 self.line(f"{reg} = load {_tag_llvm(self._tag_of(operand))}, ptr {slot}")
                 return reg
@@ -703,13 +884,49 @@ class MirEmitter:
         return lines
 
 
+def _str_refs(lines: list[str]) -> list[int]:
+    """The `@ps.str.N` indices a direct-emitted body references, in order.
+
+    Every `string_value` materialization emits exactly one `ptr @ps.str.N`
+    operand inside its `insertvalue` sequence, so the references in line
+    order are the materializations in emission order — the sequence the
+    MIR lane's str constants consume.
+    """
+    refs: list[int] = []
+    marker = "@ps.str."
+    for line in lines:
+        pos = line.find(marker)
+        if pos < 0:
+            continue
+        tail = line[pos + len(marker) :]
+        digits = ""
+        for ch in tail:
+            if not ch.isdigit():
+                break
+            digits += ch
+        refs.append(int(digits))
+    return refs
+
+
 def _tag_llvm(tag: int) -> str:
-    """The LLVM spelling of a MIR tag: w -> i64, b -> i1, d -> double."""
+    """The LLVM spelling of a MIR tag: w -> i64, b -> i1, d -> double,
+    s -> the `%ps.str` aggregate."""
     if tag == MIR_D:
         return "double"
     if tag == MIR_B:
         return "i1"
+    if tag == MIR_S:
+        return "%ps.str"
     return "i64"
+
+
+def _mem_llvm(tag: int) -> str:
+    """The LLVM spelling of a MIR tag at rest in a name slot: a str narrows
+    to the 16-byte `%ps.buf` prefix the runtime cells carry; every other
+    tag is its SSA spelling."""
+    if tag == MIR_S:
+        return "%ps.buf"
+    return _tag_llvm(tag)
 
 
 def _result_tag(fn: MirFunction, i: int) -> int:
