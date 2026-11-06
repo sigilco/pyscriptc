@@ -38,6 +38,7 @@ from pyscriptc.mir import (
     MIR_JMP,
     MIR_RAISE,
     MIR_RET,
+    MIR_S,
     MIR_VOID,
     MIR_W,
     MirBlock,
@@ -236,15 +237,15 @@ def _check_call(fn: MirFunction, i: int, defs: dict[int, int]) -> list[_Violatio
     """The call checks: result tag, dst presence, argument operands.
 
     `arg2` carries the result tag, so it is not a value read: the tag
-    must be a scalar or the void tag, a void call takes no `dst`, and a
+    must be a value type or the void tag, a void call takes no `dst`, and a
     value call's `dst` is seeded into `defs` by the caller through the
     returned type. The callee and the `call_args` operands resolve like
     any value read.
     """
     out: list[_Violation] = []
     tag: int = fn.arg2[i]
-    if tag != MIR_W and tag != MIR_D and tag != MIR_B and tag != MIR_VOID:
-        return [_Violation(CODE_TYPE, f"instr {i}: call result tag {tag} is not a scalar or the void tag")]
+    if tag != MIR_W and tag != MIR_D and tag != MIR_B and tag != MIR_S and tag != MIR_VOID:
+        return [_Violation(CODE_TYPE, f"instr {i}: call result tag {tag} is not a value tag or the void tag")]
     dst: int = fn.dsts[i]
     if tag == MIR_VOID:
         if dst >= 0:

@@ -64,6 +64,9 @@ from pyscriptc.mir import MirBuilder, MirFunction, MirModule
 MIR_W = 0
 MIR_D = 1
 MIR_B = 2
+# The str value tag (`mir.py`'s MIR_S): a `%ps.str` aggregate at run time.
+# 3 is MIR_VOID and 5 is the reserved MIR_P, so the str tag is 4.
+MIR_S = 4
 
 MIR_ADDW = 4
 MIR_SUBW = 5
@@ -177,7 +180,7 @@ def supported_expr(expr: Dict[str, Any]) -> bool:
     if kind == "const":
         typ: Dict[str, Any] = expr["type"]
         tkind: str = typ["kind"]
-        if tkind not in ("int", "float", "bool"):
+        if tkind not in ("int", "float", "bool", "str"):
             return False
         if tkind == "int":
             raw: str = expr["value"]
@@ -187,7 +190,7 @@ def supported_expr(expr: Dict[str, Any]) -> bool:
     if kind == "name":
         typ = expr["type"]
         nkind: str = typ["kind"]
-        return nkind in ("int", "float", "bool")
+        return nkind in ("int", "float", "bool", "str")
     if kind == "unary":
         typ = expr["type"]
         tkind = typ["kind"]
@@ -261,15 +264,23 @@ def _supported_binary(expr: Dict[str, Any]) -> bool:
 
 def _supported_compare(expr: Dict[str, Any]) -> bool:
     op: str = expr["op"]
-    if op not in _W_CMPOPS:
-        return False
     left: Dict[str, Any] = expr["left"]
     ltyp: Dict[str, Any] = left["type"]
     lkind: str = ltyp["kind"]
     right: Dict[str, Any] = expr["right"]
     rtyp: Dict[str, Any] = right["type"]
     rkind: str = rtyp["kind"]
-    if lkind != rkind or lkind not in ("int", "float", "bool"):
+    if lkind != rkind:
+        return False
+    if lkind == "str":
+        # The str slice compares through the `ps_str_cmp` helper copy;
+        # ordering operators stay out until a helper row exists for them.
+        if op != "==" and op != "!=":
+            return False
+        return supported_expr(left) and supported_expr(right)
+    if op not in _W_CMPOPS:
+        return False
+    if lkind not in ("int", "float", "bool"):
         return False
     return supported_expr(left) and supported_expr(right)
 
@@ -299,7 +310,12 @@ def supported_stmt(stmt: Dict[str, Any]) -> bool:
         # The direct path skips a None const expression statement, so the
         # slice admits it and lowers to nothing; a None-typed call is the
         # void-call form; anything else is a value expression the walk has
-        # to cover.
+        # to cover. A bare str const is the exception inside "anything
+        # else": the direct path materializes it (a `string_value` global
+        # plus the insertvalue sequence) even though the value is
+        # discarded, and the MIR lane emits no instruction for a const,
+        # so admitting it would drop those lines and shift every later
+        # `@ps.str.N` index.
         expr: Dict[str, Any] = stmt["expr"]
         etyp: Dict[str, Any] = expr["type"]
         ekind: str = etyp["kind"]
@@ -310,6 +326,10 @@ def supported_stmt(stmt: Dict[str, Any]) -> bool:
             if enode == "call":
                 return _supported_call(expr)
             return False
+        if ekind == "str":
+            str_node: str = expr["kind"]
+            if str_node == "const":
+                return False
         return supported_expr(expr)
     if kind == "return":
         # A `None`-typed return lowers to a void `MIR_RET`; the body walk
@@ -386,19 +406,19 @@ def supported_fn(fn: Dict[str, Any]) -> bool:
             return False
     rt: Dict[str, Any] = fn["returnType"]
     rtk: str = rt["kind"]
-    if rtk != "none" and rtk not in ("int", "float", "bool"):
+    if rtk != "none" and rtk not in ("int", "float", "bool", "str"):
         return False
     params: list[Dict[str, Any]] = fn["params"]
     for param in params:
         ptyp: Dict[str, Any] = param["type"]
         pk: str = ptyp["kind"]
-        if pk not in ("int", "float", "bool"):
+        if pk not in ("int", "float", "bool", "str"):
             return False
     locals_list: list[Dict[str, Any]] = fn["locals"]
     for local in locals_list:
         ltyp: Dict[str, Any] = local["type"]
         lk: str = ltyp["kind"]
-        if lk != "none" and lk not in ("int", "float", "bool"):
+        if lk != "none" and lk not in ("int", "float", "bool", "str"):
             return False
     body: list[Dict[str, Any]] = fn["body"]
     for stmt in body:
@@ -503,6 +523,8 @@ def _param_tag(kind: str) -> int:
         return MIR_D
     if kind == "bool":
         return MIR_B
+    if kind == "str":
+        return MIR_S
     return MIR_W
 
 
@@ -919,6 +941,9 @@ class _FnLowerer:
         if tkind == "bool":
             bval: bool = expr["value"]
             return self.builder.const_b(1 if bval else 0)
+        if tkind == "str":
+            sval: str = expr["value"]
+            return self.builder.const_s(sval)
         raise MirLowerError(f"the MIR leaf slice cannot lower a {tkind} constant")
 
     def emit_binary(self, expr: Dict[str, Any]) -> int:
@@ -962,8 +987,15 @@ class _FnLowerer:
         lexpr: Dict[str, Any] = expr["left"]
         ltyp: Dict[str, Any] = lexpr["type"]
         kind: str = ltyp["kind"]
-        table: Dict[str, int] = _D_CMPOPS if kind == "float" else _W_CMPOPS
         okey: str = expr["op"]
+        if kind == "str":
+            # `ps_str_cmp` returns an i32 ordering; the direct path
+            # compares it to 0 with `icmp eq`/`ne`. The helper copy's
+            # name carries the predicate to the emitter, which renders
+            # the extractvalue/call/icmp sequence the direct path emits.
+            helper = "str_cmp_eq" if okey == "==" else "str_cmp_ne"
+            return self.emit_helper(helper, MIR_B, left, right)
+        table: Dict[str, int] = _D_CMPOPS if kind == "float" else _W_CMPOPS
         mir_op: int = table[okey]
         return self.builder.emit_val(mir_op, left, right, MIR_B)
 

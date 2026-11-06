@@ -52,6 +52,15 @@ MIR_B = 2  # an i1 bool: parameters, locals, constants, compare and `not` result
 # the op space below by design, and the two are never mixed.
 MIR_VOID = 3
 
+# `MIR_S` is a str value: at run time the `%ps.str` aggregate (byte length,
+# data pointer, code-point count, flags). A `MIR_S` constant pool entry
+# carries the UTF-8 text in `sval`; a `MIR_S` value id names an SSA value
+# of that aggregate shape. `MIR_P` is reserved for M-2 heap pointers so
+# the tag space is not renumbered twice. (`MIR_S` is 4, not 3: 3 is
+# `MIR_VOID`.)
+MIR_S = 4
+MIR_P = 5
+
 # Control flow. A `MIR_JMP` ends its block unconditionally; a `MIR_BR`
 # dispatches on an i1 value to two successors and carries the two argument
 # bindings. `MIR_RET` ends the function; a void `MIR_RET` reads no operand.
@@ -193,12 +202,12 @@ def copy_result_type(fn: MirFunction, i: int) -> int:
     entry = fn.helpers.get(i)
     if entry is not None:
         tag = int(entry.split(" ")[1])
-        if tag == MIR_W or tag == MIR_D or tag == MIR_B:
+        if tag == MIR_W or tag == MIR_D or tag == MIR_B or tag == MIR_S:
             return tag
     # A plain copy (a store into a name slot) packs the value's tag in
     # arg2.
     arg2 = fn.arg2[i]
-    if arg2 == MIR_W or arg2 == MIR_D or arg2 == MIR_B:
+    if arg2 == MIR_W or arg2 == MIR_D or arg2 == MIR_B or arg2 == MIR_S:
         return arg2
     return MIR_W
 
@@ -255,7 +264,14 @@ def const_index(operand: int) -> int:
 
 
 def none_ref() -> int:
-    """The unused-operand sentinel."""
+    """The unused-operand sentinel.
+
+    `-1` doubles as `const_ref(0)`: a constant of pool index 0 encodes to
+    the same int. The invariant that makes this safe is that a required
+    operand is never "unused": the sentinel only sits in a slot the op's
+    arity does not read, and a real constant of pool index 0 is only read
+    from a slot that does. Do not "fix" `-1` by skipping pool index 0.
+    """
     return -1
 
 
@@ -271,17 +287,20 @@ class MirParam:
 
 
 class MirConst:
-    """One constant-pool entry. `typ` is `MIR_W` or `MIR_D`; exactly one of
-    the two value fields is read."""
+    """One constant-pool entry. `typ` is `MIR_W`, `MIR_D`, `MIR_B` or
+    `MIR_S`; the value fields are read per tag: `ival` for the word and
+    bool tags, `dval` for `MIR_D`, `sval` for `MIR_S`."""
 
     typ: int
     ival: int
     dval: float
+    sval: str
 
-    def __init__(self, typ: int, ival: int, dval: float) -> None:
+    def __init__(self, typ: int, ival: int, dval: float, sval: str = "") -> None:
         self.typ = typ
         self.ival = ival
         self.dval = dval
+        self.sval = sval
 
 
 class MirBlockArg:
@@ -465,8 +484,8 @@ class MirBuilder:
 
     def add_param(self, typ: int) -> int:
         """Declare a parameter, return its value id."""
-        if typ != MIR_W and typ != MIR_D and typ != MIR_B:
-            raise MirError("parameter type must be MIR_W, MIR_B or MIR_D")
+        if typ != MIR_W and typ != MIR_D and typ != MIR_B and typ != MIR_S:
+            raise MirError("parameter type must be MIR_W, MIR_B, MIR_D or MIR_S")
         vid: int = self.next_vid
         self.next_vid = self.next_vid + 1
         params: list[MirParam] = self.fn.params
@@ -474,8 +493,8 @@ class MirBuilder:
         return vid
 
     def set_result(self, typ: int) -> None:
-        if typ != MIR_W and typ != MIR_D and typ != MIR_B and typ != MIR_VOID:
-            raise MirError("result type must be MIR_W, MIR_B, MIR_D or MIR_VOID")
+        if typ != MIR_W and typ != MIR_D and typ != MIR_B and typ != MIR_S and typ != MIR_VOID:
+            raise MirError("result type must be MIR_W, MIR_B, MIR_D, MIR_S or MIR_VOID")
         self.fn.result = typ
 
     def const_b(self, value: int) -> int:
@@ -511,6 +530,22 @@ class MirBuilder:
             if const.typ == MIR_D and float_bits(const.dval) == bits:
                 return const_ref(index)
         consts.append(MirConst(MIR_D, 0, value))
+        return const_ref(len(consts) - 1)
+
+    def const_s(self, text: str) -> int:
+        """Intern a str constant, return its operand encoding.
+
+        The lookup key is the exact string (its UTF-8 bytes), so
+        hash-seed variation cannot merge or split entries. Lone
+        surrogates never reach the pool: the direct path's lowering
+        refuses them before MIR sees the constant.
+        """
+        consts: list[MirConst] = self.fn.consts
+        for index in range(len(consts)):
+            const = consts[index]
+            if const.typ == MIR_S and const.sval == text:
+                return const_ref(index)
+        consts.append(MirConst(MIR_S, 0, 0.0, text))
         return const_ref(len(consts) - 1)
 
     def start_block(self, args: list[MirBlockArg] | None = None, hint: str = "", label_id: int = 0) -> int:
@@ -567,8 +602,8 @@ class MirBuilder:
         """Emit a value op with a fresh destination; returns the value id."""
         if op not in VALUE_OPS:
             raise MirError(f"op {op} is not a value op")
-        if typ != MIR_W and typ != MIR_D and typ != MIR_B:
-            raise MirError("value type must be MIR_W, MIR_B or MIR_D")
+        if typ != MIR_W and typ != MIR_D and typ != MIR_B and typ != MIR_S:
+            raise MirError("value type must be MIR_W, MIR_B, MIR_D or MIR_S")
         vid: int = self.next_vid
         self.next_vid = self.next_vid + 1
         self.emit(op, vid, arg1, arg2)
@@ -626,8 +661,9 @@ class MirBuilder:
     def emit_call(self, callee: int, args: list[int], result_type: int) -> int:
         """A direct call: `callee` called with `args`.
 
-        `result_type` is the call's result tag (`MIR_W`, `MIR_D` or
-        `MIR_B`), or `MIR_VOID` when the call produces no value. A void
+        `result_type` is the call's result tag (`MIR_W`, `MIR_D`,
+        `MIR_B` or `MIR_S`), or `MIR_VOID` when the call produces no
+        value. A void
         call returns `-1`; a value call returns the fresh value id.
 
         The callee is a value id (a function's entry), so the call reads
@@ -635,8 +671,14 @@ class MirBuilder:
         instruction has two operand slots and a call reads a variable
         argument count.
         """
-        if result_type != MIR_W and result_type != MIR_D and result_type != MIR_B and result_type != MIR_VOID:
-            raise MirError("call result type must be MIR_W, MIR_B, MIR_D or MIR_VOID")
+        if (
+            result_type != MIR_W
+            and result_type != MIR_D
+            and result_type != MIR_B
+            and result_type != MIR_S
+            and result_type != MIR_VOID
+        ):
+            raise MirError("call result type must be MIR_W, MIR_B, MIR_D, MIR_S or MIR_VOID")
         dst: int = -1
         if result_type != MIR_VOID:
             dst = self.next_vid
@@ -748,6 +790,20 @@ def float_bits(value: float) -> int:
     return struct.unpack("<Q", struct.pack("<d", value))[0]
 
 
+_HEX_DIGITS = "0123456789abcdef"
+
+
+def _utf8_hex(data: bytes) -> str:
+    """Lowercase hex of a byte string, spelled with lowered operations only:
+    `bytes.hex` is not in the self-host subset, so the digits come from a
+    table walk over the bytes (a `for` over `bytes` yields ints)."""
+    parts: list[str] = []
+    for byte in data:
+        parts.append(_HEX_DIGITS[byte >> 4])
+        parts.append(_HEX_DIGITS[byte & 15])
+    return "".join(parts)
+
+
 def serialize(fn: MirFunction) -> str:
     """The canonical text form: one line per instruction, field order fixed.
 
@@ -770,6 +826,16 @@ def serialize(fn: MirFunction) -> str:
             lines.append(f"const {index} w {const.ival}")
         elif const.typ == MIR_B:
             lines.append(f"const {index} b {const.ival}")
+        elif const.typ == MIR_S:
+            # Hex, not a quoted string: the serializer grows no escape
+            # dialect, and a newline or NUL in the constant cannot split
+            # a line. The empty string renders `const N s 0` with no hex
+            # token.
+            data = const.sval.encode("utf-8")
+            if data:
+                lines.append(f"const {index} s {len(data)} {_utf8_hex(data)}")
+            else:
+                lines.append(f"const {index} s 0")
         else:
             lines.append(f"const {index} d {float_bits(const.dval)}")
     blocks: list[MirBlock] = fn.blocks

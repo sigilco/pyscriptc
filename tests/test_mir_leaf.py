@@ -21,12 +21,16 @@ from pyscriptc.mir import (
     MIR_CLTW,
     MIR_D,
     MIR_JMP,
+    MIR_S,
     MIR_VOID,
     MIR_W,
     MirBlock,
     MirBuilder,
     MirError,
+    MirFunction,
+    MirModule,
     module_hash,
+    serialize,
 )
 from pyscriptc.miremit import emit_llvm_mir
 from pyscriptc.mirlower import lower_module
@@ -60,6 +64,9 @@ LEAF_SAMPLES = [
         "leafshortcircuit.py",
         "leafifexp.py",
         "leafaug.py",
+        "leafstr.py",
+        "leafstrcmp.py",
+        "leafstrcall.py",
     )
 ]
 
@@ -301,6 +308,97 @@ class TestVerifierViolations:
         r = b.emit_call(p, [], MIR_D)
         b.emit_ret(r)
         assert verify_function(b.finish()) == []
+
+
+class TestStrConstPool:
+    """The `MIR_S` constant pool entry: interning, the `const N s` serialize
+    line, and builder admission for params, results and copies."""
+
+    def _fn(self) -> MirFunction:
+        b = MirBuilder("f")
+        b.set_result(MIR_S)
+        b.start_block()
+        return b.fn
+
+    def test_const_s_interns_once_and_serializes_hex(self) -> None:
+        b = MirBuilder("f")
+        b.set_result(MIR_VOID)
+        b.start_block()
+        first = b.const_s("a\nb")
+        second = b.const_s("a\nb")
+        assert first == second
+        b.const_s("")
+        b.emit_ret_void()
+        text = serialize(b.finish())
+        assert "const 0 s 3 610a62" in text
+        assert "const 1 s 0\n" in text
+
+    def test_str_param_result_and_copy_verify(self) -> None:
+        b = MirBuilder("f")
+        b.set_result(MIR_S)
+        p = b.add_param(MIR_S)
+        b.start_block()
+        v = b.emit_copy(p, MIR_S)
+        b.emit_ret(v)
+        assert verify_function(b.finish()) == []
+
+    def test_builder_refuses_other_value_tags(self) -> None:
+        b = MirBuilder("f")
+        with pytest.raises(MirError):
+            b.add_param(9)
+        b2 = MirBuilder("g")
+        with pytest.raises(MirError):
+            b2.set_result(9)
+
+    def test_hash_stable_with_str_consts(self) -> None:
+        b = MirBuilder("f")
+        b.set_result(MIR_S)
+        b.start_block()
+        c = b.const_s("héllo")
+        b.emit_ret(c)
+        module = MirModule("x.py", [b.finish()], entry="f")
+        assert module_hash(module) == module_hash(module)
+
+
+class TestStrVerifierViolations:
+    def test_ret_of_str_const_against_word_result(self) -> None:
+        b = MirBuilder("f")
+        b.set_result(MIR_W)
+        b.start_block()
+        c = b.const_s("x")
+        b.emit_ret(c)
+        errs = verify_function(b.finish())
+        assert any(e.code == CODE_TYPE for e in errs)
+
+    def test_br_on_str_value(self) -> None:
+        b = MirBuilder("f")
+        b.set_result(MIR_W)
+        p = b.add_param(MIR_S)
+        b.start_block()
+        b.emit_jmp(1)
+        b.start_block()
+        b.emit_ret(p)
+        b.start_block()
+        b.emit_ret(p)
+        fn = b.finish()
+        i = next(i for i, op in enumerate(fn.ops) if op == MIR_JMP)
+        fn.ops[i] = MIR_BR
+        fn.arg1[i] = p
+        fn.arg2[i] = 2
+        fn.blocks[0].succ1 = 1
+        fn.blocks[0].succ2 = 2
+        errs = verify_function(fn)
+        assert any(e.code == CODE_TYPE for e in errs)
+
+    def test_str_copy_into_word_result_rejected(self) -> None:
+        b = MirBuilder("f")
+        b.set_result(MIR_W)
+        b.start_block()
+        c = b.const_s("x")
+        v = b.emit_copy(c, MIR_S)
+        b.emit_ret(v)
+        errs = verify_function(b.finish())
+        assert any(e.code == CODE_TYPE for e in errs)
 
 
 class TestCallSlice:
