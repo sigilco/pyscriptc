@@ -279,6 +279,66 @@ def test_the_abi_and_calls_emitters_read_no_raw_node_key() -> None:
             assert key not in ir_keys, f"{name}:{node.lineno}: raw read of IR key {key!r}; use the _ir seam"
 
 
+def test_the_seam_reads_the_statement_children() -> None:
+    """The node-shaped readers `_stmts` uses: bodies, handlers, raise
+    payloads and assignment targets."""
+    from pyscriptc.emit import _ir
+
+    span = {"file": "a.py", "line": 1}
+    typ = {"kind": "int"}
+    value = {"kind": "const", "type": typ, "value": "1", "span": span}
+    name = {"kind": "name", "id": "x", "type": typ, "span": span}
+    assign = {"kind": "assign", "target": "x", "value": value, "span": span}
+    assert _ir._node_target(assign) == "x"
+    assert _ir._node_value_node(assign) == value
+
+    expr_stmt = {"kind": "expr", "expr": value, "span": span}
+    assert _ir._node_expr(expr_stmt) == value
+
+    then_body = [assign]
+    else_body = [expr_stmt]
+    if_stmt = {"kind": "if", "cond": name, "then": then_body, "else": else_body, "span": span}
+    assert _ir._node_cond(if_stmt) == name
+    assert _ir._node_then(if_stmt) == then_body
+    assert _ir._node_else(if_stmt) == else_body
+
+    while_stmt = {"kind": "while", "cond": name, "body": then_body, "span": span}
+    assert _ir._node_body(while_stmt) == then_body
+
+    handler = {"exc": ["ValueError"], "body": then_body, "excslot": "e", "codes": [10]}
+    assert _ir._handler_exc(handler) == ["ValueError"]
+    assert _ir._handler_codes(handler) == [10]
+    assert _ir._handler_codes({"exc": ["ValueError"], "body": then_body}) == []
+    assert _ir._opt_excslot(handler) == "e"
+    assert _ir._opt_excslot({"exc": ["ValueError"], "body": then_body}) is None
+    try_stmt = {"kind": "try", "body": then_body, "handlers": [handler], "span": span}
+    assert _ir._node_handlers(try_stmt) == [handler]
+    assert _ir._span_of(try_stmt) == span
+    assert _ir._items(try_stmt, "finalbody") == []
+    assert _ir._items(try_stmt, "orelse") == []
+
+    container = {"kind": "name", "id": "xs", "type": {"kind": "list", "elem": typ}, "span": span}
+    setitem = {"kind": "setitem", "container": container, "index": value, "value": name, "span": span}
+    assert _ir._node_container(setitem) == container
+    assert _ir._node_index(setitem) == value
+    obj = {"kind": "name", "id": "p", "type": {"kind": "class", "name": "Point"}, "span": span}
+    setattr_stmt = {"kind": "setattr", "object": obj, "name": "x", "value": value, "span": span}
+    assert _ir._node_object(setattr_stmt) == obj
+    assert _ir._node_name(setattr_stmt) == "x"
+
+    raise_stmt = {"kind": "raise", "exc": "ValueError", "code": 4, "message": value, "span": span}
+    assert _ir._node_exc(raise_stmt) == "ValueError"
+    assert _ir._opt_node_code(raise_stmt) == 4
+    assert _ir._opt_node_code({"kind": "raise", "exc": "ValueError", "span": span}) is None
+    assert _ir._opt_node_message(raise_stmt) == value
+    assert _ir._opt_node_message({"kind": "raise", "exc": "ValueError", "span": span}) is None
+    cause = {"kind": "name", "id": "err", "type": {"kind": "exc"}, "span": span}
+    from_stmt = {"kind": "raise", "exc": "ValueError", "cause": cause, "span": span}
+    assert _ir._opt_node_cause(from_stmt) == cause
+    assert _ir._opt_node_cause(raise_stmt) is None
+    assert _ir._node_id(cause) == "err"
+
+
 def test_the_seam_reads_the_function_record() -> None:
     """The record readers `_funcs` uses: name, params, span, return type, env, boxed."""
     from pyscriptc.emit import _ir

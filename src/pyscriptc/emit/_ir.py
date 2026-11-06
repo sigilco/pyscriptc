@@ -466,6 +466,122 @@ def _mark_fmt(typ: dict[str, Any]) -> dict[str, Any]:
     return merged
 
 
+def _node_target(node: dict[str, Any]) -> str:
+    """The local name an assign (or annassign/augassign) node writes."""
+
+    target: str = node["target"]
+    return target
+
+
+def _node_cond(node: dict[str, Any]) -> dict[str, Any]:
+    """The condition expression an `if` or `while` node carries."""
+
+    cond: dict[str, Any] = node["cond"]
+    return cond
+
+
+def _node_then(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """The then-body statements an `if` node carries."""
+
+    then: list[dict[str, Any]] = node["then"]
+    return then
+
+
+def _node_else(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """The else-body statements an `if` node carries."""
+
+    else_body: list[dict[str, Any]] = node["else"]
+    return else_body
+
+
+def _node_body(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """The body statements a compound node (`while`, `try`, handler) carries."""
+
+    body: list[dict[str, Any]] = node["body"]
+    return body
+
+
+def _node_handlers(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """The except-handler records a `try` node carries."""
+
+    handlers: list[dict[str, Any]] = node["handlers"]
+    return handlers
+
+
+def _node_container(node: dict[str, Any]) -> dict[str, Any]:
+    """The container expression a setitem node writes into."""
+
+    container: dict[str, Any] = node["container"]
+    return container
+
+
+def _node_object(node: dict[str, Any]) -> dict[str, Any]:
+    """The object expression a setattr node writes through."""
+
+    obj: dict[str, Any] = node["object"]
+    return obj
+
+
+def _node_exc(node: dict[str, Any]) -> str:
+    """The exception class name a raise or excmake node carries."""
+
+    exc: str = node["exc"]
+    return exc
+
+
+def _opt_node_code(node: dict[str, Any]) -> int | None:
+    """The numeric exception code a raise or excmake node carries, or None
+    when the node names the class instead."""
+
+    if "code" not in node:
+        return None
+    code: int = node["code"]
+    return code
+
+
+def _opt_node_message(node: dict[str, Any]) -> dict[str, Any] | None:
+    """The message expression a raise or excmake node carries, or None."""
+
+    if "message" not in node:
+        return None
+    message: dict[str, Any] = node["message"]
+    return message
+
+
+def _opt_node_cause(node: dict[str, Any]) -> dict[str, Any] | None:
+    """The cause expression a `raise ... from` node carries, or None."""
+
+    if "cause" not in node:
+        return None
+    cause: dict[str, Any] = node["cause"]
+    return cause
+
+
+def _opt_excslot(node: dict[str, Any]) -> str | None:
+    """The bound-exception slot a raise or except handler carries, or None."""
+
+    if "excslot" not in node:
+        return None
+    slot: str = node["excslot"]
+    return slot
+
+
+def _handler_exc(handler: dict[str, Any]) -> list[str]:
+    """The exception class names an except-handler record matches."""
+
+    names: list[str] = handler["exc"]
+    return names
+
+
+def _handler_codes(handler: dict[str, Any]) -> list[int]:
+    """The numeric exception codes an except-handler record matches, or []."""
+
+    if "codes" not in handler:
+        return []
+    codes: list[int] = handler["codes"]
+    return codes
+
+
 def _field_name(field: dict[str, Any]) -> str:
     """The source name of one class field."""
     name: str = field["name"]
