@@ -23,9 +23,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from pyscriptc import _irnode as _ir
 from pyscriptc import config
+from pyscriptc.emit._ir import _items, _kind, _none_type, _opt_str, _return_type
 from pyscriptc.errors import IRError
 from pyscriptc.package import lower_directory
+from pyscriptc.tirserde import dict_to_span, node_to_dict
 
 
 class ProjectError(IRError):
@@ -152,7 +155,8 @@ def _retarget_entry(merged: dict[str, Any], module: str, attr: str) -> None:
     are the script the module runs at import time.
     """
 
-    names = {fn["name"] for fn in merged.get("functions", [])}
+    functions = _items(merged, "functions")
+    names = {_opt_str(fn, "name") for fn in functions}
     target = f"{module}.{attr}"
     if target not in names:
         return
@@ -160,68 +164,49 @@ def _retarget_entry(merged: dict[str, Any], module: str, attr: str) -> None:
     # attribute. The synthesized `main` does both, in that order: the
     # module's own entry function (`__entry__` or `main`) first, then the
     # attribute, whose return value is the process exit code.
-    span = {"file": merged["sourceFile"], "line": 1, "col": 1, "endLine": 1, "endCol": 1}
+    span_rec: dict[str, Any] = {}
+    span_rec["file"] = _opt_str(merged, "sourceFile")
+    span_rec["line"] = 1
+    span_rec["col"] = 1
+    span_rec["endLine"] = 1
+    span_rec["endCol"] = 1
+    span = dict_to_span(span_rec)
     body: list[dict[str, Any]] = []
-    script_entry = merged.get("entry")
-    script_fn = next((fn for fn in merged["functions"] if fn["name"] == script_entry), None)
+    script_entry = _opt_str(merged, "entry")
+    script_fn = next((fn for fn in functions if _opt_str(fn, "name") == script_entry), None)
     if script_fn is not None and script_entry != target:
-        if script_fn["returnType"]["kind"] == "int":
-            body.append(
-                {
-                    "kind": "expr",
-                    "expr": {
-                        "kind": "call",
-                        "callee": {"kind": "function", "name": script_entry},
-                        "args": [],
-                        "type": {"kind": "int"},
-                        "span": span,
-                    },
-                    "span": span,
-                }
-            )
-        elif script_fn["returnType"]["kind"] == "none":
-            body.append(
-                {
-                    "kind": "expr",
-                    "expr": {
-                        "kind": "call",
-                        "callee": {"kind": "function", "name": script_entry},
-                        "args": [],
-                        "type": {"kind": "none"},
-                        "span": span,
-                    },
-                    "span": span,
-                }
-            )
+        ret_kind = _kind(_return_type(script_fn))
+        if ret_kind == "int" or ret_kind == "none":
+            body.append(_expr_call(_ir.function_callee(script_entry), [], _ir.t_leaf(ret_kind), span, ""))
     body.append(
-        {
-            "kind": "expr",
-            "expr": {
-                "kind": "call",
-                "callee": {"kind": "module", "module": "sys", "name": "exit"},
-                "args": [
-                    {
-                        "kind": "call",
-                        "callee": {"kind": "function", "name": target},
-                        "args": [],
-                        "type": {"kind": "int"},
-                        "span": span,
-                    }
-                ],
-                "type": {"kind": "none"},
-                "span": span,
-                "symbol": "exit",
-            },
-            "span": span,
-        }
+        _expr_call(
+            _ir.module_callee("sys", "exit"),
+            [_call(_ir.function_callee(target), [], _ir.t_leaf("int"), span, "")],
+            _ir.t_leaf("none"),
+            span,
+            "exit",
+        )
     )
-    merged["functions"].append(
+    functions.append(
         {
             "name": "main",
             "params": [],
-            "returnType": {"kind": "none"},
+            "returnType": _none_type(),
             "locals": [],
             "body": body,
         }
     )
     merged["entry"] = "main"
+
+
+def _call(callee: Any, args: list[Any], typ: Any, span: Any, symbol: str) -> Any:
+    """The typed call node the console-script wrapper emits."""
+
+    return _ir.call(callee, args, typ, span, symbol, "", -1)
+
+
+def _expr_call(callee: Any, args: list[Any], typ: Any, span: Any, symbol: str) -> dict[str, Any]:
+    """The expr-statement wrapping one typed call, as dict IR."""
+
+    stmt: dict[str, Any] = node_to_dict(_ir.expr_stmt(_call(callee, args, typ, span, symbol), span))
+    return stmt
