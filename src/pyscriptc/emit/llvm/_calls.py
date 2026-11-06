@@ -5,7 +5,29 @@ from __future__ import annotations
 from typing import Any
 
 from pyscriptc.boxed import DEF_HANDLE_SYMBOL, INVOKE_SYMBOL
-from pyscriptc.emit._ir import _elem_size, _memory_type
+from pyscriptc.emit._ir import (
+    _arg_type,
+    _callee_kind,
+    _callee_module,
+    _callee_name,
+    _callee_receiver,
+    _callee_tuple,
+    _elem_of,
+    _elem_size,
+    _kind,
+    _mark_fmt,
+    _memory_type,
+    _node_args,
+    _node_callee,
+    _node_symbol,
+    _opt_int,
+    _opt_str_or_none,
+    _type_name,
+    _type_of,
+)
+from pyscriptc.emit._ir import (
+    _has as _ir_has,
+)
 
 # boxed:begin
 from pyscriptc.emit.llvm._base import EmitterBase
@@ -14,94 +36,22 @@ from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.errors import IRError
 
 
-def _kind(typ: dict[str, Any]) -> str:
-    """The kind tag of a type record."""
-    kind: str = typ["kind"]
-    return kind
-
-
 def _name_of(typ: dict[str, Any], default: str) -> str:
     """The class name of a type record, or the default when absent."""
-    if "name" in typ:
-        return _kind_name(typ)
+    if _has(typ, "name"):
+        return _type_name(typ)
     return default
-
-
-def _kind_name(typ: dict[str, Any]) -> str:
-    name: str = typ["name"]
-    return name
-
-
-def _fmt_arg(typ: dict[str, Any]) -> dict[str, Any]:
-    """The %ps.arg record one formatted argument stores: the type with the `fmt` marker set."""
-    merged: dict[str, Any] = dict(typ)
-    merged["fmt"] = 1
-    return merged
-
-
-def _callee_kind(callee: dict[str, Any]) -> str:
-    """The callee's kind tag: builtin, module, method, class or value."""
-    kind: str = callee["kind"]
-    return kind
-
-
-def _callee_name(callee: dict[str, Any]) -> str:
-    """The callee's name: the builtin, module member or method name."""
-    name: str = callee["name"]
-    return name
-
-
-def _callee_module(callee: dict[str, Any]) -> str:
-    """The module a module call names."""
-    module: str = callee["module"]
-    return module
-
-
-def _callee_receiver(callee: dict[str, Any]) -> str:
-    """The receiver kind a method call names: str or bytes."""
-    receiver: str = callee["receiver"]
-    return receiver
-
-
-def _callee_tuple(callee: dict[str, Any]) -> str:
-    """The tuple class a method call packs its result into."""
-    tname: str = callee["tuple"]
-    return tname
-
-
-def _expr_type(expr: dict[str, Any]) -> dict[str, Any]:
-    """The type record an expression carries."""
-    typ: dict[str, Any] = expr["type"]
-    return typ
-
-
-def _arg_type(arg: dict[str, Any]) -> dict[str, Any]:
-    """The type record one call argument carries."""
-    typ: dict[str, Any] = arg["type"]
-    return typ
-
-
-def _elem_name(typ: dict[str, Any]) -> str:
-    """The class name of a list or dict type record's element."""
-    elem: dict[str, Any] = typ["elem"]
-    return _kind_name(elem)
-
-
-def _sym(expr: dict[str, Any]) -> str:
-    """The ABI symbol a module call carries."""
-    symbol: str = expr["symbol"]
-    return symbol
 
 
 def _has(expr: dict[str, Any], key: str) -> bool:
     """Whether an expression record carries a key at all."""
-    return key in expr
+    return _ir_has(expr, key)
 
 
 class CallsMixin(EmitterBase):
     def emit_call(self, expr: dict[str, Any]) -> str:
-        callee: dict[str, Any] = expr["callee"]
-        args: list[dict[str, Any]] = expr["args"]
+        callee: dict[str, Any] = _node_callee(expr)
+        args: list[dict[str, Any]] = _node_args(expr)
         values: list[str] = [self.emit_expr(arg) for arg in args]
         kind: str = _callee_kind(callee)
         if kind == "builtin":
@@ -226,11 +176,11 @@ class CallsMixin(EmitterBase):
         raise IRError(f"no LLVM lowering for builtin {name}")
 
     def emit_module_call(self, expr: dict[str, Any], values: list[str]) -> str:
-        callee: dict[str, Any] = expr["callee"]
+        callee: dict[str, Any] = _node_callee(expr)
         module: str = _callee_module(callee)
         name: str = _callee_name(callee)
-        args: list[dict[str, Any]] = expr["args"]
-        typ: dict[str, Any] = _expr_type(expr)
+        args: list[dict[str, Any]] = _node_args(expr)
+        typ: dict[str, Any] = _type_of(expr)
         if _has(expr, "fn"):
             return self._emit_reduce(expr)
         if name == "exit":
@@ -240,7 +190,7 @@ class CallsMixin(EmitterBase):
         if module == "atexit" and name == "register":
             return self._emit_atexit(expr)
         if _has(expr, "symbol"):
-            symbol: str = _sym(expr)
+            symbol: str = _node_symbol(expr)
             if symbol == "ps_path_join":
                 return self._emit_join(values)
             if symbol in {"ps_deque_append", "ps_deque_appendleft"}:
@@ -252,9 +202,9 @@ class CallsMixin(EmitterBase):
             if symbol == "ps_queue_put":
                 # The item travels as a pointer to a stashed slot, the shape
                 # `deque.append` uses: the queue stores element-sized slots.
-                stash_args: list[dict[str, Any]] = expr["args"]
+                stash_args: list[dict[str, Any]] = _node_args(expr)
                 stash_arg: dict[str, Any] = stash_args[2]
-                stash_typ: dict[str, Any] = stash_arg["type"]
+                stash_typ: dict[str, Any] = _arg_type(stash_arg)
                 slot = self._stash_cell(stash_typ, values[2])
                 self._abi_decl("ps_queue_put", "void", ["ptr", "i64", "ptr"])
                 self._call_void("ps_queue_put", [f"ptr {values[0]}", f"i64 {values[1]}", f"ptr {slot}"])
@@ -267,9 +217,9 @@ class CallsMixin(EmitterBase):
             if symbol == "ps_aqueue_put":
                 # The item travels as a pointer to a stashed slot, the shape
                 # `deque.append` uses: the queue stores element-sized slots.
-                aq_args: list[dict[str, Any]] = expr["args"]
+                aq_args: list[dict[str, Any]] = _node_args(expr)
                 aq_arg: dict[str, Any] = aq_args[1]
-                aq_typ: dict[str, Any] = aq_arg["type"]
+                aq_typ: dict[str, Any] = _arg_type(aq_arg)
                 slot = self._stash_cell(aq_typ, values[1])
                 self._abi_decl("ps_aqueue_put", "i64", ["ptr", "ptr"])
                 return self._call_ret("i64", "ps_aqueue_put", [f"ptr {values[0]}", f"ptr {slot}"])
@@ -304,9 +254,9 @@ class CallsMixin(EmitterBase):
             if symbol == "ps_map_del":
                 needed = self.needed
                 needed.add("map")
-                del_args: list[dict[str, Any]] = expr["args"]
+                del_args: list[dict[str, Any]] = _node_args(expr)
                 del_arg: dict[str, Any] = del_args[1]
-                del_typ: dict[str, Any] = del_arg["type"]
+                del_typ: dict[str, Any] = _arg_type(del_arg)
                 key = self._stash_cell(del_typ, values[1])
                 self._abi_decl("ps_map_del", "void", ["ptr", "ptr"])
                 self._call_void("ps_map_del", [f"ptr {values[0]}", f"ptr {key}"])
@@ -316,7 +266,7 @@ class CallsMixin(EmitterBase):
             if symbol == "ps_dict_items":
                 # The element is a synthetic tuple_N class; the C side packs key
                 # and value cells at byte offsets read off the class layout.
-                tname: str = _elem_name(typ)
+                tname: str = _type_name(_elem_of(typ))
                 size_ptr = self.tmp()
                 size = self.tmp()
                 self.line(f"{size_ptr} = getelementptr %cls.{tname}, ptr null, i64 1")
@@ -333,7 +283,7 @@ class CallsMixin(EmitterBase):
                 # class layout (path cell, dirs cell, files cell).
                 needed = self.needed
                 needed.add("seq")
-                tname = _elem_name(typ)
+                tname = _type_name(_elem_of(typ))
                 size_ptr = self.tmp()
                 size = self.tmp()
                 self.line(f"{size_ptr} = getelementptr %cls.{tname}, ptr null, i64 1")
@@ -347,11 +297,10 @@ class CallsMixin(EmitterBase):
                 # args[0] is the format string; the rest marshal into %ps.arg.
                 count = len(values) - 1
                 nkw: int = 0
-                if _has(expr, "format_kwnames"):
-                    nkw = expr["format_kwnames"]
-                style_name: str = "percent"
-                if _has(expr, "format_style"):
-                    style_name = expr["format_style"]
+                nkw = _opt_int(expr, "format_kwnames", 0)
+                style_name: str | None = _opt_str_or_none(expr, "format_style")
+                if style_name is None:
+                    style_name = "percent"
                 style: int = {"percent": 0, "dot": 1, "map": 2}[style_name]
                 if count:
                     self._ensure_arg_type()
@@ -361,8 +310,8 @@ class CallsMixin(EmitterBase):
                         base = self.tmp()
                         self.line(f"{base} = getelementptr [{count} x %ps.arg], ptr {fmt_slot}, i64 0, i64 {index}")
                         fmt_arg: dict[str, Any] = args[index + 1]
-                        fmt_typ: dict[str, Any] = fmt_arg["type"]
-                        self._store_ps_arg(base, values[index + 1], _fmt_arg(fmt_typ))
+                        fmt_typ: dict[str, Any] = _arg_type(fmt_arg)
+                        self._store_ps_arg(base, values[index + 1], _mark_fmt(fmt_typ))
                     arg_ptr = self.tmp()
                     self.line(f"{arg_ptr} = getelementptr [{count} x %ps.arg], ptr {fmt_slot}, i64 0, i64 0")
                 else:
@@ -423,10 +372,8 @@ class CallsMixin(EmitterBase):
             if name == "loads":
                 return self._emit_json_loads(values[0], typ)
             json_arg: dict[str, Any] = args[0]
-            json_typ: dict[str, Any] = json_arg["type"]
-            flags: int = 0
-            if _has(expr, "json_flags"):
-                flags = expr["json_flags"]
+            json_typ: dict[str, Any] = _arg_type(json_arg)
+            flags: int = _opt_int(expr, "json_flags", 0)
             return self._emit_json_dumps(values[0], json_typ, flags)
         if module == "urllib.parse":
             needed = self.needed
@@ -447,7 +394,7 @@ class CallsMixin(EmitterBase):
         raise IRError(f"no LLVM lowering for {module}.{name}")
 
     def emit_method(self, expr: dict[str, Any], values: list[str]) -> str:
-        callee: dict[str, Any] = expr["callee"]
+        callee: dict[str, Any] = _node_callee(expr)
         name: str = _callee_name(callee)
         kind: str = "str"
         if _has(callee, "receiver"):
