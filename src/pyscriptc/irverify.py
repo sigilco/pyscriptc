@@ -64,7 +64,11 @@ def _where(where: str, node: Any) -> str:
 
 
 def _type_kind(node: Any) -> str | None:
-    """The type kind of an expression node, or `None` when it has no usable type."""
+    """The type kind of an expression node, or `None` when it has no usable type.
+
+    Type dispatch reads the record through this accessor instead of the raw
+    dict key.
+    """
     if not isinstance(node, dict):
         return None
     typ = node.get("type")
@@ -75,10 +79,36 @@ def _type_kind(node: Any) -> str | None:
 
 
 def _declared_kind(bound: Any) -> str:
-    """The type kind of a `{name, type}` binding, or `unknown` when absent."""
+    """The type kind of a `{name, type}` binding, or `unknown` when absent.
+
+    Binding dispatch reads the record through this accessor instead of the
+    raw dict key.
+    """
     typ = bound.get("type") if isinstance(bound, dict) else None
     kind = typ.get("kind") if isinstance(typ, dict) else None
     return kind if isinstance(kind, str) else "unknown"
+
+
+def _node_kind(node: dict[str, Any]) -> str:
+    """The kind tag of a typed IR node (assign, expr, raise, ...).
+
+    Statement and expression dispatch reads the node through this accessor
+    instead of the raw dict key.
+    """
+    kind: str = node["kind"]
+    return kind
+
+
+def _maybe_node_kind(node: dict[str, Any]) -> str | None:
+    """The kind tag of a typed IR node, or None when the node carries no kind.
+
+    Optional-shape dispatch reads the node through this accessor instead of
+    the raw dict key.
+    """
+    if "kind" not in node:
+        return None
+    kind = node["kind"]
+    return kind if isinstance(kind, str) else None
 
 
 class _Scope:
@@ -143,14 +173,14 @@ class Verifier:
     ) -> None:
         for index, stmt in enumerate(body):
             self.check_stmt(stmt, scope, label, return_type)
-            if stmt.get("kind") in ("return", "raise") and index + 1 < len(body):
+            if _maybe_node_kind(stmt) in ("return", "raise") and index + 1 < len(body):
                 # A statement after a terminator is unreachable. The emitter
                 # drops it, so it is a drift between the IR and the emitted
                 # text, not a wrong-answer bug.
                 self.fail(
                     CODE_TERMINATOR,
                     _where(f"{label}.body[{index}]", stmt),
-                    f"statement follows a {stmt['kind']} that ends the body",
+                    f"statement follows a {_node_kind(stmt)} that ends the body",
                 )
 
     def check_terminated(self, body: list[dict[str, Any]], label: str, return_type: str) -> None:
@@ -167,7 +197,7 @@ class Verifier:
     # --- statements -----------------------------------------------------
 
     def check_stmt(self, stmt: dict[str, Any], scope: _Scope, label: str, return_type: str) -> None:
-        kind = stmt.get("kind")
+        kind = _maybe_node_kind(stmt)
         where = _where(label, stmt)
         if kind == "assign":
             self.check_expr(stmt.get("value"), scope, label)
@@ -219,10 +249,11 @@ class Verifier:
                 self.check_expr(stmt["message"], scope, label)
             cause = stmt.get("cause")
             if isinstance(cause, dict):
-                if cause.get("kind") == "name":
-                    self.check_expr(cause, scope, label)
-                elif cause.get("kind") == "excmake" and isinstance(cause.get("message"), dict):
-                    self.check_expr(cause["message"], scope, label)
+                cause_node: dict[str, Any] = cause
+                if _maybe_node_kind(cause_node) == "name":
+                    self.check_expr(cause_node, scope, label)
+                elif _maybe_node_kind(cause_node) == "excmake" and isinstance(cause_node.get("message"), dict):
+                    self.check_expr(cause_node["message"], scope, label)
         elif kind == "try":
             self.check_body(stmt.get("body", []) or [], scope, label, return_type)
             for index, handler in enumerate(stmt.get("handlers", []) or []):
@@ -252,8 +283,9 @@ class Verifier:
     def check_expr(self, expr: Any, scope: _Scope, label: str) -> None:
         if not isinstance(expr, dict):
             return
-        kind = expr.get("kind")
-        where = _where(label, expr)
+        node: dict[str, Any] = expr
+        kind = _maybe_node_kind(node)
+        where = _where(label, node)
         if kind == "name":
             name = expr.get("id")
             if isinstance(name, str) and not scope.has(name):
@@ -336,8 +368,9 @@ class Verifier:
     def check_callee(self, callee: Any, scope: _Scope, label: str) -> None:
         if not isinstance(callee, dict):
             return
-        kind = callee.get("kind")
-        where = _where(label, callee)
+        node: dict[str, Any] = callee
+        kind = _maybe_node_kind(node)
+        where = _where(label, node)
         if kind == "function":
             name = callee.get("name")
             if isinstance(name, str) and name not in self.functions and name not in self.methods:
@@ -353,7 +386,7 @@ class Verifier:
 def _always_terminates(body: list[dict[str, Any]]) -> bool:
     """True when every path through `body` ends in a `return` or a `raise`."""
     for stmt in body:
-        kind = stmt.get("kind")
+        kind = _maybe_node_kind(stmt)
         if kind in ("return", "raise"):
             return True
         if kind == "if":
@@ -365,8 +398,10 @@ def _always_terminates(body: list[dict[str, Any]]) -> bool:
             # A `while True` without a break never falls out. The IR has no
             # flag for it, so treat a constant-true condition as terminating.
             cond = stmt.get("cond")
-            if isinstance(cond, dict) and cond.get("kind") == "const" and cond.get("value") == "True":
-                return True
+            if isinstance(cond, dict):
+                cond_node: dict[str, Any] = cond
+                if _maybe_node_kind(cond_node) == "const" and cond_node.get("value") == "True":
+                    return True
         elif kind == "try":
             handlers = stmt.get("handlers", []) or []
             if handlers and all(_always_terminates(handler.get("body", []) or []) for handler in handlers):
