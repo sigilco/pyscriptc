@@ -1218,6 +1218,11 @@ class MirEmitter:
             elif vtag == MIR_D:
                 rendered.append(f"double {value}")
                 types.append("double")
+            elif vtag == MIR_P:
+                # A heap pointer (the container repr calls' list/dict
+                # argument): the direct `_c_pieces` spells `ptr`.
+                rendered.append(f"ptr {value}")
+                types.append("ptr")
             else:
                 rendered.append(f"i64 {value}")
                 types.append("i64")

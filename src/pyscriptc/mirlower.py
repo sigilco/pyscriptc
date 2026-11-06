@@ -650,9 +650,51 @@ def _supported_call(expr: Dict[str, Any]) -> bool:
                 return True
         if cmodule == "builtins" and mname == "format":
             return _supported_format(expr)
+        if cmodule == "builtins" and mname in _CONTAINER_REPR_CALLS:
+            return _supported_container_repr(expr)
         if _rt_call_shape(cmodule, mname, expr):
             return _rt_args_order_ok(args)
     return False
+
+
+# The `builtins` callee names a lowered `print(container)` argument
+# carries: `seq_repr` for a list or set, `map_repr` for a dict. Each is an
+# abi call whose `ps_*_repr` symbol the IR record spells.
+_CONTAINER_REPR_CALLS = frozenset({"seq_repr", "map_repr"})
+
+
+def _supported_container_repr(expr: Dict[str, Any]) -> bool:
+    """The slice test for a `print` container repr call.
+
+    The admitted shape is the lowering's own: the container value first
+    (a supported list or dict), then the int const kind tags the runtime
+    repr reads (a PsSeq cell is only a byte size, so the element kind
+    rides the call), and a str result. Anything else stays outside.
+    """
+    if "symbol" not in expr:
+        return False
+    symbol: str = _expr_symbol(expr)
+    args: list[Dict[str, Any]] = expr["args"]
+    if _type_kind(expr["type"]) != "str":
+        return False
+    if symbol == "ps_seq_repr":
+        if len(args) != 3:
+            return False
+        first: Dict[str, Any] = args[0]
+        if _type_kind(first["type"]) != "list":
+            return False
+    elif symbol == "ps_map_repr":
+        if len(args) != 2:
+            return False
+        first = args[0]
+        if _type_kind(first["type"]) != "dict":
+            return False
+    else:
+        return False
+    for tag_arg in args[1:]:
+        if tag_arg["kind"] != "const" or _type_kind(tag_arg["type"]) != "int":
+            return False
+    return supported_expr(first)
 
 
 def _supported_format(expr: Dict[str, Any]) -> bool:
@@ -2259,6 +2301,8 @@ class _FnLowerer:
                     return -1
             if cmodule == "builtins" and mname == "format":
                 return self.emit_format_call(expr)
+            if cmodule == "builtins" and mname in _CONTAINER_REPR_CALLS:
+                return self.emit_container_repr(expr)
             rt_symbol: str = _rt_call_symbol(cmodule, mname, expr)
             if rt_symbol != "":
                 # A runtime-ABI call: the `rt:` callee prefix marks the
@@ -2550,6 +2594,26 @@ class _FnLowerer:
         callee_vid: int = self.builder.add_callee(callee_name)
         dst: int = self.builder.emit_call(callee_vid, values, tag)
         self.builder.fn.helpers[len(self.builder.fn.ops) - 1] = "method:" + name
+        return dst
+
+    def emit_container_repr(self, expr: Dict[str, Any]) -> int:
+        """A `print` container repr call: a marked `MIR_CALL`.
+
+        The container and the kind-tag constants evaluate left to right;
+        the `abi ` marker carries the `ps_*_repr` symbol, the same
+        convention `emit_module_call` uses for the `bin`/`hex`/`oct`
+        forms, and the result is the str the `_buf_out` ABI produces.
+        """
+        callee: Dict[str, Any] = expr["callee"]
+        name: str = callee["name"]
+        symbol: str = expr["symbol"]
+        args: list[Dict[str, Any]] = expr["args"]
+        values: list[int] = []
+        for arg in args:
+            values.append(self.emit_expr(arg))
+        callee_vid: int = self.builder.add_callee(name)
+        dst: int = self.builder.emit_call(callee_vid, values, MIR_S)
+        self.builder.fn.helpers[len(self.builder.fn.ops) - 1] = f"abi {symbol}"
         return dst
 
     def emit_module_call(self, expr: Dict[str, Any]) -> int:

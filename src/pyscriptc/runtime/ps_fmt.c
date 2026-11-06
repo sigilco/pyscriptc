@@ -920,6 +920,82 @@ static void emit_dot_field(PsGrow *g, Ctx *c, const char *field, int64_t fn) {
     apply_dot(g, arg, &s);
 }
 
+/* ---- container repr (print of a list, set or dict) -------------------
+
+   `ps_seq_repr`/`ps_map_repr` back the lowered `print(container)` calls.
+   The element kind rides as an argument because a PsSeq cell is only a
+   byte size: int and float share 8 bytes and str and bytes share the
+   16-byte PsBuf prefix, so the IR's element type is the only place the
+   spelling is known. The codes match the `%ps.arg` kind numbers
+   (1 int, 2 float, 3 str, 4 bool, 6 bytes). */
+
+static void repr_seq_cell(PsGrow *g, PsSeq *s, int64_t i, int64_t elem_kind) {
+    char *cell = (char *)s->data + (size_t)i * (size_t)s->elem;
+    switch (elem_kind) {
+        case 1: {
+            int64_t v;
+            memcpy(&v, cell, 8);
+            grow_i64(g, v);
+            return;
+        }
+        case 2: {
+            double v;
+            memcpy(&v, cell, 8);
+            grow_f64(g, v);
+            return;
+        }
+        case 3: {
+            PsBuf b;
+            memcpy(&b, cell, sizeof b);
+            repr_str_into(g, b.len, b.data, 0);
+            return;
+        }
+        case 4:
+            grow_text(g, *(char *)cell ? "True" : "False");
+            return;
+        case 6: {
+            PsBuf b;
+            memcpy(&b, cell, sizeof b);
+            grow_bytes_repr(g, &b);
+            return;
+        }
+        default:
+            ps_raise_cstr(PS_VALUE, "sequence repr element kind is not lowered");
+    }
+}
+
+void ps_seq_repr(PsSeq *s, int64_t elem_kind, int64_t is_set, PsBuf *out) {
+    PsGrow g;
+    ps_grow_init(&g);
+    if (is_set != 0 && s->len == 0) {
+        /* CPython spells the empty set `set()`, never `{}` (that is a dict). */
+        grow_text(&g, "set()");
+        ps_grow_finish(&g, out);
+        return;
+    }
+    ps_grow_byte(&g, is_set != 0 ? '{' : '[');
+    for (int64_t i = 0; i < s->len; i++) {
+        if (i > 0) {
+            grow_text(&g, ", ");
+        }
+        repr_seq_cell(&g, s, i, elem_kind);
+    }
+    ps_grow_byte(&g, is_set != 0 ? '}' : ']');
+    ps_grow_finish(&g, out);
+}
+
+void ps_map_repr(PsMap *m, int64_t vkind, PsBuf *out) {
+    PsGrow g;
+    PsArg a;
+    ps_grow_init(&g);
+    memset(&a, 0, sizeof a);
+    a.kind = PS_ARG_MAP;
+    a.i = vkind;
+    a.b.data = (char *)m;
+    repr_map_into(&g, &a, 0);
+    ps_grow_finish(&g, out);
+}
+
 /* ---- entry point ---------------------------------------------------- */
 
 void ps_str_format(int64_t fn, const char *f, const PsArg *args, int64_t an, int64_t nkw, int64_t style,

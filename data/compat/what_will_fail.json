@@ -1,14 +1,14 @@
 {
   "schema": "1",
   "generated": "2026-10-24",
-  "commit": "c958990ea0d29aa4551718896d15449a94e91575",
+  "commit": "00523ecd8000d9f141b04cb4e7bc115b8b4994a9",
   "sources": {
     "corpus": "benchmarks/real_scripts/scripts",
     "report": "benchmarks/real_scripts/REPORT.md"
   },
   "summary": {
     "scripts": 39,
-    "total_fences": 51,
+    "total_fences": 50,
     "unique_codes": [
       "PS1001",
       "PS1003",
@@ -144,12 +144,6 @@
           "construct": "`open(newline=...)`",
           "code": "PS2003",
           "diagnostic": "open keyword newline is not lowered; open lowers encoding= only"
-        },
-        {
-          "module": "builtins",
-          "construct": "`print(list)`",
-          "code": "PS2003",
-          "diagnostic": "print is lowered for str, int, float, bool, and bytes values, not list; wrap it in str(...)"
         },
         {
           "module": "builtins",
