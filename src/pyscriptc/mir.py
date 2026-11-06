@@ -45,9 +45,16 @@ MIR_W = 0
 MIR_D = 1
 MIR_B = 2  # an i1 bool: parameters, locals, constants, compare and `not` results
 
+# The void tag: a function returning None has no return value, so its
+# `MIR_RET` reads no operand and the function's result tag is `MIR_VOID`.
+# It is never a parameter, local, constant or value-op result. The tag
+# space (MIR_W, MIR_D, MIR_B, MIR_VOID) is its own: the numbers overlap
+# the op space below by design, and the two are never mixed.
+MIR_VOID = 3
+
 # Control flow. A `MIR_JMP` ends its block unconditionally; a `MIR_BR`
 # dispatches on an i1 value to two successors and carries the two argument
-# bindings. `MIR_RET` ends the function.
+# bindings. `MIR_RET` ends the function; a void `MIR_RET` reads no operand.
 MIR_NOP = 0
 MIR_JMP = 1
 MIR_BR = 2
@@ -442,8 +449,8 @@ class MirBuilder:
         return vid
 
     def set_result(self, typ: int) -> None:
-        if typ != MIR_W and typ != MIR_D and typ != MIR_B:
-            raise MirError("result type must be MIR_W, MIR_B or MIR_D")
+        if typ != MIR_W and typ != MIR_D and typ != MIR_B and typ != MIR_VOID:
+            raise MirError("result type must be MIR_W, MIR_B, MIR_D or MIR_VOID")
         self.fn.result = typ
 
     def const_b(self, value: int) -> int:
@@ -556,6 +563,21 @@ class MirBuilder:
         if current is None or self.terminated:
             raise MirError("ret outside an open block")
         self.emit(MIR_RET, -1, value, none_ref())
+        self.terminated = 1
+
+    def emit_ret_void(self) -> None:
+        """A void return: `MIR_RET` reading no operand, ending the block.
+
+        The ret's unused operand slot carries the void tag, so the
+        emitter renders `ret void` and the verifier skips the operand
+        checks a value return runs. `arg1` keeps the unused-operand
+        sentinel; a value return never spells it that way, so the two
+        forms stay distinguishable in the canonical text.
+        """
+        current: MirBlock | None = self.current
+        if current is None or self.terminated:
+            raise MirError("ret outside an open block")
+        self.emit(MIR_RET, -1, none_ref(), MIR_VOID)
         self.terminated = 1
 
     def emit_raise(self, code: int) -> None:

@@ -86,6 +86,11 @@ MIR_COPY = 25
 MIR_NOTB = 26
 MIR_RAISE = 27
 
+# The void result tag (`mir.py`'s MIR_VOID): a function returning None has
+# no return value. Spelled as the int literal per the self-host spell, so a
+# drift is a mirverify or A/B byte-identity failure.
+MIR_VOID = 3
+
 I64_MIN = -9223372036854775807 - 1
 I64_MAX = 9223372036854775807
 
@@ -242,11 +247,45 @@ def supported_stmt(stmt: Dict[str, Any]) -> bool:
     if kind not in _STMT_KINDS:
         return False
     if kind == "assign":
-        return supported_expr(stmt["value"])
+        # A None-typed value lowers to nothing (the None singleton has no
+        # runtime value): a const or a name read assigns nothing. A
+        # None-typed call is out of the slice with every other call.
+        value: Dict[str, Any] = stmt["value"]
+        vtyp: Dict[str, Any] = value["type"]
+        vkind: str = vtyp["kind"]
+        if vkind == "none":
+            vnode: str = value["kind"]
+            if vnode == "const" or vnode == "name":
+                return True
+            return False
+        return supported_expr(value)
     if kind == "expr":
-        return supported_expr(stmt["expr"])
+        # The direct path skips a None const expression statement, so the
+        # slice admits it and lowers to nothing; anything else is a value
+        # expression the walk has to cover.
+        expr: Dict[str, Any] = stmt["expr"]
+        etyp: Dict[str, Any] = expr["type"]
+        ekind: str = etyp["kind"]
+        if ekind == "none":
+            enode: str = expr["kind"]
+            if enode == "const":
+                return True
+            return False
+        return supported_expr(expr)
     if kind == "return":
-        return supported_expr(stmt["value"])
+        # A `None`-typed return lowers to a void `MIR_RET`; the body walk
+        # skips the None const the IR carries (`return None` and bare
+        # `return` lower to the same node). A None-typed call is out of
+        # the slice with every other call.
+        rvalue: Dict[str, Any] = stmt["value"]
+        rtyp: Dict[str, Any] = rvalue["type"]
+        rkind: str = rtyp["kind"]
+        if rkind == "none":
+            rnode: str = rvalue["kind"]
+            if rnode == "const" or rnode == "name":
+                return True
+            return False
+        return supported_expr(rvalue)
     if kind == "if":
         if not supported_expr(stmt["cond"]):
             return False
@@ -299,14 +338,14 @@ def supported_stmt(stmt: Dict[str, Any]) -> bool:
 
 
 def supported_fn(fn: Dict[str, Any]) -> bool:
-    """The slice test for one function: scalar params, scalar return, in-slice body."""
+    """The slice test for one function: scalar params, scalar or None return, in-slice body."""
     if "env" in fn:
         env: str = fn["env"]
         if env is not None:
             return False
     rt: Dict[str, Any] = fn["returnType"]
     rtk: str = rt["kind"]
-    if rtk not in ("int", "float", "bool"):
+    if rtk != "none" and rtk not in ("int", "float", "bool"):
         return False
     params: list[Dict[str, Any]] = fn["params"]
     for param in params:
@@ -318,7 +357,7 @@ def supported_fn(fn: Dict[str, Any]) -> bool:
     for local in locals_list:
         ltyp: Dict[str, Any] = local["type"]
         lk: str = ltyp["kind"]
-        if lk not in ("int", "float", "bool"):
+        if lk != "none" and lk not in ("int", "float", "bool"):
             return False
     body: list[Dict[str, Any]] = fn["body"]
     for stmt in body:
@@ -337,7 +376,10 @@ def _param_tag(kind: str) -> int:
 
 def _fn_result_tag(fn: Dict[str, Any]) -> int:
     rt: Dict[str, Any] = fn["returnType"]
-    return _param_tag(rt["kind"])
+    kind: str = rt["kind"]
+    if kind == "none":
+        return MIR_VOID
+    return _param_tag(kind)
 
 
 class _FnLowerer:
@@ -440,6 +482,13 @@ class _FnLowerer:
         fn_locals: list[Dict[str, Any]] = self.fn["locals"]
         extra_locals: list[Dict[str, Any]] = []
         for loc in fn_locals:
+            # A None-typed local is the singleton, no runtime value, so it
+            # takes no slot: the direct path registers it with no alloca,
+            # and the emitter's slot walk must not see one here.
+            loc_type: Dict[str, Any] = loc["type"]
+            loc_kind: str = loc_type["kind"]
+            if loc_kind == "none":
+                continue
             extra_locals.append(loc)
         for local in extra_locals:
             vid: int = builder.next_vid
@@ -457,6 +506,12 @@ class _FnLowerer:
             self.store(pname, self.slots[pname])
         body: list[Dict[str, Any]] = self.fn["body"]
         self.emit_body(body)
+        # A body that falls off the end returns None: the checker refuses a
+        # non-None function that can (PS1004), so reaching here with an open
+        # block means the function returns None and the direct path renders
+        # `ret void` at the same point, at the end of the entry flow.
+        if not builder.terminated:
+            builder.emit_ret_void()
         return builder.finish()
 
     def kind_of(self, name: str) -> str:
@@ -484,14 +539,31 @@ class _FnLowerer:
         if kind == "pass":
             return
         if kind == "assign":
-            value = self.emit_expr(stmt["value"])
-            self.store(stmt["target"], value)
+            target: str = stmt["target"]
+            value_expr: Dict[str, Any] = stmt["value"]
+            if self.is_none(value_expr):
+                # A None-typed value binds nothing: the None singleton has
+                # no runtime value, so there is no slot write.
+                return
+            value = self.emit_expr(value_expr)
+            self.store(target, value)
             return
         if kind == "expr":
-            self.emit_expr(stmt["expr"])
+            expr: Dict[str, Any] = stmt["expr"]
+            if self.is_none(expr):
+                # The direct path skips a None const expression statement.
+                return
+            self.emit_expr(expr)
             return
         if kind == "return":
-            value = self.emit_expr(stmt["value"])
+            # A None-typed return lowers to the void `MIR_RET`: no value
+            # rides it, the way the direct path renders `ret void` at the
+            # same point in the flow.
+            rvalue: Dict[str, Any] = stmt["value"]
+            if self.is_none(rvalue):
+                self.builder.emit_ret_void()
+                return
+            value = self.emit_expr(rvalue)
             self.builder.emit_ret(value)
             return
         if kind == "if":
@@ -641,6 +713,17 @@ class _FnLowerer:
         if kind == "unary":
             return self.emit_unary(expr)
         raise MirLowerError(f"the MIR leaf slice cannot lower expression {kind}")
+
+    def is_none(self, expr: Dict[str, Any]) -> bool:
+        """True when the expression's value is the None singleton.
+
+        None is not a runtime value: the direct path emits no code for a
+        None const and reads no slot for a None local, so the slice skips
+        the same nodes.
+        """
+        typ: Dict[str, Any] = expr["type"]
+        kind: str = typ["kind"]
+        return kind == "none"
 
     def emit_const(self, expr: Dict[str, Any]) -> int:
         typ: Dict[str, Any] = expr["type"]

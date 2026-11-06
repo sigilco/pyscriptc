@@ -36,6 +36,7 @@ from pyscriptc.mir import (
     MIR_JMP,
     MIR_RAISE,
     MIR_RET,
+    MIR_VOID,
     MirBlock,
     MirBlockArg,
     MirConst,
@@ -154,6 +155,11 @@ def _check_instr_operands(fn: MirFunction, i: int, defs: dict[int, int]) -> list
     if arity is None:
         out.append(_Violation(CODE_CONTROL, f"instr {i}: unknown op {op}"))
         return out
+    # A void return reads no operand: its arg1 is the unused sentinel and
+    # its arg2 carries the void tag. Neither is a value read, so the
+    # per-slot checks below do not apply to it.
+    if op == MIR_RET and arg2 == MIR_VOID:
+        return out
     consts: list[MirConst] = fn.consts
     n_consts: int = len(consts)
     checks: list[list[int]] = [[1, arg1], [2, arg2]]
@@ -187,6 +193,14 @@ def _check_instr_operands(fn: MirFunction, i: int, defs: dict[int, int]) -> list
 def _check_ret_type(fn: MirFunction, i: int, defs: dict[int, int]) -> _Violation | None:
     """The returned value's tag against the function's result tag."""
     operand: int = fn.arg1[i]
+    # A void return carries no value: the function's result tag is the
+    # void tag and there is nothing to type-check.
+    if fn.result == MIR_VOID:
+        if fn.arg2[i] != MIR_VOID:
+            return _Violation(CODE_TYPE, f"instr {i}: ret is not the void form of a void function")
+        return None
+    if fn.arg2[i] == MIR_VOID:
+        return _Violation(CODE_TYPE, f"instr {i}: void ret against result {fn.result}")
     consts: list[MirConst] = fn.consts
     if is_const_ref(operand):
         index = const_index(operand)
