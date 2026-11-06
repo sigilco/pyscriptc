@@ -869,6 +869,26 @@ def _rt_call_shape(cmodule: str, mname: str, expr: Dict[str, Any]) -> bool:
                 and supported_expr(first)
                 and supported_expr(second)
             )
+    if cmodule == "builtins" and mname == "global_get":
+        # A module-global read: the key is a str const and the result
+        # rides the pointer (`ps_global_get_ptr`) or i64
+        # (`ps_global_get_i64`) ABI shapes the `rt:` call already spells.
+        # The str/path forms return through a buffer out-param, outside
+        # the slice.
+        if symbol != "ps_global_get_ptr" and symbol != "ps_global_get_i64":
+            return False
+        if len(args) != 1:
+            return False
+        rkind: str = _type_kind(expr["type"])
+        if symbol == "ps_global_get_i64":
+            if rkind != "int":
+                return False
+        elif rkind in ("int", "float", "bool", "str", "none"):
+            return False
+        if not supported_type(expr["type"]):
+            return False
+        key_arg: Dict[str, Any] = args[0]
+        return _type_kind(key_arg["type"]) == "str" and supported_expr(key_arg)
     return False
 
 
@@ -909,6 +929,8 @@ def _rt_call_symbol(cmodule: str, mname: str, expr: Dict[str, Any]) -> str:
     if cmodule == "builtins" and mname == "int":
         return symbol
     if cmodule == "builtins" and mname == "dict.keys":
+        return symbol
+    if cmodule == "builtins" and mname == "global_get":
         return symbol
     return ""
 
