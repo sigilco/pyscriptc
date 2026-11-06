@@ -79,9 +79,17 @@ from pyscriptc.mir import (
 )
 from pyscriptc.mirlower import lower_module
 
-# The MIR lane opt-in. The direct path stays the default: the lane runs
-# only when the env sets this to a nonempty value other than "0".
+# The MIR lane switch. One variable, three values the contract names:
+#   PYSC_MIR=1  (MIR_ON)  force the MIR lane
+#   PYSC_MIR=0  (MIR_OFF) force the direct emitter (the post-flip escape hatch)
+#   unset/empty           today's default, MIR_DEFAULT (currently off)
+# The owner-signed default flip is the one-line change `MIR_DEFAULT = True`.
+# Callers must read the default only through `mir_opt_in()`; the CLI call
+# site in `cli/_main.py` is the other reader.
 MIR_ENV = "PYSC_MIR"
+MIR_ON = "1"
+MIR_OFF = "0"
+MIR_DEFAULT = False
 
 # The `icmp` predicate of each word comparison op, and the `fcmp` predicate
 # of each double comparison op. The keys line up with `mirlower`'s tables.
@@ -180,9 +188,17 @@ _OP_RESULT_TYPE: Dict[int, int] = {
 
 
 def mir_opt_in() -> bool:
-    """Whether the environment opts into the MIR lane."""
+    """Whether this process should emit through the MIR lane.
+
+    `PYSC_MIR=0` is always off. Unset or empty follows `MIR_DEFAULT`
+    (today: off). Any other nonempty value, including `PYSC_MIR=1`, is on.
+    """
     value = _env(MIR_ENV)
-    return value not in ("", "0")
+    if value == MIR_OFF:
+        return False
+    if value == "":
+        return MIR_DEFAULT
+    return True
 
 
 def _env(name: str) -> str:
