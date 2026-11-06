@@ -576,9 +576,7 @@ def _rt_call_symbol(cmodule: str, mname: str, expr: Dict[str, Any]) -> str:
 # pair set: `len` reads a str's code-point count, `str` renders a scalar
 # (a str argument is the identity), `int` converts a float or a str.
 _BUILTIN_CALLS = frozenset({"len", "str", "int"})
-_BUILTIN_CALL_ARGS = frozenset(
-    {"len:str", "str:int", "str:float", "str:bool", "str:str", "int:float", "int:str"}
-)
+_BUILTIN_CALL_ARGS = frozenset({"len:str", "str:int", "str:float", "str:bool", "str:str", "int:float", "int:str"})
 
 # The admitted `builtins` module calls the `_rt_call_shape` table does
 # not cover: each takes one int and returns a str through the direct
