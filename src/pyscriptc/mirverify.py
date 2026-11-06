@@ -125,12 +125,12 @@ _OP_ARITY: dict[int, int] = {
 # The try callsite terminators, spelled as int literals for the same
 # reason as the arity table: they extend the four terminator walks
 # below without new imports.
-_EXTRA_TERMINATORS = [49, 50, 51]
+_EXTRA_TERMINATORS = [50, 51, 52]
 
 # The arity-0 value ops: they read no operand slot (their payload rides
 # the helpers entry or `arg2`), so the generic value-op rule would skip
 # them; the def seeding below gives each its result tag.
-_TAGLESS_VALUE_OPS = [40, 42, 45, 47, 48]
+_TAGLESS_VALUE_OPS = [41, 43, 46, 48, 49]
 
 # The verifier's own codes. They are stable: a test that pins a violation
 # pins the code, not the prose.
@@ -563,13 +563,13 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
                         defs[dst] = get_tag
                     else:
                         defs[dst] = MIR_W
-                elif op == 40 or op == 48:
+                elif op == 41 or op == 49:
                     # trypack/exccur: pointer results.
                     defs[dst] = MIR_P
-                elif op == 43 or op == 44 or op == 46:
+                elif op == 44 or op == 45 or op == 47:
                     # tryicmp/tryne/excisa: i1 results.
                     defs[dst] = MIR_B
-                elif op == 47:
+                elif op == 48:
                     # retlod: the result tag rides arg2.
                     ret_tag: int = fn.arg2[i]
                     if ret_tag == MIR_W or ret_tag == MIR_D or ret_tag == MIR_B or ret_tag == MIR_S or ret_tag == MIR_P:
