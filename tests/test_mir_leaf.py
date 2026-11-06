@@ -86,6 +86,7 @@ LEAF_SAMPLES = [
         "leafrec.py",
         "leafbit.py",
         "leaftuple.py",
+        "leafdict.py",
     )
 ]
 

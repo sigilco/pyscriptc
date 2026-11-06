@@ -37,6 +37,7 @@ from pyscriptc.mir import (
     MIR_D,
     MIR_GETATTR,
     MIR_JMP,
+    MIR_MAP_PUT,
     MIR_NEWOBJ,
     MIR_NEWSEQ,
     MIR_P,
@@ -106,6 +107,7 @@ _OP_ARITY: dict[int, int] = {
     37: 1,  # MIR_NEWOBJ
     38: 3,  # MIR_SETATTR
     39: 3,  # MIR_GETATTR
+    40: 3,  # MIR_MAP_PUT
 }
 
 # The verifier's own codes. They are stable: a test that pins a violation
@@ -515,7 +517,7 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
         # stores are arity-2/3 ops that produce nothing, so they are out
         # of the value-op rule too; `MIR_SEQGET` is a value op whose tag
         # rides `arg3`.
-        is_seq_store: int = 1 if op == MIR_SEQSET or op == MIR_SEQPUSH or op == MIR_SETATTR else 0
+        is_seq_store: int = 1 if op == MIR_SEQSET or op == MIR_SEQPUSH or op == MIR_SETATTR or op == MIR_MAP_PUT else 0
         if (
             op != MIR_CALL
             and is_seq_store == 0
