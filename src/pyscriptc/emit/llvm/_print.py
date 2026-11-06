@@ -7,11 +7,13 @@ from typing import Any
 from pyscriptc.emit._ir import (
     _field_name,
     _field_type,
-    _has,
+    _items,
     _kind,
     _llvm_bytes,
     _llvm_double,
     _llvm_type,
+    _opt_node_end,
+    _opt_node_sep,
     _opt_str_or_none,
     _type_name,
 )
@@ -95,8 +97,10 @@ class PrintMixin(EmitterBase):
         """
         self.needed.add("printf")
         err = _opt_str_or_none(expr, "file") == "stderr"
-        sep = self.emit_expr(expr["sep"]) if _has(expr, "sep") else None
-        end = self.emit_expr(expr["end"]) if _has(expr, "end") else None
+        sep_expr: dict[str, Any] | None = _opt_node_sep(expr)
+        end_expr: dict[str, Any] | None = _opt_node_end(expr)
+        sep = self.emit_expr(sep_expr) if sep_expr is not None else None
+        end = self.emit_expr(end_expr) if end_expr is not None else None
         for index, (value, typ) in enumerate(zip(values, arg_types, strict=True)):
             if index:
                 if sep is None:
@@ -203,7 +207,7 @@ class PrintMixin(EmitterBase):
         info = self.class_index.get(name)
         if info is None or not name.startswith("tuple_"):
             return False
-        return all(_field_name(field) == f"_{index}" for index, field in enumerate(info["fields"]))
+        return all(_field_name(field) == f"_{index}" for index, field in enumerate(_items(info, "fields")))
 
     def _print_tuple(self, name: str, value: str, err: bool) -> None:
         """A synthetic tuple prints `(a, b)`; a lone field keeps the `,` tail.
@@ -214,7 +218,7 @@ class PrintMixin(EmitterBase):
         spelling). Scalars keep their direct shapes.
         """
 
-        fields = self.class_index[name]["fields"]
+        fields = _items(self.class_index[name], "fields")
         self._print_fmt("lparen", b"(", err=err)
         for index, field in enumerate(fields):
             if index:

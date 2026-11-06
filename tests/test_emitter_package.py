@@ -382,6 +382,15 @@ def test_the_seam_knows_the_typed_accessors() -> None:
     assert _ir._has({"sep": "x"}, "end") is False
     assert _ir._opt_str_or_none({"file": "stderr"}, "file") == "stderr"
     assert _ir._opt_str_or_none({}, "file") is None
+    sep = {"kind": "const", "type": {"kind": "str"}, "value": ","}
+    end = {"kind": "const", "type": {"kind": "str"}, "value": ""}
+    print_call = {"kind": "call", "sep": sep, "end": end}
+    assert _ir._opt_node_sep(print_call) == sep
+    assert _ir._opt_node_end(print_call) == end
+    assert _ir._opt_node_sep({"kind": "call"}) is None
+    assert _ir._opt_node_end({"kind": "call"}) is None
+    cls = {"name": "tuple_2_int_str", "fields": [field]}
+    assert _ir._items(cls, "fields") == [field]
 
 
 def test_the_seam_knows_the_container_accessors() -> None:

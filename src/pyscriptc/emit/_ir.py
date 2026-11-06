@@ -515,6 +515,24 @@ def _opt_str_or_none(expr: dict[str, Any], key: str) -> str | None:
     return value
 
 
+def _opt_node_sep(node: dict[str, Any]) -> dict[str, Any] | None:
+    """The `sep=` expression a print call carries, or None when absent."""
+
+    if "sep" not in node:
+        return None
+    sep: dict[str, Any] = node["sep"]
+    return sep
+
+
+def _opt_node_end(node: dict[str, Any]) -> dict[str, Any] | None:
+    """The `end=` expression a print call carries, or None when absent."""
+
+    if "end" not in node:
+        return None
+    end: dict[str, Any] = node["end"]
+    return end
+
+
 def standalone_entry(module: dict[str, Any]) -> dict[str, Any] | None:
     """The module's runnable entry (a script body or `__main__` guard), if `--run` without `--call` has one."""
     entry = module.get("entry")
