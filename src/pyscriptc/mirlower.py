@@ -427,7 +427,11 @@ def _supported_call(expr: Dict[str, Any]) -> bool:
         for arg in args:
             atyp: Dict[str, Any] = arg["type"]
             akind: str = atyp["kind"]
-            if akind not in ("int", "float", "bool", "str") and not _is_supported_list(atyp) and not _is_supported_class(atyp):
+            if (
+                akind not in ("int", "float", "bool", "str")
+                and not _is_supported_list(atyp)
+                and not _is_supported_class(atyp)
+            ):
                 return False
             if not supported_expr(arg):
                 return False
