@@ -53,7 +53,10 @@ TYPESHED_STDLIB = Path(__file__).with_name("_typeshed") / "stdlib"
 # Partial scope: the stdlib modules the closed import table lowers, plus the
 # package roots their dotted names need. Re-export targets outside the
 # allowlist (`_hashlib`, `json.decoder`) are still followed, never served.
-STDLIB_SUBSET: frozenset[str] = frozenset(QUEUE) | {name.split(".")[0] for name in QUEUE}
+STDLIB_SUBSET: set[str] = set()
+for _queue_name in QUEUE:
+    STDLIB_SUBSET.add(_queue_name)
+    STDLIB_SUBSET.add(_queue_name.split(".")[0])
 
 ROOT_KINDS = ("explicit", "beside", "stubs-dir", "typeshed")
 
@@ -66,7 +69,7 @@ class StubRoot:
 
     kind: str
     path: Path
-    allow: frozenset[str] | None = None
+    allow: set[str] | None = None
 
     def find(self, module: str, version: Version) -> Path | None:
         if self.allow is not None and module not in self.allow:
@@ -148,7 +151,7 @@ def discover_roots(
         if stubs_dir.is_dir():
             roots.append(StubRoot("stubs-dir", stubs_dir))
     if typeshed is not None and typeshed.is_dir():
-        allow = frozenset(stdlib_allow) if stdlib_allow is not None else None
+        allow = set(stdlib_allow) if stdlib_allow is not None else None
         roots.append(StubRoot("typeshed", typeshed, allow))
     return tuple(roots)
 
