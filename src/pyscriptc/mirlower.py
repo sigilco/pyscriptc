@@ -1466,7 +1466,15 @@ class _FnLowerer:
             return self.builder.const_b(1 if bval else 0)
         if tkind == "str":
             sval: str = expr["value"]
-            return self.builder.const_s(sval)
+            # A str constant materializes through a copy instruction, not
+            # a bare pool reference: the copy sits in the instruction
+            # stream at the point the direct emitter's `emit_expr` ran,
+            # so the `%ps.str` insertvalue lines land in evaluation
+            # order against the slot reads around them. A deferred
+            # constant would materialize at its consumer, after every
+            # operand's instructions, which reorders the lines whenever
+            # a constant precedes a name read (`"a" == s`).
+            return self.builder.emit_copy(self.builder.const_s(sval), MIR_S)
         raise MirLowerError(f"the MIR leaf slice cannot lower a {tkind} constant")
 
     def emit_binary(self, expr: Dict[str, Any]) -> int:
