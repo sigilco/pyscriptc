@@ -42,6 +42,9 @@ from pyscriptc.mir import (
     MIR_GETATTR,
     MIR_INITCALL,
     MIR_JMP,
+    MIR_MAP_GET,
+    MIR_MAP_HAS,
+    MIR_MAP_LEN,
     MIR_MAP_PUT,
     MIR_MULD,
     MIR_MULW,
@@ -139,6 +142,9 @@ OP_NAMES: dict[int, str] = {
     MIR_RAISEEXC: "raiseexc",
     MIR_UNREACH: "unreach",
     MIR_INITCALL: "initcall",
+    MIR_MAP_GET: "mapget",
+    MIR_MAP_HAS: "maphas",
+    MIR_MAP_LEN: "maplen",
 }
 
 _TERMINATORS: list[int] = [MIR_JMP, MIR_BR, MIR_RET, MIR_RAISE, MIR_RERAISE, MIR_RAISEEXC, MIR_UNREACH]
