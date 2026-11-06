@@ -43,88 +43,19 @@ def _fenced_names(module: dict[str, object]) -> set[str]:
     return names
 
 
-_SCALARS = ("int", "float", "bool")
-_EXPR_CHILDREN = ("operand", "left", "right", "value")
-_STMT_EXPRS = ("value", "expr", "cond")
-_STMT_BODIES = ("then", "else", "body")
 TOP_REASONS = 10
-
-
-def _expr_label(expr: dict[str, object]) -> str:
-    kind = str(expr.get("kind"))
-    typ = expr.get("type")
-    tkind = typ.get("kind") if isinstance(typ, dict) else None
-    op = expr.get("op")
-    if kind in ("binary", "compare", "unary") and isinstance(op, str):
-        return f"expr:{kind} {op} {tkind}"
-    if kind in ("const", "name"):
-        return f"expr:{kind} {tkind}"
-    return f"expr:{kind}"
-
-
-def _expr_reason(expr: dict[str, object]) -> str:
-    """The innermost rejected node under an expression `supported_expr` rejects."""
-    from pyscriptc.mirlower import supported_expr
-
-    for key in _EXPR_CHILDREN:
-        child = expr.get(key)
-        if isinstance(child, dict) and "kind" in child and not supported_expr(child):
-            return _expr_reason(child)
-    return _expr_label(expr)
-
-
-def _stmt_reason(stmt: dict[str, object]) -> str:
-    """The innermost rejected node under a statement `supported_stmt` rejects."""
-    from pyscriptc.mirlower import supported_expr, supported_stmt
-
-    for key in _STMT_EXPRS:
-        child = stmt.get(key)
-        if isinstance(child, dict) and "kind" in child:
-            ctyp = child.get("type")
-            if isinstance(ctyp, dict) and ctyp.get("kind") == "none" and key != "cond":
-                if child.get("kind") not in ("const", "name"):
-                    return f"{_expr_label(child)} (none-typed)"
-                continue
-            if not supported_expr(child):
-                return _expr_reason(child)
-    for key in _STMT_BODIES:
-        body = stmt.get(key)
-        if not isinstance(body, list):
-            continue
-        for inner in body:
-            if isinstance(inner, dict) and not supported_stmt(inner):
-                return _stmt_reason(inner)
-    return f"stmt:{stmt.get('kind')}"
 
 
 def out_of_slice_reason(fn: dict[str, object]) -> str | None:
     """Why `supported_fn` rejects `fn`, or None when it is in the slice.
 
-    The first failing check wins, in `supported_fn`'s own order: closure
-    env, return type, params, locals, then the first rejected statement.
+    The canonical walk lives in `pyscriptc.emit._mir_in` (the B11 adapter
+    module, next to the lane it feeds); this wrapper keeps the script's
+    call sites and report vocabulary unchanged.
     """
-    from pyscriptc.mirlower import supported_fn, supported_stmt
+    from pyscriptc.emit._mir_in import out_of_slice_reason as _adapter_reason
 
-    if supported_fn(fn):
-        return None
-    if fn.get("env") is not None:
-        return "fn:closure env"
-    rt = fn.get("returnType")
-    rtk = rt.get("kind") if isinstance(rt, dict) else None
-    if rtk != "none" and rtk not in _SCALARS:
-        return f"return:{rtk}"
-    for key, label, allow_none in (("params", "param", False), ("locals", "local", True)):
-        entries = fn.get(key) or []
-        for entry in entries if isinstance(entries, list) else []:
-            typ = entry.get("type") if isinstance(entry, dict) else None
-            kind = typ.get("kind") if isinstance(typ, dict) else None
-            if kind not in _SCALARS and not (allow_none and kind == "none"):
-                return f"{label}:{kind}"
-    body = fn.get("body") or []
-    for stmt in body if isinstance(body, list) else []:
-        if isinstance(stmt, dict) and not supported_stmt(stmt):
-            return _stmt_reason(stmt)
-    return "fn:unclassified"
+    return _adapter_reason(fn)
 
 
 def measure_script(path: Path) -> dict[str, object]:

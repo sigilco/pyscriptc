@@ -20,6 +20,7 @@ import os
 import platform
 import sys
 from pathlib import Path
+from typing import Any
 
 from pyscriptc import __version__
 
@@ -104,6 +105,16 @@ class Logger:
 
     def error(self, event: str, **kv: object) -> None:
         _emit("error", event, kv)
+
+
+def emit_event(level: str, event: str, fields: dict[str, Any]) -> None:
+    """Positional-field emit for callers outside the `**kwargs` subset.
+
+    `Logger.info("event", key=value)` spells fields as keywords, which the
+    self-host lowerer does not take; this is the same record through a
+    plain dict argument. Levels are the `_LEVELS` names.
+    """
+    _emit(level, event, fields)
 
 
 def get_logger() -> Logger:
