@@ -30,4 +30,11 @@ def ifexp_calls(a: int, flag: bool) -> int:
 
 
 if __name__ == "__main__":
-    print(ifexp_int(1, 2, True), ifexp_float(1.0, 2.0, False), ifexp_bool(True, False, True), ifexp_cond_cmp(3, 4), ifexp_nested(1, 2, True), ifexp_calls(6, True))
+    print(
+        ifexp_int(1, 2, True),
+        ifexp_float(1.0, 2.0, False),
+        ifexp_bool(True, False, True),
+        ifexp_cond_cmp(3, 4),
+        ifexp_nested(1, 2, True),
+        ifexp_calls(6, True),
+    )

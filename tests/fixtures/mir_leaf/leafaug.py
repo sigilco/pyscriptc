@@ -48,7 +48,16 @@ def aug_shortcircuit(x: int) -> int:
 
 
 def main() -> None:
-    print(aug_add(1), aug_sub(2), aug_mul(3), aug_floordiv(10), aug_mod(17), aug_float(2.0), aug_in_loop(4), aug_shortcircuit(0))
+    print(
+        aug_add(1),
+        aug_sub(2),
+        aug_mul(3),
+        aug_floordiv(10),
+        aug_mod(17),
+        aug_float(2.0),
+        aug_in_loop(4),
+        aug_shortcircuit(0),
+    )
 
 
 if __name__ == "__main__":
