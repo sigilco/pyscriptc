@@ -142,4 +142,7 @@ def test_reasons_cover_every_out_of_slice_function() -> None:
     summary = mod.coverage_summary(report=report)
     assert summary["out_of_slice"] == sum(reasons.values())
     assert summary["reason_kinds"] == len(reasons)
-    assert "Out-of-slice reasons (top 10)" in mod.format_report(report)
+    # At full coverage there is nothing to list, so the header only appears
+    # while some function is still out of slice.
+    if reasons:
+        assert "Out-of-slice reasons (top 10)" in mod.format_report(report)
