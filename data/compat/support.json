@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-06",
-  "commit": "b6011443e471904eab66c59de74a76aae21ea6ba",
+  "commit": "d5f52ba7786195a1c4df192ea9a9e3daf932da93",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -9,8 +9,8 @@
   },
   "summary": {
     "builtins": {
-      "green": 25,
-      "yellow": 22,
+      "green": 26,
+      "yellow": 21,
       "red": 23
     },
     "stdlib": {
@@ -106,12 +106,10 @@
     },
     {
       "label": "`zip`",
-      "status": "\ud83d\udfe1",
+      "status": "\ud83d\udfe2",
       "count": 1,
-      "missing": "more than 2 lists",
-      "codes": [
-        "PS2003"
-      ]
+      "missing": "",
+      "codes": []
     },
     {
       "label": "`filter`",
@@ -795,7 +793,7 @@
       "version": "3.20",
       "status": "\ud83d\udd34",
       "ratio": "37/56",
-      "blocking": "keyword-args (16), construct-other (9), unlowered-call (8)",
+      "blocking": "keyword-args (22), name-resolution (13), unlowered-call (8)",
       "codes": "PS2002, PS2003, PS1101"
     },
     {

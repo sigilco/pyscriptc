@@ -96,6 +96,7 @@ LEAF_SAMPLES = [
         "leafstrindex.py",
         "leafuserclass.py",
         "leafmap.py",
+        "leafzip.py",
     )
 ]
 

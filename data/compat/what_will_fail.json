@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-10-24",
-  "commit": "c7be3aafe528591074991042e447d2a979e3de5c",
+  "commit": "c958990ea0d29aa4551718896d15449a94e91575",
   "sources": {
     "corpus": "benchmarks/real_scripts/scripts",
     "report": "benchmarks/real_scripts/REPORT.md"
@@ -155,7 +155,7 @@
           "module": "builtins",
           "construct": "`zip()` with >2 args",
           "code": "PS2003",
-          "diagnostic": "zip takes 2 lists"
+          "diagnostic": "zip takes at least 2 lists"
         },
         {
           "module": "builtins",

@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-06",
-  "commit": "b6011443e471904eab66c59de74a76aae21ea6ba",
+  "commit": "d5f52ba7786195a1c4df192ea9a9e3daf932da93",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -9,8 +9,8 @@
     "score": ""
   },
   "summary": {
-    "builtins_full": 2,
-    "builtins_partial": 15,
+    "builtins_full": 3,
+    "builtins_partial": 14,
     "builtins_none": 1,
     "stdlib_full": 0,
     "stdlib_partial": 59,
@@ -19,7 +19,7 @@
     "packages_partial": 7,
     "packages_none": 9,
     "weighted_pass": 0.0,
-    "fences": 2704
+    "fences": 2718
   },
   "builtins": [
     {
@@ -202,14 +202,10 @@
       "names": [
         "zip"
       ],
-      "status": "partial",
+      "status": "full",
       "count": 1,
-      "unsupported": [
-        "more than 2 lists"
-      ],
-      "fences": [
-        "PS2003"
-      ],
+      "unsupported": [],
+      "fences": [],
       "note": ""
     },
     {
@@ -1582,17 +1578,17 @@
       "import_name": "idna",
       "version": "3.20",
       "status": "none",
-      "fences": 94,
+      "fences": 108,
       "definitions": 56,
       "fenced_definitions": 37,
       "top_families": [
         {
           "family": "keyword-args",
-          "count": 16
+          "count": 22
         },
         {
-          "family": "construct-other",
-          "count": 9
+          "family": "name-resolution",
+          "count": 13
         },
         {
           "family": "unlowered-call",
@@ -1602,11 +1598,11 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 46
+          "count": 50
         },
         {
           "code": "PS2003",
-          "count": 23
+          "count": 29
         },
         {
           "code": "PS1101",
@@ -2087,13 +2083,13 @@
     {
       "code": "PS2002",
       "title": "construct not supported",
-      "count": 1306,
+      "count": 1310,
       "packages": 16
     },
     {
       "code": "PS1001",
       "title": "annotation missing or not supported",
-      "count": 301,
+      "count": 305,
       "packages": 13
     },
     {
@@ -2129,7 +2125,7 @@
     {
       "code": "PS2003",
       "title": "call arguments not supported",
-      "count": 81,
+      "count": 87,
       "packages": 10
     },
     {
@@ -2250,12 +2246,12 @@
     },
     {
       "date": "2026-11-06",
-      "commit": "b6011443e471904eab66c59de74a76aae21ea6ba",
+      "commit": "d5f52ba7786195a1c4df192ea9a9e3daf932da93",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 7,
       "packages_none": 9,
-      "fences": 2704
+      "fences": 2718
     }
   ]
 }

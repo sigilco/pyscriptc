@@ -1333,11 +1333,7 @@ class StmtBMixin:
                 self.fail(call, "PS2003", "enumerate start given more than once")
             start_node = call.args[1]
         source = self._expr(call.args[0])
-        if _node_type_kind(source) != "list" or source["type"].get("set"):
-            self.fail(call, "PS2002", "enumerate() takes a list")
-        elem = source["type"]["elem"]
-        if _type_kind(elem) not in _SCALAR | {"bool"}:
-            self.fail(call, "PS2002", f"enumerate() of list[{_show(elem)}] is not lowered")
+        elem = self._pair_source_elem(call, source, "enumerate")
         start = _const_int(0, span)
         if start_node is not None:
             start = self._expr(start_node, {"kind": "int"})
@@ -1348,18 +1344,29 @@ class StmtBMixin:
     def _for_zip(self, stmt: ast.For, span: dict[str, Any]) -> list[dict[str, Any]]:
         call = stmt.iter
         assert isinstance(call, ast.Call)
-        if call.keywords or len(call.args) != 2:
-            self.fail(call, "PS2003", "zip takes 2 lists")
+        if call.keywords or len(call.args) < 2:
+            self.fail(call, "PS2003", "zip takes at least 2 lists")
         sources = [self._expr(arg) for arg in call.args]
         elems: list[dict[str, Any]] = []
         for source in sources:
-            if _node_type_kind(source) != "list" or source["type"].get("set"):
-                self.fail(call, "PS2002", "zip() takes lists")
-            elem = source["type"]["elem"]
-            if _type_kind(elem) not in _SCALAR | {"bool"}:
-                self.fail(call, "PS2002", f"zip() of list[{_show(elem)}] is not lowered")
-            elems.append(elem)
+            elems.append(self._pair_source_elem(call, source, "zip"))
         return self._for_pairs(stmt, span, sources, elems, None, "zip")
+
+    def _pair_source_elem(self, call: ast.Call, source: dict[str, Any], what: str) -> dict[str, Any]:
+        """The element type one enumerate/zip source iterates, or a fence.
+
+        A source is a non-set `list` of scalars or a `str` (which iterates
+        its one-character strs); anything else keeps the PS2002 fence.
+        """
+        kind = _node_type_kind(source)
+        if kind == "str":
+            return {"kind": "str"}
+        if kind != "list" or source["type"].get("set"):
+            self.fail(call, "PS2002", f"{what}() takes lists")
+        elem = source["type"]["elem"]
+        if _type_kind(elem) not in _SCALAR | {"bool"}:
+            self.fail(call, "PS2002", f"{what}() of list[{_show(elem)}] is not lowered")
+        return elem
 
     def _for_pairs(
         self,
@@ -1420,24 +1427,19 @@ class StmtBMixin:
         for seq, source in zip(seqs, sources, strict=True):
             prefix.append(_assign(seq, source, span))
         prefix.append(_assign(idx, _const_int(0, span), span))
-        if len(sources) == 1:
-            prefix.append(_assign(length, _len_call(_name(seqs[0], sources[0]["type"], span), span), span))
-        else:
-            left_n = self._temp("n")
-            right_n = self._temp("n")
-            self.locals[left_n] = int_t
-            self.locals[right_n] = int_t
-            prefix.extend(
-                [
-                    _assign(left_n, _len_call(_name(seqs[0], sources[0]["type"], span), span), span),
-                    _assign(right_n, _len_call(_name(seqs[1], sources[1]["type"], span), span), span),
-                    _assign(length, _name(left_n, int_t, span), span),
-                    _if_stmt(
-                        _compare("<", _name(right_n, int_t, span), _name(left_n, int_t, span), span),
-                        [_assign(length, _name(right_n, int_t, span), span)],
-                        span,
-                    ),
-                ]
+        # zip stops at the shortest source; enumerate has one. Each extra
+        # source folds its length into `length` through its own temp.
+        prefix.append(_assign(length, _len_call(_name(seqs[0], sources[0]["type"], span), span), span))
+        for seq, source in zip(seqs[1:], sources[1:], strict=True):
+            n_tmp = self._temp("n")
+            self.locals[n_tmp] = int_t
+            prefix.append(_assign(n_tmp, _len_call(_name(seq, source["type"], span), span), span))
+            prefix.append(
+                _if_stmt(
+                    _compare("<", _name(n_tmp, int_t, span), _name(length, int_t, span), span),
+                    [_assign(length, _name(n_tmp, int_t, span), span)],
+                    span,
+                )
             )
         if enum_start is not None:
             prefix.append(_assign(enum_i, enum_start, span))
