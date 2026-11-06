@@ -8,8 +8,8 @@ shape so later P2 modules can copy it:
 
 - builders reconstruct the same dict IR the old literals spelled,
 - accessors are the only place a converted module subscripts a node key,
-- `_shared.py` and `_time.py` have no raw node-key reads and no raw
-  `{"kind": ...}` node/type literals.
+- `_shared.py`, `_time.py` and `_argparse.py` have no raw node-key reads
+  and no raw `{"kind": ...}` node/type literals.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src" / "pyscriptc"
 RESTLOWER = SRC / "restlower"
 
-CONVERTED = (RESTLOWER / "_shared.py", RESTLOWER / "_time.py")
+CONVERTED = (RESTLOWER / "_shared.py", RESTLOWER / "_time.py", RESTLOWER / "_argparse.py")
 
 # The dict-IR keys a node or type record carries. A converted module
 # reads them only inside the named accessors.
