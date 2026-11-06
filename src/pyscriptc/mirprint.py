@@ -43,6 +43,7 @@ from pyscriptc.mir import (
     MIR_NOTB,
     MIR_RAISE,
     MIR_RET,
+    MIR_S,
     MIR_SUBD,
     MIR_SUBW,
     MIR_VOID,
@@ -98,6 +99,8 @@ def tag_name(tag: int) -> str:
         return "d"
     if tag == MIR_B:
         return "b"
+    if tag == MIR_S:
+        return "s"
     if tag == MIR_VOID:
         return "void"
     return f"t{tag}"
@@ -116,6 +119,8 @@ def _const_text(fn: MirFunction, index: int) -> str:
     const = fn.consts[index]
     if const.typ == MIR_D:
         return f"c{index} = d {const.dval!r} (0x{float_bits(const.dval):016x})"
+    if const.typ == MIR_S:
+        return f"c{index} = s {const.sval!r}"
     return f"c{index} = {tag_name(const.typ)} {const.ival}"
 
 
