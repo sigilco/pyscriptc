@@ -125,9 +125,11 @@ def run_checker(
     lowered constant, so the lowerer abandons the whole function body and
     the fences inside it never reach the census (issue #66).
     """
-    paths = list(extra_paths or []) + [Path(p) for p in _active_site_packages()]
+    paths: list[Path] = [Path(p) for p in _active_site_packages()]
+    if extra_paths is not None:
+        paths = list(extra_paths) + paths
     if checker in _DEPRECATED_CHECKERS:
-        warnings.warn(_DEPRECATED_CHECKERS[checker], DeprecationWarning, stacklevel=2)
+        warnings.warn(_DEPRECATED_CHECKERS[checker], DeprecationWarning, 2)
     if checker == "pyright":
         # boxed:begin
         _run_pyright(path, paths, plane_map=plane_map, fallback=fallback, program_dir=program_dir)
@@ -140,14 +142,14 @@ def run_checker(
         return
     if checker != "mypy":
         raise CheckFailed(f"checker {checker!r} is not wired; the preflight uses pyrefly")
-    with tempfile.TemporaryDirectory(prefix="pyscriptc-mypy-") as cache:
+    with tempfile.TemporaryDirectory(None, "pyscriptc-mypy-") as cache:
         config = Path(cache) / "mypy.ini"
         # The manifest's directory carries the adapter's `.pyi`, so mypy
         # finds the module the same way pyrefly and pyright do (issue #66).
         mypy_path = ", ".join(str(root) for root in paths)
         config.write_text(
             f"[mypy]\nplugins = pyscriptc.check\nmypy_path = {mypy_path}\n",
-            encoding="utf-8",
+            "utf-8",
         )
         proc = subprocess.run(
             [
@@ -170,7 +172,7 @@ def run_checker(
         )
     if proc.returncode == 0:
         return
-    output = (proc.stdout or proc.stderr).strip()
+    output: str = (proc.stdout or proc.stderr).strip()
     if not output:
         output = proc.stderr.strip() or f"mypy exited {proc.returncode}"
     if "No module named mypy" in output:
@@ -205,10 +207,10 @@ def _patched_typeshed(dest: Path) -> Path:
     if _BUILTINS_FROZENSET not in text or "class range(" not in text:
         raise CheckFailed("vendored typeshed builtins.pyi no longer matches the subset patch anchors")
     text = text.replace(_BUILTINS_FROZENSET, "class frozenset(set[_T_co]):", 1)
-    start = text.index("class range(")
-    end = text.index("\nclass ", start)
-    block = text[start:end].replace("-> Self:", "-> list[int]:")
-    builtins.write_text(text[:start] + block + text[end:], encoding="utf-8")
+    start: int = text.index("class range(")
+    end: int = text.index("\nclass ", start)
+    block: str = text[start:end].replace("-> Self:", "-> list[int]:")
+    builtins.write_text(text[:start] + block + text[end:], "utf-8")
     return dest
 
 
@@ -231,15 +233,15 @@ def _resolve_tool(name: str, env_var: str, fallback: list[str]) -> tuple[list[st
     override = os.environ.get(env_var)
     if override:
         return shlex.split(override), "env"
-    exe = sysconfig.get_config_var("EXE") or ""
-    scripts_dirs = [("interpreter", sysconfig.get_path("scripts"))]
+    exe: str = sysconfig.get_config_var("EXE") or ""
+    scripts_dirs: list[tuple[str, str]] = [("interpreter", sysconfig.get_path("scripts"))]
     try:
         scripts_dirs.append(("user-scheme", sysconfig.get_path("scripts", sysconfig.get_preferred_scheme("user"))))
     except KeyError:
         pass
     for source, scripts in scripts_dirs:
         candidate = Path(scripts) / f"{name}{exe}"
-        if candidate.is_file() and os.access(candidate, os.X_OK):
+        if candidate.is_file() and os.access(str(candidate), os.X_OK):
             return [str(candidate)], source
     found = shutil.which(name)
     if found:
@@ -260,18 +262,26 @@ def _resolve_pyrefly() -> tuple[list[str], str]:
 # (`.agents/docs/release/python-version-window.md`), where the same code is legal and the
 # compiler reproduces CPython's "the finally block replaces the in-flight
 # outcome" behavior, so pyrefly's diagnostics for it do not apply.
-_PEP765_MARKERS = ("in a `finally` block will silence exceptions",)
+_PEP765_MARKERS: set[str] = {"in a `finally` block will silence exceptions"}
 
 
-def _is_pep765(error):
+def _is_pep765(error: dict[str, Any]) -> bool:
     """True for the PEP 765 `finally`-block diagnostics, false otherwise."""
-    if error.get("name") != "invalid-syntax":
+    name: str = ""
+    if "name" in error:
+        name = error["name"]
+    if name != "invalid-syntax":
         return False
-    description = str(error.get("description", ""))
-    return any(marker in description for marker in _PEP765_MARKERS)
+    description: str = ""
+    if "description" in error:
+        description = error["description"]
+    for marker in _PEP765_MARKERS:
+        if marker in description:
+            return True
+    return False
 
 
-def _pyrefly_errors(stdout):
+def _pyrefly_errors(stdout: str) -> list[dict[str, Any]] | None:
     """The parsed pyrefly diagnostics, or None when the output is not JSON."""
     text = stdout.strip()
     if not text.startswith("{"):
@@ -286,13 +296,23 @@ def _pyrefly_errors(stdout):
     return [err for err in errors if isinstance(err, dict)]
 
 
-def _format_pyrefly_error(error):
+def _format_pyrefly_error(error: dict[str, Any]) -> str:
     """One diagnostic in the shape the CLI prints."""
-    path = str(error.get("path", ""))
-    line = int(error.get("line", 0) or 0)
-    rule = str(error.get("name", ""))
-    description = str(error.get("description", ""))
-    return f"{path}:{line}: error: {description} [{rule}]" if rule else f"{path}:{line}: error: {description}"
+    path: str = ""
+    if "path" in error:
+        path = error["path"]
+    line: int = 0
+    if "line" in error:
+        line = error["line"]
+    rule: str = ""
+    if "name" in error:
+        rule = error["name"]
+    description: str = ""
+    if "description" in error:
+        description = error["description"]
+    if rule:
+        return f"{path}:{line}: error: {description} [{rule}]"
+    return f"{path}:{line}: error: {description}"
 
 
 def _active_interpreter() -> str:
@@ -304,7 +324,7 @@ def _active_interpreter() -> str:
             Path(venv) / "Scripts" / "python.exe",
             Path(venv) / "python.exe",
         ):
-            if candidate.is_file() and os.access(candidate, os.X_OK):
+            if candidate.is_file() and os.access(str(candidate), os.X_OK):
                 return str(candidate)
     return sys.executable
 
@@ -339,8 +359,10 @@ def _run_pyrefly(
 ) -> None:
     argv = _resolve_pyrefly_binary()
     source = path.resolve()
-    roots = list(extra_paths or []) + [Path(p) for p in _active_site_packages()]
-    with tempfile.TemporaryDirectory(prefix="pyscriptc-pyrefly-") as tmp:
+    roots: list[Path] = [Path(p) for p in _active_site_packages()]
+    if extra_paths is not None:
+        roots = list(extra_paths) + roots
+    with tempfile.TemporaryDirectory(None, "pyscriptc-pyrefly-") as tmp:
         typeshed = _patched_typeshed(Path(tmp) / "typeshed")
         search = [str(_PYRIGHT_STUBS)]
         if source.is_dir():
@@ -378,7 +400,7 @@ def _run_pyrefly(
             "# (bad-context-manager).\n"
             'unbound-name = "ignore"\n'
             'bad-context-manager = "ignore"\n',
-            encoding="utf-8",
+            "utf-8",
         )
         try:
             proc = subprocess.run(
@@ -402,25 +424,28 @@ def _run_pyrefly(
             ) from exc
     if proc.returncode == 0:
         return
-    errors = _pyrefly_errors(proc.stdout)
+    errors: list[dict[str, Any]] | None = _pyrefly_errors(proc.stdout)
     if errors is not None:
-        kept = [err for err in errors if not _is_pep765(err)]
+        kept: list[dict[str, Any]] = []
+        for err in errors:
+            if not _is_pep765(err):
+                kept.append(err)
         if not kept:
             return
         # boxed:begin
         if fallback and plane_map is not None:
             from pyscriptc import boxed as _boxed
 
-            suppressed = []
-            remaining = []
+            suppressed: list[dict[str, Any]] = []
+            remaining: list[dict[str, Any]] = []
             for err in kept:
-                if _boxed.is_island_diagnostic(err, source, plane_map, tmp_dir=Path(tmp)):
+                if _boxed.is_island_diagnostic(err, source, plane_map, Path(tmp)):
                     suppressed.append(err)
                 else:
                     remaining.append(err)
             if suppressed:
-                count = len(suppressed)
-                s = "s" if count != 1 else ""
+                count: int = len(suppressed)
+                s: str = "s" if count != 1 else ""
                 print(f"note: suppressed {count} checker diagnostic{s} routed to the island", file=sys.stderr)
                 for err in suppressed[:3]:
                     print(f"note: {_format_pyrefly_error(err)}", file=sys.stderr)
@@ -430,7 +455,7 @@ def _run_pyrefly(
         # boxed:end
         raise CheckFailed("\n".join(_format_pyrefly_error(err) for err in kept))
     # Diagnostics go to stdout; stderr carries WARN/INFO progress lines.
-    output = proc.stdout.strip() or proc.stderr.strip() or f"pyrefly exited {proc.returncode}"
+    output: str = proc.stdout.strip() or proc.stderr.strip() or f"pyrefly exited {proc.returncode}"
     raise CheckFailed(output)
 
 
@@ -445,35 +470,47 @@ def _run_pyright(
 ) -> None:
     argv = _resolve_tool_argv("pyright", "PYRIGHT_BIN", ["pyright"])
     source = path.resolve()
-    roots = list(extra_paths or []) + [Path(p) for p in _active_site_packages()]
+    roots: list[str] = _active_site_packages()
+    if extra_paths is not None:
+        extra_strs: list[str] = []
+        for i in range(len(extra_paths)):
+            extra_strs.append(str(extra_paths[i]))
+        roots = extra_strs + roots
     # boxed:begin
     if fallback:
-        if program_dir is None:
-            p_env = os.environ.get("PYSC_PROGRAM_DIR")
-            prog_path = Path(p_env).resolve() if p_env else (source if source.is_dir() else source.parent)
+        prog_path: Path = source
+        if program_dir is not None:
+            prog_path = program_dir.resolve()
         else:
-            prog_path = Path(program_dir).resolve()
-        if prog_path not in roots:
-            roots.append(prog_path)
-        pythonpath = os.environ.get("PYTHONPATH")
+            p_env: str = os.environ.get("PYSC_PROGRAM_DIR") or ""
+            if p_env:
+                prog_path = Path(p_env).resolve()
+            elif not source.is_dir():
+                prog_path = source.parent
+        prog_dir: str = str(prog_path)
+        if prog_dir not in roots:
+            roots.append(prog_dir)
+        pythonpath: str = os.environ.get("PYTHONPATH") or ""
         if pythonpath:
             for p in pythonpath.split(os.pathsep):
                 if p:
-                    resolved_p = Path(p).resolve()
-                    if resolved_p.is_dir() and resolved_p not in roots:
-                        roots.append(resolved_p)
+                    resolved_p: Path = Path(p).resolve()
+                    if resolved_p.is_dir():
+                        resolved_s: str = str(resolved_p)
+                        if resolved_s not in roots:
+                            roots.append(resolved_s)
     # boxed:end
-    with tempfile.TemporaryDirectory(prefix="pyscriptc-pyright-") as tmp:
+    with tempfile.TemporaryDirectory(None, "pyscriptc-pyright-") as tmp:
         config = Path(tmp) / "pyrightconfig.json"
         config.write_text(
             json.dumps(
                 {
                     "stubPath": str(_PYRIGHT_STUBS),
-                    "extraPaths": [str(root) for root in roots],
+                    "extraPaths": roots,
                     "executionEnvironments": [{"root": str(source.parent)}],
                 }
             ),
-            encoding="utf-8",
+            "utf-8",
         )
         try:
             proc = subprocess.run(
@@ -499,23 +536,58 @@ def _run_pyright(
     except json.JSONDecodeError:
         output = (proc.stderr or proc.stdout).strip() or f"pyright exited {proc.returncode}"
         raise CheckFailed(output) from None
-    summary = report.get("summary") or {}
-    errors = summary.get("errorCount", 0)
+    summary: dict[str, Any] = {}
+    if "summary" in report:
+        summary = report["summary"]
+    errors: int = 0
+    if "errorCount" in summary:
+        errors = summary["errorCount"]
     if errors == 0:
         return
-    lines = [
-        _format_diagnostic(diag) for diag in report.get("generalDiagnostics", []) if diag.get("severity") == "error"
-    ]
-    output = "\n".join(line for line in lines if line) or f"pyright reported {errors} error(s)"
+    diagnostics: list[dict[str, Any]] = []
+    if "generalDiagnostics" in report:
+        diagnostics = report["generalDiagnostics"]
+    lines: list[str] = []
+    for diag in diagnostics:
+        severity: str = ""
+        if "severity" in diag:
+            severity = diag["severity"]
+        if severity == "error":
+            lines.append(_format_diagnostic(diag))
+    non_empty: list[str] = []
+    for line in lines:
+        if line:
+            non_empty.append(line)
+    output: str = "\n".join(non_empty) or f"pyright reported {errors} error(s)"
     raise CheckFailed(output)
 
 
-def _format_diagnostic(diag: object) -> str:
-    if not isinstance(diag, dict):
-        return ""
-    start = diag.get("range", {}).get("start", {})
-    line = start.get("line", 0) + 1
-    message = str(diag.get("message", "")).splitlines()[0]
-    rule = diag.get("rule")
-    suffix = f" [{rule}]" if rule else ""
-    return f"{diag.get('file', '')}:{line}: error: {message}{suffix}"
+def _format_diagnostic(diag: dict[str, Any]) -> str:
+    rng: dict[str, Any] = {}
+    if "range" in diag:
+        rng = diag["range"]
+    start: dict[str, Any] = {}
+    if "start" in rng:
+        start = rng["start"]
+    line: int = 0
+    if "line" in start:
+        line = start["line"]
+    line += 1
+    message: str = ""
+    if "message" in diag:
+        message = diag["message"]
+    message_lines: list[str] = message.splitlines()
+    if message_lines:
+        message = message_lines[0]
+    else:
+        message = ""
+    rule: str = ""
+    if "rule" in diag:
+        rule = diag["rule"]
+    suffix: str = ""
+    if rule:
+        suffix = f" [{rule}]"
+    file: str = ""
+    if "file" in diag:
+        file = diag["file"]
+    return f"{file}:{line}: error: {message}{suffix}"

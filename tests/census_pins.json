@@ -7,7 +7,7 @@
   "pyscriptc.builtins": 34,
   "pyscriptc.bundle": 30,
   "pyscriptc.canonical": 19,
-  "pyscriptc.check": 66,
+  "pyscriptc.check": 36,
   "pyscriptc.cli": 8,
   "pyscriptc.cli._main": 560,
   "pyscriptc.cli._report": 12,
