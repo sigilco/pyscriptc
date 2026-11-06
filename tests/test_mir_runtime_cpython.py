@@ -48,17 +48,33 @@ def test_corpus_scripts_with_slice_are_in_default_set() -> None:
         assert in_slice > 0
 
 
-# `leafmap.py` exercises `str.rsplit` with `maxsplit`, which the shared
-# runtime (`ps_str_split_m`) gets wrong on both lanes — a CPython
-# divergence tracked in #1052, not a MIR-lane bug. The xfail is strict so
-# the marker must be removed the moment the runtime is fixed.
-_KNOWN_DIVERGENT = {"leafmap.py": "str.rsplit ignores maxsplit (#1052)"}
+# Known CPython divergences that are not MIR-lane bugs: `leafmap.py`
+# exercises `str.rsplit` with `maxsplit`, which the shared runtime
+# (`ps_str_split_m`) gets wrong on both lanes (#1052); the three corpus
+# scripts overflow the documented i64 `int` (divergence 1) where CPython
+# has bigint. Keys are path suffixes so corpus `main.py`s disambiguate.
+# The xfail is strict so the marker must be removed once fixed.
+_KNOWN_DIVERGENT = {
+    "leafmap.py": "str.rsplit ignores maxsplit (#1052)",
+    "bigint_factorial/main.py": "int is i64, CPython has bigint (divergence 1)",
+    "gcd_lcm/main.py": "int is i64, CPython has bigint (divergence 1)",
+    "pi_digits/main.py": "int is i64, CPython has bigint (divergence 1)",
+}
+
+
+def known_divergence(path: Path) -> str | None:
+    """The documented-divergence reason for `path`, or None."""
+    text = str(path)
+    for suffix, reason in _KNOWN_DIVERGENT.items():
+        if text.endswith(suffix):
+            return reason
+    return None
 
 
 def _leaf_params() -> list[object]:
     params: list[object] = []
     for path in LEAF_PROGRAMS:
-        reason = _KNOWN_DIVERGENT.get(path.name)
+        reason = known_divergence(path)
         if reason is not None:
             params.append(pytest.param(path, marks=pytest.mark.xfail(reason=reason, strict=True)))
         else:

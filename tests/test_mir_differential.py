@@ -14,7 +14,7 @@ import re
 from pathlib import Path
 
 import pytest
-from tests.test_mir_leaf import LEAF_SAMPLES
+from tests.test_mir_leaf import BYTE_IDENTITY, LEAF_SAMPLES
 
 from pyscriptc.cli import main as cli_main
 from pyscriptc.lower import lower_file
@@ -71,14 +71,34 @@ def _compile_ll(src: Path, out: Path, monkeypatch: pytest.MonkeyPatch, mir: bool
     return out.read_text(encoding="utf-8")
 
 
+def _assert_cpython_baseline(src: Path) -> None:
+    """PYSC_MIR_BYTE_IDENTITY=0: the CPython-baselined check replaces byte equality."""
+    from scripts import runtime_ab, runtime_cpython_ab
+    from tests.test_mir_runtime_cpython import known_divergence
+
+    if not runtime_ab.has_c_toolchain():
+        pytest.skip("no C toolchain for the CPython-baselined runtime check")
+    oracle = runtime_cpython_ab.resolve_oracle()
+    if oracle is None:
+        pytest.skip("no pinned CPython 3.14 oracle for the CPython-baselined runtime check")
+    row = runtime_cpython_ab.compare_program(src, oracle=oracle)
+    reason = known_divergence(src)
+    if reason is not None and row.verdict != runtime_cpython_ab.PASS:
+        pytest.xfail(f"{src.name}: {row.verdict} ({row.note}); {reason}")
+    assert row.verdict == runtime_cpython_ab.PASS, f"{src.name}: {row.verdict} ({row.note})"
+
+
 def _assert_identical(src: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     direct = _compile_ll(src, tmp_path / "direct.ll", monkeypatch, mir=False)
     mir = _compile_ll(src, tmp_path / "mir.ll", monkeypatch, mir=True)
     d_defs, m_defs = _defines(direct), _defines(mir)
     assert sorted(m_defs) == sorted(d_defs)
-    for name in d_defs:
-        assert m_defs[name] == d_defs[name], f"{src.name}: @{name} differs between direct and {MIR_ENV}=1"
-    assert mir == direct
+    if not BYTE_IDENTITY:
+        _assert_cpython_baseline(src)
+    else:
+        for name in d_defs:
+            assert m_defs[name] == d_defs[name], f"{src.name}: @{name} differs between direct and {MIR_ENV}=1"
+        assert mir == direct
     return d_defs
 
 
