@@ -95,6 +95,7 @@ from pyscriptc.mir import (
     MIR_P,
     MIR_RAISE,
     MIR_RAISEEXC,
+    MIR_RAISEMSG,
     MIR_RERAISE,
     MIR_RET,
     MIR_RETLOD,
@@ -174,7 +175,16 @@ _LLVM_D = {MIR_ADDD: "fadd", MIR_SUBD: "fsub", MIR_MULD: "fmul", MIR_NEGD: "fneg
 # The terminator ops, spelled here over the imported op constants: the
 # module-level table in `mir.py` binds a global slot, and slots do not
 # ride the package export table a cross-module import resolves against.
-_MIR_TERMINATORS: list[int] = [MIR_JMP, MIR_BR, MIR_RET, MIR_RAISE, MIR_RERAISE, MIR_RAISEEXC, MIR_UNREACH]
+_MIR_TERMINATORS: list[int] = [
+    MIR_JMP,
+    MIR_BR,
+    MIR_RET,
+    MIR_RAISE,
+    MIR_RERAISE,
+    MIR_RAISEEXC,
+    MIR_UNREACH,
+    MIR_RAISEMSG,
+]
 
 # The op tables, spelled here for the same reason as `_MIR_TERMINATORS`:
 # `mir.py`'s module-level tables bind global slots, and slots do not ride
@@ -237,6 +247,7 @@ _OP_ARITY: Dict[int, int] = {
     MIR_RAISEEXC: 1,
     MIR_UNREACH: 0,
     MIR_INITCALL: 1,
+    MIR_RAISEMSG: 2,
 }
 
 _OP_RESULT_TYPE: Dict[int, int] = {
@@ -294,6 +305,7 @@ _OP_RESULT_TYPE: Dict[int, int] = {
     MIR_RAISEEXC: MIR_W,
     MIR_UNREACH: MIR_W,
     MIR_INITCALL: MIR_P,
+    MIR_RAISEMSG: MIR_W,
 }
 
 
@@ -563,6 +575,15 @@ class MirEmitter:
             fn_name: str = fn["name"]
             if fn_name == name:
                 return fn
+        # A `cls.<name>.__init__` callee names a class method record: the
+        # direct emitter flattens methods into `self.functions` under that
+        # spelling, and the method record carries the same params and
+        # returnType the call rendering reads.
+        for cls in _items(self.module, "classes"):
+            cls_name: str = _opt_str(cls, "name")
+            for method in _items(cls, "methods"):
+                if "cls." + cls_name + "." + _opt_str(method, "name") == name:
+                    return method
         raise IRError(f"no IR function {name} behind the MIR")
 
     def _slot_vids(self) -> list[int]:
@@ -663,6 +684,19 @@ class MirEmitter:
         if op == MIR_RAISE:
             code = self.operand(fn, a1)
             self.line(f"call void @ps_raise_code(i32 {code}) noreturn")
+            self.line("unreachable")
+            return
+        if op == MIR_RAISEMSG:
+            # `raise E("msg")`: the direct `emit_raise` message arm —
+            # the str operand materializes, its buffer parts extract,
+            # then the `ps_raise_msg` call.
+            needed = self.needed
+            needed.add("exc")
+            self.needed = needed
+            code = self.operand(fn, a1)
+            message = self.operand(fn, a2)
+            length, ptr = self._buf_parts(message)
+            self.line(f"call void @ps_raise_msg(i32 {code}, i64 {length}, ptr {ptr}) noreturn")
             self.line("unreachable")
             return
         if op == MIR_BR:
@@ -1563,17 +1597,14 @@ class MirEmitter:
         """A class constructor call: the direct `emit_constructor` shape.
 
         `ps_alloc` over the `%cls.<name>` struct size, three temporaries
-        in the direct order (the size gep, the ptrtoint, the call). The
-        synthesized `tuple_N_*` classes carry no methods, so no `__init__`
-        call follows; a class that grew one is outside the slice and
-        fails loudly here rather than half-emitting.
+        in the direct order (the size gep, the ptrtoint, the call). A
+        class whose record carries `__init__` gets its init call as the
+        next `MIR_CALL` (`cls.<name>.__init__`), the direct
+        `emit_constructor`'s `init in self.functions` arm.
         """
         const: MirConst = fn.consts[const_index(a1)]
         name: str = const.sval
-        cls: Dict[str, Any] = self._mir_class(name)
-        for method in _items(cls, "methods"):
-            if _opt_str(method, "name") == "__init__":
-                raise IRError(f"the MIR leaf slice cannot lower {name}.__init__")
+        self._mir_class(name)
         needed: set[str] = self.needed
         needed.add("alloc")
         self.needed = needed

@@ -35,12 +35,11 @@ from typing import Any, Dict
 
 from pyscriptc.log import emit_event
 from pyscriptc.mir import MirFunction, MirModule
-from pyscriptc.mirlower import lower_module, supported_expr, supported_fn, supported_stmt
+from pyscriptc.mirlower import lower_module, supported_expr, supported_fn, supported_stmt, supported_type
 
 # The reason walk's child tables, the same keys `scripts/mir_coverage.py`
 # used before the walk moved here. Lists iterate and the frozenset is the
 # membership table, the spellings `mirlower.py` lowers clean.
-_SCALARS = frozenset({"int", "float", "bool", "str"})
 _EXPR_CHILDREN = ["operand", "left", "right", "value", "hay", "needle"]
 _STMT_EXPRS = ["object", "value", "expr", "cond"]
 _STMT_BODIES = ["then", "else", "body"]
@@ -125,14 +124,18 @@ def out_of_slice_reason(fn: Dict[str, Any]) -> str | None:
             return "fn:closure env"
     rt: Dict[str, Any] = fn["returnType"]
     rtk: str = rt["kind"]
-    if rtk != "none" and rtk not in _SCALARS:
+    if rtk != "none" and not supported_type(rt):
         return f"return:{rtk}"
     for key, label, allow_none in (("params", "param", False), ("locals", "local", True)):
         entries: list[Dict[str, Any]] = fn[key]
         for entry in entries:
             typ: Dict[str, Any] = entry["type"]
             kind: str = typ["kind"]
-            if kind not in _SCALARS and not (allow_none and kind == "none"):
+            if kind == "none":
+                if allow_none:
+                    continue
+                return f"{label}:{kind}"
+            if not supported_type(typ):
                 return f"{label}:{kind}"
     body: list[Dict[str, Any]] = fn["body"]
     for stmt in body:
