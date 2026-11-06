@@ -7,6 +7,7 @@ verifier tests pin the stable `MVS` codes on hand-built broken functions.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -101,9 +102,37 @@ LEAF_SAMPLES = [
 ]
 
 
+# PYSC_MIR_BYTE_IDENTITY=0 opts out of the byte-equality assertions below:
+# the CPython-baselined runtime check (`scripts/runtime_cpython_ab.py`,
+# `tests/test_mir_runtime_cpython.py`) is the acceptance gate instead, so
+# MIR codegen may diverge from the direct emitter's incidental shape.
+# Default 1 keeps the byte-identity behavior unchanged.
+BYTE_IDENTITY = os.environ.get("PYSC_MIR_BYTE_IDENTITY", "1") != "0"
+
+
+def _assert_cpython_baseline(path: str) -> None:
+    """Run the CPython-baselined check for `path` in place of byte identity."""
+    from scripts import runtime_ab, runtime_cpython_ab
+    from tests.test_mir_runtime_cpython import known_divergence
+
+    if not runtime_ab.has_c_toolchain():
+        pytest.skip("no C toolchain for the CPython-baselined runtime check")
+    oracle = runtime_cpython_ab.resolve_oracle()
+    if oracle is None:
+        pytest.skip("no pinned CPython 3.14 oracle for the CPython-baselined runtime check")
+    row = runtime_cpython_ab.compare_program(Path(path), oracle=oracle)
+    reason = known_divergence(Path(path))
+    if reason is not None and row.verdict != runtime_cpython_ab.PASS:
+        pytest.xfail(f"{Path(path).name}: {row.verdict} ({row.note}); {reason}")
+    assert row.verdict == runtime_cpython_ab.PASS, f"{Path(path).name}: {row.verdict} ({row.note})"
+
+
 @pytest.mark.parametrize("path", LEAF_SAMPLES)
 class TestByteIdentity:
     def test_direct_vs_mir_bytes(self, path: str) -> None:
+        if not BYTE_IDENTITY:
+            _assert_cpython_baseline(path)
+            return
         module, _ = lower_file(path)
         direct = emit_llvm(module)
         mir = emit_llvm_mir(module)
@@ -448,6 +477,9 @@ class TestCallSlice:
 
     def test_leafcall_fixture_byte_identical(self) -> None:
         path = str(_FIXTURES / "leafcall.py")
+        if not BYTE_IDENTITY:
+            _assert_cpython_baseline(path)
+            return
         module, _ = lower_file(path)
         assert emit_llvm_mir(module) == emit_llvm(module)
 
