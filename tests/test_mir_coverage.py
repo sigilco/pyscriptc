@@ -115,7 +115,7 @@ def test_out_of_slice_reason_names_the_innermost_rejected_node(tmp_path: Path) -
         "def leaf(a: int) -> int:\n    return a + 1\n\n\n"
         "def calls(a: int) -> int:\n    return leaf(a) + 1\n\n\n"
         "def text(a: int) -> str:\n    return str(a)\n\n\n"
-        "def bits(a: int) -> int:\n    if a > 0:\n        return len([a])\n    return a\n",
+        "def bits(a: int) -> int:\n    if a > 0:\n        return abs(a)\n    return a\n",
         encoding="utf-8",
     )
     module, _ = lower_file(str(src))

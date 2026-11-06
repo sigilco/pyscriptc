@@ -511,8 +511,11 @@ class TestRecursionSlice:
         path = str(_FIXTURES / "leafrec.py")
         module, _ = lower_file(path)
         mir = lower_module(module)
-        assert "main" in mir.skipped
         by_name = {fn.name: fn for fn in mir.functions}
+        # `main` calls the admitted `print` builtin, so the whole module
+        # lowers: nothing is skipped.
+        assert mir.skipped == []
+        assert "main" in by_name
         assert "fib" in by_name
         assert "is_even" in by_name
         assert "is_odd" in by_name
@@ -526,12 +529,12 @@ class TestRecursionSlice:
 
     def test_caller_of_out_of_slice_callee_stays_out(self, tmp_path: Path) -> None:
         # The greatest fixpoint must not admit a function whose callee is
-        # out of the slice by its own shape: `bad` calls a builtin, so it
-        # is not a candidate, and `wrap` stays out even though `wrap`'s
-        # own shape is leaf-clean.
+        # out of the slice by its own shape: `bad` calls the `abs`
+        # builtin, so it is not a candidate, and `wrap` stays out even
+        # though `wrap`'s own shape is leaf-clean.
         src = tmp_path / "recbad.py"
         src.write_text(
-            "def bad(n: int) -> int:\n    return len([n])\n\n\n"
+            "def bad(n: int) -> int:\n    return abs(n)\n\n\n"
             "def wrap(n: int) -> int:\n    return bad(n)\n\n\n"
             "def main() -> None:\n    pass\n",
             encoding="utf-8",
