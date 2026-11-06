@@ -857,7 +857,14 @@ class CallAttrMixin:
             if len(node.args) != 1:
                 self.fail(node, "PS2003", "list.append expects 1 argument(s)")
             if receiver["kind"] != "name":
-                self.fail(node, "PS2002", "list.append needs a name")
+                # A module-level list reads through `ps_global_get_ptr`, which
+                # hands back the shared sequence pointer: the push mutates the
+                # same object the slot holds. Other non-name receivers keep
+                # the fence.
+                recv = node.func.value
+                slot = self.global_slots.get(recv.id) if isinstance(recv, ast.Name) else None
+                if slot is None or not slot.get("active"):
+                    self.fail(node, "PS2002", "list.append needs a name")
             elem = receiver["type"]["elem"]
             value = self._expr(node.args[0], elem)
             if not types_equal(value["type"], elem) and not _any_accepts(elem, value["type"]):
