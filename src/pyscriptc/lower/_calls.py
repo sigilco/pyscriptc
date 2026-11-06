@@ -1263,7 +1263,10 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
         self._reject_keywords(node)
         if len(node.args) != 1:
             self.fail(node, "PS2003", f"{label} expects 1 argument(s)")
-        source = self._expr(node.args[0])
+        arg = node.args[0]
+        if isinstance(arg, (ast.GeneratorExp, ast.ListComp)):
+            return self._all_any_comp(arg, span, want_all)
+        source = self._expr(arg)
         if _node_type_kind(source) != "list":
             self.fail(node, "PS2002", f"{label}() takes a list")
         elem = source["type"]["elem"]
@@ -1316,6 +1319,17 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
             ]
         )
         return _name(result, bool_t, span)
+
+    def _all_any_comp(
+        self, comp: ast.GeneratorExp | ast.ListComp, span: dict[str, Any], want_all: bool
+    ) -> dict[str, Any]:
+        """`all`/`any` over a comprehension: the eager comp loop updates a
+        bool accumulator instead of materializing the element list, so a
+        bool element never builds a `list[bool]` (still fenced elsewhere)."""
+        result = self._temp("pred")
+        self.locals[result] = {"kind": "bool"}
+        self._comp(comp, span, None, pred=(result, want_all))
+        return _name(result, {"kind": "bool"}, span)
 
 
 def _subscript_node(
